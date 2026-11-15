@@ -4,8 +4,15 @@
  * their commits and changes, and its file placed where pi finds it.
  */
 
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type ArrivalLine,
@@ -45,9 +52,10 @@ function fakeClock(at: (now: number) => void = () => {}): Clock {
 /**
  * The leaving machine's session, carried: a tree at `~/src/app` on a
  * branch with a commit no remote has, a change, a file never added and a
- * session file, put in a handover folder.
+ * session file, put in a handover folder. The session ran in the tree,
+ * or in the folder `ranIn` names under the leaving home.
  */
-async function carried() {
+async function carried(ranIn?: string) {
 	const origin = await bareOrigin(made);
 	const leaving = folder(made, "leaving");
 	const tree = await cloneAt(origin, join(leaving, "src", "app"));
@@ -55,13 +63,15 @@ async function carried() {
 	const head = await commit(tree, "work.txt", "unpushed\n");
 	writeFileSync(join(tree, "README.md"), "changed, never committed\n");
 	writeFileSync(join(tree, "draft.txt"), "never added\n");
+	const cwd = ranIn === undefined ? tree : join(leaving, ranIn);
+	mkdirSync(cwd, { recursive: true });
 	const sessionFile = join(
 		folder(made, "sessions"),
 		`2026-11-07_${SESSION}.jsonl`,
 	);
 	writeFileSync(
 		sessionFile,
-		`${JSON.stringify({ type: "session", id: SESSION, cwd: tree })}\n{"type":"message"}\n`,
+		`${JSON.stringify({ type: "session", id: SESSION, cwd })}\n{"type":"message"}\n`,
 	);
 	const from = join(folder(made, "scratch"), QUEST, "handover", "aquifer");
 	await carryAway({
@@ -69,10 +79,24 @@ async function carried() {
 		into: from,
 		home: leaving,
 		quest: QUEST,
-		session: { id: SESSION, cwd: tree, file: sessionFile },
+		session: { id: SESSION, cwd, file: sessionFile },
 		trees: [tree],
 	});
 	return { origin, from, head };
+}
+
+/** The quest's scratch the handover folder `from` lies in. */
+function scratchOf(from: string): string {
+	return dirname(dirname(from));
+}
+
+/** The `cwd` the session file placed for `cwd` in `store` names. */
+function placedCwd(store: string, cwd: string): string {
+	const placed = join(
+		sessionFolderOf(store, cwd),
+		`2026-11-07_${SESSION}.jsonl`,
+	);
+	return JSON.parse(readFileSync(placed, "utf8").split("\n")[0] ?? "").cwd;
 }
 
 /** Arrives on a machine whose home is `home`, keeping every line said. */
@@ -88,6 +112,7 @@ async function arriveAt(
 		from,
 		session: SESSION,
 		home,
+		scratch: scratchOf(from),
 		sessions: store,
 		clock,
 		say: (line) => said.push(line),
@@ -124,6 +149,61 @@ describe("arriving with a carried session", () => {
 		expect(
 			JSON.parse(readFileSync(placed, "utf8").split("\n")[0] ?? "").cwd,
 		).toBe(tree);
+	});
+
+	it("arrives in its quest's scratch when no tree it brought holds its folder, though that folder is here", async () => {
+		const { from } = await carried("checkout/src");
+		const home = folder(made, "arriving");
+		const checkout = join(home, "checkout", "src");
+		mkdirSync(checkout, { recursive: true });
+		writeFileSync(join(checkout, "AGENTS.md"), "the person's own\n");
+		const scratch = scratchOf(from);
+
+		const { whole, said, store } = await arriveAt(home, from);
+
+		expect(whole, "every tree arrived whole").toBe(true);
+		expect(said.at(-1)).toEqual({
+			kind: "sessions",
+			sessions: [{ id: SESSION, cwd: scratch }],
+		});
+		expect(placedCwd(store, scratch), "its file opens in the scratch").toBe(
+			scratch,
+		);
+		expect(
+			readdirSync(store),
+			"and is placed for no folder but the scratch",
+		).toEqual([sessionFolderOf(store, scratch).slice(store.length + 1)]);
+		expect(readdirSync(checkout), "the checkout is left as it was").toEqual([
+			"AGENTS.md",
+		]);
+	});
+
+	it("arrives in its scratch, making nothing, when its folder only shares a tree's name as a prefix", async () => {
+		const { from } = await carried("src/app-notes");
+		const home = folder(made, "arriving");
+
+		const { said } = await arriveAt(home, from);
+
+		expect(said.at(-1)).toEqual({
+			kind: "sessions",
+			sessions: [{ id: SESSION, cwd: scratchOf(from) }],
+		});
+		expect(existsSync(join(home, "src", "app-notes"))).toBe(false);
+	});
+
+	it("makes its folder within a tree it brought when the tree didn't carry it", async () => {
+		const { from } = await carried("src/app/notes/today");
+		const home = folder(made, "arriving");
+		const notes = join(home, "src", "app", "notes", "today");
+
+		const { said, store } = await arriveAt(home, from);
+
+		expect(said.at(-1)).toEqual({
+			kind: "sessions",
+			sessions: [{ id: SESSION, cwd: notes }],
+		});
+		expect(existsSync(notes), "made, as the tree's own").toBe(true);
+		expect(placedCwd(store, notes)).toBe(notes);
 	});
 
 	it("fetches into a tree already here from the same origin", async () => {

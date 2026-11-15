@@ -43,9 +43,9 @@ function machine(name: string, cache: string) {
 	return { home, env };
 }
 
-/** pi-carry's lines and exit code, run by node under `env`. */
-async function piCarry(env: NodeJS.ProcessEnv, ...args: string[]) {
-	const finished = await run(
+/** What pi-carry printed and exited with, run by node under `env`. */
+function piCarryRaw(env: NodeJS.ProcessEnv, ...args: string[]) {
+	return run(
 		"node",
 		["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", SCRIPT, ...args],
 		{ env },
@@ -56,6 +56,11 @@ async function piCarry(env: NodeJS.ProcessEnv, ...args: string[]) {
 			stdout: failed.stdout ?? "",
 		}),
 	);
+}
+
+/** pi-carry's lines and exit code, run by node under `env`. */
+async function piCarry(env: NodeJS.ProcessEnv, ...args: string[]) {
+	const finished = await piCarryRaw(env, ...args);
 	return {
 		code: finished.code,
 		lines: finished.stdout
@@ -151,6 +156,30 @@ describe("pi-carry", () => {
 			readdirSync(join(to.home, ".pi", "agent", "sessions")),
 			"its session is placed where pi --session finds it from its folder",
 		).toEqual([`--${tree.slice(1).replaceAll("/", "-")}--`]);
+		expect(
+			await piCarryRaw(
+				to.env,
+				"where",
+				QUEST,
+				"--from",
+				thisMachine(),
+				"--session",
+				SESSION,
+			),
+			"where says the folder it arrived in, alone, for a shell to enter",
+		).toEqual({ code: 0, stdout: `${tree}\n` });
+		expect(
+			await piCarryRaw(
+				to.env,
+				"where",
+				QUEST,
+				"--from",
+				thisMachine(),
+				"--session",
+				"01a19111-never-carried",
+			),
+			"and names no folder for a session nothing carried",
+		).toEqual({ code: 1, stdout: "" });
 
 		const elsewhere = machine("refusing", cache);
 		await cloneAt(await bareOrigin(made), join(elsewhere.home, "src", "app"));

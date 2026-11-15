@@ -6,6 +6,7 @@
  *
  *   node scripts/pi-carry.ts <quest> --to <machine>
  *   node scripts/pi-carry.ts arrive <quest> --from <machine> --session <id>
+ *   node scripts/pi-carry.ts where <quest> --from <machine> --session <id>
  *
  * The first, run on the machine the quest leaves once its steered
  * sessions have carried their own, carries the rest into the quest's
@@ -17,11 +18,19 @@
  * `pi --session <id>` (lib/internal/carry/arrive.ts), ending with
  * `{"kind": "sessions", "sessions"}`. It exits 1 when a tree was refused
  * or the done file never came, so `pi-carry arrive ... && exec pi
- * --session <id>` starts nothing half arrived; and either exits 2 when
- * it was asked wrongly.
+ * --session <id>` starts nothing half arrived.
+ *
+ * The third, run once the second has gone through, prints the folder
+ * the session arrived in and nothing else, for the shell to enter before
+ * it starts pi there: its own folder where a tree it brought holds it,
+ * else its quest's scratch. It exits 1, printing nothing but a failed
+ * line on stderr, when no done file names a session to arrive.
+ *
+ * Each exits 2 when it was asked wrongly.
  */
 
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { spawnExec } from "../lib/core/exec/index.ts";
 import {
@@ -29,7 +38,7 @@ import {
 	QUEST_WORKFLOW_SLUG,
 	resolveQuestsRoot,
 } from "../lib/core/quest/config.ts";
-import { arrive } from "../lib/internal/carry/arrive.ts";
+import { arrive, arrivedIn } from "../lib/internal/carry/arrive.ts";
 import { handoverOf } from "../lib/internal/carry/handover.ts";
 import { questHere, runsHere } from "../lib/internal/carry/quest-here.ts";
 import { carryRest } from "../lib/internal/carry/rest.ts";
@@ -76,7 +85,7 @@ const { values, positionals } = (() => {
 	}
 })();
 
-const arriving = positionals[0] === "arrive";
+const arriving = positionals[0] === "arrive" || positionals[0] === "where";
 const quest = arriving ? positionals[1] : positionals[0];
 if (
 	quest === undefined ||
@@ -84,7 +93,7 @@ if (
 	positionals.length > (arriving ? 2 : 1)
 ) {
 	refuse(
-		"Say which quest: pi-carry <quest> --to <machine>, or pi-carry arrive <quest> --from <machine> --session <id>.",
+		"Say which quest: pi-carry <quest> --to <machine>, or pi-carry arrive (or where) <quest> --from <machine> --session <id>.",
 	);
 }
 
@@ -99,11 +108,25 @@ if (arriving) {
 	if (session === undefined || !SESSION_ID.test(session)) {
 		refuse("Say which session arrives, with --session.");
 	}
+	const handover = handoverOf(workspaces, quest, from);
+	const scratch = join(workspaces, quest);
+	if (positionals[0] === "where") {
+		const folder = arrivedIn(handover, session, home, scratch);
+		if (folder === undefined) {
+			process.stderr.write(
+				`${JSON.stringify({ kind: "failed", why: `No done file in ${handover} names session ${session} to arrive.` })}\n`,
+			);
+			process.exit(1);
+		}
+		process.stdout.write(`${folder}\n`);
+		process.exit(0);
+	}
 	const whole = await arrive({
 		exec,
-		from: handoverOf(workspaces, quest, from),
+		from: handover,
 		session,
 		home,
+		scratch,
 		sessions: sessionsDir(home),
 		clock: {
 			now: () => Date.now(),

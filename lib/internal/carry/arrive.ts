@@ -14,10 +14,15 @@
  * over; and so is a branch here holding commits the carried one lacks.
  * A tree that already stands as carried, as one arrived before does, is
  * left as it is, so arriving again does no harm.
+ *
+ * The session is placed for its own folder only where a tree it brought
+ * holds that folder, and otherwise for its quest's scratch, so it never
+ * starts in a folder of the person's that no tree brought; `pi-carry
+ * where` says which, for mycelium's shell to enter before pi starts.
  */
 
-import { existsSync, realpathSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import { isAbsolute, join, relative, sep } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { placeTakenOver } from "../quest/carried.ts";
 import {
@@ -73,6 +78,8 @@ export interface Arriving {
 	readonly session: string;
 	/** This machine's home, under which paths within home are made whole. */
 	readonly home: string;
+	/** The quest's scratch folder here, which the handover folder lies in. */
+	readonly scratch: string;
 	/** pi's session store. */
 	readonly sessions: string;
 	readonly clock: Clock;
@@ -84,17 +91,23 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	const { from, home, say } = arriving;
 	const handover = await waitForHandover(arriving);
 	if (handover === undefined) return false;
-	let whole = true;
+	const brought: HandedTree[] = [];
 	for (const tree of handover.trees) {
 		const line = await arriveTree(arriving.exec, tree, from, home);
 		say(line);
-		if (line.did === "refused") whole = false;
+		if (line.did !== "refused") brought.push(tree);
 	}
-	const cwd = underHome(handover.cwd, home);
+	const whole = brought.length === handover.trees.length;
 	if (handover.sessionFile === undefined) {
 		say({ kind: "sessions", sessions: [] });
 		return whole;
 	}
+	const cwd = arrivalFolder(
+		{ ...handover, trees: brought },
+		home,
+		arriving.scratch,
+	);
+	mkdirSync(cwd, { recursive: true });
 	const placed = placeTakenOver(
 		handover.session,
 		join(from, handover.sessionFile),
@@ -111,6 +124,53 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	}
 	say({ kind: "sessions", sessions: [{ id: handover.session, cwd }] });
 	return whole;
+}
+
+/**
+ * The folder a carried session arrives in: its own, where it lies
+ * within a tree it brought; or its quest's scratch, so it never starts
+ * in a folder of the person's own that no tree brought, such as their
+ * checkout, whose rules and state belong to nothing carried. Only trees
+ * travel, so a folder within one the tree didn't hold may yet be made.
+ * `handover`'s trees are those that came: a refused one brought nothing.
+ */
+export function arrivalFolder(
+	handover: Handover,
+	home: string,
+	scratch: string,
+): string {
+	const cwd = underHome(handover.cwd, home);
+	const brought = handover.trees.some((tree) =>
+		liesWithin(cwd, underHome(tree.path, home)),
+	);
+	return brought ? cwd : scratch;
+}
+
+/**
+ * The folder the session `session`, carried into the handover folder
+ * `from`, arrived in once {@link arrive} went through whole, so every
+ * tree its done file names came; or nothing when no done file there
+ * names a session to arrive.
+ */
+export function arrivedIn(
+	from: string,
+	session: string,
+	home: string,
+	scratch: string,
+): string | undefined {
+	const handover = readHandover(doneFileOf(from, session));
+	if (handover?.sessionFile === undefined) return undefined;
+	return arrivalFolder(handover, home, scratch);
+}
+
+/** Whether `path` is `folder` or lies beneath it. */
+function liesWithin(path: string, folder: string): boolean {
+	const inside = relative(folder, path);
+	return !(
+		inside === ".." ||
+		inside.startsWith(`..${sep}`) ||
+		isAbsolute(inside)
+	);
 }
 
 /**
