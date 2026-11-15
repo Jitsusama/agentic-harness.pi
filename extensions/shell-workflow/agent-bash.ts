@@ -19,7 +19,7 @@ import {
 	type SpawnerOptions,
 	spawnedBy,
 } from "../../lib/internal/shell/spawner.ts";
-import { SPAWNER_VARIABLE } from "../../lib/internal/shell/spawner-variable.ts";
+import { spawnerWanted } from "../../lib/internal/shell/spawner-variable.ts";
 import { COMMAND_VARIABLE, offCommandLine } from "./command-line.ts";
 import { fromConversation, withoutInteraction } from "./environment.ts";
 import { type Keeping, keepsOnDisk } from "./keeping.ts";
@@ -55,8 +55,8 @@ export function agentBash(
 ): AgentBash {
 	// In a host running pi-spawner, the ones its pid started are other
 	// conversations', so none is taken for one an earlier load left. A host
-	// without it, by the process's own environment, runs none for any.
-	const sharing = hosted() && process.env[SPAWNER_VARIABLE] === "on";
+	// that turns it off, in the process's own environment, runs none for any.
+	const sharing = hosted() && spawnerWanted(process.env);
 	const spawning = spawnedBy(
 		createLocalBashOperations(
 			settings.shellPath ? { shellPath: settings.shellPath } : undefined,
