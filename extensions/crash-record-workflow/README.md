@@ -1,8 +1,9 @@
 # Crash Record Workflow
 
 What the system's log hears of a pi: how long it took to be ready,
-and why it ended when an uncaught error ends it, in its session's
-log too, as a `crash` entry, with the stack.
+why it ended when an uncaught error ends it, in its session's log
+too, as a `crash` entry, with the stack, and what held it when it is
+slow to end.
 
 ## Why It Exists
 
@@ -18,6 +19,11 @@ Health holds pi to starting in 3 seconds, and on 12 November the 42
 pis started since midnight had taken a median of about 5, with some
 over 30. Nothing in the journal said how long any one took, so each
 figure had to be pieced together from session logs.
+
+At the reboot of 14 November, 8 of the 10 held pis were still ending
+when systemd's 5 seconds ran out and were killed, and nothing said
+what they were waiting on. An idle pi alone ends in under half a
+second, so the wait was on something only a real session reaches.
 
 ## What It Does
 
@@ -42,6 +48,18 @@ figure had to be pieced together from session logs.
 - Changes nothing about how the process ends: Node's
   `uncaughtExceptionMonitor` runs before pi's own handler, which
   still prints, records and exits.
+- Says what holds a pi still ending 2 seconds after a TERM or a HUP,
+  or after its session quit: `pi: still ending N ms after SIGTERM`,
+  naming what the process still holds open and the processes under
+  it, at err, with a fuller record (libuv's handles and the resource
+  use, never the environment) in
+  `~/.local/state/pi/agentic-harness.pi/crash-record-workflow/slow-ends/`,
+  which keeps the newest 100. Its timer never keeps the process up,
+  and the line waits on nothing. Once armed it listens for no signal,
+  since a listener left behind would keep a later TERM from ending a
+  pi whose own handlers are gone. An extension can't name which
+  shutdown handler is still running; what stays open and the
+  children are the evidence. See `lib/internal/session/slow-end.ts`.
 - Arms only in plain pi. A host runs many conversations in one
   process and installs what that process listens for itself.
 
@@ -52,4 +70,5 @@ the newer one's state. The work is in
 
 Find a crash with `journalctl --user -t pi -p err`, or the entry in
 the session's log, and the starts with
-`journalctl --user -t pi -g 'ready in'`.
+`journalctl --user -t pi -g 'ready in'`, and the slow ends with
+`journalctl --user -t pi -g 'still ending'`.
