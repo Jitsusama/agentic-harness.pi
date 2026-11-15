@@ -40,8 +40,8 @@
 	"scripts": {
 		"check": "pnpm lint && pnpm typecheck && pnpm typecheck:indexed && pnpm knip && vitest run --changed origin/main && pnpm test:browser:changed && pnpm load-check",
 		"check:there": "bash scripts/check-there.sh",
-		"lint": "biome check .",
-		"lint:fix": "biome check --write .",
+		"lint": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/lint.ts check .",
+		"lint:fix": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/lint.ts check --write .",
 		"typecheck": "tsc --noEmit",
 		"typecheck:indexed": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/indexed-access.ts",
 		"knip": "knip --no-progress",

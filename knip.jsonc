@@ -40,8 +40,10 @@
 	],
 	// pi maps @sinclair/typebox onto the typebox it bundles at runtime, and
 	// vitest.config.ts and tsconfig.json copy that mapping onto ours, so
-	// the name is imported but never installed.
-	"ignoreDependencies": ["@sinclair/typebox"],
+	// the name is imported but never installed. scripts/lint.ts runs
+	// Biome by resolving its package's wrapper, which knip can't see, so
+	// it can tell a Biome that was killed from one that passed.
+	"ignoreDependencies": ["@sinclair/typebox", "@biomejs/biome"],
 	// Programs the machine provides, never an npm package's binaries.
 	"ignoreBinaries": [
 		"btrfs",
