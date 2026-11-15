@@ -162,8 +162,13 @@ async function open(path: string, id: string): Promise<string> {
 }
 
 // SIGKILL as an out-of-memory kill sends it, and SIGABRT as systemd's
-// watchdog sends it to a host whose loop stopped turning.
-describe.each(["SIGKILL", "SIGABRT"] as const)(
+// watchdog sends it to a host whose loop stopped turning. Only on Linux,
+// since the killed host starts under prlimit and its core limit is read
+// from /proc, neither of which a Mac has.
+describe.skipIf(process.platform !== "linux").each([
+	"SIGKILL",
+	"SIGABRT",
+] as const)(
 	"a host killed with %s",
 	(signal) => {
 		it("leaves its lock and socket, and the next host takes both and resumes its holds", async () => {
