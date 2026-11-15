@@ -54,7 +54,7 @@ const KEEPS_TIMEOUT_MS = 5000;
 const EXIT_STDIO_GRACE_MS = 100;
 
 /** The longest time limit pi takes, which is setTimeout's. */
-const MAX_TIMEOUT_MS = 2_147_483_647;
+export const MAX_TIMEOUT_MS = 2_147_483_647;
 
 /** The frames pi-spawner sends, by their first byte. */
 const STARTED = "p".charCodeAt(0);
