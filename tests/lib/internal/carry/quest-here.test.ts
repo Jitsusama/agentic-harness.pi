@@ -112,6 +112,105 @@ describe("what a quest has on this machine", () => {
 		]);
 	});
 
+	// OSPHT4 [2e4aacbc], KP0L6A [9301591f], 15 November: a session pi
+	// rolled over into died before its pi ran a turn, its log only its
+	// parent's history, and carrying it would start that old copy there
+	// while its parent's line of sessions went on.
+	it("leaves out a session whose log holds nothing after its start", () => {
+		const at = stores();
+		const lost = {
+			closedAt: "2026-11-13T19:24:49.341Z",
+			endReason: "died" as const,
+		};
+		record(at, "s-never-ran", lost);
+		record(at, "s-ran", lost);
+		const folder = join(at.sessionStore, "--home-joel--");
+		mkdirSync(folder);
+		const log = (id: string, entries: readonly object[]) => {
+			const file = join(folder, `2026-11-13T19-24-49-262Z_${id}.jsonl`);
+			const header = {
+				type: "session",
+				id,
+				timestamp: "2026-11-13T19:24:49.262Z",
+				parentSession: "/sessions/parent.jsonl",
+			};
+			writeFileSync(
+				file,
+				`${[header, ...entries].map((one) => JSON.stringify(one)).join("\n")}\n`,
+			);
+			return file;
+		};
+		const copied = [
+			{ type: "message", timestamp: "2026-11-13T19:23:08.603Z" },
+			{
+				type: "custom",
+				customType: "session-rollover",
+				timestamp: "2026-11-13T19:24:49.262Z",
+			},
+		];
+		log("s-never-ran", copied);
+		const ran = log("s-ran", [
+			...copied,
+			{ type: "message", timestamp: "2026-11-13T19:30:00.000Z" },
+		]);
+
+		const here = questHere(QUEST, at, {
+			runs: () => false,
+			parked: () => false,
+		});
+
+		expect(here.resting, "a session that never ran was carried").toEqual([
+			{ id: "s-ran", cwd: "/home/joel/src/s-ran", file: ran },
+		]);
+		expect(
+			here.sessions.has("s-never-ran"),
+			"its trees stopped being the quest's",
+		).toBe(true);
+	});
+
+	// On 15 November this quest's own 01a1c91d, signalled on 13 November,
+	// would have been carried, though 01a1ccc9 continued it and that
+	// line of sessions still runs.
+	it("leaves out a session a later one continued", () => {
+		const at = stores();
+		const lost = {
+			closedAt: "2026-11-13T22:40:01.238Z",
+			endReason: "signalled" as const,
+		};
+		record(at, "s-continued", lost);
+		record(at, "s-left", lost);
+		const folder = join(at.sessionStore, "--home-joel--");
+		mkdirSync(folder);
+		const log = (id: string, parent?: string) => {
+			const file = join(folder, `2026-11-13T10-00-00-000Z_${id}.jsonl`);
+			const header = {
+				type: "session",
+				id,
+				timestamp: "2026-11-13T10:00:00.000Z",
+				...(parent ? { parentSession: parent } : {}),
+			};
+			const turn = { type: "message", timestamp: "2026-11-13T11:00:00.000Z" };
+			writeFileSync(
+				file,
+				`${JSON.stringify(header)}\n${JSON.stringify(turn)}\n`,
+			);
+			return file;
+		};
+		const continued = log("s-continued");
+		const left = log("s-left");
+		// The one that went on, under another quest's record or none.
+		log("s-next", continued);
+
+		const here = questHere(QUEST, at, {
+			runs: () => false,
+			parked: () => false,
+		});
+
+		expect(here.resting, "a continued session was carried").toEqual([
+			{ id: "s-left", cwd: "/home/joel/src/s-left", file: left },
+		]);
+	});
+
 	it("names every session it has had, its trees here and the broker's", () => {
 		const at = stores();
 		record(at, "s-now");
