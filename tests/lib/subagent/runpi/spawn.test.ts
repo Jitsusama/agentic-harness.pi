@@ -8,6 +8,7 @@ import {
 	createSpawnRunPi,
 	type SpawnFn,
 } from "../../../../lib/subagent/runpi/spawn.ts";
+import { at } from "../../../support/at.ts";
 import { makeFakeChild } from "./fake-child.ts";
 
 /**
@@ -84,8 +85,8 @@ describe("createSpawnRunPi", () => {
 			cwd: "/tmp/wt",
 		});
 		expect(calls).toHaveLength(1);
-		expect(calls[0].command).toBe("/nix/store/node-22/bin/node");
-		expect(calls[0].args).toEqual([
+		expect(at(calls, 0).command).toBe("/nix/store/node-22/bin/node");
+		expect(at(calls, 0).args).toEqual([
 			"/nix/store/pi/dist/cli.js",
 			"--mode",
 			"json",
@@ -93,7 +94,7 @@ describe("createSpawnRunPi", () => {
 			"-p",
 			"prompt",
 		]);
-		expect(calls[0].options.cwd).toBe("/tmp/wt");
+		expect(at(calls, 0).options.cwd).toBe("/tmp/wt");
 		expect(calls[0]).toMatchObject({ options: { detached: true } });
 	});
 

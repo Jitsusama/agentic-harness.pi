@@ -406,9 +406,10 @@ export class ReviewerArtifactsStore {
 		// finished round would be past the line however recently it ran.
 		let spendable = 0;
 		const now = policy.now?.getTime() ?? Date.now();
-		for (let index = 0; index < sorted.length; index++) {
-			const run = sorted[index];
-			const why = keeping[index];
+		for (const [index, run] of sorted.entries()) {
+			// One reason per run, since keeping maps sorted; unfinished is the
+			// careful reading, as for a run nobody could ask.
+			const why = keeping[index] ?? "unfinished";
 			const age = now - run.mtimeMs;
 			// Where this one stands among the runs the count may take, and
 			// nowhere at all if it is not one of them. Only a spendable run

@@ -1961,11 +1961,13 @@ export async function runFleet(opts: {
 			}),
 		),
 	);
-	const results = settled.map((outcome, index) =>
-		outcome.status === "fulfilled"
-			? outcome.value
-			: synthesizeRejectedResult(opts.assignments[index].spec, outcome.reason),
-	);
+	const results = settled.map((outcome, index) => {
+		if (outcome.status === "fulfilled") return outcome.value;
+		const assignment = opts.assignments[index];
+		// Never so: settled maps the assignments one to one.
+		if (assignment === undefined) throw outcome.reason;
+		return synthesizeRejectedResult(assignment.spec, outcome.reason);
+	});
 	const warnings: string[] = [];
 	for (const r of results) {
 		for (const w of r.warnings) warnings.push(`${r.subagentId}: ${w}`);

@@ -79,10 +79,6 @@ lib/slack/detect.ts 7
 lib/slack/renderers/message.ts 11
 lib/slack/resolvers/conversation.ts 1
 lib/slack/resolvers/url.ts 3
-lib/subagent/artifacts.ts 4
-lib/subagent/runpi/supervisor.mjs 1
-lib/subagent/subagent.ts 1
-lib/ui/prompt-toggle-list.ts 1
 scripts/learning-sensor.ts 2
 tests/core/browser/conformance.test.ts 2
 tests/core/browser/signals.test.ts 2
@@ -183,14 +179,6 @@ tests/lib/quest/journey-sweep.test.ts 1
 tests/lib/quest/quest-doc.test.ts 7
 tests/lib/roles/archaic.test.ts 4
 tests/lib/shell/parse.test.ts 9
-tests/lib/subagent/api.test.ts 15
-tests/lib/subagent/defaults.test.ts 5
-tests/lib/subagent/digest.test.ts 3
-tests/lib/subagent/runpi/parent-exit.test.ts 2
-tests/lib/subagent/runpi/spawn.test.ts 3
-tests/lib/subagent/runpi/supervisor.test.ts 1
-tests/lib/subagent/subagent.test.ts 32
-tests/lib/ui/navigable-list.test.ts 6
 tests/package/docs-name-what-exists.test.ts 4
 tests/package/every-stop-is-one-something-imposes.test.ts 3
 tests/package/exports.test.ts 1

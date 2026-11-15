@@ -29,6 +29,7 @@ import {
 	type SupervisorSpawnFn,
 } from "../../../../lib/subagent/runpi/supervisor.ts";
 import type { RunPiResult } from "../../../../lib/subagent/subagent.ts";
+import { at } from "../../../support/at.ts";
 import { type FakeChildControls, makeFakeChild } from "./fake-child.ts";
 
 // Every test here spawns the real node supervisor, sometimes two
@@ -915,7 +916,7 @@ describe("createSupervisorRunPi", () => {
 		const output = result.verification?.output as {
 			findings: { discussion: string }[];
 		};
-		expect(output.findings[0].discussion).toBe(bigDiscussion);
+		expect(at(output.findings, 0).discussion).toBe(bigDiscussion);
 	});
 
 	it("captures verifier output from unkeyed tool events", async () => {

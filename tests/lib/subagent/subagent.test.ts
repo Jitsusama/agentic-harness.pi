@@ -17,6 +17,7 @@ import {
 	type RunReviewerResult,
 	runReviewer,
 } from "../../../lib/subagent/subagent.ts";
+import { at } from "../../support/at.ts";
 
 /**
  * `runReviewer` spawns a separate pi process as a full
@@ -277,7 +278,7 @@ function scriptedRun(results: RunPiResult[]): {
 			env: opts.env,
 		});
 		const index = Math.min(calls.length - 1, results.length - 1);
-		return results[index];
+		return at(results, index);
 	};
 	return { runPi, calls };
 }
@@ -322,7 +323,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			// A reserve rather than a deadline: only the runner knows what
 			// wall clock it is being carved out of, since an unset timeout
 			// here means the configured default, not the absence of one.
-			expect(calls[0].wrapUpReserveMs).toBe(90_000);
+			expect(at(calls, 0).wrapUpReserveMs).toBe(90_000);
 		});
 
 		it("reserves nothing for a run that could never be asked", async () => {
@@ -341,7 +342,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 				autoResume: false,
 			});
 
-			expect(calls[0].wrapUpReserveMs).toBeUndefined();
+			expect(at(calls, 0).wrapUpReserveMs).toBeUndefined();
 		});
 
 		it("spends exactly what it reserved, above the old five-minute cap", async () => {
@@ -362,8 +363,8 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 				wrapUpReserveMs: 600_000,
 			});
 
-			expect(calls[0].wrapUpReserveMs).toBe(600_000);
-			expect(calls[1].timeoutMs).toBe(600_000);
+			expect(at(calls, 0).wrapUpReserveMs).toBe(600_000);
+			expect(at(calls, 1).timeoutMs).toBe(600_000);
 		});
 
 		it("reserves nothing when the reserve is switched off", async () => {
@@ -379,7 +380,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 				wrapUpReserveMs: 0,
 			});
 
-			expect(calls[0].wrapUpReserveMs).toBeUndefined();
+			expect(at(calls, 0).wrapUpReserveMs).toBeUndefined();
 		});
 
 		it("refuses a reserve that could never be a duration", async () => {
@@ -417,7 +418,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			expect(calls).toHaveLength(2);
 			// The whole point of the reserve: the wrap-up is allowed what
 			// was kept back for it, so the two numbers cannot drift apart.
-			expect(calls[1].timeoutMs).toBe(90_000);
+			expect(at(calls, 1).timeoutMs).toBe(90_000);
 			expect(JSON.parse(result.finalAssistantText)).toEqual({
 				findings: [{ subject: "what I had" }],
 			});
@@ -441,7 +442,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 		});
 
 		expect(calls).toHaveLength(2);
-		const args = calls[1].args;
+		const args = at(calls, 1).args;
 		expect(args).toContain("--session");
 		expect(args[args.indexOf("--session") + 1]).toBe("/r/rev/session/s.jsonl");
 		// It must ask for what is already formed, not for more work. A
@@ -479,7 +480,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			expectedVerificationStage: "council",
 		});
 
-		expect(calls[1].args.join(" ")).toContain("verify_output");
+		expect(at(calls, 1).args.join(" ")).toContain("verify_output");
 	});
 
 	it("keeps what both attempts recorded when it resumes one", async () => {
@@ -519,7 +520,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 		// Its own directory, or the supervisor's pre-spawn clear would
 		// delete the first attempt's journal, and the continuation
 		// prompt tells the reviewer not to repeat a tool call.
-		expect(calls[1].reviewerId).not.toBe(calls[0].reviewerId);
+		expect(at(calls, 1).reviewerId).not.toBe(at(calls, 0).reviewerId);
 		expect(result.journal).toEqual([
 			{ subject: "before the drop" },
 			{ subject: "after the resume" },
@@ -545,8 +546,8 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			autoResume: true,
 		});
 
-		expect(calls[1].reviewerId).not.toBe(calls[0].reviewerId);
-		expect(calls[1].reviewerId).toContain(REVIEWER.id);
+		expect(at(calls, 1).reviewerId).not.toBe(at(calls, 0).reviewerId);
+		expect(at(calls, 1).reviewerId).toContain(REVIEWER.id);
 	});
 
 	it("asks for no longer than the caller allowed", async () => {
@@ -565,11 +566,11 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			idleTimeoutMs: 45_000,
 		});
 
-		expect(calls[1].timeoutMs).toBeLessThanOrEqual(60_000);
+		expect(at(calls, 1).timeoutMs).toBeLessThanOrEqual(60_000);
 		// And never an idle clock tighter than the wall it runs under.
 		// Shortening an idle clock on its own is what killed six rounds
 		// of working reviewers: silence is not idleness.
-		expect(calls[1].idleTimeoutMs).toBeLessThanOrEqual(calls[1].timeoutMs ?? 0);
+		expect(at(calls, 1).idleTimeoutMs).toBeLessThanOrEqual(at(calls, 1).timeoutMs ?? 0);
 	});
 
 	it("keeps the fragment when the ask cannot even be made", async () => {
@@ -715,7 +716,7 @@ describe("runReviewer: auto-resume", () => {
 			expectedVerificationStage: "council",
 		});
 		expect(calls).toHaveLength(2);
-		const resumeArgs = calls[1].args;
+		const resumeArgs = at(calls, 1).args;
 		expect(resumeArgs).toContain("--session");
 		expect(resumeArgs[resumeArgs.indexOf("--session") + 1]).toBe(
 			"/r/rev/session/s.jsonl",
@@ -750,7 +751,7 @@ describe("runReviewer: auto-resume", () => {
 			env: { PI_SANDBOX: "strict" },
 		});
 		expect(calls).toHaveLength(2);
-		expect(calls[1].env).toEqual({ PI_SANDBOX: "strict" });
+		expect(at(calls, 1).env).toEqual({ PI_SANDBOX: "strict" });
 	});
 
 	it("resumes at most once and surfaces the error when the resume also fails", async () => {
@@ -836,7 +837,7 @@ describe("runReviewer: auto-resume", () => {
 				requiresVerification: true,
 			});
 			expect(calls).toHaveLength(2);
-			const resumeArgs = calls[1].args;
+			const resumeArgs = at(calls, 1).args;
 			expect(resumeArgs).toContain("--extension");
 			expect(resumeArgs).toContain("/abs/creds.ts");
 		} finally {
@@ -941,7 +942,7 @@ describe("runReviewer: argument composition", () => {
 		});
 		await review(runPi);
 		expect(calls).toHaveLength(1);
-		const args = calls[0].args;
+		const args = at(calls, 0).args;
 		expect(args).toContain("--mode");
 		expect(args[args.indexOf("--mode") + 1]).toBe("json");
 		expect(args).toContain("--no-session");
@@ -967,7 +968,7 @@ describe("runReviewer: argument composition", () => {
 		await review(runPi, {
 			reviewer: { id: "narrow", tools: ["read"] },
 		});
-		const args = calls[0].args;
+		const args = at(calls, 0).args;
 		// record_finding rides along for the same reason: a palette
 		// that omits it silently denies the reviewer the one tool that
 		// makes an interrupted review worth anything, while its
@@ -990,7 +991,7 @@ describe("runReviewer: argument composition", () => {
 				tools: ["read", "verify_output", "grep"],
 			},
 		});
-		const args = calls[0].args;
+		const args = at(calls, 0).args;
 		expect(args[args.indexOf("--tools") + 1]).toBe(
 			"read,verify_output,grep,record_finding",
 		);
@@ -1008,7 +1009,7 @@ describe("runReviewer: argument composition", () => {
 		await review(runPi, {
 			reviewer: { id: "defaults" },
 		});
-		expect(calls[0].args).not.toContain("--tools");
+		expect(at(calls, 0).args).not.toContain("--tools");
 	});
 
 	it("uses the worktree path as the subprocess cwd", async () => {
@@ -1024,7 +1025,7 @@ describe("runReviewer: argument composition", () => {
 			cwd: "/tmp/pi-state/worktrees/o-r/sha",
 			runPi,
 		});
-		expect(calls[0].cwd).toBe("/tmp/pi-state/worktrees/o-r/sha");
+		expect(at(calls, 0).cwd).toBe("/tmp/pi-state/worktrees/o-r/sha");
 	});
 
 	it("passes the prompt as an @file reference in the final positional, not inline on argv", async () => {
@@ -1084,16 +1085,16 @@ describe("runReviewer: argument composition", () => {
 				"/abs/path/to/another-extension/index.ts",
 			],
 		});
-		const args = calls[0].args;
+		const args = at(calls, 0).args;
 		const extensionFlagPositions: number[] = [];
 		for (let i = 0; i < args.length; i++) {
 			if (args[i] === "--extension") extensionFlagPositions.push(i);
 		}
 		expect(extensionFlagPositions).toHaveLength(2);
-		expect(args[extensionFlagPositions[0] + 1]).toBe(
+		expect(args[at(extensionFlagPositions, 0) + 1]).toBe(
 			"/abs/path/to/pr-workflow-verify/index.ts",
 		);
-		expect(args[extensionFlagPositions[1] + 1]).toBe(
+		expect(args[at(extensionFlagPositions, 1) + 1]).toBe(
 			"/abs/path/to/another-extension/index.ts",
 		);
 	});
@@ -1106,7 +1107,7 @@ describe("runReviewer: argument composition", () => {
 			stdout: assistantEvent(`{"findings": []}`),
 		});
 		await review(runPi);
-		expect(calls[0].args).not.toContain("--extension");
+		expect(at(calls, 0).args).not.toContain("--extension");
 	});
 
 	it("omits --model and --tools when the reviewer config doesn't specify them", async () => {
@@ -1120,7 +1121,7 @@ describe("runReviewer: argument composition", () => {
 		await review(runPi, {
 			reviewer: { id: "bare" },
 		});
-		const args = calls[0].args;
+		const args = at(calls, 0).args;
 		expect(args).not.toContain("--model");
 		expect(args).not.toContain("--tools");
 		expect(args).not.toContain("--thinking");
@@ -1142,7 +1143,7 @@ describe("runReviewer: argument composition", () => {
 				thinkingLevel: "high",
 			},
 		});
-		const args = calls[0].args;
+		const args = at(calls, 0).args;
 		expect(args).toContain("--thinking");
 		expect(args[args.indexOf("--thinking") + 1]).toBe("high");
 	});
@@ -1160,7 +1161,7 @@ describe("runReviewer: argument composition", () => {
 				model: "anthropic/claude-sonnet-4-5",
 			},
 		});
-		expect(calls[0].args).not.toContain("--thinking");
+		expect(at(calls, 0).args).not.toContain("--thinking");
 	});
 });
 

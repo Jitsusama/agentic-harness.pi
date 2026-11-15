@@ -114,7 +114,10 @@ export function setFilter(
 export function selectedValues(model: ToggleListModel): Record<string, string> {
 	const values: Record<string, string> = {};
 	for (const section of model.sections) {
-		for (const row of section.rows) values[row.id] = row.options[row.index];
+		for (const row of section.rows) {
+			const value = row.options[row.index];
+			if (value !== undefined) values[row.id] = value;
+		}
 	}
 	return values;
 }
