@@ -11,6 +11,11 @@
  *
  * The hand-off finds its call's files through the signal it ran the
  * call under, which is the one pi hands these operations.
+ *
+ * A kept call's time limit is held here rather than by the operations
+ * below, so a hand-off can lift it: the pi that takes the call up holds
+ * its deadline from then (carried.ts), and one killed here at a limit
+ * no longer its own would end with no status written, read there as lost.
  */
 
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
@@ -24,6 +29,7 @@ import {
 	rollIfFull,
 } from "../../lib/internal/shell/kept.ts";
 import { CALL_VARIABLE } from "../../lib/internal/shell/reap.ts";
+import { MAX_TIMEOUT_MS } from "../../lib/internal/shell/spawner.ts";
 import type { JobCarry } from "../../lib/jobs/index.ts";
 import { COMMAND_STUB, KEEP_VARIABLE, KEEPING_STUB } from "./command-line.ts";
 
@@ -59,6 +65,19 @@ interface KeptCall {
 	readonly startedAt: number;
 	readonly deadline: number | undefined;
 	handed: boolean;
+	/** Lifts the call's time limit here, once another process holds it. */
+	disarm: () => void;
+}
+
+/**
+ * The call's time limit in milliseconds, where it is one these
+ * operations hold; one pi would refuse is left to the operations below.
+ */
+function heldLimit(timeout: number | undefined): number | undefined {
+	if (timeout === undefined || !Number.isFinite(timeout) || timeout <= 0)
+		return undefined;
+	const limit = timeout * MS_PER_SECOND;
+	return limit <= MAX_TIMEOUT_MS ? limit : undefined;
 }
 
 /** `ops`, keeping each call it runs while `options.can` says it may. */
@@ -78,17 +97,33 @@ export function keepsOnDisk(
 					if (call.signal) unkept.add(call.signal);
 					return await ops.exec(command, cwd, call);
 				}
+				const limit = heldLimit(call.timeout);
+				if (limit === undefined && call.timeout !== undefined) {
+					// Refused below as pi refuses it, so there's nothing to keep.
+					if (call.signal) unkept.add(call.signal);
+					return await ops.exec(command, cwd, call);
+				}
 				const path = options.folder ? makeKept(options.folder()) : makeKept();
 				const startedAt = now();
+				// Stops the call on pi's abort, or at its limit while it is still
+				// this pi's.
+				const stopping = new AbortController();
+				const stop = () => stopping.abort();
+				let timedOut = false;
+				const timer =
+					limit === undefined
+						? undefined
+						: setTimeout(() => {
+								timedOut = true;
+								stop();
+							}, limit);
 				const kept: KeptCall = {
 					path,
 					mark: call.env?.[CALL_VARIABLE],
 					startedAt,
-					deadline:
-						call.timeout !== undefined && call.timeout > 0
-							? startedAt + call.timeout * MS_PER_SECOND
-							: undefined,
+					deadline: limit === undefined ? undefined : startedAt + limit,
 					handed: false,
+					disarm: () => clearTimeout(timer),
 				};
 				if (call.signal) calls.set(call.signal, kept);
 				let since = 0;
@@ -100,13 +135,24 @@ export function keepsOnDisk(
 					}
 					call.onData(data);
 				};
+				if (call.signal?.aborted) stop();
+				else call.signal?.addEventListener("abort", stop, { once: true });
+				const { timeout: _held, ...rest } = call;
 				try {
-					return await ops.exec(KEEPING_STUB, cwd, {
-						...call,
+					const ended = await ops.exec(KEEPING_STUB, cwd, {
+						...rest,
+						signal: stopping.signal,
 						onData,
 						env: { ...(call.env ?? process.env), [KEEP_VARIABLE]: path },
 					});
+					if (timedOut) throw new Error(`timeout:${call.timeout}`);
+					return ended;
+				} catch (error) {
+					if (timedOut) throw new Error(`timeout:${call.timeout}`);
+					throw error;
 				} finally {
+					clearTimeout(timer);
+					call.signal?.removeEventListener("abort", stop);
 					if (!kept.handed) removeKept(path);
 				}
 			},
@@ -134,6 +180,7 @@ export function keepsOnDisk(
 					const kept = calls.get(signal);
 					if (!kept) return;
 					kept.handed = true;
+					kept.disarm();
 					// A host's reaper spares it until its end is said elsewhere.
 					markCarried(kept.path, kept.mark);
 				},

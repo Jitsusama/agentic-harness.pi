@@ -106,6 +106,7 @@ async function run(
 	command: string,
 	signal: AbortSignal = new AbortController().signal,
 	env: Readonly<Record<string, string>> = {},
+	timeout?: number,
 ) {
 	let read = "";
 	const result = await ops.exec(COMMAND_STUB, tmpdir(), {
@@ -113,6 +114,7 @@ async function run(
 			read += data.toString();
 		},
 		signal,
+		...(timeout !== undefined ? { timeout } : {}),
 		env: {
 			...process.env,
 			[COMMAND_VARIABLE]: command,
@@ -206,6 +208,42 @@ describe("a kept call", () => {
 			carry?.what(),
 			"once handed, it isn't carried twice",
 		).toBeUndefined();
+	});
+
+	it("outlives its time limit here once handed on, the pi that took it up holding it", async () => {
+		const kept = keeping();
+		const signal = new AbortController().signal;
+		const running = run(
+			kept.operations,
+			"echo started; sleep 0.8; exit 5",
+			signal,
+			{},
+			0.3,
+		);
+		const carry = kept.carryOf(signal);
+		await until(
+			"the call to have its pid on disk",
+			() => carry?.what() !== undefined,
+		);
+		const work = carry?.what();
+		if (!isCarriedShell(work)) throw new Error(`carried as ${String(work)}`);
+		expect(work.deadline, "the deadline goes with it").toBeDefined();
+		carry?.handed();
+		expect(
+			(await running).code,
+			"not killed at a limit that's no longer this pi's",
+		).toBe(5);
+		expect(endOf(work.keep), "its own end is on disk").toBe(5);
+	});
+
+	it("times out as pi says while it is still this pi's", async () => {
+		const kept = keeping();
+		const started = Date.now();
+		await expect(
+			run(kept.operations, "sleep 5", new AbortController().signal, {}, 0.3),
+		).rejects.toThrow("timeout:0.3");
+		expect(Date.now() - started, "stopped at its limit").toBeLessThan(3000);
+		expect(readdirSync(kept.folder), "its files went with it").toEqual([]);
 	});
 
 	it("writes all it says once what read it has gone, as a spawner leaving it does", async () => {
