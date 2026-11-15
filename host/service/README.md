@@ -70,7 +70,18 @@ input pipeline or screen. No unit or running host is installed yet.
   how long the loop held and how many conversations were mid-turn,
   so a stall short of a kill leaves a trace. One that kills leaves
   systemd's own "Watchdog timeout" line in the unit's journal
-  instead, and the host's core with systemd-coredump.
+  instead, and the host's core with systemd-coredump. A beat that late
+  pings at once, even with the last ping's end still unread, so a hold
+  the loop recovers from never costs the host its next beat.
+- hold-watch.ts: what holds the loop, said from a worker thread while
+  systemd watches the host. The loop ticks a shared counter each
+  second; once it stands still 5 s, the thread reads the main thread's
+  state, the kernel function it waits in, its CPU and disk faults, and
+  the process's swap from /proc, and writes them straight to the
+  journal's descriptor, since a held loop carries no write: as the hold
+  passes 5 s, every 30 s it lasts, and once it ends. Running (R) tells
+  JavaScript or the collector at work from waiting on disk or a lock
+  (D, with where).
   The engine is passed in by the program that starts it.
   Given the process's faults, it backstops an uncaught exception: one
   thrown inside a conversation goes to that conversation's screen, and
