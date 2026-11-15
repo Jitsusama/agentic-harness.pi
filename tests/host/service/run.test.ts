@@ -654,23 +654,26 @@ describe("runHost", () => {
 			report: () => {},
 			places: places(),
 		});
-		expect(heard).toEqual([
-			"building the engine",
-			`resuming 1 of 1: ${sessionId}`,
-			"ready",
-		]);
-		expect(said).toHaveLength(4);
-		expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
-		expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
-		expect(said[2]).toMatch(
-			/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s \(ask \d+\.\d s, gate \d+\.\d s, rest \d+\.\d s\)$/,
-		);
-		// This engine's resume registers nothing, so the host serves none.
-		expect(said[3]).toMatch(
-			/^\d+\.\d s: ready, serving no conversations, listening on /,
-		);
-		second.emit("SIGTERM");
-		await run.stopped;
+		try {
+			expect(heard).toEqual([
+				"building the engine",
+				`resuming 1 of 1: ${sessionId}`,
+				"ready",
+			]);
+			expect(said).toHaveLength(4);
+			expect(said[0]).toMatch(/^\d+\.\d s: building the engine$/);
+			expect(said[1]).toMatch(/^\d+\.\d s: resuming 1 of 1: /);
+			expect(said[2]).toMatch(
+				/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s \(ask \d+\.\d s, gate \d+\.\d s, rest \d+\.\d s\)$/,
+			);
+			// This engine's resume registers nothing, so the host serves none.
+			expect(said[3]).toMatch(
+				/^\d+\.\d s: ready, serving no conversations, listening on /,
+			);
+		} finally {
+			second.emit("SIGTERM");
+			await run.stopped;
+		}
 	});
 
 	// The attended host on 14 November: two resumes took 72 s each, and
@@ -699,16 +702,24 @@ describe("runHost", () => {
 			report: () => {},
 			places: places(),
 		});
-		const line = said.find((each) => each.includes("resumed 1 of 1"));
-		expect(line, `the resume of ${sessionId} is said`).toMatch(
-			/ \(ask \d+\.\d s, gate \d+\.\d s, log \d+\.\d s, runtime (\d+\.\d) s, rest (\d+\.\d) s\)$/,
-		);
-		const [, runtime, rest] =
-			line?.match(/runtime (\d+\.\d) s, rest (\d+\.\d) s/) ?? [];
-		expect(Number(runtime), "the phase that waited is the one named").toBeGreaterThanOrEqual(0.1);
-		expect(Number(rest), "what followed the last mark").toBeGreaterThanOrEqual(0.1);
-		second.emit("SIGTERM");
-		await run.stopped;
+		try {
+			const line = said.find((each) => each.includes("resumed 1 of 1"));
+			expect(line, `the resume of ${sessionId} is said`).toMatch(
+				/ \(ask \d+\.\d s, gate \d+\.\d s, log \d+\.\d s, runtime (\d+\.\d) s, rest (\d+\.\d) s\)$/,
+			);
+			const [, runtime, rest] =
+				line?.match(/runtime (\d+\.\d) s, rest (\d+\.\d) s/) ?? [];
+			expect(
+				Number(runtime),
+				"the phase that waited is the one named",
+			).toBeGreaterThanOrEqual(0.1);
+			expect(Number(rest), "what followed the last mark").toBeGreaterThanOrEqual(
+				0.1,
+			);
+		} finally {
+			second.emit("SIGTERM");
+			await run.stopped;
+		}
 	});
 
 	it("puts each phase's time in words, and what followed the last", () => {
