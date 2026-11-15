@@ -171,7 +171,6 @@ tests/lib/guardian/register.test.ts 1
 tests/lib/internal/guardian/registry.test.ts 6
 tests/lib/internal/notify.test.ts 3
 tests/lib/internal/priority/queued-exec.test.ts 1
-tests/lib/internal/priority/queue.test.ts 1
 tests/lib/internal/priority/room.test.ts 3
 tests/lib/internal/quest/body-edits.test.ts 1
 tests/lib/internal/quest/footprint.test.ts 9

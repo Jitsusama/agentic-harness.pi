@@ -18,8 +18,6 @@ lib/core/web/a11y/walk.ts
 lib/core/web/browser.ts
 lib/core/web/session.ts
 lib/internal
-lib/internal/priority/folder.ts
-lib/internal/priority/queue.ts
 lib/internal/quest
 lib/internal/quest/discovery.ts
 lib/subagent/runpi/supervisor.mjs
@@ -38,8 +36,6 @@ tests/extensions/review-collects-an-interrupted-round.test.ts
 tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts
 tests/extensions/subagent-workflow/run.test.ts
 tests/lib/internal
-tests/lib/internal/priority/folder.test.ts
-tests/lib/internal/priority/queue.test.ts
 tests/lib/mesh/presence.test.ts
 tests/lib/subagent/runpi/supervisor.test.ts
 tests/lib/subagent/subagent.test.ts
