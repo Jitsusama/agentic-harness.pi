@@ -26,10 +26,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerLeftBehind,
 	archivedAnswer,
-	collectedRun,
 	heldByLiveSupervisor,
 	whyNotYet,
 } from "../../extensions/review-integration/reviewer.ts";
+import { collectedRun } from "../../extensions/review-integration/run-record.ts";
 import type {
 	AskAnswer,
 	AskRun,
