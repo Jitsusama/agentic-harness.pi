@@ -48,7 +48,9 @@ function offered(): Set<string> {
 		schema.indexOf("intent:"),
 	);
 	return new Set(
-		[...union.matchAll(/Type\.Literal\("([a-z-]+)"\)/g)].map(([, a]) => a),
+		[...union.matchAll(/Type\.Literal\("([a-z-]+)"\)/g)].flatMap(([, a]) =>
+			a === undefined ? [] : [a],
+		),
 	);
 }
 
@@ -63,8 +65,12 @@ function offered(): Set<string> {
  */
 function handled(): Set<string> {
 	return new Set([
-		...[...source.matchAll(/case "([a-z-]+)":/g)].map(([, a]) => a),
-		...[...source.matchAll(/action === "([a-z-]+)"/g)].map(([, a]) => a),
+		...[...source.matchAll(/case "([a-z-]+)":/g)].flatMap(([, a]) =>
+			a === undefined ? [] : [a],
+		),
+		...[...source.matchAll(/action === "([a-z-]+)"/g)].flatMap(([, a]) =>
+			a === undefined ? [] : [a],
+		),
 	]);
 }
 

@@ -22,7 +22,7 @@ describe("drawing a stack", () => {
 	it("carries parentage in the indentation", () => {
 		const lines = stackLines(chain);
 
-		expect(lines[0].slice(0, GLYPH.named.length)).toBe(GLYPH.named);
+		expect(lines[0]?.slice(0, GLYPH.named.length)).toBe(GLYPH.named);
 		expect(lines[1]).toMatch(/^ {2}/);
 		expect(lines[2]).toMatch(/^ {4}/);
 	});
@@ -62,7 +62,10 @@ describe("drawing a stack", () => {
 		expect(lines[1]).toContain("second");
 		expect(lines[2]).toContain("first");
 		// Both are one level in: they are siblings, not a chain.
-		expect(lines[1].indexOf(GLYPH.named)).toBe(lines[2].indexOf(GLYPH.named));
+		const [, second, first] = lines;
+		if (second === undefined || first === undefined)
+			throw new Error("the siblings drew no lines");
+		expect(second.indexOf(GLYPH.named)).toBe(first.indexOf(GLYPH.named));
 	});
 
 	it("reports a fault instead of drawing a shape that is not one", () => {

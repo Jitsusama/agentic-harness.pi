@@ -122,7 +122,7 @@ describe("boundedAnswer", () => {
 				{} as never,
 			);
 			const first = result.content[0];
-			if (first.type !== "text") throw new Error("missing rendered thread");
+			if (first?.type !== "text") throw new Error("missing rendered thread");
 			const handle = /handle (result-[0-9a-f]{16})/.exec(first.text)?.[1];
 			expect(handle).toBeDefined();
 			expect(

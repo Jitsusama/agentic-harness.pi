@@ -171,18 +171,18 @@ describe("hosted LSP registries", () => {
 			"/work/a/a.ts",
 			expect.anything(),
 		);
-		expect(created[0].diagnostics).toHaveBeenCalledWith(
+		expect(created[0]?.diagnostics).toHaveBeenCalledWith(
 			"/work/b/a.ts",
 			expect.anything(),
 		);
 		await a.stop();
 		expect(listLspBackends(a.ctx)).toEqual([]);
 		expect(backend.dispose).not.toHaveBeenCalled();
-		expect(created[0].dispose).not.toHaveBeenCalled();
+		expect(created[0]?.dispose).not.toHaveBeenCalled();
 		await diagnose(b);
 		expect(b.errors).toEqual([]);
 		await b.stop();
-		expect(created[0].dispose).toHaveBeenCalledOnce();
+		expect(created[0]?.dispose).toHaveBeenCalledOnce();
 	});
 
 	it("unregisters only the notifying runner's editor, even with identical backend names", async () => {
@@ -205,6 +205,7 @@ describe("hosted LSP registries", () => {
 		const a = await runner("/work/a");
 		const b = await runner("/work/b");
 		const old = created[0];
+		if (old === undefined) throw new Error("no pool was created");
 		vi.mocked(old.diagnostics).mockRejectedValueOnce(
 			new Error("Pending response rejected since connection got disposed"),
 		);
@@ -213,7 +214,7 @@ describe("hosted LSP registries", () => {
 		expect(old.dispose).toHaveBeenCalledOnce();
 		expect(resolveLspBackend(b.ctx)).toBe(created[1]);
 		await diagnose(b);
-		expect(created[1].diagnostics).toHaveBeenCalledWith(
+		expect(created[1]?.diagnostics).toHaveBeenCalledWith(
 			"/work/b/a.ts",
 			expect.anything(),
 		);

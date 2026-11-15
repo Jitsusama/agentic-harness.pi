@@ -45,13 +45,7 @@ lib/refs/lookup.ts 1
 lib/roles/derive.ts 6
 lib/shell/parse.ts 2
 scripts/learning-sensor.ts 2
-tests/extensions/browser-integration/findable.test.ts 5
-tests/extensions/browser-integration/hosted.test.ts 8
-tests/extensions/commit-guardian/review-gate.test.ts 2
-tests/extensions/done-chime-widget/ring.test.ts 2
-tests/extensions/google-workspace-integration/stopping.test.ts 1
 tests/extensions/image-budget-workflow/rebudget.test.ts 6
-tests/extensions/lsp-integration/hosted.test.ts 6
 tests/extensions/quest-workflow/budget-hosted.test.ts 4
 tests/extensions/quest-workflow/recent.test.ts 1
 tests/extensions/quest-workflow/render.test.ts 1
@@ -63,13 +57,9 @@ tests/extensions/quest-workflow/tree-verbs.test.ts 5
 tests/extensions/quest-workflow/verbs-listing.test.ts 9
 tests/extensions/quest-workflow/verbs-order.test.ts 2
 tests/extensions/quest-workflow/verbs-spawn.test.ts 9
-tests/extensions/review-integration/index.test.ts 1
-tests/extensions/review-integration/rounds/ask-actions-offered.test.ts 2
-tests/extensions/slack-integration/bounded.test.ts 3
 tests/extensions/spend-workflow/hosted.test.ts 3
 tests/extensions/subagent-workflow/run-dispatch.test.ts 18
 tests/extensions/subagent-workflow/run-summary.test.ts 8
-tests/extensions/work-integration/stack-render.test.ts 3
 tests/lib/command/flags.test.ts 8
 tests/lib/command/tokenize.test.ts 61
 tests/lib/glossary/glossary.test.ts 1

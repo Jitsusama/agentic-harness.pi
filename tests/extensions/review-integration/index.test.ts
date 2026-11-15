@@ -157,6 +157,6 @@ describe("the review integration", () => {
 			claimRepo: () => null,
 			capabilities: () => ({}),
 		});
-		expect(listReviewProviders()[0].id).toBe("meteorite");
+		expect(listReviewProviders()[0]?.id).toBe("meteorite");
 	});
 });

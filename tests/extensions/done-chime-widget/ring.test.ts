@@ -126,7 +126,8 @@ describe("ringing", () => {
 	it("leaves nothing behind in its scratch folder", async () => {
 		const { exec, calls } = recording();
 		await ring("Ready.", { platform: "linux", exec, env: ON, sound: LINUX });
-		const said = calls[1][1][3];
+		const said = calls.at(1)?.[1][3];
+		if (said === undefined) throw new Error("ring played nothing it said");
 		const scratch = said.replace(/said\.wav$/, "");
 		expect(existsSync(scratch), `${scratch} is removed`).toBe(false);
 	});

@@ -107,7 +107,7 @@ describe("a google call Google never answers", () => {
 				caller,
 			);
 			const handle = /handle (result-[0-9a-f]{16})/.exec(
-				result.content[0].text,
+				result.content[0]?.text ?? "",
 			)?.[1];
 			expect(handle).toBeDefined();
 			expect(
