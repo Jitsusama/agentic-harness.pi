@@ -82,8 +82,13 @@ the pass, with the words that ran, where no session can write, so the
 script writes no record of its own. Inside the agent fence, which hides the
 builders' key, it prints that call instead, to be run alone, which the
 fence lets out. Given test files, it runs only those, which answers for a
-branch's own tests but clears no merge. `scripts/host-gate.sh` is the harness's
-`review.merge.gates` entry: a change that touches nothing a host runs
+branch's own tests but clears no merge. `scripts/merge-gate.sh` is the harness's
+`review.merge.gates` entry. It first runs Biome's check over every file the
+head changes, read from that commit, with the Biome the head pins, so a
+change written where Biome can't run (the work Mac's security software
+stops it while its wrapper exits 0) can't merge unformatted or unlinted;
+a fault already on main refuses nothing new. Then it runs
+`scripts/host-gate.sh`: a change that touches nothing a host runs
 (`host/`, `lib/ui/`, `lib/core/session/`, `lib/core/viewer/`,
 `tests/host/`, the host scripts, `package.json`, the lockfile and the
 vitest config, and the extensions and libraries whose tools the host
