@@ -22,6 +22,7 @@
  */
 
 import type { TickedOwner } from "../internal/process-ticks.ts";
+import { type Doing, readDoing } from "../internal/quest/doing.ts";
 import type { Orchestration } from "../internal/quest/orchestration.ts";
 import {
 	type Landing,
@@ -269,6 +270,18 @@ function stepDetailOf(
 	};
 }
 
+/**
+ * A presence's doing field, read from what the quest workflow last
+ * said for this session, when it said anything.
+ */
+function doingOf(
+	folder: string | undefined,
+	session: string,
+): { doing?: Doing } {
+	const doing = folder ? readDoing(folder, session) : undefined;
+	return doing ? { doing } : {};
+}
+
 /** A presence's title field, when there is a title to say. */
 function titled(title: string | undefined): { title?: string } {
 	return title ? { title } : {};
@@ -453,6 +466,7 @@ export function localPeer(at: Surroundings): Peer {
 			...roles,
 			...(workspace ? { workspace } : {}),
 			...(questInfo ? { questInfo } : {}),
+			...doingOf(at.records.doing, at.session),
 			...(standsAtTop ? { standsAtTop } : {}),
 			cwd: at.cwd,
 			...(repo ? { repo } : {}),

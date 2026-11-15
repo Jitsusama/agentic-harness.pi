@@ -71,6 +71,14 @@ shipped and tested.
   id, address, short name, title and parent), looked at again
   after each quest action and at session start, so the
   desktop can offer one that has no session.
+- **What a session is doing**: after each quest action, each
+  write to the focused plan and each start, it says (through
+  `lib/internal/quest/doing.ts`)
+  the focused plan's next item and the quest's newest Journey
+  line in `doing/<session>.json` under the state folder,
+  rewritten only when either changes, removed with no focused
+  plan or at the session's end. The mesh puts it on the
+  session's presence as `doing`, for the map.
 - **Quest index**: every open quest is listed the same way in
   `quests.json` beside it, for the launcher's Agents place:
   its id, address, short name, title, Summary, kind, status,

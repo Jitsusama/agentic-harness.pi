@@ -26,9 +26,9 @@ import { localPeer, STEP_MS } from "../../../lib/mesh/peer.ts";
 import {
 	createPresences,
 	type Presence,
-	repositoryName,
 	windowTitle,
 } from "../../../lib/mesh/presence.ts";
+import { repositoryName } from "../../../lib/mesh/scope.ts";
 import { localDay, noUsage } from "../../../lib/mesh/usage.ts";
 import { wantId } from "../../../lib/mesh/want.ts";
 

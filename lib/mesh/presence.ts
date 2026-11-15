@@ -23,9 +23,10 @@ import {
 	statSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { basename, join } from "node:path";
 import { isOwner } from "../core/process/index.ts";
 import { keepTicks, type TickedOwner } from "../internal/process-ticks.ts";
+import { type Doing, isDoing } from "../internal/quest/doing.ts";
 import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
 import {
 	type Orchestration,
@@ -51,7 +52,7 @@ import {
 	moveOffFrom,
 	movingFrom,
 } from "./moving.ts";
-import { scopesOf } from "./scope.ts";
+import { checkoutOf, repositoryName, scopesOf } from "./scope.ts";
 import { isStepDetail, type StepDetail } from "./step.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
 import { removeQuietly, removeStaged } from "./transport.ts";
@@ -191,6 +192,8 @@ export interface Presence {
 	 * `quest` stays the id alone, as every peer reads it.
 	 */
 	readonly questInfo?: QuestInfo;
+	/** Its focused plan's next item and its quest's newest choice. */
+	readonly doing?: Doing;
 	/** The folder it runs in. Missing from an older presence. */
 	readonly cwd?: string;
 	/**
@@ -451,86 +454,6 @@ function questChain(
 	return chain;
 }
 
-/** Checkouts found for a folder, by the folder; they rarely change. */
-const checkouts = new Map<string, string | undefined>();
-
-/**
- * The checkout a folder is in, found by looking up for a `.git`, and
- * never the home directory's, which says nothing about the work.
- */
-export function checkoutOf(cwd: string): string | undefined {
-	if (checkouts.has(cwd)) return checkouts.get(cwd);
-	let found: string | undefined;
-	for (let at = cwd; at !== homedir(); at = dirname(at)) {
-		if (existsSync(join(at, ".git"))) {
-			found = at;
-			break;
-		}
-		if (dirname(at) === at) break;
-	}
-	checkouts.set(cwd, found);
-	return found;
-}
-
-/** Repository names already read, by checkout; they never change. */
-const repositories = new Map<string, string>();
-
-/**
- * The name of the repository checked out here, as people write it
- * (agentic-harness.pi), rather than the folder it sits in, which for a
- * worktree is a name only the tree broker uses. Read from the origin
- * remote in git's own config, without running git, since presence is
- * worked out often; the folder's name when there is no such remote.
- */
-export function repositoryName(checkout: string): string {
-	const known = repositories.get(checkout);
-	if (known !== undefined) return known;
-	const name = originName(checkout) ?? basename(checkout);
-	repositories.set(checkout, name);
-	return name;
-}
-
-function originName(checkout: string): string | undefined {
-	try {
-		const config = readFileSync(join(commonGitDir(checkout), "config"), "utf8");
-		const origin = config
-			.split(/^\[/m)
-			.find((section) => section.startsWith('remote "origin"]'));
-		const url = origin?.match(/^\s*url\s*=\s*(\S+)\s*$/m)?.[1];
-		const name = url
-			?.replace(/\/+$/, "")
-			.split(/[/:]/)
-			.pop()
-			?.replace(/\.git$/, "");
-		return name && name.length > 0 ? name : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-/**
- * The git directory a checkout shares with its siblings: its own `.git`
- * folder, or for a worktree the one its `.git` file points through.
- */
-function commonGitDir(checkout: string): string {
-	const dotGit = join(checkout, ".git");
-	let pointer: string;
-	try {
-		pointer = readFileSync(dotGit, "utf8");
-	} catch {
-		return dotGit;
-	}
-	const gitDir = pointer.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
-	if (!gitDir) return dotGit;
-	const own = isAbsolute(gitDir) ? gitDir : join(checkout, gitDir);
-	try {
-		const common = readFileSync(join(own, "commondir"), "utf8").trim();
-		return isAbsolute(common) ? common : join(own, common);
-	} catch {
-		return dirname(dirname(own));
-	}
-}
-
 /** The presence kept in this folder, one file per peer. */
 export function createPresences(dir: string): Presences {
 	const file = (session: string) =>
@@ -692,6 +615,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 			? { machine: one.machine }
 			: {}),
 		...(isQuestInfo(one.questInfo) ? { questInfo: one.questInfo } : {}),
+		...(isDoing(one.doing) ? { doing: one.doing } : {}),
 		...(typeof one.cwd === "string" ? { cwd: one.cwd } : {}),
 		...(typeof one.wake === "string" && one.wake !== ""
 			? { wake: one.wake }

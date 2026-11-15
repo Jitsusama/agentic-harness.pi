@@ -65,6 +65,7 @@ import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
 import { whereItRuns } from "../../lib/internal/priority/send.ts";
 import { PERSON_TALKED } from "../../lib/internal/priority/typed.ts";
 import { onConcluded } from "../../lib/internal/quest/concluded.ts";
+import { doingFolder } from "../../lib/internal/quest/doing.ts";
 import { withQuestLock } from "../../lib/internal/quest/io.ts";
 import { meshRefusal, sessionRealm } from "../../lib/internal/realm.ts";
 import {
@@ -627,6 +628,7 @@ export function machinePaths(): MeshPaths {
 		looks: stateDir("looks"),
 		sessions: join(stateDir("quest-workflow"), "sessions"),
 		quests: join(dataDir("quest-workflow"), "quests"),
+		doing: doingFolder(),
 	};
 }
 

@@ -39,6 +39,7 @@ import {
 	discoverQuests,
 	withDiscoveryHeld,
 } from "../../lib/internal/quest/discovery.ts";
+import { forgetDoing, keepDoingSaid } from "../../lib/internal/quest/doing.ts";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/url-fetchers.ts";
@@ -444,6 +445,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				};
 			}
 			updateScoreboard(state, ctx);
+			keepDoingSaid(state, currentSessionId(ctx, undefined), ctx.ui);
 			// A session a spawn started is looked for a minute on.
 			const spawned = spawnedBy(params.action, result.details);
 			if (spawned) watchFirstTurn(pi, ctx, spawned);
@@ -641,6 +643,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		) {
 			refreshProgress(state);
 			updateScoreboard(state, ctx);
+			keepDoingSaid(state, currentSessionId(ctx, undefined), ctx.ui);
 		}
 		persist(state, pi, ctx);
 		// A quest action can change what a quest's work is weighted by, and
@@ -813,6 +816,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				setImmediate(() => refreshRestoreFile(state.questsRoot)).unref();
 			}
 			updateScoreboard(state, ctx);
+			keepDoingSaid(state, currentSessionId(ctx, undefined), ctx.ui);
 			// A session on screen ends itself once its quest has ended and
 			// nothing is left in it, so its window closes with it.
 			if (ctx.hasUI || hosted()) watchForQuestEnd(state, ctx);
@@ -868,7 +872,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			event.reason,
 			sid !== undefined && parking === sid,
 		);
-		if (sid && ended) recordSessionEnd(sid, ended);
+		if (sid && ended) {
+			recordSessionEnd(sid, ended);
+			forgetDoing(sid);
+		}
 		// A swap hands the process to another conversation, so a later
 		// signal is no longer this session's to take: it is the
 		// successor's, whose record is opened now in case its own start
