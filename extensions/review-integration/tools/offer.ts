@@ -58,6 +58,7 @@ import {
 	missingMethod,
 } from "./offer-gates.ts";
 import { merge, reviewSection } from "./offer-merge.ts";
+import { propose } from "./offer-propose.ts";
 import {
 	draftOf,
 	inTitleCase,
@@ -65,7 +66,6 @@ import {
 	resubmitted,
 	sectionsGiven,
 } from "./offer-request.ts";
-import { propose } from "./offer-propose.ts";
 import { proposeStack, retargetStack } from "./offer-stack.ts";
 import {
 	keepRefusedDraft,

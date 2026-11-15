@@ -18,13 +18,7 @@ import { GLYPH, proposalLine } from "../render.ts";
 import { checkoutFacts } from "./offer-checkout.ts";
 import { confirmWrite, missingMethod, proposePanel } from "./offer-gates.ts";
 import type { OfferParams } from "./offer-request.ts";
-import {
-	type Answer,
-	declined,
-	messageOf,
-	refuse,
-	say,
-} from "./shared.ts";
+import { type Answer, declined, messageOf, refuse, say } from "./shared.ts";
 
 /** Put a branch up as a change. */
 export async function propose(

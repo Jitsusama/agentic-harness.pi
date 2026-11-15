@@ -8,10 +8,7 @@
  * width tests can draw them without a terminal.
  */
 
-import type {
-	FieldEdit,
-	SetEdit,
-} from "../../../lib/core/review/index.ts";
+import type { FieldEdit, SetEdit } from "../../../lib/core/review/index.ts";
 import { GUARDS } from "../../../lib/internal/guardian/guards.ts";
 import { confirmWrite as confirmUnder } from "../gate.ts";
 import { type GatePanel, GLYPH } from "../render.ts";

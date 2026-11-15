@@ -461,9 +461,7 @@ export function deps(
  * the judge ignored the callback, and became a stray round the day it
  * stopped.
  */
-export function substituting(
-	deps: CouncilDeps,
-): Omit<CouncilDeps, "opened"> {
+export function substituting(deps: CouncilDeps): Omit<CouncilDeps, "opened"> {
 	// Typed against CouncilDeps rather than a structural constraint.
 	// `T extends { opened?: unknown }` was satisfied by every object
 	// type, so renaming the callback would have left this returning

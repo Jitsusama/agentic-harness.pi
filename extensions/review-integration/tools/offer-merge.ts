@@ -8,10 +8,7 @@
  * action shares.
  */
 
-import type {
-	EventBus,
-	ExtensionAPI,
-} from "@earendil-works/pi-coding-agent";
+import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BoundTarget } from "../../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { sayLanded } from "../../../lib/internal/session/landings.ts";
