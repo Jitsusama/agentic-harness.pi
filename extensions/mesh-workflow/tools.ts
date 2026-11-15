@@ -1625,9 +1625,12 @@ async function join(
 	const invited = groupsNamed(params.invite ?? "");
 	const lately = joinedNow ? saidLately(at, group) : "";
 	if (invited.length === 0) {
-		return answer(`${said} ${groupsText(standing, at.peer)}${lately}`, {
-			groups: at.peer.groups,
-		});
+		return answer(
+			`${said} ${standsText(at.peer)} ${membersText(standing, at.peer, group)} ${LISTED_IN_GROUPS}${lately}`,
+			{
+				groups: at.peer.groups,
+			},
+		);
 	}
 	if (!group.startsWith("#")) {
 		return answer(
@@ -1705,16 +1708,31 @@ function saidLately(at: Local, group: string): string {
 async function leave(at: Local, params: { group: string }): Promise<Answer> {
 	const group = groupNamed(params.group);
 	const left = group !== undefined && at.peer.leave(group);
-	const everyone = await peers(at);
 	const scoped = group !== undefined && at.peer.scopes.includes(group);
 	const said = scoped
 		? `${left ? `Left what this peer joined of ${group}, but it` : group} is one of this peer's scopes: its work puts it there, so it hears ${group} until it works on something else.`
 		: left
 			? `Left ${group}.`
 			: `Not in ${params.group}, so nothing changed.`;
-	return answer(`${said} ${groupsText(everyone, at.peer)}`, {
+	return answer(`${said} ${standsText(at.peer)} ${LISTED_IN_GROUPS}`, {
 		groups: at.peer.groups,
 	});
+}
+
+/**
+ * Where a join or a leave points for every group and who is in it: a
+ * busy mesh's whole listing runs to hundreds of kilobytes, which an
+ * answer about one group has no need of (OSPHT4, 15 November).
+ */
+const LISTED_IN_GROUPS = "mesh_groups lists every group and who is in it.";
+
+/** A group's members among the peers present, this peer included. */
+function membersText(standing: Census, peer: Peer, group: string): string {
+	const others = standing.present
+		.filter((one) => one.session !== peer.session && one.groups.includes(group))
+		.flatMap((one) => one.addresses.slice(0, 1));
+	const own = peer.groups.includes(group) ? peer.addresses.slice(0, 1) : [];
+	return `${group}: ${[...new Set([...others, ...own])].join(", ")}.`;
 }
 
 /**
@@ -1759,6 +1777,18 @@ function capitalized(text: string): string {
 	return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** The groups this peer is in, by its work and by joining. */
+function standsText(peer: Peer): string {
+	const joined = peer.joined.filter((group) => !peer.scopes.includes(group));
+	const standsIn = [
+		peer.scopes.length > 0 ? `is in ${peer.scopes.join(", ")} by its work` : "",
+		joined.length > 0 ? `has joined ${joined.join(", ")}` : "",
+	].filter(Boolean);
+	return standsIn.length > 0
+		? `This peer ${standsIn.join(", and ")}; it is also in its home group and #machine.`
+		: "This peer is in its home group and #machine only.";
+}
+
 function groupsText(standing: Census, peer: Peer): string {
 	const members = new Map<string, string[]>();
 	for (const one of standing.present) {
@@ -1772,15 +1802,7 @@ function groupsText(standing: Census, peer: Peer): string {
 	const lines = [...members.keys()]
 		.sort()
 		.map((group) => `${group}: ${members.get(group)?.join(", ")}`);
-	const joined = peer.joined.filter((group) => !peer.scopes.includes(group));
-	const standsIn = [
-		peer.scopes.length > 0 ? `is in ${peer.scopes.join(", ")} by its work` : "",
-		joined.length > 0 ? `has joined ${joined.join(", ")}` : "",
-	].filter(Boolean);
-	const own =
-		standsIn.length > 0
-			? `This peer ${standsIn.join(", and ")}; it is also in its home group and #machine.`
-			: "This peer is in its home group and #machine only.";
+	const own = standsText(peer);
 	// An address a live session answers to again (a quest's peer restarted
 	// under a new session) has not ended, so it is not listed as ended.
 	const answering = new Set(
