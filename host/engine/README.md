@@ -181,7 +181,7 @@ and why (lib/internal/session/refused-wake.ts), so the mesh can say why
 it sleeps on; the conversation's next start or its close clears it.
 While it rests, parking.ts also watches the steer inbox of each address
 its park marker names (lib/mesh/parked.ts), and wakes it the same
-way as soon as a talk, close, carry, move or fill lands there, rather
+way as soon as a talk, close, carry, move, fill or answer lands, rather
 than at the mesh's once-a-minute pass, which stays as the backstop. A
 host starting leaves parked what its last process parked this boot,
 plain pi's marker still naming this host's wake file

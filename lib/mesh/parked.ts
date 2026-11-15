@@ -24,10 +24,14 @@
  * the parked peer also watches its inboxes (watchWakingSteers) and wakes
  * it as such a steer lands, the look being the backstop: Super+S, the
  * launcher's Talk, the void and a steer the node brings from another
- * machine each waited up to 60 s for that look on 14 Nov 2026.
+ * machine each waited up to 60 s for that look on 14 Nov 2026. A holder
+ * outside this package, as mycelium's, is told the inboxes and the rule
+ * as the peer parks ({@link holderSteers}), and judges by that rule
+ * rather than a copy of its own.
  */
 
 import { type FSWatcher, mkdirSync, watch } from "node:fs";
+import type { HolderSteers, WakingSteers } from "../internal/session/park.ts";
 import { attend } from "./attention.ts";
 import { asksEach, type Message, reaches } from "./message.ts";
 import type { Presence } from "./presence.ts";
@@ -83,23 +87,47 @@ export function wakes(
 /**
  * Whether a steer waits on its parked peer running: a talk, or a resume
  * with words, which a running peer answers; a close, a carry or a move,
- * which only a running session can make; or a fill, since the person is
- * coming to its window to send it.
+ * which only a running session can make; a fill, since the person is
+ * coming to its window to send it; or the person's answer to a look or a
+ * question, which only a running pi takes (an answer the mesh keeps
+ * always says what it answers and what it gives).
  */
 export function steerWakes(steer: Steer): boolean {
-	return (
-		steer.act === undefined ||
-		(steer.act === "resume" && steer.text !== "") ||
-		steer.act === "close" ||
-		steer.act === "carry" ||
-		steer.act === "move" ||
-		steer.act === "fill"
-	);
+	if (steer.act === undefined) return WAKING_STEERS.talk;
+	if (steer.act === "resume" && steer.text !== "") {
+		return WAKING_STEERS.resumeWithWords;
+	}
+	return WAKING_STEERS.acts.includes(steer.act);
+}
+
+/**
+ * {@link steerWakes} as data, for a holder in another language. Such a
+ * holder judges the raw file, so a malformed answer the mesh would drop
+ * still wakes its peer, which finds nothing to take and parks again.
+ */
+export const WAKING_STEERS: WakingSteers = {
+	acts: ["close", "carry", "move", "fill", "answer"],
+	talk: true,
+	resumeWithWords: true,
+};
+
+/**
+ * What a holder outside this package is told of a parking peer's steers:
+ * the inbox under `root` of each of its addresses, and which wake it.
+ */
+export function holderSteers(
+	root: string,
+	addresses: readonly string[],
+): HolderSteers {
+	return {
+		inboxes: addresses.map((address) => inboxOf(root, address)),
+		wakes: WAKING_STEERS,
+	};
 }
 
 /**
  * Ask the holder of every parked peer whose steer inbox under `root`
- * holds a talk, a close, a carry, a move or a fill to wake it, the
+ * holds a steer that wakes it ({@link steerWakes}) to wake it, the
  * steer's file named as why;
  * answers the sessions asked for. The steer stays where it is, for the
  * peer to take as it starts.

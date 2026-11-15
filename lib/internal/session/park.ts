@@ -29,6 +29,12 @@
  * mesh keeps unread messages on disk until a peer's next start, so
  * nothing sent to a parked peer is lost.
  *
+ * A holder that watches steers too names a file for them
+ * ({@link STEERS_ENV}), and the pi writes there, as it parks, the steer
+ * inboxes the mesh says are its own and which steers wake it
+ * ({@link HolderSteers}), so the person's talk wakes it as it lands
+ * rather than at a running peer's next look, a minute on.
+ *
  * A rollover can also have a session start again at once on its fresh
  * log ({@link RESTART_ASK}): the same exit, holding to the same rules
  * but for the idle time, with the command naming the fresh log and the
@@ -75,6 +81,49 @@ export const WAKE_ENV = "MYCELIUM_WAKE";
  * when that command already opens this session.
  */
 export const AGAIN_ENV = "MYCELIUM_AGAIN";
+
+/**
+ * Where the holder takes the steer inboxes it watches while this pi is
+ * parked ({@link HolderSteers}), written as it parks. A holder that sets
+ * none wakes it for a steer only as a running peer asks, through its
+ * wake file.
+ */
+export const STEERS_ENV = "MYCELIUM_STEERS";
+
+/**
+ * Which steers wake a parked peer, said as data for a holder in another
+ * language to judge the steer files it sees by: an act it names, a
+ * resume with words when `resumeWithWords`, and words with no act when
+ * `talk`. The mesh's own judge reads it too (mesh/parked.ts).
+ */
+export interface WakingSteers {
+	readonly acts: readonly string[];
+	readonly talk: boolean;
+	readonly resumeWithWords: boolean;
+}
+
+/** What a holder is told of a parking pi's steers ({@link STEERS_ENV}). */
+export interface HolderSteers {
+	/** The absolute folders its steers land in, one per address. */
+	readonly inboxes: readonly string[];
+	readonly wakes: WakingSteers;
+}
+
+/**
+ * Tell the holder at `file` what `steers` says, written whole so it never
+ * reads half, or clear what an earlier park told it when there is
+ * nothing to say.
+ */
+export function tellHolderSteers(
+	file: string,
+	steers: HolderSteers | undefined,
+): void {
+	if (steers === undefined || steers.inboxes.length === 0) {
+		rmSync(file, { force: true });
+		return;
+	}
+	writeWhole(file, `${JSON.stringify(steers)}\n`);
+}
 
 /**
  * The command that starts a session again from its log, giving it again
@@ -298,6 +347,8 @@ export interface Parking {
 	quest?: string;
 	/** The file its holder wakes it on, which its presence says too. */
 	readonly wake?: string;
+	/** Its steer inboxes and which steers wake it, as the mesh says. */
+	steers?: HolderSteers;
 }
 
 /** Whether a payload is a {@link ParkAsk}. */

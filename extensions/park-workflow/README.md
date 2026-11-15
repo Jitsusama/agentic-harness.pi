@@ -89,7 +89,17 @@ conversation alone, it never parks, and its awake note says
    `park-workflow/parked/<session-id>.json`, naming its log, its
    folder, its addresses, its quest, when it parked and, as `wake`,
    the file its holder wakes it on.
-3. pi shuts down as `/quit` would and exits with code 75
+3. When its holder names a file for steers (`MYCELIUM_STEERS`), it
+   writes there, whole, the steer inbox of each of its addresses and
+   which steers wake it (`{inboxes, wakes}`), as the mesh says. The
+   holder watches those folders while it is parked and wakes it as a
+   talk, a resume with words, a close, a carry, a move, a fill or
+   the person's answer lands, rather than at a running peer's look
+   a minute on. With no inboxes to name it clears what an earlier
+   park wrote. A
+   conversation in a host writes nothing: the host watches its
+   inboxes itself.
+4. pi shuts down as `/quit` would and exits with code 75
    (EX_TEMPFAIL), which tells its holder this is a park, not an end.
    It writes nothing of its own and leaves out pi's "To resume this
    session" hint: the holder says in the window that it parked and

@@ -20,13 +20,21 @@ import {
 } from "../../../lib/internal/session/park.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
 import {
+	holderSteers,
+	steerWakes,
+	WAKING_STEERS,
 	wakeParked,
 	wakeSteered,
 	wakes,
 	watchWakingSteers,
 } from "../../../lib/mesh/parked.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
-import { giveSteer, inboxOf } from "../../../lib/mesh/steer.ts";
+import {
+	giveSteer,
+	inboxOf,
+	STEER_ACTS,
+	steerFrom,
+} from "../../../lib/mesh/steer.ts";
 import { quietFor, until } from "../../support/until.ts";
 
 const parked: Presence = {
@@ -217,6 +225,35 @@ describe("waking a parked peer for a steer", () => {
 		}
 	});
 
+	// 14 November: Joel's pick on a look, or his answer to a question,
+	// waited for an unrelated wake, as only a running pi takes it.
+	it("wakes it for the person's answer to a look or a question, which only a running peer takes", () => {
+		for (const answer of [
+			{ act: "answer", look: "look-1", value: "Keep it" },
+			{
+				act: "answer",
+				want: "question@2026-11-14T18:00:00Z",
+				other: "neither",
+			},
+		]) {
+			const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
+			steer(root, "85PKB2", answer);
+			const asked: string[] = [];
+
+			const woken = wakeSteered(
+				[parked],
+				root,
+				() => true,
+				(session) => asked.push(session),
+			);
+
+			expect([woken, asked], JSON.stringify(answer)).toEqual([
+				["s-parked"],
+				["s-parked"],
+			]);
+		}
+	});
+
 	it("lets a pause, a stop or a bare resume wait for its next start, as each does nothing parked", () => {
 		for (const act of ["pause", "stop", "resume"]) {
 			const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
@@ -364,5 +401,64 @@ describe("watching a parked peer's steer inboxes", () => {
 		const [said] = waking.mock.calls[0] ?? [];
 		expect([carry, talk], "one that waits on it running").toContain(said);
 		expect(said, "never the pause").not.toBe(pause);
+	});
+});
+
+/**
+ * A steer as a holder that reads only the declared rule and the raw file
+ * judges it, as mycelium's holder does: an act the rule names wakes, a
+ * resume with words wakes, and words with no act wake.
+ */
+function wakesByRule(raw: string): boolean {
+	const steer: unknown = JSON.parse(raw);
+	if (typeof steer !== "object" || steer === null) return false;
+	const act = "act" in steer ? steer.act : undefined;
+	const text =
+		"text" in steer && typeof steer.text === "string" ? steer.text.trim() : "";
+	if (typeof act !== "string") return WAKING_STEERS.talk && text !== "";
+	if (act === "resume" && text !== "") return WAKING_STEERS.resumeWithWords;
+	return WAKING_STEERS.acts.includes(act);
+}
+
+describe("telling a holder in another language which steers wake", () => {
+	it("says the rule as data that judges each steer as the mesh does", () => {
+		for (const body of [
+			{ text: "put the void's card on top" },
+			{ act: "resume", text: "carry on" },
+			{ act: "resume" },
+			{ act: "pause" },
+			{ act: "stop" },
+			{ act: "close" },
+			{ act: "carry", to: "penelope" },
+			{ act: "move", to: "background" },
+			{ act: "fill", text: "Ready for this." },
+			{ act: "answer", look: "look-1", value: "Keep it" },
+		]) {
+			const raw = JSON.stringify(body);
+			const steer = steerFrom(raw, "1-a.json");
+			if (steer === undefined) throw new Error(`not a steer: ${raw}`);
+
+			expect(wakesByRule(raw), raw).toBe(steerWakes(steer));
+		}
+	});
+
+	// 85PKB2, 14 November: an act added to the mesh but not to the rule
+	// would leave a parked peer asleep without anyone choosing it.
+	it("judges every act the mesh knows on purpose", () => {
+		const leftParked = ["pause", "resume", "stop"];
+
+		expect([...WAKING_STEERS.acts, ...leftParked].sort()).toEqual(
+			[...STEER_ACTS].sort(),
+		);
+	});
+
+	it("names each of a peer's inboxes beside the rule", () => {
+		expect(holderSteers("/state/steer", ["85PKB2", "8859FF67"])).toEqual({
+			inboxes: [
+				inboxOf("/state/steer", "85PKB2"),
+				inboxOf("/state/steer", "8859FF67"),
+			],
+			wakes: WAKING_STEERS,
+		});
 	});
 });

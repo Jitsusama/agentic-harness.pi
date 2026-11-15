@@ -191,7 +191,11 @@ import {
 	createAwaiting,
 	createOwing,
 } from "../../lib/mesh/owed.ts";
-import { wakeParked, wakeSteered } from "../../lib/mesh/parked.ts";
+import {
+	holderSteers,
+	wakeParked,
+	wakeSteered,
+} from "../../lib/mesh/parked.ts";
 import { localPeer, type Peer } from "../../lib/mesh/peer.ts";
 import {
 	createPresences,
@@ -2439,6 +2443,10 @@ export function meshWorkflow(
 			if (!isParking(data) || !peer || data.session !== peer.session) return;
 			peer.park(data.wake);
 			data.addresses = peer.addresses;
+			// A holder that watches them wakes it as a steer lands there.
+			if (steerRoot !== undefined) {
+				data.steers = holderSteers(steerRoot, peer.addresses);
+			}
 			const quest = presences.of(peer.session)?.quest;
 			if (quest) data.quest = quest;
 		});
