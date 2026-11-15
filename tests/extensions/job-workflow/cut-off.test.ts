@@ -15,6 +15,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import {
+	CARRIED_RUN_WAIT_MS,
 	CUT_OFF_ENTRY,
 	cutOffIn,
 	endedRecord,
@@ -35,6 +36,12 @@ import { findJobHost } from "../../../lib/jobs/index.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
 const AT = "2026-10-24T17:54:34.617Z";
+
+/** The timers the carried run's wait uses, faked alone. */
+const TIMEOUTS: ("setTimeout" | "clearTimeout")[] = [
+	"setTimeout",
+	"clearTimeout",
+];
 
 /** Hand an uncaught error to the crash slot's listener, as Node would. */
 function crash(): void {
@@ -179,7 +186,7 @@ function activate(branch: unknown[], signals: EventEmitter, id = "s1") {
 		for (const handler of handlers.get(name) ?? [])
 			await withSession(id, () => handler(event, ctx));
 	};
-	return { events, said, appended, session, fire };
+	return { events, said, appended, session, fire, branch };
 }
 
 describe("the job workflow, at a session's end and its return", () => {
@@ -366,6 +373,90 @@ describe("the job workflow, at a session's end and its return", () => {
 			expect(withJob.said[0]).toMatch(/carried on the run/);
 			expect(withJob.said[0]).not.toMatch(/mid-run|nothing has resumed it/);
 		} finally {
+			host.dispose();
+		}
+	});
+
+	it("in a host, tells a returning session its run was cut off when the carried run never shows", async () => {
+		// On 14 November the 22:22 reboot cut a run mid-answer; the next
+		// host's recovery failed it ("The host stopped while the model was
+		// answering, on attempt 1"), and with the record saying carried,
+		// nothing told the session, which sat until a mesh message came.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const carried = { at: Date.parse(AT), running: true, runCarried: true };
+			const lost = activate(
+				[message("user"), ended({ ...carried, jobs: [] })],
+				new EventEmitter(),
+			);
+			await lost.fire("session_start", { reason: "startup" });
+			expect(lost.said, "nothing yet: the next host may carry it").toHaveLength(
+				0,
+			);
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(lost.said).toHaveLength(1);
+			expect(lost.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
+
+			const failed = activate(
+				[message("user"), ended({ ...carried, jobs: [] })],
+				new EventEmitter(),
+				"s2",
+			);
+			await failed.fire("session_start", { reason: "startup" });
+			failed.branch.push(aborted);
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(failed.said, "a carried run that failed is no run").toHaveLength(
+				1,
+			);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("in a host, says nothing once the carried run shows, runs or the session ends", async () => {
+		const host = installTestHost();
+		// A shutdown yields once with setImmediate, which stays real.
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const record = ended({
+				at: Date.parse(AT),
+				running: true,
+				runCarried: true,
+				jobs: [],
+			});
+			const answered = activate([message("user"), record], new EventEmitter());
+			await answered.fire("session_start", { reason: "startup" });
+			answered.branch.push(message("assistant", { stopReason: "stop" }));
+
+			const running = activate(
+				[message("user"), record],
+				new EventEmitter(),
+				"s2",
+			);
+			await running.fire("session_start", { reason: "startup" });
+			running.session.busy = true;
+
+			const closed = activate(
+				[message("user"), record],
+				new EventEmitter(),
+				"s3",
+			);
+			await closed.fire("session_start", { reason: "startup" });
+			await closed.fire("session_shutdown", { reason: "quit" });
+
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(
+				{
+					answered: answered.said.length,
+					running: running.said.length,
+					closed: closed.said.length,
+				},
+				"a carried run that showed, one under way, and an ended session",
+			).toEqual({ answered: 0, running: 0, closed: 0 });
+		} finally {
+			vi.useRealTimers();
 			host.dispose();
 		}
 	});

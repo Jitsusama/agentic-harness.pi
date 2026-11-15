@@ -30,6 +30,13 @@
  * returns in a host, since plain pi carries nothing. A host's
  * conversations reopened in plain pi, as a rollback does, are told
  * their run died.
+ *
+ * A carried run can still be lost: at the 22:22 reboot on 14 November
+ * the next host failed a run it had cut mid-answer, and the session,
+ * told nothing, sat until a mesh message came. So a hosted session
+ * whose record says carried waits `CARRIED_RUN_WAIT_MS` for the run to
+ * show, an answer or a tool's result, and is told it was cut off if,
+ * idle and with nothing typed, it never did.
  */
 
 import {
@@ -43,6 +50,13 @@ import {
 
 /** The entry a session's signalled end leaves when work was under way. */
 export const CUT_OFF_ENTRY = "job-session-cut-off";
+
+/**
+ * How long a returning hosted session gives the run its host carried to
+ * show, before it is told the run was cut off: the next host takes runs
+ * up as it resumes each conversation, seconds apart.
+ */
+export const CARRIED_RUN_WAIT_MS = 90_000;
 
 /** A job as the record names it. */
 export interface CutJob {
@@ -132,6 +146,45 @@ export function cutOffIn(
 		}
 	}
 	return killedIn(branch);
+}
+
+/**
+ * The record of a run a host carried on with no job dead with it, and
+ * nothing typed since: told nothing on the return, since the next host
+ * takes the run up, but owed a notice if that run never shows.
+ */
+export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i];
+		if (roleOf(entry) === "user") return undefined;
+		if (
+			field(entry, "type") === "custom" &&
+			field(entry, "customType") === CUT_OFF_ENTRY
+		) {
+			const data = field(entry, "data");
+			return isCutOff(data) && data.runCarried && data.jobs.length === 0
+				? data
+				: undefined;
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Whether the run a host carried on has shown since its record: an
+ * answer or a tool's result. A failed answer is no run: on 14 November
+ * a reboot's next host failed a carried run it had cut mid-answer.
+ */
+export function carriedRunShowed(branch: readonly unknown[]): boolean {
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i];
+		if (field(entry, "customType") === CUT_OFF_ENTRY) return false;
+		const role = roleOf(entry);
+		if (role === "toolResult") return true;
+		const stopped = field(field(entry, "message"), "stopReason");
+		if (role === "assistant" && stopped !== "error") return true;
+	}
+	return false;
 }
 
 /** A log that stops on a tool call or its result: a session killed mid-run. */
