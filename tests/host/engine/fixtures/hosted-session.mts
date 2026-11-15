@@ -155,6 +155,8 @@ interface Scenario {
 	during?: (session: Session) => Promise<void>;
 	/** Keep the session in a file under the folder, to be opened again by a later run. */
 	persist?: boolean;
+	/** Recover as a start's resume does, noting each turn the run takes and gives back. */
+	turns?: boolean;
 	/** Settings over the fixture's, which turn pi's retry and compaction off. */
 	settings?: object;
 	/** The scripted provider's models, when one will not do. */
@@ -202,6 +204,7 @@ let note = (_event: {
 	readonly sends?: number;
 	readonly waiting?: number;
 	readonly ms?: number;
+	readonly first?: boolean;
 }): void => {};
 
 /** Answer only after SLOW_FIRST_TOKEN_MS, as a provider that pays an abort no heed does. */
@@ -361,6 +364,20 @@ const scenarios: Record<string, Scenario> = {
 		drive: (session) => session.prompt("hi"),
 		persist: true,
 	},
+	/** As crash-in-request, the turn begun by words the harness said rather than a person. */
+	"crash-in-request-automated": {
+		responses: () => [
+			() => {
+				process.kill(process.pid, "SIGKILL");
+				return say("never");
+			},
+		],
+		drive: (session) =>
+			session.prompt(
+				"[Automated message, no human input: background jobs are reporting.] done",
+			),
+		persist: true,
+	},
 	/** Die as the tool round's turn ends: pi showed the answer and its result, durable never heard what follows. */
 	"crash-at-turn-end": {
 		responses: () => [call("call-1", "ping"), say("never")],
@@ -394,6 +411,31 @@ const scenarios: Record<string, Scenario> = {
 		tools: echo(async () => noteEffect("ping")),
 		drive: async () => {},
 		persist: true,
+	},
+	/** Reopen as a start's resume does, its carried run taking a turn. */
+	"reopen-taking-turns": {
+		responses: () => [say("after the restart")],
+		tools: echo(async () => noteEffect("ping")),
+		drive: async () => {},
+		persist: true,
+		turns: true,
+	},
+	/** As reopen-taking-turns, the carried run going on past its first answer with another tool round, as a builder's does. */
+	"reopen-taking-turns-busy": {
+		responses: () => [
+			call("call-2", "pong", Date.now() + 1),
+			say("after the restart"),
+		],
+		tools: echo(async () => noteEffect("pong")),
+		drive: async () => {},
+		persist: true,
+		turns: true,
+	},
+	/** A fresh conversation recovering as a start's resume does: nothing carried, so no turn. */
+	"fresh-taking-turns": {
+		responses: () => [say("hello")],
+		drive: (session) => session.prompt("hi"),
+		turns: true,
 	},
 	/** Reopen with a prompt sent before the recovery, as an extension starting with the session sends one. */
 	"reopen-prompted": {
@@ -759,7 +801,20 @@ try {
 	const early = scenario.early?.(session);
 	// The early run has reached the agent, as it had on 13 November.
 	if (early) await Promise.race([reached, early]);
-	const recovery = await conversation?.agent?.recover();
+	const recovery = await conversation?.agent?.recover(
+		scenario.turns
+			? async (first) => {
+					note({ type: "turn", first });
+					let given = false;
+					// Only the first give-back counts, as with the host's own turns.
+					return () => {
+						if (given) return;
+						given = true;
+						note({ type: "turn given back" });
+					};
+				}
+			: undefined,
+	);
 	const during = scenario.during?.(session);
 	await recovery?.settled;
 	await early;

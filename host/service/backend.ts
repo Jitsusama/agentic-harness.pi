@@ -61,6 +61,14 @@ export interface ConversationEngine {
 	 * resumes it.
 	 */
 	restsParked?(entry: RosterEntry): boolean;
+	/**
+	 * A start is about to resume what the host holds: carry on none of the
+	 * runs a restart cut off until resumed says it has resumed them all, so
+	 * they go in the whole start's order, a few at a time.
+	 */
+	resuming?(): void;
+	/** The start has resumed everything it holds; the runs it cut off may go. */
+	resumed?(): void;
 	abort(sessionId: string): Promise<void>;
 	/**
 	 * How much background work one conversation holds: commands, fleets
@@ -480,6 +488,9 @@ export interface Resuming {
  * `starting` hears each one before it begins, so whoever waits on the
  * start knows it still moves; if it throws, that conversation stays held
  * and is reported like one that couldn't resume, and the rest go on.
+ * The runs a restart cut off wait until the last has resumed
+ * (`resuming`, then `resumed`, also when one throws), so a few go at a
+ * time in the whole start's order rather than racing the resumes.
  */
 export async function resumeHeld(options: {
 	roster: HostRoster;
@@ -491,23 +502,28 @@ export async function resumeHeld(options: {
 	const resumed: string[] = [];
 	const unresumed: Unresumed[] = [];
 	const entries = options.roster.entries();
-	for (const [index, entry] of entries.entries()) {
-		try {
-			await options.starting?.({
-				step: "resume",
-				number: index + 1,
-				of: entries.length,
-				sessionId: entry.sessionId,
-			});
-			options.mark?.("ask");
-			if (options.engine.restsParked?.(entry)) continue;
-			if (resumed.length > 0) await options.admitAnother?.();
-			options.mark?.("gate");
-			await options.engine.resume(entry, false, options.mark);
-			resumed.push(entry.sessionId);
-		} catch (reason) {
-			unresumed.push({ sessionId: entry.sessionId, reason });
+	options.engine.resuming?.();
+	try {
+		for (const [index, entry] of entries.entries()) {
+			try {
+				await options.starting?.({
+					step: "resume",
+					number: index + 1,
+					of: entries.length,
+					sessionId: entry.sessionId,
+				});
+				options.mark?.("ask");
+				if (options.engine.restsParked?.(entry)) continue;
+				if (resumed.length > 0) await options.admitAnother?.();
+				options.mark?.("gate");
+				await options.engine.resume(entry, false, options.mark);
+				resumed.push(entry.sessionId);
+			} catch (reason) {
+				unresumed.push({ sessionId: entry.sessionId, reason });
+			}
 		}
+	} finally {
+		options.engine.resumed?.();
 	}
 	return { resumed, unresumed };
 }

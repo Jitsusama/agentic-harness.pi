@@ -111,6 +111,7 @@ import {
 	requireModel,
 } from "./requests.ts";
 import { loaderOptions } from "./resources.ts";
+import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
 import { sessionEnvironment } from "./session-host.ts";
 import {
 	hostedSubagentInstall,
@@ -196,6 +197,8 @@ export async function createEngine(
 		);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
+	// Only a start's resumes take one: a wake, an open or an adopt carries its run on at once.
+	const turns = resumeTurns();
 	// The bash calls a restart carries to the next host, kept through its stop.
 	const shells = carriedShells({
 		stateDir: options.stateDir,
@@ -580,6 +583,7 @@ export async function createEngine(
 		manager: SessionManager,
 		request: OpenRequest | AdoptRequest | undefined,
 		mark?: (phase: ResumePhase) => void,
+		turn?: TakeTurn,
 	): Promise<void> {
 		const { sessionId, cwd } = record.traits;
 		// What an earlier host's tools left running for it ends before this start reports them cut off.
@@ -618,7 +622,7 @@ export async function createEngine(
 			await bindHeadless(runtime, host, report);
 		}
 		mark?.("screen");
-		const recovery = await agent.recover();
+		const recovery = await agent.recover(turn);
 		mark?.("recovery");
 		if (first === undefined) {
 			recovery.settled.catch(report);
@@ -675,6 +679,7 @@ export async function createEngine(
 		launch: Readonly<Record<string, string>>,
 		request?: OpenRequest | AdoptRequest,
 		mark?: (phase: ResumePhase) => void,
+		turn?: TakeTurn,
 	): Promise<void> {
 		const { sessionId } = traits;
 		const record = register(traits, launch, request, hintsFor(request));
@@ -682,7 +687,7 @@ export async function createEngine(
 			record.asked = () => done("asking");
 		});
 		const building = host
-			.run(sessionId, () => build(record, manager, request, mark))
+			.run(sessionId, () => build(record, manager, request, mark, turn))
 			.then(
 				() => "built" as const,
 				(error: unknown) => {
@@ -999,10 +1004,19 @@ export async function createEngine(
 				launch ?? {},
 				undefined,
 				mark,
+				woken ? undefined : turns.take,
 			);
 			// Only once it runs: a wake that failed leaves its wake file watched,
 			// and one refused as it began says nothing true now.
 			parked.unwatch(sessionId);
+		},
+
+		resuming() {
+			turns.hold();
+		},
+
+		resumed() {
+			turns.open();
 		},
 
 		// Parked by this host key's last process, this boot, and never woken.

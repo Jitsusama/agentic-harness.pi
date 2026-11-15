@@ -370,6 +370,27 @@ describe("hostBackend", () => {
 		expect(await heldSessionStatus(a, { dir: rosters })).toBe("held");
 	});
 
+	it("holds the runs a restart cut off from before the first resume until after the last, one failing or not", async () => {
+		const { fake } = engine();
+		const first = backendWith(fake);
+		const a = parseOpenResult(await first.execute(open)).sessionId;
+		const b = parseOpenResult(await first.execute(open)).sessionId;
+		for (const id of [a, b]) await host.stop(id);
+
+		const order: string[] = [];
+		const restart = engine({
+			resuming: () => order.push("held"),
+			resumed: () => order.push("let go"),
+			resume: vi.fn(async (entry) => {
+				order.push(entry.sessionId);
+				if (entry.sessionId === b) throw new Error("session file is gone");
+				register(entry);
+			}),
+		});
+		await resumeHeld({ roster, engine: restart.fake });
+		expect(order).toEqual(["held", a, b, "let go"]);
+	});
+
 	it("resumes every hold at start and lists one that would not resume as parked", async () => {
 		const { fake } = engine();
 		const first = backendWith(fake);

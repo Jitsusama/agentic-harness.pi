@@ -104,6 +104,8 @@ export async function openHostedConversation(options: {
 				resume: () => harness.resume(),
 				runFailure: async () =>
 					failureIn(await harness.snapshot(durable.LiveDoc, root.id, context)),
+				carrying: async () =>
+					busyIn(await harness.snapshot(durable.LiveDoc, root.id, context)),
 				extension: (
 					tools: readonly ToolRegistration[],
 					hooks: GenerationHooks,
@@ -133,6 +135,11 @@ function failureIn(live: unknown): RunFailure | undefined {
 	return typeof taskId === "number" && typeof reason === "string"
 		? { taskId, reason }
 		: undefined;
+}
+
+/** Whether a conversation's `pi.live` document holds a run, as it does exactly while busy. */
+function busyIn(live: unknown): boolean {
+	return isRecord(live) && isRecord(live.run);
 }
 
 function durableModule(modules: HostPiModules): DurableModule {
