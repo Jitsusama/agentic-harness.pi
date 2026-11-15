@@ -103,6 +103,22 @@ export function isFromPerson(from: string | undefined): boolean {
 	return who === "joel" || who === FROM_PERSON;
 }
 
+/**
+ * Whether a steer is the person's own words starting a turn they wait on:
+ * a talk, or a resume with words, written by Joel or by the node on his
+ * word. The traffic shaper sends such a turn's request ahead of agents'
+ * (lib/internal/priority/typed.ts), so this names the writer outright:
+ * an agent's steer, the machine's, a bare act or an answer is none.
+ */
+export function isPersonsTalk(
+	steer: Pick<Steer, "text" | "act" | "from">,
+): boolean {
+	if (steer.text.trim() === "") return false;
+	if (steer.act !== undefined && steer.act !== "resume") return false;
+	const who = steer.from?.toLowerCase();
+	return who === "joel" || who === FROM_PERSON;
+}
+
 /** One thing the person said, as the inbox carries it. */
 export interface Steer {
 	/**

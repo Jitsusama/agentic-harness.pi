@@ -61,6 +61,7 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir, everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { tellAwaited } from "../../lib/internal/priority/awaited.ts";
 import { whereItRuns } from "../../lib/internal/priority/send.ts";
+import { PERSON_TALKED } from "../../lib/internal/priority/typed.ts";
 import { onConcluded } from "../../lib/internal/quest/concluded.ts";
 import { withQuestLock } from "../../lib/internal/quest/io.ts";
 import { meshRefusal, sessionRealm } from "../../lib/internal/realm.ts";
@@ -211,7 +212,7 @@ import {
 	sweeper,
 } from "../../lib/mesh/retention.ts";
 import type { Judge } from "../../lib/mesh/routing.ts";
-import { inboxOf, type Steer } from "../../lib/mesh/steer.ts";
+import { inboxOf, isPersonsTalk, type Steer } from "../../lib/mesh/steer.ts";
 import { toolDetail } from "../../lib/mesh/step.ts";
 import { isStopped } from "../../lib/mesh/stop.ts";
 import {
@@ -1136,6 +1137,8 @@ export function meshWorkflow(
 						busy: steerDelivery(one, idle) === "steer",
 					});
 					talks.opened(one, inbox, said);
+					// The turn it starts is one the person waits on, as on one typed.
+					if (isPersonsTalk(one)) pi.events.emit(PERSON_TALKED, {});
 					steered(said, idle, one);
 				},
 				setAside: (inbox, names) => {

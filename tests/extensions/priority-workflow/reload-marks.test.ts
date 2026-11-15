@@ -8,19 +8,28 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	createEventBus,
+	type EventBus,
+	type ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	sayBackgroundTurns,
 	sayTypedTurns,
 } from "../../../extensions/priority-workflow/index.ts";
+import { PERSON_TALKED } from "../../../lib/internal/priority/typed.ts";
 
 type Handler = (event: unknown, ctx: unknown) => Promise<void>;
 
 let runtime: string;
+// The extensions' bus, which a reload keeps: one runtime's listener
+// must leave it.
+let bus: EventBus;
 
 beforeEach(() => {
 	runtime = mkdtempSync(join(tmpdir(), "reload-marks-"));
+	bus = createEventBus();
 	vi.stubEnv("XDG_RUNTIME_DIR", runtime);
 	vi.stubEnv("SUBAGENT_RUN_ID", "");
 	vi.useFakeTimers();
@@ -38,7 +47,8 @@ function loaded() {
 	const pi = {
 		on: (name: string, handler: Handler) =>
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]),
-	} as unknown as Pick<ExtensionAPI, "on">;
+		events: bus,
+	} as unknown as Pick<ExtensionAPI, "on" | "events">;
 	sayBackgroundTurns(pi, sayTypedTurns(pi));
 	let listener: ((data: string) => unknown) | undefined;
 	const ctx = {
@@ -79,6 +89,29 @@ describe("a reload", () => {
 			"the runtime the reload ended holds nothing after it",
 		).toBe(false);
 		await after.fire("session_shutdown", { reason: "quit" });
+	});
+
+	it("marks a turn the person's steered words start, until it ends", async () => {
+		const one = loaded();
+		await one.fire("session_start", { reason: "startup" });
+		bus.emit(PERSON_TALKED, {});
+		await one.fire("input", { source: "extension" });
+		await one.fire("agent_start");
+		expect(marked("typed"), "a turn the person steered is marked").toBe(true);
+		await one.fire("agent_end");
+		expect(marked("typed"), "its end takes the mark").toBe(false);
+		await one.fire("session_shutdown", { reason: "quit" });
+	});
+
+	it("leaves a talk said after it ended to the runtime after it", async () => {
+		const before = loaded();
+		await before.fire("session_start", { reason: "startup" });
+		await before.fire("session_shutdown", { reason: "reload" });
+		bus.emit(PERSON_TALKED, {});
+		expect(
+			marked("typed"),
+			"the ended runtime no longer marks on the bus",
+		).toBe(false);
 	});
 
 	it("lets the next runtime yield, though its last heard a key", async () => {

@@ -74,7 +74,11 @@ import {
 	takesNow,
 } from "../../lib/internal/priority/send.ts";
 import { queueHeavyWork } from "../../lib/internal/priority/turn.ts";
-import { typedDir, typedTurns } from "../../lib/internal/priority/typed.ts";
+import {
+	PERSON_TALKED,
+	typedDir,
+	typedTurns,
+} from "../../lib/internal/priority/typed.ts";
 import {
 	buildsShouldYield,
 	keepYield,
@@ -146,10 +150,11 @@ const SETTLE_MS = 5_000;
 /**
  * Says, by a file of this pid, while a turn a person typed runs, so the
  * traffic shaper sends its request ahead of autonomous sessions'
- * (lib/internal/priority/typed.ts). A subagent never has one.
+ * (lib/internal/priority/typed.ts). The person's words steered in from
+ * the launcher count as typed. A subagent never has one.
  */
 export function sayTypedTurns(
-	pi: Pick<ExtensionAPI, "on">,
+	pi: Pick<ExtensionAPI, "on" | "events">,
 ): ReturnType<typeof typedTurns> {
 	const turns = typedTurns(
 		process.env.SUBAGENT_RUN_ID ? undefined : typedDir(),
@@ -157,10 +162,15 @@ export function sayTypedTurns(
 	pi.on("input", async (event) => {
 		if (event.source === "interactive") turns.typed();
 	});
+	const unlisten = pi.events.on(PERSON_TALKED, () => turns.typed());
 	pi.on("agent_start", async () => turns.began());
 	pi.on("agent_end", async () => turns.ended());
-	// Every shutdown, a reload's included: its follower outlives the runtime.
-	pi.on("session_shutdown", async () => turns.stop());
+	// Every shutdown, a reload's included: its follower outlives the runtime,
+	// and the bus may outlive it too, so a later talk marks nothing here.
+	pi.on("session_shutdown", async () => {
+		unlisten();
+		turns.stop();
+	});
 	return turns;
 }
 

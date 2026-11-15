@@ -19,6 +19,14 @@
 import { join } from "node:path";
 import { followPidMark } from "./pid-mark.ts";
 
+/**
+ * Said on `pi.events` as the mesh delivers the person's own words from
+ * the launcher (isPersonsTalk, lib/mesh/steer.ts). They arrive as an
+ * extension's message, not typed input, yet the person waits on the turn
+ * they start as on one typed.
+ */
+export const PERSON_TALKED = "priority:person-talked:v1";
+
 /** The folder the files are in, or nothing with no runtime folder. */
 export function typedDir(
 	env: NodeJS.ProcessEnv = process.env,
