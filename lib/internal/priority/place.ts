@@ -157,10 +157,15 @@ export function placementTarget(): string | undefined {
  * A line a shell runs first to move itself into `path`, so nothing it
  * starts is born outside. It fails silently and leaves `$?` at 0, and
  * there is none for a path that can't be quoted plainly.
+ *
+ * It names the shell running the line, `$BASHPID`, not `$$`: a kept
+ * call runs its command in a subshell, where `$$` names the stub around
+ * it, so on 14 November the stub was moved while the command and all it
+ * started stayed in the pi host's unit (5FWIUS [b1ecaa70]).
  */
 export function shellMovesItself(path: string): string | undefined {
 	if (path.includes("'")) return undefined;
-	return `printf '%s\\n' "$$" 2>/dev/null > '${path}' || :`;
+	return `printf '%s\\n' "\${BASHPID:-$$}" 2>/dev/null > '${path}' || :`;
 }
 
 /**
