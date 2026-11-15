@@ -100,8 +100,21 @@ companion skill.
 ## Files
 
 - `subagent.ts`: top-level entry, being `runSubagent`,
-  `runFleet`, `runReviewer` (legacy), arg composition,
-  result extraction and verify enforcement.
+  `runFleet`, `runReviewer` (legacy) and `startReviewer`.
+  It runs the pieces below in order and re-exports what
+  callers name, so they import from here alone.
+- `run-contract.ts`: the shapes a run is asked and
+  answers in: the spec, the runner, its result and a
+  reviewer's options and result.
+- `launch.ts`: how a reviewer's pi is started: its argv,
+  the extensions and skills it loads, its tools and the
+  brief file it reads.
+- `follow-up.ts`: the resume after a transient drop and
+  the wrap-up for a reviewer we stopped, each run on the
+  first run's session and folded into its result.
+- `reviewer-result.ts`: what a run answered, read off its
+  pi process: the text, usage, verify enforcement and the
+  warnings a caller acts on.
 - `stream.ts`: JSON-stream parser. Collects the final
   assistant turn, watches `verify_output` tool calls,
   enforces line and warning caps.

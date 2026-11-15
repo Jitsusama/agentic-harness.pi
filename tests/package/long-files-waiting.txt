@@ -16,7 +16,6 @@ lib/internal
 lib/internal/quest
 lib/internal/quest/discovery.ts
 lib/subagent/runpi/supervisor.mjs
-lib/subagent/subagent.ts
 lib/ui
 tests/extensions
 tests/extensions/compaction-workflow/host.test.ts
