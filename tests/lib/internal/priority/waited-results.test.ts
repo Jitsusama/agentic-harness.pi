@@ -6,7 +6,10 @@ describe("a background result the person waits on", () => {
 		const results = waitedResults();
 		results.called("call-1");
 
-		expect(results.finished({ jobId: "j3", toolCallId: "call-1" })).toBe(false);
+		expect(
+			results.finished({ jobId: "j3", toolCallId: "call-1" }),
+			"the job's end alone owes nothing yet",
+		).toBe(false);
 		expect(results.reported(["j3"]), "the report starts their run").toBe(true);
 	});
 
@@ -14,7 +17,10 @@ describe("a background result the person waits on", () => {
 		const results = waitedResults();
 		results.called("call-1");
 
-		expect(results.reported(["j3"])).toBe(false);
+		expect(
+			results.reported(["j3"]),
+			"a report before its job's end owes nothing yet",
+		).toBe(false);
 		expect(
 			results.finished({ jobId: "j3", toolCallId: "call-1" }),
 			"the end arrives before the run starts",
@@ -27,7 +33,10 @@ describe("a background result the person waits on", () => {
 		results.reported(["j3"]);
 		results.began();
 
-		expect(results.finished({ jobId: "j3", toolCallId: "call-1" })).toBe(false);
+		expect(
+			results.finished({ jobId: "j3", toolCallId: "call-1" }),
+			"a run already begun is owed nothing more",
+		).toBe(false);
 	});
 
 	it("is owed once, not again for a repeat of its report", () => {
@@ -36,7 +45,10 @@ describe("a background result the person waits on", () => {
 		results.finished({ jobId: "j3", toolCallId: "call-1" });
 		results.reported(["j3"]);
 
-		expect(results.reported(["j3"])).toBe(false);
+		expect(
+			results.reported(["j3"]),
+			"a repeated report owes nothing again",
+		).toBe(false);
 	});
 });
 
@@ -45,7 +57,10 @@ describe("a background result nobody waits on", () => {
 		const results = waitedResults();
 		results.finished({ jobId: "j3", toolCallId: "call-9" });
 
-		expect(results.reported(["j3"])).toBe(false);
+		expect(
+			results.reported(["j3"]),
+			"a call outside a typed run is owed nothing",
+		).toBe(false);
 	});
 
 	it("is not owed for a job no call handed off", () => {
@@ -53,7 +68,10 @@ describe("a background result nobody waits on", () => {
 		results.called("call-1");
 		results.finished({ jobId: "j3" });
 
-		expect(results.reported(["j3"])).toBe(false);
+		expect(
+			results.reported(["j3"]),
+			"a job no call handed off is owed nothing",
+		).toBe(false);
 	});
 
 	it("forgets the oldest calls past what it keeps", () => {
@@ -63,6 +81,9 @@ describe("a background result nobody waits on", () => {
 		results.called("call-3");
 		results.finished({ jobId: "j3", toolCallId: "call-1" });
 
-		expect(results.reported(["j3"])).toBe(false);
+		expect(
+			results.reported(["j3"]),
+			"a call past what it keeps is forgotten",
+		).toBe(false);
 	});
 });
