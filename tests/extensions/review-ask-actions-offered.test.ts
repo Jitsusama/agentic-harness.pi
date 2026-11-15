@@ -137,9 +137,18 @@ describe("review_ask", () => {
 		// nothing about the second argument at all. Each round is named,
 		// with the half of the roster it actually asks, because that is
 		// what the override is checked against.
+		// A council and a background council make their round in one
+		// place, councilRound, so each must go through it.
+		for (const council of ["askCouncil", "startRound"]) {
+			const at = source.indexOf(`async function ${council}(`);
+			const next = source.indexOf("\nasync function ", at + 1);
+			expect(
+				at !== -1 && source.slice(at, next).includes("await councilRound("),
+				`${council} doesn't make its round through councilRound`,
+			).toBe(true);
+		}
 		const asksOf: Record<string, string> = {
-			askCouncil: "reviewers",
-			startRound: "reviewers",
+			councilRound: "reviewers",
 			askCritique: "reviewers",
 			askStack: "reviewers",
 			askJudge: "judge",
@@ -191,7 +200,8 @@ describe("review_ask", () => {
 
 		// The discovery itself has to find something, or the sweep below
 		// passes over nothing at all and reports a clean bill.
-		expect(rounds.length).toBeGreaterThanOrEqual(7);
+		// Six, since both council rounds resolve theirs in councilRound.
+		expect(rounds.length).toBeGreaterThanOrEqual(6);
 
 		const wrong = rounds.flatMap(({ name, body }) => {
 			const reads = body.search(/chartersFor\(\s*[\s\S]{0,400}?tree,\s*"\w+",/);
@@ -217,8 +227,7 @@ describe("review_ask", () => {
 		// And the half named is the half the roster was read under, so a
 		// round cannot bind lenses for people it will never ask.
 		for (const [round, asks] of Object.entries({
-			askCouncil: "reviewers",
-			startRound: "reviewers",
+			councilRound: "reviewers",
 			askCritique: "reviewers",
 			askStack: "reviewers",
 			askJudge: "judge",
