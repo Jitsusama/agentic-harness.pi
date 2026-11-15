@@ -603,7 +603,6 @@ export class StandaloneServer {
 		}
 		return { changes };
 	}
-
 }
 
 function withTimeout<T>(
