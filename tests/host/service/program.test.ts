@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	conversationBase,
 	conversationLaunch,
@@ -33,6 +33,7 @@ beforeEach(async () => {
 	proofs = await mkdtemp(join(tmpdir(), "h2-program-proofs-"));
 });
 afterEach(async () => {
+	vi.unstubAllEnvs();
 	await rm(dir, { recursive: true, force: true });
 	await rm(proofs, { recursive: true, force: true });
 });
@@ -207,6 +208,9 @@ describe("sayHostRuns", () => {
 			"01475a4f601d244bc31c11d5627e3176b1198fee",
 		);
 		await mkdir(root, { recursive: true });
+		// A pi running the tests names its own bundle here, which the host
+		// would say beside its root; this host is run by no pi.
+		vi.stubEnv("PI_PACKAGE_DIR", "");
 
 		const file = sayHostRuns(root, 4100);
 
