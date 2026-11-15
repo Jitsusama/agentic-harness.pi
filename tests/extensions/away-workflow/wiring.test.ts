@@ -1,6 +1,10 @@
 /**
  * Away mode driven through the events pi emits, with a job host on the
  * bus standing in for job-workflow.
+ *
+ * Long because every case drives the same fake session, job host and
+ * mocked desktop through the one extension, and splitting it would copy
+ * that harness into each part.
  */
 
 import { rmSync } from "node:fs";
