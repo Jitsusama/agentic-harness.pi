@@ -365,14 +365,23 @@ describe("what a round records about the tree it read", () => {
 		// rather than fixed at seven, so an eighth round has to answer
 		// the question rather than inherit a number.
 		const cut = source.split("await treeForRound(").length - 1;
-		const refused =
-			source.split('if ("refusal" in tree) return refuse(tree.refusal);')
-				.length - 1;
+		// A council and a background council make their round in one
+		// place, councilRound, which hands its refusal back to each.
+		const councils = source.split("await councilRound(").length - 1;
+		expect(councils, "both council rounds aren't made in one place").toBe(2);
+		const refused = (
+			source.match(
+				/if \("refusal" in tree\) return (?:\{ refused: )?refuse\(tree\.refusal\)/g,
+			) ?? []
+		).length;
 		// Both sides counted, because equal counts are satisfied by zero
 		// and zero: a rename would take the guard and the calls out
 		// together and this would go green on a file that no longer
 		// contains the thing it polices.
-		expect({ cut, refused }).toEqual({ cut: rounds.length + 2, refused: cut });
+		expect({ cut, refused }).toEqual({
+			cut: rounds.length + 2 - (councils - 1),
+			refused: cut,
+		});
 	});
 
 	it("falls back to the checkout the caller named before its own directory", () => {
