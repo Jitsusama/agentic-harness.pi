@@ -7,8 +7,9 @@
  * asked kills it, and nothing said what it waited on. This watches from
  * the moment it was asked: once a pi is still ending its while after,
  * it says what the process still holds open and what runs under it.
- * The watch's timer never keeps the process up, and writing what it saw
- * waits on nothing, so a pi that can end ends as soon as it would have.
+ * The watch's timer never keeps the process up, so a pi that can end
+ * ends as soon as it would have. Writing what it saw is synchronous and
+ * blocks the loop a few ms, once, only in a pi already slow to end.
  */
 
 import {

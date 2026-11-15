@@ -24,7 +24,8 @@
  * session quit, says what held it: `pi: still ending` in the system's
  * log, naming what the process still holds open and the processes
  * under it, with a fuller record in its state folder's `slow-ends/`.
- * The watch never keeps the process up and the write waits on nothing.
+ * The watch never keeps the process up; the log line waits on nothing,
+ * and writing the record blocks the loop a few ms, once.
  * See `lib/internal/session/slow-end.ts`.
  */
 
