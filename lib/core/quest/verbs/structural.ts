@@ -38,11 +38,27 @@ import {
 } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import {
+	commaList,
 	ok,
 	type QuestResult,
 	type QuestToolParams,
 	refuse,
 } from "./shared.ts";
+
+/**
+ * A batch refused whole: one target would not take the change, so
+ * none did, and the person is told which and why.
+ */
+function refusedBatch(errors: readonly string[], untouched: string): QuestResult {
+	return refuse(
+		`Refusing the batch; nothing was ${untouched}:\n- ${errors.join("\n- ")}`,
+	);
+}
+
+/** A batch every target of which already stands where it was sent. */
+function nothingToChange(message: string, params: QuestToolParams): QuestResult {
+	return ok(message, { changes: [], dryRun: Boolean(params.dryRun) });
+}
 
 /**
  * Reparent one or more quests under a new parent (or to top
@@ -54,10 +70,7 @@ export function reparent(
 	state: QuestState,
 	params: QuestToolParams,
 ): QuestResult {
-	const targets = (params.id ?? "")
-		.split(",")
-		.map((t) => t.trim())
-		.filter((t) => t.length > 0);
+	const targets = commaList(params.id);
 	if (targets.length === 0) {
 		return refuse(
 			"Pass the quest id to move in `id`, comma-separated for a batch.",
@@ -72,16 +85,12 @@ export function reparent(
 
 	const { index } = discoverQuests(state.questsRoot);
 	const plan = planReparent(index, targets, newParent);
-	if (plan.errors.length > 0) {
-		return refuse(
-			`Refusing the batch; nothing was moved:\n- ${plan.errors.join("\n- ")}`,
-		);
-	}
+	if (plan.errors.length > 0) return refusedBatch(plan.errors, "moved");
 	if (plan.changes.length === 0) {
-		return ok("Nothing to reparent; every target is already there.", {
-			changes: [],
-			dryRun: Boolean(params.dryRun),
-		});
+		return nothingToChange(
+			"Nothing to reparent; every target is already there.",
+			params,
+		);
 	}
 
 	if (params.dryRun) {
@@ -177,10 +186,7 @@ export function bulkConcludeOrRetire(
 	action: "conclude" | "retire",
 	params: QuestToolParams,
 ): QuestResult {
-	const targets = (params.id ?? "")
-		.split(",")
-		.map((t) => t.trim())
-		.filter((t) => t.length > 0);
+	const targets = commaList(params.id);
 	if (targets.length === 0) {
 		return refuse("Pass the quest ids to sweep in `id`, comma-separated.");
 	}
@@ -194,16 +200,12 @@ export function bulkConcludeOrRetire(
 
 	const { index } = discoverQuests(state.questsRoot);
 	const plan = planStatusChange(index, targets, newStatus);
-	if (plan.errors.length > 0) {
-		return refuse(
-			`Refusing the batch; nothing was changed:\n- ${plan.errors.join("\n- ")}`,
-		);
-	}
+	if (plan.errors.length > 0) return refusedBatch(plan.errors, "changed");
 	if (plan.changes.length === 0) {
-		return ok(`Nothing to ${action}; every target is already ${newStatus}.`, {
-			changes: [],
-			dryRun: Boolean(params.dryRun),
-		});
+		return nothingToChange(
+			`Nothing to ${action}; every target is already ${newStatus}.`,
+			params,
+		);
 	}
 
 	if (params.dryRun) {

@@ -81,6 +81,17 @@ export function refuse(guidance: string): QuestResult {
 /** The shared mark for no. */
 const REFUSED = "⊘";
 
+/**
+ * The entries of a comma-separated batch, each trimmed, blank ones
+ * dropped: how every verb taking several ids or aliases reads them.
+ */
+export function commaList(input: string | undefined): string[] {
+	return (input ?? "")
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
+}
+
 /** Build a structured success result. */
 export function ok(
 	message: string,

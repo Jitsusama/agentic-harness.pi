@@ -16,6 +16,7 @@ import { parseRef } from "../../../refs/index.ts";
 import { addAliasesToQuest, removeAliasesFromQuest } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";
 import {
+	commaList,
 	ok,
 	type QuestResult,
 	type QuestToolParams,
@@ -42,6 +43,33 @@ function parseAliasInput(raw: string): QuestAlias | undefined {
 	const ref = parseRef(trimmed);
 	if (ref) return { type: ref.type, value: ref.value };
 	return undefined;
+}
+
+/**
+ * The aliases `params.ref` or `params.url` gives, or why they cannot
+ * be taken: the first entry that is not an alias, or `none` when there
+ * are no entries at all. A comma separates entries, since a
+ * `type:value` literal and a URL both have no bare comma, so one call
+ * can add or remove several.
+ */
+function aliasesGiven(
+	params: QuestToolParams,
+	none: string,
+): QuestAlias[] | string {
+	const aliases: QuestAlias[] = [];
+	for (const token of commaList(params.ref ?? params.url)) {
+		const alias = parseAliasInput(token);
+		if (!alias) {
+			return `Could not parse "${token}" as an alias. Use the \`type:value\` form (e.g. \`github-pr:shop/world#47281\`) or a recognised URL; separate several with commas.`;
+		}
+		aliases.push(alias);
+	}
+	return aliases.length > 0 ? aliases : none;
+}
+
+/** How an alias is named back to the person. */
+function aliasLabels(aliases: readonly QuestAlias[]): string {
+	return aliases.map((a) => `${a.type}:${a.value}`).join(", ");
 }
 
 /** A quest an alias verb acts on: its id and its folder. */
@@ -82,28 +110,11 @@ export function aliasAdd(
 	const { index } = discoverQuests(state.questsRoot);
 	const target = aliasTarget(state, params, index);
 	if (typeof target === "string") return refuse(target);
-	const input = params.ref ?? params.url ?? "";
-	// A comma separates entries: a type:value literal and a URL both
-	// have no bare comma, so splitting first lets one call add several.
-	const tokens = input
-		.split(",")
-		.map((t) => t.trim())
-		.filter((t) => t.length > 0);
-	const aliases: QuestAlias[] = [];
-	for (const token of tokens) {
-		const alias = parseAliasInput(token);
-		if (!alias) {
-			return refuse(
-				`Could not parse "${token}" as an alias. Use the \`type:value\` form (e.g. \`github-pr:shop/world#47281\`) or a recognised URL; separate several with commas.`,
-			);
-		}
-		aliases.push(alias);
-	}
-	if (aliases.length === 0) {
-		return refuse(
-			"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url` (a recognised URL). Separate several with commas.",
-		);
-	}
+	const aliases = aliasesGiven(
+		params,
+		"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url` (a recognised URL). Separate several with commas.",
+	);
+	if (typeof aliases === "string") return refuse(aliases);
 	// Refuse a ref that already lives on another quest: routing the
 	// same alias to two quests would mis-attribute the linked work.
 	const aliasIdx = buildAliasIndex(index);
@@ -128,19 +139,18 @@ export function aliasAdd(
 	for (const alias of added) {
 		appendHarnessLog(target.dir, `Linked ${alias.type}:${alias.value}.`);
 	}
-	const label = (a: QuestAlias) => `${a.type}:${a.value}`;
 	if (added.length === 0) {
 		return ok(
-			`Alias ${already.map(label).join(", ")} was already present on ${target.id}.`,
+			`Alias ${aliasLabels(already)} was already present on ${target.id}.`,
 			{
 				aliases: already,
 				added: false,
 			},
 		);
 	}
-	let message = `Added alias ${added.map(label).join(", ")} to ${target.id}.`;
+	let message = `Added alias ${aliasLabels(added)} to ${target.id}.`;
 	if (already.length > 0) {
-		message += ` ${already.map(label).join(", ")} already present.`;
+		message += ` ${aliasLabels(already)} already present.`;
 	}
 	return ok(message, { aliases: added, added: true });
 }
@@ -156,46 +166,28 @@ export function aliasRemove(
 		discoverQuests(state.questsRoot).index,
 	);
 	if (typeof target === "string") return refuse(target);
-	const input = params.ref ?? params.url ?? "";
-	// Accept a comma batch, matching alias-add, so several aliases can be
-	// scrubbed in one call rather than one at a time.
-	const tokens = input
-		.split(",")
-		.map((t) => t.trim())
-		.filter((t) => t.length > 0);
-	const aliases: QuestAlias[] = [];
-	for (const token of tokens) {
-		const alias = parseAliasInput(token);
-		if (!alias) {
-			return refuse(
-				`Could not parse "${token}" as an alias. Use the \`type:value\` form (e.g. \`github-pr:shop/world#47281\`) or a recognised URL; separate several with commas.`,
-			);
-		}
-		aliases.push(alias);
-	}
-	if (aliases.length === 0) {
-		return refuse(
-			"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url`. Separate several with commas.",
-		);
-	}
+	const aliases = aliasesGiven(
+		params,
+		"Pass the alias in `ref` (e.g. `github-pr:shop/world#47281`) or in `url`. Separate several with commas.",
+	);
+	if (typeof aliases === "string") return refuse(aliases);
 	const result = removeAliasesFromQuest(target.dir, aliases);
 	if (!result.ok) return refuse(result.guidance);
 	const { removed, absent } = result;
-	const label = (a: QuestAlias) => `${a.type}:${a.value}`;
 	// A no-op is reported as success, matching alias-add: "nothing to
 	// remove" is the same outcome as "already present", not a refusal.
 	if (removed.length === 0) {
 		return ok(
-			`Alias ${absent.map(label).join(", ")} was not on this quest, ${target.id}.`,
+			`Alias ${aliasLabels(absent)} was not on this quest, ${target.id}.`,
 			{
 				aliases: absent,
 				removed: false,
 			},
 		);
 	}
-	let message = `Removed alias ${removed.map(label).join(", ")} from ${target.id}.`;
+	let message = `Removed alias ${aliasLabels(removed)} from ${target.id}.`;
 	if (absent.length > 0) {
-		message += ` ${absent.map(label).join(", ")} was not on this quest.`;
+		message += ` ${aliasLabels(absent)} was not on this quest.`;
 	}
 	return ok(message, { aliases: removed, removed: true });
 }
