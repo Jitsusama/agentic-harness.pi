@@ -19,15 +19,25 @@ export function sessionEnv(ref?: SessionRef): SessionEnvironment {
 	return host ? host.env(requireSession(ref)) : processEnvironment;
 }
 
-/** Consume startup hints once; plain pi's first words remain a file token. */
+/**
+ * Consume startup hints once. Plain pi's first words are a file token,
+ * or the words themselves for a pi spawned from another machine.
+ */
 export function launchHints(ref?: SessionRef): LaunchHints {
 	const host = hosted();
 	if (host) return host.hints(requireSession(ref));
 	const questId = process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
 	const orchestrate = process.env.QUEST_WORKFLOW_ORCHESTRATE === "1";
 	const firstWordsToken = process.env.QUEST_WORKFLOW_FIRST_WORDS;
+	const firstWords = process.env.QUEST_WORKFLOW_FIRST_TEXT || undefined;
 	delete process.env.QUEST_WORKFLOW_AUTOLOAD_ID;
 	delete process.env.QUEST_WORKFLOW_ORCHESTRATE;
 	delete process.env.QUEST_WORKFLOW_FIRST_WORDS;
-	return { questId, orchestrate, firstWordsToken };
+	delete process.env.QUEST_WORKFLOW_FIRST_TEXT;
+	return {
+		questId,
+		orchestrate,
+		firstWordsToken,
+		...(firstWords ? { firstWords } : {}),
+	};
 }

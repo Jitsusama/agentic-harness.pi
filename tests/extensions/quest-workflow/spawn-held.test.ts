@@ -7,6 +7,7 @@ import {
 	joinLine,
 	machineFor,
 	type PlaceOnNode,
+	type ShareQuest,
 	type StartOnNode,
 	spawnHeld,
 } from "../../../extensions/quest-workflow/verbs/spawn-held.ts";
@@ -23,6 +24,9 @@ const opening = {
 	settings: { drivers: { kitty: { path: "/bin/sh" } } },
 	env: { KITTY_PANE: "1" },
 } as const;
+
+/** Sharing that always works, so no test reaches mycelium. */
+const shares: ShareQuest = async () => ({ ok: true });
 
 /** A node that answers each start with `answer`, keeping what it was asked. */
 function node(answer: Awaited<ReturnType<StartOnNode>>) {
@@ -61,6 +65,7 @@ function asked(kitty: ReturnType<typeof fakeDriver>, dryRun = false) {
 		home: "/home/joel",
 		questId: "QEST-20261013-4UHC5Q",
 		layout: "tab",
+		window: true,
 		options: { ...opening, drivers: [kitty], dryRun },
 	} as const;
 }
@@ -144,7 +149,7 @@ describe("spawning on a machine", () => {
 	it("starts the session held there and opens a window here on its attach words", async () => {
 		const kitty = fakeDriver("kitty");
 		const { asked: starts, start } = node(equilibrius);
-		const outcome = await spawnHeld(asked(kitty), start);
+		const outcome = await spawnHeld(asked(kitty), start, shares);
 		expect(starts).toEqual([
 			{
 				machine: "equilibrius",
@@ -168,12 +173,12 @@ describe("spawning on a machine", () => {
 	it("asks the node nothing and opens nothing on a dry run, saying what it would do", async () => {
 		const kitty = fakeDriver("kitty");
 		const { asked: starts, start } = node(equilibrius);
-		const outcome = await spawnHeld(asked(kitty, true), start);
+		const outcome = await spawnHeld(asked(kitty, true), start, shares);
 		expect(starts).toEqual([]);
 		expect(kitty.calls.spawned).toEqual([]);
 		expect(outcome).toMatchObject({ ok: true, planned: true });
 		expect(outcome.ok && outcome.message).toContain(
-			"Would ask equilibrius's mycelium node to start a held session in src/core.nix, running: pi",
+			"ask equilibrius's mycelium node to start a held session in src/core.nix, running: pi",
 		);
 	});
 
@@ -183,7 +188,7 @@ describe("spawning on a machine", () => {
 			ok: false,
 			reason: "no link reaches equilibrius now",
 		});
-		const outcome = await spawnHeld(asked(kitty), start);
+		const outcome = await spawnHeld(asked(kitty), start, shares);
 		expect(outcome).toEqual({
 			ok: false,
 			refusal:
@@ -196,7 +201,11 @@ describe("spawning on a machine", () => {
 		const kitty = fakeDriver("kitty");
 		const { asked: starts, start } = node(equilibrius);
 		const home: Need = { kind: "reach", value: "home" };
-		const outcome = await spawnHeld({ ...asked(kitty), needs: [home] }, start);
+		const outcome = await spawnHeld(
+			{ ...asked(kitty), needs: [home] },
+			start,
+			shares,
+		);
 		expect(starts[0]?.needs).toEqual([home]);
 		expect(outcome.ok && outcome.message).toContain(
 			"The node chose equilibrius for reach=home. Started a held session",
