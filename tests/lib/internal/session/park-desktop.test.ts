@@ -120,7 +120,7 @@ describe("runProgram", () => {
 		// kitty's list of 77 windows here ran to 1.65 MB.
 		const printed = runProgram("seq", ["1", "300000"]);
 		expect(printed.length).toBeGreaterThan(1_048_576);
-		expect(printed.endsWith("300000\n")).toBe(true);
+		expect(printed.slice(-7)).toBe("300000\n");
 	});
 
 	it("throws when the program fails", () => {
@@ -181,7 +181,10 @@ describe("leaveScreen", () => {
 			closed: [],
 			open: "niri can't be read",
 		});
-		expect(at.calls.some((one) => one.startsWith("qs"))).toBe(false);
+		expect(
+			at.calls.filter((one) => one.startsWith("qs")),
+			"the shell is never asked",
+		).toEqual([]);
 	});
 
 	it("parks with its window open when it was focused as the launcher kept its place", () => {
@@ -321,7 +324,10 @@ describe("readScreen", () => {
 
 describe("onNiri", () => {
 	it("is on niri only where niri named its socket", () => {
-		expect(onNiri({ NIRI_SOCKET: "/run/user/1000/niri.sock" })).toBe(true);
-		expect(onNiri({})).toBe(false);
+		expect(
+			onNiri({ NIRI_SOCKET: "/run/user/1000/niri.sock" }),
+			"on niri with its socket named",
+		).toBe(true);
+		expect(onNiri({}), "not on niri without its socket").toBe(false);
 	});
 });

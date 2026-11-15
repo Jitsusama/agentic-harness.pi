@@ -896,6 +896,10 @@ export function meshWorkflow(
 		// Every id already looked at, so a watcher that reports one twice,
 		// as inotify does for a rename, is handed over once.
 		const seen = new Set<string>();
+		// Where this peer's catch-up began: a message stamped at or before it
+		// was this peer's to read then, so one that turns up later is an old
+		// copy and never a turn (see take).
+		let caughtUpFrom: string | undefined;
 		// How far the read marker may move: only past what was handed over.
 		let front = createReadFront();
 		let lookClock: ReturnType<typeof setInterval> | undefined;
@@ -1554,6 +1558,11 @@ export function meshWorkflow(
 			if (!message || !reaches(message, peer.listener, senderIdentity().pid)) {
 				return undefined;
 			}
+			// An old copy written back at the top, as a link to another machine
+			// does, is counted above but never handed over. On 14 November one
+			// wrote a week of expired messages back, and every session took
+			// each as new, its questions and pivots with a turn.
+			if (caughtUpFrom !== undefined && id <= caughtUpFrom) return undefined;
 			// The marker passes it only once it is handed over (see reading.ts).
 			front.taken(id);
 			// Brought into a group by another peer: it joins without being
@@ -2048,6 +2057,7 @@ export function meshWorkflow(
 			const since =
 				transport.lastRead(peer.addresses) ??
 				`${Date.now() - FIRST_CATCH_UP_MS}`;
+			caughtUpFrom = since;
 			const missed: Message[] = [];
 			for (const id of transport.ids()) {
 				if (id <= since) {

@@ -332,16 +332,28 @@ describe("kittyShows", () => {
 	];
 
 	it("holds a window kitty shows in an OS window of its class", () => {
-		expect(kittyShows(ls, held("33", "pi-session.1"))).toBe(true);
+		expect(
+			kittyShows(ls, held("33", "pi-session.1")),
+			"kitty shows window 33",
+		).toBe(true);
 	});
 
 	it("refuses an id kitty gave another window, as after kitty restarts", () => {
-		expect(kittyShows(ls, held("1", "pi-session.1"))).toBe(false);
-		expect(kittyShows(ls, held("34", "pi-session.1"))).toBe(false);
+		expect(
+			kittyShows(ls, held("1", "pi-session.1")),
+			"id 1 is another window's",
+		).toBe(false);
+		expect(
+			kittyShows(ls, held("34", "pi-session.1")),
+			"kitty has no window 34",
+		).toBe(false);
 	});
 
 	it("refuses a reply that isn't kitty's list", () => {
-		expect(kittyShows({ error: "no" }, held("33", "pi-session.1"))).toBe(false);
+		expect(
+			kittyShows({ error: "no" }, held("33", "pi-session.1")),
+			"an error is not kitty's list",
+		).toBe(false);
 	});
 });
 

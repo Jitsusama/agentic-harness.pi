@@ -1326,6 +1326,68 @@ describe("a message never lost", () => {
 	});
 });
 
+describe("an old copy written back", () => {
+	/** Write a message stamped long before this peer last read, as a link to another machine writes one back. */
+	const writtenBack = (text: string) => {
+		const dir = join(paths.mesh, "messages");
+		const sent = Date.now() - 7 * 24 * 60 * 60 * 1000;
+		const id = `${sent}-WCJQSG-7-cccccccc`;
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, `${id}.json`),
+			JSON.stringify({
+				v: 1,
+				id,
+				at: new Date(sent).toISOString(),
+				from: "WCJQSG",
+				to: ["@7M6JKG"],
+				intent: "question",
+				text,
+				pid: 7,
+			}),
+		);
+	};
+
+	it("is never handed over, as it lands or when looked for again", async () => {
+		// Seen live on 14 November: a move to another machine wrote a week
+		// of expired messages back at the top, and every session took each
+		// as new, its questions with a turn.
+		watching.deaf = true;
+		const { sent, entries, fire } = await startSession(
+			{},
+			{ isIdle: () => true },
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+
+		writtenBack("7M6JKG: still on your bug from last week?");
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		await fire("agent_end");
+		fromElsewhere({ to: ["@7M6JKG"], text: "news from now" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(sent[0]?.message.content).toContain("news from now");
+		expect(sent[0]?.message.content).not.toContain("last week");
+		expect(entries, "no glance at the old copy either").toEqual([]);
+	});
+
+	it("is never handed over as it lands while the peer watches", async () => {
+		const { sent, entries } = await startSession({}, { isIdle: () => true });
+
+		writtenBack("7M6JKG: still on your bug from last week?");
+		fromElsewhere({ to: ["@7M6JKG"], text: "news from now" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(sent).toHaveLength(1);
+		expect(sent[0]?.message.content).not.toContain("last week");
+		expect(entries, "no glance at the old copy either").toEqual([]);
+	});
+});
+
 describe("an answer", () => {
 	it("to this peer's own message gets a turn, wherever it went", async () => {
 		const { sent, tools } = await startSession({}, { isIdle: () => true });

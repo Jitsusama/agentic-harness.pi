@@ -763,8 +763,10 @@ describe("runHost", () => {
 				...(await engine(host)),
 				resume: async (_entry, _woken, mark) => {
 					mark?.("log");
+					// A real pause: each phase's logged time is what is measured.
 					await new Promise((done) => setTimeout(done, PHASE_MS));
 					mark?.("runtime");
+					// A real pause, for the second phase's time.
 					await new Promise((done) => setTimeout(done, PHASE_MS));
 				},
 			}),
