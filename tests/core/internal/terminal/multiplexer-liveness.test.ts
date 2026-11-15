@@ -129,9 +129,7 @@ describe.each(MULTIPLEXERS)("$id's liveness probe", (mux) => {
 		fake("exit 1");
 		const handles = [pane(mux.id, mux.listed, "/run/one")];
 
-		expect(said(await mux.make().probe(handles), handles)).toEqual([
-			"unknown",
-		]);
+		expect(said(await mux.make().probe(handles), handles)).toEqual(["unknown"]);
 	});
 
 	it("says unknown for a pane on another host or recorded without its server", async () => {

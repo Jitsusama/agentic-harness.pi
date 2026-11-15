@@ -8,13 +8,13 @@
  */
 
 import { hostname } from "node:os";
-import {
-	type TerminalDriver,
-	type TerminalLivenessCapability,
-	type TerminalRequest,
-	type TerminalSessionHandle,
-	type TerminalSighting,
-	type TerminalTypeCapability,
+import type {
+	TerminalDriver,
+	TerminalLivenessCapability,
+	TerminalRequest,
+	TerminalSessionHandle,
+	TerminalSighting,
+	TerminalTypeCapability,
 } from "../../../../terminal/types.ts";
 import { locateBinary } from "../binaries.ts";
 import { runCli } from "../cli.ts";

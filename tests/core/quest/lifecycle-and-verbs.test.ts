@@ -306,14 +306,20 @@ describe("reparent / undo", () => {
 	it("asks for an id when the batch names none", () => {
 		const state = buildState();
 
-		const moved = reparent(state, { action: "reparent", id: " , ", parent: "null" });
+		const moved = reparent(state, {
+			action: "reparent",
+			id: " , ",
+			parent: "null",
+		});
 		const swept = bulkConcludeOrRetire(state, "conclude", {
 			action: "conclude",
 			id: " , ",
 		});
 
 		expect(!moved.ok && moved.guidance).toContain("Pass the quest id to move");
-		expect(!swept.ok && swept.guidance).toContain("Pass the quest ids to sweep");
+		expect(!swept.ok && swept.guidance).toContain(
+			"Pass the quest ids to sweep",
+		);
 	});
 
 	it("refuses a whole batch when one id names no quest", () => {
@@ -321,7 +327,11 @@ describe("reparent / undo", () => {
 		const real = seedQuest(state.questsRoot, "Real");
 		const ids = `${real.id}, QEST-20260101-NOSUCH`;
 
-		const moved = reparent(state, { action: "reparent", id: ids, parent: "null" });
+		const moved = reparent(state, {
+			action: "reparent",
+			id: ids,
+			parent: "null",
+		});
 		const swept = bulkConcludeOrRetire(state, "conclude", {
 			action: "conclude",
 			id: ids,

@@ -49,14 +49,20 @@ import {
  * A batch refused whole: one target would not take the change, so
  * none did, and the person is told which and why.
  */
-function refusedBatch(errors: readonly string[], untouched: string): QuestResult {
+function refusedBatch(
+	errors: readonly string[],
+	untouched: string,
+): QuestResult {
 	return refuse(
 		`Refusing the batch; nothing was ${untouched}:\n- ${errors.join("\n- ")}`,
 	);
 }
 
 /** A batch every target of which already stands where it was sent. */
-function nothingToChange(message: string, params: QuestToolParams): QuestResult {
+function nothingToChange(
+	message: string,
+	params: QuestToolParams,
+): QuestResult {
 	return ok(message, { changes: [], dryRun: Boolean(params.dryRun) });
 }
 

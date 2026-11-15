@@ -12,12 +12,12 @@
  */
 
 import { hostname } from "node:os";
-import {
-	type TerminalDriver,
-	type TerminalLivenessCapability,
-	type TerminalRequest,
-	type TerminalSighting,
-	type TerminalTypeCapability,
+import type {
+	TerminalDriver,
+	TerminalLivenessCapability,
+	TerminalRequest,
+	TerminalSighting,
+	TerminalTypeCapability,
 } from "../../../../terminal/types.ts";
 import { locateBinary } from "../binaries.ts";
 import { runCli } from "../cli.ts";
