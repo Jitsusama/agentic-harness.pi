@@ -9,7 +9,10 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-/** The extensions in `agentDir` whose link leads nowhere, by name. */
+/**
+ * The extensions in `agentDir` whose link leads nowhere, by name; none
+ * when the folder itself is gone, which `missingFault` says apart.
+ */
 export function missingExtensions(agentDir: string): string[] {
 	const folder = join(agentDir, "extensions");
 	if (!existsSync(folder)) return [];
@@ -19,14 +22,17 @@ export function missingExtensions(agentDir: string): string[] {
 }
 
 /**
- * The fault for `side`'s extensions missing `when`, or none when every
- * one is there.
+ * The fault for `side`'s extensions missing `when`, the folder holding
+ * them included, or none when every one is there.
  */
 export function missingFault(
 	side: string,
 	agentDir: string,
 	when: string,
 ): string | undefined {
+	const folder = join(agentDir, "extensions");
+	if (!existsSync(folder))
+		return `${side} had no extensions folder ${when}: ${folder}`;
 	const missing = missingExtensions(agentDir);
 	if (missing.length === 0) return undefined;
 	const count = `${missing.length} extension${missing.length === 1 ? "" : "s"}`;

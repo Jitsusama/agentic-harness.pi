@@ -63,6 +63,14 @@ describe("the extensions a side was given", () => {
 		expect(missingExtensions(root)).toEqual([]);
 	});
 
+	it("faults naming the folder when the extensions folder itself is gone", () => {
+		const { agentDir } = agentFolder();
+		rmSync(join(agentDir, "extensions"), { recursive: true });
+		expect(missingFault("hosted", agentDir, "at its start")).toBe(
+			`hosted had no extensions folder at its start: ${join(agentDir, "extensions")}`,
+		);
+	});
+
 	it("says the fault by side and moment, or none when all are there", () => {
 		const { agentDir, harness } = agentFolder();
 		expect(missingFault("plain", agentDir, "at its start")).toBe(
