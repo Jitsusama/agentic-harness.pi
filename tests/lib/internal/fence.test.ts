@@ -350,6 +350,28 @@ describe("a command in the fence, through stand-ins", () => {
 		}
 	});
 
+	it("names only the sandboxed display, once it's there", () => {
+		const folder = join(runtimeDir, "pi-fence-display");
+		mkdirSync(folder, { recursive: true });
+		const display = join(folder, "wayland");
+		writeFileSync(display, "");
+		try {
+			const result = run(
+				'echo "display=$WAYLAND_DISPLAY"; echo "niri=$NIRI_SOCKET"',
+				{ WAYLAND_DISPLAY: "wayland-1", NIRI_SOCKET: "/run/niri.sock" },
+			);
+			expect(
+				result.stdout,
+				"the person's display, or none, was named",
+			).toContain(`display=${display}\n`);
+			expect(result.stdout, "niri's ipc reached the command").toContain(
+				"niri=\n",
+			);
+		} finally {
+			rmSync(folder, { recursive: true });
+		}
+	});
+
 	it("runs a nix-offload there call alone outside, with its own words and an environment of its own", () => {
 		const result = run(`nix-offload there -L ${DRV}^*`, {
 			FENCE_TEST_KEPT: "kept",

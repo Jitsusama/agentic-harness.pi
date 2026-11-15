@@ -16,19 +16,20 @@
  *   match, so no other process's files, memory or open pipes.
  * - **No desktop:** the runtime folder is an empty one of its own, with
  *   only the Nix daemon's door for sandboxes, the SSH agent's proxy,
- *   the jobs broker and the clipboard door bound back in, read-only
- *   (`LET_THROUGH`). The display,
+ *   the jobs broker, the clipboard door and the sandboxed display bound
+ *   back in, read-only (`LET_THROUGH`). The person's own display,
  *   niri, the shell's ipc, the session bus, sound, the keyring, the
  *   password and clipboard daemons and kitty's socket are named in
  *   `NEVER_THROUGH`, and Landlock refuses any socket it wasn't told of,
  *   abstract ones and signals outside too, so one elsewhere isn't
  *   reachable either.
- * - **A clipboard without the desktop:** `wl-copy` and `wl-paste` are
- *   the fence's own, first on `PATH`, which ask the clipboard door
- *   outside (`fence-clipboard.ts`). No window opens: niri would focus
- *   it on the person's workspace, so no display is let through, not
- *   even core's sandboxed one, until niri opens a sandboxed window
- *   unfocused elsewhere.
+ * - **A clipboard and windows without the desktop:** `wl-copy` and
+ *   `wl-paste` are the fence's own, first on `PATH`, which ask the
+ *   clipboard door outside (`fence-clipboard.ts`). `WAYLAND_DISPLAY`
+ *   names core's sandboxed display (`fenceDisplay`), where a window
+ *   opens but nothing records the screen, types, reads the clipboard
+ *   or hears when the person steps away, and where niri opens a
+ *   window behind what the person sees, never focused.
  * - **No startup files:** the settings and startup files that run code
  *   as the person later (`READ_ONLY`) are read-only, from this command
  *   and from pi's own file tools (`sandbox-files.ts`).
@@ -98,7 +99,15 @@ export const FENCE = "fence";
  * which stays shut. And the clipboard door, in a folder of its own,
  * which copies and pastes for the fence's `wl-copy` and `wl-paste`,
  * answers only fenced commands and never reads what a password manager
- * marked secret (core's `modules/pi/clipboard-door`).
+ * marked secret (core's `modules/pi/clipboard-door`). And the sandboxed
+ * display, in a folder of its own: a Wayland socket made through
+ * wp-security-context-v1, on which niri hides its privileged protocols
+ * (data control, screencopy, the virtual keyboard and pointer, foreign
+ * toplevels, the session lock, input methods and the idle notifier
+ * among them) and opens every window behind, unfocused (core's
+ * `modules/pi/fence-display`). Never `pi-fence`, where the fence keeps
+ * its copies (`fence-copy.ts`), each to be read only through the file
+ * it stands in for.
  *
  * The proxy's socket lives in a folder of its own, bound whole, so a
  * fenced command started before the proxy's socket comes back (a switch
@@ -113,7 +122,11 @@ const LET_THROUGH = [
 	"pi-agent",
 	"daemons/jobs-broker.sock",
 	"pi-clipboard",
+	"pi-fence-display",
 ] as const;
+
+/** The sandboxed display's socket, in the runtime folder. */
+const FENCE_DISPLAY = "pi-fence-display/wayland";
 
 /**
  * The cgroup tree, bound read-only inside: a fenced command may read
@@ -677,6 +690,19 @@ export function jobsBroker(
 ): string | undefined {
 	if (!runtimeDir) return undefined;
 	const path = join(runtimeDir, JOBS_BROKER);
+	return disk.kind(path) === undefined ? undefined : path;
+}
+
+/**
+ * The sandboxed display, for `WAYLAND_DISPLAY` inside, when core runs
+ * one; without it a fenced command names no display and opens no window.
+ */
+export function fenceDisplay(
+	runtimeDir: string | undefined,
+	disk: Disk = DISK,
+): string | undefined {
+	if (!runtimeDir) return undefined;
+	const path = join(runtimeDir, FENCE_DISPLAY);
 	return disk.kind(path) === undefined ? undefined : path;
 }
 

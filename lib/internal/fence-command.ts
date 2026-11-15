@@ -36,8 +36,9 @@ const UNSET = [
  * exports goes in but those naming the desktop, Nix is reached
  * through `door`, its daemon's door for sandboxes, SSH's agent is
  * `agent`, the proxy, GitHub is reached through `github`, its door,
- * and `shims`, the fence's `wl-copy` and `wl-paste`, go first on
- * `PATH`, each when there is one.
+ * `shims`, the fence's `wl-copy` and `wl-paste`, go first on
+ * `PATH`, and `display`, the sandboxed display, is the one
+ * `WAYLAND_DISPLAY` names, each when there is one.
  */
 export function fencedCommand(
 	command: string,
@@ -52,6 +53,7 @@ export function fencedCommand(
 		readonly homes?: readonly (readonly [string, string])[];
 		readonly github?: GitHubDoor;
 		readonly shims?: string;
+		readonly display?: string;
 	},
 ): string {
 	const homes = fence.homes ?? [];
@@ -85,6 +87,10 @@ export function fencedCommand(
 			// the fence's shims ahead of it.
 			...(fence.shims
 				? [`--env ${quoted(`PATH=${fence.shims}:`)}"$PATH"`]
+				: []),
+			// Never the person's own display: only the sandboxed one.
+			...(fence.display
+				? [`--env ${quoted(`WAYLAND_DISPLAY=${fence.display}`)}`]
 				: []),
 			...homes.map(([name, path]) => `--env ${quoted(`${name}=${path}`)}`),
 			`-- bash -c ${quoted(stub)}`,
