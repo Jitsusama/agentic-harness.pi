@@ -94,7 +94,7 @@ describe("createSpawnRunPi", () => {
 			"prompt",
 		]);
 		expect(calls[0].options.cwd).toBe("/tmp/wt");
-		expect(calls[0].options.detached).toBe(true);
+		expect(calls[0]).toMatchObject({ options: { detached: true } });
 	});
 
 	it("overrides the child's PI_PACKAGE_DIR with the pinned package dir", async () => {
