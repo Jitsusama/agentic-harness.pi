@@ -74,7 +74,10 @@ may import from here, and any of it may change without notice.
   commands run, which every way back into it hands on; and the
   context's usage, worked out once per leaf however many extensions
   ask; and the one listener every extension hears a turn's end
-  through, since pi rebuilds the whole context after each listener.
+  through, since pi rebuilds the whole context after each listener;
+  and, for a park under niri, which of a parked pi's windows may
+  close (`park-window.ts`) and the calls to niri, kitty and the
+  launcher that close them (`park-desktop.ts`).
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know, and its commands started by pi-spawner, so
   pi never forks itself to start one; what a bash call keeps of

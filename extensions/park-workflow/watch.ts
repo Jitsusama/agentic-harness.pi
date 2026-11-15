@@ -22,6 +22,7 @@ import {
 	PARKED_EXIT,
 	PARKING,
 	type ParkAsk,
+	type Parked,
 	type Parking,
 	parkAfterMs,
 	RESTART_ASK,
@@ -35,6 +36,18 @@ import {
 	writeAwake,
 	writeParked,
 } from "../../lib/internal/session/park.ts";
+import {
+	type Desk,
+	inSight,
+	leaveScreen,
+	leftOf,
+	machineDesk,
+	onNiri,
+} from "../../lib/internal/session/park-desktop.ts";
+import {
+	type HeldWindow,
+	heldWindowsOf,
+} from "../../lib/internal/session/park-window.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 
 /**
@@ -175,6 +188,11 @@ export interface WatchOptions {
 	readonly restartWith?: (sessionFile: string, fallback: () => void) => void;
 	/** Set the code pi exits with, from within its exit. */
 	readonly setExitCode?: (code: number) => void;
+	/**
+	 * The desktop its window is closed through as it parks, under niri;
+	 * this machine's unless given.
+	 */
+	readonly desk?: Desk;
 }
 
 /**
@@ -406,6 +424,13 @@ export function watch(
 		prompting: prompts > 0,
 		typed: ctx.ui.getEditorText().trim() !== "",
 	});
+	// The windows its holder shows it in, which close as it parks: none
+	// off niri, and none in a host, which keeps its conversations' windows.
+	const closable = (): readonly HeldWindow[] => {
+		if (!onNiri(env) || parkingHost()) return [];
+		return heldWindowsOf(holderRecord(wake)) ?? [];
+	};
+	const desk = (): Desk => options.desk ?? machineDesk(folder);
 	const unheld = (): string | undefined => {
 		if (wake === "") return "no holder would wake it";
 		// A host holds its conversations itself, in its own process.
@@ -453,23 +478,33 @@ export function watch(
 			? logWritten(sessionFile)
 			: restartNamed(again, args, session, sessionFile, env);
 		if (unnamed !== undefined) return unnamed;
+		// Asked last, since it reads the screen: a window Joel is at or can
+		// see keeps its session awake rather than closing.
+		const windows = closable();
+		const seen = inSight(windows, desk());
+		if (seen !== undefined) return seen;
 		const parking: Parking = { session, addresses: [], wake };
 		bus.emit(PARKING, parking);
 		// A host watches its conversations' inboxes itself (host/engine).
 		if (!parkingHost()) tellSteers(env[STEERS_ENV] ?? "", parking);
-		writeParked(
-			{
-				session,
-				sessionFile,
-				cwd: ctx.cwd,
-				addresses: parking.addresses,
-				...(parking.quest ? { quest: parking.quest } : {}),
-				parkedAt: new Date(now()).toISOString(),
-				pid: process.pid,
-				wake,
-			},
-			folder,
-		);
+		const marker: Parked = {
+			session,
+			sessionFile,
+			cwd: ctx.cwd,
+			addresses: parking.addresses,
+			...(parking.quest ? { quest: parking.quest } : {}),
+			parkedAt: new Date(now()).toISOString(),
+			pid: process.pid,
+			wake,
+		};
+		writeParked(marker, folder);
+		// Its holder outlives the window; whatever stays open stays parked,
+		// its marker saying why, so a sleeper's window still there explains
+		// itself.
+		if (windows.length > 0) {
+			const left = leftOf(leaveScreen(session, windows, desk()));
+			writeParked({ ...marker, windows: left }, folder);
+		}
 		end();
 		return undefined;
 	};

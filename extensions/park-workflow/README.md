@@ -28,9 +28,12 @@ What must not be out:
 - for an orchestrator, no session it leads at work (listening, busy
   or waiting rather than parked or paused), since their findings and
   landings are its to pass on;
-- and it must not be the session standing at the launcher's top
+- it must not be the session standing at the launcher's top
   (its quest's `stands-at-top`), which takes the person's lines and
-  would make each wait for a wake.
+  would make each wait for a wake;
+- and under niri, its window must be neither focused nor on a
+  workspace in sight (`its window is focused`, `its window is on a
+  workspace in sight`), since parking closes it, as below.
 
 Idle counts from the last thing that happened in it: a prompt typed,
 a run starting or ending, a prompt opening or closing.
@@ -99,11 +102,43 @@ conversation alone, it never parks, and its awake note says
    park wrote. A
    conversation in a host writes nothing: the host watches its
    inboxes itself.
-4. pi shuts down as `/quit` would and exits with code 75
+4. Under niri (`NIRI_SOCKET` set), a plain pi's kitty windows close,
+   since its holder outlives them and a sleeping session's window
+   only takes the person's attention. It first asks the launcher to
+   keep its place asleep (`qs ipc call sessions keepPlaceAsleep
+   <session-id>`), so a Return on its Agents row reopens it where it
+   was, and closes a window only on the answer `kept`. Each window is
+   found by its OS window's class against niri's app id, and checked
+   again in `kitten @ ls` before closing, since a restarted kitty
+   reuses ids; niri is asked which window is focused just before
+   each closes, and one the person has clicked into stays open. When
+   niri can't be read, the launcher keeps nothing, or a window can't
+   be told apart, it parks with its window open. Its marker then
+   says what became of its windows, as `windows`: those closed, by
+   kitty id and class, and as `open` why one stayed open. Off niri,
+   and in a host, which keeps its conversations' windows, nothing is
+   asked of the desktop and the marker says nothing of windows.
+
+   With the screen off, niri puts every workspace on no output, so
+   what was in sight is remembered: each read while the screen is on
+   writes the workspaces shown to `park-workflow/screen.json`. While
+   it is off, those, the window focused last and its workspace, and
+   any workspace niri still calls active count as in sight; with
+   nothing remembered, no window closes.
+5. pi shuts down as `/quit` would and exits with code 75
    (EX_TEMPFAIL), which tells its holder this is a park, not an end.
    It writes nothing of its own and leaves out pi's "To resume this
    session" hint: the holder says in the window that it parked and
    that a key or a message wakes it, and once was enough.
+
+Sessions that parked before this closed their windows keep them
+open. `scripts/park-windows.ts` lists, by the same checks, which of
+them would close now (`--running` adds the held pis awake, and
+`--screen <windows.json> <workspaces.json>` replays a saved niri
+read), and closes them with `--close <address|session|held|all>`,
+stopping if the person's focus moves. Each line carries, as `left`,
+what a session's marker kept of why its window stayed open. It runs
+by hand, outside the fence.
 
 A message that would give the parked peer a turn (a question or hold
 sent to it, an answer to it, a pivot, and for an orchestrator a

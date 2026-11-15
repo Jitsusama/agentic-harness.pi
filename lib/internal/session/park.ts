@@ -409,6 +409,17 @@ function switchLines(path: string): string[] {
 	}
 }
 
+/**
+ * What became of a parking session's windows: those it closed, and why
+ * any stayed open, so a sleeper's window still there says why.
+ */
+export interface WindowsLeft {
+	/** The windows closed, by their terminal's id and their class. */
+	readonly closed: readonly { readonly id: string; readonly appId: string }[];
+	/** Why a window stayed open, when one did. */
+	readonly open?: string;
+}
+
 /** What a session's marker says while it is parked. */
 export interface Parked {
 	readonly session: string;
@@ -426,6 +437,8 @@ export interface Parked {
 	readonly pid: number;
 	/** The file its holder wakes it on, written to by a sender. */
 	readonly wake: string;
+	/** What became of its windows, once it tried to close them. */
+	readonly windows?: WindowsLeft;
 }
 
 /** Whether a value reads as a marker. */

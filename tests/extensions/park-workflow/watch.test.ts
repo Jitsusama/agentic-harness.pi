@@ -362,6 +362,235 @@ describe("parking a session", () => {
 	});
 });
 
+describe("closing its window as it parks", () => {
+	// Joel, 14 November: "should sessions put to sleep even have windows?"
+	// Its holder outlives the window, so a parked pi's window closes, but
+	// never one he is at or can see (OSPHT4 [7a47aa8b]).
+	const SOCKET = "unix:/run/user/1000/pi-sessions/kitty.sock";
+	const CLOSE = `kitten @ --to ${SOCKET} close-window --match id:33`;
+	const KEEP = `qs ipc call sessions keepPlaceAsleep ${SESSION}`;
+	const onNiri = () => ({ ...holder(), NIRI_SOCKET: "/run/niri.sock" });
+
+	beforeEach(() => {
+		writeFileSync(
+			join(folder, "held.json"),
+			JSON.stringify({
+				pid: HELD_PID,
+				windows: [
+					{
+						terminal: "kitty",
+						id: "33",
+						within: SOCKET,
+						app_id: "pi-session.1",
+					},
+				],
+			}),
+		);
+	});
+
+	/** A desktop showing its window on `workspace`; 1 is the one in sight. */
+	const desktop = (
+		workspace: number,
+		given: {
+			focused?: boolean;
+			kept?: string;
+			/** Focused from this read of niri's windows on, counting from 1. */
+			focusedFromRead?: number;
+			/** niri's windows fail to read from this read on. */
+			failsFromRead?: number;
+			kittyFails?: boolean;
+		} = {},
+	) => {
+		const calls: string[] = [];
+		let reads = 0;
+		const run = (program: string, args: readonly string[]) => {
+			const call = [program, ...args].join(" ");
+			calls.push(call);
+			if (call === "niri msg --json windows") {
+				reads += 1;
+				if (reads >= (given.failsFromRead ?? Number.POSITIVE_INFINITY)) {
+					throw new Error("niri is gone");
+				}
+				const focused =
+					(given.focused ?? false) ||
+					reads >= (given.focusedFromRead ?? Number.POSITIVE_INFINITY);
+				return JSON.stringify([
+					{
+						id: 7,
+						app_id: "pi-session.1",
+						workspace_id: workspace,
+						is_focused: focused,
+					},
+				]);
+			}
+			if (call === "niri msg --json focused-window") return "null";
+			if (given.kittyFails && call.includes("close-window")) {
+				throw new Error("kitty is gone");
+			}
+			if (call === "niri msg --json workspaces") {
+				return JSON.stringify([
+					{ id: 1, is_active: true, is_focused: true, output: "eDP-1" },
+					{ id: 3, is_active: false, is_focused: false, output: "eDP-1" },
+				]);
+			}
+			if (program === "qs") return given.kept ?? "kept";
+			if (call.startsWith(`kitten @ --to ${SOCKET} ls --match id:`)) {
+				return JSON.stringify([
+					{ wm_class: "pi-session.1", tabs: [{ windows: [{ id: 33 }] }] },
+				]);
+			}
+			return "";
+		};
+		return { calls, desk: { run, memory: join(folder, "screen.json") } };
+	};
+
+	const parkingOn = (
+		desk: ReturnType<typeof desktop>["desk"],
+		env: NodeJS.ProcessEnv = onNiri(),
+	) =>
+		watch(session(), events, {
+			env,
+			pid: HELD_PID,
+			switchPath: parkSwitch(folder),
+			folder,
+			now: () => clock,
+			exitWith: (code) => exits.push(code),
+			clock: false,
+			desk,
+		});
+
+	it("keeps its place asleep, closes its window, then exits for its holder", () => {
+		const { calls, desk } = desktop(3);
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(calls.indexOf(KEEP)).toBeGreaterThan(-1);
+		expect(calls.indexOf(CLOSE)).toBeGreaterThan(calls.indexOf(KEEP));
+		expect(exits).toEqual([PARKED_EXIT]);
+		expect(shutdowns).toBe(1);
+	});
+
+	it("stays awake, saying why, when its window is focused", () => {
+		const { calls, desk } = desktop(3, { focused: true });
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBe("its window is focused");
+		expect(
+			JSON.parse(readFileSync(awakePath(SESSION, folder), "utf8")).why,
+		).toBe("its window is focused");
+		expect(calls).not.toContain(KEEP);
+		expect(calls).not.toContain(CLOSE);
+		expect(readParked(SESSION, folder)).toBeUndefined();
+		expect(exits).toEqual([]);
+		expect(shutdowns).toBe(0);
+	});
+
+	it("stays awake when its window is on a workspace in sight", () => {
+		const { desk } = desktop(1);
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBe("its window is on a workspace in sight");
+		expect(shutdowns).toBe(0);
+	});
+
+	it("parks with its window open when the launcher doesn't keep its place", () => {
+		const { calls, desk } = desktop(3, { kept: "no window to keep" });
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(calls).not.toContain(CLOSE);
+		expect(exits).toEqual([PARKED_EXIT]);
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [],
+			open: "the launcher didn't keep its place: no window to keep",
+		});
+	});
+
+	it("keeps in its marker the windows it closed", () => {
+		const { desk } = desktop(3);
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [{ id: "33", appId: "pi-session.1" }],
+		});
+	});
+
+	it("keeps in its marker why its window stayed open, should it come into sight between the reads", () => {
+		const { calls, desk } = desktop(3, { focusedFromRead: 2 });
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(calls).not.toContain(CLOSE);
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [],
+			open: "its window is focused",
+		});
+	});
+
+	it("keeps in its marker that niri couldn't be read as it closed", () => {
+		const { desk } = desktop(3, { failsFromRead: 2 });
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [],
+			open: "niri can't be read",
+		});
+	});
+
+	it("keeps in its marker that kitty didn't close its window", () => {
+		const { desk } = desktop(3, { kittyFails: true });
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(readParked(SESSION, folder)?.windows).toEqual({
+			closed: [],
+			open: "kitty didn't close window 33",
+		});
+	});
+
+	it("keeps nothing of windows in its marker off niri", () => {
+		const { desk } = desktop(3);
+		const watched = parkingOn(desk, holder());
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(readParked(SESSION, folder)).toBeDefined();
+		expect(readParked(SESSION, folder)?.windows).toBeUndefined();
+	});
+
+	it("asks the desktop nothing off niri, parking as before", () => {
+		const { calls, desk } = desktop(1, { focused: true });
+		const watched = parkingOn(desk, holder());
+		clock = NAMED_PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(calls).toEqual([]);
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("asks the desktop nothing while something else keeps it awake", () => {
+		const { calls, desk } = desktop(3);
+		const watched = parkingOn(desk);
+		clock = NAMED_PARK_AFTER_MS - 1;
+		expect(watched.look()).toBe("not idle long enough");
+		expect(calls).toEqual([]);
+	});
+
+	it("leaves a hosted conversation's window to its host", () => {
+		const { calls, desk } = desktop(3);
+		const host = installTestHost();
+		host.host.park = () => {};
+		try {
+			const watched = parkingOn(desk);
+			clock = NAMED_PARK_AFTER_MS;
+			expect(watched.look()).toBeUndefined();
+			expect(calls).toEqual([]);
+		} finally {
+			host.dispose();
+		}
+	});
+});
+
 describe("starting again on a fresh log", () => {
 	const fresh = () => join(folder, "fresh.jsonl");
 	const asked = (byHand = false): RestartAsk => {
