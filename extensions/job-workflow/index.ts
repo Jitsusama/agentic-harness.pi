@@ -54,6 +54,8 @@ import {
 	movingOn,
 	sayCarried,
 	sayTakenUp,
+	strandedIn,
+	type TakingUp,
 	takeUp,
 } from "./moved.ts";
 import { jobIdsIn } from "./outbox.ts";
@@ -262,7 +264,10 @@ function carry(
 	return true;
 }
 
-/** Take up the jobs a move carried into this session, if any wait. */
+/**
+ * Take up the jobs a move carried into this session, if any wait, and
+ * those an earlier take-up left unsaid, which a first look says.
+ */
 function takeUpIfCarried(
 	pi: ExtensionAPI,
 	session: JobSession,
@@ -275,16 +280,18 @@ function takeUpIfCarried(
 		// No history to read: nothing was carried into it.
 		return;
 	}
-	const carried = carriedIn(branch);
-	if (carried === undefined) return;
-	takeUp(carried, {
+	const into: TakingUp = {
 		jobs: session.jobs,
 		outbox: session.outbox,
 		session: sessionKeyOf(ctx),
 		append: (type, data) => pi.appendEntry(type, data),
 		offer: (work) => offerCarried(pi.events, work),
 		taken: (job) => sayTakenUp(pi.events, job),
-	});
+	};
+	const stranded = strandedIn(branch);
+	if (stranded) takeUp(stranded, into);
+	const carried = carriedIn(branch);
+	if (carried) takeUp(carried, into);
 }
 
 /** The session's key for its crash writer, or one for the process when it can't say. */

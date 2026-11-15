@@ -29,6 +29,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -142,6 +143,11 @@ export function markCarried(path: string, mark = ""): void {
 	} catch {
 		// Removed under it, as its call ended: nothing left to spare.
 	}
+}
+
+/** Whether the call at `path` is still marked handed on: its end not yet said. */
+export function isMarkedCarried(path: string): boolean {
+	return existsSync(`${path}${CARRIED}`);
 }
 
 /** The calls handed to another process, as a reaper tells them apart. */
