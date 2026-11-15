@@ -44,6 +44,11 @@ import type {
 import { MessageQueue, type QueuedMessage } from "./queue.ts";
 import { type Renewed, refusedOldKey } from "./renewing-stream.ts";
 import {
+	beganWithPersonsWords,
+	type GiveBack,
+	type TakeTurn,
+} from "./resume-turns.ts";
+import {
 	errorResult,
 	resultMessage,
 	ToolRound,
@@ -83,6 +88,8 @@ export interface DurableBinding {
 	resume(): void;
 	/** The newest run durable ended without an answer, as it committed it. */
 	runFailure(): Promise<RunFailure | undefined>;
+	/** Whether durable holds a run a restart cut off, to carry on once it resumes. */
+	carrying(): Promise<boolean>;
 	/** Build the durable extension holding these tools and the agent's generation hooks. */
 	extension(
 		tools: readonly ToolRegistration[],
@@ -332,9 +339,13 @@ export class HostedAgent {
 	 */
 	park(): void {
 		this.parked = true;
+		this.parking.abort();
 	}
 
 	private parked = false;
+
+	/** Ends a carried run's wait for its turn when the conversation parks. */
+	private readonly parking = new AbortController();
 
 	abort(): void {
 		const active = this.active;
@@ -435,34 +446,55 @@ export class HostedAgent {
 	 * Open the conversation, once pi's session holds the agent: let durable
 	 * carry on whatever a restart cut off, as a run of pi's that starts only
 	 * if there is something to show, beginning with what durable committed
-	 * and the session file lacks. Resolves once durable resumed, so a host
-	 * starting many conversations waits on none of their runs; settled
-	 * resolves once the carried-on run ends. A fresh conversation has
-	 * nothing to carry on and shows nothing.
+	 * and the session file lacks. Resolves once durable resumed, or once
+	 * the run it carries waits for its turn, so a host starting many
+	 * conversations waits on none of their runs; settled resolves once the
+	 * carried-on run ends. A fresh conversation has nothing to carry on and
+	 * shows nothing. Given `turn`, a run a restart cut off waits for one
+	 * before durable carries it on, and gives it back once it and any ask
+	 * again after it end, so a host coming back carries only a few on at once.
 	 */
-	recover(): Promise<{ readonly settled: Promise<void> }> {
-		this.recovery ??= this.recoverOnce();
+	recover(turn?: TakeTurn): Promise<{ readonly settled: Promise<void> }> {
+		this.recovery ??= this.recoverOnce(turn);
 		return this.recovery;
 	}
 
-	private async recoverOnce(): Promise<{ readonly settled: Promise<void> }> {
+	private async recoverOnce(
+		turn: TakeTurn | undefined,
+	): Promise<{ readonly settled: Promise<void> }> {
 		// A run begun before the recovery, as by an extension's start, ends
 		// first: durable admits nothing new while a turn it holds is cut off.
 		while (this.active) await this.active.promise;
 		this.cursor = await this.lastShown();
 		const before = await this.durable.runFailure();
+		const waits = turn !== undefined && (await this.durable.carrying());
+		let giveBack: GiveBack = () => {};
 		let resumed = () => {};
 		const started = new Promise<void>((done) => {
 			resumed = done;
 		});
 		const settled = this.runWithLifecycle(async (run) => {
+			if (waits) {
+				// Words said meanwhile queue behind this run, as behind any other.
+				resumed();
+				giveBack = await turn(
+					beganWithPersonsWords(this.state.messages),
+					AbortSignal.any([run.controller.signal, this.parking.signal]),
+				);
+				// Parked while it waited: durable keeps the run for the start that opens it next.
+				if (this.parked) return;
+			}
 			const cut = this.cutOffAnswer();
 			if (cut) this.startRound(run, cut, { recovered: true });
 			this.durable.resume();
 			resumed();
 		});
 		await Promise.race([started, settled]);
-		return { settled: settled.then(() => this.askAgainIfCutOff(before)) };
+		return {
+			settled: settled
+				.then(() => this.askAgainIfCutOff(before))
+				.finally(() => giveBack()),
+		};
 	}
 
 	/**

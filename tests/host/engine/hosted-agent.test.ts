@@ -41,6 +41,8 @@ interface Observed {
 		readonly type: string;
 		/** How long a timed step took, for an event that timed one. */
 		readonly ms?: number;
+		/** Whether a turn taken to carry a run on went to words a person wrote. */
+		readonly first?: boolean;
 	}[];
 	readonly transcript: readonly {
 		readonly role: string;
@@ -90,6 +92,16 @@ async function observe(
 		{ env: sealedEnv() },
 	);
 	return JSON.parse(stdout);
+}
+
+/** The turns a run took and gave back, among the ends of pi's runs. */
+function turnsOf(observed: Observed): unknown[] {
+	return observed.events.flatMap((event): unknown[] => {
+		if (event.type === "agent_end") return ["agent_end"];
+		if (event.type === "turn") return [{ type: "turn", first: event.first }];
+		if (event.type === "turn given back") return [{ type: event.type }];
+		return [];
+	});
 }
 
 /** What pi's listeners saw opening a kept session on the host's agent, and what durable reported meanwhile. */
@@ -392,6 +404,52 @@ describe("the hosted agent resuming a turn a restart cut off", {
 		} finally {
 			rmSync(folder, { recursive: true, force: true });
 		}
+	});
+
+	it("carries a cut-off tool round on in a turn, first as words typed began it, given back as it ends", async () => {
+		// After a restart every resumed run went at once (WCJQSG, 15 November); each now takes one of a few turns.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-turn-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			const reopened = await observe("hosted", "reopen-taking-turns", folder);
+			expect(turnsOf(reopened)).toEqual([
+				{ type: "turn", first: true },
+				"agent_end",
+				{ type: "turn given back" },
+			]);
+			expect(reopened.ran, "the tool ran once, before the kill").toBe(1);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("holds one turn through the run a request was cut off in and the ask again after it", async () => {
+		const folder = mkdtempSync(join(tmpdir(), "hosted-turn-request-"));
+		try {
+			expect(await killed("crash-in-request-automated", folder)).toBe(
+				"SIGKILL",
+			);
+			const { observed } = await reopenedWithReports(
+				folder,
+				"reopen-taking-turns",
+			);
+			expect(
+				turnsOf(observed),
+				"a turn the harness began waits behind Joel's; the carried run showed pi nothing, and the ask again ends before the turn goes back",
+			).toEqual([
+				{ type: "turn", first: false },
+				"agent_end",
+				{ type: "turn given back" },
+			]);
+			expect(said(observed, "assistant").at(-1)).toBe("after the restart");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("takes no turn for a conversation with nothing to carry on", async () => {
+		const fresh = await observe("hosted", "fresh-taking-turns");
+		expect(turnsOf(fresh)).toEqual(["agent_end"]);
 	});
 
 	it("shows the answer pi never saw without showing again a result it held under another time", async () => {

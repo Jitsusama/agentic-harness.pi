@@ -89,6 +89,16 @@ whose own retry stays off, ends that run as interrupted, and the
 recovery then continues the conversation, unless durable ended it for
 being cut off again and again.
 
+A host coming back carries only a few cut-off runs on at once
+(resume-turns.ts, RESUMED_RUNS_AT_ONCE, 4). As a start resumes what it
+holds, each conversation whose durable store holds a run waits for a
+turn before durable carries it on, and keeps it through any ask again
+after. Every turn is held until the start has resumed its last
+conversation, so the order is the whole start's: runs begun by words a
+person typed first, then the rest in the order the host held them. A
+wake, an open or an adopt takes no turn, an abort ends the wait, and a
+park leaves the run in durable for the start that opens it next.
+
 pi's session writes an extension's message at once when it counts no
 run of its own, and a turn durable carries on after a restart is not
 one, so a mesh message could land between a call and its result, and
