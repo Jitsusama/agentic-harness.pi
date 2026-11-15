@@ -86,6 +86,19 @@ describe("the notices a session has up", () => {
 		expect(screen.closed, "closed once the desktop said its id").toEqual([1]);
 	});
 
+	it("stops waiting on a desktop that never answers once its time is up", async () => {
+		const { raiseNotice, withdrawNotices } = await notices();
+		const screen = desktop();
+		await raiseNotice("blocked", { title: "needs you" }, screen.deps);
+		const silent: Exec = () => new Promise(() => {});
+		const started = performance.now();
+		await withdrawNotices(["blocked"], { ...screen.deps, exec: silent }, 50);
+		const took = performance.now() - started;
+		expect(took, "gave up near its 50 ms, not with the desktop").toBeLessThan(
+			1_000,
+		);
+	});
+
 	it("takes back, after a reload, what the copy before it raised", async () => {
 		const before = await notices();
 		const screen = desktop();

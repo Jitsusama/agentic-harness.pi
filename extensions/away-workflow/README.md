@@ -78,7 +78,10 @@ you to a session that has moved past it. Typing in the session takes
 all of its notices back; coming back takes back what the absence
 held; a run starting takes back the note that it rests; a call held
 no longer takes back its notice; and the session ending, other than
-by a reload, takes back everything it raised. This works where the
+by a reload, takes back everything it raised. An ending session waits
+at most a second on the desktop for that, so a desktop that has stopped
+answering, as in a reboot, never keeps it past the three seconds its
+holder gives it. This works where the
 desktop gives each notice an id (`notify-send` 0.7.10 or later, with
 `busctl` or `gdbus` to close it); on macOS a notice stays until you
 clear it.

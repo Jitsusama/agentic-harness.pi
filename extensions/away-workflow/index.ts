@@ -123,6 +123,14 @@ import {
 	stopNotice,
 } from "./reach.ts";
 
+/**
+ * How long an ending session waits on the desktop to take its notices
+ * back: well inside the 3 s a mycelium holder gives pi before killing
+ * it, since 8 of 10 held sessions outlived that in the 14 November
+ * reboot while the notification daemon was stopping too.
+ */
+const SHUTDOWN_WITHDRAW_MS = 1_000;
+
 /** Custom message types away mode speaks in. */
 const RETURN_MESSAGE = "away-return";
 const HINT_MESSAGE = "away-hint";
@@ -477,7 +485,9 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (event) => {
 		// A reload's new copy takes over what is up; any other end leaves
 		// nothing for the person to act on here.
-		if (event.reason !== "reload") await withdrawNotices(EVERY_NOTICE);
+		if (event.reason !== "reload") {
+			await withdrawNotices(EVERY_NOTICE, {}, SHUTDOWN_WITHDRAW_MS);
+		}
 		sessionWants().unbind(pi.events);
 		stopWaiting();
 		stopWatching();
