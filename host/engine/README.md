@@ -224,6 +224,16 @@ a credential, so a provider whose key was written out warms in this
 host alone.
 A resume stops it before the session starts and takes the carry, and a
 warm out then is dropped rather than holding the wake up.
+While the host holds a conversation, running or parked, held-logs.ts
+holds its log open read-only, so a reader of the machine can tell the
+host that holds a conversation from one that only once said it did:
+mycelium believes a claim to own a session only where its owner holds
+that log open, and a host that died holds none. It opens as pi builds
+the session, once keptFile has written the log, and as a host starting
+leaves one resting parked. A conversation that becomes another (a /new,
+a fork, a rollover) holds the log it became, and the one it was lets
+its log go as it ends. A park keeps it; a close, a stop for a restart,
+a failed replacement and a drop while parked let it go.
 quiet-collection.ts gives V8's pooled pages back with one last-resort
 collection, which unmaps the pages V8 keeps until a memory-reducing
 one, once something has stirred (a turn started or ended, or a

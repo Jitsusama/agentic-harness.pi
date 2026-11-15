@@ -9,6 +9,8 @@
  * it, and the one it was ends with it. A conversation left idle parks,
  * freeing its session while it stays held, and wakes in place (parking.ts);
  * while it is parked, the host keeps its cache warm (parked-warming.ts).
+ * While the host holds a conversation, running or parked, it holds its log
+ * open (held-logs.ts).
  *
  * Long because a conversation's steps (register, build, begin, end, park,
  * resume) meet here in the order each relies on, every one of them
@@ -65,6 +67,7 @@ import {
 	harnessSettings,
 } from "./harness-settings.ts";
 import { bindHeadless } from "./headless.ts";
+import { heldLogs } from "./held-logs.ts";
 import { loadHostPi } from "./host-pi.ts";
 import type { HostedAgent } from "./hosted-agent.ts";
 import {
@@ -197,6 +200,7 @@ export async function createEngine(
 		);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
+	const logs = heldLogs(report);
 	// Only a start's resumes take one: a wake, an open or an adopt carries its run on at once.
 	const turns = resumeTurns();
 	// The bash calls a restart carries to the next host, kept through its stop.
@@ -424,6 +428,8 @@ export async function createEngine(
 	): Promise<RuntimeResult> {
 		const { sessionId } = record.traits;
 		const { request } = building;
+		// Written by now: keptFile writes the log of one held before its first message.
+		logs.hold(sessionId, record.traits.file);
 		const env = () => requestEnv(sessionId);
 		agentDirs.set(sessionId, target.agentDir);
 		environments.set(sessionId, host.env(sessionId));
@@ -819,6 +825,8 @@ export async function createEngine(
 			if (live.get(sessionId) === record) {
 				live.delete(sessionId);
 				tools.forget(sessionId);
+				// A parked one stays held, its log with it, until it wakes or is dropped.
+				if (!record.parking) logs.release(sessionId);
 			}
 			// What it held is garbage now: a park lets most of it go, and may collect sooner.
 			if (record.parking) quiet.parked();
@@ -1031,6 +1039,7 @@ export async function createEngine(
 			if (readParked(sessionId)?.wake !== parked.wakeFile(sessionId))
 				return false;
 			parked.rests(sessionId);
+			logs.hold(sessionId, resolve(entry.file));
 			agentDirs.set(sessionId, sessions.getAgentDir());
 			const kept = readKept(providersFile(sessionId));
 			if (kept) providers.set(sessionId, kept);
@@ -1049,6 +1058,7 @@ export async function createEngine(
 
 		async dropped(sessionId, why) {
 			warming.stop(sessionId);
+			logs.release(sessionId);
 			agentDirs.delete(sessionId);
 			environments.delete(sessionId);
 			providers.delete(sessionId);

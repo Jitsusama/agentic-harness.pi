@@ -13,7 +13,9 @@ import {
 	copyFileSync,
 	existsSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
+	readlinkSync,
 	realpathSync,
 	renameSync,
 	rmSync,
@@ -136,6 +138,10 @@ const TRUST_THIS_SESSION = "Trust (this session only)";
 /** How long a condition the fixture waits on may take, and how often it looks. */
 const UNTIL_MS = 60_000;
 const LOOK_MS = 10;
+
+/** Linux's access mode bits in a descriptor's flags, and the one that only reads. */
+const ACCESS_MODE = 0o3;
+const READ_ONLY = 0o0;
 
 /** A question the fixture's screens were asked about a folder, and what settles it. */
 interface TrustAsked {
@@ -395,6 +401,55 @@ const scenarios: Record<string, Scenario> = {
 				rests,
 				pending: takePendingWarms(pendingWarmsDir(), entry.sessionId).length,
 			};
+		},
+	},
+	/**
+	 * The log the host holds open of each conversation as it opens, becomes
+	 * another, parks, wakes and closes, and of one closed while parked.
+	 */
+	"logs-held": {
+		responses: () => [say("hello there")],
+		run: async (engine, host) => {
+			const first = await open(engine, { first: "hi" });
+			await idle(engine, first);
+			const firstFile = readEntry().file;
+			const opened = logHolds(firstFile);
+			await host.run(first, () => prompt(engine, first, "/probe-new"));
+			const next = readEntry();
+			await until("the first conversation ends", () => !host.holds(first));
+			const afterNew = {
+				first: logHolds(firstFile),
+				next: logHolds(next.file),
+			};
+			await parkNow(engine, host, next.sessionId);
+			const whileParked = logHolds(next.file);
+			await engine.resume(next, true);
+			const woken = logHolds(next.file);
+			await host.close(next.sessionId);
+			const closed = logHolds(next.file);
+			const other = await open(engine, {});
+			const otherFile = readEntry().file;
+			await parkNow(engine, host, other);
+			await engine.dropped?.(other, "closed while parked");
+			return {
+				logs: {
+					opened,
+					afterNew,
+					whileParked,
+					woken,
+					closed,
+					closedParked: logHolds(otherFile),
+				},
+			};
+		},
+	},
+	/** Start again on a conversation parked before, which rests parked, its log held. */
+	"log-resting": {
+		responses: () => [],
+		run: async (engine) => {
+			const entry = readEntry();
+			const rests = engine.restsParked?.(entry) ?? false;
+			return { rests, logs: { resting: logHolds(entry.file) } };
 		},
 	},
 	/** The gateway refuses the first key; the request goes again on the next. */
@@ -761,6 +816,41 @@ function processListeners(): Record<string, number> {
 			.eventNames()
 			.map((name) => [String(name), process.listenerCount(name)]),
 	);
+}
+
+/** Park a conversation as it asks once idle, and wait for the park to settle. */
+async function parkNow(
+	engine: HostEngine,
+	host: SessionHost,
+	id: string,
+): Promise<void> {
+	host.park(id);
+	// The park starts a turn after it is asked for.
+	await new Promise((later) => setImmediate(later));
+	await engine.parkSettled?.(id);
+}
+
+/** Each descriptor this process holds open on `file`, as `read` or `write`. */
+function logHolds(file: string): string[] {
+	const real = realpathSync(file);
+	const holds: string[] = [];
+	for (const fd of readdirSync("/proc/self/fd")) {
+		let target = "";
+		try {
+			target = readlinkSync(`/proc/self/fd/${fd}`);
+		} catch {
+			// Closed between the listing and the look, as the listing's own is.
+			continue;
+		}
+		if (target !== real) continue;
+		const flags = /^flags:\s+(\d+)/m.exec(
+			readFileSync(`/proc/self/fdinfo/${fd}`, "utf8"),
+		)?.[1];
+		const mode =
+			flags === undefined ? undefined : Number.parseInt(flags, 8) & ACCESS_MODE;
+		holds.push(mode === READ_ONLY ? "read" : "write");
+	}
+	return holds;
 }
 
 /** The pids the crashing tool wrote down, if it ran. */
