@@ -4,7 +4,7 @@
  * Journey line a verb leaves behind.
  */
 
-import { existsSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -165,15 +165,23 @@ describe("unloadQuest", () => {
 
 describe("appendJourneyEntry", () => {
 	it("writes nothing when no quest is loaded", () => {
-		expect(appendJourneyEntry(state(), "Did a thing.")).toBe(false);
+		expect(
+			appendJourneyEntry(state(), "Did a thing."),
+			"an entry appended with no quest loaded",
+		).toBe(false);
 	});
 
 	it("adds the entry to the Journey and stamps the quest updated", () => {
 		const s = state();
 		const dir = seedQuest(s, "A");
 		loadIntoState(s, dir);
-		expect(appendJourneyEntry(s, "Did a thing.")).toBe(true);
-		expect(existsSync(join(dir, "JOURNEY.md"))).toBe(true);
+		expect(
+			appendJourneyEntry(s, "Did a thing."),
+			"the entry was not appended",
+		).toBe(true);
+		expect(readFileSync(join(dir, "JOURNEY.md"), "utf8")).toContain(
+			"Did a thing.",
+		);
 		expect(questOnDisk(dir).updated).not.toBe(LONG_AGO);
 	});
 });

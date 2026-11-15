@@ -1,7 +1,16 @@
 /**
- * Lifecycle mutations for the quest workflow: focus, unfocus,
- * document stage, journey entries, aliasing, reordering,
- * priority/status/parent changes, session attach/detach.
+ * Lifecycle mutations for the quest workflow, and the loaded quest's
+ * own slice of state: focusing and unfocusing a document, the
+ * progress the widget paints, unloading, and the Journey entry a verb
+ * leaves behind.
+ *
+ * The rest lives beside it, a module for each reason it changes, and
+ * is re-exported here so every importer keeps one door: a quest's
+ * documents on disk (`documents.ts`), what the quests root holds
+ * (`inventory.ts`), a quest's front-matter fields and aliases
+ * (`front-matter.ts`), its rank among its siblings (`ranks.ts`) and
+ * the sessions it records (`sessions.ts`). What only its own module
+ * reads stays there rather than here.
  *
  * Everything here operates on a `QuestState` value and plain
  * arguments, with no dependency on an adapter's own extension API
@@ -13,65 +22,56 @@
  * which imports the mutations here for everything else.
  */
 
-import {
-	type Dirent,
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-} from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendJourneyByPath } from "../../internal/quest/append-journey.ts";
-import { nowYmd } from "../../internal/quest/dates.ts";
-import {
-	discoverQuests,
-	type QuestEntry,
-} from "../../internal/quest/discovery.ts";
-import type { QuestFieldLens } from "../../internal/quest/fields.ts";
-import { explainDocumentFrontMatter } from "../../internal/quest/frontmatter.ts";
-import {
-	atomicWriteFile,
-	atomicWriteUnderLock,
-	withQuestLock,
-} from "../../internal/quest/io.ts";
 import { mutateQuestFrontMatter } from "../../internal/quest/mutate.ts";
 import { parsedFiles } from "../../internal/quest/parsed-file.ts";
 import {
-	currentInstanceId,
-	currentProcessIdentity,
-} from "../../internal/quest/process-liveness.ts";
-import {
-	diffRanks,
-	type RankEntry,
-	after as rankAfter,
-	before as rankBefore,
-	bottom as rankBottom,
-	bump as rankBump,
-	renumber as rankRenumber,
-	sink as rankSink,
-	top as rankTop,
-} from "../../internal/quest/ranking.ts";
-import { isSealedStatus } from "../../internal/quest/status.ts";
-import { type TreePlace, treePlace } from "../../internal/quest/tree-place.ts";
-import {
 	checkboxProgress,
-	type DocumentFrontMatter,
-	type DocumentKind,
-	type DocumentStage,
 	documentFrontMatterProblem,
 	parseDocumentFrontMatter,
 	parseQuestDoc,
-	type QuestAlias,
-	type QuestFrontMatter,
-	type QuestSession,
-	type QuestStatus,
-	serializeDocumentFrontMatter,
 } from "../../quest/index.ts";
-import { identifyCurrentTerminal } from "../../terminal/index.ts";
-import { hosted } from "../session/host.ts";
-import type { SessionRef } from "../session/identity.ts";
 import type { Stage } from "./machine.ts";
 import type { QuestState } from "./state.ts";
+
+export {
+	createDocument,
+	sealQuestDocuments,
+	writeDocumentStage,
+} from "./documents.ts";
+export {
+	addAliasesToQuest,
+	removeAliasesFromQuest,
+	setLoadedKind,
+	setLoadedStatus,
+	setQuestFieldByDir,
+	setQuestParent,
+	setQuestPriorityByDir,
+	setQuestStatusByDir,
+} from "./front-matter.ts";
+export {
+	ensureQuestsRoot,
+	findQuestEntry,
+	inventoryWorktrees,
+	listAllQuests,
+} from "./inventory.ts";
+export {
+	type RankAction,
+	reorderSiblings,
+	setQuestRankByDir,
+} from "./ranks.ts";
+export {
+	attachCurrentSession,
+	attachSessionInQuestDir,
+	captureSessionIdentity,
+	detachSessionFromLoaded,
+	detachSessionIfOwner,
+	detachSessionInQuestDir,
+	reconcileSessionMembership,
+	renameSessionInQuestDir,
+} from "./sessions.ts";
 
 /**
  * Persist the focused document's progress (or, when no
@@ -134,15 +134,6 @@ const documentProgress = parsedFiles((text) => {
 			}
 		: undefined;
 });
-
-/** Find a quest entry by id across the quests root. */
-export function findQuestEntry(
-	state: QuestState,
-	id: string,
-): QuestEntry | undefined {
-	const { index } = discoverQuests(state.questsRoot);
-	return index.quests.get(id);
-}
 
 /**
  * Re-read the loaded quest's README and refresh the in-memory
@@ -233,97 +224,6 @@ export function unfocusDocument(state: QuestState): void {
 }
 
 /**
- * Persist the focused document's stage to its file and mirror it in
- * state. Returns true when the stage reached disk, false when there
- * is nothing to write to or the file is unreadable or unparseable,
- * so the caller can refuse rather than let memory run ahead of disk.
- */
-export function writeDocumentStage(state: QuestState, stage: Stage): boolean {
-	const documentPath = state.documentPath;
-	if (!documentPath) return false;
-	const questDir = state.questDir;
-	// Read and write under one lock, so another quest write cannot land
-	// between them and be overwritten with the body read before it.
-	const rewrite = (): boolean => {
-		let text: string;
-		try {
-			text = readFileSync(documentPath, "utf8");
-		} catch {
-			return false;
-		}
-		const parsed = parseDocumentFrontMatter(text);
-		if (!parsed) return false;
-		const newFm: DocumentFrontMatter = {
-			...parsed.frontMatter,
-			stage: stage as DocumentStage,
-			updated: nowYmd(),
-		};
-		const newText = `${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`;
-		// Validate by parse-back, matching the quest mutation core: never
-		// write a document the strict parser cannot read back, which would
-		// drop it to an out-of-vocabulary stage and make it invisible.
-		const reparsed = parseDocumentFrontMatter(newText);
-		if (!reparsed || reparsed.frontMatter.stage !== newFm.stage) return false;
-		atomicWriteFile(documentPath, newText);
-		return true;
-	};
-	const written = questDir ? withQuestLock(questDir, rewrite) : rewrite();
-	if (written) state.documentStage = stage;
-	return written;
-}
-
-const DOC_KIND_DIRS = ["plans", "research", "briefs", "reports"];
-const ACTIVE_DOC_STAGES = new Set(["think", "draft", "build"]);
-
-/**
- * Seal every still-active document under a quest to the quest's
- * terminal stage, so concluding or retiring a quest does not leave
- * documents stranded mid-stage. Returns how many were sealed.
- * Best-effort per file: an unreadable document is skipped, not fatal.
- */
-export function sealQuestDocuments(
-	questDir: string,
-	target: "concluded" | "retired",
-): number {
-	let sealed = 0;
-	for (const kindDir of DOC_KIND_DIRS) {
-		const dir = join(questDir, kindDir);
-		let entries: Dirent<string>[];
-		try {
-			entries = readdirSync(dir, { withFileTypes: true });
-		} catch {
-			continue;
-		}
-		for (const entry of entries) {
-			if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-			const docPath = join(dir, entry.name);
-			let text: string;
-			try {
-				text = readFileSync(docPath, "utf8");
-			} catch {
-				continue;
-			}
-			const parsed = parseDocumentFrontMatter(text);
-			if (!parsed) continue;
-			if (!ACTIVE_DOC_STAGES.has(parsed.frontMatter.stage)) continue;
-			const newFm: DocumentFrontMatter = {
-				...parsed.frontMatter,
-				stage: target,
-				updated: nowYmd(),
-			};
-			const sealedText = `${serializeDocumentFrontMatter(newFm)}\n${parsed.body}`;
-			// Validate by parse-back before writing, so the seal can never
-			// produce a document the strict parser drops to invisible.
-			const reparsed = parseDocumentFrontMatter(sealedText);
-			if (!reparsed || reparsed.frontMatter.stage !== target) continue;
-			atomicWriteUnderLock(questDir, docPath, sealedText);
-			sealed++;
-		}
-	}
-	return sealed;
-}
-
-/**
  * Append a Journey entry to the loaded quest's README; answers whether
  * it was appended. A verb's Journey line is its housekeeping, so a
  * README that can't be read leaves the verb's own answer standing, and
@@ -348,617 +248,4 @@ export function stampQuestUpdated(state: QuestState): void {
 function extractTitle(body: string): string | null {
 	const match = /^#\s+(.+)$/m.exec(body);
 	return match ? match[1].trim() : null;
-}
-
-/** Create a new document under the loaded quest. */
-export function createDocument(
-	state: QuestState,
-	opts: {
-		id: string;
-		kind: DocumentKind;
-		title: string;
-		stage: Stage;
-		scaffoldBody: string;
-	},
-): string | undefined {
-	if (!state.questDir) return undefined;
-	const subDir: Record<DocumentKind, string> = {
-		plan: "plans",
-		research: "research",
-		brief: "briefs",
-		report: "reports",
-	};
-	// Born readable or not born at all, the same rule the quest README
-	// writers meet. This is the writer that produced the five documents
-	// found invisible to discovery, and repairing the reader to fail
-	// open and explain itself left this end of it untouched: a document
-	// whose front matter will not parse is written, reported as drafted,
-	// and never listed again.
-	const complaints = explainDocumentFrontMatter(opts.scaffoldBody);
-	if (complaints.length > 0) return undefined;
-	const dir = join(state.questDir, subDir[opts.kind]);
-	mkdirSync(dir, { recursive: true });
-	const path = join(dir, `${opts.id}.md`);
-	// New document; scaffold atomically. Subsequent writes go
-	// through writeDocumentStage which holds the lock too.
-	atomicWriteUnderLock(state.questDir, path, opts.scaffoldBody);
-	return path;
-}
-
-/** One working tree in the cross-quest inventory. */
-export interface WorktreeInventoryEntry {
-	path: string;
-	branch?: string;
-	questId: string;
-	questTitle: string | null;
-	/** Whether the tree's directory still exists on disk. */
-	exists: boolean;
-	/** Whether it is this machine's, another's, or can't be told. */
-	place: TreePlace;
-}
-
-/**
- * Inventory every working tree recorded across all quests,
- * attributing each to its owning quest. This is what lets the
- * harness-created trees be seen and reaped in one place instead
- * of being a mystery pile of directories.
- */
-export function inventoryWorktrees(
-	state: QuestState,
-): WorktreeInventoryEntry[] {
-	const { index } = discoverQuests(state.questsRoot);
-	const entries: WorktreeInventoryEntry[] = [];
-	for (const quest of index.quests.values()) {
-		const fm = quest.doc.frontMatter;
-		for (const tree of fm.trees ?? []) {
-			const entry: WorktreeInventoryEntry = {
-				path: tree.path,
-				questId: fm.id,
-				questTitle: quest.doc.title ?? null,
-				exists: existsSync(tree.path),
-				place: treePlace(tree),
-			};
-			if (tree.branch) entry.branch = tree.branch;
-			entries.push(entry);
-		}
-	}
-	return entries.sort((a, b) => a.path.localeCompare(b.path));
-}
-
-/** Discover quests for /quest-list etc. */
-export function listAllQuests(state: QuestState): QuestEntry[] {
-	const { index } = discoverQuests(state.questsRoot);
-	return [...index.quests.values()];
-}
-
-/** Ensure the quests root exists on disk. */
-export function ensureQuestsRoot(state: QuestState): void {
-	if (!existsSync(state.questsRoot)) {
-		mkdirSync(state.questsRoot, { recursive: true });
-	}
-}
-
-export type RankAction =
-	| { kind: "top" }
-	| { kind: "bottom" }
-	| { kind: "bump" }
-	| { kind: "sink" }
-	| { kind: "before"; target: string }
-	| { kind: "after"; target: string }
-	| { kind: "renumber" };
-
-export interface ReorderResult {
-	siblings: QuestEntry[];
-	changes: { id: string; from: number; to: number }[];
-}
-
-/**
- * Reorder the sibling set the given quest belongs to.
- * Siblings share both `parent` and `priority`. Writes the
- * updated rank back to every quest whose rank changed.
- */
-export function reorderSiblings(
-	state: QuestState,
-	questId: string,
-	action: RankAction,
-): { ok: true; result: ReorderResult } | { ok: false; guidance: string } {
-	const { index } = discoverQuests(state.questsRoot);
-	const pivot = index.quests.get(questId);
-	if (!pivot) {
-		return {
-			ok: false,
-			guidance: `No quest with id "${questId}" under ${state.questsRoot}.`,
-		};
-	}
-	if (isSealedStatus(pivot.doc.frontMatter.status)) {
-		return {
-			ok: false,
-			guidance: `Quest "${questId}" is ${pivot.doc.frontMatter.status}; reopen it before reordering.`,
-		};
-	}
-	const siblings: QuestEntry[] = [];
-	for (const entry of index.quests.values()) {
-		if (
-			entry.doc.frontMatter.parent === pivot.doc.frontMatter.parent &&
-			entry.doc.frontMatter.priority === pivot.doc.frontMatter.priority &&
-			!isSealedStatus(entry.doc.frontMatter.status)
-		) {
-			siblings.push(entry);
-		}
-	}
-	const before: RankEntry[] = siblings.map((e) => ({
-		id: e.doc.frontMatter.id,
-		rank: e.doc.frontMatter.rank,
-	}));
-	let after: RankEntry[];
-	switch (action.kind) {
-		case "top":
-			after = rankTop(before, questId);
-			break;
-		case "bottom":
-			after = rankBottom(before, questId);
-			break;
-		case "bump":
-			after = rankBump(before, questId);
-			break;
-		case "sink":
-			after = rankSink(before, questId);
-			break;
-		case "before":
-			after = rankBefore(before, questId, action.target);
-			break;
-		case "after":
-			after = rankAfter(before, questId, action.target);
-			break;
-		case "renumber":
-			after = rankRenumber(before);
-			break;
-	}
-	const changes = diffRanks(before, after);
-	const rankById = new Map(after.map((e) => [e.id, e.rank]));
-	for (const entry of siblings) {
-		const newRank = rankById.get(entry.doc.frontMatter.id);
-		if (newRank === undefined) continue;
-		if (newRank === entry.doc.frontMatter.rank) continue;
-		writeQuestRank(entry.dir, newRank);
-	}
-	return { ok: true, result: { siblings, changes } };
-}
-
-function writeQuestRank(questDir: string, rank: number): void {
-	// Routed through the validated mutation core so a rank write is
-	// validated and stamped the same way every other field write is.
-	mutateQuestFrontMatter(questDir, (fm) => ({ ...fm, rank }));
-}
-
-/**
- * Set a quest's rank by directory. The by-dir counterpart to the
- * internal `writeQuestRank`, exported so undo can reverse a journalled
- * rank change (a reparent re-ranks into its new sibling set).
- */
-export function setQuestRankByDir(
-	questDir: string,
-	rank: number,
-): { ok: true } | { ok: false; guidance: string } {
-	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, rank }));
-	if (!result.ok) return result;
-	return { ok: true };
-}
-
-/**
- * Set any journalled field by directory, through the lens that knows
- * how to write it.
- *
- * Undo used to reach for one exported setter per field and cast the
- * journalled string to that field's type on the way in. The lens
- * checks the value against the field's vocabulary instead, so a
- * journal entry carrying a word the vocabulary has since lost is
- * refused with a reason rather than written back unexamined.
- */
-export function setQuestFieldByDir(
-	questDir: string,
-	lens: QuestFieldLens,
-	value: string | null,
-): { ok: true } | { ok: false; guidance: string } {
-	let refusal: string | undefined;
-	const result = writeQuestFrontMatter(questDir, (fm) => {
-		const written = lens.write(fm, value);
-		if (written.ok) return written.fm;
-		refusal = written.reason;
-		return undefined;
-	});
-	if (refusal) return { ok: false, guidance: refusal };
-	if (!result.ok) return result;
-	return { ok: true };
-}
-
-function writeQuestFrontMatter(
-	questDir: string,
-	mutate: (fm: QuestFrontMatter) => QuestFrontMatter | undefined,
-): { ok: true; fm: QuestFrontMatter } | { ok: false; guidance: string } {
-	const result = mutateQuestFrontMatter(questDir, mutate);
-	if (!result.ok) return result;
-	return { ok: true, fm: result.fm };
-}
-
-/**
- * Set a quest's parent by directory, stamping `updated` and
- * appending a Journey entry. Used by the reparent verb, which
- * may move quests other than the loaded one.
- */
-export function setQuestParent(
-	questDir: string,
-	newParent: string | null,
-): { ok: true } | { ok: false; guidance: string } {
-	const result = writeQuestFrontMatter(questDir, (fm) => ({
-		...fm,
-		parent: newParent,
-	}));
-	if (!result.ok) return result;
-	appendJourneyByPath(questDir, `Reparented to ${newParent ?? "top level"}.`);
-	return { ok: true };
-}
-
-/** Set a quest's status by directory, stamping `updated`. */
-export function setQuestStatusByDir(
-	questDir: string,
-	status: QuestFrontMatter["status"],
-): { ok: true } | { ok: false; guidance: string } {
-	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, status }));
-	if (!result.ok) return result;
-	return { ok: true };
-}
-
-/**
- * Set a quest's priority by directory. Used by the priority verbs,
- * the bulk seal cascade, and undo when it reverses a journalled
- * priority change.
- */
-export function setQuestPriorityByDir(
-	questDir: string,
-	priority: QuestFrontMatter["priority"],
-): { ok: true } | { ok: false; guidance: string } {
-	const result = writeQuestFrontMatter(questDir, (fm) => ({ ...fm, priority }));
-	if (!result.ok) return result;
-	return { ok: true };
-}
-
-/**
- * Add one or more aliases to the quest in `questDir` in a single front-matter
- * write, so a list either lands whole or not at all and no partial
- * state survives a failure. Aliases already present, and duplicates
- * within the batch, are reported as already and added only once.
- */
-export function addAliasesToQuest(
-	questDir: string,
-	aliases: QuestAlias[],
-):
-	| { ok: true; added: QuestAlias[]; already: QuestAlias[] }
-	| { ok: false; guidance: string } {
-	let added: QuestAlias[] = [];
-	let already: QuestAlias[] = [];
-	const result = writeQuestFrontMatter(questDir, (fm) => {
-		// Reset on every invocation so a retried write does not
-		// accumulate duplicate report entries.
-		added = [];
-		already = [];
-		const next = [...fm.aliases];
-		for (const alias of aliases) {
-			const present = next.some(
-				(a) => a.type === alias.type && a.value === alias.value,
-			);
-			if (present) {
-				already.push(alias);
-				continue;
-			}
-			added.push(alias);
-			next.push(alias);
-		}
-		return { ...fm, aliases: next };
-	});
-	if (!result.ok) return result;
-	return { ok: true, added, already };
-}
-
-/**
- * Remove one or more aliases from the quest in `questDir` in a single
- * write, the batch counterpart to addAliasesToQuest. Reports which were
- * removed and which were absent, so the verb can signal a partial or
- * whole no-op the same way the add path does.
- */
-export function removeAliasesFromQuest(
-	questDir: string,
-	aliases: QuestAlias[],
-):
-	| { ok: true; removed: QuestAlias[]; absent: QuestAlias[] }
-	| { ok: false; guidance: string } {
-	let removed: QuestAlias[] = [];
-	let absent: QuestAlias[] = [];
-	const result = writeQuestFrontMatter(questDir, (fm) => {
-		removed = [];
-		absent = [];
-		const drop = (a: QuestAlias) =>
-			aliases.some((t) => t.type === a.type && t.value === a.value);
-		for (const target of aliases) {
-			if (
-				fm.aliases.some(
-					(a) => a.type === target.type && a.value === target.value,
-				)
-			) {
-				removed.push(target);
-			} else {
-				absent.push(target);
-			}
-		}
-		if (removed.length === 0) return undefined;
-		return { ...fm, aliases: fm.aliases.filter((a) => !drop(a)) };
-	});
-	if (!result.ok) return result;
-	return { ok: true, removed, absent };
-}
-
-/** Attach a session id to the loaded quest. */
-export function attachSessionToLoaded(
-	state: QuestState,
-	session: QuestSession,
-): { ok: true; added: boolean } | { ok: false; guidance: string } {
-	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
-	return attachSessionInQuestDir(state.questDir, session);
-}
-
-/** Attach a session id to the quest in `questDir`, loaded or not. */
-export function attachSessionInQuestDir(
-	questDir: string,
-	session: QuestSession,
-): { ok: true; added: boolean } | { ok: false; guidance: string } {
-	let added = false;
-	const result = writeQuestFrontMatter(questDir, (fm) => {
-		const existing = fm.sessions.find((s) => s.id === session.id);
-		if (existing) {
-			// Refresh status to active and merge any new fields, but keep
-			// the original started: it records when the session first
-			// touched this quest, not the latest attach. Letting the
-			// incoming started win would defeat the no-op guard below and
-			// churn the README on every load.
-			const merged: QuestSession = {
-				...existing,
-				...session,
-				started: existing.started ?? session.started,
-				status: "active",
-			};
-			if (JSON.stringify(merged) === JSON.stringify(existing)) {
-				return undefined;
-			}
-			return {
-				...fm,
-				sessions: fm.sessions.map((s) => (s.id === session.id ? merged : s)),
-			};
-		}
-		added = true;
-		const next: QuestSession = { status: "active", ...session };
-		return { ...fm, sessions: [...fm.sessions, next] };
-	});
-	if (!result.ok) return result;
-	return { ok: true, added };
-}
-
-/**
- * Capture the current process's liveness identity for a session
- * attach: its instance id, OS process identity and the terminal
- * surface it runs in (when a driver recognises one). Read once at
- * attach time; the stored handle is what a later reader probes.
- */
-export function captureSessionIdentity(ref?: SessionRef): {
-	instanceId: string;
-	process: QuestSession["process"];
-	terminal: QuestSession["terminal"];
-} {
-	const handle = hosted() ? undefined : identifyCurrentTerminal();
-	return {
-		instanceId: currentInstanceId(ref),
-		process: currentProcessIdentity(ref),
-		terminal: handle
-			? {
-					driverId: handle.driverId,
-					value: handle.value,
-					scope: handle.scope,
-					hostId: handle.hostId,
-				}
-			: undefined,
-	};
-}
-
-/**
- * Attach the current session to the loaded quest.
- *
- * This is the automatic-capture path: a session-start or load flow
- * calls it so a quest's sessions frontmatter records where work
- * happened without the user attaching by hand. It refreshes an
- * existing record rather than duplicating, and no-ops cleanly when
- * no quest is loaded or the session id is unknown.
- */
-export function attachCurrentSession(
-	state: QuestState,
-	opts: {
-		id: string | undefined;
-		cwd?: string;
-		persisted?: boolean;
-		instanceId?: string;
-		process?: QuestSession["process"];
-		terminal?: QuestSession["terminal"];
-	},
-): { attached: boolean } {
-	// An ephemeral session has an id but writes no log, so attaching it
-	// would leave a phantom entry that can never be resumed. Skip it;
-	// only a persisted session earns a record.
-	if (opts.persisted === false) return { attached: false };
-	if (!state.questDir || !opts.id) return { attached: false };
-	const session: QuestSession = {
-		id: opts.id,
-		started: new Date().toISOString(),
-		status: "active",
-	};
-	if (opts.cwd?.trim()) session.cwd = opts.cwd.trim();
-	if (opts.instanceId) session.instanceId = opts.instanceId;
-	if (opts.process) session.process = opts.process;
-	if (opts.terminal) session.terminal = opts.terminal;
-	const result = attachSessionToLoaded(state, session);
-	return { attached: result.ok };
-}
-
-/**
- * Detach a session only when the caller's process instance owns the
- * record, so a process that resumed a session is not detached by the
- * delayed shutdown of the process that used to hold it. A record with
- * no recorded instance id is legacy and detaches unconditionally,
- * preserving the pre-lease behaviour.
- */
-export function detachSessionIfOwner(
-	questDir: string,
-	sessionId: string,
-	instanceId: string,
-): { ok: true; detached: boolean } | { ok: false; guidance: string } {
-	let detached = false;
-	const result = writeQuestFrontMatter(questDir, (fm) => {
-		let hit = false;
-		const next = fm.sessions.map((s) => {
-			if (s.id !== sessionId || s.status === "detached") return s;
-			// A different live instance owns the record: leave it be.
-			if (s.instanceId !== undefined && s.instanceId !== instanceId) return s;
-			hit = true;
-			return { ...s, status: "detached" as const };
-		});
-		if (!hit) return undefined;
-		detached = true;
-		return { ...fm, sessions: next };
-	});
-	if (!result.ok) return result;
-	return { ok: true, detached };
-}
-
-/** Mark a session as detached on the loaded quest. */
-export function detachSessionFromLoaded(
-	state: QuestState,
-	sessionId: string,
-): { ok: true; detached: boolean } | { ok: false; guidance: string } {
-	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
-	return detachSessionInQuestDir(state.questDir, sessionId);
-}
-
-/**
- * Reconcile a session's membership so it reads active on exactly one
- * quest: detach the session from every quest other than the one being
- * kept. The switch path already releases the immediate prior quest;
- * this catches stragglers left by earlier runs or a lost state, so a
- * session never lingers active on several quests at once. Returns the
- * ids it detached the session from.
- */
-export function reconcileSessionMembership(
-	state: QuestState,
-	sessionId: string,
-	keepQuestId: string,
-): string[] {
-	const { index } = discoverQuests(state.questsRoot);
-	const detachedFrom: string[] = [];
-	for (const entry of index.quests.values()) {
-		const fm = entry.doc.frontMatter;
-		if (fm.id === keepQuestId) continue;
-		const holdsActive = fm.sessions.some(
-			(s) => s.id === sessionId && s.status !== "detached",
-		);
-		if (!holdsActive) continue;
-		const result = detachSessionInQuestDir(entry.dir, sessionId);
-		if (result.ok && result.detached) detachedFrom.push(fm.id);
-	}
-	return detachedFrom;
-}
-
-export function detachSessionInQuestDir(
-	questDir: string,
-	sessionId: string,
-): { ok: true; detached: boolean } | { ok: false; guidance: string } {
-	let detached = false;
-	const result = writeQuestFrontMatter(questDir, (fm) => {
-		let hit = false;
-		const next = fm.sessions.map((s) => {
-			if (s.id !== sessionId) return s;
-			if (s.status === "detached") return s;
-			hit = true;
-			return { ...s, status: "detached" as const };
-		});
-		if (!hit) return undefined;
-		detached = true;
-		return { ...fm, sessions: next };
-	});
-	if (!result.ok) return result;
-	return { ok: true, detached };
-}
-
-/**
- * Change the loaded quest's kind. A subquest needs a parent to rank
- * within, so refuse the move to subquest when the quest has none.
- * Returns whether the kind actually changed.
- */
-export function setLoadedKind(
-	state: QuestState,
-	kind: QuestFrontMatter["kind"],
-): { ok: true; changed: boolean } | { ok: false; guidance: string } {
-	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
-	let changed = false;
-	let refusal: string | undefined;
-	const result = writeQuestFrontMatter(state.questDir, (fm) => {
-		if (fm.kind === kind) return undefined;
-		if (kind === "subquest" && (fm.parent ?? null) === null) {
-			refusal =
-				"A subquest needs a parent to rank within; reparent it under a quest first.";
-			return undefined;
-		}
-		changed = true;
-		return { ...fm, kind };
-	});
-	if (refusal) return { ok: false, guidance: refusal };
-	if (!result.ok) return result;
-	return { ok: true, changed };
-}
-
-/** Set the loaded quest's coarse status enum. */
-export function setLoadedStatus(
-	state: QuestState,
-	status: QuestStatus,
-): { ok: true; changed: boolean } | { ok: false; guidance: string } {
-	if (!state.questDir) return { ok: false, guidance: "Load a quest first." };
-	let changed = false;
-	const result = writeQuestFrontMatter(state.questDir, (fm) => {
-		if (fm.status === status) return undefined;
-		changed = true;
-		return { ...fm, status };
-	});
-	if (!result.ok) return result;
-	if (changed) {
-		state.questStatus = status;
-	}
-	return { ok: true, changed };
-}
-
-/** Rename a session on the quest in `questDir`, loaded or not. */
-export function renameSessionInQuestDir(
-	questDir: string,
-	sessionId: string,
-	name: string,
-): { ok: true; renamed: boolean } | { ok: false; guidance: string } {
-	let renamed = false;
-	const result = writeQuestFrontMatter(questDir, (fm) => {
-		let hit = false;
-		const next = fm.sessions.map((s) => {
-			if (s.id !== sessionId) return s;
-			if (s.name === name) return s;
-			hit = true;
-			return { ...s, name };
-		});
-		if (!hit) return undefined;
-		renamed = true;
-		return { ...fm, sessions: next };
-	});
-	if (!result.ok) return result;
-	return { ok: true, renamed };
 }

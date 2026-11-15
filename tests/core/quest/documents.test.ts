@@ -28,7 +28,10 @@ const state = useQuestsRoot();
 
 describe("writeDocumentStage", () => {
 	it("writes nothing when no document is focused", () => {
-		expect(writeDocumentStage(state(), "draft")).toBe(false);
+		expect(
+			writeDocumentStage(state(), "draft"),
+			"a stage written with no document focused",
+		).toBe(false);
 	});
 
 	it("writes the stage to disk, stamps it and mirrors it in state", () => {
@@ -37,7 +40,10 @@ describe("writeDocumentStage", () => {
 		loadIntoState(s, dir);
 		const path = seedDocument(dir);
 		focusDocument(s, path);
-		expect(writeDocumentStage(s, "build")).toBe(true);
+		expect(
+			writeDocumentStage(s, "build"),
+			"the focused document's stage did not reach disk",
+		).toBe(true);
 		expect(documentOnDisk(path)).toMatchObject({ stage: "build" });
 		expect(documentOnDisk(path).updated).not.toBe(LONG_AGO);
 		expect(s.documentStage).toBe("build");
@@ -60,7 +66,10 @@ describe("writeDocumentStage", () => {
 		const path = seedDocument(dir);
 		focusDocument(s, path);
 		writeFileSync(path, "no front matter\n");
-		expect(writeDocumentStage(s, "build")).toBe(false);
+		expect(
+			writeDocumentStage(s, "build"),
+			"a stage written over a document that does not parse",
+		).toBe(false);
 		expect(s.documentStage).toBe("think");
 		expect(readFileSync(path, "utf8")).toBe("no front matter\n");
 	});

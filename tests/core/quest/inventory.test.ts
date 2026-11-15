@@ -68,10 +68,10 @@ describe("inventoryWorktrees", () => {
 describe("ensureQuestsRoot", () => {
 	it("makes the quests root when it is missing", () => {
 		const s = state();
-		expect(existsSync(s.questsRoot)).toBe(false);
+		expect(existsSync(s.questsRoot), "the root before it is made").toBe(false);
 		ensureQuestsRoot(s);
-		expect(existsSync(s.questsRoot)).toBe(true);
+		expect(existsSync(s.questsRoot), "the root was not made").toBe(true);
 		ensureQuestsRoot(s);
-		expect(existsSync(s.questsRoot)).toBe(true);
+		expect(existsSync(s.questsRoot), "the root made twice is gone").toBe(true);
 	});
 });
