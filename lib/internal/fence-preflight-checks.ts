@@ -695,4 +695,3 @@ export const CHECKS: readonly Check[] = [
 		),
 	},
 ];
-
