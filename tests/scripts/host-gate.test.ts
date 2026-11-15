@@ -45,7 +45,13 @@ const PLAIN = /^[A-Za-z0-9._/@:=+^*-]+$/;
 const USER = "someone";
 
 const made: string[] = [];
-afterEach(() => removeAll(made));
+/** Folders a case made read-only, opened again so they can go. */
+const locked = new Set<string>();
+afterEach(() => {
+	for (const dir of locked) chmodSync(dir, 0o755);
+	locked.clear();
+	removeAll(made);
+});
 
 /** A stand-in nix-offload saying what `keeper` holds for each commit. */
 const OFFLOAD = `#!/usr/bin/env bash
@@ -102,15 +108,19 @@ const HOUR = 3_600_000;
 /**
  * An earlier system generation of the machine, `hoursAgo` old, as
  * /nix/var/nix/profiles holds them: the tools as the harness's, but for
- * those `moved` names to other store folders. Answers its tools.
+ * those `moved` names to other store folders. The folder is left
+ * read-only, as root's is to the account, unless `writable`, and is
+ * `into` in place of the machine's. Answers its tools.
  */
 function generation(
 	on: Harness,
 	number: number,
 	moved: Record<string, string>,
-	hoursAgo = 1,
+	{ hoursAgo = 1, writable = false, into = on.generations } = {},
 ): Record<string, string> {
-	const link = join(on.generations, `system-${number}-link`);
+	mkdirSync(into, { recursive: true });
+	chmodSync(into, 0o755);
+	const link = join(into, `system-${number}-link`);
 	const user = join(link, "etc", "profiles", "per-user", USER, "bin");
 	mkdirSync(user, { recursive: true });
 	mkdirSync(join(link, "sw", "bin"), { recursive: true });
@@ -128,6 +138,10 @@ function generation(
 	}
 	const when = new Date(Date.now() - hoursAgo * HOUR);
 	utimesSync(link, when, when);
+	if (!writable) {
+		chmodSync(into, 0o555);
+		locked.add(into);
+	}
 	return tools;
 }
 
@@ -333,9 +347,49 @@ describe("host-gate.sh", () => {
 		const on = await harness();
 		const sha = await change(on, "host/engine/engine.ts");
 		generation(on, 1196, { mycelium: "1111-mycelium" });
-		const stale = generation(on, 1100, { mycelium: "2222-mycelium" }, 13);
+		const stale = generation(
+			on,
+			1100,
+			{ mycelium: "2222-mycelium" },
+			{ hoursAgo: 13 },
+		);
 		const forged = { ...on.tools, mycelium: join(on.store, "3333-mycelium") };
 		kept(on, sha, testHost({ ...on, tools: stale }));
+		kept(on, sha, testHost({ ...on, tools: forged }));
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain("with this machine's tools");
+	});
+
+	it("refuses a generation in a folder the account could write", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		const forged = generation(
+			on,
+			1199,
+			{ mycelium: "4444-mycelium" },
+			{ writable: true },
+		);
+		kept(on, sha, testHost({ ...on, tools: forged }));
+
+		const answered = await gate(on, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain("with this machine's tools");
+	});
+
+	it("refuses a fresh profile generation of the account's own with forged tools", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		const profiles = join(on.state, ".local", "state", "nix", "profiles");
+		const forged = generation(
+			on,
+			1199,
+			{ mycelium: "5555-mycelium" },
+			{ writable: true, into: profiles },
+		);
 		kept(on, sha, testHost({ ...on, tools: forged }));
 
 		const answered = await gate(on, sha);

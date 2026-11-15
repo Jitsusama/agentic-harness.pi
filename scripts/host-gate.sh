@@ -35,7 +35,12 @@ NO_KEEPER=69
 # this machine switched to in these hours counts, since each was its real
 # set of tools; the runtime the hosts are proven on must still match.
 EARLIER_HOURS=12
-# Where the machine's system generations are, each a system-N-link.
+# Where the machine's system generations are, each a system-N-link. Only
+# root can add one there, so a generation's tools are ones the machine
+# really switched to; its per-user tools are read from the generation's
+# own closure, never from the account's profiles, which any agent of the
+# account could write, and its age is the link's own (ISXEG8, 15
+# November). A folder this account could write is taken as none.
 generations=${HOST_GATE_GENERATIONS:-/nix/var/nix/profiles}
 
 # What a host runs, and what decides how test:host runs it: the host
@@ -85,6 +90,7 @@ elif grep -qF -- "$wanted" <<< "$ran"; then
   exit 0
 else
   # The newest first, so the answer names the latest set that matched.
+  if [[ -w $generations ]]; then generations=""; fi
   while read -r link; do
     profiles="$link/etc/profiles/per-user/${USER:-}/bin:$link/sw/bin"
     HOST_TEST_PROFILES=$profiles host_test_words "$runtime" 2> /dev/null || continue
@@ -93,7 +99,7 @@ else
       echo "host-gate: test:host passed at $sha on $runtime, on the tools of this machine's system generation ${number%-link}"
       exit 0
     fi
-  done < <(find "$generations" -maxdepth 1 -name 'system-*-link' -newermt "-$EARLIER_HOURS hours" 2> /dev/null |
+  done < <([[ -n $generations ]] && find "$generations" -maxdepth 1 -name 'system-*-link' -newermt "-$EARLIER_HOURS hours" 2> /dev/null |
     awk -F'system-' '{ n = $NF; sub(/-link$/, "", n); print n "\t" $0 }' | sort -nr | cut -f2-)
   why="what passed at $sha isn't test:host on the proven $runtime with this machine's tools, now or in the last $EARLIER_HOURS hours"
 fi
