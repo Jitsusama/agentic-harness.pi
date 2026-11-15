@@ -76,7 +76,11 @@ import {
 } from "./fence.ts";
 import { fenceShims } from "./fence-clipboard.ts";
 import { fencedCommand } from "./fence-command.ts";
-import { fenceDirenv, personDirenvConfig } from "./fence-direnv.ts";
+import {
+	DIRENV_VARIABLE,
+	fenceDirenv,
+	personDirenvConfig,
+} from "./fence-direnv.ts";
 import {
 	afterCheck,
 	guardedFolders,
@@ -685,9 +689,18 @@ export function wrapFor(
 				sandbox.githubDoor && session && githubFolder
 					? { program: sandbox.githubDoor, session, folder: githubFolder }
 					: undefined;
+			// A tree cut a minute ago was never approved, and the person's
+			// allow list is read-only inside, so the trees and scratch
+			// folders are trusted in settings only a fenced direnv reads.
+			const direnv = fenceDirenv(
+				personDirenvConfig(home, place.env),
+				place.env.XDG_RUNTIME_DIR,
+				[real(cutTreeDir()), real(questWorkspacesRoot())],
+			);
 			const fence = {
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
+				...(direnv ? { direnv } : {}),
 				...(githubFolder ? { githubDoor: githubFolder } : {}),
 				...worktrees,
 				scratch: questScratch(place.env.TMPDIR),
@@ -699,13 +712,6 @@ export function wrapFor(
 			// Never waited on: a command started first finds what the own
 			// homes held already.
 			void seedOwnHomes(home, own);
-			// A tree cut a minute ago was never approved, and the person's
-			// allow list is read-only inside, so the trees and scratch
-			// folders are trusted in settings only a fenced direnv reads.
-			const direnv = fenceDirenv(personDirenvConfig(home, place.env), own, [
-				real(cutTreeDir()),
-				real(questWorkspacesRoot()),
-			]);
 			const made = {
 				bwrap: sandbox.bwrap,
 				landrun: sandbox.landrun,
@@ -719,7 +725,7 @@ export function wrapFor(
 					...OWN_HOMES.map(
 						([name, folder]) => [name, join(own, folder)] as const,
 					),
-					...(direnv ? [direnv] : []),
+					...(direnv ? [[DIRENV_VARIABLE, direnv] as const] : []),
 				],
 				...(github ? { github } : {}),
 			};

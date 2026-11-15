@@ -15,9 +15,18 @@
  * person's own direnv never reads these settings. Where the person
  * keeps a `direnv.toml` of their own, theirs stands, and a refusal
  * names the way round instead.
+ *
+ * The settings are written from outside, unfenced, so they live where
+ * nothing inside can write: pi's folder in the runtime folder, which
+ * the fence empties, bound back read-only. Written in a folder a
+ * command could reach, a link planted in its place would have had this
+ * write and delete, unfenced, wherever it pointed, Joel's own direnv
+ * settings among them (ISXEG8 [3fcd33a5]). Each folder on the way is
+ * still refused when it is a link or someone else's.
  */
 
 import {
+	lstatSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -31,12 +40,15 @@ import { join } from "node:path";
 import { type Block, routed } from "./fence-git-route.ts";
 
 /** The variable that points direnv at its settings. */
-const VARIABLE = "DIRENV_CONFIG";
+export const DIRENV_VARIABLE = "DIRENV_CONFIG";
 
 /** The files direnv reads its settings from, of which the fence writes its own. */
 const SETTINGS = ["direnv.toml", "config.toml"] as const;
 
-/** The fence's own settings folder, within the sandbox's cache. */
+/** pi's folder in the runtime folder, as `fence-copy.ts` names it. */
+const PI_FOLDER = "pi-fence";
+
+/** The fence's own settings folder, within pi's, and the person's within theirs. */
 const FOLDER = "direnv";
 
 /**
@@ -48,41 +60,68 @@ export function personDirenvConfig(
 	env: Readonly<Record<string, string | undefined>>,
 ): string {
 	return (
-		env[VARIABLE] ?? join(env.XDG_CONFIG_HOME ?? join(home, ".config"), FOLDER)
+		env[DIRENV_VARIABLE] ??
+		join(env.XDG_CONFIG_HOME ?? join(home, ".config"), FOLDER)
 	);
 }
 
 /**
- * Make the fence's own direnv settings in the sandbox cache `own`, from
- * the person's folder `person`, trusting every `.envrc` under each of
- * `trusted`, which direnv compares as real paths; and name the variable
- * and folder a fenced command is given. Nothing, when the person keeps
- * a settings file of their own or the folder can't be made: a fenced
- * direnv then reads the person's, as it did before.
+ * Make the fence's own direnv settings in pi's folder in the runtime
+ * folder `runtimeDir`, from the person's folder `person`, trusting
+ * every `.envrc` under each of `trusted`, which direnv compares as real
+ * paths; and name the folder, which the fence binds read-only and a
+ * fenced command's `DIRENV_VARIABLE` names. Nothing, when there is no
+ * runtime folder, the person keeps a settings file of their own, or a
+ * folder on the way is a link or someone else's or can't be made: a
+ * fenced direnv then reads the person's, as it did before.
  */
 export function fenceDirenv(
 	person: string,
-	own: string,
+	runtimeDir: string | undefined,
 	trusted: readonly string[],
-): readonly [string, string] | undefined {
+): string | undefined {
+	if (!runtimeDir) return undefined;
 	const theirs = entriesOf(person);
 	if (theirs.some((entry) => isSettings(entry))) return undefined;
-	const folder = join(own, FOLDER);
+	const pi = join(runtimeDir, PI_FOLDER);
+	const folder = join(pi, FOLDER);
 	try {
-		mkdirSync(folder, { recursive: true, mode: 0o700 });
+		// One level at a time, never the runtime folder itself: node's
+		// recursive mkdir spins where a parent refuses a child, as /proc
+		// does (`fence-copy.ts`).
+		if (!ownFolder(pi) || !ownFolder(folder)) return undefined;
 		for (const entry of entriesOf(folder)) {
 			if (isSettings(entry) || theirs.includes(entry)) continue;
-			rmSync(join(folder, entry), { recursive: true, force: true });
+			// Only links and the settings file are made here, so nothing
+			// is removed recursively: a folder found here is refused.
+			rmSync(join(folder, entry), { force: true });
 		}
 		for (const entry of theirs)
 			linkTo(join(person, entry), join(folder, entry));
 		writeWhole(join(folder, SETTINGS[0]), trusting(trusted));
 	} catch {
-		// A cache that can't be written leaves direnv reading the person's
-		// settings, as it did before; a refusal still names the way round.
+		// Settings that can't be written leave direnv reading the person's,
+		// as it did before; a refusal still names the way round.
 		return undefined;
 	}
-	return [VARIABLE, folder];
+	return folder;
+}
+
+/**
+ * Whether `folder` is a folder of this account's, not a link, made
+ * when it isn't there yet.
+ */
+function ownFolder(folder: string): boolean {
+	const found = lstatSync(folder, { throwIfNoEntry: false });
+	if (found === undefined) {
+		mkdirSync(folder, { mode: 0o700 });
+		return true;
+	}
+	return (
+		found.isDirectory() &&
+		!found.isSymbolicLink() &&
+		(process.getuid === undefined || found.uid === process.getuid())
+	);
 }
 
 /** Whether `entry` is one of the files direnv reads its settings from. */
@@ -107,7 +146,9 @@ function linkTo(target: string, link: string): void {
 	} catch {
 		// Not a link yet, or not there: it's made below.
 	}
-	rmSync(link, { recursive: true, force: true });
+	// Never recursively: what stands here is a link or nothing, and a
+	// folder in its place is refused by the throw.
+	rmSync(link, { force: true });
 	symlinkSync(target, link);
 }
 
