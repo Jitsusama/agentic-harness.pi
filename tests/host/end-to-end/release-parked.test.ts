@@ -88,6 +88,8 @@ async function release(
 				"--no-warnings",
 				join(ROOT, "scripts", "host-release.ts"),
 				...names,
+				// The seal has no launcher: Sessions to Reopen offers each.
+				"--offer",
 				"--deadline",
 				String(DEADLINE_MINUTES),
 			],

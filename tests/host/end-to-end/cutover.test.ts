@@ -338,7 +338,8 @@ it(
 
 			const release = await script(
 				"host-release.ts",
-				["--all", "--deadline", "20"],
+				// The seal has no launcher: Sessions to Reopen offers each.
+				["--all", "--offer", "--deadline", "20"],
 				env,
 			);
 			expect(release.code, release.out).toBe(0);

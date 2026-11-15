@@ -201,7 +201,7 @@ the job's result is said and answered, so a watcher outside the host
 never reads it as settled.
 
 release-all.test.ts is E12, item 11's rollback drill: `host-release.ts
---all` from both hosts, holding two conversations each, one mid-run.
+--all --offer` (the seal has no launcher to reopen them) from both hosts, holding two conversations each, one mid-run.
 The release waits on the busy one until a Stop, then both hosts are
 empty and restore.json offers all four. Each log is whole and keeps
 what it held, and reopened from its file each runs in one plain pi

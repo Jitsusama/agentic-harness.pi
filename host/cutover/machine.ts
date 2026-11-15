@@ -17,7 +17,20 @@ import {
 	tickFacts,
 } from "../../lib/internal/process-ticks.ts";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
-import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import {
+	discoverQuests,
+	type QuestIndex,
+} from "../../lib/internal/quest/discovery.ts";
+import {
+	type HandedSession,
+	handOver,
+	type LauncherCall,
+	launcherTakes,
+} from "../../lib/internal/quest/hand-over.ts";
+import {
+	orchestrationOf,
+	windowWorkspaceOf,
+} from "../../lib/internal/quest/orchestration.ts";
 import { indexSessionFiles } from "../../lib/internal/quest/session-liveness.ts";
 import { rosterHolds } from "../../lib/internal/session/host-holds.ts";
 import {
@@ -31,6 +44,7 @@ import {
 	restoreStrandedClaims,
 } from "../../lib/internal/session/move.ts";
 import { askWake } from "../../lib/internal/session/park.ts";
+import { questAddress } from "../../lib/mesh/address.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { createPresences, type Presence } from "../../lib/mesh/presence.ts";
 import { giveSteer } from "../../lib/mesh/steer.ts";
@@ -149,6 +163,40 @@ export interface ReleasePlaces {
 	readonly steer?: string;
 	readonly moves?: string;
 	readonly quests?: string;
+	/** How the launcher is asked to open a session; Quickshell's own unless a test says. */
+	readonly launcher?: LauncherCall;
+}
+
+/**
+ * Where the launcher opens a released session's window: its
+ * orchestrator's and its workspace, as Reopen Them All places it
+ * (quest-workflow window-place.ts).
+ */
+function releasedPlace(
+	quest: string,
+	index: QuestIndex,
+): Pick<HandedSession, "orchestratedBy" | "workspace"> {
+	const read = (id: string) => index.quests.get(id)?.doc.frontMatter;
+	const by = orchestrationOf(quest, read).by;
+	const workspace = windowWorkspaceOf(quest, read);
+	return {
+		...(by ? { orchestratedBy: questAddress(by) } : {}),
+		...(workspace ? { workspace: questAddress(workspace) } : {}),
+	};
+}
+
+/** The session a move note hands the launcher, back where its window was. */
+function releasedSession(note: MoveNote, index: QuestIndex): HandedSession {
+	return {
+		id: note.session,
+		cwd: note.cwd,
+		...(note.quest ? { quest: note.quest } : {}),
+		...(note.env ? { env: note.env } : {}),
+		...(note.quest ? releasedPlace(note.quest, index) : {}),
+		// The session's name, which its window's title reads.
+		...(note.title ? { title: note.title } : {}),
+		replaces: note.session,
+	};
 }
 
 /** The release's facts from this machine. */
@@ -176,6 +224,41 @@ export function releaseFacts(places: ReleasePlaces): ReleaseFacts {
 		},
 		note: (session) => readMoveNote(session, moves),
 		holds: async (session) => holdsSaid(presences.of(session)),
+		// A pi of its own says so in a presence no host holds, as it starts;
+		// the one its host last wrote may outlast it.
+		takenUp: (session) => {
+			const presence = presences.of(session);
+			const pid = presence?.owner?.pid;
+			return (
+				presence?.hosted === undefined &&
+				pid !== undefined &&
+				rolloutFacts.alive(pid)
+			);
+		},
+		reopen: async (note) => {
+			// Opened by id elsewhere, pi asks whether to fork it; by its file,
+			// whether to go on in another folder. Pi 1.5 has no flag for either,
+			// and nobody sees a question in a window opened for nobody
+			// (OSPHT4 [97001e00], [64e07315]), so the person opens it.
+			if (!existsSync(note.cwd)) {
+				say(
+					`${note.session}: its folder ${note.cwd} is gone, so it is only offered; open it with pi --session ${note.sessionFile} and answer Continue`,
+				);
+				return false;
+			}
+			const session = releasedSession(note, discoverQuests(quests).index);
+			if (!launcherTakes(session)) return false;
+			const taken = await handOver([session], places.launcher);
+			return taken !== undefined && taken > 0;
+		},
+		callOff: (address) => {
+			giveSteer(steer, address, {
+				text: "",
+				act: "resume",
+				at: new Date().toISOString(),
+				from: "joel",
+			});
+		},
 		refreshRestore: () => refreshRestoreFile(quests),
 		journal: (quest, prose) => {
 			const dir = discoverQuests(quests).index.quests.get(quest)?.dir;
