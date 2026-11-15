@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	childrenOf,
+	endNow,
+	endPastPendingLookup,
 	slowEndLine,
 	watchSlowEnd,
 	writeSlowEnd,
@@ -268,5 +270,83 @@ describe("slowEndLine", () => {
 		).toBe(
 			"pi: still ending 2000 ms after quit, session s; open: none; children: none",
 		);
+	});
+
+	it("names what held its exit, where something did", () => {
+		expect(
+			slowEndLine({
+				pid: 42,
+				session: "s",
+				cause: "SIGTERM",
+				afterMs: 1_104,
+				held: "exit waits on a name lookup, so it ends by its own SIGTERM",
+				active: ["GetAddrInfoReqWrap"],
+				children: [],
+			}),
+			"the hold, before what stays open",
+		).toBe(
+			"pi: still ending 1104 ms after SIGTERM, session s; held: exit waits on a name lookup, so it ends by its own SIGTERM; open: GetAddrInfoReqWrap; children: none",
+		);
+	});
+});
+
+describe("watchSlowEnd's onArm", () => {
+	it("is told once, with the first cause, when a signal or a quit arms it", () => {
+		const source = signals();
+		source.on("SIGTERM", () => {});
+		const armed: string[] = [];
+		const watch = watchSlowEnd({
+			afterMs: 2_000,
+			signals: source,
+			onSlow: () => {},
+			onArm: (cause) => armed.push(cause),
+		});
+		source.send("SIGTERM");
+		watch.arm("quit");
+		expect(armed, "the TERM, once").toEqual(["SIGTERM"]);
+		watch.stop();
+	});
+});
+
+describe("endPastPendingLookup", () => {
+	it("says so, then ends a process exiting with a name lookup pending", () => {
+		const done: string[] = [];
+		const atExit = endPastPendingLookup({
+			active: () => ["TCPSocketWrap", "GetAddrInfoReqWrap", "Timeout"],
+			say: (active) => done.push(`say ${active.join(" ")}`),
+			end: () => done.push("end"),
+		});
+		atExit();
+		expect(done, "written before it ends").toEqual([
+			"say TCPSocketWrap GetAddrInfoReqWrap Timeout",
+			"end",
+		]);
+	});
+
+	it("lets a process with no lookup pending exit as it would", () => {
+		const done: string[] = [];
+		const atExit = endPastPendingLookup({
+			active: () => ["TCPSocketWrap", "Timeout"],
+			say: () => done.push("say"),
+			end: () => done.push("end"),
+		});
+		atExit();
+		expect(done, "nothing said, nothing ended").toEqual([]);
+	});
+});
+
+describe("endNow", () => {
+	it("ends by its own TERM once nothing else hears one, and by KILL should that return", () => {
+		const done: string[] = [];
+		endNow({
+			pid: 42,
+			removeAllListeners: (signal) => done.push(`unlisten ${signal}`),
+			kill: (pid, signal) => done.push(`kill ${pid} ${signal}`),
+		});
+		expect(done, "TERM's default, then KILL").toEqual([
+			"unlisten SIGTERM",
+			"kill 42 SIGTERM",
+			"kill 42 SIGKILL",
+		]);
 	});
 });

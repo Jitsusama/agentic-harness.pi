@@ -60,6 +60,14 @@ second, so the wait was on something only a real session reaches.
   pi whose own handlers are gone. An extension can't name which
   shutdown handler is still running; what stays open and the
   children are the evidence. See `lib/internal/session/slow-end.ts`.
+- Ends a pi whose exit would wait on a name lookup. Node's exit waits
+  for libuv's threadpool, a lookup there can't be cancelled, and with
+  the network gone each waits 10 seconds for the resolver to give up,
+  past any timer. So once the watch arms, a last exit listener that
+  finds one writes the record and a `pi: still ending` line with
+  `held: exit waits on a name lookup`, waiting for both, and ends the
+  pi by its own TERM. Such a pi leaves with status 143, not 0: Node
+  has no way to exit with a code that skips the threadpool.
 - Arms only in plain pi. A host runs many conversations in one
   process and installs what that process listens for itself.
 
