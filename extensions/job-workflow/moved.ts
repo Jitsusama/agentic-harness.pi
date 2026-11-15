@@ -133,6 +133,28 @@ export function carryAway(
 	return carried;
 }
 
+/**
+ * Write the results a closing session hadn't said yet, as a carry with
+ * no jobs, so the next start of the conversation says them; whether a
+ * record was written. A close used to drop them, and a call taken up
+ * then had nothing left to say how it ended (15 November).
+ */
+export function keepUnsaid(
+	outbox: Pick<Outbox, "waiting">,
+	append: (type: string, data: Carried) => void,
+	now: number,
+): boolean {
+	const results = outbox.waiting();
+	if (results.length === 0) return false;
+	try {
+		append(CARRIED_ENTRY, { at: now, jobs: [], results });
+	} catch {
+		// A log that can't be written can't keep them: lost as before.
+		return false;
+	}
+	return true;
+}
+
 /** Say on `bus` the jobs `session` carried away, once their record is written. */
 export function sayCarried(
 	bus: { emit(channel: string, data: unknown): void },
