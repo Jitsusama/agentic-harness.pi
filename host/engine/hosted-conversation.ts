@@ -7,6 +7,7 @@
  */
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { isRecord } from "../../lib/internal/record.ts";
 import type {
 	Conversation,
 	DurableContext,
@@ -14,6 +15,7 @@ import type {
 	GenerationHooks,
 	Harness,
 	Registry,
+	RunFailure,
 	ToolRegistration,
 } from "./durable-types.ts";
 import type { HostPiModules } from "./host-pi.ts";
@@ -46,6 +48,8 @@ interface DurableModule {
 	readonly defineExtension: (extension: Extension) => Extension;
 	readonly hook: (task: unknown, handlers: GenerationHooks) => unknown;
 	readonly GenerationTask: unknown;
+	/** The token of a conversation's `pi.live` document. */
+	readonly LiveDoc: unknown;
 }
 
 /** Open a conversation's durable store at `storePath` and its root conversation. */
@@ -98,6 +102,8 @@ export async function openHostedConversation(options: {
 				context,
 				abortSubmission: (id) => harness.abortSubmission(id, context),
 				resume: () => harness.resume(),
+				runFailure: async () =>
+					failureIn(await harness.snapshot(durable.LiveDoc, root.id, context)),
 				extension: (
 					tools: readonly ToolRegistration[],
 					hooks: GenerationHooks,
@@ -120,15 +126,31 @@ export async function openHostedConversation(options: {
 	};
 }
 
+/** The run failure a conversation's `pi.live` document holds, if any. */
+function failureIn(live: unknown): RunFailure | undefined {
+	if (!isRecord(live) || !isRecord(live.runFailure)) return undefined;
+	const { taskId, reason } = live.runFailure;
+	return typeof taskId === "number" && typeof reason === "string"
+		? { taskId, reason }
+		: undefined;
+}
+
 function durableModule(modules: HostPiModules): DurableModule {
-	const { Harness, createRegistry, defineExtension, hook, GenerationTask } =
-		modules.durable;
+	const {
+		Harness,
+		createRegistry,
+		defineExtension,
+		hook,
+		GenerationTask,
+		LiveDoc,
+	} = modules.durable;
 	const missing = Object.entries({
 		Harness,
 		createRegistry,
 		defineExtension,
 		hook,
 		GenerationTask,
+		LiveDoc,
 	})
 		.filter(([, value]) => value === undefined)
 		.map(([name]) => name);

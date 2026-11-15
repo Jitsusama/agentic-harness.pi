@@ -17,6 +17,7 @@ import type {
 	GenerationHooks,
 	HarnessSettings,
 	Registry,
+	RunFailure,
 	Submission,
 	ToolRegistration,
 } from "./durable-types.ts";
@@ -80,6 +81,8 @@ export interface DurableBinding {
 	abortSubmission(id: number): Promise<string>;
 	/** Let durable carry on what it had in flight, once the agent can answer its hooks. */
 	resume(): void;
+	/** The newest run durable ended without an answer, as it committed it. */
+	runFailure(): Promise<RunFailure | undefined>;
 	/** Build the durable extension holding these tools and the agent's generation hooks. */
 	extension(
 		tools: readonly ToolRegistration[],
@@ -156,6 +159,8 @@ const ENTRY_PAGE = 200;
  * this, and one that waits on its first token is not waited on past it.
  */
 const ABANDON_AFTER_MS = 1_000;
+/** Durable's reason for a run whose request the host stopped during. */
+const INTERRUPTED = "interrupted";
 /** A tool's parameters as durable sees them: pi validates the arguments itself, with its own texts. */
 const ANY_ARGUMENTS = { type: "object" } as const;
 
@@ -445,6 +450,7 @@ export class HostedAgent {
 		// first: durable admits nothing new while a turn it holds is cut off.
 		while (this.active) await this.active.promise;
 		this.cursor = await this.lastShown();
+		const before = await this.durable.runFailure();
 		let resumed = () => {};
 		const started = new Promise<void>((done) => {
 			resumed = done;
@@ -456,7 +462,29 @@ export class HostedAgent {
 			resumed();
 		});
 		await Promise.race([started, settled]);
-		return { settled };
+		return { settled: settled.then(() => this.askAgainIfCutOff(before)) };
+	}
+
+	/**
+	 * Ask the model again when the run the recovery carried on ended because
+	 * the host stopped during its request. Durable retries such a request
+	 * only under its own retry, which stays off since pi owns model retries,
+	 * so the turn would otherwise sit unanswered until a new word arrived,
+	 * as one did for four minutes on 14 November. A failure from before this
+	 * recovery is left alone, and so is `restart_limit`, durable's own end to
+	 * a request cut off again and again.
+	 */
+	private async askAgainIfCutOff(before: RunFailure | undefined): Promise<void> {
+		if (this.parked || this.active) return;
+		const failure = await this.durable.runFailure();
+		if (failure?.reason !== INTERRUPTED || failure.taskId === before?.taskId)
+			return;
+		if (this.parked || this.active) return;
+		await this.runWithLifecycle(async (run) => {
+			await this.emit({ type: "agent_start" });
+			await this.emit({ type: "turn_start" });
+			await this.admit(run, { type: "continue" });
+		});
 	}
 
 	/**
