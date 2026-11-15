@@ -1,7 +1,7 @@
 /**
  * Changes this session sent to a merge queue, said landed once they merge.
  *
- * A change merged when asked is said landed at once (offer.ts). One sent to
+ * A change merged when asked is said landed at once (offer-merge.ts). One sent to
  * a queue, as every World change is, by a `/merge` comment or a merge the
  * backend answers as enqueued, merges minutes or hours later, after its
  * batch's checks. Nothing said those: on 8 November the landings record

@@ -11,9 +11,6 @@ extensions/quest-workflow/index.ts
 extensions/quest-workflow/lookup.ts
 extensions/quest-workflow/session-registry.ts
 extensions/quest-workflow/verbs/stage.ts
-extensions/review-integration/tools/ask.ts
-extensions/review-integration/tools/draft.ts
-extensions/review-integration/tools/offer.ts
 extensions/subagent-workflow/index.ts
 extensions/work-integration/tools/tree.ts
 host/engine/hosted-agent.ts

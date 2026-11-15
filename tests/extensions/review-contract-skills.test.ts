@@ -9,7 +9,7 @@ const ROUNDS = ["council", "judge", "critique", "audit", "stack"] as const;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /**
- * The path `ask.ts` builds, spelled the same way.
+ * The path `ask-reviewer.ts` builds, spelled the same way.
  *
  * Kept as a literal rather than imported, because importing the tool
  * module would drag pi's extension API into a test that only wants to

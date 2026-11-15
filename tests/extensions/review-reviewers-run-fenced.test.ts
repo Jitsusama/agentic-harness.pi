@@ -6,7 +6,7 @@
 
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { fencePacks } from "../../extensions/review-integration/tools/ask.ts";
+import { fencePacks } from "../../extensions/review-integration/tools/ask-reviewer.ts";
 
 describe("the extensions a reviewer is fenced with", () => {
 	it("are the file fence and the scrub, each where the package has it", () => {

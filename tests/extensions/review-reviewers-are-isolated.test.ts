@@ -21,12 +21,8 @@
  * actually spawns seven models is not a test.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
+import { askModules, askSource } from "./review-ask-source.ts";
 
 /**
  * The arguments of the call starting at `from`, brace-matched.
@@ -47,10 +43,7 @@ function argumentsOf(text: string, from: number): string {
 	}
 	return "";
 }
-const source = readFileSync(
-	join(here, "..", "..", "extensions", "review-integration", "tools", "ask.ts"),
-	"utf8",
-);
+const source = askSource();
 
 describe("what a reviewer inherits", () => {
 	it("is asked for at every site that spawns one", () => {
@@ -182,13 +175,20 @@ describe("what a reviewer inherits", () => {
 		// review library rather than named here, since a list written in a
 		// test is a list that waves the next round kind through. A round
 		// nobody imports is a round nobody calls.
-		const imports = source.slice(
-			0,
-			source.indexOf('} from "../../../lib/core/review/index.ts"'),
-		);
-		const rounds = [...imports.matchAll(/^\t((?:run|start)[A-Z]\w*),$/gm)].map(
-			(match) => `${match[1]}(`,
-		);
+		// Each module's imports, since the rounds are split across them.
+		const imports = askModules().flatMap((text) => {
+			const end = text.indexOf('} from "../../../lib/core/review/index.ts"');
+			return end === -1 ? [] : [text.slice(0, end)];
+		});
+		const rounds = [
+			...new Set(
+				imports.flatMap((block) =>
+					[...block.matchAll(/^\t((?:run|start)[A-Z]\w*),$/gm)].map(
+						(match) => `${match[1]}(`,
+					),
+				),
+			),
+		];
 
 		// Discovered twice and checked against itself, because one regex
 		// over a slice can lose a round without anybody noticing: a

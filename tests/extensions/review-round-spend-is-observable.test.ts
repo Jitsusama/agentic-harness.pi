@@ -20,6 +20,7 @@ import { recordReviewerRun } from "../../extensions/review-integration/run-recor
 import type { RunRecord } from "../../lib/core/observability/index.ts";
 import { registerRunRecorder } from "../../lib/core/observability/index.ts";
 import type { RunReviewerResult } from "../../lib/subagent/index.ts";
+import { askSource } from "./review-ask-source.ts";
 
 /** Whatever the recorder is handed while the body runs. */
 function recorded(body: () => void): RunRecord[] {
@@ -204,7 +205,7 @@ describe("what a round spends", () => {
 			"review-integration",
 			"tools",
 		);
-		const source = readFileSync(join(tools, "ask.ts"), "utf8");
+		const source = askSource();
 		const settling = readFileSync(join(tools, "ask-settle.ts"), "utf8");
 
 		expect(source).toContain("recordReviewerRun({");

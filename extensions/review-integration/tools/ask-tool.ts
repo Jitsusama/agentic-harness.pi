@@ -17,7 +17,7 @@ import { loadOnce } from "../../../lib/internal/single-flight.ts";
 import { takesUpCarried } from "../../../lib/jobs/take-up.ts";
 import { THINKING_LEVELS } from "../../../lib/thinking/index.ts";
 import { ROUND_WORK, type RoundReading, takeUpRound } from "../round-job.ts";
-import type { AskParams } from "./ask.ts";
+import type { AskParams } from "./ask-round.ts";
 import { person } from "./heard.ts";
 import type { Answer } from "./shared.ts";
 import { renderAnswer, renderInvocation } from "./view.ts";
