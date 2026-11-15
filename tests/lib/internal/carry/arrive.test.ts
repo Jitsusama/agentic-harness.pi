@@ -188,7 +188,10 @@ describe("arriving with a carried session", () => {
 			kind: "sessions",
 			sessions: [{ id: SESSION, cwd: scratchOf(from) }],
 		});
-		expect(existsSync(join(home, "src", "app-notes"))).toBe(false);
+		expect(
+			existsSync(join(home, "src", "app-notes")),
+			"no folder made beside the tree it only shares a prefix with",
+		).toBe(false);
 	});
 
 	it("makes its folder within a tree it brought when the tree didn't carry it", async () => {
