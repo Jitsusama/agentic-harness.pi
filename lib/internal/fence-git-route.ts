@@ -16,6 +16,10 @@
  * The signing agent stays outside, so a signed commit, tag or rebase
  * made with git inside fails, naming only the key it couldn't use; it
  * gains the work tool's route, which signs outside (ISXEG8 [2fc080c2]).
+ *
+ * World's Delta remote takes a credential from git's credential cache
+ * or gcloud, both outside, so a fetch or push of World made with git
+ * inside fails; it gains the work tool's route too (ISXEG8 [3b8dd276]).
  */
 
 /** The line a refused rewrite of `packed-refs` gains. */
@@ -29,6 +33,14 @@ export const UNHELD_TREE_ROUTE =
 /** The line a commit git couldn't sign gains. */
 export const SIGNING_ROUTE =
 	"pi: the agent fence keeps the signing agent outside, so a signed commit, tag or rebase made with git inside fails. Commit with the work tool (`work record`) and rebase with `work rebase`, which sign outside the fence.";
+
+/** The line a fetch or push git couldn't authenticate to Delta gains. */
+export const DELTA_ROUTE =
+	"pi: the agent fence keeps World's Delta credentials outside, so a fetch or push of World made with git inside fails. Bring a tree up to date with `work rebase` onto origin/main, cut a new one with `work tree`, and push with `work push`, which reach Delta outside the fence.";
+
+/** Git's words for a Delta credential it couldn't get. */
+const NO_DELTA =
+	/unable to obtain a Delta credential|credential-cache: unable to connect to cache daemon/;
 
 /** Git's words for a signature it couldn't make. */
 const UNSIGNED =
@@ -78,6 +90,18 @@ export function routedSigning<T extends Block>(
 	record: () => void,
 ): T[] | undefined {
 	return routed(content, UNSIGNED, SIGNING_ROUTE, record);
+}
+
+/**
+ * `content` with the route added after the block where git said it
+ * couldn't get a Delta credential, `record` called once for it; or
+ * undefined, when no block says so.
+ */
+export function routedDelta<T extends Block>(
+	content: readonly T[],
+	record: () => void,
+): T[] | undefined {
+	return routed(content, NO_DELTA, DELTA_ROUTE, record);
 }
 
 /** `content` with `route` after the first block `said` matches, or undefined. */

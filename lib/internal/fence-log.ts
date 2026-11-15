@@ -35,7 +35,8 @@ export const FENCE_LOG_TAG = "pi-fence";
  * git command the read-only shared git folder failed, counted to see how
  * often agents meet it (`fence-git-route.ts`); `unheld-tree` is git
  * refused a tree's own git folder, in a tree the session doesn't hold;
- * `signing` is git that couldn't sign, the signing agent being outside.
+ * `signing` is git that couldn't sign, the signing agent being outside;
+ * `delta` is git that couldn't get World's Delta credential.
  */
 export type RefusedKind =
 	| "path"
@@ -43,7 +44,8 @@ export type RefusedKind =
 	| "plant"
 	| "packed-refs"
 	| "unheld-tree"
-	| "signing";
+	| "signing"
+	| "delta";
 
 /** One refusal, as the log holds it. */
 export interface Refusal {

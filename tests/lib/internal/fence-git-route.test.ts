@@ -6,7 +6,9 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
+	DELTA_ROUTE,
 	PACKED_REFS_ROUTE,
+	routedDelta,
 	routedPackedRefs,
 	routedSigning,
 	routedUnheldTree,
@@ -107,6 +109,37 @@ describe("a fenced command git couldn't sign with", () => {
 			"fatal: Unable to create '/h/src/r/.git/index.lock': Read-only file system",
 		]) {
 			expect(routedSigning(text(said), record), said).toBeUndefined();
+		}
+		expect(record, "other output was counted").not.toHaveBeenCalled();
+	});
+});
+
+// ISXEG8 [3b8dd276], 15 November: a bash fetch of World failed, its
+// Delta credential out of reach inside, and nothing named a route.
+describe("a fenced command git couldn't reach World's Delta with", () => {
+	it("is told to fetch and push with the work tool, and counted once", () => {
+		const record = vi.fn();
+		for (const said of [
+			"dev: unable to obtain a Delta credential from Mint or gcloud\nfatal: could not read Username for 'https://delta.shopify.io': terminal prompts disabled",
+			"git credential-cache: unable to connect to cache daemon: Permission denied",
+		]) {
+			record.mockClear();
+			expect(routedDelta(text(said), record), said).toEqual(
+				text(`${said}\n\n${DELTA_ROUTE}`),
+			);
+			expect(record, "it wasn't counted").toHaveBeenCalledTimes(1);
+		}
+		for (const route of ["work rebase", "work tree", "work push"])
+			expect(DELTA_ROUTE, `the route doesn't name ${route}`).toContain(route);
+	});
+
+	it("leaves a fetch that worked, and a GitHub one, as they are", () => {
+		const record = vi.fn();
+		for (const said of [
+			"From https://delta.shopify.io/shop/world\n * branch main -> FETCH_HEAD",
+			"fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+		]) {
+			expect(routedDelta(text(said), record), said).toBeUndefined();
 		}
 		expect(record, "other output was counted").not.toHaveBeenCalled();
 	});
