@@ -95,7 +95,7 @@ export function resolveTarget(root: AxNode, target: Target): TargetResolution {
 	if (matches.length === 0) return { kind: "notFound" };
 	if (matches.length > 1) return { kind: "ambiguous", count: matches.length };
 	const only = matches[0];
-	return only.backendDomId !== undefined
+	return only?.backendDomId !== undefined
 		? { kind: "resolved", backendDomId: only.backendDomId }
 		: { kind: "notFound" };
 }

@@ -39,7 +39,7 @@ export function splitFrontMatter(
 	if (lines[0]?.trim() !== "---") return undefined;
 	let end = -1;
 	for (let i = 1; i < lines.length; i++) {
-		if (lines[i].trim() === "---") {
+		if (lines[i]?.trim() === "---") {
 			end = i;
 			break;
 		}

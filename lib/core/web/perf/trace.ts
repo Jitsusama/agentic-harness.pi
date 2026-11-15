@@ -350,6 +350,7 @@ function foldTimers(
 		const slot = live.get(key(frame, id));
 		if (slot === undefined) continue;
 		const install = stories[slot];
+		if (install === undefined) continue;
 		const firedAtMs = at(event.ts);
 		// A repeating timer keeps an interval, so what it promised is
 		// about the gap since it last ran. Measured from the install
@@ -439,8 +440,8 @@ function foldRequests(
 	let resolvedOutOfOrder = false;
 	const settled = requests.filter((one) => one.finishedAtMs !== undefined);
 	for (let index = 1; index < settled.length; index += 1) {
-		const previous = settled[index - 1].finishedAtMs ?? 0;
-		if ((settled[index].finishedAtMs ?? 0) < previous) {
+		const previous = settled[index - 1]?.finishedAtMs ?? 0;
+		if ((settled[index]?.finishedAtMs ?? 0) < previous) {
 			resolvedOutOfOrder = true;
 			break;
 		}

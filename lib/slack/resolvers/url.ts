@@ -20,10 +20,9 @@ export interface ParsedSlackUrl {
  * first 10 digits.
  */
 export function parseSlackUrl(url: string): ParsedSlackUrl | null {
-	const match = url.match(/archives\/([A-Z0-9]+)\/p(\d+)/);
-	if (!match) return null;
+	const [, channel, rawTs] = url.match(/archives\/([A-Z0-9]+)\/p(\d+)/) ?? [];
+	if (channel === undefined || rawTs === undefined) return null;
 
-	const rawTs = match[2];
 	const ts = `${rawTs.slice(0, 10)}.${rawTs.slice(10)}`;
-	return { channel: match[1], ts };
+	return { channel, ts };
 }

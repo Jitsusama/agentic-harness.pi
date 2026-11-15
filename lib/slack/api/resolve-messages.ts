@@ -83,6 +83,7 @@ async function resolveChannelMentionsInText(
 		if (!msg.text) continue;
 		for (const match of msg.text.matchAll(CHANNEL_MENTION_PATTERN)) {
 			const channelId = match[1];
+			if (channelId === undefined) continue;
 			// Skip if already in the file cache (survives across sessions).
 			if (lookupName(CHANNEL_CACHE_FILE, channelId)) continue;
 			// Skip if already in the session cache.

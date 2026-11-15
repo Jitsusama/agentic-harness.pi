@@ -239,7 +239,8 @@ function profileScalars(values: unknown[]): string {
 /** The shared type name of a list of scalars, or "mixed" when they disagree. */
 function scalarType(values: unknown[]): string {
 	const types = new Set(values.map((v) => (v === null ? "null" : typeof v)));
-	return types.size === 1 ? [...types][0] : "mixed";
+	const [only] = types;
+	return types.size === 1 && only !== undefined ? only : "mixed";
 }
 
 /** Render a scalar value for display, clipping a long string so it cannot dominate. */
@@ -289,6 +290,6 @@ function capBytes(text: string, maxBytes: number): string {
 	const marker = "...";
 	const budget = Math.max(0, maxBytes - marker.length);
 	let end = budget;
-	while (end > 0 && (buf[end] & 0xc0) === 0x80) end--;
+	while (end > 0 && ((buf[end] ?? 0) & 0xc0) === 0x80) end--;
 	return buf.toString("utf-8", 0, end) + marker;
 }

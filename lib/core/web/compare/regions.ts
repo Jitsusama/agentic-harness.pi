@@ -65,7 +65,7 @@ export function clusterRegions(
 		for (let x = 0; x < width; x += 1) {
 			if (!changed[y * width + x]) continue;
 			const at = Math.floor(y / cell) * across + Math.floor(x / cell);
-			counts[at] += 1;
+			counts[at] = (counts[at] ?? 0) + 1;
 			if (x < (leftOf[at] ?? width)) leftOf[at] = x;
 			if (y < (topOf[at] ?? height)) topOf[at] = y;
 			if (x > (rightOf[at] ?? -1)) rightOf[at] = x;

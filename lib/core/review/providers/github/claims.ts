@@ -33,11 +33,9 @@ export function githubRepoKey(owner: string, repo: string): string {
 export function ownerRepoFromRemote(
 	remoteUrl: string,
 ): { owner: string; repo: string } | null {
-	const https = HTTPS_REMOTE.exec(remoteUrl);
-	if (https) return { owner: https[1], repo: https[2] };
-	const ssh = SSH_REMOTE.exec(remoteUrl);
-	if (ssh) return { owner: ssh[1], repo: ssh[2] };
-	return null;
+	const [, owner, repo] =
+		HTTPS_REMOTE.exec(remoteUrl) ?? SSH_REMOTE.exec(remoteUrl) ?? [];
+	return owner !== undefined && repo !== undefined ? { owner, repo } : null;
 }
 
 /** Owner and repo from a repo key this provider minted. */
@@ -114,22 +112,27 @@ export function claimGitHubReference(
 		repo: enriched(named.repo, repo),
 	});
 
-	const pull = PULL_URL.exec(trimmed);
-	if (pull) return here(change(pull[1], pull[2], pull[3]));
+	const named =
+		changeFrom(PULL_URL.exec(trimmed)) ??
+		changeFrom(GRAPHITE_URL.exec(trimmed)) ??
+		changeFrom(SHORT_FORM.exec(trimmed));
+	if (named) return here(named);
 
-	const graphite = GRAPHITE_URL.exec(trimmed);
-	if (graphite) return here(change(graphite[1], graphite[2], graphite[3]));
-
-	const short = SHORT_FORM.exec(trimmed);
-	if (short) return here(change(short[1], short[2], short[3]));
-
-	const bare = BARE_NUMBER.exec(trimmed);
-	if (!bare || !repo) return null;
+	const [, number] = BARE_NUMBER.exec(trimmed) ?? [];
+	if (number === undefined || !repo) return null;
 	const owned = ownerRepoFromKey(repo.key);
 	// Enriched like the rest. This form reads the repo off the probe to
 	// understand the number at all, and then threw the rest of it away by
 	// rebuilding the locator from the owner and name it had just read.
-	return owned ? here(change(owned.owner, owned.repo, bare[1])) : null;
+	return owned ? here(change(owned.owner, owned.repo, number)) : null;
+}
+
+/** The change a match of an explicit form names by its owner, repo and number. */
+function changeFrom(match: RegExpExecArray | null): ChangeRef | null {
+	const [, owner, repo, number] = match ?? [];
+	return owner !== undefined && repo !== undefined && number !== undefined
+		? change(owner, repo, number)
+		: null;
 }
 
 /** Recognize a checkout by its remotes. */

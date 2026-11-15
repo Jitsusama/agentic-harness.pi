@@ -75,7 +75,7 @@ function renderTable(table: SlackTable): string {
 
 	// Header row.
 	const header = table.columns
-		.map((col, i) => col.padEnd(widths[i]))
+		.map((col, i) => col.padEnd(widths[i] ?? 0))
 		.join(" | ");
 
 	// Separator row.
@@ -83,7 +83,7 @@ function renderTable(table: SlackTable): string {
 
 	// Data rows.
 	const rows = table.rows.map((row) =>
-		row.map((cell, i) => (cell ?? "").padEnd(widths[i])).join(" | "),
+		row.map((cell, i) => (cell ?? "").padEnd(widths[i] ?? 0)).join(" | "),
 	);
 
 	return [
@@ -214,8 +214,7 @@ export function renderThread(messages: SlackMessage[]): string {
 	const lines: string[] = [];
 	lines.push(`Thread with ${count(messages.length, "message")}:\n`);
 
-	for (let i = 0; i < messages.length; i++) {
-		const msg = messages[i];
+	for (const [i, msg] of messages.entries()) {
 		const prefix = i === 0 ? "┌" : i === messages.length - 1 ? "└" : "├";
 		const user = msg.user ? `@${displayNameForId(msg.user)}` : "unknown";
 		const ts = formatTimestamp(msg.ts);

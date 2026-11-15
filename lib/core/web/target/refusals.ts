@@ -333,16 +333,24 @@ function firstResolvable(
 
 /** Levenshtein distance between two strings. */
 function editDistance(a: string, b: string): number {
+	// One row of the table at a time, walking the row above in step:
+	// `diagonal` is the cell above and to the left, `left` the one just
+	// filled, and the last cell filled is the distance.
 	let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+	let left = b.length;
 	for (let i = 1; i <= a.length; i++) {
 		const current = [i];
-		for (let j = 1; j <= b.length; j++) {
-			const substitute = previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1);
-			current[j] = Math.min(substitute, previous[j] + 1, current[j - 1] + 1);
+		let diagonal = i - 1;
+		left = i;
+		for (const [j, above] of previous.slice(1).entries()) {
+			const substitute = diagonal + (a[i - 1] === b[j] ? 0 : 1);
+			left = Math.min(substitute, above + 1, left + 1);
+			current.push(left);
+			diagonal = above;
 		}
 		previous = current;
 	}
-	return previous[b.length];
+	return left;
 }
 
 /** Put a refusal into words, the same way for every tool. */

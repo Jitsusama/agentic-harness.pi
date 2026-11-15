@@ -322,7 +322,11 @@ export async function formatMentions(
 	// Deduplicate handles to avoid resolving the same one twice.
 	const uniqueHandles = [
 		...new Set(
-			matches.map((m) => m[1]).filter((h) => !SLACK_BROADCASTS.has(h)),
+			matches
+				.map((m) => m[1])
+				.filter(
+					(h): h is string => h !== undefined && !SLACK_BROADCASTS.has(h),
+				),
 		),
 	];
 	const resolved = new Map<string, string>();

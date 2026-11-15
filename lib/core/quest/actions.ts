@@ -94,16 +94,22 @@ function levenshtein(a: string, b: string): number {
 	if (a === b) return 0;
 	if (a.length === 0) return b.length;
 	if (b.length === 0) return a.length;
-	const prev: number[] = new Array(b.length + 1);
-	const curr: number[] = new Array(b.length + 1);
-	for (let j = 0; j <= b.length; j++) prev[j] = j;
+	// One row of the table at a time, walking the row above in step:
+	// `diagonal` is the cell above and to the left, `left` the one just
+	// filled, and the last cell filled is the distance.
+	let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+	let left = b.length;
 	for (let i = 1; i <= a.length; i++) {
-		curr[0] = i;
-		for (let j = 1; j <= b.length; j++) {
-			const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-			curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+		const curr = [i];
+		let diagonal = i - 1;
+		left = i;
+		for (const [j, above] of prev.slice(1).entries()) {
+			const cost = a[i - 1] === b[j] ? 0 : 1;
+			left = Math.min(left + 1, above + 1, diagonal + cost);
+			curr.push(left);
+			diagonal = above;
 		}
-		for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+		prev = curr;
 	}
-	return prev[b.length];
+	return left;
 }

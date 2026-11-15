@@ -37,10 +37,10 @@ interface SearchProvider {
 
 /** Extract the real URL from a DuckDuckGo redirect link. */
 export function extractDuckDuckGoUrl(ddgHref: string): string {
-	const match = ddgHref.match(/uddg=([^&]+)/);
-	if (match) {
+	const encoded = ddgHref.match(/uddg=([^&]+)/)?.[1];
+	if (encoded !== undefined) {
 		try {
-			return decodeURIComponent(match[1]);
+			return decodeURIComponent(encoded);
 		} catch {
 			// Malformed encoding: return the href unchanged rather than
 			// promoting the redirect wrapper as if it were the target.

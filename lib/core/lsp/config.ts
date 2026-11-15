@@ -74,7 +74,8 @@ export function typescriptMajorAt(fromDir: string): number | null {
 		if (existsSync(pkg)) {
 			try {
 				const { version } = JSON.parse(readFileSync(pkg, "utf8"));
-				const major = Number.parseInt(String(version).split(".")[0], 10);
+				const [first = ""] = String(version).split(".");
+				const major = Number.parseInt(first, 10);
 				return Number.isNaN(major) ? null : major;
 			} catch {
 				// An unreadable or malformed package.json tells us nothing.
