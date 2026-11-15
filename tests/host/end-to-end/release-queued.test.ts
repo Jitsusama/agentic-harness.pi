@@ -8,6 +8,12 @@
  * exactly once, the log stays whole and keeps what it held, and the
  * conversation answers in plain pi from the same file.
  *
+ * E28: a release of a conversation away mode keeps sending back to work
+ * lets it go within the release's deadline, and the send-back carries:
+ * in plain pi, from the same file, it carries on by itself. Each
+ * send-back has it run a tool, so away mode never stops for want of
+ * tool calls, and its next run follows each run's end at once.
+ *
  * Runs on a pi built with the host's patches, found as support/host-pi.ts
  * says; without one it is skipped saying how to get one, since an
  * ordinary check can't build the host's runtime. `pnpm test:host` runs it
@@ -20,6 +26,7 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { publishMachineWord } from "../../../lib/internal/away/machine.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
@@ -47,6 +54,18 @@ const run = promisify(execFile);
 
 /** How long the release may wait on the busy one, in minutes. */
 const DEADLINE_MINUTES = 10;
+
+/**
+ * How long E28's release may wait, in minutes: a few of its runs' twenty
+ * seconds, well short of the move calling itself off.
+ */
+const AWAY_DEADLINE_MINUTES = 3;
+
+/**
+ * What E28's absence asks for: its second line is the scripted model's
+ * word for a tool that ends by itself, so every send-back runs one.
+ */
+const AWAY_GOAL = `keep at it\n${WAIT_A_WHILE}`;
 
 let sealed: Seal;
 let host: HostProcess | undefined;
@@ -118,6 +137,15 @@ function pongsIn(file: string | undefined): number {
 	}).length;
 }
 
+/** How many times the conversation in `file` has called bash. */
+function bashCallsIn(file: string | undefined): number {
+	return messagesIn(file).filter(
+		(one) =>
+			one.role === "assistant" &&
+			JSON.stringify(one.content).includes('"name":"bash"'),
+	).length;
+}
+
 /** The lines of a session file that don't parse as a whole entry. */
 function brokenLines(file: string | undefined): string[] {
 	return textOf(file)
@@ -135,7 +163,9 @@ function brokenLines(file: string | undefined): string[] {
 }
 
 /** Run host-release.ts in the seal, answering its exit and output. */
-async function release(): Promise<{ code: number; out: string }> {
+async function release(
+	minutes = DEADLINE_MINUTES,
+): Promise<{ code: number; out: string }> {
 	try {
 		const { stdout } = await run(
 			process.execPath,
@@ -144,9 +174,9 @@ async function release(): Promise<{ code: number; out: string }> {
 				join(ROOT, "scripts", "host-release.ts"),
 				"--all",
 				"--deadline",
-				String(DEADLINE_MINUTES),
+				String(minutes),
 			],
-			{ cwd: ROOT, env: sealed.env, timeout: DEADLINE_MINUTES * 60_000 * 2 },
+			{ cwd: ROOT, env: sealed.env, timeout: minutes * 60_000 * 2 },
 		);
 		return { code: 0, out: stdout };
 	} catch (error: unknown) {
@@ -271,4 +301,91 @@ it(
 	},
 	// A host, two opens, a twenty-second tool, a release, a plain pi and four round trips.
 	ROUND_TRIP_MS * 8,
+);
+
+it(
+	"E28: a release of a conversation away mode keeps sending back lets it go, and it carries on in plain pi",
+	async ({ skip }) => {
+		await onHostPi(skip, said, async (pi) => {
+			publishMachineWord(
+				{ since: new Date().toISOString(), goal: AWAY_GOAL },
+				new Date(),
+				join(
+					sealed.env.XDG_STATE_HOME ?? "",
+					"pi",
+					"agentic-harness.pi",
+					"away-workflow",
+					"machine.json",
+				),
+			);
+			host = await startHost({
+				seal: sealed,
+				engine: PI_ENGINE,
+				kind: "background",
+				env: { PI_HOST_PACKAGE_DIR: pi },
+			});
+			// Trusted as Joel's own folders are, for the plain pi after.
+			await mkdir(join(sealed.home, ".pi", "agent"), { recursive: true });
+			await writeFile(
+				join(sealed.home, ".pi", "agent", "trust.json"),
+				JSON.stringify({ [await realpath(sealed.home)]: true }),
+			);
+			const cwd = join(sealed.home, "a");
+			await mkdir(cwd, { recursive: true });
+			const away = await host.open(cwd, {
+				model: SCRIPTED,
+				first: WAIT_A_WHILE,
+			});
+			const file = away.file;
+			await untilAnswered(
+				"away mode has sent it back to work",
+				async () => bashCallsIn(file) >= 2,
+				ROUND_TRIP_MS * 2,
+			).catch((error: unknown) => {
+				throw new Error(`${String(error)}\na: ${textOf(file)}`);
+			});
+
+			const held = textOf(file);
+			const released = await release(AWAY_DEADLINE_MINUTES);
+			expect(released.code, released.out).toBe(0);
+			expect(released.out).toContain("1 released");
+			expect(await host.list(), "the host ends empty").toEqual([]);
+			expect(brokenLines(file), "the log is whole after the release").toEqual(
+				[],
+			);
+			const before = textOf(file);
+			expect(
+				before.startsWith(held),
+				"the release keeps every entry it held",
+			).toBe(true);
+
+			plain = await startTerminalPi({
+				seal: sealed,
+				packageDir: pi,
+				file: file ?? "",
+				cwd,
+			});
+			await untilAnswered("it runs in its one plain pi", async () => {
+				const now = presences().of(away.sessionId);
+				return now?.owner?.pid === plain?.pid && !now?.hosted;
+			});
+			const calls = bashCallsIn(file);
+			await untilAnswered(
+				"it carries on by itself in plain pi",
+				async () => bashCallsIn(file) > calls,
+				ROUND_TRIP_MS * 2,
+			).catch((error: unknown) => {
+				throw new Error(
+					`${String(error)}\nafter the release:\n${before}\nnow:\n${textOf(file)}`,
+				);
+			});
+			expect(
+				textOf(file).startsWith(before),
+				"plain pi keeps what the host left",
+			).toBe(true);
+			expect(brokenLines(file), "the log is whole at the end").toEqual([]);
+		});
+	},
+	// A host, an open, two of its runs, a release that may wait out its deadline, a plain pi and its run.
+	ROUND_TRIP_MS * 10,
 );

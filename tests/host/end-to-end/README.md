@@ -218,6 +218,9 @@ them. Two steers and a peer's mesh question queue behind a tool that
 ends by itself, and `host-release.ts --all` starts. Whether the host
 answers them first or plain pi answers them after, from the same file,
 each is answered once, and the log stays whole and keeps what it held.
+E28, in the same file, releases a conversation away mode keeps sending
+back, each send-back running a tool: it is let go within the release's
+deadline, and in plain pi, from the same file, it carries on by itself.
 
 early-attach.test.ts attaches a viewer to a conversation the screen
 host lists but hasn't yet given a screen, its folder's own extension
