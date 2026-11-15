@@ -50,8 +50,8 @@ function documentedPublic(): string[] {
 	if (section === undefined) return [];
 	const names: string[] = [];
 	for (const line of section.split("\n")) {
-		const bullet = /^- \*\*\[`([a-z-]+)\/`\]/.exec(line);
-		if (bullet) names.push(bullet[1]);
+		const name = /^- \*\*\[`([a-z-]+)\/`\]/.exec(line)?.[1];
+		if (name !== undefined) names.push(name);
 	}
 	return names;
 }

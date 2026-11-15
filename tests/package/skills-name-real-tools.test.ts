@@ -61,6 +61,7 @@ describe("a skill names only tools that exist", () => {
 			for (const file of filesUnder(root, ".md")) {
 				const text = prose(readFileSync(file, "utf8"));
 				for (const [, span] of text.matchAll(/`([^`\n]+)`/g)) {
+					if (span === undefined) continue;
 					const [named, action] = span.trim().split(/\s+/);
 					if (named === undefined || action === undefined) continue;
 					const actions = surface.get(named);
@@ -83,6 +84,7 @@ describe("a skill names only tools that exist", () => {
 				for (const [, named] of text.matchAll(
 					/\b((?:review|work|quest|tdd)_[a-z]+)\b/g,
 				)) {
+					if (named === undefined) continue;
 					// A family prefix that is registered is fine; anything else
 					// underscored is a tool that was renamed or never existed.
 					if (!tools.has(named)) {

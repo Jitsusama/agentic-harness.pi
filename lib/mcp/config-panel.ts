@@ -25,8 +25,8 @@ export function changedValues(
 	for (const section of input.sections) {
 		for (const row of section.rows) {
 			const initial = row.options[row.index];
-			if (values[row.id] !== undefined && values[row.id] !== initial)
-				changed[row.id] = values[row.id];
+			const value = values[row.id];
+			if (value !== undefined && value !== initial) changed[row.id] = value;
 		}
 	}
 	return changed;

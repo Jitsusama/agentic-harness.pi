@@ -347,10 +347,11 @@ export function createSurfaceManager(deps: {
 				arguments: Type.Optional(Type.Unknown()),
 			}),
 		];
+		// One schema for each of the three helpers, so the empty one is never reached.
 		return helpers.map((helper, index) =>
 			adaptHelper(
 				helper,
-				params[index],
+				params[index] ?? Type.Object({}),
 				index === 2 ? runToolRenderResult : undefined,
 			),
 		);

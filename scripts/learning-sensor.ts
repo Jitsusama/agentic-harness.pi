@@ -174,7 +174,7 @@ export function signalsFromResult(
 	if (trimmed.startsWith("⊘")) {
 		const [first, ...rest] = trimmed.slice(1).split("\n");
 		const signals: Signal[] = [
-			{ kind: "refusal", key: `${toolName}: ${normalise(first)}`, sample },
+			{ kind: "refusal", key: `${toolName}: ${normalise(first ?? "")}`, sample },
 		];
 		for (const line of rest) {
 			if (/^\s*- /.test(line)) {
@@ -191,7 +191,9 @@ export function signalsFromResult(
 		trimmed.endsWith(OVERRIDE_HINT) ||
 		(isError && toolName === "bash" && GUARD_LINE.test(trimmed))
 	) {
-		return [{ kind: "guard", key: normalise(trimmed.split("\n")[0]), sample }];
+		return [
+			{ kind: "guard", key: normalise(trimmed.split("\n")[0] ?? ""), sample },
+		];
 	}
 	return [];
 }

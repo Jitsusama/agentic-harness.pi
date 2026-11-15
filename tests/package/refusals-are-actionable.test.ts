@@ -19,6 +19,16 @@ import { describe, expect, it } from "vitest";
 const ROOT = join(import.meta.dirname, "..", "..");
 
 /**
+ * Where gh's commands are refused, and said how to run instead: the
+ * detection logic and its block messages, folded in from
+ * agentic-harness.core, as is git's below.
+ */
+const GH_BLOCKS = "lib/core/github-cli/index.ts";
+
+/** Where git's commands are refused, and said how to run instead. */
+const GIT_BLOCKS = "lib/core/git-cli/index.ts";
+
+/**
  * Files whose whole job is producing block messages.
  *
  * Deliberately a list rather than a glob over `extensions`. A tool description may
@@ -26,12 +36,7 @@ const ROOT = join(import.meta.dirname, "..", "..");
  * and nothing is being refused; `browser-integration` does, and should. What must not defer is a message returned at the moment an action was
  * stopped.
  */
-const BLOCK_SOURCES = [
-	// The detection logic and its block messages, folded in from
-	// agentic-harness.core.
-	"lib/core/github-cli/index.ts",
-	"lib/core/git-cli/index.ts",
-];
+const BLOCK_SOURCES = [GH_BLOCKS, GIT_BLOCKS];
 
 /** Telling the reader to go and read something, in the shapes people write it. */
 const DEFERS = /\b(?:read|see|consult|refer to)\s+the\s+[a-z-]+\s+skill/i;
@@ -56,13 +61,13 @@ describe("a block message", () => {
 		// An agent told to use --body-file with a heredoc can still reach for a file
 		// path or an unquoted delimiter, both of which are separately blocked. Three
 		// blocks in a row for one mistake is a message that did not do its job.
-		const source = readFileSync(join(ROOT, BLOCK_SOURCES[0]), "utf8");
+		const source = readFileSync(join(ROOT, GH_BLOCKS), "utf8");
 
 		expect(source).toContain("--body-file - <<'EOF'");
 	});
 
 	it("shows the git commit form literally, for the same reason", () => {
-		const source = readFileSync(join(ROOT, BLOCK_SOURCES[1]), "utf8");
+		const source = readFileSync(join(ROOT, GIT_BLOCKS), "utf8");
 
 		expect(source).toContain("git commit -F- <<'EOF'");
 	});

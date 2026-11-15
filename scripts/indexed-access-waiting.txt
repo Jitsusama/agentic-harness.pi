@@ -4,15 +4,7 @@
 # left, so the list only shrinks. When it's empty, the option moves into
 # tsconfig.json and this list and the script go.
 extensions/google-workspace-integration/render-result.ts 4
-extensions/review-integration/tools/offer-stack.ts 1
-extensions/review-integration/tools/sections.ts 7
-extensions/slack-integration/confirmation.ts 7
-extensions/slack-integration/index.ts 1
 extensions/work-integration/sweep.ts 1
-lib/budget/files.ts 1
-lib/budget/record.ts 3
-lib/command/flags.ts 2
-lib/command/tokenize.ts 20
 lib/completion/investigate.ts 1
 lib/glossary/index.ts 1
 lib/google/renderers/calendar.ts 7
@@ -28,16 +20,9 @@ lib/internal/priority/outcome.ts 20
 lib/internal/priority/push-hooks.mjs 10
 lib/internal/priority/world-walk.ts 11
 lib/internal/refs/builtins.ts 1
-lib/mcp/ceiling.ts 1
-lib/mcp/config-panel.ts 1
-lib/mcp/content.ts 2
-lib/mcp/surface/manager.ts 1
 lib/people/store.ts 1
 lib/prose/detect.ts 1
 lib/refs/lookup.ts 1
-lib/roles/derive.ts 6
-lib/shell/parse.ts 2
-scripts/learning-sensor.ts 2
 tests/lib/command/flags.test.ts 8
 tests/lib/command/tokenize.test.ts 61
 tests/lib/glossary/glossary.test.ts 1
@@ -67,10 +52,3 @@ tests/lib/quest/journey-sweep.test.ts 1
 tests/lib/quest/quest-doc.test.ts 7
 tests/lib/roles/archaic.test.ts 4
 tests/lib/shell/parse.test.ts 9
-tests/package/docs-name-what-exists.test.ts 4
-tests/package/every-stop-is-one-something-imposes.test.ts 3
-tests/package/exports.test.ts 1
-tests/package/refusals-are-actionable.test.ts 2
-tests/package/registered-tools.ts 7
-tests/package/skills-name-real-tools.test.ts 2
-tests/package/tool-execute-signature.test.ts 4

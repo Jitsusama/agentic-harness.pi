@@ -23,6 +23,7 @@ import {
 	PR_SECTIONS,
 	PR_SHAPE,
 } from "../../../lib/core/sections/sanctioned.ts";
+import type { SectionShape } from "../../../lib/core/sections/shape.ts";
 import { count } from "../../../lib/ui/count.ts";
 
 /** The four section fields, as a call may carry any of them. */
@@ -43,9 +44,15 @@ const LABEL: Record<(typeof PR_FIELDS)[number], string> = {
 	validation: "validation",
 };
 
-const [TLDR, PROBLEM, SOLUTION, VALIDATION] = PR_SECTIONS.map(
-	(section) => PR_SHAPE.sections[section] ?? {},
-);
+/** The rules the gate holds a section to, or none when it holds it to none. */
+function shapeOf(section: (typeof PR_SECTIONS)[number]): SectionShape {
+	return PR_SHAPE.sections[section] ?? {};
+}
+
+const TLDR = shapeOf(PR_SECTIONS[0]);
+const PROBLEM = shapeOf(PR_SECTIONS[1]);
+const SOLUTION = shapeOf(PR_SECTIONS[2]);
+const VALIDATION = shapeOf(PR_SECTIONS[3]);
 
 /**
  * A word count to aim for, three quarters of the ceiling, to the five

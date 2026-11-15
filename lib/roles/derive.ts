@@ -40,24 +40,28 @@ export function deriveRoles(models: readonly RoleModel[]): RoleAssignment[] {
 	const assignments: RoleAssignment[] = [];
 	for (const [provider, providerModels] of byProvider) {
 		const sorted = ranked(providerModels);
+		const cheapest = sorted[0];
+		const middle = sorted[Math.floor((sorted.length - 1) / 2)];
+		const dearest = sorted.at(-1);
+		// A provider is only listed once it has a model, so none is missing.
+		if (!cheapest || !middle || !dearest) continue;
 		if (sorted.length === 1) {
-			assignments.push({ provider, primary: sorted[0].id });
+			assignments.push({ provider, primary: cheapest.id });
 			continue;
 		}
 		if (sorted.length === 2) {
 			assignments.push({
 				provider,
-				light: sorted[0].id,
-				premium: sorted[1].id,
+				light: cheapest.id,
+				premium: dearest.id,
 			});
 			continue;
 		}
-		const middle = sorted[Math.floor((sorted.length - 1) / 2)];
 		assignments.push({
 			provider,
-			light: sorted[0].id,
+			light: cheapest.id,
 			primary: middle.id,
-			premium: sorted[sorted.length - 1].id,
+			premium: dearest.id,
 		});
 	}
 

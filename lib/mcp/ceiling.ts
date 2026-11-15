@@ -230,6 +230,7 @@ function sliceUtf8(text: string, maxBytes: number): string {
 	const buf = Buffer.from(text, "utf-8");
 	if (buf.length <= maxBytes) return text;
 	let end = maxBytes;
-	while (end > 0 && (buf[end] & 0xc0) === 0x80) end--;
+	// end stays below the buffer's length, so the 0 is never reached.
+	while (end > 0 && ((buf[end] ?? 0) & 0xc0) === 0x80) end--;
 	return buf.toString("utf-8", 0, end);
 }
