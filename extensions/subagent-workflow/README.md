@@ -248,14 +248,22 @@ sessions skip the board and just return results.
 
 ## Files
 
-- `index.ts`: registration, plus the session-start
-  housekeeping. Declares the tool, wires the supervisor,
-  the cancellation registry and the progress reporter,
-  and holds `sweepFleetRuns`, which is its own function
-  rather than a handler body because it is four policies
-  in a row. It says each fleet in its run record, the
+- `index.ts`: registration. Registers the tool, wires
+  the supervisor, the cancellation registry and the
+  progress reporter, and starts the session-start
+  upkeep. It says each fleet in its run record, the
   mesh's `runs/` file the launcher reads, from before it
   runs until its call returns.
+- `declaration.ts`: what the model reads of the tool,
+  its description, guidelines and parameter schema.
+- `upkeep.ts`: the session-start housekeeping. Holds
+  `sweepFleetRuns`, which is its own function rather
+  than a handler body because it is four policies in a
+  row, the orphaned-subagent stop, and the word a
+  returning conversation gets about its cut-off fleets.
+- `bookkeeping.ts`: writing a fleet down without letting
+  a failed write cost it, and reading which conversation
+  and owner it belongs to.
 
 - `sizing.ts`, `place.ts`, `fleet-settings.ts`: what
   each job runs on and the fleet's cap (see

@@ -11,7 +11,6 @@ extensions/quest-workflow/index.ts
 extensions/quest-workflow/lookup.ts
 extensions/quest-workflow/session-registry.ts
 extensions/quest-workflow/verbs/stage.ts
-extensions/subagent-workflow/index.ts
 host/engine/hosted-agent.ts
 lib/internal
 lib/internal/quest
