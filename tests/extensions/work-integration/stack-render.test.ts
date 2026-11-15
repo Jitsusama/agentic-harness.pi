@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { GLYPH } from "../../../extensions/work-integration/render.ts";
 import { stackLines } from "../../../extensions/work-integration/tools/stack.ts";
 import type { StackedBranch } from "../../../lib/core/work/index.ts";
+import { at } from "../../support/at.ts";
 
 const chain: StackedBranch[] = [
 	{ name: "a" },
@@ -62,10 +63,9 @@ describe("drawing a stack", () => {
 		expect(lines[1]).toContain("second");
 		expect(lines[2]).toContain("first");
 		// Both are one level in: they are siblings, not a chain.
-		const [, second, first] = lines;
-		if (second === undefined || first === undefined)
-			throw new Error("the siblings drew no lines");
-		expect(second.indexOf(GLYPH.named)).toBe(first.indexOf(GLYPH.named));
+		expect(at(lines, 1).indexOf(GLYPH.named)).toBe(
+			at(lines, 2).indexOf(GLYPH.named),
+		);
 	});
 
 	it("reports a fault instead of drawing a shape that is not one", () => {

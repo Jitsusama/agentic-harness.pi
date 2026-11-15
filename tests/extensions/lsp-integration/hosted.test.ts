@@ -17,6 +17,7 @@ import {
 	releaseSession,
 	withSession,
 } from "../../../lib/core/session/index.ts";
+import { at } from "../../support/at.ts";
 import { extensionRunner } from "../../support/extension-runner.ts";
 
 const created = vi.hoisted(() => [] as StandaloneBackend[]);
@@ -204,8 +205,7 @@ describe("hosted LSP registries", () => {
 		host();
 		const a = await runner("/work/a");
 		const b = await runner("/work/b");
-		const old = created[0];
-		if (old === undefined) throw new Error("no pool was created");
+		const old = at(created, 0);
 		vi.mocked(old.diagnostics).mockRejectedValueOnce(
 			new Error("Pending response rejected since connection got disposed"),
 		);
