@@ -11,29 +11,10 @@ import {
 	systemFacts,
 } from "../../../../lib/subagent/lease.ts";
 import { createSupervisorStartPi } from "../../../../lib/subagent/runpi/supervisor.ts";
-
-// Real processes, so give the operating system room to schedule them
-// under a saturated pool. Nothing here waits on work: the point of a
-// detached start is that it returns before the child has done
-// anything, so the only wait is for a file to appear.
-const APPEARS_WITHIN_MS = 60_000;
+import { APPEARS_WITHIN_MS, appears } from "./appears.ts";
 
 async function tempStateDir(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "pr-runpi-detached-"));
-}
-
-/** Wait for a path to hold parseable JSON, or give up saying so. */
-async function appears<T>(path: string): Promise<T> {
-	const until = Date.now() + APPEARS_WITHIN_MS;
-	while (Date.now() < until) {
-		try {
-			return JSON.parse(await readFile(path, "utf8")) as T;
-		} catch {
-			// Not written, or half-written. Both mean "not yet".
-			await new Promise((resolve) => setTimeout(resolve, 50));
-		}
-	}
-	throw new Error(`${path} never appeared within ${APPEARS_WITHIN_MS}ms`);
 }
 
 /** A spawn that records how it was called and pretends nothing ran. */

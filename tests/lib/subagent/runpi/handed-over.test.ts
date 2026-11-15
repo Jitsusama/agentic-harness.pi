@@ -18,10 +18,7 @@ import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
 import { type Parent, writeParent } from "../../../../lib/subagent/handing.ts";
 import { createSupervisorStartPi } from "../../../../lib/subagent/runpi/supervisor.ts";
 import { gone, noSuchProcess } from "../../../support/processes.ts";
-
-// Real processes on a pool that may be saturated: room to be scheduled,
-// not work waited on.
-const APPEARS_WITHIN_MS = 60_000;
+import { APPEARS_WITHIN_MS, appears } from "./appears.ts";
 
 /** How long a child is watched to see it kept, past many of its watchdog's looks. */
 const KEPT_FOR_MS = 2_500;
@@ -30,25 +27,6 @@ const supervisorPath = join(
 	dirname(fileURLToPath(import.meta.url)),
 	"../../../../lib/subagent/runpi/supervisor.mjs",
 );
-
-/** Wait for a path to hold parseable JSON, or give up saying so. */
-async function appears<T>(
-	path: string,
-	enough: (value: T) => boolean = () => true,
-): Promise<T> {
-	const until = Date.now() + APPEARS_WITHIN_MS;
-	while (Date.now() < until) {
-		try {
-			const value = JSON.parse(await readFile(path, "utf8")) as T;
-			if (enough(value)) return value;
-		} catch {
-			// Not written, or half-written. Both mean "not yet".
-		}
-		// A poll's pause, for the supervisor to write.
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	throw new Error(`${path} never appeared within ${APPEARS_WITHIN_MS}ms`);
-}
 
 /** Whether a process is still there. */
 function running(pid: number): boolean {

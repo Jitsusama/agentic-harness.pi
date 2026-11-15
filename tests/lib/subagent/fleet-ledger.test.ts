@@ -55,6 +55,21 @@ async function onlyRecord(root: string): Promise<string> {
 	return join(root, file);
 }
 
+/** Write an open fleet's record by hand, owned by `owner` as given. */
+function writeOpenFleet(root: string, owner: unknown): void {
+	writeFileSync(
+		join(root, "fleet-a.json"),
+		JSON.stringify({
+			id: "fleet-a",
+			startedAt: new Date().toISOString(),
+			jobs: ["one"],
+			open: true,
+			owner,
+		}),
+		"utf8",
+	);
+}
+
 describe("a fleet ledger", () => {
 	it("holds a fleet from before it is dispatched", async () => {
 		// Before, not after. A fleet recorded when it finishes is a
@@ -174,17 +189,7 @@ describe("a fleet ledger", () => {
 		// whether a session counts as still waiting, so a liveness check
 		// on it would answer for whatever the platform makes of a pid
 		// nobody can have.
-		writeFileSync(
-			join(root, "fleet-a.json"),
-			JSON.stringify({
-				id: "fleet-a",
-				startedAt: new Date().toISOString(),
-				jobs: ["one"],
-				open: true,
-				owner: { pid: 0, startedAt: 1_760_000_000_000 },
-			}),
-			"utf8",
-		);
+		writeOpenFleet(root, { pid: 0, startedAt: 1_760_000_000_000 });
 
 		const { open, unreadable } = await createFleetLedger(root).openFleets();
 
@@ -196,17 +201,7 @@ describe("a fleet ledger", () => {
 		// What JSON says when something writes the field out empty.
 		// Refusing the record over a spelling of "nobody" wedges the
 		// sweep for this machine until somebody edits a file by hand.
-		writeFileSync(
-			join(root, "fleet-a.json"),
-			JSON.stringify({
-				id: "fleet-a",
-				startedAt: new Date().toISOString(),
-				jobs: ["one"],
-				open: true,
-				owner: null,
-			}),
-			"utf8",
-		);
+		writeOpenFleet(root, null);
 
 		const { open, unreadable } = await createFleetLedger(root).openFleets();
 
@@ -221,17 +216,7 @@ describe("a fleet ledger", () => {
 		// which offers somebody a live fleet's protection to delete.
 		// Refusing the record stops the sweep instead, which is the
 		// outcome that costs nothing but a message.
-		writeFileSync(
-			join(root, "fleet-a.json"),
-			JSON.stringify({
-				id: "fleet-a",
-				startedAt: new Date().toISOString(),
-				jobs: ["one"],
-				open: true,
-				owner: { pid: 4242 },
-			}),
-			"utf8",
-		);
+		writeOpenFleet(root, { pid: 4242 });
 
 		const { open, unreadable } = await createFleetLedger(root).openFleets();
 

@@ -40,35 +40,12 @@ import {
 } from "../../../../lib/subagent/runpi/supervisor.ts";
 import { gone, noSuchProcess } from "../../../support/processes.ts";
 import { sessionHost } from "../../../support/session-host.ts";
-
-// Real processes, doubly nested, on a pool that may be saturated.
-// Nothing here waits on work: the child sleeps and is meant to be
-// stopped, so this is only room for the operating system to schedule.
-const APPEARS_WITHIN_MS = 60_000;
+import { APPEARS_WITHIN_MS, appears } from "./appears.ts";
 
 const supervisorPath = join(
 	dirname(fileURLToPath(import.meta.url)),
 	"../../../../lib/subagent/runpi/supervisor.mjs",
 );
-
-/** Wait for a path to hold parseable JSON, or give up saying so. */
-async function appears<T>(
-	path: string,
-	enough: (value: T) => boolean = () => true,
-): Promise<T> {
-	const until = Date.now() + APPEARS_WITHIN_MS;
-	while (Date.now() < until) {
-		try {
-			const value = JSON.parse(await readFile(path, "utf8")) as T;
-			if (enough(value)) return value;
-			await new Promise((resolve) => setTimeout(resolve, 50));
-		} catch {
-			// Not written, or half-written. Both mean "not yet".
-			await new Promise((resolve) => setTimeout(resolve, 50));
-		}
-	}
-	throw new Error(`${path} never appeared within ${APPEARS_WITHIN_MS}ms`);
-}
 
 describe("a supervisor whose session has gone", () => {
 	it("stops A when its host closes it, without stopping B or the host", async () => {
