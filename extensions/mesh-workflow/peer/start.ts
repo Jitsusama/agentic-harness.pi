@@ -300,7 +300,11 @@ export function onSessionStart(
 			`${Date.now() - FIRST_CATCH_UP_MS}`;
 		m.caughtUpFrom = since;
 		const missed: Message[] = [];
-		for (const id of m.transport.ids()) {
+		// Only the days a message after `since` can rest in: listing every
+		// day's folder took 325 ms of a wake on 15 November, for ids then
+		// passed by as read. What rests in the days before is never taken,
+		// since a watcher and the minute's look list only the top.
+		for (const id of m.transport.idsFromDayOf(since)) {
 			if (id <= since) {
 				m.seen.add(id);
 				continue;
