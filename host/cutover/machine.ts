@@ -9,7 +9,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { refreshRestoreFile } from "../../extensions/quest-workflow/session-registry.ts";
+import { refreshRestoreFile } from "../../extensions/quest-workflow/sessions/restore.ts";
 import { dataDir, sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import {
 	type TickFacts,

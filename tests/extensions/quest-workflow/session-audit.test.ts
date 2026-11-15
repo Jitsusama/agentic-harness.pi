@@ -8,7 +8,7 @@ import {
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { auditSessionMembership } from "../../../extensions/quest-workflow/lookup.ts";
+import { auditSessionMembership } from "../../../extensions/quest-workflow/sessions/membership.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { sessionsDir } from "../../../lib/internal/paths.ts";

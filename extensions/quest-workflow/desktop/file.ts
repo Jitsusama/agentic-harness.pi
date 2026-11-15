@@ -6,7 +6,7 @@
 
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { atomicWriteFile } from "../../lib/internal/quest/io.ts";
+import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
 
 /** Write a desktop file when its text differs; answers whether it wrote. */
 export function writeWhenChanged(path: string, value: unknown): boolean {

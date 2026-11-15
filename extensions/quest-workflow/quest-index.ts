@@ -61,14 +61,14 @@ import { questAddress } from "../../lib/mesh/address.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import type { TerminalProbe } from "../../lib/terminal/index.ts";
-import { writeWhenChanged } from "./desktop-file.ts";
+import { writeWhenChanged } from "./desktop/file.ts";
 import {
 	byRank,
 	isOpen,
 	orchestratorsIn,
 	writeOrchestrators,
-} from "./orchestrators.ts";
-import { loadRecords } from "./session-registry.ts";
+} from "./desktop/orchestrators.ts";
+import { loadRecords } from "./sessions/records.ts";
 
 /** One document of a quest, as the desktop lists it. */
 export interface QuestIndexDocument {

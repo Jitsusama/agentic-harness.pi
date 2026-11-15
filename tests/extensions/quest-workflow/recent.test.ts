@@ -13,8 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	recentSessionHints,
 	recentSessions,
-} from "../../../extensions/quest-workflow/lookup.ts";
-import { saveRecord } from "../../../extensions/quest-workflow/session-registry.ts";
+} from "../../../extensions/quest-workflow/sessions/views.ts";
+import { saveRecord } from "../../../extensions/quest-workflow/sessions/records.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { sessionsDir } from "../../../lib/internal/paths.ts";

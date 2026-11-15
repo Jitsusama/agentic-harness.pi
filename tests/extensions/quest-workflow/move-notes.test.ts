@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	releasedHome,
 	settleMoveNote,
-} from "../../../extensions/quest-workflow/session-registry.ts";
+} from "../../../extensions/quest-workflow/sessions/restore.ts";
 import {
 	type MoveNote,
 	readMoveNote,

@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	orchestratorsIn,
 	writeOrchestrators,
-} from "../../../extensions/quest-workflow/orchestrators.ts";
+} from "../../../extensions/quest-workflow/desktop/orchestrators.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
