@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderRichTextCell } from "../../../lib/slack/rich-text-reading.ts";
 import { cacheUser } from "../../../lib/slack/resolvers/user.ts";
+import { renderRichTextCell } from "../../../lib/slack/rich-text-reading.ts";
 
 /**
  * How rich text Slack sent is read back as text, in the same marks the
