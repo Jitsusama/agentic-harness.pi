@@ -43,6 +43,11 @@ host adds, and records that drift from plain pi's.
   90th percentile, the same for the same turn on either side and on
   every run, and how an answer is cut into pieces streamed across its
   time.
+- `extensions.ts`: whether a side's pi can load every extension it was
+  given. Pi skips a link whose target has gone without a word and
+  starts the faster for it, so each host start, the plain side's start
+  and each side's end fault on any extension missing, naming it, and a
+  run on a vanished tree reads as a fault rather than a quick open.
 - `report.ts`: latencies from the logs, what the screens add to them,
   their percentiles, whether the weighings settle, and the differences
   between each pair of logs.
