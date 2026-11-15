@@ -81,6 +81,10 @@ import {
 	typedTurns,
 } from "../../lib/internal/priority/typed.ts";
 import {
+	uplinkMeter,
+	uplinkSentIn,
+} from "../../lib/internal/priority/uplink.ts";
+import {
 	buildsShouldYield,
 	keepYield,
 	systemBuildSlice,
@@ -261,6 +265,7 @@ function linuxMachine(own: string | undefined): Machine {
 	const hasTimed = () => timed !== undefined && existsSync(timed);
 	let floors: string[] = [];
 	let floorsAt = Number.NEGATIVE_INFINITY;
+	const uplink = uplinkMeter();
 	return {
 		processes: {
 			isRunning,
@@ -274,7 +279,11 @@ function linuxMachine(own: string | undefined): Machine {
 				floors = await floorsIn(KERNEL.cgroups);
 				floorsAt = now;
 			}
-			return readRoom(floors);
+			const reading = await readRoom(floors);
+			const sentMbit = uplink(await uplinkSentIn(), now);
+			return sentMbit === undefined
+				? reading
+				: { ...reading, uplink: { sentMbit } };
 		},
 		cgroupFor: (job) =>
 			CLASS_OF[job.kind] === "timed" && hasTimed() ? timed : undefined,

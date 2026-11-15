@@ -224,6 +224,12 @@ export interface QueueRecord {
 		readonly over: readonly Pressed[];
 		/** The slots of builders elsewhere, counted as room here while they stand. */
 		readonly offload?: Offload;
+		/**
+		 * How fast the uplink sends, once measured. The shell paces the
+		 * sessions it tells to carry on after a reboot by it; no turn here
+		 * waits on it.
+		 */
+		readonly uplink?: Reading["uplink"];
 	};
 	/** How many more VMs and builds would get their turns now. */
 	readonly room: RoomLeft;
@@ -813,8 +819,9 @@ export function queueFolder(
 
 /**
  * What a record says that is worth writing at once: everything but when
- * it was written, the machine's pressure and its free memory, which
- * change in nearly every reading and wait for the heartbeat. It is held
+ * it was written, the machine's pressure, its free memory and its
+ * uplink's rate, which change in nearly every reading and wait for the
+ * heartbeat. It is held
  * against the file rather than what this session last wrote, since every
  * session keeps the queue in turn. Under ten VMs on 30 October the file
  * was replaced 123 times in 10 s, each costing the shell about 20
@@ -826,6 +833,7 @@ function shapeOf(record: QueueRecord | undefined): string {
 	const {
 		pressure: _pressure,
 		availableGib: _free,
+		uplink: _sent,
 		...machine
 	} = record.machine;
 	return JSON.stringify({ ...record, at: "", heartbeat: 0, machine });
@@ -866,6 +874,7 @@ export function queueRecord(
 			vms: reading.vms,
 			over: pressedPast(reading),
 			...(reading.offload ? { offload: reading.offload } : {}),
+			...(reading.uplink ? { uplink: reading.uplink } : {}),
 		},
 		room: roomLeft(jobs, reading, now, rules),
 		quiet: null,

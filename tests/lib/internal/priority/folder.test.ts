@@ -657,6 +657,21 @@ describe("the machine's queue folder", () => {
 		expect(queue.hasJobs(), "a queue holding two jobs has jobs").toBe(true);
 	});
 
+	it("says how fast the uplink sends, leaving it to the heartbeat", () => {
+		// The shell paces sessions told to carry on by it, so it's said;
+		// it changes in every reading, as pressure does, so it waits.
+		folder().ask(job("waiting"));
+		shellSays("waiting", 501);
+		folder().keep(TIGHT, NOW, () => undefined);
+		expect(record().machine.uplink).toBeUndefined();
+		const first = record().heartbeat;
+		const sending = { ...TIGHT, uplink: { sentMbit: 6.4 } };
+		folder().keep(sending, NOW + 1_000, () => undefined);
+		expect(record().heartbeat).toBe(first);
+		folder().keep(sending, NOW + HEARTBEAT_MS, () => undefined);
+		expect(record().machine.uplink).toEqual({ sentMbit: 6.4 });
+	});
+
 	it("leaves pressure alone to the heartbeat, whichever session keeps it", () => {
 		// Under ten VMs on 30 October it was replaced 123 times in 10 s,
 		// each costing the shell about 20 wakeups, for pressure alone.
