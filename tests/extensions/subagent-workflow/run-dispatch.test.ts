@@ -22,6 +22,7 @@ import type { RunRecord } from "../../../lib/core/observability/index.ts";
 import { registerRunRecorder } from "../../../lib/core/observability/index.ts";
 import { UNFINISHED } from "../../../lib/subagent/reviewer-error.ts";
 import type { RunPi, RunPiResult } from "../../../lib/subagent/subagent.ts";
+import { at } from "../../support/at.ts";
 import { makeUsage } from "./fleet-usage.ts";
 
 function recordingProgress(): {
@@ -226,7 +227,7 @@ describe("dispatchFleet", () => {
 		});
 		expect(starts).toHaveLength(1);
 		expect(starts[0]).toHaveLength(1);
-		expect(starts[0][0].state).toBe("pending");
+		expect(starts[0]?.[0]?.state).toBe("pending");
 		expect(events).toEqual(["start:solo", "complete:solo", "finish"]);
 	});
 
@@ -252,7 +253,7 @@ describe("dispatchFleet", () => {
 			cancellations,
 			progress,
 		});
-		expect(result.results[0].state).toBe("cancelled");
+		expect(result.results[0]?.state).toBe("cancelled");
 		expect(events).toContain("cancelled:victim");
 	});
 
@@ -311,9 +312,9 @@ describe("dispatchFleet", () => {
 			cancellations,
 			progress,
 		});
-		expect(result.results[0].state).toBe("failed");
-		expect(result.results[0].error).toMatch(/exited with code 1/);
-		expect(result.results[0].finalAssistantText).toBe("partial");
+		expect(result.results[0]?.state).toBe("failed");
+		expect(result.results[0]?.error).toMatch(/exited with code 1/);
+		expect(result.results[0]?.finalAssistantText).toBe("partial");
 		expect(events).toContainEqual(expect.stringMatching(/^failed:bad-exit:/));
 	});
 
@@ -343,8 +344,8 @@ describe("dispatchFleet", () => {
 			cancellations,
 			progress,
 		});
-		expect(result.results[0].state).toBe("failed");
-		expect(result.results[0].error).toMatch(/stream ended/);
+		expect(result.results[0]?.state).toBe("failed");
+		expect(result.results[0]?.error).toMatch(/stream ended/);
 		expect(events).toContainEqual(expect.stringMatching(/^failed:dropped:/));
 	});
 
@@ -374,11 +375,11 @@ describe("dispatchFleet", () => {
 			progress,
 		});
 
-		expect(result.results[0].state).toBe("failed");
-		expect(result.results[0].error).toMatch(
+		expect(result.results[0]?.state).toBe("failed");
+		expect(result.results[0]?.error).toMatch(
 			/^pi stopped before its run finished: /,
 		);
-		expect(result.results[0].error).toContain("web_read");
+		expect(result.results[0]?.error).toContain("web_read");
 	});
 
 	it("inlines a stderr tail into the failure reason and preserves the full text", async () => {
@@ -407,7 +408,7 @@ describe("dispatchFleet", () => {
 			cancellations,
 			progress,
 		});
-		const failure = result.results[0];
+		const failure = at(result.results, 0);
 		expect(failure.state).toBe("failed");
 		expect(failure.error).toMatch(/exited with code 1/);
 		expect(failure.error).toMatch(/No API key found for anthropic/);
@@ -435,7 +436,7 @@ describe("dispatchFleet", () => {
 			runPi,
 			cancellations,
 		});
-		const failure = result.results[0];
+		const failure = at(result.results, 0);
 		expect(failure.state).toBe("failed");
 		expect(failure.error).toBe("pi exited with code 1");
 		expect(failure.stderr).toBeUndefined();

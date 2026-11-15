@@ -69,7 +69,7 @@ describe("rebudget", () => {
 		expect(out.saved).toBeGreaterThan(3000);
 		const images = (out.content ?? []).filter((b) => b.type === "image");
 		expect(images).toHaveLength(1);
-		expect(images[0].data).toBe("resized-payload");
+		expect(images[0]?.data).toBe("resized-payload");
 	});
 
 	it("says what it scaled, so coordinates still map", async () => {
@@ -103,7 +103,7 @@ describe("rebudget", () => {
 			"text",
 		]);
 		const prose = blocks.filter((b): b is TextContent => b.type === "text");
-		expect(prose[0].text).toBe("before");
+		expect(prose[0]?.text).toBe("before");
 		expect(prose.at(-1)?.text).toBe("after");
 	});
 
@@ -123,8 +123,8 @@ describe("rebudget", () => {
 		// One note out, not two, and it names the true original.
 		const prose = blocks.filter((b): b is TextContent => b.type === "text");
 		expect(prose).toHaveLength(1);
-		expect(prose[0].text).toContain("3024x1964");
-		expect(prose[0].text).not.toContain("1.51");
+		expect(prose[0]?.text).toContain("3024x1964");
+		expect(prose[0]?.text).not.toContain("1.51");
 	});
 
 	it("re-encodes from the original file when one is available", async () => {
@@ -164,8 +164,8 @@ describe("rebudget", () => {
 
 		// The tool's own line survives; pi's note does not; one note added.
 		expect(prose).toHaveLength(2);
-		expect(prose[0].text).toBe("Read image file [image/png]");
-		expect(prose[1].text).toContain("3024x1964");
+		expect(prose[0]?.text).toBe("Read image file [image/png]");
+		expect(prose[1]?.text).toContain("3024x1964");
 		expect(prose.map((b) => b.text)).not.toContainEqual(
 			expect.stringContaining("1.51"),
 		);

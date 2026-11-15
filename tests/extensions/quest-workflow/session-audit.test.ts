@@ -16,6 +16,7 @@ import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
 } from "../../../lib/quest/index.ts";
+import { at } from "../../support/at.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { createEnvGuard } from "./_helpers.ts";
 
@@ -105,8 +106,8 @@ describe("auditSessionMembership", () => {
 
 		const divergences = auditSessionMembership(state);
 		expect(divergences).toHaveLength(1);
-		expect(divergences[0].sessionId).toBe("sess-x");
-		expect(divergences[0].questIds.sort()).toEqual([a.id, b.id].sort());
+		expect(divergences[0]?.sessionId).toBe("sess-x");
+		expect(at(divergences, 0).questIds.sort()).toEqual([a.id, b.id].sort());
 	});
 
 	it("reports none when every session is on one quest", async () => {

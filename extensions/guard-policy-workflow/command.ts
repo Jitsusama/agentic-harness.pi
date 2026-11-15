@@ -30,13 +30,13 @@ export function parseGuardsCommand(
 	const words = args.trim().split(/\s+/).filter(Boolean);
 	if (words.length === 0) return { kind: "list" };
 	if (words.length === 1 && words[0] === "reset") return { kind: "reset" };
-	if (words.length !== 2) {
+	const [key, mode, ...rest] = words;
+	if (key === undefined || mode === undefined || rest.length > 0) {
 		return {
 			kind: "error",
 			message: `Usage: /guards, /guards reset, or /guards <name|group|class|all> <${GUARD_MODES.join("|")}>`,
 		};
 	}
-	const [key, mode] = words;
 	if (!knownKeys.includes(key)) {
 		return {
 			kind: "error",

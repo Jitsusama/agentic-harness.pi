@@ -158,8 +158,8 @@ function byPiSessionId(
 ): Map<string, SessionRecord> {
 	const index = new Map<string, SessionRecord>();
 	for (const session of sessions) {
-		const match = /_([^_]+)\.jsonl$/.exec(session.sessionId);
-		if (match) index.set(match[1], session);
+		const id = /_([^_]+)\.jsonl$/.exec(session.sessionId)?.[1];
+		if (id !== undefined) index.set(id, session);
 	}
 	return index;
 }

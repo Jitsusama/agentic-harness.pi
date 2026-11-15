@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { parseQuestFrontMatter } from "../../../lib/quest/index.ts";
+import { at } from "../../support/at.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { fakeCtx } from "./_helpers.ts";
 import { buildState, createQuest, fixture } from "./support/verbs.ts";
@@ -113,7 +114,7 @@ describe("create rank assignment", () => {
 
 		const ranks = [rankOf(first.path), rankOf(second.path), rankOf(third.path)];
 		expect(new Set(ranks).size).toBe(3);
-		expect(ranks[0]).toBeLessThan(ranks[1]);
-		expect(ranks[1]).toBeLessThan(ranks[2]);
+		expect(ranks[0]).toBeLessThan(at(ranks, 1));
+		expect(ranks[1]).toBeLessThan(at(ranks, 2));
 	});
 });

@@ -29,6 +29,7 @@ import {
 } from "../../../lib/core/session/index.ts";
 import { SERVED_ENTRY } from "../../../lib/internal/session/served.ts";
 import { FOOTER_GLYPH } from "../../../lib/ui/footer-mark.ts";
+import { at } from "../../support/at.ts";
 import { type FakePi, fakePi } from "../../support/fake-pi.ts";
 import { endTurn } from "../../support/turn-end.ts";
 
@@ -126,11 +127,11 @@ it("uses one host resource baseline across interleaved sessions and module reloa
 	expect(readdirSync(root)).toEqual([
 		`host-test%2Fspend-${process.pid}-1.jsonl`,
 	]);
-	expect([...samples.values()][0].map((sample) => sample.cpuSelfMs)).toEqual([
+	expect(at([...samples.values()], 0).map((sample) => sample.cpuSelfMs)).toEqual([
 		100, 50, 50,
 	]);
 	const rows = useByQuest(samples, [
-		{ session: [...samples.keys()][0], at: "2000-01-01", quest: "QEST-A" },
+		{ session: at([...samples.keys()], 0), at: "2000-01-01", quest: "QEST-A" },
 	]);
 	expect(rows).toEqual([
 		expect.objectContaining({
@@ -149,10 +150,10 @@ it("uses one host resource baseline across interleaved sessions and module reloa
 it("records headless hosted turn hooks in the host log, not either conversation file", async () => {
 	const pi = fakePi();
 	withSession("a", () => spendWorkflow(pi));
-	const at = (name: string) => (event: string, payload: unknown) =>
+	const firedAs = (name: string) => (event: string, payload: unknown) =>
 		fire(pi, event, context(name), payload);
-	await endTurn(at("a"));
-	await endTurn(at("b"));
+	await endTurn(firedAs("a"));
+	await endTurn(firedAs("b"));
 	const dir = join(
 		root,
 		"pi",
@@ -163,7 +164,7 @@ it("records headless hosted turn hooks in the host log, not either conversation 
 	const samples = readSamples(dir);
 	expect(samples.size).toBe(1);
 	expect([...samples.values()][0]).toHaveLength(2);
-	expect([...samples.values()][0].map((sample) => sample.host)).toEqual([
+	expect(at([...samples.values()], 0).map((sample) => sample.host)).toEqual([
 		"test/spend",
 		"test/spend",
 	]);

@@ -367,7 +367,8 @@ function namedTree(
 	const listed = trees.map((t) => `  ${displayPath(t.path)}`).join("\n");
 	const wanted = named?.trim();
 	if (!wanted) {
-		if (trees.length === 1) return { ok: true, tree: trees[0] };
+		const [only] = trees;
+		if (trees.length === 1 && only) return { ok: true, tree: only };
 		return {
 			ok: false,
 			reason: `The loaded quest has ${count(trees.length, "tree")}; name the one for ${verb} with \`cwd\`, a path inside it:\n${listed}`,
@@ -379,7 +380,8 @@ function namedTree(
 		.sort(
 			(a, b) => canonicalPath(b.path).length - canonicalPath(a.path).length,
 		);
-	if (holding.length > 0) return { ok: true, tree: holding[0] };
+	const [nearest] = holding;
+	if (nearest) return { ok: true, tree: nearest };
 	return {
 		ok: false,
 		reason: `No tree on the loaded quest holds ${displayPath(path)}. Its ${noun(trees.length, "tree")}:\n${listed}`,

@@ -10,6 +10,7 @@ import {
 	locateArtifacts,
 	summarizeStderrTail,
 } from "../../../extensions/subagent-workflow/run.ts";
+import { at } from "../../support/at.ts";
 import { makeUsage } from "./fleet-usage.ts";
 
 describe("formatFleetSummary", () => {
@@ -147,23 +148,25 @@ describe("locateArtifacts", () => {
 		expect(located.runDir).toContain("fleet-xyz");
 		expect(located.runDir).toContain("/state");
 		// Each subagent gets its own result.json under reviewers/<id>.
-		expect(located.results[0].resultPath).toContain("alpha");
-		expect(located.results[0].resultPath).toContain("result.json");
-		expect(located.results[1].resultPath).toContain("beta");
+		expect(located.results[0]?.resultPath).toContain("alpha");
+		expect(located.results[0]?.resultPath).toContain("result.json");
+		expect(located.results[1]?.resultPath).toContain("beta");
 		// The result.json lives beneath the run dir.
 		const runDir = located.runDir ?? "";
-		expect(located.results[0].resultPath?.slice(0, runDir.length)).toBe(runDir);
+		expect(located.results[0]?.resultPath?.slice(0, runDir.length)).toBe(
+			runDir,
+		);
 	});
 
 	it("preserves the original fields and per-subagent identity", () => {
 		const located = locateArtifacts("/state", base);
 		expect(located.runId).toBe("fleet-xyz");
 		expect(located.results).toHaveLength(2);
-		expect(located.results[0].id).toBe("alpha");
-		expect(located.results[0].finalAssistantText).toBe("a");
+		expect(located.results[0]?.id).toBe("alpha");
+		expect(located.results[0]?.finalAssistantText).toBe("a");
 		// Distinct subagents get distinct result paths.
-		expect(located.results[0].resultPath).not.toBe(
-			located.results[1].resultPath,
+		expect(at(located.results, 0).resultPath).not.toBe(
+			at(located.results, 1).resultPath,
 		);
 	});
 });

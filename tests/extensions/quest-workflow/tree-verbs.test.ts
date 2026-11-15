@@ -92,7 +92,7 @@ describe("tree-add", () => {
 		expect(tree.branch).toBe("feature-x");
 		expect(existsSync(tree.path), `${tree.path} exists`).toBe(true);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
-		expect(fm?.trees?.[0].path).toBe(tree.path);
+		expect(fm?.trees?.[0]?.path).toBe(tree.path);
 		// The path lives in trees alone; only the branch is mirrored.
 		expect(fm?.aliases).not.toContainEqual(
 			expect.objectContaining({ type: "git-worktree" }),
@@ -129,7 +129,7 @@ describe("tree-list", () => {
 		const trees = (succeeded(result).details as { trees: { path: string }[] })
 			.trees;
 		expect(trees).toHaveLength(1);
-		expect(trees[0].path).toBe(join(repoRoot, ".worktrees", "feature-l"));
+		expect(trees[0]?.path).toBe(join(repoRoot, ".worktrees", "feature-l"));
 	});
 });
 
@@ -173,8 +173,8 @@ describe("tree-release", () => {
 		expect(existsSync(treePath), `${treePath} is kept`).toBe(true);
 		const fm = parseQuestFrontMatter(readFileSync(q.path, "utf8"))?.frontMatter;
 		expect(fm?.pendingPrune).toHaveLength(1);
-		expect(fm?.pendingPrune?.[0].path).toBe(treePath);
-		expect(fm?.pendingPrune?.[0].reason).toMatch(/uncommitted/);
+		expect(fm?.pendingPrune?.[0]?.path).toBe(treePath);
+		expect(fm?.pendingPrune?.[0]?.reason).toMatch(/uncommitted/);
 	});
 
 	it("force-prunes a dirty tree and clears the pendingPrune for that path", async () => {
@@ -198,7 +198,7 @@ describe("tree-release", () => {
 		const blockedFm = parseQuestFrontMatter(
 			readFileSync(q.path, "utf8"),
 		)?.frontMatter;
-		expect(blockedFm?.pendingPrune?.[0].path).toBe(treePath);
+		expect(blockedFm?.pendingPrune?.[0]?.path).toBe(treePath);
 
 		// Force-prune second: succeeds and clears the entry.
 		const pruned = await handle(state, fakePi(), fakeCtx(repoRoot), {

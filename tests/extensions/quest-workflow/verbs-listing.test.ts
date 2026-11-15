@@ -10,6 +10,7 @@ import {
 	clearPersonResolvers,
 	setResolutionFallback,
 } from "../../../lib/people/index.ts";
+import { at } from "../../support/at.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { fakeCtx } from "./_helpers.ts";
 import { buildState, createQuest, fixture } from "./support/verbs.ts";
@@ -50,7 +51,7 @@ describe("find / who / links", () => {
 		if (!result.ok) throw new Error("unreachable");
 		const hits = (result.details as { hits: { subject: string }[] }).hits;
 		expect(hits.length).toBeGreaterThan(0);
-		expect(hits[0].subject.toLowerCase()).toContain("joel");
+		expect(at(hits, 0).subject.toLowerCase()).toContain("joel");
 	});
 
 	it("links projects outgoing and incoming references", async () => {
@@ -113,8 +114,8 @@ describe("list filters", () => {
 		};
 		expect(details.total).toBe(1);
 		expect(details.listing.rows.length).toBe(1);
-		expect(details.listing.rows[0].id).toBe(driving.id);
-		expect(details.listing.rows[0].priority).toBe("driving");
+		expect(details.listing.rows[0]?.id).toBe(driving.id);
+		expect(details.listing.rows[0]?.priority).toBe("driving");
 	});
 
 	it("sorts a sealed quest after a live one even when it outranks by priority", async () => {
@@ -258,10 +259,10 @@ describe("listing verbs: brief, expanded and pagination", () => {
 			};
 		};
 		expect(details.listing.rows.length).toBe(1);
-		expect(details.listing.rows[0].title).toBe("Alpha quest");
-		expect(details.listing.rows[0].priority).toBe("active");
-		expect(details.listing.rows[0].parent).toBeNull();
-		expect(details.listing.rows[0].updated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+		expect(details.listing.rows[0]?.title).toBe("Alpha quest");
+		expect(details.listing.rows[0]?.priority).toBe("active");
+		expect(details.listing.rows[0]?.parent).toBeNull();
+		expect(details.listing.rows[0]?.updated).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 	});
 
 	it("list with limit and offset slices the brief view and surfaces a tail", async () => {
@@ -306,7 +307,7 @@ describe("listing verbs: brief, expanded and pagination", () => {
 			listing: { rows: { id: string; title: string | null }[] };
 		};
 		expect(details.listing.rows.length).toBe(1);
-		expect(details.listing.rows[0].id).toBe(a.id);
+		expect(details.listing.rows[0]?.id).toBe(a.id);
 	});
 
 	it("find with no matches returns (no matches) and an empty listing", async () => {
@@ -401,9 +402,9 @@ describe("listing verbs: brief, expanded and pagination", () => {
 
 		expect(result.message).toContain("Produced by");
 		expect(result.message).toContain("Referenced by");
-		const producedSection = result.message
-			.split("Referenced by")[0]
-			.split("Produced by")[1];
+		const producedSection = at(result.message.split("Referenced by"), 0).split(
+			"Produced by",
+		)[1];
 		const referencedSection = result.message.split("Referenced by")[1];
 		expect(producedSection).toContain(producer.id);
 		expect(producedSection).not.toContain(referrer.id);

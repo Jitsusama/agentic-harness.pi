@@ -52,7 +52,11 @@ export function savedModesOf(
 ): ModeSettings {
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
-		if (entry.type !== "custom" || entry.customType !== GUARD_MODES_ENTRY) {
+		if (
+			entry === undefined ||
+			entry.type !== "custom" ||
+			entry.customType !== GUARD_MODES_ENTRY
+		) {
 			continue;
 		}
 		const modes: Record<string, ModeSettings[string]> = {};

@@ -215,7 +215,7 @@ describe("recentSessions", () => {
 		const { rows } = await recentSessions(state);
 		const forX = rows.filter((r) => r.sessionId === "sess-x");
 		expect(forX).toHaveLength(1);
-		expect(forX[0].questId).toBe(b);
+		expect(forX[0]?.questId).toBe(b);
 	});
 
 	it("says how many it left out rather than trimming in silence", async () => {

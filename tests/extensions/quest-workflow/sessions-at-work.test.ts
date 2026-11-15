@@ -130,8 +130,8 @@ describe("sessionsAtWork", () => {
 		expect(entries).toHaveLength(2);
 		expect(entries.filter((e) => e.questId !== quest)).toEqual([]);
 		expect(entries.map((e) => e.sessionId)).toEqual(["sess-live", "sess-dead"]);
-		expect(entries[0].liveness).toBe("live");
-		expect(entries[1].liveness).toBe("dead");
+		expect(entries[0]?.liveness).toBe("live");
+		expect(entries[1]?.liveness).toBe("dead");
 	});
 
 	it("is reachable through the sessions verb", async () => {

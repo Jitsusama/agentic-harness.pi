@@ -364,10 +364,10 @@ describe("tree and expand", () => {
 		};
 		const parentIdx = details.listing.rows.findIndex((r) => r.id === parent.id);
 		expect(parentIdx).toBeGreaterThanOrEqual(0);
-		expect(details.listing.rows[parentIdx].depth).toBe(0);
+		expect(details.listing.rows[parentIdx]?.depth).toBe(0);
 		// Child sits at depth 1 directly after its parent
 		// in the flattened listing.
-		expect(details.listing.rows[parentIdx + 1].depth).toBe(1);
+		expect(details.listing.rows[parentIdx + 1]?.depth).toBe(1);
 		expect(succeeded(result).message).toMatch(/^ {2}/m);
 	});
 
@@ -390,8 +390,8 @@ describe("tree and expand", () => {
 		const details = succeeded(result).details as {
 			listing: { rows: { id: string; depth: number }[] };
 		};
-		expect(details.listing.rows[0].id).toBe(parent.id);
-		expect(details.listing.rows[0].depth).toBe(0);
+		expect(details.listing.rows[0]?.id).toBe(parent.id);
+		expect(details.listing.rows[0]?.depth).toBe(0);
 		const childRows = details.listing.rows.filter((r) => r.depth === 1);
 		expect(childRows.length).toBe(1);
 	});
@@ -536,9 +536,9 @@ describe("show projection", () => {
 			}
 		).projection;
 		expect(projection.documents.length).toBe(1);
-		expect(projection.documents[0].kind).toBe("plan");
+		expect(projection.documents[0]?.kind).toBe("plan");
 		expect(projection.sessions.length).toBe(1);
-		expect(projection.sessions[0].id).toBe("sess-1");
+		expect(projection.sessions[0]?.id).toBe("sess-1");
 		expect(projection.links).toBeDefined();
 		expect(projection.echoes).toBeDefined();
 		// renderShow emits a Sessions block listing the attached session.

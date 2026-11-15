@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { updateScoreboard } from "../../../extensions/quest-workflow/index.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
+import { at } from "../../support/at.ts";
 
 const theme = { fg: (_token: string, text: string) => text } as never;
 
@@ -64,8 +65,8 @@ describe("updateScoreboard resize behaviour", () => {
 		const wide = component.render(240);
 		// Each line honours its own width budget, so a resize reflows
 		// rather than freezing at the width it was first painted at.
-		expect(visible(narrow[0])).toBeLessThanOrEqual(40);
-		expect(visible(wide[0])).toBeLessThanOrEqual(240);
+		expect(visible(at(narrow, 0))).toBeLessThanOrEqual(40);
+		expect(visible(at(wide, 0))).toBeLessThanOrEqual(240);
 		// The wide render reveals the trailing detail the narrow one had
 		// to truncate away: proof the width argument drives the output.
 		expect(wide[0]).toContain("wire the resize-aware widget callback");

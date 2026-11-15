@@ -4,17 +4,10 @@
 # left, so the list only shrinks. When it's empty, the option moves into
 # tsconfig.json and this list and the script go.
 extensions/google-workspace-integration/render-result.ts 4
-extensions/guard-policy-workflow/command.ts 2
-extensions/guard-policy-workflow/lifecycle.ts 3
-extensions/quest-workflow/enforce.ts 2
-extensions/quest-workflow/render.ts 1
-extensions/quest-workflow/verbs/document.ts 2
-extensions/quest-workflow/verbs/tree-ops.ts 2
 extensions/review-integration/tools/offer-stack.ts 1
 extensions/review-integration/tools/sections.ts 7
 extensions/slack-integration/confirmation.ts 7
 extensions/slack-integration/index.ts 1
-extensions/spend-workflow/fanout.ts 1
 extensions/work-integration/sweep.ts 1
 lib/budget/files.ts 1
 lib/budget/record.ts 3
@@ -45,21 +38,6 @@ lib/refs/lookup.ts 1
 lib/roles/derive.ts 6
 lib/shell/parse.ts 2
 scripts/learning-sensor.ts 2
-tests/extensions/image-budget-workflow/rebudget.test.ts 6
-tests/extensions/quest-workflow/budget-hosted.test.ts 4
-tests/extensions/quest-workflow/recent.test.ts 1
-tests/extensions/quest-workflow/render.test.ts 1
-tests/extensions/quest-workflow/scope-verbs.test.ts 6
-tests/extensions/quest-workflow/scoreboard-resize.test.ts 2
-tests/extensions/quest-workflow/session-audit.test.ts 2
-tests/extensions/quest-workflow/sessions-at-work.test.ts 2
-tests/extensions/quest-workflow/tree-verbs.test.ts 5
-tests/extensions/quest-workflow/verbs-listing.test.ts 9
-tests/extensions/quest-workflow/verbs-order.test.ts 2
-tests/extensions/quest-workflow/verbs-spawn.test.ts 9
-tests/extensions/spend-workflow/hosted.test.ts 3
-tests/extensions/subagent-workflow/run-dispatch.test.ts 18
-tests/extensions/subagent-workflow/run-summary.test.ts 8
 tests/lib/command/flags.test.ts 8
 tests/lib/command/tokenize.test.ts 61
 tests/lib/glossary/glossary.test.ts 1
