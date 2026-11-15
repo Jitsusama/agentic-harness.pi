@@ -61,6 +61,15 @@ Two bounds keep this from spending all night on nothing: three runs
 in a row with no tool calls stop the nudging, and so do fifty nudges
 in one absence. Either stop is said in the transcript.
 
+A session that a host is releasing, or that is moving to a terminal,
+is not sent back while the move waits for it. A move takes a session
+only between runs, and each send-back started the next run as the
+last settled, so a release could wait out its whole deadline. The
+send-back is written into the session's log instead, and the move
+finds it free. Whichever pi opens the log next, while you are still
+away, sends it on as its first turn. If the move is called off, the
+session sends it back itself within two seconds.
+
 What needs you reaches your desktop. The first call held in an
 absence puts a notification on your screen, naming the session's
 plan, and the rest are listed when you are back. A run that ends
@@ -138,6 +147,9 @@ so the agent is never told you are away after you returned.
   10 quiet minutes, as above.
 - A restart while away comes back away, with what was held, and the
   first thing you type shows you what waited.
+- A reload while a send-back is held for a move loses the look for
+  the move being called off; the send-back then waits until the log
+  next opens, or until you type.
 
 ## Where It Lives
 
