@@ -30,7 +30,7 @@ runtime=$(readlink -f "${PI_HOST_RUNTIME:-$state/pi-host/runtime}")
 NO_KEEPER=69
 # How far back a system generation's tools still count. A run sends the
 # tools the machine had as it started, and a switch while it runs, or
-# before its merge, moves them on: twice on 15 November that voided four
+# before its merge, moves them on: at 11:26 on 15 November that voided four
 # hour-long runs of commits nothing had changed. A run on any generation
 # this machine switched to in these hours counts, since each was its real
 # set of tools; the runtime the hosts are proven on must still match.
