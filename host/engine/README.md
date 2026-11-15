@@ -100,6 +100,9 @@ conversation, so the order is the whole start's: runs begun by words a
 person typed first, then the rest in the order the host held them. A
 wake, an open or an adopt takes no turn, an abort ends the wait, and a
 park leaves the run in durable for the start that opens it next.
+Words typed while a run waits queue behind it, and when the recovery
+ends into the ask again for a cut-off request, pi's session follows that
+run rather than failing as the agent already processing.
 
 pi's session writes an extension's message at once when it counts no
 run of its own, and a turn durable carries on after a restart is not

@@ -157,6 +157,8 @@ interface Scenario {
 	persist?: boolean;
 	/** Recover as a start's resume does, noting each turn the run takes and gives back. */
 	turns?: boolean;
+	/** Words Joel types while the carried run waits for its turn, which comes once the agent has them. */
+	typed?: string;
 	/** Settings over the fixture's, which turn pi's retry and compaction off. */
 	settings?: object;
 	/** The scripted provider's models, when one will not do. */
@@ -430,6 +432,14 @@ const scenarios: Record<string, Scenario> = {
 		drive: async () => {},
 		persist: true,
 		turns: true,
+	},
+	/** As reopen-taking-turns, Joel typing into the conversation while its carried run waits for a turn. */
+	"reopen-typed-while-waiting": {
+		responses: () => [say("after the restart"), say("and your words")],
+		drive: async () => {},
+		persist: true,
+		turns: true,
+		typed: "are you back?",
 	},
 	/** A fresh conversation recovering as a start's resume does: nothing carried, so no turn. */
 	"fresh-taking-turns": {
@@ -801,9 +811,26 @@ try {
 	const early = scenario.early?.(session);
 	// The early run has reached the agent, as it had on 13 November.
 	if (early) await Promise.race([reached, early]);
-	const recovery = await conversation?.agent?.recover(
+	const hosted = conversation?.agent;
+	let typedIn = Promise.resolve();
+	if (scenario.typed !== undefined && hosted) {
+		const prompt = hosted.prompt.bind(hosted);
+		typedIn = new Promise((reached) => {
+			hosted.prompt = (...words) => {
+				const answering = prompt(...words);
+				reached();
+				return answering;
+			};
+		});
+	}
+	const recovery = await hosted?.recover(
 		scenario.turns
 			? async (first) => {
+					if (scenario.typed !== undefined) {
+						note({ type: "turn asked", first });
+						// A turn comes free only once the agent has the words, as one would after Joel typed.
+						await typedIn;
+					}
 					note({ type: "turn", first });
 					let given = false;
 					// Only the first give-back counts, as with the host's own turns.
@@ -815,7 +842,10 @@ try {
 				}
 			: undefined,
 	);
-	const during = scenario.during?.(session);
+	const during =
+		scenario.typed === undefined
+			? scenario.during?.(session)
+			: session.prompt(scenario.typed);
 	await recovery?.settled;
 	await early;
 	await during;
