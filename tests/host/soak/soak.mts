@@ -96,6 +96,7 @@ import {
 import { type Seal, seal } from "../end-to-end/support/seal.ts";
 import { attach, type Viewer } from "../end-to-end/support/viewer.ts";
 import { type RpcEvent, rpcClient } from "../parity/rpc-client.ts";
+import { missingFault } from "./extensions.ts";
 import { pairKeys, plainKeys } from "./keys.ts";
 import {
 	LONGEST_MS,
@@ -333,6 +334,15 @@ const fault = (what: string) => {
 	if (faults.length > MOST_FAULTS)
 		throw new Error(`more than ${MOST_FAULTS} faults: ${faults.join("; ")}`);
 };
+/**
+ * A fault unless every extension `side` was given in `sealed` is there
+ * `when`: pi skips one whose link leads nowhere without a word, so a run
+ * on a vanished tree would otherwise read as a quick start.
+ */
+const extensionsThere = (side: string, sealed: Seal, when: string) => {
+	const missing = missingFault(side, join(sealed.home, ".pi", "agent"), when);
+	if (missing) fault(missing);
+};
 const say = (line: string) =>
 	process.stdout.write(`soak ${new Date().toISOString()} ${line}\n`);
 /** When each hosted turn's prompt was typed and its answer drawn, by tag. */
@@ -370,6 +380,7 @@ say(
 
 const hostSeal = await seal();
 const hosted = await runHosted(hostSeal);
+extensionsThere("hosted", hostSeal, "once its turns were done");
 const hostedLatency = latencyOf(hosted.logs);
 const hostedProfiles = values.profile ? profilesIn(profiles.hosted) : [];
 const hostedTime = values.profile ? timeSpent(hostedProfiles) : undefined;
@@ -385,6 +396,7 @@ say(`slow keys ${JSON.stringify(slow)}`);
 say("hosted side done; plain pi next");
 const plainSeal = await seal();
 const plain = await runPlain(plainSeal);
+extensionsThere("plain", plainSeal, "once its turns were done");
 say("plain side done");
 
 const parkedWeights = hosted.checkpoints.flatMap((one) =>
@@ -644,6 +656,7 @@ async function warmHosted(sealed: Seal): Promise<ColdOpen> {
 			also,
 			agentFile,
 		);
+		extensionsThere("the warming host", warming, "at its start");
 		const opening = Date.now();
 		await host.open(workingFolder(folders(warming))).catch((error: unknown) => {
 			const said = host.errors().slice(-SAID_CHARACTERS);
@@ -682,13 +695,18 @@ async function runHosted(sealed: Seal): Promise<{
 	writeFileSync(agentFile, JSON.stringify(agent));
 	const coldOpen = values.cold ? undefined : await warmHosted(sealed);
 	const startedAt = Date.now();
-	const start = () =>
-		startScreenHost(
+	// Each start, the first and every restart's, links the extensions
+	// afresh, so each is checked.
+	const start = async () => {
+		const started = await startScreenHost(
 			{ ...sealed, env: profiled(sealed.env, profiles.hosted) },
 			packageDir ?? "",
 			also,
 			agentFile,
 		);
+		extensionsThere("hosted", sealed, "at its start");
+		return started;
+	};
 	// The host the turns go to: a fresh one after the mid-run restart.
 	let host = await start();
 	const every = [host];
@@ -1394,6 +1412,7 @@ async function runPlain(sealed: Seal): Promise<{
 		rmSync(link, { force: true });
 		symlinkSync(join(HARNESS, "extensions", extension), link);
 	}
+	extensionsThere("plain", sealed, "at its start");
 	const work = folders(sealed);
 	const stringsOf = (all: NodeJS.ProcessEnv): Record<string, string> =>
 		Object.fromEntries(
