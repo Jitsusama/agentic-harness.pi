@@ -207,6 +207,9 @@ export const GUARDS = {
 		description: "Asks before anything is sent to Slack",
 		defaultMode: "block",
 		groups: ["send"],
+		// A message there goes out in Joel's name, so each one needs his yes
+		// at the screen, and no setting turns that off (item 234).
+		pinned: true,
 	}),
 	google: declare({
 		name: "google",

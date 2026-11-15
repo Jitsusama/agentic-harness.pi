@@ -5,12 +5,14 @@
  *
  * On 9 November every one of these gates approved with no screen, "as it
  * always has" (OSPHT4 [70f3e526]), against the rule that nothing is sent
- * without the person saying so. Turning the guard off is the person
- * saying so ahead of time, so that still goes.
+ * without the person saying so. Turning Google's guard off is the person
+ * saying so ahead of time, so that still goes. Slack's can't be turned
+ * off: a message there goes out in Joel's name, so each needs his yes
+ * at the screen (item 234).
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
 	confirmCreateEvent,
 	confirmDeleteEmail,
@@ -30,7 +32,7 @@ import {
 	restoreSessionModes,
 	setSessionMode,
 } from "../../lib/guardian/policy.ts";
-import { GUARDS } from "../../lib/internal/guardian/guards.ts";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 
 /** A session nobody sits at. */
 const NO_SCREEN = { hasUI: false } as unknown as ExtensionContext;
@@ -106,6 +108,8 @@ const writes: ReadonlyArray<readonly [string, () => Promise<unknown>, string]> =
 		],
 	];
 
+// Declared as each integration declares its guard when it loads.
+beforeAll(() => declareGuards(GUARDS.slack, GUARDS.google));
 afterEach(() => restoreSessionModes({}));
 
 describe("a write that waits on the person's yes, with no screen", () => {
@@ -116,12 +120,25 @@ describe("a write that waits on the person's yes, with no screen", () => {
 		});
 	});
 
-	it.each(writes)(
+	it.each(writes.filter(([, , guard]) => guard !== GUARDS.slack.name))(
 		"lets %s through once the person turned its guard off",
 		async (_what, raise, guard) => {
 			setSessionMode(guard, "off");
 
 			expect(await raise()).toMatchObject({ approved: true });
+		},
+	);
+
+	it.each(writes.filter(([, , guard]) => guard === GUARDS.slack.name))(
+		"still refuses %s with its guard, the send group or every guard set off",
+		async (_what, raise) => {
+			for (const key of [GUARDS.slack.name, "send", "approval", "all"]) {
+				setSessionMode(key, "off");
+				expect(await raise(), `${key} off let it through`).toMatchObject({
+					approved: false,
+				});
+				restoreSessionModes({});
+			}
 		},
 	);
 

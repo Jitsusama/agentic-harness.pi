@@ -47,7 +47,9 @@ refusal tells the agent exactly what to do instead:
   asked.
 - Approvals that reach other people block: `slack`, `google`,
   and `mesh-end-hold`, which asks before a session ends
-  another session's hold on your word.
+  another session's hold on your word. `slack` is pinned: no
+  setting lowers it, so each message needs your yes at the
+  screen, and `/guards` lists its source as `pinned`.
 - Form guards block: each names the one right form to retry
   with, and a PR, issue or commit that reaches other people is
   held to it.

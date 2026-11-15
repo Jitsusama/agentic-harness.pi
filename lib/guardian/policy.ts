@@ -50,7 +50,12 @@ export type GuardMode = "off" | "redirect" | "block";
 export type GuardClass = "approval" | "form" | "safety";
 
 /** Where a resolved mode came from. */
-export type ModeSource = "session" | "config" | "default" | "follows";
+export type ModeSource =
+	| "session"
+	| "config"
+	| "default"
+	| "follows"
+	| "pinned";
 
 /** A guard as its owner declares it. */
 export interface GuardDeclaration {
@@ -69,6 +74,12 @@ export interface GuardDeclaration {
 	 * otherwise.
 	 */
 	readonly follows?: readonly string[];
+	/**
+	 * Held at its default whatever a session or the config says, for a
+	 * guard whose every call needs the person's yes at the screen, such as
+	 * a message sent in their name.
+	 */
+	readonly pinned?: boolean;
 }
 
 /** A guard with its mode resolved. */
@@ -225,6 +236,9 @@ function resolve(
 	seen: Set<string>,
 	ref?: SessionRef,
 ): ResolvedGuard {
+	if (declaration.pinned) {
+		return { declaration, mode: declaration.defaultMode, source: "pinned" };
+	}
 	const keys = keysOf(declaration);
 	const state = policy();
 	for (const [source, layer] of [
