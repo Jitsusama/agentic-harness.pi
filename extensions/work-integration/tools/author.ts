@@ -97,8 +97,7 @@ export async function record(
 			`${GLYPH.clean} Nothing to record in ${found.identity.key}: the tree is clean.`,
 		);
 	}
-	const paths =
-		asked.paths && asked.paths.length > 0 ? asked.paths : undefined;
+	const paths = asked.paths && asked.paths.length > 0 ? asked.paths : undefined;
 	// Only a sweep is checked: naming paths says what is meant.
 	const swept = paths ? undefined : sweepObjection(before.changed);
 	if (swept !== undefined) {

@@ -70,9 +70,7 @@ describe("giving a tree back", () => {
 			`${GLYPH.refused} This tree is holding uncommitted work (notes.txt), so re-pointing it would throw that away. Commit it, stash it, or ask for a different tree.`,
 		);
 		expect(released.details.ok).not.toBe(true);
-		expect(existsSync(join(path, "notes.txt")), "the work is kept").toBe(
-			true,
-		);
+		expect(existsSync(join(path, "notes.txt")), "the work is kept").toBe(true);
 	});
 });
 
@@ -80,9 +78,7 @@ describe("which tree a call means", () => {
 	it("names what is held when the tree named is not", async () => {
 		const { key } = await cut();
 		const answer = await work({ action: "status", tree: "nope" });
-		expect(answer.text).toContain(
-			`${GLYPH.refused} No held tree called nope:`,
-		);
+		expect(answer.text).toContain(`${GLYPH.refused} No held tree called nope:`);
 		expect(answer.text).toContain(key);
 	});
 

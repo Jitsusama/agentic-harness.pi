@@ -43,9 +43,7 @@ describe("tidy", () => {
 		);
 		expect(answer.text).toContain(`   ${GLYPH.named} done`);
 		expect(answer.details).toMatchObject({ removable: 1 });
-		expect(await git(checkout(), "branch", "--list", "done")).toContain(
-			"done",
-		);
+		expect(await git(checkout(), "branch", "--list", "done")).toContain("done");
 	});
 
 	it("names a tree nothing holds, and sends the reader to reclaim", async () => {
