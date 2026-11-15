@@ -420,6 +420,17 @@ const scenarios: Record<string, Scenario> = {
 		persist: true,
 		turns: true,
 	},
+	/** As reopen-taking-turns, the carried run going on past its first answer with another tool round, as a builder's does. */
+	"reopen-taking-turns-busy": {
+		responses: () => [
+			call("call-2", "pong", Date.now() + 1),
+			say("after the restart"),
+		],
+		tools: echo(async () => noteEffect("pong")),
+		drive: async () => {},
+		persist: true,
+		turns: true,
+	},
 	/** A fresh conversation recovering as a start's resume does: nothing carried, so no turn. */
 	"fresh-taking-turns": {
 		responses: () => [say("hello")],
@@ -794,7 +805,13 @@ try {
 		scenario.turns
 			? async (first) => {
 					note({ type: "turn", first });
-					return () => note({ type: "turn given back" });
+					let given = false;
+					// Only the first give-back counts, as with the host's own turns.
+					return () => {
+						if (given) return;
+						given = true;
+						note({ type: "turn given back" });
+					};
 				}
 			: undefined,
 	);

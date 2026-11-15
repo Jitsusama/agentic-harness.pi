@@ -6,7 +6,10 @@
  * conversation's run then went at once: with fifteen held after a
  * restart, every cut-off run asked its model and ran its tools together
  * (WCJQSG, 15 November). A run now waits for a turn before durable carries
- * it on. A start holds every turn until its last conversation has resumed,
+ * it on, and keeps it until its first answer after the restart ends, or
+ * RESUMED_TURN_MS at most, so the start's burst is spread over minutes
+ * while no long run holds back the ones behind it, nor the words sent to
+ * them. A start holds every turn until its last conversation has resumed,
  * so the order is the whole start's rather than whichever resumed first:
  * a run begun by words Joel typed goes first, since he is waiting on its
  * answer, then the rest in the order they asked, which is the order the
@@ -18,6 +21,14 @@ import type { AgentMessage } from "./pi-types.ts";
 
 /** How many cut-off runs a host carries on at once as it comes back. */
 export const RESUMED_RUNS_AT_ONCE = 4;
+
+/**
+ * How long a carried run keeps its turn at most. A builder's run can go
+ * on for an hour of rounds and tools, and runs waiting behind it hold
+ * back any words sent to them, Joel's among them; the aim is to spread
+ * the burst of a start, so the last runs go minutes later, not hours.
+ */
+export const RESUMED_TURN_MS = 60_000;
 
 /** Give back a turn; giving it back again does nothing. */
 export type GiveBack = () => void;
@@ -48,19 +59,30 @@ interface Waiting {
 	readonly grant: () => void;
 }
 
-/** Turns for at most `atOnce` cut-off runs at a time. */
-export function resumeTurns(atOnce = RESUMED_RUNS_AT_ONCE): ResumeTurns {
+/**
+ * Turns for at most `atOnce` cut-off runs at a time, each going back by
+ * itself once it has been out for `lentMs`.
+ */
+export function resumeTurns(
+	atOnce = RESUMED_RUNS_AT_ONCE,
+	lentMs = RESUMED_TURN_MS,
+): ResumeTurns {
 	let held = false;
 	let going = 0;
 	const waiting: Waiting[] = [];
 	const giveBack = (): GiveBack => {
 		let given = false;
-		return () => {
+		const back = () => {
 			if (given) return;
 			given = true;
+			clearTimeout(lent);
 			going--;
 			next();
 		};
+		const lent = setTimeout(back, lentMs);
+		// A lent turn keeps no host alive that has nothing else to do.
+		lent.unref?.();
+		return back;
 	};
 	const next = () => {
 		while (!held && going < atOnce && waiting.length > 0) {

@@ -226,6 +226,8 @@ export class HostedAgent {
 	 * first, so each caller shares the one.
 	 */
 	private recovery: Promise<{ readonly settled: Promise<void> }> | undefined;
+	/** Gives back a carried run's turn as the first answer streamed after the restart ends. */
+	private answered: GiveBack | undefined;
 	private mirrorLine: Promise<unknown> = Promise.resolve();
 	private admissions: Promise<unknown> = Promise.resolve();
 	private readonly durable: DurableBinding;
@@ -451,8 +453,10 @@ export class HostedAgent {
 	 * conversations waits on none of their runs; settled resolves once the
 	 * carried-on run ends. A fresh conversation has nothing to carry on and
 	 * shows nothing. Given `turn`, a run a restart cut off waits for one
-	 * before durable carries it on, and gives it back once it and any ask
-	 * again after it end, so a host coming back carries only a few on at once.
+	 * before durable carries it on, and gives it back as the first answer
+	 * streamed after the restart ends, its own or the ask again's, or once
+	 * the run ends first, so a host coming back starts only a few at once
+	 * and a run that goes on for an hour holds up no other.
 	 */
 	recover(turn?: TakeTurn): Promise<{ readonly settled: Promise<void> }> {
 		this.recovery ??= this.recoverOnce(turn);
@@ -481,6 +485,7 @@ export class HostedAgent {
 					beganWithPersonsWords(this.state.messages),
 					AbortSignal.any([run.controller.signal, this.parking.signal]),
 				);
+				this.answered = giveBack;
 				// Parked while it waited: durable keeps the run for the start that opens it next.
 				if (this.parked) return;
 			}
@@ -493,7 +498,10 @@ export class HostedAgent {
 		return {
 			settled: settled
 				.then(() => this.askAgainIfCutOff(before))
-				.finally(() => giveBack()),
+				.finally(() => {
+					this.answered = undefined;
+					giveBack();
+				}),
 		};
 	}
 
@@ -1233,6 +1241,9 @@ export class HostedAgent {
 				if (answer.started) messages[messages.length - 1] = message;
 				else messages.push(message);
 				answer.message = message;
+				const answered = this.answered;
+				this.answered = undefined;
+				answered?.();
 				return message;
 			})();
 			return final;

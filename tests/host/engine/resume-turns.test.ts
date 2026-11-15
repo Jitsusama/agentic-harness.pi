@@ -2,12 +2,13 @@
  * The turns a host gives the runs a restart cut off: a few at once, the
  * whole start's order rather than whichever resumed first, Joel's first.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "../../../host/engine/pi-types.ts";
 import {
 	beganWithPersonsWords,
 	type GiveBack,
 	RESUMED_RUNS_AT_ONCE,
+	RESUMED_TURN_MS,
 	resumeTurns,
 } from "../../../host/engine/resume-turns.ts";
 
@@ -54,6 +55,41 @@ describe("turns for the runs a restart cut off", () => {
 		for (const run of [6, 0, 1, 2]) givers.get(run)?.();
 		await settle();
 		expect(started).toEqual([6, 8, 0, 1, 2, 3, 4, 5, 7]);
+	});
+
+	describe("a run busy past its turn", () => {
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("gives its turn back by itself, so it never holds up the fifth", async () => {
+			vi.useFakeTimers();
+			const turns = resumeTurns();
+			const { started, givers } = askTen(turns.take, []);
+			await settle();
+			expect(started).toEqual([0, 1, 2, 3]);
+			vi.advanceTimersByTime(RESUMED_TURN_MS - 1);
+			await settle();
+			expect(started, "a turn stays lent until its time is up").toEqual([
+				0, 1, 2, 3,
+			]);
+			vi.advanceTimersByTime(1);
+			await settle();
+			expect(
+				started,
+				"the four still busy hold no turn past their time",
+			).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+			expect(turns.going()).toBe(4);
+			givers.get(0)?.();
+			await settle();
+			expect(
+				started,
+				"a run ending after its time gives back nothing more",
+			).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+			givers.get(4)?.();
+			await settle();
+			expect(started).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+		});
 	});
 
 	it("goes at once outside a start, up to the cap", async () => {

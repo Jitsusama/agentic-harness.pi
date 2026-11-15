@@ -92,8 +92,10 @@ being cut off again and again.
 A host coming back carries only a few cut-off runs on at once
 (resume-turns.ts, RESUMED_RUNS_AT_ONCE, 4). As a start resumes what it
 holds, each conversation whose durable store holds a run waits for a
-turn before durable carries it on, and keeps it through any ask again
-after. Every turn is held until the start has resumed its last
+turn before durable carries it on. It gives the turn back as the first
+answer streamed after the restart ends, its own or the ask again's, or
+after RESUMED_TURN_MS (60 s) at most, so a run that goes on for an hour
+holds up neither the runs behind it nor words sent to them. Every turn is held until the start has resumed its last
 conversation, so the order is the whole start's: runs begun by words a
 person typed first, then the rest in the order the host held them. A
 wake, an open or an adopt takes no turn, an abort ends the wait, and a

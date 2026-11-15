@@ -94,10 +94,11 @@ async function observe(
 	return JSON.parse(stdout);
 }
 
-/** The turns a run took and gave back, among the ends of pi's runs. */
-function turnsOf(observed: Observed): unknown[] {
+/** The turns a run took and gave back, among the ends of pi's runs and any other events named. */
+function turnsOf(observed: Observed, among: readonly string[] = []): unknown[] {
 	return observed.events.flatMap((event): unknown[] => {
-		if (event.type === "agent_end") return ["agent_end"];
+		if (event.type === "agent_end" || among.includes(event.type))
+			return [event.type];
 		if (event.type === "turn") return [{ type: "turn", first: event.first }];
 		if (event.type === "turn given back") return [{ type: event.type }];
 		return [];
@@ -406,7 +407,7 @@ describe("the hosted agent resuming a turn a restart cut off", {
 		}
 	});
 
-	it("carries a cut-off tool round on in a turn, first as words typed began it, given back as it ends", async () => {
+	it("carries a cut-off tool round on in a turn, first as words typed began it, given back as its first answer ends", async () => {
 		// After a restart every resumed run went at once (WCJQSG, 15 November); each now takes one of a few turns.
 		const folder = mkdtempSync(join(tmpdir(), "hosted-turn-"));
 		try {
@@ -414,8 +415,8 @@ describe("the hosted agent resuming a turn a restart cut off", {
 			const reopened = await observe("hosted", "reopen-taking-turns", folder);
 			expect(turnsOf(reopened)).toEqual([
 				{ type: "turn", first: true },
-				"agent_end",
 				{ type: "turn given back" },
+				"agent_end",
 			]);
 			expect(reopened.ran, "the tool ran once, before the kill").toBe(1);
 		} finally {
@@ -423,7 +424,36 @@ describe("the hosted agent resuming a turn a restart cut off", {
 		}
 	});
 
-	it("holds one turn through the run a request was cut off in and the ask again after it", async () => {
+	it("gives the turn back as a carried run busy past its first answer goes on, so it holds up no other", async () => {
+		// A builder's run can go on for an hour; held to its end, the runs behind it and words sent to them would wait as long (OSPHT4, 15 November).
+		const folder = mkdtempSync(join(tmpdir(), "hosted-turn-busy-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			const reopened = await observe(
+				"hosted",
+				"reopen-taking-turns-busy",
+				folder,
+			);
+			expect(
+				turnsOf(reopened, ["tool_execution_start"]),
+				"the cut-off round shows first; the turn goes back as the answer after it ends, before that answer's tool starts",
+			).toEqual([
+				{ type: "turn", first: true },
+				"tool_execution_start",
+				{ type: "turn given back" },
+				"tool_execution_start",
+				"agent_end",
+			]);
+			expect(
+				said(reopened, "assistant").at(-1),
+				"the run went on to its end without the turn",
+			).toBe("after the restart");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("gives the turn of a run a request was cut off in back as the ask again's answer ends", async () => {
 		const folder = mkdtempSync(join(tmpdir(), "hosted-turn-request-"));
 		try {
 			expect(await killed("crash-in-request-automated", folder)).toBe(
@@ -435,11 +465,11 @@ describe("the hosted agent resuming a turn a restart cut off", {
 			);
 			expect(
 				turnsOf(observed),
-				"a turn the harness began waits behind Joel's; the carried run showed pi nothing, and the ask again ends before the turn goes back",
+				"a turn the harness began waits behind Joel's; the carried run showed pi nothing, and the ask again's answer gives the turn back",
 			).toEqual([
 				{ type: "turn", first: false },
-				"agent_end",
 				{ type: "turn given back" },
+				"agent_end",
 			]);
 			expect(said(observed, "assistant").at(-1)).toBe("after the restart");
 		} finally {
