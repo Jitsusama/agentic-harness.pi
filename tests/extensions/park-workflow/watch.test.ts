@@ -1,5 +1,9 @@
 /**
  * Watching a session for the still moment it may park, and parking it.
+ *
+ * Long because parking, closing its window, starting again on a fresh
+ * log and why a session stays awake all drive one watcher through the
+ * same fake session and clock, which splitting would copy into each.
  */
 
 import {

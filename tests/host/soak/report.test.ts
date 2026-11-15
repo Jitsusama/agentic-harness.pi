@@ -4,6 +4,10 @@
  * weighings judged settled or growing, and the differences between a
  * hosted log and plain pi's once each side's folder is a label.
  * soak-provider.test.ts says what its provider answers.
+ *
+ * Long because the latencies, the bar and the parity reports all read
+ * the same report module, and each parity case needs its own pair of
+ * logs to show what a label hides.
  */
 import { describe, expect, it } from "vitest";
 import { plainKeys } from "./keys.ts";
