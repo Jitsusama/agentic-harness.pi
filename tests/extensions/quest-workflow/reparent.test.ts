@@ -27,12 +27,53 @@ async function createQuest(
 	state: ReturnType<typeof buildState>,
 	title: string,
 ) {
-	const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+	const result = await act(state, {
 		action: "create",
 		title,
 	});
 	if (!result.ok) throw new Error(result.guidance);
 	return result.details as { id: string; path: string };
+}
+
+/** Run one quest action against this test's quests. */
+function act(
+	state: ReturnType<typeof buildState>,
+	params: Parameters<typeof handle>[3],
+) {
+	return handle(state, fakePi(), fakeCtx(tmpRoot), params);
+}
+
+/** Move a quest, or several comma-separated, under a parent. */
+function reparent(
+	state: ReturnType<typeof buildState>,
+	id: string,
+	parent: string,
+) {
+	return act(state, { action: "reparent", id, parent });
+}
+
+/** Undo the last change to a quest. */
+function undo(state: ReturnType<typeof buildState>, id: string) {
+	return act(state, { action: "undo", id });
+}
+
+/** Two top-level quests, a parent and a child to move under it. */
+async function parentAndChild(state: ReturnType<typeof buildState>) {
+	const parent = await createQuest(state, "Parent");
+	const child = await createQuest(state, "Child");
+	return { parent, child };
+}
+
+/** A child quest already under its parent. */
+async function nested(
+	state: ReturnType<typeof buildState>,
+	parentTitle = "Parent",
+	childTitle = "Child",
+) {
+	const parent = await createQuest(state, parentTitle);
+	const child = await createQuest(state, childTitle);
+	await reparent(state, child.id, parent.id);
+	return { parent, child };
 }
 
 function fieldOf(id: string, key: string): string {
@@ -75,14 +116,9 @@ afterEach(() => {
 describe("reparent verb", () => {
 	it("moves a quest under a new parent and reports the change", async () => {
 		const state = buildState();
-		const parent = await createQuest(state, "Parent");
-		const child = await createQuest(state, "Child");
+		const { parent, child } = await parentAndChild(state);
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: child.id,
-			parent: parent.id,
-		});
+		const result = await reparent(state, child.id, parent.id);
 		expect(parentOf(child.id)).toBe(parent.id);
 		const details = succeeded(result).details as {
 			changes: { id: string; newParent: string | null }[];
@@ -94,10 +130,9 @@ describe("reparent verb", () => {
 
 	it("previews without writing when dryRun is set", async () => {
 		const state = buildState();
-		const parent = await createQuest(state, "Parent");
-		const child = await createQuest(state, "Child");
+		const { parent, child } = await parentAndChild(state);
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "reparent",
 			id: child.id,
 			parent: parent.id,
@@ -116,11 +151,7 @@ describe("reparent verb", () => {
 		const a = await createQuest(state, "A");
 		const b = await createQuest(state, "B");
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: `${a.id},${b.id}`,
-			parent: parent.id,
-		});
+		const result = await reparent(state, `${a.id},${b.id}`, parent.id);
 		expect(result).toMatchObject({ ok: true });
 		expect(parentOf(a.id)).toBe(parent.id);
 		expect(parentOf(b.id)).toBe(parent.id);
@@ -133,21 +164,13 @@ describe("reparent verb", () => {
 		const existingA = await createQuest(state, "Existing A");
 		const existingB = await createQuest(state, "Existing B");
 		for (const q of [existingA, existingB]) {
-			await handle(state, fakePi(), fakeCtx(tmpRoot), {
-				action: "reparent",
-				id: q.id,
-				parent: parent.id,
-			});
+			await reparent(state, q.id, parent.id);
 		}
 		const mover = await createQuest(state, "Mover");
 		const moverParentBefore = parentOf(mover.id);
 		const moverRankBefore = fieldOf(mover.id, "rank");
 
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: mover.id,
-			parent: parent.id,
-		});
+		await reparent(state, mover.id, parent.id);
 		// It joined the parent's group at a free rank, not colliding
 		// with the existing siblings.
 		expect(parentOf(mover.id)).toBe(parent.id);
@@ -157,24 +180,16 @@ describe("reparent verb", () => {
 		expect(new Set(siblingRanks).size).toBe(3); // all distinct
 
 		// Undo restores both the parent and the original rank.
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: mover.id,
-		});
+		await undo(state, mover.id);
 		expect(parentOf(mover.id)).toBe(moverParentBefore);
 		expect(fieldOf(mover.id, "rank")).toBe(moverRankBefore);
 	});
 
 	it("refuses the whole batch and writes nothing when any target errors", async () => {
 		const state = buildState();
-		const parent = await createQuest(state, "Parent");
-		const child = await createQuest(state, "Child");
+		const { parent, child } = await parentAndChild(state);
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: `${child.id},QEST-20260604-GONE99`,
-			parent: parent.id,
-		});
+		const result = await reparent(state, `${child.id},QEST-20260604-GONE99`, parent.id);
 		expect(refused(result).guidance).toMatch(/GONE99/);
 		// The valid target was not moved: the batch is atomic.
 		expect(parentOf(child.id)).toBe("null");
@@ -182,47 +197,31 @@ describe("reparent verb", () => {
 
 	it("undo reverses the last reparent, restoring the prior parent", async () => {
 		const state = buildState();
-		const parent = await createQuest(state, "Parent");
-		const child = await createQuest(state, "Child");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: child.id,
-			parent: parent.id,
-		});
+		const { parent, child } = await nested(state);
 		expect(parentOf(child.id)).toBe(parent.id);
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: child.id,
-		});
+		const result = await undo(state, child.id);
 		expect(result).toMatchObject({ ok: true });
 		expect(parentOf(child.id)).toBe("null");
 	});
 
 	it("does not journal a dry run, so undo finds nothing", async () => {
 		const state = buildState();
-		const parent = await createQuest(state, "Parent");
-		const child = await createQuest(state, "Child");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const { parent, child } = await parentAndChild(state);
+		await act(state, {
 			action: "reparent",
 			id: child.id,
 			parent: parent.id,
 			dryRun: true,
 		});
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: child.id,
-		});
+		const result = await undo(state, child.id);
 		expect(refused(result).guidance).toMatch(/nothing to undo/i);
 	});
 
 	it("refuses undo when nothing has been done", async () => {
 		const state = buildState();
 		const solo = await createQuest(state, "Solo");
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: solo.id,
-		});
+		const result = await undo(state, solo.id);
 		expect(refused(result).guidance).toMatch(/nothing to undo/i);
 	});
 
@@ -231,7 +230,7 @@ describe("reparent verb", () => {
 		const a = await createQuest(state, "A");
 		const b = await createQuest(state, "B");
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "retire",
 			id: `${a.id},${b.id}`,
 			reason: "duplicates",
@@ -240,10 +239,7 @@ describe("reparent verb", () => {
 		expect(statusOf(a.id)).toBe("retired");
 		expect(statusOf(b.id)).toBe("retired");
 
-		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: a.id,
-		});
+		const undone = await undo(state, a.id);
 		expect(undone).toMatchObject({ ok: true });
 		expect(statusOf(a.id)).toBe("active");
 		expect(statusOf(b.id)).toBe("active");
@@ -253,12 +249,12 @@ describe("reparent verb", () => {
 		const state = buildState();
 		const loaded = await createQuest(state, "Loaded");
 		const other = await createQuest(state, "Other");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "load",
 			id: loaded.id,
 		});
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: other.id,
 		});
@@ -268,10 +264,7 @@ describe("reparent verb", () => {
 		expect(statusOf(loaded.id)).toBe("active");
 
 		// And it is reversible (as is the loaded-quest path now).
-		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: other.id,
-		});
+		const undone = await undo(state, other.id);
 		expect(undone).toMatchObject({ ok: true });
 		expect(statusOf(other.id)).toBe("active");
 	});
@@ -281,7 +274,7 @@ describe("reparent verb", () => {
 		const a = await createQuest(state, "A");
 		expect(fieldOf(a.id, "priority")).toBe("active");
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: a.id,
 		});
@@ -289,10 +282,7 @@ describe("reparent verb", () => {
 		expect(statusOf(a.id)).toBe("concluded");
 		expect(fieldOf(a.id, "priority")).toBe("someday");
 
-		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: a.id,
-		});
+		const undone = await undo(state, a.id);
 		expect(undone).toMatchObject({ ok: true });
 		expect(statusOf(a.id)).toBe("active");
 		expect(fieldOf(a.id, "priority")).toBe("active");
@@ -301,14 +291,14 @@ describe("reparent verb", () => {
 	it("makes a loaded-quest conclude reversible, restoring status and priority", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "Loaded Reversible");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "load",
 			id: a.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+		await act(state, { action: "drive" });
 		expect(fieldOf(a.id, "priority")).toBe("driving");
 
-		const concluded = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const concluded = await act(state, {
 			action: "conclude",
 			id: a.id,
 		});
@@ -316,10 +306,7 @@ describe("reparent verb", () => {
 		expect(statusOf(a.id)).toBe("concluded");
 		expect(fieldOf(a.id, "priority")).toBe("someday");
 
-		const undone = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: a.id,
-		});
+		const undone = await undo(state, a.id);
 		expect(undone).toMatchObject({ ok: true });
 		expect(statusOf(a.id)).toBe("active");
 		expect(fieldOf(a.id, "priority")).toBe("driving");
@@ -330,28 +317,25 @@ describe("reparent verb", () => {
 		const first = await createQuest(state, "First Driving");
 		const second = await createQuest(state, "Second Driving");
 		for (const q of [first, second]) {
-			await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			await act(state, {
 				action: "load",
 				id: q.id,
 			});
-			await handle(state, fakePi(), fakeCtx(tmpRoot), { action: "drive" });
+			await act(state, { action: "drive" });
 		}
 		// The loaded quest sits at a non-first rank in the driving bucket.
 		const rankBefore = fieldOf(second.id, "rank");
 		expect(rankBefore).not.toBe("1");
 
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "load",
 			id: second.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "conclude",
 			id: second.id,
 		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: second.id,
-		});
+		await undo(state, second.id);
 
 		expect(statusOf(second.id)).toBe("active");
 		expect(fieldOf(second.id, "priority")).toBe("driving");
@@ -364,19 +348,13 @@ describe("reparent verb", () => {
 
 	it("warns about live children when concluding the loaded parent", async () => {
 		const state = buildState();
-		const parent = await createQuest(state, "Loaded Parent");
-		const child = await createQuest(state, "Loaded Child");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: child.id,
-			parent: parent.id,
-		});
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const { parent, child } = await nested(state, "Loaded Parent", "Loaded Child");
+		await act(state, {
 			action: "load",
 			id: parent.id,
 		});
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: parent.id,
 		});
@@ -388,15 +366,9 @@ describe("reparent verb", () => {
 
 	it("warns about live children without sealing them", async () => {
 		const state = buildState();
-		const parent = await createQuest(state, "Parent");
-		const child = await createQuest(state, "Child");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: child.id,
-			parent: parent.id,
-		});
+		const { parent, child } = await nested(state);
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: parent.id,
 		});
@@ -409,15 +381,9 @@ describe("reparent verb", () => {
 
 	it("names no child as live that the same sweep sealed", async () => {
 		const state = buildState();
-		const parent = await createQuest(state, "Parent");
-		const child = await createQuest(state, "Child");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: child.id,
-			parent: parent.id,
-		});
+		const { parent, child } = await nested(state);
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: `${parent.id},${child.id}`,
 		});
@@ -430,7 +396,7 @@ describe("reparent verb", () => {
 		const state = buildState();
 		const a = await createQuest(state, "A");
 		const b = await createQuest(state, "B");
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: `${a.id},${b.id}`,
 			dryRun: true,
@@ -444,7 +410,7 @@ describe("reparent verb", () => {
 		const state = buildState();
 		const a = await createQuest(state, "A");
 		const b = await createQuest(state, "B");
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "retire",
 			id: `${a.id},${b.id}`,
 		});
@@ -454,7 +420,7 @@ describe("reparent verb", () => {
 	it("bulk refuses the whole set when a target is missing", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "A");
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		const result = await act(state, {
 			action: "conclude",
 			id: `${a.id},QEST-20260604-GONE99`,
 		});
@@ -467,20 +433,13 @@ describe("reparent verb", () => {
 		const parent = await createQuest(state, "Parent");
 		const other = await createQuest(state, "Other");
 		const child = await createQuest(state, "Child");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: child.id,
-			parent: parent.id,
-		});
+		await reparent(state, child.id, parent.id);
 		expect(parentOf(child.id)).toBe(parent.id);
 
 		// An intervening edit moves the child somewhere the journal did
 		// not record. Undo must not stomp it back to null.
 		setParentDirect(child.id, other.id);
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: child.id,
-		});
+		const result = await undo(state, child.id);
 		expect(parentOf(child.id)).toBe(other.id);
 		const details = succeeded(result).details as { skipped: string[] };
 		expect(details.skipped).toContain(child.id);
@@ -492,19 +451,12 @@ describe("reparent verb", () => {
 		const other = await createQuest(state, "Other");
 		const a = await createQuest(state, "A");
 		const b = await createQuest(state, "B");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: `${a.id},${b.id}`,
-			parent: parent.id,
-		});
+		await reparent(state, `${a.id},${b.id}`, parent.id);
 
 		// Divert A out-of-band so the first undo must skip it while it
 		// still reverses B.
 		setParentDirect(a.id, other.id);
-		const first = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: a.id,
-		});
+		const first = await undo(state, a.id);
 		expect(first).toMatchObject({ ok: true });
 		expect(parentOf(b.id)).toBe("null");
 		expect(parentOf(a.id)).toBe(other.id);
@@ -513,10 +465,7 @@ describe("reparent verb", () => {
 		// it. A second undo must still be able to reverse A, because the
 		// first undo did not consume the change it could not apply.
 		setParentDirect(a.id, parent.id);
-		const second = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: a.id,
-		});
+		const second = await undo(state, a.id);
 		expect(second).toMatchObject({ ok: true });
 		expect(parentOf(a.id)).toBe("null");
 	});
@@ -524,15 +473,12 @@ describe("reparent verb", () => {
 	it("undo of a bulk conclude leaves a compensating Journey entry", async () => {
 		const state = buildState();
 		const a = await createQuest(state, "A");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		await act(state, {
 			action: "conclude",
 			id: a.id,
 		});
 		expect(statusOf(a.id)).toBe("concluded");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "undo",
-			id: a.id,
-		});
+		await undo(state, a.id);
 		expect(statusOf(a.id)).toBe("active");
 		// The original "Concluded the quest (bulk)." entry must not stand
 		// uncontradicted on a quest that now reads active.
@@ -543,20 +489,10 @@ describe("reparent verb", () => {
 
 	it("moves a quest back to top level with parent=null", async () => {
 		const state = buildState();
-		const parent = await createQuest(state, "Parent");
-		const child = await createQuest(state, "Child");
-		await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: child.id,
-			parent: parent.id,
-		});
+		const { parent, child } = await nested(state);
 		expect(parentOf(child.id)).toBe(parent.id);
 
-		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
-			action: "reparent",
-			id: child.id,
-			parent: "null",
-		});
+		const result = await reparent(state, child.id, "null");
 		expect(result).toMatchObject({ ok: true });
 		expect(parentOf(child.id)).toBe("null");
 	});
