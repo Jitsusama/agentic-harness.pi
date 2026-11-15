@@ -19,6 +19,7 @@ import {
 	refreshCachedDmNames,
 } from "../resolvers/conversation-cache.ts";
 import type { Conversation, SlackMessage } from "../types.ts";
+import { inBatches } from "./batches.ts";
 import type { SlackClient } from "./client.ts";
 
 /**
@@ -46,23 +47,18 @@ export async function resolveConversationsInMessages(
 
 	// Resolve unknown conversations via conversations.info.
 	if (unknownIds.size > 0) {
-		const ids = [...unknownIds];
-		const BATCH_SIZE = 20;
-
-		for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-			if (signal?.aborted) return;
-
-			const batch = ids.slice(i, i + BATCH_SIZE);
-			await Promise.all(
-				batch.map(async (id) => {
-					try {
-						await fetchConversation(client, id, signal);
-					} catch {
-						// Conversation not found or inaccessible. Skip.
-					}
-				}),
-			);
-		}
+		const finished = await inBatches(
+			unknownIds,
+			async (id) => {
+				try {
+					await fetchConversation(client, id, signal);
+				} catch {
+					// Conversation not found or inaccessible. Skip.
+				}
+			},
+			signal,
+		);
+		if (!finished) return;
 	}
 
 	// Apply resolved metadata to messages.
