@@ -52,6 +52,24 @@ const waiting: FirstTurn = {
 const running = () => true;
 const gone = () => false;
 
+/** Watch a spawn whose words wait at every look, its pi running or gone. */
+function watchWaiting(
+	piRuns: () => boolean,
+	whose: Parameters<typeof watchFirstTurn>[2] = spawned,
+): void {
+	watchFirstTurn(pi, ctx, whose, () => waiting, FIRST_TURN_WATCH_MS, piRuns);
+}
+
+/** Let the spawn be opened again through `how`, keeping each key opened. */
+function reopensThrough(how = "a window through kitty"): string[] {
+	const opened: string[] = [];
+	offerReopen(spawned.key, async () => {
+		opened.push(spawned.key);
+		return how;
+	});
+	return opened;
+}
+
 describe("a spawner watching for its session's first turn", () => {
 	it("looks once, a minute after the spawn, and says nothing when it ran", () => {
 		const asked: string[] = [];
@@ -112,7 +130,7 @@ describe("a spawner watching for its session's first turn", () => {
 
 	it("says the time it looked, so a warning read later reads as late", () => {
 		vi.setSystemTime(new Date(2026, 10, 10, 6, 53, 0));
-		watchFirstTurn(pi, ctx, spawned, () => waiting, FIRST_TURN_WATCH_MS, gone);
+		watchWaiting(gone);
 		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
 		expect(said[0]?.text).toContain("when looked at 06:54");
 	});
@@ -138,14 +156,7 @@ describe("a spawner watching for its session's first turn", () => {
 	});
 
 	it("tells once its words have waited the longest a start may take, though its pi runs", () => {
-		watchFirstTurn(
-			pi,
-			ctx,
-			spawned,
-			() => waiting,
-			FIRST_TURN_WATCH_MS,
-			running,
-		);
+		watchWaiting(running);
 		vi.advanceTimersByTime(MOST_START_MS - 1);
 		expect(said).toEqual([]);
 		vi.advanceTimersByTime(MOST_START_MS);
@@ -156,7 +167,7 @@ describe("a spawner watching for its session's first turn", () => {
 	});
 
 	it("tells at the first look when its words wait and no pi of it runs", () => {
-		watchFirstTurn(pi, ctx, spawned, () => waiting, FIRST_TURN_WATCH_MS, gone);
+		watchWaiting(gone);
 		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
 		expect(said).toHaveLength(1);
 		expect(said[0]?.text).toContain("60 s after the spawn");
@@ -179,14 +190,7 @@ describe("a spawner watching for its session's first turn", () => {
 	it("tells at the first look, naming the folder, when its pi waits to be trusted", () => {
 		// 11-07 20:20: a pi at the trust prompt runs and leaves its words
 		// waiting, which the look took for a slow start for five minutes.
-		watchFirstTurn(
-			pi,
-			ctx,
-			{ ...spawned, trustWaits: "/trees/alpha" },
-			() => waiting,
-			FIRST_TURN_WATCH_MS,
-			running,
-		);
+		watchWaiting(running, { ...spawned, trustWaits: "/trees/alpha" });
 		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
 		expect(said).toHaveLength(1);
 		expect(said[0]?.text).toContain(
@@ -218,11 +222,7 @@ describe("a spawner watching for its session's first turn", () => {
 		// Shopify's wrapper fetches its key by, so each session it started
 		// exited at once ("Failed to get LLM token") and five never ran.
 		it("is opened again once from here, said without a turn, and watched afresh", async () => {
-			const opened: string[] = [];
-			offerReopen(spawned.key, async () => {
-				opened.push(spawned.key);
-				return "a window through kitty";
-			});
+			const opened = reopensThrough();
 			let looks = 0;
 			watchFirstTurn(
 				pi,
@@ -253,19 +253,8 @@ describe("a spawner watching for its session's first turn", () => {
 		});
 
 		it("is told as before when the session opened again doesn't start either", async () => {
-			const opened: string[] = [];
-			offerReopen(spawned.key, async () => {
-				opened.push(spawned.key);
-				return "a window through kitty";
-			});
-			watchFirstTurn(
-				pi,
-				ctx,
-				spawned,
-				() => waiting,
-				FIRST_TURN_WATCH_MS,
-				gone,
-			);
+			const opened = reopensThrough();
+			watchWaiting(gone);
 
 			await vi.advanceTimersByTimeAsync(2 * FIRST_TURN_WATCH_MS);
 			expect(opened).toEqual(["token-1"]);
@@ -277,14 +266,7 @@ describe("a spawner watching for its session's first turn", () => {
 			offerReopen(spawned.key, async () => {
 				throw new Error("kitty is not installed");
 			});
-			watchFirstTurn(
-				pi,
-				ctx,
-				spawned,
-				() => waiting,
-				FIRST_TURN_WATCH_MS,
-				gone,
-			);
+			watchWaiting(gone);
 
 			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
 			expect(said).toHaveLength(1);
@@ -298,19 +280,14 @@ describe("a spawner watching for its session's first turn", () => {
 		// window past the minute, and the look opened it again from here,
 		// so RCTRF8 ran as two sessions.
 		it("is left to the launcher that took it until a pi of it was seen, then told", async () => {
-			const opened: string[] = [];
-			offerReopen(spawned.key, async () => {
-				opened.push(spawned.key);
-				return "a window in the desktop's sessions kitty";
-			});
-			watchFirstTurn(
-				pi,
-				ctx,
-				{ ...spawned, sessionId: "019a-queued", handed: true },
-				() => waiting,
-				FIRST_TURN_WATCH_MS,
-				gone,
+			const opened = reopensThrough(
+				"a window in the desktop's sessions kitty",
 			);
+			watchWaiting(gone, {
+				...spawned,
+				sessionId: "019a-queued",
+				handed: true,
+			});
 
 			await vi.advanceTimersByTimeAsync(MOST_START_MS - 1);
 			expect(opened).toEqual([]);
@@ -324,11 +301,9 @@ describe("a spawner watching for its session's first turn", () => {
 		});
 
 		it("is opened again once the launcher's pi of it was seen and has gone", async () => {
-			const opened: string[] = [];
-			offerReopen(spawned.key, async () => {
-				opened.push(spawned.key);
-				return "a window in the desktop's sessions kitty";
-			});
+			const opened = reopensThrough(
+				"a window in the desktop's sessions kitty",
+			);
 			let looks = 0;
 			watchFirstTurn(
 				pi,
@@ -360,19 +335,8 @@ describe("a spawner watching for its session's first turn", () => {
 		});
 
 		it("is never opened twice while its pi still runs", async () => {
-			const opened: string[] = [];
-			offerReopen(spawned.key, async () => {
-				opened.push(spawned.key);
-				return "a window through kitty";
-			});
-			watchFirstTurn(
-				pi,
-				ctx,
-				spawned,
-				() => waiting,
-				FIRST_TURN_WATCH_MS,
-				running,
-			);
+			const opened = reopensThrough();
+			watchWaiting(running);
 
 			await vi.advanceTimersByTimeAsync(MOST_START_MS);
 			expect(opened).toEqual([]);
