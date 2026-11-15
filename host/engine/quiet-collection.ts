@@ -25,7 +25,7 @@
  * conversation in it, from starting or running.
  */
 import { readFileSync } from "node:fs";
-import { setFlagsFromString } from "node:v8";
+import { getHeapSpaceStatistics, setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 
 /** How long after a viewer's last key or resize the host may pause. */
@@ -232,16 +232,52 @@ export function runningTools(): RunningTools {
 	};
 }
 
-/** V8's heap: what it uses of what it holds, in bytes. */
+/** One space of V8's heap: what it uses of what it holds, in bytes. */
+interface HeapSpace {
+	/** V8's name for it, such as old_space. */
+	readonly name: string;
+	readonly used: number;
+	readonly size: number;
+}
+
+/**
+ * V8's heap: what it uses of what it holds, each space it keeps, and the
+ * memory V8 holds for JavaScript outside it, with the array buffers among
+ * that, all in bytes.
+ */
 export interface Heap {
 	readonly used: number;
 	readonly total: number;
+	readonly external: number;
+	readonly arrayBuffers: number;
+	readonly spaces: readonly HeapSpace[];
 }
 
-/** This process's V8 heap. */
-function processHeap(): Heap {
-	const { heapUsed, heapTotal } = process.memoryUsage();
-	return { used: heapUsed, total: heapTotal };
+/** This process's V8 heap, read from counters V8 keeps, with no pause. */
+export function processHeap(): Heap {
+	const { heapUsed, heapTotal, external, arrayBuffers } = process.memoryUsage();
+	return {
+		used: heapUsed,
+		total: heapTotal,
+		external,
+		arrayBuffers,
+		spaces: getHeapSpaceStatistics().map((space) => ({
+			name: space.space_name,
+			used: space.space_used_size,
+			size: space.space_size,
+		})),
+	};
+}
+
+/** Each space of at least a megabyte, as `old 100 of 120 MB`. */
+function spacesSaid(spaces: readonly HeapSpace[]): string {
+	return spaces
+		.filter((space) => space.size >= MB)
+		.map(
+			(space) =>
+				`${space.name.replace(/_space$/, "").replaceAll("_", " ")} ${Math.round(space.used / MB)} of ${Math.round(space.size / MB)} MB`,
+		)
+		.join(", ");
 }
 
 /** The journal's line for one collection. */
@@ -262,7 +298,7 @@ function collectedLine(
 		`${Math.round(one.used / MB)} of ${megabytes(one.total)}`;
 	const heap =
 		heapAround.before && heapAround.after
-			? `, heap ${held(heapAround.before)} to ${held(heapAround.after)}`
+			? `, heap ${held(heapAround.before)} to ${held(heapAround.after)} (${spacesSaid(heapAround.after.spaces)}), outside it ${megabytes(heapAround.before.external)} to ${megabytes(heapAround.after.external)}, of which array buffers ${megabytes(heapAround.before.arrayBuffers)} to ${megabytes(heapAround.after.arrayBuffers)}`
 			: "";
 	const quiet = `Collected while quiet in ${took} ms, ${pss}${heap}, with ${reading.waiting} conversations waiting on the model`;
 	const line = working
