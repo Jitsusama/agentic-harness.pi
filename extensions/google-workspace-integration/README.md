@@ -132,6 +132,7 @@ google-workspace-integration/
 ├── index.ts              # Tool and command registration
 ├── router.ts             # Routes each action to its handler
 ├── router/
+│   ├── answers.ts        # What every handler answers alike
 │   ├── gmail-handlers.ts
 │   ├── calendar-handlers.ts
 │   └── drive-handlers.ts

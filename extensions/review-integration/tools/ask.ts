@@ -324,29 +324,9 @@ async function askCouncil(
 	seat: RoundSeat,
 	watch: RoundWatch,
 ): Promise<Answer> {
-	const { roster, chosen } = await rosterOrThrow(params, "reviewers", seat);
-	await claimIdentities(change, "reviewer", roster.reviewers);
-	const { proposal, diff } = await material(bound);
-	const unearned = await councilRefused(change, proposal.headCommit, params);
-	if (unearned !== undefined) return refuse(unearned);
-	const tree = await treeForRound(
-		bound.repo,
-		proposal.headCommit,
-		params.repo ?? seat.cwd,
-	);
-	if ("refusal" in tree) return refuse(tree.refusal);
-	// After the tree, because a lens can come from the repo under review
-	// and that is the tree it comes from. Before the round, because a
-	// reviewer running without the lens it was asked for files generic
-	// findings under a specialist's name.
-	const charters = await chartersFor(roster, tree, "reviewers", diff);
-	const conventions = await guidanceFor(tree, diff);
-	const prompt = councilPrompt({
-		proposal,
-		diff,
-		...(params.intent === undefined ? {} : { intent: params.intent }),
-		...conventions,
-	});
+	const set = await councilRound(bound, change, params, seat);
+	if (set.refused) return set.refused;
+	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
 
 	const { run, warnings } = await runCouncil(
 		{
@@ -374,6 +354,44 @@ async function askCouncil(
 		].join("\n"),
 		{ run, warnings },
 	);
+}
+
+/**
+ * Everything a council round needs before it starts, as a council and
+ * a background round both make it: the roster, the change's material,
+ * the tree it reads, each reviewer's lens and the prompt. Or the
+ * refusal, when the round isn't earned or no tree can be cut.
+ */
+async function councilRound(
+	bound: Awaited<ReturnType<typeof boundFor>>,
+	change: ChangeRef,
+	params: AskParams,
+	seat: RoundSeat,
+) {
+	const { roster, chosen } = await rosterOrThrow(params, "reviewers", seat);
+	await claimIdentities(change, "reviewer", roster.reviewers);
+	const { proposal, diff } = await material(bound);
+	const unearned = await councilRefused(change, proposal.headCommit, params);
+	if (unearned !== undefined) return { refused: refuse(unearned) };
+	const tree = await treeForRound(
+		bound.repo,
+		proposal.headCommit,
+		params.repo ?? seat.cwd,
+	);
+	if ("refusal" in tree) return { refused: refuse(tree.refusal) };
+	// After the tree, because a lens can come from the repo under review
+	// and that is the tree it comes from. Before the round, because a
+	// reviewer running without the lens it was asked for files generic
+	// findings under a specialist's name.
+	const charters = await chartersFor(roster, tree, "reviewers", diff);
+	const conventions = await guidanceFor(tree, diff);
+	const prompt = councilPrompt({
+		proposal,
+		diff,
+		...(params.intent === undefined ? {} : { intent: params.intent }),
+		...conventions,
+	});
+	return { roster, chosen, proposal, tree, charters, conventions, prompt };
 }
 
 /**
@@ -411,25 +429,9 @@ async function startRound(
 	params: AskParams,
 	seat: RoundSeat,
 ): Promise<Answer> {
-	const { roster, chosen } = await rosterOrThrow(params, "reviewers", seat);
-	await claimIdentities(change, "reviewer", roster.reviewers);
-	const { proposal, diff } = await material(bound);
-	const unearned = await councilRefused(change, proposal.headCommit, params);
-	if (unearned !== undefined) return refuse(unearned);
-	const tree = await treeForRound(
-		bound.repo,
-		proposal.headCommit,
-		params.repo ?? seat.cwd,
-	);
-	if ("refusal" in tree) return refuse(tree.refusal);
-	const charters = await chartersFor(roster, tree, "reviewers", diff);
-	const conventions = await guidanceFor(tree, diff);
-	const prompt = councilPrompt({
-		proposal,
-		diff,
-		...(params.intent === undefined ? {} : { intent: params.intent }),
-		...conventions,
-	});
+	const set = await councilRound(bound, change, params, seat);
+	if (set.refused) return set.refused;
+	const { roster, chosen, proposal, tree, charters, conventions, prompt } = set;
 	const bounding = await boundsForRound();
 	const starter = reviewerStarter(getParentPiInstall(), runArtifactDir());
 	const store = createRunStore(runDir());

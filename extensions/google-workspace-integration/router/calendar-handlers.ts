@@ -23,12 +23,12 @@ import {
 	getStringParam,
 	type ToolResult,
 } from "../../../lib/google/types.ts";
-import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import {
 	confirmCreateEvent,
 	confirmDeleteEvent,
 	confirmUpdateEvent,
 } from "../confirmation.ts";
+import { missing, unconfirmed } from "./answers.ts";
 
 /** List calendar events within a date range. */
 export async function handleListEvents(
@@ -62,9 +62,7 @@ export async function handleGetEvent(
 	const calendarId = getStringParam(params, "calendar_id");
 
 	if (!eventId) {
-		return {
-			content: [{ type: "text", text: "Missing required parameter: event_id" }],
-		};
+		return missing("event_id");
 	}
 
 	const event = await getEvent(auth, eventId, calendarId);
@@ -89,14 +87,7 @@ export async function handleCreateEvent(
 	const calendarId = getStringParam(params, "calendar_id");
 
 	if (!summary || !start || !end) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: "Missing required parameters: summary, start, end",
-				},
-			],
-		};
+		return missing("summary", "start", "end");
 	}
 
 	// We confirm and potentially let the user edit before creating.
@@ -109,20 +100,8 @@ export async function handleCreateEvent(
 		attendees,
 	});
 
-	if (!confirmResult) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: `${OUTCOME_GLYPH.cancelled} Event creation cancelled`,
-				},
-			],
-		};
-	}
-	if (!confirmResult.approved) {
-		return {
-			content: [{ type: "text", text: confirmResult.redirect }],
-		};
+	if (!confirmResult?.approved) {
+		return unconfirmed(confirmResult, "Event creation cancelled");
 	}
 
 	// Declared out here because the failure path below quotes the
@@ -176,9 +155,7 @@ export async function handleUpdateEvent(
 	const calendarId = getStringParam(params, "calendar_id");
 
 	if (!eventId) {
-		return {
-			content: [{ type: "text", text: "Missing required parameter: event_id" }],
-		};
+		return missing("event_id");
 	}
 
 	// We get the existing event to check if it has attendees
@@ -205,20 +182,8 @@ export async function handleUpdateEvent(
 			{ summary, start, end, description, location, attendees },
 		);
 
-		if (!confirmResult) {
-			return {
-				content: [
-					{
-						type: "text",
-						text: `${OUTCOME_GLYPH.cancelled} Event update cancelled`,
-					},
-				],
-			};
-		}
-		if (!confirmResult.approved) {
-			return {
-				content: [{ type: "text", text: confirmResult.redirect }],
-			};
+		if (!confirmResult?.approved) {
+			return unconfirmed(confirmResult, "Event update cancelled");
 		}
 	}
 
@@ -250,9 +215,7 @@ export async function handleDeleteEvent(
 	const calendarId = getStringParam(params, "calendar_id");
 
 	if (!eventId) {
-		return {
-			content: [{ type: "text", text: "Missing required parameter: event_id" }],
-		};
+		return missing("event_id");
 	}
 
 	// We get the existing event to check if it has attendees
@@ -268,20 +231,8 @@ export async function handleDeleteEvent(
 			true,
 		);
 
-		if (!confirmResult) {
-			return {
-				content: [
-					{
-						type: "text",
-						text: `${OUTCOME_GLYPH.cancelled} Event deletion cancelled`,
-					},
-				],
-			};
-		}
-		if (!confirmResult.approved) {
-			return {
-				content: [{ type: "text", text: confirmResult.redirect }],
-			};
+		if (!confirmResult?.approved) {
+			return unconfirmed(confirmResult, "Event deletion cancelled");
 		}
 	}
 
@@ -301,25 +252,11 @@ export async function handleCheckAvailability(
 	const end = getStringParam(params, "end");
 
 	if (!attendees || attendees.length === 0) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: "Missing required parameter: attendees (at least one email)",
-				},
-			],
-		};
+		return missing("attendees (at least one email)");
 	}
 
 	if (!start || !end) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: "Missing required parameters: start, end",
-				},
-			],
-		};
+		return missing("start", "end");
 	}
 
 	const result = await queryFreeBusy(auth, {
@@ -344,14 +281,7 @@ export async function handleRespondToEvent(
 	const calendarId = getStringParam(params, "calendar_id");
 
 	if (!eventId || !response) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: "Missing required parameters: event_id, response",
-				},
-			],
-		};
+		return missing("event_id", "response");
 	}
 
 	const event = await respondToEvent(

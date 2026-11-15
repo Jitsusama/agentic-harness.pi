@@ -26,8 +26,8 @@ import {
 	getStringParam,
 	type ToolResult,
 } from "../../../lib/google/types.ts";
-import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import { confirmDeleteEmail, confirmSendEmail } from "../confirmation.ts";
+import { missing, unconfirmed } from "./answers.ts";
 
 /** Search Gmail messages using a query string. */
 export async function handleSearchEmails(
@@ -39,9 +39,7 @@ export async function handleSearchEmails(
 	const pageToken = getStringParam(params, "page_token");
 
 	if (!query) {
-		return {
-			content: [{ type: "text", text: "Missing required parameter: query" }],
-		};
+		return missing("query");
 	}
 
 	const result = await searchEmails(auth, query, limit, pageToken);
@@ -64,9 +62,7 @@ export async function handleGetEmail(
 	const id = getStringParam(params, "id");
 
 	if (!id) {
-		return {
-			content: [{ type: "text", text: "Missing required parameter: id" }],
-		};
+		return missing("id");
 	}
 
 	const message = await getEmail(auth, id);
@@ -84,11 +80,7 @@ export async function handleGetThread(
 	const messageId = getStringParam(params, "message_id");
 
 	if (!messageId) {
-		return {
-			content: [
-				{ type: "text", text: "Missing required parameter: message_id" },
-			],
-		};
+		return missing("message_id");
 	}
 
 	const messages = await getThread(auth, messageId);
@@ -112,14 +104,7 @@ export async function handleSendEmail(
 	const replyTo = getStringParam(params, "reply_to");
 
 	if (!to || !subject || !body) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: "Missing required parameters: to, subject, body",
-				},
-			],
-		};
+		return missing("to", "subject", "body");
 	}
 
 	// We confirm and potentially let the user edit before sending.
@@ -129,20 +114,8 @@ export async function handleSendEmail(
 		!!replyTo,
 	);
 
-	if (!confirmResult) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: `${OUTCOME_GLYPH.cancelled} Send email cancelled`,
-				},
-			],
-		};
-	}
-	if (!confirmResult.approved) {
-		return {
-			content: [{ type: "text", text: confirmResult.redirect }],
-		};
+	if (!confirmResult?.approved) {
+		return unconfirmed(confirmResult, "Send email cancelled");
 	}
 
 	const emailData = confirmResult.data;
@@ -175,14 +148,7 @@ export async function handleCreateDraft(
 	const bcc = getStringArrayParam(params, "bcc");
 
 	if (!to || !subject || !body) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: "Missing required parameters: to, subject, body",
-				},
-			],
-		};
+		return missing("to", "subject", "body");
 	}
 
 	const result = await createDraft(auth, { to, subject, body, cc, bcc });
@@ -202,9 +168,7 @@ export async function handleArchiveEmail(
 	const id = getStringParam(params, "id");
 
 	if (!id) {
-		return {
-			content: [{ type: "text", text: "Missing required parameter: id" }],
-		};
+		return missing("id");
 	}
 
 	await archiveEmail(auth, id);
@@ -222,24 +186,13 @@ export async function handleDeleteEmail(
 	const id = getStringParam(params, "id");
 
 	if (!id) {
-		return {
-			content: [{ type: "text", text: "Missing required parameter: id" }],
-		};
+		return missing("id");
 	}
 
 	// We confirm before deleting.
 	const confirmResult = await confirmDeleteEmail(ctx, id);
-	if (!confirmResult) {
-		return {
-			content: [
-				{ type: "text", text: `${OUTCOME_GLYPH.cancelled} Delete cancelled` },
-			],
-		};
-	}
-	if (!confirmResult.approved) {
-		return {
-			content: [{ type: "text", text: confirmResult.redirect }],
-		};
+	if (!confirmResult?.approved) {
+		return unconfirmed(confirmResult, "Delete cancelled");
 	}
 
 	await deleteEmail(auth, id);
@@ -256,9 +209,7 @@ export async function handleMarkRead(
 	const id = getStringParam(params, "id");
 
 	if (!id) {
-		return {
-			content: [{ type: "text", text: "Missing required parameter: id" }],
-		};
+		return missing("id");
 	}
 
 	await markRead(auth, id);
@@ -275,9 +226,7 @@ export async function handleMarkUnread(
 	const id = getStringParam(params, "id");
 
 	if (!id) {
-		return {
-			content: [{ type: "text", text: "Missing required parameter: id" }],
-		};
+		return missing("id");
 	}
 
 	await markUnread(auth, id);
@@ -294,9 +243,7 @@ export async function handleUnarchiveEmail(
 	const id = getStringParam(params, "id");
 
 	if (!id) {
-		return {
-			content: [{ type: "text", text: "Missing required parameter: id" }],
-		};
+		return missing("id");
 	}
 
 	await unarchiveEmail(auth, id);

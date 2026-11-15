@@ -26,6 +26,8 @@ import {
 	type ToolResult,
 } from "../../../lib/google/types.ts";
 
+import { missing } from "./answers.ts";
+
 /** Search and list Google Drive files with optional filters. */
 export async function handleListFiles(
 	params: ActionParams,
@@ -93,11 +95,7 @@ export async function handleGetFile(
 	}
 
 	if (!fileId) {
-		return {
-			content: [
-				{ type: "text", text: "Missing required parameter: id or url" },
-			],
-		};
+		return missing("id or url");
 	}
 
 	// We get the file metadata.
