@@ -2,9 +2,44 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { machineFacts } from "../../../host/cutover/machine.ts";
+import { machineFacts, releaseFacts } from "../../../host/cutover/machine.ts";
 import type { MoveNote } from "../../../lib/internal/session/move.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
+import { waitingSteers } from "../../../lib/mesh/steer.ts";
+
+/** A release's places in a fresh folder, its launcher answering `answer`. */
+function releasePlaces(answer: string) {
+	const root = mkdtempSync(join(tmpdir(), "release-facts-"));
+	const asked: string[] = [];
+	return {
+		root,
+		asked,
+		places: {
+			realm: "work",
+			runtimeDir: join(root, "run"),
+			presence: join(root, "presence"),
+			steer: join(root, "steer"),
+			moves: join(root, "moves"),
+			quests: join(root, "quests"),
+			launcher: async (argument: string) => {
+				asked.push(argument);
+				return answer;
+			},
+		},
+	};
+}
+
+/** The note a conversation let go to plain pi left, in `cwd`. */
+const letGo = (cwd: string): MoveNote => ({
+	session: HOPPING,
+	sessionFile: `/home/someone/.pi/sessions/${HOPPING}.jsonl`,
+	cwd,
+	to: "pi",
+	at: "2026-11-15T10:53:25.000Z",
+	addresses: ["HOPPER"],
+	from: "work-background",
+	pid: process.pid,
+});
 
 const presence = (over: Partial<Presence> = {}): Presence => ({
 	session: "s-1",
@@ -168,5 +203,83 @@ describe("machineFacts' knowsMove", () => {
 		rmSync(mark);
 		expect(facts.joelAway?.(), "the mark gone again").toBe(true);
 		expect(machineFacts({ realm: "work" }).joelAway).toBeUndefined();
+	});
+});
+
+describe("releaseFacts", () => {
+	it("hands the launcher one let go, back where its window was", async () => {
+		const { root, asked, places } = releasePlaces("taken");
+		try {
+			const facts = releaseFacts(places);
+			expect(await facts.reopen(letGo(root)), "the launcher took it").toBe(
+				true,
+			);
+			expect(asked.map((one) => JSON.parse(one))).toEqual([
+				{
+					sessions: [
+						{ id: HOPPING, cwd: root, replaces: HOPPING, focus: false },
+					],
+				},
+			]);
+			const refused = releaseFacts(releasePlaces("refused: busy").places);
+			expect(
+				await refused.reopen(letGo(root)),
+				"one the launcher refused stays offered",
+			).toBe(false);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("opens none whose folder is gone, since pi would ask to fork it", async () => {
+		const { root, asked, places } = releasePlaces("taken");
+		try {
+			const facts = releaseFacts(places);
+			expect(
+				await facts.reopen(letGo(join(root, "released-tree"))),
+				"left offered",
+			).toBe(false);
+			expect(asked, "the launcher never asked").toEqual([]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("reads a pi of its own as taking it up, not the host's stale presence", () => {
+		const { root, places } = releasePlaces("taken");
+		try {
+			const facts = releaseFacts(places);
+			const says = (over: Partial<Presence>) => {
+				mkdirSync(places.presence, { recursive: true });
+				writeFileSync(
+					join(places.presence, `${HOPPING}.json`),
+					JSON.stringify(presence({ session: HOPPING, ...over })),
+				);
+			};
+			expect(facts.takenUp(HOPPING), "no presence").toBe(false);
+			says({
+				owner: { pid: process.pid, startedAt: 1 },
+				hosted: { host: "work-background", conversation: "c1" },
+			});
+			expect(facts.takenUp(HOPPING), "its host's, outlasting it").toBe(false);
+			says({ owner: { pid: process.pid, startedAt: 1 } });
+			expect(facts.takenUp(HOPPING), "a live pi of its own").toBe(true);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("calls a move off as the person at the desk would", () => {
+		const { root, places } = releasePlaces("taken");
+		try {
+			releaseFacts(places).callOff("HOPPER");
+			expect(
+				waitingSteers(join(places.steer, "HOPPER")).map(
+					({ act, from, text }) => ({ act, from, text }),
+				),
+			).toEqual([{ act: "resume", from: "joel", text: "" }]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });

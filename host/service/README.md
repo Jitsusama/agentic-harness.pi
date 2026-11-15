@@ -27,6 +27,10 @@ input pipeline or screen. No unit or running host is installed yet.
   start would, and an attach to it wakes it first. A wake of one whose
   start or park failed, which leaves it held but not running, says so,
   since only a close lets it go.
+  A rollback's release (scripts/host-release.ts) never cuts a run: a
+  busy conversation lets go only between runs (mesh-workflow
+  moving.ts), what was queued behind its run waits in its log for
+  plain pi (E27), and away mode holds its send-back meanwhile (E28).
 - rollout.ts: the rollout gate. A host opens, adopts or resumes a
   second conversation only once every live pi (each `loaded/<pid>`
   in the install whose pid runs) loaded a harness holding 5b5b7260,

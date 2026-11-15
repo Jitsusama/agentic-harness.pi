@@ -195,6 +195,8 @@ async function releaseAll(): Promise<{ code: number; out: string }> {
 				"--no-warnings",
 				join(ROOT, "scripts", "host-release.ts"),
 				"--all",
+				// The seal has no launcher: Sessions to Reopen offers each.
+				"--offer",
 				"--deadline",
 				String(RELEASE_MINUTES),
 			],

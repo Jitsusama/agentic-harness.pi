@@ -8,10 +8,24 @@
  * leaving a move note that restore.json offers back
  * (lib/internal/quest/restore-file.ts), whatever the boot, until a plain
  * pi starts it again from the same file. The release refreshes that
- * file at once, so the launcher's Sessions to Reopen shows them, and
- * writes to each one's quest journal what only the host held: its
- * screen, which any viewer was attached to, and what the conversation
- * waited for before it closed.
+ * file the look each one leaves, so the launcher's Sessions to Reopen
+ * shows it, and writes to each one's quest journal what only the host
+ * held: its screen, which any viewer was attached to, and what the
+ * conversation waited for before it closed.
+ *
+ * Each is opened again the moment it has gone, not once the last has:
+ * on 15 November a drill released ten, and the six that left at once
+ * sat off the mesh with no pi until the release ended, one of them
+ * mid-merge (OSPHT4 [e8c33ae1]). A window viewing one carries it on in
+ * plain pi by itself (host/service/join.ts), so the release gives that
+ * window {@link REOPEN_GRACE_MS} to start it, and hands only one nothing
+ * took up to the launcher, as Reopen Them All opens it. One the launcher
+ * won't take stays offered in Sessions to Reopen.
+ *
+ * A release that reaches its deadline, or is stopped, calls off every
+ * move still waiting with a `resume` steer, as the person at the desk
+ * would (mesh-workflow moving.ts), so none leaves later with nothing
+ * there to open it. Those stay in their host.
  */
 
 import type { MoveNote } from "../../lib/internal/session/move.ts";
@@ -42,6 +56,15 @@ export interface ReleaseFacts {
 	note(session: string): MoveNote | undefined;
 	/** What holds a conversation from ending now, as its presence says. */
 	holds(session: string): Promise<string | undefined>;
+	/** Whether a pi runs the session again since it left its host. */
+	takenUp(session: string): boolean;
+	/**
+	 * Hand a conversation let go to the launcher to open in plain pi, as
+	 * Reopen Them All does; whether it took it.
+	 */
+	reopen(note: MoveNote): Promise<boolean>;
+	/** Call off the move the conversation going by `address` waits on. */
+	callOff(address: string): void;
 	/** Write restore.json again, so the launcher offers what was let go. */
 	refreshRestore(): void;
 	/** Add a Journey entry to a quest's README; whether it could. */
@@ -51,6 +74,12 @@ export interface ReleaseFacts {
 	say(line: string): void;
 }
 
+/**
+ * Where a conversation let go went on: the window viewing it carried it
+ * on, the launcher opened it, or Sessions to Reopen offers it.
+ */
+export type Opened = "window" | "launcher" | "offered";
+
 /** One conversation let go, and what only the host held of it. */
 export interface Released {
 	readonly address: string;
@@ -59,6 +88,7 @@ export interface Released {
 	readonly at: string;
 	/** What held it before it closed, in the order seen. */
 	readonly waitedFor: readonly string[];
+	readonly opened: Opened;
 	readonly quest?: string;
 	/** Whether its quest's journal took the entry. */
 	readonly journaled: boolean;
@@ -67,7 +97,10 @@ export interface Released {
 /** What a release did. */
 export interface ReleaseReport {
 	readonly released: readonly Released[];
-	/** Still held at the deadline, with what held each last. */
+	/**
+	 * Still held at the deadline or the stop, its move called off, with
+	 * what held each last.
+	 */
 	readonly waiting: readonly { address: string; holds?: string }[];
 	/** Gone from its host without a note, so nothing offers it back. */
 	readonly lost: readonly string[];
@@ -77,6 +110,40 @@ export interface ReleaseReport {
 
 /** How often the release looks again while conversations close. */
 export const RELEASE_LOOK_MS = 2_000;
+
+/**
+ * How long a window viewing a conversation has to carry it on in plain
+ * pi once its host lets it go, before the release opens it elsewhere. The
+ * window looks every quarter second and its pi settles the note as it
+ * starts, which a loaded machine takes seconds to reach; opened beside
+ * it, the log would have two writers.
+ */
+export const REOPEN_GRACE_MS = 15_000;
+
+/** What a release may be told beyond its names and deadline. */
+interface ReleaseOptions {
+	/** False to only offer each in Sessions to Reopen, opening none. */
+	readonly reopen?: boolean;
+	/** Ends the wait as the deadline would, as on SIGINT or SIGTERM. */
+	readonly stop?: AbortSignal;
+}
+
+/** How the journal says where a conversation went on. */
+const WENT_ON: Record<Opened, string> = {
+	window:
+		"and carried on in plain pi in the window viewing it, from the same file.",
+	launcher:
+		"and the launcher reopened it in plain pi from the same file, as Reopen Them All does.",
+	offered:
+		"and waits in the launcher's Sessions to Reopen to open from the same file.",
+};
+
+/** How the release's own lines say where a conversation went on. */
+const SAID_OPENED: Record<Opened, string> = {
+	window: "its window carried it on",
+	launcher: "the launcher reopened it",
+	offered: "offered in Sessions to Reopen",
+};
 
 /** Which held conversations `names` picks: addresses or session ids. */
 export function chooseReleased(
@@ -109,21 +176,32 @@ export function releaseProse(one: Omit<Released, "journaled">): string {
 			? "It closed at once, holding nothing."
 			: `Before it closed it waited while ${one.waitedFor.join("; then while ")}.`;
 	return [
-		`${one.address} was released from the ${one.from} host back to plain pi at ${one.at}, and waits in the launcher's Sessions to Reopen to open from the same file.`,
+		`${one.address} was released from the ${one.from} host back to plain pi at ${one.at}, ${WENT_ON[one.opened]}`,
 		waited,
-		"Only the host held its screen, so a window viewing it through its holder carried on there as plain pi, and any other viewer closed with it.",
+		one.opened === "window"
+			? "Only the host held its screen, so any other viewer closed with it."
+			: "Only the host held its screen, so any viewer closed with it.",
 	].join(" ");
+}
+
+/** A conversation gone from its host, not yet settled where it went on. */
+interface Departed {
+	readonly one: HeldConversation;
+	/** When the release saw it gone, as `now` counts. */
+	readonly at: number;
 }
 
 /**
  * Tell each chosen conversation to move to plain pi and wait, until
- * the time `deadline` (as `now` counts), for each to close; then offer
- * them back and journal each.
+ * the time `deadline` (as `now` counts) or a stop, for each to close,
+ * opening each again and journaling it as it goes; then call off the
+ * moves of those still held.
  */
 export async function releaseBack(
 	names: readonly string[] | "all",
 	facts: ReleaseFacts,
 	deadline: number,
+	options: ReleaseOptions = {},
 ): Promise<ReleaseReport> {
 	const { chosen, unknown } = chooseReleased(
 		await facts.held(),
@@ -148,10 +226,53 @@ export async function releaseBack(
 		waitedFor.set(one.session, []);
 	}
 	const left = new Map(chosen.map((one) => [one.session, one]));
-	const gone: HeldConversation[] = [];
+	const departed = new Map<string, Departed>();
+	// Read as each leaves, since the pi that takes it up settles its note.
+	const notes = new Map<string, MoveNote>();
 	const lastHolds = new Map<string, string | undefined>();
+	const released: Released[] = [];
+	const lost: string[] = [];
+	const reopening = options.reopen !== false;
+	let calledOff = false;
+	// A pi that starts on a session settles the note it left, so a note
+	// seen as it left and gone since says one took it up.
+	const takenUpNow = (session: string) =>
+		facts.takenUp(session) ||
+		(notes.has(session) && facts.note(session) === undefined);
+	const settle = async (session: string, one: HeldConversation) => {
+		const address = addressOf(session);
+		const note = notes.get(session) ?? facts.note(session);
+		const takenUp = takenUpNow(session);
+		if (note?.to !== "pi" && !takenUp) {
+			lost.push(address);
+			facts.say(`${address} closed without a note; not offered`);
+			return;
+		}
+		const opened: Opened = takenUp
+			? "window"
+			: reopening && note && (await facts.reopen(note))
+				? "launcher"
+				: "offered";
+		const base = {
+			address,
+			session,
+			from: note?.from ?? one.host,
+			at: note?.at ?? new Date(facts.now()).toISOString(),
+			waitedFor: waitedFor.get(session) ?? [],
+			opened,
+			...(note?.quest ? { quest: note.quest } : {}),
+		};
+		const journaled = base.quest
+			? facts.journal(base.quest, releaseProse(base))
+			: false;
+		released.push({ ...base, journaled });
+		facts.say(
+			`${address} released from the ${base.from} host; ${SAID_OPENED[opened]}`,
+		);
+	};
 	for (;;) {
 		const still = new Set((await facts.held()).map((one) => one.session));
+		let leaving = false;
 		for (const [session, one] of left) {
 			if (still.has(session)) {
 				const holds = await facts.holds(session);
@@ -164,36 +285,31 @@ export async function releaseBack(
 				continue;
 			}
 			left.delete(session);
-			gone.push(one);
+			departed.set(session, { one, at: facts.now() });
+			const note = facts.note(session);
+			if (note) notes.set(session, note);
+			leaving = true;
 		}
-		if (left.size === 0 || facts.now() >= deadline) break;
+		if (leaving) facts.refreshRestore();
+		for (const [session, { one, at }] of departed) {
+			// Only one about to be opened waits out a window's grace.
+			const early = facts.now() - at < REOPEN_GRACE_MS;
+			if (reopening && early && !takenUpNow(session)) continue;
+			departed.delete(session);
+			await settle(session, one);
+		}
+		const over = facts.now() >= deadline || options.stop?.aborted === true;
+		if (over && !calledOff) {
+			calledOff = true;
+			for (const session of left.keys()) {
+				facts.callOff(addressOf(session));
+				facts.say(`called off ${addressOf(session)}'s move; it stays hosted`);
+			}
+		}
+		if (departed.size === 0 && (left.size === 0 || calledOff)) break;
 		await facts.pause(RELEASE_LOOK_MS);
 	}
 	facts.refreshRestore();
-	const released: Released[] = [];
-	const lost: string[] = [];
-	for (const one of gone) {
-		const address = addressOf(one.session);
-		const note = facts.note(one.session);
-		if (note?.to !== "pi") {
-			lost.push(address);
-			facts.say(`${address} closed without a note; not offered`);
-			continue;
-		}
-		const base = {
-			address,
-			session: one.session,
-			from: note.from ?? one.host,
-			at: note.at,
-			waitedFor: waitedFor.get(one.session) ?? [],
-			...(note.quest ? { quest: note.quest } : {}),
-		};
-		const journaled = note.quest
-			? facts.journal(note.quest, releaseProse(base))
-			: false;
-		released.push({ ...base, journaled });
-		facts.say(`${address} released from the ${base.from} host`);
-	}
 	return {
 		released,
 		waiting: [...left.keys()].map((session) => {

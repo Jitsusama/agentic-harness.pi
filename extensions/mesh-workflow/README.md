@@ -1161,8 +1161,10 @@ A session moves between plain pi and a host by the steer act `move`
 (see Steer), keeping its session id, its log and so its addresses.
 `scripts/host-cutover.ts` tells every live pi to move into the realm's
 host and adopts each file as its pi ends; `scripts/host-release.ts`
-tells hosted conversations to move back, and restore.json offers each
-until plain pi opens it. Which host a session goes to rests on its
+tells hosted conversations to move back, and the launcher opens each
+in plain pi as it leaves, unless a window viewing it carried it on;
+restore.json offers any it didn't take until plain pi opens it. A
+reload leaves the note its own move left as it ends. Which host a session goes to rests on its
 presence's `driven`: true once a person's words reach it, typed, said
 through the launcher or sent by a client, and read at start from the log
 pi holds, so the cutover need read no log. It stays true for that session
