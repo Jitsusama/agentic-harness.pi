@@ -25,11 +25,15 @@ describe("whether blocks change anything", () => {
 	});
 
 	it("says an inline link mrkdwn can't draw needs blocks", () => {
-		expect(mrkdwnToBlocks("see [a](https://a.io)").hasStructure).toBe(true);
+		expect(mrkdwnToBlocks("see [a](https://a.io)")).toMatchObject({
+			hasStructure: true,
+		});
 	});
 
 	it("says a hex-like number needs blocks, for the swatch shield", () => {
-		expect(mrkdwnToBlocks("PR #675891").hasStructure).toBe(true);
+		expect(mrkdwnToBlocks("PR #675891")).toMatchObject({
+			hasStructure: true,
+		});
 	});
 });
 
@@ -50,12 +54,12 @@ describe("blocks of their own", () => {
 
 describe("lists", () => {
 	it("groups items by style and indent, nesting by two spaces or a tab", () => {
-		const { blocks, hasStructure } = mrkdwnToBlocks(
+		const converted = mrkdwnToBlocks(
 			["- a", "  - b", "\t- c", "1. d", "2. e"].join("\n"),
 		);
 
-		expect(hasStructure).toBe(true);
-		expect(blocks).toEqual([
+		expect(converted).toMatchObject({ hasStructure: true });
+		expect(converted.blocks).toEqual([
 			{
 				type: "rich_text",
 				elements: [

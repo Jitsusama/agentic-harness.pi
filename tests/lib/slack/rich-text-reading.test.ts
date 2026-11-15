@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderRichTextCell } from "../../../lib/slack/blocks.ts";
+import { renderRichTextCell } from "../../../lib/slack/rich-text-reading.ts";
 import { cacheUser } from "../../../lib/slack/resolvers/user.ts";
 
 /**

@@ -4,7 +4,7 @@ import {
 	extractTables,
 	mrkdwnToCell,
 	tableToBlock,
-} from "../../../lib/slack/blocks.ts";
+} from "../../../lib/slack/tables.ts";
 
 /**
  * How a table goes to Slack as a Block Kit table block, and how one

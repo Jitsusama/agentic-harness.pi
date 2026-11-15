@@ -22,7 +22,6 @@ lib/internal/priority/folder.ts
 lib/internal/priority/queue.ts
 lib/internal/quest
 lib/internal/quest/discovery.ts
-lib/slack/blocks.ts
 lib/subagent/runpi/supervisor.mjs
 lib/subagent/runpi/supervisor.ts
 lib/subagent/subagent.ts

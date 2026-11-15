@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMrkdwnToElements } from "../../../lib/slack/blocks.ts";
+import { parseMrkdwnToElements } from "../../../lib/slack/mrkdwn-tokens.ts";
 
 /**
  * How a line of mrkdwn becomes Block Kit's inline elements: Slack's
