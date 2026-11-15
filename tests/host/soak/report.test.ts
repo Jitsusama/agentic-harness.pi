@@ -655,6 +655,32 @@ describe("a parity report", () => {
 		).toBe(0);
 	});
 
+	it("labels each folder a side is reached by, through its link and as pi names it", () => {
+		// A seal reaches its folder through a link, and pi names the folder by
+		// its real path, which is the link's less its last letter.
+		const hosted = [
+			{
+				...entry("user", "soak c0-t0 echo, please", 0),
+				cwd: "/tmp/e-a/w1",
+				home: "/tmp/e-al/h",
+			},
+		];
+		const plain = [
+			{
+				...entry("user", "soak c0-t0 echo, please", 0),
+				cwd: "/tmp/e-b/w1",
+				home: "/tmp/e-bl/h",
+			},
+		];
+		expect(
+			parityOf(hosted, plain, {
+				hosted: ["/tmp/e-al", "/tmp/e-a"],
+				plain: ["/tmp/e-bl", "/tmp/e-b"],
+			}).first,
+			"the same turn, each folder by either name",
+		).toEqual([]);
+	});
+
 	it("counts an entry only one side wrote once", () => {
 		const turn = entry("user", "soak c0-t0 echo, please", 0);
 		const parity = parityOf(
