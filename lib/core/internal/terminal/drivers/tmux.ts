@@ -15,19 +15,15 @@ import { hostname } from "node:os";
 import {
 	type TerminalDriver,
 	type TerminalLivenessCapability,
-	type TerminalProbe,
 	type TerminalRequest,
 	type TerminalSighting,
 	type TerminalTypeCapability,
-	terminalHandleKey,
 } from "../../../../terminal/types.ts";
 import { locateBinary } from "../binaries.ts";
-import { runCli, TERMINAL_CLI_TIMEOUT_MS } from "../cli.ts";
-import {
-	PROMPT_WAIT_MS,
-	untilPromptShown,
-	wrapCommandWithEnv,
-} from "./shared.ts";
+import { runCli } from "../cli.ts";
+import { type CliDriverOptions, cliDriverSettings } from "./options.ts";
+import { probeByListing } from "./probe.ts";
+import { untilPromptShown, wrapCommandWithEnv } from "./shared.ts";
 
 /** The handle kind tmux's panes are recorded under. */
 export const TMUX_HANDLE_KIND = "tmux-pane";
@@ -99,22 +95,13 @@ export function tmuxTypeCalls(pane: string, text: string): string[][] {
 }
 
 /** What a tmux driver can be built with. */
-export interface TmuxDriverOptions {
-	/** How long one tmux call may take. */
-	readonly cliTimeoutMs?: number;
-	/** How long typing waits for a new shell's prompt. */
-	readonly promptWaitMs?: number;
-	/** Where the session's environment is read from. */
-	readonly env?: () => Readonly<Record<string, string | undefined>>;
-}
+export type TmuxDriverOptions = CliDriverOptions;
 
 /** A tmux driver whose calls end at the given clock. */
 export function createTmuxDriver(
 	options: TmuxDriverOptions = {},
 ): TerminalDriver & TerminalLivenessCapability & TerminalTypeCapability {
-	const timeout = options.cliTimeoutMs ?? TERMINAL_CLI_TIMEOUT_MS;
-	const promptWait = options.promptWaitMs ?? PROMPT_WAIT_MS;
-	const env = options.env ?? (() => process.env);
+	const { timeout, promptWait, env } = cliDriverSettings(options);
 	const binary = (): string => locateBinary("tmux", "tmux") ?? "tmux";
 	const run = (socket: string | undefined, args: string[]) =>
 		runCli(binary(), socket ? ["-S", socket, ...args] : args, { timeout });
@@ -199,58 +186,13 @@ export function createTmuxDriver(
 		identifyCurrent() {
 			return sight(env())?.handle;
 		},
-		async probe(handles, signal) {
-			const sockets = new Set<string>();
-			for (const handle of handles) {
-				if (handle.scope && handle.hostId === hostname())
-					sockets.add(handle.scope);
-			}
-			const live = new Map<string, Set<string> | undefined>();
-			await Promise.all(
-				[...sockets].map(async (socket) => {
-					if (signal?.aborted) {
-						live.set(socket, undefined);
-						return;
-					}
-					try {
-						const stdout = await run(socket, [
-							"list-panes",
-							"-a",
-							"-F",
-							"#{pane_id}",
-						]);
-						live.set(
-							socket,
-							new Set(
-								stdout
-									.split("\n")
-									.map((line) => line.trim())
-									.filter(Boolean),
-							),
-						);
-					} catch {
-						// A server that has gone or will not answer says nothing
-						// about its panes: unknown, never a false absent.
-						live.set(socket, undefined);
-					}
-				}),
+		probe(handles, signal) {
+			return probeByListing(handles, signal, async (socket) =>
+				(await run(socket, ["list-panes", "-a", "-F", "#{pane_id}"]))
+					.split("\n")
+					.map((line) => line.trim())
+					.filter(Boolean),
 			);
-			const out = new Map<string, TerminalProbe>();
-			for (const handle of handles) {
-				const panes =
-					handle.scope && handle.hostId === hostname()
-						? live.get(handle.scope)
-						: undefined;
-				out.set(
-					terminalHandleKey(handle),
-					panes === undefined
-						? "unknown"
-						: panes.has(handle.value)
-							? "present"
-							: "absent",
-				);
-			}
-			return out;
 		},
 	};
 }

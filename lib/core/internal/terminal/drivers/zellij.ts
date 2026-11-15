@@ -11,20 +11,16 @@ import { hostname } from "node:os";
 import {
 	type TerminalDriver,
 	type TerminalLivenessCapability,
-	type TerminalProbe,
 	type TerminalRequest,
 	type TerminalSessionHandle,
 	type TerminalSighting,
 	type TerminalTypeCapability,
-	terminalHandleKey,
 } from "../../../../terminal/types.ts";
 import { locateBinary } from "../binaries.ts";
-import { runCli, TERMINAL_CLI_TIMEOUT_MS } from "../cli.ts";
-import {
-	PROMPT_WAIT_MS,
-	untilPromptShown,
-	wrapCommandWithEnv,
-} from "./shared.ts";
+import { runCli } from "../cli.ts";
+import { type CliDriverOptions, cliDriverSettings } from "./options.ts";
+import { probeByListing } from "./probe.ts";
+import { untilPromptShown, wrapCommandWithEnv } from "./shared.ts";
 
 /** The handle kind zellij's panes are recorded under. */
 export const ZELLIJ_HANDLE_KIND = "zellij-pane";
@@ -111,22 +107,13 @@ export function zellijRefocusArgs(
 }
 
 /** What a zellij driver can be built with. */
-export interface ZellijDriverOptions {
-	/** How long one action may take. */
-	readonly cliTimeoutMs?: number;
-	/** How long typing waits for a new shell's prompt. */
-	readonly promptWaitMs?: number;
-	/** Where the session's environment is read from. */
-	readonly env?: () => Readonly<Record<string, string | undefined>>;
-}
+export type ZellijDriverOptions = CliDriverOptions;
 
 /** A zellij driver whose actions end at the given clock. */
 export function createZellijDriver(
 	options: ZellijDriverOptions = {},
 ): TerminalDriver & TerminalLivenessCapability & TerminalTypeCapability {
-	const timeout = options.cliTimeoutMs ?? TERMINAL_CLI_TIMEOUT_MS;
-	const promptWait = options.promptWaitMs ?? PROMPT_WAIT_MS;
-	const env = options.env ?? (() => process.env);
+	const { timeout, promptWait, env } = cliDriverSettings(options);
 	const binary = (): string => locateBinary("zellij", "zellij") ?? "zellij";
 	const run = (session: string, args: string[], input?: string) =>
 		runCli(binary(), ["--session", session, ...args], {
@@ -235,47 +222,10 @@ export function createZellijDriver(
 		identifyCurrent() {
 			return sight(env())?.handle;
 		},
-		async probe(handles, signal) {
-			const sessions = new Set<string>();
-			for (const handle of handles) {
-				if (handle.scope && handle.hostId === hostname())
-					sessions.add(handle.scope);
-			}
-			const live = new Map<string, Set<string> | undefined>();
-			await Promise.all(
-				[...sessions].map(async (session) => {
-					if (signal?.aborted) {
-						live.set(session, undefined);
-						return;
-					}
-					try {
-						live.set(
-							session,
-							new Set(zellijTerminalPanes(await listPanes(session))),
-						);
-					} catch {
-						// A session that has gone may yet be resurrected, and a
-						// zellij that will not answer says nothing: unknown.
-						live.set(session, undefined);
-					}
-				}),
+		probe(handles, signal) {
+			return probeByListing(handles, signal, async (session) =>
+				zellijTerminalPanes(await listPanes(session)),
 			);
-			const out = new Map<string, TerminalProbe>();
-			for (const handle of handles) {
-				const panes =
-					handle.scope && handle.hostId === hostname()
-						? live.get(handle.scope)
-						: undefined;
-				out.set(
-					terminalHandleKey(handle),
-					panes === undefined
-						? "unknown"
-						: panes.has(handle.value)
-							? "present"
-							: "absent",
-				);
-			}
-			return out;
 		},
 	};
 }
