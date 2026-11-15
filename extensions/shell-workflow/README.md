@@ -268,8 +268,8 @@ command runs as it would under pi: in a process group of its own, with
 the same folder, variables, stop, time limit and exit code. Where the
 program isn't in the profile or stops, pi starts commands itself, as it
 does when it is turned off. A command pi-spawner starts is kept on disk
-as pi's own are only where the spawner answers `keeps` (see Kept
-Commands below); through an older one, a move waits for it. A reload
+as pi's own are only where the spawner answers `keeps` (see Through a
+Move below); through an older one, a move waits for it. A reload
 or a new session retires its load's `pi-spawner`, which closes once
 the commands it runs have ended, so a background
 command outlives the reload. Each load, as it starts, stops any
