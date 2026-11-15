@@ -455,7 +455,10 @@ describe("show surfaces unresolved cast per the resolution fallback", () => {
 			),
 			"utf8",
 		);
-		await handle(state, fakePi(), fakeCtx(fixture.root), { action: "load", id });
+		await handle(state, fakePi(), fakeCtx(fixture.root), {
+			action: "load",
+			id,
+		});
 
 		const result = await handle(state, fakePi(), fakeCtx(fixture.root), {
 			action: "show",
@@ -484,7 +487,10 @@ describe("show surfaces unresolved cast per the resolution fallback", () => {
 			),
 			"utf8",
 		);
-		await handle(state, fakePi(), fakeCtx(fixture.root), { action: "load", id });
+		await handle(state, fakePi(), fakeCtx(fixture.root), {
+			action: "load",
+			id,
+		});
 		const result = await handle(state, fakePi(), fakeCtx(fixture.root), {
 			action: "show",
 		});

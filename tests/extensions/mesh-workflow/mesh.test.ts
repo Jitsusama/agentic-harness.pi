@@ -104,7 +104,10 @@ describe("groups", () => {
 
 describe("a message that names no group", () => {
 	it("says nothing in presence of what the file holds, as a session starts", async () => {
-		fixture.paths = { ...fixture.paths, waiting: join(fixture.root, "waiting") };
+		fixture.paths = {
+			...fixture.paths,
+			waiting: join(fixture.root, "waiting"),
+		};
 		mkdirSync(fixture.paths.waiting ?? "", { recursive: true });
 		writeFileSync(
 			join(fixture.root, "waiting", "7M6JKG.json"),
@@ -134,7 +137,10 @@ describe("a message that names no group", () => {
 	});
 
 	it("keeps what waits on the person where the launcher reads it, and out of presence", async () => {
-		fixture.paths = { ...fixture.paths, waiting: join(fixture.root, "waiting") };
+		fixture.paths = {
+			...fixture.paths,
+			waiting: join(fixture.root, "waiting"),
+		};
 		const { tools } = await startSession();
 		const wait = (params: Record<string, unknown>) =>
 			tools.get("mesh_wait")?.execute("call-w", params);
@@ -261,7 +267,9 @@ describe("presence", () => {
 	it("names this process, so others can ask whether it is still there", async () => {
 		await startSession();
 
-		const own = createPresences(join(fixture.paths.mesh, "presence")).of(session);
+		const own = createPresences(join(fixture.paths.mesh, "presence")).of(
+			session,
+		);
 
 		expect(own?.owner?.pid).toBe(process.pid);
 	});
@@ -280,7 +288,8 @@ describe("presence", () => {
 
 	it("says a run's step and what its model calls took, from pi's events", async () => {
 		const { fire } = await startSession();
-		const own = () => createPresences(join(fixture.paths.mesh, "presence")).of(session);
+		const own = () =>
+			createPresences(join(fixture.paths.mesh, "presence")).of(session);
 		const answer = {
 			role: "assistant",
 			provider: "anthropic",

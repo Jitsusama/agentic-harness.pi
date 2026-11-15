@@ -27,7 +27,10 @@ describe("what waits on the person", () => {
 	// 2RCBOJ, 11 November: asks read "session ended" on For You after a
 	// new session had taken their quest up.
 	it("takes up, as it starts, what an ended session of its quest left waiting", async () => {
-		fixture.paths = { ...fixture.paths, waiting: join(fixture.root, "waiting") };
+		fixture.paths = {
+			...fixture.paths,
+			waiting: join(fixture.root, "waiting"),
+		};
 		const file = join(fixture.root, "waiting", "7M6JKG.json");
 		mkdirSync(join(fixture.root, "waiting"), { recursive: true });
 		const left = {
@@ -57,7 +60,10 @@ describe("what waits on the person", () => {
 	it("wakes an idle session once the person does what it raised, and not for its own settling", async () => {
 		// A session that ended its run Blocked on the person had nothing to
 		// wake it once he acted: verdicts were read only as a run began or ended.
-		fixture.paths = { ...fixture.paths, waiting: join(fixture.root, "waiting") };
+		fixture.paths = {
+			...fixture.paths,
+			waiting: join(fixture.root, "waiting"),
+		};
 		const { sent, tools } = await startSession(
 			{},
 			{ isIdle: () => true },
@@ -115,7 +121,10 @@ describe("what waits on the person", () => {
 		// would let the session's command out of its fence.
 		vi.stubEnv("PI_SANDBOX", "strict");
 		try {
-			fixture.paths = { ...fixture.paths, waiting: join(fixture.root, "waiting") };
+			fixture.paths = {
+				...fixture.paths,
+				waiting: join(fixture.root, "waiting"),
+			};
 			const { tools } = await startSession();
 			await tools.get("mesh_wait")?.execute("call-w", {
 				id: "look",
@@ -164,7 +173,9 @@ describe("the person's look list, from show_person", () => {
 		expect(talk?.content[0]?.text, "agent talk").toContain("can't place");
 		const terse = await show({ ...pr, ask: undefined });
 		expect(terse?.content[0]?.text, "no ask").toContain("asked to do");
-		expect(looksIn(join(fixture.root, "looks")), "neither was kept").toEqual([]);
+		expect(looksIn(join(fixture.root, "looks")), "neither was kept").toEqual(
+			[],
+		);
 
 		await show(pr);
 		expect(looksIn(join(fixture.root, "looks"))[0]).toMatchObject({

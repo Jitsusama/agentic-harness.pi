@@ -7,9 +7,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import {
-	writeRefusedWake,
-} from "../../../lib/internal/session/refused-wake.ts";
+import { writeRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import { clock } from "../../../lib/mesh/message.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";

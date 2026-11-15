@@ -265,7 +265,11 @@ describe("a lease", () => {
 		);
 		expect(again).toBeUndefined();
 		expect(ownBoard()).toMatchObject([
-			{ kind: "change", subject: `${basename(fixture.root)}:a.ts`, checkout: fixture.root },
+			{
+				kind: "change",
+				subject: `${basename(fixture.root)}:a.ts`,
+				checkout: fixture.root,
+			},
 		]);
 		expect(sentOut()[0]?.text).toContain("in the checkout this peer rewrote");
 	});

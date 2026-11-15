@@ -172,7 +172,9 @@ describe("sending", () => {
 		expect(answer).toContain(
 			"Not sent: no session in this realm goes by 16V6F4, there or ended. Realms are kept apart",
 		);
-		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toEqual([]);
+		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toEqual(
+			[],
+		);
 	});
 
 	it("still answers a message whose sender has no presence here", async () => {
@@ -221,7 +223,9 @@ describe("sending", () => {
 		expect(answer).toContain(
 			"Nobody else is in #skynet yet; mesh_read shows it to whoever joins",
 		);
-		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toHaveLength(1);
+		expect(
+			folderTransport(join(fixture.paths.mesh, "messages")).ids(),
+		).toHaveLength(1);
 	});
 
 	it("sends a message opening with peers' names to them alone, not the group", async () => {

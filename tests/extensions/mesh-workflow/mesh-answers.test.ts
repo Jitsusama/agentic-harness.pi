@@ -32,7 +32,9 @@ describe("an answer", () => {
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
 		peer("session-w", ["WCJQSG"], []);
 		await send(tools, "#optimus", "question", "who has qemu?");
-		const [asked = ""] = folderTransport(join(fixture.paths.mesh, "messages")).ids();
+		const [asked = ""] = folderTransport(
+			join(fixture.paths.mesh, "messages"),
+		).ids();
 
 		fromElsewhere({ intent: "question", re: asked, text: "which version?" });
 
@@ -45,7 +47,9 @@ describe("an answer", () => {
 		const { sent, tools } = await startSession({}, { isIdle: () => true });
 		peer("session-w", ["WCJQSG"], []);
 		await send(tools, "#optimus", "question", "who has qemu?");
-		const [asked = ""] = folderTransport(join(fixture.paths.mesh, "messages")).ids();
+		const [asked = ""] = folderTransport(
+			join(fixture.paths.mesh, "messages"),
+		).ids();
 
 		fromElsewhere({ intent: "fyi", re: asked, text: "I do, until 03:00." });
 
@@ -135,7 +139,9 @@ describe("an answer", () => {
 		peer("session-p", ["P9R1KI"], ["#optimus"]);
 		const { tools } = await startSession();
 		await send(tools, "#optimus", "question", "who has qemu?");
-		const [asked = ""] = folderTransport(join(fixture.paths.mesh, "messages")).ids();
+		const [asked = ""] = folderTransport(
+			join(fixture.paths.mesh, "messages"),
+		).ids();
 		const readBack = async () =>
 			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
 			"";
@@ -237,7 +243,9 @@ describe("a withdrawal", () => {
 		const said = fromElsewhere({ text: "merging core.nix#330 now" });
 		await vi.waitFor(() =>
 			expect(
-				folderTransport(join(fixture.paths.mesh, "messages")).lastRead(["7M6JKG"]),
+				folderTransport(join(fixture.paths.mesh, "messages")).lastRead([
+					"7M6JKG",
+				]),
 			).toBe(said.id),
 		);
 		fromElsewhere({ text: "not merging after all", supersedes: said.id });
@@ -251,7 +259,9 @@ describe("a withdrawal", () => {
 	});
 
 	it("stays a glance for a peer whose quest hears only what is put to it", async () => {
-		mkdirSync(join(fixture.paths.quests, "QEST-20261021-7M6JKG"), { recursive: true });
+		mkdirSync(join(fixture.paths.quests, "QEST-20261021-7M6JKG"), {
+			recursive: true,
+		});
 		writeFileSync(
 			join(fixture.paths.quests, "QEST-20261021-7M6JKG", "README.md"),
 			"---\nid: QEST-20261021-7M6JKG\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\nhears: addressed\n---\n# QEST-20261021-7M6JKG\n",

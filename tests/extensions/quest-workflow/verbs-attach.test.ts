@@ -7,9 +7,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
-import {
-	questIdFromCwd,
-} from "../../../extensions/quest-workflow/verbs/lifecycle.ts";
+import { questIdFromCwd } from "../../../extensions/quest-workflow/verbs/lifecycle.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { fakeCtx } from "./_helpers.ts";
 import { buildState, createQuest, fixture } from "./support/verbs.ts";
@@ -92,19 +90,29 @@ describe("session verbs", () => {
 			action: "load",
 			id: a.id,
 		});
-		const attach = await handle(state, fakePi(), fakeCtx(fixture.root, "sess-99"), {
-			action: "session-attach",
-			name: "investigation",
-		});
+		const attach = await handle(
+			state,
+			fakePi(),
+			fakeCtx(fixture.root, "sess-99"),
+			{
+				action: "session-attach",
+				name: "investigation",
+			},
+		);
 		expect(attach).toMatchObject({ ok: true });
 		let text = readFileSync(a.path, "utf8");
 		expect(text).toContain("id: sess-99");
 		expect(text).toContain("name: investigation");
 		expect(text).toContain("status: active");
 
-		const detach = await handle(state, fakePi(), fakeCtx(fixture.root, "sess-99"), {
-			action: "session-detach",
-		});
+		const detach = await handle(
+			state,
+			fakePi(),
+			fakeCtx(fixture.root, "sess-99"),
+			{
+				action: "session-detach",
+			},
+		);
 		expect(detach).toMatchObject({ ok: true });
 		text = readFileSync(a.path, "utf8");
 		expect(text).toMatch(/status: detached/);

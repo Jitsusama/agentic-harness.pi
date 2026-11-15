@@ -12,8 +12,8 @@ import {
 	fixture,
 	fromElsewhere,
 	peer,
-	send,
 	type Sent,
+	send,
 	session,
 	startSession,
 	stopping,
@@ -173,7 +173,9 @@ describe("a stop", () => {
 				"is not another peer's address",
 			);
 		}
-		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toEqual([]);
+		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toEqual(
+			[],
+		);
 	});
 
 	it("refuses a send to the home of a peer that stopped this one", async () => {
@@ -185,7 +187,9 @@ describe("a stop", () => {
 		expect(answer).toBe(
 			"Not sent: P9R1KI stopped this peer reaching it (too much): it sees what this peer sends as one line only. Only it can lift that; until it does, leave it be.",
 		);
-		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toEqual([]);
+		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toEqual(
+			[],
+		);
 	});
 
 	it("leaves a stopper's home out of a send that names others too", async () => {
@@ -211,7 +215,9 @@ describe("a stop", () => {
 		expect(answer).toContain(
 			"P9R1KI stopped this peer, so it sees this as one line and no more.",
 		);
-		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toHaveLength(1);
+		expect(
+			folderTransport(join(fixture.paths.mesh, "messages")).ids(),
+		).toHaveLength(1);
 	});
 
 	it("is listed by mesh_groups, on both sides", async () => {

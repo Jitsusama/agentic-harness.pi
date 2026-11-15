@@ -136,7 +136,9 @@ describe("a send into another realm", () => {
 			sent: true,
 			crossed: { fromRealm: "personal" },
 		});
-		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toEqual([]);
+		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toEqual(
+			[],
+		);
 	});
 
 	it("is refused here when the node has no flow to that realm, naming those it has", async () => {
@@ -220,7 +222,9 @@ describe("a send into another realm", () => {
 
 		expect(answer).toContain("Sent as 7M6JKG");
 		expect(node.sends).toEqual([]);
-		expect(folderTransport(join(fixture.paths.mesh, "messages")).ids()).toHaveLength(1);
+		expect(
+			folderTransport(join(fixture.paths.mesh, "messages")).ids(),
+		).toHaveLength(1);
 	});
 });
 

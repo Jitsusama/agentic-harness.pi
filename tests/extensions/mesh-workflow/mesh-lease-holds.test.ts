@@ -18,8 +18,8 @@ import {
 	leased,
 	ownBoard,
 	peer,
-	send,
 	type Sent,
+	send,
 	sentOut,
 	startSession,
 } from "./support/mesh.ts";
@@ -30,7 +30,9 @@ describe("a lease", () => {
 		const { tools } = await startSession();
 
 		const said = await send(tools, "all", "hold", "hold heavy builds");
-		const [hold = ""] = folderTransport(join(fixture.paths.mesh, "messages")).ids();
+		const [hold = ""] = folderTransport(
+			join(fixture.paths.mesh, "messages"),
+		).ids();
 
 		expect(said).toContain("It holds for two hours at most");
 		expect(ownBoard()).toMatchObject([{ kind: "hold", subject: hold }]);

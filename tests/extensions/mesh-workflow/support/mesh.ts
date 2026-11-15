@@ -129,7 +129,13 @@ export async function startSession(
 			},
 		},
 	};
-	meshWorkflow(fixture.paths, env, settling, waitCheckMs, lookAgainMs)(pi as never);
+	meshWorkflow(
+		fixture.paths,
+		env,
+		settling,
+		waitCheckMs,
+		lookAgainMs,
+	)(pi as never);
 	early(pi.events.emit);
 	await lifecycle.get("session_start")?.(
 		{ reason: "startup" },
@@ -249,7 +255,10 @@ export function onQuest() {
 		["QEST-20261021-5GV2AH", "null"],
 	] as const) {
 		mkdirSync(join(fixture.paths.quests, id), { recursive: true });
-		writeFileSync(join(fixture.paths.quests, id, "README.md"), readme(id, parent));
+		writeFileSync(
+			join(fixture.paths.quests, id, "README.md"),
+			readme(id, parent),
+		);
 	}
 }
 
@@ -281,7 +290,9 @@ export function leased(owner: string, over: Partial<Lease>) {
 
 /** This peer's leases on the board. */
 export function ownBoard(): readonly Lease[] {
-	return createBoard(join(fixture.paths.mesh, "leases")).of(session)?.leases ?? [];
+	return (
+		createBoard(join(fixture.paths.mesh, "leases")).of(session)?.leases ?? []
+	);
 }
 
 /** What the mesh sent other peers, as they would read it. */

@@ -38,8 +38,8 @@ import {
 	pausedByItsPerson,
 	peer,
 	type Renderer,
-	send,
 	type Sent,
+	send,
 	session,
 	startSession,
 } from "./support/mesh.ts";
@@ -211,7 +211,9 @@ describe("a message as context", () => {
 	it("hears the peer that took over a quest it once held, and not what is sent to it", async () => {
 		// Seen live: the session that spawned LUQ49E still answered to it,
 		// so it took LUQ49E's messages for its own and dropped them.
-		mkdirSync(join(fixture.paths.quests, "QEST-20261021-LUQ49E"), { recursive: true });
+		mkdirSync(join(fixture.paths.quests, "QEST-20261021-LUQ49E"), {
+			recursive: true,
+		});
 		writeFileSync(
 			join(fixture.paths.quests, "QEST-20261021-LUQ49E", "README.md"),
 			`sessions:\n  - id: ${session}\n`,
@@ -525,7 +527,9 @@ describe("quiet", () => {
 		);
 		peer("session-w", ["WCJQSG"], []);
 		await send(tools, "#optimus", "question", "who has qemu?");
-		const [asked = ""] = folderTransport(join(fixture.paths.mesh, "messages")).ids();
+		const [asked = ""] = folderTransport(
+			join(fixture.paths.mesh, "messages"),
+		).ids();
 
 		fromElsewhere({ intent: "fyi", re: asked, text: "I do, until 03:00." });
 		await vi.waitFor(() => expect(sent).toHaveLength(1));

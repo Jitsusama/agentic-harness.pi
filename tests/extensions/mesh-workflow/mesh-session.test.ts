@@ -105,7 +105,9 @@ describe("a rollover", () => {
 			// A real pause: the test is that the left log hears nothing in it.
 			await new Promise((resolve) => setTimeout(resolve, 200));
 			expect(sent).toEqual([]);
-			expect(createPresences(join(fixture.paths.mesh, "presence")).all()).toEqual([]);
+			expect(
+				createPresences(join(fixture.paths.mesh, "presence")).all(),
+			).toEqual([]);
 		} finally {
 			stayInSession(session);
 		}
@@ -202,7 +204,9 @@ describe("a pi that keeps no session", () => {
 		// A real pause: the test is that a pi off the mesh hears nothing in it.
 		await new Promise((resolve) => setTimeout(resolve, 200));
 		expect(sent).toEqual([]);
-		expect(createPresences(join(fixture.paths.mesh, "presence")).all()).toEqual([]);
+		expect(createPresences(join(fixture.paths.mesh, "presence")).all()).toEqual(
+			[],
+		);
 		const answer = await send(tools, "all", "fyi", "hello");
 		expect(answer).toContain("not on the mesh");
 	});
@@ -244,7 +248,9 @@ describe("a fleet's subagent", () => {
 		await new Promise((resolve) => setTimeout(resolve, 200));
 		expect(sent).toEqual([]);
 		expect(tools.size).toBe(0);
-		expect(createPresences(join(fixture.paths.mesh, "presence")).all()).toEqual([]);
+		expect(createPresences(join(fixture.paths.mesh, "presence")).all()).toEqual(
+			[],
+		);
 	});
 });
 
@@ -256,11 +262,17 @@ describe("a folder its host left untrusted", () => {
 		try {
 			process.argv = ["node", "pi", "--session", session];
 			expect(
-				await fire("project_trust", { type: "project_trust", cwd: fixture.root }),
+				await fire("project_trust", {
+					type: "project_trust",
+					cwd: fixture.root,
+				}),
 			).toEqual({ trusted: "no", remember: false });
 			process.argv = ["node", "pi"];
 			expect(
-				await fire("project_trust", { type: "project_trust", cwd: fixture.root }),
+				await fire("project_trust", {
+					type: "project_trust",
+					cwd: fixture.root,
+				}),
 				"a pi on no session, as a host",
 			).toEqual({ trusted: "undecided" });
 		} finally {
