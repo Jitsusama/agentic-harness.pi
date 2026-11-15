@@ -94,8 +94,9 @@ slack-integration/
   using the file. Removing the file leaves its bytes on the disk, so
   sign in again once after the move to retire the token it held.
 - **Confirmation gates**: write operations require approval.
-  They are the `slack` guard, which blocks by default, since a
-  message reaches other people the moment it lands. While you
+  They are the `slack` guard, which always blocks, since a
+  message reaches other people in your name the moment it lands:
+  no session or config setting turns it off. While you
   are away ([away-workflow](../away-workflow/)) a send is held,
   not sent, and listed for you when you are back.
 - **CSRF protection**: OAuth state parameter prevents forgery

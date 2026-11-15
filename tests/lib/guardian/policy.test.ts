@@ -51,6 +51,26 @@ describe("resolving a guard's mode", () => {
 		expect(guardMode("t-pr")).toBe("off");
 	});
 
+	it("keeps a pinned guard at its default whatever a session or config says", () => {
+		declareGuard({
+			name: "t-post",
+			class: "approval",
+			description: "",
+			defaultMode: "block",
+			groups: ["t-send"],
+			pinned: true,
+		});
+
+		setConfiguredModes({ all: "off", approval: "off", "t-post": "off" });
+		setSessionMode("t-send", "redirect");
+		setSessionMode("t-post", "off");
+		const listed = listGuards().find((g) => g.declaration.name === "t-post");
+		expect(guardMode("t-post"), "a setting lowered a pinned guard").toBe(
+			"block",
+		);
+		expect(listed?.source, "the list doesn't say it's pinned").toBe("pinned");
+	});
+
 	it("prefers the most specific key within a layer", () => {
 		declareGuard({
 			name: "t-history",
