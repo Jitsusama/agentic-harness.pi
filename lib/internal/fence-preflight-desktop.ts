@@ -12,7 +12,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { rmSync } from "node:fs";
+import { realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import {
@@ -24,6 +24,15 @@ import {
 	tailOf,
 	type Verdict,
 } from "./fence-preflight.ts";
+
+/**
+ * Names niri's socket for `niri msg` where the environment doesn't: a pi
+ * started outside the session (a host, or one restarted after a reboot)
+ * has no `NIRI_SOCKET`, and every question to niri would go unanswered.
+ * The session's niri names its socket for its own process ID.
+ */
+const NIRI_SOCKET_FOUND =
+	'if [ -z "$NIRI_SOCKET" ]; then NIRI_SOCKET=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -type s -name "niri.*.$(pgrep -u "$(id -u)" -xa niri | awk \'NF == 3 && $3 == "--session" { print $1; exit }\').sock" -print -quit); export NIRI_SOCKET; fi; ';
 
 /** The app ID of the window the window check opens. */
 const PREFLIGHT_WINDOW = "pi.fence.preflight";
@@ -46,7 +55,7 @@ const SETTLE_MS = 500;
 
 /** The JSON niri answers `script` with, or nothing when it doesn't. */
 async function niriAnswer(script: string, cwd: string): Promise<unknown> {
-	const ran = await outside(script, cwd);
+	const ran = await outside(`${NIRI_SOCKET_FOUND}${script}`, cwd);
 	if (ran.code !== 0) return undefined;
 	try {
 		return JSON.parse(ran.out);
@@ -141,7 +150,12 @@ export async function clipboardRoundTrip(
 		if (paste.out !== line) {
 			return failed(`wl-paste gave back ${JSON.stringify(paste.out)}`);
 		}
-		if (focusBefore === undefined || focusBefore !== focusAfter) {
+		if (focusBefore === undefined) {
+			return failed(
+				"niri named no focused window, so a moved focus couldn't be told: run it with a window focused",
+			);
+		}
+		if (focusBefore !== focusAfter) {
 			return failed(`focus moved, from ${focusBefore} to ${focusAfter}`);
 		}
 		if (windowsBefore === undefined || windowsBefore !== windowsAfter) {
@@ -164,17 +178,55 @@ export async function clipboardRoundTrip(
 }
 
 /**
+ * The program the person's session runs as its niri, from what
+ * `pgrep -xa niri` lists (a process ID, then its command line): the one
+ * started with `--session` alone, never a client of it such as the
+ * launcher's `niri msg event-stream`. Nothing when none is listed.
+ *
+ * It reads the command line rather than `/proc/<pid>/exe`, which niri,
+ * keeping its capabilities, doesn't let its own account read, and it
+ * goes by the process's name rather than its words (`pgrep -f`), which
+ * the shell asking matches too (85PKB2, 22cea56d).
+ */
+export function sessionNiri(listing: string): string | undefined {
+	for (const line of listing.split("\n")) {
+		const [, program, ...words] = line.trim().split(/\s+/);
+		if (program !== undefined && words.join(" ") === "--session") {
+			return program;
+		}
+	}
+	return undefined;
+}
+
+/** Where a path leads, or the path itself when it leads nowhere. */
+function resolved(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		// A program that's gone since it started is compared as named,
+		// which can only make it differ from the one installed.
+		return path;
+	}
+}
+
+/**
  * Why the niri running the person's session isn't the one installed,
  * which has the patch putting a sandbox's windows behind, or nothing
  * when it is: a niri that started before the switch installing it is an
  * older one.
  */
 async function whyNiriIsOlder(cwd: string): Promise<string | undefined> {
-	const ran = await outside(
-		'running=$(readlink "/proc/$(pgrep -u "$(id -u)" -f -n "niri --session")/exe"); installed=$(readlink -f "$(command -v niri)"); test -n "$running" && test "$running" = "$installed" || { echo "running $running, installed $installed"; exit 1; }',
-		cwd,
-	);
-	return ran.code === 0 ? undefined : tailOf(ran, 1);
+	const [listing, installed] = await Promise.all([
+		outside('pgrep -u "$(id -u)" -xa niri', cwd),
+		outside('readlink -f "$(command -v niri)"', cwd),
+	]);
+	const running = sessionNiri(listing.out);
+	const wanted = installed.out.trim();
+	if (running === undefined) return "no niri runs a session";
+	if (wanted === "") return "no niri is installed";
+	return resolved(running) === wanted
+		? undefined
+		: `running ${running}, installed ${wanted}`;
 }
 
 /** Check (1b): a fenced window opens behind, the person's focus unmoved. */
