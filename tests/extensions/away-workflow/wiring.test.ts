@@ -1,6 +1,10 @@
 /**
  * Away mode driven through the events pi emits, with a job host on the
  * bus standing in for job-workflow.
+ *
+ * Long because every case drives the same fake session, job host and
+ * mocked desktop through the one extension, and splitting it would copy
+ * that harness into each part.
  */
 
 import { rmSync } from "node:fs";
@@ -43,12 +47,17 @@ import { announceJobHost, type Job } from "../../../lib/jobs/index.ts";
 
 /** What would have reached the desktop. */
 const desktop = vi.hoisted(() => [] as Notice[]);
+/** Whether the desktop has stopped answering, as while a reboot stops it. */
+const silence = vi.hoisted(() => ({ on: false }));
 vi.mock("../../../lib/internal/notify.ts", () => ({
 	notify: async (notice: Notice) => {
 		desktop.push(notice);
 		return { id: desktop.length };
 	},
-	withdrawNotice: async ({ id = 0 }) => Reflect.deleteProperty(desktop, id - 1),
+	withdrawNotice: ({ id = 0 }) =>
+		silence.on
+			? new Promise(() => {})
+			: Promise.resolve(Reflect.deleteProperty(desktop, id - 1)),
 }));
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
@@ -184,6 +193,7 @@ function activate({ hasUI = true, sessionId = "live" } = {}) {
 
 beforeEach(async () => {
 	desktop.splice(0);
+	silence.on = false;
 	forgetWants();
 	resetAway();
 	rmSync(machineAwayPath(), { force: true });
@@ -355,6 +365,23 @@ describe("reaching the person", () => {
 		// Resting is no want, so it still says so, quietly.
 		expect(desktop.map((n) => n.urgency)).toEqual(["low"]);
 	});
+
+	it("ends within the holder's grace while the desktop stops answering", async () => {
+		// In the 22:22 reboot on 14 November, 8 of 10 held sessions outlived
+		// the holder's 3 s after asking them to end and were killed.
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway();
+		hold({ guard: "pr", title: "Open PR #1" });
+		await vi.waitFor(() => expect(desktop, "a notice is up").toHaveLength(1));
+
+		silence.on = true;
+		const started = performance.now();
+		await pi.fire("session_shutdown", { reason: "quit" });
+		const took = performance.now() - started;
+
+		expect(took, "left well inside the holder's 3 s").toBeLessThan(2_000);
+	}, 5_000);
 
 	it("says quietly that a session rests once it stops being sent back", async () => {
 		const pi = activate();

@@ -81,10 +81,19 @@ export async function raiseNotice(
 	await withdrawNotice(raised, deps);
 }
 
-/** Take back this session's notices of these kinds. Never throws. */
+/**
+ * Take back this session's notices of these kinds. Never throws.
+ *
+ * Given `withinMs`, it waits at most that long and leaves whatever has
+ * not answered to the desktop. A session ending needs this: each close
+ * may take busctl's and gdbus's five seconds in turn, while the holder
+ * kills a pi that hasn't left three seconds after asking, and in a
+ * reboot the notification daemon is stopping at the same moment.
+ */
 export async function withdrawNotices(
 	kinds: readonly NoticeKind[],
 	deps: NotifyDeps = {},
+	withinMs?: number,
 ): Promise<void> {
 	const up = upNow();
 	const ids: number[] = [];
@@ -93,5 +102,15 @@ export async function withdrawNotices(
 		delete up[kind];
 		if (id !== undefined) ids.push(id);
 	}
-	await Promise.all(ids.map((id) => withdrawNotice({ id }, deps)));
+	const closing = Promise.all(ids.map((id) => withdrawNotice({ id }, deps)));
+	if (withinMs === undefined) {
+		await closing;
+		return;
+	}
+	let timer: NodeJS.Timeout | undefined;
+	const timeUp = new Promise<void>((resolve) => {
+		timer = setTimeout(resolve, withinMs);
+	});
+	await Promise.race([closing, timeUp]);
+	clearTimeout(timer);
 }
