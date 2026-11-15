@@ -13,6 +13,7 @@ import {
 	type ReviewerVerification,
 	type RunPi,
 	type RunPiResult,
+	type RunReviewerOptions,
 	type RunReviewerResult,
 	runReviewer,
 } from "../../../lib/subagent/subagent.ts";
@@ -39,6 +40,20 @@ const REVIEWER: CouncilReviewer = {
 	model: "anthropic/claude-sonnet-4-5",
 	tools: ["read", "grep", "glob", "ls", "bash"],
 };
+
+/** Run the reviewer on `runPi`, in the worktree these tests name. */
+function review(
+	runPi: RunPi,
+	more: Partial<RunReviewerOptions> = {},
+): Promise<RunReviewerResult> {
+	return runReviewer({
+		reviewer: REVIEWER,
+		prompt: "p",
+		cwd: "/tmp/wt",
+		runPi,
+		...more,
+	});
+}
 
 function assistantEvent(text: string): string {
 	return JSON.stringify({
@@ -88,12 +103,7 @@ describe("runReviewer: how a run ended", () => {
 			state: "timeout",
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 
 		expect(result.state).toBe("timeout");
 	});
@@ -101,12 +111,7 @@ describe("runReviewer: how a run ended", () => {
 	it("leaves the state absent for a runner that never classified one", async () => {
 		const { runPi } = fakeRun({ exitCode: 0, finalAssistantText: "{}" });
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 
 		expect(result.state).toBeUndefined();
 	});
@@ -123,12 +128,7 @@ describe("runReviewer: which sessions a run billed under", () => {
 			{ exitCode: 0, finalAssistantText: "{}", sessionIds: [SESSION] },
 		]);
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 
 		expect(result.sessionIds).toEqual([SESSION]);
 	});
@@ -141,12 +141,7 @@ describe("runReviewer: which sessions a run billed under", () => {
 			].join("\n"),
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 
 		expect(result.sessionIds).toEqual([SESSION]);
 	});
@@ -157,12 +152,7 @@ describe("runReviewer: which sessions a run billed under", () => {
 		// a run with no process.
 		const { runPi } = scriptedRun([{ exitCode: 0, finalAssistantText: "{}" }]);
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 
 		expect(result.sessionIds).toBeNull();
 	});
@@ -227,11 +217,7 @@ describe("runReviewer: reviewer error surfacing", () => {
 					"OpenAI Responses stream ended before a terminal response event",
 			},
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			requiresVerification: true,
 		});
 		expect(result.error?.stopReason).toBe("error");
@@ -328,11 +314,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
 			]);
 
-			await runReviewer({
-				reviewer: REVIEWER,
-				prompt: "review this diff",
-				cwd: "/tmp/wt",
-				runPi,
+			await review(runPi, {
 				autoResume: true,
 				wrapUpReserveMs: 90_000,
 			});
@@ -374,11 +356,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
 			]);
 
-			await runReviewer({
-				reviewer: REVIEWER,
-				prompt: "review this diff",
-				cwd: "/tmp/wt",
-				runPi,
+			await review(runPi, {
 				autoResume: true,
 				timeoutMs: 2_700_000,
 				wrapUpReserveMs: 600_000,
@@ -396,11 +374,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 				{ exitCode: 0, state: "complete", finalAssistantText: "{}" },
 			]);
 
-			await runReviewer({
-				reviewer: REVIEWER,
-				prompt: "review this diff",
-				cwd: "/tmp/wt",
-				runPi,
+			await review(runPi, {
 				autoResume: true,
 				wrapUpReserveMs: 0,
 			});
@@ -418,11 +392,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			]);
 
 			await expect(
-				runReviewer({
-					reviewer: REVIEWER,
-					prompt: "review this diff",
-					cwd: "/tmp/wt",
-					runPi,
+				review(runPi, {
 					autoResume: true,
 					wrapUpReserveMs: Number.NaN,
 				}),
@@ -439,11 +409,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 				},
 			]);
 
-			const result = await runReviewer({
-				reviewer: REVIEWER,
-				prompt: "review this diff",
-				cwd: "/tmp/wt",
-				runPi,
+			const result = await review(runPi, {
 				autoResume: true,
 				wrapUpReserveMs: 90_000,
 			});
@@ -470,11 +436,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			},
 		]);
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			autoResume: true,
 		});
 
@@ -511,11 +473,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			{ exitCode: 0, state: "complete", finalAssistantText: "" },
 		]);
 
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		await review(runPi, {
 			autoResume: true,
 			requiresVerification: true,
 			expectedVerificationStage: "council",
@@ -554,11 +512,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			},
 		]);
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			autoResume: true,
 		});
 
@@ -587,11 +541,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			},
 		]);
 
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		await review(runPi, {
 			autoResume: true,
 		});
 
@@ -609,11 +559,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			},
 		]);
 
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		await review(runPi, {
 			autoResume: true,
 			timeoutMs: 60_000,
 			idleTimeoutMs: 45_000,
@@ -637,11 +583,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			throw new Error("spawn EAGAIN");
 		};
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			autoResume: true,
 		});
 
@@ -663,11 +605,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			},
 		]);
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			autoResume: true,
 		});
 
@@ -680,11 +618,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			{ exitCode: 1, state: "timeout", finalAssistantText: "" },
 		]);
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			autoResume: true,
 		});
 
@@ -694,11 +628,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 	it("does not ask a reviewer the user cancelled", async () => {
 		const { runPi, calls } = scriptedRun([stopped("cancelled")]);
 
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		await review(runPi, {
 			autoResume: true,
 		});
 
@@ -708,11 +638,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 	it("does not ask twice", async () => {
 		const { runPi, calls } = scriptedRun([stopped(), stopped(), stopped()]);
 
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		await review(runPi, {
 			autoResume: true,
 		});
 
@@ -731,11 +657,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 			},
 		]);
 
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		await review(runPi, {
 			autoResume: true,
 			env: { PI_SANDBOX: "strict" },
 		});
@@ -749,11 +671,7 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 	it("leaves it alone when recovery is switched off", async () => {
 		const { runPi, calls } = scriptedRun([stopped()]);
 
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		await review(runPi, {
 			autoResume: false,
 		});
 
@@ -792,11 +710,7 @@ describe("runReviewer: auto-resume", () => {
 				},
 			},
 		]);
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			requiresVerification: true,
 			expectedVerificationStage: "council",
 		});
@@ -832,11 +746,7 @@ describe("runReviewer: auto-resume", () => {
 			},
 			{ exitCode: 0, finalAssistantText: '{"findings": []}' },
 		]);
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
+		await review(runPi, {
 			env: { PI_SANDBOX: "strict" },
 		});
 		expect(calls).toHaveLength(2);
@@ -861,11 +771,7 @@ describe("runReviewer: auto-resume", () => {
 			},
 		};
 		const { runPi, calls } = scriptedRun([withSession, withSession]);
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			requiresVerification: true,
 		});
 		expect(calls).toHaveLength(2);
@@ -891,11 +797,7 @@ describe("runReviewer: auto-resume", () => {
 				},
 			},
 		]);
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			requiresVerification: true,
 		});
 		expect(calls).toHaveLength(1);
@@ -930,11 +832,7 @@ describe("runReviewer: auto-resume", () => {
 				},
 				{ exitCode: 0, finalAssistantText: "", error: TRANSIENT },
 			]);
-			await runReviewer({
-				reviewer: REVIEWER,
-				prompt: "p",
-				cwd: "/tmp/wt",
-				runPi,
+			await review(runPi, {
 				requiresVerification: true,
 			});
 			expect(calls).toHaveLength(2);
@@ -950,11 +848,7 @@ describe("runReviewer: auto-resume", () => {
 		const { runPi, calls } = scriptedRun([
 			{ exitCode: 0, finalAssistantText: "", error: TRANSIENT },
 		]);
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			requiresVerification: true,
 		});
 		expect(calls).toHaveLength(1);
@@ -992,11 +886,7 @@ describe("runReviewer: auto-resume", () => {
 				artifacts: SESSION_ARTIFACTS,
 			},
 		]);
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			requiresVerification: true,
 			expectedVerificationStage: "council",
 		});
@@ -1015,11 +905,7 @@ describe("runReviewer: auto-resume", () => {
 				artifacts: SESSION_ARTIFACTS,
 			},
 		]);
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			requiresVerification: true,
 			signal: controller.signal,
 		});
@@ -1031,22 +917,13 @@ describe("runReviewer: auto-resume", () => {
 		const { runPi: onRunPi, calls: onCalls } = scriptedRun([
 			{ exitCode: 0, finalAssistantText: "", verification: undefined },
 		]);
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi: onRunPi,
-		});
+		await review(onRunPi);
 		expect(onCalls[0]).toMatchObject({ persistSession: true });
 
 		const { runPi: offRunPi, calls: offCalls } = scriptedRun([
 			{ exitCode: 0, finalAssistantText: "" },
 		]);
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi: offRunPi,
+		await review(offRunPi, {
 			autoResume: false,
 		});
 		expect(offCalls[0]).toMatchObject({ persistSession: false });
@@ -1062,12 +939,7 @@ describe("runReviewer: argument composition", () => {
 		const { runPi, calls } = fakeRun({
 			stdout: assistantEvent(`{"findings": []}`),
 		});
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "review this diff",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		await review(runPi);
 		expect(calls).toHaveLength(1);
 		const args = calls[0].args;
 		expect(args).toContain("--mode");
@@ -1092,11 +964,8 @@ describe("runReviewer: argument composition", () => {
 		const { runPi, calls } = fakeRun({
 			stdout: assistantEvent("{}"),
 		});
-		await runReviewer({
+		await review(runPi, {
 			reviewer: { id: "narrow", tools: ["read"] },
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
 		});
 		const args = calls[0].args;
 		// record_finding rides along for the same reason: a palette
@@ -1115,14 +984,11 @@ describe("runReviewer: argument composition", () => {
 		const { runPi, calls } = fakeRun({
 			stdout: assistantEvent("{}"),
 		});
-		await runReviewer({
+		await review(runPi, {
 			reviewer: {
 				id: "explicit",
 				tools: ["read", "verify_output", "grep"],
 			},
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
 		});
 		const args = calls[0].args;
 		expect(args[args.indexOf("--tools") + 1]).toBe(
@@ -1139,11 +1005,8 @@ describe("runReviewer: argument composition", () => {
 		const { runPi, calls } = fakeRun({
 			stdout: assistantEvent("{}"),
 		});
-		await runReviewer({
+		await review(runPi, {
 			reviewer: { id: "defaults" },
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
 		});
 		expect(calls[0].args).not.toContain("--tools");
 	});
@@ -1215,15 +1078,11 @@ describe("runReviewer: argument composition", () => {
 		const { runPi, calls } = fakeRun({
 			stdout: assistantEvent(`{"findings": []}`),
 		});
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
+		await review(runPi, {
 			extraExtensions: [
 				"/abs/path/to/pr-workflow-verify/index.ts",
 				"/abs/path/to/another-extension/index.ts",
 			],
-			runPi,
 		});
 		const args = calls[0].args;
 		const extensionFlagPositions: number[] = [];
@@ -1246,12 +1105,7 @@ describe("runReviewer: argument composition", () => {
 		const { runPi, calls } = fakeRun({
 			stdout: assistantEvent(`{"findings": []}`),
 		});
-		await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		await review(runPi);
 		expect(calls[0].args).not.toContain("--extension");
 	});
 
@@ -1263,11 +1117,8 @@ describe("runReviewer: argument composition", () => {
 		const { runPi, calls } = fakeRun({
 			stdout: assistantEvent(`{"findings": []}`),
 		});
-		await runReviewer({
+		await review(runPi, {
 			reviewer: { id: "bare" },
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
 		});
 		const args = calls[0].args;
 		expect(args).not.toContain("--model");
@@ -1284,15 +1135,12 @@ describe("runReviewer: argument composition", () => {
 		const { runPi, calls } = fakeRun({
 			stdout: assistantEvent(`{"findings": []}`),
 		});
-		await runReviewer({
+		await review(runPi, {
 			reviewer: {
 				id: "deep",
 				model: "anthropic/claude-opus-4-7",
 				thinkingLevel: "high",
 			},
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
 		});
 		const args = calls[0].args;
 		expect(args).toContain("--thinking");
@@ -1306,14 +1154,11 @@ describe("runReviewer: argument composition", () => {
 		const { runPi, calls } = fakeRun({
 			stdout: assistantEvent(`{"findings": []}`),
 		});
-		await runReviewer({
+		await review(runPi, {
 			reviewer: {
 				id: "default",
 				model: "anthropic/claude-sonnet-4-5",
 			},
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
 		});
 		expect(calls[0].args).not.toContain("--thinking");
 	});
@@ -1352,12 +1197,7 @@ describe("runReviewer: usage extraction", () => {
 				},
 			}),
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.usage).toEqual({
 			tokens: {
 				input: 1234,
@@ -1416,12 +1256,7 @@ describe("runReviewer: usage extraction", () => {
 				}),
 			].join("\n"),
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.usage?.tokens.total).toBe(450);
 		expect(result.usage?.cost.total).toBeCloseTo(0.03);
 	});
@@ -1464,12 +1299,7 @@ describe("runReviewer: usage extraction", () => {
 				}),
 			].join("\n"),
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.usage?.tokens.total).toBe(15);
 		expect(result.usage?.cost.total).toBeCloseTo(0.001);
 	});
@@ -1481,12 +1311,7 @@ describe("runReviewer: usage extraction", () => {
 		const { runPi } = fakeRun({
 			stdout: assistantEvent("no usage in this stream"),
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.usage).toBeUndefined();
 	});
 
@@ -1509,12 +1334,7 @@ describe("runReviewer: usage extraction", () => {
 				},
 			}),
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.usage).toEqual({
 			tokens: {
 				input: 10,
@@ -1565,14 +1385,10 @@ describe("runReviewer: result extraction", () => {
 			].join("\n"),
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
+		const result = await review(runPi, {
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
 			requiresVerification: true,
-			runPi,
 		});
 
 		expect(result.finalAssistantText).toContain("Stream verified");
@@ -1607,13 +1423,9 @@ describe("runReviewer: result extraction", () => {
 			},
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
+		const result = await review(runPi, {
 			expectedVerificationStage: "council",
 			requiresVerification: true,
-			runPi,
 		});
 
 		expect(result.finalAssistantText).toContain(bigDiscussion);
@@ -1641,13 +1453,9 @@ describe("runReviewer: result extraction", () => {
 			},
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
+		const result = await review(runPi, {
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			requiresVerification: true,
-			runPi,
 		});
 
 		expect(result.finalAssistantText).toContain("Verified subject");
@@ -1669,14 +1477,10 @@ describe("runReviewer: result extraction", () => {
 			},
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
+		const result = await review(runPi, {
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
 			requiresVerification: true,
-			runPi,
 		});
 
 		expect(result.finalAssistantText).toBe("");
@@ -1694,14 +1498,10 @@ describe("runReviewer: result extraction", () => {
 			},
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
+		const result = await review(runPi, {
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
 			requiresVerification: true,
-			runPi,
 		});
 
 		expect(result.finalAssistantText).toBe("");
@@ -1731,14 +1531,10 @@ describe("runReviewer: result extraction", () => {
 			},
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
+		const result = await review(runPi, {
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
 			requiresVerification: true,
-			runPi,
 		});
 
 		expect(result.finalAssistantText).toContain("Canonical text");
@@ -1755,14 +1551,10 @@ describe("runReviewer: result extraction", () => {
 			),
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
+		const result = await review(runPi, {
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
 			requiresVerification: true,
-			runPi,
 		});
 
 		expect(result.finalAssistantText).toBe("");
@@ -1783,13 +1575,9 @@ describe("runReviewer: result extraction", () => {
 			},
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
+		const result = await review(runPi, {
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			requiresVerification: true,
-			runPi,
 		});
 
 		expect(result.finalAssistantText).toBe("");
@@ -1805,12 +1593,7 @@ describe("runReviewer: result extraction", () => {
 				),
 			].join("\n"),
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.finalAssistantText).toContain('"findings"');
 		expect(result.finalAssistantText).toContain('"subject": "X"');
 	});
@@ -1841,12 +1624,7 @@ describe("runReviewer: result extraction", () => {
 				}),
 			].join("\n"),
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.finalAssistantText).toBe("the real assistant turn");
 	});
 
@@ -1867,12 +1645,7 @@ describe("runReviewer: result extraction", () => {
 				},
 			}),
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.finalAssistantText).toBe("first\nsecond");
 	});
 
@@ -1883,12 +1656,7 @@ describe("runReviewer: result extraction", () => {
 		const { runPi } = fakeRun({
 			stdout: ["not json at all", assistantEvent("ok")].join("\n"),
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.finalAssistantText).toBe("ok");
 		expect(result.warnings.length).toBeGreaterThan(0);
 	});
@@ -1912,12 +1680,7 @@ describe("runReviewer: result extraction", () => {
 			stdout: "",
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 
 		const stderrWarning = result.warnings.find((w) =>
 			w.startsWith("Pi stderr:"),
@@ -1948,14 +1711,10 @@ describe("runReviewer: result extraction", () => {
 			},
 		});
 
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
+		const result = await review(runPi, {
 			extraExtensions: ["/abs/path/to/pr-workflow-verify/index.ts"],
 			expectedVerificationStage: "council",
 			requiresVerification: true,
-			runPi,
 		});
 
 		expect(result.finalAssistantText).toContain("Verified despite exit");
@@ -1973,12 +1732,7 @@ describe("runReviewer: result extraction", () => {
 			stderr: "model API timeout",
 			exitCode: 1,
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.exitCode).toBe(1);
 		expect(result.finalAssistantText).toBe("partial");
 		expect(result.warnings).toContainEqual(
@@ -2000,12 +1754,7 @@ describe("runReviewer: result extraction", () => {
 				'Error: Model "anthropic:claude-opus-4-7" not found. Use --list-models to see available models.\n  at resolveModel (/.../foo.js:42)\n',
 			exitCode: 1,
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		const stderrWarning = result.warnings.find((w) =>
 			w.startsWith("Pi stderr:"),
 		);
@@ -2026,12 +1775,7 @@ describe("runReviewer: result extraction", () => {
 			stderr: "",
 			exitCode: 137,
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.warnings).not.toContainEqual(
 			expect.stringMatching(/^Pi stderr:/),
 		);
@@ -2046,12 +1790,7 @@ describe("runReviewer: result extraction", () => {
 			stderr: "pi: deprecation notice for tool foo",
 			exitCode: 0,
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.warnings).not.toContainEqual(
 			expect.stringMatching(/^Pi stderr:/),
 		);
@@ -2065,11 +1804,8 @@ describe("runReviewer: result extraction", () => {
 		const { runPi } = fakeRun({
 			stdout: assistantEvent("{}"),
 		});
-		const result = await runReviewer({
+		const result = await review(runPi, {
 			reviewer: { ...REVIEWER, id: "council-skeptic" },
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
 		});
 		expect(result.reviewerId).toBe("council-skeptic");
 	});
@@ -2084,11 +1820,7 @@ describe("runReviewer: stale runtime detection", () => {
 		// short-circuit with a clear advisory than to burn a
 		// retry-loop cycle producing the same crash.
 		const { runPi, calls } = fakeRun({ stdout: assistantEvent("{}") });
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			checkRuntime: () => ({
 				path: "/nix/store/old-pi/bin/pi",
 				message:
@@ -2119,12 +1851,7 @@ describe("runReviewer: stale runtime detection", () => {
 			].join("\n"),
 			exitCode: 1,
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		const stale = result.warnings.find((w) =>
 			w.startsWith("Pi runtime stale:"),
 		);
@@ -2140,12 +1867,7 @@ describe("runReviewer: stale runtime detection", () => {
 				"Error: ENOENT: no such file or directory, open '/tmp/missing.json'",
 			exitCode: 1,
 		});
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.warnings).not.toContainEqual(
 			expect.stringMatching(/^Pi runtime stale:/),
 		);
@@ -2164,11 +1886,7 @@ describe("runReviewer: timeout validation", () => {
 	it("rejects timeoutMs below the floor with a clear error", async () => {
 		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
 		await expect(
-			runReviewer({
-				reviewer: REVIEWER,
-				prompt: "p",
-				cwd: "/tmp/wt",
-				runPi,
+			review(runPi, {
 				timeoutMs: 500,
 			}),
 		).rejects.toThrow(/Invalid timeoutMs.*below the 1000ms floor/);
@@ -2177,11 +1895,7 @@ describe("runReviewer: timeout validation", () => {
 	it("rejects negative idleTimeoutMs with a clear error", async () => {
 		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
 		await expect(
-			runReviewer({
-				reviewer: REVIEWER,
-				prompt: "p",
-				cwd: "/tmp/wt",
-				runPi,
+			review(runPi, {
 				idleTimeoutMs: -1,
 			}),
 		).rejects.toThrow(/Invalid idleTimeoutMs/);
@@ -2190,11 +1904,7 @@ describe("runReviewer: timeout validation", () => {
 	it("rejects non-finite timeout values", async () => {
 		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
 		await expect(
-			runReviewer({
-				reviewer: REVIEWER,
-				prompt: "p",
-				cwd: "/tmp/wt",
-				runPi,
+			review(runPi, {
 				timeoutMs: Number.POSITIVE_INFINITY,
 			}),
 		).rejects.toThrow(/must be a whole number of milliseconds/);
@@ -2203,11 +1913,7 @@ describe("runReviewer: timeout validation", () => {
 	it("rejects non-integer timeout values", async () => {
 		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
 		await expect(
-			runReviewer({
-				reviewer: REVIEWER,
-				prompt: "p",
-				cwd: "/tmp/wt",
-				runPi,
+			review(runPi, {
 				timeoutMs: 1500.5,
 			}),
 		).rejects.toThrow(/must be a whole number of milliseconds/);
@@ -2216,11 +1922,7 @@ describe("runReviewer: timeout validation", () => {
 	it("rejects values above the 8-hour ceiling", async () => {
 		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
 		await expect(
-			runReviewer({
-				reviewer: REVIEWER,
-				prompt: "p",
-				cwd: "/tmp/wt",
-				runPi,
+			review(runPi, {
 				timeoutMs: 9 * 60 * 60 * 1000,
 			}),
 		).rejects.toThrow(/past the.*ceiling/);
@@ -2228,11 +1930,7 @@ describe("runReviewer: timeout validation", () => {
 
 	it("accepts a 6-hour timeout (within the 8-hour ceiling)", async () => {
 		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			timeoutMs: 6 * 60 * 60 * 1000,
 			idleTimeoutMs: 6 * 60 * 60 * 1000,
 		});
@@ -2247,11 +1945,7 @@ describe("runReviewer: timeout validation", () => {
 		// run die at the 20-minute mark.
 		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
 		await expect(
-			runReviewer({
-				reviewer: REVIEWER,
-				prompt: "p",
-				cwd: "/tmp/wt",
-				runPi,
+			review(runPi, {
 				timeoutMs: 5 * 60 * 1000,
 				idleTimeoutMs: 10 * 60 * 1000,
 			}),
@@ -2265,11 +1959,7 @@ describe("runReviewer: timeout validation", () => {
 		// pass validation untouched. The runner sees the
 		// values; the library doesn't mutate them.
 		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
+		const result = await review(runPi, {
 			timeoutMs: 45 * 60 * 1000,
 			idleTimeoutMs: 15 * 60 * 1000,
 		});
@@ -2278,12 +1968,7 @@ describe("runReviewer: timeout validation", () => {
 
 	it("accepts undefined overrides (runner default applies)", async () => {
 		const { runPi } = fakeRun({ stdout: assistantEvent("ok") });
-		const result = await runReviewer({
-			reviewer: REVIEWER,
-			prompt: "p",
-			cwd: "/tmp/wt",
-			runPi,
-		});
+		const result = await review(runPi);
 		expect(result.exitCode).toBe(0);
 	});
 });
