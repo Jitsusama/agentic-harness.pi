@@ -74,19 +74,29 @@ async function askedFor(program: SpawnerStandIn, count: number) {
 }
 
 describe("the agent's commands through pi-spawner", () => {
-	it("leaves pi's own spawn in place unless it is asked for", async () => {
+	it("leaves pi's own spawn in place where it is turned off", async () => {
 		const own = fallback();
 
-		await spawnedBy(own, { env: {} }).exec("true", "/", {
-			onData: () => {},
-			env: {},
-		});
+		await spawnedBy(own, { env: { [SPAWNER_VARIABLE]: "off" } }).exec(
+			"true",
+			"/",
+			{ onData: () => {}, env: {} },
+		);
 
-		expect(own.calls).toEqual(["true"]);
+		expect(own.calls, "what pi's own spawn started").toEqual(["true"]);
+	});
+
+	it("starts each command through it where nothing says otherwise", async () => {
+		const { program, own, operations } = through({ env: {} });
+
+		void operations.exec("true", "/", { onData: () => {}, env: {} });
+		await askedFor(program, 1);
+
+		expect(own.calls, "what pi's own spawn started").toEqual([]);
 	});
 
 	it("stops what an earlier load left as it is made, asked for or not", () => {
-		for (const env of [{}, { [SPAWNER_VARIABLE]: "on" }]) {
+		for (const env of [{}, { [SPAWNER_VARIABLE]: "off" }]) {
 			const reap = vi.fn<() => void>();
 			spawnedBy(fallback(), { env, shell: SHELL, reap });
 			expect(reap, JSON.stringify(env)).toHaveBeenCalledOnce();
@@ -266,11 +276,11 @@ describe("the agent's commands through pi-spawner", () => {
 });
 
 describe("whether a kept command outlives pi's going", () => {
-	it("does through pi's own spawn, where pi-spawner isn't asked for", async () => {
+	it("does through pi's own spawn, where pi-spawner is turned off", async () => {
 		const asksKeeps = vi.fn(async () => false);
 
 		const spared = await spawnedBy(fallback(), {
-			env: {},
+			env: { [SPAWNER_VARIABLE]: "off" },
 			asksKeeps,
 			reap: () => undefined,
 		}).spares();
