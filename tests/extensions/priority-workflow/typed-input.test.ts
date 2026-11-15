@@ -37,7 +37,7 @@ function loaded() {
 		on: (name: string, handler: Handler) =>
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]),
 		events: { on: () => () => {} },
-	} as unknown as Pick<ExtensionAPI, "on">;
+	} as unknown as Pick<ExtensionAPI, "on" | "events">;
 	sayTypedTurns(pi);
 	return async (name: string, event: object = {}) => {
 		for (const handler of handlers.get(name) ?? [])
