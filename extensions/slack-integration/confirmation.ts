@@ -25,7 +25,7 @@ import { renderMarkdown } from "../../lib/ui/content-renderer.ts";
 import { frameTitle } from "../../lib/ui/frame.ts";
 import { promptSingle, promptTabbed } from "../../lib/ui/panel.ts";
 import { formatRedirectReason } from "../../lib/ui/redirect.ts";
-import type { KeyAction } from "../../lib/ui/types.ts";
+import type { KeyAction, PromptResult } from "../../lib/ui/types.ts";
 
 /** File metadata for the upload confirmation gate. */
 export interface FileInfo {
@@ -80,6 +80,27 @@ function redirect(note: string, context: string): ConfirmResult<never> {
 	return { approved: false, redirect: formatRedirectReason(note, context) };
 }
 
+/** What a rejection says when the person gave no note. */
+const REJECTED = "User rejected. Ask for guidance.";
+
+/**
+ * A single gate's answer, as every gate reads it: cancelled is null;
+ * a redirect, a rejection or a note on Enter sends the agent back
+ * with `context`; a plain Enter approves with `data`.
+ */
+export function answered<T>(
+	result: PromptResult | null,
+	context: string,
+	data: T,
+): ConfirmResult<T> {
+	if (!result) return null;
+	if (result.type === "redirect") return redirect(result.note, context);
+	if (result.type === "action" && result.key === "r")
+		return redirect(result.note || REJECTED, context);
+	if (result.note) return redirect(result.note, context);
+	return { approved: true, data };
+}
+
 /**
  * Confirm sending a message to a conversation.
  */
@@ -107,37 +128,13 @@ export async function confirmSendMessage(
 				` ${theme.fg("muted", "To:")} ${conversationName}`,
 				"",
 			];
-			for (const line of renderMarkdown(text, theme, width)) {
-				lines.push(line);
-			}
-			if (table) {
-				lines.push("");
-				for (const line of renderTablePreview(table, theme, width)) {
-					lines.push(line);
-				}
-			}
+			lines.push(...messageLines(text, table, theme, width));
 			return lines;
 		},
 		actions: REJECT_ACTION,
 	});
 
-	if (!result) return null;
-
-	if (result.type === "redirect") {
-		return redirect(result.note, context);
-	}
-
-	if (result.type === "action") {
-		if (result.key === "r") {
-			if (result.note) return redirect(result.note, context);
-			return redirect("User rejected. Ask for guidance.", context);
-		}
-		// Enter (approve)
-		if (result.note) return redirect(result.note, context);
-		return { approved: true, data: { text } };
-	}
-
-	return { approved: true, data: { text } };
+	return answered(result, context, { text });
 }
 
 /**
@@ -174,37 +171,13 @@ export async function confirmEditMessage(
 				` ${theme.fg("muted", "Message:")} ${ts}`,
 				"",
 			];
-			for (const line of renderMarkdown(text, theme, width)) {
-				lines.push(line);
-			}
-			if (table) {
-				lines.push("");
-				for (const line of renderTablePreview(table, theme, width)) {
-					lines.push(line);
-				}
-			}
+			lines.push(...messageLines(text, table, theme, width));
 			return lines;
 		},
 		actions: REJECT_ACTION,
 	});
 
-	if (!result) return null;
-
-	if (result.type === "redirect") {
-		return redirect(result.note, context);
-	}
-
-	if (result.type === "action") {
-		if (result.key === "r") {
-			if (result.note) return redirect(result.note, context);
-			return redirect("User rejected. Ask for guidance.", context);
-		}
-		// Enter (approve)
-		if (result.note) return redirect(result.note, context);
-		return { approved: true, data: { text } };
-	}
-
-	return { approved: true, data: { text } };
+	return answered(result, context, { text });
 }
 
 /**
@@ -236,37 +209,13 @@ export async function confirmReply(
 				` ${theme.fg("muted", "Thread:")} ${threadTs}`,
 				"",
 			];
-			for (const line of renderMarkdown(text, theme, width)) {
-				lines.push(line);
-			}
-			if (table) {
-				lines.push("");
-				for (const line of renderTablePreview(table, theme, width)) {
-					lines.push(line);
-				}
-			}
+			lines.push(...messageLines(text, table, theme, width));
 			return lines;
 		},
 		actions: REJECT_ACTION,
 	});
 
-	if (!result) return null;
-
-	if (result.type === "redirect") {
-		return redirect(result.note, context);
-	}
-
-	if (result.type === "action") {
-		if (result.key === "r") {
-			if (result.note) return redirect(result.note, context);
-			return redirect("User rejected. Ask for guidance.", context);
-		}
-		// Enter (approve)
-		if (result.note) return redirect(result.note, context);
-		return { approved: true, data: { text } };
-	}
-
-	return { approved: true, data: { text } };
+	return answered(result, context, { text });
 }
 
 /**
@@ -294,11 +243,7 @@ export async function confirmUploadFile(
 				lines.push(` ${theme.fg("muted", "Thread:")} ${threadTs}`);
 			}
 			lines.push("");
-			for (const f of files) {
-				lines.push(
-					` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
-				);
-			}
+			lines.push(...fileLines(files, theme));
 			if (text) {
 				lines.push("");
 				lines.push(` ${theme.fg("muted", "Comment:")}`);
@@ -311,22 +256,7 @@ export async function confirmUploadFile(
 		actions: REJECT_ACTION,
 	});
 
-	if (!result) return null;
-
-	if (result.type === "redirect") {
-		return redirect(result.note, context);
-	}
-
-	if (result.type === "action") {
-		if (result.key === "r") {
-			if (result.note) return redirect(result.note, context);
-			return redirect("User rejected. Ask for guidance.", context);
-		}
-		if (result.note) return redirect(result.note, context);
-		return { approved: true, data: true };
-	}
-
-	return { approved: true, data: true };
+	return answered(result, context, true);
 }
 
 // ── Table preview rendering ─────────────────────────────
@@ -438,6 +368,25 @@ function formatBytes(bytes: number): string {
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** A message's text as markdown, with its table below when it has one. */
+function messageLines(
+	text: string,
+	table: TableParam | undefined,
+	theme: Parameters<typeof renderMarkdown>[1],
+	width: number,
+): string[] {
+	const lines = renderMarkdown(text, theme, width);
+	if (!table) return lines;
+	return [...lines, "", ...renderTablePreview(table, theme, width)];
+}
+
+/** One line for each file, with its size. */
+function fileLines(files: FileInfo[], theme: GateTheme): string[] {
+	return files.map(
+		(f) => ` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
+	);
+}
+
 /** A message in a thread for the send_thread confirmation gate. */
 export interface ThreadMessage {
 	text: string;
@@ -499,22 +448,10 @@ export async function confirmSendThread(
 								: `Reply ${i}`;
 						lines.push(` ${theme.fg("muted", role)}`);
 						lines.push("");
-						for (const line of renderMarkdown(msg.text, theme, width)) {
-							lines.push(line);
-						}
-						if (msg.table) {
-							lines.push("");
-							for (const line of renderTablePreview(msg.table, theme, width)) {
-								lines.push(line);
-							}
-						}
+						lines.push(...messageLines(msg.text, msg.table, theme, width));
 						if (msg.files?.length) {
 							lines.push("");
-							for (const f of msg.files) {
-								lines.push(
-									` 📄 ${f.name} ${theme.fg("dim", `(${formatBytes(f.size)})`)}`,
-								);
-							}
+							lines.push(...fileLines(msg.files, theme));
 						}
 						return lines;
 					},
@@ -543,7 +480,7 @@ export async function confirmSendThread(
 			return redirect(itemResult.note, context);
 		}
 		if (itemResult.type === "action" && itemResult.key === "r") {
-			const note = itemResult.note ?? "User rejected. Ask for guidance.";
+			const note = itemResult.note || REJECTED;
 			return redirect(note, context);
 		}
 		// Action with a note (annotated Enter) is a redirect.
@@ -582,12 +519,7 @@ export async function confirmGatewayWrite(
 		actions: REJECT_ACTION,
 	});
 
-	if (!result) return null;
-	if (result.type === "redirect") return redirect(result.note, context);
-	if (result.type === "action" && result.key === "r")
-		return redirect(result.note || "User rejected. Ask for guidance.", context);
-	if (result.note) return redirect(result.note, context);
-	return { approved: true, data: true };
+	return answered(result, context, true);
 }
 
 /**
@@ -616,21 +548,5 @@ export async function confirmReaction(
 		actions: REJECT_ACTION,
 	});
 
-	if (!result) return null;
-
-	if (result.type === "redirect") {
-		return redirect(result.note, context);
-	}
-
-	if (result.type === "action") {
-		if (result.key === "r") {
-			if (result.note) return redirect(result.note, context);
-			return redirect("User rejected. Ask for guidance.", context);
-		}
-		// Enter (approve)
-		if (result.note) return redirect(result.note, context);
-		return { approved: true, data: true };
-	}
-
-	return { approved: true, data: true };
+	return answered(result, context, true);
 }

@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	browserFor,
 	chooseSession,
 	missingSession,
 	sessionInPlay,
@@ -86,5 +87,67 @@ describe("missingSession", () => {
 		for (const how of ["idle", "closed", undefined] as const) {
 			expect(missingSession("gs", how, OPENS)).toContain(OPENS);
 		}
+	});
+});
+
+/** Browsers open by name, some of which went for a reason. */
+function browsers(
+	open: string[],
+	gone: Record<string, "idle" | "closed"> = {},
+) {
+	return {
+		open: () => open,
+		has: (name: string) => open.includes(name),
+		departureOf: (name: string) => gone[name],
+	};
+}
+
+/** What a refusal said, for reading it in an expect. */
+function said(chosen: ReturnType<typeof browserFor>): string {
+	if (!("refused" in chosen)) return "";
+	const [part] = chosen.refused.content;
+	return part?.type === "text" ? part.text : "";
+}
+
+describe("the browser a call acts on", () => {
+	it("is the one named, while it is open", () => {
+		expect(
+			browserFor("fr", "default", browsers(["fr"]), "page", OPENS),
+		).toEqual({ name: "fr" });
+	});
+
+	it("is the only one open when none is named", () => {
+		expect(
+			browserFor(undefined, "default", browsers(["fr"]), "page", OPENS),
+		).toEqual({ name: "fr" });
+	});
+
+	it("is refused, naming them, when several are open and none named", () => {
+		const chosen = browserFor(
+			undefined,
+			"default",
+			browsers(["fr", "de"]),
+			"page",
+			OPENS,
+		);
+		expect(said(chosen), "the choice to make").toContain("fr, de");
+		expect("refused" in chosen && chosen.refused.details).toEqual({
+			ok: false,
+			session: "default",
+			kind: "page",
+		});
+	});
+
+	it("is refused, saying why, when the named one went idle", () => {
+		const chosen = browserFor(
+			"gs",
+			"default",
+			browsers(["fr"], { gs: "idle" }),
+			"act",
+			OPENS,
+		);
+		expect(said(chosen), "why it is gone").toContain("idle");
+		expect(said(chosen), "how to get one").toContain(OPENS);
+		expect("refused" in chosen && chosen.refused.details.session).toBe("gs");
 	});
 });

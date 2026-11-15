@@ -109,7 +109,8 @@ The extension registers the tools; the skills teach the method.
 - `sessions.ts`: the registry, made on the first call that needs it
 - `registry.ts`: named browsers, their turns and their lifetimes
 - `limits.ts`: how long a call may ask the page to keep at something
-- `result.ts`: the one answer shape all four return
+- `result.ts`: the one answer shape all four return, and the browser
+  a call acts on
 - `render.ts`: how calls and results read in the transcript
 
 Everything the tools actually know how to do lives in

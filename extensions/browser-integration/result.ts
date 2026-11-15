@@ -41,15 +41,6 @@ export function refusal(
 }
 
 /**
- * Explain a session that is not there, rather than implying the
- * caller made the name up.
- *
- * A session that timed out looks identical to one that never
- * existed, and the difference matters: the caller did nothing
- * wrong, their navigation and emulation are simply gone, and
- * knowing that is what stops them hunting for a typo.
- */
-/**
  * Which session a call without a name should act on.
  *
  * Falling straight through to "default" made a whole class of
@@ -82,6 +73,42 @@ export function sessionInPlay(
 	return { candidates: open };
 }
 
+/** What a tool needs to know of the browsers it could act on. */
+export interface OpenBrowsers {
+	open(): readonly string[];
+	has(name: string): boolean;
+	departureOf(name: string): "idle" | "closed" | undefined;
+}
+
+/**
+ * The browser a call acts on, or the refusal to give when there is
+ * none to act on: several open and none named, or the named one gone.
+ * `opens` says how to get one.
+ */
+export function browserFor(
+	asked: string | undefined,
+	fallback: string,
+	browsers: OpenBrowsers,
+	kind: string,
+	opens: string,
+): { name: string } | { refused: AgentToolResult<BrowserDetails> } {
+	const chosen = sessionInPlay(asked, fallback, browsers.open());
+	if ("candidates" in chosen) {
+		return {
+			refused: refusal(fallback, kind, chooseSession(chosen.candidates)),
+		};
+	}
+	const name = chosen.name;
+	if (browsers.has(name)) return { name };
+	return {
+		refused: refusal(
+			name,
+			kind,
+			missingSession(name, browsers.departureOf(name), opens),
+		),
+	};
+}
+
 /** Say which browsers are open, when the choice has to be made. */
 export function chooseSession(candidates: readonly string[]): string {
 	if (candidates.length === 0) {
@@ -97,6 +124,15 @@ export function chooseSession(candidates: readonly string[]): string {
 	);
 }
 
+/**
+ * Explain a session that is not there, rather than implying the
+ * caller made the name up.
+ *
+ * A session that timed out looks identical to one that never
+ * existed, and the difference matters: the caller did nothing
+ * wrong, their navigation and emulation are simply gone, and
+ * knowing that is what stops them hunting for a typo.
+ */
 export function missingSession(
 	name: string,
 	departure: "idle" | "closed" | undefined,

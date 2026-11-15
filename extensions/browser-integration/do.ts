@@ -53,13 +53,7 @@ import type { DoParams } from "./do-tool.ts";
 import { beyondBound, MAX_WAIT_MS } from "./limits.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
 import type { BrowserDetails } from "./result.ts";
-import {
-	answer,
-	chooseSession,
-	missingSession,
-	refusal,
-	sessionInPlay,
-} from "./result.ts";
+import { answer, browserFor, refusal } from "./result.ts";
 import { settledPageView } from "./see.ts";
 
 /** What browser_do does with one call. */
@@ -74,26 +68,15 @@ export async function runDo(
 	if ("error" in profiles) {
 		return refusal(DEFAULT_SESSION, kind, profiles.error);
 	}
-	const chosen = sessionInPlay(
+	const browser = browserFor(
 		params.session,
 		DEFAULT_SESSION,
-		registry.open(),
+		registry,
+		kind,
+		"Navigate somewhere with browser_go first.",
 	);
-	if ("candidates" in chosen) {
-		return refusal(DEFAULT_SESSION, kind, chooseSession(chosen.candidates));
-	}
-	const name = chosen.name;
-	if (!registry.has(name)) {
-		return refusal(
-			name,
-			kind,
-			missingSession(
-				name,
-				registry.departureOf(name),
-				"Navigate somewhere with browser_go first.",
-			),
-		);
-	}
+	if ("refused" in browser) return browser.refused;
+	const name = browser.name;
 
 	const unbounded =
 		beyondBound(

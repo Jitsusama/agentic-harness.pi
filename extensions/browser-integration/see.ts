@@ -68,13 +68,7 @@ import {
 import { count } from "../../lib/ui/count.ts";
 import { beyondBound, MAX_PROFILE_MS } from "./limits.ts";
 import { DEFAULT_SESSION, type SessionRegistry } from "./registry.ts";
-import {
-	answer,
-	chooseSession,
-	missingSession,
-	refusal,
-	sessionInPlay,
-} from "./result.ts";
+import { answer, browserFor, refusal } from "./result.ts";
 import type { SeeParams } from "./see-tool.ts";
 import { bodyAnswer, elementAnswer, listAnswer, pageAnswer } from "./stored.ts";
 
@@ -307,26 +301,15 @@ export async function runSee(
 	signal: AbortSignal | undefined,
 ) {
 	const kind = params.kind ?? "page";
-	const chosen = sessionInPlay(
+	const browser = browserFor(
 		params.session,
 		DEFAULT_SESSION,
-		registry.open(),
+		registry,
+		kind,
+		"Open one with browser_go, or navigate and it opens itself.",
 	);
-	if ("candidates" in chosen) {
-		return refusal(DEFAULT_SESSION, kind, chooseSession(chosen.candidates));
-	}
-	const name = chosen.name;
-	if (!registry.has(name)) {
-		return refusal(
-			name,
-			kind,
-			missingSession(
-				name,
-				registry.departureOf(name),
-				"Open one with browser_go, or navigate and it opens itself.",
-			),
-		);
-	}
+	if ("refused" in browser) return browser.refused;
+	const name = browser.name;
 	const unbounded = beyondBound(
 		"ms",
 		params.ms,
