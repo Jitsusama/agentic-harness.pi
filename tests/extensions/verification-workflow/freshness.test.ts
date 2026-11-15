@@ -14,6 +14,7 @@ import {
 	provideVerificationCheck,
 } from "../../../lib/internal/verification/signal.ts";
 import { disposeRepo, freshRepo } from "../../support/git-fixture.ts";
+import { endTurn } from "../../support/turn-end.ts";
 
 /**
  * Whether what verification says is about the code as it stands.
@@ -115,9 +116,11 @@ async function edit(h: Harness, path: string): Promise<void> {
 
 /** End a turn that is about to yield, which runs the fast layer. */
 async function yieldTurn(h: Harness): Promise<void> {
-	await h.handlers.get("turn_end")?.(
+	await endTurn(
+		(name, event, at) => h.handlers.get(name)?.(event, at),
 		{ message: { stopReason: "stop" }, toolResults: [] },
 		h.ctx,
+		{ boundary: true },
 	);
 }
 

@@ -268,6 +268,7 @@ import {
 	leftToIn,
 	saidIn,
 } from "./glances.ts";
+import { holdSessionLog } from "./held-log.ts";
 import { moveIntoHost, probeHost, startTakeUp } from "./host-command.ts";
 import { handOverOf, hostedPresence } from "./in-place.ts";
 import {
@@ -696,6 +697,7 @@ export function meshWorkflow(
 			return;
 		}
 		registerHands(pi.events);
+		holdSessionLog(pi);
 		declareGuards(GUARDS.meshEndHold);
 		const transport: Transport = folderTransport(join(paths.mesh, "messages"));
 		const presences = createPresences(join(paths.mesh, "presence"));

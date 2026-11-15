@@ -34,7 +34,7 @@ answers. It keeps one long-lived context per session, so its
 prefix caches turn to turn rather than re-paying a cold spawn
 each turn. The charter, finding parsing, back-off and
 substantive-turn detection are `agentic-harness.core`'s `advisor`
-too; this extension is the session-wide orchestration (turn_end,
+too; this extension is the session-wide orchestration (each turn's end,
 `ctx.modelRegistry`, delivering a finding as a steer or a note)
 that needs a live pi session to run.
 

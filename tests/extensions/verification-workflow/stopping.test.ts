@@ -7,6 +7,7 @@ import {
 	type LspBackend,
 	registerLspBackend,
 } from "../../../lib/core/lsp/index.ts";
+import { endTurn } from "../../support/turn-end.ts";
 
 /**
  * What the fast layer does when the language server will not answer.
@@ -89,11 +90,11 @@ async function endTurnAfterAnEdit(
 		);
 	}
 	let finished = false;
-	const done = (
-		h.handlers.get("turn_end")?.(
-			{ message: { stopReason: "stop" }, toolResults: [] },
-			turnContext(h, run),
-		) ?? Promise.resolve()
+	const done = endTurn(
+		(name, event, at) => h.handlers.get(name)?.(event, at),
+		{ message: { stopReason: "stop" }, toolResults: [] },
+		turnContext(h, run),
+		{ boundary: true },
 	).finally(() => {
 		finished = true;
 	});

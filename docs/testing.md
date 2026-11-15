@@ -237,3 +237,9 @@ browser test runs none, so only one that does needs a Chrome. The load check ins
 installs from git, and loads it through pi with nothing else
 loaded; it is the only check that sees a runtime dependency the
 install does not hold.
+
+Lint runs Biome through `scripts/lint.ts`, which fails when Biome
+was killed or exited 0 without saying it checked any file. Biome's
+own node wrapper reads a killed binary as success, and on a Mac in
+Santa's lockdown the binary is killed at its start, so `pnpm lint`
+once passed there having checked nothing. Lint runs on optimus.

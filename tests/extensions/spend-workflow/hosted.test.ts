@@ -30,6 +30,7 @@ import {
 import { SERVED_ENTRY } from "../../../lib/internal/session/served.ts";
 import { FOOTER_GLYPH } from "../../../lib/ui/footer-mark.ts";
 import { type FakePi, fakePi } from "../../support/fake-pi.ts";
+import { endTurn } from "../../support/turn-end.ts";
 
 let root: string;
 let uninstall: () => void;
@@ -148,8 +149,10 @@ it("uses one host resource baseline across interleaved sessions and module reloa
 it("records headless hosted turn hooks in the host log, not either conversation file", async () => {
 	const pi = fakePi();
 	withSession("a", () => spendWorkflow(pi));
-	await fire(pi, "turn_end", context("a"));
-	await fire(pi, "turn_end", context("b"));
+	const at = (name: string) => (event: string, payload: unknown) =>
+		fire(pi, event, context(name), payload);
+	await endTurn(at("a"));
+	await endTurn(at("b"));
 	const dir = join(
 		root,
 		"pi",

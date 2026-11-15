@@ -593,7 +593,8 @@ and keeps sessions its own way:
 
 ## Files
 
-- `index.ts`: registration, the `turn_end` decision and the idle
+- `index.ts`: registration, the decision at each turn's end (heard
+  off pi's boundary, at the next turn's start) and the idle
   compaction.
 - `idle.ts`: the timer that waits out an idle session.
 - `warm.ts`: warming an idle session's cache, and what stops it.

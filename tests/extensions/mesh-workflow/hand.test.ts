@@ -24,6 +24,7 @@ import { shortId } from "../../../lib/mesh/message.ts";
 import { createPresences, type Presence } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import { SUBAGENT_REGISTER_DEFAULT_EXTENSION } from "../../../lib/subagent/events.ts";
+import { endTurn } from "../../support/turn-end.ts";
 
 let root: string;
 let paths: MeshPaths;
@@ -281,7 +282,7 @@ describe("a peer's hand", () => {
 		expect(await fire("before_agent_start")).toBeUndefined();
 
 		board().hold({ session: "other", leases: [] });
-		await fire("turn_end");
+		await endTurn(fire);
 		expect(said).toEqual([`The mesh hold [${shortId(hold)}] is over.`]);
 	});
 

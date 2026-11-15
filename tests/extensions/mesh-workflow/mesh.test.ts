@@ -96,6 +96,7 @@ import {
 	SUBAGENT_READY,
 	SUBAGENT_REGISTER_DEFAULT_EXTENSION,
 } from "../../../lib/subagent/events.ts";
+import { alongside, endTurn } from "../../support/turn-end.ts";
 
 // The folder's watcher, as a test can have it: deaf, as one is when the
 // kernel drops its events, and with a message landing as it is armed.
@@ -193,7 +194,8 @@ async function startSession(
 		}
 	>();
 	const pi = {
-		on: (event: string, handler: Handler) => lifecycle.set(event, handler),
+		on: (event: string, handler: Handler) =>
+			lifecycle.set(event, alongside(lifecycle, event, handler)),
 		registerTool: (tool: { name: string }) =>
 			tools.set(tool.name, tool as never),
 		sendMessage: (message: Sent["message"], options?: unknown) =>
@@ -536,7 +538,7 @@ describe("a glance", () => {
 		const glanced = fromElsewhere({ text: "merging core.nix#330 now" });
 		await vi.waitFor(() => expect(entries).toHaveLength(1));
 
-		await fire("turn_end");
+		await endTurn(fire);
 
 		expect(sent).toHaveLength(1);
 		expect(sent[0]?.options).toEqual({ triggerTurn: false });
@@ -552,7 +554,7 @@ describe("a glance", () => {
 		);
 
 		// Handed over once.
-		await fire("turn_end");
+		await endTurn(fire);
 		expect(sent).toHaveLength(1);
 	});
 
@@ -590,7 +592,7 @@ describe("a glance", () => {
 		}
 		await vi.waitFor(() => expect(entries).toHaveLength(MOST_GLANCES + 3));
 
-		await fire("turn_end");
+		await endTurn(fire);
 
 		const content = sent[0]?.message.content ?? "";
 		expect(content.split("\n")).toHaveLength(MOST_GLANCES + 2);
@@ -602,7 +604,7 @@ describe("a glance", () => {
 		fromElsewhere({ text: `${"word ".repeat(80)}\nsecond line` });
 		await vi.waitFor(() => expect(entries).toHaveLength(1));
 
-		await fire("turn_end");
+		await endTurn(fire);
 
 		const glance = sent[0]?.message.content.split("\n")[1] ?? "";
 		expect(glance.length).toBeLessThanOrEqual(160);
@@ -629,7 +631,7 @@ describe("a glance", () => {
 		);
 
 		const { sent, fire } = await startSession({}, {}, branch);
-		await fire("turn_end");
+		await endTurn(fire);
 
 		expect(sent).toHaveLength(1);
 		expect(sent[0]?.message.content).toContain("waiting");
@@ -1599,7 +1601,7 @@ describe("a withdrawal", () => {
 		expect(sent[0]?.message.customType).toBe(NOTED);
 		expect(sent[0]?.message.content).toContain("which its sender withdraws");
 		expect(sent[0]?.message.details).toMatchObject({ glanced: [] });
-		await fire("turn_end");
+		await endTurn(fire);
 		expect(sent).toHaveLength(1);
 	});
 
@@ -4499,7 +4501,7 @@ describe("a lease", () => {
 
 		const later = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 540_000);
 		try {
-			await fire("turn_end");
+			await endTurn(fire);
 		} finally {
 			later.mockRestore();
 		}

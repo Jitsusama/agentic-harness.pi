@@ -9,6 +9,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { contextUsageOf } from "../../../lib/internal/session/context-usage.ts";
+import { endTurn } from "../../support/turn-end.ts";
 
 const completeSimple = vi.fn();
 vi.mock("@earendil-works/pi-ai/compat", () => ({ completeSimple }));
@@ -167,11 +168,10 @@ async function toTheEdge(withSentRequest: boolean) {
 	if (withSentRequest) await fire("before_provider_request", { payload }, ctx);
 	state.branch = [userEntry, replyEntry];
 	state.leaf = "a1";
-	await fire("turn_end", ranTools, ctx);
+	await endTurn(fire, ranTools, ctx);
 	state.tokens = 300_000;
 	const short = withSentRequest ? 22 : 49;
-	for (let turn = 0; turn < short; turn++)
-		await fire("turn_end", ranTools, ctx);
+	for (let turn = 0; turn < short; turn++) await endTurn(fire, ranTools, ctx);
 	return { fire, resumed, entries, state, ctx };
 }
 
@@ -202,7 +202,7 @@ describe("the compaction trigger", () => {
 		contextUsageOf(ctx);
 		state.asks = 0;
 
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 
 		expect(state.asks, "pi rebuilt the context's usage again").toBe(0);
 	});
@@ -217,7 +217,7 @@ describe("the compaction trigger", () => {
 		await new Promise((r) => setTimeout(r, 0));
 		expect(completeSimple).not.toHaveBeenCalled();
 
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
 		// Work carries on while it is written: nothing has compacted yet.
 		expect(state.compactions).toHaveLength(0);
@@ -236,15 +236,15 @@ describe("the compaction trigger", () => {
 		await fire("before_provider_request", { payload }, ctx);
 		state.branch = [userEntry, replyEntry];
 		state.leaf = "a1";
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		state.tokens = 199_000;
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		// One tick, for a summary the turn would have started to be asked for.
 		await new Promise((r) => setTimeout(r, 0));
 		expect(completeSimple).not.toHaveBeenCalled();
 
 		state.tokens = 250_000;
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledTimes(1));
 	});
 
@@ -255,9 +255,9 @@ describe("the compaction trigger", () => {
 		await fire("before_provider_request", { payload }, ctx);
 		state.branch = [userEntry, replyEntry];
 		state.leaf = "a1";
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		state.tokens = 250_000;
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		// One tick, for a summary the turn would have started to be asked for.
 		await new Promise((r) => setTimeout(r, 0));
 		expect(completeSimple).not.toHaveBeenCalled();
@@ -270,11 +270,11 @@ describe("the compaction trigger", () => {
 			usage: {},
 		});
 		const { fire, resumed, state, ctx } = await toTheEdge(true);
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		await vi.waitFor(() => expect(completeSimple).toHaveBeenCalled());
 		await new Promise((r) => setTimeout(r, 0));
 
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		expect(state.compactions).toHaveLength(1);
 		state.compactions[0]?.onComplete?.();
 		expect(resumed).toHaveLength(1);
@@ -283,7 +283,7 @@ describe("the compaction trigger", () => {
 	it("compacts on the spot when the summary cannot be written in the background", async () => {
 		const { fire, state, ctx } = await toTheEdge(false);
 		expect(state.compactions).toHaveLength(0);
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		expect(state.compactions).toHaveLength(1);
 		expect(completeSimple).not.toHaveBeenCalled();
 	});
@@ -297,7 +297,7 @@ describe("the compaction trigger", () => {
 				}),
 		);
 		const { fire, resumed, state, ctx } = await toTheEdge(true);
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		await vi.waitFor(() => expect(completeSimple).toHaveBeenCalled());
 
 		state.idle = true;
@@ -324,7 +324,7 @@ describe("a compaction overtaken by a run", () => {
 
 	it("is logged when a run starts before the compaction it asked for begins", async () => {
 		const { fire, entries, state, ctx } = await toTheEdge(false);
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		expect(state.compactions, "the trigger asked pi to compact").toHaveLength(
 			1,
 		);
@@ -340,7 +340,7 @@ describe("a compaction overtaken by a run", () => {
 
 	it("is not logged for the run a landed compaction resumes", async () => {
 		const { fire, entries, state, ctx } = await toTheEdge(false);
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		await fire("session_compact", { compactionEntry: {} }, ctx);
 		state.compactions[0]?.onComplete?.();
 
@@ -369,7 +369,7 @@ describe("a compaction that kept an outsized amount", () => {
 		const before = state.compactions.length;
 		state.tokens = tokens;
 		for (let turn = 1; turn <= LIMIT; turn++) {
-			await fire("turn_end", ranTools, ctx);
+			await endTurn(fire, ranTools, ctx);
 			if (state.compactions.length > before) return turn;
 		}
 		return LIMIT;
@@ -381,16 +381,16 @@ describe("a compaction that kept an outsized amount", () => {
 		await fire("session_start", { reason: "startup" }, ctx);
 		state.branch = [userEntry, replyEntry];
 		state.leaf = "a1";
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		return turnsUntilCompacting(fire, state, ctx, 600_000);
 	}
 
 	it("does not set what the next compaction is expected to keep", async () => {
 		const { fire, state, ctx } = await toTheEdge(false);
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		await fire("session_compact", { compactionEntry: {} }, ctx);
 		state.tokens = 510_000;
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 
 		const after = await turnsUntilCompacting(fire, state, ctx, 600_000);
 		const usual = await fresh();
@@ -424,10 +424,10 @@ describe("a compaction that kept an outsized amount", () => {
 
 	it("still sets it when the keep is near what compactions keep", async () => {
 		const { fire, state, ctx } = await toTheEdge(false);
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		await fire("session_compact", { compactionEntry: {} }, ctx);
 		state.tokens = 150_000;
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 
 		const after = await turnsUntilCompacting(fire, state, ctx, 600_000);
 
@@ -459,17 +459,17 @@ describe("a turn that did not complete", () => {
 		["was stopped", stopped],
 	])("never compacts on the spot on a turn that %s", async (_, turn) => {
 		const { fire, state, ctx } = await toTheEdge(false);
-		await fire("turn_end", turn, ctx);
+		await endTurn(fire, turn, ctx);
 		expect(state.compactions).toHaveLength(0);
 
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		expect(state.compactions).toHaveLength(1);
 	});
 
 	it("reads a failure from the stop reason where pi gives no outcome", async () => {
 		const { fire, state, ctx } = await toTheEdge(false);
-		await fire(
-			"turn_end",
+		await endTurn(
+			fire,
 			{ message: { stopReason: "error" }, toolResults: [] },
 			ctx,
 		);
@@ -483,13 +483,13 @@ describe("a turn that did not complete", () => {
 			usage: {},
 		});
 		const { fire, state, ctx } = await toTheEdge(true);
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		await vi.waitFor(() => expect(completeSimple).toHaveBeenCalled());
 		await new Promise((r) => setTimeout(r, 0));
 
-		await fire("turn_end", failed, ctx);
+		await endTurn(fire, failed, ctx);
 		expect(state.compactions).toHaveLength(0);
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		expect(state.compactions).toHaveLength(1);
 	});
 });
@@ -507,9 +507,9 @@ describe("compacting an idle session before its cache expires", () => {
 		await fire("before_provider_request", { payload }, ctx);
 		state.branch = [userEntry, replyEntry];
 		state.leaf = "a1";
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		state.tokens = tokens;
-		await fire("turn_end", ranTools, ctx);
+		await endTurn(fire, ranTools, ctx);
 		state.idle = true;
 		await fire("agent_end", {}, ctx);
 		return { fire, state, ctx };
