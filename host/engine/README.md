@@ -95,14 +95,16 @@ holds, each conversation whose durable store holds a run waits for a
 turn before durable carries it on. It gives the turn back as the first
 answer streamed after the restart ends, its own or the ask again's, or
 after RESUMED_TURN_MS (60 s) at most, so a run that goes on for an hour
-holds up neither the runs behind it nor words sent to them. Every turn is held until the start has resumed its last
-conversation, so the order is the whole start's: runs begun by words a
-person typed first, then the rest in the order the host held them. A
-wake, an open or an adopt takes no turn, an abort ends the wait, and a
-park leaves the run in durable for the start that opens it next.
-Words typed while a run waits queue behind it, and when the recovery
-ends into the ask again for a cut-off request, pi's session follows that
-run rather than failing as the agent already processing.
+holds up neither the runs behind it nor words sent to them. Every turn
+is held until the start has resumed its last conversation, so the order
+is the whole start's: runs begun by words a person typed first, and any
+a person types into while it waits, then the rest in the order the host
+held them. A run's place is read each time a turn comes free, not once
+as it asks. A wake, an open or an adopt takes no turn, an abort ends
+the wait, and a park leaves the run in durable for the start that opens
+it next. Words typed while a run waits queue behind it, and when the
+recovery ends into the ask again for a cut-off request, pi's session
+follows that run rather than failing as the agent already processing.
 
 pi's session writes an extension's message at once when it counts no
 run of its own, and a turn durable carries on after a restart is not

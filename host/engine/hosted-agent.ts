@@ -9,6 +9,7 @@
  * once durable committed it, so the session file never holds it twice.
  */
 import { randomUUID } from "node:crypto";
+import { isPersonWords } from "../../lib/internal/session/driven.ts";
 import type {
 	Conversation,
 	DurableContext,
@@ -228,6 +229,9 @@ export class HostedAgent {
 	private recovery: Promise<{ readonly settled: Promise<void> }> | undefined;
 	/** Gives back a carried run's turn as the first answer streamed after the restart ends. */
 	private answered: GiveBack | undefined;
+
+	/** Whether words Joel typed have come in, which move a run waiting for its turn up. */
+	private joelTyped = false;
 	private mirrorLine: Promise<unknown> = Promise.resolve();
 	private admissions: Promise<unknown> = Promise.resolve();
 	private readonly durable: DurableBinding;
@@ -382,6 +386,8 @@ export class HostedAgent {
 		images?: readonly ContentBlock[],
 	): Promise<void> {
 		const messages = normalizePromptInput(input, images);
+		if (messages.some((message) => isPersonWords({ type: "message", message })))
+			this.joelTyped = true;
 		if (this.active) {
 			// pi begins a run only while it holds none, so one under way here is
 			// durable's: the recovery carrying a turn on, or durable's own work.
@@ -490,8 +496,9 @@ export class HostedAgent {
 			if (waits) {
 				// Words said meanwhile queue behind this run, as behind any other.
 				resumed();
+				const began = beganWithPersonsWords(this.state.messages);
 				giveBack = await turn(
-					beganWithPersonsWords(this.state.messages),
+					() => began || this.joelTyped,
 					AbortSignal.any([run.controller.signal, this.parking.signal]),
 				);
 				this.answered = giveBack;

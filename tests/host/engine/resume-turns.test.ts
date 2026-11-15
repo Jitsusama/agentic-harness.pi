@@ -22,7 +22,7 @@ function askTen(take: ReturnType<typeof resumeTurns>["take"], joels: number[]) {
 	const started: number[] = [];
 	const givers = new Map<number, GiveBack>();
 	for (let run = 0; run < 10; run++) {
-		void take(joels.includes(run)).then((giveBack) => {
+		void take(() => joels.includes(run)).then((giveBack) => {
 			started.push(run);
 			givers.set(run, giveBack);
 		});
@@ -55,6 +55,22 @@ describe("turns for the runs a restart cut off", () => {
 		for (const run of [6, 0, 1, 2]) givers.get(run)?.();
 		await settle();
 		expect(started).toEqual([6, 8, 0, 1, 2, 3, 4, 5, 7]);
+	});
+
+	it("moves a waiting run up once Joel types into it", async () => {
+		// A run only harness words began waited behind every other, even as Joel typed into it (#1593's gap).
+		const turns = resumeTurns(1);
+		const joels: number[] = [];
+		const { started, givers } = askTen(turns.take, joels);
+		await settle();
+		expect(started).toEqual([0]);
+		joels.push(7);
+		givers.get(0)?.();
+		await settle();
+		expect(
+			started,
+			"the run Joel typed into goes next, ahead of those that asked before it",
+		).toEqual([0, 7]);
 	});
 
 	describe("a run busy past its turn", () => {
@@ -101,13 +117,15 @@ describe("turns for the runs a restart cut off", () => {
 
 	it("ends an aborted wait at once, with a turn that counts for nothing", async () => {
 		const turns = resumeTurns(1);
-		const held = await turns.take(false);
+		const held = await turns.take(() => false);
 		const stop = new AbortController();
-		const waited = turns.take(false, stop.signal);
+		const waited = turns.take(() => false, stop.signal);
 		let next = false;
-		void turns.take(false).then(() => {
-			next = true;
-		});
+		void turns
+			.take(() => false)
+			.then(() => {
+				next = true;
+			});
 		stop.abort();
 		const nothing = await waited;
 		nothing();
