@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { recordReviewerRun } from "../../extensions/review-integration/reviewer.ts";
+import { recordReviewerRun } from "../../extensions/review-integration/run-record.ts";
 import type { RunRecord } from "../../lib/core/observability/index.ts";
 import { registerRunRecorder } from "../../lib/core/observability/index.ts";
 import type { RunReviewerResult } from "../../lib/subagent/index.ts";

@@ -108,7 +108,6 @@ import { GLYPH } from "../render.ts";
 import {
 	answerFromReviewer,
 	keepAnswer,
-	recordReviewerRun,
 	reviewerRunner,
 	reviewerStarter,
 } from "../reviewer.ts";
@@ -116,6 +115,7 @@ import { builtInPersonaDir } from "../roster.ts";
 import { watchStartedRound } from "../round-job.ts";
 import { roundReading } from "../round-reading.ts";
 import { roundToRead } from "../round-to-read.ts";
+import { recordReviewerRun } from "../run-record.ts";
 import { askedInRound, roundDispatched, roundOpened } from "../run-records.ts";
 import { type ReadableTree, readFrom, treeForRound } from "../work.ts";
 import { answerFor, judgeHandOff, keptOnLedger } from "./ask-answer.ts";

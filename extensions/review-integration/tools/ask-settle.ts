@@ -35,13 +35,8 @@ import {
 	sessionKey,
 } from "../engine.ts";
 import { GLYPH } from "../render.ts";
-import {
-	answerLeftBehind,
-	archivedAnswer,
-	collectedRun,
-	recordReviewerRun,
-	whyNotYet,
-} from "../reviewer.ts";
+import { answerLeftBehind, archivedAnswer, whyNotYet } from "../reviewer.ts";
+import { collectedRun, recordReviewerRun } from "../run-record.ts";
 import { answerFor, judgeHandOff, keptOnLedger } from "./ask-answer.ts";
 import { type Answer, refuse, say } from "./shared.ts";
 
