@@ -50,54 +50,27 @@
  */
 
 import { homedir } from "node:os";
-import { runSteps, stepsOf } from "./steps.ts";
 import {
 	CARGO,
 	CHANGED_CHECKS,
-	EVALUATES,
 	EVAL_TESTS,
 	EVAL_TESTS_GIB,
+	EVALUATES,
 	EVERY_CHECK,
 	type Kind,
 	NIX_FAST_BUILD,
+	needsGibOf,
 	SYSTEM_EVALUATION,
 	THERE_HERE,
-	needsGibOf,
 } from "./needs.ts";
+import { runSteps, stepsOf } from "./steps.ts";
 import {
 	GIT_WALK,
-	type Where,
 	searchesWorldWhole,
+	type Where,
 	worldWalks,
 } from "./world-walk.ts";
 
-export {
-	type Job,
-	type Offload,
-	type Pressed,
-	RULES,
-	type Room,
-	type RoomLeft,
-	type Rules,
-	type WaitReason,
-	type WaitedOn,
-	isVm,
-} from "./job.ts";
-export {
-	CHANGED_CHECKS_GIB,
-	CHANGED_CHECKS_SENT_GIB,
-	CLASS_OF,
-	type Class,
-	EVALUATION_GIB,
-	EVAL_TESTS_GIB,
-	EVERY_CHECK_GIB,
-	type Kind,
-	NEEDS_GIB,
-	PUSH_GIB,
-	WALKS_AT_ONCE,
-	needsGibOf,
-	runsChangedChecks,
-} from "./needs.ts";
 export {
 	CAPPED_NIX,
 	CAPS_BUILDS_FROM_CPU_PRESSURE,
@@ -110,34 +83,59 @@ export {
 	MOST_IO_PRESSURE_FOR_BUILDS,
 	MOST_MEMORY_PRESSURE,
 	MOST_VMS,
+	pressedPast,
 	QUICK_NIX,
 	QUICK_OUTRUN_MS,
 	VM_SETTLE_MS,
 	VM_SPREAD_MS,
 	VM_STEADY_MS,
-	pressedPast,
 } from "./bounds.ts";
+export {
+	isVm,
+	type Job,
+	type Offload,
+	type Pressed,
+	type Room,
+	type RoomLeft,
+	RULES,
+	type Rules,
+	type WaitedOn,
+	type WaitReason,
+} from "./job.ts";
+export {
+	CHANGED_CHECKS_GIB,
+	CHANGED_CHECKS_SENT_GIB,
+	CLASS_OF,
+	type Class,
+	EVAL_TESTS_GIB,
+	EVALUATION_GIB,
+	EVERY_CHECK_GIB,
+	type Kind,
+	NEEDS_GIB,
+	needsGibOf,
+	PUSH_GIB,
+	runsChangedChecks,
+	WALKS_AT_ONCE,
+} from "./needs.ts";
 export {
 	JOINS_FOR_MS,
 	KEEPS_LINE_FOR_MS,
 	LENDING_WAIT_MS,
+	nextTurn,
 	PASS_AFTER_MS,
 	RAMP_MS,
 	RULES_VERSION,
-	SPREAD_MS,
-	nextTurn,
 	roomLeft,
 	roomSaid,
-	waitReasons,
+	SPREAD_MS,
 	waitingInOrder,
+	waitReasons,
 	waitsWithRoom,
 } from "./next-turn.ts";
+export { stepsOf } from "./steps.ts";
 export {
-	stepsOf,
-} from "./steps.ts";
-export {
-	type Where,
 	skipsWorldPushHooks,
+	type Where,
 	walkOf,
 } from "./world-walk.ts";
 

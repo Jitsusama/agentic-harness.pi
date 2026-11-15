@@ -7,8 +7,8 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 // biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { mainFetchOf } from "./fetched-git.mjs";
+import type { Walk } from "./needs.ts";
 import { runSteps, shellSteps } from "./steps.ts";
-import { type Walk } from "./needs.ts";
 
 /** A World checkout's root: its folder, or a tree's `src`. */
 const WORLD_ROOT = /\/world(?:\/trees\/[^/]+\/src|\/src)?\/?$/;
@@ -235,7 +235,10 @@ const VARIABLE = /\$(?:\{(\w+)\}|(\w+))/g;
  * counts only for the paths the step names outright. Every other
  * repository's git is left alone.
  */
-export function worldWalks(steps: readonly string[], where: Where): RegExpExecArray[] {
+export function worldWalks(
+	steps: readonly string[],
+	where: Where,
+): RegExpExecArray[] {
 	const walks: RegExpExecArray[] = [];
 	const world = join(where.home, WORLD_FOLDER);
 	const inWorld = (path: string | undefined) =>

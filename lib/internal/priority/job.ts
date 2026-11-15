@@ -3,8 +3,8 @@
  * keep reads it, the rules a keep goes by, and why a job waits.
  */
 
+import type { Kind, Walk } from "./needs.ts";
 import type { Beside } from "./outcome.ts";
-import { type Kind, type Walk } from "./needs.ts";
 
 /** One piece of heavy work, waiting for its turn or running. */
 export interface Job {

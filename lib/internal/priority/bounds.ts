@@ -6,12 +6,12 @@
 
 import { NOBODY } from "./awaited.ts";
 import {
+	isQuick,
+	isVm,
 	type Job,
 	type Pressed,
 	type Room,
 	type Rules,
-	isQuick,
-	isVm,
 } from "./job.ts";
 import { THERE_HERE } from "./needs.ts";
 

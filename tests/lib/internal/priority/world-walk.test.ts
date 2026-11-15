@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
-	type Job,
 	JOINS_FOR_MS,
+	type Job,
 	kindOf,
 	needsGibOf,
 	needsGibOfCommand,
 	nextTurn,
 	RAMP_MS,
 	skipsWorldPushHooks,
+	WALKS_AT_ONCE,
 	waitingInOrder,
 	waitReasons,
 	walkOf,
-	WALKS_AT_ONCE,
 	whatOf,
 } from "../../../../lib/internal/priority/queue.ts";
 import { job, NOW, ROOMY, startedAgo } from "./queue-line.ts";

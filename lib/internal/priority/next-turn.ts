@@ -7,39 +7,39 @@
 import { noun } from "../../ui/count.ts";
 import { NOBODY } from "./awaited.ts";
 import {
-	type Job,
-	RULES,
-	type Room,
-	type RoomLeft,
-	type Rules,
-	type WaitReason,
+	BUILDS_BESIDE_VMS,
+	busyWaits,
+	cpuHoldsBuilds,
+	floorsBusy,
+	floorsWait,
+	MOST_CPU_PRESSURE_BESIDE_VMS,
+	MOST_MEMORY_PRESSURE,
+	QUICK_AT_ONCE,
+	QUICK_OUTRUN_MS,
+	vmSettling,
+	vmsAllowedHere,
+	vmWaits,
+	warm,
+} from "./bounds.ts";
+import {
 	isQuick,
 	isVm,
+	type Job,
+	type Room,
+	type RoomLeft,
+	RULES,
+	type Rules,
+	type WaitReason,
 } from "./job.ts";
 import {
 	CLASS_OF,
 	type Kind,
 	LIGHT_GIB,
 	NEEDS_GIB,
-	WALKS_AT_ONCE,
 	needsGibOf,
 	runsChangedChecks,
+	WALKS_AT_ONCE,
 } from "./needs.ts";
-import {
-	BUILDS_BESIDE_VMS,
-	MOST_CPU_PRESSURE_BESIDE_VMS,
-	MOST_MEMORY_PRESSURE,
-	QUICK_AT_ONCE,
-	QUICK_OUTRUN_MS,
-	busyWaits,
-	cpuHoldsBuilds,
-	floorsBusy,
-	floorsWait,
-	vmSettling,
-	vmWaits,
-	vmsAllowedHere,
-	warm,
-} from "./bounds.ts";
 
 /** How far apart two turns are given. */
 export const SPREAD_MS = 3_000;

@@ -4,7 +4,7 @@
  * much of the machine one command takes.
  */
 
-import { type Job } from "./job.ts";
+import type { Job } from "./job.ts";
 
 /** What a command does, as the harness reads it. */
 export type Kind =
@@ -123,7 +123,8 @@ export const EVAL_TESTS_GIB = 12;
  * target, which runs it. As programs, not a path or a name holding the
  * words.
  */
-export const EVAL_TESTS = /\bnix-unit(?![\w.*/-])|\btec\s+run\s+\S*:evalTests\b/;
+export const EVAL_TESTS =
+	/\bnix-unit(?![\w.*/-])|\btec\s+run\s+\S*:evalTests\b/;
 
 /**
  * core.nix's changed-checks, run as a command rather than named as a
@@ -132,7 +133,8 @@ export const EVAL_TESTS = /\bnix-unit(?![\w.*/-])|\btec\s+run\s+\S*:evalTests\b/
  * a `bin` folder too, as `$out/bin/changed-checks` runs a build of it,
  * but never a file or folder named after it, such as its crate's.
  */
-export const CHANGED_CHECKS = /(?:(?<![\w./-])|(?<=\/bin\/))changed-checks(?![\w./-])/;
+export const CHANGED_CHECKS =
+	/(?:(?<![\w./-])|(?<=\/bin\/))changed-checks(?![\w./-])/;
 
 /** Whether a command runs core.nix's changed-checks. */
 export function runsChangedChecks(command: string): boolean {
