@@ -16,21 +16,19 @@
  * not kept: where it is, the queue gives each its turn by the room
  * left, and mesh_groups says what each peer runs or waits for from the
  * queue's record rather than from these leases.
+ *
+ * leases/ holds what changes for its own reasons: heavy-calls.ts, the
+ * heavy work each tool call claims and carries across a reload, and
+ * said.ts, how mesh_groups says a peer's leases. Both are exported
+ * from here too, so what imports leasing imports it from one place.
  */
 
-import { sessionSlot } from "../../lib/core/session/index.ts";
 import {
 	isKept,
 	machineQueueDir,
 	type QueueRecord,
 	readQueue,
 } from "../../lib/internal/priority/folder.ts";
-import {
-	KIND_SAID,
-	type Kind,
-	kindOf,
-	whatOf,
-} from "../../lib/internal/priority/queue.ts";
 import { answeringTo } from "../../lib/mesh/address.ts";
 import { homeOf } from "../../lib/mesh/group.ts";
 import {
@@ -39,30 +37,34 @@ import {
 	claimsCheckout,
 	HEAVY_MS,
 	type Held,
-	type Holding,
 	isCurrent,
 	type Lease,
 	type LeaseEvent,
 	MOST_HOLD_MS,
-	type OwnLeases,
 	othersIn,
 	othersOn,
-	ownerOf,
-	RUN_LEASE_MS,
+	type OwnLeases,
 	rewriteIn,
+	RUN_LEASE_MS,
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
-import {
-	clock,
-	type Message,
-	senderIdentity,
-	shortId,
-} from "../../lib/mesh/message.ts";
+import { clock, type Message, senderIdentity } from "../../lib/mesh/message.ts";
 import type { Peer } from "../../lib/mesh/peer.ts";
 import type { Presence, Presences } from "../../lib/mesh/presence.ts";
 import { mayReplace, sentBy } from "../../lib/mesh/thread.ts";
 import type { Told } from "../../lib/mesh/told.ts";
 import type { Transport } from "../../lib/mesh/transport.ts";
+import { heavySaid } from "./leases/heavy-calls.ts";
+
+export {
+	createHeavyCalls,
+	type HeavyCall,
+	heavySaid,
+	parkHeavyCalls,
+	reloading,
+	takeHeavyCalls,
+} from "./leases/heavy-calls.ts";
+export { leasesText } from "./leases/said.ts";
 
 /** Whether the machine's queue is kept, as this environment finds it. */
 export function queueKept(env: NodeJS.ProcessEnv): boolean {
@@ -590,124 +592,6 @@ function changingText(leases: readonly Lease[]): string {
 		.join(", and ");
 }
 
-/**
- * The leases of the peers still there, as mesh_groups lists them. Given
- * the queue's jobs, a peer's heavy work is what the queue says it runs
- * or waits for, and its heavy leases are left out: the lease says only
- * that a command started, the queue whether it has its turn.
- */
-export function leasesText(
-	board: readonly Holding[],
-	present: readonly Presence[],
-	now: number = Date.now(),
-	jobs?: QueueRecord["jobs"],
-): string {
-	// A hand's work is the peer's it works for, as its leases were claimed.
-	const owners = new Map(
-		board.map((holding) => [holding.session, ownerOf(holding)]),
-	);
-	const lines = present.flatMap((one) => {
-		const leases = board
-			.filter((holding) => ownerOf(holding) === one.session)
-			.flatMap((holding) => holding.leases)
-			.filter((lease) => isCurrent(lease, now))
-			.filter((lease) => jobs === undefined || lease.kind !== "heavy");
-		const queued = (jobs ?? [])
-			.filter(
-				(job) =>
-					(owners.get(job.owner.session) ?? job.owner.session) === one.session,
-			)
-			.map(jobSaid);
-		const said = [
-			...(leases.length > 0 ? [describeAll(leases)] : []),
-			...queued,
-		];
-		return said.length > 0 && one.addresses[0]
-			? [`${one.addresses[0]}: ${said.join("; ")}`]
-			: [];
-	});
-	return lines.length > 0 ? `\nLeases:\n${lines.join("\n")}` : "";
-}
-
-/** A job as the queue holds it: running, or waiting at its place. */
-function jobSaid(job: QueueRecord["jobs"][number]): string {
-	const kind = KIND_SAID[job.kind] ?? job.kind;
-	const since = clock({ at: job.since });
-	return job.state === "running"
-		? `running ${kind} since ${since} (${job.what})`
-		: `waiting${job.place ? ` at place ${job.place}` : ""} to run ${kind}, since ${since} (${job.what})`;
-}
-
-/** A peer's leases in a phrase, its changes counted past the first few. */
-function describeAll(leases: readonly Lease[]): string {
-	const changes = leases.filter(
-		(lease) => lease.kind === "change" && !claimsCheckout(lease),
-	);
-	const shown = changes.slice(0, 3).map((lease) => lease.subject);
-	const more = changes.length - shown.length;
-	const changing = [
-		...leases
-			.filter(claimsCheckout)
-			.map(
-				(lease) =>
-					`rewrote the files of ${lease.subject}${lease.why ? ` (${lease.why})` : ""}`,
-			),
-		...(changes.length > 0
-			? [`changing ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`]
-			: []),
-	];
-	const rest = leases
-		.filter((lease) => lease.kind !== "change")
-		.map((lease) => {
-			const id = `[${shortId({ id: lease.subject })}]`;
-			const why = lease.why ? ` (${lease.why})` : "";
-			switch (lease.kind) {
-				case "answer":
-					return `answering ${id}${why}`;
-				case "hold":
-					return `holding ${id} until ${clock({ at: lease.until })}${why}`;
-				case "wait":
-					return `waiting on ${id}${why}`;
-				default:
-					return `running ${heavySaid(lease.subject)}${why}`;
-			}
-		});
-	return [...changing, ...rest].join("; ");
-}
-
-/**
- * How a bash call says it handed its command to the background, in
- * this code's words or older code's.
- */
-const HANDED_OFF = /in the background as job \S+|as background command \S+/;
-
-/**
- * Heavy work as a sentence names it: the queue's words for its kind, or
- * the subject itself for one claimed some other way.
- */
-export function heavySaid(subject: string): string {
-	return KIND_SAID[subject as Kind] ?? `heavy work on ${subject}`;
-}
-
-/**
- * The heavy shell commands running, by call, so work two calls share is
- * given up only when the last of them ends. A call's work is over when
- * it answers, unless it handed its command to a job, which runs on past
- * the answer until the job says it has ended.
- */
-export interface HeavyCalls {
-	/** A bash call is starting: the heavy work it runs, if any. */
-	called(toolCallId: string, command: unknown): string | undefined;
-	/** A call answered, with these parts. */
-	answered(toolCallId: string, content: readonly unknown[]): void;
-	/** A job a call handed off has ended. */
-	finished(toolCallId: string): void;
-	/** Forget every call, as a session ending does. */
-	clear(): void;
-	/** The calls still running, each with the heavy work it claimed. */
-	held(): readonly HeavyCall[];
-}
-
 /** What an edit meets, said to pi: a stop before it runs, or a note after. */
 export interface EditNotes {
 	/** What the edit's tool_call answers: a block, or nothing, keeping a note. */
@@ -743,84 +627,6 @@ export function createEditNotes(): EditNotes {
 			return [...content, { type: "text", text: note }];
 		},
 	};
-}
-
-/** A call still running, and the heavy work it claimed. */
-export type HeavyCall = readonly [toolCallId: string, subject: string];
-
-/**
- * Heavy calls whose work is running, from `carried` on: the calls a
- * reload handed over from the runtime before, whose work runs on.
- */
-export function createHeavyCalls(
-	heavy: (event: LeaseEvent) => void,
-	why: (command: string) => string = whatOf,
-	carried: readonly HeavyCall[] = [],
-): HeavyCalls {
-	const calls = new Map<string, string>(carried);
-	const ended = (toolCallId: string) => {
-		const subject = calls.get(toolCallId);
-		if (subject === undefined) return;
-		calls.delete(toolCallId);
-		if (![...calls.values()].includes(subject)) heavy({ release: subject });
-	};
-	return {
-		called(toolCallId, command) {
-			const subject = typeof command === "string" ? kindOf(command) : undefined;
-			if (subject === undefined || typeof command !== "string") {
-				return undefined;
-			}
-			calls.set(toolCallId, subject);
-			heavy({ take: { subject, why: why(command) } });
-			return subject;
-		},
-		answered(toolCallId, content) {
-			const handedOff = content.some(
-				(part) =>
-					typeof part === "object" &&
-					part !== null &&
-					(part as { type?: unknown }).type === "text" &&
-					HANDED_OFF.test(String((part as { text?: unknown }).text)),
-			);
-			if (!handedOff) ended(toolCallId);
-		},
-		finished: ended,
-		clear: () => calls.clear(),
-		held: () => [...calls],
-	};
-}
-
-/**
- * Where a reload leaves the heavy calls still running for the runtime it
- * starts. A reload evaluates this module again, so only a `Symbol.for`
- * key on `globalThis` outlives it; the version changes with the shape.
- */
-const carriedCalls = () =>
-	sessionSlot<HeavyCall[]>(
-		"agentic-harness.mesh.heavy-calls.v1",
-		undefined,
-		() => [],
-	);
-
-/** Leave the heavy calls still running for the runtime a reload starts. */
-export function parkHeavyCalls(calls: readonly HeavyCall[]): void {
-	const carried = carriedCalls();
-	carried.splice(0, carried.length, ...calls);
-}
-
-/** Take the heavy calls a reload left, once; none when it left none. */
-export function takeHeavyCalls(): readonly HeavyCall[] {
-	return carriedCalls().splice(0);
-}
-
-/** Whether a session is ending only to reload, as pi's shutdown event says. */
-export function reloading(event: unknown): boolean {
-	return (
-		typeof event === "object" &&
-		event !== null &&
-		"reason" in event &&
-		event.reason === "reload"
-	);
 }
 
 /** A message's words, cut to what a lease keeps. */
