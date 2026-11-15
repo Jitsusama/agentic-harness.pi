@@ -29,6 +29,7 @@ import {
 import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
+import { jobIdsIn } from "../../lib/jobs/report.ts";
 import { answerSteerWaiting, saySteered } from "../../lib/jobs/steer.ts";
 import { offerCarried } from "../../lib/jobs/take-up.ts";
 import { sessionIdOf } from "./carry.ts";
@@ -58,7 +59,6 @@ import {
 	type TakingUp,
 	takeUp,
 } from "./moved.ts";
-import { jobIdsIn } from "./outbox.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
 import { type TypedLine, typedLine } from "./typed-line.ts";

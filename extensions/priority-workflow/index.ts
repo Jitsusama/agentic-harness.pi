@@ -84,11 +84,14 @@ import {
 	uplinkMeter,
 	uplinkSentIn,
 } from "../../lib/internal/priority/uplink.ts";
+import { waitedResults } from "../../lib/internal/priority/waited-results.ts";
 import {
 	buildsShouldYield,
 	keepYield,
 	systemBuildSlice,
 } from "../../lib/internal/priority/yield.ts";
+import { onJobFinished } from "../../lib/jobs/host.ts";
+import { jobIdsIn } from "../../lib/jobs/report.ts";
 import { meansPresence } from "../../lib/ui/terminal-reports.ts";
 
 /**
@@ -156,9 +159,12 @@ const SETTLE_MS = 5_000;
  * Says, by a file of this pid, while a turn a person typed runs, so the
  * traffic shaper sends its request ahead of autonomous sessions'
  * (lib/internal/priority/typed.ts). The person's words steered in from
- * the launcher count as typed. A subagent never has one, and a turn the
- * harness started never does, though a prompt given on pi's command
- * line, as a reopen's is, arrives as interactive input.
+ * the launcher count as typed, and so does the run a background job's
+ * result starts when a typed run started the job
+ * (lib/internal/priority/waited-results.ts). A subagent never has one,
+ * and any other turn the harness started never does, though a prompt
+ * given on pi's command line, as a reopen's is, arrives as interactive
+ * input.
  */
 export function sayTypedTurns(
 	pi: Pick<ExtensionAPI, "on" | "events">,
@@ -166,9 +172,17 @@ export function sayTypedTurns(
 	const turns = typedTurns(
 		process.env.SUBAGENT_RUN_ID ? undefined : typedDir(),
 	);
+	const results = waitedResults();
 	pi.on("input", async (event) => {
 		if (event.source === "interactive" && !isAutomatedText(event.text))
 			turns.typed();
+		else if (results.reported(jobIdsIn(event.text))) turns.typed();
+	});
+	pi.on("tool_execution_start", async (event) => {
+		if (turns.held()) results.called(event.toolCallId);
+	});
+	const unlistenJobs = onJobFinished(pi.events, (finished) => {
+		if (results.finished(finished)) turns.typed();
 	});
 	const unlisten = pi.events.on(PERSON_TALKED, (said) => {
 		const intoRun =
@@ -179,12 +193,16 @@ export function sayTypedTurns(
 		if (intoRun) turns.steeredIn();
 		else turns.typed();
 	});
-	pi.on("agent_start", async () => turns.began());
+	pi.on("agent_start", async () => {
+		results.began();
+		turns.began();
+	});
 	pi.on("agent_end", async () => turns.ended());
 	// Every shutdown, a reload's included: its follower outlives the runtime,
 	// and the bus may outlive it too, so a later talk marks nothing here.
 	pi.on("session_shutdown", async () => {
 		unlisten();
+		unlistenJobs();
 		turns.stop();
 	});
 	return turns;

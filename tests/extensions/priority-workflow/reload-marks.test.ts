@@ -95,7 +95,7 @@ describe("a reload", () => {
 		const one = loaded();
 		await one.fire("session_start", { reason: "startup" });
 		bus.emit(PERSON_TALKED, {});
-		await one.fire("input", { source: "extension" });
+		await one.fire("input", { source: "extension", text: "fix the bar" });
 		await one.fire("agent_start");
 		expect(marked("typed"), "a turn the person steered is marked").toBe(true);
 		await one.fire("agent_end");

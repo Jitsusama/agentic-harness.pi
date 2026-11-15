@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-	isOutboxMessage,
-	OUTBOX_HEADER,
-} from "../../../extensions/job-workflow/outbox.ts";
-import {
 	FAILED_RESUME_TEXT,
 	isResumeText,
 	RESUME_TEXT,
@@ -13,6 +9,7 @@ import {
 	automatedText,
 	isAutomatedText,
 } from "../../../lib/internal/automated.ts";
+import { isOutboxMessage, OUTBOX_HEADER } from "../../../lib/jobs/report.ts";
 
 describe("the turns the harness starts itself", () => {
 	it("opens each with one header that says why", () => {

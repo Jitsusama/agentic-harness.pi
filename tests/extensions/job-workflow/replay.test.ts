@@ -14,7 +14,7 @@
 
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
-import { OUTBOX_HEADER } from "../../../extensions/job-workflow/outbox.ts";
+import { OUTBOX_HEADER } from "../../../lib/jobs/report.ts";
 import { forgetParkedJobs, jobRuntime } from "../../support/job-runtime.ts";
 
 const report = (jobId: string) =>
