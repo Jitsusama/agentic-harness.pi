@@ -36,16 +36,21 @@ describe("the host's collection once quiet", () => {
 		const collect = vi.fn();
 		const said: string[] = [];
 		const weighs = [812 * MB, 214 * MB];
+		const heaps = [
+			{ used: 700 * MB, total: 760 * MB },
+			{ used: 150 * MB, total: 200 * MB },
+		];
 		const quiet = quietCollection({
 			reading,
 			collect,
 			weigh: () => weighs.shift(),
+			heap: () => heaps.shift(),
 			report: (one) => said.push(one),
 		});
 		return { collect, said, quiet };
 	}
 
-	it("collects once a turn has settled, saying the pause and the Pss before and after", () => {
+	it("collects once a turn has settled, saying the pause, and the Pss and heap before and after", () => {
 		const { collect, said, quiet } = counted();
 		quiet.stirred();
 		vi.advanceTimersByTime(SETTLE_MS - 1);
@@ -54,7 +59,7 @@ describe("the host's collection once quiet", () => {
 		expect(collect).toHaveBeenCalledTimes(1);
 		expect(said).toEqual([
 			expect.stringMatching(
-				/^Collected while quiet in \d+ ms, Pss 812 MB to 214 MB, with 0 conversations waiting on the model$/,
+				/^Collected while quiet in \d+ ms, Pss 812 MB to 214 MB, heap 700 of 760 MB to 150 of 200 MB, with 0 conversations waiting on the model$/,
 			),
 		]);
 	});
@@ -186,6 +191,7 @@ describe("the host's collection once quiet", () => {
 			reading: () => ({ tools: 0, jobs: 0, waiting: 2 }),
 			collect: () => {},
 			weigh: () => undefined,
+			heap: () => undefined,
 			report: (one) => said.push(one),
 			clock: (() => {
 				const reads = [0, 1240];
