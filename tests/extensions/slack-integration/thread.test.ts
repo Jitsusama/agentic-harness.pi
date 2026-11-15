@@ -1,22 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import { confirmations, route, slack } from "./routed.ts";
-
-vi.mock("../../../lib/slack/index.ts", async (original) => ({
-	...(await original<object>()),
-	...(await import("./routed.ts")).slack,
-}));
-vi.mock(
-	"../../../extensions/slack-integration/confirmation.ts",
-	async (original) => ({
-		...(await original<object>()),
-		...(await import("./routed.ts")).confirmations,
-	}),
-);
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 describe("sending a thread", () => {
 	it("posts the first message as its parent and replies under it", async () => {

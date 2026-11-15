@@ -1,15 +1,33 @@
 /**
  * A Slack tool action run through the router against fakes.
  *
- * Each test file mocks the Slack client and the confirmation gates
+ * Importing this mocks the Slack client and the confirmation gates
  * with `slack` and `confirmations` from here, so the router's own
  * work shows: what it asks Slack for, what it sends and what it
- * answers. Every gate approves unless a test says otherwise.
+ * answers. Every gate approves unless a test says otherwise, and each
+ * test starts with no calls recorded. The mocks hold because `route`
+ * imports the router only after they're in place.
  */
 
-import { vi } from "vitest";
+import { beforeEach, vi } from "vitest";
 import type { ActionParams, ToolResult } from "../../../lib/slack/types.ts";
 import { resultSession } from "../../support/result-session.ts";
+
+vi.mock("../../../lib/slack/index.ts", async (original) => ({
+	...(await original<object>()),
+	...(await import("./routed.ts")).slack,
+}));
+vi.mock(
+	"../../../extensions/slack-integration/confirmation.ts",
+	async (original) => ({
+		...(await original<object>()),
+		...(await import("./routed.ts")).confirmations,
+	}),
+);
+
+beforeEach(() => {
+	vi.clearAllMocks();
+});
 
 /** A conversation as the fake resolver names it. */
 function conversation(id: string) {

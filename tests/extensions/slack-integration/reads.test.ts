@@ -1,14 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { route, slack } from "./routed.ts";
-
-vi.mock("../../../lib/slack/index.ts", async (original) => ({
-	...(await original<object>()),
-	...(await import("./routed.ts")).slack,
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 describe("searching", () => {
 	it("searches everything when only an operator is given", async () => {
