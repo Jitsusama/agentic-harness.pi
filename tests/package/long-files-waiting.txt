@@ -12,7 +12,6 @@ extensions/quest-workflow/lookup.ts
 extensions/quest-workflow/session-registry.ts
 extensions/quest-workflow/verbs/stage.ts
 extensions/subagent-workflow/index.ts
-extensions/work-integration/tools/tree.ts
 host/engine/hosted-agent.ts
 lib/core/lsp/standalone/server.ts
 lib/core/observability/ledger/store.ts
