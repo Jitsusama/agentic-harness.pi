@@ -3,6 +3,7 @@
  */
 
 import type { OAuth2Client } from "google-auth-library";
+import type { drive_v3 } from "googleapis";
 import type { DriveFile } from "../types.ts";
 import { google } from "./client.ts";
 
@@ -88,22 +89,8 @@ export async function listFiles(
 			: {}),
 	});
 
-	const files: DriveFile[] = (response.data.files || []).map((f) => ({
-		id: f.id || "",
-		name: f.name || "",
-		mimeType: f.mimeType || "",
-		size: f.size ? Number.parseInt(f.size, 10) : undefined,
-		modifiedTime: f.modifiedTime || "",
-		owners: (f.owners || []).map((o) => ({
-			displayName: o.displayName || "",
-			emailAddress: o.emailAddress || "",
-		})),
-		webViewLink: f.webViewLink || undefined,
-		iconLink: f.iconLink || undefined,
-	}));
-
 	return {
-		files,
+		files: (response.data.files || []).map(readFile),
 		nextPageToken: response.data.nextPageToken || undefined,
 	};
 }
@@ -124,7 +111,11 @@ export async function getFileMetadata(
 		supportsAllDrives: true,
 	});
 
-	const f = response.data;
+	return readFile(response.data);
+}
+
+/** A file as a reader sees it, however Drive was asked for it. */
+function readFile(f: drive_v3.Schema$File): DriveFile {
 	return {
 		id: f.id || "",
 		name: f.name || "",

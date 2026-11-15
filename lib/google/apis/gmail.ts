@@ -3,8 +3,24 @@
  */
 
 import type { OAuth2Client } from "google-auth-library";
+import type { gmail_v1 } from "googleapis";
 import type { EmailMessage, EmailMessageFull } from "../types.ts";
 import { google } from "./client.ts";
+
+/** A message as Gmail answers one. */
+type GmailMessage = gmail_v1.Schema$Message;
+
+/** One part of a message's payload, which may hold parts of its own. */
+type GmailPart = gmail_v1.Schema$MessagePart;
+
+/** What a new message says: who it goes to, about what, and its body. */
+interface Composed {
+	to: string[];
+	subject: string;
+	body: string;
+	cc?: string[];
+	bcc?: string[];
+}
 
 /**
  * Search emails using Gmail query syntax.
@@ -41,23 +57,7 @@ export async function searchEmails(
 			metadataHeaders: ["From", "To", "Cc", "Subject", "Date"],
 		});
 
-		const headers = msg.data.payload?.headers || [];
-		const getHeader = (name: string) =>
-			headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())
-				?.value || "";
-
-		messages.push({
-			id: msg.data.id || "",
-			threadId: msg.data.threadId || "",
-			subject: getHeader("Subject") || "(no subject)",
-			from: parseEmailAddress(getHeader("From")),
-			to: parseEmailAddresses(getHeader("To")),
-			cc: getHeader("Cc") ? parseEmailAddresses(getHeader("Cc")) : undefined,
-			date: getHeader("Date"),
-			snippet: msg.data.snippet || "",
-			labels: msg.data.labelIds || [],
-			hasAttachments: hasAttachments(msg.data.payload),
-		});
+		messages.push(readMessage(msg.data));
 	}
 
 	return {
@@ -82,27 +82,7 @@ export async function getEmail(
 		format,
 	});
 
-	const headers = msg.data.payload?.headers || [];
-	const getHeader = (name: string) =>
-		headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ||
-		"";
-
-	const message: EmailMessageFull = {
-		id: msg.data.id || "",
-		threadId: msg.data.threadId || "",
-		subject: getHeader("Subject") || "(no subject)",
-		from: parseEmailAddress(getHeader("From")),
-		to: parseEmailAddresses(getHeader("To")),
-		cc: getHeader("Cc") ? parseEmailAddresses(getHeader("Cc")) : undefined,
-		date: getHeader("Date"),
-		snippet: msg.data.snippet || "",
-		labels: msg.data.labelIds || [],
-		hasAttachments: hasAttachments(msg.data.payload),
-		body: extractBody(msg.data.payload),
-		attachments: extractAttachments(msg.data.payload),
-	};
-
-	return message;
+	return readFullMessage(msg.data);
 }
 
 /**
@@ -133,30 +113,7 @@ export async function getThread(
 		format: "full",
 	});
 
-	const messages: EmailMessageFull[] = [];
-	for (const msgData of thread.data.messages || []) {
-		const headers = msgData.payload?.headers || [];
-		const getHeader = (name: string) =>
-			headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())
-				?.value || "";
-
-		messages.push({
-			id: msgData.id || "",
-			threadId: msgData.threadId || "",
-			subject: getHeader("Subject") || "(no subject)",
-			from: parseEmailAddress(getHeader("From")),
-			to: parseEmailAddresses(getHeader("To")),
-			cc: getHeader("Cc") ? parseEmailAddresses(getHeader("Cc")) : undefined,
-			date: getHeader("Date"),
-			snippet: msgData.snippet || "",
-			labels: msgData.labelIds || [],
-			hasAttachments: hasAttachments(msgData.payload),
-			body: extractBody(msgData.payload),
-			attachments: extractAttachments(msgData.payload),
-		});
-	}
-
-	return messages;
+	return (thread.data.messages || []).map(readFullMessage);
 }
 
 /**
@@ -164,26 +121,14 @@ export async function getThread(
  */
 export async function sendEmail(
 	auth: OAuth2Client,
-	options: {
-		to: string[];
-		subject: string;
-		body: string;
-		cc?: string[];
-		bcc?: string[];
+	options: Composed & {
 		replyTo?: string; // Message ID to reply to
 	},
 ): Promise<{ id: string; threadId: string }> {
 	const gmail = google.gmail({ version: "v1", auth });
 
-	// We build the email message.
-	const headers = [
-		`To: ${options.to.join(", ")}`,
-		...(options.cc ? [`Cc: ${options.cc.join(", ")}`] : []),
-		...(options.bcc ? [`Bcc: ${options.bcc.join(", ")}`] : []),
-		`Subject: ${options.subject}`,
-	];
-
 	// If replying, we add headers and fetch the original message.
+	const replyHeaders: string[] = [];
 	let threadId: string | undefined;
 	if (options.replyTo) {
 		const original = await gmail.users.messages.get({
@@ -193,16 +138,12 @@ export async function sendEmail(
 			metadataHeaders: ["Message-ID", "References"],
 		});
 
-		const messageIdHeader = original.data.payload?.headers?.find(
-			(h) => h.name?.toLowerCase() === "message-id",
-		)?.value;
-		const referencesHeader = original.data.payload?.headers?.find(
-			(h) => h.name?.toLowerCase() === "references",
-		)?.value;
+		const messageIdHeader = headerOf(original.data, "Message-ID");
+		const referencesHeader = headerOf(original.data, "References");
 
 		if (messageIdHeader) {
-			headers.push(`In-Reply-To: ${messageIdHeader}`);
-			headers.push(
+			replyHeaders.push(`In-Reply-To: ${messageIdHeader}`);
+			replyHeaders.push(
 				`References: ${referencesHeader ? `${referencesHeader} ` : ""}${messageIdHeader}`,
 			);
 		}
@@ -210,19 +151,10 @@ export async function sendEmail(
 		threadId = original.data.threadId || undefined;
 	}
 
-	const message = [...headers, "", options.body].join("\n");
-
-	// We encode the message.
-	const encodedMessage = Buffer.from(message)
-		.toString("base64")
-		.replace(/\+/g, "-")
-		.replace(/\//g, "_")
-		.replace(/[=]+$/, "");
-
 	const result = await gmail.users.messages.send({
 		userId: "me",
 		requestBody: {
-			raw: encodedMessage,
+			raw: encodeMessage(options, replyHeaders),
 			threadId,
 		},
 	});
@@ -238,36 +170,15 @@ export async function sendEmail(
  */
 export async function createDraft(
 	auth: OAuth2Client,
-	options: {
-		to: string[];
-		subject: string;
-		body: string;
-		cc?: string[];
-		bcc?: string[];
-	},
+	options: Composed,
 ): Promise<{ id: string; messageId: string }> {
 	const gmail = google.gmail({ version: "v1", auth });
-
-	const headers = [
-		`To: ${options.to.join(", ")}`,
-		...(options.cc ? [`Cc: ${options.cc.join(", ")}`] : []),
-		...(options.bcc ? [`Bcc: ${options.bcc.join(", ")}`] : []),
-		`Subject: ${options.subject}`,
-	];
-
-	const message = [...headers, "", options.body].join("\n");
-
-	const encodedMessage = Buffer.from(message)
-		.toString("base64")
-		.replace(/\+/g, "-")
-		.replace(/\//g, "_")
-		.replace(/[=]+$/, "");
 
 	const result = await gmail.users.drafts.create({
 		userId: "me",
 		requestBody: {
 			message: {
-				raw: encodedMessage,
+				raw: encodeMessage(options),
 			},
 		},
 	});
@@ -285,15 +196,7 @@ export async function archiveEmail(
 	auth: OAuth2Client,
 	messageId: string,
 ): Promise<void> {
-	const gmail = google.gmail({ version: "v1", auth });
-
-	await gmail.users.messages.modify({
-		userId: "me",
-		id: messageId,
-		requestBody: {
-			removeLabelIds: ["INBOX"],
-		},
-	});
+	await relabel(auth, messageId, { removeLabelIds: ["INBOX"] });
 }
 
 /**
@@ -303,15 +206,7 @@ export async function unarchiveEmail(
 	auth: OAuth2Client,
 	messageId: string,
 ): Promise<void> {
-	const gmail = google.gmail({ version: "v1", auth });
-
-	await gmail.users.messages.modify({
-		userId: "me",
-		id: messageId,
-		requestBody: {
-			addLabelIds: ["INBOX"],
-		},
-	});
+	await relabel(auth, messageId, { addLabelIds: ["INBOX"] });
 }
 
 /**
@@ -336,15 +231,7 @@ export async function markRead(
 	auth: OAuth2Client,
 	messageId: string,
 ): Promise<void> {
-	const gmail = google.gmail({ version: "v1", auth });
-
-	await gmail.users.messages.modify({
-		userId: "me",
-		id: messageId,
-		requestBody: {
-			removeLabelIds: ["UNREAD"],
-		},
-	});
+	await relabel(auth, messageId, { removeLabelIds: ["UNREAD"] });
 }
 
 /**
@@ -354,15 +241,76 @@ export async function markUnread(
 	auth: OAuth2Client,
 	messageId: string,
 ): Promise<void> {
+	await relabel(auth, messageId, { addLabelIds: ["UNREAD"] });
+}
+
+/** Add or remove labels on one message, leaving the rest as they are. */
+async function relabel(
+	auth: OAuth2Client,
+	messageId: string,
+	change: gmail_v1.Schema$ModifyMessageRequest,
+): Promise<void> {
 	const gmail = google.gmail({ version: "v1", auth });
 
 	await gmail.users.messages.modify({
 		userId: "me",
 		id: messageId,
-		requestBody: {
-			addLabelIds: ["UNREAD"],
-		},
+		requestBody: change,
 	});
+}
+
+/** What every reader of a message sees: its headers, labels and snippet. */
+function readMessage(msg: GmailMessage): EmailMessage {
+	const cc = headerOf(msg, "Cc");
+	return {
+		id: msg.id || "",
+		threadId: msg.threadId || "",
+		subject: headerOf(msg, "Subject") || "(no subject)",
+		from: parseEmailAddress(headerOf(msg, "From")),
+		to: parseEmailAddresses(headerOf(msg, "To")),
+		cc: cc ? parseEmailAddresses(cc) : undefined,
+		date: headerOf(msg, "Date"),
+		snippet: msg.snippet || "",
+		labels: msg.labelIds || [],
+		hasAttachments: hasAttachments(msg.payload),
+	};
+}
+
+/** A message as a full read sees it, with its body and attachments. */
+function readFullMessage(msg: GmailMessage): EmailMessageFull {
+	return {
+		...readMessage(msg),
+		body: extractBody(msg.payload),
+		attachments: extractAttachments(msg.payload),
+	};
+}
+
+/** One header's value, matched without regard to case; empty if absent. */
+function headerOf(msg: GmailMessage, name: string): string {
+	const wanted = name.toLowerCase();
+	return (
+		msg.payload?.headers?.find((h) => h.name?.toLowerCase() === wanted)
+			?.value || ""
+	);
+}
+
+/**
+ * A message as Gmail takes one: its headers, a blank line and its body,
+ * in URL-safe base64 without padding.
+ */
+function encodeMessage(message: Composed, extraHeaders: string[] = []): string {
+	const headers = [
+		`To: ${message.to.join(", ")}`,
+		...(message.cc ? [`Cc: ${message.cc.join(", ")}`] : []),
+		...(message.bcc ? [`Bcc: ${message.bcc.join(", ")}`] : []),
+		`Subject: ${message.subject}`,
+		...extraHeaders,
+	];
+	return Buffer.from([...headers, "", message.body].join("\n"))
+		.toString("base64")
+		.replace(/\+/g, "-")
+		.replace(/\//g, "_")
+		.replace(/[=]+$/, "");
 }
 
 function parseEmailAddress(header: string): { name: string; email: string } {
@@ -383,109 +331,58 @@ function parseEmailAddresses(
 	return header.split(",").map((addr) => parseEmailAddress(addr.trim()));
 }
 
-function hasAttachments(payload: unknown): boolean {
-	if (!payload || typeof payload !== "object") return false;
-	const parts = (payload as { parts?: unknown[] }).parts;
-	if (!parts) return false;
-
-	return parts.some((part) => {
-		if (
-			typeof part === "object" &&
-			part !== null &&
-			"filename" in part &&
-			part.filename
-		) {
-			return true;
-		}
-		return false;
-	});
+function hasAttachments(payload: GmailPart | undefined): boolean {
+	return (payload?.parts ?? []).some((part) => Boolean(part.filename));
 }
 
-function extractBody(payload: unknown): string {
-	if (!payload || typeof payload !== "object") return "";
-
-	const p = payload as {
-		mimeType?: string;
-		body?: { data?: string };
-		parts?: unknown[];
-	};
+function extractBody(payload: GmailPart | undefined): string {
+	if (!payload) return "";
 
 	// If there's a body.data, we decode it.
-	if (p.body?.data) {
-		return decodeBase64(p.body.data);
+	if (payload.body?.data) {
+		return decodeBase64(payload.body.data);
 	}
 
-	// If there are parts, we recursively search for text/plain or text/html.
-	if (p.parts) {
-		for (const part of p.parts) {
-			if (typeof part !== "object" || part === null) continue;
-			const partObj = part as {
-				mimeType?: string;
-				body?: { data?: string };
-				parts?: unknown[];
-			};
+	const parts = payload.parts;
+	if (!parts) return "";
 
-			if (partObj.mimeType === "text/plain" && partObj.body?.data) {
-				return decodeBase64(partObj.body.data);
-			}
-		}
+	// We prefer plain text, and fall back to HTML if there's none.
+	const plain = partData(parts, "text/plain");
+	if (plain) return decodeBase64(plain);
+	const html = partData(parts, "text/html");
+	if (html) return stripHtml(decodeBase64(html));
 
-		// We fall back to HTML if there's no plain text.
-		for (const part of p.parts) {
-			if (typeof part !== "object" || part === null) continue;
-			const partObj = part as {
-				mimeType?: string;
-				body?: { data?: string };
-				parts?: unknown[];
-			};
-
-			if (partObj.mimeType === "text/html" && partObj.body?.data) {
-				return stripHtml(decodeBase64(partObj.body.data));
-			}
-		}
-
-		// We recurse into multipart parts.
-		for (const part of p.parts) {
-			const body = extractBody(part);
-			if (body) return body;
-		}
+	// We recurse into multipart parts.
+	for (const part of parts) {
+		const body = extractBody(part);
+		if (body) return body;
 	}
 
 	return "";
 }
 
+/** The encoded body of the first part of one type that has one. */
+function partData(parts: GmailPart[], mimeType: string): string | undefined {
+	return (
+		parts.find((part) => part.mimeType === mimeType && part.body?.data)
+			?.body?.data ?? undefined
+	);
+}
+
 function extractAttachments(
-	payload: unknown,
+	payload: GmailPart | undefined,
 ): Array<{ filename: string; mimeType: string; size: number }> {
-	if (!payload || typeof payload !== "object") return [];
-
-	const attachments: Array<{
-		filename: string;
-		mimeType: string;
-		size: number;
-	}> = [];
-	const p = payload as { parts?: unknown[] };
-
-	if (!p.parts) return [];
-
-	for (const part of p.parts) {
-		if (typeof part !== "object" || part === null) continue;
-		const partObj = part as {
-			filename?: string;
-			mimeType?: string;
-			body?: { size?: number };
-		};
-
-		if (partObj.filename) {
-			attachments.push({
-				filename: partObj.filename,
-				mimeType: partObj.mimeType || "application/octet-stream",
-				size: partObj.body?.size || 0,
-			});
-		}
-	}
-
-	return attachments;
+	return (payload?.parts ?? []).flatMap((part) =>
+		part.filename
+			? [
+					{
+						filename: part.filename,
+						mimeType: part.mimeType || "application/octet-stream",
+						size: part.body?.size || 0,
+					},
+				]
+			: [],
+	);
 }
 
 function decodeBase64(data: string): string {
