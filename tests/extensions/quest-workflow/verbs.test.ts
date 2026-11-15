@@ -35,16 +35,9 @@ import {
 	registerTerminalDriver,
 } from "../../../lib/terminal/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
-import { createEnvGuard } from "./_helpers.ts";
+import { createEnvGuard, fakeCtx } from "./_helpers.ts";
 
 let tmpRoot: string;
-
-function fakeCtx(cwd: string, sessionId = "sess-1") {
-	return {
-		cwd,
-		sessionManager: { getSessionId: () => sessionId },
-	} as unknown as Parameters<typeof handle>[2];
-}
 
 function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });

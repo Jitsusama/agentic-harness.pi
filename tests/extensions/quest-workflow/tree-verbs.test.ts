@@ -29,17 +29,10 @@ import {
 } from "../../../lib/refs/index.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
-import { createEnvGuard, succeeded } from "./_helpers.ts";
+import { createEnvGuard, fakeCtx, succeeded } from "./_helpers.ts";
 
 let tmpRoot: string;
 let repoRoot: string;
-
-function fakeCtx(cwd: string, sessionId = "sess-1") {
-	return {
-		cwd,
-		sessionManager: { getSessionId: () => sessionId },
-	} as unknown as Parameters<typeof handle>[2];
-}
 
 function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });

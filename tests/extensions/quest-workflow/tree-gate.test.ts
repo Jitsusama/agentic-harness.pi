@@ -22,7 +22,7 @@ import { ensureQuestScratchDir } from "../../../lib/internal/quest/scratch.ts";
 import { addTreeToQuest } from "../../../lib/internal/quest/trees.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { freshRepo } from "../../support/git-fixture.ts";
-import { createEnvGuard } from "./_helpers.ts";
+import { createEnvGuard, fakeCtx } from "./_helpers.ts";
 
 // The state dir is not a git repo, so paths under it read as
 // loose files; tempRoots is forced to [] so the system temp
@@ -31,12 +31,6 @@ let tmpRoot: string;
 let repoRoot: string;
 const noScratch = { tempRoots: [] as string[] };
 
-function fakeCtx(cwd: string, sessionId = "sess-1") {
-	return {
-		cwd,
-		sessionManager: { getSessionId: () => sessionId },
-	} as unknown as Parameters<typeof handle>[2];
-}
 function buildState() {
 	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
 }
