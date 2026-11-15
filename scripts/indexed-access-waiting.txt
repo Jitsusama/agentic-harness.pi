@@ -193,7 +193,6 @@ tests/lib/mcp/surface/helpers.test.ts 5
 tests/lib/mcp/surface/manager.test.ts 8
 tests/lib/mcp/surface/policy.test.ts 6
 tests/lib/memory/store.test.ts 2
-tests/lib/mesh/presence.test.ts 3
 tests/lib/prose/detect.test.ts 3
 tests/lib/prose/spelling-binding.test.ts 3
 tests/lib/quest/discovery-toc-mentions.test.ts 4

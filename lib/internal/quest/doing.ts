@@ -66,7 +66,7 @@ export function doingNow(source: DoingSource): Omit<Doing, "at"> | undefined {
 	return {
 		plan: documentId,
 		...(numbered ? { item: Number(numbered[1]) } : {}),
-		next: plain(numbered ? numbered[2] : currentItem),
+		next: plain(numbered?.[2] ?? currentItem),
 		...(chose ? { chose } : {}),
 	};
 }
