@@ -212,6 +212,13 @@ only a conversation with a screen parks, with the mesh loaded beside
 the fixture's extensions (`startScreenHost`'s third argument). E12
 reopens a released one in plain pi.
 
+release-queued.test.ts is E27: a release as a conversation's next
+prompts follow its run's end at once, as away mode's send-back queues
+them. Two steers and a peer's mesh question queue behind a tool that
+ends by itself, and `host-release.ts --all` starts. Whether the host
+answers them first or plain pi answers them after, from the same file,
+each is answered once, and the log stays whole and keeps what it held.
+
 early-attach.test.ts attaches a viewer to a conversation the screen
 host lists but hasn't yet given a screen, its folder's own extension
 holding its start between the two. On 11 November a window moving in
