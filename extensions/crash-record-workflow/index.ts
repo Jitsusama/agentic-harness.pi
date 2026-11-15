@@ -1,8 +1,9 @@
 /**
  * Crash Record extension.
  *
- * What the system's log hears of a pi: how long it took to be ready, and
- * why it ended when an uncaught error ends it.
+ * What the system's log hears of a pi: how long it took to be ready,
+ * why it ended when an uncaught error ends it, and what held it when it
+ * is slow to end.
  *
  * Once its first session has started and its history is drawn, a pi
  * writes `pi: ready in N ms` to the system's log, timed from the
@@ -18,14 +19,23 @@
  * host runs many conversations in one process and installs whatever
  * that process listens for itself. See
  * `lib/internal/session/crash-record.ts`.
+ *
+ * A pi still ending 2 seconds after a TERM or a HUP, or after its
+ * session quit, says what held it: `pi: still ending` in the system's
+ * log, naming what the process still holds open and the processes
+ * under it, with a fuller record in its state folder's `slow-ends/`.
+ * The watch never keeps the process up and the write waits on nothing.
+ * See `lib/internal/session/slow-end.ts`.
  */
 
 import { statSync } from "node:fs";
+import { join } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
+import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	type CrashWriter,
 	crashText,
@@ -38,6 +48,15 @@ import {
 	writeJournal,
 } from "../../lib/internal/session/journal.ts";
 import { readyLine, watchReady } from "../../lib/internal/session/ready.ts";
+import {
+	childrenOf,
+	slowEndLine,
+	watchSlowEnd,
+	writeSlowEnd,
+} from "../../lib/internal/session/slow-end.ts";
+
+/** How long a pi may take to end before it says what holds it. */
+export const SLOW_END_MS = 2_000;
 
 /** The session entry a crash is kept as. */
 export const CRASH_ENTRY = "crash";
@@ -52,10 +71,18 @@ export default function crashRecord(pi: ExtensionAPI): void {
 	const journal = journalCommand("err");
 	const ready = watchReady();
 	let stop: (() => void) | undefined;
+	let slowEnd: ReturnType<typeof watchSlowEnd> | undefined;
 	pi.on("session_start", (event, ctx) => {
 		if (ctx.hasUI) ready.started(event.reason, performance.now());
 		stop?.();
 		const session = sessionOf(ctx);
+		slowEnd?.stop();
+		slowEnd = watchSlowEnd({
+			afterMs: SLOW_END_MS,
+			signals: process,
+			raise: (signal) => process.kill(process.pid, signal),
+			onSlow: (cause, afterMs) => saySlowEnd(session, cause, afterMs),
+		});
 		stop = recordCrashes(
 			session,
 			writerFor(pi, `session ${session} in ${ctx.cwd}`, journal),
@@ -82,10 +109,35 @@ export default function crashRecord(pi: ExtensionAPI): void {
 			);
 		});
 	});
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", (event) => {
 		stop?.();
 		stop = undefined;
+		// Only a quit ends the process; a reload, new session, resume or
+		// fork starts the next session in it, which watches afresh.
+		if (event.reason === "quit") slowEnd?.arm("quit");
+		else slowEnd?.stop();
 	});
+}
+
+/**
+ * Says what holds a pi still ending: a record in the state folder, and
+ * a line in the system's log, which waits on nothing.
+ */
+function saySlowEnd(session: string, cause: string, afterMs: number): void {
+	const pid = process.pid;
+	const end = {
+		pid,
+		session,
+		cause,
+		afterMs,
+		active: process.getActiveResourcesInfo(),
+		children: childrenOf(pid),
+	};
+	const file = writeSlowEnd(
+		end,
+		join(stateDir("crash-record-workflow"), "slow-ends"),
+	);
+	sayInJournal(slowEndLine(end, file), journalCommand("err"));
 }
 
 /** Writes a crash to the session's log, then to the system's. */

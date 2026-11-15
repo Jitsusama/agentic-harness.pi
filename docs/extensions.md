@@ -43,7 +43,9 @@ it does:
   the error and its stack to its session's log and the system's log
   before pi's own handler exits. pi printed it only to a terminal that
   closed with the window, so about 40 pis died one night with nothing
-  said where anybody looked.
+  said where anybody looked. It also says what holds a pi still
+  ending 2 seconds after it was asked to, since 8 of 10 were killed
+  mid-shutdown at one reboot with nothing said of what they waited on.
 
   `model-retry-workflow` asks the model again when a call failed
   for a moment and pi's own retries, 14 seconds of them, ran out:
