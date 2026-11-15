@@ -374,7 +374,12 @@ describe("the hosted agent resuming a turn a restart cut off", {
 		try {
 			expect(await killed("crash-in-request", folder)).toBe("SIGKILL");
 			const { observed, reported } = await reopenedWithReports(folder);
-			expect(reported, "durable reported nothing").toBe("");
+			expect(
+				reported.trim(),
+				"durable reported only the request the host cut off",
+			).toBe(
+				"durable reported: Error: The host stopped while the model was answering, on attempt 1",
+			);
 			expect(
 				said(observed, "assistant").at(-1),
 				"the cut-off turn has its answer",
