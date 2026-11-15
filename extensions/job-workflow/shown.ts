@@ -14,7 +14,7 @@
  * words twice is theirs to send twice.
  */
 
-import { isOutboxMessage } from "./outbox.ts";
+import { isOutboxMessage } from "../../lib/jobs/report.ts";
 
 /** What the session has shown, and whether a prompt is a repeat of it. */
 export interface ShownReports {

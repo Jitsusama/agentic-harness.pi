@@ -43,7 +43,7 @@
  * a run that ended without it) is sent again rather than lost.
  */
 
-import { automatedHeader } from "../../lib/internal/automated.ts";
+import { isOutboxMessage, OUTBOX_HEADER } from "../../lib/jobs/report.ts";
 
 /** A finished job's result, bounded, ready to say. */
 export interface JobResult {
@@ -118,28 +118,6 @@ export const TICK_MS = 1_000;
 
 /** The custom message a result steered into a run goes as. */
 export const STEERED_RESULTS = "job-results";
-
-/** How the message opens, so the model and the person know nobody typed it. */
-export const OUTBOX_HEADER = automatedHeader("background work is reporting");
-
-/**
- * The header older code sent. A result sent just before a reload is
- * seen by the code that loads after it, so both are recognised.
- */
-const OLDER_HEADER = automatedHeader("background jobs are reporting");
-
-/** Whether a message is the outbox's, from this code or older. */
-export function isOutboxMessage(text: string): boolean {
-	return text.startsWith(OUTBOX_HEADER) || text.startsWith(OLDER_HEADER);
-}
-
-/** The jobs an outbox message reports, by id; none for any other text. */
-export function jobIdsIn(text: string): string[] {
-	if (!isOutboxMessage(text)) return [];
-	return [...text.matchAll(/\[(?:job )?(j\d+)\]/g)].flatMap(([, id]) =>
-		id === undefined ? [] : [id],
-	);
-}
 
 /** A result's tag in the message, which is how its landing is recognised. */
 const tag = (jobId: string) => `[${jobId}]`;
