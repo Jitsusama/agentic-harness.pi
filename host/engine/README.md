@@ -79,8 +79,9 @@ patch's createAgent option. The agent is HostedAgent (hosted-agent.ts),
 shaped as pi's Agent and run by the conversation's own durable harness,
 which openHostedConversation (hosted-conversation.ts) opens on a SQLite
 store of its own. What a run holds, the agent's state, the provider
-stream and durable's transcript mirrored to pi live beside it in
-hosted-agent/. pi keeps its state, queues, listeners, hooks, retry and
+stream, durable's transcript mirrored to pi, pi's turns around each
+request, the queued words given to durable and the recovery live beside
+it in hosted-agent/. pi keeps its state, queues, listeners, hooks, retry and
 compaction, and every request is built from pi's projection of the
 session. Durable admits inputs, makes each request through pi's stream
 with the conversation's environment, and runs each tool, never rerunning

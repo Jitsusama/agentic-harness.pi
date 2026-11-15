@@ -63,6 +63,13 @@ export interface Run {
 	opened: boolean;
 }
 
+/** The run under way, with the promise its end settles and what settles it. */
+export interface ActiveRun {
+	readonly promise: Promise<void>;
+	readonly resolve: () => void;
+	readonly run: Run;
+}
+
 export const EMPTY_USAGE = {
 	input: 0,
 	output: 0,

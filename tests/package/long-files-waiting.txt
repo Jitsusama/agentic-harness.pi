@@ -5,7 +5,6 @@
 # only shrinks.
 extensions
 extensions/quest-workflow/index.ts
-host/engine/hosted-agent.ts
 lib/internal
 lib/internal/quest
 lib/internal/quest/discovery.ts

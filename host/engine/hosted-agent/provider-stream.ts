@@ -1,8 +1,10 @@
 /**
  * A request through pi's stream function, and its stream shown to pi as
  * pi's loop shows one while durable reads the same events at its own
- * pace. An aborted request that will not end is given up on.
+ * pace. An aborted request that will not end is given up on. Durable
+ * reaches the stream through the models it is given here.
  */
+import type { DurableModels } from "../durable-types.ts";
 import type { PiLibrary } from "../pi-library.ts";
 import type {
 	AgentEvent,
@@ -52,6 +54,48 @@ export interface StreamSide {
 	emit(event: AgentEvent): Promise<void>;
 	/** The answer is in: give back the turn a carried run waited for, once. */
 	answered(): void;
+}
+
+/** What durable's models read from the agent, each as it is asked. */
+export interface ModelsSide {
+	/** The run under way, whose model is asked for first. */
+	run(): Run | undefined;
+	/** The agent's own model. */
+	model(): Model;
+	stream(options: Record<string, unknown>): ProviderStream;
+}
+
+/** The models durable requests through: pi's stream, with pi's options, for each request. */
+export function durableModels(side: ModelsSide): DurableModels {
+	return new Proxy(
+		{
+			getModel: (provider: string, id: string): Model | undefined => {
+				const run = side.run();
+				for (const model of [run?.model, side.model()]) {
+					if (model && model.provider === provider && model.id === id)
+						return model;
+				}
+				return undefined;
+			},
+			streamSimple: (
+				_model: Model,
+				_context: unknown,
+				options?: Record<string, unknown>,
+			) => side.stream(options ?? {}),
+		},
+		{
+			get(target, name, receiver) {
+				if (name in target) return Reflect.get(target, name, receiver);
+				if (typeof name === "symbol" || name === "then") return undefined;
+				// Present, since durable binds what it wraps; refused when called, so a new use shows at once.
+				return () => {
+					throw new Error(
+						`The host's agent offers durable no Models.${name}; pi owns that`,
+					);
+				};
+			},
+		},
+	);
 }
 
 /** Send one request through pi's stream function, with the conversation's credentials. */

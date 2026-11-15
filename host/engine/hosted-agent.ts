@@ -9,7 +9,8 @@
  * once durable committed it, so the session file never holds it twice.
  * What it leans on lives beside it in hosted-agent/: what a run holds,
  * the agent's state, the provider stream, durable's transcript mirrored
- * to pi, and reading pi's messages.
+ * to pi, pi's turns around each request, the queued words given to
+ * durable, the recovery, and reading pi's messages.
  */
 import { randomUUID } from "node:crypto";
 import { isPersonWords } from "../../lib/internal/session/driven.ts";
@@ -18,44 +19,44 @@ import type {
 	DurableModels,
 	GenerationHooks,
 	HarnessSettings,
-	RunFailure,
 	Submission,
 	ToolRegistration,
 } from "./durable-types.ts";
+import { Admissions } from "./hosted-agent/admissions.ts";
 import type {
 	DurableBinding,
 	QueueShowingSession,
 	ShowQueued,
 } from "./hosted-agent/binding.ts";
 import {
-	cutOffAnswer,
 	defaultConvertToLlm,
-	isAssistant,
 	jsonCopy,
-	lastOfRole,
 	normalizePromptInput,
-	queuedText,
-	resultOf,
-	resultsOf,
 	userContent,
 } from "./hosted-agent/messages.ts";
 import {
+	durableModels,
 	isPayloadHook,
 	openRequest,
 	teeStream,
 } from "./hosted-agent/provider-stream.ts";
+import { Recovery } from "./hosted-agent/recovery.ts";
 import {
-	applyModel,
+	type ActiveRun,
 	EMPTY_USAGE,
 	INPUT_KINDS,
 	type InputData,
 	type Run,
 	unansweredMessage,
 } from "./hosted-agent/run.ts";
-import { createState, type HostedAgentState } from "./hosted-agent/state.ts";
+import {
+	createState,
+	type HostedAgentState,
+	reduce,
+} from "./hosted-agent/state.ts";
 import { declareToolChanges } from "./hosted-agent/tool-changes.ts";
 import { Transcript } from "./hosted-agent/transcript.ts";
-import { pairToolResults } from "./paired-results.ts";
+import { Turns } from "./hosted-agent/turns.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import type {
 	AgentContext,
@@ -65,29 +66,14 @@ import type {
 	AgentOptions,
 	AgentTool,
 	AssistantMessage,
-	CompletedTurn,
 	ContentBlock,
-	Model,
 	ProviderStream,
 	QueueMode,
 	StreamFn,
-	ToolResultMessage,
-	TurnUpdate,
 } from "./pi-types.ts";
 import { MessageQueue, type QueuedMessage } from "./queue.ts";
-import {
-	beganWithPersonsWords,
-	type GiveBack,
-	type TakeTurn,
-} from "./resume-turns.ts";
-import {
-	errorResult,
-	resultMessage,
-	ToolRound,
-	terminates,
-	toolCalls,
-	truncatedCallText,
-} from "./tool-round.ts";
+import type { TakeTurn } from "./resume-turns.ts";
+import { ToolRound } from "./tool-round.ts";
 
 export type {
 	DurableBinding,
@@ -96,8 +82,6 @@ export type {
 } from "./hosted-agent/binding.ts";
 export type { HostedAgentState } from "./hosted-agent/state.ts";
 
-/** Durable's reason for a run whose request the host stopped during. */
-const INTERRUPTED = "interrupted";
 /** A tool's parameters as durable sees them: pi validates the arguments itself, with its own texts. */
 const ANY_ARGUMENTS = { type: "object" } as const;
 
@@ -131,21 +115,16 @@ export class HostedAgent {
 	private readonly listeners = new Set<AgentListener>();
 	private readonly steeringQueue: MessageQueue;
 	private readonly followUpQueue: MessageQueue;
-	private active?: { promise: Promise<void>; resolve: () => void; run: Run };
-	/**
-	 * The recovery, once begun: by the host, or by a prompt that came
-	 * first, so each caller shares the one.
-	 */
-	private recovery: Promise<{ readonly settled: Promise<void> }> | undefined;
-	/** Gives back a carried run's turn as the first answer streamed after the restart ends. */
-	private answered: GiveBack | undefined;
+	private active?: ActiveRun;
 
 	/** Whether words Joel typed have come in, which move a run waiting for its turn up. */
 	private joelTyped = false;
-	private admissions: Promise<unknown> = Promise.resolve();
 	private readonly durable: DurableBinding;
 	private readonly library: PiLibrary;
 	private readonly transcript: Transcript;
+	private readonly admissions: Admissions;
+	private readonly turns: Turns;
+	private readonly recovery: Recovery;
 	/** Where words this agent queues past pi's session show as pending, once the host gives it. */
 	private pending: ShowQueued | undefined;
 
@@ -185,6 +164,37 @@ export class HostedAgent {
 			followUp: this.followUpQueue,
 			emit: (event) => this.emit(event),
 			startRound: (run, assistant) => this.startRound(run, assistant),
+		});
+		this.admissions = new Admissions(
+			durable,
+			this.steeringQueue,
+			this.followUpQueue,
+		);
+		this.turns = new Turns(this, {
+			library,
+			transcript: this.transcript,
+			steering: this.steeringQueue,
+			followUp: this.followUpQueue,
+			emit: (event) => this.emit(event),
+			stream: (options) => this.stream(options),
+			admitted: () => this.admissions.settled(),
+		});
+		this.recovery = new Recovery({
+			durable,
+			state: this.state,
+			transcript: this.transcript,
+			followUp: this.followUpQueue,
+			admissions: this.admissions,
+			parking: this.parking.signal,
+			active: () => this.active,
+			parked: () => this.parked,
+			joelTyped: () => this.joelTyped,
+			pending: () => this.pending,
+			runWithLifecycle: (start) => this.runWithLifecycle(start),
+			continueRun: () => this.continueRun(),
+			startRound: (run, assistant, options) =>
+				this.startRound(run, assistant, options),
+			queue: (queue, message, mode) => this.queue(queue, message, mode),
 		});
 		this.sessionId = options.sessionId;
 		this.thinkingBudgets = options.thinkingBudgets;
@@ -227,11 +237,11 @@ export class HostedAgent {
 	}
 
 	clearSteeringQueue(): void {
-		this.withdraw(this.steeringQueue.clear());
+		this.admissions.withdraw(this.steeringQueue.clear());
 	}
 
 	clearFollowUpQueue(): void {
-		this.withdraw(this.followUpQueue.clear());
+		this.admissions.withdraw(this.followUpQueue.clear());
 	}
 
 	clearAllQueues(): void {
@@ -313,15 +323,15 @@ export class HostedAgent {
 			// idle by its own account, let job-workflow say its cut-off notice
 			// again at once, 335 times in one conversation, and two resumes
 			// took 72 s each (14 November).
-			if (await this.followCarriedOn(messages)) return;
-		} else if (!this.recovery) {
+			if (await this.recovery.followCarriedOn(messages)) return;
+		} else if (!this.recovery.begun) {
 			// A prompt before the recovery, as an extension's start sends, begins
 			// it: durable refuses new words as busy while it holds a turn a
 			// restart cut off, and the words were lost (13 November).
 			await this.recover().catch(() => {
 				// The host reports the recovery's failure where it began it; the words go on.
 			});
-			if (await this.followCarriedOn(messages)) return;
+			if (await this.recovery.followCarriedOn(messages)) return;
 		}
 		await this.runPromptMessages(messages);
 	}
@@ -360,11 +370,7 @@ export class HostedAgent {
 			}
 			throw new Error("Cannot continue from message role: assistant");
 		}
-		await this.runWithLifecycle(async (run) => {
-			await this.emit({ type: "agent_start" });
-			await this.emit({ type: "turn_start" });
-			await this.admit(run, { type: "continue" });
-		});
+		await this.continueRun();
 	}
 
 	/**
@@ -392,145 +398,15 @@ export class HostedAgent {
 	 * and a run that goes on for an hour holds up no other.
 	 */
 	recover(turn?: TakeTurn): Promise<{ readonly settled: Promise<void> }> {
-		this.recovery ??= this.recoverOnce(turn);
-		return this.recovery;
-	}
-
-	private async recoverOnce(
-		turn: TakeTurn | undefined,
-	): Promise<{ readonly settled: Promise<void> }> {
-		// A run begun before the recovery, as by an extension's start, ends
-		// first: durable admits nothing new while a turn it holds is cut off.
-		while (this.active) await this.active.promise;
-		await this.transcript.placeAtSession();
-		const before = await this.durable.runFailure();
-		const waits = turn !== undefined && (await this.durable.carrying());
-		let giveBack: GiveBack = () => {};
-		let resumed = () => {};
-		const started = new Promise<void>((done) => {
-			resumed = done;
-		});
-		const settled = this.runWithLifecycle(async (run) => {
-			if (waits) {
-				// Words said meanwhile queue behind this run, as behind any other.
-				resumed();
-				const began = beganWithPersonsWords(this.state.messages);
-				giveBack = await turn(
-					() => began || this.joelTyped,
-					AbortSignal.any([run.controller.signal, this.parking.signal]),
-				);
-				this.answered = giveBack;
-				// Parked while it waited: durable keeps the run for the start that opens it next.
-				if (this.parked) return;
-			}
-			const cut = cutOffAnswer(this.state.messages);
-			if (cut) this.startRound(run, cut, { recovered: true });
-			this.durable.resume();
-			resumed();
-		});
-		await Promise.race([started, settled]);
-		return {
-			settled: settled
-				.then(() => this.askAgainIfCutOff(before))
-				.finally(() => {
-					this.answered = undefined;
-					giveBack();
-				}),
-		};
-	}
-
-	/**
-	 * Ask the model again when the run the recovery carried on ended because
-	 * the host stopped during its request. Durable retries such a request
-	 * only under its own retry, which stays off since pi owns model retries,
-	 * so the turn would otherwise sit unanswered until a new word arrived,
-	 * as one did for four minutes on 14 November. A failure from before this
-	 * recovery is left alone, and so is `restart_limit`, durable's own end to
-	 * a request cut off again and again.
-	 */
-	private async askAgainIfCutOff(
-		before: RunFailure | undefined,
-	): Promise<void> {
-		if (this.parked || this.active) return;
-		const failure = await this.durable.runFailure();
-		if (failure?.reason !== INTERRUPTED || failure.taskId === before?.taskId)
-			return;
-		if (this.parked || this.active) return;
-		await this.runWithLifecycle(async (run) => {
-			await this.emit({ type: "agent_start" });
-			await this.emit({ type: "turn_start" });
-			await this.admit(run, { type: "continue" });
-		});
-	}
-
-	/**
-	 * Queue words behind the turn the recovery carries on, as pi queues a
-	 * prompt while it is busy, so durable holds them through another restart
-	 * rather than only an unresolved prompt. True once the run that answers
-	 * them ended, as pi's agent resolves a prompt: pi's session continues
-	 * the agent once it does. False, with the recovery's run ended, when
-	 * durable carried nothing on.
-	 */
-	private async followCarriedOn(
-		messages: readonly AgentMessage[],
-	): Promise<boolean> {
-		const recovering = this.active;
-		if (!recovering) return false;
-		// Ready settles just as the run begins admitting what pi queues.
-		await recovering.run.ready;
-		if (recovering.run.admitting) {
-			const items = messages.map((message) =>
-				this.queue(this.followUpQueue, message, "followUp"),
-			);
-			// Shown at once, as pi shows its own queued words: pi takes each off
-			// as its message starts, whether durable answers it after the turn
-			// or refused it and it runs as a prompt below.
-			for (const message of messages) {
-				const text = queuedText(message);
-				if (text) this.pending?.(text, "followUp");
-			}
-			await this.admissions;
-			if (items[0]?.submissionId !== undefined) {
-				while (this.active) await this.active.promise;
-				return true;
-			}
-			// An idle conversation refused them: nothing carried on, so they run as a prompt.
-			for (const item of items) this.followUpQueue.take(item.hostId);
-		}
-		while (this.active) await this.active.promise;
-		return false;
+		return this.recovery.recover(turn);
 	}
 
 	/** The models durable requests through: pi's stream, with pi's options, for each request. */
-	readonly models: DurableModels = new Proxy(
-		{
-			getModel: (provider: string, id: string): Model | undefined => {
-				const run = this.active?.run;
-				for (const model of [run?.model, this.state.model]) {
-					if (model && model.provider === provider && model.id === id)
-						return model;
-				}
-				return undefined;
-			},
-			streamSimple: (
-				_model: Model,
-				_context: unknown,
-				options?: Record<string, unknown>,
-			) => this.stream(options ?? {}),
-		},
-		{
-			get(target, name, receiver) {
-				if (name in target) return Reflect.get(target, name, receiver);
-				if (typeof name === "symbol" || name === "then") return undefined;
-				// Present, since durable binds what it wraps; refused when called, so a new use shows at once.
-				return () => {
-					throw new Error(
-						`The host's agent offers durable no Models.${name}; pi owns that`,
-					);
-				};
-			},
-		},
-	);
+	readonly models: DurableModels = durableModels({
+		run: () => this.active?.run,
+		model: () => this.state.model,
+		stream: (options) => this.stream(options),
+	});
 
 	/** Run policy for durable: pi's queue modes and tool execution; pi owns retry and compaction. */
 	settings(): HarnessSettings {
@@ -552,21 +428,7 @@ export class HostedAgent {
 	 * first words are safe.
 	 */
 	whenAdmitted(): Promise<void> {
-		return new Promise((resolve, reject) => {
-			this.admissionWaiters.push({ resolve, reject });
-		});
-	}
-
-	private readonly admissionWaiters: {
-		resolve: () => void;
-		reject: (error: unknown) => void;
-	}[] = [];
-
-	private settleAdmission(error?: unknown): void {
-		for (const waiter of this.admissionWaiters.splice(0)) {
-			if (error === undefined) waiter.resolve();
-			else waiter.reject(error);
-		}
+		return this.admissions.whenAdmitted();
 	}
 
 	private async runPromptMessages(prompts: AgentMessage[]): Promise<void> {
@@ -586,16 +448,25 @@ export class HostedAgent {
 					entry: { kind: INPUT_KINDS.prompt, data },
 				});
 			} catch (error) {
-				this.settleAdmission(error);
+				this.admissions.settleAdmission(error);
 				throw error;
 			}
-			this.settleAdmission();
+			this.admissions.settleAdmission();
 			for (const message of messages) {
 				await this.emit({ type: "message_start", message });
 				await this.emit({ type: "message_end", message });
 				run.context.messages.push(message);
 				run.newMessages.push(message);
 			}
+		});
+	}
+
+	/** pi's continue: a run that asks the model again on what the session holds. */
+	private continueRun(): Promise<void> {
+		return this.runWithLifecycle(async (run) => {
+			await this.emit({ type: "agent_start" });
+			await this.emit({ type: "turn_start" });
+			await this.admit(run, { type: "continue" });
 		});
 	}
 
@@ -648,13 +519,13 @@ export class HostedAgent {
 				started();
 			}
 			run.admitting = true;
-			this.readmitQueued();
+			this.admissions.readmitQueued();
 			await this.settle(run);
 		} catch (error) {
 			await this.fail(run, error);
 		} finally {
 			run.admitting = false;
-			await this.withdrawQueued();
+			await this.admissions.withdrawQueued();
 			this.state.isStreaming = false;
 			this.state.streamingMessage = undefined;
 			this.state.pendingToolCalls = new Set();
@@ -689,16 +560,16 @@ export class HostedAgent {
 		const answer = run.answer;
 		if (answer && !answer.message?.stopReason) {
 			// durable ended the request without an answer it committed: an abort before any partial, or a failure.
-			await this.endFailedTurn(run, unansweredMessage(run, answer));
+			await this.turns.endFailedTurn(run, unansweredMessage(run, answer));
 			return;
 		}
 		if (answer?.message) {
-			await this.endFailedTurn(run, answer.message);
+			await this.turns.endFailedTurn(run, answer.message);
 			return;
 		}
 		if (run.round && !run.endDecided) {
 			// Tools ran, then the run was aborted or cut off before the turn could close; pi closes it.
-			await this.closeRound(run);
+			await this.turns.closeRound(run);
 			if (run.ended) return;
 		}
 		if (run.placed.length > 0) {
@@ -708,72 +579,6 @@ export class HostedAgent {
 		}
 		await this.emit({ type: "agent_end", messages: run.newMessages });
 		run.ended = true;
-	}
-
-	/** An error or aborted answer ends the turn and the run, as pi's loop does. */
-	private async endFailedTurn(
-		run: Run,
-		message: AssistantMessage,
-	): Promise<void> {
-		const answer = run.answer;
-		run.answer = undefined;
-		if (!answer?.started)
-			await this.emit({ type: "message_start", message: { ...message } });
-		await this.emit({ type: "message_end", message });
-		run.newMessages.push(message);
-		const turn: CompletedTurn = {
-			message,
-			toolResults: [],
-			context: run.context,
-			newMessages: run.newMessages,
-		};
-		run.lastCompletedTurn = turn;
-		await this.finishTurn?.(turn, run.controller.signal);
-		await this.emit({ type: "turn_end", message, toolResults: [] });
-		await this.emit({ type: "agent_end", messages: run.newMessages });
-		run.ended = true;
-	}
-
-	/** Close a round whose run was aborted after its tools, as pi's loop would on its next aborted request. */
-	private async closeRound(run: Run): Promise<void> {
-		const round = run.round;
-		if (!round) return;
-		const toolResults = round.calls.flatMap((call) => {
-			const message = round.messages.get(call.id);
-			return message ? [message] : [];
-		});
-		run.round = undefined;
-		const turn: CompletedTurn = {
-			message: round.assistant,
-			toolResults,
-			context: run.context,
-			newMessages: run.newMessages,
-		};
-		run.lastCompletedTurn = turn;
-		await this.finishTurn?.(turn, run.controller.signal);
-		await this.emit({
-			type: "turn_end",
-			message: round.assistant,
-			toolResults,
-		});
-		if (
-			!run.controller.signal.aborted ||
-			terminates([...round.outcomes.values()])
-		)
-			return;
-		// pi's loop asks again after an aborted round, with the signal aborted, and ends on what the
-		// provider answers; doing the same gives pi that provider's own aborted answer. No request
-		// leaves the machine, since the provider sees the signal aborted before it sends.
-		await this.prepareTurnRequest(run);
-		const stream = this.stream({ signal: run.controller.signal });
-		for await (const _event of stream) {
-			// Each event is shown to pi by the tee as it passes.
-		}
-		await stream.result();
-		const answer = run.answer?.message;
-		if (!answer)
-			throw new Error("pi's stream ended an aborted request without an answer");
-		await this.endFailedTurn(run, answer);
 	}
 
 	private async fail(run: Run, error: unknown): Promise<void> {
@@ -801,7 +606,9 @@ export class HostedAgent {
 	private readonly hooks: GenerationHooks = {
 		beforeRequest: async () => this.within(() => this.beforeRequest()),
 		onCommittedTurn: async (turn) =>
-			this.within(() => this.committedTurn(turn)),
+			this.within(async () =>
+				this.turns.committedTurn(await this.runForHook(), turn),
+			),
 	};
 
 	/**
@@ -835,174 +642,7 @@ export class HostedAgent {
 	}> {
 		const run = await this.runForHook();
 		await this.transcript.mirror(run, { showResults: true });
-		return { messages: await this.prepareTurnRequest(run) };
-	}
-
-	/** pi's steps before a request: the next turn, what it places, prepareRequest and the context hooks. */
-	private async prepareTurnRequest(run: Run): Promise<readonly AgentMessage[]> {
-		const prepared = run.lastCompletedTurn ? await this.nextTurn(run) : [];
-		const placed = run.placed.splice(0);
-		for (const message of this.declareToolChanges(run.context, [
-			...prepared,
-			...placed,
-		])) {
-			await this.transcript.show(run, message);
-		}
-		const update = await this.prepareRequest?.(
-			{
-				context: run.context,
-				model: run.model,
-				thinkingLevel: run.reasoning ?? "off",
-			},
-			run.controller.signal,
-		);
-		this.applyUpdate(run, update);
-		let messages = run.context.messages;
-		if (this.transformContext)
-			messages = await this.transformContext(messages, run.controller.signal);
-		const converted = pairToolResults(await this.convertToLlm(messages));
-		const normalized = this.library.normalizeContext({ messages: converted });
-		run.request = {
-			model: run.model,
-			reasoning: run.reasoning,
-			messages: normalized.messages,
-		};
-		run.answer = { started: false };
-		return normalized.messages;
-	}
-
-	/** pi's next-turn step: prepareNextTurn, then turn_start; answers the messages it prepared. */
-	private async nextTurn(run: Run): Promise<AgentMessage[]> {
-		const completed = run.lastCompletedTurn;
-		let prepared: AgentMessage[] = [];
-		if (
-			completed &&
-			(this.prepareNextTurnWithContext || this.prepareNextTurn)
-		) {
-			const update = this.prepareNextTurnWithContext
-				? await this.prepareNextTurnWithContext(
-						completed,
-						run.controller.signal,
-					)
-				: await this.prepareNextTurn?.(run.controller.signal);
-			if (update) {
-				run.context = update.context ?? run.context;
-				prepared = [...(update.messages ?? [])];
-				applyModel(run, update);
-			}
-		}
-		await this.emit({ type: "turn_start" });
-		return prepared;
-	}
-
-	private applyUpdate(run: Run, update: TurnUpdate | undefined): void {
-		if (!update) return;
-		run.context = update.context ?? run.context;
-		applyModel(run, update);
-	}
-
-	/**
-	 * Durable committed an answer and every result of its round: pi ends the
-	 * turn and says what follows. A turn whose answer pi showed before a
-	 * restart, with the decision cut off, is rebuilt from the session; one
-	 * pi holds no answer for at all ends, since pi has no turn to close.
-	 */
-	private async committedTurn(committed: {
-		readonly assistant: number;
-	}): Promise<{
-		readonly action: "end" | "continue";
-	}> {
-		const run = await this.runForHook();
-		await this.transcript.mirror(run, { showResults: true });
-		const round = run.round;
-		run.round = undefined;
-		let message: AssistantMessage | undefined =
-			round?.assistant ?? this.lastAnswer(run);
-		let toolResults: ToolResultMessage[] = [];
-		if (round) {
-			// A result the session held before a restart is its own, not the round's.
-			toolResults = round.calls.flatMap((call) => {
-				const shown =
-					round.messages.get(call.id) ??
-					resultOf(run.context.messages, call.id);
-				return shown ? [shown] : [];
-			});
-		} else if (message) {
-			const calls = toolCalls(message);
-			if (message.stopReason === "length" && calls.length > 0) {
-				toolResults = await this.failTruncatedCalls(run, message);
-			}
-		} else {
-			message = await this.transcript.answerShownBefore(
-				run,
-				committed.assistant,
-			);
-			if (message) toolResults = resultsOf(run.context.messages, message);
-		}
-		if (!message) {
-			run.endDecided = true;
-			return { action: "end" };
-		}
-		const turn: CompletedTurn = {
-			message,
-			toolResults,
-			context: run.context,
-			newMessages: run.newMessages,
-		};
-		run.lastCompletedTurn = turn;
-		const decision = await this.finishTurn?.(turn, run.controller.signal);
-		await this.emit({ type: "turn_end", message, toolResults });
-		if (decision?.action === "end") {
-			run.endDecided = true;
-			return { action: "end" };
-		}
-		const moreTools =
-			toolResults.length > 0 &&
-			!(round ? terminates([...round.outcomes.values()]) : false);
-		await this.admissions;
-		if (moreTools || this.steeringQueue.hasItems())
-			return { action: "continue" };
-		// pi runs follow-ups before honouring a continue; durable places them when this turn ends.
-		if (decision?.action === "continue" && !this.followUpQueue.hasItems())
-			return { action: "continue" };
-		return { action: "end" };
-	}
-
-	private lastAnswer(run: Run): AssistantMessage | undefined {
-		const last = lastOfRole(run.newMessages, "assistant");
-		return last && isAssistant(last) ? last : undefined;
-	}
-
-	/** pi fails every call of an answer cut off at its output limit, and continues. */
-	private async failTruncatedCalls(
-		run: Run,
-		message: AssistantMessage,
-	): Promise<ToolResultMessage[]> {
-		const results: ToolResultMessage[] = [];
-		for (const toolCall of toolCalls(message)) {
-			await this.emit({
-				type: "tool_execution_start",
-				toolCallId: toolCall.id,
-				toolName: toolCall.name,
-				args: toolCall.arguments,
-			});
-			const outcome = {
-				toolCall,
-				result: errorResult(truncatedCallText(toolCall.name)),
-				isError: true,
-			};
-			await this.emit({
-				type: "tool_execution_end",
-				toolCallId: toolCall.id,
-				toolName: toolCall.name,
-				result: outcome.result,
-				isError: true,
-			});
-			const shown = resultMessage(outcome);
-			await this.transcript.show(run, shown);
-			results.push(shown);
-		}
-		return results;
+		return { messages: await this.turns.prepareTurnRequest(run) };
 	}
 
 	// The provider stream.
@@ -1036,11 +676,7 @@ export class HostedAgent {
 			);
 		return teeStream(run, request, signal, open, renewed, {
 			emit: (event) => this.emit(event),
-			answered: () => {
-				const answered = this.answered;
-				this.answered = undefined;
-				answered?.();
-			},
+			answered: () => this.recovery.answer(),
 		});
 	}
 
@@ -1124,60 +760,8 @@ export class HostedAgent {
 	): QueuedMessage {
 		const item: QueuedMessage = { hostId: randomUUID(), message };
 		queue.enqueue(item);
-		if (this.active?.run.admitting) this.admitQueued(item, mode);
+		if (this.active?.run.admitting) this.admissions.admitQueued(item, mode);
 		return item;
-	}
-
-	private admitQueued(item: QueuedMessage, mode: "steer" | "followUp"): void {
-		const data: InputData = { hostId: item.hostId, messages: [item.message] };
-		const { conversation, context } = this.durable;
-		this.admissions = this.admissions.then(async () => {
-			try {
-				const submission = await conversation.submit(
-					{
-						type: "input",
-						content: userContent([item.message]),
-						whenBusy: mode,
-						whenIdle: "reject",
-						entry: {
-							kind: mode === "steer" ? INPUT_KINDS.steer : INPUT_KINDS.followUp,
-							data,
-						},
-					},
-					context,
-				);
-				item.submissionId = submission.id;
-			} catch {
-				// An idle conversation refuses it: it stays in pi's queue for the next prompt or continue, as in pi.
-			}
-		});
-	}
-
-	/** Durable copies of what pi still queues, admitted once the run's own input is in. */
-	private readmitQueued(): void {
-		for (const item of this.steeringQueue.all()) {
-			if (item.submissionId === undefined) this.admitQueued(item, "steer");
-		}
-		for (const item of this.followUpQueue.all()) {
-			if (item.submissionId === undefined) this.admitQueued(item, "followUp");
-		}
-	}
-
-	private async withdrawQueued(): Promise<void> {
-		await this.admissions;
-		const held = [...this.steeringQueue.all(), ...this.followUpQueue.all()];
-		await Promise.all(held.map((item) => this.withdrawOne(item)));
-	}
-
-	private withdraw(items: readonly QueuedMessage[]): void {
-		for (const item of items) void this.withdrawOne(item);
-	}
-
-	private async withdrawOne(item: QueuedMessage): Promise<void> {
-		const id = item.submissionId;
-		if (id === undefined) return;
-		item.submissionId = undefined;
-		await this.durable.abortSubmission(id).catch(() => "settled");
 	}
 
 	// Events.
@@ -1201,37 +785,7 @@ export class HostedAgent {
 				await this.emit({ type: "turn_start" });
 			}
 		}
-		const state = this.state;
-		switch (event.type) {
-			case "message_start":
-			case "message_update":
-				state.streamingMessage = event.message;
-				break;
-			case "message_end":
-				state.streamingMessage = undefined;
-				state.messages.push(event.message);
-				break;
-			case "tool_execution_start": {
-				const pending = new Set(state.pendingToolCalls);
-				pending.add(event.toolCallId);
-				state.pendingToolCalls = pending;
-				break;
-			}
-			case "tool_execution_end": {
-				const pending = new Set(state.pendingToolCalls);
-				pending.delete(event.toolCallId);
-				state.pendingToolCalls = pending;
-				break;
-			}
-			case "turn_end":
-				if (isAssistant(event.message) && event.message.errorMessage) {
-					state.errorMessage = event.message.errorMessage;
-				}
-				break;
-			case "agent_end":
-				state.streamingMessage = undefined;
-				break;
-		}
+		reduce(this.state, event);
 		const signal = this.active?.run.controller.signal;
 		if (!signal) throw new Error("Agent listener invoked outside active run");
 		for (const listener of this.listeners)

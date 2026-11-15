@@ -1,15 +1,18 @@
 /**
  * The agent's state as pi's Agent exposes it: the system prompt read from
  * the transcript, and tools and messages copied as they are assigned, a
- * change of tools telling the agent to install them again.
+ * change of tools telling the agent to install them again, and each
+ * event reduced into it as pi's Agent reduces it.
  */
 import type { PiLibrary } from "../pi-library.ts";
 import type {
+	AgentEvent,
 	AgentMessage,
 	AgentOptions,
 	AgentTool,
 	Model,
 } from "../pi-types.ts";
+import { isAssistant } from "./messages.ts";
 
 const DEFAULT_MODEL: Model = {
 	id: "unknown",
@@ -67,4 +70,38 @@ export function createState(
 	};
 	ready = true;
 	return state;
+}
+
+/** Reduce state for an event, as pi's Agent does. */
+export function reduce(state: HostedAgentState, event: AgentEvent): void {
+	switch (event.type) {
+		case "message_start":
+		case "message_update":
+			state.streamingMessage = event.message;
+			break;
+		case "message_end":
+			state.streamingMessage = undefined;
+			state.messages.push(event.message);
+			break;
+		case "tool_execution_start": {
+			const pending = new Set(state.pendingToolCalls);
+			pending.add(event.toolCallId);
+			state.pendingToolCalls = pending;
+			break;
+		}
+		case "tool_execution_end": {
+			const pending = new Set(state.pendingToolCalls);
+			pending.delete(event.toolCallId);
+			state.pendingToolCalls = pending;
+			break;
+		}
+		case "turn_end":
+			if (isAssistant(event.message) && event.message.errorMessage) {
+				state.errorMessage = event.message.errorMessage;
+			}
+			break;
+		case "agent_end":
+			state.streamingMessage = undefined;
+			break;
+	}
 }
