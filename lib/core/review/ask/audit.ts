@@ -18,6 +18,7 @@ import { isRecord } from "../../../internal/record.ts";
 import { askOne } from "./council.ts";
 import type { CritiqueDeps } from "./critique.ts";
 import { type Participant, participantIdentity } from "./identity.ts";
+import { outcomeOf } from "./outcome.ts";
 import {
 	type AskRun,
 	newRunId,
@@ -156,13 +157,7 @@ export async function runAudit(
 	const warnings: string[] = [];
 	const audits: ThreadAudit[] = [];
 	const outcome: ParticipantOutcome = (() => {
-		if ("failure" in answer) {
-			return {
-				participantId: request.auditor.id,
-				findingIds: [],
-				failure: answer.failure,
-			};
-		}
+		if ("failure" in answer) return outcomeOf(request.auditor.id, answer);
 		const harvest = harvestAudits(
 			answer.text,
 			request.auditor.id,
@@ -172,16 +167,8 @@ export async function runAudit(
 		for (const warning of harvest.warnings) {
 			warnings.push(`${request.auditor.id}: ${warning}`);
 		}
-		return {
-			participantId: request.auditor.id,
-			// An audit raises no findings, on purpose.
-			findingIds: [],
-			...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
-			...(answer.answerPath === undefined
-				? {}
-				: { answerPath: answer.answerPath }),
-			...(answer.usage === undefined ? {} : { usage: answer.usage }),
-		};
+		// An audit raises no findings, on purpose.
+		return outcomeOf(request.auditor.id, answer);
 	})();
 
 	return {

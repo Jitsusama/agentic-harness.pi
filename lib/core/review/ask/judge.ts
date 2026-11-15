@@ -16,6 +16,7 @@
 import { askOne, type CouncilDeps } from "./council.ts";
 import { alsoRecorded, harvestFindings } from "./harvest.ts";
 import { type Participant, participantIdentity } from "./identity.ts";
+import { outcomeOf } from "./outcome.ts";
 import {
 	type AskRun,
 	newRunId,
@@ -95,13 +96,7 @@ export async function runJudge(
 	const answer = await askOne(request.judge, request.prompt, id, deps);
 
 	const outcome: ParticipantOutcome = await (async () => {
-		if ("failure" in answer) {
-			return {
-				participantId: request.judge.id,
-				findingIds: [],
-				failure: answer.failure,
-			};
-		}
+		if ("failure" in answer) return outcomeOf(request.judge.id, answer);
 
 		const origin = {
 			kind: "judge" as const,
@@ -135,19 +130,15 @@ export async function runJudge(
 		// overcount the round in the only place anyone sees it live.
 		deps.progress?.recorded(request.judge.id, recorded.length);
 
-		return {
-			participantId: request.judge.id,
-			findingIds: recorded.map((finding) => finding.id),
-			// A judge can be stopped exactly as a reviewer can, and a
-			// round that does not record it reports the same lie the
-			// council round was fixed for: a participant taken away
-			// mid-sentence, filed as one that answered.
-			...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
-			...(answer.answerPath === undefined
-				? {}
-				: { answerPath: answer.answerPath }),
-			...(answer.usage === undefined ? {} : { usage: answer.usage }),
-		};
+		// A judge can be stopped exactly as a reviewer can, and a round
+		// that does not record it reports the same lie the council round
+		// was fixed for: a participant taken away mid-sentence, filed as
+		// one that answered.
+		return outcomeOf(
+			request.judge.id,
+			answer,
+			recorded.map((finding) => finding.id),
+		);
 	})();
 
 	// The board is about to be replaced by the round's own answer, and a

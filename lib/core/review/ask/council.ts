@@ -27,6 +27,7 @@ import { count } from "../../../ui/count.ts";
 import type { Finding } from "../finding.ts";
 import { alsoRecorded, type Harvest, harvestFindings } from "./harvest.ts";
 import { type Participant, participantIdentity } from "./identity.ts";
+import { outcomeOf } from "./outcome.ts";
 import { type AskProgress, noAskProgress, settleReplies } from "./progress.ts";
 import type { Roster } from "./roster.ts";
 import {
@@ -595,14 +596,50 @@ function richer(said: Harvest, earlier: Harvest | undefined): Harvest {
 }
 
 /**
- * What to say about a participant that did not get to finish.
+ * The warnings a reviewer's answer earns it, its own and ours.
  *
  * Shared with the stack round, which is the round most likely to be
  * stopped and was saying nothing about it at all: it pushed the
  * harvest's own warnings through, so a reviewer we interrupted was
  * reported as having written a malformed answer.
+ *
+ * A stopped reviewer answers for its own harvest warnings. Those
+ * describe the shape of the text, and the text is a sentence we
+ * interrupted, so passing them on blames the reviewer for our deadline
+ * and tells the reader to fix the wrong thing.
+ *
+ * A warning about something it recorded is not that. That is a whole
+ * line the reviewer wrote deliberately, minutes before the stop, and it
+ * failed the contract on its own merits. Dropping it would be the
+ * silent drop this module opens by refusing to make: the reader would
+ * take the missing finding for the reviewer having nothing more to say.
+ *
+ * The answer's notes come last whichever way it went: a process that
+ * died after recording something, a journal that came back short. A
+ * stop explains neither of them.
  */
-export function stopWarning(
+export function reviewerWarnings(
+	answer: { stopped?: AskStop; notes?: string[] },
+	harvest: {
+		findings: readonly unknown[];
+		warnings: string[];
+		recordedWarnings?: string[];
+	},
+	cutOff: boolean,
+): string[] {
+	return [
+		...(answer.stopped === undefined
+			? harvest.warnings
+			: [
+					stopWarning(answer.stopped, harvest.findings.length, cutOff),
+					...(harvest.recordedWarnings ?? []),
+				]),
+		...(answer.notes ?? []),
+	];
+}
+
+/** What to say about a participant that did not get to finish. */
+function stopWarning(
 	stop: AskStop,
 	kept: number,
 	cutOff: boolean,
@@ -656,15 +693,7 @@ export async function recordReply(
 	warnings: string[],
 ): Promise<ParticipantOutcome> {
 	const { participant, answer } = reply;
-	if ("failure" in answer) {
-		return {
-			participantId: participant.id,
-			findingIds: [],
-			failure: answer.failure,
-			...(answer.advisory === undefined ? {} : { advisory: answer.advisory }),
-			...(answer.usage === undefined ? {} : { usage: answer.usage }),
-		};
-	}
+	if ("failure" in answer) return outcomeOf(participant.id, answer);
 
 	const origin = {
 		kind: "reviewer" as const,
@@ -690,34 +719,7 @@ export async function recordReply(
 		origin,
 		run,
 	);
-	// A stopped reviewer answers for its own harvest warnings. Those
-	// warnings describe the shape of the text, and the text is a
-	// sentence we interrupted, so passing them on blames the reviewer
-	// for our deadline and tells the reader to fix the wrong thing.
-	//
-	// A warning about something it recorded is not that. That is a whole
-	// line the reviewer wrote deliberately, minutes before the stop, and
-	// it failed the contract on its own merits. Dropping it would be the
-	// silent drop this module opens by refusing to make: the reader
-	// would take the missing finding for the reviewer having nothing
-	// more to say.
-	const said = [
-		...(answer.stopped === undefined
-			? harvest.warnings
-			: [
-					stopWarning(
-						answer.stopped,
-						harvest.findings.length,
-						harvest.truncated === true,
-					),
-					...(harvest.recordedWarnings ?? []),
-				]),
-		// Whatever went wrong that the answer cannot show for itself: a
-		// process that died after recording something, a journal that
-		// came back short. Outside the branch above, because a stop
-		// explains neither of them.
-		...(answer.notes ?? []),
-	];
+	const said = reviewerWarnings(answer, harvest, harvest.truncated === true);
 	for (const warning of said) {
 		warnings.push(`${participant.id}: ${warning}`);
 	}
@@ -725,13 +727,9 @@ export async function recordReply(
 	const recorded =
 		harvest.findings.length === 0 ? [] : await deps.record(harvest.findings);
 
-	return {
-		participantId: participant.id,
-		findingIds: recorded.map((finding) => finding.id),
-		...(answer.stopped === undefined ? {} : { stopped: answer.stopped }),
-		...(answer.answerPath === undefined
-			? {}
-			: { answerPath: answer.answerPath }),
-		...(answer.usage === undefined ? {} : { usage: answer.usage }),
-	};
+	return outcomeOf(
+		participant.id,
+		answer,
+		recorded.map((finding) => finding.id),
+	);
 }
