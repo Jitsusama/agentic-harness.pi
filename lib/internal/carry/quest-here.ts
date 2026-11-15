@@ -7,7 +7,11 @@
  * A session a pi runs, or holds parked, carries its own work when it is
  * steered to, so only the rest are named here. One closed on purpose is
  * not carried, since nobody would take it up there; the trees it held
- * still are, as the quest's.
+ * still are, as the quest's. Nor is one whose log holds nothing after
+ * its start: pi rolled a session over into it and its pi died before a
+ * turn, so the log is only its parent's history, whose own line of
+ * sessions went on (OSPHT4 [2e4aacbc], 15 November). Nor is one a later
+ * session continued, whose work that one took up (KP0L6A [9301591f]).
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -23,6 +27,7 @@ import {
 } from "../quest/session-registry.ts";
 import { treesHere } from "../quest/tree-place.ts";
 import { type RecordedTree, recordedTrees } from "../work-records.ts";
+import { continuedSessions, neverRan } from "./session-logs.ts";
 
 /** A session of the quest that no pi runs, to be carried by `pi-carry`. */
 export interface RestingSession {
@@ -79,12 +84,15 @@ export function questHere(
 			one.name ? [[one.id, one.name]] : [],
 		),
 	);
+	const continued = continuedSessions(files);
 	const resting = records
 		.filter((record) => record.quest === quest)
 		.filter((record) => !record.closedAt || wasLost(record))
 		.filter(
 			(record) => !liveness.runs(record) && !liveness.parked(record.sessionId),
 		)
+		.filter((record) => !continued.has(record.sessionId))
+		.filter((record) => !neverRan(files.get(record.sessionId)))
 		.map((record): RestingSession => {
 			const title = titles.get(record.sessionId);
 			const file = files.get(record.sessionId);

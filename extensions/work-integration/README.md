@@ -225,8 +225,10 @@ node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/pi-carry.ts arrive <
 ```
 
 The first carries the quest's sessions nobody closed that no pi
-runs, each with the trees the broker's records say it holds, and
-then every tree of the quest no done file names yet (those its
+runs, each with the trees the broker's records say it holds,
+leaving out any a later session continued (another log names its
+log as the parent) or whose pi died before a turn of its own. It
+then carries every tree of the quest no done file names yet (those its
 README lists here, and those the broker cut for any of its
 sessions) under a done file named for the quest. It prints a JSON
 line a tree and ends with `{"kind": "done", "files": [...]}`.
