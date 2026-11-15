@@ -123,41 +123,38 @@ google({
 
 ## Architecture
 
-```
-google-workspace/
-├── index.ts (258 lines)          # Tool & command registration
-├── router.ts (103 lines)         # Action routing to handlers
+The extension keeps only pi's wiring. The API clients, sign-in,
+renderers and types live in [`lib/google/`](../../lib/google/), as
+every integration's do.
+
+```text
+google-workspace-integration/
+├── index.ts              # Tool and command registration
+├── router.ts             # Routes each action to its handler
 ├── router/
-│   ├── gmail-handlers.ts (259)   # Gmail action handlers
-│   ├── calendar-handlers.ts (263)# Calendar action handlers
-│   └── drive-handlers.ts (153)   # Drive action handlers
-├── render-call.ts (172 lines)    # Tool call display
-├── render-result.ts (304 lines)  # Tool result display
-├── params.ts (54 lines)          # Type-safe param extraction
-├── auth-command.ts (171 lines)   # /google-auth handler
-├── confirmation.ts (278 lines)   # Editable confirmation gates
-├── types.ts (109 lines)          # Shared interfaces
-├── auth/
-│   ├── oauth.ts                  # OAuth2 device flow & token refresh
-│   └── credentials.ts            # Session storage helpers
-├── apis/
-│   ├── gmail.ts (499 lines)      # Gmail API client
-│   ├── calendar.ts (330 lines)   # Calendar API client
-│   ├── drive.ts (203 lines)      # Drive API & URL parsing
-│   ├── docs.ts (159 lines)       # Docs API & comments
-│   ├── sheets.ts (78 lines)      # Sheets API
-│   └── slides.ts (60 lines)      # Slides API
-└── renderers/
-    ├── email.ts (162 lines)      # Email → markdown
-    ├── calendar.ts (225 lines)   # Events → markdown
-    └── drive.ts (233 lines)      # Files/docs/sheets/slides → markdown
+│   ├── gmail-handlers.ts
+│   ├── calendar-handlers.ts
+│   └── drive-handlers.ts
+├── render-call.ts        # The tool call's line
+├── render-result.ts      # The tool result's display
+├── auth-command.ts       # /google-auth
+├── confirmation.ts       # Editable confirmation gates
+└── limits.ts             # How long one read may take
+
+lib/google/
+├── apis/                 # Gmail, Calendar, Drive, Docs, Sheets, Slides
+├── auth/                 # Device flow, falling back to a web redirect
+├── renderers/            # Email, events and files as markdown
+└── types.ts              # Shared interfaces
 ```
 
 **Design principles:**
-- **OAuth Device Flow** - Universal authentication (SSH, remote, containers)
+- **OAuth Device Flow** - Universal authentication (SSH, remote, containers),
+  with a web redirect where the credentials want one
 - **Type-safe parameters** - No unsafe casts, proper type guards
 - **Separated handlers** - Gmail/Calendar/Drive handlers in separate files
-- **Confirmation gates** - Uses lib/guardian/review-loop for editable prompts
+- **Confirmation gates** - The `google` guard's prompts, through
+  lib/guardian/apply's `approvalUnder`
 - **Clean rendering** - Descriptive TUI output with compact/expanded views
 
 ## Security
