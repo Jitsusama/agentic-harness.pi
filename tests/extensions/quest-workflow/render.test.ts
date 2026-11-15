@@ -40,15 +40,19 @@ describe("sessionNameFor", () => {
 		expect(sessionNameFor("quest workflow ux")).toBe("Quest Workflow Ux");
 	});
 
-	it("keeps the title's first three words and marks the cut", () => {
+	it("keeps the whole title, so sessions that start alike read apart", () => {
 		expect(sessionNameFor("Every Piece of Hardware, Supported")).toBe(
-			"Every Piece Of\u2026",
+			"Every Piece Of Hardware, Supported",
+		);
+		expect(sessionNameFor("Deploy V3: Fix the Aquifer Rollout")).not.toBe(
+			sessionNameFor("Deploy V3: Fix the Estuary Stamps"),
 		);
 	});
 
-	it("cuts three long words to twenty characters with an ellipsis", () => {
+	it("leaves cutting a long title to whatever draws it", () => {
 		const out = sessionNameFor("Bootstrapping Optimus Comprehensively");
-		expect(out).toBe("Bootstrapping Optim\u2026");
+		expect(out).toBe("Bootstrapping Optimus Comprehensively");
+		expect(out, "the name was cut").not.toContain("\u2026");
 	});
 });
 

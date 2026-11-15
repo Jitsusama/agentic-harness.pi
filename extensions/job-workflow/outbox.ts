@@ -81,7 +81,9 @@ export interface Outbox {
 	runStarted(): void;
 	/**
 	 * A run ended: whatever of ours it did not carry is sent again, at
-	 * once, or on the next tick when the run was stopped.
+	 * once, or on the next tick when the run was stopped. Ended with no
+	 * start while our prompt was out, pi refused it, and it waits
+	 * {@link PROMPT_WAIT_MS}.
 	 */
 	runSettled(stopped?: boolean): void;
 	/** A user message reached the session; any result it carries is said. */
@@ -166,6 +168,8 @@ export function createOutbox(options: OutboxOptions): Outbox {
 	// Whether a run is under way, from its start until it settles.
 	let running = false;
 	let paused = false;
+	// Until when a send waits after a prompt that settled with no run.
+	let refusedUntil: number | undefined;
 	let stopClock: (() => void) | undefined;
 
 	// Looks again on its own only while a result or a prompt waits.
@@ -206,6 +210,8 @@ export function createOutbox(options: OutboxOptions): Outbox {
 		}
 		if (out.length > 0 || queued.length === 0) return;
 		if (promptSince !== undefined || !options.idle()) return;
+		if (refusedUntil !== undefined && options.now() < refusedUntil) return;
+		refusedUntil = undefined;
 		const sending = queued.splice(0);
 		try {
 			options.send(compose(sending));
@@ -231,11 +237,19 @@ export function createOutbox(options: OutboxOptions): Outbox {
 		},
 		runStarted() {
 			promptSince = undefined;
+			refusedUntil = undefined;
 			running = true;
 			trySteer();
 			keepClock();
 		},
 		runSettled(stopped = false) {
+			// Our prompt out, unseen, and settled with no start: pi refused it,
+			// as a hosted agent recovering does, and sending again at once
+			// would only be refused again, 335 times in one conversation on
+			// 14 Nov. It waits as long as a prompt that went nowhere does. A
+			// settle after a compaction sent nothing of ours, so goes on.
+			const refused = !running && out.length > 0 && promptSince !== undefined;
+			if (refused) refusedUntil = options.now() + PROMPT_WAIT_MS;
 			promptSince = undefined;
 			running = false;
 			giveBack();

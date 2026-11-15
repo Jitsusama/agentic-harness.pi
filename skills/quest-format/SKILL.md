@@ -171,7 +171,8 @@ Field semantics:
 - `short`: optional short name, what the quest is about in
   two or three words. It names the session, so a pi
   window's title reads `π - <short> - <folder>`; without
-  one the title's first three words stand in. The id is
+  one the whole title stands in, uncut, so sessions read
+  apart wherever their windows are listed. The id is
   never in the window title; the status line shows it.
 - `orchestrator`: optional, `true` when the quest's session
   orchestrates every quest below it. Set and cleared with
