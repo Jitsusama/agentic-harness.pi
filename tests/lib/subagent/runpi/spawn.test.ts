@@ -1,9 +1,14 @@
+import type { SpawnOptions } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import {
 	pinChildEnvironment,
 	unpinChildEnvironment,
 } from "../../../../lib/subagent/child-env.ts";
-import { createSpawnRunPi } from "../../../../lib/subagent/runpi/spawn.ts";
+import {
+	createSpawnRunPi,
+	type SpawnFn,
+} from "../../../../lib/subagent/runpi/spawn.ts";
+import { makeFakeChild } from "./fake-child.ts";
 
 /**
  * `createSpawnRunPi` wraps `node:child_process.spawn` into
@@ -14,91 +19,66 @@ import { createSpawnRunPi } from "../../../../lib/subagent/runpi/spawn.ts";
  * the test environment.
  */
 
-import type { ChildProcess } from "node:child_process";
-import type { Readable, Writable } from "node:stream";
-import { PassThrough } from "node:stream";
+/** The pinned install most tests launch. */
+const INSTALL = {
+	node: "/nix/store/node-22/bin/node",
+	entry: "/nix/store/pi/dist/cli.js",
+};
 
-interface FakeChild {
-	stdout: Readable;
-	stderr: Readable;
-	stdin?: Writable;
-	on(event: "close", listener: (code: number | null) => void): FakeChild;
-	once(event: "error", listener: (err: Error) => void): FakeChild;
-	kill(signal?: NodeJS.Signals): boolean;
+/** The immutable package dir a Nix install pins. */
+const PACKAGE_DIR = "/nix/store/pi-0.80.7/lib/node_modules/pi-monorepo";
+
+/** One call the runner made to spawn. */
+interface SpawnCall {
+	readonly command: string;
+	readonly args: readonly string[];
+	readonly options: SpawnOptions;
 }
 
-function makeFakeChild(): {
-	child: FakeChild;
-	emitClose: (code: number | null) => void;
-	emitError: (err: Error) => void;
-	stdout: PassThrough;
-	stderr: PassThrough;
+/**
+ * A spawn whose child writes each stdout chunk and its stderr, then
+ * closes with the code, keeping every call it was given.
+ */
+function finishingSpawn(
+	output: {
+		readonly stdout?: readonly string[];
+		readonly stderr?: string;
+		readonly code?: number;
+	} = {},
+): { spawn: SpawnFn; calls: SpawnCall[] } {
+	const calls: SpawnCall[] = [];
+	const spawn: SpawnFn = (command, args, options) => {
+		calls.push({ command, args, options });
+		const fake = makeFakeChild();
+		queueMicrotask(() => {
+			for (const chunk of output.stdout ?? []) fake.stdout.write(chunk);
+			fake.stdout.end();
+			fake.stderr.end(output.stderr ?? "");
+			fake.emitClose(output.code ?? 0);
+		});
+		return fake.process();
+	};
+	return { spawn, calls };
+}
+
+/** A spawn whose child runs until it is killed, then closes with the code. */
+function killedSpawn(code: number | null): {
+	spawn: SpawnFn;
+	kills: Array<NodeJS.Signals | undefined>;
 } {
-	const stdout = new PassThrough();
-	const stderr = new PassThrough();
-	const handlers: {
-		close: ((code: number | null) => void)[];
-		error: ((err: Error) => void)[];
-	} = { close: [], error: [] };
-	const child: FakeChild = {
-		stdout,
-		stderr,
-		on(event, listener) {
-			if (event === "close") {
-				handlers.close.push(listener);
-			}
-			return child;
-		},
-		once(event, listener) {
-			if (event === "error") {
-				handlers.error.push(listener);
-			}
-			return child;
-		},
-		kill: () => true,
+	const fake = makeFakeChild();
+	fake.child.kill = (signal) => {
+		fake.kills.push(signal);
+		queueMicrotask(() => fake.emitClose(code));
+		return true;
 	};
-	return {
-		child,
-		emitClose: (code) => {
-			for (const h of handlers.close) h(code);
-		},
-		emitError: (err) => {
-			for (const h of handlers.error) h(err);
-		},
-		stdout,
-		stderr,
-	};
+	return { spawn: () => fake.process(), kills: fake.kills };
 }
 
 describe("createSpawnRunPi", () => {
 	it("invokes the provided spawn as the install's node running its entry, then the args", async () => {
-		const fake = makeFakeChild();
-		const calls: Array<{
-			command: string;
-			args: readonly string[];
-			cwd: string;
-			detached: boolean;
-		}> = [];
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: (command, args, opts) => {
-				calls.push({
-					command,
-					args,
-					cwd: String(opts?.cwd ?? ""),
-					detached: opts.detached === true,
-				});
-				queueMicrotask(() => {
-					fake.stdout.end("");
-					fake.stderr.end("");
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
-		});
+		const { spawn, calls } = finishingSpawn();
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		await runPi({
 			args: ["--mode", "json", "--no-session", "-p", "prompt"],
 			cwd: "/tmp/wt",
@@ -113,84 +93,40 @@ describe("createSpawnRunPi", () => {
 			"-p",
 			"prompt",
 		]);
-		expect(calls[0].cwd).toBe("/tmp/wt");
-		expect(calls[0]).toMatchObject({ detached: true });
+		expect(calls[0].options.cwd).toBe("/tmp/wt");
+		expect(calls[0].options.detached).toBe(true);
 	});
 
 	it("overrides the child's PI_PACKAGE_DIR with the pinned package dir", async () => {
 		// A mid-session upgrade deletes the versioned symlink the
 		// inherited PI_PACKAGE_DIR names, so the child must be told
 		// the immutable store path the parent captured at startup.
-		const fake = makeFakeChild();
-		let captured: NodeJS.ProcessEnv | undefined;
+		const { spawn, calls } = finishingSpawn();
 		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-				packageDir: "/nix/store/pi-0.80.7/lib/node_modules/pi-monorepo",
-			},
-			spawn: (_command, _args, opts) => {
-				captured = opts.env;
-				queueMicrotask(() => {
-					fake.stdout.end("");
-					fake.stderr.end("");
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+			piInstall: { ...INSTALL, packageDir: PACKAGE_DIR },
+			spawn,
 		});
 		await runPi({ args: [], cwd: "/tmp" });
-		expect(captured?.PI_PACKAGE_DIR).toBe(
-			"/nix/store/pi-0.80.7/lib/node_modules/pi-monorepo",
-		);
+		expect(calls[0]?.options.env?.PI_PACKAGE_DIR).toBe(PACKAGE_DIR);
 	});
 
 	it("gives the child the run's own variables on top of the pinned package dir", async () => {
-		const fake = makeFakeChild();
-		let captured: NodeJS.ProcessEnv | undefined;
+		const { spawn, calls } = finishingSpawn();
 		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-				packageDir: "/nix/store/pi-0.80.7/lib/node_modules/pi-monorepo",
-			},
-			spawn: (_command, _args, opts) => {
-				captured = opts.env;
-				queueMicrotask(() => {
-					fake.stdout.end("");
-					fake.stderr.end("");
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+			piInstall: { ...INSTALL, packageDir: PACKAGE_DIR },
+			spawn,
 		});
 		await runPi({ args: [], cwd: "/tmp", env: { PI_SANDBOX: "strict" } });
-		expect(captured?.PI_SANDBOX).toBe("strict");
-		expect(captured?.PI_PACKAGE_DIR).toBe(
-			"/nix/store/pi-0.80.7/lib/node_modules/pi-monorepo",
-		);
+		const env = calls[0]?.options.env;
+		expect(env?.PI_SANDBOX).toBe("strict");
+		expect(env?.PI_PACKAGE_DIR).toBe(PACKAGE_DIR);
 	});
 
 	it("gives the child what the process pinned, under the run's own variables", async () => {
 		// A host holds no gateway key in its own environment, so it pins
 		// one for its children; the run's own variables still win.
-		const fake = makeFakeChild();
-		let captured: NodeJS.ProcessEnv | undefined;
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: (_command, _args, opts) => {
-				captured = opts.env;
-				queueMicrotask(() => {
-					fake.stdout.end("");
-					fake.stderr.end("");
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
-		});
+		const { spawn, calls } = finishingSpawn();
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		pinChildEnvironment(async () => ({
 			SHOPIFY_PROXY_KEY: "host-key",
 			PI_SANDBOX: "pinned",
@@ -200,86 +136,49 @@ describe("createSpawnRunPi", () => {
 		} finally {
 			unpinChildEnvironment();
 		}
-		expect(captured?.SHOPIFY_PROXY_KEY).toBe("host-key");
-		expect(captured?.PI_SANDBOX).toBe("strict");
+		const env = calls[0]?.options.env;
+		expect(env?.SHOPIFY_PROXY_KEY).toBe("host-key");
+		expect(env?.PI_SANDBOX).toBe("strict");
 	});
 
 	it("starts the child of a session set off without off, so the stage fences it", async () => {
 		// Off is one session's way back (ISXEG8 [8599528b]), not its children's.
-		const fake = makeFakeChild();
-		let captured: NodeJS.ProcessEnv | undefined;
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: (_command, _args, opts) => {
-				captured = opts.env;
-				queueMicrotask(() => {
-					fake.stdout.end("");
-					fake.stderr.end("");
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
-		});
+		const { spawn, calls } = finishingSpawn();
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		vi.stubEnv("PI_SANDBOX", "off");
 		try {
 			await runPi({ args: [], cwd: "/tmp" });
 		} finally {
 			vi.unstubAllEnvs();
 		}
-		expect(captured, "the child is given an environment").toBeDefined();
-		expect(captured?.PI_SANDBOX, "and no PI_SANDBOX=off in it").toBeUndefined();
-		expect(captured?.PATH, "but the rest of the session's").toBe(
-			process.env.PATH,
-		);
+		const env = calls[0]?.options.env;
+		expect(env, "the child is given an environment").toBeDefined();
+		expect(env?.PI_SANDBOX, "and no PI_SANDBOX=off in it").toBeUndefined();
+		expect(env?.PATH, "but the rest of the session's").toBe(process.env.PATH);
 	});
 
 	it("leaves the child env untouched when no package dir was captured", async () => {
 		// Plain npm/brew installs self-locate from the entry
 		// script and set no PI_PACKAGE_DIR, so the spawn must not
 		// invent one.
-		const fake = makeFakeChild();
-		let sawEnvKey = true;
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: (_command, _args, opts) => {
-				sawEnvKey = opts.env !== undefined;
-				queueMicrotask(() => {
-					fake.stdout.end("");
-					fake.stderr.end("");
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
-		});
+		const { spawn, calls } = finishingSpawn();
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		await runPi({ args: [], cwd: "/tmp" });
 		// No env override object is passed, so the child inherits
 		// the parent environment unchanged.
-		expect(sawEnvKey, "no env override is passed to the child").toBe(false);
+		expect(
+			calls[0]?.options.env,
+			"no env override is passed to the child",
+		).toBeUndefined();
 	});
 
 	it("collects stdout, stderr and exit code into the RunPiResult", async () => {
-		const fake = makeFakeChild();
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => {
-				queueMicrotask(() => {
-					fake.stdout.write("line 1\n");
-					fake.stdout.end("line 2\n");
-					fake.stderr.end("oops");
-					fake.emitClose(2);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+		const { spawn } = finishingSpawn({
+			stdout: ["line 1\n", "line 2\n"],
+			stderr: "oops",
+			code: 2,
 		});
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		const result = await runPi({ args: [], cwd: "/tmp" });
 		expect(result.stdout).toBe("line 1\nline 2\n");
 		expect(result.stderr).toBe("oops");
@@ -300,32 +199,22 @@ describe("createSpawnRunPi", () => {
 				queueMicrotask(() => {
 					fake.emitError(new Error("ENOENT: missing-pi"));
 				});
-				return fake.child as unknown as ChildProcess;
+				return fake.process();
 			},
 		});
 		await expect(runPi({ args: [], cwd: "/tmp" })).rejects.toThrow(/ENOENT/);
 	});
 
 	it("streams each JSON event line to onEvent as it arrives", async () => {
-		const fake = makeFakeChild();
 		const events: Record<string, unknown>[] = [];
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => {
-				queueMicrotask(() => {
-					fake.stdout.write('{"type":"agent_start"}\n');
-					fake.stdout.write(
-						'{"type":"tool_execution_start","toolName":"read","args":{"path":"task.go"}}\n',
-					);
-					fake.stdout.end('{"type":"agent_end"}\n');
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+		const { spawn } = finishingSpawn({
+			stdout: [
+				'{"type":"agent_start"}\n',
+				'{"type":"tool_execution_start","toolName":"read","args":{"path":"task.go"}}\n',
+				'{"type":"agent_end"}\n',
+			],
 		});
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		await runPi({
 			args: [],
 			cwd: "/tmp",
@@ -338,23 +227,15 @@ describe("createSpawnRunPi", () => {
 	});
 
 	it("reassembles events split across multiple data chunks", async () => {
-		const fake = makeFakeChild();
 		const events: Record<string, unknown>[] = [];
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => {
-				queueMicrotask(() => {
-					fake.stdout.write('{"type":"tool_execu');
-					fake.stdout.write('tion_start","toolName":"read"');
-					fake.stdout.end(',"args":{}}\n');
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+		const { spawn } = finishingSpawn({
+			stdout: [
+				'{"type":"tool_execu',
+				'tion_start","toolName":"read"',
+				',"args":{}}\n',
+			],
 		});
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		await runPi({
 			args: [],
 			cwd: "/tmp",
@@ -368,22 +249,11 @@ describe("createSpawnRunPi", () => {
 	});
 
 	it("skips malformed lines without throwing", async () => {
-		const fake = makeFakeChild();
 		const events: Record<string, unknown>[] = [];
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => {
-				queueMicrotask(() => {
-					fake.stdout.write("not json at all\n");
-					fake.stdout.end('{"type":"agent_end"}\n');
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
+		const { spawn } = finishingSpawn({
+			stdout: ["not json at all\n", '{"type":"agent_end"}\n'],
 		});
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		const result = await runPi({
 			args: [],
 			cwd: "/tmp",
@@ -397,20 +267,8 @@ describe("createSpawnRunPi", () => {
 	});
 
 	it("swallows observer errors so a broken callback can't kill the run", async () => {
-		const fake = makeFakeChild();
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => {
-				queueMicrotask(() => {
-					fake.stdout.end('{"type":"agent_end"}\n');
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
-		});
+		const { spawn } = finishingSpawn({ stdout: ['{"type":"agent_end"}\n'] });
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		const result = await runPi({
 			args: [],
 			cwd: "/tmp",
@@ -422,26 +280,17 @@ describe("createSpawnRunPi", () => {
 	});
 
 	it("times out a stuck subprocess and surfaces the timeout in stderr", async () => {
-		const fake = makeFakeChild();
-		const signals: Array<NodeJS.Signals | undefined> = [];
-		fake.child.kill = (signal) => {
-			signals.push(signal);
-			queueMicrotask(() => fake.emitClose(143));
-			return true;
-		};
+		const { spawn, kills } = killedSpawn(143);
 		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => fake.child as unknown as ChildProcess,
+			piInstall: INSTALL,
+			spawn,
 			timeoutMs: 1,
 			killGraceMs: 50,
 		});
 
 		const result = await runPi({ args: [], cwd: "/tmp" });
 
-		expect(signals).toContain("SIGTERM");
+		expect(kills).toContain("SIGTERM");
 		expect(result.exitCode).toBe(143);
 		expect(result.stderr).toContain("timed out after 1ms");
 	});
@@ -451,25 +300,15 @@ describe("createSpawnRunPi", () => {
 		// down to each reviewer. When the user cancels the
 		// council, every in-flight subprocess gets a
 		// SIGTERM rather than continuing to burn tokens.
-		const fake = makeFakeChild();
-		let killed = false;
-		fake.child.kill = () => {
-			killed = true;
-			queueMicrotask(() => fake.emitClose(143));
-			return true;
-		};
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => fake.child as unknown as ChildProcess,
-		});
+		const { spawn, kills } = killedSpawn(143);
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		const ac = new AbortController();
 		const promise = runPi({ args: [], cwd: "/tmp", signal: ac.signal });
 		ac.abort();
 		const result = await promise;
-		expect(killed, "aborting the run kills the child").toBe(true);
+		expect(kills.length, "aborting the run kills the child").toBeGreaterThan(
+			0,
+		);
 		expect(result.exitCode).toBe(143);
 		expect(result.stderr).toContain("cancelled");
 	});
@@ -481,26 +320,17 @@ describe("createSpawnRunPi", () => {
 		// configured default; otherwise the fleet tool's
 		// per-job override would silently no-op for any
 		// caller still on the spawn runner.
-		const fake = makeFakeChild();
-		const signals: Array<NodeJS.Signals | undefined> = [];
-		fake.child.kill = (signal) => {
-			signals.push(signal);
-			queueMicrotask(() => fake.emitClose(143));
-			return true;
-		};
+		const { spawn, kills } = killedSpawn(143);
 		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => fake.child as unknown as ChildProcess,
+			piInstall: INSTALL,
+			spawn,
 			timeoutMs: 60_000,
 			killGraceMs: 50,
 		});
 
 		const result = await runPi({ args: [], cwd: "/tmp", timeoutMs: 1 });
 
-		expect(signals).toContain("SIGTERM");
+		expect(kills).toContain("SIGTERM");
 		expect(result.exitCode).toBe(143);
 		expect(result.stderr).toContain("timed out after 1ms");
 	});
@@ -513,20 +343,8 @@ describe("createSpawnRunPi", () => {
 		// wall clock applies. Surface a warning through
 		// the existing warnings channel so the caller can
 		// see the no-op without runtime surprise.
-		const fake = makeFakeChild();
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => {
-				queueMicrotask(() => {
-					fake.stdout.end('{"type":"agent_end"}\n');
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
-		});
+		const { spawn } = finishingSpawn({ stdout: ['{"type":"agent_end"}\n'] });
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 
 		const result = await runPi({
 			args: [],
@@ -545,20 +363,8 @@ describe("createSpawnRunPi", () => {
 		// touch the field should land on a clean warnings
 		// array (or omit the field entirely, since the
 		// channel is optional).
-		const fake = makeFakeChild();
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => {
-				queueMicrotask(() => {
-					fake.stdout.end('{"type":"agent_end"}\n');
-					fake.emitClose(0);
-				});
-				return fake.child as unknown as ChildProcess;
-			},
-		});
+		const { spawn } = finishingSpawn({ stdout: ['{"type":"agent_end"}\n'] });
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 
 		const result = await runPi({ args: [], cwd: "/tmp" });
 
@@ -569,18 +375,8 @@ describe("createSpawnRunPi", () => {
 	});
 
 	it("uses a cancellation exit code when abort closes without a code", async () => {
-		const fake = makeFakeChild();
-		fake.child.kill = () => {
-			queueMicrotask(() => fake.emitClose(null));
-			return true;
-		};
-		const runPi = createSpawnRunPi({
-			piInstall: {
-				node: "/nix/store/node-22/bin/node",
-				entry: "/nix/store/pi/dist/cli.js",
-			},
-			spawn: () => fake.child as unknown as ChildProcess,
-		});
+		const { spawn } = killedSpawn(null);
+		const runPi = createSpawnRunPi({ piInstall: INSTALL, spawn });
 		const ac = new AbortController();
 		const promise = runPi({ args: [], cwd: "/tmp", signal: ac.signal });
 		ac.abort();
@@ -589,8 +385,3 @@ describe("createSpawnRunPi", () => {
 		expect(result.stderr).toContain("cancelled");
 	});
 });
-
-// Just to give the test file the same shape Node's `spawn`
-// returns so the cast above stays honest. We don't import
-// from `child_process` to keep the test self-contained.
-declare function spawnStub(): FakeChild;
