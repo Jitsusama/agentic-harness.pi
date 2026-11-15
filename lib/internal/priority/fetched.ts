@@ -30,8 +30,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeWhole } from "../write-whole.ts";
+import { limited } from "./limited.ts";
 import type { Outcome } from "./outcome.ts";
 import type { Job } from "./queue.ts";
+
+/** How long a read of main may take, in seconds. */
+const MAIN_READ_S = 10;
 
 /**
  * How long after a fetch of main moved `origin/main` a fetch of main
@@ -93,7 +97,7 @@ export function movedMain(before: string, after: string): boolean {
  * `file`, quietly, which leaves `$?` as it found it.
  */
 export function readsMain(gitDir: string, file: string): string {
-	return `{ timeout 10 git --git-dir='${gitDir}' rev-parse -q --verify ${MAIN_REF} > ${file}; } 2>/dev/null || :`;
+	return `{ ${limited(MAIN_READ_S, `git --git-dir='${gitDir}' rev-parse -q --verify ${MAIN_REF}`)}; } > ${file} 2>/dev/null || :`;
 }
 
 /**

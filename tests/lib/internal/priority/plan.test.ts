@@ -5,6 +5,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -202,7 +203,10 @@ describe("the shell's plan", () => {
 	afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 	/** Runs the plan lines with `nix` standing in as `script`, answering the plan file. */
-	function plan(script: string): { plan: string; code: number | null } {
+	function plan(
+		script: string,
+		path = `${join(root, "bin")}:${process.env.PATH}`,
+	): { plan: string; code: number | null } {
 		const nix = join(root, "bin", "nix");
 		writeFileSync(nix, `#!/usr/bin/env bash\n${script}\n`);
 		chmodSync(nix, 0o755);
@@ -213,7 +217,7 @@ describe("the shell's plan", () => {
 			{
 				env: {
 					...process.env,
-					PATH: `${join(root, "bin")}:${process.env.PATH}`,
+					PATH: path,
 				},
 			},
 		);
@@ -252,6 +256,24 @@ describe("the shell's plan", () => {
 		);
 		expect(said).toBe("failed nix build --dry-run exited 1\n");
 		expect(code).toBe(0);
+	});
+
+	// 87KI6A [606d1d2c], 15 November: on macOS, which has no `timeout`,
+	// every plan said "failed nix build --dry-run exited 127".
+	it("plans on a machine with no timeout, as a Mac has none", () => {
+		const bare = join(root, "bare");
+		mkdirSync(bare);
+		for (const tool of ["bash", "env", "grep", "mv"]) {
+			const found = spawnSync("bash", ["-c", `command -v ${tool}`], {
+				encoding: "utf8",
+			}).stdout.trim();
+			symlinkSync(found, join(bare, tool));
+		}
+		const { plan: said } = plan(
+			"printf 'these 3 paths will be fetched (1.2 MiB download):\\n' >&2",
+			`${join(root, "bin")}:${bare}`,
+		);
+		expect(said).toBe("cached\n");
 	});
 });
 

@@ -1,3 +1,13 @@
+import { spawnSync } from "node:child_process";
+import {
+	chmodSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	ANSWERED_FOR_MS,
@@ -101,9 +111,35 @@ describe("a fetch of World's main answered by one just made", () => {
 	});
 
 	it("reads origin/main from World's repository, quietly", () => {
-		expect(readsMain("/home/j/world/git", "'/q/x.main-after'")).toBe(
-			"{ timeout 10 git --git-dir='/home/j/world/git' rev-parse -q --verify refs/remotes/origin/main > '/q/x.main-after'; } 2>/dev/null || :",
-		);
+		const root = mkdtempSync(join(tmpdir(), "reads-main-"));
+		try {
+			// git as it answers the read, saying what it was asked.
+			const git = join(root, "git");
+			writeFileSync(
+				git,
+				`#!/usr/bin/env bash\necho "$*" > '${join(root, "asked")}'\necho ${A}\necho noise >&2\n`,
+			);
+			chmodSync(git, 0o755);
+			const file = join(root, "main-after");
+			const ran = spawnSync(
+				"bash",
+				["-c", readsMain("/home/j/world/git", `'${file}'`)],
+				{
+					encoding: "utf8",
+					env: { ...process.env, PATH: `${root}:${process.env.PATH}` },
+				},
+			);
+			expect({ status: ran.status, stderr: ran.stderr }).toEqual({
+				status: 0,
+				stderr: "",
+			});
+			expect(readFileSync(file, "utf8")).toBe(`${A}\n`);
+			expect(readFileSync(join(root, "asked"), "utf8")).toBe(
+				"--git-dir=/home/j/world/git rev-parse -q --verify refs/remotes/origin/main\n",
+			);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 
 	it("runs fetched-git.mjs as git with this node, told its folder and World's repository", () => {
