@@ -6,6 +6,10 @@ mirrors no source folder: what it checks spans the engine, the service
 and every conversation's harness. These are the integration checks E1
 to E8 of the keying design, and the ground they stand on.
 
+Many entries because each case starts a whole host in a seal of its
+own, so each is a file the process lane runs alone, and a split into
+folders would only part cases that share the seal in `support/`.
+
 sealed-host.test.ts proves that ground on a fake engine: two
 conversations served from the seal, one ended at close with the other
 kept, both back under their ids after a kill, and both parked at a stop
@@ -211,6 +215,16 @@ held, and restore.json offers it. It runs on the screen host, since
 only a conversation with a screen parks, with the mesh loaded beside
 the fixture's extensions (`startScreenHost`'s third argument). E12
 reopens a released one in plain pi.
+
+release-queued.test.ts is E27: a release as a conversation's next
+prompts follow its run's end at once, as away mode's send-back queues
+them. Two steers and a peer's mesh question queue behind a tool that
+ends by itself, and `host-release.ts --all` starts. Whether the host
+answers them first or plain pi answers them after, from the same file,
+each is answered once, and the log stays whole and keeps what it held.
+E28, in the same file, releases a conversation away mode keeps sending
+back, each send-back running a tool: it is let go within the release's
+deadline, and in plain pi, from the same file, it carries on by itself.
 
 early-attach.test.ts attaches a viewer to a conversation the screen
 host lists but hasn't yet given a screen, its folder's own extension

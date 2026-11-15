@@ -94,6 +94,14 @@ import {
 	shouldWait,
 } from "./carry-on.ts";
 import {
+	HELD_BACK_ENTRY,
+	HELD_LOOK_MS,
+	type HeldBack,
+	heldBackIn,
+	movedOn,
+	moveWaits,
+} from "./held-back.ts";
+import {
 	afterRun,
 	combine,
 	endingOf,
@@ -135,6 +143,10 @@ const SHUTDOWN_WITHDRAW_MS = 1_000;
 const RETURN_MESSAGE = "away-return";
 const HINT_MESSAGE = "away-hint";
 const STOPPED_MESSAGE = "away-stopped";
+/** The starts that open a session on its log, as a move's does. */
+const OPENINGS: ReadonlySet<string> = new Set(["startup", "resume"]);
+/** A send-back a move held back, sent on where the session opened next. */
+const SENT_ON_MESSAGE = "away-sent-on";
 
 const NOTHING_RUN: RunSummary = { lastText: "", toolCalls: 0, aborted: false };
 
@@ -157,6 +169,8 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	let restoring = false;
 	let run = NOTHING_RUN;
 	let pendingNudge: Job | undefined;
+	// A send-back held back for a move, looking whether the move is off.
+	let heldLook: ReturnType<typeof setInterval> | undefined;
 	let stopWatching: () => void = () => {};
 	const memory = freshMemory();
 	const reached = freshReach();
@@ -349,13 +363,73 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			return;
 		}
 		if (verdict.kind !== "nudge") return;
+		const session = latest?.sessionManager.getSessionId();
+		if (session !== undefined && moveWaits(session)) {
+			holdBack(session, verdict.text);
+			return;
+		}
+		sendBack(verdict.text);
+	};
+
+	/** Send the run back to work with `text`, as its next turn. */
+	const sendBack = (text: string) => {
 		const job = startJob("away", "keep working while the user is away");
 		if (!job) return;
 		pendingNudge = job;
 		job.onDelivered(() => {
 			if (pendingNudge === job) pendingNudge = undefined;
 		});
-		job.finish({ summary: verdict.text });
+		job.finish({ summary: text });
+	};
+
+	/**
+	 * A session opening on a log whose last word is a send-back held back
+	 * for a move, while the person is still away: send it on now. Said as
+	 * a message rather than through a job, since the job host may not be
+	 * up yet as the session starts.
+	 */
+	const sendOnHeldBack = (ctx: ExtensionContext) => {
+		if (!isAway()) return;
+		let text: string | undefined;
+		try {
+			text = heldBackIn(ctx.sessionManager.getBranch());
+		} catch {
+			// No history to read: nothing was held back in it.
+			return;
+		}
+		if (text === undefined) return;
+		pi.sendMessage(
+			{ customType: SENT_ON_MESSAGE, content: text, display: true },
+			{ triggerTurn: true },
+		);
+	};
+
+	const stopHeldLook = () => {
+		if (heldLook !== undefined) clearInterval(heldLook);
+		heldLook = undefined;
+	};
+
+	/**
+	 * A move waits for this session: write the send-back into its log
+	 * rather than start a run, so the move finds it free, and whichever pi
+	 * opens it next sends it on (held-back.ts). A move called off instead
+	 * leaves the session here, which sends it on itself.
+	 */
+	const holdBack = (session: string, text: string) => {
+		const held: HeldBack = { text };
+		pi.appendEntry(HELD_BACK_ENTRY, held);
+		stopHeldLook();
+		heldLook = setInterval(() => {
+			if (movedOn(session)) {
+				stopHeldLook();
+				return;
+			}
+			if (moveWaits(session)) return;
+			stopHeldLook();
+			if (latest?.sessionManager.getSessionId() === session && isAway())
+				sendBack(text);
+		}, HELD_LOOK_MS);
+		heldLook.unref?.();
 	};
 
 	/**
@@ -447,7 +521,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		quiet.unref?.();
 	};
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		// A log this process rolled away from is the live session's no
 		// longer, so its copy neither follows the absence nor writes it.
 		if (sessionLeft(ctx.sessionManager.getSessionId())) {
@@ -465,6 +539,9 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			sessionWants().bind(pi.events);
 			sayHeld(snapshot());
 			follow(ctx, readMachineWord());
+			// Only a session opened on the log takes it up, as a move's jobs
+			// are (job-workflow); a reload's copy keeps the session's own look.
+			if (OPENINGS.has(event.reason)) sendOnHeldBack(ctx);
 			stopWatching();
 			const session = sessionKeyOf(ctx);
 			stopWatching = watchMachineWord((word) =>
@@ -490,6 +567,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		}
 		sessionWants().unbind(pi.events);
 		stopWaiting();
+		stopHeldLook();
 		stopWatching();
 		stopWatching = () => {};
 		disposeListener();

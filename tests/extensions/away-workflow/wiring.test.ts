@@ -14,6 +14,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QUIET_MS } from "../../../extensions/away-workflow/carry-on.ts";
+import {
+	HELD_BACK_ENTRY,
+	HELD_LOOK_MS,
+} from "../../../extensions/away-workflow/held-back.ts";
 import awayWorkflow from "../../../extensions/away-workflow/index.ts";
 import {
 	machineAwayPath,
@@ -59,6 +63,17 @@ vi.mock("../../../lib/internal/notify.ts", () => ({
 			? new Promise(() => {})
 			: Promise.resolve(Reflect.deleteProperty(desktop, id - 1)),
 }));
+
+/** The session's move as its presence and note would say it. */
+const move = vi.hoisted(() => ({ waits: false, movedOn: false }));
+vi.mock(
+	"../../../extensions/away-workflow/held-back.ts",
+	async (importOriginal) => ({
+		...(await importOriginal<object>()),
+		moveWaits: () => move.waits,
+		movedOn: () => move.movedOn,
+	}),
+);
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -194,6 +209,8 @@ function activate({ hasUI = true, sessionId = "live" } = {}) {
 beforeEach(async () => {
 	desktop.splice(0);
 	silence.on = false;
+	move.waits = false;
+	move.movedOn = false;
 	forgetWants();
 	resetAway();
 	rmSync(machineAwayPath(), { force: true });
@@ -823,5 +840,132 @@ describe("carrying on when nobody answers", () => {
 		vi.advanceTimersByTime(QUIET_MS);
 
 		expect(pi.jobs).toHaveLength(0);
+	});
+});
+
+/** The send-backs a session's log holds back for a move. */
+function heldBack(entries: readonly unknown[]): unknown[] {
+	return entries.filter(
+		(entry) => isRecord(entry) && entry.customType === HELD_BACK_ENTRY,
+	);
+}
+
+// On 15 November a release waited out its whole deadline on a hosted
+// conversation away mode kept sending back: each send-back started the
+// next run as the last settled, and a move looks only between runs.
+describe("while a move waits for the session", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("writes the send-back into the log rather than start a run", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway("finish the subquests");
+		move.waits = true;
+
+		await pi.runEnds("Here's where things stand.");
+
+		expect(pi.jobs, "no run is started").toHaveLength(0);
+		expect(heldBack(pi.entries)).toEqual([
+			{
+				type: "custom",
+				customType: HELD_BACK_ENTRY,
+				data: { text: expect.stringContaining("finish the subquests") },
+			},
+		]);
+	});
+
+	it("sends it back itself once the move is called off", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway("finish the subquests");
+		move.waits = true;
+		await pi.runEnds("Here's where things stand.");
+
+		vi.advanceTimersByTime(HELD_LOOK_MS);
+		expect(pi.jobs, "not while the move waits").toHaveLength(0);
+		move.waits = false;
+		vi.advanceTimersByTime(HELD_LOOK_MS);
+
+		expect(pi.jobs).toHaveLength(1);
+		expect(pi.jobs[0]?.summary).toContain("finish the subquests");
+	});
+
+	it("leaves it to the next pi once the session has moved on", async () => {
+		const pi = activate();
+		await pi.fire("session_start");
+		await pi.goAway("finish the subquests");
+		move.waits = true;
+		await pi.runEnds("Here's where things stand.");
+
+		move.movedOn = true;
+		vi.advanceTimersByTime(HELD_LOOK_MS * 2);
+
+		expect(pi.jobs).toHaveLength(0);
+	});
+});
+
+describe("a session opened on a log that held a send-back back", () => {
+	/** A log that went away and held a send-back back as it moved. */
+	const movedLog = async (): Promise<unknown[]> => {
+		const first = activate();
+		await first.fire("session_start");
+		await first.goAway("finish the subquests");
+		move.waits = true;
+		await first.runEnds("Here's where things stand.");
+		move.waits = false;
+		move.movedOn = true;
+		const log = [...first.entries];
+		await first.fire("session_shutdown");
+		resetAway();
+		return log;
+	};
+
+	it("sends it on as it opens, the person still away", async () => {
+		const log = await movedLog();
+		const next = activate();
+		next.entries.push(...log);
+
+		await next.fire("session_start", { reason: "resume" });
+
+		const sent = next.said.filter((s) => s.customType === "away-sent-on");
+		expect(sent).toEqual([
+			{
+				customType: "away-sent-on",
+				content: expect.stringContaining("finish the subquests"),
+				display: true,
+				options: { triggerTurn: true },
+			},
+		]);
+	});
+
+	it("leaves it on a reload, which keeps the session's own look", async () => {
+		const log = await movedLog();
+		const next = activate();
+		next.entries.push(...log);
+
+		await next.fire("session_start", { reason: "reload" });
+
+		expect(next.said.filter((s) => s.customType === "away-sent-on")).toEqual(
+			[],
+		);
+	});
+
+	it("leaves it once the person is back", async () => {
+		const log = await movedLog();
+		publishMachineWord(undefined, new Date(Date.now() + 1_000));
+		const next = activate();
+		next.entries.push(...log);
+
+		await next.fire("session_start", { reason: "resume" });
+
+		expect(next.said.filter((s) => s.customType === "away-sent-on")).toEqual(
+			[],
+		);
 	});
 });

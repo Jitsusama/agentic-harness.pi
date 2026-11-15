@@ -10,7 +10,10 @@
  * peer's message unanswered in the file the host takes up. It only ends
  * the session between them, the first moment nothing is out: it writes
  * the note the move is taken up by and ends as Close does. Its presence
- * says where it is moving and what holds it meanwhile.
+ * says where it is moving and what holds it meanwhile. Away mode, whose
+ * send-backs would otherwise start a run as each settles for as long as
+ * the person is away, holds them in the log while its presence says a
+ * move waits (away-workflow held-back.ts), so the move finds a gap.
  *
  * A move never waits forever: one still held {@link MOVE_WAIT_MOST_MS}
  * after it was asked, counted through a reload, calls itself off and
