@@ -446,6 +446,49 @@ describe("runHost's watchdog", () => {
 		expect(held?.slice(3), "none mid-turn, of none held").toEqual(["0", "0"]);
 	});
 
+	it("watches what holds its loop while systemd watches it, and stops with it", async () => {
+		const serve = async (extra: NodeJS.ProcessEnv) => {
+			const watches = { started: 0, stopped: 0 };
+			const signals = new EventEmitter();
+			const run = await runHost({
+				argv: ["background"],
+				env: { ...env(), ...extra },
+				engine,
+				signals,
+				ready: async () => {},
+				status: async () => {},
+				alive: async () => {},
+				holds: () => {
+					watches.started += 1;
+					return () => {
+						watches.stopped += 1;
+					};
+				},
+				say: () => {},
+				report: () => {},
+				places: places(),
+			});
+			const running = { ...watches };
+			signals.emit("SIGTERM");
+			await run.stopped;
+			return { running, stopped: watches };
+		};
+		const watched = await serve(WATCHED);
+		expect(watched.running, "watched once while serving").toEqual({
+			started: 1,
+			stopped: 0,
+		});
+		expect(watched.stopped, "stopped with the host").toEqual({
+			started: 1,
+			stopped: 1,
+		});
+		const unwatched = await serve({});
+		expect(unwatched.stopped, "not watched without a watchdog").toEqual({
+			started: 0,
+			stopped: 0,
+		});
+	});
+
 	it("doesn't ping without a watchdog, nor once stopped", async () => {
 		// One host at a time, as a process installs only one.
 		const serve = async (

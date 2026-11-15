@@ -43,6 +43,7 @@ import { isRecord } from "../../lib/internal/record.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostRealm } from "./address.ts";
 import type { ConversationEngine, ResumePhase } from "./backend.ts";
+import { watchHolds } from "./hold-watch.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
 import type { ViewerBridge } from "./server.ts";
 
@@ -137,6 +138,11 @@ export interface HostRunOptions {
 	 * given how many ms the saying may take; systemd's notify by default.
 	 */
 	alive?: (env: NodeJS.ProcessEnv, within: number) => Promise<void>;
+	/**
+	 * Watches what holds the loop, when systemd's watchdog watches it,
+	 * answering how to stop; a thread beside the loop by default.
+	 */
+	holds?: () => () => void;
 	/**
 	 * Says the start still moves and where it is, given the step in words;
 	 * systemd's notify by default, extending the start timeout.
@@ -279,7 +285,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		(options.status ?? notifyStatus)(options.env, now);
 	const signals = options.signals ?? process;
 	const every = watchdogEvery(options.env);
-	const unwatch =
+	const unwatchBeats =
 		every === undefined
 			? undefined
 			: keepAlive({
@@ -289,6 +295,14 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 					held: (late) =>
 						say(heldLine(late, every * PINGS_PER_TIMEOUT, serving.held())),
 				});
+	// A host systemd watches also says what holds its loop, from a thread
+	// beside it, since the beats can say only how long.
+	const unwatchHolds =
+		every === undefined ? undefined : (options.holds ?? watchHolds)();
+	const unwatch = () => {
+		unwatchBeats?.();
+		unwatchHolds?.();
+	};
 	let following: (() => void) | undefined;
 	let stopping: Promise<void> | undefined;
 	const stop = () => {
@@ -303,7 +317,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			const held = serving.held();
 			say(unparkedLine(ms, held));
 			unparked.write(held.map(({ id }) => id));
-		}).finally(() => unwatch?.());
+		}).finally(unwatch);
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {

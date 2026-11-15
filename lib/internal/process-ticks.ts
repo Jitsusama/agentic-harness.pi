@@ -116,7 +116,7 @@ export function startSecondsFromProcSync(pid: number): number | undefined {
 	}
 	const boot = Number(/^btime (\d+)$/m.exec(system)?.[1]);
 	if (!Number.isSafeInteger(boot)) return undefined;
-	return boot + Math.floor(ticks / ticksPerSecond());
+	return boot + Math.floor(ticks / clockTicksPerSecond());
 }
 
 /** The auxiliary vector's key for the clock ticks per second (AT_CLKTCK). */
@@ -135,7 +135,7 @@ let ticksOnce: number | undefined;
  * read from a file, since asking getconf would start a child on pi's
  * loop. A 32-bit machine's vector, or none, answers 100.
  */
-function ticksPerSecond(): number {
+export function clockTicksPerSecond(): number {
 	ticksOnce ??= clockTicksFromAuxv() ?? USER_HZ;
 	return ticksOnce;
 }
