@@ -67,7 +67,9 @@ export class SessionProfiler {
 		// A thousand microseconds is Chrome's own default. Sampling
 		// faster buys precision the reader cannot use and costs the
 		// page time that then shows up in its own profile.
-		await this.wires.cdp().send("Profiler.setSamplingInterval", { interval: 1000 });
+		await this.wires
+			.cdp()
+			.send("Profiler.setSamplingInterval", { interval: 1000 });
 		await this.wires.cdp().send("Profiler.start");
 		await new Promise((wake) => setTimeout(wake, forMs));
 		const { profile } = await this.wires.cdp().send("Profiler.stop");
@@ -159,7 +161,9 @@ export class SessionProfiler {
 	private async ownFrameIds(): Promise<ReadonlySet<string>> {
 		const ids = new Set<string>();
 		try {
-			const { frameTree } = (await this.wires.cdp().send("Page.getFrameTree")) as {
+			const { frameTree } = (await this.wires
+				.cdp()
+				.send("Page.getFrameTree")) as {
 				frameTree: FrameTreeNode;
 			};
 			const queue: FrameTreeNode[] = [frameTree];

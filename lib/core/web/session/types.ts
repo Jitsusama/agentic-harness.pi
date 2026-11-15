@@ -68,7 +68,6 @@ export interface RenderedFont {
 	readonly glyphs: number;
 }
 
-
 /** Everything the browser will say about one element. */
 export interface Inspection {
 	readonly node: AxNode;
@@ -208,4 +207,3 @@ export class CookieSetupNeeded extends Error {
 		this.name = "CookieSetupNeeded";
 	}
 }
-

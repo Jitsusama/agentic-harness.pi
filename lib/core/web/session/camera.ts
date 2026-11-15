@@ -150,7 +150,8 @@ export class SessionCamera {
 		if (backendNodeId === undefined) return;
 		const nodeId = await this.nodes.frontendNodeFor(backendNodeId);
 		if (nodeId === undefined) return;
-		await this.wires.cdp()
+		await this.wires
+			.cdp()
 			.send("CSS.forcePseudoState", {
 				nodeId,
 				forcedPseudoClasses: state ? [state] : [],
@@ -264,7 +265,9 @@ export class SessionCamera {
 		const baselinePath = path.join(this.baselineDir(), `${safe}.png`);
 
 		const shot = Buffer.from(
-			String(await this.wires.page().screenshot({ type: "png", encoding: "base64" })),
+			String(
+				await this.wires.page().screenshot({ type: "png", encoding: "base64" }),
+			),
 			"base64",
 		);
 

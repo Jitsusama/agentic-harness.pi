@@ -174,9 +174,9 @@ export class SessionFocus {
 	/** Which way the document says it reads. */
 	private async readingDirection(): Promise<"ltr" | "rtl"> {
 		try {
-			const reads = await this.wires.page().evaluate(
-				() => getComputedStyle(document.documentElement).direction,
-			);
+			const reads = await this.wires
+				.page()
+				.evaluate(() => getComputedStyle(document.documentElement).direction);
 			return reads === "rtl" ? "rtl" : "ltr";
 		} catch {
 			// Left-to-right is the safe default: it is what most pages

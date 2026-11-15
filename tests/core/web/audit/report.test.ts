@@ -5,7 +5,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readAxeRun, tallyFindings } from "../../../../lib/core/web/audit/axe.ts";
+import {
+	readAxeRun,
+	tallyFindings,
+} from "../../../../lib/core/web/audit/axe.ts";
 import {
 	renderAudit,
 	renderFinding,

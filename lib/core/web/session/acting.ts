@@ -402,10 +402,13 @@ export class SessionActing {
 				// modified click and the symptom appeared calls away
 				// from the cause.
 				for (const modifier of [...chord.modifiers].reverse()) {
-					await this.wires.page().keyboard.up(modifier).catch(() => {
-						// The page may be gone; there is no key state left
-						// to corrupt if it is.
-					});
+					await this.wires
+						.page()
+						.keyboard.up(modifier)
+						.catch(() => {
+							// The page may be gone; there is no key state left
+							// to corrupt if it is.
+						});
 				}
 			}
 			pressed.push([...chord.modifiers, chord.key].join("+"));

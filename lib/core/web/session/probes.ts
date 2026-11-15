@@ -43,7 +43,10 @@ import {
 	type EvalValue,
 	evaluationSource,
 } from "../evaluate/index.ts";
-import { HYDRATION_CAPTURE, type HydrationCapture } from "../hydration/index.ts";
+import {
+	HYDRATION_CAPTURE,
+	type HydrationCapture,
+} from "../hydration/index.ts";
 import {
 	observerBootstrap,
 	readVitalsSource,

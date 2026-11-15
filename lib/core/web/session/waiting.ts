@@ -132,7 +132,8 @@ export class SessionWaiting {
 				};
 			}
 			case "text": {
-				const has = await this.wires.page()
+				const has = await this.wires
+					.page()
 					.evaluate(
 						(needle: string) =>
 							(document.body?.innerText ?? "").includes(needle),
@@ -166,9 +167,11 @@ export class SessionWaiting {
 				};
 			}
 			case "request": {
-				const fresh = this.telemetry.requests().filter(
-					(request) => since === undefined || request.startedAt >= since,
-				);
+				const fresh = this.telemetry
+					.requests()
+					.filter(
+						(request) => since === undefined || request.startedAt >= since,
+					);
 				const matched = fresh.filter(
 					(request) =>
 						matchesPattern({
@@ -265,10 +268,12 @@ export class SessionWaiting {
 			case "count": {
 				let seen: number;
 				try {
-					seen = await this.wires.page().evaluate(
-						(selector: string) => document.querySelectorAll(selector).length,
-						condition.selector,
-					);
+					seen = await this.wires
+						.page()
+						.evaluate(
+							(selector: string) => document.querySelectorAll(selector).length,
+							condition.selector,
+						);
 				} catch (error) {
 					return {
 						met: false,
@@ -287,13 +292,15 @@ export class SessionWaiting {
 				// false pass as the selector arm above.
 				let running: number;
 				try {
-					running = await this.wires.page().evaluate(
-						() =>
-							document
-								.getAnimations()
-								.filter((animation) => animation.playState === "running")
-								.length,
-					);
+					running = await this.wires
+						.page()
+						.evaluate(
+							() =>
+								document
+									.getAnimations()
+									.filter((animation) => animation.playState === "running")
+									.length,
+						);
 				} catch (error) {
 					return {
 						met: false,

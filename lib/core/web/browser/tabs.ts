@@ -10,12 +10,7 @@
  * only has to be there.
  */
 
-import type {
-	Browser,
-	BrowserContext,
-	CookieData,
-	Page,
-} from "puppeteer-core";
+import type { Browser, BrowserContext, CookieData, Page } from "puppeteer-core";
 import { abortError, type Bounds, bounded } from "../bound.ts";
 import { type CookieJar, cookieData } from "../jar.ts";
 import {

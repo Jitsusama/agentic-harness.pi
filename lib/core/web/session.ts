@@ -35,6 +35,7 @@ import type {
 import { holdWhile, newContextPage } from "./browser.ts";
 import type { Comparison } from "./compare/index.ts";
 import { isSetUp } from "./cookies/index.ts";
+import type { StyleSample, TextBlock } from "./design/index.ts";
 import type { HoverReport } from "./element/index.ts";
 import type {
 	Divergence,
@@ -63,12 +64,8 @@ import type {
 	TraceProfile,
 	Vitals,
 } from "./perf/index.ts";
-import type { StyleSample, TextBlock } from "./design/index.ts";
 import { assembleSession, type SessionParts } from "./session/assembly.ts";
-import {
-	describeRecording,
-	recordingInProgress,
-} from "./session/recording.ts";
+import { describeRecording, recordingInProgress } from "./session/recording.ts";
 import type { StateLoaded } from "./session/storage.ts";
 import {
 	type ActResult,
@@ -98,17 +95,13 @@ import {
 	type SocketRecord,
 	toHar,
 } from "./telemetry/index.ts";
-import type {
-	Settled,
-	WaitCondition,
-	WaitOutcome,
-} from "./wait/index.ts";
+import type { Settled, WaitCondition, WaitOutcome } from "./wait/index.ts";
 
 export type {
 	ActResult,
+	Inspection,
 	InspectOptions,
 	InspectResult,
-	Inspection,
 	MeasureResult,
 	Observation,
 	ObserveResult,
@@ -309,7 +302,9 @@ export class BrowserSession {
 	}
 
 	/** Step through the history the session accumulated. */
-	step(direction: "back" | "forward"): Promise<
+	step(
+		direction: "back" | "forward",
+	): Promise<
 		| { readonly ok: true; readonly url: string }
 		| { readonly ok: false; readonly refusal: string }
 	> {
@@ -585,7 +580,9 @@ export class BrowserSession {
 	}
 
 	/** The whole page flattened (session/probes.ts). */
-	snapshot(styleProperties?: readonly string[]): Promise<readonly IndexedNode[]> {
+	snapshot(
+		styleProperties?: readonly string[],
+	): Promise<readonly IndexedNode[]> {
 		return this.parts.probes.snapshot(styleProperties);
 	}
 

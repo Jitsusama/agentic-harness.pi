@@ -26,9 +26,9 @@ import {
 import type { SessionNodes } from "./nodes.ts";
 import type { SessionTargeting } from "./targeting.ts";
 import type {
+	Inspection,
 	InspectOptions,
 	InspectResult,
-	Inspection,
 	MeasureResult,
 	RenderedFont,
 } from "./types.ts";
@@ -216,9 +216,11 @@ export class SessionInspector {
 		const nodeId = await this.nodes.frontendNodeFor(backendNodeId);
 		if (nodeId === undefined) return undefined;
 		try {
-			const { fonts } = await this.wires.cdp().send("CSS.getPlatformFontsForNode", {
-				nodeId,
-			});
+			const { fonts } = await this.wires
+				.cdp()
+				.send("CSS.getPlatformFontsForNode", {
+					nodeId,
+				});
 			if (fonts.length === 0) return undefined;
 			return fonts.map((font) => ({
 				family: font.familyName,

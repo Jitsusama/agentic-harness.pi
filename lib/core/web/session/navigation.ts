@@ -90,7 +90,9 @@ export class SessionNavigation {
 		// said is the useful part, so it is returned.
 		let response: Awaited<ReturnType<Page["goto"]>> = null;
 		try {
-			response = await this.wires.page().goto(url, { waitUntil: "networkidle2" });
+			response = await this.wires
+				.page()
+				.goto(url, { waitUntil: "networkidle2" });
 		} catch (error) {
 			const failure = failureText(error);
 			// The tab can die under this very call, and Chrome tells the
@@ -107,7 +109,9 @@ export class SessionNavigation {
 				return { failure };
 			}
 			try {
-				response = await this.wires.page().goto(url, { waitUntil: "networkidle2" });
+				response = await this.wires
+					.page()
+					.goto(url, { waitUntil: "networkidle2" });
 			} catch (afterRecovery) {
 				return { failure: failureText(afterRecovery) };
 			}

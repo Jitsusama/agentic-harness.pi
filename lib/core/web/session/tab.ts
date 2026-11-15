@@ -13,11 +13,7 @@
 import type { CDPSession, Page } from "puppeteer-core";
 import { holdWhile } from "../browser.ts";
 import { chooseTab, type TabRecord } from "../environment/index.ts";
-import {
-	diedWithTheTab,
-	failureText,
-	wasAborted,
-} from "../telemetry/index.ts";
+import { diedWithTheTab, failureText, wasAborted } from "../telemetry/index.ts";
 import type { EmulationController } from "./emulation.ts";
 import type { SourceMapStore } from "./sourcemaps.ts";
 import type { SessionTelemetry } from "./telemetry.ts";
@@ -115,7 +111,10 @@ export class SessionTab {
 		// Between the old tab closing and the new one opening the
 		// session has no tab holding the event loop, so it claims one.
 		await holdWhile(async () => {
-			await this.wires.page().close().catch(() => {});
+			await this.wires
+				.page()
+				.close()
+				.catch(() => {});
 			await this.bindTo(await this.wires.context().newPage());
 		});
 	}
@@ -173,10 +172,13 @@ export class SessionTab {
 	async tabDiedUnder(failure: string): Promise<boolean> {
 		if (diedWithTheTab(failure)) return true;
 		if (!wasAborted(failure)) return false;
-		const asked = this.wires.cdp().send("Runtime.evaluate", { expression: "0" }).then(
-			() => false,
-			(error: unknown) => diedWithTheTab(failureText(error)),
-		);
+		const asked = this.wires
+			.cdp()
+			.send("Runtime.evaluate", { expression: "0" })
+			.then(
+				() => false,
+				(error: unknown) => diedWithTheTab(failureText(error)),
+			);
 		let timer: NodeJS.Timeout | undefined;
 		const busy = new Promise<boolean>((answer) => {
 			timer = setTimeout(() => answer(false), ALIVE_BUDGET_MS);

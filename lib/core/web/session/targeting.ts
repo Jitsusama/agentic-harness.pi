@@ -41,7 +41,9 @@ export class SessionTargeting {
 		// place to wait out a crash recovery rather than issuing a
 		// call to a renderer that will never answer.
 		await this.wires.ready();
-		const { nodes } = (await this.wires.cdp().send("Accessibility.getFullAXTree")) as {
+		const { nodes } = (await this.wires
+			.cdp()
+			.send("Accessibility.getFullAXTree")) as {
 			nodes: RawAxNode[];
 		};
 		return normalizeAxTree(spliceFrames(nodes, await this.frameTrees()));
@@ -85,12 +87,16 @@ export class SessionTargeting {
 			queue.push(...(node.childFrames ?? []));
 			const frameId = node.frame.id;
 			try {
-				const { backendNodeId } = (await this.wires.cdp().send("DOM.getFrameOwner", {
-					frameId,
-				})) as { backendNodeId: number };
-				const { nodes } = (await this.wires.cdp().send("Accessibility.getFullAXTree", {
-					frameId,
-				})) as { nodes: RawAxNode[] };
+				const { backendNodeId } = (await this.wires
+					.cdp()
+					.send("DOM.getFrameOwner", {
+						frameId,
+					})) as { backendNodeId: number };
+				const { nodes } = (await this.wires
+					.cdp()
+					.send("Accessibility.getFullAXTree", {
+						frameId,
+					})) as { nodes: RawAxNode[] };
 				collected.push({ ownerBackendNodeId: backendNodeId, nodes });
 			} catch {
 				// A cross-origin frame refuses both calls, and a frame can
@@ -126,9 +132,9 @@ export class SessionTargeting {
 		// word "undefined": interpolating a missing name produced
 		// aria/undefined[role="button"], which matches nothing, so an
 		// element the outline had just offered refused every act.
-		const handles = await this.wires.page().$$(
-			`aria/${target.name ?? ""}[role="${target.role}"]`,
-		);
+		const handles = await this.wires
+			.page()
+			.$$(`aria/${target.name ?? ""}[role="${target.role}"]`);
 		let element: ElementHandle | undefined;
 		for (const handle of handles) {
 			if (

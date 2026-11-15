@@ -130,7 +130,8 @@ export class SessionNodes {
 	/** Let go of a handle, whether or not the page still has it. */
 	async release(objectId: string | undefined): Promise<void> {
 		if (!objectId) return;
-		await this.wires.cdp()
+		await this.wires
+			.cdp()
 			.send("Runtime.releaseObject", { objectId })
 			// Releasing a handle the page already dropped is not a
 			// failure worth surfacing.
@@ -143,9 +144,7 @@ export class SessionNodes {
 	 * Only the centre, unlike a full inspection: this runs on
 	 * every poll, and the centre is where a click is aimed.
 	 */
-	async coveredAtCentre(
-		backendNodeId: number,
-	): Promise<string | undefined> {
+	async coveredAtCentre(backendNodeId: number): Promise<string | undefined> {
 		const objectId = await this.objectFor(backendNodeId);
 		if (!objectId) return undefined;
 		try {
@@ -158,10 +157,11 @@ export class SessionNodes {
 	/** What is listening on the element. */
 	async listenersOf(objectId: string): Promise<readonly Listener[]> {
 		try {
-			const { listeners } = (await this.wires.cdp().send(
-				"DOMDebugger.getEventListeners",
-				{ objectId },
-			)) as { listeners: RawListener[] };
+			const { listeners } = (await this.wires
+				.cdp()
+				.send("DOMDebugger.getEventListeners", { objectId })) as {
+				listeners: RawListener[];
+			};
 			return normalizeListeners(listeners);
 		} catch {
 			// Without the debugger agent this one section is missing;
@@ -180,15 +180,15 @@ export class SessionNodes {
 	 * listening, which is the answer that most invites the wrong
 	 * conclusion from an inspection meant to explain a dead click.
 	 */
-	async delegatedTo(
-		objectId: string,
-	): Promise<readonly DelegatedListeners[]> {
+	async delegatedTo(objectId: string): Promise<readonly DelegatedListeners[]> {
 		try {
-			const { result } = (await this.wires.cdp().send("Runtime.callFunctionOn", {
-				objectId,
-				functionDeclaration: ANCESTORS_PROBE,
-				returnByValue: false,
-			})) as { result: { objectId?: string } };
+			const { result } = (await this.wires
+				.cdp()
+				.send("Runtime.callFunctionOn", {
+					objectId,
+					functionDeclaration: ANCESTORS_PROBE,
+					returnByValue: false,
+				})) as { result: { objectId?: string } };
 			if (!result.objectId) return [];
 			try {
 				return await this.listenersUp(result.objectId);
@@ -295,7 +295,8 @@ export class SessionNodes {
 				});
 			}
 		} finally {
-			await this.wires.cdp()
+			await this.wires
+				.cdp()
 				.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] })
 				// A page that navigated took the forced state with it.
 				.catch(() => {});
@@ -340,17 +341,16 @@ export class SessionNodes {
 	}
 
 	/** The front-end node id, which the CSS agent works in. */
-	async frontendNodeFor(
-		backendNodeId: number,
-	): Promise<number | undefined> {
+	async frontendNodeFor(backendNodeId: number): Promise<number | undefined> {
 		try {
 			// A front-end id only exists once the document has been
 			// walked at least once.
 			await this.wires.cdp().send("DOM.getDocument", { depth: 0 });
-			const { nodeIds } = await this.wires.cdp().send(
-				"DOM.pushNodesByBackendIdsToFrontend",
-				{ backendNodeIds: [backendNodeId] },
-			);
+			const { nodeIds } = await this.wires
+				.cdp()
+				.send("DOM.pushNodesByBackendIdsToFrontend", {
+					backendNodeIds: [backendNodeId],
+				});
 			return nodeIds[0];
 		} catch {
 			// Without a front-end id the CSS agent cannot be addressed.
@@ -374,9 +374,7 @@ export class SessionNodes {
 	}
 
 	/** Every computed property of the element, as the browser has it. */
-	async stylesOf(
-		objectId: string,
-	): Promise<ComputedStyles | undefined> {
+	async stylesOf(objectId: string): Promise<ComputedStyles | undefined> {
 		try {
 			const { result } = await this.wires.cdp().send("Runtime.callFunctionOn", {
 				objectId,
@@ -453,10 +451,10 @@ export class SessionNodes {
 				if (source?.styleSheet === undefined || source.line === undefined) {
 					return declaration;
 				}
-				const authored = await this.hooks.authoredForSheet(
-					source.styleSheet,
-					{ line: source.line, column: source.column ?? 0 },
-				);
+				const authored = await this.hooks.authoredForSheet(source.styleSheet, {
+					line: source.line,
+					column: source.column ?? 0,
+				});
 				if (authored === undefined) return declaration;
 				return { ...declaration, source: { ...source, authored } };
 			}),
@@ -474,11 +472,11 @@ export class SessionNodes {
 	}
 
 	/** The area a person can currently see. */
-	async viewport(): Promise<
-		{ width: number; height: number } | undefined
-	> {
+	async viewport(): Promise<{ width: number; height: number } | undefined> {
 		try {
-			const metrics = (await this.wires.cdp().send("Page.getLayoutMetrics")) as {
+			const metrics = (await this.wires
+				.cdp()
+				.send("Page.getLayoutMetrics")) as {
 				cssVisualViewport?: { clientWidth: number; clientHeight: number };
 			};
 			const seen = metrics.cssVisualViewport;
@@ -501,7 +499,9 @@ export class SessionNodes {
 	 */
 	async scrollOffset(): Promise<{ x: number; y: number }> {
 		try {
-			const metrics = (await this.wires.cdp().send("Page.getLayoutMetrics")) as {
+			const metrics = (await this.wires
+				.cdp()
+				.send("Page.getLayoutMetrics")) as {
 				cssVisualViewport?: { pageX?: number; pageY?: number };
 			};
 			const seen = metrics.cssVisualViewport;

@@ -24,7 +24,6 @@
  * - tabs.ts: the tabs callers open in it.
  */
 
-export { namesProfile } from "./procs.ts";
 export {
 	BrowserLaunchFailed,
 	classifyLaunchError,
@@ -54,3 +53,4 @@ export {
 	newPage,
 	withTab,
 } from "./browser/tabs.ts";
+export { namesProfile } from "./procs.ts";
