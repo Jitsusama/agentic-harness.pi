@@ -37,7 +37,11 @@ const SESSION_PAIR_MS = 60_000;
 const PARKED_CLOSE_MOST_MS = 5_000;
 
 interface Observed {
-	readonly events: readonly { readonly type: string }[];
+	readonly events: readonly {
+		readonly type: string;
+		/** How long a timed step took, for an event that timed one. */
+		readonly ms?: number;
+	}[];
 	readonly transcript: readonly {
 		readonly role: string;
 		readonly content: unknown;
@@ -332,7 +336,7 @@ describe("the hosted agent parked before a slow first token", {
 		const closed = observed.events.find((event) => event.type === "closed");
 		expect(closed, "the fixture timed the close").toBeDefined();
 		expect(
-			isRecord(closed) ? closed.ms : undefined,
+			closed?.ms,
 			"the close waited on no answer the park had abandoned",
 		).toBeLessThan(PARKED_CLOSE_MOST_MS);
 	});
