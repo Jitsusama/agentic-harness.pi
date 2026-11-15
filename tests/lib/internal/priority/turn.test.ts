@@ -732,6 +732,48 @@ describe("heavy work waiting for its turn", () => {
 		}
 	}, 30_000);
 
+	// 87KI6A [606d1d2c], 15 November: on macOS no wait waited, since a
+	// Mac's stat reads a file's age with -f %m and refuses GNU's -c %Y.
+	it("waits on a Mac, whose stat reads ages its own way", async () => {
+		const bin = join(root, "bin");
+		mkdirSync(bin);
+		writeFileSync(
+			join(bin, "stat"),
+			[
+				`#!${process.env.BASH ?? "/bin/sh"}`,
+				'if [ "$1 $2" = "-f %m" ]; then exec date -r "$3" +%s; fi',
+				"echo 'stat: illegal option -- c' >&2; exit 1",
+				"",
+			].join("\n"),
+			{ mode: 0o755 },
+		);
+		writeFileSync(join(dir, "j6.job"), "{}\n");
+		const shell = spawn(
+			"bash",
+			["-c", `${waitsForTurn(dir)?.("j6")}\necho ran`],
+			{
+				env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+			},
+		);
+		let out = "";
+		shell.stdout.on("data", (data: Buffer) => {
+			out += data.toString();
+		});
+		const ended = new Promise<void>((resolve) =>
+			shell.on("exit", () => resolve()),
+		);
+		try {
+			// Proving it waits: nothing to wait on, so a span of polls goes by.
+			await new Promise((resolve) => setTimeout(resolve, 1_500));
+			expect(out, "it went ahead without its turn").toBe("");
+			writeFileSync(join(dir, "j6.turn"), "");
+			await ended;
+			expect(out).toBe("ran\n");
+		} finally {
+			shell.kill();
+		}
+	});
+
 	it("can't quote a folder with a single quote in it", () => {
 		expect(waitsForTurn("/run/it's")).toBeUndefined();
 	});

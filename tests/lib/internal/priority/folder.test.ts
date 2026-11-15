@@ -8,7 +8,7 @@ import {
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { tellAwaited } from "../../../../lib/internal/priority/awaited.ts";
@@ -606,7 +606,15 @@ describe("the machine's queue folder", () => {
 		expect(machineQueueDir({ XDG_RUNTIME_DIR: "/run/user/1000" })).toBe(
 			"/run/user/1000/jobs",
 		);
-		expect(machineQueueDir({})).toBeUndefined();
+		// A Mac names its account's temporary folder when nothing else does
+		// (87KI6A [606d1d2c]); Linux has none to name.
+		if (platform() === "darwin") {
+			expect(machineQueueDir({}), "a Mac's isn't its jobs folder").toMatch(
+				/\/jobs$/,
+			);
+		} else {
+			expect(machineQueueDir({})).toBeUndefined();
+		}
 		expect(isKept(dir), "a folder with no queue.json is not kept").toBe(false);
 		folder().keep(ROOMY, NOW, () => undefined);
 		const written = statSync(join(dir, "queue.json")).mtimeMs;
