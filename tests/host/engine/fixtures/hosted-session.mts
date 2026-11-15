@@ -350,6 +350,17 @@ const scenarios: Record<string, Scenario> = {
 		drive: (session) => session.prompt("use the tool"),
 		persist: true,
 	},
+	/** Die as the model is asked, before any answer: durable holds the request in flight, as a reboot left one on 14 November. */
+	"crash-in-request": {
+		responses: () => [
+			() => {
+				process.kill(process.pid, "SIGKILL");
+				return say("never");
+			},
+		],
+		drive: (session) => session.prompt("hi"),
+		persist: true,
+	},
 	/** Die as the tool round's turn ends: pi showed the answer and its result, durable never heard what follows. */
 	"crash-at-turn-end": {
 		responses: () => [call("call-1", "ping"), say("never")],
