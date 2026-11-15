@@ -1,7 +1,8 @@
 /**
  * The arguments bubblewrap and landrun are handed for the agent fence,
  * read from fake disks, and what they keep from the person's own keys,
- * devices and repositories.
+ * devices and repositories. Long because every case reads the fence's one
+ * policy off the same fake disks, so its parts change together.
  */
 
 import { join } from "node:path";
