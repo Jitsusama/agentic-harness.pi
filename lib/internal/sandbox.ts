@@ -695,7 +695,6 @@ export function wrapFor(
 				...(githubFolder ? { githubDoor: githubFolder } : {}),
 				cwd: place.cwd,
 				ownGitFolder,
-				sharedRoot,
 				scratch: questScratch(place.env.TMPDIR),
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),

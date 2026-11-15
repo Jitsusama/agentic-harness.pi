@@ -15,7 +15,9 @@
  * are a print or JSON run's, which exits as its prompts end. A
  * session started with `PI_SANDBOX=strict` runs each command under
  * Landlock, with no credentials and no sockets but name lookups and
- * Nix's untrusted door (sandbox.ts). Each command keeps its output and
+ * Nix's untrusted door (sandbox.ts); in the agent fence, a git command
+ * the read-only shared git folder failed is told the route and counted
+ * (fence-git-route.ts). Each command keeps its output and
  * end on disk while it runs, so a session moving to a host can hand a
  * running one on rather than wait for it (keeping.ts).
  *
@@ -29,12 +31,18 @@ import {
 	type ExtensionContext,
 	getAgentDir,
 	SettingsManager,
+	type ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { jobsBroker } from "../../lib/internal/fence.ts";
+import { routedPackedRefs } from "../../lib/internal/fence-git-route.ts";
 import { liftFence } from "../../lib/internal/fence-lifted.ts";
-import { codeOf, recordUnlisted } from "../../lib/internal/fence-log.ts";
+import {
+	codeOf,
+	recordRefusal,
+	recordUnlisted,
+} from "../../lib/internal/fence-log.ts";
 import { settleStage } from "../../lib/internal/fence-stage.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
@@ -91,6 +99,29 @@ function listByIdOnce(session: string): void {
 	}
 }
 
+/**
+ * A fenced bash call's output with the route added where git couldn't
+ * rewrite the read-only shared git folder's `packed-refs`, counted in
+ * the system's log; nothing, for any other call (`fence-git-route.ts`).
+ */
+function routeRefusedGit(
+	event: ToolResultEvent,
+	logger: string | undefined,
+	session: string,
+): Pick<ToolResultEvent, "content" | "structuredContent"> | undefined {
+	if (event.toolName !== "bash") return undefined;
+	const content = routedPackedRefs(event.content, () => {
+		void recordRefusal(
+			{ kind: "packed-refs", tool: "git", sandbox: "fence", session },
+			logger,
+		);
+	});
+	// The structured result codemode reads is kept, its output as git said it.
+	return content
+		? { content, structuredContent: event.structuredContent }
+		: undefined;
+}
+
 export default function shellWorkflow(pi: ExtensionAPI) {
 	// The shape pi's bash is drawn and described with. Its folder is never
 	// used: execution is per session, at the folder its conversation stands
@@ -134,6 +165,10 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		sweepKept();
 	});
 	pi.on("session_shutdown", retireBash);
+	if (sandbox.kind === "fence")
+		pi.on("tool_result", (event, ctx) =>
+			routeRefusedGit(event, sandbox.logger, sessionKeyOf(ctx)),
+		);
 
 	pi.registerTool({
 		...shape,

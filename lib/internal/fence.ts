@@ -38,9 +38,10 @@
  *   but for the session's own tree and what a commit writes in each git
  *   folder (`GIT_WRITTEN`), so no command plants a repository, a
  *   setting or a `commondir` there for git outside to run. A worktree's
- *   shared git folder is writable but for what runs code, once a watch
- *   outside removes any `commondir` planted there and stops the session
- *   (`fence-git-root.ts`). The work tool's trees are read-only but
+ *   shared git folder stays read-only too, even watched, since the
+ *   watch that removes a planted `commondir` loses a race to git
+ *   outside (`fence-git-root.ts`); what rewrites `packed-refs` fails
+ *   inside, and is told the route (`fence-git-route.ts`). The work tool's trees are read-only but
  *   the session's own, their `.git` files aside, and so are the records
  *   of who holds them (`fence-broker-trees.ts`). The folders
  *   the person browses, the home folder's visible entries, are
@@ -72,7 +73,6 @@ import {
 	inBuildersFolder,
 } from "./fence-builders.ts";
 import { DISK, type Disk } from "./fence-disk.ts";
-import { sharedRootArgs } from "./fence-git-root.ts";
 import { githubDoorArgs } from "./fence-github.ts";
 import { renderNodeArgs } from "./fence-gpu.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
@@ -210,11 +210,6 @@ export interface FencePlace {
 	readonly cwd?: string;
 	/** The worktree's own folder in its repository's `worktrees`. */
 	readonly ownGitFolder?: string;
-	/**
-	 * The repository git folder that worktree shares, writable inside
-	 * once a watch outside guards it (`fence-git-root.ts`).
-	 */
-	readonly sharedRoot?: string;
 	/** Where quests' scratch folders live, and this session's quest's own. */
 	readonly scratch?: { readonly root: string; readonly own?: string };
 	/**
@@ -633,15 +628,10 @@ function gitArgs(place: FencePlace, disk: Disk): string[] {
 					join(own, "config.worktree"),
 				]
 			: [];
-	const shared =
-		place.sharedRoot && inKept(place.sharedRoot) && there(place.sharedRoot)
-			? sharedRootArgs(place.sharedRoot, there)
-			: [];
 	return [
 		...homes.flatMap((top) => ["--ro-bind", top, top]),
 		...bound("--bind", written),
 		...bound("--ro-bind", kept),
-		...shared,
 		...bound("--bind", treeBack),
 		...bound("--bind", ownBack),
 		...bound("--ro-bind", ownKept),

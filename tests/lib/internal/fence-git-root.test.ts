@@ -28,9 +28,7 @@ import {
 	guardedIn,
 	guardedNames,
 	plantStopped,
-	ROOT_KEPT,
 	sharedGitFolder,
-	sharedRootArgs,
 	sharedRootFor,
 } from "../../../lib/internal/fence-git-root.ts";
 
@@ -172,18 +170,18 @@ describe("a plant in the shared git folder", () => {
 });
 
 describe("a shared git folder the watch can't guard", () => {
-	it("stays read-only when it already holds a commondir", () => {
+	it("is left unwatched when it already holds a commondir", () => {
 		writeFileSync(join(root, "commondir"), "/elsewhere\n");
 		const deps = watched();
 		expect(armSharedRoot(root, own, "s-1", deps), "armed").toBe(false);
 		expect(
 			sharedRootFor(own, "s-1", () => true),
-			"writable",
+			"watched",
 		).toBeUndefined();
 		expect(guardedIn([root]), "anything guarded").toEqual([]);
 	});
 
-	it("stays read-only when the watch can't be armed", () => {
+	it("is left unwatched when the watch can't be armed", () => {
 		const watch = () => {
 			throw new Error("no inotify watches left");
 		};
@@ -193,7 +191,7 @@ describe("a shared git folder the watch can't guard", () => {
 		).toBe(false);
 	});
 
-	it("stays read-only when the fence doesn't guard it, or there's no session", () => {
+	it("is left unwatched when the fence doesn't guard it, or there's no session", () => {
 		expect(
 			sharedRootFor(own, "s-1", () => false),
 			"unguarded",
@@ -204,30 +202,16 @@ describe("a shared git folder the watch can't guard", () => {
 		).toBeUndefined();
 	});
 
-	it("is made writable once armed, with its empty folders made first", () => {
+	it("is watched once armed, with nothing made in it", () => {
 		expect(sharedRootFor(own, "s-1", () => true)).toBe(root);
 		for (const name of ["hooks", "info", "modules"])
-			expect(existsSync(join(root, name)), `${name} made`).toBe(true);
+			expect(existsSync(join(root, name)), `${name} made`).toBe(false);
 		expect(guardedIn([root, own])).toEqual([
 			join(root, "commondir"),
 			join(root, "gitdir"),
 			join(root, "config.worktree"),
 			join(own, "config.worktree"),
 		]);
-	});
-});
-
-describe("the shared git folder's binds", () => {
-	it("binds the folder writable and what runs code read-only over it", () => {
-		const there = (path: string) => !path.endsWith("/modules");
-		const args = sharedRootArgs(root, there);
-		expect(args.slice(0, 3)).toEqual(["--bind", root, root]);
-		const kept = ROOT_KEPT.filter((name) => name !== "modules").map((name) =>
-			join(root, name),
-		);
-		expect(args.slice(3)).toEqual(
-			kept.flatMap((path) => ["--ro-bind", path, path]),
-		);
 	});
 });
 
@@ -273,23 +257,17 @@ describe("the shared git folder among the fence's binds", () => {
 		);
 	}
 
-	it("binds it writable, what runs code read-only over it, then the tree's own back", () => {
-		const args = fenceArgs({ ...place, sharedRoot: shared }, disk);
-		const writable = at(args, "--bind", shared);
-		expect(writable, "the folder writable").toBeGreaterThan(-1);
-		for (const name of ["config", "hooks", "info", "worktrees"])
+	it("keeps it read-only, since a watch loses a race (check j), with objects and refs and the tree's own folder writable", () => {
+		const args = fenceArgs(place, disk);
+		expect(at(args, "--bind", shared), "the folder was writable").toBe(-1);
+		for (const name of ["objects", "refs"])
 			expect(
-				at(args, "--ro-bind", `${shared}/${name}`),
-				`${name} read-only after it`,
-			).toBeGreaterThan(writable);
-		expect(
-			at(args, "--bind", mine),
-			"the tree's own folder after",
-		).toBeGreaterThan(at(args, "--ro-bind", `${shared}/worktrees`));
-	});
-
-	it("leaves it read-only without a watch", () => {
-		expect(at(fenceArgs(place, disk), "--bind", shared)).toBe(-1);
+				at(args, "--bind", `${shared}/${name}`),
+				`${name} wasn't writable`,
+			).toBeGreaterThan(-1);
+		expect(at(args, "--bind", mine), "the tree's own folder").toBeGreaterThan(
+			-1,
+		);
 	});
 });
 

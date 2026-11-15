@@ -130,10 +130,13 @@ may import from here, and any of it may change without notice.
   too.
 - **`fence-gpu.ts`**: the GPU's render nodes, bound into every
   fence's /dev, and never a card node.
-- **`fence-git-root.ts`**: a worktree's shared git folder, writable
-  inside while a watch in pi's process removes any name planted there
-  that sends git outside elsewhere, and stops the session that could
-  have planted it.
+- **`fence-git-root.ts`**: a worktree's shared git folder, read-only
+  inside, and watched from pi's process as a second guard that removes
+  any name planted that sends git outside elsewhere, and stops the
+  session that could have planted it.
+- **`fence-git-route.ts`**: the route a fenced git command is told
+  when the read-only shared git folder fails it (a branch or tag
+  delete, `git pack-refs`, pruning a packed ref), each one counted.
 - **`fence-broker-trees.ts`**: the work tool's trees read-only
   inside but the session's own, their `.git` files aside, since git
   outside runs in every one.
@@ -160,6 +163,10 @@ may import from here, and any of it may change without notice.
 - **`fence-preflight-desktop.ts`**: the checks of the person's
   desktop: a fenced copy and paste with his selection kept, and a
   fenced window opening behind, each leaving his focus where it was.
+
+- **`fence-preflight-git.ts`**: the checks of git in a fenced
+  worktree: its everyday work still goes, and git outside never sees a
+  name planted in the shared git folder.
 - **`fence-home.ts`**: what in the home folder runs code as the
   person later, which the fence keeps read-only: settings, startup
   files and programs' entries whose settings name a command, with
