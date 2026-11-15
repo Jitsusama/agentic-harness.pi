@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	scratchLeftElsewhere,
 	scratchRemoved,
-} from "../../../extensions/quest-workflow/verbs/stage.ts";
+} from "../../../extensions/quest-workflow/verbs/scratch-removal.ts";
 import type { Measure } from "../../../lib/internal/quest/footprint.ts";
 import type { QuestSession } from "../../../lib/quest/types.ts";
 

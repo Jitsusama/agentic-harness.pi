@@ -10,7 +10,6 @@ extensions/mesh-workflow/tools.ts
 extensions/quest-workflow/index.ts
 extensions/quest-workflow/lookup.ts
 extensions/quest-workflow/session-registry.ts
-extensions/quest-workflow/verbs/stage.ts
 host/engine/hosted-agent.ts
 lib/internal
 lib/internal/quest
