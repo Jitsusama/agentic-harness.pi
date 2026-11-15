@@ -59,22 +59,26 @@ export SLACK_CLIENT_SECRET="your-client-secret"
 
 ## Architecture
 
+The Slack client, its sign-in and its rendering live in
+[`lib/slack`](../../lib/slack/); this folder is the tool built on it.
+
 ```
 slack-integration/
-├── index.ts              Tool and command registration
-├── types.ts              Shared types and param helpers
-├── setup-wizard.ts       Interactive OAuth app setup
-├── auth-flow.ts          Authentication orchestration
-├── auth-command.ts       /slack-auth command handler
-├── auth/
-│   ├── store.ts          Keyring persistence
-│   ├── credentials.ts    Token management
-│   ├── oauth-app.ts      OAuth app credential storage
-│   ├── oauth.ts          OAuth2 flow (scopes, URLs, exchange)
-│   ├── server.ts         Local callback server
-│   └── browser.ts        Cross-platform URL opener
-└── api/
-    └── client.ts         Slack Web API HTTP client
+├── index.ts              Tool and command registration, and drawing
+├── router.ts             Action dispatch and the content gate
+├── resolve.ts            Identifiers to conversations, messages, users
+├── results.ts            The handler shape and its plain answers
+├── reads.ts              Search, messages, threads, people, reactions
+├── writes.ts             Send, reply, edit and react, each gated
+├── thread.ts             A thread or queued replies under one gate
+├── uploads.ts            Files to a conversation or thread
+├── blocks.ts             Block Kit blocks for text and tables
+├── confirmation.ts       The confirmation gates
+├── gateway-writes.ts     The slack guard over gateway Slack writes
+├── bounded.ts            Bounding a long answer, the rest stored
+├── context.ts            Who the model is on Slack
+├── state.ts              The signed-in user, kept across sessions
+└── auth-command.ts       /slack-auth command handler
 ```
 
 ## Security
