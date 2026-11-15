@@ -26,7 +26,6 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { publishMachineWord } from "../../../lib/internal/away/machine.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
@@ -40,6 +39,7 @@ import {
 	untilAnswered,
 } from "./support/hosted-case.ts";
 import {
+	GO_AWAY,
 	SCRIPTED,
 	WAIT_A_WHILE,
 	WAITED,
@@ -60,12 +60,6 @@ const DEADLINE_MINUTES = 10;
  * seconds, well short of the move calling itself off.
  */
 const AWAY_DEADLINE_MINUTES = 3;
-
-/**
- * What E28's absence asks for: its second line is the scripted model's
- * word for a tool that ends by itself, so every send-back runs one.
- */
-const AWAY_GOAL = `keep at it\n${WAIT_A_WHILE}`;
 
 let sealed: Seal;
 let host: HostProcess | undefined;
@@ -307,17 +301,6 @@ it(
 	"E28: a release of a conversation away mode keeps sending back lets it go, and it carries on in plain pi",
 	async ({ skip }) => {
 		await onHostPi(skip, said, async (pi) => {
-			publishMachineWord(
-				{ since: new Date().toISOString(), goal: AWAY_GOAL },
-				new Date(),
-				join(
-					sealed.env.XDG_STATE_HOME ?? "",
-					"pi",
-					"agentic-harness.pi",
-					"away-workflow",
-					"machine.json",
-				),
-			);
 			host = await startHost({
 				seal: sealed,
 				engine: PI_ENGINE,
@@ -332,10 +315,9 @@ it(
 			);
 			const cwd = join(sealed.home, "a");
 			await mkdir(cwd, { recursive: true });
-			const away = await host.open(cwd, {
-				model: SCRIPTED,
-				first: WAIT_A_WHILE,
-			});
+			// A hosted conversation keeps its own goal, not the machine's, so
+			// it is told to go away itself, as a person would tell it.
+			const away = await host.open(cwd, { model: SCRIPTED, first: GO_AWAY });
 			const file = away.file;
 			await untilAnswered(
 				"away mode has sent it back to work",

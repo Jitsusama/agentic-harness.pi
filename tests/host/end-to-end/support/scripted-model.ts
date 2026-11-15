@@ -40,6 +40,8 @@
  * - told `carry`, it has bash run, in the background from the start, a
  *   command that runs long enough for the session to move under it, then
  *   says a word of its own;
+ * - told `go away`, it switches on away mode with a goal whose second
+ *   line is `wait a while`, so each run away mode sends back runs a tool;
  * - told `reopen`, it asks quest which lost sessions it would reopen;
  * - after any other tool's result, it says `sent`.
  *
@@ -262,6 +264,16 @@ function ownPi(): string {
 	return [process.pid, process.execPath, ...process.argv.slice(1)].join(" ");
 }
 
+/** The word to switch on away mode, as `away` with AWAY_GOAL. */
+export const GO_AWAY = "go away";
+
+/**
+ * The goal GO_AWAY's absence keeps: its second line is the word for a
+ * tool that ends by itself, so each run away mode sends back runs one
+ * and away mode never stops for want of tool calls.
+ */
+export const AWAY_GOAL = `keep at it\n${WAIT_A_WHILE}`;
+
 /** What `fleet <cwd> <extension>` says: run two subagents there. */
 const FLEET = /^fleet (\S+) (\S+)$/m;
 
@@ -338,6 +350,8 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 	if (toldTo(words, WHOAMI)) return faux.fauxAssistantMessage(ownPi());
 	if (toldTo(words, DAWDLE))
 		return toolCall(faux, "bash", { command: DAWDLING });
+	if (toldTo(words, GO_AWAY))
+		return toolCall(faux, "away", { goal: AWAY_GOAL });
 	if (toldTo(words, WAIT_A_WHILE))
 		return toolCall(faux, "bash", { command: WAITING });
 	if (toldTo(words, LINGER))
