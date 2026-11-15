@@ -44,6 +44,7 @@ import { automatedText } from "../../../lib/internal/automated.ts";
 import { awaitedNow } from "../../../lib/internal/priority/awaited.ts";
 import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded.ts";
 import { reloadSlot } from "../../../lib/internal/reload/slot.ts";
+import { leaveUntrusted } from "../../../lib/internal/session/carried-trust.ts";
 import {
 	SESSION_LANDED,
 	SESSION_UNLANDED,
@@ -5177,6 +5178,27 @@ describe("a fleet's subagent", () => {
 		expect(sent).toEqual([]);
 		expect(tools.size).toBe(0);
 		expect(createPresences(join(paths.mesh, "presence")).all()).toEqual([]);
+	});
+});
+
+describe("a folder its host left untrusted", () => {
+	it("stays untrusted in the plain pi that takes the conversation up", async () => {
+		const { fire } = await startSession();
+		const argv = process.argv;
+		leaveUntrusted(session, root);
+		try {
+			process.argv = ["node", "pi", "--session", session];
+			expect(
+				await fire("project_trust", { type: "project_trust", cwd: root }),
+			).toEqual({ trusted: "no", remember: false });
+			process.argv = ["node", "pi"];
+			expect(
+				await fire("project_trust", { type: "project_trust", cwd: root }),
+				"a pi on no session, as a host",
+			).toEqual({ trusted: "undecided" });
+		} finally {
+			process.argv = argv;
+		}
 	});
 });
 
