@@ -116,6 +116,24 @@ describe("what a pi says it loaded", () => {
 		expect(said(file)).toEqual({ root: version, pi });
 	});
 
+	// 14 Nov, live after #1576: a host said its pi as it started, then each
+	// conversation it loaded, whose environment leaves out PI_PACKAGE_DIR,
+	// said again without one, so pi-packages still had no pi to warm with.
+	it("keeps the pi a process said, when a later load of it can't name one", () => {
+		const next = join(install, "versions", "d3082480");
+		mkdirSync(next);
+		const pi = {
+			bundle: "/store/pi/dist/bundle",
+			node: "/store/node/bin/node",
+			tmp: "/tmp",
+		};
+		sayLoaded(version, undefined, 4242, pi);
+
+		const file = sayLoaded(next, undefined, 4242, undefined);
+
+		expect(said(file)).toEqual({ root: next, pi });
+	});
+
 	it("takes it back as the pi ends", () => {
 		const file = written(sayLoaded(version, undefined, 4242));
 
