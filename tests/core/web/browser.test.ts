@@ -316,8 +316,8 @@ describe("reapOrphans", () => {
 			killPid: (pid) => {
 				killed.push(pid);
 				if ((opts.unkillable ?? []).includes(pid)) return;
-				for (const k of Object.keys(state))
-					state[k] = state[k].filter((p) => p !== pid);
+				for (const [k, pids] of Object.entries(state))
+					state[k] = pids.filter((p) => p !== pid);
 			},
 			removeDir: (dir) => removed.push(dir),
 		});

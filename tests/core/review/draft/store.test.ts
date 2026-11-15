@@ -88,11 +88,11 @@ describe("the draft store", () => {
 		state = setVerdict(state, "request-changes", "look here");
 		await store.save(state);
 		const [summary] = await store.list();
-		expect(summary.id).toBe("d1");
-		expect(summary.itemCount).toBe(1);
-		expect(summary.verdict).toBe("request-changes");
-		expect(summary.target).toEqual(hosted);
-		expect(summary.updatedAt).toBe(state.updatedAt);
+		expect(summary?.id).toBe("d1");
+		expect(summary?.itemCount).toBe(1);
+		expect(summary?.verdict).toBe("request-changes");
+		expect(summary?.target).toEqual(hosted);
+		expect(summary?.updatedAt).toBe(state.updatedAt);
 	});
 
 	it("lists the most recently touched draft first", async () => {

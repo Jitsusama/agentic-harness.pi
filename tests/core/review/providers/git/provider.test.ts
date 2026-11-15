@@ -171,7 +171,7 @@ describe("reading a stack from a checkout", () => {
 		]);
 		const stack = await git.stacking?.stack({ repo, ref: "orphan" });
 		expect(stack?.nodes.map((node) => node.ref)).toEqual(["orphan"]);
-		expect(stack?.nodes[0].parent).toBeUndefined();
+		expect(stack?.nodes[0]?.parent).toBeUndefined();
 		expect(stack?.trunk).toBeUndefined();
 	});
 
@@ -194,7 +194,7 @@ describe("reading a stack from a checkout", () => {
 		]);
 		const stack = await git.stacking?.stack({ repo, ref: "middle" });
 		expect(stack?.nodes.map((node) => node.ref)).toEqual(["middle", "upper"]);
-		expect(stack?.nodes[1].parent).toBe("middle");
+		expect(stack?.nodes[1]?.parent).toBe("middle");
 	});
 
 	it("keeps both branches when the stack fans out", async () => {
@@ -227,6 +227,6 @@ describe("reading a stack from a checkout", () => {
 			repo,
 			ref: "refs/heads/topic",
 		});
-		expect(stack?.nodes[0].ref).toBe("topic");
+		expect(stack?.nodes[0]?.ref).toBe("topic");
 	});
 });

@@ -151,7 +151,7 @@ index 1111111..2222222 100644
 			"https://github.com/Shopify/world/pull/123",
 		);
 		const model = await bound.diffModel();
-		expect(model.files[0].newPath).toBe("x.ts");
+		expect(model.files[0]?.newPath).toBe("x.ts");
 	});
 
 	it("offers the provider's conversation", async () => {
@@ -301,7 +301,7 @@ describe("a target with no host", () => {
 		const bound = await engine.fromLocal("/src/app", { refs: ["topic"] });
 		const stack = await bound.stack();
 		expect(stack?.provenance).toBe("derived");
-		expect(stack?.nodes[0].ref).toBe("topic");
+		expect(stack?.nodes[0]?.ref).toBe("topic");
 	});
 });
 

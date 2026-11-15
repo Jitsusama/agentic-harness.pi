@@ -68,7 +68,7 @@ describe("numbering the comments on a change", () => {
 	it("keeps the thread a remark came from, for saying where it was", () => {
 		const [first] = reactables({ threads });
 
-		expect(first.thread?.id).toBe("t-1");
+		expect(first?.thread?.id).toBe("t-1");
 	});
 
 	it("hands a renderer the addresses by comment id", () => {

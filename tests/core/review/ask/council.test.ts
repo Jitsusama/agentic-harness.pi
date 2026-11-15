@@ -105,15 +105,15 @@ describe("a round on the ledger before it costs anything", () => {
 		expect(opened).toHaveLength(1);
 		// Enough to find the work again: which round, which id the
 		// artifacts on disk are filed under, and who was asked.
-		expect(opened[0].round).toBe("council");
-		expect(opened[0].id).toMatch(/^council-/);
-		expect(opened[0].participants.map((one) => one.id).sort()).toEqual([
+		expect(opened[0]?.round).toBe("council");
+		expect(opened[0]?.id).toMatch(/^council-/);
+		expect(opened[0]?.participants.map((one) => one.id).sort()).toEqual([
 			"hawk",
 			"owl",
 		]);
 		// Nothing has answered yet, and the record must not pretend
 		// otherwise.
-		expect(opened[0].outcomes).toEqual([]);
+		expect(opened[0]?.outcomes).toEqual([]);
 		expect(opened[0]).toMatchObject({ open: true });
 	});
 
@@ -643,7 +643,7 @@ describe("what a reviewer wrote down as it went", () => {
 		);
 
 		expect(recorded).toHaveLength(1);
-		expect(recorded[0].discussion).toBe(
+		expect(recorded[0]?.discussion).toBe(
 			"because, and here is the whole argument",
 		);
 	});

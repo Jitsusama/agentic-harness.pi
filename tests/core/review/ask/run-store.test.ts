@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AskRun, ChangeRef } from "../../../../lib/core/review/index.ts";
 import { createRunStore } from "../../../../lib/core/review/index.ts";
+import { at } from "../../../support/at.ts";
 
 const change: ChangeRef = {
 	provider: "github",
@@ -74,8 +75,8 @@ describe("keeping runs per change", () => {
 
 			const held = await store.list(change);
 			expect(held).toHaveLength(1);
-			expect(held[0].open).toBeUndefined();
-			expect(held[0].outcomes).toHaveLength(1);
+			expect(held[0]?.open).toBeUndefined();
+			expect(held[0]?.outcomes).toHaveLength(1);
 		});
 
 		it("does not offer an unsettled round as the latest of its kind", async () => {
@@ -104,7 +105,7 @@ describe("keeping runs per change", () => {
 			// the next write lays one round over the wreckage.
 			const store = createRunStore(root);
 			await store.keep(change, run());
-			const [file] = readdirSync(root);
+			const file = at(readdirSync(root), 0);
 			writeFileSync(join(root, file), '{"runs": [{"id": "cou');
 
 			await expect(store.list(change)).rejects.toThrow(/could not be read/);
@@ -329,7 +330,7 @@ describe("replacing a run", () => {
 		// one-round ledger over everything behind it.
 		const store = createRunStore(root);
 		await store.keep(change, run({ id: "council-one" }));
-		const [held] = readdirSync(root);
+		const held = at(readdirSync(root), 0);
 		await chmod(join(root, held), 0o000);
 
 		try {

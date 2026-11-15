@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openRuleStore } from "../../../lib/core/governance/store.ts";
+import { at } from "../../support/at.ts";
 
 let dir: string;
 let path: string;
@@ -75,7 +76,7 @@ describe("openRuleStore", () => {
 		// The unparseable content was moved aside, not lost.
 		const backups = readdirSync(dir).filter((f) => f.includes(".corrupt-"));
 		expect(backups).toHaveLength(1);
-		expect(readFileSync(join(dir, backups[0]), "utf8")).toContain("keep me");
+		expect(readFileSync(join(dir, at(backups, 0)), "utf8")).toContain("keep me");
 	});
 
 	it("drops malformed entries rather than rendering blanks", () => {

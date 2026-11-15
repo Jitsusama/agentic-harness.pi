@@ -97,10 +97,10 @@ describe("RunStore summaries", () => {
 		// wait for and no window in which the answer is stale.
 		const store = await openRunStore(":memory:");
 		await store.recordRun(run({ subagentId: "a" }));
-		expect((await store.queryRollups())[0].runCount).toBe(1);
+		expect((await store.queryRollups())[0]?.runCount).toBe(1);
 
 		await store.recordRun(run({ subagentId: "b" }));
-		expect((await store.queryRollups())[0].runCount).toBe(2);
+		expect((await store.queryRollups())[0]?.runCount).toBe(2);
 		await store.close();
 	});
 

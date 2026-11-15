@@ -67,9 +67,9 @@ describe("TurnStore attribution", () => {
 		]);
 
 		const slices = await store.costBy("repo");
-		expect(slices[0].key).toBe("github.com/Shopify/world");
-		expect(slices[0].cost).toBeCloseTo(2, 5);
-		expect(slices[1].key).toBe("world/system/gitstream");
+		expect(slices[0]?.key).toBe("github.com/Shopify/world");
+		expect(slices[0]?.cost).toBeCloseTo(2, 5);
+		expect(slices[1]?.key).toBe("world/system/gitstream");
 		await store.close();
 	});
 
@@ -84,8 +84,8 @@ describe("TurnStore attribution", () => {
 		]);
 
 		const slices = await store.costBy("quest");
-		expect(slices[0].key).toBe("QEST-B");
-		expect(slices[0].cost).toBeCloseTo(2, 5);
+		expect(slices[0]?.key).toBe("QEST-B");
+		expect(slices[0]?.cost).toBeCloseTo(2, 5);
 		await store.close();
 	});
 
@@ -121,7 +121,7 @@ describe("TurnStore attribution", () => {
 
 		const slices = await store.costBy("quest");
 		expect(slices).toHaveLength(1);
-		expect(slices[0].key).toBe("QEST-B");
+		expect(slices[0]?.key).toBe("QEST-B");
 		await store.close();
 	});
 });

@@ -55,7 +55,7 @@ describe("discoverNotes", () => {
 		mkdirSync(join(dir, "NOTE-20130101-AAAAAA"));
 		const { errors } = discoverNotes(dir);
 		expect(errors).toHaveLength(1);
-		expect(errors[0].message).toMatch(/README\.md/);
+		expect(errors[0]?.message).toMatch(/README\.md/);
 	});
 
 	it("reports a note whose front matter fails to parse", () => {
@@ -66,7 +66,7 @@ describe("discoverNotes", () => {
 		);
 		const { errors } = discoverNotes(dir);
 		expect(errors).toHaveLength(1);
-		expect(errors[0].message).toMatch(/front matter/);
+		expect(errors[0]?.message).toMatch(/front matter/);
 	});
 
 	it("reports a note whose front-matter id doesn't match its directory", () => {
@@ -77,7 +77,7 @@ describe("discoverNotes", () => {
 		);
 		const { errors } = discoverNotes(dir);
 		expect(errors).toHaveLength(1);
-		expect(errors[0].message).toMatch(/does not match/);
+		expect(errors[0]?.message).toMatch(/does not match/);
 	});
 
 	it("groups children by parent, with root notes under the empty key", () => {

@@ -106,10 +106,10 @@ describe("TurnStore", () => {
 
 		const slices = await store.costBy("model");
 		expect(slices).toHaveLength(2);
-		expect(slices[0].key).toBe("claude-opus-5");
-		expect(slices[0].cost).toBeCloseTo(1.786, 5);
-		expect(slices[0].turns).toBe(2);
-		expect(slices[1].key).toBe("claude-sonnet-5");
+		expect(slices[0]?.key).toBe("claude-opus-5");
+		expect(slices[0]?.cost).toBeCloseTo(1.786, 5);
+		expect(slices[0]?.turns).toBe(2);
+		expect(slices[1]?.key).toBe("claude-sonnet-5");
 		await store.close();
 	});
 

@@ -9,6 +9,7 @@ import {
 	pruneAttachments,
 } from "../../../lib/core/review/attach.ts";
 import type { ChangeRef } from "../../../lib/core/review/change.ts";
+import { at } from "../../support/at.ts";
 
 function change(label: string, id = label): ChangeRef {
 	return {
@@ -332,7 +333,7 @@ describe("a session's directory does not outlive its usefulness", () => {
 		const id = "2026-08-06T00:11:22_a/b";
 		await createAttachmentStore(root, id).attach(change("x#awkward"));
 		const when = new Date(Date.now() - 90 * DAY);
-		const [written] = await readdir(root);
+		const written = at(await readdir(root), 0);
 		for (const name of await readdir(join(root, written))) {
 			await utimes(join(root, written, name), when, when);
 		}

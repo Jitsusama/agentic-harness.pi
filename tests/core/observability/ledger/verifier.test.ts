@@ -28,7 +28,7 @@ describe("verifier outcomes", () => {
 		await store.recordCalls([call({ verifierKind: "test" })]);
 
 		const [row] = await store.queryCalls();
-		expect(row.verifierKind).toBe("test");
+		expect(row?.verifierKind).toBe("test");
 		await store.close();
 	});
 

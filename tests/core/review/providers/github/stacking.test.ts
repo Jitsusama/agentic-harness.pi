@@ -81,7 +81,7 @@ describe("deriving a stack", () => {
 		]);
 		const stack = await gh.stacking?.stack(ref);
 		expect(stack?.nodes.map((node) => node.ref)).toEqual(["topic"]);
-		expect(stack?.nodes[0].parent).toBeUndefined();
+		expect(stack?.nodes[0]?.parent).toBeUndefined();
 		expect(stack?.trunk).toBe("main");
 		expect(stack?.cursor).toBe(0);
 	});
@@ -117,8 +117,8 @@ describe("deriving a stack", () => {
 			byBase("child", []),
 		]);
 		const stack = await gh.stacking?.stack(ref);
-		expect(stack?.nodes[0].change?.ref.id).toBe("2");
-		expect(stack?.nodes[1].change?.title).toBe("PR 3");
+		expect(stack?.nodes[0]?.change?.ref.id).toBe("2");
+		expect(stack?.nodes[1]?.change?.title).toBe("PR 3");
 	});
 
 	it("keeps both children when the stack fans out", async () => {

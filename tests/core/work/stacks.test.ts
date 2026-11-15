@@ -78,12 +78,17 @@ function replays(calls: { args: string[] }[]): string[] {
 		.filter((call) => call.args.includes("rebase"))
 		.map((call) => {
 			const kept: string[] = [];
-			for (let at = 0; at < call.args.length; at += 1) {
-				if (call.args[at] === "-c") {
-					at += 1;
+			let skipValue = false;
+			for (const arg of call.args) {
+				if (skipValue) {
+					skipValue = false;
 					continue;
 				}
-				kept.push(call.args[at]);
+				if (arg === "-c") {
+					skipValue = true;
+					continue;
+				}
+				kept.push(arg);
 			}
 			return kept.join(" ");
 		});

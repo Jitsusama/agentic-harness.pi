@@ -55,7 +55,7 @@ describe("a run that reported no usage", () => {
 		);
 
 		const [row] = await store.queryRuns();
-		expect(row.cost).toBeNull();
+		expect(row?.cost).toBeNull();
 		await store.close();
 	});
 
@@ -83,8 +83,8 @@ describe("a run that reported no usage", () => {
 		await store.recordRun(runRecordFrom(input()));
 
 		const [row] = await store.queryRuns();
-		expect(row.cost?.total).toBeCloseTo(0.3, 5);
-		expect(row.tokens?.total).toBe(15);
+		expect(row?.cost?.total).toBeCloseTo(0.3, 5);
+		expect(row?.tokens?.total).toBe(15);
 		await store.close();
 	});
 });

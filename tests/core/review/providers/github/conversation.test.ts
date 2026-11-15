@@ -3,8 +3,10 @@ import {
 	anchorPath,
 	type ChangeRef,
 	createGitHubProvider,
+	type Message,
 	type Thread,
 } from "../../../../../lib/core/review/index.ts";
+import { at } from "../../../../support/at.ts";
 import {
 	callMatching,
 	fakeExec,
@@ -80,7 +82,7 @@ describe("reading reviews", () => {
 			"request-changes",
 			"comment",
 		]);
-		expect(found?.[0].nativeVerdict).toBe("APPROVED");
+		expect(found?.[0]?.nativeVerdict).toBe("APPROVED");
 	});
 });
 
@@ -125,7 +127,7 @@ describe("reading threads", () => {
 
 		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
 
-		expect(thread.resolvedBy).toEqual({ id: "closer", name: "Cl Oser" });
+		expect(thread?.resolvedBy).toEqual({ id: "closer", name: "Cl Oser" });
 	});
 
 	it("leaves the resolver unnamed on a thread nobody has closed", async () => {
@@ -141,7 +143,7 @@ describe("reading threads", () => {
 			},
 		]);
 
-		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
+		const thread = at((await gh.conversation?.threads(ref)) ?? [], 0);
 
 		expect(thread.resolvedBy).toBeUndefined();
 	});
@@ -157,12 +159,12 @@ describe("reading threads", () => {
 			},
 		]);
 		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
-		expect(thread.id).toBe("PRRT_kwDO");
+		expect(thread?.id).toBe("PRRT_kwDO");
 		expect(thread).toMatchObject({ resolved: false });
-		expect(thread.anchor?.subject).toBe("line");
-		expect(thread.anchor && anchorPath(thread.anchor)).toBe("lib/app.ts");
-		expect(thread.anchor?.subject === "line" && thread.anchor.blob).toBe("new");
-		expect(thread.comments[0].body).toBe("why?");
+		expect(thread?.anchor?.subject).toBe("line");
+		expect(thread?.anchor && anchorPath(thread.anchor)).toBe("lib/app.ts");
+		expect(thread?.anchor?.subject === "line" && thread.anchor.blob).toBe("new");
+		expect(thread?.comments[0]?.body).toBe("why?");
 	});
 
 	it("reads a left-side anchor as the old side", async () => {
@@ -177,7 +179,7 @@ describe("reading threads", () => {
 			},
 		]);
 		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
-		expect(thread.anchor?.subject === "line" && thread.anchor.blob).toBe("old");
+		expect(thread?.anchor?.subject === "line" && thread.anchor.blob).toBe("old");
 	});
 
 	it("reads a whole-file remark as one, not as a remark on line 1", async () => {
@@ -197,7 +199,7 @@ describe("reading threads", () => {
 			},
 		]);
 		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
-		expect(thread.anchor?.subject).toBe("file");
+		expect(thread?.anchor?.subject).toBe("file");
 	});
 
 	it("still reads a line remark as a line remark", async () => {
@@ -213,7 +215,7 @@ describe("reading threads", () => {
 			},
 		]);
 		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
-		expect(thread.anchor?.subject).toBe("line");
+		expect(thread?.anchor?.subject).toBe("line");
 	});
 
 	it("reports an outdated thread as stale", async () => {
@@ -307,8 +309,8 @@ describe("reading messages", () => {
 			{ when: ["issues/123/comments"], stdout: comments },
 		]);
 		const [message] = (await gh.conversation?.messages(ref)) ?? [];
-		expect(message.body).toBe("nice");
-		expect(message.reactions).toEqual([
+		expect(message?.body).toBe("nice");
+		expect(message?.reactions).toEqual([
 			{ reaction: "+1", count: 2 },
 			{ reaction: "rocket", count: 1 },
 		]);
@@ -422,16 +424,17 @@ describe("posting a review", () => {
 });
 
 describe("replying, resolving and reacting", () => {
+	/** The comment the thread opens with, which the reaction test reacts to. */
+	const question: Message = {
+		id: "rc:555",
+		author: { id: "someone" },
+		body: "why?",
+	};
+
 	const thread: Thread = {
 		id: "PRRT_kwDO",
 		resolved: false,
-		comments: [
-			{
-				id: "rc:555",
-				author: { id: "someone" },
-				body: "why?",
-			},
-		],
+		comments: [question],
 	};
 
 	it("replies keyed by the thread's own id", async () => {
@@ -482,7 +485,7 @@ describe("replying, resolving and reacting", () => {
 		const { gh, calls } = provider([
 			{ when: ["comments/555/reactions"], stdout: "{}" },
 		]);
-		await gh.conversation?.react?.(ref, thread.comments[0], "rocket");
+		await gh.conversation?.react?.(ref, question, "rocket");
 		const args = callMatching(calls, "reactions")?.args.join(" ");
 		expect(args).toContain("pulls/comments/555/reactions");
 		expect(args).toContain("content=rocket");

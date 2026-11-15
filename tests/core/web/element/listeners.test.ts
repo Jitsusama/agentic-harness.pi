@@ -37,12 +37,12 @@ describe("normalizeListeners", () => {
 
 	it("carries the flags that change how a handler behaves", () => {
 		const [click, keydown] = normalizeListeners(CAPTURE);
-		expect([click.passive, click.capture, click.once]).toEqual([
+		expect([click?.passive, click?.capture, click?.once]).toEqual([
 			true,
 			false,
 			false,
 		]);
-		expect([keydown.passive, keydown.capture, keydown.once]).toEqual([
+		expect([keydown?.passive, keydown?.capture, keydown?.once]).toEqual([
 			false,
 			true,
 			true,
@@ -50,7 +50,7 @@ describe("normalizeListeners", () => {
 	});
 
 	it("says where the handler was registered", () => {
-		expect(normalizeListeners(CAPTURE)[0].source).toEqual({
+		expect(normalizeListeners(CAPTURE)[0]?.source).toEqual({
 			script: "42",
 			line: 5,
 			column: 19,

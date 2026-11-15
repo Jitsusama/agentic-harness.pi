@@ -10,6 +10,7 @@ import {
 	type DraftState,
 	emptyDraft,
 	type LineAnchor,
+	type Message,
 	type PlanContext,
 	parseUnifiedDiff,
 	type ReviewTarget,
@@ -73,11 +74,14 @@ const onNewLine: LineAnchor = {
 // anchor until a reply onto a top-level message started being refused, and three
 // tests here were quietly asserting that a reply onto one gets planned against a
 // provider declaring it cannot thread onto one. They were describing the bug.
+/** The comment the thread opens with, which the reaction tests react to. */
+const question: Message = { id: "c1", author: { id: "someone" }, body: "why?" };
+
 const thread: Thread = {
 	id: "t1",
 	resolved: false,
 	anchor: onNewLine,
-	comments: [{ id: "c1", author: { id: "someone" }, body: "why?" }],
+	comments: [question],
 };
 
 /** A thread the provider hung off the change itself, with nowhere to point. */
@@ -109,29 +113,29 @@ describe("compilePlan", () => {
 		const plan = compilePlan(state, context());
 		expect(plan.ops).toHaveLength(1);
 		const [op] = plan.ops;
-		expect(op.kind).toBe("review");
-		expect(op.kind === "review" && op.verdict).toBe("request-changes");
-		expect(op.kind === "review" && op.comments).toHaveLength(1);
-		expect(op.kind === "review" && op.body).toContain("one thing");
+		expect(op?.kind).toBe("review");
+		expect(op?.kind === "review" && op.verdict).toBe("request-changes");
+		expect(op?.kind === "review" && op.comments).toHaveLength(1);
+		expect(op?.kind === "review" && op.body).toContain("one thing");
 	});
 
 	it("treats a review with no verdict as taking no position", () => {
 		const state = addFinding(draft(), { anchor: onNewLine, body: "leaks" });
 		const [op] = compilePlan(state, context()).ops;
-		expect(op.kind === "review" && op.verdict).toBe("comment");
+		expect(op?.kind === "review" && op.verdict).toBe("comment");
 	});
 
 	it("plans a verdict with no findings as a review all the same", () => {
 		const state = setVerdict(draft(), "approve", "looks right");
 		const [op] = compilePlan(state, context()).ops;
-		expect(op.kind).toBe("review");
-		expect(op.kind === "review" && op.comments).toEqual([]);
+		expect(op?.kind).toBe("review");
+		expect(op?.kind === "review" && op.comments).toEqual([]);
 	});
 
 	it("plans replies, resolutions and reactions as their own operations", () => {
 		let state = addReply(draft(), thread, "because of the retry");
 		state = addResolution(state, thread);
-		state = addReaction(state, thread.comments[0], "rocket");
+		state = addReaction(state, question, "rocket");
 		const plan = compilePlan(state, context());
 		expect(plan.ops.map((op) => op.kind)).toEqual([
 			"reply",
@@ -169,7 +173,7 @@ describe("compilePlan", () => {
 	it("names the item each operation came from", () => {
 		const state = addReply(draft(), thread, "context");
 		const [op] = compilePlan(state, context()).ops;
-		expect(op.itemIds).toEqual(["1"]);
+		expect(op?.itemIds).toEqual(["1"]);
 	});
 
 	describe("when an anchor cannot land", () => {
@@ -187,12 +191,12 @@ describe("compilePlan", () => {
 			});
 			const plan = compilePlan(state, context({}, { diff }));
 			const [op] = plan.ops;
-			expect(op.kind === "review" && op.comments).toEqual([]);
-			expect(op.kind === "review" && op.body).toContain("this is wrong");
-			expect(op.kind === "review" && op.body).toContain("lib/app.ts");
+			expect(op?.kind === "review" && op.comments).toEqual([]);
+			expect(op?.kind === "review" && op.body).toContain("this is wrong");
+			expect(op?.kind === "review" && op.body).toContain("lib/app.ts");
 			expect(plan.degraded).toHaveLength(1);
-			expect(plan.degraded[0].itemId).toBe("1");
-			expect(plan.degraded[0].reason).toMatch(/line-absent/);
+			expect(plan.degraded[0]?.itemId).toBe("1");
+			expect(plan.degraded[0]?.reason).toMatch(/line-absent/);
 		});
 
 		it("keeps a spilled remark whole when its text runs to several lines", () => {
@@ -207,7 +211,7 @@ describe("compilePlan", () => {
 
 			const plan = compilePlan(state, context({}, { diff }));
 			const [op] = plan.ops;
-			if (op.kind !== "review") throw new Error("expected a review op");
+			if (op?.kind !== "review") throw new Error("expected a review op");
 
 			const tail = op.body
 				.split("\n")
@@ -221,7 +225,7 @@ describe("compilePlan", () => {
 			const plan = compilePlan(state, context());
 			expect(plan.degraded).toEqual([]);
 			const [op] = plan.ops;
-			expect(op.kind === "review" && op.comments).toHaveLength(1);
+			expect(op?.kind === "review" && op.comments).toHaveLength(1);
 		});
 	});
 
@@ -233,12 +237,12 @@ describe("compilePlan", () => {
 			});
 			const plan = compilePlan(state, context({ multiLineRanges: false }));
 			const [op] = plan.ops;
-			const comment = op.kind === "review" ? op.comments[0] : undefined;
+			const comment = op?.kind === "review" ? op.comments[0] : undefined;
 			expect(comment?.anchor.subject === "line" && comment.anchor.line).toBe(3);
 			expect(
 				comment?.anchor.subject === "line" && comment.anchor.startLine,
 			).toBeUndefined();
-			expect(plan.degraded[0].reason).toMatch(/range/i);
+			expect(plan.degraded[0]?.reason).toMatch(/range/i);
 		});
 
 		it("moves a file-level remark into the body when there is nowhere else", () => {
@@ -248,8 +252,8 @@ describe("compilePlan", () => {
 			});
 			const plan = compilePlan(state, context({ fileLevelComments: "never" }));
 			const [op] = plan.ops;
-			expect(op.kind === "review" && op.comments).toEqual([]);
-			expect(op.kind === "review" && op.body).toContain("whole file problem");
+			expect(op?.kind === "review" && op.comments).toEqual([]);
+			expect(op?.kind === "review" && op.body).toContain("whole file problem");
 			expect(plan.degraded).toHaveLength(1);
 		});
 
@@ -348,10 +352,10 @@ describe("compilePlan", () => {
 			}
 			const plan = compilePlan(state, context({ maxBatchComments: 2 }));
 			const [op] = plan.ops;
-			expect(op.kind === "review" && op.comments).toHaveLength(2);
-			expect(op.kind === "review" && op.body).toContain("note 2");
+			expect(op?.kind === "review" && op.comments).toHaveLength(2);
+			expect(op?.kind === "review" && op.body).toContain("note 2");
 			expect(plan.degraded).toHaveLength(1);
-			expect(plan.degraded[0].reason).toMatch(/cap|limit/i);
+			expect(plan.degraded[0]?.reason).toMatch(/cap|limit/i);
 		});
 
 		it("inlines every finding when the provider cannot batch anchors", () => {
@@ -361,21 +365,21 @@ describe("compilePlan", () => {
 			});
 			const plan = compilePlan(state, context({ anchoredBatchReview: false }));
 			const [op] = plan.ops;
-			expect(op.kind).toBe("comment");
-			expect(op.kind === "comment" && op.body).toContain("inline me");
+			expect(op?.kind).toBe("comment");
+			expect(op?.kind === "comment" && op.body).toContain("inline me");
 			expect(plan.degraded).toHaveLength(1);
 		});
 
 		it("refuses a reaction the provider does not accept", () => {
-			const state = addReaction(draft(), thread.comments[0], "hooray");
+			const state = addReaction(draft(), question, "hooray");
 			const plan = compilePlan(state, context());
 			expect(plan.ops).toEqual([]);
 			expect(plan.refused).toHaveLength(1);
-			expect(plan.refused[0].reason).toMatch(/hooray/);
+			expect(plan.refused[0]?.reason).toMatch(/hooray/);
 		});
 
 		it("refuses every reaction when the provider has none", () => {
-			const state = addReaction(draft(), thread.comments[0], "rocket");
+			const state = addReaction(draft(), question, "rocket");
 			const plan = compilePlan(state, context({ reactions: [] }));
 			expect(plan.refused).toHaveLength(1);
 		});
@@ -388,7 +392,7 @@ describe("compilePlan", () => {
 			const plan = compilePlan(state, { capabilities: {} });
 			expect(plan.ops).toEqual([]);
 			expect(plan.refused).toHaveLength(2);
-			expect(plan.refused[0].reason).toMatch(/no conversation/i);
+			expect(plan.refused[0]?.reason).toMatch(/no conversation/i);
 		});
 	});
 
@@ -400,7 +404,7 @@ describe("compilePlan", () => {
 				context({ bodyRequiredFor: ["request-changes"] }),
 			);
 			expect(plan.ops).toEqual([]);
-			expect(plan.refused[0].reason).toMatch(/summary/i);
+			expect(plan.refused[0]?.reason).toMatch(/summary/i);
 		});
 
 		it("refuses a verdict the actor may not give on their own change", () => {
@@ -409,7 +413,7 @@ describe("compilePlan", () => {
 				state,
 				context({ selfVerdicts: ["comment"] }, { ownChange: true }),
 			);
-			expect(plan.refused[0].reason).toMatch(/own change/i);
+			expect(plan.refused[0]?.reason).toMatch(/own change/i);
 		});
 
 		it("refuses a verdict no longer allowed once merged", () => {
@@ -418,7 +422,7 @@ describe("compilePlan", () => {
 				state,
 				context({ verdictsAfterMerge: ["comment"] }, { changeState: "merged" }),
 			);
-			expect(plan.refused[0].reason).toMatch(/merged/i);
+			expect(plan.refused[0]?.reason).toMatch(/merged/i);
 		});
 
 		it("still plans the findings when only the verdict is refused", () => {
@@ -429,7 +433,7 @@ describe("compilePlan", () => {
 				context({ bodyRequiredFor: ["request-changes"] }),
 			);
 			const [op] = plan.ops;
-			expect(op.kind === "review" && op.verdict).toBe("comment");
+			expect(op?.kind === "review" && op.verdict).toBe("comment");
 			expect(plan.refused).toHaveLength(1);
 		});
 	});
@@ -439,7 +443,7 @@ describe("compilePlan", () => {
 			const state = addResolution(draft(), { ...thread, resolved: true });
 			const plan = compilePlan(state, context());
 			expect(plan.ops).toEqual([]);
-			expect(plan.refused[0].reason).toMatch(/already resolved/i);
+			expect(plan.refused[0]?.reason).toMatch(/already resolved/i);
 		});
 	});
 
@@ -458,7 +462,7 @@ describe("compilePlan", () => {
 			const state = addUnresolution(draft(), thread);
 			const plan = compilePlan(state, context());
 			expect(plan.ops).toEqual([]);
-			expect(plan.refused[0].reason).toMatch(/not resolved/i);
+			expect(plan.refused[0]?.reason).toMatch(/not resolved/i);
 		});
 
 		it("carries the item id, so rejecting the tab can drop it", () => {

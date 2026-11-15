@@ -18,11 +18,10 @@ import {
 } from "../../../lib/core/work/stack.ts";
 
 /** A three-high stack: `a` on trunk, `b` on `a`, `c` on `b`. */
-const chain: StackedBranch[] = [
-	{ name: "a", base: "trunk1" },
-	{ name: "b", parent: "a", base: "a1" },
-	{ name: "c", parent: "b", base: "b1" },
-];
+const a: StackedBranch = { name: "a", base: "trunk1" };
+const b: StackedBranch = { name: "b", parent: "a", base: "a1" };
+const c: StackedBranch = { name: "c", parent: "b", base: "b1" };
+const chain: StackedBranch[] = [a, b, c];
 
 /** Names only, for comparing an ordering. */
 function names(branches: readonly StackedBranch[]): string[] {
@@ -33,7 +32,7 @@ describe("ordering a stack", () => {
 	it("puts each branch after whatever it sits on", () => {
 		// Out of order is worse than not running: replaying a child before its
 		// parent moves aligns it to a base about to stop existing.
-		const order = orderStack([chain[2], chain[0], chain[1]]);
+		const order = orderStack([c, a, b]);
 
 		expect(order.kind).toBe("ordered");
 		if (order.kind !== "ordered") return;

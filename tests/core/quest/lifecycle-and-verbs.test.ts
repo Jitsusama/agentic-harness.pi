@@ -448,7 +448,7 @@ describe("lifecycle mutations", () => {
 		});
 		const inventory = inventoryWorktrees(state);
 		expect(inventory).toHaveLength(1);
-		expect(inventory[0].branch).toBe("feat/h");
+		expect(inventory[0]?.branch).toBe("feat/h");
 	});
 
 	it("attaches and detaches the current session", () => {

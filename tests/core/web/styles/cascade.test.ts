@@ -4,6 +4,7 @@ import {
 	type RawMatchedStyles,
 	traceProperty,
 } from "../../../../lib/core/web/styles/index.ts";
+import { at } from "../../../support/at.ts";
 
 /**
  * A capture shaped the way Chrome returns it for the cascade
@@ -180,7 +181,7 @@ describe("normalizeCascade", () => {
 		const [scoped] = normalizeCascade(CAPTURE).filter(
 			(d) => d.property === "font-size" && d.value === "15px",
 		);
-		expect(scoped.media).toEqual(["(min-width: 100px)"]);
+		expect(scoped?.media).toEqual(["(min-width: 100px)"]);
 	});
 
 	it("marks an inherited declaration as inherited", () => {
@@ -272,7 +273,7 @@ describe("normalizeCascade", () => {
 			],
 		});
 		expect(declarations).toHaveLength(1);
-		expect(declarations[0].source).toEqual({
+		expect(declarations[0]?.source).toEqual({
 			styleSheet: "sheet-1",
 			line: 2,
 			column: 24,
@@ -349,13 +350,13 @@ describe("normalizeCascade", () => {
 				},
 			],
 		});
-		expect(declaration.value).toBe('"!important"');
+		expect(declaration?.value).toBe('"!important"');
 	});
 
 	it("treats an empty media list as no media at all", () => {
 		// The protocol reports media as an empty array on an
 		// ordinary rule, which reads as a media query if believed.
-		const [declaration] = normalizeCascade({
+		const declarations = normalizeCascade({
 			matchedCSSRules: [
 				{
 					rule: {
@@ -371,7 +372,7 @@ describe("normalizeCascade", () => {
 				},
 			],
 		});
-		expect(declaration.media).toBeUndefined();
+		expect(at(declarations, 0).media).toBeUndefined();
 	});
 });
 

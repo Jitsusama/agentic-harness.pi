@@ -36,7 +36,7 @@ describe("the warm browser and this process's signals", () => {
 		const after = listeners();
 
 		for (const signal of SIGNALS) {
-			expect(after[signal] - before[signal]).toBeLessThanOrEqual(1);
+			expect((after[signal] ?? 0) - (before[signal] ?? 0)).toBeLessThanOrEqual(1);
 		}
 	});
 
