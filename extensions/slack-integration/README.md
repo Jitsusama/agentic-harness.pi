@@ -99,4 +99,10 @@ slack-integration/
   no session or config setting turns it off. While you
   are away ([away-workflow](../away-workflow/)) a send is held,
   not sent, and listed for you when you are back.
+- **Tool gateway writes**: the same guard holds Slack writes made
+  through the tool gateway, such as editing a canvas, however
+  they're called. With no screen, or while you're away, they're
+  refused; at the screen you're asked once. Reads go through,
+  and so do drafts, since you send a draft yourself. A gateway
+  Slack tool not known to read is treated as a write.
 - **CSRF protection**: OAuth state parameter prevents forgery

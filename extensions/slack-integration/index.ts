@@ -42,6 +42,7 @@ import { count } from "../../lib/ui/count.ts";
 import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { IDENTITY_CONTEXT, identityText } from "./context.ts";
+import { gateGatewayWrite } from "./gateway-writes.ts";
 import { createSessionState, type SlackSessionState } from "./state.ts";
 
 const ensureAuthModule = loadOnce(
@@ -250,6 +251,11 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			userHandle: session.userHandle,
 		});
 	}
+
+	// The tool gateway's Slack writes need Joel's yes too (gateway-writes.ts).
+	pi.on("tool_call", (event, ctx) =>
+		gateGatewayWrite(ctx, event.toolName, event.input),
+	);
 
 	// Restore identity from previous session.
 	pi.on("session_start", async (_event, ctx) => {

@@ -259,7 +259,7 @@ Slack message authoring and content.
 
 | Rule | Section in skill | Status | Enforced by |
 | --- | --- | --- | --- |
-| Nothing is sent to Slack without the person's yes at the screen | (AGENTS learned rule) | 🟢 | The pinned `slack` guard: every slack tool write (send, reply, thread, edit, upload, reaction) asks, is held while away and refused with no screen, whatever a session or config sets (`tests/extensions/no-screen-sends-nothing.test.ts`). The tool gateway's Slack writes are not yet covered (item 234, slice 2). |
+| Nothing is sent to Slack without the person's yes at the screen | (AGENTS learned rule) | 🟢 | The pinned `slack` guard: every slack tool write (send, reply, thread, edit, upload, reaction) asks, is held while away and refused with no screen, whatever a session or config sets (`tests/extensions/no-screen-sends-nothing.test.ts`). The tool gateway's Slack writes are held to it too, through its helper, a direct tool or pi's own MCP tool: any gateway `slack_` tool that doesn't read or only draft is refused with no screen, and asked about once at one (`tests/extensions/slack-integration/gateway-writes.test.ts`). |
 | No markdown image embeds (`![alt](url)`); upload files instead | Unsupported Syntax | 🟢 | core `slack/detect.ts` |
 | No markdown pipe tables; use the `table` parameter instead | Tables | 🟢 | core `slack/detect.ts` |
 | Well-formed lists (no orphan items, parallel shape) | Tables / Lists | 🟢 | core `slack/detect.ts`, conservative thresholds (runs of two, separator-or-adjacent-rows) |
