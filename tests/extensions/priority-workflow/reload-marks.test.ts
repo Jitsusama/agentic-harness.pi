@@ -76,7 +76,7 @@ describe("a reload", () => {
 	it("takes the typed mark its runtime held, so the next turn nobody typed has none", async () => {
 		const before = loaded();
 		await before.fire("session_start", { reason: "startup" });
-		await before.fire("input", { source: "interactive" });
+		await before.fire("input", { source: "interactive", text: "go on" });
 		await before.fire("agent_start");
 		expect(marked("typed"), "a turn the person typed is marked").toBe(true);
 		await before.fire("session_shutdown", { reason: "reload" });

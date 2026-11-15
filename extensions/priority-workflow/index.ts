@@ -36,6 +36,7 @@ import {
 	isToolCallEventType,
 } from "@earendil-works/pi-coding-agent";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
+import { isAutomatedText } from "../../lib/internal/automated.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
@@ -151,7 +152,9 @@ const SETTLE_MS = 5_000;
  * Says, by a file of this pid, while a turn a person typed runs, so the
  * traffic shaper sends its request ahead of autonomous sessions'
  * (lib/internal/priority/typed.ts). The person's words steered in from
- * the launcher count as typed. A subagent never has one.
+ * the launcher count as typed. A subagent never has one, and a turn the
+ * harness started never does, though a prompt given on pi's command
+ * line, as a reopen's is, arrives as interactive input.
  */
 export function sayTypedTurns(
 	pi: Pick<ExtensionAPI, "on" | "events">,
@@ -160,7 +163,8 @@ export function sayTypedTurns(
 		process.env.SUBAGENT_RUN_ID ? undefined : typedDir(),
 	);
 	pi.on("input", async (event) => {
-		if (event.source === "interactive") turns.typed();
+		if (event.source === "interactive" && !isAutomatedText(event.text))
+			turns.typed();
 	});
 	const unlisten = pi.events.on(PERSON_TALKED, (said) => {
 		const intoRun =
