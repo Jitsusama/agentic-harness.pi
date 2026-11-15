@@ -31,6 +31,7 @@ import {
 } from "../../../lib/core/session/index.ts";
 import { processGlobal } from "../../../lib/internal/process-global.ts";
 import { CRASH_SLOT } from "../../../lib/internal/session/crash-record.ts";
+import { cutByMove } from "../../../lib/internal/session/cut-off-record.ts";
 import { JOBS_CARRIED } from "../../../lib/jobs/host.ts";
 import { findJobHost } from "../../../lib/jobs/index.ts";
 import { installTestHost } from "../../support/session-host.ts";
@@ -149,6 +150,20 @@ describe("a session cut off when it ended", () => {
 		).toMatch(/mid-run/);
 		expect(text, "the orchestrator hears it came back").toMatch(
 			/tell it once, by mesh/,
+		);
+	});
+
+	it("is told what ended its run when a move did, and the machine otherwise, word for word", () => {
+		const rest =
+			" Read where your log stops and carry on from there, rerunning what still matters; a mesh hold still standing comes first. If an orchestrator gave you this work, tell it once, by mesh, that you came back and what you carry on with.";
+		expect(resumeText({ at: 0, running: true, jobs: [] }, () => "13:54")).toBe(
+			`This session ended at 13:54, when the machine stopped it rather than the person, mid-run, and nothing has resumed it since.${rest}`,
+		);
+		const by = "a move to plain pi that waited 5 minutes on its run";
+		expect(
+			resumeText({ at: 0, running: true, jobs: [], by }, () => "13:54"),
+		).toBe(
+			`This session ended at 13:54, when ${by} stopped it rather than the person, mid-run, and nothing has resumed it since.${rest}`,
 		);
 	});
 });
@@ -278,6 +293,22 @@ describe("the job workflow, at a session's end and its return", () => {
 		);
 		await reloaded.fire("session_start", { reason: "reload" });
 		expect(reloaded.said).toHaveLength(0);
+	});
+
+	it("tells plain pi what ended the run when a move back to it did", async () => {
+		const by = "a move to plain pi that waited 5 minutes on its run";
+		const pi = activate(
+			[
+				message("user"),
+				ended(cutByMove(by, Date.parse(AT))),
+				aborted,
+			],
+			new EventEmitter(),
+		);
+		await pi.fire("session_start", { reason: "startup" });
+		expect(pi.said).toHaveLength(1);
+		expect(pi.said[0]).toContain(`when ${by} stopped it`);
+		expect(pi.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
 	});
 
 	it("holds the cut-off notice until the first prompt pi was started with has run", async () => {

@@ -13,6 +13,7 @@ import {
 	MOVE_LOOK_MS,
 	MOVE_WAIT_MOST_MS,
 	type MovingSession,
+	RELEASE_WAIT_MS,
 } from "../../../extensions/mesh-workflow/moving.ts";
 import type { MoveTarget } from "../../../lib/internal/session/move.ts";
 import { announceJobHost, type JobHold } from "../../../lib/jobs/index.ts";
@@ -32,6 +33,8 @@ interface Session {
 	readonly said: (Moving | undefined)[];
 	/** Why each move it called off went, as its presence says. */
 	readonly offs: MoveOff[];
+	/** What each run it ended said ended it. */
+	readonly cuts: string[];
 	/** Its clock, in ms since the epoch. */
 	time: number;
 	/** The look the clock would make, while one is set. */
@@ -53,6 +56,7 @@ function session(
 		asked: [],
 		said: [],
 		offs: [],
+		cuts: [],
 		time: ASKED,
 		clocks: [],
 		move: createMoving({
@@ -76,6 +80,7 @@ function session(
 				at.did.push("close");
 				at.asked.push(`close by ${by}`);
 			},
+			cutRun: (by) => at.cuts.push(by),
 			...(release
 				? {
 						release: (by: string) => {
@@ -334,6 +339,58 @@ describe("moving a session", () => {
 				why: "the person is at the desk",
 			},
 		]);
+	});
+
+	it("ends a run that holds a move back to plain pi past its wait, at its turn's end, then lets it go", () => {
+		const one = session("a run is under way", true);
+		one.move.move("pi");
+		one.time = ASKED + RELEASE_WAIT_MS - 1;
+		one.tick?.();
+		one.move.turnEnded();
+		expect(one.cuts, "a run inside the wait goes on").toEqual([]);
+		one.time = ASKED + RELEASE_WAIT_MS;
+		one.tick?.();
+		expect(one.moving?.holds).toBe(
+			"a run is under way, ending at its turn's end after 5 minutes",
+		);
+		expect(one.cuts, "mid-turn, its tool runs on").toEqual([]);
+		one.move.turnEnded();
+		expect(one.cuts).toEqual([
+			"a move to plain pi that waited 5 minutes on its run",
+		]);
+		one.holds = undefined;
+		one.tick?.();
+		expect(one.did).toEqual(["note pi", "close"]);
+	});
+
+	it("ends a run that starts while it waits to let go of one it ended", () => {
+		const one = session("a run is under way", true);
+		one.move.move("pi");
+		one.time = ASKED + RELEASE_WAIT_MS;
+		one.tick?.();
+		one.move.turnEnded();
+		one.move.started();
+		expect(one.cuts).toHaveLength(2);
+	});
+
+	it("ends no run for a move into a host, a hold that isn't a run, or a move called off", () => {
+		const into = session("a run is under way", true);
+		into.move.move("attended");
+		const job = session("a fleet is out (j2: k7-read)", true);
+		job.move.move("pi");
+		const off = session("a run is under way", true);
+		off.move.move("pi");
+		for (const one of [into, job, off]) {
+			one.time = ASKED + RELEASE_WAIT_MS;
+			one.tick?.();
+		}
+		off.move.cancel();
+		for (const one of [into, job, off]) {
+			one.move.turnEnded();
+			one.move.started();
+			expect(one.cuts).toEqual([]);
+		}
+		expect(job.moving?.holds).toBe("a fleet is out (j2: k7-read)");
 	});
 
 	it("ends once, however often it is asked after", () => {
