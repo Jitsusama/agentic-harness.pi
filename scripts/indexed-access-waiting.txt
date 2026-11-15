@@ -157,7 +157,9 @@ tests/extensions/quest-workflow/scoreboard-resize.test.ts 2
 tests/extensions/quest-workflow/session-audit.test.ts 2
 tests/extensions/quest-workflow/sessions-at-work.test.ts 2
 tests/extensions/quest-workflow/tree-verbs.test.ts 5
-tests/extensions/quest-workflow/verbs.test.ts 20
+tests/extensions/quest-workflow/verbs-listing.test.ts 9
+tests/extensions/quest-workflow/verbs-order.test.ts 2
+tests/extensions/quest-workflow/verbs-spawn.test.ts 9
 tests/extensions/review-ask-actions-offered.test.ts 2
 tests/extensions/review-integration.test.ts 1
 tests/extensions/slack-integration/bounded.test.ts 3
