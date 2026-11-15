@@ -124,6 +124,15 @@ function assembleQueryPreview(a: {
 	return full;
 }
 
+/** One table column's settings, or null to leave the column be. */
+const COLUMN_SETTING = Type.Union([
+	Type.Object({
+		align: Type.Optional(StringEnum(["left", "center", "right"] as const)),
+		is_wrapped: Type.Optional(Type.Boolean()),
+	}),
+	Type.Null(),
+]);
+
 /** Max message previews to show in collapsed view. */
 const MAX_PREVIEWS = 5;
 
@@ -147,6 +156,16 @@ function renderMessagePreviews(
 		);
 	}
 	return lines.join("\n");
+}
+
+/** A list's count, then its previews while folded or the whole answer opened. */
+function listed(
+	summary: string,
+	previews: string,
+	answer: string,
+	expanded: boolean,
+): string {
+	return `${summary}\n${expanded ? answer : previews}`;
 }
 
 /** Count files from the file_path and file_paths params. */
@@ -392,23 +411,12 @@ export default function slackIntegration(pi: ExtensionAPI) {
 								"~strike~, `code`, <url|text>, @mention)",
 						}),
 						column_settings: Type.Optional(
-							Type.Array(
-								Type.Union([
-									Type.Object({
-										align: Type.Optional(
-											StringEnum(["left", "center", "right"] as const),
-										),
-										is_wrapped: Type.Optional(Type.Boolean()),
-									}),
-									Type.Null(),
-								]),
-								{
-									description:
-										"Per-column settings. Use null to skip. " +
-										"align: left (default), center, right. " +
-										"is_wrapped: wrap text instead of truncating.",
-								},
-							),
+							Type.Array(COLUMN_SETTING, {
+								description:
+									"Per-column settings. Use null to skip. " +
+									"align: left (default), center, right. " +
+									"is_wrapped: wrap text instead of truncating.",
+							}),
 						),
 					},
 					{
@@ -460,17 +468,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 								columns: Type.Array(Type.String()),
 								rows: Type.Array(Type.Array(Type.String())),
 								column_settings: Type.Optional(
-									Type.Array(
-										Type.Union([
-											Type.Object({
-												align: Type.Optional(
-													StringEnum(["left", "center", "right"] as const),
-												),
-												is_wrapped: Type.Optional(Type.Boolean()),
-											}),
-											Type.Null(),
-										]),
-									),
+									Type.Array(COLUMN_SETTING),
 								),
 							}),
 						),
@@ -645,10 +643,10 @@ export default function slackIntegration(pi: ExtensionAPI) {
 				if (msgs?.length) {
 					const summary = theme.fg("success", `✓ ${total} messages`);
 					const previews = renderMessagePreviews(msgs, theme);
-					if (!options.expanded) {
-						return drawInto(context?.lastComponent, `${summary}\n${previews}`);
-					}
-					return drawInto(context?.lastComponent, `${summary}\n${textContent}`);
+					return drawInto(
+						context?.lastComponent,
+						listed(summary, previews, textContent, options.expanded),
+					);
 				}
 
 				if (files?.length) {
@@ -657,10 +655,10 @@ export default function slackIntegration(pi: ExtensionAPI) {
 						.slice(0, MAX_PREVIEWS)
 						.map((f) => `  ${theme.fg("dim", f.name || "untitled")}`)
 						.join("\n");
-					if (!options.expanded) {
-						return drawInto(context?.lastComponent, `${summary}\n${previews}`);
-					}
-					return drawInto(context?.lastComponent, `${summary}\n${textContent}`);
+					return drawInto(
+						context?.lastComponent,
+						listed(summary, previews, textContent, options.expanded),
+					);
 				}
 
 				return drawInto(
@@ -677,10 +675,10 @@ export default function slackIntegration(pi: ExtensionAPI) {
 					`✓ ${count(msgs.length, "message")}`,
 				);
 				const previews = renderMessagePreviews(msgs, theme);
-				if (!options.expanded) {
-					return drawInto(context?.lastComponent, `${summary}\n${previews}`);
-				}
-				return drawInto(context?.lastComponent, `${summary}\n${textContent}`);
+				return drawInto(
+					context?.lastComponent,
+					listed(summary, previews, textContent, options.expanded),
+				);
 			}
 
 			// Single user
