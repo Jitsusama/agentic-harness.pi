@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	inboxOf,
+	isPersonsTalk,
 	steerFrom,
 	takeSteers,
 	waitingSteers,
@@ -315,5 +316,38 @@ describe("the steer inbox", () => {
 		put(inbox, "1-a.json", JSON.stringify({ text: "go", id: "t1" }));
 		expect(takeSteers(inbox, "1").steers.map((one) => one.id)).toEqual(["t1"]);
 		expect(readdirSync(inbox)).toEqual(["replies"]);
+	});
+});
+
+describe("a steer that is the person's own words", () => {
+	it("is a talk or a resume with words that Joel or the node on his word wrote", () => {
+		expect(isPersonsTalk({ text: "go on", from: "joel" }), "a talk").toBe(true);
+		expect(
+			isPersonsTalk({ text: "go on", act: "resume", from: "Joel" }),
+			"a resume with words",
+		).toBe(true);
+		expect(
+			isPersonsTalk({ text: "carry on", from: "person" }),
+			"the node on his word",
+		).toBe(true);
+	});
+
+	it("is never an agent's, the machine's, an unnamed writer's, a bare act or an answer", () => {
+		const refused = {
+			"an agent's steer": { text: "go on", from: "WCJQSG" },
+			"the machine's": { text: "leaving at six", from: "machine" },
+			"an unnamed writer's": { text: "go on" },
+			"an automated resume": { text: "", act: "resume", from: "joel" },
+			"a bare pause": { text: "", act: "pause", from: "joel" },
+			"words filled into the prompt": {
+				text: "draft",
+				act: "fill",
+				from: "joel",
+			},
+			"an answer to an ask": { text: "yes", act: "answer", from: "joel" },
+		} as const;
+		for (const [kind, steer] of Object.entries(refused)) {
+			expect(isPersonsTalk(steer), kind).toBe(false);
+		}
 	});
 });

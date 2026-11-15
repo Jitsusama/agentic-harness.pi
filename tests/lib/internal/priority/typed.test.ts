@@ -62,6 +62,20 @@ describe("a turn a person typed", () => {
 		);
 	});
 
+	it("goes with the run when the person's words were read into it", () => {
+		const turns = typedTurns(dir, 4242);
+		turns.began(1);
+		turns.steeredIn();
+		expect(existsSync(file()), `${file()} is written as the words go in`).toBe(
+			true,
+		);
+		turns.ended();
+		expect(
+			existsSync(file()),
+			`${file()} goes with the run they were read into, not the next`,
+		).toBe(false);
+	});
+
 	it("says whether it holds, even where it can't write the file", () => {
 		const turns = typedTurns(undefined, 4242);
 		expect(turns.held(), "nothing is held before any input").toBe(false);
