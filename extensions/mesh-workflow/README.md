@@ -103,7 +103,13 @@ and can answer a question or a gate left open on screen.
   wake keeps why beside that file until it next starts, and
   mesh_send, mesh_groups and the unanswered list say so
   ([`refusals.ts`](refusals.ts)), reading it again only once
-  it changes.
+  it changes. The process holding a presence also holds its
+  session's log open, read-only, while it owns it (a host for
+  each it hosts), so the node believes a claim to a session
+  only where its owner holds that log
+  ([`held-log.ts`](held-log.ts)). That says the process owns
+  it, never proves it: any of the person's processes could
+  open the log.
 - **Want:** what a peer waits on its person for: a question
   it asked, an approval it is held at, an unattended run
   that ended blocked, or something only they can do, said
