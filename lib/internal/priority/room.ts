@@ -70,6 +70,11 @@ export interface Reading extends Room {
 	};
 	/** The Nix builds the daemon runs, on a machine where it is read. */
 	readonly builds?: readonly BuildSeen[];
+	/**
+	 * How fast the uplink sends, in Mbit/s, once it has been measured
+	 * over a window (uplink.ts). No turn waits on it.
+	 */
+	readonly uplink?: { readonly sentMbit: number };
 }
 
 /** One Nix build the daemon runs in a cgroup of its own. */
