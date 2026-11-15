@@ -23,7 +23,7 @@ describe("looking ids up in batches", () => {
 			running--;
 		});
 
-		expect(finished).toBe(true);
+		expect(finished, "every batch ran, so it says it finished").toBe(true);
 		expect(seen.sort()).toEqual(ids(45).sort());
 		expect(most).toBe(20);
 	});
@@ -41,7 +41,9 @@ describe("looking ids up in batches", () => {
 			stop.signal,
 		);
 
-		expect(finished).toBe(false);
+		expect(finished, "the signal stopped it, so it says it didn't finish").toBe(
+			false,
+		);
 		expect(seen).toHaveLength(20);
 	});
 });

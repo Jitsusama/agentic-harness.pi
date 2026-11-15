@@ -28,7 +28,6 @@ tests/extensions/status-line-widget/git.test.ts 2
 tests/extensions/work-tree-signal.test.ts 2
 tests/lib/subagent/fleet-ledger.test.ts 1
 tests/lib/subagent/runpi/detached.test.ts 3
-tests/lib/subagent/runpi/parent-exit.test.ts 1
 tests/lib/subagent/runpi/supervisor.test.ts 6
 tests/lib/ui/gate-over-live-transcript.test.ts 1
 tests/lib/ui/pi-screen.ts 1
