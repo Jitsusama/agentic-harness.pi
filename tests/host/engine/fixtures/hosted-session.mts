@@ -182,6 +182,14 @@ const QUEUED_POLL_MS = 20;
 const OUTBOX_WAIT_MS = 10_000;
 /** How often it looks. */
 const OUTBOX_POLL_MS = 50;
+/** How long a slow provider takes to its first token, deaf to an abort meanwhile. */
+const SLOW_FIRST_TOKEN_MS = 30_000;
+/** Resolve askedOnce, once the slow provider is asked. */
+let asked = (): void => {};
+/** Settles once the slow provider is asked for an answer. */
+const askedOnce = new Promise<void>((done) => {
+	asked = done;
+});
 /** What the session's agent holds queued, once the session is built. */
 let queued = (): boolean => false;
 /** The words pi's screen lists as pending, once the session is built. */
@@ -193,7 +201,15 @@ let note = (_event: {
 	readonly error?: string;
 	readonly sends?: number;
 	readonly waiting?: number;
+	readonly ms?: number;
 }): void => {};
+
+/** Answer only after SLOW_FIRST_TOKEN_MS, as a provider that pays an abort no heed does. */
+async function answerSlowly(): Promise<unknown> {
+	asked();
+	await new Promise((done) => setTimeout(done, SLOW_FIRST_TOKEN_MS));
+	return say("too late");
+}
 
 /** Answer `text` once the agent holds queued words, noting that it did, or after a while. */
 async function answerOnceQueued(text: string): Promise<unknown> {
@@ -495,6 +511,17 @@ const scenarios: Record<string, Scenario> = {
 		tools: echo(),
 		drive: (session) => session.prompt("use the tools"),
 	},
+	/** A host stopping before the provider's first token, the provider paying the park's abort no heed. */
+	"park-slow-first-token": {
+		responses: () => [answerSlowly],
+		drive: async (session) => {
+			void session.prompt("hi").catch(() => {
+				// The park ends this prompt; how long the close takes is what is seen.
+			});
+			await askedOnce;
+			await parkAndClose();
+		},
+	},
 	"abort-in-stream": {
 		responses: () => [
 			say(
@@ -600,6 +627,11 @@ let stopHost: () => void = () => {
 	throw new Error("the session is not built yet");
 };
 
+/** Park and close as a stopping host does, noting how long the close took, then end; once the session is built. */
+let parkAndClose: () => Promise<void> = async () => {
+	throw new Error("the session is not built yet");
+};
+
 const scenario = scenarios[scenarioName];
 if (!scenario) throw new Error(`no scenario ${scenarioName}`);
 
@@ -701,6 +733,18 @@ try {
 	queued = () => session.agent.hasQueuedMessages();
 	pending = () => session.getFollowUpMessages();
 	note = (event) => events.push(event);
+	parkAndClose = async () => {
+		// As the engine's release does for a stopping host, timing the close it waits on.
+		conversation?.agent?.park();
+		session.dispose();
+		const from = Date.now();
+		await conversation?.close();
+		note({ type: "closed", ms: Date.now() - from });
+		process.stdout.write(`${JSON.stringify({ events })}\n`);
+		faux.unregister();
+		if (!keptFolder) rmSync(folder, { recursive: true, force: true });
+		process.exit(0);
+	};
 	const early = scenario.early?.(session);
 	// The early run has reached the agent, as it had on 13 November.
 	if (early) await Promise.race([reached, early]);

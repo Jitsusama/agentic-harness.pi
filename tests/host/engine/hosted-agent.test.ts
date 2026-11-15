@@ -33,6 +33,8 @@ beforeEach(({ skip }) => {
 const FIXTURE = join(import.meta.dirname, "fixtures", "hosted-session.mts");
 /** Two sessions in two processes, each loading pi's whole package. */
 const SESSION_PAIR_MS = 60_000;
+/** The longest a park may hold a stopping host's close, whatever the provider does. */
+const PARKED_CLOSE_MOST_MS = 5_000;
 
 interface Observed {
 	readonly events: readonly { readonly type: string }[];
@@ -319,6 +321,20 @@ describe("the hosted agent after SIGKILL mid-tool", {
 		} finally {
 			rmSync(folder, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("the hosted agent parked before a slow first token", {
+	timeout: SESSION_PAIR_MS,
+}, () => {
+	it("lets the host close at once, though the provider pays the abort no heed", async () => {
+		const observed = await observe("hosted", "park-slow-first-token");
+		const closed = observed.events.find((event) => event.type === "closed");
+		expect(closed, "the fixture timed the close").toBeDefined();
+		expect(
+			isRecord(closed) ? closed.ms : undefined,
+			"the close waited on no answer the park had abandoned",
+		).toBeLessThan(PARKED_CLOSE_MOST_MS);
 	});
 });
 
