@@ -491,10 +491,10 @@ describe("the hosted agent resuming a turn a restart cut off", {
 			);
 			expect(
 				turnsOf(observed).slice(0, 2),
-				"the run waited for its turn until the words were in",
+				"the run asked behind Joel's runs and, once his words were in, took the turn that came free first",
 			).toEqual([
 				{ type: "turn asked", first: false },
-				{ type: "turn", first: false },
+				{ type: "turn", first: true },
 			]);
 			expect(
 				said(observed, "assistant"),

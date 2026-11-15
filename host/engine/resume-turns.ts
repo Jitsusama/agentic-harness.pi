@@ -12,9 +12,10 @@
  * them. A start holds every turn until its last conversation has resumed,
  * so the order is the whole start's rather than whichever resumed first:
  * a run begun by words Joel typed goes first, since he is waiting on its
- * answer, then the rest in the order they asked, which is the order the
- * host held them in. Outside a start the turns are open, so a wake or an
- * open waits on nothing but the cap.
+ * answer, and so does one he types into while it waits; then the rest in
+ * the order they asked, which is the order the host held them in.
+ * Outside a start the turns are open, so a wake or an open waits on
+ * nothing but the cap.
  */
 import { isPersonWords } from "../../lib/internal/session/driven.ts";
 import type { AgentMessage } from "./pi-types.ts";
@@ -34,12 +35,14 @@ export const RESUMED_TURN_MS = 60_000;
 export type GiveBack = () => void;
 
 /**
- * Wait for a turn to carry a cut-off run on, `first` for one Joel's words
- * began. An abort ends the wait at once with a turn that counts for
- * nothing, since an aborted run ends without going on.
+ * Wait for a turn to carry a cut-off run on, `first` saying whether Joel
+ * waits on it: read each time a turn comes free rather than once as the
+ * run asks, so a run he types into while it waits moves up. An abort ends
+ * the wait at once with a turn that counts for nothing, since an aborted
+ * run ends without going on.
  */
 export type TakeTurn = (
-	first: boolean,
+	first: () => boolean,
 	signal?: AbortSignal,
 ) => Promise<GiveBack>;
 
@@ -55,7 +58,7 @@ export interface ResumeTurns {
 }
 
 interface Waiting {
-	readonly first: boolean;
+	readonly first: () => boolean;
 	readonly grant: () => void;
 }
 
@@ -86,7 +89,7 @@ export function resumeTurns(
 	};
 	const next = () => {
 		while (!held && going < atOnce && waiting.length > 0) {
-			const firstAt = waiting.findIndex((each) => each.first);
+			const firstAt = waiting.findIndex((each) => each.first());
 			const [chosen] = waiting.splice(Math.max(firstAt, 0), 1);
 			going++;
 			chosen?.grant();
