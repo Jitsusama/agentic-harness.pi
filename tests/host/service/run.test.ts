@@ -4,6 +4,8 @@
  * start to stop over the same fakes, and its start, its asks of systemd and
  * its stop change together.
  */
+
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
@@ -298,6 +300,66 @@ describe("runHost's watchdog", () => {
 			(at[1] ?? 0) - (at[0] ?? 0),
 			"the hung ping held back one beat, not every beat after it",
 		).toBeLessThan(TIMEOUT_MS);
+	});
+
+	it("pings at once when its loop turns again after a hold, though the last ping's end is still unread", async () => {
+		// On 15 November a host's loop held 61 s, and the beat that came
+		// once it turned again took the ping before the hold as still on its
+		// way: that ping's end comes through the loop's poll, which a turn
+		// reaches only after its timers. So it skipped, and systemd's two
+		// minutes ran out 0.8 s before the beat after it.
+		const at: number[] = [];
+		const beat = LONG_TIMEOUT_MS / 4;
+		// Late by more than half the timeout, as a beat must be to count
+		// as held.
+		const hold = 4 * beat;
+		let spun = false;
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: { ...env(), ...LONG_WATCHED },
+			engine,
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			alive: () => {
+				at.push(performance.now());
+				if (at.length === 2 && !spun) {
+					spun = true;
+					// Hold the loop just after this ping goes, before its end is read.
+					setImmediate(() => {
+						const until = performance.now() + hold;
+						while (performance.now() < until) {
+							// Spinning, as a loop held by synchronous work or by
+							// faulting its heap back from swap is.
+						}
+					});
+				}
+				// It ends as systemd-notify does, a child's exit read in the
+				// loop's poll, a moment after the hold began.
+				return new Promise((resolve) =>
+					execFile("sleep", ["0.05"], () => resolve()),
+				);
+			},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		try {
+			await vi.waitFor(
+				() => {
+					expect(at.length, "a ping after the hold").toBeGreaterThan(2);
+				},
+				{ timeout: 4 * LONG_TIMEOUT_MS },
+			);
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
+		expect(
+			(at[2] ?? 0) - (at[1] ?? 0),
+			`the first ping after the hold came as the loop turned, not a beat on: ${at.join(", ")}`,
+		).toBeLessThan(hold + beat / 2);
 	});
 
 	it("stops pinging while its loop is blocked, so a wedged host is restarted", async () => {

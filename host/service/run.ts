@@ -543,7 +543,12 @@ function notifyAlive(env: NodeJS.ProcessEnv, within: number): Promise<void> {
  * so a systemd-notify that never ends can't silence a healthy host.
  * A beat that comes late by more than LATE_BEAT_MS, or half the timeout
  * when that is less, is `held`, so a stall short of a kill leaves a
- * trace saying how long it was.
+ * trace saying how long it was, and it pings whatever is on its way: a
+ * turn of the loop runs its timers before the poll that reads a ping's
+ * end, so the ping before a hold looks unanswered when it may long since
+ * have reached systemd. Skipping then would leave systemd waiting the
+ * hold and two beats, and a hold of about two beats would end the host
+ * after its loop had turned again.
  */
 function keepAlive(options: {
 	ping: (within: number) => Promise<void>;
@@ -562,8 +567,9 @@ function keepAlive(options: {
 		const now = performance.now();
 		const late = now - last - options.every;
 		last = now;
-		if (late > noted) options.held(late);
-		if (pinging && !waited) {
+		const stalled = late > noted;
+		if (stalled) options.held(late);
+		if (pinging && !waited && !stalled) {
 			waited = true;
 			return;
 		}
