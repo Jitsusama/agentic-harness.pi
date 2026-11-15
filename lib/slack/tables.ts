@@ -34,11 +34,8 @@ export function mrkdwnToCell(text: string): unknown {
 	// If parsing produced a single unstyled text element,
 	// the formatting characters were false positives (e.g.
 	// "a < b"). Use raw_text.
-	if (
-		elements.length === 1 &&
-		elements[0].type === "text" &&
-		!elements[0].style
-	) {
+	const [only] = elements;
+	if (elements.length === 1 && only?.type === "text" && !only.style) {
 		return { type: "raw_text", text };
 	}
 

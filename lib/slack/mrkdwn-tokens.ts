@@ -174,7 +174,9 @@ export function parseMrkdwnToElements(text: string): RichTextElement[] {
 		tokens.push({
 			start: match.index,
 			end: match.index + match[0].length,
-			elements: [parseAngleBracket(match[1])],
+			// The group always takes part in a match; the default only
+			// says so to the type checker.
+			elements: [parseAngleBracket(match[1] ?? "")],
 		});
 	}
 
