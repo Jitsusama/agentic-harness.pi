@@ -105,7 +105,10 @@ describe("sending a message", () => {
 			redirect: "Say it gentler.",
 		});
 
-		const cancelled = await route("send_message", { channel: "C1", text: "hi" });
+		const cancelled = await route("send_message", {
+			channel: "C1",
+			text: "hi",
+		});
 		const redirected = await route("send_message", {
 			channel: "C1",
 			text: "hi",

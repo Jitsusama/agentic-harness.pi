@@ -280,9 +280,7 @@ describe("a spawner watching for its session's first turn", () => {
 		// window past the minute, and the look opened it again from here,
 		// so RCTRF8 ran as two sessions.
 		it("is left to the launcher that took it until a pi of it was seen, then told", async () => {
-			const opened = reopensThrough(
-				"a window in the desktop's sessions kitty",
-			);
+			const opened = reopensThrough("a window in the desktop's sessions kitty");
 			watchWaiting(gone, {
 				...spawned,
 				sessionId: "019a-queued",
@@ -301,9 +299,7 @@ describe("a spawner watching for its session's first turn", () => {
 		});
 
 		it("is opened again once the launcher's pi of it was seen and has gone", async () => {
-			const opened = reopensThrough(
-				"a window in the desktop's sessions kitty",
-			);
+			const opened = reopensThrough("a window in the desktop's sessions kitty");
 			let looks = 0;
 			watchFirstTurn(
 				pi,

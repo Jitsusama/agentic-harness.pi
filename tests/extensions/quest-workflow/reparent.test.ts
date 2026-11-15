@@ -189,7 +189,11 @@ describe("reparent verb", () => {
 		const state = buildState();
 		const { parent, child } = await parentAndChild(state);
 
-		const result = await reparent(state, `${child.id},QEST-20260604-GONE99`, parent.id);
+		const result = await reparent(
+			state,
+			`${child.id},QEST-20260604-GONE99`,
+			parent.id,
+		);
 		expect(refused(result).guidance).toMatch(/GONE99/);
 		// The valid target was not moved: the batch is atomic.
 		expect(parentOf(child.id)).toBe("null");
@@ -348,7 +352,11 @@ describe("reparent verb", () => {
 
 	it("warns about live children when concluding the loaded parent", async () => {
 		const state = buildState();
-		const { parent, child } = await nested(state, "Loaded Parent", "Loaded Child");
+		const { parent, child } = await nested(
+			state,
+			"Loaded Parent",
+			"Loaded Child",
+		);
 		await act(state, {
 			action: "load",
 			id: parent.id,

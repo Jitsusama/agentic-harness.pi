@@ -52,7 +52,8 @@ async function compose(
 		if (error) return { refusal: text(error) };
 	}
 	const blocks = await messageBlocks(client, msgText, table);
-	const shown = msgText ?? (table ? `Table with ${table.rows.length} rows` : "");
+	const shown =
+		msgText ?? (table ? `Table with ${table.rows.length} rows` : "");
 	if (!shown) return { refusal: missing("text") };
 	return { blocks, shown };
 }

@@ -76,8 +76,12 @@ export const slack = {
 		async (_client: unknown, _conversation: unknown, _options: unknown) => [],
 	),
 	sendMessage: vi.fn(
-		async (_client: unknown, _channel: string, _text: string, _blocks?: unknown) =>
-			POSTED,
+		async (
+			_client: unknown,
+			_channel: string,
+			_text: string,
+			_blocks?: unknown,
+		) => POSTED,
 	),
 	replyToThread: vi.fn(
 		async (
