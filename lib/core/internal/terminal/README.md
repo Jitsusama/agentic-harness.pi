@@ -12,4 +12,6 @@ public surface, its types and the person's settings are in
 
 - `drivers/`: one driver a terminal, for kitty, wezterm, zellij and
   tmux, the fallback that prints the request when nothing else
-  can open it, and the shell quoting they share.
+  can open it, and what they share: the shell quoting, the options
+  every cli-driven driver is built with, and the liveness probe
+  that asks each local server which surfaces it still lists.

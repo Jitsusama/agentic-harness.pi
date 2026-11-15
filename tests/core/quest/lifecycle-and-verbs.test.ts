@@ -145,6 +145,55 @@ describe("aliasAdd / aliasRemove", () => {
 		const result = aliasAdd(state, { action: "alias-add", ref: "x:y" });
 		expect(result).toMatchObject({ ok: false });
 	});
+
+	it("skips blank entries in a batch, adding and removing the rest", () => {
+		const state = buildState();
+		loadIntoState(state, seedQuest(state.questsRoot, "Blank entries"));
+
+		expect(
+			aliasAdd(state, { action: "alias-add", ref: " , github-pr:a/b#1 ," }),
+		).toMatchObject({
+			ok: true,
+			details: { aliases: [{ type: "github-pr", value: "a/b#1" }] },
+		});
+		expect(
+			aliasRemove(state, {
+				action: "alias-remove",
+				ref: "github-pr:a/b#1, ,",
+			}),
+		).toMatchObject({ ok: true, details: { removed: true } });
+	});
+
+	for (const [name, verb] of [
+		["alias-add", aliasAdd],
+		["alias-remove", aliasRemove],
+	] as const) {
+		it(`${name} refuses the batch at an entry it cannot read`, () => {
+			const state = buildState();
+			loadIntoState(state, seedQuest(state.questsRoot, "Unreadable"));
+
+			const result = verb(state, {
+				action: name,
+				ref: "github-pr:a/b#1,not an alias",
+			});
+
+			expect(result).toMatchObject({ ok: false });
+			expect(!result.ok && result.guidance).toContain(
+				'Could not parse "not an alias" as an alias.',
+			);
+		});
+
+		it(`${name} asks for an alias when given none`, () => {
+			const state = buildState();
+			loadIntoState(state, seedQuest(state.questsRoot, "Nothing given"));
+
+			const result = verb(state, { action: name, ref: " , " });
+
+			expect(!result.ok && result.guidance).toContain(
+				"Pass the alias in `ref`",
+			);
+		});
+	}
 });
 
 describe("reorder / priority verbs", () => {
@@ -252,6 +301,80 @@ describe("reparent / undo", () => {
 
 		const reverted = undo(state);
 		expect(reverted).toMatchObject({ ok: true });
+	});
+
+	it("asks for an id when the batch names none", () => {
+		const state = buildState();
+
+		const moved = reparent(state, {
+			action: "reparent",
+			id: " , ",
+			parent: "null",
+		});
+		const swept = bulkConcludeOrRetire(state, "conclude", {
+			action: "conclude",
+			id: " , ",
+		});
+
+		expect(!moved.ok && moved.guidance).toContain("Pass the quest id to move");
+		expect(!swept.ok && swept.guidance).toContain(
+			"Pass the quest ids to sweep",
+		);
+	});
+
+	it("refuses a whole batch when one id names no quest", () => {
+		const state = buildState();
+		const real = seedQuest(state.questsRoot, "Real");
+		const ids = `${real.id}, QEST-20260101-NOSUCH`;
+
+		const moved = reparent(state, {
+			action: "reparent",
+			id: ids,
+			parent: "null",
+		});
+		const swept = bulkConcludeOrRetire(state, "conclude", {
+			action: "conclude",
+			id: ids,
+		});
+
+		expect(!moved.ok && moved.guidance).toContain(
+			"Refusing the batch; nothing was moved:\n- ",
+		);
+		expect(!swept.ok && swept.guidance).toContain(
+			"Refusing the batch; nothing was changed:\n- ",
+		);
+		expect(findQuestEntry(state, real.id)?.doc.frontMatter.status).toBe(
+			"active",
+		);
+	});
+
+	it("says there is nothing to do when every target is already there", () => {
+		const state = buildState();
+		const top = seedQuest(state.questsRoot, "Top");
+		const done = seedQuest(state.questsRoot, "Done", { status: "concluded" });
+
+		expect(
+			reparent(state, {
+				action: "reparent",
+				id: top.id,
+				parent: "null",
+				dryRun: true,
+			}),
+		).toEqual({
+			ok: true,
+			message: "Nothing to reparent; every target is already there.",
+			details: { changes: [], dryRun: true },
+		});
+		expect(
+			bulkConcludeOrRetire(state, "conclude", {
+				action: "conclude",
+				id: done.id,
+			}),
+		).toEqual({
+			ok: true,
+			message: "Nothing to conclude; every target is already concluded.",
+			details: { changes: [], dryRun: false },
+		});
 	});
 
 	it("counts the quests it put back, not the fields", () => {

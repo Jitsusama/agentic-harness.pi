@@ -31,11 +31,9 @@ import {
 } from "../../../../terminal/types.ts";
 import { locateBinary } from "../binaries.ts";
 import { runCli, TERMINAL_CLI_TIMEOUT_MS } from "../cli.ts";
-import {
-	PROMPT_WAIT_MS,
-	untilPromptShown,
-	wrapCommandWithEnv,
-} from "./shared.ts";
+import { type CliDriverOptions, cliDriverSettings } from "./options.ts";
+import { localScopes } from "./probe.ts";
+import { untilPromptShown, wrapCommandWithEnv } from "./shared.ts";
 
 /** The handle kind wezterm's panes are recorded under. */
 export const WEZTERM_HANDLE_KIND = "wezterm-pane";
@@ -185,15 +183,9 @@ function guiSockets(dir: string): Set<string> {
 }
 
 /** What a wezterm driver can be built with. */
-export interface WeztermDriverOptions {
-	/** How long one cli call may take. Defaults to WEZTERM_CLI_TIMEOUT_MS. */
-	readonly cliTimeoutMs?: number;
+export interface WeztermDriverOptions extends CliDriverOptions {
 	/** How long a launched wezterm may take to answer on its socket. */
 	readonly launchTimeoutMs?: number;
-	/** How long typing waits for a new shell's prompt. */
-	readonly promptWaitMs?: number;
-	/** Where the session's environment is read from. */
-	readonly env?: () => Readonly<Record<string, string | undefined>>;
 }
 
 /** A wezterm driver whose cli calls end at the given clock. */
@@ -203,10 +195,11 @@ export function createWeztermDriver(
 	TerminalLivenessCapability &
 	TerminalTypeCapability &
 	TerminalLaunchCapability {
-	const timeout = options.cliTimeoutMs ?? WEZTERM_CLI_TIMEOUT_MS;
+	const { timeout, promptWait, env } = cliDriverSettings(
+		options,
+		WEZTERM_CLI_TIMEOUT_MS,
+	);
 	const launchTimeout = options.launchTimeoutMs ?? WEZTERM_LAUNCH_TIMEOUT_MS;
-	const promptWait = options.promptWaitMs ?? PROMPT_WAIT_MS;
-	const env = options.env ?? (() => process.env);
 	const binary = (): string => locateBinary("wezterm", "wezterm") ?? "wezterm";
 	const cli = (
 		scope: string | undefined,
@@ -377,16 +370,11 @@ export function createWeztermDriver(
 			return sight(env())?.handle;
 		},
 		async probe(handles, signal) {
-			const scopes = new Set<string>();
-			for (const handle of handles) {
-				if (handle.scope && handle.hostId === hostname())
-					scopes.add(handle.scope);
-			}
 			const out = new Map<string, TerminalProbe>();
 			for (const handle of handles)
 				out.set(terminalHandleKey(handle), "unknown");
 			await Promise.all(
-				[...scopes].map(async (scope) => {
+				[...localScopes(handles)].map(async (scope) => {
 					const observation = await observe(scope, signal);
 					const mine = handles.filter((handle) => handle.scope === scope);
 					for (const [key, probe] of classifyWeztermPanes(mine, observation)) {
