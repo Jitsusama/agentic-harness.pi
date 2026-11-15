@@ -16,6 +16,12 @@
  * did at 05:53. It still leaves its note, and is offered, and opened from
  * its file in plain pi it answers.
  *
+ * E31, an untrusted folder: a conversation the background host ran in a
+ * folder nobody trusted, which it left untrusted with nobody there to
+ * ask. Opened from its file in plain pi after the release, it starts and
+ * answers rather than waiting at pi's trust prompt, as 2FC18ED8 and
+ * QQ1UAK waited 11 minutes, and pi saves no decision for the folder.
+ *
  * Runs on the host's pi, as support/host-pi.ts finds it, skipped saying
  * why without one.
  */
@@ -126,6 +132,19 @@ function trustHome(): void {
 		join(sealed.home, ".pi", "agent", "trust.json"),
 		JSON.stringify({ [realpathSync(sealed.home)]: true }),
 	);
+}
+
+/** The folders pi's trust store holds a decision for. */
+function savedTrust(): Record<string, unknown> {
+	try {
+		const value: unknown = JSON.parse(
+			readFileSync(join(sealed.home, ".pi", "agent", "trust.json"), "utf8"),
+		);
+		return isRecord(value) ? value : {};
+	} catch {
+		// No store yet: no decision saved.
+		return {};
+	}
 }
 
 /**
@@ -392,4 +411,56 @@ it(
 	},
 	// One host, a 20-second run, a reload, a release, one plain pi, three round trips.
 	ROUND_TRIP_MS * 5,
+);
+
+it(
+	"E31: a folder its host left untrusted stays so in plain pi, which never asks",
+	async ({ skip }) => {
+		await onHostPi(skip, said, async (pi) => {
+			const host = await startHost({
+				seal: sealed,
+				engine: PI_ENGINE,
+				kind: "background",
+				env: { PI_HOST_PACKAGE_DIR: pi },
+			});
+			hosts.push(host);
+			// Settings of its own, which pi loads only in a folder it trusts.
+			const folder = join(realpathSync(sealed.home), "untrusted");
+			mkdirSync(join(folder, ".pi"), { recursive: true });
+			writeFileSync(join(folder, ".pi", "settings.json"), "{}\n");
+			const one = await host.open(folder, { model: SCRIPTED });
+			const address = signature(one.sessionId);
+			await answers(one.file ?? "", address, `${address} answers hosted`);
+
+			const released = await release([one.sessionId], { offer: true });
+			expect(released.code, released.out).toBe(0);
+			expect(await host.list(), "the host ends empty").toEqual([]);
+
+			const plain = await startTerminalPi({
+				seal: sealed,
+				packageDir: pi,
+				file: one.file ?? "",
+				cwd: folder,
+			});
+			plains.push(plain);
+			await untilAnswered(
+				`${one.sessionId} runs in its one plain pi, never asking`,
+				async () => {
+					const now = presences().of(one.sessionId);
+					return now?.owner?.pid === plain.pid && !now?.hosted;
+				},
+			);
+			await answers(
+				one.file ?? "",
+				address,
+				`${one.sessionId} answers in plain pi`,
+			);
+			expect(
+				savedTrust(),
+				"no decision is saved for the folder",
+			).not.toHaveProperty([folder]);
+		});
+	},
+	// One host, one open, a release, one plain pi, two round trips.
+	ROUND_TRIP_MS * 4,
 );

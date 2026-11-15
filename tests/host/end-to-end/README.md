@@ -234,7 +234,10 @@ while hosted, as a given-back worktree goes, is only offered, with the
 other alone, and plain pi opened on it there answers. E30, in the same
 file, releases a conversation mid-run while its install moves, so the
 run's end both lets the move go and reloads it: it still leaves its
-note, is offered, and answers in plain pi.
+note, is offered, and answers in plain pi. E31 releases a conversation
+the background host ran in a folder nobody trusted: opened in plain pi,
+it starts and answers without pi's trust prompt, and pi saves no
+decision for the folder.
 
 early-attach.test.ts attaches a viewer to a conversation the screen
 host lists but hasn't yet given a screen, its folder's own extension
