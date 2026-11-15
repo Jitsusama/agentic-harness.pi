@@ -40,7 +40,7 @@ export const DELTA_ROUTE =
 
 /** Git's words for a Delta credential it couldn't get. */
 const NO_DELTA =
-	/unable to obtain a Delta credential|credential-cache: unable to connect to cache daemon/;
+	/unable to obtain a Delta credential|unable to connect to cache daemon/;
 
 /** Git's words for a signature it couldn't make. */
 const UNSIGNED =
@@ -54,7 +54,7 @@ const UNHELD =
 	/'[^']*\/(\.git|git\/worktrees)\/(?![^']*packed-refs)[^']*': Read-only file system/;
 
 /** One block of a tool's output, as pi hands it to `tool_result`. */
-type Block = { readonly type: string; readonly text?: string };
+export type Block = { readonly type: string; readonly text?: string };
 
 /**
  * `content` with the route added after the block where git said it
@@ -105,7 +105,7 @@ export function routedDelta<T extends Block>(
 }
 
 /** `content` with `route` after the first block `said` matches, or undefined. */
-function routed<T extends Block>(
+export function routed<T extends Block>(
 	content: readonly T[],
 	said: RegExp,
 	route: string,

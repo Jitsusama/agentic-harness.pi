@@ -122,6 +122,7 @@ describe("a fenced command git couldn't reach World's Delta with", () => {
 		for (const said of [
 			"dev: unable to obtain a Delta credential from Mint or gcloud\nfatal: could not read Username for 'https://delta.shopify.io': terminal prompts disabled",
 			"git credential-cache: unable to connect to cache daemon: Permission denied",
+			"fatal: unable to connect to cache daemon: Permission denied",
 		]) {
 			record.mockClear();
 			expect(routedDelta(text(said), record), said).toEqual(

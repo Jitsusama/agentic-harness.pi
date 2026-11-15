@@ -36,7 +36,9 @@ export const FENCE_LOG_TAG = "pi-fence";
  * often agents meet it (`fence-git-route.ts`); `unheld-tree` is git
  * refused a tree's own git folder, in a tree the session doesn't hold;
  * `signing` is git that couldn't sign, the signing agent being outside;
- * `delta` is git that couldn't get World's Delta credential.
+ * `delta` is git that couldn't get World's Delta credential; `keep` is
+ * a build whose pass couldn't be kept, and `read-only` a write outside
+ * what the session holds (`fence-route.ts`).
  */
 export type RefusedKind =
 	| "path"
@@ -45,7 +47,9 @@ export type RefusedKind =
 	| "packed-refs"
 	| "unheld-tree"
 	| "signing"
-	| "delta";
+	| "delta"
+	| "keep"
+	| "read-only";
 
 /** One refusal, as the log holds it. */
 export interface Refusal {
