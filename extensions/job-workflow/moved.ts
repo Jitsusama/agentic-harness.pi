@@ -22,6 +22,12 @@
  * call whose shell is gone with no exit status is said as lost, with its
  * last lines; it is never dropped or run again.
  *
+ * A call taken up whose end was never said, its mark still standing and
+ * its shell gone, is taken up again on the session's next return, which
+ * says it at the first look: on 14 November a reboot eleven minutes
+ * after a host restart killed the host that had taken up 0G4FXL's j83
+ * to j88, and four were never said (OSPHT4 [7a4f0901]).
+ *
  * A host's own restart carries the same way: the host says it on the
  * conversation's bus before it stops it (cut-off.ts hears it), and the
  * next host resumes the conversation at `startup`. What went is said on
@@ -37,12 +43,13 @@ import {
 	readMoveNote,
 } from "../../lib/internal/session/move.ts";
 import {
+	alive,
 	type CarriedShell,
 	isCarriedShell,
 	stopCarried,
 	watchCarried,
 } from "../../lib/internal/shell/carried.ts";
-import { removeKept } from "../../lib/internal/shell/kept.ts";
+import { isMarkedCarried, removeKept } from "../../lib/internal/shell/kept.ts";
 import {
 	finishedSummary,
 	keepInTemp,
@@ -133,6 +140,28 @@ export function carryAway(
 	return carried;
 }
 
+/**
+ * Write the results a closing session hadn't said yet, as a carry with
+ * no jobs, so the next start of the conversation says them; whether a
+ * record was written. A close used to drop them, and a call taken up
+ * then had nothing left to say how it ended (15 November).
+ */
+export function keepUnsaid(
+	outbox: Pick<Outbox, "waiting">,
+	append: (type: string, data: Carried) => void,
+	now: number,
+): boolean {
+	const results = outbox.waiting();
+	if (results.length === 0) return false;
+	try {
+		append(CARRIED_ENTRY, { at: now, jobs: [], results });
+	} catch {
+		// A log that can't be written can't keep them: lost as before.
+		return false;
+	}
+	return true;
+}
+
 /** Say on `bus` the jobs `session` carried away, once their record is written. */
 export function sayCarried(
 	bus: { emit(channel: string, data: unknown): void },
@@ -214,6 +243,44 @@ export function carriedIn(branch: readonly unknown[]): Carried | undefined {
 		return data;
 	}
 	return undefined;
+}
+
+/** Whether a carried call was left unsaid: its mark stands and its shell is gone. */
+function leftUnsaid(work: CarriedShell): boolean {
+	return isMarkedCarried(work.keep) && !alive(work.pid, work.mark);
+}
+
+/**
+ * The carried calls this session took up whose end was never said, as
+ * `gone` reads them, each once, under the newest move that carried it;
+ * or nothing, when none was left. Their results were said as they were
+ * taken up, so none come with them.
+ */
+export function strandedIn(
+	branch: readonly unknown[],
+	gone: (work: CarriedShell) => boolean = leftUnsaid,
+): Carried | undefined {
+	const taken = new Set<unknown>();
+	const seen = new Set<string>();
+	const jobs: CarriedJob[] = [];
+	let at: number | undefined;
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i];
+		if (isEntry(entry, TAKEN_ENTRY))
+			taken.add(field(field(entry, "data"), "at"));
+		if (!isEntry(entry, CARRIED_ENTRY)) continue;
+		const data = field(entry, "data");
+		if (!isCarried(data)) continue;
+		for (const job of data.jobs) {
+			if (!isCarriedShell(job.work) || seen.has(job.work.keep)) continue;
+			seen.add(job.work.keep);
+			// A move not yet taken up is carriedIn's, its calls with it.
+			if (!taken.has(data.at) || !gone(job.work)) continue;
+			jobs.push(job);
+			at ??= data.at;
+		}
+	}
+	return at === undefined ? undefined : { at, jobs, results: [] };
 }
 
 /** What taking the carried jobs up needs from the session taking them. */

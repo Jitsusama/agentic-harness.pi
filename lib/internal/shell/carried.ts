@@ -106,7 +106,7 @@ export function carriesMark(
 }
 
 /** Whether the call's shell is there, as the call it was. */
-function alive(pid: number, mark: string): boolean {
+export function alive(pid: number, mark: string): boolean {
 	return there(pid) && carriesMark(pid, mark);
 }
 

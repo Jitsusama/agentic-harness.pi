@@ -233,6 +233,10 @@ names each, with the results not yet said. The host starts the
 conversation as `startup`, takes each job up under its own id, says
 the waiting results, and leaves a `job-carried-taken` entry so a later
 start doesn't take them again. A job taken up can be carried again.
+A session that ends any other way, with results it hadn't said yet,
+writes them to its log the same way, with no jobs, so the next start
+says them: a call a pi took up and found ended was otherwise dropped
+when a reopen replaced that pi a minute later.
 
 - **Carried:** bash calls pi started itself, which keep their output,
   status and pid on disk (see

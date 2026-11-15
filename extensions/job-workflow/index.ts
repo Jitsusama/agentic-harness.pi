@@ -11,7 +11,8 @@
  * and a rollover to the fresh session carrying the conversation on. A
  * move to a host hands it the jobs that can be carried, still running,
  * through the session's log (moved.ts); any other end of the session
- * stops them. A line the person types during a run is said on the bus
+ * stops them, and writes the results it hadn't said there for its next
+ * start to say. A line the person types during a run is said on the bus
  * for calls that can move, and pi's working line says what it waits on
  * (typed-line.ts).
  */
@@ -49,9 +50,12 @@ import { type JobSession, openSession } from "./lifecycle.ts";
 import {
 	carriedIn,
 	carryAway,
+	keepUnsaid,
 	movingOn,
 	sayCarried,
 	sayTakenUp,
+	strandedIn,
+	type TakingUp,
 	takeUp,
 } from "./moved.ts";
 import { jobIdsIn } from "./outbox.ts";
@@ -234,9 +238,9 @@ function carryIfMoving(
 	pi: ExtensionAPI,
 	session: JobSession,
 	ctx: ExtensionContext,
-): void {
-	if (!movingOn(sessionIdOf(ctx))) return;
-	carry(pi, session, ctx);
+): boolean {
+	if (!movingOn(sessionIdOf(ctx))) return false;
+	return carry(pi, session, ctx);
 }
 
 /**
@@ -247,18 +251,23 @@ function carry(
 	pi: ExtensionAPI,
 	session: JobSession,
 	ctx: ExtensionContext,
-): void {
+): boolean {
 	const carried = carryAway(
 		session.jobs,
 		session.outbox,
 		(type, data) => pi.appendEntry(type, data),
 		Date.now(),
 	);
-	if (carried === undefined || carried.jobs.length === 0) return;
-	sayCarried(pi.events, sessionKeyOf(ctx), carried.jobs);
+	if (carried === undefined) return false;
+	if (carried.jobs.length > 0)
+		sayCarried(pi.events, sessionKeyOf(ctx), carried.jobs);
+	return true;
 }
 
-/** Take up the jobs a move carried into this session, if any wait. */
+/**
+ * Take up the jobs a move carried into this session, if any wait, and
+ * those an earlier take-up left unsaid, which a first look says.
+ */
 function takeUpIfCarried(
 	pi: ExtensionAPI,
 	session: JobSession,
@@ -271,16 +280,18 @@ function takeUpIfCarried(
 		// No history to read: nothing was carried into it.
 		return;
 	}
-	const carried = carriedIn(branch);
-	if (carried === undefined) return;
-	takeUp(carried, {
+	const into: TakingUp = {
 		jobs: session.jobs,
 		outbox: session.outbox,
 		session: sessionKeyOf(ctx),
 		append: (type, data) => pi.appendEntry(type, data),
 		offer: (work) => offerCarried(pi.events, work),
 		taken: (job) => sayTakenUp(pi.events, job),
-	});
+	};
+	const stranded = strandedIn(branch);
+	if (stranded) takeUp(stranded, into);
+	const carried = carriedIn(branch);
+	if (carried) takeUp(carried, into);
 }
 
 /** The session's key for its crash writer, or one for the process when it can't say. */
@@ -379,6 +390,8 @@ export default function jobWorkflow(
 	pi.on("session_shutdown", async (event, ctx) => {
 		// A quit with no signal is the session's own end, which a move is.
 		let ownQuit = false;
+		// Whether a carry wrote the results not yet said, with its jobs.
+		let carried = false;
 		if (event.reason === "quit") {
 			// pi's own signal listener starts the shutdown before the rest
 			// are called, so the signal is heard only once this yields. pi
@@ -387,7 +400,8 @@ export default function jobWorkflow(
 			if (signals?.signalled()) {
 				// Its host's own restart resumes it in the next host, so what
 				// can go there goes, and only the rest is recorded cut off.
-				if (session && signals.restarting?.()) carry(pi, session, ctx);
+				if (session && signals.restarting?.())
+					carried = carry(pi, session, ctx);
 				recordCutOff(pi, session, ctx);
 			} else ownQuit = true;
 		}
@@ -407,7 +421,14 @@ export default function jobWorkflow(
 		else if (successor) session?.park(undefined, successor);
 		else {
 			// A signalled pi kills what it started, so only its own quit carries.
-			if (ownQuit && session) carryIfMoving(pi, session, ctx);
+			if (ownQuit && session) carried = carryIfMoving(pi, session, ctx);
+			// What it hadn't said is said by the next start, never dropped.
+			if (session && !carried)
+				keepUnsaid(
+					session.outbox,
+					(type, data) => pi.appendEntry(type, data),
+					Date.now(),
+				);
 			session?.close();
 		}
 		session = undefined;
