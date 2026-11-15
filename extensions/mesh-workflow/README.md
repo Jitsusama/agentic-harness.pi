@@ -164,8 +164,13 @@ and can answer a question or a gate left open on screen.
   question too. A send is never
   refused for how it was written: an id nobody has, another
   peer's message to replace, or what cannot be a group is left
-  out and said. The one send refused is to the home of a peer
-  that stopped this one (see Stop).
+  out and said. Two sends are refused: one to the home of a
+  peer that stopped this one (see Stop), and a question to the
+  orchestrator that asks for the person's hands (a touch, a
+  paste, a sign-in, a sitting) without a line "his acts: N;
+  the fewest: M", with a reason when N is more
+  ([`joels-hands.ts`](joels-hands.ts)). One sitting on 14
+  November spread a paste over four approvals, uncounted.
 - `mesh_read`: the latest messages this peer hears, and what
   it sent, for catching up after a reload or a compaction, or
   for reading a glance in full. Under each message it sent, it
