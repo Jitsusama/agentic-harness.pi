@@ -29,6 +29,8 @@ const watching = vi.hoisted(() => ({
 }));
 // The folders listed, while a test keeps a list of them.
 const listing = vi.hoisted(() => ({ dirs: undefined as string[] | undefined }));
+// The files read, while a test keeps a list of them.
+const reading = vi.hoisted(() => ({ files: undefined as string[] | undefined }));
 vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof import("node:fs")>();
 	return {
@@ -37,6 +39,10 @@ vi.mock("node:fs", async (importOriginal) => {
 			listing.dirs?.push(String(args[0]));
 			return fs.readdirSync(...args);
 		}) as typeof fs.readdirSync,
+		readFileSync: ((...args: Parameters<typeof fs.readFileSync>) => {
+			reading.files?.push(String(args[0]));
+			return fs.readFileSync(...args);
+		}) as typeof fs.readFileSync,
 		watch: ((...args: Parameters<typeof fs.watch>) => {
 			watching.armed?.();
 			return watching.deaf ? { close() {} } : fs.watch(...args);
@@ -48,6 +54,7 @@ beforeEach(() => {
 	watching.deaf = false;
 	watching.armed = undefined;
 	listing.dirs = undefined;
+	reading.files = undefined;
 });
 
 describe("a session switched out", () => {
@@ -305,7 +312,7 @@ describe("a message never lost", () => {
 
 describe("an old copy written back", () => {
 	/** Write a message stamped long before this peer last read, as a link to another machine writes one back. */
-	const writtenBack = (text: string) => {
+	const writtenBack = (text: string): string => {
 		const dir = join(fixture.paths.mesh, "messages");
 		const sent = Date.now() - 7 * 24 * 60 * 60 * 1000;
 		const id = `${sent}-WCJQSG-7-cccccccc`;
@@ -323,7 +330,41 @@ describe("an old copy written back", () => {
 				pid: 7,
 			}),
 		);
+		return id;
 	};
+
+	it("is passed by unread, as it lands or when looked for again", async () => {
+		// A week written back at once, about 48,000 files on 14 November,
+		// would have every session read and parse each in one burst.
+		const { sent, fire } = await startSession(
+			{},
+			{ isIdle: () => true },
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+		reading.files = [];
+
+		const old = writtenBack("7M6JKG: still on your bug from last week?");
+		// A real pause of several looks again, any of which could read the old copy.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		await fire("agent_end");
+		const news = fromElsewhere({ to: ["@7M6JKG"], text: "news from now" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		const read = reading.files;
+		reading.files = undefined;
+		expect(
+			read.filter((file) => file.endsWith(`${news.id}.json`)),
+			"the message from now, read as it was handed over",
+		).not.toEqual([]);
+		expect(
+			read.filter((file) => file.endsWith(`${old}.json`)),
+			"a copy from a day before the catch-up began",
+		).toEqual([]);
+	});
 
 	it("is never handed over, as it lands or when looked for again", async () => {
 		// Seen live on 14 November: a move to another machine wrote a week

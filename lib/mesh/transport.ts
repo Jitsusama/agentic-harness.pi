@@ -157,8 +157,11 @@ function isDay(name: string): boolean {
 	return /^\d{4}-\d{2}-\d{2}$/.test(name);
 }
 
-/** The folder of the day an id was stamped on, in UTC. */
-function dayOf(id: string): string | undefined {
+/**
+ * The folder of the day an id was stamped on, in UTC, or nothing for an
+ * id with no time. Ids from a day before another's sort before its day.
+ */
+export function dayOf(id: string): string | undefined {
 	const at = stampedAt(id);
 	return at === undefined ? undefined : new Date(at).toISOString().slice(0, 10);
 }

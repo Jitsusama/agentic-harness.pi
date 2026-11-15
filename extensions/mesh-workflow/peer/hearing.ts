@@ -43,6 +43,7 @@ import {
 	type Self,
 	sentBy,
 } from "../../../lib/mesh/thread.ts";
+import { dayOf } from "../../../lib/mesh/transport.ts";
 import { NOTED } from "../delivery.ts";
 import type { Handing } from "./handing.ts";
 import {
@@ -61,6 +62,13 @@ import {
  * network having gone, which must not leave a message undelivered.
  */
 const JUDGE_MS = 2500;
+
+/** Whether an id was stamped on a day before another's, both in time. */
+function dayBefore(id: string, other: string): boolean {
+	const day = dayOf(id);
+	const otherDay = dayOf(other);
+	return day !== undefined && otherDay !== undefined && day < otherDay;
+}
 
 /** How this peer hears and routes what reaches it. */
 export function createHearing(m: MeshState, f: Handing) {
@@ -344,6 +352,13 @@ export function createHearing(m: MeshState, f: Handing) {
 	const take = (id: string): Message | undefined => {
 		if (m.seen.has(id) || !m.peer) return undefined;
 		m.seen.add(id);
+		// From a day before the catch-up's, so only an old copy written back
+		// at the top: passed by unread, as the catch-up passes its day. A
+		// week written back, about 48,000 files on 14 November, would have
+		// every session read and parse each in one burst.
+		if (m.caughtUpFrom !== undefined && dayBefore(id, m.caughtUpFrom)) {
+			return undefined;
+		}
 		const message = m.transport.read(id);
 		// A file caught half written reads as nothing: the next look takes
 		// it again rather than counting it seen and losing it for good.
