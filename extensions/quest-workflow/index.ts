@@ -699,7 +699,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 
 	// The start's every discovery after its first reads that walk, plus
 	// its own writes (withDiscoveryHeld), rather than signing the tree again.
-	pi.on("session_start", async (_event, ctx) =>
+	pi.on("session_start", async (event, ctx) =>
 		withDiscoveryHeld(() => {
 			if (stayedBecause && ctx.hasUI) ctx.ui.notify(stayedBecause, "warning");
 			stayedBecause = undefined;
@@ -804,7 +804,10 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 					},
 					() => releaseSessionOnShutdown(state, sid),
 				);
-				settleMoveNote(sid, hosted() !== undefined);
+				settleMoveNote(sid, {
+					hosted: hosted() !== undefined,
+					reason: event.reason,
+				});
 				// Off the start path: the launcher's list of what the last boot's
 				// end took away, now without this session if it was one of them.
 				setImmediate(() => refreshRestoreFile(state.questsRoot)).unref();

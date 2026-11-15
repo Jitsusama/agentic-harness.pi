@@ -830,15 +830,25 @@ export function carriedHome(questsRoot: string): RestoreEntry[] {
  * release's note, which would have the launcher open it again beside
  * the host. A note for a host stays, for the cutover to take once it
  * sees the session held there.
+ *
+ * A reload settles nothing: it is the same process going on, already
+ * settled at its own start, and any note there now is its own move's,
+ * left as it ends. Taken away, nothing offers that session back: on 15
+ * November a move left XUBK2E's note as its run ended, the reload onto
+ * a moved install started in the same moment, and the release lost it.
  */
 export function settleMoveNote(
 	sessionId: string,
-	hosted: boolean,
+	start: { readonly hosted: boolean; readonly reason: StartReason },
 	folder: string = moveFolder(),
 ): void {
-	if (!hosted || readMoveNote(sessionId, folder)?.to === "pi")
+	if (start.reason === "reload") return;
+	if (!start.hosted || readMoveNote(sessionId, folder)?.to === "pi")
 		removeMoveNote(sessionId, folder);
 }
+
+/** Why a session started, as pi's `session_start` says. */
+type StartReason = "startup" | "reload" | "new" | "resume" | "fork";
 
 /**
  * The sessions their hosts let go to plain pi, from the notes their
