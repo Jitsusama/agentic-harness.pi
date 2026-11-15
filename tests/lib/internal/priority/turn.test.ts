@@ -32,6 +32,9 @@ import {
 	waitsForTurn,
 } from "../../../../lib/internal/priority/turn.ts";
 
+/** A job as the queue writes it down. */
+type Job = Parameters<typeof outcomeOf>[0];
+
 const ROOMY: Reading = {
 	availableGib: 40,
 	memoryPressure: 0,
@@ -90,6 +93,58 @@ const jobIds = () =>
 		.filter((name) => name.endsWith(".job"))
 		.map((name) => name.slice(0, -4));
 
+/** Every job asked for, as it was written down. */
+const jobsAsked = () =>
+	jobIds().map((id) =>
+		JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")),
+	);
+
+/**
+ * Keep a run of this session's from before, taking `tookMs` and ending
+ * with `exit`, where the queue reads how its work last went. What was
+ * `seen` of it, when given, is written over what the run says.
+ */
+async function ranBefore(
+	job: Pick<Job, "kind" | "what"> & Partial<Job>,
+	tookMs: number,
+	exit = 0,
+	seen: Partial<ReturnType<typeof outcomeOf>> = {},
+): Promise<void> {
+	const ran = new Date().toISOString();
+	await keepOutcome(join(root, "outcomes.jsonl"), {
+		...outcomeOf(
+			{
+				id: "before",
+				owner: { session: "session-a", pid: 1 },
+				since: ran,
+				started: ran,
+				...job,
+			},
+			Date.parse(ran) + tookMs,
+			exit,
+		),
+		...seen,
+	});
+}
+
+/** Queue this session's heavy work, reading the runs kept before it. */
+function queueingAfterRuns(
+	more: Partial<Parameters<typeof queueHeavyWork>[0]> = {},
+): void {
+	undo = queueHeavyWork({
+		folder: queueFolder(
+			dir,
+			{ isRunning: () => true, cgroupOf: () => undefined },
+			undefined,
+			join(root, "outcomes.jsonl"),
+		),
+		session: "session-a",
+		room: () => ROOMY,
+		cgroupFor: () => undefined,
+		...more,
+	});
+}
+
 describe("heavy work waiting for its turn", () => {
 	it("leaves light work, and all work with no queue kept, as it was", () => {
 		expect(queuedCommand("cargo build")).toBe("cargo build");
@@ -99,38 +154,18 @@ describe("heavy work waiting for its turn", () => {
 	});
 
 	it("asks as a VM check for work whose builds last ran one", async () => {
-		const outcomes = join(root, "outcomes.jsonl");
-		const ran = new Date().toISOString();
-		await keepOutcome(outcomes, {
-			...outcomeOf(
-				{
-					id: "before",
-					kind: "build",
-					what: "nix flake check --keep-going",
-					owner: { session: "session-a", pid: 1 },
-					since: ran,
-					started: ran,
-					ranTimed: true,
-				},
-				Date.now(),
-				0,
-			),
-		});
-		undo = queueHeavyWork({
-			folder: queueFolder(
-				dir,
-				{ isRunning: () => true, cgroupOf: () => undefined },
-				undefined,
-				outcomes,
-			),
-			session: "session-a",
-			room: () => ROOMY,
-			cgroupFor: () => undefined,
-		});
+		await ranBefore(
+			{
+				kind: "build",
+				what: "nix flake check --keep-going",
+				ranTimed: true,
+			},
+			0,
+		);
+		queueingAfterRuns();
 		queuedCommand("nix flake check --keep-going");
 		queuedCommand("nix build .#tool");
-		const kinds = jobIds()
-			.map((id) => JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")))
+		const kinds = jobsAsked()
 			.map((job) => [job.what, job.kind])
 			.sort();
 		expect(kinds).toEqual([
@@ -143,40 +178,20 @@ describe("heavy work waiting for its turn", () => {
 		// A walk's own scope is charged only the pages it read in first, so
 		// what it was seen to hold says little of the packs it maps.
 		const fetch = "git fetch origin someone/branch";
-		const outcomes = join(root, "outcomes.jsonl");
-		const ran = new Date().toISOString();
-		await keepOutcome(outcomes, {
-			...outcomeOf(
-				{
-					id: "before",
-					kind: "world-walk",
-					what: fetch,
-					owner: { session: "session-a", pid: 1 },
-					since: ran,
-					started: ran,
-					ownedPeakBytes: 0.5 * 1024 ** 3,
-				},
-				Date.now() + 300_000,
-				0,
-			),
-		});
-		undo = queueHeavyWork({
-			folder: queueFolder(
-				dir,
-				{ isRunning: () => true, cgroupOf: () => undefined },
-				undefined,
-				outcomes,
-			),
-			session: "session-a",
-			room: () => ROOMY,
-			cgroupFor: () => undefined,
-		});
+		await ranBefore(
+			{
+				kind: "world-walk",
+				what: fetch,
+				ownedPeakBytes: 0.5 * 1024 ** 3,
+			},
+			300_000,
+		);
+		queueingAfterRuns();
 		const world = join(homedir(), "world", "trees", "w-main", "src");
 		expect(queuedCommand(fetch, join(homedir(), "src"))).toBe(fetch);
 		expect(jobIds()).toEqual([]);
 		queuedCommand(fetch, world);
-		const [id] = jobIds();
-		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
+		const [job] = jobsAsked();
 		expect(job).toMatchObject({
 			kind: "world-walk",
 			what: fetch,
@@ -190,40 +205,20 @@ describe("heavy work waiting for its turn", () => {
 	// to 14 s, and each waited 481 to 618 s booked as a 6 GiB walk. With
 	// the LFS scan left out a push reads a few commits, not the packs.
 	it("asks a push of World that leaves out its LFS scan for what it holds, as quick work", async () => {
-		const outcomes = join(root, "outcomes.jsonl");
-		const ran = new Date().toISOString();
-		await keepOutcome(outcomes, {
-			...outcomeOf(
-				{
-					id: "before",
-					kind: "world-walk",
-					what: "git push origin seen",
-					owner: { session: "session-a", pid: 1 },
-					since: ran,
-					started: ran,
-					ownedPeakBytes: 1.5 * 1024 ** 3,
-				},
-				Date.now() + 7_000,
-				0,
-			),
-		});
-		undo = queueHeavyWork({
-			folder: queueFolder(
-				dir,
-				{ isRunning: () => true, cgroupOf: () => undefined },
-				undefined,
-				outcomes,
-			),
-			session: "session-a",
-			room: () => ROOMY,
-			cgroupFor: () => undefined,
-		});
+		await ranBefore(
+			{
+				kind: "world-walk",
+				what: "git push origin seen",
+				ownedPeakBytes: 1.5 * 1024 ** 3,
+			},
+			7_000,
+		);
+		queueingAfterRuns();
 		const world = join(homedir(), "world", "trees", "w-main", "src");
 		queuedCommand("git push origin seen", world);
 		queuedCommand("git push origin new", world);
 
-		const booked = jobIds()
-			.map((id) => JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")))
+		const booked = jobsAsked()
 			.map((job) => [job.what, job.needsGib, job.quick, job.walk])
 			.sort();
 		expect(booked).toEqual([
@@ -238,38 +233,19 @@ describe("heavy work waiting for its turn", () => {
 		// killed at 8.5 GiB against the 4 it was held to.
 		const tests = "tec run //system/aquifer/converge:evalTests";
 		const chain = `cargo test && ${tests}`;
-		const outcomes = join(root, "outcomes.jsonl");
-		const ran = new Date().toISOString();
-		await keepOutcome(outcomes, {
-			...outcomeOf(
-				{
-					id: "before",
-					kind: "build",
-					what: tests,
-					owner: { session: "session-a", pid: 1 },
-					since: ran,
-					started: ran,
-					ownedPeakBytes: 1024 ** 3,
-				},
-				Date.now() + 300_000,
-				101,
-			),
-		});
-		undo = queueHeavyWork({
-			folder: queueFolder(
-				dir,
-				{ isRunning: () => true, cgroupOf: () => undefined },
-				undefined,
-				outcomes,
-			),
-			session: "session-a",
-			room: () => ROOMY,
-			cgroupFor: () => undefined,
-		});
+		await ranBefore(
+			{
+				kind: "build",
+				what: tests,
+				ownedPeakBytes: 1024 ** 3,
+			},
+			300_000,
+			101,
+		);
+		queueingAfterRuns();
 		queuedCommand(chain);
 		queuedCommand("cargo test");
-		const booked = jobIds()
-			.map((id) => JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")))
+		const booked = jobsAsked()
 			.map((job) => [job.what, job.needsGib])
 			.sort();
 		// Named by its evaluation tests, so its peak isn't charged to every
@@ -288,9 +264,7 @@ describe("heavy work waiting for its turn", () => {
 			world,
 		);
 		const pushing = queuedCommand("git push origin x", world);
-		const jobs = jobIds().map((id) =>
-			JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")),
-		);
+		const jobs = jobsAsked();
 		const fetch = jobs.find((job) => job.what.startsWith("git fetch"));
 		const push = jobs.find((job) => job.what.startsWith("git push"));
 		expect(fetch).toMatchObject({ kind: "world-walk", walk: "main-fetch" });
@@ -346,8 +320,7 @@ describe("heavy work waiting for its turn", () => {
 		queuedCommand(
 			`nix eval --json "git+file:///home/jitsusama/.local/state/pi/agentic-harness.pi/work/trees/worktree-github-Jitsusama-core.nix-main?rev=${rev}#checks.x86_64-linux" --apply 'builtins.mapAttrs (n: v: v.drvPath)' > drvs.json`,
 		);
-		const [id] = jobIds();
-		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
+		const [job] = jobsAsked();
 		expect(job.what).not.toContain("#checks");
 		expect(job.needsGib).toBe(EVERY_CHECK_GIB);
 	});
@@ -355,75 +328,37 @@ describe("heavy work waiting for its turn", () => {
 	it("asks for the memory it held when it last ran, with headroom", async () => {
 		// On 26 October `nix develop -c cargo test` peaked at 10.9 GiB
 		// while held to a build's 4.
-		const outcomes = join(root, "outcomes.jsonl");
-		const ran = new Date().toISOString();
-		await keepOutcome(outcomes, {
-			...outcomeOf(
-				{
-					id: "before",
-					kind: "build",
-					what: 'nix develop "path:$d" -c cargo test > $W/logs/one.log 2>&1',
-					owner: { session: "session-a", pid: 1 },
-					since: ran,
-					started: ran,
-					ownedPeakBytes: 10.9 * 1024 ** 3,
-				},
-				Date.now() + 300_000,
-				0,
-			),
-		});
-		undo = queueHeavyWork({
-			folder: queueFolder(
-				dir,
-				{ isRunning: () => true, cgroupOf: () => undefined },
-				undefined,
-				outcomes,
-			),
-			session: "session-a",
-			room: () => ROOMY,
-			cgroupFor: () => undefined,
-		});
+		await ranBefore(
+			{
+				kind: "build",
+				what: 'nix develop "path:$d" -c cargo test > $W/logs/one.log 2>&1',
+				ownedPeakBytes: 10.9 * 1024 ** 3,
+			},
+			300_000,
+		);
+		queueingAfterRuns();
 		queuedCommand('nix develop "path:$d" -c cargo test > $W/logs/two.log 2>&1');
-		const [id] = jobIds();
-		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
+		const [job] = jobsAsked();
 		expect(job.needsGib).toBe(Math.ceil(10.9 * HEADROOM));
 	});
 
 	it("says how long its work took when it last ran, and nothing for new work", async () => {
 		// The queue reads when a long run's memory is due back from this.
-		const outcomes = join(root, "outcomes.jsonl");
-		const ran = new Date().toISOString();
-		await keepOutcome(outcomes, {
-			...outcomeOf(
-				{
-					id: "before",
-					kind: "vm-check",
-					what: "timeout 9000 direnv exec . changed-checks --build > $T/one.log",
-					owner: { session: "session-a", pid: 1 },
-					since: ran,
-					started: ran,
-				},
-				Date.parse(ran) + 6_402_000,
-				0,
-			),
-		});
-		undo = queueHeavyWork({
-			folder: queueFolder(
-				dir,
-				{ isRunning: () => true, cgroupOf: () => undefined },
-				undefined,
-				outcomes,
-			),
-			session: "session-a",
+		await ranBefore(
+			{
+				kind: "vm-check",
+				what: "timeout 9000 direnv exec . changed-checks --build > $T/one.log",
+			},
+			6_402_000,
+		);
+		queueingAfterRuns({
 			room: () => ({ ...ROOMY, availableGib: 0 }),
-			cgroupFor: () => undefined,
 		});
 		queuedCommand(
 			"timeout 9000 direnv exec . changed-checks --build > $T/two.log",
 		);
 		queuedCommand("cargo test --offline");
-		const asked = jobIds()
-			.map((id) => JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")))
+		const asked = jobsAsked()
 			.map((job) => [job.what, job.lastRanS])
 			.sort();
 		expect(asked).toEqual([
@@ -439,41 +374,27 @@ describe("heavy work waiting for its turn", () => {
 		queuedCommand(
 			'cd $T && rev=$(git rev-parse HEAD); out=$(nix build --no-link --print-out-paths "git+file://$PWD?rev=$rev#checks.x86_64-linux.changed-checks-names-what-moved") && s=$(date +%s) && NIX_CONFIG="max-jobs = 2" $out/bin/changed-checks --build --no-vm > $TMPDIR/cc-build.out 2> $TMPDIR/cc-build.err; r=$?; exit $r',
 		);
-		const [id] = jobIds();
-		const job = JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8"));
+		const [job] = jobsAsked();
 		expect(job.needsGib).toBe(CHANGED_CHECKS_GIB);
 	});
 
 	it("asks for what sending takes for a changed-checks run that sends itself, whatever runs here held", async () => {
 		const cc = "direnv exec . changed-checks > $TMPDIR/cc.log 2>&1";
-		const ran = new Date().toISOString();
-		await keepOutcome(join(root, "outcomes.jsonl"), {
-			...outcomeOf(
-				{
-					id: "here",
-					kind: "build",
-					what: cc,
-					owner: { session: "session-a", pid: 1 },
-					since: ran,
-					started: ran,
-				},
-				Date.now(),
-				0,
-			),
-			ownedPeakBytes: 13 * 1024 ** 3,
-			ranS: 1_200,
-		});
+		await ranBefore(
+			{
+				id: "here",
+				kind: "build",
+				what: cc,
+			},
+			0,
+			0,
+			{
+				ownedPeakBytes: 13 * 1024 ** 3,
+				ranS: 1_200,
+			},
+		);
 		const asked: [string, string][] = [];
-		undo = queueHeavyWork({
-			folder: queueFolder(
-				dir,
-				{ isRunning: () => true, cgroupOf: () => undefined },
-				undefined,
-				join(root, "outcomes.jsonl"),
-			),
-			session: "session-a",
-			room: () => ROOMY,
-			cgroupFor: () => undefined,
+		queueingAfterRuns({
 			sendsWholeRun: (command, cwd) => {
 				asked.push([command, cwd]);
 				return command.includes("cc.log");
@@ -484,9 +405,7 @@ describe("heavy work waiting for its turn", () => {
 			"direnv exec . changed-checks --here > $TMPDIR/here.log",
 			"/tree",
 		);
-		const jobs = jobIds().map((id) =>
-			JSON.parse(readFileSync(join(dir, `${id}.job`), "utf8")),
-		);
+		const jobs = jobsAsked();
 		const held = new Map(jobs.map((job) => [job.what, job.needsGib]));
 		// The one sent is marked so, which spares it the CPU holds here.
 		expect(new Map(jobs.map((job) => [job.what, job.sent]))).toEqual(
@@ -511,33 +430,20 @@ describe("heavy work waiting for its turn", () => {
 		// 10 November: changed-checks runs held 0.17 GiB at the median and
 		// 0.37 at the 90th percentile, each booked 6 (80ECO2).
 		const cc = "direnv exec . changed-checks > $TMPDIR/sent.log 2>&1";
-		const ran = new Date().toISOString();
-		await keepOutcome(join(root, "outcomes.jsonl"), {
-			...outcomeOf(
-				{
-					id: "sent-before",
-					kind: "build",
-					what: cc,
-					owner: { session: "session-a", pid: 1 },
-					since: ran,
-					started: ran,
-				},
-				Date.now(),
-				0,
-			),
-			ownedPeakBytes: 0.2 * 1024 ** 3,
-			ranS: 300,
-		});
-		undo = queueHeavyWork({
-			folder: queueFolder(
-				dir,
-				{ isRunning: () => true, cgroupOf: () => undefined },
-				undefined,
-				join(root, "outcomes.jsonl"),
-			),
-			session: "session-a",
-			room: () => ROOMY,
-			cgroupFor: () => undefined,
+		await ranBefore(
+			{
+				id: "sent-before",
+				kind: "build",
+				what: cc,
+			},
+			0,
+			0,
+			{
+				ownedPeakBytes: 0.2 * 1024 ** 3,
+				ranS: 300,
+			},
+		);
+		queueingAfterRuns({
 			sendsWholeRun: () => true,
 		});
 		queuedCommand(cc, "/tree");
