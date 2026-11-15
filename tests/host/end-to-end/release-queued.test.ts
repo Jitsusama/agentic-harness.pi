@@ -29,9 +29,15 @@ import {
 	repliesIn,
 	steerInbox,
 	textOf,
+	toolAnswer,
 	untilAnswered,
 } from "./support/hosted-case.ts";
-import { SCRIPTED, WAIT_A_WHILE, WAITING } from "./support/scripted-model.ts";
+import {
+	SCRIPTED,
+	WAIT_A_WHILE,
+	WAITED,
+	WAITING,
+} from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 import { startTerminalPi, type TerminalPi } from "./support/terminal-pi.ts";
 
@@ -204,7 +210,7 @@ it(
 				throw new Error(`${String(error)}\nb: ${textOf(peer.file)}`);
 			});
 			expect(
-				textOf(file).includes("waited-out"),
+				toolAnswer(file, "bash")?.includes(WAITED) ?? false,
 				"the release starts while the run is under way",
 			).toBe(false);
 
