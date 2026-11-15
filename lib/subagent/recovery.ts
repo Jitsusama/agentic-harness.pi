@@ -6,6 +6,7 @@ import {
 } from "../internal/process-ticks.ts";
 import type {
 	ReviewerArtifactsStore,
+	ReviewerRunPaths,
 	ReviewerTerminalState,
 } from "./artifacts.ts";
 import type { LeaseRecord, ProcessFacts } from "./lease.ts";
@@ -96,19 +97,57 @@ interface ProgressFile {
 	readonly updatedAt?: string;
 }
 
+/**
+ * How the walk shares the thread with whatever else wants it.
+ *
+ * Injected so a test can stand a slow walk up without one: the default
+ * reads the real clock and waits a turn of the loop.
+ */
+export interface Pace {
+	/** Milliseconds on a clock that only goes forward. */
+	now(): number;
+	/** Give the thread back, so what waits on it runs before the walk goes on. */
+	giveBack(): Promise<void>;
+}
+
+/**
+ * How long the walk may keep the thread before giving it back.
+ *
+ * A reviewer costs about two milliseconds of the thread, building its
+ * paths and reading its files: 1.3 s over 737 reviewers on a wake on
+ * 15 November, taking 108 to 283 ms of each second while sessions
+ * were starting beside it. Twenty keeps any one stretch
+ * well under the 50 ms a key typed meanwhile can wait unnoticed.
+ */
+const WALK_SLICE_MS = 20;
+
+/** The real clock, and a turn of the loop. */
+const systemPace: Pace = {
+	now: () => performance.now(),
+	giveBack: () => new Promise((resolve) => setImmediate(resolve)),
+};
+
 /** Recover durable supervised reviewer state after extension activation or reload. */
 export async function recoverReviewerRuns(
 	store: ReviewerArtifactsStore,
 	reaper: ReaperDeps = systemReaper,
+	pace: Pace = systemPace,
 ): Promise<RecoverySummary> {
 	const completed: RecoveredReviewerResult[] = [];
 	const active: RecoveredReviewerProgress[] = [];
 	const stale: RecoveredReviewerProgress[] = [];
 	const reaped: ReapedReviewerChild[] = [];
 	const warnings: string[] = [];
+	let since = pace.now();
 	for (const runId of await listDirs(store.runsDir)) {
 		const reviewersDir = join(store.runsDir, runId, "reviewers");
 		for (const reviewerId of await listDirs(reviewersDir)) {
+			// Between reviewers, never inside one, so a reviewer is always
+			// judged from one reading of its files.
+			if (pace.now() - since >= WALK_SLICE_MS) {
+				await pace.giveBack();
+				since = pace.now();
+			}
 			const paths = store.paths(runId, reviewerId);
 			try {
 				const result = await store.readJson<ResultFile>(paths.resultPath);
@@ -125,7 +164,7 @@ export async function recoverReviewerRuns(
 					});
 					continue;
 				}
-				const progress = await readProgress(store, runId, reviewerId);
+				const progress = await readProgress(store, paths, runId, reviewerId);
 				const lease = await store.readJson<LeaseRecord>(paths.leasePath);
 				// The same reader the collect path uses. Two readings of one
 				// file that disagree is how a supervisor gets filed as
@@ -281,12 +320,16 @@ const systemReaper: ReaperDeps = {
 	},
 };
 
+/**
+ * A reviewer's last progress, from the paths the walk already built:
+ * building them again was a fifth of the walk's time on a wake.
+ */
 async function readProgress(
 	store: ReviewerArtifactsStore,
+	paths: ReviewerRunPaths,
 	runId: string,
 	reviewerId: string,
 ): Promise<RecoveredReviewerProgress> {
-	const paths = store.paths(runId, reviewerId);
 	const progress = await store.readJson<ProgressFile>(paths.progressPath);
 	return {
 		runId,

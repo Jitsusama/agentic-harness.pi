@@ -162,6 +162,14 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 	// resolve against the environment each time they are called and
 	// this runs unawaited, so a lookup after the first await is a
 	// lookup against whatever the environment says by then.
+	//
+	// The look for orphans waits for the session to be ready, which is
+	// once pi has asked for resources: it asks after every handler's
+	// session start has answered, at every start and reload. It is the
+	// machine's look rather than this session's, and on a wake on 15
+	// November it took 1.3 s of the thread in the first 6.5 s, while
+	// this session and its neighbours were still starting.
+	let lookForOrphans: (() => Promise<void>) | undefined;
 	pi.on("session_start", (_event, ctx) => {
 		// Not returned. Nothing about reclaiming disk should delay a
 		// session, and the sibling extension does the same: a handler
@@ -179,20 +187,30 @@ export default function subagentWorkflow(pi: ExtensionAPI) {
 		// conversation's, and its own cut-off fleets are told to it.
 		const session = sessionOf(ctx);
 		const returned = cameBack(ctx);
-		void (async () => {
-			await sweepFleetRuns(runs, fleets, say, {
-				session,
-				cameBack: returned,
-				// With the next turn, whether or not one is running when the
-				// sweep gets here: it is context for the model, not a prompt.
-				tell: (content) =>
-					pi.sendMessage(
-						{ customType: FLEET_CUT_OFF_MESSAGE, content, display: false },
-						{ deliverAs: "nextTurn" },
-					),
-			});
+		const swept = sweepFleetRuns(runs, fleets, say, {
+			session,
+			cameBack: returned,
+			// With the next turn, whether or not one is running when the
+			// sweep gets here: it is context for the model, not a prompt.
+			tell: (content) =>
+				pi.sendMessage(
+					{ customType: FLEET_CUT_OFF_MESSAGE, content, display: false },
+					{ deliverAs: "nextTurn" },
+				),
+		});
+		// After the sweep, still: the two walk one tree.
+		lookForOrphans = async () => {
+			await swept;
 			await stopOrphanedSubagents(runs, say);
-		})();
+		};
+	});
+	pi.on("resources_discover", () => {
+		// Once per start, whatever else asks for resources later.
+		const look = lookForOrphans;
+		lookForOrphans = undefined;
+		// pi draws the session once every handler here has answered, so
+		// the next turn of the loop comes after it.
+		if (look) setImmediate(() => void look());
 	});
 	let runPi: ReturnType<typeof createSupervisorRunPi> | null = null;
 	const getRunPi = () => {

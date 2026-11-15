@@ -151,7 +151,8 @@ export const CAME_BACK: readonly { type: string }[] = [{ type: "message" }];
 /**
  * Start the session the way pi starts one, as this conversation, and
  * hand back what it told the model. Given its entries, the session
- * says what it holds already, as pi's does.
+ * says what it holds already, as pi's does. pi asks for resources once
+ * the start has answered, which is when the look for orphans begins.
  */
 export async function startSession(
 	session?: string,
@@ -166,12 +167,12 @@ export async function startSession(
 		...(session !== undefined ? { getSessionId: () => session } : {}),
 		...(entries !== undefined ? { getEntries: () => [...entries] } : {}),
 	};
-	await started(
-		{ reason: "startup" },
+	const ctx =
 		Object.keys(manager).length === 0
 			? screen
-			: { ...screen, sessionManager: manager },
-	);
+			: { ...screen, sessionManager: manager };
+	await started({ reason: "startup" }, ctx);
+	await stub.lifecycle.get("resources_discover")?.({ reason: "startup" }, ctx);
 	return stub.sent;
 }
 

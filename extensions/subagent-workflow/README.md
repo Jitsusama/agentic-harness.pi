@@ -404,6 +404,14 @@ the look walks every run kept, and a restart or an
 install starts every session at once, each of which
 found what the first had just found.
 
+The look waits until the session is ready, once pi has
+asked for resources after every extension's start, and
+runs after the fleet sweep, since the two walk one tree.
+It gives the thread back every 20 ms as it walks. On a
+wake on 15 November it walked 436 runs and 737
+reviewers in 1.3 s of the thread, inside the first
+6.5 s, while sessions were still starting beside it.
+
 One gap is known and open. A record for a fleet that
 never wrote a transcript is protected like any other and
 is never mentioned, since the count reports what the

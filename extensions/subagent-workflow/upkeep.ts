@@ -1,8 +1,8 @@
 /**
  * What a session start does for the machine's fleets: gives back the
  * disk finished fleets still hold, stops subagents whose supervisor
- * died, and tells a returning conversation of its own fleets that were
- * cut off.
+ * died once the session is ready, and tells a returning conversation
+ * of its own fleets that were cut off.
  *
  * Apart from the tool, since none of it runs a fleet: it changes with
  * what is kept and for how long, not with how a fleet is asked for.
