@@ -169,14 +169,14 @@ const slackThread: RefType = {
 		const results: string[] = [];
 		for (const m of text.matchAll(SLACK_URL_REGEX)) {
 			const query = m[4] ?? "";
-			const threadTsMatch = /thread_ts=([\d.]+)/.exec(query);
-			if (!threadTsMatch) continue;
+			const threadTs = /thread_ts=([\d.]+)/.exec(query)?.[1];
+			if (threadTs === undefined) continue;
 			// Canonical value points at the THREAD PARENT
 			// (whose ts is `thread_ts`), not the reply we
 			// matched. Convert "1778683833.000200" to
 			// "p1778683833000200" to match Slack's URL form
 			// for the parent message.
-			const parentTs = `p${threadTsMatch[1].replace(".", "")}`;
+			const parentTs = `p${threadTs.replace(".", "")}`;
 			results.push(`${m[1]}/${m[2]}/${parentTs}`);
 		}
 		return results;

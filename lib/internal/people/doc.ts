@@ -76,7 +76,7 @@ function parseFrontMatter(lines: string[]): ParsedFrontMatter {
 	for (const line of lines) {
 		const listItem = /^\s+-\s+(.*)$/.exec(line);
 		if (listItem) {
-			const value = listItem[1].trim();
+			const value = (listItem[1] ?? "").trim();
 			if (inNames) result.names.push(value);
 			else if (inHandles) {
 				const handle = parseHandle(value);
@@ -88,7 +88,7 @@ function parseFrontMatter(lines: string[]): ParsedFrontMatter {
 		inHandles = false;
 		const kv = /^(\w+):\s*(.*)$/.exec(line);
 		if (!kv) continue;
-		const [, key, raw] = kv;
+		const [, key, raw = ""] = kv;
 		const value = raw.trim();
 		if (key === "id") result.id = value;
 		else if (key === "names") {
@@ -137,7 +137,7 @@ function parseMetadata(body: string): Record<string, Record<string, unknown>> {
 	for (const line of lines) {
 		const heading = /^##\s+(.+)$/.exec(line);
 		if (heading && !inJsonBlock) {
-			currentNamespace = heading[1].trim();
+			currentNamespace = (heading[1] ?? "").trim();
 			jsonClaimed = false;
 			if (!(currentNamespace in metadata)) metadata[currentNamespace] = {};
 			continue;
@@ -171,7 +171,7 @@ export function parseIdentity(text: string): IdentityDoc | undefined {
 	if (lines[0]?.trim() !== "---") return undefined;
 	let end = -1;
 	for (let i = 1; i < lines.length; i++) {
-		if (lines[i].trim() === "---") {
+		if (lines[i]?.trim() === "---") {
 			end = i;
 			break;
 		}
@@ -277,7 +277,7 @@ function rewriteBodyMetadata(
 	for (const line of lines) {
 		const heading = /^##\s+(.+)$/.exec(line);
 		if (heading && !inJsonBlock) {
-			currentNamespace = heading[1].trim();
+			currentNamespace = (heading[1] ?? "").trim();
 			jsonReplaced = false;
 			seenNamespaces.add(currentNamespace);
 			out.push(line);
@@ -315,7 +315,7 @@ function rewriteBodyMetadata(
 		.filter((ns) => !seenNamespaces.has(ns))
 		.sort();
 	if (missing.length > 0) {
-		if (out.length > 0 && out[out.length - 1].trim() !== "") out.push("");
+		if ((out.at(-1)?.trim() ?? "") !== "") out.push("");
 		for (const ns of missing) {
 			const json = JSON.stringify(metadata[ns], null, 2);
 			out.push(`## ${ns}`);

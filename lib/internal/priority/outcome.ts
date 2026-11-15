@@ -293,6 +293,7 @@ export function kindAfter(
 	const key = workKey(what);
 	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
 		const outcome = outcomes[at];
+		if (outcome === undefined) continue;
 		if (outcome.started === undefined || workKey(outcome.what) !== key) {
 			continue;
 		}
@@ -315,6 +316,7 @@ export function checksRunningVms(outcomes: readonly Outcome[]): Set<string> {
 	const decided = new Map<string, boolean>();
 	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
 		const outcome = outcomes[at];
+		if (outcome === undefined) continue;
 		if (outcome.started === undefined || isCut(outcome.what)) continue;
 		const asked = checksAsked(outcome.what);
 		const [only] = asked;
@@ -407,6 +409,7 @@ export function peakGibAfter(
 	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
 		const outcome = outcomes[at];
 		if (
+			outcome === undefined ||
 			outcome.ownedPeakBytes === undefined ||
 			outcome.ranS === undefined ||
 			outcome.answered
@@ -435,7 +438,7 @@ function isCut(what: string): boolean {
 /** The checks a command names in full, sorted, each once. */
 function checksNamed(what: string): string[] {
 	return [
-		...new Set([...what.matchAll(CHECK_NAMED)].map((match) => match[1])),
+		...new Set([...what.matchAll(CHECK_NAMED)].flatMap((match) => match[1] ?? [])),
 	].sort();
 }
 
@@ -452,7 +455,9 @@ const CHECK_ASKED = /\$\{?\w+\}?\.([\w-]+)/g;
  * work quick.
  */
 function checksAsked(what: string): string[] {
-	const asked = [...what.matchAll(CHECK_ASKED)].map((match) => match[1]);
+	const asked = [...what.matchAll(CHECK_ASKED)].flatMap(
+		(match) => match[1] ?? [],
+	);
 	return [...new Set([...checksNamed(what), ...asked])].sort();
 }
 
@@ -473,6 +478,7 @@ export function quickAfter(
 	const key = workKey(what);
 	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
 		const outcome = outcomes[at];
+		if (outcome === undefined) continue;
 		if (outcome.ranS === undefined || workKey(outcome.what) !== key) continue;
 		return outcome.ranS < QUICK_S && !outcome.ranTimed;
 	}

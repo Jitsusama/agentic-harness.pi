@@ -86,16 +86,17 @@ function walksLeadingFirst(line: Job[]): Job[] {
 	const places = line.flatMap((job, at) =>
 		job.kind === "world-walk" ? [at] : [],
 	);
-	const walks = places.map((at) => line[at]);
+	const walks = line.filter((job) => job.kind === "world-walk");
 	const leads = (job: Job) => job.walk === "push" || job.walk === "main-fetch";
 	const ordered = [
 		...walks.filter(leads),
 		...walks.filter((job) => !leads(job)),
 	];
 	const reordered = [...line];
-	places.forEach((at, index) => {
-		reordered[at] = ordered[index];
-	});
+	for (const [index, job] of ordered.entries()) {
+		const at = places[index];
+		if (at !== undefined) reordered[at] = job;
+	}
 	return reordered;
 }
 

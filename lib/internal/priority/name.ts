@@ -45,8 +45,9 @@ export function workNameIn(commands: readonly string[]): string | undefined {
 		for (const match of command.matchAll(INSTALLABLE)) {
 			const end = (match.index ?? 0) + match[0].length;
 			const rest = /^\S*/.exec(command.slice(end))?.[0] ?? "";
-			if (rest.includes("$")) continue;
-			const name = nameOf(match[1].replaceAll('"', "").split("."));
+			const installable = match[1];
+			if (installable === undefined || rest.includes("$")) continue;
+			const name = nameOf(installable.replaceAll('"', "").split("."));
 			if (name !== undefined && !names.includes(name)) names.push(name);
 		}
 	}

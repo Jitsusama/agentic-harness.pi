@@ -61,7 +61,7 @@ export function contextGauge(
 		asPercent && window > 0
 			? `${Math.round(fraction * 100)}%`
 			: `${Math.round(tokens / THOUSAND)}k`;
-	return { glyph: FILL[step], token, text };
+	return { glyph: FILL[step] ?? FILL[0], token, text };
 }
 
 /**
@@ -75,9 +75,11 @@ export function medianOf(values: readonly number[]): number | null {
 	if (values.length === 0) return null;
 	const sorted = [...values].sort((a, b) => a - b);
 	const middle = Math.floor(sorted.length / 2);
-	return sorted.length % 2 === 1
-		? sorted[middle]
-		: (sorted[middle - 1] + sorted[middle]) / 2;
+	const upper = sorted[middle];
+	if (upper === undefined) return null;
+	if (sorted.length % 2 === 1) return upper;
+	const lower = sorted[middle - 1] ?? upper;
+	return (lower + upper) / 2;
 }
 
 /**
