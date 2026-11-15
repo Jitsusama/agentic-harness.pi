@@ -32,6 +32,15 @@ function run(over: Partial<AskRun> = {}): AskRun {
 	};
 }
 
+/** The one ledger file a folder holds, by its path. */
+function onlyFile(root: string): string {
+	const [file, ...more] = readdirSync(root);
+	if (file === undefined || more.length > 0) {
+		throw new Error(`expected one ledger file in ${root}`);
+	}
+	return join(root, file);
+}
+
 describe("keeping runs per change", () => {
 	let root: string;
 
@@ -373,8 +382,8 @@ describe("replacing a run", () => {
 		const store = createRunStore(root);
 		await store.keep(change, run({ id: "council-open", open: true }));
 		await store.openRunIds();
-		const [held] = readdirSync(root);
-		await chmod(join(root, held), 0o000);
+		const held = onlyFile(root);
+		await chmod(held, 0o000);
 
 		try {
 			const { open, unreadable } = await store.openRunIds();
@@ -382,7 +391,7 @@ describe("replacing a run", () => {
 			expect(open).toEqual(new Set(["council-open"]));
 			expect(unreadable).toEqual([]);
 		} finally {
-			await chmod(join(root, held), 0o600);
+			await chmod(held, 0o600);
 		}
 	});
 
@@ -402,22 +411,20 @@ describe("replacing a run", () => {
 		const store = createRunStore(root);
 		await store.keep(change, run({ id: "council-open", open: true }));
 		await store.openRunIds();
-		const [held] = readdirSync(root);
+		const held = onlyFile(root);
 
-		await writeFile(join(root, held), "{ torn", "utf8");
+		await writeFile(held, "{ torn", "utf8");
 
 		const { open, unreadable } = await store.openRunIds();
 		expect(open).toEqual(new Set());
-		expect(unreadable).toEqual([join(root, held)]);
+		expect(unreadable).toEqual([held]);
 	});
 
 	it("forgets a ledger file that has gone", async () => {
 		const store = createRunStore(root);
 		await store.keep(change, run({ id: "council-open", open: true }));
 		await store.openRunIds();
-		const [held] = readdirSync(root);
-
-		rmSync(join(root, held));
+		rmSync(onlyFile(root));
 
 		expect(await store.openRunIds()).toEqual({
 			open: new Set(),

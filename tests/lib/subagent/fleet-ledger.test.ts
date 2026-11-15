@@ -46,6 +46,15 @@ function fleet(id: string, jobs: string[] = ["one", "two"]) {
 	return { id, startedAt: new Date().toISOString(), jobs };
 }
 
+/** The one record a folder holds, by its path. */
+async function onlyRecord(root: string): Promise<string> {
+	const [file, ...more] = await readdir(root);
+	if (file === undefined || more.length > 0) {
+		throw new Error(`expected one record in ${root}`);
+	}
+	return join(root, file);
+}
+
 describe("a fleet ledger", () => {
 	it("holds a fleet from before it is dispatched", async () => {
 		// Before, not after. A fleet recorded when it finishes is a
@@ -543,8 +552,8 @@ describe("a fleet ledger", () => {
 		const ledger = createFleetLedger(root);
 		await ledger.open(fleet("fleet-open"));
 		await ledger.openFleets();
-		const [held] = await readdir(root);
-		chmodSync(join(root, held), 0o000);
+		const held = await onlyRecord(root);
+		chmodSync(held, 0o000);
 
 		try {
 			expect(await ledger.openFleets()).toEqual({
@@ -552,7 +561,7 @@ describe("a fleet ledger", () => {
 				unreadable: [],
 			});
 		} finally {
-			chmodSync(join(root, held), 0o600);
+			chmodSync(held, 0o600);
 		}
 	});
 
@@ -570,9 +579,7 @@ describe("a fleet ledger", () => {
 		const ledger = createFleetLedger(root);
 		await ledger.open(fleet("fleet-a"));
 		await ledger.openFleets();
-		const [held] = await readdir(root);
-
-		rmSync(join(root, held));
+		rmSync(await onlyRecord(root));
 
 		expect((await ledger.everyFleet()).runs).toEqual([]);
 	});
