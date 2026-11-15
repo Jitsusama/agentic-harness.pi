@@ -16,6 +16,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import compactionWorkflow from "../../../extensions/compaction-workflow/index.ts";
+import { endTurn } from "../../support/turn-end.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
@@ -99,12 +100,12 @@ async function runUntilCompaction(
 		},
 	);
 	await handlers.get("session_start")?.({}, ctx);
-	const turnEnd = handlers.get("turn_end");
-	if (turnEnd === undefined) throw new Error("no turn_end handler");
-	await turnEnd({ toolResults: [{}] }, ctx);
+	const turnEnd = (turn: object) =>
+		endTurn((name, event, at) => handlers.get(name)?.(event, at), turn, ctx);
+	await turnEnd({ toolResults: [{}] });
 	size = 900_000;
 	for (let turn = 0; turn < 200 && !compacted; turn++) {
-		await turnEnd({ toolResults: [{}] }, ctx);
+		await turnEnd({ toolResults: [{}] });
 	}
 	if (!compacted) throw new Error("the policy never compacted");
 	return calls;
@@ -131,14 +132,14 @@ describe("resuming the run a compaction interrupted", () => {
 			},
 		);
 		await handlers.get("session_start")?.({}, ctx);
-		const turnEnd = handlers.get("turn_end");
-		if (turnEnd === undefined) throw new Error("no turn_end handler");
-		await turnEnd({ toolResults: [{}] }, ctx);
+		const turnEnd = (turn: object) =>
+			endTurn((name, event, at) => handlers.get(name)?.(event, at), turn, ctx);
+		await turnEnd({ toolResults: [{}] });
 		size = 900_000;
 
 		for (let turn = 0; turn < 200 && attempts < 2; turn++) {
 			try {
-				await turnEnd({ toolResults: [{}] }, ctx);
+				await turnEnd({ toolResults: [{}] });
 			} catch {
 				// pi catches a handler's throw; so does this stand-in.
 			}
@@ -162,12 +163,12 @@ describe("resuming the run a compaction interrupted", () => {
 			(options) => ended.push(options),
 		);
 		await handlers.get("session_start")?.({}, ctx);
-		const turnEnd = handlers.get("turn_end");
-		if (turnEnd === undefined) throw new Error("no turn_end handler");
-		await turnEnd({ toolResults: [{}] }, ctx);
+		const turnEnd = (turn: object) =>
+			endTurn((name, event, at) => handlers.get(name)?.(event, at), turn, ctx);
+		await turnEnd({ toolResults: [{}] });
 		size = 900_000;
 		for (let turn = 0; turn < 200 && ended.length === 0; turn++) {
-			await turnEnd({ toolResults: [{}] }, ctx);
+			await turnEnd({ toolResults: [{}] });
 		}
 		const options = ended[0];
 		if (options === undefined) throw new Error("the policy never compacted");

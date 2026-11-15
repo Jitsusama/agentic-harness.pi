@@ -39,7 +39,7 @@ import { resolveLspBackend } from "../../lib/core/lsp/registry.ts";
 import { findProject } from "../../lib/core/verify/project.ts";
 import { runVerify } from "../../lib/core/verify/run.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
-import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
+import { onTurnBoundary } from "../../lib/internal/session/turn-end.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import {
 	provideVerificationCheck,
@@ -151,94 +151,106 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 	// system prompt its run already has and self-corrects before
 	// the turn returns to the user. It is the harness speaking, so
 	// it is not a user message: the transcript, the cost ledger and
-	// the compaction quotes would all read one as the person.
-	onTurnEnd(pi, async (event, ctx) => {
-		ctxRef = ctx;
-		// A turn that executed tools loops again on its own; only
-		// verify when the assistant is about to stop. An errored or
-		// aborted turn is not a clean yield worth checking.
-		const stopReason = (event.message as { stopReason?: string }).stopReason;
-		if (event.toolResults.length > 0) return;
-		if (stopReason === "error" || stopReason === "aborted") return;
+	// the compaction quotes would all read one as the person. It
+	// hears the boundary only while a file waits to be checked, since
+	// pi builds the whole context twice a turn for whoever listens
+	// there (lib/internal/session/turn-end.ts).
+	onTurnBoundary(
+		pi,
+		async (event, ctx) => {
+			ctxRef = ctx;
+			// A turn that executed tools loops again on its own; only
+			// verify when the assistant is about to stop. An errored or
+			// aborted turn is not a clean yield worth checking.
+			const stopReason = (event.message as { stopReason?: string }).stopReason;
+			if (event.toolResults.length > 0) return;
+			if (stopReason === "error" || stopReason === "aborted") return;
 
-		const watched = new Set<string>(state.pending.map((e) => e.path));
-		for (const p of state.touched) watched.add(p);
-		state.touched.clear();
-		const files = [...watched].filter(isTheWork);
+			const watched = new Set<string>(state.pending.map((e) => e.path));
+			for (const p of state.touched) watched.add(p);
+			state.touched.clear();
+			const files = [...watched].filter(isTheWork);
 
-		const backend = resolveLspBackend(ctx);
-		if (!backend || files.length === 0) {
-			refreshStatus(ctx, state);
-			return;
-		}
+			const backend = resolveLspBackend(ctx);
+			if (!backend || files.length === 0) {
+				refreshStatus(ctx, state);
+				return;
+			}
 
-		// Read the run now: the context answers with whichever run is
-		// current when asked.
-		const run = ctx.signal;
-		const result = await collectErrors(backend, files, run, FAST_LAYER_WALL_MS);
-		rememberChecked(state, result);
-		if (run?.aborted) {
-			// Stopped by the person, so nothing was checked and nobody
-			// wants the agent to carry on with a fix.
-			state.outcome = "deferred";
-			refreshStatus(ctx, state);
-			return;
-		}
-		const { errors, failed } = result;
-		const verdict = fastLayerVerdict({
-			attempts: state.attempts,
-			maxAttempts: MAX_FIX_ATTEMPTS,
-			errors,
-		});
-
-		const key = errorSetKey(errors);
-		if (verdict.action === "inject" && key !== state.lastSaid) {
-			state.attempts = verdict.attempt;
-			state.pending = [...errors];
-			state.outcome = "failing";
-			state.lastSaid = key;
-			refreshStatus(ctx, state);
-			// Continue the run so the agent fixes this before yielding.
-			const report: VerificationReport = { errors, cwd: ctx.cwd };
-			pi.sendMessage(
-				{
-					customType: VERIFICATION_MESSAGE,
-					content: verdict.message,
-					display: true,
-					details: report,
-				},
-				{ deliverAs: "followUp" },
+			// Read the run now: the context answers with whichever run is
+			// current when asked.
+			const run = ctx.signal;
+			const result = await collectErrors(
+				backend,
+				files,
+				run,
+				FAST_LAYER_WALL_MS,
 			);
-			return;
-		}
-		if (verdict.action === "inject") {
-			// The model was told exactly this and yielded anyway, so saying
-			// it again says nothing. The footer still shows it failing, and
-			// a commit still re-checks.
+			rememberChecked(state, result);
+			if (run?.aborted) {
+				// Stopped by the person, so nothing was checked and nobody
+				// wants the agent to carry on with a fix.
+				state.outcome = "deferred";
+				refreshStatus(ctx, state);
+				return;
+			}
+			const { errors, failed } = result;
+			const verdict = fastLayerVerdict({
+				attempts: state.attempts,
+				maxAttempts: MAX_FIX_ATTEMPTS,
+				errors,
+			});
+
+			const key = errorSetKey(errors);
+			if (verdict.action === "inject" && key !== state.lastSaid) {
+				state.attempts = verdict.attempt;
+				state.pending = [...errors];
+				state.outcome = "failing";
+				state.lastSaid = key;
+				refreshStatus(ctx, state);
+				// Continue the run so the agent fixes this before yielding.
+				const report: VerificationReport = { errors, cwd: ctx.cwd };
+				pi.sendMessage(
+					{
+						customType: VERIFICATION_MESSAGE,
+						content: verdict.message,
+						display: true,
+						details: report,
+					},
+					{ deliverAs: "followUp" },
+				);
+				return;
+			}
+			if (verdict.action === "inject") {
+				// The model was told exactly this and yielded anyway, so saying
+				// it again says nothing. The footer still shows it failing, and
+				// a commit still re-checks.
+				state.attempts = 0;
+				state.pending = [...errors];
+				state.outcome = "failing";
+				refreshStatus(ctx, state);
+				return;
+			}
 			state.attempts = 0;
-			state.pending = [...errors];
-			state.outcome = "failing";
+			state.pending = [];
+			// Clean: whatever comes next is new.
+			if (errors.length === 0) state.lastSaid = undefined;
+			if (verdict.action === "giveUp") {
+				// Stop nagging and let the run end so the user sees the
+				// agent's last word; the status line still shows failing,
+				// and a commit still re-checks what it gave up on.
+				state.outcome = "failing";
+			} else {
+				// When the server errored for a touched file, "no errors" is
+				// not "checked clean", so it reads deferred unless something
+				// else is known to be failing.
+				const settled = settle(state);
+				state.outcome = failed && settled === "clean" ? "deferred" : settled;
+			}
 			refreshStatus(ctx, state);
-			return;
-		}
-		state.attempts = 0;
-		state.pending = [];
-		// Clean: whatever comes next is new.
-		if (errors.length === 0) state.lastSaid = undefined;
-		if (verdict.action === "giveUp") {
-			// Stop nagging and let the run end so the user sees the
-			// agent's last word; the status line still shows failing,
-			// and a commit still re-checks what it gave up on.
-			state.outcome = "failing";
-		} else {
-			// When the server errored for a touched file, "no errors" is
-			// not "checked clean", so it reads deferred unless something
-			// else is known to be failing.
-			const settled = settle(state);
-			state.outcome = failed && settled === "clean" ? "deferred" : settled;
-		}
-		refreshStatus(ctx, state);
-	});
+		},
+		() => state.touched.size > 0 || state.pending.length > 0,
+	);
 
 	pi.registerTool({
 		name: "verify",

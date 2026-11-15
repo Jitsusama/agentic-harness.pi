@@ -224,8 +224,12 @@ describe("guards in two conversations sharing a host", () => {
 			input: { path: file },
 			isError: false,
 		});
+		// The answer comes in first, and with a file touched the check
+		// listens on the boundary that follows.
+		const answer = { role: "assistant", stopReason: "stop" };
+		await dispatch(b, "message_end", "b", { message: answer });
 		await dispatch(b, "turn_end", "b", {
-			message: { stopReason: "stop" },
+			message: answer,
 			toolResults: [],
 		});
 		expect(b.recorded.sent).toHaveLength(1);

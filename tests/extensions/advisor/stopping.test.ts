@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { endTurn } from "../../support/turn-end.ts";
 
 /**
  * The advisor reviews a substantive turn with a second model, which
@@ -95,6 +96,18 @@ function turnContext(run: AbortController): unknown {
 	};
 }
 
+/** A turn's end, as pi says it to the advisor. */
+function turnEnds(
+	handlers: Map<string, Handler>,
+	run: AbortController,
+): Promise<void> {
+	return endTurn(
+		(name, event, at) => handlers.get(name)?.(event, at),
+		{},
+		turnContext(run),
+	);
+}
+
 /** Longer than a turn_end that does not wait on the review takes. */
 const STILL_RUNNING_MS = 500;
 
@@ -131,11 +144,11 @@ describe("the advisor at the end of a turn", () => {
 		const run = new AbortController();
 		await handlers.get("session_start")?.({}, turnContext(run));
 
-		const turnEnd = handlers.get("turn_end")?.({}, turnContext(run));
+		const turnEnd = turnEnds(handlers, run);
 		await reviewStarted(1);
 
 		expect(reviews).toHaveLength(1);
-		expect(await settled(turnEnd ?? Promise.resolve())).toBe("returned");
+		expect(await settled(turnEnd)).toBe("returned");
 		run.abort();
 	});
 
@@ -144,7 +157,7 @@ describe("the advisor at the end of a turn", () => {
 		const run = new AbortController();
 		await handlers.get("session_start")?.({}, turnContext(run));
 
-		void handlers.get("turn_end")?.({}, turnContext(run));
+		void turnEnds(handlers, run);
 		await reviewStarted(1);
 		run.abort();
 
@@ -159,9 +172,9 @@ describe("the advisor at the end of a turn", () => {
 		const run = new AbortController();
 		await handlers.get("session_start")?.({}, turnContext(run));
 
-		void handlers.get("turn_end")?.({}, turnContext(run));
+		void turnEnds(handlers, run);
 		await reviewStarted(1);
-		void handlers.get("turn_end")?.({}, turnContext(run));
+		void turnEnds(handlers, run);
 		await new Promise((resolve) => setTimeout(resolve, 100));
 
 		expect(reviews).toHaveLength(1);
