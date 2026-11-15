@@ -3839,6 +3839,36 @@ describe("a message that names no group", () => {
 		expect(narrowed).toContain("`orchestrator` reached nobody");
 	});
 
+	// CADENCE's miss of 15 November [9a1c301e]: a sitting asked of the
+	// person spread one paste over four approvals, uncounted.
+	it("refuses a question asking the orchestrator for the person's hands until it counts his acts", async () => {
+		onQuest();
+		writeFileSync(
+			join(paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		peer("session-o", ["5GV2AH"], []);
+		const { tools } = await startSession();
+		const transport = folderTransport(join(paths.mesh, "messages"));
+		const asking = "May Joel touch the key at 02:00?";
+
+		for (const to of ["orchestrator", "5GV2AH"]) {
+			expect(await send(tools, to, "question", asking), to).toContain(
+				'Not sent: this asks for the person\'s hands ("May Joel touch the key at 02:00?") without a line saying "his acts: N; the fewest: M"',
+			);
+		}
+		expect(transport.ids()).toEqual([]);
+
+		await send(
+			tools,
+			"orchestrator",
+			"question",
+			`${asking} His acts: 1; the fewest: 1.`,
+		);
+		await send(tools, "orchestrator", "fyi", asking);
+		expect(transport.ids()).toHaveLength(2);
+	});
+
 	it("refuses a pivot from a session that heads no orchestration", async () => {
 		onQuest();
 		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah/7m6jkg", "#harness"]);

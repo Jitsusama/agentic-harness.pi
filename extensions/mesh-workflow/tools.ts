@@ -67,6 +67,7 @@ import {
 } from "../../lib/mesh/unanswered.ts";
 import type { WantKind } from "../../lib/mesh/want.ts";
 import { count } from "../../lib/ui/count.ts";
+import { handsRefusal } from "./joels-hands.ts";
 import { leasesText } from "./leases.ts";
 import {
 	type Refusal,
@@ -634,6 +635,22 @@ export function answeringIntent(
 	};
 }
 
+/**
+ * Whether these groups reach the orchestrator above the sender's quest,
+ * by any address its presence goes by.
+ */
+function toOrchestrator(
+	named: readonly string[],
+	orchestratedBy: string | undefined,
+	present: readonly Presence[],
+): boolean {
+	if (orchestratedBy === undefined) return false;
+	const addresses = present.find((one) =>
+		one.addresses.includes(orchestratedBy),
+	)?.addresses ?? [orchestratedBy];
+	return addresses.some((address) => named.includes(homeOf(address)));
+}
+
 /** Whether the mesh's own routing, not the sender, picked the groups. */
 function routedWide(
 	routed: Route | undefined,
@@ -837,6 +854,18 @@ async function send(at: Local, params: SendParams): Promise<Answer> {
 			} satisfies SendDetails);
 		}
 		pivotTo = pivot.to;
+	}
+	// A question for the person's hands, put to the orchestrator that
+	// takes it to him, counts his acts first (joels-hands.ts).
+	const hands =
+		intent.intent === "question" &&
+		toOrchestrator(named, at.peer.orchestratedBy, everyone)
+			? handsRefusal(params.text)
+			: undefined;
+	if (hands !== undefined) {
+		return answer(`Not sent: ${hands}`, {
+			sent: false,
+		} satisfies SendDetails);
 	}
 	// A replacement goes wherever what it replaces went, so it reaches
 	// everyone who heard that, beside whoever it is now sent to.
