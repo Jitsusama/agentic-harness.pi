@@ -20,7 +20,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { hosted, sessionKeyOf } from "../../lib/core/session/index.ts";
+import {
+	hosted,
+	sessionKeyOf,
+	withSession,
+} from "../../lib/core/session/index.ts";
 import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
@@ -29,7 +33,10 @@ import { offerCarried } from "../../lib/jobs/take-up.ts";
 import { sessionIdOf } from "./carry.ts";
 import { showJobs } from "./command.ts";
 import {
+	CARRIED_RUN_WAIT_MS,
 	CUT_OFF_ENTRY,
+	carriedRunIn,
+	carriedRunShowed,
 	cutOffIn,
 	type EndWatch,
 	endedRecord,
@@ -138,13 +145,8 @@ function sessionFileOf(ctx: ExtensionContext): string | undefined {
 
 /** Give a returning session a turn when the machine cut it off. */
 function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
-	let branch: readonly unknown[];
-	try {
-		branch = ctx.sessionManager.getBranch();
-	} catch {
-		// No history to read: nothing to resume.
-		return;
-	}
+	const branch = branchOf(ctx);
+	if (branch === undefined) return;
 	// Only a host carries a parked run on; plain pi takes nothing up.
 	const cut = cutOffIn(branch, hosted() !== undefined);
 	if (cut === undefined) return;
@@ -153,6 +155,75 @@ function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
 		label: "the machine ended this session",
 		text: resumeText(cut, clockTime),
 	});
+}
+
+/**
+ * In a host, wait for the run the last host carried on to show, and
+ * tell the session it was cut off if it never does: on 14 November the
+ * next host failed a carried run, and with nothing said the session sat
+ * until a mesh message came. Answers the wait's timer, or nothing when
+ * no carried run is owed.
+ */
+function awaitCarriedRun(
+	opened: JobSession,
+	ctx: ExtensionContext,
+	current: () => JobSession | undefined,
+): ReturnType<typeof setTimeout> | undefined {
+	if (hosted() === undefined) return undefined;
+	const branch = branchOf(ctx);
+	if (branch === undefined || carriedRunIn(branch) === undefined)
+		return undefined;
+	// A host routes what the session says by the conversation it runs in,
+	// which a timer's callback must name again.
+	const key = sessionKeyOf(ctx);
+	const timer = setTimeout(
+		() => withSession(key, () => tellIfCarriedRunLost(opened, ctx, current)),
+		CARRIED_RUN_WAIT_MS,
+	);
+	// The wait never holds a host up that is otherwise ready to end.
+	timer.unref();
+	return timer;
+}
+
+/** Tell an idle session its carried run never showed, if it still hasn't. */
+function tellIfCarriedRunLost(
+	opened: JobSession,
+	ctx: ExtensionContext,
+	current: () => JobSession | undefined,
+): void {
+	if (current() !== opened || !idle(ctx)) return;
+	const branch = branchOf(ctx);
+	if (branch === undefined || carriedRunShowed(branch)) return;
+	const cut = carriedRunIn(branch);
+	if (cut === undefined) return;
+	opened.outbox.post({
+		jobId: "cut-off",
+		label: "the machine ended this session",
+		text: resumeText(
+			{ at: cut.at, running: cut.running, jobs: cut.jobs },
+			clockTime,
+		),
+	});
+}
+
+/** The session's branch, or nothing when it can't say. */
+function branchOf(ctx: ExtensionContext): readonly unknown[] | undefined {
+	try {
+		return ctx.sessionManager.getBranch();
+	} catch {
+		// No history to read: nothing was carried on in it.
+		return undefined;
+	}
+}
+
+/** Whether the session is between runs; one that can't say is taken as busy. */
+function idle(ctx: ExtensionContext): boolean {
+	try {
+		return ctx.isIdle();
+	} catch {
+		// A context gone stale has no session to tell.
+		return false;
+	}
 }
 
 /**
@@ -270,8 +341,11 @@ export default function jobWorkflow(
 	let crashes: (() => void) | undefined;
 	const line = typedLine();
 	let answering: (() => void) | undefined;
+	let carriedWait: ReturnType<typeof setTimeout> | undefined;
 
 	pi.on("session_start", (event, ctx) => {
+		clearTimeout(carriedWait);
+		carriedWait = undefined;
 		answering?.();
 		answering = answerSteerWaiting(pi.events, () => line.waiting());
 		session?.close();
@@ -298,6 +372,7 @@ export default function jobWorkflow(
 		if (RETURNS.has(event.reason)) {
 			takeUpIfCarried(pi, session, ctx);
 			resumeIfCutOff(session, ctx);
+			carriedWait = awaitCarriedRun(session, ctx, () => session);
 		}
 	});
 
@@ -318,6 +393,8 @@ export default function jobWorkflow(
 		}
 		signals?.stop();
 		signals = undefined;
+		clearTimeout(carriedWait);
+		carriedWait = undefined;
 		crashes?.();
 		crashes = undefined;
 		answering?.();
