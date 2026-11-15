@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Change, RepoGuidance } from "../../../../lib/core/review/index.ts";
+import type {
+	Change,
+	RepoGuidance,
+} from "../../../../lib/core/review/index.ts";
 import {
 	auditPrompt,
 	councilPrompt,

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Roster } from "../../../../lib/core/review/index.ts";
-import { bindPersonas, parsePersona } from "../../../../lib/core/review/index.ts";
+import {
+	bindPersonas,
+	parsePersona,
+} from "../../../../lib/core/review/index.ts";
 
 const file = (
 	over: { name?: string; description?: string; body?: string } = {},

@@ -20,7 +20,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { AskAnswer, Participant } from "../../../../lib/core/review/index.ts";
+import type {
+	AskAnswer,
+	Participant,
+} from "../../../../lib/core/review/index.ts";
 import {
 	runAudit,
 	runCouncil,

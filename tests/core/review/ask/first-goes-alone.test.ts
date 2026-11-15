@@ -9,7 +9,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { AskAnswer, Participant } from "../../../../lib/core/review/index.ts";
+import type {
+	AskAnswer,
+	Participant,
+} from "../../../../lib/core/review/index.ts";
 import { runCouncil, startCouncil } from "../../../../lib/core/review/index.ts";
 
 const now = () => new Date("2026-11-05T00:00:00.000Z");

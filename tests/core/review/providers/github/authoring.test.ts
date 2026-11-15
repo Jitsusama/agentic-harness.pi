@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Exec } from "../../../../../lib/core/exec/index.ts";
-import type { ChangeRef, RepoLocator } from "../../../../../lib/core/review/index.ts";
+import type {
+	ChangeRef,
+	RepoLocator,
+} from "../../../../../lib/core/review/index.ts";
 import { githubAuthoring } from "../../../../../lib/core/review/index.ts";
 import { fakeExec } from "../../../../support/fake-exec.ts";
 

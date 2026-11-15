@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AskRun, Participant } from "../../../../lib/core/review/index.ts";
-import { roundAnswer, startCouncil } from "../../../../lib/core/review/index.ts";
+import {
+	roundAnswer,
+	startCouncil,
+} from "../../../../lib/core/review/index.ts";
 
 /** Two reviewers, which is enough to see whether they overlap. */
 const ROSTER = {
