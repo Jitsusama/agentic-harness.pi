@@ -261,9 +261,7 @@ describe("releaseFacts", () => {
 				owner: { pid: process.pid, startedAt: 1 },
 				hosted: { host: "work-background", conversation: "c1" },
 			});
-			expect(facts.takenUp(HOPPING), "its host's, outlasting it").toBe(
-				false,
-			);
+			expect(facts.takenUp(HOPPING), "its host's, outlasting it").toBe(false);
 			says({ owner: { pid: process.pid, startedAt: 1 } });
 			expect(facts.takenUp(HOPPING), "a live pi of its own").toBe(true);
 		} finally {

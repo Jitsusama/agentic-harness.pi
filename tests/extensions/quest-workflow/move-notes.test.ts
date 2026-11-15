@@ -84,9 +84,7 @@ describe("settleMoveNote", () => {
 		writeMoveNote(note("handing", "attended"), moves);
 		settleMoveNote("leaving", { hosted: true, reason: "reload" }, moves);
 		settleMoveNote("handing", { hosted: false, reason: "reload" }, moves);
-		expect(readMoveNote("leaving", moves)?.to, "a release's note").toBe(
-			"pi",
-		);
+		expect(readMoveNote("leaving", moves)?.to, "a release's note").toBe("pi");
 		expect(readMoveNote("handing", moves)?.to, "a note for a host").toBe(
 			"attended",
 		);

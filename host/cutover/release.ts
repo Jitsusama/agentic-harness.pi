@@ -303,9 +303,7 @@ export async function releaseBack(
 			calledOff = true;
 			for (const session of left.keys()) {
 				facts.callOff(addressOf(session));
-				facts.say(
-					`called off ${addressOf(session)}'s move; it stays hosted`,
-				);
+				facts.say(`called off ${addressOf(session)}'s move; it stays hosted`);
 			}
 		}
 		if (departed.size === 0 && (left.size === 0 || calledOff)) break;
