@@ -265,9 +265,9 @@ Slack message authoring and content.
 | Well-formed lists (no orphan items, parallel shape) | Tables / Lists | 🟢 | core `slack/detect.ts`, conservative thresholds (runs of two, separator-or-adjacent-rows) |
 | No glyph bullets (`•`, `‣`, `◦`, `▪`, `·`); markdown markers (`- `, `* `, `+ `) only | Message Formatting | 🟢 | core `slack/detect.ts` flags a run of two glyph-led lines with a distinct instructive message; same run-of-two threshold as the markdown-marker scan |
 | Thread replies put the parent ts in `ts`, never `thread_ts` | Reply to that thread saying ... | ⚪ | Parameter-usage methodology, not artifact shape. The `ts`/`thread_ts` schema descriptions and the `slack` tool guideline carry it; `thread_ts` without `ts` already fails loudly at the router. |
-| Slack mrkdwn dialect (`*bold*`, `_italic_`, `~strike~`) instead of markdown | Text Formatting | 🔇 | core `slack/blocks.ts` translates `**bold**` → `*bold*`, `*italic*` → `_italic_`, etc., at send time |
-| Slack link syntax (`<url|text>`) instead of markdown | Links and Mentions | 🔇 | core `slack/blocks.ts` translates `[text](url)` → `<url|text>` |
-| Colour swatch hex codes (`#DA35EA`) get a leading zero-width space to suppress the auto-detected swatch | Avoiding Auto-Detected Colour Swatches | 🔇 | core `slack/blocks.ts` inserts a ZWSP before the `#` |
+| Slack mrkdwn dialect (`*bold*`, `_italic_`, `~strike~`) instead of markdown | Text Formatting | 🔇 | core `slack/mrkdwn-tokens.ts` translates `**bold**` → `*bold*`, `*italic*` → `_italic_`, etc., at send time |
+| Slack link syntax (`<url|text>`) instead of markdown | Links and Mentions | 🔇 | core `slack/mrkdwn-tokens.ts` translates `[text](url)` → `<url|text>` |
+| Colour swatch hex codes (`#DA35EA`) get a leading zero-width space to suppress the auto-detected swatch | Avoiding Auto-Detected Colour Swatches | 🔇 | core `slack/mrkdwn-tokens.ts` splits the `#` from its digits into two text elements, which render the same but which Slack's swatch detector doesn't read as one |
 | Prose conventions inside Slack messages | (inherits prose-standard) | 🚫 | Slack messages are casual and the gate scope is the Slack-format check; prose-standard runs in artifacts the user signs their name to (PRs, commits, issues, review comments). |
 | Translating user intent to API actions | Translating User Intent | ⚪ | Methodology, not artifact shape. |
 | Search operator and ID handling | Search Operators / URL and ID Handling | ⚪ | Methodology. |

@@ -83,7 +83,7 @@ lib/slack/api/messages.ts 6
 lib/slack/api/resolve-messages.ts 3
 lib/slack/api/resolve-users.ts 2
 lib/slack/auth/extract.ts 2
-lib/slack/blocks.ts 15
+lib/slack/blocks.ts 12
 lib/slack/detect.ts 7
 lib/slack/renderers/message.ts 11
 lib/slack/resolvers/conversation.ts 1
