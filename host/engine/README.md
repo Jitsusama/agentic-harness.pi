@@ -84,7 +84,10 @@ session. Durable admits inputs, makes each request through pi's stream
 with the conversation's environment, and runs each tool, never rerunning
 one a restart cut off. Nothing reaches pi before durable has committed
 it, so the session file never holds a step twice, and ordinary pi opens
-the file.
+the file. A request a restart cut off is asked again: durable,
+whose own retry stays off, ends that run as interrupted, and the
+recovery then continues the conversation, unless durable ended it for
+being cut off again and again.
 
 pi's session writes an extension's message at once when it counts no
 run of its own, and a turn durable carries on after a restart is not

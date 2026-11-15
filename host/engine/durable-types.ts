@@ -61,6 +61,14 @@ export type SubmissionDraft = { readonly requestId?: string } & (
 	| { readonly type: "continue" }
 );
 
+/** The newest run durable ended without an answer, as a conversation's `pi.live` keeps it. */
+export interface RunFailure {
+	/** The task that ended it, which no later failure shares. */
+	readonly taskId: number;
+	/** Why: `interrupted` for a request the host stopped during, among others. */
+	readonly reason: string;
+}
+
 /** A durable conversation. */
 export interface Conversation {
 	readonly id: number;
@@ -94,6 +102,12 @@ export interface Harness {
 	): Promise<Conversation>;
 	resume(): void;
 	abortSubmission(id: number, context: DurableContext): Promise<string>;
+	/** A committed document's state, as a conversation's `pi.live` under `LiveDoc`. */
+	snapshot(
+		token: unknown,
+		conversationId: number,
+		context: DurableContext,
+	): Promise<unknown>;
 	close(context: DurableContext): Promise<void>;
 }
 

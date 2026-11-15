@@ -368,6 +368,32 @@ describe("the hosted agent resuming a turn a restart cut off", {
 		}
 	});
 
+	it("asks the model again for a turn the host stopped mid-request", async () => {
+		// On 14 November a reboot cut a request off; durable, its retry left to pi, ended the carried run as interrupted, and the conversation sat unanswered until a peer's word woke it.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-request-"));
+		try {
+			expect(await killed("crash-in-request", folder)).toBe("SIGKILL");
+			const { observed, reported } = await reopenedWithReports(folder);
+			expect(
+				reported.trim(),
+				"durable reported only the request the host cut off",
+			).toBe(
+				"durable reported: Error: The host stopped while the model was answering, on attempt 1",
+			);
+			expect(
+				said(observed, "assistant").at(-1),
+				"the cut-off turn has its answer",
+			).toBe("after the restart");
+			expect(
+				observed.transcript.at(-1)?.role,
+				"the conversation ends on that answer",
+			).toBe("assistant");
+			expect(observed.events.at(-1)?.type).toBe("agent_end");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
 	it("shows the answer pi never saw without showing again a result it held under another time", async () => {
 		// Another held its first result 1 ms off durable's, and not the answer after it; the resume showed the result again and broke that answer's round.
 		const folder = mkdtempSync(join(tmpdir(), "hosted-second-tool-"));
