@@ -46,14 +46,13 @@ import { writeWhole } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
 import { loadedQuest, type QuestRecords, questAddress } from "./address.ts";
-import { checkoutOf, repositoryName } from "./checkout.ts";
 import {
 	type MoveOff,
 	type Moving,
 	moveOffFrom,
 	movingFrom,
 } from "./moving.ts";
-import { scopesOf } from "./scope.ts";
+import { checkoutOf, repositoryName, scopesOf } from "./scope.ts";
 import { isStepDetail, type StepDetail } from "./step.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
 import { removeQuietly, removeStaged } from "./transport.ts";

@@ -39,6 +39,7 @@ import {
 	discoverQuests,
 	withDiscoveryHeld,
 } from "../../lib/internal/quest/discovery.ts";
+import { forgetDoing, keepDoingSaid } from "../../lib/internal/quest/doing.ts";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/url-fetchers.ts";
@@ -68,7 +69,6 @@ import {
 	resolveQuestsRoot,
 } from "./config.ts";
 import { QUEST_CONTEXT, renderQuestContext } from "./context.ts";
-import { forgetDoing, keepDoingSaid } from "./doing.ts";
 import {
 	questHasEnded,
 	refuseParkOnceEnded,
@@ -445,7 +445,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				};
 			}
 			updateScoreboard(state, ctx);
-			keepDoingSaid(state, ctx);
+			keepDoingSaid(state, currentSessionId(ctx, undefined), ctx.ui);
 			// A session a spawn started is looked for a minute on.
 			const spawned = spawnedBy(params.action, result.details);
 			if (spawned) watchFirstTurn(pi, ctx, spawned);
@@ -643,7 +643,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 		) {
 			refreshProgress(state);
 			updateScoreboard(state, ctx);
-			keepDoingSaid(state, ctx);
+			keepDoingSaid(state, currentSessionId(ctx, undefined), ctx.ui);
 		}
 		persist(state, pi, ctx);
 		// A quest action can change what a quest's work is weighted by, and
@@ -816,7 +816,7 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 				setImmediate(() => refreshRestoreFile(state.questsRoot)).unref();
 			}
 			updateScoreboard(state, ctx);
-			keepDoingSaid(state, ctx);
+			keepDoingSaid(state, currentSessionId(ctx, undefined), ctx.ui);
 			// A session on screen ends itself once its quest has ended and
 			// nothing is left in it, so its window closes with it.
 			if (ctx.hasUI || hosted()) watchForQuestEnd(state, ctx);

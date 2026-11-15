@@ -6,9 +6,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { sayDoing } from "../../../lib/internal/quest/doing.ts";
-import { localPeer } from "../../../lib/mesh/peer.ts";
-import { createPresences } from "../../../lib/mesh/presence.ts";
+import { sayDoing } from "../../../../lib/internal/quest/doing.ts";
+import { localPeer } from "../../../../lib/mesh/peer.ts";
+import { createPresences } from "../../../../lib/mesh/presence.ts";
 
 let root: string;
 const session = "01a1e0aa-0000-7000-8000-000000000251";

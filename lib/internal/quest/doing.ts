@@ -155,3 +155,44 @@ export function isDoing(value: unknown): value is Doing {
 		(one.chose === undefined || typeof one.chose === "string")
 	);
 }
+
+/** Where a failure to say it is told: the session's own notices. */
+export interface DoingNotices {
+	notify(text: string, level: "warning"): void;
+}
+
+/**
+ * Say what `session` is doing now, as the quest workflow stands, after a
+ * quest action, a write to the focused plan or a start. A failure is
+ * told, never thrown: the quest's work doesn't wait on a map's field.
+ */
+export function keepDoingSaid(
+	source: DoingSource,
+	session: string | undefined,
+	notices: DoingNotices,
+	folder: string = doingFolder(),
+): void {
+	if (!session) return;
+	try {
+		sayDoing(folder, session, doingNow(source), new Date());
+	} catch (error) {
+		const why = error instanceof Error ? error.message : String(error);
+		notices.notify(
+			`The map can't show what this session is doing: ${why}`,
+			"warning",
+		);
+	}
+}
+
+/** Take away what an ended session said it was doing. */
+export function forgetDoing(
+	session: string,
+	folder: string = doingFolder(),
+): void {
+	try {
+		sayDoing(folder, session, undefined, new Date());
+	} catch {
+		// An ended session has no presence to carry it, and the session's
+		// next start says its own over whatever was left.
+	}
+}
