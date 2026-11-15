@@ -8,6 +8,10 @@
  *
  * It counts what leaves by the default route's interface, so traffic
  * tunnelled through the work VPN counts too, as the line carries it.
+ * That holds while the VPN routes by a policy table of its own, as WARP
+ * does, leaving the main table's default on the physical device; a VPN
+ * that put its default in the main table on a tunnel device would have
+ * only the tunnel counted.
  */
 
 import { readFile } from "node:fs/promises";
