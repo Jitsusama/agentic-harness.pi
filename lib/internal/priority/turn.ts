@@ -289,9 +289,11 @@ export function waitsForTurn(
 			// It waits while nobody has given up its job and somebody keeps the
 			// queue, by queue.json's age. Nobody writes that while the machine
 			// sleeps, so a clock that jumped gives the keepers a grace to
-			// wake and write it before its age counts.
+			// wake and write it before its age counts. The age is read with
+			// GNU's stat, else a Mac's, which refuses -c and wants -f %m; with
+			// neither, no wait on a Mac ever waited (87KI6A, 15 November).
 			"__then=$(date +%s) __grace=0",
-			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && { __now=$(date +%s); [ $(( __now - __then )) -gt ${JUMP_S} ] && __grace=$(( __now + ${GRACE_S} )); __then=$__now; [ $(( __now - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_MS / 1000} ] || [ "$__now" -lt "$__grace" ]; }; do sleep 1; done`,
+			`while [ ! -e "$__queue/$__job.turn" ] && [ -e "$__queue/$__job.job" ] && { __now=$(date +%s); [ $(( __now - __then )) -gt ${JUMP_S} ] && __grace=$(( __now + ${GRACE_S} )); __then=$__now; [ $(( __now - $(stat -c %Y "$__queue/queue.json" 2>/dev/null || stat -f %m "$__queue/queue.json" 2>/dev/null || echo 0) )) -lt ${UNKEPT_MS / 1000} ] || [ "$__now" -lt "$__grace" ]; }; do sleep 1; done`,
 			// The mark its time limit starts from (clock.ts): the run begins
 			// here, whether its turn was given or the wait gave way.
 			`{ : > "$__queue/$__job.began"; } 2>/dev/null || :`,

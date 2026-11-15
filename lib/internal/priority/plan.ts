@@ -22,6 +22,7 @@
  * kind the queue learned.
  */
 
+import { limited } from "./limited.ts";
 import { heavySteps, type Job, stepsOf } from "./queue.ts";
 
 /** How long the shell's dry run may take. */
@@ -103,10 +104,10 @@ export function planLines(planned: Planned): string[] {
 	const into = planned.cds.map((dir) => `cd ${dir} && `).join("");
 	return [
 		`__plan="$__queue/$__job.plan"`,
-		`if __drvs=$( ( ${into}timeout ${DRY_RUN_S} nix build --dry-run ${planned.args} ) 2>&1 >/dev/null ); then`,
+		`if __drvs=$( ( ${into}${limited(DRY_RUN_S, `nix build --dry-run ${planned.args}`)} ) 2>&1 >/dev/null ); then`,
 		`  __drvs=$(printf '%s\\n' "$__drvs" | grep -o '/nix/store/[^ ]*\\.drv')`,
 		`  if [ -z "$__drvs" ]; then printf 'cached\\n' > "$__plan.planning"`,
-		`  elif ! timeout ${SHOW_S} nix derivation show $__drvs > "$__plan.planning" 2>/dev/null; then printf 'failed nix derivation show\\n' > "$__plan.planning"; fi`,
+		`  elif ! { ${limited(SHOW_S, "nix derivation show $__drvs")}; } > "$__plan.planning" 2>/dev/null; then printf 'failed nix derivation show\\n' > "$__plan.planning"; fi`,
 		`else printf 'failed nix build --dry-run exited %s\\n' "$?" > "$__plan.planning"; fi 2>/dev/null`,
 		`mv -f "$__plan.planning" "$__plan" 2>/dev/null || :`,
 		"unset __plan __drvs",
