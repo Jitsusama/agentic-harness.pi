@@ -5,16 +5,29 @@
  * plain pi take. It answers by the latest soak prompt in the request: a
  * tool's result is acknowledged, a read reads `notes.txt`, a bash turn
  * echoes, a job runs bash in the background, a long turn answers in 120
- * lines, and anything else is echoed. Every turn's last answer ends in
- * the prompt's tag, which the soak waits for. Given a pace, each answer
+ * lines, a steer turn runs bash and its steer's words are answered, an
+ * abort turn's answer never comes, a summary request whose focus is a
+ * compaction turn's is answered with a summary, and anything else is
+ * echoed. Every turn's last answer ends in the prompt's tag, which the
+ * soak waits for, but an abort's, which ends unanswered. The soak can
+ * hold a turn's own answer until it lets it go or the request's client
+ * goes, so a steer, an abort or a restart lands while the turn works,
+ * as the parity suite holds one. Given a pace, each answer
  * takes a time drawn from it, its words arriving in pieces across that
  * time, each bash command waits a drawn time before it echoes, and a turn
  * has a drawn count of rounds, each before its own answer a tool call,
  * two bash to a read, as a real turn works before it answers. Without one
  * it answers at once, in one piece, bash echoes at once, and a turn is
- * only its own answer. It binds 127.0.0.1 and takes no credential.
+ * only its own answer. Given somewhere to pass requests on to, as the
+ * real-model slice gives it, it answers nothing itself, and a hold takes
+ * a turn's first request, since a real model's rounds aren't the
+ * script's. It binds 127.0.0.1 and takes no credential.
  */
-import { createServer, type ServerResponse } from "node:http";
+import {
+	createServer,
+	type IncomingHttpHeaders,
+	type ServerResponse,
+} from "node:http";
 import { setTimeout as later } from "node:timers/promises";
 import { isRecord } from "../../../lib/internal/record.ts";
 import {
@@ -24,7 +37,14 @@ import {
 	PIECE_EVERY_MS,
 	piecesOf,
 } from "./pace.ts";
-import { acknowledged, asked, type Turn, type TurnKind } from "./turns.ts";
+import {
+	acknowledged,
+	asked,
+	steeredIn,
+	summaryOf,
+	type Turn,
+	type TurnKind,
+} from "./turns.ts";
 
 /** How long answers and tools take and how many rounds a turn has. */
 export interface SoakPace {
@@ -37,7 +57,15 @@ export interface SoakPace {
 }
 
 /** The turn kinds whose own answer is a tool call, so two rounds. */
-const TOOL_KINDS: ReadonlySet<TurnKind> = new Set(["read", "bash", "job"]);
+const TOOL_KINDS: ReadonlySet<TurnKind> = new Set([
+	"read",
+	"bash",
+	"job",
+	"steer",
+]);
+
+/** How long a held request may take to arrive. */
+const ARRIVAL_DEADLINE_MS = 120_000;
 
 /** Of each three rounds before a turn's own, the one that reads. */
 const READS_EVERY = 3;
@@ -47,7 +75,34 @@ export interface SoakProvider {
 	readonly endpoint: string;
 	/** How many requests it has answered. */
 	answered(): number;
+	/** Hold the next request for `tag`'s own answer, until released or its client goes. */
+	hold(tag: string): void;
+	/** Resolves once the request held for `tag` has arrived, failing after `ms`. */
+	held(tag: string, ms?: number): Promise<void>;
+	/** Let the request held for `tag` be answered. */
+	release(tag: string): void;
 	close(): Promise<void>;
+}
+
+/**
+ * Where a request goes in place of the script's answer: on to a real
+ * model, its answer streamed back on `response`. `tag` names the turn it
+ * is for, or nothing outside the script.
+ */
+export type PassOn = (
+	body: Readonly<Record<string, unknown>>,
+	headers: IncomingHttpHeaders,
+	response: ServerResponse,
+	tag: string | undefined,
+) => Promise<void>;
+
+/** A hold the soak armed on one turn's own answer. */
+interface Hold {
+	taken: boolean;
+	readonly arrival: Promise<void>;
+	readonly arrived: () => void;
+	readonly released: Promise<void>;
+	readonly release: () => void;
 }
 
 /** What a job's command prints once its moment's wait is over. */
@@ -71,9 +126,13 @@ type Block =
 			readonly input: Readonly<Record<string, unknown>>;
 	  };
 
-/** Listen on a free local port, answering at `pace`. */
-export async function soakProvider(pace: SoakPace = {}): Promise<SoakProvider> {
+/** Listen on a free local port, answering at `pace`, or passing every request `through`. */
+export async function soakProvider(
+	pace: SoakPace = {},
+	through?: PassOn,
+): Promise<SoakProvider> {
 	let answered = 0;
+	const holds = new Map<string, Hold>();
 	const server = createServer(async (request, response) => {
 		let raw = "";
 		for await (const chunk of request) raw += String(chunk);
@@ -81,6 +140,25 @@ export async function soakProvider(pace: SoakPace = {}): Promise<SoakProvider> {
 		const messages: unknown = isRecord(body) ? body.messages : undefined;
 		answered += 1;
 		const history = Array.isArray(messages) ? messages : [];
+		const own =
+			through === undefined ? ownAnswerOf(history, pace) : firstAskOf(history);
+		const hold = own === undefined ? undefined : holds.get(own);
+		if (own !== undefined && hold !== undefined && !hold.taken) {
+			hold.taken = true;
+			hold.arrived();
+			await Promise.race([
+				hold.released,
+				new Promise((gone) => response.on("close", gone)),
+			]);
+			holds.delete(own);
+		}
+		// A client that went while its answer was held takes none.
+		if (response.destroyed) return;
+		if (through !== undefined) {
+			const tag = turnSoFar(history)?.turn.tag;
+			await through(isRecord(body) ? body : {}, request.headers, response, tag);
+			return;
+		}
 		await stream(
 			response,
 			answerTo(history, pace),
@@ -95,11 +173,84 @@ export async function soakProvider(pace: SoakPace = {}): Promise<SoakProvider> {
 	return {
 		endpoint: `http://127.0.0.1:${address.port}`,
 		answered: () => answered,
+		hold: (tag) => {
+			holds.set(tag, holdOf());
+		},
+		held: (tag, ms = ARRIVAL_DEADLINE_MS) => {
+			const hold = holds.get(tag);
+			if (hold === undefined)
+				return Promise.reject(new Error(`Nothing holds ${tag}`));
+			return within(hold.arrival, ms, `${tag}'s held request didn't arrive`);
+		},
+		release: (tag) => {
+			holds.get(tag)?.release();
+			holds.delete(tag);
+		},
 		close: async () => {
+			for (const hold of holds.values()) hold.release();
+			holds.clear();
 			server.closeAllConnections();
 			await new Promise((done) => server.close(done));
 		},
 	};
+}
+
+/** A hold not yet taken by a request. */
+function holdOf(): Hold {
+	let arrived = () => {};
+	const arrival = new Promise<void>((done) => {
+		arrived = done;
+	});
+	let release = () => {};
+	const released = new Promise<void>((done) => {
+		release = done;
+	});
+	return { taken: false, arrival, arrived, released, release };
+}
+
+/** `work`, or a failure saying `what` once `ms` pass. */
+async function within(
+	work: Promise<void>,
+	ms: number,
+	what: string,
+): Promise<void> {
+	let timer: NodeJS.Timeout | undefined;
+	const late = new Promise<never>((_, refuse) => {
+		timer = setTimeout(() => refuse(new Error(`${what} in ${ms} ms`)), ms);
+	});
+	try {
+		await Promise.race([work, late]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/**
+ * The tag of the turn whose own answer the request whose messages are
+ * `messages` asks for, at `pace`, or nothing when it asks for work
+ * before it, for what comes after, or for no soak turn's.
+ */
+export function ownAnswerOf(
+	messages: readonly unknown[],
+	pace: SoakPace = {},
+): string | undefined {
+	if (steeredIn(textOf(lastSaid(messages))) !== undefined) return undefined;
+	const sofar = turnSoFar(messages);
+	if (sofar === undefined || sofar.turn.kind === "compact") return undefined;
+	const own = sofar.round === roundsBefore(sofar.turn, pace.rounds);
+	return own ? sofar.turn.tag : undefined;
+}
+
+/**
+ * The tag of the turn whose first request `messages` are, or nothing for
+ * a later one, a steer's or a compaction's: where a hold takes a turn a
+ * real model answers, whose rounds the script can't foretell.
+ */
+export function firstAskOf(messages: readonly unknown[]): string | undefined {
+	if (steeredIn(textOf(lastSaid(messages))) !== undefined) return undefined;
+	const sofar = turnSoFar(messages);
+	if (sofar === undefined || sofar.turn.kind === "compact") return undefined;
+	return sofar.round === 0 ? sofar.turn.tag : undefined;
 }
 
 /** What the request whose messages are `messages` is answered with, at `pace`. */
@@ -107,9 +258,14 @@ export function answerTo(
 	messages: readonly unknown[],
 	pace: SoakPace = {},
 ): Block {
+	const steered = steeredIn(textOf(lastSaid(messages)));
+	if (steered !== undefined)
+		return { type: "text", text: `steered, ${acknowledged(steered)}` };
 	const sofar = turnSoFar(messages);
 	if (sofar === undefined) return { type: "text", text: UNSCRIPTED };
 	const { turn, round } = sofar;
+	if (turn.kind === "compact")
+		return { type: "text", text: summaryOf(turn.tag) };
 	const runsMs = (key: string) =>
 		pace.tool === undefined ? 0 : drawn(pace.tool, `${turn.tag} tool ${key}`);
 	const before = roundsBefore(turn, pace.rounds);
@@ -125,12 +281,23 @@ function turnSoFar(
 ):
 	| { readonly turn: Pick<Turn, "tag" | "kind">; readonly round: number }
 	| undefined {
-	let start = messages.length - 1;
-	while (start >= 0 && !said(messages[start])) start -= 1;
+	const start = lastSaidAt(messages);
 	const turn = start < 0 ? undefined : asked(textOf(messages[start]));
 	if (turn === undefined) return undefined;
 	const round = messages.slice(start + 1).filter(isToolResult).length;
 	return { turn, round };
+}
+
+/** Where the last message the person said sits in `messages`, or -1 with none. */
+function lastSaidAt(messages: readonly unknown[]): number {
+	let at = messages.length - 1;
+	while (at >= 0 && !said(messages[at])) at -= 1;
+	return at;
+}
+
+/** The last message the person said in `messages`, or nothing with none. */
+function lastSaid(messages: readonly unknown[]): unknown {
+	return messages[lastSaidAt(messages)];
 }
 
 /** How many rounds of work come before `turn`'s own answer, at `rounds`. */
@@ -185,6 +352,12 @@ function blockFor(
 				name: "bash",
 				input: { command: JOB, background: true },
 			};
+		case "steer":
+			return {
+				type: "tool_use",
+				name: "bash",
+				input: { command: `echo soak steer ${tag}` },
+			};
 		case "long":
 			return {
 				type: "text",
@@ -193,6 +366,10 @@ function blockFor(
 					ack,
 				].join("\n"),
 			};
+		// An abort's answer is held until the turn is aborted; one let go
+		// answers as an echo does.
+		case "abort":
+		case "compact":
 		case "echo":
 			return { type: "text", text: `heard, ${ack}` };
 	}

@@ -9,6 +9,11 @@ import {
 	acknowledged,
 	asked,
 	checkpointsOf,
+	focusOf,
+	KINDS,
+	steeredIn,
+	steerOf,
+	summaryOf,
 	turnsOf,
 	visitsOf,
 } from "./turns.ts";
@@ -25,9 +30,7 @@ describe("the soak's turns", () => {
 
 	it("ask for every kind of turn, mostly echoes", () => {
 		const kinds = turnsOf(0, 34).map((turn) => turn.kind);
-		expect(new Set(kinds), "each kind comes up").toEqual(
-			new Set(["echo", "read", "bash", "job", "long"]),
-		);
+		expect(new Set(kinds), "each kind comes up").toEqual(new Set(KINDS));
 		expect(
 			kinds.filter((kind) => kind === "echo").length,
 			"most turns echo",
@@ -43,6 +46,52 @@ describe("the soak's turns", () => {
 		expect(asked("hello there"), "other words aren't the soak's").toBe(
 			undefined,
 		);
+	});
+
+	it("never open a conversation on a compaction, which has nothing to compact", () => {
+		expect(
+			turnsOf(13, 1)[0]?.kind,
+			"c13's first falls on a compaction's place",
+		).toBe("echo");
+		expect(turnsOf(0, 15)[14]?.kind, "later, it compacts").toBe("compact");
+	});
+
+	it("compact through the command, its focus naming the turn", () => {
+		const compact = turnsOf(0, 15)[14];
+		expect(compact?.prompt, "typed as the command").toMatch(
+			/^\/compact soak c0-t14 /,
+		);
+		expect(
+			compact && asked(focusOf(compact)),
+			"the focus alone names it",
+		).toEqual({
+			tag: "c0-t14",
+			kind: "compact",
+		});
+		expect(asked(summaryOf("c0-t14")), "the summary asks nothing").toBe(
+			undefined,
+		);
+		expect(summaryOf("c0-t14"), "the summary names the turn").toContain(
+			"c0-t14",
+		);
+	});
+
+	it("read the last turn asked for when earlier ones are quoted before it", () => {
+		expect(
+			asked(
+				"[User]: soak c0-t3 bash, please\n\nAdditional focus: soak c0-t14 compact, please",
+			),
+			"a summary's request",
+		).toEqual({ tag: "c0-t14", kind: "compact" });
+	});
+
+	it("steer with words that name the turn and ask for none", () => {
+		expect(steeredIn(steerOf("c1-t5")), "the steered turn").toBe("c1-t5");
+		expect(asked(steerOf("c1-t5")), "not a turn of its own").toBe(undefined);
+		expect(
+			steeredIn("soak c1-t5 steer, please"),
+			"the steer turn's prompt",
+		).toBe(undefined);
 	});
 
 	it("end on an acknowledgement no longer tag contains", () => {

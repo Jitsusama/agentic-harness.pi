@@ -2,8 +2,8 @@
  * What the soak reports: each turn's latency from its prompt's entry to
  * its final answer's, the 50th and 99th percentiles, a series of
  * weighings judged settled or growing, and the differences between a
- * hosted log and plain pi's once each side's folder is a label. And what
- * its provider answers each request with.
+ * hosted log and plain pi's once each side's folder is a label.
+ * soak-provider.test.ts says what its provider answers.
  */
 import { describe, expect, it } from "vitest";
 import { plainKeys } from "./keys.ts";
@@ -26,7 +26,7 @@ import {
 	turnRecords,
 	turnTimes,
 } from "./report.ts";
-import { answerTo, JOB } from "./soak-provider.ts";
+import { steerOf, summaryOf } from "./turns.ts";
 
 /** A message entry of a log, at `at` seconds past a fixed minute. */
 function entry(
@@ -55,6 +55,40 @@ describe("a soak's latencies", () => {
 		expect(latencies(log), "two turns, three and two seconds").toEqual([
 			{ tag: "c0-t0", ms: 3000 },
 			{ tag: "c0-t1", ms: 2000 },
+		]);
+	});
+
+	it("run an abort turn to its aborted answer, which acknowledges nothing", () => {
+		const aborted = entry("assistant", [], 4);
+		const cut = {
+			...aborted,
+			message: { role: "assistant", content: [], stopReason: "aborted" },
+		};
+		const log = [
+			entry("user", "soak c0-t9 abort, please", 0),
+			cut,
+			entry("user", "soak c0-t10 echo, please", 10),
+			entry("assistant", [{ type: "text", text: "heard, ack c0-t10." }], 11),
+		];
+		expect(
+			latencies(log),
+			"the abort's four seconds, then the echo's one",
+		).toEqual([
+			{ tag: "c0-t9", ms: 4000 },
+			{ tag: "c0-t10", ms: 1000 },
+		]);
+	});
+
+	it("run a steer turn from its prompt, not from the words it was steered with", () => {
+		const log = [
+			entry("user", "soak c1-t5 steer, please", 0),
+			entry("assistant", [{ type: "toolCall", name: "bash" }], 1),
+			entry("toolResult", [{ type: "text", text: "soak steer c1-t5" }], 2),
+			entry("user", [{ type: "text", text: steerOf("c1-t5") }], 2),
+			entry("assistant", [{ type: "text", text: "steered, ack c1-t5." }], 3),
+		];
+		expect(latencies(log), "one turn of three seconds").toEqual([
+			{ tag: "c1-t5", ms: 3000 },
 		]);
 	});
 
@@ -683,6 +717,65 @@ describe("a soak's parity, past what differs on every run", () => {
 	});
 });
 
+describe("a soak's parity, past what each mode and restart writes", () => {
+	const roots = { hosted: "/h", plain: "/p" };
+	const aborted = (errorMessage: string) => ({
+		...entry("assistant", [], 1),
+		message: { role: "assistant", stopReason: "aborted", errorMessage },
+	});
+	const compacted = (firstKeptEntryId: string) => ({
+		type: "compaction",
+		summary: summaryOf("c0-t14"),
+		firstKeptEntryId,
+	});
+	const cutOff = { type: "custom", customType: "job-session-cut-off" };
+
+	it("expects interactive mode's name for an aborted answer's error, and no other", () => {
+		expect(
+			parityOf(
+				[aborted("Operation aborted")],
+				[aborted("Request aborted")],
+				roots,
+			).unexpected,
+			"interactive mode names it itself",
+		).toBe(0);
+		expect(
+			parityOf(
+				[aborted("Operation aborted")],
+				[aborted("Connection reset")],
+				roots,
+			).unexpected,
+			"another error still counts",
+		).toBe(1);
+	});
+
+	it("expects a compaction to keep from an entry each side names its own way", () => {
+		expect(
+			parityOf([compacted("a1b2c3d4")], [compacted("e5f6a7b8")], roots)
+				.unexpected,
+			"ids drawn apart",
+		).toBe(0);
+	});
+
+	it("compares a restarted conversation's messages alone, and says so", () => {
+		const echo = entry("assistant", "heard, ack c1-t5.", 3);
+		const restarted = parityOf([cutOff, echo], [echo], roots, true);
+		expect(restarted, "the host's own record of the restart").toMatchObject({
+			customsLeftOut: true,
+			unexpected: 0,
+		});
+		expect(
+			parityOf([cutOff, echo], [echo], roots).unexpected,
+			"counted where nothing restarted",
+		).toBe(1);
+		expect(
+			parityOf([cutOff, entry("assistant", "other", 3)], [echo], roots, true)
+				.unexpected,
+			"its messages still compared",
+		).toBeGreaterThan(0);
+	});
+});
+
 describe("a soak's parity, past the provider's numbering", () => {
 	it("leaves out the id the provider numbers its answers by", () => {
 		const answered = (id: string) => ({
@@ -696,53 +789,5 @@ describe("a soak's parity, past the provider's numbering", () => {
 			}).differences,
 			"the same answer, numbered apart",
 		).toBe(0);
-	});
-});
-
-describe("the soak's provider", () => {
-	const user = (text: string) => ({ role: "user", content: text });
-	const result = {
-		role: "user",
-		content: [{ type: "tool_result", tool_use_id: "call_1", content: "ok" }],
-	};
-
-	it("echoes an echo turn, acknowledging its tag", () => {
-		expect(answerTo([user("soak c0-t1 echo, please")]), "an echo").toEqual({
-			type: "text",
-			text: "heard, ack c0-t1.",
-		});
-	});
-
-	it("runs a job turn's bash in the background", () => {
-		expect(answerTo([user("soak c0-t7 job, please")]), "a job").toEqual({
-			type: "tool_use",
-			name: "bash",
-			input: { command: JOB, background: true },
-		});
-	});
-
-	it("acknowledges a tool's result with the turn's tag", () => {
-		expect(
-			answerTo([
-				user("soak c2-t0 read, please"),
-				{ role: "assistant" },
-				result,
-			]),
-			"after the read",
-		).toEqual({ type: "text", text: "done, ack c2-t0." });
-	});
-
-	it("ends a long answer on its acknowledgement", () => {
-		const block = answerTo([user("soak c0-t11 long, please")]);
-		const text = block.type === "text" ? block.text : "";
-		expect(text.split("\n").length, "120 lines").toBe(120);
-		expect(text.endsWith("ack c0-t11."), text.slice(-40)).toBe(true);
-	});
-
-	it("answers a request with no soak prompt in it all the same", () => {
-		expect(answerTo([user("name this session")]), "unscripted").toEqual({
-			type: "text",
-			text: "soak mock",
-		});
 	});
 });

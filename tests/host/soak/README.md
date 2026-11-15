@@ -17,12 +17,27 @@ host adds, and records that drift from plain pi's.
   instant; with no pace they start at once. Under `--restart`, once the
   turns are done every conversation parks, the host restarts on the same
   state, and the fresh host is timed to its socket answering and to
-  every conversation woken by a window at once.
+  every conversation woken by a window at once. Under `--restart-mid`,
+  every conversation's first turn after the middle checkpoint is held
+  mid-answer while the host restarts as systemd restarts it, and the
+  fresh host is timed to its socket and to each cut-off turn answered as
+  durable carries it on; a turn the person drives (a steer, an abort, a
+  compaction) is typed after the restart instead. Each side warms
+  jiti's cache before its timed run, as a live host's stays warm, and
+  says those starts apart as the cold open; `--cold` leaves it cold.
 - `turns.ts`: the script, the same on every run of the same sizes, with
-  reads, bash, background bash jobs and long answers among the echoes.
+  reads, bash, background bash jobs and long answers among the echoes,
+  and a person's own moves: a steer typed while its turn runs a tool, an
+  Escape that aborts a turn, and `/compact` with a focus naming the turn.
+  The provider holds a steer's or an abort's answer until the steer
+  shows pending or the abort has cut it, on either side, so both land
+  mid-turn the same way each run.
 - `soak-provider.ts`: the model, an Anthropic-messages endpoint on
   127.0.0.1 that answers without end, so both sides run pi's real
   provider code, at once or at a pace.
+- `soak-real.ts`: the real-model slice, under `--real MODEL`: the
+  provider passes each request on to MODEL at the AI proxy, the soak's
+  rules added to the system prompt, and counts every refusal.
 - `pace.ts`: how long each answer and each bash command takes and how
   many rounds a turn has under a pace, drawn through a median and a
   90th percentile, the same for the same turn on either side and on
@@ -34,11 +49,31 @@ host adds, and records that drift from plain pi's.
 - `profile.ts`: where each side's time went, from the CPU profiles node
   writes under `--profile`, by area and by function, in all or within a
   stretch of wall time.
+- `week.json` and `week.ts`: a real week's turns, the prompts typed in
+  each of 594 session logs of 7 to 14 November on optimus, and how they
+  are cut into seven days of 20 conversations, each conversation one of
+  the day's busiest sessions with quiet ones after it.
+- `day.ts` and `day.mts`: a day's run, its turns from `week.ts` and what
+  its run left: the report cut into the files a reader checks it by, and
+  the day's figures, with the bursts and the opening's loop beside the
+  bar.
 - `soak.test.ts`: the soak at its smallest, two conversations of two turns,
   once with no parking, once parked and woken in turn, and once woken
-  in a burst and through a restart, in `pnpm test:host`.
+  in a burst and through a restart; and two of ten turns, which take
+  every kind through a restart mid-run; in `pnpm test:host`.
 
-## Running a Week
+## Running a Day of the Week
+
+`scripts/soak-day.sh DAY OUT` runs day DAY (1 to 7) of the real week on
+lent builders from the commit checked out, in two runs of a lender each:
+the day's turns unpaced, with a burst of wakes at each of 24
+checkpoints, a restart mid-run and one at the end, then 20 conversations
+of 4 turns at the real pace below. Each run's lines go to `OUT/<run>.log`
+and its report, cut into files, to `OUT/<run>/`. Run it under
+`systemd-run --user --scope`, so nothing that restarts the session
+running it cuts it off.
+
+## Running by Hand
 
 Size the turns from a week of real logs: one count a conversation, the
 busiest among them, ten conversations at least. Run it on a lent builder,
@@ -51,6 +86,32 @@ nix-offload there --never-ask --run --copy "$runtime" --longest 14400 -- \
     pnpm install --frozen-lockfile > /dev/null 2>&1 || pnpm install --frozen-lockfile
     PI_HOST_RUNTIME=$runtime node --no-warnings tests/host/soak/soak.mts \
       --turns 120,60,40,40,30,30,20,20,10,10 --checkpoints 8"
+```
+
+## Running With a Real Model
+
+The script's model takes any conversation; a real API refuses one whose
+tool results don't follow their calls or whose signed thinking changed,
+which is how a host that carried, parked or restored a conversation
+wrongly shows. `--real MODEL` passes every request on to MODEL at the AI
+proxy (`SHOPIFY_PI_PROXY_ORIGIN`, or `https://proxy.shopify.ai`), with
+the soak's rules after pi's system prompt telling the model what each
+kind of turn asks of it, and thinking on at `low`. Each refusal is a
+fault. It takes the key from `SHOPIFY_PROXY_KEY` in its own environment
+and sends it only in each request's header to the proxy: neither side's
+sealed home has it. A lender has no key, so run it on this machine, in
+sealed hosts of its own, under `systemd-run --user --scope`, and keep it
+small: claude-haiku-5-5 takes about a dime a million tokens read.
+
+`scripts/soak-real.sh MODEL OUT` runs the day's slice so: 4
+conversations of 10 turns through a restart mid-run and one at the end,
+once the machine's memory isn't under pressure, its lines to
+`OUT/real.log` and its report, cut into files as a day's are, to
+`OUT/real/`. At about 30,000 tokens a request, its 120 or so requests
+cost well under a dollar.
+
+```sh
+systemd-run --user --scope -- scripts/soak-real.sh claude-haiku-5-5 "$out"
 ```
 
 ## Running at a Real Pace
@@ -80,9 +141,19 @@ It prints a line a checkpoint and the report as one JSON line after
 `soak report:`. The report holds:
 
 - `pace`: the pace it ran at, empty for none.
-- `opened`: how long opening every conversation took and the host's
+- `coldOpen`, unless `--cold`: each side's first start on a cold jiti
+  cache, which no live start pays, since a live host keeps the
+  harness's transpiled files in its TMPDIR from one start to the next.
+  `hosted` is a host in a seal of its own opening one conversation, and
+  its loop's worst while it did; `plainMs` is one plain pi starting in
+  plain's seal. Each side's cache is warm before its timed run, so these
+  stay out of `opened` and the bar.
+- `opened`: how long opening every conversation took, one after
+  another, each open answered before the next is asked, and the host's
   weighing once all had, so its loop figures cover the opening alone
-  and the first checkpoint's start after it.
+  and the first checkpoint's start after it. A storm of wakes all at
+  once is `burstWakes` under `--burst` and `restart.wakes` under
+  `--restart`.
 
 - `checkpoints`: the host's RSS, PSS, swapped PSS, heap used, heap
   total, external and array buffers after its garbage is collected,
@@ -180,8 +251,20 @@ It prints a line a checkpoint and the report as one JSON line after
 - `parity`: each conversation's log against plain pi's, entries aligned
   by type, with ids, times and each side's folder left out. `unexpected`
   counts the differences outside the places that differ on every run
-  (an entry's source, a job's id, the journal's trace), and `first`
-  names those before the rest.
+  (an entry's source, a job's id, the journal's trace, the entry a
+  compaction keeps from, and the error interactive mode names an aborted
+  answer by), and `first` names those before the rest. A conversation
+  `--restart-mid` cut is `customsLeftOut`: the host keeps its own records
+  of the restart and of the turn it carried on, which plain pi has none
+  of, so its messages alone are compared. Under `--real`, each entry is
+  compared by its shape alone: its type, who said it, how it stopped,
+  its parts and the tools it called.
+- `real`, under `--real`: the model, every request it refused with its
+  status and the start of what it said, and the tokens each side's
+  answers took.
+- `restartMid`, under `--restart-mid`: how long the host took to stop
+  and its socket to answer, the conversations' states then, the turns
+  cut off, and how long after the restart began each was answered.
 - `faults`, `hostErrors` and `plainErrors`: what went wrong.
 - `plainProcesses`: what one process a conversation costs, measured on
   plain pi. `readyMs` spreads each plain pi's time from its start to

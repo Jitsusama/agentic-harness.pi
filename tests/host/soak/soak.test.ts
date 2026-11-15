@@ -3,7 +3,11 @@
  * through one host and through plain pi, once with no parking, once
  * parked and woken in turn, and once parked and woken in a burst and
  * then through a host restart, so a change that breaks the soak is found by
- * test:host rather than on the night a week's run is due. A week's run
+ * test:host rather than on the night a week's run is due. And once at ten
+ * turns each, which takes every kind of turn (a steer, an abort and a
+ * compaction among them) through a planned restart mid-run. And once
+ * through the real-model slice's door, the script's own model standing
+ * in for the AI proxy. A week's run
  * goes on a lent builder by hand, as README.md says.
  */
 import { spawn } from "node:child_process";
@@ -18,6 +22,7 @@ import {
 	hostPackageDir,
 	hostPiMissing,
 } from "../end-to-end/support/host-pi.ts";
+import { soakProvider } from "./soak-provider.ts";
 
 const packageDir = hostPackageDir();
 if (!packageDir && process.env[HOST_PI_REQUIRED])
@@ -29,6 +34,8 @@ const RUN_MS = 600_000;
 const out = mkdtempSync(join(tmpdir(), "soak-"));
 const parkedOut = mkdtempSync(join(tmpdir(), "soak-parked-"));
 const burstOut = mkdtempSync(join(tmpdir(), "soak-burst-"));
+const midOut = mkdtempSync(join(tmpdir(), "soak-mid-"));
+const realOut = mkdtempSync(join(tmpdir(), "soak-real-"));
 
 describe.skipIf(!packageDir)(
 	"the soak (needs a pi with the host's patches: pnpm test:host)",
@@ -130,6 +137,21 @@ describe.skipIf(!packageDir)(
 					},
 					slowKeys: expect.any(Array),
 				});
+				expect(
+					report,
+					"each side's start on a cold cache, said apart from the opening",
+				).toMatchObject({
+					coldOpen: {
+						hosted: {
+							ms: expect.any(Number),
+							loopMaxMs: expect.any(Number),
+						},
+						plainMs: expect.any(Number),
+					},
+				});
+				expect(said, "a line says the cold open").toMatch(
+					/cold open \d+ ms, loop max \d+ ms/,
+				);
 				expect(said, "a line says the opening's loop").toMatch(
 					/opened all 2 in \d+ ms, loop p99 \d+ ms/,
 				);
@@ -238,10 +260,138 @@ describe.skipIf(!packageDir)(
 	},
 );
 
-/** Run the smallest soak into `into`, with `extra` arguments: what it said and its report. */
+describe.skipIf(!packageDir)(
+	"the soak, restarted mid-run (needs a pi with the host's patches: pnpm test:host)",
+	() => {
+		afterAll(() => rmSync(midOut, { recursive: true, force: true }));
+
+		it(
+			"steers, aborts and compacts on both sides, and carries a turn the restart cut off to its answer",
+			async () => {
+				const { said, report } = await soaked(
+					midOut,
+					["--restart-mid"],
+					["10,10", "2"],
+				);
+				expect(report, said).toMatchObject({ turns: 20, faults: [] });
+				expect(
+					isRecord(report) ? report.kinds : undefined,
+					"every kind of turn, counted",
+				).toEqual({
+					echo: 10,
+					read: 1,
+					bash: 1,
+					steer: 2,
+					job: 2,
+					abort: 2,
+					long: 1,
+					compact: 1,
+				});
+				// At the first checkpoint's turn, c0-t5 is a steer, which the person
+				// drives and nothing carries; c1-t5 is an echo, held as it's asked.
+				expect(
+					isRecord(report) ? report.restartMid : undefined,
+					"a planned restart while a turn was asked, carried on to its answer",
+				).toMatchObject({
+					stopMs: expect.any(Number),
+					toSocketMs: expect.any(Number),
+					cut: ["c1-t5"],
+					answered: [{ tag: "c1-t5", ms: expect.any(Number) }],
+				});
+				expect(said, "a line says the restart").toMatch(
+					/restart mid-run: stopped in \d+ ms, socket in \d+ ms/,
+				);
+				expect(
+					isRecord(report) ? report.latency : undefined,
+					"each side's latency past the compaction, which asks nothing, and the turn cut off",
+				).toMatchObject({
+					hosted: { count: 18 },
+					plain: { count: 18 },
+					paired: { count: 18, unpaired: 0 },
+				});
+				expect(
+					isRecord(report) && Array.isArray(report.parity)
+						? report.parity.map((one) =>
+								isRecord(one) ? one.unexpected : undefined,
+							)
+						: undefined,
+					"each conversation's record matches plain pi's past what differs on every run",
+				).toEqual([0, 0]);
+				expect(
+					isRecord(report) && Array.isArray(report.parity)
+						? report.parity.map((one) =>
+								isRecord(one) ? one.customsLeftOut : undefined,
+							)
+						: undefined,
+					"only the conversation the restart cut leaves the host's own records out",
+				).toEqual([undefined, true]);
+			},
+			RUN_MS,
+		);
+	},
+);
+
+describe.skipIf(!packageDir)(
+	"the soak, through the real-model slice's door (needs a pi with the host's patches: pnpm test:host)",
+	() => {
+		afterAll(() => rmSync(realOut, { recursive: true, force: true }));
+
+		it(
+			"passes every request on, holds, steers and aborts through it, and compares by shape",
+			async () => {
+				// The script's own model stands in for the AI proxy, so every kind
+				// a real slice takes goes through its door at no cost.
+				const standIn = await soakProvider();
+				try {
+					const { said, report } = await soaked(
+						realOut,
+						["--real", "stand-in"],
+						["6,6", "1"],
+						{
+							SHOPIFY_PI_PROXY_ORIGIN: standIn.endpoint,
+							SHOPIFY_PROXY_KEY: "stand-in-key",
+						},
+					);
+					expect(report, said).toMatchObject({
+						turns: 12,
+						faults: [],
+						kinds: { read: 1, bash: 1, steer: 2, job: 1, abort: 1 },
+						real: { model: "stand-in", refusals: [] },
+					});
+					expect(
+						standIn.answered(),
+						"every request reached the stand-in",
+					).toBeGreaterThan(12);
+					const real = isRecord(report) ? report.real : undefined;
+					expect(
+						isRecord(real) && isRecord(real.usage)
+							? real.usage.hosted
+							: undefined,
+						"each answer's tokens, as the stand-in said them",
+					).toMatchObject({ input: expect.any(Number) });
+					expect(
+						isRecord(report) && Array.isArray(report.parity)
+							? report.parity.map((one) =>
+									isRecord(one) ? one.unexpected : undefined,
+								)
+							: undefined,
+						"each conversation's record has plain pi's shape",
+					).toEqual([0, 0]);
+				} finally {
+					await standIn.close();
+				}
+			},
+			RUN_MS,
+		);
+	},
+);
+
+/** Run a soak into `into`, the smallest unless `size` gives its turns and checkpoints, with `env` added to its environment: what it said and its report. */
 async function soaked(
 	into: string,
 	extra: readonly string[],
+	[turns, checkpoints]: readonly [string, string] = ["2,2", "1"],
+	env: Readonly<Record<string, string>> = {},
 ): Promise<{ said: string; report: unknown }> {
 	const child = spawn(
 		process.execPath,
@@ -249,14 +399,14 @@ async function soaked(
 			"--no-warnings",
 			SOAK,
 			"--turns",
-			"2,2",
+			turns,
 			"--checkpoints",
-			"1",
+			checkpoints,
 			...extra,
 			"--out",
 			into,
 		],
-		{ stdio: ["ignore", "pipe", "pipe"] },
+		{ stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } },
 	);
 	let said = "";
 	child.stdout.on("data", (chunk) => {
