@@ -59,6 +59,7 @@ lib/internal/priority/push-hooks.mjs 10
 lib/internal/priority/queue.ts 19
 lib/internal/quest/alias-index.ts 1
 lib/internal/quest/body-edits.ts 19
+lib/internal/quest/doing.ts 1
 lib/internal/quest/id.ts 2
 lib/internal/quest/journey-sweep.ts 4
 lib/internal/quest/journey.ts 10
