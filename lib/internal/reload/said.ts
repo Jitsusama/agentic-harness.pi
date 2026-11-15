@@ -14,12 +14,16 @@
  * on 12 November the first start of each pi after a swap transpiled all
  * 1,120 files again: 15 s cold against 1.4 s warm. pi-packages warms the
  * cache before a swap through each pi a file names, since another pi's
- * jiti may name or tag its entries differently.
+ * jiti may name or tag its entries differently. A process keeps the pi
+ * it said first, since its pi can't change: a host says its own as it
+ * starts, and each conversation it loads leaves out the host's
+ * `PI_PACKAGE_DIR`, so can't name it again.
  */
 
 import {
 	existsSync,
 	mkdirSync,
+	readFileSync,
 	realpathSync,
 	renameSync,
 	rmSync,
@@ -140,13 +144,39 @@ export function sayLoadedIn(
 ): string | undefined {
 	const dir = dirname(file);
 	const writing = join(dir, `.${basename(file)}.new`);
+	const named = pi ?? piSaidIn(file);
 	try {
 		mkdirSync(dir, { recursive: true });
-		writeFileSync(writing, `${JSON.stringify(pi ? { root, pi } : { root })}\n`);
+		writeFileSync(
+			writing,
+			`${JSON.stringify(named ? { root, pi: named } : { root })}\n`,
+		);
 		renameSync(writing, file);
 		return file;
 	} catch {
 		// See above: an unsaid pi keeps its versions by its maps.
+		return undefined;
+	}
+}
+
+/** Whether a value names a pi as a file says it. */
+function isRunningPi(value: unknown): value is RunningPi {
+	if (typeof value !== "object" || value === null) return false;
+	const { bundle, node, tmp } = Object.fromEntries(Object.entries(value));
+	return [bundle, node, tmp].every((field) => typeof field === "string");
+}
+
+/** The pi a file already says its process runs, or nothing when it names none. */
+function piSaidIn(file: string): RunningPi | undefined {
+	try {
+		const said: unknown = JSON.parse(readFileSync(file, "utf8"));
+		const pi =
+			typeof said === "object" && said !== null
+				? Object.fromEntries(Object.entries(said)).pi
+				: undefined;
+		return isRunningPi(pi) ? pi : undefined;
+	} catch {
+		// No file yet, or one half-read: there is no pi said before to keep.
 		return undefined;
 	}
 }

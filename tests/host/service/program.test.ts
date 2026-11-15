@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	conversationBase,
 	conversationLaunch,
@@ -199,6 +199,11 @@ describe("hostPackageDir", () => {
 });
 
 describe("sayHostRuns", () => {
+	// Which pi runs is said.test.ts's to check; a session running these
+	// tests may name its own pi, which would otherwise land in the file.
+	beforeEach(() => vi.stubEnv("PI_PACKAGE_DIR", ""));
+	afterEach(() => vi.unstubAllEnvs());
+
 	it("says in the install's loaded folder which version the host runs, as a pi does", async () => {
 		const install = join(dir, "github.com", "Jitsusama", "agentic-harness.pi");
 		const root = join(
