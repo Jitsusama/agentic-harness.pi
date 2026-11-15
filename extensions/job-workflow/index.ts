@@ -115,7 +115,8 @@ function recordCutOff(
 	const jobs = (session?.jobs.list() ?? [])
 		.filter((job) => job.state === "running")
 		.map((job) => ({ id: job.id, label: job.spec.label }));
-	const record = endedRecord(running, jobs, Date.now());
+	// A host parks a run it stops and carries it on at the next start (cut-off.ts).
+	const record = endedRecord(running, jobs, Date.now(), hosted() !== undefined);
 	if (record === undefined) return;
 	try {
 		pi.appendEntry(CUT_OFF_ENTRY, record);
@@ -144,7 +145,8 @@ function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
 		// No history to read: nothing to resume.
 		return;
 	}
-	const cut = cutOffIn(branch);
+	// Only a host carries a parked run on; plain pi takes nothing up.
+	const cut = cutOffIn(branch, hosted() !== undefined);
 	if (cut === undefined) return;
 	session.outbox.post({
 		jobId: "cut-off",
