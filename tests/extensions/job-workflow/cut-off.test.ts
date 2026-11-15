@@ -298,11 +298,7 @@ describe("the job workflow, at a session's end and its return", () => {
 	it("tells plain pi what ended the run when a move back to it did", async () => {
 		const by = "a move to plain pi that waited 5 minutes on its run";
 		const pi = activate(
-			[
-				message("user"),
-				ended(cutByMove(by, Date.parse(AT))),
-				aborted,
-			],
+			[message("user"), ended(cutByMove(by, Date.parse(AT))), aborted],
 			new EventEmitter(),
 		);
 		await pi.fire("session_start", { reason: "startup" });
