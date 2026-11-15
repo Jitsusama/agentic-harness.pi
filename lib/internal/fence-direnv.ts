@@ -25,6 +25,7 @@
  * still refused when it is a link or someone else's.
  */
 
+import { randomBytes } from "node:crypto";
 import {
 	lstatSync,
 	mkdirSync,
@@ -62,6 +63,24 @@ export function personDirenvConfig(
 	return (
 		env[DIRENV_VARIABLE] ??
 		join(env.XDG_CONFIG_HOME ?? join(home, ".config"), FOLDER)
+	);
+}
+
+/**
+ * The fence's direnv settings for a person at `home` with `env`: a
+ * tree cut a minute ago was never approved, and the person's allow
+ * list is read-only inside, so each of `trusted` is trusted in
+ * settings only a fenced direnv reads.
+ */
+export function fencedDirenv(
+	home: string,
+	env: Readonly<Record<string, string | undefined>>,
+	trusted: readonly string[],
+): string | undefined {
+	return fenceDirenv(
+		personDirenvConfig(home, env),
+		env.XDG_RUNTIME_DIR,
+		trusted,
 	);
 }
 
@@ -169,7 +188,7 @@ function writeWhole(path: string, text: string): void {
 	} catch {
 		// Not there yet: it's written below.
 	}
-	const half = `${path}.${process.pid}.${Date.now()}`;
+	const half = `${path}.${randomBytes(6).toString("hex")}`;
 	writeFileSync(half, text, { mode: 0o600 });
 	renameSync(half, path);
 }
