@@ -434,7 +434,7 @@ describe("closing its window as it parks", () => {
 				]);
 			}
 			if (program === "qs") return given.kept ?? "kept";
-			if (call === `kitten @ --to ${SOCKET} ls`) {
+			if (call.startsWith(`kitten @ --to ${SOCKET} ls --match id:`)) {
 				return JSON.stringify([
 					{ wm_class: "pi-session.1", tabs: [{ windows: [{ id: 33 }] }] },
 				]);

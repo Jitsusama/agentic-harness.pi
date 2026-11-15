@@ -41,6 +41,12 @@ import {
 /** How long each desktop program may take to answer. */
 export const DESKTOP_TIMEOUT_MS = 3_000;
 
+/**
+ * How much a desktop program may print. Node's own cap is 1 MB, and
+ * kitty's list of 77 windows ran to 1.65 MB.
+ */
+export const DESKTOP_OUTPUT_BYTES = 64 * 1024 * 1024;
+
 /** The launcher's answer when it has kept a window's place. */
 export const KEPT = "kept";
 
@@ -52,6 +58,7 @@ export const runProgram: Run = (program, args) =>
 	execFileSync(program, [...args], {
 		encoding: "utf8",
 		timeout: DESKTOP_TIMEOUT_MS,
+		maxBuffer: DESKTOP_OUTPUT_BYTES,
 		stdio: ["ignore", "pipe", "ignore"],
 	});
 
@@ -169,7 +176,14 @@ export function closeWindow(window: HeldWindow, run: Run): string | undefined {
 	}
 	try {
 		const ls: unknown = JSON.parse(
-			run("kitten", ["@", "--to", window.within, "ls"]),
+			run("kitten", [
+				"@",
+				"--to",
+				window.within,
+				"ls",
+				"--match",
+				`id:${window.id}`,
+			]),
 		);
 		if (!kittyShows(ls, window)) {
 			return `kitty shows no window ${window.id} of class ${window.appId}`;

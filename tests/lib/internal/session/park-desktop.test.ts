@@ -93,7 +93,7 @@ function desk(given: Given = {}): Desk & { calls: string[] } {
 			return JSON.stringify(late === null ? null : { id: 9, app_id: late });
 		}
 		if (program === "qs") return `${given.kept ?? "kept"}\n`;
-		if (call === `kitten @ --to ${SOCKET} ls`) {
+		if (call === LS) {
 			return JSON.stringify([
 				{
 					id: 2,
@@ -108,11 +108,19 @@ function desk(given: Given = {}): Desk & { calls: string[] } {
 }
 
 const CLOSE = `kitten @ --to ${SOCKET} close-window --match id:33`;
+const LS = `kitten @ --to ${SOCKET} ls --match id:33`;
 const KEEP = "qs ipc call sessions keepPlaceAsleep s-1";
 
 describe("runProgram", () => {
 	it("answers what the program printed", () => {
 		expect(runProgram("printf", ["%s", "said"])).toBe("said");
+	});
+
+	it("answers all of what a program printed past a megabyte", () => {
+		// kitty's list of 77 windows here ran to 1.65 MB.
+		const printed = runProgram("seq", ["1", "300000"]);
+		expect(printed.length).toBeGreaterThan(1_048_576);
+		expect(printed.endsWith("300000\n")).toBe(true);
 	});
 
 	it("throws when the program fails", () => {
@@ -258,6 +266,13 @@ describe("inSight", () => {
 });
 
 describe("closeWindow", () => {
+	it("asks kitty for its one window rather than every window", () => {
+		const at = desk();
+		expect(closeWindow(WINDOW, at.run)).toBeUndefined();
+		expect(at.calls).toContain(LS);
+		expect(at.calls).toContain(CLOSE);
+	});
+
 	it("closes nothing when kitty's window of that id is another's", () => {
 		const at = desk({ kittyClass: "pi-session.9" });
 		expect(closeWindow(WINDOW, at.run)).toBe(
