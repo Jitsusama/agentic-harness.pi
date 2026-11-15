@@ -52,11 +52,22 @@ beforeEach(() => {
 	root = mkdtempSync(join(tmpdir(), "shared-slice-"));
 	bin = join(root, "bin");
 	mkdirSync(bin);
-	// systemd-run as it runs a scope: what it was asked, then the command.
+	// systemd-run as it runs a scope: what it was asked, then the command,
+	// each ${...} in it expanded first, as systemd-run does unless told
+	// --expand-environment=no; a name it can't read, such as an array's,
+	// fails the run before the command starts, as systemd 262 does.
 	const standIn = join(bin, "systemd-run");
 	writeFileSync(
 		standIn,
-		`#!/usr/bin/env bash\nprintf '%s\\n' "$@" | head -6 > '${join(root, "asked")}'\nwhile [ "$1" != -- ]; do shift; done; shift\nexec "$@"\n`,
+		[
+			"#!/usr/bin/env bash",
+			`printf '%s\\n' "$@" | head -7 > '${join(root, "asked")}'`,
+			"expand=yes",
+			'while [ "$1" != -- ]; do [ "$1" = --expand-environment=no ] && expand=no; shift; done; shift',
+			`if [ $expand = yes ] && printf '%s' "$*" | grep -q '\\\${[^}]*\\['; then echo 'Invalid environment variable name evaluates to an empty string' >&2; exit 1; fi`,
+			'exec "$@"',
+			"",
+		].join("\n"),
 	);
 	chmodSync(standIn, 0o755);
 });
@@ -79,8 +90,21 @@ describe("a command run in the shared slice", () => {
 			"--quiet",
 			"--collect",
 			"--slice=shared.slice",
+			"--expand-environment=no",
 			"--",
 		]);
+	});
+
+	// ISXEG8 [e38b55c4], 15 November: a fenced fetch of World's main lost
+	// the fence's "${__pi_env[@]}" to systemd-run, and never ran.
+	it("keeps each braced variable for the command's own shell to expand", () => {
+		const command = `a=(one two); echo "\${a[@]} \${HOME_TOO}" >> "$OUT"`;
+		const ran = run(inSharedSlice(command), { SHARED_SLICE: "shared.slice" });
+		expect({ status: ran.status, stderr: ran.stderr }).toEqual({
+			status: 0,
+			stderr: "",
+		});
+		expect(said("out")).toEqual(["one two kept"]);
 	});
 
 	it("runs as it was where neither the session nor the system names a slice", () => {

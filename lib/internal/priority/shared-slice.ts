@@ -31,6 +31,12 @@ export const SYSTEM_ENVIRONMENT = "/etc/set-environment";
  * `systemd-run` or runtime folder to reach the person's systemd through,
  * it runs as it was: `systemd-run` that can't reach it fails without
  * running the command at all.
+ *
+ * systemd-run expands each `${...}` in a command's words itself unless
+ * told not to, so the command's own shell never saw them: a fenced
+ * fetch of World's main lost the fence's `"${__pi_env[@]}"` that way
+ * and never ran (ISXEG8, 15 November). It is told not to, which systemd
+ * has understood since version 254.
  */
 export function inSharedSlice(
 	command: string,
@@ -42,7 +48,7 @@ export function inSharedSlice(
 		// Read in a subshell, so nothing else the file sets reaches the command.
 		`[ -n "\${${SHARED_SLICE_VARIABLE}:-}" ] || ${SHARED_SLICE_VARIABLE}=$( [ -r ${file} ] && . ${file} > /dev/null 2>&1; printf '%s' "\${${SHARED_SLICE_VARIABLE}:-}")`,
 		`if [ -n "\${${SHARED_SLICE_VARIABLE}:-}" ] && [ -n "\${XDG_RUNTIME_DIR:-}" ] && command -v systemd-run > /dev/null 2>&1; then`,
-		`systemd-run --user --scope --quiet --collect --slice="$${SHARED_SLICE_VARIABLE}" -- bash -c ${quoted}`,
+		`systemd-run --user --scope --quiet --collect --slice="$${SHARED_SLICE_VARIABLE}" --expand-environment=no -- bash -c ${quoted}`,
 		"else",
 		command,
 		"fi",
