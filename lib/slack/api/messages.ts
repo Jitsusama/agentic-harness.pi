@@ -368,24 +368,14 @@ export async function sendMessage(
 	blocks?: unknown[],
 	signal?: AbortSignal,
 ): Promise<SendResult> {
-	const formatted = await formatMentions(client, text, signal);
-	const params: Record<string, string | number | boolean | undefined> = {
-		channel: conversationId,
-		text: formatted,
-	};
-	if (blocks) {
-		params.blocks = JSON.stringify(blocks);
-	}
-	const response = await client.call<{
-		channel: string;
-		ts: string;
-	}>("chat.postMessage", params, signal);
-
-	return {
-		ok: true,
-		channel: response.channel,
-		ts: response.ts,
-	};
+	return post(
+		client,
+		"chat.postMessage",
+		{ channel: conversationId },
+		text,
+		blocks,
+		signal,
+	);
 }
 
 /**
@@ -407,25 +397,14 @@ export async function editMessage(
 	blocks?: unknown[],
 	signal?: AbortSignal,
 ): Promise<SendResult> {
-	const formatted = await formatMentions(client, text, signal);
-	const params: Record<string, string | number | boolean | undefined> = {
-		channel: conversationId,
-		ts,
-		text: formatted,
-	};
-	if (blocks) {
-		params.blocks = JSON.stringify(blocks);
-	}
-	const response = await client.call<{
-		channel: string;
-		ts: string;
-	}>("chat.update", params, signal);
-
-	return {
-		ok: true,
-		channel: response.channel,
-		ts: response.ts,
-	};
+	return post(
+		client,
+		"chat.update",
+		{ channel: conversationId, ts },
+		text,
+		blocks,
+		signal,
+	);
 }
 
 /**
@@ -443,23 +422,38 @@ export async function replyToThread(
 	blocks?: unknown[],
 	signal?: AbortSignal,
 ): Promise<SendResult> {
-	const formatted = await formatMentions(client, text, signal);
-	const params: Record<string, string | number | boolean | undefined> = {
-		channel: conversationId,
-		text: formatted,
-		thread_ts: threadTs,
-	};
-	if (blocks) {
-		params.blocks = JSON.stringify(blocks);
-	}
-	const response = await client.call<{
-		channel: string;
-		ts: string;
-	}>("chat.postMessage", params, signal);
+	return post(
+		client,
+		"chat.postMessage",
+		{ channel: conversationId, thread_ts: threadTs },
+		text,
+		blocks,
+		signal,
+	);
+}
 
-	return {
-		ok: true,
-		channel: response.channel,
-		ts: response.ts,
-	};
+/**
+ * Post `text` to where `params` say through `method`, its mentions said
+ * Slack's way and `blocks`, when given, as JSON beside it, and say where
+ * it landed.
+ */
+async function post(
+	client: SlackClient,
+	method: "chat.postMessage" | "chat.update",
+	params: Record<string, string>,
+	text: string,
+	blocks: unknown[] | undefined,
+	signal: AbortSignal | undefined,
+): Promise<SendResult> {
+	const formatted = await formatMentions(client, text, signal);
+	const response = await client.call<{ channel: string; ts: string }>(
+		method,
+		{
+			...params,
+			text: formatted,
+			...(blocks ? { blocks: JSON.stringify(blocks) } : {}),
+		},
+		signal,
+	);
+	return { ok: true, channel: response.channel, ts: response.ts };
 }
