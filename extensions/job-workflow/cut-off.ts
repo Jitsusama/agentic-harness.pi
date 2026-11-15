@@ -37,6 +37,11 @@
  * whose record says carried waits `CARRIED_RUN_WAIT_MS` for the run to
  * show, an answer or a tool's result, and is told it was cut off if,
  * idle and with nothing typed, it never did.
+ *
+ * A move back to plain pi that waited too long on a run ends it at its
+ * turn's end and leaves the same record, naming itself as what ended it
+ * (mesh-workflow moving.ts), so plain pi is told the move stopped it,
+ * not the machine.
  */
 
 import {
@@ -47,9 +52,15 @@ import {
 	isSessionStamp,
 	SESSION_STAMP_EVENT,
 } from "../../lib/core/session/index.ts";
+import {
+	CUT_OFF_ENTRY,
+	type CutJob,
+	type CutOff,
+} from "../../lib/internal/session/cut-off-record.ts";
 
-/** The entry a session's signalled end leaves when work was under way. */
-export const CUT_OFF_ENTRY = "job-session-cut-off";
+// The record's shape is shared with a move that ends a run, which reads
+// no sibling extension (lib/internal/session/cut-off-record.ts).
+export { CUT_OFF_ENTRY };
 
 /**
  * How long a returning hosted session gives the run its host carried to
@@ -57,24 +68,6 @@ export const CUT_OFF_ENTRY = "job-session-cut-off";
  * up as it resumes each conversation, seconds apart.
  */
 export const CARRIED_RUN_WAIT_MS = 90_000;
-
-/** A job as the record names it. */
-export interface CutJob {
-	readonly id: string;
-	readonly label: string;
-}
-
-/** What was under way when a session was cut off, and when. */
-export interface CutOff {
-	/** When it ended, in milliseconds since the epoch. */
-	readonly at: number;
-	/** Whether a run was under way. */
-	readonly running: boolean;
-	/** Whether the host that ended it carries that run on at the next start. */
-	readonly runCarried?: boolean;
-	/** The jobs still running, which died with it. */
-	readonly jobs: readonly CutJob[];
-}
 
 /** The record to leave at a signalled end; none when nothing was under way. */
 export function endedRecord(
@@ -99,10 +92,12 @@ function field(value: unknown, key: string): unknown {
 function isCutOff(value: unknown): value is CutOff {
 	const jobs = field(value, "jobs");
 	const runCarried = field(value, "runCarried");
+	const by = field(value, "by");
 	return (
 		typeof field(value, "at") === "number" &&
 		typeof field(value, "running") === "boolean" &&
 		(runCarried === undefined || typeof runCarried === "boolean") &&
+		(by === undefined || typeof by === "string") &&
 		Array.isArray(jobs) &&
 		jobs.every(
 			(job) =>
@@ -207,7 +202,7 @@ function killedIn(branch: readonly unknown[]): CutOff | undefined {
 
 /** What the restored session is told, its time said by `time`. */
 export function resumeText(cut: CutOff, time: (at: number) => string): string {
-	const when = `This session ended at ${time(cut.at)}, when the machine stopped it rather than the person`;
+	const when = `This session ended at ${time(cut.at)}, when ${cut.by ?? "the machine"} stopped it rather than the person`;
 	const what = cut.runCarried
 		? `${when}. Its host carried on the run it had under way, but nothing has taken up its background work.`
 		: cut.running
