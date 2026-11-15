@@ -5,7 +5,7 @@
  * tool's answer, which nothing but the model reads.
  *
  * Each line has one fixed shape under the identifier `pi-fence`:
- * `refused kind=<path|program|plant|packed-refs> tool=<name> sandbox=<name>
+ * `refused kind=<path|program|plant|packed-refs|unheld-tree> tool=<name> sandbox=<name>
  * session=<id>`. A pi the fence's first stage meant to take and
  * couldn't list leaves `unlisted kind=<spawn|id|host> session=<id>
  * quest=<id> error=<code>`, so a watch counting the stage counts the
@@ -33,9 +33,15 @@ export const FENCE_LOG_TAG = "pi-fence";
  * `plant` is a name made in a shared git folder that would send git
  * outside the fence elsewhere (`fence-git-root.ts`); `packed-refs` is a
  * git command the read-only shared git folder failed, counted to see how
- * often agents meet it (`fence-git-route.ts`).
+ * often agents meet it (`fence-git-route.ts`); `unheld-tree` is git
+ * refused a tree's own git folder, in a tree the session doesn't hold.
  */
-export type RefusedKind = "path" | "program" | "plant" | "packed-refs";
+export type RefusedKind =
+	| "path"
+	| "program"
+	| "plant"
+	| "packed-refs"
+	| "unheld-tree";
 
 /** One refusal, as the log holds it. */
 export interface Refusal {

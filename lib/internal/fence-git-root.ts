@@ -42,6 +42,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { recordRefusal, systemLogger } from "./fence-log.ts";
+import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
 
 /** Names git never makes in a repository's git folder, which redirect it. */
 const NEVER_MADE = ["commondir", "gitdir"] as const;
@@ -241,6 +242,23 @@ export function sharedRootFor(
 	const root = sharedGitFolder(own);
 	if (!root || !own || !session || !guards(root)) return undefined;
 	return armSharedRoot(root, own, session) ? root : undefined;
+}
+
+/**
+ * What the watch guards for each worktree a fenced session writes: its
+ * shared folder, once armed, and its own; each once, and none for a tree
+ * whose shared folder the fence doesn't guard.
+ */
+export function guardedFolders(
+	worktrees: Worktrees,
+	session: string | undefined,
+	guards: (root: string) => boolean,
+): string[] {
+	const folders = writtenWorktrees(worktrees).flatMap(({ gitFolder }) => {
+		const root = sharedRootFor(gitFolder, session, guards);
+		return root ? [root, gitFolder] : [];
+	});
+	return [...new Set(folders)];
 }
 
 /**

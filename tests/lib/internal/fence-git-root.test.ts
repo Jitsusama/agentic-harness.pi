@@ -25,6 +25,7 @@ import {
 	armSharedRoot,
 	disarmAll,
 	endFencedCommands,
+	guardedFolders,
 	guardedIn,
 	guardedNames,
 	plantStopped,
@@ -212,6 +213,36 @@ describe("a shared git folder the watch can't guard", () => {
 			join(root, "config.worktree"),
 			join(own, "config.worktree"),
 		]);
+	});
+});
+
+describe("the folders watched for a session's worktrees", () => {
+	it("are each held tree's shared and own folders, as the working tree's are, each once", () => {
+		const other = join(base, "other", ".git");
+		const held = join(other, "worktrees", "held");
+		mkdirSync(held, { recursive: true });
+		const second = join(root, "worktrees", "second");
+		mkdirSync(second);
+		const worktrees = {
+			cwd: join(base, "tree"),
+			ownGitFolder: own,
+			heldWorktrees: [
+				{ tree: join(base, "held"), gitFolder: held },
+				{ tree: join(base, "second"), gitFolder: second },
+				{ tree: join(base, "tree"), gitFolder: own },
+			],
+		};
+		expect(guardedFolders(worktrees, "s-1", () => true)).toEqual([
+			root,
+			own,
+			other,
+			held,
+			second,
+		]);
+		expect(
+			guardedFolders(worktrees, "s-1", (folder) => folder !== other),
+			"a held tree whose shared folder isn't guarded",
+		).toEqual([root, own, second]);
 	});
 });
 

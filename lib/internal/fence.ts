@@ -83,6 +83,7 @@ import {
 	readOnlyPaths,
 } from "./fence-home.ts";
 import { NPMRC } from "./fence-npmrc.ts";
+import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
 export const FENCE = "fence";
@@ -201,15 +202,11 @@ export const NEVER_THROUGH = [
 	"secret-asks",
 ] as const;
 
-/** Where a fenced command runs. */
-export interface FencePlace {
+/** Where a fenced command runs, and the worktrees it writes (`fence-worktrees.ts`). */
+export interface FencePlace extends Worktrees {
 	readonly home: string;
 	/** `XDG_RUNTIME_DIR`, which the fence empties. */
 	readonly runtimeDir: string | undefined;
-	/** The working folder, when it is a worktree, for its `.git` file. */
-	readonly cwd?: string;
-	/** The worktree's own folder in its repository's `worktrees`. */
-	readonly ownGitFolder?: string;
 	/** Where quests' scratch folders live, and this session's quest's own. */
 	readonly scratch?: { readonly root: string; readonly own?: string };
 	/**
@@ -591,7 +588,7 @@ export function guardsGitFolder(
  * or makes a git folder of its own in there for a tree to be pointed
  * at. The session's own tree and its git folder are bound back
  * writable, with its settings and links still read-only, and so is its
- * tree's `.git` file.
+ * tree's `.git` file; so is each other worktree it holds.
  */
 function gitArgs(place: FencePlace, disk: Disk): string[] {
 	const there = (path: string) => {
@@ -615,19 +612,17 @@ function gitArgs(place: FencePlace, disk: Disk): string[] {
 			kept.push(join(git, "worktrees"));
 		}
 	}
-	const own = place.cwd ? place.ownGitFolder : undefined;
-	const ownBack =
-		own && trees.some((path) => own.startsWith(`${path}/`)) ? [own] : [];
-	const treeBack = own && place.cwd && inKept(place.cwd) ? [place.cwd] : [];
-	const ownKept =
-		own && place.cwd
-			? [
-					join(place.cwd, ".git"),
-					join(own, "commondir"),
-					join(own, "gitdir"),
-					join(own, "config.worktree"),
-				]
-			: [];
+	const owned = writtenWorktrees(place);
+	const ownBack = owned
+		.map(({ gitFolder }) => gitFolder)
+		.filter((own) => trees.some((path) => own.startsWith(`${path}/`)));
+	const treeBack = owned.map(({ tree }) => tree).filter(inKept);
+	const ownKept = owned.flatMap(({ tree, gitFolder }) => [
+		join(tree, ".git"),
+		join(gitFolder, "commondir"),
+		join(gitFolder, "gitdir"),
+		join(gitFolder, "config.worktree"),
+	]);
 	return [
 		...homes.flatMap((top) => ["--ro-bind", top, top]),
 		...bound("--bind", written),
@@ -737,8 +732,9 @@ export function fenceRefusesWrite(
 		return !(scratch.own && inside(scratch.own));
 	}
 	if (keptHomes(place.home, disk).some(inside)) {
-		const tree = place.ownGitFolder ? place.cwd : undefined;
-		return !(tree && inside(tree) && path !== join(tree, ".git"));
+		return !writtenWorktrees(place).some(
+			({ tree }) => inside(tree) && path !== join(tree, ".git"),
+		);
 	}
 	if (inTrees !== undefined) return inTrees;
 	if (path === place.home) return true;

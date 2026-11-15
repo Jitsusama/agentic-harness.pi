@@ -42,7 +42,7 @@ import {
 	focusedWindow,
 	windowBehind,
 } from "./fence-preflight-desktop.ts";
-import { everydayGit, plantLoop } from "./fence-preflight-git.ts";
+import { everydayGit, heldTreeGit, plantLoop } from "./fence-preflight-git.ts";
 import { SANDBOX_VARIABLE, sandboxFor } from "./sandbox.ts";
 import { askRoute } from "./secret-ask.ts";
 
@@ -325,6 +325,12 @@ export const CHECKS: readonly Check[] = [
 		group: "agents",
 		what: "commit, branch, fetch, rebase, status and push in a fenced worktree whose shared git folder is read-only, and a branch delete told the route",
 		run: everydayGit,
+	},
+	{
+		id: "5f",
+		group: "agents",
+		what: "a commit and a fetch in a worktree the session holds, from a command started elsewhere, and one it doesn't hold still refused",
+		run: heldTreeGit,
 	},
 	{
 		id: "5d",

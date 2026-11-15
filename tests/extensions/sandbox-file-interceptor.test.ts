@@ -26,6 +26,7 @@ import {
 	toolPaths,
 } from "../../lib/internal/sandbox-files.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
+import { cutTreeDir, treeRecordDir } from "../../lib/internal/work-records.ts";
 
 // What the interceptor would write to the system's log, kept here rather
 // than written to the machine's real one.
@@ -141,6 +142,34 @@ describe("a strict session's reads", () => {
 		symlinkSync(join(work, "b"), join(work, "a"));
 		symlinkSync(join(work, "a"), join(work, "b"));
 		expect(refusal("read", { path: "a" })).toContain("loop of links");
+	});
+});
+
+describe("a fenced session's reads of a hidden key", () => {
+	it("name the route for that file: secret_run for a key, the shell for ~/.npmrc", () => {
+		// On 15 November a read of a hidden credential named only the
+		// ~/.npmrc route, which is no way to that file.
+		const key = join(home, ".local/state/nix-offload/store_ed25519");
+		mkdirSync(join(home, ".local/state/nix-offload"), { recursive: true });
+		writeFileSync(key, "private\n");
+		const fence = { PI_SANDBOX: "fence" };
+		const ofKey = refusal("read", { path: key }, fence) ?? "";
+		const ofNpmrc =
+			refusal("read", { path: join(home, ".npmrc") }, fence) ?? "";
+		expect(
+			{
+				keyNamesSecretRun: ofKey.includes("secret_run"),
+				keyNamesNpmrc: ofKey.includes("~/.npmrc"),
+				npmrcNamesItsCopy: ofNpmrc.includes(
+					"reads ~/.npmrc without its tokens",
+				),
+			},
+			"the routes each refusal names",
+		).toEqual({
+			keyNamesSecretRun: true,
+			keyNamesNpmrc: false,
+			npmrcNamesItsCopy: true,
+		});
 	});
 });
 
@@ -342,6 +371,35 @@ describe("the interceptor", () => {
 				seat(),
 			);
 			expect(answer, "the write tool refused its own scratch").toBeUndefined();
+		});
+
+		it("writes in a tree the session holds, whatever pi's own environment names", async () => {
+			// On 15 November ISXEG8's fenced session had every write to the
+			// trees it held refused, where its commands wrote them: pi's own
+			// environment named no session, or the one it started as, and
+			// the records name the conversation holding each tree.
+			vi.stubEnv("XDG_STATE_HOME", join(base, "state"));
+			vi.stubEnv("PI_SESSION_ID", "the-session-pi-started-as");
+			const tree = join(cutTreeDir(), "worktree-held");
+			mkdirSync(tree, { recursive: true });
+			mkdirSync(treeRecordDir(), { recursive: true });
+			writeFileSync(
+				join(treeRecordDir(), "worktree-held.json"),
+				JSON.stringify({
+					identity: { key: "worktree-held", shareable: false },
+					path: tree,
+					providerId: "git-worktree",
+					sessions: ["a-session"],
+				}),
+			);
+			const answer = await handler(
+				{
+					toolName: "write",
+					input: { path: join(tree, "notes.md"), content: "x" },
+				},
+				seat(),
+			);
+			expect(answer, "the write tool refused a held tree").toBeUndefined();
 		});
 
 		it("never writes in another quest's scratch", async () => {
