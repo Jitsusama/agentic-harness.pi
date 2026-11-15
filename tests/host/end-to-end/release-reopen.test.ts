@@ -12,9 +12,13 @@
  *
  * E30, a reload with a move pending: a conversation told to move while
  * its run goes on, whose install moves under that run, so the run's end
- * both lets the move go and reloads it onto the new version, as XUBK2E's
- * did at 05:53. It still leaves its note, and is offered, and opened from
- * its file in plain pi it answers.
+ * both lets the move go and asks to reload it onto the new version, as
+ * XUBK2E's did at 05:53. Which of the two goes first is the race's own:
+ * XUBK2E's reload began a second before its move, while here the move
+ * usually wins, since the follower asks git why before it reloads. The
+ * note survives either way, so the case checks that, and is offered,
+ * and opened from its file in plain pi it answers; move-notes.test.ts
+ * pins the reload-first order, where a reload's start leaves the note.
  *
  * E31, an untrusted folder: a conversation the background host ran in a
  * folder nobody trusted, which it left untrusted with nobody there to
@@ -70,9 +74,6 @@ const DEADLINE_MINUTES = 5;
 
 /** What a version of the install leaves out of the tree, at its top. */
 const LEFT_OUT = new Set(["node_modules", ".git", "tests"]);
-
-/** What the reloaded runtime says, as lifecycle.ts's landedText puts it. */
-const FOLLOWED = "Reloaded between runs, because the install moved";
 
 let sealed: Seal;
 let hosts: HostProcess[] = [];
@@ -343,7 +344,7 @@ it(
 );
 
 it(
-	"E30: a move whose run ends in a reload onto a new install still leaves its note",
+	"E30: a move whose run ends as its install moves still leaves its note",
 	async ({ skip }) => {
 		await onHostPi(skip, said, async (pi) => {
 			const install = join(sealed.home, "install");
@@ -378,10 +379,6 @@ it(
 			const released = await release([busy.sessionId], { offer: true });
 			expect(released.code, `${released.out}\n${textOf(busy.file)}`).toBe(0);
 			expect(released.out).toContain("1 released");
-			expect(
-				textOf(busy.file),
-				"its run ended in the install's reload",
-			).toContain(FOLLOWED);
 			expect(await host.list(), "the host ends empty").toEqual([]);
 			expect(offered().get(busy.sessionId), "it is offered").toMatchObject({
 				address,
@@ -409,7 +406,7 @@ it(
 			);
 		});
 	},
-	// One host, a 20-second run, a reload, a release, one plain pi, three round trips.
+	// One host, a 20-second run, perhaps a reload, a release, one plain pi, three round trips.
 	ROUND_TRIP_MS * 5,
 );
 
