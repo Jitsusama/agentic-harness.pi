@@ -15,7 +15,9 @@
  * are a print or JSON run's, which exits as its prompts end. A
  * session started with `PI_SANDBOX=strict` runs each command under
  * Landlock, with no credentials and no sockets but name lookups and
- * Nix's untrusted door (sandbox.ts). Each command keeps its output and
+ * Nix's untrusted door (sandbox.ts); in the agent fence, a git command
+ * the read-only shared git folder failed is told the route and counted
+ * (fence-git-route.ts). Each command keeps its output and
  * end on disk while it runs, so a session moving to a host can hand a
  * running one on rather than wait for it (keeping.ts).
  *
@@ -29,11 +31,19 @@ import {
 	type ExtensionContext,
 	getAgentDir,
 	SettingsManager,
+	type ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
 import { jobsBroker } from "../../lib/internal/fence.ts";
+import { routedPackedRefs } from "../../lib/internal/fence-git-route.ts";
 import { liftFence } from "../../lib/internal/fence-lifted.ts";
+import {
+	codeOf,
+	recordRefusal,
+	recordUnlisted,
+} from "../../lib/internal/fence-log.ts";
+import { settleStage } from "../../lib/internal/fence-stage.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
 import {
@@ -70,6 +80,48 @@ const hasJobsBroker = (): boolean =>
 /** The folder pi's bash is built with when only its shape is wanted. */
 const SHAPE_ONLY = "";
 
+/**
+ * List a session spawned for the fence's first stage by its id too, so
+ * reopening it keeps it fenced as it first ran.
+ */
+function listByIdOnce(session: string): void {
+	try {
+		settleStage(process.env, session);
+	} catch (error) {
+		// Unlisted by id, a reopen by id runs unfenced until the everyone
+		// stage, as every reopen does; this session stays fenced as it is.
+		void recordUnlisted({
+			kind: "id",
+			session,
+			quest: process.env.QUEST_WORKFLOW_AUTOLOAD_ID,
+			error: codeOf(error),
+		});
+	}
+}
+
+/**
+ * A fenced bash call's output with the route added where git couldn't
+ * rewrite the read-only shared git folder's `packed-refs`, counted in
+ * the system's log; nothing, for any other call (`fence-git-route.ts`).
+ */
+function routeRefusedGit(
+	event: ToolResultEvent,
+	logger: string | undefined,
+	session: string,
+): Pick<ToolResultEvent, "content" | "structuredContent"> | undefined {
+	if (event.toolName !== "bash") return undefined;
+	const content = routedPackedRefs(event.content, () => {
+		void recordRefusal(
+			{ kind: "packed-refs", tool: "git", sandbox: "fence", session },
+			logger,
+		);
+	});
+	// The structured result codemode reads is kept, its output as git said it.
+	return content
+		? { content, structuredContent: event.structuredContent }
+		: undefined;
+}
+
 export default function shellWorkflow(pi: ExtensionAPI) {
 	// The shape pi's bash is drawn and described with. Its folder is never
 	// used: execution is per session, at the folder its conversation stands
@@ -97,14 +149,26 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		return bash;
 	};
 
+	// A stray PI_SANDBOX read as the fence is said once, where the person
+	// sees it, and in the agent's guidelines below.
+	let noted = false;
 	pi.on("session_start", async (_event, ctx) => {
 		retireBash();
 		bashFor(ctx);
+		if (!noted && sandbox.kind === "fence" && sandbox.note) {
+			noted = true;
+			if (ctx.hasUI) ctx.ui.notify(sandbox.note, "warning");
+		}
+		if (sandbox.kind === "fence") listByIdOnce(sessionKeyOf(ctx));
 		askTheCloudAhead(sandbox);
 		// What a call kept and nobody took up, a week on (kept.ts).
 		sweepKept();
 	});
 	pi.on("session_shutdown", retireBash);
+	if (sandbox.kind === "fence")
+		pi.on("tool_result", (event, ctx) =>
+			routeRefusedGit(event, sandbox.logger, sessionKeyOf(ctx)),
+		);
 
 	pi.registerTool({
 		...shape,
@@ -121,6 +185,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			...(sandbox.kind === "fence"
 				? [
 						"Commands run in the agent fence: their own processes only, no display, compositor, session or system bus, sound, keyring, password, clipboard or SSH agent, settings and startup files (~/.config, shell rc files, ~/.ssh, ~/.pi/agent) read-only, and Nix as an untrusted user. The work, the network and the environment are as they were. A `nix-offload there ...` call on its own, with nothing chained on, runs outside the fence. A refusal there is the fence, not a fault: do the work another way (commit and push with the work tool), or say what needs the person.",
+						...(sandbox.note ? [sandbox.note] : []),
 						...(hasJobsBroker()
 							? [
 									"Inside the agent fence the cgroup tree is read-only and systemctl and systemd-run can't reach the account's systemd. For how a unit stands, run `jobs-broker status UNIT...` rather than `systemctl --user status`; for a command that wants a scope of its own, run `jobs-broker run -- COMMAND` rather than `systemd-run --user --scope`.",

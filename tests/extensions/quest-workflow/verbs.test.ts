@@ -12,6 +12,11 @@ import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { questIdFromCwd } from "../../../extensions/quest-workflow/verbs/lifecycle.ts";
 import {
+	joinSpawns,
+	leaveSpawns,
+	listedForStage,
+} from "../../../lib/internal/fence-stage.ts";
+import {
 	clearPersonResolvers,
 	setResolutionFallback,
 } from "../../../lib/people/index.ts";
@@ -57,6 +62,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	leaveSpawns();
 	rmSync(tmpRoot, { recursive: true, force: true });
 	clearRefTypes();
 	clearUrlFetchers();
@@ -380,6 +386,7 @@ describe("find / who / links", () => {
 
 describe("spawn verbs", () => {
 	it("dispatches the request through the registered terminal driver", async () => {
+		joinSpawns("stage 1");
 		const state = buildState();
 		const a = await createQuest(state, "Alpha");
 		await handle(state, fakePi(), fakeCtx(tmpRoot), {
@@ -421,10 +428,16 @@ describe("spawn verbs", () => {
 		// pi can name its session after the quest without
 		// the wezterm/tmux tab-title plumbing.
 		// It also names the words the new session is told first.
+		// And the fence's first stage lists it by a token of its own.
 		expect(calls[0].env).toEqual({
 			QUEST_WORKFLOW_AUTOLOAD_ID: a.id,
 			QUEST_WORKFLOW_FIRST_WORDS: expect.stringMatching(/^[0-9a-f-]{36}$/),
+			PI_FENCE_STAGE: expect.stringMatching(/^[0-9a-f-]{36}$/),
 		});
+		expect(
+			listedForStage(calls.at(0)?.env?.PI_FENCE_STAGE),
+			"a fresh spawn wasn't listed for the fence's first stage",
+		).toBe(true);
 	});
 
 	it("prefers a registered tree path over the quest dir", async () => {
@@ -603,6 +616,7 @@ describe("spawn verbs", () => {
 	});
 
 	it("spawn-tab id:OTHER targets the other quest without mutating loaded state", async () => {
+		joinSpawns("stage 1");
 		const state = buildState();
 		const loaded = await createQuest(state, "Loaded");
 		const other = await createQuest(state, "Other");
@@ -631,6 +645,7 @@ describe("spawn verbs", () => {
 		expect(calls[0].env).toEqual({
 			QUEST_WORKFLOW_AUTOLOAD_ID: other.id,
 			QUEST_WORKFLOW_FIRST_WORDS: expect.stringMatching(/^[0-9a-f-]{36}$/),
+			PI_FENCE_STAGE: expect.stringMatching(/^[0-9a-f-]{36}$/),
 		});
 		// The quest is named by the autoload, never by where it opens: a
 		// session in a quest's folder loads no repo's skills.

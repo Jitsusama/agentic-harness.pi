@@ -5,8 +5,11 @@
  * tool's answer, which nothing but the model reads.
  *
  * Each line has one fixed shape under the identifier `pi-fence`:
- * `refused kind=<path|program|plant> tool=<name> sandbox=<name>
- * session=<id>`. It never holds what was asked for, no path, command or
+ * `refused kind=<path|program|plant|packed-refs> tool=<name> sandbox=<name>
+ * session=<id>`. A pi the fence's first stage meant to take and
+ * couldn't list leaves `unlisted kind=<spawn|id|host> session=<id>
+ * quest=<id> error=<code>`, so a watch counting the stage counts the
+ * spawns it missed too (ISXEG8 [8599528b]). A line never holds what was asked for, no path, command or
  * reason text, since the log is kept for weeks and read by more than the
  * person. Every value is a plain word, or `unknown` when it isn't one,
  * so nothing a model chose can bend the shape.
@@ -28,9 +31,11 @@ export const FENCE_LOG_TAG = "pi-fence";
 /**
  * What a refusal kept from the agent, as a kind, never the thing: a
  * `plant` is a name made in a shared git folder that would send git
- * outside the fence elsewhere (`fence-git-root.ts`).
+ * outside the fence elsewhere (`fence-git-root.ts`); `packed-refs` is a
+ * git command the read-only shared git folder failed, counted to see how
+ * often agents meet it (`fence-git-route.ts`).
  */
-export type RefusedKind = "path" | "program" | "plant";
+export type RefusedKind = "path" | "program" | "plant" | "packed-refs";
 
 /** One refusal, as the log holds it. */
 export interface Refusal {
@@ -103,6 +108,63 @@ export function recordRefusal(
 			{ timeout: LOGGER_TIMEOUT_MS },
 			(error) =>
 				resolve(error ? `${UNRECORDED}: ${error.message.trim()}.` : undefined),
+		);
+	});
+}
+
+/**
+ * Where the first stage missed a pi: a fresh spawn's listing, a
+ * session's listing by its id, or a host too old to be handed the
+ * spawn's token.
+ */
+export type UnlistedKind = "spawn" | "id" | "host";
+
+/** A pi the first stage meant to fence and couldn't list. */
+export interface Unlisted {
+	readonly kind: UnlistedKind;
+	/** The session listed by id, or for a spawn the one that spawned it. */
+	readonly session: string | undefined;
+	readonly quest: string | undefined;
+	/** Why, as a word: an error's code, or what was too old. */
+	readonly error: string | undefined;
+}
+
+/** The one line an unlisted pi leaves in the system's log. */
+export function unlistedLine(unlisted: Unlisted): string {
+	return [
+		"unlisted",
+		`kind=${unlisted.kind}`,
+		`session=${plain(unlisted.session)}`,
+		`quest=${plain(unlisted.quest)}`,
+		`error=${plain(unlisted.error)}`,
+	].join(" ");
+}
+
+/** An error's code, as a word for the log, or nothing when it has none. */
+export function codeOf(error: unknown): string | undefined {
+	if (!(error instanceof Error) || !("code" in error)) return undefined;
+	return typeof error.code === "string" ? error.code : undefined;
+}
+
+/**
+ * Writes that the first stage missed a pi to the system's log, answering
+ * why it couldn't when it couldn't. Nothing waits on it: the pi starts
+ * either way, as before the stage.
+ */
+export function recordUnlisted(
+	unlisted: Unlisted,
+	logger: string | undefined = systemLogger(),
+): Promise<string | undefined> {
+	if (logger === undefined) {
+		return Promise.resolve("there is no logger in the system's own programs");
+	}
+	const line = unlistedLine(unlisted);
+	return new Promise((resolve) => {
+		execFile(
+			logger,
+			["-t", FENCE_LOG_TAG, "-p", PRIORITY, "--", line],
+			{ timeout: LOGGER_TIMEOUT_MS },
+			(error) => resolve(error ? error.message.trim() : undefined),
 		);
 	});
 }

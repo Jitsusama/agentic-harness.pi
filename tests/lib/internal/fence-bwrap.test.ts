@@ -31,6 +31,7 @@ import {
 	endFencedCommands,
 	plantStopped,
 } from "../../../lib/internal/fence-git-root.ts";
+import { routedPackedRefs } from "../../../lib/internal/fence-git-route.ts";
 import { gitRun } from "../../../lib/internal/tree-git.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
@@ -137,13 +138,12 @@ describe.skipIf(bwrap === undefined)(
 		let own: string;
 
 		/** How `script` ran as a fenced command in the worktree. */
-		function fencedIn(script: string, shared: boolean) {
+		function fencedIn(script: string) {
 			const args = fenceArgs({
 				home,
 				runtimeDir: undefined,
 				cwd: tree,
 				ownGitFolder: own,
-				sharedRoot: shared ? root : undefined,
 			});
 			return spawnSync(
 				bwrap ?? "bwrap",
@@ -201,25 +201,42 @@ describe.skipIf(bwrap === undefined)(
 			disposeRepo(remote);
 		});
 
-		it("deletes a packed branch only once the shared folder is writable", () => {
-			const refused = fencedIn("git branch -d gone", false);
-			expect(refused.status, "deleted while read-only").not.toBe(0);
-			expect(refused.stderr, "why it was refused").toContain("packed-refs");
-			const ran = fencedIn("git branch -d gone", true);
-			expect(ran.status, ran.stderr).toBe(0);
+		it("refuses what rewrites packed-refs even watched, and git's refusal gains the route", () => {
+			expect(
+				armSharedRoot(root, own, "s-packed", {
+					refused: vi.fn(),
+					stop: vi.fn(),
+				}),
+				"the watch armed",
+			).toBe(true);
+			for (const script of [
+				"git branch -D gone",
+				"git pack-refs --all",
+				`git fetch -q --prune ${remote} '+refs/heads/*:refs/remotes/o/*'`,
+			]) {
+				const refused = fencedIn(script);
+				expect(refused.status, `${script} ran`).not.toBe(0);
+				const record = vi.fn();
+				expect(
+					routedPackedRefs([{ type: "text", text: refused.stderr }], record),
+					`${script}'s refusal wasn't routed: ${refused.stderr}`,
+				).toBeDefined();
+				expect(record, "it wasn't counted").toHaveBeenCalledTimes(1);
+			}
 		});
 
-		it("commits, rebases, fetches with prune and reads status inside", () => {
+		it("commits, branches, rebases, fetches and reads status inside, writing its own index, HEAD and ORIG_HEAD", () => {
 			const ran = fencedIn(
 				[
 					"set -e",
 					"echo x > f && git add f && git commit -qm x",
+					"git branch made-inside",
 					"git rebase -q main",
 					"git status --short",
-					`git fetch -q --prune ${remote} '+refs/heads/*:refs/remotes/o/*'`,
-					"! git rev-parse -q --verify refs/remotes/o/old",
+					`git fetch -q ${remote} '+refs/heads/main:refs/remotes/o/main'`,
+					`test -f ${join(own, "ORIG_HEAD")}`,
+					`touch ${join(own, "index")} ${join(own, "HEAD")} ${join(own, "ORIG_HEAD")}`,
 				].join("\n"),
-				true,
 			);
 			expect(ran.status, ran.stderr).toBe(0);
 		});
@@ -233,19 +250,35 @@ describe.skipIf(bwrap === undefined)(
 				"worktrees/other/HEAD",
 			])
 				expect(
-					fencedIn(`echo x >> ${join(root, path)}`, true).status,
+					fencedIn(`echo x >> ${join(root, path)}`).status,
 					`${path} was written`,
 				).not.toBe(0);
 		});
 
-		it("loses a commondir planted from inside at once, and stops the session", async () => {
+		it("can't plant a commondir or gitdir in the shared folder, watched or not, since a watch loses a race (check j)", () => {
+			for (const name of ["commondir", "gitdir"]) {
+				const planted = join(root, name);
+				expect(
+					fencedIn(`echo /elsewhere > ${planted}`).status,
+					`${name} was planted`,
+				).not.toBe(0);
+				expect(existsSync(planted), `${name} is there`).toBe(false);
+			}
+		});
+
+		it("loses a config.worktree planted in the tree's own folder at once, and stops the session", async () => {
+			// Armed afresh, with this test's stand-ins rather than an earlier one's.
+			disarmAll();
 			const refused = vi.fn();
 			expect(
 				armSharedRoot(root, own, "s-bwrap", { refused, stop: vi.fn() }),
 				"the watch armed",
 			).toBe(true);
-			const planted = join(root, "commondir");
-			expect(fencedIn(`echo /elsewhere > ${planted}`, true).status).toBe(0);
+			const planted = join(own, "config.worktree");
+			expect(
+				fencedIn(`echo '[core]' > ${planted}`).status,
+				"the plant was refused, not watched",
+			).toBe(0);
 			await vi.waitFor(
 				() => expect(existsSync(planted), "the plant").toBe(false),
 				{ timeout: 100, interval: 2 },

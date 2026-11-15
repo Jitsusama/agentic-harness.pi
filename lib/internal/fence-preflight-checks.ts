@@ -8,7 +8,6 @@
  * in `fence-preflight-desktop.ts`.
  */
 
-import { randomUUID } from "node:crypto";
 import {
 	accessSync,
 	constants,
@@ -16,7 +15,6 @@ import {
 	mkdirSync,
 	readdirSync,
 	rmSync,
-	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -28,10 +26,12 @@ import {
 	type Check,
 	failed,
 	fenced,
+	fresh,
 	inSession,
 	outside,
 	type PreflightContext,
 	passed,
+	type Ran,
 	refusedAs,
 	succeeded,
 	tailOf,
@@ -42,6 +42,7 @@ import {
 	focusedWindow,
 	windowBehind,
 } from "./fence-preflight-desktop.ts";
+import { everydayGit, plantLoop } from "./fence-preflight-git.ts";
 import { SANDBOX_VARIABLE, sandboxFor } from "./sandbox.ts";
 import { askRoute } from "./secret-ask.ts";
 
@@ -54,11 +55,6 @@ const FETCH_LIMIT_MS = 600_000;
 /** The runtime folder, where the person's sockets are. */
 function runtime(): string {
 	return process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.()}`;
-}
-
-/** A word no check has used before, for a line, a file or a session. */
-function fresh(): string {
-	return `preflight-${randomUUID().slice(0, 8)}`;
 }
 
 /** Check (3): the change installing touches no niri, shell or launcher code. */
@@ -195,48 +191,6 @@ async function otherTreeUnwritable(
 	return refusedAs(ran, `writing in ${other}`);
 }
 
-/** Check (j): git outside a tree finds no redirect while a plant is tried inside. */
-async function plantLoop(context: PreflightContext): Promise<Verdict> {
-	const home = homedir();
-	const root = join(home, "src", `.pi-${fresh()}`);
-	const tree = join(context.scratch, "plant-tree");
-	try {
-		const made = await outside(
-			[
-				`git init -q '${root}'`,
-				`git -C '${root}' -c user.name=p -c user.email=p@p commit -q --allow-empty -m p`,
-				`git -C '${root}' worktree add -q '${tree}'`,
-			].join(" && "),
-			context.scratch,
-		);
-		if (made.code !== 0) return failed(`no repository: ${tailOf(made)}`);
-		const commondir = join(root, ".git", "commondir");
-		const planting = fenced(
-			`for i in $(seq 50); do printf '%s\\n' /tmp > '${commondir}' 2>/dev/null; sleep 0.05; done; true`,
-			tree,
-			`${fresh()}-plant`,
-			60_000,
-		);
-		let redirects = 0;
-		for (let look = 0; look < 50; look++) {
-			const ran = await outside(
-				`git -C '${root}' rev-parse --git-common-dir`,
-				context.scratch,
-			);
-			if (ran.out.trim() !== ".git") redirects++;
-		}
-		await planting;
-		const left = existsSync(commondir);
-		return redirects === 0 && !left
-			? passed("50 looks outside found no redirect, and no commondir was left")
-			: failed(`${redirects} redirects seen; commondir left: ${left}`);
-	} finally {
-		rmSync(join(root, ".git", "commondir"), { force: true });
-		rmSync(root, { recursive: true, force: true });
-		rmSync(tree, { recursive: true, force: true });
-	}
-}
-
 /**
  * A download run outside the fence and then inside, each into a fresh
  * folder made by `prepare`; it passes when both succeed, and says both
@@ -301,10 +255,12 @@ export const CHECKS: readonly Check[] = [
 		id: "4a",
 		group: "person",
 		what: "gh signs in through the door",
+		// The active account alone: the keyring's, which the fence hides on
+		// purpose, would read as invalid beside the door's token.
 		run: async ({ scratch, session }) =>
 			succeeded(
-				await fenced("gh auth status", scratch, session),
-				"gh auth status",
+				await fenced("gh auth status --active", scratch, session),
+				"gh auth status --active",
 			),
 	},
 	{
@@ -345,20 +301,30 @@ export const CHECKS: readonly Check[] = [
 	{
 		id: "5c",
 		group: "agents",
-		what: "merge-net ready on main's head",
+		what: "merge-net ready on main's head answers inside as it does outside",
 		run: heavy(
-			inCoreTree(async (tree, { session }) =>
-				succeeded(
-					await fenced(
-						"merge-net ready $(git rev-parse origin/main)",
-						tree,
-						session,
-						BUILD_LIMIT_MS,
-					),
-					"merge-net ready",
-				),
-			),
+			inCoreTree(async (tree, { session }) => {
+				// Whether main's head has a recorded pass is merge-net's to say,
+				// not the fence's: the fence only must not change the answer.
+				const ready = "merge-net ready $(git rev-parse origin/main)";
+				const plain = await outside(ready, tree, BUILD_LIMIT_MS);
+				const inside = await fenced(ready, tree, session, BUILD_LIMIT_MS);
+				const answer = (ran: Ran) => tailOf(ran, 1);
+				return plain.code === inside.code && answer(plain) === answer(inside)
+					? passed(
+							`merge-net ready exited ${inside.code} on both sides (${inside.ms} ms fenced): ${answer(inside)}`,
+						)
+					: failed(
+							`merge-net ready differs: outside exited ${plain.code} saying ${answer(plain)}; inside exited ${inside.code} saying ${answer(inside)}`,
+						);
+			}),
 		),
+	},
+	{
+		id: "5e",
+		group: "agents",
+		what: "commit, branch, fetch, rebase, status and push in a fenced worktree whose shared git folder is read-only, and a branch delete told the route",
+		run: everydayGit,
 	},
 	{
 		id: "5d",
@@ -428,7 +394,7 @@ export const CHECKS: readonly Check[] = [
 					[
 						"gh api graphql -f query='{viewer{login}}'",
 						"gh api graphql -f query='{viewer{projectsV2(first:5){nodes{id}}}}'",
-						`gh api graphql -f query='{repository(owner:"cli",name:"cli"){issue(number:1){subIssues(first:1){totalCount}}}}'`,
+						`gh api graphql -f query='{repository(owner:"cli",name:"cli"){issues(first:1){nodes{number subIssues(first:1){totalCount}}}}}'`,
 					].join(" && "),
 					scratch,
 					session,
@@ -696,14 +662,15 @@ export const CHECKS: readonly Check[] = [
 		what: "a large download from elsewhere, through the relay",
 		run: heavy(({ scratch, session }) =>
 			timedBesideUnfenced(
-				"npm install of typescript",
+				// curl rather than npm, whose wrapper on a work machine needs its
+				// own settings outside before it runs at all.
+				"a download of typescript's package from npm's registry",
 				scratch,
 				(target) => {
 					mkdirSync(target, { recursive: true });
-					writeFileSync(join(target, "package.json"), '{"name":"preflight"}');
 					return {
 						script:
-							"npm install --no-save --ignore-scripts --prefer-online typescript@5 > /dev/null",
+							"curl -sSfL --max-time 120 -o typescript.tgz https://registry.npmjs.org/typescript/-/typescript-5.6.3.tgz && test $(stat -c %s typescript.tgz) -gt 1000000",
 						cwd: target,
 					};
 				},

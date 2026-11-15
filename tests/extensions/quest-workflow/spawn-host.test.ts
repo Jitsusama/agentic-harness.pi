@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveRecord } from "../../../extensions/quest-workflow/session-registry.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
@@ -11,14 +11,27 @@ import {
 	spawnInHost,
 } from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
 import { hostSocketPath } from "../../../host/service/address.ts";
+import { hostRefusal } from "../../../host/service/dispatch.ts";
 import type { ControlRequest } from "../../../host/service/protocol.ts";
 import { listenControl } from "../../../host/service/server.ts";
 import { withSession } from "../../../lib/core/session/index.ts";
+import { recordUnlisted } from "../../../lib/internal/fence-log.ts";
+import {
+	joinSpawns,
+	leaveSpawns,
+	listedForStage,
+} from "../../../lib/internal/fence-stage.ts";
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { openRecord } from "../../../lib/internal/quest/session-registry.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { installTestHost } from "../../support/session-host.ts";
 import { createEnvGuard } from "./_helpers.ts";
+
+// A miss is counted from the system's log, which a test must never write.
+vi.mock("../../../lib/internal/fence-log.ts", async (original) => ({
+	...(await original<typeof import("../../../lib/internal/fence-log.ts")>()),
+	recordUnlisted: vi.fn(async () => undefined),
+}));
 
 const SAVED = [
 	"HOME",
@@ -120,6 +133,8 @@ async function questWithSession(id: string, ageMs: number) {
 
 const envGuard = createEnvGuard();
 beforeEach(() => {
+	// A project doesn't take the root's clearMocks, so each test starts uncounted.
+	vi.mocked(recordUnlisted).mockClear();
 	envGuard.enter();
 	saved = Object.fromEntries(SAVED.map((name) => [name, process.env[name]]));
 	tmpRoot = mkdtempSync(join(tmpdir(), "spawn-host-"));
@@ -133,6 +148,7 @@ beforeEach(() => {
 	answer = async (request) => identityFor(request);
 });
 afterEach(async () => {
+	leaveSpawns();
 	await listener?.close();
 	listener = undefined;
 	for (const [name, value] of Object.entries(saved)) {
@@ -176,6 +192,99 @@ describe("spawn into a host", () => {
 		expect(b.first).toContain(beta.id);
 		expect(b.first).not.toContain("Write the alpha tests.");
 		expect(first.message).toContain("home-background host opened session");
+	});
+
+	it("hands a fresh session the first stage's token, listed, so it starts fenced", async () => {
+		// The host's conversation has no id until it starts, so the token in
+		// its environment is all its listing can go by.
+		joinSpawns("stage 1");
+		await serveHost("home", "background");
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+		});
+		expect(result).toMatchObject({ ok: true });
+		const [open] = received;
+		if (open?.op !== "open") throw new Error("expected an open");
+		const token = open.env?.PI_FENCE_STAGE;
+		expect(token, "the open carried no stage token").toMatch(/^[0-9a-f-]{36}$/);
+		expect(listedForStage(token), "its token wasn't listed").toBe(true);
+	});
+
+	it("hands a fresh session no token until spawns join the stage", async () => {
+		await serveHost("home", "background");
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+		});
+		expect(result, said(result)).toMatchObject({ ok: true });
+		const [open] = received;
+		if (open?.op !== "open") throw new Error("expected an open");
+		expect(
+			open.env?.PI_FENCE_STAGE,
+			"a spawn was staged before spawns joined",
+		).toBeUndefined();
+		expect(
+			recordUnlisted,
+			"an unstaged spawn read as a miss",
+		).not.toHaveBeenCalled();
+	});
+
+	it("opens it unstaged, saying so, in a host too old for the token", async () => {
+		joinSpawns("stage 1");
+		await serveHost("home", "background");
+		answer = async (request) => {
+			if (request.op === "open" && request.env?.PI_FENCE_STAGE)
+				throw hostRefusal("invalid_request", "Invalid host control request");
+			return identityFor(request);
+		};
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+		});
+		expect(result, said(result)).toMatchObject({ ok: true });
+		expect(
+			received.map((r) => r.op),
+			"asked once more",
+		).toEqual(["open", "open"]);
+		const again = received.at(1);
+		if (again?.op !== "open") throw new Error("expected an open");
+		expect(
+			again.env,
+			"the second open still carried the token",
+		).toBeUndefined();
+		expect(said(result)).toContain("starts outside the stage");
+		expect(recordUnlisted, "the miss was not counted").toHaveBeenCalledWith(
+			expect.objectContaining({ kind: "host", error: "older-host" }),
+		);
+	});
+
+	it("counts no older host when the open without the token is refused too", async () => {
+		joinSpawns("stage 1");
+		await serveHost("home", "background");
+		answer = async (request) => {
+			if (request.op === "open")
+				throw hostRefusal("invalid_request", "Invalid host control request");
+			return identityFor(request);
+		};
+		const { state, id } = await questNamed("Alpha");
+		const result = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+		});
+		expect(result, said(result)).toMatchObject({ ok: false });
+		expect(said(result)).not.toContain("starts outside the stage");
+		expect(
+			recordUnlisted,
+			"a refusal for another reason was counted as an older host",
+		).not.toHaveBeenCalled();
 	});
 
 	it("carries the asking session's model to an attended host", async () => {

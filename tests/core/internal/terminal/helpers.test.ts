@@ -108,6 +108,19 @@ describe("running a command under the person's shell", () => {
 		).toEqual({ PATH: "/bin", PI_CACHE_RETENTION: "long" });
 	});
 
+	it("starts a terminal of a session set off without off, keeping a fence asked for", () => {
+		// Off is one session's way back, so what it spawns is fenced as the
+		// stage says (ISXEG8 [8599528b]).
+		expect(
+			launchEnvironment({ PATH: "/bin", PI_SANDBOX: "off" }),
+			"PI_SANDBOX=off reached a launched terminal",
+		).toEqual({ PATH: "/bin" });
+		expect(
+			launchEnvironment({ PATH: "/bin", PI_SANDBOX: "strict" }),
+			"a fence asked for was dropped",
+		).toEqual({ PATH: "/bin", PI_SANDBOX: "strict" });
+	});
+
 	it("is as it was before this session's budget, so the new session draws on its own", () => {
 		const env: NodeJS.ProcessEnv = { PATH: "/bin", KEY: "personal" };
 		const overlay = processOverlay();

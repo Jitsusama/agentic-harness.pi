@@ -133,10 +133,13 @@ may import from here, and any of it may change without notice.
   too.
 - **`fence-gpu.ts`**: the GPU's render nodes, bound into every
   fence's /dev, and never a card node.
-- **`fence-git-root.ts`**: a worktree's shared git folder, writable
-  inside while a watch in pi's process removes any name planted there
-  that sends git outside elsewhere, and stops the session that could
-  have planted it.
+- **`fence-git-root.ts`**: a worktree's shared git folder, read-only
+  inside, and watched from pi's process as a second guard that removes
+  any name planted that sends git outside elsewhere, and stops the
+  session that could have planted it.
+- **`fence-git-route.ts`**: the route a fenced git command is told
+  when the read-only shared git folder fails it (a branch or tag
+  delete, `git pack-refs`, pruning a packed ref), each one counted.
 - **`fence-broker-trees.ts`**: the work tool's trees read-only
   inside but the session's own, their `.git` files aside, since git
   outside runs in every one.
@@ -149,6 +152,11 @@ may import from here, and any of it may change without notice.
 - **`fence-lifted.ts`**: the fence lifted from every session but a
   fleet's subagents until it relands, since the default from 13
   November stayed in each running pi's own environment.
+- **`fence-stage.ts`**: which pis the fence takes by default in its
+  first stage (subagents, fresh `quest spawn` sessions and those listed
+  by hand, under pi's state, `scripts/fence-stage.ts`), and how
+  `PI_SANDBOX` reads: `off` runs a session as it is, and an empty or
+  unknown value reads as the fence, saying so once.
 - **`fence-preflight.ts`**: how the fence's pre-flight runs a check,
   fenced as a session's command or outside, and turns verdicts into a
   report and an exit status (`scripts/fence-preflight.ts`).
@@ -158,6 +166,10 @@ may import from here, and any of it may change without notice.
 - **`fence-preflight-desktop.ts`**: the checks of the person's
   desktop: a fenced copy and paste with his selection kept, and a
   fenced window opening behind, each leaving his focus where it was.
+
+- **`fence-preflight-git.ts`**: the checks of git in a fenced
+  worktree: its everyday work still goes, and git outside never sees a
+  name planted in the shared git folder.
 - **`fence-home.ts`**: what in the home folder runs code as the
   person later, which the fence keeps read-only: settings, startup
   files and programs' entries whose settings name a command, with

@@ -144,11 +144,18 @@ describe("what a session asking for the fence is given", () => {
 		rmSync(home, { recursive: true, force: true });
 	});
 
-	it("names both sandboxes when asked for one that isn't there", () => {
+	it("fences one asking for a sandbox that isn't there, naming it", () => {
 		const loose = sandboxFor({ PI_SANDBOX: "loose" }, "linux", all);
-		const reason = loose.kind === "refused" ? loose.reason : "";
-		expect(reason).toContain('"fence"');
-		expect(reason).toContain('"strict"');
+		expect(loose.kind, "an unknown name wasn't fenced").toBe("fence");
+		const note = loose.kind === "fence" ? loose.note : "";
+		expect(note, "the note doesn't name what was asked").toContain(
+			'PI_SANDBOX="loose"',
+		);
+	});
+
+	it("says nothing of a fence asked for by name", () => {
+		const asked = sandboxFor({ PI_SANDBOX: FENCE }, "linux", all);
+		expect(asked, "a fence asked for gained a note").not.toHaveProperty("note");
 	});
 });
 

@@ -71,7 +71,7 @@ import {
 	oweTurnToReload,
 	takeOwedTurn,
 } from "../../lib/internal/reload/hold.ts";
-import { SANDBOX_VARIABLE, STRICT } from "../../lib/internal/sandbox.ts";
+import { sandboxName } from "../../lib/internal/sandbox.ts";
 import { carriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import {
@@ -856,10 +856,8 @@ export function meshWorkflow(
 							? {
 									session: peer.session,
 									address: peer.signature,
-									sandbox:
-										process.env[SANDBOX_VARIABLE] === STRICT
-											? "strict"
-											: "none",
+									// Fenced by any name, the stage's default included.
+									sandbox: sandboxName() ? "strict" : "none",
 								}
 							: undefined,
 					locked: <T>(quest: string, change: () => T): T => {

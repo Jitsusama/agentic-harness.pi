@@ -513,6 +513,34 @@ describe("createSupervisorRunPi", () => {
 		}
 	});
 
+	it("starts a subagent of a session set off without off, so the stage fences it", async () => {
+		// Off is one session's way back (ISXEG8 [8599528b]): passed on, it
+		// would leave every subagent of that session unfenced though listed.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:String(process.env.PI_SANDBOX)}]}})+"\\n");`,
+		);
+		vi.stubEnv("PI_SANDBOX", "off");
+		let result: Awaited<ReturnType<ReturnType<typeof createSupervisorRunPi>>>;
+		try {
+			result = await createSupervisorRunPi({
+				piInstall: { node: process.execPath, entry: childPath },
+				stateDir,
+				idleTimeoutMs: GENEROUS_MS,
+				timeoutMs: GENEROUS_MS,
+			})({ args: [], cwd: stateDir, runId: "run", reviewerId: "off" });
+		} finally {
+			vi.unstubAllEnvs();
+		}
+		expectRan(result);
+		expect(
+			result.finalAssistantText,
+			"a subagent inherits no PI_SANDBOX=off",
+		).toBe("undefined");
+	});
+
 	it("gives the child what the process pinned, under the run's own variables", async () => {
 		const stateDir = await tempStateDir();
 		const childPath = join(stateDir, "child.mjs");

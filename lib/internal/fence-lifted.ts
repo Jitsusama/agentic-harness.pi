@@ -8,16 +8,14 @@
  * worktrees, gh and the GPU stayed broken where Joel works.
  *
  * A subagent keeps the fence it was started with, as before 12
- * November, and `strict` is never touched.
+ * November, and `strict` is never touched. The first stage's default
+ * is worked out apart from this (fence-stage.ts), so a lifted value
+ * never stops a listed session being fenced.
  */
 
 import { FENCE } from "./fence.ts";
+import { isSubagent } from "./fence-stage.ts";
 import { SANDBOX_VARIABLE } from "./sandbox.ts";
-
-/** Whether this pi is a fleet's subagent, as its supervisor marks it. */
-function isSubagent(env: NodeJS.ProcessEnv): boolean {
-	return env.SUBAGENT_SUPERVISOR === "1" || Boolean(env.SUBAGENT_RUN_ID);
-}
 
 /**
  * Take `PI_SANDBOX=fence` out of `env` itself, so every reader in this

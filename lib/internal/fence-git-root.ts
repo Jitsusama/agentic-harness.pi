@@ -1,40 +1,39 @@
 /**
  * The git folder a fenced session's own worktree shares with its
- * repository, writable inside while a watcher outside keeps it from
- * being turned against git outside.
+ * repository, read-only inside, and watched from outside as a second
+ * guard.
  *
- * A worktree's git writes some files at its repository's git folder
- * itself, not in its own folder under `worktrees`: `packed-refs`, which
- * every branch delete rewrites, among them. Git writes each as a lock
- * file renamed over the old, and a rename onto a file bound on its own
- * fails, so the folder itself is bound writable (ISXEG8, 14 November
- * 2026). What makes git run code stays read-only: its settings, hooks,
- * `info`, the submodules' git folders under `modules`, and every other
- * tree's folder under `worktrees`.
- *
- * What a bind can't keep out is a name that isn't there yet. A
- * `commondir` made in that folder sends git outside, the person's
+ * A `commondir` made in that folder sends git outside, the person's
  * prompt included, to read its settings from wherever it names, and a
  * `config.worktree` does the same where the repository's settings turn
  * that file on, now or once `git sparse-checkout init` turns it on
- * later. Planting one is never legitimate. So before any fenced
- * command may write the folder, a watcher in pi's own process, outside
- * the fence, is armed on it and on the session's own folder. It removes
+ * later. Planting one is never legitimate. No bind keeps out a name
+ * that isn't there yet in a writable folder, and a watcher that removes
+ * it at once still loses a race: git outside saw a plant in 1 look of
+ * 50 (the pre-flight's check j, 14 November 2026). So the folder stays
+ * read-only inside (ISXEG8 [753f43b4]), with what a commit, a branch, a
+ * fetch or a rebase writes bound writable (`fence.ts`'s `GIT_WRITTEN`).
+ * What rewrites `packed-refs` there, deleting a branch or tag,
+ * `git pack-refs` or pruning a packed ref, fails inside and is told the
+ * route (`fence-git-route.ts`).
+ *
+ * The watch stays as a second guard, since the session's own folder
+ * is writable and a `config.worktree` could be planted there. Before a
+ * fenced command runs, a watcher in pi's own process, outside the
+ * fence, is armed on the shared folder and on the session's own. It removes
  * a planted name as soon as it's made, logs a refusal naming each
  * session that could have made it, and stops those sessions' fenced
  * commands: everything in each command's own process namespace, killed
  * if it outlasts a polite ask by five seconds. A watch can't tell who
  * wrote, so a session stopped may be collateral, and its refusal says
- * so and that a new session works at once. Where the watcher can't be armed, the folder stays
- * read-only. Until a day of use shows no false refusal, this holds only
- * for a session working in a worktree; one in a repository's main
- * checkout keeps its git folder read-only.
+ * so and that a new session works at once. A session in a repository's
+ * main checkout has no shared folder to watch; its git folder is
+ * read-only but for `GIT_WRITTEN` too.
  */
 
 import {
 	type FSWatcher,
 	lstatSync,
-	mkdirSync,
 	readdirSync,
 	readFileSync,
 	readlinkSync,
@@ -44,27 +43,6 @@ import {
 import { basename, dirname, join } from "node:path";
 import { recordRefusal, systemLogger } from "./fence-log.ts";
 
-/**
- * What in the shared git folder stays read-only inside: what makes git
- * run code, and every tree's own folder, the session's own bound back.
- */
-export const ROOT_KEPT = [
-	"config",
-	"config.worktree",
-	"hooks",
-	"info",
-	"modules",
-	"worktrees",
-] as const;
-
-/**
- * The folders of `ROOT_KEPT` made first where they're missing, so they
- * can be bound read-only: an empty one changes nothing git does, and
- * one made inside would hold hooks, attributes or a submodule's
- * settings for git outside.
- */
-const MADE_FIRST = ["hooks", "info", "modules"] as const;
-
 /** Names git never makes in a repository's git folder, which redirect it. */
 const NEVER_MADE = ["commondir", "gitdir"] as const;
 
@@ -72,25 +50,6 @@ const NEVER_MADE = ["commondir", "gitdir"] as const;
 export function sharedGitFolder(own: string | undefined): string | undefined {
 	if (!own || basename(dirname(own)) !== "worktrees") return undefined;
 	return dirname(dirname(own));
-}
-
-/**
- * bubblewrap's arguments for the shared git folder: the folder
- * writable, with what of `ROOT_KEPT` is there read-only over it. They
- * go before the session's own folder is bound back.
- */
-export function sharedRootArgs(
-	root: string,
-	there: (path: string) => boolean,
-): string[] {
-	return [
-		"--bind",
-		root,
-		root,
-		...ROOT_KEPT.map((name) => join(root, name))
-			.filter(there)
-			.flatMap((path) => ["--ro-bind", path, path]),
-	];
 }
 
 function present(path: string): boolean {
@@ -255,13 +214,6 @@ export function armSharedRoot(
 	const deps = { ...LIVE, ...given };
 	if (NEVER_MADE.some((name) => present(join(root, name))) && !ARMED.has(root))
 		return false;
-	for (const name of MADE_FIRST) {
-		try {
-			mkdirSync(join(root, name), { recursive: true, mode: 0o755 });
-		} catch {
-			return false;
-		}
-	}
 	const armed: Armed[] = [];
 	for (const [folder, names] of guardedNames(root, own)) {
 		const one = armFolder(root, folder, names, deps);

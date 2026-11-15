@@ -88,6 +88,7 @@ import { recordedInShell } from "./fence-log.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
 import { seedOwnHomes } from "./fence-seed.ts";
 import { fenceSshConfig } from "./fence-ssh.ts";
+import { askedSandbox, inFirstStage } from "./fence-stage.ts";
 import {
 	type CloudGrant,
 	type CloudGrantSource,
@@ -118,6 +119,8 @@ import { cutTreeDir } from "./work-records.ts";
 /** The variable that asks for the sandbox, and the strict profile's value. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
 export const STRICT = "strict";
+/** The sandboxes there are, and the one a stray value reads as. */
+export const SANDBOX_NAMES = { fence: FENCE, known: [FENCE, STRICT] };
 
 /**
  * What git that pi runs outside the sandbox holds to for this session
@@ -129,10 +132,9 @@ export function gitRules(
 	env: NodeJS.ProcessEnv = process.env,
 	home: string = homedir(),
 ): GitRules {
-	const asked = env[SANDBOX_VARIABLE]?.trim();
 	return {
 		home: real(home),
-		fenced: asked === FENCE || asked === STRICT,
+		fenced: askedSandbox(env, SANDBOX_NAMES).name !== undefined,
 		trees: cutTreeDir(),
 	};
 }
@@ -433,6 +435,8 @@ export type Sandbox =
 			readonly offload?: Offload;
 			/** The GitHub door's program, where the machine runs the door. */
 			readonly githubDoor?: string;
+			/** Said once in the session, when the fence wasn't what it asked. */
+			readonly note?: string;
 	  })
 	| (Logged & { readonly kind: "refused"; readonly reason: string });
 
@@ -533,11 +537,6 @@ export function githubRules(): Rule[] {
 	];
 }
 
-/** Why a sandbox that isn't there is refused, for what it would fence. */
-export function noSuchSandbox(asked: string, what: string): string {
-	return `${SANDBOX_VARIABLE}=${asked} names no sandbox; the ones there are are "${FENCE}" and "${STRICT}". No ${what} runs until it is set right or unset.`;
-}
-
 /** What the agent fence needs of this machine, or why it can't be had. */
 function fenceFor(
 	platform: NodeJS.Platform,
@@ -572,6 +571,17 @@ function fenceFor(
 	};
 }
 
+/**
+ * The sandbox this pi's commands run in, by name, as `sandboxFor` reads
+ * it, the stage included; none when they run as they are.
+ */
+export function sandboxName(
+	env: NodeJS.ProcessEnv = process.env,
+	staged: (env: NodeJS.ProcessEnv) => boolean = inFirstStage,
+): string | undefined {
+	return askedSandbox(env, SANDBOX_NAMES, staged).name;
+}
+
 /** What the session asked for, and whether this machine can give it. */
 export function sandboxFor(
 	env: NodeJS.ProcessEnv = process.env,
@@ -580,11 +590,15 @@ export function sandboxFor(
 	find: (program: string) => string | undefined = systemProgram,
 	github: GitHubTokenSource = sessionTokens,
 	gcloud: CloudGrantSource = sessionGrants,
+	staged: (env: NodeJS.ProcessEnv) => boolean = inFirstStage,
 ): Sandbox {
-	const asked = env[SANDBOX_VARIABLE]?.trim();
-	if (!asked) return { kind: "none" };
+	// The stage's default and a stray value are worked out, never written
+	// back, so nothing a reload or a record keeps carries them (fence-stage.ts).
+	const { name, note } = askedSandbox(env, SANDBOX_NAMES, staged);
+	if (!name) return { kind: "none" };
 	const logger = find("logger");
-	const sandbox = askedFor(asked, platform, find, github, gcloud);
+	const asked = askedFor(name, platform, find, github, gcloud);
+	const sandbox = note && asked.kind === "fence" ? { ...asked, note } : asked;
 	return logger && sandbox.kind !== "none" ? { ...sandbox, logger } : sandbox;
 }
 
@@ -597,9 +611,6 @@ function askedFor(
 	gcloud: CloudGrantSource,
 ): Sandbox {
 	if (asked === FENCE) return fenceFor(platform, find);
-	if (asked !== STRICT) {
-		return { kind: "refused", reason: noSuchSandbox(asked, "command") };
-	}
 	if (platform !== "linux") {
 		return {
 			kind: "refused",
@@ -684,7 +695,6 @@ export function wrapFor(
 				...(githubFolder ? { githubDoor: githubFolder } : {}),
 				cwd: place.cwd,
 				ownGitFolder,
-				sharedRoot,
 				scratch: questScratch(place.env.TMPDIR),
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),

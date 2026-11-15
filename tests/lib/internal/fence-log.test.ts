@@ -21,7 +21,9 @@ import {
 	type Refusal,
 	recordedInShell,
 	recordRefusal,
+	recordUnlisted,
 	refusalLine,
+	unlistedLine,
 } from "../../../lib/internal/fence-log.ts";
 
 let folder: string;
@@ -94,6 +96,42 @@ describe("recording a refusal from pi's process", () => {
 	it("says why when there is no logger", async () => {
 		const why = await recordRefusal(refusal, undefined);
 		expect(why, "a missing logger said nothing").toContain("no logger");
+	});
+});
+
+describe("a pi the first stage missed", () => {
+	const unlisted = {
+		kind: "spawn",
+		session: "01a1d112-2f75-7372-a3b5-65076f20ad6c",
+		quest: "QEST-20261025-85PKB2",
+		error: "EACCES",
+	} as const;
+
+	it("leaves a line naming the session, quest and why, so a watch counts it", async () => {
+		expect(unlistedLine(unlisted), "the line's fixed shape").toBe(
+			"unlisted kind=spawn session=01a1d112-2f75-7372-a3b5-65076f20ad6c quest=QEST-20261025-85PKB2 error=EACCES",
+		);
+		expect(await recordUnlisted(unlisted, logger)).toBeUndefined();
+		const words = readFileSync(written, "utf8").trim().split("\n");
+		expect(words, "what the logger was given").toEqual([
+			"-t",
+			FENCE_LOG_TAG,
+			"-p",
+			"auth.notice",
+			"--",
+			unlistedLine(unlisted),
+		]);
+	});
+
+	it("keeps its shape with nothing known", () => {
+		expect(
+			unlistedLine({
+				kind: "id",
+				session: undefined,
+				quest: "a b",
+				error: undefined,
+			}),
+		).toBe("unlisted kind=id session=unknown quest=unknown error=unknown");
 	});
 });
 

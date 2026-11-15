@@ -13,6 +13,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { FENCE } from "./fence.ts";
 import { SANDBOX_VARIABLE, sandboxFor, wrapFor } from "./sandbox.ts";
@@ -159,6 +160,11 @@ export function fenced(
 	const wrap = wrapFor(sandbox, { cwd, env }, homedir());
 	if (!wrap) throw new Error("the fence gave no way to wrap a command");
 	return bash(wrap(script), cwd, env, limitMs);
+}
+
+/** A word no check has used before, for a line, a file or a session. */
+export function fresh(): string {
+	return `preflight-${randomUUID().slice(0, 8)}`;
 }
 
 /** A verdict that passed, saying `said`. */

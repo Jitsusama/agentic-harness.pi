@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	pinChildEnvironment,
 	unpinChildEnvironment,
@@ -202,6 +202,38 @@ describe("createSpawnRunPi", () => {
 		}
 		expect(captured?.SHOPIFY_PROXY_KEY).toBe("host-key");
 		expect(captured?.PI_SANDBOX).toBe("strict");
+	});
+
+	it("starts the child of a session set off without off, so the stage fences it", async () => {
+		// Off is one session's way back (ISXEG8 [8599528b]), not its children's.
+		const fake = makeFakeChild();
+		let captured: NodeJS.ProcessEnv | undefined;
+		const runPi = createSpawnRunPi({
+			piInstall: {
+				node: "/nix/store/node-22/bin/node",
+				entry: "/nix/store/pi/dist/cli.js",
+			},
+			spawn: (_command, _args, opts) => {
+				captured = opts.env;
+				queueMicrotask(() => {
+					fake.stdout.end("");
+					fake.stderr.end("");
+					fake.emitClose(0);
+				});
+				return fake.child as unknown as ChildProcess;
+			},
+		});
+		vi.stubEnv("PI_SANDBOX", "off");
+		try {
+			await runPi({ args: [], cwd: "/tmp" });
+		} finally {
+			vi.unstubAllEnvs();
+		}
+		expect(captured, "the child is given an environment").toBeDefined();
+		expect(captured?.PI_SANDBOX, "and no PI_SANDBOX=off in it").toBeUndefined();
+		expect(captured?.PATH, "but the rest of the session's").toBe(
+			process.env.PATH,
+		);
 	});
 
 	it("leaves the child env untouched when no package dir was captured", async () => {
