@@ -116,9 +116,6 @@ describe("posting to Slack", () => {
 		await replyToThread(client, "C1", "1.0", "hi");
 		await editMessage(client, "C1", "1.0", "hi");
 
-		expect(asked.map((ask) => "blocks" in ask.params)).toEqual([
-			false,
-			false,
-		]);
+		expect(asked.map((ask) => "blocks" in ask.params)).toEqual([false, false]);
 	});
 });

@@ -306,9 +306,7 @@ describe("createSpawnRunPi", () => {
 		const promise = runPi({ args: [], cwd: "/tmp", signal: ac.signal });
 		ac.abort();
 		const result = await promise;
-		expect(kills.length, "aborting the run kills the child").toBeGreaterThan(
-			0,
-		);
+		expect(kills.length, "aborting the run kills the child").toBeGreaterThan(0);
 		expect(result.exitCode).toBe(143);
 		expect(result.stderr).toContain("cancelled");
 	});

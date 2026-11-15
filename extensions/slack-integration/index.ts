@@ -467,9 +467,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 							Type.Object({
 								columns: Type.Array(Type.String()),
 								rows: Type.Array(Type.Array(Type.String())),
-								column_settings: Type.Optional(
-									Type.Array(COLUMN_SETTING),
-								),
+								column_settings: Type.Optional(Type.Array(COLUMN_SETTING)),
 							}),
 						),
 					}),

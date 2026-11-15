@@ -691,7 +691,10 @@ describe("heldByLiveSupervisor", () => {
 		});
 
 		expect(
-			await heldHawk(store, ticking({ startedAt: BORN + 4_000, startTicks: 812_345 })),
+			await heldHawk(
+				store,
+				ticking({ startedAt: BORN + 4_000, startTicks: 812_345 }),
+			),
 		).toMatchObject({ reviewerId: "hawk", pid: PID });
 	});
 
@@ -706,7 +709,10 @@ describe("heldByLiveSupervisor", () => {
 			await heldHawk(store, ticking({ startedAt: BORN, startTicks: 900_000 })),
 		).toBeUndefined();
 		expect(
-			await heldHawk(store, ticking({ startedAt: BORN, startTicks: 812_345, boot: "boot-2" })),
+			await heldHawk(
+				store,
+				ticking({ startedAt: BORN, startTicks: 812_345, boot: "boot-2" }),
+			),
 		).toBeUndefined();
 	});
 
@@ -716,9 +722,10 @@ describe("heldByLiveSupervisor", () => {
 		const store = new ReviewerArtifactsStore(root);
 		leaseHawk(store, 2_000);
 
-		expect(
-			await heldHawk(store, machine({ startedAt: BORN })),
-		).toMatchObject({ reviewerId: "hawk", pid: PID });
+		expect(await heldHawk(store, machine({ startedAt: BORN }))).toMatchObject({
+			reviewerId: "hawk",
+			pid: PID,
+		});
 	});
 
 	it("holds a round whose supervisor is wedged rather than gone", async () => {
@@ -729,9 +736,9 @@ describe("heldByLiveSupervisor", () => {
 		const store = new ReviewerArtifactsStore(root);
 		leaseHawk(store, 10 * 60_000);
 
-		expect(
-			await heldHawk(store, machine({ startedAt: BORN })),
-		).toMatchObject({ reviewerId: "hawk" });
+		expect(await heldHawk(store, machine({ startedAt: BORN }))).toMatchObject({
+			reviewerId: "hawk",
+		});
 	});
 
 	it("releases a round whose pid the machine reissued", async () => {
@@ -788,9 +795,9 @@ describe("heldByLiveSupervisor", () => {
 			updatedAt: new Date(NOW).toISOString(),
 		});
 
-		expect(
-			await heldHawk(store, machine({ startedAt: BORN })),
-		).toMatchObject({ reviewerId: `hawk${WRAP_UP_SUFFIX}` });
+		expect(await heldHawk(store, machine({ startedAt: BORN }))).toMatchObject({
+			reviewerId: `hawk${WRAP_UP_SUFFIX}`,
+		});
 	});
 
 	it("releases a round whose supervisor said it had finished", async () => {
@@ -802,16 +809,12 @@ describe("heldByLiveSupervisor", () => {
 			completedAt: new Date(NOW).toISOString(),
 		});
 
-		expect(
-			await heldHawk(store, machine({ startedAt: BORN })),
-		).toBeUndefined();
+		expect(await heldHawk(store, machine({ startedAt: BORN }))).toBeUndefined();
 	});
 
 	it("releases a round with no lease at all", async () => {
 		const store = new ReviewerArtifactsStore(root);
 
-		expect(
-			await heldHawk(store, machine({ startedAt: BORN })),
-		).toBeUndefined();
+		expect(await heldHawk(store, machine({ startedAt: BORN }))).toBeUndefined();
 	});
 });

@@ -486,7 +486,10 @@ describe("createSupervisorRunPi", () => {
 			childPath,
 			`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:String(process.env.PI_SANDBOX)}]}})+"\\n");`,
 		);
-		const result = await runChild(childPath, stateDir)({
+		const result = await runChild(
+			childPath,
+			stateDir,
+		)({
 			args: [],
 			cwd: stateDir,
 			runId: "run",
@@ -517,7 +520,10 @@ describe("createSupervisorRunPi", () => {
 		vi.stubEnv("PI_SANDBOX", "off");
 		let result: Awaited<ReturnType<ReturnType<typeof createSupervisorRunPi>>>;
 		try {
-			result = await runChild(childPath, stateDir)({ args: [], cwd: stateDir, runId: "run", reviewerId: "off" });
+			result = await runChild(
+				childPath,
+				stateDir,
+			)({ args: [], cwd: stateDir, runId: "run", reviewerId: "off" });
 		} finally {
 			vi.unstubAllEnvs();
 		}
@@ -540,7 +546,10 @@ describe("createSupervisorRunPi", () => {
 			PI_SANDBOX: "pinned",
 		}));
 		try {
-			const result = await runChild(childPath, stateDir)({
+			const result = await runChild(
+				childPath,
+				stateDir,
+			)({
 				args: [],
 				cwd: stateDir,
 				runId: "run",
