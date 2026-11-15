@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	CEILING_MS,
 	lastResortCollect,
+	processHeap,
 	pssBytes,
 	type QuietReading,
 	quietCollection,
@@ -37,8 +38,28 @@ describe("the host's collection once quiet", () => {
 		const said: string[] = [];
 		const weighs = [812 * MB, 214 * MB];
 		const heaps = [
-			{ used: 700 * MB, total: 760 * MB },
-			{ used: 150 * MB, total: 200 * MB },
+			{
+				used: 700 * MB,
+				total: 760 * MB,
+				external: 60 * MB,
+				arrayBuffers: 9 * MB,
+				spaces: [
+					{ name: "old_space", used: 600 * MB, size: 640 * MB },
+					{ name: "new_space", used: MB / 2, size: MB / 2 },
+				],
+			},
+			{
+				used: 150 * MB,
+				total: 200 * MB,
+				external: 40 * MB,
+				arrayBuffers: 5 * MB,
+				spaces: [
+					{ name: "old_space", used: 100 * MB, size: 120 * MB },
+					{ name: "large_object_space", used: 30 * MB, size: 40 * MB },
+					{ name: "code_space", used: 20 * MB, size: 40 * MB },
+					{ name: "new_space", used: MB / 5, size: MB / 2 },
+				],
+			},
 		];
 		const quiet = quietCollection({
 			reading,
@@ -50,7 +71,7 @@ describe("the host's collection once quiet", () => {
 		return { collect, said, quiet };
 	}
 
-	it("collects once a turn has settled, saying the pause, and the Pss and heap before and after", () => {
+	it("collects once a turn has settled, saying the pause, the Pss, heap and memory beside it before and after, and each space it keeps", () => {
 		const { collect, said, quiet } = counted();
 		quiet.stirred();
 		vi.advanceTimersByTime(SETTLE_MS - 1);
@@ -59,7 +80,7 @@ describe("the host's collection once quiet", () => {
 		expect(collect).toHaveBeenCalledTimes(1);
 		expect(said).toEqual([
 			expect.stringMatching(
-				/^Collected while quiet in \d+ ms, Pss 812 MB to 214 MB, heap 700 of 760 MB to 150 of 200 MB, with 0 conversations waiting on the model$/,
+				/^Collected while quiet in \d+ ms, Pss 812 MB to 214 MB, heap 700 of 760 MB to 150 of 200 MB \(old 100 of 120 MB, large object 30 of 40 MB, code 20 of 40 MB\), outside it 60 MB to 40 MB, of which array buffers 9 MB to 5 MB, with 0 conversations waiting on the model$/,
 			),
 		]);
 	});
@@ -294,5 +315,13 @@ describe("V8's last-resort collection", () => {
 
 	it.runIf(process.platform === "linux")("reads this process's Pss", () => {
 		expect(pssBytes()).toBeGreaterThan(MB);
+	});
+
+	it("reads this process's heap, each space it keeps and what it holds outside it", () => {
+		const heap = processHeap();
+		expect(heap.used).toBeGreaterThan(MB);
+		expect(heap.total).toBeGreaterThanOrEqual(heap.used);
+		expect(heap.external).toBeGreaterThanOrEqual(heap.arrayBuffers);
+		expect(heap.spaces.map((space) => space.name)).toContain("old_space");
 	});
 });
