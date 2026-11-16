@@ -333,6 +333,12 @@ moved pi leaves.
   where `tee` lacks `-p` or the shell isn't bash, run as before and
   hold a move. A `pi-spawner` that answers `keeps` leaves a kept
   command running when its pi goes, so its calls are kept like pi's.
+- **Queued, with a time limit:** heavy work the machine's queue holds
+  runs under a clock of its own, started when its turn begins.
+  `timed-keeping.ts` remembers each such call by the signal pi ran it
+  under, so it is carried like any other, with the time left of its
+  limit as its deadline, and the clock here stops once it is handed
+  on.
 
 ## Limits
 

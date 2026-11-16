@@ -11,7 +11,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
 import type { SessionRef } from "../../lib/core/session/index.ts";
-import { timedFromTurn } from "../../lib/internal/priority/clock.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { type Sandbox, wrapFor } from "../../lib/internal/sandbox.ts";
 import { isBash, teePersists } from "../../lib/internal/shell/kept.ts";
@@ -24,6 +23,7 @@ import { COMMAND_VARIABLE, offCommandLine } from "./command-line.ts";
 import { fromConversation, withoutInteraction } from "./environment.ts";
 import { type Keeping, keepsOnDisk } from "./keeping.ts";
 import { reapsWhatItLeft } from "./reap.ts";
+import { timedKeeping } from "./timed-keeping.ts";
 
 /** The settings of pi's own that the agent's bash is built with too. */
 export type ShellSettings = Pick<
@@ -71,7 +71,7 @@ export function agentBash(
 	// on (keeping.ts), whether pi or pi-spawner starts it. A pi-spawner
 	// from before kept commands kills them all when this pi goes, so
 	// through it nothing is kept, and each call holds a move.
-	const keeping = keepsOnDisk(spawning, {
+	const kept = keepsOnDisk(spawning, {
 		can: async (env) => {
 			if (!isBash(settings.shellPath)) return false;
 			const [tee, spared] = await Promise.all([
@@ -80,6 +80,15 @@ export function agentBash(
 			]);
 			return tee && spared;
 		},
+	});
+	// A time limit on work the queue holds starts when its turn does.
+	// The command has left the command line by then, so it is read
+	// where it travels. A stop, that limit's included, also kills what
+	// left the shell's process group, as `timeout` does. Such a call is
+	// still carried by the signal pi ran it under (timed-keeping.ts).
+	const keeping = timedKeeping(kept, {
+		around: reapsWhatItLeft,
+		commandOf: (command, env) => env?.[COMMAND_VARIABLE] ?? command,
 	});
 	const definition = createBashToolDefinition(cwd, {
 		...settings,
@@ -99,15 +108,9 @@ export function agentBash(
 				command: placedCommand(offered.command, offered.cwd, wrap),
 			});
 		},
-		// A time limit on work the queue holds starts when its turn does.
-		// The command has left the command line by then, so it is read
-		// where it travels. A stop, that limit's included, also kills what
-		// left the shell's process group, as `timeout` does. Asked for, each
-		// command starts in pi-spawner, so pi never forks itself to start
-		// one (lib/internal/shell/spawner.ts).
-		operations: timedFromTurn(reapsWhatItLeft(keeping.operations), {
-			commandOf: (command, env) => env?.[COMMAND_VARIABLE] ?? command,
-		}),
+		// Asked for, each command starts in pi-spawner, so pi never forks
+		// itself to start one (lib/internal/shell/spawner.ts).
+		operations: keeping.operations,
 	});
 	return {
 		...definition,
