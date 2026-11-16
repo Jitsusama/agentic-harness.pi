@@ -3,6 +3,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -131,14 +132,28 @@ describe("tending holds", () => {
 		expect(sent()).toHaveLength(1);
 	});
 
-	it("tends once when conversations take a stale claim at once", async () => {
-		const { root, clock, state, sent, tend } = mesh();
-		state.stops = [stop("q", ["quest:QEST-A"])];
-		mkdirSync(join(root, "pineapple"), { recursive: true });
-		writeFileSync(join(root, "pineapple", "claim"), "1");
+	// Our council on #1728: tendings started at once settle by the pool's
+	// timing, so a second is started inside the first, while its claim,
+	// by this clock, reads as stale to any session that looks.
+	it("tends once at a time in a process, though its claim reads as stale", async () => {
+		const stops = [stop("q", ["quest:QEST-A"])];
+		const run: { tendings: number; second?: Promise<void> } = { tendings: 0 };
+		const inner: { tend?: () => Promise<void> } = {};
+		const { clock, tend } = mesh({
+			stops: () => {
+				run.tendings += 1;
+				return stops;
+			},
+			send: () => {
+				run.second ??= inner.tend?.();
+				return { id: "m1" };
+			},
+		});
+		inner.tend = tend;
 		clock.now = Date.now() + 3 * 60 * 1000;
-		await Promise.all([tend(), tend(), tend(), tend()]);
-		expect(sent(), "one hold, from one tending").toHaveLength(1);
+		await tend();
+		await run.second;
+		expect(run.tendings, "tendings past the claim").toBe(1);
 	});
 
 	it("leaves a claim another session took meanwhile", async () => {
@@ -151,22 +166,36 @@ describe("tending holds", () => {
 			},
 		});
 		at.claim = join(root, "pineapple", "claim");
-		const claim = () => at.claim;
 		state.stops = [stop("q", ["quest:QEST-A"])];
 		await tend();
 		expect(
-			existsSync(claim()) && readFileSync(claim(), "utf8"),
+			existsSync(at.claim) && readFileSync(at.claim, "utf8"),
 			"the other session's claim",
 		).toBe("another");
 	});
 
+	it("ends as it should when its claim went meanwhile", async () => {
+		const at = { claim: "" };
+		const { root, state, tend } = mesh({
+			// Taken back from outside as this one sends.
+			send: () => {
+				rmSync(at.claim, { force: true });
+				return { id: "m1" };
+			},
+		});
+		at.claim = join(root, "pineapple", "claim");
+		state.stops = [stop("q", ["quest:QEST-A"])];
+		await expect(tend(), "the tending").resolves.toBeUndefined();
+		expect(existsSync(at.claim), "no claim").toBe(false);
+	});
+
 	it("gives its claim back when tending fails", async () => {
 		const failing = { now: true };
-		const transport = { sent: 0 };
+		const sends = { count: 0 };
 		const { state, tend } = mesh({
 			send: () => {
 				if (failing.now) throw new Error("the mesh moved");
-				transport.sent += 1;
+				sends.count += 1;
 				return { id: "m1" };
 			},
 		});
@@ -176,6 +205,6 @@ describe("tending holds", () => {
 		);
 		failing.now = false;
 		await tend();
-		expect(transport.sent, "sent by the next tending").toBe(1);
+		expect(sends.count, "sent by the next tending").toBe(1);
 	});
 });
