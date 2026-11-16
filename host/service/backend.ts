@@ -84,6 +84,14 @@ export interface ConversationEngine {
 	 */
 	keepCarried?(): Promise<void>;
 	/**
+	 * Start or lift a drain for a restart: while it lasts each
+	 * conversation parks as soon as its park rule holds, idle time aside,
+	 * a wake through its file or a steer waits for the lift, and a heavy
+	 * run holds the host's restart. Answers with the heavy runs going
+	 * now, a line each. An engine that can't drain leaves it out.
+	 */
+	drain?(on: boolean): readonly string[];
+	/**
 	 * Once a park of the conversation under way has settled, at once when
 	 * none is: until then it is still held, though it is no longer running.
 	 */
@@ -384,6 +392,30 @@ export function hostBackend(options: {
 		});
 	}
 
+	// Said in the journal with who asked, since a drain parks conversations
+	// a person may be about to come back to.
+	function drain(on: boolean, by: string | undefined) {
+		if (!engine.drain) throw new Error("This host can't drain");
+		const heavy = engine.drain(on);
+		const sessions = [
+			...host.list().map((held) => live(held.id)),
+			...stranded(),
+		];
+		const count = (state: SessionIdentity["state"]) =>
+			sessions.filter((held) => held.state === state).length;
+		const result = {
+			draining: on,
+			busy: count("busy"),
+			idle: count("idle"),
+			parked: count("parked"),
+			heavy: [...heavy],
+		};
+		options.say?.(
+			`${on ? "Draining for a restart" : "Drain lifted"}, asked by ${askedBy(by)}: ${result.busy} busy, ${result.idle} idle, ${result.parked} parked; heavy runs: ${heavy.length > 0 ? heavy.join("; ") : "none"}`,
+		);
+		return result;
+	}
+
 	return {
 		identity: options.identity,
 		wake,
@@ -407,6 +439,8 @@ export function hostBackend(options: {
 					return end(request.sessionId, "closed", request.by);
 				case "release":
 					return end(request.sessionId, "released", request.by);
+				case "drain":
+					return drain(request.on, request.by);
 				case "abort":
 					await startOwes(request.sessionId);
 					live(request.sessionId);

@@ -67,6 +67,7 @@ import {
 	harnessSettings,
 } from "./harness-settings.ts";
 import { bindHeadless } from "./headless.ts";
+import { isHeavy } from "./heavy.ts";
 import { heldLogs } from "./held-logs.ts";
 import { loadHostPi } from "./host-pi.ts";
 import type { HostedAgent } from "./hosted-agent.ts";
@@ -255,6 +256,9 @@ export async function createEngine(
 			root: stateDir("steer"),
 			addressesOf: (sessionId) => readParked(sessionId)?.addresses ?? [],
 		},
+		// A conversation parked to let the host restart stays parked until
+		// the drain lifts or the next host reads its wake.
+		holding: () => host.drains(),
 	});
 	const tools = runningTools();
 	// V8 keeps the pages its collections free until a memory-reducing one, so the host collects once it goes quiet.
@@ -907,7 +911,7 @@ export async function createEngine(
 			// A warm of a parked conversation is out too.
 			let held = warming.inFlight();
 			for (const record of live.values())
-				held += restartEnds(record, shells).length;
+				held += restartEnds(record, shells, host.drains()).length;
 			return held;
 		},
 
@@ -917,9 +921,19 @@ export async function createEngine(
 			if (warms > 0)
 				held.push(`${warms} parked warm${warms === 1 ? "" : "s"} in flight`);
 			for (const [sessionId, record] of live)
-				for (const what of restartEnds(record, shells))
+				for (const what of restartEnds(record, shells, host.drains()))
 					held.push(`${sessionId}: ${what}`);
 			return held;
+		},
+
+		drain(on) {
+			host.drain(on);
+			if (!on) parked.release();
+			const heavy: string[] = [];
+			for (const [sessionId, record] of live)
+				for (const what of heavyIn(record))
+					heavy.push(`${sessionId}: ${what}`);
+			return heavy;
 		},
 
 		async keepCarried() {
@@ -1123,7 +1137,11 @@ function backgroundIn(record: Live): number {
  * not yet said are carried in the conversation's log, so none holds it.
  * A job host from before `holds` says only how many it holds.
  */
-function restartEnds(record: Live, shells: CarriedShells): string[] {
+function restartEnds(
+	record: Live,
+	shells: CarriedShells,
+	draining = false,
+): string[] {
 	if (!record.runtime) return [];
 	const jobs = findJobHost(record.bus);
 	if (!jobs) return [];
@@ -1134,8 +1152,30 @@ function restartEnds(record: Live, shells: CarriedShells): string[] {
 	const carriable = shells.keeps
 		? (work: { kind: string }) => work.kind === "shell"
 		: () => false;
+	const held = jobs.holds(carriable);
+	// A host draining holds its restart for a heavy run too, carried or not:
+	// a stop that can't carry it, by hand or past systemd's limit, ends it.
+	const heavy = draining
+		? jobs
+				.holds(() => false)
+				.filter(
+					(job) =>
+						isHeavy(job.label) && !held.some(({ id }) => id === job.id),
+				)
+		: [];
+	return [...held, ...heavy].map(
+		(job) => `${job.id} ${job.kind}: ${job.label}`,
+	);
+}
+
+/** The heavy runs one conversation has going, carried or not, a line each. */
+function heavyIn(record: Live): string[] {
+	if (!record.runtime) return [];
+	const jobs = findJobHost(record.bus);
+	if (!jobs?.holds) return [];
 	return jobs
-		.holds(carriable)
+		.holds(() => false)
+		.filter((job) => isHeavy(job.label))
 		.map((job) => `${job.id} ${job.kind}: ${job.label}`);
 }
 

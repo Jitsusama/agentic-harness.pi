@@ -19,6 +19,7 @@ import {
 	isRestartAsk,
 	opensOnlyItself,
 	PARK_ASK,
+	PARK_ENV,
 	PARKED_EXIT,
 	PARKING,
 	type ParkAsk,
@@ -440,6 +441,15 @@ export function watch(
 		}
 		return undefined;
 	};
+	// How long it waits idle before it parks: not at all while its host
+	// drains for a restart, since on 16 November the background host's 17
+	// conversations took turns that overlapped for over an hour, and no
+	// moment came with none running. PI_PARK=off keeps it awake still.
+	const dueAfterMs = (): number | undefined => {
+		const usual = parkAfterMs(session, options.env, options.switchPath);
+		if (env[PARK_ENV] === "off") return usual;
+		return parkingHost() && hosted()?.draining?.(session) === true ? 0 : usual;
+	};
 	const end = () => {
 		parked = true;
 		// A host parks this conversation alone, keeping its window and wake.
@@ -457,7 +467,7 @@ export function watch(
 		// A watch begun before a host was installed still never ends it.
 		if (hosted() && !parkingHost()) return HOST_PARKS;
 		const ask: ParkAsk = { session, refusals: [] };
-		const afterMs = parkAfterMs(session, options.env, options.switchPath);
+		const afterMs = dueAfterMs();
 		// Others are asked only once it is due, since asking reads the board.
 		if (afterMs !== undefined && now() - last >= afterMs) {
 			bus.emit(PARK_ASK, ask);

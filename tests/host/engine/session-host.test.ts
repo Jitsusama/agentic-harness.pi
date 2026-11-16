@@ -345,6 +345,36 @@ it("tells a conversation the host restarts before stamping it signalled, only fo
 	]);
 });
 
+// 16 November: a restart found no moment with none of 17 conversations
+// running, so a drain parks them; one the person wakes stays awake.
+it("drains every conversation but one woken from a park since, until the drain lifts", () => {
+	const host = start();
+	host.register(registration("a"));
+	host.register(registration("b"));
+	expect(
+		{ drains: host.drains(), a: host.draining("a") },
+		"undrained",
+	).toEqual({ drains: false, a: false });
+
+	host.drain(true);
+	host.state("b", "parked");
+	host.state("b", "idle");
+
+	expect({
+		drains: host.drains(),
+		a: host.draining("a"),
+		b: host.draining("b"),
+	}).toEqual({ drains: true, a: true, b: false });
+	host.drain(false);
+	host.drain(true);
+	expect(
+		host.draining("b"),
+		"a new drain drains it again, as nothing woke it during this one",
+	).toBe(true);
+	host.drain(false);
+	expect(host.draining("a"), "lifted").toBe(false);
+});
+
 it("uninstalls a failed initial publication so another host can start", () => {
 	const dir = mkdtempSync(join(tmpdir(), "engine-failed-"));
 	directories.push(dir);

@@ -81,7 +81,10 @@ it (`Host.park`), which frees its session and screen while keeping it
 held, its window open, and wakes it in place at the wake file, a key
 or a window opening on it. Under a host that can't park one
 conversation alone, it never parks, and its awake note says
-`its host parks it`.
+`its host parks it`. While its host drains for a restart
+(`Host.draining`), it parks as soon as the rest of the rule holds,
+idle time aside, so within a look of going idle; `PI_PARK=off` still
+keeps it awake.
 
 ## What Happens
 

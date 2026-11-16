@@ -986,6 +986,53 @@ describe("why a session stays awake", () => {
 		}
 	});
 
+	// 16 November: the background host's 17 conversations took turns that
+	// overlapped for over an hour, so its restart found no moment with none
+	// running (16V6F4 [654e24da]).
+	it("parks a hosted conversation as soon as its rule holds while its host drains, and waits its time again once the drain lifts", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		let draining = true;
+		host.host.park = (id) => asked.push(id);
+		host.host.draining = () => draining;
+		const conversation = { MYCELIUM_WAKE: join(folder, "conversation.wake") };
+		try {
+			const busy = watching(session({ isIdle: () => false }), conversation);
+			expect(busy.look(), "a running one stays, drain or not").not.toBe(
+				undefined,
+			);
+			busy.stop();
+
+			draining = false;
+			const usual = watching(session(), conversation);
+			expect(usual.look(), "undrained, it waits its time").toBe(
+				"not idle long enough",
+			);
+			draining = true;
+			expect(usual.look(), "drained, it parks at once").toBeUndefined();
+			expect(asked).toEqual([SESSION]);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("keeps a hosted conversation awake through a drain when PI_PARK is off for it", () => {
+		const host = installTestHost();
+		const asked: string[] = [];
+		host.host.park = (id) => asked.push(id);
+		host.host.draining = () => true;
+		try {
+			const watched = watching(session(), {
+				MYCELIUM_WAKE: join(folder, "conversation.wake"),
+				PI_PARK: "off",
+			});
+			expect(watched.look()).toBe("parking is off");
+			expect(asked).toEqual([]);
+		} finally {
+			host.dispose();
+		}
+	});
+
 	it("keeps a hosted conversation with no log awake, since its host wakes it from its log", () => {
 		const host = installTestHost();
 		const asked: string[] = [];

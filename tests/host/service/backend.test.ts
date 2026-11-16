@@ -17,9 +17,13 @@ import {
 	type Prepared,
 	resumeHeld,
 } from "../../../host/service/backend.ts";
-import { controlRequest } from "../../../host/service/client.ts";
+import {
+	controlRequest,
+	drainHost,
+} from "../../../host/service/client.ts";
 import {
 	type ControlRequest,
+	parseDrainResult,
 	parseListResult,
 	parseOpenResult,
 	parseSessionResult,
@@ -666,6 +670,84 @@ describe("hostBackend", () => {
 				columns: 1,
 			}),
 		).rejects.toThrow("not hosted");
+	});
+
+	// 16 November: a hand restart of the background host ended six heavy
+	// runs, since nothing said which were going (WCJQSG [a6d540f2]).
+	it("drains for a restart and lifts it, answering how the conversations stand and which heavy runs go, and saying who asked", async () => {
+		const drains: boolean[] = [];
+		const { fake } = engine({
+			drain: (on) => {
+				drains.push(on);
+				return on ? ["c1: job-2 shell: nix-offload there --changed"] : [];
+			},
+		});
+		const said: string[] = [];
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: fake,
+			say: (line) => said.push(line),
+		});
+		const busy = parseOpenResult(await backend.execute(open));
+		await backend.execute({ ...open, id: "o2" });
+		host.state(busy.sessionId, "busy");
+
+		const drained = parseDrainResult(
+			await backend.execute({
+				v: 1,
+				id: "d",
+				op: "drain",
+				on: true,
+				by: "integration",
+			}),
+		);
+		const lifted = parseDrainResult(
+			await backend.execute({ v: 1, id: "d2", op: "drain", on: false }),
+		);
+
+		expect(drained).toEqual({
+			draining: true,
+			busy: 1,
+			idle: 1,
+			parked: 0,
+			heavy: ["c1: job-2 shell: nix-offload there --changed"],
+		});
+		expect(lifted).toMatchObject({ draining: false, heavy: [] });
+		expect(drains, "the engine was asked each time").toEqual([true, false]);
+		expect(said[0]).toContain(
+			"Draining for a restart, asked by integration over the control socket",
+		);
+		expect(said[1]).toContain("Drain lifted");
+	});
+
+	it("drains over the real socket naming the host it listed, and refuses a drain naming none", async () => {
+		const { fake } = engine({ drain: () => [] });
+		const backend = backendWith(fake);
+		const path = join(dir, "sock", "host.sock");
+		const listener = await listenControl({ path, backend, report: () => {} });
+		try {
+			expect(await drainHost(path, true, "integration")).toEqual({
+				draining: true,
+				busy: 0,
+				idle: 0,
+				parked: 0,
+				heavy: [],
+			});
+			await expect(
+				controlRequest(path, { v: 1, id: "d", op: "drain", on: false }),
+			).rejects.toThrow("expectedHost");
+		} finally {
+			await listener.close();
+		}
+	});
+
+	it("refuses a drain where its engine can't drain", async () => {
+		const backend = backendWith(engine().fake);
+		await expect(
+			backend.execute({ v: 1, id: "d", op: "drain", on: true }),
+		).rejects.toThrow("This host can't drain");
 	});
 
 	it("serves two sessions over the real socket, each in its own environment", async () => {

@@ -79,6 +79,9 @@ export class SessionHost implements Host {
 	private readonly uninstall: () => void;
 	private readonly own: NodeJS.ProcessEnv = process.env;
 	private disposed = false;
+	// While draining, the conversations woken from a park since it began,
+	// which the person asked for and which aren't drained again.
+	private wokenInDrain?: Set<string>;
 
 	constructor(options: {
 		key: string;
@@ -254,6 +257,22 @@ export class SessionHost implements Host {
 		});
 	}
 
+	/** Whether the host drains for a restart, holding the wakes of those it parked. */
+	drains(): boolean {
+		return this.wokenInDrain !== undefined;
+	}
+
+	/** Whether this conversation parks at once, as the host drains and it wasn't woken since. */
+	draining(id: string): boolean {
+		return this.wokenInDrain !== undefined && !this.wokenInDrain.has(id);
+	}
+
+	/** Start or lift a drain; each conversation reads it at its next look. */
+	drain(on: boolean): void {
+		if (!on) this.wokenInDrain = undefined;
+		else this.wokenInDrain ??= new Set();
+	}
+
 	/**
 	 * Stop for host restart without recording a deliberate conversation
 	 * quit. `restarting` when the stop is a restart the host asked for, so
@@ -328,6 +347,8 @@ export class SessionHost implements Host {
 	}
 
 	private changeState(conversation: Conversation, state: HostedState): void {
+		if (conversation.state === "parked" && state !== "parked")
+			this.wokenInDrain?.add(conversation.id);
 		const previous = { state: conversation.state, since: conversation.since };
 		Object.assign(conversation, { state, since: new Date().toISOString() });
 		try {

@@ -327,6 +327,18 @@ describe("host-gate.sh", () => {
 		expect(answered.said).toContain("isn't test:host on the proven");
 	});
 
+	it("refuses at once, naming the link, when the hosts' runtime link names nothing", async () => {
+		const on = await harness();
+		const sha = await change(on, "host/engine/engine.ts");
+		kept(on, sha, testHost(on));
+		const gone = join(on.state, "pi-host", "gone");
+
+		const answered = await gate({ ...on, runtime: gone }, sha);
+
+		expect(answered.code).toBe(1);
+		expect(answered.said).toContain(`runtime link ${gone} names nothing`);
+	});
+
 	it("takes a run on the tools this machine had before its latest switch", async () => {
 		const on = await harness();
 		const sha = await change(on, "host/engine/engine.ts");

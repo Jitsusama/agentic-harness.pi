@@ -64,6 +64,14 @@ const request = z.discriminatedUnion("op", [
 	z.strictObject({ ...session, op: z.literal("release"), by: caller }),
 	z.strictObject({ ...session, op: z.literal("close"), by: caller }),
 	z.strictObject({ ...session, op: z.literal("abort") }),
+	// Start or lift a drain for a restart: each conversation parks as soon
+	// as its park rule holds, and a wake by file or steer waits for the lift.
+	z.strictObject({
+		...envelope,
+		op: z.literal("drain"),
+		on: z.boolean(),
+		by: caller,
+	}),
 	z.strictObject({
 		...session,
 		...geometry,
@@ -112,6 +120,15 @@ const listed = z.strictObject({
 	host: expectedHost,
 });
 const ended = z.strictObject({ sessionId });
+const count = z.int().nonnegative();
+const drained = z.strictObject({
+	draining: z.boolean(),
+	busy: count,
+	idle: count,
+	parked: count,
+	// The heavy runs going now, a line each, which hold a draining host's restart.
+	heavy: z.array(text),
+});
 
 /** A hosted conversation as open, adopt and list report it. */
 export type SessionIdentity = z.infer<typeof identity>;
@@ -140,6 +157,11 @@ export function parseListResult(value: unknown): z.infer<typeof listed> {
 /** Release, close, abort and attach answer with the session they acted on. */
 export function parseSessionResult(value: unknown): z.infer<typeof ended> {
 	return result(ended, value);
+}
+
+/** Drain's result: whether the host drains now, and how its conversations stand. */
+export function parseDrainResult(value: unknown): z.infer<typeof drained> {
+	return result(drained, value);
 }
 
 /** Validate the engine's reply without trusting the connected socket's identity. */

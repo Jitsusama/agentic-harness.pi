@@ -193,7 +193,8 @@ export async function listenControl(options: {
 				return;
 			}
 			if (
-				["close", "release", "abort"].includes(request.op) &&
+				// A drain parks a whole host's conversations, so it names the host too.
+				["close", "release", "abort", "drain"].includes(request.op) &&
 				!request.expectedHost
 			) {
 				send({
