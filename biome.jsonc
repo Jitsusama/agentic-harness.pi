@@ -120,9 +120,9 @@
 				"noParameterAssign": "off",
 				// The environment is read where it applies, by design.
 				"noProcessEnv": "off",
-				// `xs[xs.length - 1]` and `xs.at(-1)` type differently while
-				// noUncheckedIndexedAccess is off, so `at` would add checks
-				// of its own.
+				// `xs[xs.length - 1]` and `xs.at(-1)` both type as possibly
+				// missing, so rewriting every one to `at` is a change of its
+				// own, not one this rule should force on whoever touches it.
 				"useAtIndex": "off",
 				// An interface's order of parameters is fixed, so a default
 				// may come before a required one in its implementations.

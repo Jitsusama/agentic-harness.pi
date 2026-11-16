@@ -106,7 +106,7 @@ function replaced(name: string, things: Thing[]): string[] {
 		// Only the row's own code: another row's program can share the word in
 		// another sense, and its names are kept as such where they're used.
 		const code = [...thing.code.matchAll(/`([^`]+)`/g)].map(([, span]) =>
-			tokens(span),
+			tokens(span ?? ""),
 		);
 		for (const old of thing.replaces) {
 			const oldWords = tokens(old);

@@ -164,7 +164,6 @@ pnpm check:there     # the same, for a pushed branch, on penelope (or a named ho
 pnpm lint:fix        # auto-fix, then verify
 pnpm lint            # no errors and no warnings, before committing
 pnpm typecheck       # tsc over the whole project, which reports nothing
-pnpm typecheck:indexed  # unchecked index reads, held per file to a shrinking list
 pnpm knip            # refuses unused files, dependencies and exports
 pnpm test            # everything, about 94 s
 pnpm test:unit       # the unit project, about 26 s
@@ -202,12 +201,12 @@ rules, and where it doesn't yet.
   the rules that don't fit, and the framework domains. `tsc` runs
   with `strict` over both, plus
   `noImplicitOverride`, `noImplicitReturns`,
-  `noFallthroughCasesInSwitch`, `noUnusedLocals` and
-  `noUnusedParameters`. Three stay off:
+  `noFallthroughCasesInSwitch`, `noUncheckedIndexedAccess`,
+  `noUnusedLocals` and `noUnusedParameters`. Two stay off:
   `noPropertyAccessFromIndexSignature` wants the bracket access
-  Biome's `useLiteralKeys` refuses, and `noUncheckedIndexedAccess`
-  and `exactOptionalPropertyTypes` found 1,077 and 420 places on
-  9 November, too many to fix in one change. The
+  Biome's `useLiteralKeys` refuses, and
+  `exactOptionalPropertyTypes` found 420 places on 9 November,
+  too many to fix in one change. The
   `skills/*/scripts/*.sh` have no shellcheck, and markdown no
   linter.
 - **Test levels:** the `unit` project, `tests/**/*.test.ts`; the
