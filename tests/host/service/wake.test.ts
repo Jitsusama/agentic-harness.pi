@@ -92,7 +92,8 @@ function backendWith(
 /**
  * An engine whose resumes each wait to be let through: `begun` lists the
  * conversations whose resume has started, in order, `begunAt` when each
- * did, and `finish` lets one end.
+ * did, and `finish` lets one end. Each registers as it begins, as the
+ * engine's does before its first await.
  */
 function heldResumes() {
 	const begun: string[] = [];
@@ -102,10 +103,10 @@ function heldResumes() {
 		resume: vi.fn(async (entry) => {
 			begun.push(entry.sessionId);
 			begunAt.push(Date.now());
+			register(entry);
 			await new Promise<void>((resolve) => {
 				finishes.set(entry.sessionId, resolve);
 			});
-			register(entry);
 		}),
 	});
 	const finish = (sessionId: string): void => {
@@ -557,7 +558,7 @@ describe("waking conversations side by side, a window's first", () => {
 		await woken;
 	});
 
-	it("refuses the wakes still waiting for a place once told the host stops", async () => {
+	it("lets every wake still waiting on at once when told the host stops, and any asked after", async () => {
 		const { fake, begun, finish } = heldResumes();
 		const backend = backendWith(fake, undefined, undefined, {
 			wakePlaces: 1,
@@ -565,24 +566,82 @@ describe("waking conversations side by side, a window's first", () => {
 		});
 		const waking = await parked(backend);
 		const messaged = await parked(backend);
-		const stopping = new Error("the host is stopping");
+		const written = await parked(backend);
+		const late = await parked(backend);
 
-		const woken = backend.wake(waking);
+		const woken = [backend.wake(waking)];
 		await until("the first wake to resume", () => begun.length === 1);
-		const queued = backend.wake(messaged);
+		woken.push(backend.wake(messaged), backend.wake(written));
 		await settle();
-		backend.refuseWakes(stopping);
+		backend.freeWakes();
+		await until("the waiting wakes to resume", () => begun.length === 3);
+		woken.push(backend.wake(late));
+		await until("a wake asked after to resume", () => begun.length === 4);
 
-		await expect(queued, "the waiting wake is refused").rejects.toBe(stopping);
-		await expect(
-			backend.wake(messaged),
-			"and so is one asked after",
-		).rejects.toBe(stopping);
-		finish(waking);
-		await woken;
+		expect(begun, "none lost, none held back").toEqual([
+			waking,
+			messaged,
+			written,
+			late,
+		]);
+		for (const id of begun) finish(id);
+		await Promise.all(woken);
 		await backend.settled();
+	});
 
-		expect(begun, "only the wake already resuming ran").toEqual([waking]);
+	it("lets the others on once a resume a window took in has run its longest", async () => {
+		const { fake, begun, begunAt, finish } = heldResumes();
+		const backend = backendWith(fake, undefined, undefined, {
+			wakePlaces: 1,
+			wakeLongestMs: LONGEST_MS,
+		});
+		const messaged = await parked(backend);
+		const other = await parked(backend);
+
+		const woken = backend.wake(messaged);
+		await until("the message's wake to resume", () => begun.length === 1);
+		await backend.execute(attach(messaged));
+		const queued = backend.wake(other);
+		await until("the other wake to resume", () => begun.length === 2);
+
+		expect(
+			Number(begunAt[1]) - Number(begunAt[0]),
+			"it waited out the first resume's own longest, not a fresh one",
+		).toBeGreaterThanOrEqual(LONGEST_MS - TIMER_EARLY_MS);
+		finish(messaged);
+		finish(other);
+		await Promise.all([woken, queued]);
+	});
+
+	it("says a resume that ran its longest then failed failed, not resumed", async () => {
+		const said: string[] = [];
+		const failed = new Error("its build failed");
+		let fail: (() => void) | undefined;
+		const failing = engine({
+			resume: vi.fn(async (entry) => {
+				register(entry);
+				await new Promise<void>((resolve) => {
+					fail = resolve;
+				});
+				throw failed;
+			}),
+		});
+		const backend = backendWith(failing, undefined, (line) => said.push(line), {
+			wakeLongestMs: LONGEST_MS,
+		});
+		const sessionId = await parked(backend);
+
+		const woke = backend.wake(sessionId);
+		await until("the resume to run its longest", () =>
+			said.some((line) => line.includes(sessionId)),
+		);
+		fail?.();
+		await expect(woke, "the wake fails").rejects.toBe(failed);
+
+		expect(
+			said.filter((line) => line.includes(sessionId)).at(-1),
+			"the journal says it failed",
+		).toMatch(/failed after/);
 	});
 
 	it("resumes at once a wake a person asked for by typing to its window", async () => {

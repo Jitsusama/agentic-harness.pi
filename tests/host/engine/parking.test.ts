@@ -155,20 +155,22 @@ describe("parking a conversation", () => {
 		).resolves.toBeUndefined();
 	});
 
-	it("wakes as a window once parked, when a window asked among others while it parked", async () => {
+	it.each([
+		["window", "other"],
+		["other", "window"],
+	] as const)("wakes as a window once parked, when a window asked among others while it parked (%s first)", async (first, then) => {
 		const asking = vi.fn(() => Promise.resolve());
 		const { parked, letStop } = held(asking);
 
 		const parking = parked.park("a");
-		const byWindow = parked.wake("a", "window");
-		const byMessage = parked.wake("a", "other");
+		const asked = [parked.wake("a", first), parked.wake("a", then)];
 		letStop();
 		await parking;
-		await Promise.all([byWindow, byMessage]);
+		await Promise.all(asked);
 
 		expect(
 			asking,
-			"one wake, as the window asked, whichever asked last",
+			"one wake, as the window asked, in whichever order",
 		).toHaveBeenCalledExactlyOnceWith("a", "window");
 		parked.unwatch("a");
 	});
