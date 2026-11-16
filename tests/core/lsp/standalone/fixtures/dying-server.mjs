@@ -16,6 +16,7 @@ import {
 } from "vscode-languageserver-protocol/node";
 
 const log = process.argv[2];
+if (!log) throw new Error("usage: dying-server.mjs <log file>");
 const earlier = existsSync(log)
 	? readFileSync(log, "utf8").split("\n").filter(Boolean).length
 	: 0;

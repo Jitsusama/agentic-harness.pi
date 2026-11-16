@@ -79,8 +79,8 @@ describe("where one of my threads stands", () => {
 		// The words, not the reception, carry which one you are looking at.
 		const [meteorite] = followUpOn([onMeteorite], ME);
 		const [silent] = followUpOn([onSilentBackend], ME);
-		expect(meteorite.because).toContain("anchor still describes");
-		expect(silent.because).toContain("does not say whether the code moved");
+		expect(meteorite?.because).toContain("anchor still describes");
+		expect(silent?.because).toContain("does not say whether the code moved");
 	});
 
 	it("names who closed it, when the backend says", () => {
@@ -91,7 +91,7 @@ describe("where one of my threads stands", () => {
 		});
 
 		const [found] = followUpOn([closed], ME);
-		expect(found.because).toContain("Someone Else");
+		expect(found?.because).toContain("Someone Else");
 	});
 
 	it("reports an open thread nothing has happened to as waiting", () => {

@@ -179,11 +179,12 @@ describe("a stack in a real repository", { timeout: REAL_GIT_MS }, () => {
 
 		// A parent's tip must be an ancestor of its child, which is what makes
 		// the stack a stack rather than three branches that happen to exist.
-		for (const [parent, child] of [
+		const pairs: readonly (readonly [string, string])[] = [
 			["main", "a"],
 			["a", "b"],
 			["b", "c"],
-		]) {
+		];
+		for (const [parent, child] of pairs) {
 			expect(await git(dir, "branch", "--contains", parent)).toContain(child);
 		}
 	});

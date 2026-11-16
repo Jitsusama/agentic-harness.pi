@@ -73,12 +73,18 @@ const PROVIDERS: readonly [string, ReviewProvider][] = [
  * `localPath` rides along because it is the only field a local provider
  * ever reads off a locator.
  */
+/** The repository the GitHub provider is asked about. */
+const GITHUB_REPO: RepoLocator = { key: "github:Shopify/world" };
+
 const REPO_FOR: Record<string, RepoLocator> = {
-	github: { key: "github:Shopify/world" },
+	github: GITHUB_REPO,
 	git: { key: "local:/tmp/repo", localPath: "/tmp/repo" },
 };
 
 for (const [id, provider] of PROVIDERS) {
+	const repo = REPO_FOR[id];
+	if (!repo) throw new Error(`no repository to ask ${id} about`);
+
 	describe(`${id}: every capability that promises a method has one`, () => {
 		for (const { facet, capability, method, promises } of BACKED_BY) {
 			it(`backs ${facet}.${capability} with a callable`, () => {
@@ -87,7 +93,7 @@ for (const [id, provider] of PROVIDERS) {
 				// target. Awaiting it here described asking a provider what it can
 				// do as I/O, in the one file whose subject is what the contract
 				// actually requires.
-				const declared = provider.capabilities(REPO_FOR[id]);
+				const declared = provider.capabilities(repo);
 				const claims = declared[facet] as Record<string, unknown> | undefined;
 				const amounts = promises ?? ((value: unknown) => value === true);
 				if (!claims || !amounts(claims[capability])) return;
@@ -117,7 +123,7 @@ for (const [id, provider] of PROVIDERS) {
 				const built = provider[facet] as Record<string, unknown> | undefined;
 				if (typeof built?.[method] !== "function") return;
 
-				const declared = provider.capabilities(REPO_FOR[id]);
+				const declared = provider.capabilities(repo);
 				const claims = declared[facet] as Record<string, unknown> | undefined;
 				const amounts = promises ?? ((value: unknown) => value === true);
 				expect(
@@ -132,7 +138,7 @@ for (const [id, provider] of PROVIDERS) {
 		// The rows above walk the table by hand and give a per-row failure
 		// message. This asks the one function a running session uses, which is
 		// what would actually report a fault to a person.
-		expect(unbackedDeclarations(provider, REPO_FOR[id])).toEqual([]);
+		expect(unbackedDeclarations(provider, repo)).toEqual([]);
 	});
 }
 
@@ -150,7 +156,7 @@ describe("the shared table", () => {
 		// silent shrinkage into a diff with a name on it.
 		const github = createGitHubProvider({
 			exec: refusesToRun,
-		}).capabilities(REPO_FOR.github);
+		}).capabilities(GITHUB_REPO);
 		const live = BACKED_BY.filter(({ facet, capability, promises }) => {
 			const claims = github[facet] as Record<string, unknown> | undefined;
 			const amounts = promises ?? ((value: unknown) => value === true);
@@ -230,7 +236,7 @@ describe("the comparison itself", () => {
 		const found = unbackedDeclarations(lying, { key: "any:repo" });
 
 		expect(found).toHaveLength(1);
-		expect(found[0].fault).toBe("method-without-declaration");
+		expect(found[0]?.fault).toBe("method-without-declaration");
 	});
 
 	it("says nothing about a facet the provider does not have at all", () => {

@@ -39,10 +39,10 @@ describe("run attribution", () => {
 		);
 
 		const [row] = await store.queryRuns();
-		expect(row.sessionId).toBe("019fe2c6-b46e");
-		expect(row.cwd).toBe("/Users/j/world/trees/root/src/system/gitstream");
-		expect(row.repo).toBe("world/system/gitstream");
-		expect(row.endedAt).toBe(1_700_000_090_000);
+		expect(row?.sessionId).toBe("019fe2c6-b46e");
+		expect(row?.cwd).toBe("/Users/j/world/trees/root/src/system/gitstream");
+		expect(row?.repo).toBe("world/system/gitstream");
+		expect(row?.endedAt).toBe(1_700_000_090_000);
 		await store.close();
 	});
 
@@ -51,9 +51,9 @@ describe("run attribution", () => {
 		await store.recordRun(run());
 
 		const [row] = await store.queryRuns();
-		expect(row.sessionId).toBeNull();
-		expect(row.repo).toBeNull();
-		expect(row.endedAt).toBeNull();
+		expect(row?.sessionId).toBeNull();
+		expect(row?.repo).toBeNull();
+		expect(row?.endedAt).toBeNull();
 		await store.close();
 	});
 });
@@ -79,8 +79,8 @@ describe("how a run was launched", () => {
 		);
 
 		const [row] = await store.queryRuns();
-		expect(row.thinkingLevel).toBe("xhigh");
-		expect(row.subagentSessionIds).toEqual([
+		expect(row?.thinkingLevel).toBe("xhigh");
+		expect(row?.subagentSessionIds).toEqual([
 			"01a0cff2-4244-75ad-b91b-7bdc1bc970b7",
 			"01a0cff9-7f1e-7c2a-9d3e-2a1b8e0c4f51",
 		]);
@@ -94,7 +94,7 @@ describe("how a run was launched", () => {
 		await store.recordRun(run({ subagentSessionIds: [] }));
 
 		const [row] = await store.queryRuns();
-		expect(row.subagentSessionIds).toEqual([]);
+		expect(row?.subagentSessionIds).toEqual([]);
 		await store.close();
 	});
 
@@ -103,8 +103,8 @@ describe("how a run was launched", () => {
 		await store.recordRun(run());
 
 		const [row] = await store.queryRuns();
-		expect(row.thinkingLevel).toBeNull();
-		expect(row.subagentSessionIds).toBeNull();
+		expect(row?.thinkingLevel).toBeNull();
+		expect(row?.subagentSessionIds).toBeNull();
 		await store.close();
 	});
 });
@@ -120,8 +120,8 @@ describe("run identity", () => {
 
 		const rows = await store.queryRuns();
 		expect(rows).toHaveLength(1);
-		expect(rows[0].exitCode).toBe(0);
-		expect(rows[0].cost?.total).toBeCloseTo(0.2, 5);
+		expect(rows[0]?.exitCode).toBe(0);
+		expect(rows[0]?.cost?.total).toBeCloseTo(0.2, 5);
 		await store.close();
 	});
 

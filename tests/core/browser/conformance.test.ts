@@ -52,8 +52,8 @@ describe("holding a page to a bar, in a real browser", () => {
 			(finding) => finding.rule === "color-contrast-enhanced",
 		);
 		expect(enhanced).toHaveLength(1);
-		expect(enhanced[0].criteria).toContain("1.4.6");
-		expect(enhanced[0].levels).toContain("AAA");
+		expect(enhanced[0]?.criteria).toContain("1.4.6");
+		expect(enhanced[0]?.levels).toContain("AAA");
 	});
 
 	it("reaches for the enhanced bar without being asked", async () => {

@@ -33,16 +33,16 @@ describe("normalizeAnimations", () => {
 	it("reads an endless animation as endless", () => {
 		// Infinity does not survive being serialized, so the page
 		// sends the word and a count of null would be a lie.
-		expect(normalizeAnimations(CAPTURE)[0].iterations).toBe("endless");
+		expect(normalizeAnimations(CAPTURE)[0]?.iterations).toBe("endless");
 	});
 
 	it("reads a finite count as a number", () => {
-		expect(normalizeAnimations(CAPTURE)[1].iterations).toBe("1");
+		expect(normalizeAnimations(CAPTURE)[1]?.iterations).toBe("1");
 	});
 
 	it("keeps the timing the page reported", () => {
 		const [spin] = normalizeAnimations(CAPTURE);
-		expect([spin.durationMs, spin.easing, spin.playState]).toEqual([
+		expect([spin?.durationMs, spin?.easing, spin?.playState]).toEqual([
 			2000,
 			"linear",
 			"running",
@@ -60,7 +60,7 @@ describe("normalizeAnimations", () => {
 		const [unnamed] = normalizeAnimations([
 			{ kind: "animation", playState: "running" },
 		]);
-		expect(unnamed.name).toBe("unnamed");
+		expect(unnamed?.name).toBe("unnamed");
 	});
 });
 

@@ -88,6 +88,7 @@ function readTile(file: string): TileReading {
 	for (let y = 0; y < png.height; y += SAMPLE_STEP) {
 		const at = (png.width * y + SAMPLE_X) * 4;
 		const [r, g, b] = [png.data[at], png.data[at + 1], png.data[at + 2]];
+		if (r === undefined || g === undefined || b === undefined) continue;
 		const index = stripeOf(r, g, b);
 		if (index !== undefined) stripes.add(index);
 		for (const [name, colour] of Object.entries(MARKERS)) {

@@ -10,6 +10,7 @@ import {
 	type DraftState,
 	emptyDraft,
 	type LineAnchor,
+	type Message,
 	publishPlan,
 	type ReviewProvider,
 	type ReviewTarget,
@@ -38,11 +39,14 @@ const anchor: LineAnchor = {
 // Anchored, because these tests are about publishing an ordinary thread reply and
 // the capabilities below decline to thread onto a top-level message. Without the
 // anchor the plan now refuses the reply, correctly, and every op count here shifts.
+/** The comment the thread opens with, which the reaction tests react to. */
+const question: Message = { id: "c1", author: { id: "someone" }, body: "why?" };
+
 const thread: Thread = {
 	id: "t1",
 	resolved: false,
 	anchor,
-	comments: [{ id: "c1", author: { id: "someone" }, body: "why?" }],
+	comments: [question],
 };
 
 const capabilities: ConversationCapabilities = {
@@ -125,14 +129,14 @@ describe("publishPlan", () => {
 		const outcome = await publishPlan(planOf(state), provider);
 		expect(calls).toEqual(["postReview"]);
 		expect(outcome).toMatchObject({ ok: true });
-		expect(outcome.outcomes[0].posted?.url).toBe("https://forge/r1");
+		expect(outcome.outcomes[0]?.posted?.url).toBe("https://forge/r1");
 	});
 
 	it("runs every kind of operation in the order planned", async () => {
 		let state = addFinding(draft(), { anchor, body: "leaks" });
 		state = addReply(state, thread, "context");
 		state = addResolution(state, thread);
-		state = addReaction(state, thread.comments[0], "rocket");
+		state = addReaction(state, question, "rocket");
 		const { provider, calls } = recordingProvider();
 		await publishPlan(planOf(state), provider);
 		expect(calls).toEqual(["postReview", "reply", "resolve", "react"]);
@@ -151,23 +155,23 @@ describe("publishPlan", () => {
 			false,
 			true,
 		]);
-		expect(outcome.outcomes[1].error).toContain("thread is gone");
+		expect(outcome.outcomes[1]?.error).toContain("thread is gone");
 	});
 
 	it("names the items an operation carried, so a draft can be pruned", async () => {
 		const state = addReply(draft(), thread, "context");
 		const { provider } = recordingProvider();
 		const outcome = await publishPlan(planOf(state), provider);
-		expect(outcome.outcomes[0].itemIds).toEqual(["1"]);
+		expect(outcome.outcomes[0]?.itemIds).toEqual(["1"]);
 	});
 
 	it("reports an operation the provider cannot perform", async () => {
-		const state = addReaction(draft(), thread.comments[0], "rocket");
+		const state = addReaction(draft(), question, "rocket");
 		const { provider, calls } = recordingProvider({}, ["react"]);
 		const outcome = await publishPlan(planOf(state), provider);
 		expect(calls).toEqual([]);
 		expect(outcome).toMatchObject({ ok: false });
-		expect(outcome.outcomes[0].error).toMatch(/cannot|does not/i);
+		expect(outcome.outcomes[0]?.error).toMatch(/cannot|does not/i);
 	});
 
 	it("refuses a plan whose target nothing hosts", async () => {
@@ -182,7 +186,7 @@ describe("publishPlan", () => {
 		const outcome = await publishPlan(planOf(state), provider);
 		expect(calls).toEqual([]);
 		expect(outcome).toMatchObject({ ok: false });
-		expect(outcome.outcomes[0].error).toMatch(/not hosted|no change/i);
+		expect(outcome.outcomes[0]?.error).toMatch(/not hosted|no change/i);
 	});
 
 	it("refuses a provider with no conversation facet at all", async () => {
@@ -190,6 +194,6 @@ describe("publishPlan", () => {
 		const bare = stubProvider({ id: "forge", priority: 100 });
 		const outcome = await publishPlan(planOf(state), bare);
 		expect(outcome).toMatchObject({ ok: false });
-		expect(outcome.outcomes[0].error).toMatch(/conversation/i);
+		expect(outcome.outcomes[0]?.error).toMatch(/conversation/i);
 	});
 });

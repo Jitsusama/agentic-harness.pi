@@ -60,8 +60,8 @@ describe("RunStore", () => {
 		const rows = await store.queryRuns({ runId: "b" });
 
 		expect(rows).toHaveLength(1);
-		expect(rows[0].runId).toBe("b");
-		expect(rows[0].subagentId).toBe("s2");
+		expect(rows[0]?.runId).toBe("b");
+		expect(rows[0]?.subagentId).toBe("s2");
 		await store.close();
 	});
 });

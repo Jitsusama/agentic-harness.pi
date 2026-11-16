@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { withArtifact } from "../../../../lib/core/web/envelope/artifacts.ts";
 import { paginate } from "../../../../lib/core/web/envelope/paged.ts";
 import type { BundleSink } from "../../../../lib/core/web/reader.ts";
+import { at } from "../../../support/at.ts";
 
 interface Entry {
 	id: number;
@@ -53,7 +54,7 @@ describe("withArtifact", () => {
 		const page = paginate(all, { limit: 5 }, shape);
 		withArtifact(page, all, sink, { name: "requests.json" });
 
-		const written = [...sink.written.values()][0];
+		const written = at([...sink.written.values()], 0);
 		expect(page.items).toHaveLength(5);
 		expect(JSON.parse(written)).toHaveLength(100);
 	});

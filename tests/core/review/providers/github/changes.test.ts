@@ -179,9 +179,9 @@ describe("reading checks", () => {
 			"slow",
 			"legacy",
 		]);
-		expect(checks?.checks[0].state).toBe("passing");
-		expect(checks?.checks[1].state).toBe("failing");
-		expect(checks?.checks[2].state).toBe("pending");
+		expect(checks?.checks[0]?.state).toBe("passing");
+		expect(checks?.checks[1]?.state).toBe("failing");
+		expect(checks?.checks[2]?.state).toBe("pending");
 		expect(checks?.state).toBe("failing");
 	});
 
@@ -228,9 +228,9 @@ describe("listing changes", () => {
 			{ when: ["pr", "list"], stdout: listJson },
 		]);
 		const found = await gh.changes?.list?.(repo, { state: "open" });
-		expect(found?.[0].title).toBe("One");
-		expect(found?.[0].state).toBe("open");
-		expect(found?.[0].ref.id).toBe("1");
+		expect(found?.[0]?.title).toBe("One");
+		expect(found?.[0]?.state).toBe("open");
+		expect(found?.[0]?.ref.id).toBe("1");
 		expect(callMatching(calls, "list")?.args).toContain("--state");
 	});
 

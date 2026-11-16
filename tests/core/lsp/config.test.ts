@@ -11,6 +11,11 @@ import {
 	typescriptMajorAt,
 } from "../../../lib/core/lsp/config.ts";
 
+/** The default TypeScript server, which these tests vary and resolve. */
+const TYPESCRIPT = DEFAULT_SERVERS.typescript;
+if (!TYPESCRIPT)
+	throw new Error("the defaults should hold a TypeScript server");
+
 const tmpRoots: string[] = [];
 function tmp(): string {
 	const dir = mkdtempSync(join(tmpdir(), "lsp-config-"));
@@ -33,7 +38,7 @@ describe("serversForFile", () => {
 
 	it("skips a disabled server", () => {
 		const servers: Record<string, ServerConfig> = {
-			ts: { ...DEFAULT_SERVERS.typescript, disabled: true },
+			ts: { ...TYPESCRIPT, disabled: true },
 		};
 		expect(serversForFile("foo.ts", servers)).toEqual([]);
 	});
@@ -123,7 +128,7 @@ describe("typescriptMajorAt", () => {
 });
 
 describe("typescript server resolution", () => {
-	const resolve = DEFAULT_SERVERS.typescript.resolve;
+	const resolve = TYPESCRIPT.resolve;
 	const env = { PATH: "" };
 
 	it("selects the native LSP for TypeScript 7 and newer", () => {

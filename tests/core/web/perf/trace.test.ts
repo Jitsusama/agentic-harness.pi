@@ -100,13 +100,13 @@ describe("foldTrace timers", () => {
 
 		expect(capture.timers).toHaveLength(1);
 		const [timer] = capture.timers;
-		expect(timer.timerId).toBe(7);
-		expect(timer.timeoutMs).toBe(50);
-		expect(timer.installedAtMs).toBe(0);
+		expect(timer?.timerId).toBe(7);
+		expect(timer?.timeoutMs).toBe(50);
+		expect(timer?.installedAtMs).toBe(0);
 		// Asked for 50ms, fired at 80ms, so it was 30ms late.
-		expect(timer.firedAtMs).toBe(80);
-		expect(timer.lateByMs).toBe(30);
-		expect(timer.ranForMs).toBe(4);
+		expect(timer?.firedAtMs).toBe(80);
+		expect(timer?.lateByMs).toBe(30);
+		expect(timer?.ranForMs).toBe(4);
 	});
 
 	it("does not pair a fire with an install that was already removed", () => {
@@ -132,8 +132,8 @@ describe("foldTrace timers", () => {
 
 		const fired = capture.timers.filter((t) => t.firedAtMs !== undefined);
 		expect(fired).toHaveLength(1);
-		expect(fired[0].timeoutMs).toBe(20);
-		expect(fired[0].lateByMs).toBe(0);
+		expect(fired[0]?.timeoutMs).toBe(20);
+		expect(fired[0]?.lateByMs).toBe(0);
 	});
 
 	it("measures a repeating timer against its previous fire", () => {
@@ -154,8 +154,8 @@ describe("foldTrace timers", () => {
 		]);
 
 		expect(capture.timers).toHaveLength(1);
-		expect(capture.timers[0].firedCount).toBe(3);
-		expect(capture.timers[0].lateByMs).toBe(0);
+		expect(capture.timers[0]?.firedCount).toBe(3);
+		expect(capture.timers[0]?.lateByMs).toBe(0);
 	});
 
 	it("reports the worst lateness a repeating timer suffered", () => {
@@ -172,8 +172,8 @@ describe("foldTrace timers", () => {
 			timerFire(1_180_000, 1_000, 5),
 		]);
 
-		expect(capture.timers[0].firedCount).toBe(3);
-		expect(capture.timers[0].lateByMs).toBe(60);
+		expect(capture.timers[0]?.firedCount).toBe(3);
+		expect(capture.timers[0]?.lateByMs).toBe(60);
 	});
 
 	it("counts a single shot as having fired once", () => {
@@ -187,7 +187,7 @@ describe("foldTrace timers", () => {
 			timerFire(1_010_000, 1_000, 6),
 		]);
 
-		expect(capture.timers[0].firedCount).toBe(1);
+		expect(capture.timers[0]?.firedCount).toBe(1);
 	});
 
 	it("keeps an installed timer that never fired", () => {
@@ -201,8 +201,8 @@ describe("foldTrace timers", () => {
 		]);
 
 		expect(capture.timers).toHaveLength(1);
-		expect(capture.timers[0].firedAtMs).toBeUndefined();
-		expect(capture.timers[0].firedCount).toBe(0);
+		expect(capture.timers[0]?.firedAtMs).toBeUndefined();
+		expect(capture.timers[0]?.firedCount).toBe(0);
 	});
 });
 
@@ -232,10 +232,10 @@ describe("foldTrace requests", () => {
 
 		expect(capture.requests).toHaveLength(1);
 		const [request] = capture.requests;
-		expect(request.url).toBe("https://example.test/a");
-		expect(request.status).toBe(200);
-		expect(request.sentAtMs).toBe(0);
-		expect(request.finishedAtMs).toBe(300);
+		expect(request?.url).toBe("https://example.test/a");
+		expect(request?.status).toBe(200);
+		expect(request?.sentAtMs).toBe(0);
+		expect(request?.finishedAtMs).toBe(300);
 		expect(request).toMatchObject({ failed: false });
 	});
 
@@ -346,7 +346,7 @@ describe("foldTrace tasks", () => {
 			longestMs: 30,
 		});
 		// Ranked by cost, so the expensive kind leads.
-		expect(capture.tasks[0].name).toBe("FunctionCall");
+		expect(capture.tasks[0]?.name).toBe("FunctionCall");
 	});
 
 	it("measures the span from the first event to the last", () => {

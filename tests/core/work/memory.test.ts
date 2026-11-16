@@ -34,6 +34,7 @@ import {
 } from "../../../lib/core/work/broker.ts";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 import type { TreeRequest } from "../../../lib/core/work/tree.ts";
+import { at } from "../../support/at.ts";
 
 let root: string;
 
@@ -98,8 +99,8 @@ describe("a tree outlives the session that cut it", () => {
 		});
 
 		expect(second.held().map((one) => one.path)).toEqual([cut.path]);
-		expect(second.held()[0].identity.key).toBe(cut.identity.key);
-		expect(second.held()[0].providerId).toBe("git");
+		expect(second.held()[0]?.identity.key).toBe(cut.identity.key);
+		expect(second.held()[0]?.providerId).toBe("git");
 	});
 
 	it("can be released by the session that did not cut it", async () => {
@@ -117,7 +118,7 @@ describe("a tree outlives the session that cut it", () => {
 			providers: [provider(released)],
 			memory: memoryAt(),
 		});
-		const gone = await second.release(second.held()[0]);
+		const gone = await second.release(at(second.held(), 0));
 
 		expect(gone.kind).toBe("released");
 		expect(released).toEqual([cut.path]);
@@ -183,7 +184,7 @@ describe("a tree outlives the session that cut it", () => {
 		});
 		const mine = await second.ensure(asked("newer", "other"));
 
-		expect(second.held()[0].path).toBe(mine.path);
+		expect(second.held()[0]?.path).toBe(mine.path);
 	});
 
 	it("does not list the same tree twice", async () => {
@@ -267,7 +268,7 @@ describe("a release that cannot happen says so", () => {
 
 		// A session where the provider that cut it never loaded.
 		const without = createTreeBroker({ providers: [], memory: memoryAt() });
-		const gone = await without.release(without.held()[0]);
+		const gone = await without.release(at(without.held(), 0));
 
 		expect(gone.kind).toBe("no-provider");
 		if (gone.kind !== "no-provider") return;
@@ -290,7 +291,7 @@ describe("a release that cannot happen says so", () => {
 			providers: [renamed],
 			memory: memoryAt(),
 		});
-		const gone = await other.release(other.held()[0]);
+		const gone = await other.release(at(other.held(), 0));
 
 		if (gone.kind !== "no-provider") throw new Error("expected no-provider");
 		expect(gone.registered).toEqual(["git-worktree"]);
@@ -307,7 +308,7 @@ describe("a release that cannot happen says so", () => {
 		const cut = await first.ensure(asked("fix-410"));
 
 		const without = createTreeBroker({ providers: [], memory: memoryAt() });
-		await without.release(without.held()[0]);
+		await without.release(at(without.held(), 0));
 
 		expect(
 			memoryAt()
@@ -326,13 +327,13 @@ describe("a release that cannot happen says so", () => {
 		const cut = await first.ensure(asked("fix-410"));
 
 		const without = createTreeBroker({ providers: [], memory: memoryAt() });
-		await without.release(without.held()[0]);
+		await without.release(at(without.held(), 0));
 
 		const back = createTreeBroker({
 			providers: [provider(released)],
 			memory: memoryAt(),
 		});
-		const gone = await back.release(back.held()[0]);
+		const gone = await back.release(at(back.held(), 0));
 
 		expect(gone.kind).toBe("released");
 		expect(released).toEqual([cut.path]);

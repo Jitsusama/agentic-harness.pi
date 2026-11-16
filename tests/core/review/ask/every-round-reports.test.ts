@@ -176,10 +176,13 @@ const ANSWERS: Record<string, string> = {
 
 describe("a round reports that it is working", () => {
 	for (const [what, start] of ROUNDS) {
+		const answer = ANSWERS[what];
+		if (answer === undefined) throw new Error(`no answer written for ${what}`);
+
 		it(`${what} names its participant before it asks`, async () => {
 			const { progress, said } = recorder();
 
-			await start(deps(ANSWERS[what], progress));
+			await start(deps(answer, progress));
 
 			expect(said).toContain(`start:${ONE.id}`);
 			expect(said).toContain(`started:${ONE.id}`);
@@ -190,7 +193,7 @@ describe("a round reports that it is working", () => {
 			// same thing it shows for a subagent that died quietly.
 			const { progress, said } = recorder();
 
-			await start(deps(ANSWERS[what], progress));
+			await start(deps(answer, progress));
 
 			expect(said).toContain(`activity:${ONE.id}:reading lib/a.ts`);
 		});
@@ -198,7 +201,7 @@ describe("a round reports that it is working", () => {
 		it(`${what} says the participant answered`, async () => {
 			const { progress, said } = recorder();
 
-			await start(deps(ANSWERS[what], progress));
+			await start(deps(answer, progress));
 
 			expect(said).toContain(`answered:${ONE.id}`);
 		});
@@ -212,7 +215,7 @@ describe("a round reports that it is working", () => {
 			const { progress } = recorder();
 			const seen: string[] = [];
 
-			const { run } = await start(deps(ANSWERS[what], progress, seen));
+			const { run } = await start(deps(answer, progress, seen));
 
 			expect(seen).toEqual([run.id]);
 		});
@@ -222,7 +225,7 @@ describe("a round reports that it is working", () => {
 			// no longer happening, and the round's own answer replaces it.
 			const { progress, said } = recorder();
 
-			await start(deps(ANSWERS[what], progress));
+			await start(deps(answer, progress));
 
 			expect(said.at(-1)).toBe("finish");
 		});

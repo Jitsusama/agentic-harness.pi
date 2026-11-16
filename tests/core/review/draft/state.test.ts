@@ -7,6 +7,7 @@ import {
 	type DraftState,
 	emptyDraft,
 	type LineAnchor,
+	type Message,
 	type ReviewTarget,
 	removeItem,
 	setVerdict,
@@ -30,10 +31,13 @@ const anchor: LineAnchor = {
 	line: 12,
 };
 
+/** The comment the thread opens with, which the reaction tests react to. */
+const question: Message = { id: "c1", author: { id: "someone" }, body: "why?" };
+
 const thread: Thread = {
 	id: "thread-1",
 	resolved: false,
-	comments: [{ id: "c1", author: { id: "someone" }, body: "why?" }],
+	comments: [question],
 };
 
 function draft(): DraftState {
@@ -56,9 +60,9 @@ describe("a review draft", () => {
 		const state = addFinding(draft(), { anchor, body: "this leaks" });
 		expect(state.items).toHaveLength(1);
 		const [item] = state.items;
-		expect(item.kind).toBe("finding");
-		expect(item.id, "the finding is given an id").toBeTruthy();
-		expect(item.kind === "finding" && item.body).toBe("this leaks");
+		expect(item?.kind).toBe("finding");
+		expect(item?.id, "the finding is given an id").toBeTruthy();
+		expect(item?.kind === "finding" && item.body).toBe("this leaks");
 	});
 
 	it("numbers items so a person can refer to one", () => {
@@ -70,21 +74,21 @@ describe("a review draft", () => {
 	it("takes a reply into an existing thread", () => {
 		const state = addReply(draft(), thread, "because of the retry");
 		const [item] = state.items;
-		expect(item.kind).toBe("reply");
-		expect(item.kind === "reply" && item.thread.id).toBe("thread-1");
-		expect(item.kind === "reply" && item.body).toBe("because of the retry");
+		expect(item?.kind).toBe("reply");
+		expect(item?.kind === "reply" && item.thread.id).toBe("thread-1");
+		expect(item?.kind === "reply" && item.body).toBe("because of the retry");
 	});
 
 	it("takes a resolution of an existing thread", () => {
 		const state = addResolution(draft(), thread);
-		expect(state.items[0].kind).toBe("resolution");
+		expect(state.items[0]?.kind).toBe("resolution");
 	});
 
 	it("takes a reaction to a message", () => {
-		const state = addReaction(draft(), thread.comments[0], "rocket");
+		const state = addReaction(draft(), question, "rocket");
 		const [item] = state.items;
-		expect(item.kind).toBe("reaction");
-		expect(item.kind === "reaction" && item.reaction).toBe("rocket");
+		expect(item?.kind).toBe("reaction");
+		expect(item?.kind === "reaction" && item.reaction).toBe("rocket");
 	});
 
 	it("keeps a verdict and its summary apart from the items", () => {

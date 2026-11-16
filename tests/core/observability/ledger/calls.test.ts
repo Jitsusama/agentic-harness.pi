@@ -52,8 +52,8 @@ describe("tool calls in the store", () => {
 		]);
 
 		const [row] = await store.queryCalls();
-		expect(row.resultChars).toBeNull();
-		expect(row.isError).toBeNull();
+		expect(row?.resultChars).toBeNull();
+		expect(row?.isError).toBeNull();
 		await store.close();
 	});
 
@@ -80,7 +80,7 @@ describe("tool calls in the store", () => {
 			repeated: 2,
 			repeatedChars: 1000,
 		});
-		expect(repeats[1].argsDigest).toBe("ls");
+		expect(repeats[1]?.argsDigest).toBe("ls");
 		await store.close();
 	});
 

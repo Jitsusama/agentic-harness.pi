@@ -32,8 +32,8 @@ function locate(
 	needle: string,
 ): { line: number; character: number } {
 	const lines = readFileSync(path, "utf8").split("\n");
-	for (let i = 0; i < lines.length; i++) {
-		const col = lines[i].indexOf(needle);
+	for (const [i, line] of lines.entries()) {
+		const col = line.indexOf(needle);
 		if (col >= 0) return { line: i + 1, character: col };
 	}
 	throw new Error(`needle not found: ${needle}`);
@@ -113,7 +113,7 @@ describe.skipIf(!hasServer)("standalone backend (live server)", () => {
 				position: locate(use, "greeting("),
 			});
 			expect(locations.length).toBeGreaterThan(0);
-			expect(locations[0].path).toBe(lib);
+			expect(locations[0]?.path).toBe(lib);
 		},
 		LIVE_TIMEOUT_MS,
 	);

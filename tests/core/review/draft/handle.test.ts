@@ -8,6 +8,7 @@ import {
 	createDraftStore,
 	type DraftDeps,
 	type LineAnchor,
+	type Message,
 	openDraft,
 	type ReviewProvider,
 	type ReviewTarget,
@@ -36,11 +37,14 @@ const anchor: LineAnchor = {
 // Anchored, so the reply these tests publish is an ordinary thread reply rather
 // than one onto a top-level message, which the capabilities below decline. The
 // third fixture in this suite to carry no anchor while asserting a reply lands.
+/** The comment the thread opens with, which the reaction tests react to. */
+const question: Message = { id: "c1", author: { id: "someone" }, body: "why?" };
+
 const thread: Thread = {
 	id: "t1",
 	resolved: false,
 	anchor,
-	comments: [{ id: "c1", author: { id: "someone" }, body: "why?" }],
+	comments: [question],
 };
 
 const capabilities: ConversationCapabilities = {
@@ -152,7 +156,7 @@ describe("openDraft", () => {
 		const draft = await openDraft(target, deps);
 		await draft.replyTo(thread, "context");
 		await draft.resolveThread(thread);
-		await draft.react(thread.comments[0], "rocket");
+		await draft.react(question, "rocket");
 		expect(draft.state.items.map((item) => item.kind)).toEqual([
 			"reply",
 			"resolution",
