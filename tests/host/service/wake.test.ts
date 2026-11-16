@@ -423,9 +423,7 @@ describe("waking conversations side by side, a window's first", () => {
 		finish(messaged);
 		await Promise.all([attached, queued]);
 
-		expect(host.holds(messaged), "it runs once the window's has").toBe(
-			"idle",
-		);
+		expect(host.holds(messaged), "it runs once the window's has").toBe("idle");
 	});
 
 	it("resumes a wake that has waited its longest though no place is free", async () => {
