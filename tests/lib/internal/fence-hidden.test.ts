@@ -8,6 +8,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { HIDDEN } from "../../../lib/internal/fence.ts";
 import {
+	DOCKER_CONFIG,
+	dockerHoldsCredentials,
+} from "../../../lib/internal/fence-docker.ts";
+import {
 	FENCE_HIDDEN,
 	FENCE_HIDDEN_FILE,
 	readFenceHidden,
@@ -66,5 +70,45 @@ describe("the fence's hidden list", () => {
 			() => readFenceHidden(JSON.stringify(noHome)),
 			"a file with no home paths is refused",
 		).toThrow(/needs home/);
+	});
+});
+
+describe("Docker's settings, emptied when they hold a credential", () => {
+	const home = "/home/someone";
+	const holds = (settings: unknown) =>
+		dockerHoldsCredentials(home, (path) =>
+			path === `${home}/${DOCKER_CONFIG}`
+				? JSON.stringify(settings)
+				: undefined,
+		);
+
+	it("holds to a registry's login and to a keychain helper", () => {
+		const login = { auths: { "ghcr.io": { auth: "bm90LWEtbG9naW4=" } } };
+		const token = { auths: { "x.example": { identitytoken: "not-a-token" } } };
+		expect(holds(login), "a registry's login").toBe(true);
+		expect(holds(token), "an identity token").toBe(true);
+		expect(holds({ credsStore: "osxkeychain" }), "the keychain's helper").toBe(
+			true,
+		);
+	});
+
+	it("lets through settings naming only per-registry helpers, or no login", () => {
+		const helpers = {
+			auths: { "ghcr.io": {} },
+			credHelpers: { "gcr.io": "gcloud" },
+		};
+		expect(holds(helpers), "per-registry helpers only").toBe(false);
+		expect(holds({ credsStore: "" }), "an empty helper").toBe(false);
+	});
+
+	it("holds to settings it can't read, and lets through none at all", () => {
+		const unparsed = dockerHoldsCredentials(home, () => "{ not json");
+		const none = dockerHoldsCredentials(home, () => undefined);
+		expect(unparsed, "unparseable settings").toBe(true);
+		expect(none, "no settings").toBe(false);
+	});
+
+	it("hides the private keys gpg keeps, beside the rest", () => {
+		expect(HIDDEN).toContain(".gnupg/private-keys-v1.d/");
 	});
 });

@@ -252,6 +252,9 @@ export function seatbeltProfile(
 		"(allow default)",
 		"(deny mach-lookup)",
 		`(allow mach-lookup (global-name ${MACH_ALLOWED.map((name) => `"${name}"`).join(" ")}))`,
+		// A second wall behind mach-lookup's: no Apple Event reaches an app,
+		// which could act as the person (Finder, Terminal, System Events).
+		"(deny appleevent-send)",
 		"(deny process-info* (target others))",
 		"(allow process-info* (target same-sandbox))",
 		"(deny signal (target others))",

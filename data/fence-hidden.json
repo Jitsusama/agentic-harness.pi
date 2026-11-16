@@ -11,6 +11,7 @@
 		".config/gcloud/access_tokens.db",
 		".config/gcloud/legacy_credentials/",
 		".gsutil/credstore2",
+		".gnupg/private-keys-v1.d/",
 		".local/share/keyrings/",
 		".local/state/gnome-keyring/login.cred",
 		".local/state/eero/session.cred"

@@ -28,7 +28,10 @@
  */
 
 import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { fenceArgs } from "./fence.ts";
+import { dockerHoldsCredentials } from "./fence-docker.ts";
+import { fenceNpmrc, NPMRC } from "./fence-npmrc.ts";
 import {
 	SANDBOX_EXEC,
 	seatbeltProfile,
@@ -226,6 +229,8 @@ export function fenceRunText(
 		home,
 		runtimeDir,
 		...sessionWorktrees(folder, undefined),
+		npmrc: fenceNpmrc(home, runtimeDir),
+		docker: dockerHoldsCredentials(home),
 	});
 	return {
 		folder,
@@ -263,16 +268,21 @@ function macFenceText(
 		};
 	}
 	const { home } = place;
+	// The Mac has no runtime folder, so the copy of npm's settings goes
+	// in the person's own temporary folder, which is theirs alone.
+	const npmrc = fenceNpmrc(home, place.env.TMPDIR);
 	const mounts = fenceArgs({
 		home,
 		runtimeDir: undefined,
 		...sessionWorktrees(folder, undefined),
+		...(npmrc ? { npmrc } : {}),
+		docker: dockerHoldsCredentials(home),
 	});
 	// Writes only, last: a read-only mount of the home folder here would
 	// let back what the fence's mounts hid in it.
 	const strict =
 		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
-	const { profile } = seatbeltProfile([...mounts, ...strict], {
+	const { profile, stoodIn } = seatbeltProfile([...mounts, ...strict], {
 		sockets: [MAC_NIX_DAEMON],
 		home,
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
@@ -280,6 +290,35 @@ function macFenceText(
 	});
 	return {
 		folder,
-		text: seatbeltText(ask.words.map(quoted).join(" "), profile, sandboxExec),
+		text: seatbeltText(
+			[...macSettings(home, stoodIn), ask.words.map(quoted).join(" ")].join(
+				"; ",
+			),
+			profile,
+			sandboxExec,
+		),
 	};
+}
+
+/**
+ * What a command in the Mac's fence is pointed at before it runs. Caches
+ * go to `~/.cache`, which the fence lets commands write, rather than
+ * `~/Library/Caches`, which it keeps read-only beside the rest of
+ * `~/Library`: go, pip and every program honouring XDG's settings would
+ * otherwise fail to cache. npm reads its settings from the copy without
+ * their tokens, since a Mac's fence can hide a file but not bind another
+ * over it (ISXEG8, 16 November).
+ */
+function macSettings(
+	home: string,
+	stoodIn: readonly { readonly copy: string; readonly over: string }[],
+): string[] {
+	const cache = join(home, ".cache");
+	const npm = stoodIn.find(({ over }) => over === join(home, NPMRC));
+	return [
+		`export XDG_CACHE_HOME=${quoted(cache)}`,
+		`export GOCACHE=${quoted(join(cache, "go-build"))}`,
+		`export PIP_CACHE_DIR=${quoted(join(cache, "pip"))}`,
+		...(npm ? [`export NPM_CONFIG_USERCONFIG=${quoted(npm.copy)}`] : []),
+	];
 }

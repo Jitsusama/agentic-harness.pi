@@ -18,6 +18,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	writeFileSync,
@@ -223,6 +224,62 @@ describe("the fence on a Mac", () => {
 		expect(text).toContain(
 			`(allow file-read* file-write* (subpath "${folder}"))`,
 		);
+	});
+
+	it("sends no Apple Event, and points caches where the fence lets them write", () => {
+		const text = onMac("fence");
+
+		// The command is quoted again inside bash -c, and its quotes with it.
+		const within = (words: string) => words.replaceAll("'", "'\\''");
+
+		expect(text).toContain("(deny appleevent-send)");
+		expect(text).toContain(
+			within(`export XDG_CACHE_HOME='${join(home, ".cache")}'`),
+		);
+		expect(text).toContain(
+			within(`export GOCACHE='${join(home, ".cache", "go-build")}'`),
+		);
+	});
+
+	it("reads npm's settings only as the copy without tokens, and empties Docker's logins", () => {
+		const own = realpathSync(mkdtempSync(join(tmpdir(), "fm-own-")));
+		const work = join(own, "work");
+		mkdirSync(work);
+		mkdirSync(join(own, ".docker"));
+		writeFileSync(
+			join(own, ".npmrc"),
+			"//npm.example/:_authToken=not-a-token\n",
+		);
+		writeFileSync(
+			join(own, ".docker", "config.json"),
+			JSON.stringify({ auths: { "ghcr.io": { auth: "bm90LWEtbG9naW4=" } } }),
+		);
+		const temporary = join(own, "tmp");
+		mkdirSync(temporary);
+		try {
+			const made = fenceRunText(
+				{ kind: "fence", folder: work, words: ["npm", "ping"] },
+				{
+					env: { TMPDIR: temporary },
+					home: own,
+					platform: "darwin",
+					sandboxExec: "/usr/bin/sandbox-exec",
+				},
+			);
+			if (!("text" in made)) throw new Error(JSON.stringify(made));
+			const copy = /export NPM_CONFIG_USERCONFIG='\\''([^']+)'\\''/.exec(
+				made.text,
+			)?.[1];
+			expect(copy, "npm is pointed at a copy").toBeDefined();
+			expect(readFileSync(copy ?? "", "utf8")).not.toContain("not-a-token");
+			for (const hidden of [".npmrc", ".docker/config.json"]) {
+				expect(made.text).toContain(
+					`(deny file-read* file-write* (literal "${join(own, hidden)}"))`,
+				);
+			}
+		} finally {
+			rmSync(own, { recursive: true, force: true });
+		}
 	});
 
 	it("writes only the folder when strict, without letting back what is hidden", () => {

@@ -132,6 +132,8 @@ may import from here, and any of it may change without notice.
 - **`fence-disk.ts`**: the disk as the fence reads it, what a path
   is and what a folder holds, which a test hands in a disk of its own
   for.
+- **`fence-docker.ts`**: whether Docker's settings hold a login
+  or name the keychain's helper, and are then emptied inside.
 - **`fence-hidden.ts`**: what the fence keeps from every command,
   read from `data/fence-hidden.json`, which core's secret asks read
   too.

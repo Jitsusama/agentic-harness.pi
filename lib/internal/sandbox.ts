@@ -77,6 +77,7 @@ import {
 import { fenceShims } from "./fence-clipboard.ts";
 import { fencedCommand } from "./fence-command.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "./fence-direnv.ts";
+import { dockerHoldsCredentials } from "./fence-docker.ts";
 import {
 	afterCheck,
 	guardedFolders,
@@ -697,6 +698,7 @@ export function wrapFor(
 				scratch: questScratch(place.env.TMPDIR),
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),
+				docker: dockerHoldsCredentials(home),
 			};
 			makeFoldersFirst(home);
 			const own = sandboxFolders(home).cache;
