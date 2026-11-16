@@ -105,7 +105,7 @@ describe("verifier classification", () => {
 			]),
 		]);
 
-		expect(scan.calls[0].verifierKind).toBe("verify");
+		expect(scan.calls[0]?.verifierKind).toBe("verify");
 	});
 
 	it("leaves an ordinary command unclassified", () => {
@@ -123,7 +123,7 @@ describe("verifier classification", () => {
 			]),
 		]);
 
-		expect(scan.calls[0].verifierKind).toBeNull();
+		expect(scan.calls[0]?.verifierKind).toBeNull();
 	});
 
 	it("pairs the classification with the outcome the result already carries", () => {
@@ -132,7 +132,7 @@ describe("verifier classification", () => {
 			result("t1", "FAIL", true),
 		]);
 
-		expect(scan.calls[0].verifierKind).toBe("test");
+		expect(scan.calls[0]?.verifierKind).toBe("test");
 		expect(scan.calls[0]).toMatchObject({ isError: true });
 	});
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findFlag, findFlags, tokenize } from "../../../lib/command/index.ts";
+import { at } from "../../support/at.ts";
 
 const commitSpec = {
 	flags: [
@@ -10,7 +11,7 @@ const commitSpec = {
 
 describe("findFlags", () => {
 	it("returns every occurrence of a repeated flag in order", () => {
-		const command = tokenize('git commit -m "a" -m "b"').commands[0];
+		const command = at(tokenize('git commit -m "a" -m "b"').commands, 0);
 
 		const values = findFlags(command, commitSpec, "message").map(
 			(m) => m.value,
@@ -20,7 +21,7 @@ describe("findFlags", () => {
 	});
 
 	it("finds a value-taking short flag inside a boolean cluster", () => {
-		const command = tokenize('git commit -am "msg"').commands[0];
+		const command = at(tokenize('git commit -am "msg"').commands, 0);
 
 		const match = findFlags(command, commitSpec, "message")[0];
 
@@ -28,13 +29,13 @@ describe("findFlags", () => {
 	});
 
 	it("finds the boolean member of a cluster", () => {
-		const command = tokenize('git commit -am "msg"').commands[0];
+		const command = at(tokenize('git commit -am "msg"').commands, 0);
 
 		expect(findFlags(command, commitSpec, "all")).toHaveLength(1);
 	});
 
 	it("returns nothing when the flag is absent", () => {
-		const command = tokenize("git commit --amend").commands[0];
+		const command = at(tokenize("git commit --amend").commands, 0);
 
 		expect(findFlags(command, commitSpec, "message")).toEqual([]);
 	});
@@ -51,7 +52,7 @@ const repoSpec = {
 describe("findFlag", () => {
 	it("locates a long flag with a separate value", () => {
 		const source = "gh pr create --body hello";
-		const command = tokenize(source).commands[0];
+		const command = at(tokenize(source).commands, 0);
 
 		const match = findFlag(command, bodySpec, "body");
 
@@ -62,7 +63,7 @@ describe("findFlag", () => {
 
 	it("reads a value joined with equals and spans just the value", () => {
 		const source = "gh pr create --repo=shop/world";
-		const command = tokenize(source).commands[0];
+		const command = at(tokenize(source).commands, 0);
 
 		const match = findFlag(command, repoSpec, "repo");
 
@@ -73,7 +74,7 @@ describe("findFlag", () => {
 
 	it("locates a short flag value separated by a space", () => {
 		const source = "gh pr create -R shop/world";
-		const command = tokenize(source).commands[0];
+		const command = at(tokenize(source).commands, 0);
 
 		const match = findFlag(command, repoSpec, "repo");
 
@@ -84,7 +85,7 @@ describe("findFlag", () => {
 
 	it("locates a short flag value attached to the flag", () => {
 		const source = "gh pr create -Rshop/world";
-		const command = tokenize(source).commands[0];
+		const command = at(tokenize(source).commands, 0);
 
 		const match = findFlag(command, repoSpec, "repo");
 

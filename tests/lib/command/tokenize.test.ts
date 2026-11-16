@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { tokenize } from "../../../lib/command/index.ts";
+import { at } from "../../support/at.ts";
 
 describe("tokenize", () => {
 	it("yields no commands for an empty command", () => {
@@ -15,12 +16,15 @@ describe("tokenize", () => {
 		const line = tokenize("git status");
 
 		expect(line.commands).toHaveLength(1);
-		expect(line.commands[0].argv.map((w) => w.text)).toEqual(["git", "status"]);
+		expect(at(line.commands, 0).argv.map((w) => w.text)).toEqual([
+			"git",
+			"status",
+		]);
 	});
 
 	it("keeps a single-quoted argument as one word with its quote style", () => {
 		const source = "echo 'a b'";
-		const word = tokenize(source).commands[0].argv[1];
+		const word = at(at(tokenize(source).commands, 0).argv, 1);
 
 		expect(word.text).toBe("'a b'");
 		expect(word.quoting).toBe("single");
@@ -29,7 +33,7 @@ describe("tokenize", () => {
 
 	it("keeps a double-quoted argument as one word with its quote style", () => {
 		const source = 'echo "a b"';
-		const word = tokenize(source).commands[0].argv[1];
+		const word = at(at(tokenize(source).commands, 0).argv, 1);
 
 		expect(word.text).toBe('"a b"');
 		expect(word.quoting).toBe("double");
@@ -53,14 +57,14 @@ describe("tokenize", () => {
 
 		expect(line.commands).toHaveLength(1);
 		expect(line.connectors).toEqual([]);
-		expect(line.commands[0].argv.map((w) => w.text)).toEqual([
+		expect(at(line.commands, 0).argv.map((w) => w.text)).toEqual([
 			"echo",
 			"'a && b'",
 		]);
 	});
 
 	it("separates leading env assignments from argv", () => {
-		const command = tokenize("GH_HOST=github.com gh pr create").commands[0];
+		const command = at(tokenize("GH_HOST=github.com gh pr create").commands, 0);
 
 		expect(command.assignments.map((w) => w.text)).toEqual([
 			"GH_HOST=github.com",
@@ -69,7 +73,7 @@ describe("tokenize", () => {
 	});
 
 	it("keeps a non-leading equals as an argv word", () => {
-		const command = tokenize("git config user.email a=b").commands[0];
+		const command = at(tokenize("git config user.email a=b").commands, 0);
 
 		expect(command.assignments).toEqual([]);
 		expect(command.argv.map((w) => w.text)).toEqual([
@@ -82,28 +86,28 @@ describe("tokenize", () => {
 
 	it("captures a redirect with a following target out of argv", () => {
 		const source = "echo hi > out.txt";
-		const command = tokenize(source).commands[0];
+		const command = at(tokenize(source).commands, 0);
 
 		expect(command.argv.map((w) => w.text)).toEqual(["echo", "hi"]);
 		expect(command.redirects).toHaveLength(1);
 		expect(
 			source.slice(
-				command.redirects[0].span.start,
-				command.redirects[0].span.end,
+				at(command.redirects, 0).span.start,
+				at(command.redirects, 0).span.end,
 			),
 		).toBe("> out.txt");
-		expect(command.redirects[0].operator).toBe(">");
-		expect(command.redirects[0].target?.text).toBe("out.txt");
+		expect(at(command.redirects, 0).operator).toBe(">");
+		expect(at(command.redirects, 0).target?.text).toBe("out.txt");
 	});
 
 	it("names a quoted target as the word it is, quotes and all", () => {
 		// The target is reported as written, so a caller can see it was
 		// quoted and unquote it deliberately. Losing this is what left the
 		// quest write guard unable to see the ordinary spelling of a path.
-		const command = tokenize('echo hi >> "/tmp/a b.txt"').commands[0];
+		const command = at(tokenize('echo hi >> "/tmp/a b.txt"').commands, 0);
 
-		expect(command.redirects[0].target?.text).toBe('"/tmp/a b.txt"');
-		expect(command.redirects[0].target?.quoting).toBe("double");
+		expect(at(command.redirects, 0).target?.text).toBe('"/tmp/a b.txt"');
+		expect(at(command.redirects, 0).target?.quoting).toBe("double");
 	});
 
 	it("captures a redirect whose target is written against the operator", () => {
@@ -115,7 +119,7 @@ describe("tokenize", () => {
 			["wc -l <in.txt", "<", "in.txt"],
 		];
 		for (const [source, operator, target] of cases) {
-			const command = tokenize(source).commands[0];
+			const command = at(tokenize(source).commands, 0);
 			const redirect = command.redirects[0];
 			expect(redirect?.operator, source).toBe(operator);
 			expect(redirect?.target?.text, source).toBe(target);
@@ -130,19 +134,19 @@ describe("tokenize", () => {
 	});
 
 	it("reads the quoting of an attached target", () => {
-		const command = tokenize('echo hi >"/tmp/it\'s.txt"').commands[0];
-		expect(command.redirects[0].target?.quoting).toBe("double");
+		const command = at(tokenize('echo hi >"/tmp/it\'s.txt"').commands, 0);
+		expect(at(command.redirects, 0).target?.quoting).toBe("double");
 	});
 
 	it("captures an attached duplication without a target", () => {
-		const command = tokenize("make >&2").commands[0];
+		const command = at(tokenize("make >&2").commands, 0);
 		expect(command.argv.map((w) => w.text)).toEqual(["make"]);
-		expect(command.redirects[0].operator).toBe(">&2");
-		expect(command.redirects[0].target).toBeUndefined();
+		expect(at(command.redirects, 0).operator).toBe(">&2");
+		expect(at(command.redirects, 0).target).toBeUndefined();
 	});
 
 	it("keeps a here-string in argv rather than reading it as a file", () => {
-		const command = tokenize('cat <<<"text"').commands[0];
+		const command = at(tokenize('cat <<<"text"').commands, 0);
 		expect(command.redirects).toEqual([]);
 	});
 
@@ -150,30 +154,30 @@ describe("tokenize", () => {
 		// A redirect operator at the end of a segment has no target
 		// word. It must still leave argv clean rather than leaking the
 		// operator in as an argument.
-		const command = tokenize("echo hi >").commands[0];
+		const command = at(tokenize("echo hi >").commands, 0);
 		expect(command.argv.map((w) => w.text)).toEqual(["echo", "hi"]);
 	});
 
 	it("captures a self-contained duplication redirect", () => {
 		const source = "make 2>&1";
-		const command = tokenize(source).commands[0];
+		const command = at(tokenize(source).commands, 0);
 
 		expect(command.argv.map((w) => w.text)).toEqual(["make"]);
 		expect(command.redirects).toHaveLength(1);
 		expect(
 			source.slice(
-				command.redirects[0].span.start,
-				command.redirects[0].span.end,
+				at(command.redirects, 0).span.start,
+				at(command.redirects, 0).span.end,
 			),
 		).toBe("2>&1");
 		// A duplication names no file, so there is no target to report.
-		expect(command.redirects[0].target).toBeUndefined();
+		expect(at(command.redirects, 0).target).toBeUndefined();
 	});
 
 	it("attaches a heredoc and keeps its body out of argv", () => {
 		const source = "git commit -F- <<'EOF'\nfeat: x\n\nbody\nEOF";
 		const line = tokenize(source);
-		const command = line.commands[0];
+		const command = at(line.commands, 0);
 
 		expect(line.commands).toHaveLength(1);
 		expect(line.connectors).toEqual([]);
@@ -186,7 +190,7 @@ describe("tokenize", () => {
 
 	it("treats a bare heredoc delimiter as unquoted", () => {
 		const source = "git commit -F- <<EOF\nmsg\nEOF";
-		const command = tokenize(source).commands[0];
+		const command = at(tokenize(source).commands, 0);
 
 		expect(command.heredoc?.delimiter).toBe("EOF");
 		expect(command.heredoc).toMatchObject({ quoted: false });
@@ -197,7 +201,7 @@ describe("tokenize", () => {
 
 		expect(line.commands).toHaveLength(1);
 		expect(line.connectors).toEqual([]);
-		expect(line.commands[0].argv.map((w) => w.text)).toEqual([
+		expect(at(line.commands, 0).argv.map((w) => w.text)).toEqual([
 			"gh",
 			"pr",
 			"create",
@@ -244,7 +248,7 @@ describe("tokenize", () => {
 
 		expect(line.commands).toHaveLength(2);
 		expect(line.connectors.map((c) => c.op)).toEqual(["&"]);
-		expect(line.commands[1].argv[0].text).toBe("rm");
+		expect(at(line.commands, 1).argv[0]?.text).toBe("rm");
 	});
 
 	it("splits on |&", () => {
@@ -259,8 +263,10 @@ describe("tokenize", () => {
 	});
 
 	it("keeps a double-quoted word whole across an escaped quote and does not swallow a later flag", () => {
-		const argv = tokenize('gh pr create --title "a \\" b" --draft').commands[0]
-			.argv;
+		const argv = at(
+			tokenize('gh pr create --title "a \\" b" --draft').commands,
+			0,
+		).argv;
 
 		expect(argv.map((w) => w.text)).toEqual([
 			"gh",

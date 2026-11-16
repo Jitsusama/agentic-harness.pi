@@ -79,7 +79,7 @@ describe("memory store", () => {
 		const fact = await store.retain({ scope: quest, text: "durable" });
 		await store.recall({ scope: quest });
 		const again = await store.recall({ scope: quest });
-		expect(again[0].id).toBe(fact.id);
-		expect(again[0].recalledCount).toBeGreaterThanOrEqual(1);
+		expect(again[0]?.id).toBe(fact.id);
+		expect(again[0]?.recalledCount).toBeGreaterThanOrEqual(1);
 	});
 });

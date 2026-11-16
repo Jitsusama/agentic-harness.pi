@@ -158,7 +158,9 @@ describe("discoverQuests", () => {
 		expect(errors).toEqual([]);
 		const quest = index.quests.get("QEST-20260603-AAA111");
 		expect(quest?.documents.length).toBe(1);
-		expect(quest?.documents[0].doc.frontMatter.id).toBe("PLAN-20260603-XXXYYY");
+		expect(quest?.documents[0]?.doc.frontMatter.id).toBe(
+			"PLAN-20260603-XXXYYY",
+		);
 	});
 
 	it("records an error when a quest README is missing", () => {
@@ -352,8 +354,8 @@ describe("buildMentionIndex", () => {
 		const mentions = buildMentionIndex(index);
 		const edges = mentions.byId.get("QEST-20260603-AAA111") ?? [];
 		expect(edges).toHaveLength(1);
-		expect(edges[0].from).toBe("QEST-20260603-BBB222");
-		expect(edges[0].snippet).toContain("QEST-20260603-AAA111");
+		expect(edges[0]?.from).toBe("QEST-20260603-BBB222");
+		expect(edges[0]?.snippet).toContain("QEST-20260603-AAA111");
 	});
 
 	it("does not record self-mentions", () => {
@@ -379,6 +381,6 @@ describe("buildMentionIndex", () => {
 		const mentions = buildMentionIndex(index);
 		const key = "github-pr:shop/world#47281";
 		expect(mentions.byRef.get(key)).toBeDefined();
-		expect(mentions.byRef.get(key)?.[0].from).toBe("QEST-20260603-AAA111");
+		expect(mentions.byRef.get(key)?.[0]?.from).toBe("QEST-20260603-AAA111");
 	});
 });

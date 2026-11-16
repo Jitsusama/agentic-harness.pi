@@ -7,6 +7,7 @@ import {
 	searchTools,
 } from "../../../../lib/mcp/surface/helpers.ts";
 import type { McpToolResult } from "../../../../lib/mcp/types.ts";
+import { at } from "../../../support/at.ts";
 
 function entry(
 	name: string,
@@ -46,7 +47,7 @@ describe("searchTools", () => {
 			entry("gws_docs", "gws"),
 		];
 		const ranked = searchTools(entries, "search", { limit: 5 });
-		expect(ranked[0].name).toBe("slack_search");
+		expect(ranked[0]?.name).toBe("slack_search");
 	});
 
 	it("returns everything (capped) for an empty query", () => {
@@ -110,27 +111,30 @@ describe("createProgressiveHelpers", () => {
 	});
 
 	it("search_tools returns a listing mentioning a matching tool", async () => {
-		const search = helpers().list[0];
+		const search = at(helpers().list, 0);
 		const out = await search.run({ query: "post" }, ctx);
 		expect(JSON.stringify(out.content)).toContain("slack_post");
 	});
 
 	it("describe returns the tool detail", async () => {
-		const describe = helpers().list[1];
+		const describe = at(helpers().list, 1);
 		const out = await describe.run({ name: "slack_post" }, ctx);
 		expect(JSON.stringify(out.content)).toContain("posts a message");
 	});
 
 	it("run_tool rejects an unknown tool and does not dispatch", async () => {
 		const { list, runTool } = helpers();
-		const out = await list[2].run({ name: "nope" }, ctx);
+		const out = await at(list, 2).run({ name: "nope" }, ctx);
 		expect(out).toMatchObject({ isError: true });
 		expect(runTool).not.toHaveBeenCalled();
 	});
 
 	it("run_tool dispatches a known tool with extracted args", async () => {
 		const { list, runTool } = helpers();
-		await list[2].run({ name: "slack_post", arguments: { channel: "x" } }, ctx);
+		await at(list, 2).run(
+			{ name: "slack_post", arguments: { channel: "x" } },
+			ctx,
+		);
 		expect(runTool).toHaveBeenCalledWith("slack_post", { channel: "x" }, ctx);
 	});
 });

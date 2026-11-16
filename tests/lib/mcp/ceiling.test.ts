@@ -8,6 +8,7 @@ import {
 	enforceResultCeiling,
 } from "../../../lib/mcp/ceiling.ts";
 import type { McpContent, McpToolResult } from "../../../lib/mcp/types.ts";
+import { at } from "../../support/at.ts";
 
 function result(content: McpContent[]): McpToolResult {
 	return { content };
@@ -82,8 +83,9 @@ describe("enforceResultCeiling", () => {
 		expect(contentByteSize(out)).toBeLessThanOrEqual(500);
 		const files = fs.readdirSync(dir);
 		expect(files).toHaveLength(1);
-		expect(fs.readFileSync(path.join(dir, files[0]), "utf-8")).toBe(huge);
-		expect(textOf(out)).toContain(files[0]);
+		const file = at(files, 0);
+		expect(fs.readFileSync(path.join(dir, file), "utf-8")).toBe(huge);
+		expect(textOf(out)).toContain(file);
 	});
 
 	it("caps an aggregate of many blocks each individually under the limit", () => {

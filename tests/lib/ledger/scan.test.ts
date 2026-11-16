@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readTurns } from "../../../lib/ledger/index.ts";
+import { at } from "../../support/at.ts";
 
 function assistantLine(
 	id: string,
@@ -38,7 +39,7 @@ describe("readTurns", () => {
 		const scan = readTurns("s1", [assistantLine("a1", 0.89)]);
 
 		expect(scan.turns).toHaveLength(1);
-		const turn = scan.turns[0];
+		const turn = at(scan.turns, 0);
 		expect(turn.entryId).toBe("a1");
 		expect(turn.sessionId).toBe("s1");
 		expect(turn.kind).toBe("assistant");
@@ -71,10 +72,10 @@ describe("readTurns", () => {
 		const scan = readTurns("s1", [line]);
 
 		expect(scan.turns).toHaveLength(1);
-		expect(scan.turns[0].kind).toBe("compaction");
-		expect(scan.turns[0].cost?.total).toBe(2.5);
-		expect(scan.turns[0].droppedBefore).toBe(800_000);
-		expect(scan.turns[0].firstKeptEntryId).toBe("a9");
+		expect(at(scan.turns, 0).kind).toBe("compaction");
+		expect(at(scan.turns, 0).cost?.total).toBe(2.5);
+		expect(at(scan.turns, 0).droppedBefore).toBe(800_000);
+		expect(at(scan.turns, 0).firstKeptEntryId).toBe("a9");
 	});
 
 	it("bills a side call an extension recorded on its own entry, on its own model", () => {
@@ -133,7 +134,7 @@ describe("readTurns", () => {
 		const scan = readTurns("s1", [line]);
 
 		expect(scan.turns).toHaveLength(1);
-		expect(scan.turns[0].cost).toBeNull();
+		expect(at(scan.turns, 0).cost).toBeNull();
 		expect(scan.coverage.unmetered).toBe(1);
 	});
 
@@ -158,8 +159,8 @@ describe("readTurns", () => {
 		const forked = readTurns("s2", [assistantLine("a1", 1)]);
 		const other = readTurns("s1", [assistantLine("a9", 1)]);
 
-		expect(same.turns[0].digest).toBe(forked.turns[0].digest);
-		expect(same.turns[0].digest).not.toBe(other.turns[0].digest);
+		expect(at(same.turns, 0).digest).toBe(at(forked.turns, 0).digest);
+		expect(at(same.turns, 0).digest).not.toBe(at(other.turns, 0).digest);
 	});
 });
 
@@ -226,7 +227,7 @@ describe("thinking level", () => {
 			under("t1", assistantLine("a1", 1)),
 		]);
 
-		expect(after.turns[0].digest).toBe(before.turns[0].digest);
+		expect(at(after.turns, 0).digest).toBe(at(before.turns, 0).digest);
 	});
 });
 

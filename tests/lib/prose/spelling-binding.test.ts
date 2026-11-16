@@ -32,8 +32,10 @@ function skillSpellingPairs(): [string, string][] {
 			if (pairs.length > 0) break;
 			continue;
 		}
-		const from = cells[1];
-		const to = cells[2];
+		const [, from, to] = cells;
+		// Both groups take part in every match; this says so to the type
+		// checker.
+		if (from === undefined || to === undefined) continue;
 		// Skip the header row and its `| --- | --- |` separator.
 		if (from === "Not this" || /^-+$/.test(from)) continue;
 		pairs.push([from, to]);

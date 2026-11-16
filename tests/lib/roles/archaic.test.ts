@@ -19,8 +19,8 @@ describe("finding archaic models", () => {
 		];
 		const findings = findArchaic(models);
 		expect(findings).toHaveLength(1);
-		expect(findings[0].id).toBe("claude-opus-4-5");
-		expect(findings[0].supersededBy).toBe("claude-opus-4-8");
+		expect(findings[0]?.id).toBe("claude-opus-4-5");
+		expect(findings[0]?.supersededBy).toBe("claude-opus-4-8");
 	});
 
 	it("does not flag an older sibling that is still cheaper on some axis", () => {
@@ -87,7 +87,7 @@ describe("finding archaic models", () => {
 		];
 		const findings = findArchaic(models);
 		expect(findings).toHaveLength(1);
-		expect(findings[0].id).toBe("claude-opus-4-5");
-		expect(findings[0].supersededBy).toBe("claude-opus-4-6");
+		expect(findings[0]?.id).toBe("claude-opus-4-5");
+		expect(findings[0]?.supersededBy).toBe("claude-opus-4-6");
 	});
 });

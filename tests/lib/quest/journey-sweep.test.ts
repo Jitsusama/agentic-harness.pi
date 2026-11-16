@@ -47,7 +47,7 @@ function coreAppends(prose: string, date: string): void {
 	const lines = readme().split("\n");
 	const heading = lines.findIndex((l) => /^## .*Journey$/.test(l));
 	let at = heading + 1;
-	while (at < lines.length && lines[at].trim() === "") at++;
+	while (at < lines.length && lines[at]?.trim() === "") at++;
 	lines.splice(at, 0, `- **${date}**: ${prose}`);
 	writeFileSync(join(questDir, "README.md"), lines.join("\n"));
 }

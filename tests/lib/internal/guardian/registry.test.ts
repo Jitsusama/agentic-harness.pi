@@ -5,6 +5,7 @@ import {
 	record,
 	register,
 } from "../../../../lib/internal/guardian/registry.ts";
+import { at } from "../../../support/at.ts";
 
 beforeEach(() => clear());
 
@@ -12,9 +13,12 @@ describe("guardian registry", () => {
 	it("records an outcome with a timestamp and surfaces it in list", () => {
 		record("commit", { kind: "blocked", reason: "bad prose" });
 		const [entry] = list();
-		expect(entry.name).toBe("commit");
-		expect(entry.lastOutcome).toEqual({ kind: "blocked", reason: "bad prose" });
-		expect(entry.lastCalledAt).toBeInstanceOf(Date);
+		expect(entry?.name).toBe("commit");
+		expect(entry?.lastOutcome).toEqual({
+			kind: "blocked",
+			reason: "bad prose",
+		});
+		expect(entry?.lastCalledAt).toBeInstanceOf(Date);
 	});
 
 	it("seeds an entry with no outcome, and re-registering preserves it", () => {
@@ -23,7 +27,7 @@ describe("guardian registry", () => {
 
 		record("pr", { kind: "allowed" });
 		register("pr"); // idempotent: must not wipe the recorded outcome
-		expect(list()[0].lastOutcome).toEqual({ kind: "allowed" });
+		expect(list()[0]?.lastOutcome).toEqual({ kind: "allowed" });
 	});
 
 	it("returns entries sorted by name regardless of insertion order", () => {
@@ -35,7 +39,7 @@ describe("guardian registry", () => {
 	it("returns a snapshot that does not mutate the registry", () => {
 		record("commit", { kind: "allowed" });
 		const snapshot = list();
-		snapshot[0].name = "tampered";
-		expect(list()[0].name).toBe("commit");
+		at(snapshot, 0).name = "tampered";
+		expect(list()[0]?.name).toBe("commit");
 	});
 });

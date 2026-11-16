@@ -13,7 +13,7 @@ describe("detectProseViolations", () => {
 			"This is a pause — a dramatic one.",
 		);
 		expect(violations).toHaveLength(1);
-		expect(violations[0].kind).toBe("emdash");
+		expect(violations[0]?.kind).toBe("emdash");
 	});
 
 	it("flags American spelling with a Canadian suggestion", () => {
@@ -130,7 +130,7 @@ describe("detectProseViolations", () => {
 			"This is a pause \\u2014 a sneaky one.",
 		);
 		expect(violations).toHaveLength(1);
-		expect(violations[0].kind).toBe("emdash");
+		expect(violations[0]?.kind).toBe("emdash");
 	});
 
 	it("flags curly quotes with a straight-quote suggestion", () => {
@@ -147,7 +147,7 @@ describe("detectProseViolations", () => {
 		const violations = detectProseViolations("Wait for it\u2026 done.");
 		const ellipsis = violations.filter((v) => v.kind === "ellipsis");
 		expect(ellipsis).toHaveLength(1);
-		expect(ellipsis[0].suggestion).toBe("...");
+		expect(ellipsis[0]?.suggestion).toBe("...");
 	});
 
 	it("ignores curly quotes and ellipsis inside code", () => {

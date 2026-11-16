@@ -13,6 +13,7 @@ import { type Exec, spawnExec } from "../../../../lib/core/exec/index.ts";
 import { queueFolder } from "../../../../lib/internal/priority/folder.ts";
 import { queuedExec } from "../../../../lib/internal/priority/queued-exec.ts";
 import { queueHeavyWork } from "../../../../lib/internal/priority/turn.ts";
+import { at } from "../../../support/at.ts";
 
 let root: string;
 let dir: string;
@@ -94,7 +95,7 @@ describe("a tool's git put through the machine's queue", () => {
 		await exec("git", ["-C", world, "push", "--set-upstream", "origin", "x"]);
 
 		expect(direct.asked).toEqual([]);
-		const [[command, args]] = queued.asked;
+		const [command, args] = at(queued.asked, 0);
 		expect(command).toBe("bash");
 		expect(args[0]).toBe("-c");
 		const shell = args[1] ?? "";

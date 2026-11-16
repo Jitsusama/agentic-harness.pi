@@ -5,6 +5,7 @@ import {
 	notifyCommand,
 	withdrawNotice,
 } from "../../../lib/internal/notify.ts";
+import { at } from "../../support/at.ts";
 
 /**
  * An exec that records what it was asked to run and answers `code`,
@@ -52,7 +53,7 @@ describe("notify", () => {
 		const { exec, calls } = recording();
 		const title = 'Say "hi" \\ end tell';
 		await notify({ title, body: "b" }, { platform: "darwin", exec, env: ON });
-		const [command, args] = calls[0];
+		const [command, args] = at(calls, 0);
 		expect(command).toBe("osascript");
 		expect(args.slice(-2)).toEqual([title, "b"]);
 		const script = args.filter((_, i) => args[i - 1] === "-e").join("\n");
