@@ -6,11 +6,11 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { handle } from "../../../extensions/quest-workflow/transitions.ts";
-import { registerUrlFetcher } from "../../../lib/quest/index.ts";
-import { fakePi } from "../../support/fake-pi.ts";
-import { fakeCtx } from "./_helpers.ts";
-import { buildState, createQuest, fixture } from "./support/verbs.ts";
+import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { registerUrlFetcher } from "../../../../lib/quest/index.ts";
+import { fakePi } from "../../../support/fake-pi.ts";
+import { fakeCtx } from "../_helpers.ts";
+import { buildState, createQuest, fixture } from "../support/verbs.ts";
 
 describe("URL-seeded create", () => {
 	it("dedups against an existing quest with the same alias", async () => {

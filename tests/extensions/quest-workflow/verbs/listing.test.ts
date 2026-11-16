@@ -5,15 +5,15 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { handle } from "../../../extensions/quest-workflow/transitions.ts";
+import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import {
 	clearPersonResolvers,
 	setResolutionFallback,
-} from "../../../lib/people/index.ts";
-import { at } from "../../support/at.ts";
-import { fakePi } from "../../support/fake-pi.ts";
-import { fakeCtx } from "./_helpers.ts";
-import { buildState, createQuest, fixture } from "./support/verbs.ts";
+} from "../../../../lib/people/index.ts";
+import { at } from "../../../support/at.ts";
+import { fakePi } from "../../../support/fake-pi.ts";
+import { fakeCtx } from "../_helpers.ts";
+import { buildState, createQuest, fixture } from "../support/verbs.ts";
 
 describe("find / who / links", () => {
 	it("find returns matches by query and respects since/until filters", async () => {

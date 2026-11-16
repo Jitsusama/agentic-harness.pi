@@ -5,12 +5,12 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { handle } from "../../../extensions/quest-workflow/transitions.ts";
-import { parseQuestFrontMatter } from "../../../lib/quest/index.ts";
-import { at } from "../../support/at.ts";
-import { fakePi } from "../../support/fake-pi.ts";
-import { fakeCtx } from "./_helpers.ts";
-import { buildState, createQuest, fixture } from "./support/verbs.ts";
+import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { parseQuestFrontMatter } from "../../../../lib/quest/index.ts";
+import { at } from "../../../support/at.ts";
+import { fakePi } from "../../../support/fake-pi.ts";
+import { fakeCtx } from "../_helpers.ts";
+import { buildState, createQuest, fixture } from "../support/verbs.ts";
 
 describe("reorder verbs", () => {
 	it("top moves the loaded quest to rank 1 and shifts siblings to fixed positions", async () => {
