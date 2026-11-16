@@ -10,8 +10,8 @@
  *
  * It spends only while asked. The first ask in a process reads the folder
  * at once, since an empty answer before the mirror fills would read as
- * nobody there, and so does the first after an idle spell, whose last
- * listing could be an hour old. Between, a poll reads it again each
+ * nobody there, and so does the first after a spell in which nothing
+ * listed it, whose last listing could be an hour old. Between, a poll reads it again each
  * second while a synchronous reader has asked within the last minute,
  * and stops once none has. A folder that can't be read keeps the last
  * listing rather than answering that it holds nothing. fs.watch brings a refresh forward, but only as a hint, since
@@ -30,6 +30,13 @@ const POLL_MS = 1000;
 
 /** How long a mirror keeps polling after its last synchronous ask. */
 const IDLE_MS = 60_000;
+
+/**
+ * How many idle spells old a listing may be and still answer a first
+ * ask after one: two, so a minute's look that lands a little late still
+ * counts.
+ */
+const STALE_SPELLS = 2;
 
 /** The files a mirror keeps, and how it parses one. */
 export interface MirroredFiles<T> {
@@ -96,7 +103,15 @@ export function folderRead<T>(
 	kind: MirroredFiles<T>,
 ): FolderMirror<T> {
 	const kept = new Map<string, Stamped<T>>();
+	// What the folder last listed, kept while it can't be read.
+	let last: string[] = [];
+	const namesOf = (error: unknown): string[] => {
+		// No folder yet is nothing written there; else unreadable now.
+		last = isMissing(error) ? [] : last;
+		return last;
+	};
 	const listed = (names: string[], values: (T | undefined)[]): Mirrored<T> => {
+		last = names;
 		const paths = pathsIn(dir, kind, names);
 		const found = new Set(paths);
 		for (const path of kept.keys()) if (!found.has(path)) kept.delete(path);
@@ -104,11 +119,11 @@ export function folderRead<T>(
 	};
 	return {
 		files() {
-			let names: string[] = [];
+			let names: string[];
 			try {
 				names = readdirSync(dir);
-			} catch {
-				// No folder yet: nothing written there.
+			} catch (error) {
+				names = namesOf(error);
 			}
 			const paths = pathsIn(dir, kind, names);
 			return listed(
@@ -118,8 +133,7 @@ export function folderRead<T>(
 		},
 		file: (path) => readStamped(kept, path, kind.read),
 		async refresh() {
-			// No folder yet: nothing written there.
-			const names = await readdir(dir).catch((): string[] => []);
+			const names = await readdir(dir).catch(namesOf);
 			const paths = pathsIn(dir, kind, names);
 			const values = await Promise.all(
 				paths.map((path) => readStampedOff(kept, path, kind.readOff)),
@@ -163,6 +177,10 @@ function mirrorOf<T>(
 	let writes = 0;
 	// The writes counted when the refresh in flight listed the folder.
 	let reading: number | undefined;
+	// When a listing last landed, and how many the thread has read, so a
+	// refresh that listed before the thread read again leaves its newer one.
+	let landed = 0;
+	let fills = 0;
 	const written = new Map<
 		string,
 		{ at: number; value: T | undefined; gone: boolean }
@@ -182,6 +200,7 @@ function mirrorOf<T>(
 		}
 		for (const path of kept.keys()) if (!listed.has(path)) kept.delete(path);
 		order = [...listed];
+		landed = Date.now();
 	};
 	const fill = (): void => {
 		let names: string[];
@@ -199,9 +218,11 @@ function mirrorOf<T>(
 		for (const path of paths) readStamped(kept, path, kind.read);
 		// A refresh in flight listed before some writes: they stay kept.
 		settle(paths, reading ?? writes);
+		fills += 1;
 	};
 	const readAgain = async (): Promise<Mirrored<T>> => {
 		const since = writes;
+		const filled = fills;
 		reading = since;
 		try {
 			const names = await readdir(dir).catch((error: unknown) => {
@@ -215,7 +236,9 @@ function mirrorOf<T>(
 			await Promise.all(
 				paths.map((path) => readStampedOff(kept, path, kind.readOff)),
 			);
-			settle(paths, since);
+			// The thread read the folder since this listed it: its listing
+			// is the newer, so it stands.
+			if (fills === filled) settle(paths, since);
 			return view();
 		} finally {
 			reading = undefined;
@@ -255,10 +278,15 @@ function mirrorOf<T>(
 	};
 	const ask = (): void => {
 		asked = Date.now();
-		// The first ask, and the first after an idle spell, reads the disk
-		// at once: a listing an idle spell old would start a new peer blind.
+		// The first ask reads the disk at once, and so does the first after
+		// a spell in which nothing listed the folder, since a listing that
+		// old would start a new peer blind. A host's conversations list it
+		// off the thread each minute, so there one landed meanwhile answers
+		// while it is read again.
 		if (clock === undefined) {
-			fill();
+			if (order === undefined || Date.now() - landed > STALE_SPELLS * idleMs)
+				fill();
+			else void refresh().catch(nothing);
 			clock = setInterval(tick, pollMs);
 			clock.unref();
 			rewatch();

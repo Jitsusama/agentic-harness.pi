@@ -61,6 +61,9 @@ export function createSteering(host: SteeringHost): Steering {
 	const takers = new Map<string, () => Promise<void>>();
 	const taker = `${process.pid}`;
 	let stopped = false;
+	// The inboxes the last settle named, so a watch still starting for one
+	// let go meanwhile isn't left watching it.
+	let wanted = new Set<string>();
 
 	const take = (inbox: string): Promise<void> => {
 		let takes = takers.get(inbox);
@@ -88,7 +91,7 @@ export function createSteering(host: SteeringHost): Steering {
 		try {
 			// Taking first makes the folder a watcher needs.
 			await take(inbox);
-			if (stopped) return;
+			if (stopped || !wanted.has(inbox)) return;
 			const watcher = watch(inbox, (_kind, name) => {
 				if (name?.endsWith(".json")) void take(inbox).catch(lookAgain);
 			});
@@ -105,6 +108,7 @@ export function createSteering(host: SteeringHost): Steering {
 		const now = new Set(
 			host.addresses().map((address) => inboxOf(host.root, address)),
 		);
+		wanted = now;
 		for (const [inbox, watcher] of watching) {
 			if (now.has(inbox)) continue;
 			watcher.close();
