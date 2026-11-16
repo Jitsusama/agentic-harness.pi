@@ -9,8 +9,9 @@
  * be, and a hosted conversation's follower moves only the code each
  * conversation loads, never the host's own (OSPHT4, 10 November, part 2
  * of the found loss against plain pi). A restart parks every
- * conversation and the next host resumes each before it listens, so a
- * viewer told the host is restarting joins the same conversation again.
+ * conversation and the next host resumes each, a viewer's first, before
+ * it answers that viewer, so a viewer told the host is restarting joins
+ * the same conversation again.
  * The restart itself is systemd's, so the next start reads the unit as
  * systemd has it now, and viewers hear of it only once systemd has it
  * queued, as the host stops (serve.ts).
@@ -30,6 +31,15 @@
  * ceiling is named in the journal once an hour, so whoever wonders why
  * a host runs old code reads what holds it; nothing is ended for it.
  *
+ * A host also restarts once its heap holds more than half of what V8
+ * allows, its install unmoved. On 16 November the background host's
+ * heap grew about 300 MB an hour to 3.6 GB of its 4,144 MB limit, and
+ * when it was stopped the park ran into the limit: the collector held
+ * the loop past systemd's 60 s, so the host was killed with every
+ * conversation unparked and four turns failed. At half the limit a
+ * stop is still quick, and the restart waits for the same quiet moment
+ * as any other, so it parks first.
+ *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
  * with the host as a logout would, and its conversation resumes after.
@@ -37,6 +47,7 @@
 
 import { realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { getHeapStatistics } from "node:v8";
 import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 import type { SessionIdentity } from "./protocol.ts";
@@ -95,6 +106,23 @@ export const RESTART_DUE_MS = 2 * 60_000;
 
 /** How often a restart held past the ceiling by background work names it. */
 export const HELD_SAY_MS = 60 * 60_000;
+
+/** The share of V8's heap limit past which a host restarts. */
+const HEAP_RESTART_SHARE = 0.5;
+
+const BYTES_PER_MB = 1024 * 1024;
+
+/** How much heap the host uses, against the most V8 allows it. */
+interface HeapUse {
+	readonly usedBytes: number;
+	readonly limitBytes: number;
+}
+
+/** This process's heap, as V8 counts it. */
+function ownHeap(): HeapUse {
+	const { used_heap_size, heap_size_limit } = getHeapStatistics();
+	return { usedBytes: used_heap_size, limitBytes: heap_size_limit };
+}
 
 /** A conversation as the host lists it, for whether it is settled. */
 export interface Held {
@@ -301,6 +329,8 @@ export interface Following {
 	readonly systemctl?: Systemctl;
 	readonly cgroupFile?: string;
 	readonly pid?: number;
+	/** How much heap the host uses; this process's by default. */
+	readonly heap?: () => HeapUse;
 	/** Passed on to restartWhenSettled, for tests. */
 	readonly timing?: Parameters<typeof restartWhenSettled>[1];
 }
@@ -352,10 +382,19 @@ export async function followWhatStarts(
 		return `systemd has a new ${unit}, such as one naming a new pi`;
 	}
 
+	const heap = options.heap ?? ownHeap;
+	function heapPastShare(): string | undefined {
+		const { usedBytes, limitBytes } = heap();
+		if (usedBytes <= limitBytes * HEAP_RESTART_SHARE) return undefined;
+		const mb = (bytes: number) => Math.round(bytes / BYTES_PER_MB);
+		return `its heap holds ${mb(usedBytes)} of the ${mb(limitBytes)} MB V8 allows, past half`;
+	}
+
 	const settledMs = options.timing?.settledMs ?? SETTLED_MS;
 	return restartWhenSettled(
 		{
-			differs: async () => (await installMoved()) ?? (await unitChanged()),
+			differs: async () =>
+				(await installMoved()) ?? (await unitChanged()) ?? heapPastShare(),
 			held: () => options.serving.held(),
 			background: options.background,
 			...(options.holding ? { holding: options.holding } : {}),

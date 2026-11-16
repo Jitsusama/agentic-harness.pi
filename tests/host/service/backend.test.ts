@@ -12,6 +12,7 @@ import { SessionHost } from "../../../host/engine/index.ts";
 import {
 	type ConversationEngine,
 	conversationEvents,
+	heldOrder,
 	hostBackend,
 	type Prepared,
 	resumeHeld,
@@ -27,6 +28,7 @@ import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
 import { listenControl } from "../../../host/service/server.ts";
 import { ambientSession, sessionEnv } from "../../../lib/core/session/index.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
+import { until } from "../../support/until.ts";
 
 const KEY = "work-attended";
 const owner = { pid: process.pid, startedAt: 1 };
@@ -707,6 +709,103 @@ describe("hostBackend", () => {
 		} finally {
 			await listener.close();
 		}
+	});
+});
+
+describe("the order a start resumes what it held", () => {
+	/**
+	 * Three conversations held and stopped, as a restart finds them, and an
+	 * engine whose first resume waits until `go`, saying each it resumes.
+	 */
+	async function heldThree() {
+		const first = backendWith(engine().fake);
+		const held = async (id: string) =>
+			parseOpenResult(await first.execute({ ...open, id })).sessionId;
+		const a = await held("a");
+		const b = await held("b");
+		const c = await held("c");
+		for (const id of [a, b, c]) await host.stop(id);
+		let go = (): void => undefined;
+		const going = new Promise<void>((resolve) => {
+			go = resolve;
+		});
+		const resumes: [string, boolean | undefined][] = [];
+		const restart = engine({
+			resume: vi.fn(async (entry, woken) => {
+				resumes.push([entry.sessionId, woken]);
+				if (entry.sessionId === a) await going;
+				register(entry);
+			}),
+		});
+		return { a, b, c, go, resumes, restart: restart.fake };
+	}
+
+	it("resumes one asked for ahead of those it had yet to reach, answering once it has", async () => {
+		const { a, b, c, go, resumes, restart } = await heldThree();
+		const order = heldOrder(roster);
+		const started = resumeHeld({ roster, engine: restart, order });
+		await until("the start to resume its first", () => resumes.length === 1);
+		let answered = false;
+		const asked = order.ahead(c).then(() => {
+			answered = true;
+		});
+		await Promise.resolve();
+		expect(answered, "not before it has resumed").toBe(false);
+		go();
+		await asked;
+		expect(host.holds(c), "running once answered").toBeDefined();
+		expect(await started).toEqual({ resumed: [a, c, b], unresumed: [] });
+		expect(resumes.map(([id]) => id)).toEqual([a, c, b]);
+	});
+
+	it("answers at once for one it owes nothing, and for every one once the start has ended", async () => {
+		const { a, go, restart } = await heldThree();
+		const order = heldOrder(roster);
+		await expect(order.ahead(randomUUID())).resolves.toBeUndefined();
+		go();
+		await resumeHeld({ roster, engine: restart, order });
+		await expect(order.ahead(a)).resolves.toBeUndefined();
+	});
+
+	it("lets a window, a wake or a close asked as it starts wait for the start's own resume, so none resumes twice", async () => {
+		const { a, b, c, go, resumes, restart } = await heldThree();
+		const order = heldOrder(roster);
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: restart,
+			held: order,
+		});
+		const started = resumeHeld({ roster, engine: restart, order });
+		await until("the start to resume its first", () => resumes.length === 1);
+		const attached = backend.execute({
+			v: 1,
+			id: "w",
+			op: "attach",
+			sessionId: c,
+			rows: 24,
+			columns: 80,
+		});
+		const woke = backend.wake(b);
+		const closed = backend.execute({
+			v: 1,
+			id: "x",
+			op: "close",
+			sessionId: a,
+		});
+		go();
+		await Promise.all([attached, woke, closed, started]);
+		expect(
+			resumes,
+			"each resumed once, by the start, as a start resumes",
+		).toEqual([
+			[a, false],
+			[c, false],
+			[b, false],
+		]);
+		expect(host.holds(a), "the close came after its resume").toBeUndefined();
+		expect(roster.entries().map(({ sessionId }) => sessionId)).toEqual([b, c]);
 	});
 });
 

@@ -50,12 +50,17 @@ input pipeline or screen. No unit or running host is installed yet.
   host run from a tree keeps to one. `node scripts/host-rollout.ts` prints the same
   verdict for a person.
 - serve.ts: one realm-kind host's life. It takes the roster's lock,
-  installs SessionHost, loads the engine, resumes what is held and only
-  then listens, so a second host, an unreadable roster or a pi the
-  engine refuses never reaches a socket. Stop closes the socket, parks
-  every conversation as signalled and releases the lock, keeping holds.
-  It watches the engine before resuming, so no end or replacement is
-  missed. The engine's wakes reach the backend only while it listens.
+  installs SessionHost, loads the engine, listens, then resumes what is
+  held, so a second host, an unreadable roster or a pi the engine
+  refuses never reaches a socket. A window, wake, close or abort of one
+  the start has yet to resume brings it forward and waits for that
+  resume (backend.ts's `heldOrder`), so a person's conversation is back
+  first and none resumes twice; a list shows those still to come as
+  parked. The host is ready only once the last has resumed. Stop closes
+  the socket, parks every conversation as signalled and releases the
+  lock, keeping holds. It watches the engine before resuming, so no end
+  or replacement is missed. The engine's wakes reach the backend only
+  while it listens.
   One before then does nothing, since the start resumes what is held;
   one once it stops is refused, saying the next start takes the
   conversation up, so the window that asked says so. The stop waits
@@ -121,9 +126,11 @@ input pipeline or screen. No unit or running host is installed yet.
   the install's current version changes the code the host process
   loads itself (every module `scripts/pi-host.ts` reaches through
   runtime imports, with package.json and pnpm-lock.yaml), or systemd
-  has read a new unit file, as a switch naming a new pi writes. Code
+  has read a new unit file, as a switch naming a new pi writes, or
+  its heap holds more than half of what V8 allows, so a stop still
+  parks quickly rather than running into the limit. Code
   only a conversation loads moves with that conversation instead
-  (reload-workflow's follower). Once either differs, and every
+  (reload-workflow's follower). Once any of these holds, and every
   conversation has been idle or parked for two minutes, with no
   background work held (the engine's count of each conversation's
   job-workflow) and every screen at rest (screens.ts), it asks

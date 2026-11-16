@@ -24,6 +24,7 @@ import {
 import type { Systemctl } from "../../../host/service/what-starts.ts";
 
 const NOW = Date.parse("2026-11-10T20:00:00Z");
+const MB = 1024 * 1024;
 const long = new Date(NOW - 10 * 60_000).toISOString();
 const lately = new Date(NOW - 30_000).toISOString();
 
@@ -375,7 +376,10 @@ describe("followWhatStarts", () => {
 		};
 	}
 
-	async function follow(systemctl: Systemctl, report = vi.fn()) {
+	// A heap far under V8's limit, unless a test says otherwise.
+	const small = () => ({ usedBytes: MB, limitBytes: 4144 * MB });
+
+	async function follow(systemctl: Systemctl, report = vi.fn(), heap = small) {
 		const timers = manualTimers();
 		const serving = {
 			held: () => [{ state: "idle" as const, since: long }],
@@ -391,6 +395,7 @@ describe("followWhatStarts", () => {
 			systemctl,
 			cgroupFile: cgroup,
 			pid: 7,
+			heap,
 			timing: { after: timers.after, settledMs: 0 },
 		});
 		return { timers, serving, stop, report };
@@ -445,6 +450,31 @@ describe("followWhatStarts", () => {
 		expect(String(report.mock.calls[0]?.[0])).toBe(
 			"Restarting at a moment no conversation had a turn or a job, having waited 0 min for every one to settle 2 min at once, as the install's two changes the host's own code",
 		);
+	});
+
+	it("restarts once its heap passes half of what V8 allows, the install unmoved", async () => {
+		const { systemctl, calls } = systemd();
+		const { timers, serving, report } = await follow(
+			systemctl,
+			vi.fn(),
+			() => ({ usedBytes: 2073 * MB, limitBytes: 4144 * MB }),
+		);
+		await timers.fire(() => calls.at(-1)?.[1] === "restart");
+		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
+		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
+		expect(String(report.mock.calls[0]?.[0])).toBe(
+			"Restarting once every conversation settled, as its heap holds 2073 of the 4144 MB V8 allows, past half",
+		);
+	});
+
+	it("stays while its heap holds half of what V8 allows or less", async () => {
+		const { systemctl } = systemd();
+		const { timers, serving } = await follow(systemctl, vi.fn(), () => ({
+			usedBytes: 2072 * MB,
+			limitBytes: 4144 * MB,
+		}));
+		await timers.fire();
+		expect(serving.restartComing).not.toHaveBeenCalled();
 	});
 
 	it("stays when the install moves to the same host code", async () => {

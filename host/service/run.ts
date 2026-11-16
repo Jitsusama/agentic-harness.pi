@@ -2,10 +2,11 @@
  * A host as systemd runs it: one realm-kind host for the life of the
  * process. The kind comes from the command line and the realm from the
  * environment the unit gives it; the host says it is ready only once it
- * listens, so nothing started after it finds no socket; and a stop signal
- * parks every conversation and keeps every hold before the process ends.
+ * listens and has resumed all it held, so nothing started after it finds
+ * no socket; and a stop signal parks every conversation and keeps every
+ * hold before the process ends.
  *
- * A host resumes everything it holds before it listens, which takes as
+ * A host resumes everything it holds before it is ready, which takes as
  * long as the machine lets it: on 11 November three restarts each spent
  * over 96 s on 13 s of work while some sixty pis reloaded, and systemd's
  * start timeout killed each. So each step of the start asks systemd for
