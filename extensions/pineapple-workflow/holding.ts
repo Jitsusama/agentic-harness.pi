@@ -63,22 +63,29 @@ const STALE_CLAIM_MS = 2 * 60 * 1000;
 
 const CLAIM = "claim";
 
-/** The notes folders this process tends now, in every copy of this module. */
-const TENDING = "agentic-harness.pineapple.tending";
+/**
+ * When this process began tending each notes folder, in every copy of
+ * this module. The key names its shape, so a copy that kept another
+ * shape would use its own.
+ */
+const TENDING = "agentic-harness.pineapple.tending.v1";
 
 /** Send, renew and end holds, unless another session is doing so. */
 export async function tendHolds(deps: HoldingDeps): Promise<void> {
 	// Taken on the caller's turn, so no two of a host's conversations, nor
-	// two ticks of one, are past this at once.
-	const here = processGlobal(TENDING, () => new Set<string>());
-	if (here.has(deps.notes)) return;
-	here.add(deps.notes);
+	// two ticks of one, are past this at once. One stuck past a claim's
+	// stale spell is passed over, as its claim would be.
+	const here = processGlobal(TENDING, () => new Map<string, number>());
+	const began = here.get(deps.notes);
+	if (began !== undefined && deps.now() - began < STALE_CLAIM_MS) return;
+	const mine = deps.now();
+	here.set(deps.notes, mine);
 	try {
 		await mkdir(deps.notes, { recursive: true });
 		const token = await claim(deps);
 		if (token !== undefined) await tendClaimed(deps, token);
 	} finally {
-		here.delete(deps.notes);
+		if (here.get(deps.notes) === mine) here.delete(deps.notes);
 	}
 }
 
@@ -166,11 +173,12 @@ async function claim(deps: HoldingDeps): Promise<string | undefined> {
 /** Give the claim back, unless another session has taken it since. */
 async function release(path: string, token: string): Promise<void> {
 	const held = await readFile(path, "utf8").catch(() => {
-		// Gone already: nothing to give back.
+		// Gone already, or unreadable: left, it goes stale on its own.
 		return undefined;
 	});
-	// Another session can take it only once it is stale, minutes on, so
-	// nobody takes it between this read and the removal.
+	// Another session takes it only once it is two minutes old, so only a
+	// tending that ran longer, as on a stalled disk, leaves a gap between
+	// this read and the removal; the next tending then sends again.
 	if (held === token) await rm(path, { force: true });
 }
 
