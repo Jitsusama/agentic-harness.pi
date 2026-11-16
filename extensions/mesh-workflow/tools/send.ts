@@ -16,7 +16,6 @@ import {
 	orchestratorNamed,
 } from "../../../lib/mesh/group.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
-import type { Census } from "../../../lib/mesh/liveness.ts";
 import {
 	heading,
 	type Message,
@@ -32,7 +31,7 @@ import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
 import { handsRefusal } from "../joels-hands.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
-import { reach } from "./reach.ts";
+import { reach, unheardOf } from "./reach.ts";
 import { capitalized } from "./said.ts";
 import { stopsText } from "./stop.ts";
 
@@ -190,7 +189,10 @@ function crossedAnswerRefused(
  * flow goes there, and otherwise refused by the node as it says, never
  * dropped without a word. Nothing is written into this realm's mesh.
  */
-export async function sendAcross(at: Local, params: SendParams): Promise<Answer> {
+export async function sendAcross(
+	at: Local,
+	params: SendParams,
+): Promise<Answer> {
 	const realm = params.realm?.trim() ?? "";
 	const flows = (await at.flows?.()) ?? [];
 	if (!flows.includes(realm) || !at.cross) {
@@ -627,27 +629,6 @@ function questionTaken(at: Local, to: readonly string[]): Message | undefined {
 					asked.to.some((group) => to.includes(group))),
 		);
 	return meant.length === 1 ? meant[0] : undefined;
-}
-
-/**
- * The peers' home groups among `groups` that no session in this mesh
- * goes by, there or ended. The node writes the presence of every
- * session in this realm here, those on other machines too, so such an
- * address is mistyped or belongs to a realm kept apart from this one.
- * `known` names homes heard of otherwise, as a message's sender.
- */
-export function unheardOf(
-	groups: readonly string[],
-	standing: Census,
-	known: readonly string[] = [],
-): string[] {
-	const homes = new Set([
-		...known,
-		...[...standing.present, ...standing.gone].flatMap((one) =>
-			one.addresses.map(homeOf),
-		),
-	]);
-	return groups.filter((group) => group.startsWith("@") && !homes.has(group));
 }
 
 /** Why a send leaves out the addresses no session here goes by. */

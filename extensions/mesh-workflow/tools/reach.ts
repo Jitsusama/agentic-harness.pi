@@ -11,7 +11,27 @@ import type { Presence } from "../../../lib/mesh/presence.ts";
 import type { Reader } from "../../../lib/mesh/thread.ts";
 import { type Refusal, refusedNotes } from "../refusals.ts";
 import { WANTING } from "./said.ts";
-import { unheardOf } from "./send.ts";
+
+/**
+ * The peers' home groups among `groups` that no session in this mesh
+ * goes by, there or ended. The node writes the presence of every
+ * session in this realm here, those on other machines too, so such an
+ * address is mistyped or belongs to a realm kept apart from this one.
+ * `known` names homes heard of otherwise, as a message's sender.
+ */
+export function unheardOf(
+	groups: readonly string[],
+	standing: Census,
+	known: readonly string[] = [],
+): string[] {
+	const homes = new Set([
+		...known,
+		...[...standing.present, ...standing.gone].flatMap((one) =>
+			one.addresses.map(homeOf),
+		),
+	]);
+	return groups.filter((group) => group.startsWith("@") && !homes.has(group));
+}
 
 /** Who a message just sent goes to, and which addressed peers it misses. */
 export function reach(
