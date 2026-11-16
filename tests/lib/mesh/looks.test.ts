@@ -14,6 +14,8 @@ import {
 	type LookState,
 	leaveSeenLooks,
 	looksIn,
+	looksDue,
+	looksListed,
 	MOST_CHOICES,
 	pointAt,
 	refusalOf,
@@ -106,6 +108,32 @@ describe("the person's look list", () => {
 		writeFileSync(join(dir, "torn.json"), "{not json");
 		expect(looksIn(dir)).toEqual([]);
 		expect(looksIn(join(dir, "none"))).toEqual([]);
+	});
+
+	// Each conversation's looks clock reads the list every minute, and a
+	// host holds them all on one thread.
+	it("lists as it lists at once, letting the thread turn while it reads", async () => {
+		pointAt(dir, pr, who, new Date("2026-11-08T09:00:00Z"));
+		pointAt(
+			dir,
+			{ ...pr, target: "https://example.com/b", title: "Later" },
+			who,
+			new Date("2026-11-08T09:05:00Z"),
+		);
+		writeFileSync(join(dir, "torn.json"), "{not json");
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		const listed = await looksListed(dir);
+
+		expect(turned, "the thread turned while the list was read").toBe(true);
+		expect(listed, "newest first, the torn file passed over").toEqual(
+			looksIn(dir),
+		);
+		expect(listed.map((look) => look.title)).toEqual(["Later", "Quest carry"]);
+		await expect(looksListed(join(dir, "none"))).resolves.toEqual([]);
 	});
 
 	// Joel, 8 November: anything that no longer needs him clears itself.
@@ -520,6 +548,50 @@ describe("a look list that keeps only what's useful", () => {
 
 		expect(leaveSeenLooks(dir, later), "an older look stays").toBe(0);
 		expect(expireLooks(dir, () => true, new Date("2027-01-01"))).toEqual([]);
+	});
+
+	// The clock reads the list once, off the thread, and only a step
+	// with something to do reads it again to write.
+	it("says from one listing which steps have something to do, as each step finds", () => {
+		const ownedHere = (look: { quest?: string }) => look.quest === "QEST-1";
+		const ended = (quest: string) => quest === "QEST-2";
+		const day = new Date(t0.getTime() + SHOWING_LASTS_MS);
+		const none = { seen: false, expired: false, ended: false };
+		expect(looksDue([], ownedHere, ended, day), "an empty list").toEqual(none);
+
+		const shows = pointAt(dir, pr, who, t0);
+		pointAt(
+			dir,
+			{ ...pr, target: `${pr.target}2`, ask: "Say whether to merge." },
+			{ session: "S3", quest: "QEST-3" },
+			t0,
+		);
+		expect(
+			looksDue(looksIn(dir), ownedHere, ended, new Date(day.getTime() - 1)),
+			"nothing due a moment early",
+		).toEqual(none);
+		expect(
+			looksDue(looksIn(dir), ownedHere, ended, day),
+			"this quest's showing look past its time",
+		).toEqual({ ...none, expired: true });
+
+		mark(shows.id, "opened");
+		pointAt(dir, { ...pr, target: `${pr.target}4` }, {
+			session: "S4",
+			quest: "QEST-2",
+		});
+		const due = looksDue(looksIn(dir), ownedHere, ended, t0);
+		expect(due, "an opened showing look, and an ended quest's").toEqual({
+			...none,
+			seen: true,
+			ended: true,
+		});
+		expect(leaveSeenLooks(dir, t0), "as leaving finds").toBe(1);
+		expect(resolveLooksOfQuests(dir, ended, t0), "as ending finds").toBe(1);
+		expect(
+			looksDue(looksIn(dir), ownedHere, ended, t0),
+			"none once done",
+		).toEqual(none);
 	});
 });
 
