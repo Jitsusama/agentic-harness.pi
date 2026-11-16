@@ -9,6 +9,7 @@ import { jsonLines } from "../../../host/service/framing.ts";
 import {
 	parseAdoptResult,
 	parseControl,
+	parseDrainResult,
 	parseListResult,
 	parseOpenResult,
 	parseReply,
@@ -46,6 +47,18 @@ describe("result validation", () => {
 			host: identity,
 		});
 		expect(parseSessionResult({ sessionId: B })).toEqual({ sessionId: B });
+		const drained = {
+			draining: true,
+			busy: 2,
+			idle: 0,
+			parked: 5,
+			heavy: ["job-1 shell: nix-offload there --changed"],
+		};
+		expect(parseDrainResult(drained)).toEqual(drained);
+		expect(
+			() => parseDrainResult({ ...drained, busy: -1 }),
+			"a count is never negative",
+		).toThrow("Invalid host control result");
 	});
 	it("refuses results a client could act on wrongly", () => {
 		for (const bad of [
@@ -108,6 +121,9 @@ describe("wire validation", () => {
 				orchestrate: true,
 			},
 			...["release", "close", "abort"].map((op) => ({ ...close, op })),
+			// A drain for a restart, and its lift, each naming who asked.
+			{ v: 1, id: "d", op: "drain", on: true, by: "integration" },
+			{ v: 1, id: "d", op: "drain", on: false },
 			{ ...close, op: "attach", rows: 24, columns: 80 },
 			// A newer client may say it can do what this host doesn't know yet.
 			{

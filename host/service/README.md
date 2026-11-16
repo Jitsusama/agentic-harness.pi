@@ -207,15 +207,23 @@ input pipeline or screen. No unit or running host is installed yet.
 
 The public sessionId is always pi's stable UUID, never durable's internal
 conversation id. Control operations are open, adopt, list, release, close,
-abort and attach. List names each conversation busy, idle or parked;
+abort, drain and attach. List names each conversation busy, idle or parked;
 busy while a turn runs or while background work it holds (a command,
 fleet or round, or a result not yet said) outlives its turn, since a
-restart would end that work. Attached viewer events are input and resize. Frames
+restart would end that work. Drain, with `on`, readies the host for a
+restart when its conversations' turns overlap so no moment comes with none
+running: each parks as soon as its park rule holds, idle time aside; a
+wake through its file or a steer waits on disk for the lift or the next
+host, while a window opening or a viewer typing still wakes it, and that
+one isn't drained again; and a heavy run (a build, a check, a suite,
+`host/engine/heavy.ts`) holds the restart, carried or not. It answers the
+counts busy, idle and parked and the heavy runs going, and the journal
+says who asked. Attached viewer events are input and resize. Frames
 to a viewer are output, edit, suspend, detached and restarting. The listener
 owns a mode-0600 socket inside a user-owned mode-0700 directory. Viewer
 output is bounded at 4 MiB pending writes; EOF detaches only the viewer.
 Attach replies precede initial screen output on the same connection.
-Close, release and abort over a socket require expectedHost discovery
+Close, release, abort and drain over a socket require expectedHost discovery
 identity. Direct internal dispatch still permits an unguarded request.
 
 Unknown fields and operations fail closed. Credentials and arbitrary

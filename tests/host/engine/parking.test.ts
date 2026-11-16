@@ -1,4 +1,5 @@
 /** Parking a conversation: a park under way can be waited on, and a wake says how it went. */
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,7 +32,10 @@ afterEach(async () => {
  * Parking whose stop waits until let go, and whose wake is `asking`;
  * `a` answers to ADDRESS, with its steer inboxes under `steers`.
  */
-function held(asking: (sessionId: string) => Promise<void>) {
+function held(
+	asking: (sessionId: string) => Promise<void>,
+	holding?: () => boolean,
+) {
 	let stopped: (() => void) | undefined;
 	const stop = vi.fn(
 		() =>
@@ -49,6 +53,7 @@ function held(asking: (sessionId: string) => Promise<void>) {
 			root: steers(),
 			addressesOf: (sessionId) => (sessionId === "a" ? [ADDRESS] : []),
 		},
+		...(holding ? { holding } : {}),
 	});
 	return { parked, stop, report, letStop: () => stopped?.() };
 }
@@ -413,5 +418,63 @@ describe("parking a conversation", () => {
 			readRefusedWake(wake),
 			"a refusal settling as it starts is not kept once it runs",
 		).toBeUndefined();
+	});
+});
+
+// 16 November: the background host's conversations took turns that
+// overlapped for over an hour, so a restart found no moment with none
+// running; a drain parks them, and a parked one woken would run again.
+describe("parking while the host drains", () => {
+	it("leaves a wake written to its file on disk, and wakes it once the drain lifts", async () => {
+		let draining = true;
+		const { asking, asked } = timedWake();
+		const { parked, letStop } = held(asking, () => draining);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+		const wake = parked.wakeFile("a");
+
+		wakeAsTheMeshDoes(wake);
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+		expect(asked, "no wake while it drains").toEqual([]);
+		expect(existsSync(wake), "the wake stays for the next host").toBe(true);
+
+		draining = false;
+		parked.release();
+		await until("the lifted drain to wake it", () => asked.length > 0);
+		expect(asking, "woken once").toHaveBeenCalledExactlyOnceWith("a");
+		parked.unwatch("a");
+	});
+
+	it("holds a steer that would wake it, and asks it once the drain lifts", async () => {
+		let draining = true;
+		const { asking, asked } = timedWake();
+		const { parked, letStop } = held(asking, () => draining);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+
+		giveSteer(steers(), ADDRESS, { text: "are you there?", from: "joel" });
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+		expect(asked, "no wake while it drains").toEqual([]);
+
+		draining = false;
+		parked.release();
+		await until("the lifted drain to wake it", () => asked.length > 0);
+		expect(asking, "woken once").toHaveBeenCalledExactlyOnceWith("a");
+		parked.unwatch("a");
+	});
+
+	it("still wakes one asked for directly, as a window opening or a viewer typing does", async () => {
+		const asking = vi.fn(() => Promise.resolve());
+		const { parked, letStop } = held(asking, () => true);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+
+		await parked.wake("a");
+
+		expect(asking, "a window's wake is never held").toHaveBeenCalledWith("a");
+		parked.unwatch("a");
 	});
 });

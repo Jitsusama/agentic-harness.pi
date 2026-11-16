@@ -1,7 +1,14 @@
 /** One-shot control client; never retries a possibly committed mutation. */
+import { randomUUID } from "node:crypto";
 import { createConnection } from "node:net";
 import { jsonLines } from "./framing.ts";
-import { type ControlRequest, parseControl, parseReply } from "./protocol.ts";
+import {
+	type ControlRequest,
+	parseControl,
+	parseDrainResult,
+	parseListResult,
+	parseReply,
+} from "./protocol.ts";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -13,7 +20,7 @@ export async function controlRequest(
 ) {
 	const request = parseControl(value);
 	if (
-		["close", "release", "abort"].includes(request.op) &&
+		["close", "release", "abort", "drain"].includes(request.op) &&
 		!request.expectedHost
 	)
 		throw new Error(
@@ -66,4 +73,29 @@ export async function controlRequest(
 			fail(new Error("Host closed before reply; outcome unknown")),
 		);
 	});
+}
+
+/**
+ * Start or lift the drain of the host listening at `path`, naming the host
+ * a list just found, so a host restarted between the two refuses it.
+ * Answers what the host said: the counts, and the heavy runs going.
+ */
+export async function drainHost(path: string, on: boolean, by: string) {
+	const listed = await controlRequest(path, {
+		v: 1,
+		id: randomUUID(),
+		op: "list",
+	});
+	if (!listed.ok) throw new Error(listed.error.message);
+	const { host } = parseListResult(listed.result);
+	const reply = await controlRequest(path, {
+		v: 1,
+		id: randomUUID(),
+		op: "drain",
+		on,
+		by,
+		expectedHost: host,
+	});
+	if (!reply.ok) throw new Error(reply.error.message);
+	return parseDrainResult(reply.result);
 }

@@ -65,6 +65,15 @@ export interface Host {
 	 * park a conversation leaves it out.
 	 */
 	park?(sessionId: string): void;
+	/**
+	 * Whether the host drains this conversation for a restart: it parks as
+	 * soon as its park rule holds, idle time aside, so a host whose
+	 * conversations take turns that overlap reaches a moment with none
+	 * running. Asked at each look, so a drain lifted lets it wait its usual
+	 * time again; one the person woke during the drain isn't drained again.
+	 * A host that never drains leaves it out.
+	 */
+	draining?(sessionId: string): boolean;
 }
 
 /** Host.stamp emits this on the conversation bus within withSession. */

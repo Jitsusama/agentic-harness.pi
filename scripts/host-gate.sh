@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# The harness's merge gate for what pi hosts load. review_offer merge runs
-# it with the head's full commit, from a checkout of the harness, as the
-# `review.merge.gates` entry for github:Jitsusama/agentic-harness.pi:
+# The harness's merge gate for what pi hosts load. merge-gate.sh, the
+# `review.merge.gates` entry for github:Jitsusama/agentic-harness.pi that
+# review_offer merge runs, hands it the head's full commit once Biome has
+# passed; run alone, it takes the same:
 #
-#   bash ~/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi/current/scripts/host-gate.sh
+#   bash ~/.local/share/pi-packages/github.com/Jitsusama/agentic-harness.pi/current/scripts/host-gate.sh SHA
 #
 # A change that touches nothing a host runs merges as before. One that does
 # merges only once scripts/host-test-there.sh has run the whole of
@@ -25,7 +26,13 @@ sha=${1:?Name the commit to merge: host-gate.sh SHA}
 # branch's own copy can predate the runner the gate's records come from.
 runner="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/host-test-there.sh"
 state=${XDG_STATE_HOME:-$HOME/.local/state}
-runtime=$(readlink -f "${PI_HOST_RUNTIME:-$state/pi-host/runtime}")
+# A runtime link that names nothing would compare every run against a
+# path no run was on, refusing each with a reason that hides the cause.
+runtime_link=${PI_HOST_RUNTIME:-$state/pi-host/runtime}
+if ! runtime=$(readlink -e "$runtime_link"); then
+	echo "host-gate: the hosts' runtime link $runtime_link names nothing; switch the machine, or set PI_HOST_RUNTIME to the runtime the hosts are proven on" >&2
+	exit 1
+fi
 # What nix-offload says when this machine runs no keeper.
 NO_KEEPER=69
 # How far back a system generation's tools still count. A run sends the

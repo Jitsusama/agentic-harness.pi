@@ -12,6 +12,13 @@
  * a steer lands that waits on it running (watchWakingSteers in lib/mesh/parked.ts): a talk, a
  * close, a carry, a move or a fill. The mesh's once-a-minute pass stays
  * as the backstop.
+ *
+ * While the host drains for a restart (`holding`), a wake through the
+ * file or a steer is held: the file stays on disk and the steer in its
+ * inbox, so a conversation parked to let the host restart stays parked.
+ * Lifting the drain (`release`) wakes each one asked for meanwhile, and
+ * the next host's `rests` reads the file left for it. A viewer typing or
+ * a window opening is never held.
  */
 import {
 	existsSync,
@@ -73,6 +80,8 @@ export interface Parking {
 	unwatch(sessionId: string): void;
 	/** It was closed: stop watching, and forget a wake refused it. */
 	closed(sessionId: string): void;
+	/** The drain lifted: wake each one asked for through its file or a steer while it held. */
+	release(): void;
 }
 
 /** A parked conversation's watches, until it wakes or is closed. */
@@ -81,6 +90,12 @@ interface Sleeper {
 	steers?: SteerWatch;
 	/** A steer's wake is asked and not yet settled. */
 	waking?: boolean;
+	/** Look at its wake file again, waking it for one written, and say whether it did. */
+	woken?: () => boolean;
+	/** Wake it for this steer. */
+	steered?: (steer: string) => void;
+	/** A steer that landed while the host held its wakes. */
+	heldSteer?: string;
 }
 
 /** Where the person's steers wait, and whose they are for each conversation. */
@@ -111,7 +126,10 @@ export function parking(options: {
 	readonly parked?: (sessionId: string) => void;
 	/** Its steer inboxes, watched while it rests; none, only the wake file wakes it. */
 	readonly steers?: SteerInboxes;
+	/** Whether wakes through the file and steers are held now, as the host drains. */
+	readonly holding?: () => boolean;
 }): Parking {
+	const holding = () => options.holding?.() === true;
 	const { stateDir, report } = options;
 	// Parked conversations, each watching its wake file until it wakes or is closed.
 	const sleepers = new Map<string, Sleeper>();
@@ -155,17 +173,25 @@ export function parking(options: {
 					report(unkept);
 				}
 			});
-		const woken = () => {
+		// Whether it asked a wake, so a release asks no second for a held steer.
+		const woken = (): boolean => {
 			const watching = sleepers.get(sessionId);
-			if (!watching || !existsSync(file)) return;
+			if (!watching || !existsSync(file) || holding()) return false;
 			const messageId = wakeAskedBy(readWritten(file));
 			rmSync(file, { force: true });
+			watching.heldSteer = undefined;
 			void ask(watching, messageId);
+			return true;
 		};
 		// A steer landing while its wake is asked would ask the same wake again.
 		const steered = (steer: string) => {
 			const watching = sleepers.get(sessionId);
 			if (!watching || watching.waking) return;
+			if (holding()) {
+				watching.heldSteer = steer;
+				return;
+			}
+			watching.heldSteer = undefined;
 			watching.waking = true;
 			void ask(watching, `steer-${steer}`).finally(() => {
 				watching.waking = false;
@@ -176,7 +202,7 @@ export function parking(options: {
 		});
 		watcher.unref();
 		watcher.on("error", report);
-		const sleeper: Sleeper = { wake: watcher };
+		const sleeper: Sleeper = { wake: watcher, woken, steered };
 		sleepers.set(sessionId, sleeper);
 		// One written between its park and this watch.
 		woken();
@@ -251,5 +277,12 @@ export function parking(options: {
 		settled: (sessionId) => settling.get(sessionId)?.done ?? Promise.resolve(),
 		unwatch: forget,
 		closed: forget,
+		release() {
+			for (const sleeper of [...sleepers.values()]) {
+				if (sleeper.woken?.()) continue;
+				const steer = sleeper.heldSteer;
+				if (steer !== undefined) sleeper.steered?.(steer);
+			}
+		},
 	};
 }
