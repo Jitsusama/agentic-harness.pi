@@ -303,6 +303,22 @@ describe("a peer's hand", () => {
 		expect(said).toEqual([`The mesh hold [${shortId(hold)}] is over.`]);
 	});
 
+	it("tells a run a host carries on of the holds standing, while still holding back its heavy work", async () => {
+		// pi gives a carried run's message to the prompt after it; the hold
+		// itself refuses the run's heavy commands in the meantime.
+		othersHold("hold builds: rebooting");
+		const { fire, bash } = await startHand();
+
+		const carried = (await fire("before_agent_start", {
+			messageType: "continue",
+		})) as { message: { content: string } };
+
+		expect(carried.message.content).toContain("hold builds: rebooting");
+		expect(await bash("1", "./result/bin/nixos-test-driver")).toMatchObject({
+			block: true,
+		});
+	});
+
 	it("is held back once from rewriting a checkout another peer changes files in", async () => {
 		mkdirSync(join(root, ".git"));
 		board().hold({

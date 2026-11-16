@@ -51,6 +51,7 @@ function loaded({ hasUI = true, name = "Done chime" } = {}) {
 		typed: (text = "make it ring") =>
 			fire("input", { text, source: "interactive" }),
 		woken: () => fire("before_agent_start", { messageType: "custom" }),
+		carried: () => fire("before_agent_start", { messageType: "continue" }),
 		settled: (aborted = false) => fire("agent_settled", { aborted }),
 	};
 }
@@ -113,6 +114,14 @@ describe("the done chime", () => {
 		const session = loaded();
 		await session.typed("/a command another extension handled");
 		await session.woken();
+		passes(LOOKED_AWAY_MS);
+		await session.settled();
+		expect(rung).toEqual([]);
+	});
+
+	it("stays quiet for a run a host carried on after a restart, which nobody typed", async () => {
+		const session = loaded();
+		await session.carried();
 		passes(LOOKED_AWAY_MS);
 		await session.settled();
 		expect(rung).toEqual([]);
