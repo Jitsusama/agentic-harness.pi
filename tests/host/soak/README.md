@@ -25,8 +25,9 @@ host adds, and records that drift from plain pi's.
   compaction) is typed after the restart instead. Under
   `--reload-wave`, the host links its extensions from an install of two
   copies of the tree; three quarters through the checkpoints the install
-  moves to the second and each awake conversation is reloaded through
-  the host in turn, as the follower reloads them once an install moves,
+  moves to the second, a host of its own warms jiti's cache for it as
+  pi-packages warms every pi's before a move, and each awake
+  conversation is reloaded through the host in turn, as the follower reloads them once an install moves,
   each timed to its screen saying so and weighed for its loop. Each
   side warms jiti's cache before its timed run, as a live host's stays
   warm, and says those starts apart as the cold open; `--cold` leaves
@@ -277,7 +278,8 @@ It prints a line a checkpoint and the report as one JSON line after
 - `restartMid`, under `--restart-mid`: how long the host took to stop
   and its socket to answer, the conversations' states then, the turns
   cut off, and how long after the restart began each was answered.
-- `reloadWave`, under `--reload-wave`: the checkpoint it ran at, each
+- `reloadWave`, under `--reload-wave`: the checkpoint it ran at, the
+  warming host's open of the second copy (`warmed`), each
   conversation's reload (from asked to its screen saying it reloaded,
   and the most the host's loop ran late meanwhile), and their figures:
   the first reload, which loads the new copy's code, apart from the

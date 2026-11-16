@@ -27,8 +27,9 @@
  * named in the report and left out of its latency. With --reload-wave,
  * the hosted side links its extensions from an install of two copies of
  * this tree, and three quarters through the checkpoints the install moves
- * to the second and every awake conversation is reloaded through its
- * host in turn, as the follower reloads them, each reload timed to its
+ * to the second, a host of its own warms jiti's cache for it as
+ * pi-packages warms every pi's before it moves an install, and every
+ * awake conversation is reloaded through its host in turn, as the follower reloads them, each reload timed to its
  * screen saying it reloaded and weighed for the most its host's loop ran
  * late meanwhile; the reloads' own notes to the model, which plain pi
  * never writes, are left out of the records compared. Then plain pi takes
@@ -297,11 +298,13 @@ interface RestartMid {
 }
 
 /**
- * The reload wave: the checkpoint it ran at, each conversation's reload
- * in the order it ran, and what they cost.
+ * The reload wave: the checkpoint it ran at, the warming host's open of
+ * the second copy, each conversation's reload in the order it ran, and
+ * what they cost.
  */
 interface ReloadWave {
 	readonly checkpoint: number;
+	readonly warmed: ColdOpen;
 	readonly reloads: readonly WaveReload[];
 	readonly figures: WaveFigures;
 }
@@ -687,8 +690,9 @@ function jitiCacheOf(sealed: Seal): string {
  * seal of its own opens one conversation, paying the transpile, and its
  * cache is copied in. jiti names a cached file by its source's whole
  * path and checks the source's hash, so the harness's files hit it here.
+ * It says the open as `what`: the cold open, or the moved install's.
  */
-async function warmHosted(sealed: Seal): Promise<ColdOpen> {
+async function warmHosted(sealed: Seal, what = "cold open"): Promise<ColdOpen> {
 	const warming = await seal();
 	try {
 		const agentFile = join(warming.root, "soak-agent.json");
@@ -713,7 +717,7 @@ async function warmHosted(sealed: Seal): Promise<ColdOpen> {
 		const cache = jitiCacheOf(warming);
 		if (!existsSync(cache)) fault(`warming left no jiti cache at ${cache}`);
 		else cpSync(cache, jitiCacheOf(sealed), { recursive: true });
-		say(`cold open ${cold.ms} ms, loop max ${Math.round(cold.loopMaxMs)} ms`);
+		say(`${what} ${cold.ms} ms, loop max ${Math.round(cold.loopMaxMs)} ms`);
 		return cold;
 	} finally {
 		await warming.dispose();
@@ -798,9 +802,13 @@ async function runHosted(sealed: Seal): Promise<{
 		const reached = weighings.length + 1;
 		if (install && reached === waveCheckpoint(checkpoints)) {
 			waveAt = Date.now();
-			const reloads = await reloadWave(host, conversations, install);
+			// pi-packages warms jiti's cache through every pi before it moves
+			// an install, the host's too, so the wave's reloads find it warm.
+			moveTo(install, "two");
+			const warmed = await warmHosted(sealed, "the moved install's open");
+			const reloads = await reloadWave(host, conversations);
 			const figures = waveOf(reloads);
-			wave = { checkpoint: reached, reloads, figures };
+			wave = { checkpoint: reached, warmed, reloads, figures };
 			say(`reload wave at checkpoint ${reached}: ${JSON.stringify(figures)}`);
 		}
 		if (values["no-park"]) {
@@ -1437,8 +1445,8 @@ function waveNote(
 }
 
 /**
- * Move `install` to its second copy and reload each of `conversations`
- * through `host` in turn, as the follower does: a window attached and
+ * Reload each of `conversations` through `host` in turn, onto the copy
+ * the install has moved to, as the follower does: a window attached and
  * drawn, the host weighed so its loop's figures begin here, the reload
  * asked for and timed to the screen saying it landed, and the host
  * weighed again for the most its loop ran late meanwhile. A reload that
@@ -1447,9 +1455,7 @@ function waveNote(
 async function reloadWave(
 	host: ScreenHost,
 	conversations: readonly Conversation[],
-	onto: string,
 ): Promise<WaveReload[]> {
-	moveTo(onto, "two");
 	const reloads: WaveReload[] = [];
 	for (const one of conversations) {
 		const window = await attach(host.path, one.sessionId, ROWS, COLUMNS);
