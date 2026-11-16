@@ -197,7 +197,7 @@ PR description structure and narrative.
 | Self-review comment placement and ranges | Self-Review Comments | ⚪ | Judgment. |
 | Prose conventions inside the body | (inherits prose-standard) | 🟢 | `runProseGate` in `pr-guardian`, and `proposalComplaint` on the tool path |
 | Link the tracking issue when one exists, and omit the line when none does | Issue and Stack Context | 🚫 | Was written as "always start the body with `Part of #ISSUE_NUMBER`", which asks for a number that may not exist and produced bodies pointing at unrelated issues. Now conditional. Not gateable: whether an issue tracks the work is not in the text. Where the line sits is gated: the shape detector refuses anything above the TL;DR. |
-| Stack note shape, and that it sits after the TL;DR's text | Issue and Stack Context | 🟢 | Written by `propose-stack` itself in `extensions/review-integration/tools/offer-stack.ts`, which is the only place every change's number exists at once; placed by `withNote` in `tools/sections.ts`; pinned by `tests/extensions/review-offer-stack.test.ts` |
+| Stack note shape, and that it sits after the TL;DR's text | Issue and Stack Context | 🟢 | Written by `propose-stack` itself in `extensions/review-integration/tools/offer-stack.ts`, which is the only place every change's number exists at once; placed by `withNote` in `tools/sections.ts`; pinned by `tests/extensions/review-integration/offer/offer-stack.test.ts` |
 | A change is opened through the review tools, not `gh pr create` | (cross-cutting) | 🟢 | `runRedirectGate` in core `internal/guardian/redirect-gate.ts`, blocking a create once where a provider serves the checkout and relenting on a repeat; also stated in `review_offer`'s tool description and the resident conventions block |
 | Future work belongs in an issue, not the PR | Body Structure (intro) | ⚪ | The closed section set already removes the temptation; no separate gate needed. |
 
@@ -324,7 +324,7 @@ On-disk shape of a quest README and the documents under it.
 | `status` enum (active, paused, blocked, concluded, retired) | Frontmatter | 🟢 | Same parser rejects unknown values. |
 | `priority` enum (driving, active, queued, bench, someday) | Frontmatter | 🟢 | Same parser rejects unknown values. |
 | Alias format `type:value` matching the refs registry | Frontmatter | 🚫 | The parser accepts any `type:value` pair; the refs registry decides at lookup time. Unregistered types simply have no URL. |
-| `needs` words are `kind=value` the node takes | Frontmatter | 🟢 | `need-add` and `need-remove` (`extensions/quest-workflow/verbs/needs.ts`) read each word with `needFrom` (`lib/mesh/placement.ts`) and refuse one it does not take, with its reason. A hand edit is not refused, but `spawn` reads the list through `machineFor`, which refuses a bad word the same way. Pinned by `tests/extensions/quest-workflow/needs.test.ts`, and for spawn by `spawn-held.test.ts`. |
+| `needs` words are `kind=value` the node takes | Frontmatter | 🟢 | `need-add` and `need-remove` (`extensions/quest-workflow/verbs/needs.ts`) read each word with `needFrom` (`lib/mesh/placement.ts`) and refuse one it does not take, with its reason. A hand edit is not refused, but `spawn` reads the list through `machineFor`, which refuses a bad word the same way. Pinned by `tests/extensions/quest-workflow/verbs/needs.test.ts`, and for spawn by `tests/extensions/quest-workflow/spawn-held.test.ts`. |
 | `budget` is a name (letters, digits, dots, dashes, underscores), `none`, or absent | Frontmatter | 🟢 | The quest tool's `budget` (`extensions/quest-workflow/verbs/budget.ts`) refuses any other word with `isBudgetName` (`lib/budget/provider.ts`), which the file provider also checks before making a path of a name. A hand edit is not refused, but `budgetSaid` reads a value that can't be a name as unsaid, so the quest draws on its parent's. Pinned by `tests/extensions/quest-workflow/budget.test.ts` and `tests/lib/internal/quest/budget.test.ts`. |
 | Four mandatory body sections (Summary, Purpose, Cast, Journey) | Body Sections | ⚪ | Skill-only for v1; convention drift would land here first. A content gate over quest READMEs can land later if drift shows up. |
 | Section emoji glyphs | Body Sections | ⚪ | Skill-only; the section extractor accepts the headings with or without an emoji prefix. |
@@ -347,13 +347,13 @@ Operational rules for the quest system.
 | Terminal document stages are terminal: think does not silently reopen a concluded or retired document | Focus and the Document Loop | 🟢 | Phase 5, RC-L (`machine.ts` refuses `think` from `concluded` or `retired`, matching the existing conclude and retire refusals) |
 | Document stage persists to disk before it advances in memory | Focus and the Document Loop | 🟢 | Phase 5, RC-L (`writeDocumentStage` returns whether the stage reached disk; the stage verb refuses when it did not, so memory never runs ahead of the file) |
 | A quest is sealed only when named; unload puts one down | Unload vs Conclude | 🟢 | `concludeOrRetire` in `verbs/conclude.ts` refuses a quest-scope conclude or retire without an `id`, naming the id to pass and `unload`; naming the loaded quest seals it in full. Pinned by `tests/extensions/quest-workflow/scope-verbs.test.ts`. |
-| Owned front matter changes only through the verbs | Editing a Quest's Documents | 🟢 | The `quest-owned-fields` guard in `enforce.ts` computes what a write or edit would leave and refuses one that changes a document's `stage`, `id`, `kind` or `quest`, or a quest's `id`, `kind` or `status`, naming the verb (`lib/internal/quest/owned-fields.ts`). Pinned by `tests/extensions/quest-workflow/document-verbs.test.ts`. |
+| Owned front matter changes only through the verbs | Editing a Quest's Documents | 🟢 | The `quest-owned-fields` guard in `enforce.ts` computes what a write or edit would leave and refuses one that changes a document's `stage`, `id`, `kind` or `quest`, or a quest's `id`, `kind` or `status`, naming the verb (`lib/internal/quest/owned-fields.ts`). Pinned by `tests/extensions/quest-workflow/verbs/document-verbs.test.ts`. |
 | Read a document through `show`, not the shell or a whole read | Editing a Quest's Documents | 🟢 | The `quest-document-read` guard in `enforce.ts` refuses, in redirect mode, a shell command that searches or prints a plan, research, brief or report, and a `read` of one with no offset or limit, naming the `show` call (`lib/internal/quest/document-reads.ts`). Asked again, the call goes through. Pinned by `tests/lib/internal/quest/document-reads.test.ts` and `tests/extensions/quest-workflow/guard.test.ts`. |
 | Document kind is fixable until the id is minted | Focus and the Document Loop | 🟢 | Phase 5, RC-L (`draft` accepts a `kind` override validated against the kind set, superseding the provisional think-time kind before the mint) |
 | Quest code lives in a tracked working tree | Focus and the Document Loop | 🟢 | During build, `enforce.ts` allows a write inside any tree the quest tracks (`listTreesOnQuest`), blocks a write inside a git tree the quest does not track with `tree-adopt` guidance naming the repo root, and notes a genuinely homeless write for the quest, letting it through (`guard.ts`; block mode refuses it with a `tree-add` remedy). Replaces the old transition refusal and the registered-tree/active-session stand-down. |
 | Scratch and devices are not policed as code | (write classification) | 🟢 | The classifier in core `internal/quest/write-classifier.ts` allows `/dev` nodes unconditionally and funnels bare system temp (`/tmp`, `/private/tmp`, the OS temp dir) into a quest-owned managed scratch dir created under the OS temp dir (`lib/internal/quest/scratch.ts`), recorded on the quest frontmatter and reaped on conclude or retire. The system-temp block names the managed dir as the redirect target instead of pointing at `tree-add`. |
 | Auto-prune only trees the tool scaffolded | (tree lifecycle) | 🟢 | `pruneAllTreesOnQuest` in `verbs/seal.ts` auto-prunes only trees with `origin: scaffolded` (set by `tree-add`). Adopted trees (`tree-adopt`) and unmarked legacy or hand-registered trees are never auto-pruned, so concluding a quest cannot delete a tree it did not create; `tree-release` still releases any tree deliberately. |
-| Name the tree to prune or expand with `cwd` | (tree lifecycle) | 🟢 | `namedTree` in `verbs/tree-ops.ts` resolves `cwd` (or the legacy `target`) to the deepest tree holding it, uses the only tree when none is named, and refuses with the list otherwise, so a prune never falls through to a tree nobody named. Pinned by `tests/extensions/quest-workflow/tree-target.test.ts`. |
+| Name the tree to prune or expand with `cwd` | (tree lifecycle) | 🟢 | `namedTree` in `verbs/tree-ops.ts` resolves `cwd` (or the legacy `target`) to the deepest tree holding it, uses the only tree when none is named, and refuses with the list otherwise, so a prune never falls through to a tree nobody named. Pinned by `tests/extensions/quest-workflow/verbs/tree-target.test.ts`. |
 | Document scaffolding criteria | When to Scaffold a Document | ⚪ | Judgment. |
 | Code-write discipline on focused plan | Focus and the Document Loop | 🟢 | `extensions/quest-workflow/enforce.ts` routes writes through core `internal/quest/write-classifier.ts` during plan think/draft and defers only edits to already-tracked code; the plan itself, quest-directory files, scratch and brand-new (untracked) files flow. Bash writes are classified on the stripped skeleton so a read-only command carrying a literal mutating verb is not blocked. |
 | Conclude vs Retire | Conclude vs Retire | ⚪ | Judgment. |
@@ -373,8 +373,9 @@ is followed by judgment, not by a regex.
   One rule in each of `review-guide` and `work-guide` is gated,
   and it is not about artifact shape at all:
   🟢 every action a tool offers is shown being called in its
-  guide, in `tests/extensions/review-indexed.test.ts` and
-  `tests/extensions/work-indexed.test.ts`. A capability nobody
+  guide, in `tests/extensions/review-integration/indexed.test.ts`
+  and `tests/extensions/work-integration/indexed.test.ts`. A
+  capability nobody
   can find does not exist, and this fails the way a real gate
   should: it has caught four actions shipping undiscoverable,
   the last two of them in `work-guide` minutes after the gate
@@ -579,7 +580,7 @@ is followed by judgment, not by a regex.
   is the right way for a gate like this to be wrong.
 
   The review tools now carry the same completeness gate:
-  `tests/extensions/review-indexed.test.ts` requires every
+  `tests/extensions/review-integration/indexed.test.ts` requires every
   action in each of the six tools' schemas to appear in
   `review-guide` as the incantation an agent would run. It was
   written loose first, matching the bare action name, and passed
@@ -590,7 +591,7 @@ is followed by judgment, not by a regex.
   something you could call. Removing one incantation fails the
   gate by name, checked rather than assumed.
 
-  `tests/extensions/review-findable.test.ts` is the review
+  `tests/extensions/review-integration/findable.test.ts` is the review
   equivalent of the browser's parameter gate, and it earned its
   place twice on its first run. Its declaration half found
   `commit`, which `fix-done` requires and the schema never
@@ -625,7 +626,7 @@ is followed by judgment, not by a regex.
   of holding it in your head:
   🟢 no action repeats its own tool's name, and none names a
   different tool.
-  `review-indexed.test.ts` checks both. It found
+  `review-integration/indexed.test.ts` checks both. It found
   `review_offer draft`, which read as though it belonged to
   `review_draft`; it is `unready` now, which also pairs with the
   `ready` beside it.
@@ -662,7 +663,7 @@ is followed by judgment, not by a regex.
   malformed entry is dropped and warned about rather than
   refused, so a reviewer that half-follows the contract still
   contributes what it got right. `tests/extensions/
-  review-contract-skills.test.ts` checks that every round a
+  review-integration/rounds/contract-skills.test.ts` checks that every round a
   prompt cites a contract for has one on disk, since a missing
   file is silent at runtime: the subagent starts, is told to
   follow a contract it was never given, and answers

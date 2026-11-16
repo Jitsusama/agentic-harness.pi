@@ -61,7 +61,7 @@ const PROCESS_TESTS = [
 	"tests/lib/subagent/runpi/detached.test.ts",
 	"tests/lib/subagent/runpi/parent-exit.test.ts",
 	"tests/lib/subagent/runpi/handed-over.test.ts",
-	"tests/extensions/review-starts-a-round-it-will-not-wait-for.test.ts",
+	"tests/extensions/review-integration/rounds/starts-a-round-it-will-not-wait-for.test.ts",
 	"tests/extensions/subagent-workflow/fleet-orphan-is-stopped.test.ts",
 	"tests/extensions/subagent-workflow/fleet-transcripts-are-kept.test.ts",
 	"tests/lib/internal/reload/load-check.test.ts",

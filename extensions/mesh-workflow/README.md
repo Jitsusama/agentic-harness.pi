@@ -746,7 +746,10 @@ Under `$XDG_STATE_HOME/pi/agentic-harness.pi/mesh-workflow/`:
   fields it does not know. A `.read-<address>` marker
   per peer records the last message it was handed, so a reload
   catches up on what arrived while it was away; a peer that
-  has never read catches up on the last hour. A peer watches
+  has never read catches up on the last hour. A catch-up lists
+  the day folders only from the day of where it starts, since
+  a message settles into the day it was stamped on and the
+  days before hold nothing newer. A peer watches
   before it catches up, so what lands between the two is not
   missed, and looks in the folder again once a minute and as
   each run ends for anything its watcher never reported, since

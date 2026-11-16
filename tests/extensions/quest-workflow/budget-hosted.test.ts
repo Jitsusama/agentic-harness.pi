@@ -30,6 +30,7 @@ import {
 	withSession,
 } from "../../../lib/core/session/index.ts";
 import { coAuthorTrailer } from "../../../lib/internal/guardian/commit-trailer.ts";
+import { at } from "../../support/at.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { disposeRepo, freshRepo } from "../../support/git-fixture.ts";
 
@@ -193,15 +194,15 @@ it("keeps each model's trailer for the installed commit hook, not the last bash 
 	}
 	// Invoke A's hook after B's bash call, just as an asynchronous git child does.
 	for (const [index, side] of [a, b].entries()) {
-		const repo = repos[index];
+		const repo = at(repos, index);
 		const message = join(repo, "message");
 		writeFileSync(message, "fix: test\n");
 		execFileSync("sh", [join(repo, ".git/hooks/prepare-commit-msg"), message], {
 			env: sessionEnv(side.ctx).snapshot(),
 		});
 		const text = readFileSync(message, "utf8");
-		expect(text).toContain(coAuthorTrailer(models[index]));
-		expect(text).not.toContain(coAuthorTrailer(models[1 - index]));
+		expect(text).toContain(coAuthorTrailer(at(models, index)));
+		expect(text).not.toContain(coAuthorTrailer(at(models, 1 - index)));
 	}
 	expect(process.env.PI_CO_AUTHOR).toBe("host-credit");
 });

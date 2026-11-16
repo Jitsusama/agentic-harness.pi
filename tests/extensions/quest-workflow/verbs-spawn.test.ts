@@ -16,6 +16,7 @@ import {
 	serializeQuestFrontMatter,
 } from "../../../lib/quest/index.ts";
 import { registerTerminalDriver } from "../../../lib/terminal/index.ts";
+import { at } from "../../support/at.ts";
 import { fakePi } from "../../support/fake-pi.ts";
 import { fakeCtx } from "./_helpers.ts";
 import { buildState, createQuest, fixture } from "./support/verbs.ts";
@@ -54,18 +55,18 @@ describe("spawn verbs", () => {
 		});
 		expect(result).toMatchObject({ ok: true });
 		expect(calls).toHaveLength(1);
-		expect(calls[0].layout).toBe("tab");
-		expect(calls[0].command).toBe("pi");
+		expect(calls[0]?.layout).toBe("tab");
+		expect(calls[0]?.command).toBe("pi");
 		// With no tree registered, spawn lands in the live session's
 		// cwd (the running test process, so its identity probes as
 		// live), ahead of the quest dir in the resolution order.
-		expect(calls[0].cwd).toBe(fixture.root);
+		expect(calls[0]?.cwd).toBe(fixture.root);
 		// The spawn ships the loaded quest id so the new
 		// pi can name its session after the quest without
 		// the wezterm/tmux tab-title plumbing.
 		// It also names the words the new session is told first.
 		// And the fence's first stage lists it by a token of its own.
-		expect(calls[0].env).toEqual({
+		expect(calls[0]?.env).toEqual({
 			QUEST_WORKFLOW_AUTOLOAD_ID: a.id,
 			QUEST_WORKFLOW_FIRST_WORDS: expect.stringMatching(/^[0-9a-f-]{36}$/),
 			PI_FENCE_STAGE: expect.stringMatching(/^[0-9a-f-]{36}$/),
@@ -109,7 +110,7 @@ describe("spawn verbs", () => {
 			action: "spawn-tab",
 		});
 		expect(result).toMatchObject({ ok: true });
-		expect(calls[0].cwd).toBe(treeDir);
+		expect(calls[0]?.cwd).toBe(treeDir);
 		if (!result.ok) throw new Error("expected ok");
 		expect((result.details as { cwdSource?: string }).cwdSource).toBe("tree");
 	});
@@ -219,7 +220,7 @@ describe("spawn verbs", () => {
 			id: (child.details as { id: string }).id,
 		});
 		if (!result.ok) throw new Error(result.guidance);
-		expect(calls[0].cwd).toBe(checkout);
+		expect(calls[0]?.cwd).toBe(checkout);
 		expect(result.message).toContain("(a parent quest's repo)");
 		expect((result.details as { cwdSource?: string }).cwdSource).toBe(
 			"ancestorRepoRoot",
@@ -245,7 +246,7 @@ describe("spawn verbs", () => {
 			id: lone.id,
 		});
 		if (!result.ok) throw new Error(result.guidance);
-		expect(calls[0].cwd).toBe(repo);
+		expect(calls[0]?.cwd).toBe(repo);
 		expect((result.details as { cwdSource?: string }).cwdSource).toBe(
 			"spawner",
 		);
@@ -278,14 +279,14 @@ describe("spawn verbs", () => {
 			id: other.id,
 		});
 		expect(result).toMatchObject({ ok: true });
-		expect(calls[0].env).toEqual({
+		expect(calls[0]?.env).toEqual({
 			QUEST_WORKFLOW_AUTOLOAD_ID: other.id,
 			QUEST_WORKFLOW_FIRST_WORDS: expect.stringMatching(/^[0-9a-f-]{36}$/),
 			PI_FENCE_STAGE: expect.stringMatching(/^[0-9a-f-]{36}$/),
 		});
 		// The quest is named by the autoload, never by where it opens: a
 		// session in a quest's folder loads no repo's skills.
-		expect(calls[0].cwd).not.toContain(state.questsRoot);
+		expect(at(calls, 0).cwd).not.toContain(state.questsRoot);
 		// The caller's loaded state must not have changed.
 		expect(state.questId).toBe(loaded.id);
 	});

@@ -67,7 +67,7 @@ const DO_NOT_LOSE: Capability[] = [
 		guards: [
 			"tests/lib/internal/quest/structural.test.ts",
 			"tests/lib/internal/quest/structural-journal.test.ts",
-			"tests/extensions/quest-workflow/reparent.test.ts",
+			"tests/extensions/quest-workflow/verbs/reparent.test.ts",
 		],
 	},
 	{
@@ -84,8 +84,8 @@ const DO_NOT_LOSE: Capability[] = [
 	{
 		name: "Scaffold-versus-adopt tree split",
 		guards: [
-			"tests/extensions/quest-workflow/tree-adopt.test.ts",
-			"tests/extensions/quest-workflow/tree-verbs.test.ts",
+			"tests/extensions/quest-workflow/verbs/tree-adopt.test.ts",
+			"tests/extensions/quest-workflow/verbs/tree-verbs.test.ts",
 		],
 	},
 	{

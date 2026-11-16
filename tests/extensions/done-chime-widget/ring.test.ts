@@ -10,6 +10,7 @@ import {
 } from "../../../extensions/done-chime-widget/ring.ts";
 import type { Sound } from "../../../extensions/done-chime-widget/sound.ts";
 import type { Exec } from "../../../lib/core/exec/index.ts";
+import { at } from "../../support/at.ts";
 
 /** An exec that records what it was asked to run, failing `failing`. */
 function recording(failing?: string): {
@@ -126,7 +127,7 @@ describe("ringing", () => {
 	it("leaves nothing behind in its scratch folder", async () => {
 		const { exec, calls } = recording();
 		await ring("Ready.", { platform: "linux", exec, env: ON, sound: LINUX });
-		const said = calls[1][1][3];
+		const said = at(at(calls, 1)[1], 3);
 		const scratch = said.replace(/said\.wav$/, "");
 		expect(existsSync(scratch), `${scratch} is removed`).toBe(false);
 	});

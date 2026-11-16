@@ -1,0 +1,635 @@
+/**
+ * The verbs that edit a quest document's body under the lock, and the
+ * gate that sends hand edits of owned front matter to them.
+ */
+
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { questVerdicts } from "../../../../extensions/quest-workflow/enforce.ts";
+import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { cutReadAdvice } from "../../../../extensions/quest-workflow/verbs/document.ts";
+import {
+	SESSION_LANDED,
+	SESSION_UNLANDED,
+} from "../../../../lib/internal/session/landings.ts";
+import { fakePi } from "../../../support/fake-pi.ts";
+import { createEnvGuard, journeyOf, refused, succeeded } from "../_helpers.ts";
+
+let tmpRoot: string;
+const envGuard = createEnvGuard();
+
+function fakeCtx() {
+	return {
+		cwd: tmpRoot,
+		sessionManager: {
+			getSessionId: () => undefined,
+			isPersisted: () => false,
+			getEntries: () => [],
+		},
+	} as unknown as Parameters<typeof handle>[2];
+}
+
+beforeEach(() => {
+	envGuard.enter();
+	tmpRoot = mkdtempSync(join(tmpdir(), "document-verbs-"));
+});
+afterEach(() => {
+	rmSync(tmpRoot, { recursive: true, force: true });
+	envGuard.leave();
+});
+
+/** A loaded quest with a plan in build, focused, holding two items. */
+async function questWithPlan(
+	questsRoot = join(tmpRoot, "quests"),
+	name = "Verb",
+) {
+	const state = createQuestState({ questsRoot });
+	const run = (params: Parameters<typeof handle>[3]) =>
+		handle(state, fakePi(), fakeCtx(), params);
+	succeeded(await run({ action: "create", title: `${name} Quest` }));
+	succeeded(await run({ action: "think", kind: "plan", note: "verbs" }));
+	succeeded(await run({ action: "draft", title: `${name} Plan` }));
+	const planPath = state.documentPath ?? "";
+	const text = readFileSync(planPath, "utf8");
+	const head = text.slice(0, text.indexOf("\n---\n") + 5);
+	writeFileSync(
+		planPath,
+		`${head}# Verb Plan\n\n## Work\n\n- [ ] First item\n- [ ] Second item\n\n## Notes\n\nOld notes.\n`,
+	);
+	succeeded(await run({ action: "build" }));
+	return {
+		state,
+		run,
+		planPath,
+		head: readFileSync(planPath, "utf8").slice(0, head.length),
+	};
+}
+
+/** A focused plan whose Notes are large enough for the size guard. */
+async function questWithLargeNotes() {
+	const plan = await questWithPlan();
+	const entries = Array.from(
+		{ length: 25 },
+		(_, n) => `- Entry ${n}: ${"what was learned ".repeat(8)}`,
+	).join("\n");
+	succeeded(
+		await plan.run({ action: "section", title: "Notes", body: entries }),
+	);
+	return { ...plan, entries };
+}
+
+/** Write Notes, expecting a refusal naming `reason` and the plan unchanged. */
+async function expectRefused(
+	{
+		run,
+		planPath,
+	}: Pick<Awaited<ReturnType<typeof questWithPlan>>, "run" | "planPath">,
+	body: string,
+	reason: string,
+): Promise<void> {
+	const before = readFileSync(planPath, "utf8");
+	const result = await run({ action: "section", title: "Notes", body });
+	expect(refused(result).guidance).toContain(reason);
+	expect(readFileSync(planPath, "utf8")).toBe(before);
+}
+
+describe("tick and untick", () => {
+	it("ticks the focused plan's item and counts it", async () => {
+		const { state, run, planPath } = await questWithPlan();
+		const result = succeeded(await run({ action: "tick", query: "first" }));
+
+		expect(result.message).toContain("Ticked");
+		expect(readFileSync(planPath, "utf8")).toContain("- [x] First item");
+		expect(state.done).toBe(1);
+	});
+
+	it("leaves the front matter byte for byte as it was", async () => {
+		const { run, planPath, head } = await questWithPlan();
+		succeeded(await run({ action: "tick", query: "second" }));
+		succeeded(await run({ action: "untick", query: "second" }));
+		expect(readFileSync(planPath, "utf8").slice(0, head.length)).toBe(head);
+	});
+
+	it("refuses an item it cannot pick out", async () => {
+		const { run } = await questWithPlan();
+		const result = await run({ action: "tick", query: "item" });
+		expect(result).toMatchObject({ ok: false });
+	});
+
+	it("says on the bus what a tick landed, and an untick takes it back", async () => {
+		// So the mesh keeps it in the session's presence for an
+		// orchestrator to read (lib/internal/session/landings.ts).
+		const { state, planPath } = await questWithPlan();
+		writeFileSync(
+			planPath,
+			readFileSync(planPath, "utf8").replace(
+				"- [ ] Second item",
+				"- [ ] Second item\n- [ ] 14a. Carry jobs across a rollover. Done when one rolls.\n- [ ] 16. Piece 2, by P9R1KI [31759971]: told once. Done when merged.",
+			),
+		);
+		const landed: unknown[] = [];
+		const pi = {
+			...fakePi(),
+			events: {
+				on: () => () => {},
+				emit: (event: string, data: unknown) => {
+					if (event === SESSION_LANDED) landed.push(data);
+					if (event === SESSION_UNLANDED) landed.push({ unlanded: data });
+				},
+			},
+		} as unknown as Parameters<typeof handle>[1];
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(state, pi, fakeCtx(), params);
+		const plan = state.documentId ?? "";
+
+		succeeded(await run({ action: "tick", query: "14a" }));
+		succeeded(await run({ action: "tick", query: "first" }));
+		succeeded(await run({ action: "untick", query: "first" }));
+		succeeded(await run({ action: "tick", query: "16" }));
+
+		expect(landed).toEqual([
+			expect.objectContaining({
+				ref: `${plan}#14a`,
+				what: "Carry jobs across a rollover.",
+			}),
+			expect.objectContaining({ ref: plan, what: "First item" }),
+			{ unlanded: { ref: plan } },
+			// Its first sentence, whatever colon comes first.
+			expect.objectContaining({
+				ref: `${plan}#16`,
+				what: "Piece 2, by P9R1KI [31759971]: told once.",
+			}),
+		]);
+	});
+});
+
+describe("section", () => {
+	it("replaces one section of the focused plan", async () => {
+		const { run, planPath } = await questWithPlan();
+		succeeded(
+			await run({ action: "section", title: "Notes", body: "New notes." }),
+		);
+		const text = readFileSync(planPath, "utf8");
+		expect(text).toContain("## Notes\n\nNew notes.\n");
+		expect(text).not.toContain("Old notes.");
+	});
+
+	it("refuses a body that drops most of a large section, and changes nothing", async () => {
+		const { run, planPath, entries } = await questWithLargeNotes();
+		const cut = entries.split("\n").slice(0, 12).join("\n");
+		await expectRefused({ run, planPath }, cut, "dropping most of it");
+	});
+
+	it("refuses a body a read cut short, and changes nothing", async () => {
+		// 29 October: a plan's Work section lost its tail six times, each
+		// rewrite built from a read cut at 50 KB and too small a loss for
+		// the size guard.
+		const { run, planPath } = await questWithPlan();
+		const body =
+			"- [ ] 1. Keep this.\n\n[Showing lines 1-165 of 211 (50.0KB limit). Use offset=166 to continue.]";
+
+		await expectRefused({ run, planPath }, body, "cut short");
+		succeeded(
+			await run({ action: "section", title: "Notes", body, force: true }),
+		);
+	});
+
+	it("refuses a body built from a cut show, and changes nothing", async () => {
+		// 14 November: the void's Context lost its Rules, Cost and Design,
+		// rewritten from a `show` cut at 8,192 bytes; the 9 lines cut were
+		// too small a loss for the size guard.
+		const plan = await questWithPlan();
+		const body =
+			"- [ ] 1. Keep this.\n\n**Rules.**\n\nCut 9 of 56 lines to fit the 8,192 byte budget. " +
+			"The whole section is stored: read its $.text with result_query. " +
+			"A section written back from this cut view loses everything cut.";
+
+		await expectRefused(plan, body, "cut short");
+	});
+
+	it("shrinks a large section when told to with force", async () => {
+		const { run, planPath } = await questWithLargeNotes();
+
+		succeeded(
+			await run({
+				action: "section",
+				title: "Notes",
+				body: "- One entry left.",
+				force: true,
+			}),
+		);
+
+		expect(readFileSync(planPath, "utf8")).toContain(
+			"## Notes\n\n- One entry left.\n",
+		);
+	});
+
+	it("lets a body that keeps most of a large section through", async () => {
+		const { run, planPath, entries } = await questWithLargeNotes();
+
+		succeeded(
+			await run({
+				action: "section",
+				title: "Notes",
+				body: `${entries}\n- Entry 25: one more.`,
+			}),
+		);
+
+		expect(readFileSync(planPath, "utf8")).toContain("- Entry 25: one more.");
+	});
+
+	it("adds a section a plan does not have yet, at its end", async () => {
+		const { run, planPath } = await questWithPlan();
+		const added = succeeded(
+			await run({
+				action: "section",
+				title: "Kept Outcomes",
+				body: "- The hold still holds.",
+			}),
+		);
+		expect(added.message).toContain("Added the Kept Outcomes section");
+		expect(readFileSync(planPath, "utf8")).toMatch(
+			/Old notes\.\n\n## Kept Outcomes\n\n- The hold still holds\.\n$/,
+		);
+	});
+
+	it("refuses a section the README's closed set does not name", async () => {
+		const { state, run } = await questWithPlan();
+		const result = await run({
+			action: "section",
+			id: state.questId ?? "",
+			title: "Kept Outcomes",
+			body: "x",
+		});
+		expect(result.ok === false && result.guidance).toContain(
+			"No section is headed",
+		);
+	});
+
+	it("adds an optional section the README does not have yet", async () => {
+		const { state, run } = await questWithPlan();
+		const added = succeeded(
+			await run({
+				action: "section",
+				id: state.questId ?? "",
+				title: "Spirit",
+				body: "Fewer places, one feel.",
+			}),
+		);
+		expect(added.message).toContain("Added the Spirit section");
+		const readme = readFileSync(
+			join(state.questDir ?? "", "README.md"),
+			"utf8",
+		);
+		expect(readme).toMatch(
+			/## \u{1F525} Spirit\n\nFewer places, one feel\.\n/u,
+		);
+	});
+
+	it("edits the README when named by the quest's id", async () => {
+		const { state, run } = await questWithPlan();
+		succeeded(
+			await run({
+				action: "section",
+				id: state.questId ?? "",
+				title: "Purpose",
+				body: "Why this quest exists.",
+			}),
+		);
+		const readme = readFileSync(
+			join(state.questDir ?? "", "README.md"),
+			"utf8",
+		);
+		expect(readme).toMatch(/## .*Purpose\n\nWhy this quest exists\.\n/);
+	});
+});
+
+describe("show with words no item reads", () => {
+	it("lists the lines holding them, numbered as the file counts them", async () => {
+		const { run, planPath } = await questWithPlan();
+		const result = succeeded(await run({ action: "show", query: "old notes" }));
+		const line =
+			readFileSync(planPath, "utf8").split("\n").indexOf("Old notes.") + 1;
+		expect(line).toBeGreaterThan(1);
+		expect(result.message).toContain(`- ${line}, under Notes: Old notes.`);
+		expect(result.message).toMatch(/read's offset/);
+	});
+
+	it("lists the lines holding either of two", async () => {
+		const { run } = await questWithPlan();
+		const result = succeeded(
+			await run({ action: "show", query: "second|old notes" }),
+		);
+		expect(result.message).toContain("under Work: - [ ] Second item");
+		expect(result.message).toContain("under Notes: Old notes.");
+	});
+
+	it("still reads the one item words name", async () => {
+		const { run } = await questWithPlan();
+		const result = succeeded(
+			await run({ action: "show", query: "First item" }),
+		);
+		expect(result.message).toContain("item:");
+		expect(result.message).toContain("- [ ] First item");
+	});
+
+	it("refuses words no line holds, saying so", async () => {
+		const { run } = await questWithPlan();
+		const result = refused(await run({ action: "show", query: "nowhere" }));
+		expect(result.guidance).toContain('No item reads "nowhere"');
+		expect(result.guidance).toContain("No line holds it either.");
+	});
+
+	it("refuses a number no item has, rather than searching for it", async () => {
+		const { run, planPath } = await questWithPlan();
+		const text = readFileSync(planPath, "utf8");
+		writeFileSync(planPath, `${text}\nSee 9 more.\n`);
+		const result = refused(await run({ action: "show", query: "9" }));
+		expect(result.guidance).toContain('No item reads "9"');
+	});
+});
+
+describe("a cut read of one section", () => {
+	it("points at the stored section rather than at paging", () => {
+		const advice = cutReadAdvice({ action: "show", title: "Notes" });
+		expect(advice).toContain("$.text");
+		expect(advice).toContain("loses everything cut");
+	});
+
+	it("leaves a listing's advice to it", () => {
+		expect(cutReadAdvice({ action: "show" })).toBeUndefined();
+		expect(cutReadAdvice({ action: "list" })).toBeUndefined();
+	});
+});
+
+describe("journal", () => {
+	it("adds a dated entry to the quest's Journey", async () => {
+		const { state, run } = await questWithPlan();
+		succeeded(await run({ action: "journal", note: "Landed the verbs." }));
+		expect(journeyOf(state.questDir ?? "")).toMatch(
+			/^- \*\*\d{4}-\d{2}-\d{2}\*\*: Landed the verbs\./,
+		);
+	});
+
+	it("writes to the quest `id` names, not the loaded one", async () => {
+		const { state, run } = await questWithPlan();
+		const loaded = state.questId ?? "";
+		const loadedDir = state.questDir ?? "";
+		const made = succeeded(
+			await run({ action: "create", title: "Other Quest" }),
+		);
+		const other = String(made.details?.id);
+		const otherDir = join(state.questsRoot, other);
+
+		const result = succeeded(
+			await run({ action: "journal", id: other, note: "Noted elsewhere." }),
+		);
+
+		expect(result.message).toBe(`Added to ${other}'s Journey.`);
+		expect(journeyOf(otherDir)).toContain("Noted elsewhere.");
+		expect(journeyOf(loadedDir)).not.toContain("Noted elsewhere.");
+		expect(state.questId).toBe(loaded);
+	});
+
+	it("refuses an id that is not a quest's", async () => {
+		const { state, run } = await questWithPlan();
+		const readmeBefore = readFileSync(
+			join(state.questDir ?? "", "README.md"),
+			"utf8",
+		);
+
+		const result = refused(
+			await run({
+				action: "journal",
+				id: "QEST-20000101-NOSUCH",
+				note: "Lost.",
+			}),
+		);
+
+		expect(result.guidance).toContain("No quest or document has the id");
+		expect(readFileSync(join(state.questDir ?? "", "README.md"), "utf8")).toBe(
+			readmeBefore,
+		);
+	});
+
+	it("takes a document's id as its quest's", async () => {
+		const { state, run } = await questWithPlan();
+		const other = await anotherQuestWithPlan(state.questsRoot);
+
+		succeeded(
+			await run({ action: "journal", id: other.planId, note: "Via plan." }),
+		);
+
+		expect(journeyOf(other.dir)).toContain("Via plan.");
+		expect(journeyOf(state.questDir ?? "")).not.toContain("Via plan.");
+	});
+});
+
+/**
+ * A second quest with a plan in build, made by a session of its own,
+ * so the session under test never had it loaded.
+ */
+async function anotherQuestWithPlan(questsRoot: string) {
+	const { state, planPath } = await questWithPlan(questsRoot, "Other");
+	return {
+		id: state.questId ?? "",
+		dir: state.questDir ?? "",
+		planId: state.documentId ?? "",
+		planPath,
+	};
+}
+
+describe("documents of a quest this session has not loaded", () => {
+	it("ticks another quest's plan and leaves this session where it is", async () => {
+		const { state, run, planPath } = await questWithPlan();
+		const other = await anotherQuestWithPlan(state.questsRoot);
+		const here = { id: state.questId, doc: state.documentPath };
+
+		succeeded(await run({ action: "tick", id: other.planId, query: "first" }));
+
+		expect(readFileSync(other.planPath, "utf8")).toContain("- [x] First item");
+		expect(readFileSync(planPath, "utf8")).toContain("- [ ] First item");
+		expect({ id: state.questId, doc: state.documentPath }).toEqual(here);
+	});
+
+	it("edits a quest's section from a session with none loaded", async () => {
+		const other = await anotherQuestWithPlan(join(tmpRoot, "quests"));
+		const bare = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+
+		succeeded(
+			await handle(bare, fakePi(), fakeCtx(), {
+				action: "section",
+				id: other.id,
+				title: "Purpose",
+				body: "Written from afar.",
+			}),
+		);
+
+		expect(readFileSync(join(other.dir, "README.md"), "utf8")).toMatch(
+			/## .*Purpose\n\nWritten from afar\.\n/,
+		);
+		expect(bare.questId).toBeNull();
+	});
+
+	it("concludes another quest's plan and journals it there", async () => {
+		const { state, run } = await questWithPlan();
+		const other = await anotherQuestWithPlan(state.questsRoot);
+		const here = { id: state.questId, doc: state.documentPath };
+		const ownReadme = readFileSync(
+			join(state.questDir ?? "", "README.md"),
+			"utf8",
+		);
+
+		const result = succeeded(
+			await run({ action: "conclude", id: other.planId }),
+		);
+
+		expect(result.message).toContain(`It belongs to ${other.id}`);
+		expect(readFileSync(other.planPath, "utf8")).toMatch(/stage: concluded/);
+		expect(journeyOf(other.dir)).toContain(`Concluded plan ${other.planId}.`);
+		expect(readFileSync(join(state.questDir ?? "", "README.md"), "utf8")).toBe(
+			ownReadme,
+		);
+		expect({ id: state.questId, doc: state.documentPath }).toEqual(here);
+	});
+
+	it("still runs the stage machine on the file's own stage", async () => {
+		const { run } = await questWithPlan();
+		const other = await anotherQuestWithPlan(join(tmpRoot, "quests"));
+		succeeded(await run({ action: "conclude", id: other.planId }));
+
+		const again = refused(await run({ action: "conclude", id: other.planId }));
+
+		expect(again.guidance).not.toContain("not found");
+	});
+});
+
+describe("retitle", () => {
+	it("renames the loaded quest and journals the old title", async () => {
+		const { state, run } = await questWithPlan();
+		const readme = join(state.questDir ?? "", "README.md");
+
+		const result = succeeded(
+			await run({
+				action: "retitle",
+				id: state.questId ?? "",
+				title: "Verbs That Say What They Do",
+			}),
+		);
+
+		const after = readFileSync(readme, "utf8");
+		expect(result.message).toContain("Verbs That Say What They Do");
+		expect(after).toMatch(/^# Verbs That Say What They Do$/m);
+		expect(after).not.toMatch(/^# Verb Quest$/m);
+		expect(journeyOf(state.questDir ?? "")).toContain(
+			'Retitled from "Verb Quest" to "Verbs That Say What They Do".',
+		);
+		expect(state.questTitle).toBe("Verbs That Say What They Do");
+	});
+
+	it("renames a document and journals it in its quest", async () => {
+		const { state, run, planPath } = await questWithPlan();
+		const planId = state.documentId ?? "";
+
+		succeeded(
+			await run({ action: "retitle", id: planId, title: "Verbs, Planned" }),
+		);
+
+		const plan = readFileSync(planPath, "utf8");
+		expect(plan).toMatch(/^# Verbs, Planned$/m);
+		expect(plan).not.toMatch(/^# Verb Plan$/m);
+		expect(plan).toContain("## Work\n\n- [ ] First item");
+		expect(journeyOf(state.questDir ?? "")).toContain(
+			`Retitled ${planId} from "Verb Plan" to "Verbs, Planned".`,
+		);
+	});
+
+	it("renames a quest this session has not loaded, and stays put", async () => {
+		const { state, run } = await questWithPlan();
+		const other = await anotherQuestWithPlan(state.questsRoot);
+		const here = { id: state.questId, title: state.questTitle };
+
+		succeeded(
+			await run({ action: "retitle", id: other.id, title: "Other, Renamed" }),
+		);
+
+		expect(readFileSync(join(other.dir, "README.md"), "utf8")).toMatch(
+			/^# Other, Renamed$/m,
+		);
+		expect({ id: state.questId, title: state.questTitle }).toEqual(here);
+	});
+
+	it("refuses without an id, so a rename always says what it renames", async () => {
+		const { run } = await questWithPlan();
+		const result = refused(await run({ action: "retitle", title: "Anything" }));
+		expect(result.guidance).toContain("`id`");
+	});
+
+	it("refuses an empty or multi-line title", async () => {
+		const { state, run } = await questWithPlan();
+		const id = state.questId ?? "";
+		refused(await run({ action: "retitle", id, title: "  " }));
+		refused(await run({ action: "retitle", id, title: "One\nTwo" }));
+	});
+
+	it("says so when the title already reads that way", async () => {
+		const { state, run } = await questWithPlan();
+		const result = succeeded(
+			await run({
+				action: "retitle",
+				id: state.questId ?? "",
+				title: "Verb Quest",
+			}),
+		);
+		expect(result.message).toContain("already");
+	});
+});
+
+describe("hand edits of owned front matter", () => {
+	it("are refused with the verb that owns the field", async () => {
+		const { state, planPath } = await questWithPlan();
+		const verdicts = await questVerdicts(
+			state,
+			"edit",
+			{
+				path: planPath,
+				edits: [{ oldText: "stage: build", newText: "stage: concluded" }],
+			},
+			tmpRoot,
+		);
+		const owned = verdicts.find((v) => v.guard === "quest-owned-fields");
+		expect(owned?.reason).toContain("`conclude`");
+	});
+
+	it("let everything else in the file through", async () => {
+		const { state, planPath } = await questWithPlan();
+		const verdicts = await questVerdicts(
+			state,
+			"edit",
+			{
+				path: planPath,
+				edits: [{ oldText: "Old notes.", newText: "Edited notes." }],
+			},
+			tmpRoot,
+		);
+		expect(
+			verdicts.find((v) => v.guard === "quest-owned-fields"),
+		).toBeUndefined();
+	});
+
+	it("catch a whole-file write that drops the stage", async () => {
+		const { state, planPath } = await questWithPlan();
+		const verdicts = await questVerdicts(
+			state,
+			"write",
+			{ path: planPath, content: "# Verb Plan\n" },
+			tmpRoot,
+		);
+		expect(
+			verdicts.find((v) => v.guard === "quest-owned-fields")?.reason,
+		).toContain("`stage`");
+	});
+});

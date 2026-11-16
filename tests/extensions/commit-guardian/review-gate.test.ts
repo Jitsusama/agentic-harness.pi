@@ -133,8 +133,8 @@ describe("commit guardian review gate", () => {
 		expect(result).toBeUndefined();
 		expect(seen).toHaveLength(1);
 		expect(seen[0]).toMatchObject({ guard: "commit", kind: "shown" });
-		expect(seen[0].body).toContain("docs: clarify setup");
-		expect(seen[0].notes).toContain("\u2713 conventional");
+		expect(seen[0]?.body).toContain("docs: clarify setup");
+		expect(seen[0]?.notes).toContain("\u2713 conventional");
 	});
 
 	it("blocks a prose violation before the review panel", async () => {

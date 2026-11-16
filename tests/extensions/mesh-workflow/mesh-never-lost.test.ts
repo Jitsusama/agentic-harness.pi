@@ -8,11 +8,15 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Delivered } from "../../../extensions/mesh-workflow/delivery.ts";
+import { SWEPT_STAMP } from "../../../lib/mesh/retention.ts";
+import { folderTransport } from "../../../lib/mesh/transport.ts";
 import {
 	fixture,
 	fromElsewhere,
 	judging,
 	notYours,
+	type Sent,
 	session,
 	startSession,
 } from "./support/mesh.ts";
@@ -23,10 +27,24 @@ const watching = vi.hoisted(() => ({
 	deaf: false,
 	armed: undefined as (() => void) | undefined,
 }));
+// The folders listed, while a test keeps a list of them.
+const listing = vi.hoisted(() => ({ dirs: undefined as string[] | undefined }));
+// The files read, while a test keeps a list of them.
+const reading = vi.hoisted(() => ({
+	files: undefined as string[] | undefined,
+}));
 vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof import("node:fs")>();
 	return {
 		...fs,
+		readdirSync: ((...args: Parameters<typeof fs.readdirSync>) => {
+			listing.dirs?.push(String(args[0]));
+			return fs.readdirSync(...args);
+		}) as typeof fs.readdirSync,
+		readFileSync: ((...args: Parameters<typeof fs.readFileSync>) => {
+			reading.files?.push(String(args[0]));
+			return fs.readFileSync(...args);
+		}) as typeof fs.readFileSync,
 		watch: ((...args: Parameters<typeof fs.watch>) => {
 			watching.armed?.();
 			return watching.deaf ? { close() {} } : fs.watch(...args);
@@ -37,6 +55,8 @@ vi.mock("node:fs", async (importOriginal) => {
 beforeEach(() => {
 	watching.deaf = false;
 	watching.armed = undefined;
+	listing.dirs = undefined;
+	reading.files = undefined;
 });
 
 describe("a session switched out", () => {
@@ -93,6 +113,119 @@ describe("a session switched out", () => {
 
 describe("a message never lost", () => {
 	const slow = { settleMs: 400, spreadMs: 0 };
+	const day = 24 * 60 * 60 * 1000;
+
+	/** The day's folder a message stamped at this time settles into. */
+	const dayFolder = (at: number) =>
+		join(
+			fixture.paths.mesh,
+			"messages",
+			new Date(at).toISOString().slice(0, 10),
+		);
+
+	/** A question to this peer stamped at this time, kept in its day's folder. */
+	const settled = (at: number, text: string): string => {
+		const id = `${at}-WCJQSG-7-dddddddd`;
+		mkdirSync(dayFolder(at), { recursive: true });
+		writeFileSync(
+			join(dayFolder(at), `${id}.json`),
+			JSON.stringify({
+				v: 1,
+				id,
+				at: new Date(at).toISOString(),
+				from: "WCJQSG",
+				to: ["@7M6JKG"],
+				intent: "question",
+				text,
+				pid: 7,
+			}),
+		);
+		return id;
+	};
+
+	/** Every message text handed over in full, once per handing. */
+	const handed = (sent: Sent[]) =>
+		sent.flatMap(
+			({ message }) =>
+				(message.details as Delivered | undefined)?.messages.map(
+					(one) => one.text,
+				) ?? [],
+		);
+
+	it("is caught up on without listing the days before the peer last read", async () => {
+		// Listing every day's folder at each start took 325 ms of a wake on
+		// 15 November, for ids it then passed by as read.
+		const now = Date.now();
+		settled(now - 4 * day, "7M6JKG: read days ago?");
+		const dir = join(fixture.paths.mesh, "messages");
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 2 * day}-X-1-bbbbbbbb`);
+		settled(now - 2 * day + 1000, "7M6JKG: since you read?");
+		settled(now - day, "7M6JKG: yesterday?");
+		// Swept this hour already, as a busy machine is, so what is listed
+		// is the catch-up's alone.
+		writeFileSync(join(fixture.paths.mesh, SWEPT_STAMP), `${now}`);
+		listing.dirs = [];
+
+		const { sent } = await startSession();
+		const listed = listing.dirs;
+		listing.dirs = undefined;
+
+		await vi.waitFor(() => expect(handed(sent)).toHaveLength(2));
+		expect(handed(sent).sort()).toEqual([
+			"7M6JKG: since you read?",
+			"7M6JKG: yesterday?",
+		]);
+		expect(listed).toContain(dayFolder(now - day));
+		expect(listed, "a day all read before the peer last read").not.toContain(
+			dayFolder(now - 4 * day),
+		);
+	});
+
+	it("is heard once across a restart, whichever folder it rests in", async () => {
+		const now = Date.now();
+		settled(now - 4 * day, "7M6JKG: read days ago?");
+		const dir = join(fixture.paths.mesh, "messages");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 3 * day}-X-1-bbbbbbbb`);
+		const first = await startSession({}, { isIdle: () => true });
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: before?",
+		});
+		await vi.waitFor(() => expect(handed(first.sent)).toHaveLength(1));
+		await first.fire("session_shutdown");
+		// While it was gone: one message settled into its day's folder with
+		// the one it was handed, and one still at the top.
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: settled?",
+		});
+		folderTransport(dir).settle(Date.now() + 1000);
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: at the top?",
+		});
+
+		const again = await startSession({}, { isIdle: () => true });
+
+		await vi.waitFor(() => expect(handed(again.sent)).toHaveLength(2));
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: after?",
+		});
+		await vi.waitFor(() => expect(handed(again.sent)).toHaveLength(3));
+		// A real pause: the test is that nothing is handed over twice in it.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(handed(again.sent).sort()).toEqual([
+			"7M6JKG: after?",
+			"7M6JKG: at the top?",
+			"7M6JKG: settled?",
+		]);
+	});
 
 	it("is handed over at the next start when it was waiting to act as the session went", async () => {
 		// Marked read as it arrived, it was lost with the process that held it.
@@ -201,7 +334,7 @@ describe("a message never lost", () => {
 
 describe("an old copy written back", () => {
 	/** Write a message stamped long before this peer last read, as a link to another machine writes one back. */
-	const writtenBack = (text: string) => {
+	const writtenBack = (text: string): string => {
 		const dir = join(fixture.paths.mesh, "messages");
 		const sent = Date.now() - 7 * 24 * 60 * 60 * 1000;
 		const id = `${sent}-WCJQSG-7-cccccccc`;
@@ -219,7 +352,41 @@ describe("an old copy written back", () => {
 				pid: 7,
 			}),
 		);
+		return id;
 	};
+
+	it("is passed by unread, as it lands or when looked for again", async () => {
+		// A week written back at once, about 48,000 files on 14 November,
+		// would have every session read and parse each in one burst.
+		const { sent, fire } = await startSession(
+			{},
+			{ isIdle: () => true },
+			[],
+			undefined,
+			undefined,
+			undefined,
+			20,
+		);
+		reading.files = [];
+
+		const old = writtenBack("7M6JKG: still on your bug from last week?");
+		// A real pause of several looks again, any of which could read the old copy.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		await fire("agent_end");
+		const news = fromElsewhere({ to: ["@7M6JKG"], text: "news from now" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		const read = reading.files;
+		reading.files = undefined;
+		expect(
+			read.filter((file) => file.endsWith(`${news.id}.json`)),
+			"the message from now, read as it was handed over",
+		).not.toEqual([]);
+		expect(
+			read.filter((file) => file.endsWith(`${old}.json`)),
+			"a copy from a day before the catch-up began",
+		).toEqual([]);
+	});
 
 	it("is never handed over, as it lands or when looked for again", async () => {
 		// Seen live on 14 November: a move to another machine wrote a week

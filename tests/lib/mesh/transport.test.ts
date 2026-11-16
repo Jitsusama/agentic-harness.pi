@@ -2,7 +2,13 @@
  * The folder transport: what goes in, what comes out, and how far a
  * peer has read.
  */
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -141,6 +147,37 @@ describe("the folder transport", () => {
 
 		expect(listed).toHaveLength(600);
 		expect(turns, "other work ran between batches").toBeGreaterThan(1);
+	});
+
+	it("lists from the day an id was stamped on, passing the days before", () => {
+		const transport = folderTransport(dir);
+		const day = 24 * 60 * 60 * 1000;
+		const at = (ms: number, tail: string) =>
+			`${FROZEN_MS + ms}-WCJQSG-7-${tail}`;
+		const kept = (id: string) => {
+			const folder = new Date(Number(id.split("-")[0]))
+				.toISOString()
+				.slice(0, 10);
+			mkdirSync(join(dir, folder), { recursive: true });
+			writeFileSync(join(dir, folder, `${id}.json`), "{}", "utf8");
+		};
+		const before = at(-2 * day, "aaaaaaaa");
+		const earlierThatDay = at(0, "bbbbbbbb");
+		const later = at(day, "cccccccc");
+		for (const id of [before, earlierThatDay, later]) kept(id);
+		// The top is listed whatever its age; where its stamp sorts depends
+		// on the process's clock, which earlier tests froze.
+		const top = transport.send(draft());
+
+		expect(transport.idsFromDayOf(at(1, "dddddddd"))).toEqual(
+			[top.id, earlierThatDay, later].sort(),
+		);
+		expect(transport.ids()).toEqual(
+			[top.id, before, earlierThatDay, later].sort(),
+		);
+		expect(transport.idsFromDayOf("no-time"), "no time, every day").toEqual(
+			transport.ids(),
+		);
 	});
 
 	it("remembers the furthest a peer has read, under any of its addresses", () => {

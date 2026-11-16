@@ -4,6 +4,7 @@ import {
 	renderWidget,
 	sessionNameFor,
 } from "../../../extensions/quest-workflow/render.ts";
+import { at } from "../../support/at.ts";
 
 const identityTheme = {
 	fg: (_token: string, text: string) => text,
@@ -353,7 +354,7 @@ describe("renderWidget", () => {
 		expect(lines.length).toBe(1);
 		// truncateToWidth wraps the result in ANSI resets, so
 		// measure visible width rather than raw string length.
-		expect(visibleWidth(lines[0])).toBeLessThanOrEqual(59);
+		expect(visibleWidth(at(lines, 0))).toBeLessThanOrEqual(59);
 	});
 
 	it("drops the count and arrow when the body has no checkboxes", () => {

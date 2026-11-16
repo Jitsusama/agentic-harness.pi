@@ -498,11 +498,13 @@ function questFileKind(
 	const rel = path.relative(canonicalPath(questsRoot), canonicalPath(file));
 	if (rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
 	const parts = rel.split(path.sep);
-	if (parts.length === 2 && parts[1] === "README.md") return "readme";
+	const [, folder, leaf] = parts;
+	if (parts.length === 2 && folder === "README.md") return "readme";
 	if (
 		parts.length === 3 &&
-		DOCUMENT_DIRS.has(parts[1]) &&
-		parts[2].endsWith(".md")
+		folder !== undefined &&
+		DOCUMENT_DIRS.has(folder) &&
+		leaf?.endsWith(".md")
 	) {
 		return "document";
 	}

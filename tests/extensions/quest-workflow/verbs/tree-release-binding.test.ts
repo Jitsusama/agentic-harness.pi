@@ -1,0 +1,85 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import type { TreeProvider } from "../../../../lib/core/tree/index.ts";
+import {
+	clearTreeProviders,
+	registerTreeProvider,
+} from "../../../../lib/core/tree/index.ts";
+import { addTreeToQuest } from "../../../../lib/internal/quest/trees.ts";
+import { fakePi } from "../../../support/fake-pi.ts";
+import { createEnvGuard } from "../_helpers.ts";
+
+let tmpRoot: string;
+
+function fakeCtx(cwd: string) {
+	return {
+		cwd,
+		sessionManager: { getSessionId: () => "sess-1" },
+	} as unknown as Parameters<typeof handle>[2];
+}
+
+const envGuard = createEnvGuard();
+
+beforeEach(() => {
+	envGuard.enter();
+	tmpRoot = mkdtempSync(join(tmpdir(), "tree-release-binding-"));
+	clearTreeProviders();
+});
+afterEach(() => {
+	rmSync(tmpRoot, { recursive: true, force: true });
+	clearTreeProviders();
+	envGuard.leave();
+});
+
+describe("tree-release provider binding", () => {
+	it("dispatches to the tree's stored providerId, not resolution order", async () => {
+		const pruned: string[] = [];
+		const bound: TreeProvider = {
+			id: "bound",
+			priority: 100,
+			// Never wins resolution: only the stored providerId should
+			// reach it.
+			appliesTo: () => false,
+			create: async () => ({ path: "", providerId: "bound" }),
+			release: async ({ path }) => {
+				pruned.push(path);
+			},
+		};
+		const wrong: TreeProvider = {
+			id: "wrong",
+			priority: 1,
+			appliesTo: () => true,
+			create: async () => ({ path: "", providerId: "wrong" }),
+			release: async () => {
+				throw new Error("resolution picked the wrong provider");
+			},
+		};
+		registerTreeProvider(bound);
+		registerTreeProvider(wrong);
+
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const created = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "create",
+			title: "Bound Tree",
+		});
+		if (!created.ok) throw new Error(created.guidance);
+		const treePath = join(tmpRoot, "some-tree");
+		addTreeToQuest(state.questDir ?? "", {
+			path: treePath,
+			providerId: "bound",
+			repoRoot: treePath,
+			origin: "scaffolded",
+		});
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "tree-release",
+			target: treePath,
+		});
+		expect(result).toMatchObject({ ok: true });
+		expect(pruned).toEqual([treePath]);
+	});
+});

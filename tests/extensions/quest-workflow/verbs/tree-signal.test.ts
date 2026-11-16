@@ -1,0 +1,165 @@
+/**
+ * Escape reaches a tree provider through the quest tool.
+ *
+ * Cutting a tree is minutes on a big repo, and a sparse World cut is
+ * longer, so a quest verb that kept the tool's signal to itself left
+ * a person waiting on a cut nothing they pressed could end. The
+ * provider contract carries the signal; these check the verbs hand it
+ * over on every path that cuts or removes one.
+ */
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import type { TreeProvider } from "../../../../lib/core/tree/index.ts";
+import {
+	clearTreeProviders,
+	registerTreeProvider,
+} from "../../../../lib/core/tree/index.ts";
+import { addTreeToQuest } from "../../../../lib/internal/quest/trees.ts";
+import { fakePi } from "../../../support/fake-pi.ts";
+import { createEnvGuard } from "../_helpers.ts";
+
+let tmpRoot: string;
+
+function fakeCtx(cwd: string) {
+	return {
+		cwd,
+		sessionManager: { getSessionId: () => "sess-1" },
+	} as unknown as Parameters<typeof handle>[2];
+}
+
+/** A provider that records the signal each call was handed. */
+function recording() {
+	const handed: { call: string; signal?: AbortSignal }[] = [];
+	const provider: TreeProvider = {
+		id: "recording",
+		priority: 100,
+		appliesTo: () => true,
+		create: async ({ name, repoRoot, signal }) => {
+			handed.push({ call: "create", ...(signal ? { signal } : {}) });
+			return { path: join(repoRoot, name), providerId: "recording" };
+		},
+		release: async ({ signal }) => {
+			handed.push({ call: "release", ...(signal ? { signal } : {}) });
+		},
+	};
+	registerTreeProvider(provider);
+	return handed;
+}
+
+/** A loaded quest holding one tree the tool scaffolded. */
+async function questWithTree() {
+	const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+	const created = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+		action: "create",
+		title: "Stoppable Trees",
+	});
+	if (!created.ok) throw new Error(created.guidance);
+	const treePath = join(tmpRoot, "some-tree");
+	addTreeToQuest(state.questDir ?? "", {
+		path: treePath,
+		providerId: "recording",
+		repoRoot: treePath,
+		origin: "scaffolded",
+	});
+	return { state, treePath };
+}
+
+const envGuard = createEnvGuard();
+
+beforeEach(() => {
+	envGuard.enter();
+	tmpRoot = mkdtempSync(join(tmpdir(), "tree-signal-"));
+	clearTreeProviders();
+});
+afterEach(() => {
+	rmSync(tmpRoot, { recursive: true, force: true });
+	clearTreeProviders();
+	envGuard.leave();
+});
+
+describe("the quest tool's signal reaching the tree provider", () => {
+	it("is handed to the cut a tree-add runs", async () => {
+		const handed = recording();
+		const { state } = await questWithTree();
+		const { signal } = new AbortController();
+
+		const result = await handle(
+			state,
+			fakePi(),
+			fakeCtx(tmpRoot),
+			{ action: "tree-add", cwd: tmpRoot, name: "cut-me" },
+			signal,
+		);
+
+		expect(result).toMatchObject({ ok: true });
+		expect(handed).toEqual([{ call: "create", signal }]);
+	});
+
+	it("is handed to the removal a tree-release runs", async () => {
+		const handed = recording();
+		const { state, treePath } = await questWithTree();
+		const { signal } = new AbortController();
+
+		const result = await handle(
+			state,
+			fakePi(),
+			fakeCtx(tmpRoot),
+			{ action: "tree-release", target: treePath },
+			signal,
+		);
+
+		expect(result).toMatchObject({ ok: true });
+		expect(handed).toEqual([{ call: "release", signal }]);
+	});
+
+	it("is handed to the removals retiring a quest runs", async () => {
+		const handed = recording();
+		const { state } = await questWithTree();
+		const { signal } = new AbortController();
+
+		const result = await handle(
+			state,
+			fakePi(),
+			fakeCtx(tmpRoot),
+			{ action: "retire", id: state.questId ?? "", reason: "no longer needed" },
+			signal,
+		);
+
+		expect(result).toMatchObject({ ok: true });
+		expect(handed).toEqual([{ call: "release", signal }]);
+	});
+
+	it("leaves the quest unsealed when retiring it is stopped mid-prune", async () => {
+		// Escape during the prune is the person taking the retire back,
+		// so sealing the quest behind them anyway would be the one
+		// outcome they pressed a key to prevent.
+		const stop = new AbortController();
+		registerTreeProvider({
+			id: "recording",
+			priority: 100,
+			appliesTo: () => true,
+			create: async () => ({ path: "", providerId: "recording" }),
+			release: async () => {
+				stop.abort();
+				throw new Error("git worktree remove was stopped");
+			},
+		});
+		const { state } = await questWithTree();
+
+		const result = await handle(
+			state,
+			fakePi(),
+			fakeCtx(tmpRoot),
+			{ action: "retire", id: state.questId ?? "", reason: "no longer needed" },
+			stop.signal,
+		);
+
+		expect(result).toMatchObject({ ok: false });
+		expect(state.questStatus).toBe("active");
+	});
+});

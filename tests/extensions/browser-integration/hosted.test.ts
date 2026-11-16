@@ -100,7 +100,7 @@ describe("browser shutdown ownership", () => {
 		expect(vi.getTimerCount()).toBe(2);
 
 		await a.stop();
-		expect(pages[0].close).toHaveBeenCalledOnce();
+		expect(pages[0]?.close).toHaveBeenCalledOnce();
 		expect(pages[1]).toMatchObject({ closed: false });
 		expect(vi.getTimerCount()).toBe(1);
 		expect(closeBrowser).not.toHaveBeenCalled();
@@ -109,11 +109,11 @@ describe("browser shutdown ownership", () => {
 		expect(pages).toHaveLength(2);
 		expect(pages[1]).toMatchObject({ closed: false });
 		await b.stop();
-		expect(pages[1].close).toHaveBeenCalledOnce();
+		expect(pages[1]?.close).toHaveBeenCalledOnce();
 		expect(vi.getTimerCount()).toBe(0);
 		await vi.advanceTimersByTimeAsync(IDLE_MS * 2);
-		expect(pages[0].close).toHaveBeenCalledOnce();
-		expect(pages[1].close).toHaveBeenCalledOnce();
+		expect(pages[0]?.close).toHaveBeenCalledOnce();
+		expect(pages[1]?.close).toHaveBeenCalledOnce();
 		expect(closeBrowser).not.toHaveBeenCalled();
 		expect(a.errors).toEqual([]);
 		expect(b.errors).toEqual([]);
@@ -139,7 +139,7 @@ describe("browser shutdown ownership", () => {
 			"B's idle expiry removes only its own named session",
 		).toBe(false);
 		expect(b.departureOf("same")).toBe("idle");
-		expect(pages[1].close).toHaveBeenCalledOnce();
+		expect(pages[1]?.close).toHaveBeenCalledOnce();
 		expect(closeBrowser).not.toHaveBeenCalled();
 	});
 
@@ -175,7 +175,7 @@ describe("browser shutdown ownership", () => {
 		await registry.disposeAll();
 		pending.resolve();
 		await call;
-		expect(pages[0].close).toHaveBeenCalledOnce();
+		expect(pages[0]?.close).toHaveBeenCalledOnce();
 		expect(vi.getTimerCount()).toBe(0);
 		expect(closeBrowser).not.toHaveBeenCalled();
 	});
@@ -184,7 +184,7 @@ describe("browser shutdown ownership", () => {
 		const plain = await runner("/work/plain");
 		await plain.call("browser_go", { kind: "open" });
 		await plain.stop();
-		expect(pages[0].close).toHaveBeenCalledOnce();
+		expect(pages[0]?.close).toHaveBeenCalledOnce();
 		expect(closeBrowser).toHaveBeenCalledOnce();
 		expect(vi.getTimerCount()).toBe(0);
 	});
@@ -195,7 +195,7 @@ describe("browser shutdown ownership", () => {
 		const registry = createSessionRegistry();
 		await registry.acquire("plain");
 		await registry.disposeAll();
-		expect(pages[0].close).toHaveBeenCalledOnce();
+		expect(pages[0]?.close).toHaveBeenCalledOnce();
 		expect(closeBrowser).toHaveBeenCalledOnce();
 	});
 });

@@ -39,10 +39,12 @@ function describedParams(source: string): Map<string, string> {
 		const described = /description:\s*((?:\s*"(?:[^"\\]|\\.)*"\s*\+?)+)/.exec(
 			body,
 		);
-		if (!described) continue;
+		const name = match[1];
+		const text = described?.[1];
+		if (name === undefined || text === undefined) continue;
 		found.set(
-			match[1],
-			described[1]
+			name,
+			text
 				.split("+")
 				.map((piece) => piece.trim().replace(/^"|"$/g, ""))
 				.join(""),
@@ -73,13 +75,14 @@ function branches(source: string): Branch[] {
 	const test = /kind === "(\w+)"/g;
 	let match: RegExpExecArray | null = test.exec(source);
 	for (; match !== null; match = test.exec(source)) {
+		const kind = match[1];
 		const open = source.indexOf("{", match.index);
-		if (open < 0) continue;
+		if (kind === undefined || open < 0) continue;
 		let depth = 0;
 		for (let i = open; i < source.length; i++) {
 			if (source[i] === "{") depth++;
 			else if (source[i] === "}" && --depth === 0) {
-				found.push({ kind: match[1], start: open, end: i });
+				found.push({ kind, start: open, end: i });
 				break;
 			}
 		}
@@ -96,14 +99,16 @@ function readsPerParam(
 	const use = /params\.(\w+)/g;
 	let match: RegExpExecArray | null = use.exec(source);
 	for (; match !== null; match = use.exec(source)) {
+		const param = match[1];
+		if (param === undefined) continue;
 		const index = match.index;
 		const enclosing = within.filter((b) => index > b.start && index < b.end);
 		if (enclosing.length === 0) continue;
 		// The innermost branch is the one that owns the read.
 		const owner = enclosing.reduce((a, b) => (b.start > a.start ? b : a));
-		const already = reads.get(match[1]) ?? new Set<string>();
+		const already = reads.get(param) ?? new Set<string>();
 		already.add(owner.kind);
-		reads.set(match[1], already);
+		reads.set(param, already);
 	}
 	return reads;
 }

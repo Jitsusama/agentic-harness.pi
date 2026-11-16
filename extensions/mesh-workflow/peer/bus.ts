@@ -230,9 +230,12 @@ export function onBus(m: MeshState, f: Handing) {
 			session: one.session,
 			addresses: one.addresses,
 			leases: m.own?.leases ?? [],
-			// Ids start with the time they were sent, so older ones go unread.
+			// Ids start with the time they were sent, so older ones go unread,
+			// and the days before go unlisted.
 			messages: readRecent(
-				m.transport.ids().filter((id) => !(Number.parseInt(id, 10) < since)),
+				m.transport
+					.idsFromDayOf(`${since}`)
+					.filter((id) => !(Number.parseInt(id, 10) < since)),
 			),
 			aliases: (address) =>
 				everyone.find((peer) => peer.addresses.includes(address))

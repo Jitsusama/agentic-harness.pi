@@ -47,6 +47,12 @@ export interface Transport {
 	/** Every message id kept, oldest first, however long ago it was sent. */
 	ids(): string[];
 	/**
+	 * The ids kept from the day this id was stamped on, oldest first: what
+	 * {@link ids} answers, less the days before it, which hold nothing
+	 * sent after it. For a reader catching up from what it last read.
+	 */
+	idsFromDayOf(id: string): string[];
+	/**
 	 * The ids of messages not yet moved to their day's folder, oldest
 	 * first: the last hours' messages, and holds. Far fewer than
 	 * {@link ids}, for a reader after what came lately.
@@ -151,8 +157,11 @@ function isDay(name: string): boolean {
 	return /^\d{4}-\d{2}-\d{2}$/.test(name);
 }
 
-/** The folder of the day an id was stamped on, in UTC. */
-function dayOf(id: string): string | undefined {
+/**
+ * The folder of the day an id was stamped on, in UTC, or nothing for an
+ * id with no time. Ids from a day before another's sort before its day.
+ */
+export function dayOf(id: string): string | undefined {
 	const at = stampedAt(id);
 	return at === undefined ? undefined : new Date(at).toISOString().slice(0, 10);
 }
@@ -173,6 +182,24 @@ function daysIn(dir: string): string[] {
 	} catch {
 		return [];
 	}
+}
+
+/**
+ * The ids at the top and in the day folders from `first` on, once each,
+ * oldest first; from "" that is every day's.
+ */
+function idsFrom(dir: string, first: string): string[] {
+	// Once each: a link to another machine can write a moved message back
+	// at the top, and it stays there beside its day's copy until the next
+	// settle.
+	return [
+		...new Set([
+			...idsIn(dir),
+			...daysIn(dir)
+				.filter((day) => day >= first)
+				.flatMap((day) => idsIn(join(dir, day))),
+		]),
+	].sort();
 }
 
 /** A message read from a file, or nothing when it will not read. */
@@ -204,17 +231,11 @@ export function folderTransport(dir: string): Transport {
 			writeAtomically(dir, `${message.id}.json`, JSON.stringify(message));
 			return message;
 		},
-		ids() {
-			// Once each: a link to another machine can write a moved message
-			// back at the top, and it stays there beside its day's copy until
-			// the next settle.
-			return [
-				...new Set([
-					...idsIn(dir),
-					...daysIn(dir).flatMap((day) => idsIn(join(dir, day))),
-				]),
-			].sort();
-		},
+		ids: () => idsFrom(dir, ""),
+		// A message settles into the day it was stamped on, so one sent
+		// after this id rests at the top or in that day's folder or a
+		// later one. An id with no time to read lists every day.
+		idsFromDayOf: (id) => idsFrom(dir, dayOf(id) ?? ""),
 		recentIds: () => idsIn(dir).sort(),
 		async listIds() {
 			const found: string[] = [];

@@ -170,7 +170,7 @@ export function read(state: QuestState, params: QuestToolParams): QuestResult {
 	}
 	const outline = outlineOf(body);
 	const open = outline.items.filter((one) => !one.done);
-	const title = /^#[ \t]+(.+)$/m.exec(body)?.[1].trim();
+	const title = /^#[ \t]+(.+)$/m.exec(body)?.[1]?.trim();
 	const stage = /^stage:\s*(\S+)/m.exec(head)?.[1];
 	const lines = [
 		`${name}: ${title ?? "(untitled)"}`,
@@ -430,7 +430,7 @@ export function retitle(
 		(body) => {
 			const h1 = /^#[ \t]+(.+)$/m.exec(body);
 			if (!h1) return { ok: false, reason: "It has no `# ` title line." };
-			old = h1[1].trim();
+			old = h1[1]?.trim();
 			if (old === title) return { ok: true, body, changed: false };
 			const at = h1.index;
 			return {

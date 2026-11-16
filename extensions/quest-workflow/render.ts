@@ -157,7 +157,7 @@ function titleCase(text: string): string {
 		.map((piece) => {
 			if (/^\s+$/.test(piece)) return piece;
 			if (piece.length === 0) return piece;
-			return piece[0].toUpperCase() + piece.slice(1);
+			return piece.charAt(0).toUpperCase() + piece.slice(1);
 		})
 		.join("");
 }
