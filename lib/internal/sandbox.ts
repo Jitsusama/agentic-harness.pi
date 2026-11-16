@@ -121,8 +121,7 @@ export const SANDBOX_NAMES = { fence: FENCE, known: [FENCE, STRICT] };
 /**
  * What git that pi runs outside the sandbox holds to for this session
  * (`tree-git.ts`): a repository the fence guards, when its commands run
- * fenced or sandboxed, since they could have set what git runs anywhere
- * else.
+ * fenced or sandboxed, since they could have set what git runs elsewhere.
  */
 export function gitRules(
 	env: NodeJS.ProcessEnv = process.env,
@@ -135,6 +134,8 @@ export function gitRules(
 	};
 }
 
+/** What a session's own refusal of its folder names as refusing. */
+const ASKED = `${SANDBOX_VARIABLE}=${STRICT}`;
 /** The Nix daemon's door for sandboxes, in the account's runtime folder. */
 export const NIX_DOOR = "nix-untrusted.sock";
 
@@ -380,15 +381,15 @@ export function refusedCommand(reason: string): string {
 
 /**
  * Why the sandbox can't let commands write `cwd`, when it can't: its
- * writes would reach what runs outside the sandbox later.
+ * writes would reach what runs outside the sandbox later, as `asker` says.
  */
-export function unfencedFolder(cwd: string, home: string): string | undefined {
+export function unfencedFolder(cwd: string, home: string, asker = ASKED) {
 	if (within(home, cwd)) {
-		return `${SANDBOX_VARIABLE}=${STRICT} won't let commands write ${cwd}, which holds the home folder and the startup files that run outside the sandbox, so no command runs. Start the session in the folder it works on.`;
+		return `${asker} won't let commands write ${cwd}, which holds the home folder and the startup files that run outside the sandbox, so no command runs. Start it in the folder it works on.`;
 	}
 	try {
 		if (statSync(join(cwd, ".git")).isDirectory()) {
-			return `${SANDBOX_VARIABLE}=${STRICT} won't let commands write ${cwd}, which holds its repository's git folder, whose hooks and settings git runs outside the sandbox, so no command runs. Work in a tree the work tool cuts (\`work tree\`) or a snapshot, whose git folder lies elsewhere; a plain clone won't do.`;
+			return `${asker} won't let commands write ${cwd}, which holds its repository's git folder, whose hooks and settings git runs outside the sandbox, so no command runs. Work in a tree the work tool cuts (\`work tree\`) or a snapshot, whose git folder lies elsewhere; a plain clone won't do.`;
 		}
 	} catch {
 		// No git folder here, or a worktree's .git file pointing elsewhere.

@@ -170,6 +170,11 @@ may import from here, and any of it may change without notice.
   by hand, under pi's state, `scripts/fence-stage.ts`), and how
   `PI_SANDBOX` reads: `off` runs a session as it is, and an empty or
   unknown value reads as the fence, saying so once.
+- **`fence-run.ts`**: one command in the fence for a caller outside
+  pi, such as the mycelium node's `runs` prefix: the agent fence, or
+  the strict profile inside the fence's bubblewrap root, refusing a
+  folder whose writes would reach what runs outside
+  (`scripts/pi-fence.ts`).
 - **`fence-preflight.ts`**: how the fence's pre-flight runs a check,
   fenced as a session's command or outside, and turns verdicts into a
   report and an exit status (`scripts/fence-preflight.ts`).
