@@ -45,6 +45,7 @@ import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { doingFolder } from "../../lib/internal/quest/doing.ts";
 import { meshRefusal, sessionRealm } from "../../lib/internal/realm.ts";
 import { carriedTrust } from "../../lib/internal/session/carried-trust.ts";
+import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { isSubagent } from "../../lib/mesh/hand.ts";
 import { waitingFolder } from "../../lib/mesh/waiting.ts";
 import {
@@ -87,6 +88,7 @@ export function machinePaths(): MeshPaths {
 		sessions: join(stateDir("quest-workflow"), "sessions"),
 		quests: join(dataDir("quest-workflow"), "quests"),
 		doing: doingFolder(),
+		trees: treeRecordDir(),
 	};
 }
 

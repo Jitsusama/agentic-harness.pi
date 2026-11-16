@@ -24,9 +24,11 @@
  * attention it gives.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import { isRecord } from "../internal/record.ts";
+import { treesHeldBy } from "../internal/work-records.ts";
 import { questAddress } from "./address.ts";
 
 /** What a peer's scopes are worked out from. */
@@ -125,12 +127,15 @@ const repositories = new Map<string, string>();
  * (agentic-harness.pi), rather than the folder it sits in, which for a
  * worktree is a name only the tree broker uses. Read from the origin
  * remote in git's own config, without running git, since presence is
- * worked out often; the folder's name when there is no such remote.
+ * worked out often. With no such remote, the main checkout's folder,
+ * so every worktree of a local repository shares one group rather than
+ * each making its own (71 `#repo/worktree-local-acceluary-*` on 15
+ * November).
  */
 export function repositoryName(checkout: string): string {
 	const known = repositories.get(checkout);
 	if (known !== undefined) return known;
-	const name = originName(checkout) ?? basename(checkout);
+	const name = originName(checkout) ?? mainCheckoutName(checkout);
 	repositories.set(checkout, name);
 	return name;
 }
@@ -160,6 +165,117 @@ export function repositoryKey(checkout: string): string | undefined {
 	return `${host === "github.com" ? "github" : host}:${path}`;
 }
 
+/** A tree a session holds, as its presence names it (mycelium's `trees`). */
+export interface HeldTree {
+	/** The broker's key for it, which is its folder's name. */
+	readonly key: string;
+	/** `github:owner/name` from origin, or `local:` and the main checkout's folder. */
+	readonly repo: string;
+	/** The branch a worktree is on. */
+	readonly branch?: string;
+	/** The commit a snapshot is pinned at. */
+	readonly commit?: string;
+}
+
+/**
+ * The tree checked out at `path` as a presence names it, read from git's
+ * own files without running git; nothing when it is no checkout or its
+ * HEAD reads as neither a branch nor a commit.
+ */
+export function heldTreeAt(path: string): HeldTree | undefined {
+	const head = headOf(path);
+	if (head === undefined) return undefined;
+	return {
+		key: basename(path),
+		repo: repositoryKey(path) ?? `local:${mainCheckoutName(path)}`,
+		...head,
+	};
+}
+
+/** The trees a presence names, keeping each that reads as one. */
+export function treesFrom(value: unknown): HeldTree[] {
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((one): HeldTree[] =>
+		isRecord(one) && typeof one.key === "string" && typeof one.repo === "string"
+			? [
+					{
+						key: one.key,
+						repo: one.repo,
+						...(typeof one.branch === "string" ? { branch: one.branch } : {}),
+						...(typeof one.commit === "string" ? { commit: one.commit } : {}),
+					},
+				]
+			: [],
+	);
+}
+
+/**
+ * What `session` holds of the trees the broker's records in `dir` name,
+ * as a presence says them, sorted by key; nothing with no records.
+ *
+ * Asked at every publish, so the records are listed again only when
+ * their folder changed: each is written beside itself and renamed over,
+ * which moves the folder's time. Each held tree's HEAD is read every
+ * time, since a branch moves without its record being rewritten.
+ */
+export function heldTreesOf(
+	session: string,
+	dir: string | undefined,
+): () => { trees?: HeldTree[] } {
+	if (dir === undefined) return () => ({});
+	let listedAt: number | undefined;
+	let paths: string[] = [];
+	return () => {
+		let changed: number;
+		try {
+			changed = statSync(dir).mtimeMs;
+		} catch {
+			// No records folder yet: the broker has cut nothing here.
+			return {};
+		}
+		if (changed !== listedAt) {
+			paths = treesHeldBy(session, dir);
+			listedAt = changed;
+		}
+		const trees = paths
+			.flatMap((path) => heldTreeAt(path) ?? [])
+			.sort((one, other) => one.key.localeCompare(other.key));
+		return trees.length > 0 ? { trees } : {};
+	};
+}
+
+/** The branch a checkout is on, or the commit it is detached at. */
+function headOf(
+	checkout: string,
+): { branch: string } | { commit: string } | undefined {
+	const own = ownGitDir(checkout);
+	if (own === undefined) return undefined;
+	let head: string;
+	try {
+		head = readFileSync(join(own, "HEAD"), "utf8").trim();
+	} catch {
+		// No HEAD to read is no tree to name.
+		return undefined;
+	}
+	const branch = head.match(/^ref:\s*refs\/heads\/(.+)$/)?.[1];
+	if (branch) return { branch };
+	return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head)
+		? { commit: head }
+		: undefined;
+}
+
+/**
+ * The folder of the main checkout a checkout shares its git directory
+ * with, by name: its own for a plain checkout, the one its worktrees
+ * hang off otherwise, and a bare repository's own name without `.git`.
+ */
+function mainCheckoutName(checkout: string): string {
+	const common = commonGitDir(checkout);
+	return basename(common) === ".git"
+		? basename(dirname(common))
+		: basename(common).replace(/\.git$/, "");
+}
+
 /** The URL of a checkout's origin remote, read from git's own config. */
 function originUrl(checkout: string): string | undefined {
 	try {
@@ -179,19 +295,30 @@ function originUrl(checkout: string): string | undefined {
  */
 function commonGitDir(checkout: string): string {
 	const dotGit = join(checkout, ".git");
-	let pointer: string;
-	try {
-		pointer = readFileSync(dotGit, "utf8");
-	} catch {
-		return dotGit;
-	}
-	const gitDir = pointer.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
-	if (!gitDir) return dotGit;
-	const own = isAbsolute(gitDir) ? gitDir : join(checkout, gitDir);
+	const own = ownGitDir(checkout);
+	if (own === undefined || own === dotGit) return dotGit;
 	try {
 		const common = readFileSync(join(own, "commondir"), "utf8").trim();
 		return isAbsolute(common) ? common : join(own, common);
 	} catch {
 		return dirname(dirname(own));
 	}
+}
+
+/**
+ * A checkout's own git directory: its `.git` folder, or for a worktree
+ * the one its `.git` file points at; nothing when it has neither.
+ */
+function ownGitDir(checkout: string): string | undefined {
+	const dotGit = join(checkout, ".git");
+	let pointer: string;
+	try {
+		pointer = readFileSync(dotGit, "utf8");
+	} catch {
+		// A folder can't be read as a file: that is a plain checkout's.
+		return existsSync(dotGit) ? dotGit : undefined;
+	}
+	const gitDir = pointer.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
+	if (!gitDir) return undefined;
+	return isAbsolute(gitDir) ? gitDir : join(checkout, gitDir);
 }

@@ -53,7 +53,13 @@ import {
 	moveOffFrom,
 	movingFrom,
 } from "./moving.ts";
-import { checkoutOf, repositoryName, scopesOf } from "./scope.ts";
+import {
+	checkoutOf,
+	type HeldTree,
+	repositoryName,
+	scopesOf,
+	treesFrom,
+} from "./scope.ts";
 import { isStepDetail, type StepDetail } from "./step.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
 import { removeQuietly, removeStaged } from "./transport.ts";
@@ -144,6 +150,12 @@ export interface Presence {
 	 * first, at most twenty (see internal/session/events.ts).
 	 */
 	readonly events?: readonly SessionEvent[];
+	/**
+	 * The trees its session holds, as the work broker's records say, so
+	 * mycelium draws a tree two cells hold as a network of its own.
+	 * Missing while it holds none.
+	 */
+	readonly trees?: readonly HeldTree[];
 	/** The process holding it, when the machine would say. */
 	readonly owner?: TickedOwner;
 	/** A hosted conversation, independently live within its owner process. */
@@ -615,6 +627,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(eventsFrom(one.events).length > 0
 			? { events: eventsFrom(one.events) }
 			: {}),
+		...(treesFrom(one.trees).length > 0 ? { trees: treesFrom(one.trees) } : {}),
 		...(landingsFrom(one.landings).length > 0
 			? { landings: landingsFrom(one.landings) }
 			: {}),

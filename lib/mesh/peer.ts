@@ -54,6 +54,7 @@ import {
 	type StandsAtTop,
 	workOf,
 } from "./presence.ts";
+import { heldTreesOf } from "./scope.ts";
 import { type StepDetail, stepName } from "./step.ts";
 import type { Stop } from "./stop.ts";
 import { carriedUsage, type SessionUsage } from "./usage.ts";
@@ -349,6 +350,8 @@ export function localPeer(at: Surroundings): Peer {
 	const now = at.now ?? Date.now;
 	let landings: Landing[] = standing(before?.landings ?? [], now());
 	let events: SessionEvent[] = recentEvents(before?.events ?? [], now());
+	// The trees it holds, read again at each publish (scope.ts).
+	const held = heldTreesOf(at.session, at.records.trees);
 	// A pause outlasts a reload, as its person left it.
 	let paused = before?.state === "paused";
 	// A move outlasts a reload, in the same process; the conversation that
@@ -469,6 +472,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(usage ? { usage } : {}),
 			...(landings.length > 0 ? { landings } : {}),
 			...(events.length > 0 ? { events } : {}),
+			...held(),
 			...(at.owner ? { owner: at.owner } : {}),
 			...(at.hosted ? { hosted: at.hosted } : {}),
 			...titled(at.title?.()),
