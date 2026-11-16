@@ -236,6 +236,23 @@ describe("reaping a conversation's tool children", () => {
 		});
 	});
 
+	it("ends a kept process's unmarked sibling alone, never their shared group", async () => {
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			10: {
+				group: 10,
+				env: { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "call-1" },
+			},
+			11: { group: 10, env: conversationMarker("a", HOST) },
+		});
+		const spared = { marks: new Set(["call-1"]), groups: new Set<number>() };
+		expect(await reapToolChildren("a", table, spared)).toEqual({
+			groups: [],
+			pids: [11],
+		});
+		expect([...table.pids()].sort(), "the kept one lives on").toEqual([1, 10]);
+	});
+
 	it("answers nothing when no process carries the marker", async () => {
 		const table = fakeTable({ 1: { group: 1, env: {} } });
 		expect(await reapToolChildren("a", table)).toEqual({

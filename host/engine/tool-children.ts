@@ -19,12 +19,13 @@
  * the marks of the conversation that started it, so it is spared until
  * its end is said (`carriedCalls`, lib/internal/shell/kept.ts): every
  * process carrying the call's own mark, whatever group it moved to, as
- * `timeout` does, and its shell's group.
+ * `timeout` does, and its shell's group. What a park kept of what ended
+ * calls left (left-running.ts) is spared the same way, by its call's mark.
  *
  * A process moved out on purpose, to a cgroup outside the host's own and
  * outside the slice `JOBS_CGROUP` puts work in, is spared too
- * (`movedOut`, lib/internal/shell/reap.ts), and the rest of a group
- * holding one die one by one, so killing the group doesn't take it.
+ * (`movedOut`, lib/internal/shell/reap.ts). The rest of a group holding a
+ * spared process die one by one, so killing the group doesn't take it.
  *
  * A busy machine holds thousands of processes, and their environments tens
  * of megabytes, so the table is read without holding the host's one loop,
@@ -221,19 +222,23 @@ async function reapWhere(
 	const pids = new Set<number>();
 	for (let pass = 0; pass < MOST_PASSES; pass += 1) {
 		const found = await markedWhere(sought, table);
-		const holdingMovedOut = new Set<number>();
+		// Groups holding a process that must live, whose others die one by one.
+		const holdingKept = new Set<number>();
 		const dying: [number, number][] = [];
 		for (const [pid, environ] of found) {
 			const group = table.group(pid);
-			// Gone meanwhile, or handed on and said elsewhere.
-			if (group === undefined || handedOn(environ, group, spared)) continue;
-			if (movedOut(table.cgroup(pid), ownCgroup, jobs))
-				holdingMovedOut.add(group);
+			// Gone meanwhile.
+			if (group === undefined) continue;
+			// Handed on and said elsewhere, or kept, such as what a park keeps
+			// beside a sibling its command's shell started without the mark.
+			if (handedOn(environ, group, spared)) holdingKept.add(group);
+			else if (movedOut(table.cgroup(pid), ownCgroup, jobs))
+				holdingKept.add(group);
 			else dying.push([pid, group]);
 		}
 		if (dying.length === 0) break;
 		for (const [pid, group] of dying) {
-			if (group === own || holdingMovedOut.has(group)) {
+			if (group === own || holdingKept.has(group)) {
 				pids.add(pid);
 				table.kill({ pid });
 			} else if (!groups.has(group)) {
