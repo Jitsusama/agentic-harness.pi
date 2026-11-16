@@ -1181,6 +1181,17 @@ landings, by `#number`, `PR number` or the document's id, reaches
 it as a glance unless it answers that session: the orchestrator
 can read it in presence instead.
 
+A change merged is also told, once, by the mesh itself, to its
+repository's network: `agentic-harness.pi#920` goes to
+`#repo/agentic-harness-pi` as one fyi naming the change, what it
+is, the `person` line and the `url`, signed by the session that
+merged it (`landing-notes.ts`). The sessions working in that
+repository are the ones who rebase over it, so they hear it,
+rather than an orchestrator above them all; the person reads it
+in the launcher's Landed. A ref already in presence tells nobody
+again, a landing said before the peer starts is kept but not
+told, and a plan item ticked tells nobody.
+
 ## Shared Hosts
 
 In a shared host, each conversation publishes its own presence with

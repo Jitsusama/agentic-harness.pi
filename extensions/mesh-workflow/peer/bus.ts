@@ -34,6 +34,7 @@ import { sentBy } from "../../../lib/mesh/thread.ts";
 import { UNANSWERED_WITHIN_MS } from "../../../lib/mesh/unanswered.ts";
 import { waitingOf } from "../../../lib/mesh/waiting.ts";
 import { wantFrom } from "../../../lib/mesh/want.ts";
+import { tellRepository } from "../landing-notes.ts";
 import { ended } from "../talks.ts";
 import { tellOrchestrator } from "../tells.ts";
 import { meshWakers, type Own } from "../wakers.ts";
@@ -56,8 +57,13 @@ export function onBus(m: MeshState, f: Handing) {
 			else m.undone.push(event);
 		});
 		onLanded(m.pi.events, (landing) => {
-			if (m.peer) m.peer.landed(landing);
-			else m.unlanded.push(landing);
+			if (m.peer) {
+				// The repository's network hears a change merged, before the
+				// presence keeps it, so one said again tells nobody twice.
+				const told = tellRepository(m.peer, m.transport, landing);
+				if (told) m.seen.add(told.id);
+				m.peer.landed(landing);
+			} else m.unlanded.push(landing);
 			if (landing.url) resolveLooksAt(m.paths.looks, landing.url, "merged");
 		});
 		// A change closed unmerged no longer needs the person either.
