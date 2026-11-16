@@ -321,7 +321,13 @@ export interface QuestInfo {
 
 /** Where presence is kept, and what can be asked of it. */
 export interface Presences {
-	/** This session's presence, when it has published one. */
+	/**
+	 * This session's presence, when it has published one. A plain pi reads
+	 * it from the disk; a host answers from its mirror, which holds what
+	 * the folder's last listing held and this process wrote, so another
+	 * process's publish reads absent until the next refresh, within a
+	 * second while asked.
+	 */
 	of(session: string): Presence | undefined;
 	/** Publish a peer's presence. */
 	publish(presence: Presence): void;
