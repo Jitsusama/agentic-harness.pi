@@ -351,10 +351,9 @@ it("drains every conversation but one woken from a park since, until the drain l
 	const host = start();
 	host.register(registration("a"));
 	host.register(registration("b"));
-	expect(
-		{ drains: host.drains(), a: host.draining("a") },
-		"undrained",
-	).toEqual({ drains: false, a: false });
+	expect({ drains: host.drains(), a: host.draining("a") }, "undrained").toEqual(
+		{ drains: false, a: false },
+	);
 
 	host.drain(true);
 	host.state("b", "parked");

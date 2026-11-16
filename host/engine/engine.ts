@@ -931,8 +931,7 @@ export async function createEngine(
 			if (!on) parked.release();
 			const heavy: string[] = [];
 			for (const [sessionId, record] of live)
-				for (const what of heavyIn(record))
-					heavy.push(`${sessionId}: ${what}`);
+				for (const what of heavyIn(record)) heavy.push(`${sessionId}: ${what}`);
 			return heavy;
 		},
 
@@ -1159,8 +1158,7 @@ function restartEnds(
 		? jobs
 				.holds(() => false)
 				.filter(
-					(job) =>
-						isHeavy(job.label) && !held.some(({ id }) => id === job.id),
+					(job) => isHeavy(job.label) && !held.some(({ id }) => id === job.id),
 				)
 		: [];
 	return [...held, ...heavy].map(

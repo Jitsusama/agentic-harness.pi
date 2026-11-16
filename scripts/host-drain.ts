@@ -33,5 +33,4 @@ const result = await drainHost(
 	switched === "on",
 	values.by,
 );
-// biome-ignore lint/suspicious/noConsole: the answer, for the person running it.
 console.log(JSON.stringify(result, null, 2));

@@ -17,10 +17,7 @@ import {
 	type Prepared,
 	resumeHeld,
 } from "../../../host/service/backend.ts";
-import {
-	controlRequest,
-	drainHost,
-} from "../../../host/service/client.ts";
+import { controlRequest, drainHost } from "../../../host/service/client.ts";
 import {
 	type ControlRequest,
 	parseDrainResult,
