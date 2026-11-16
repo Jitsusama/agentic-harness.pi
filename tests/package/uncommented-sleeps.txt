@@ -8,9 +8,9 @@ tests/core/browser/tracing.test.ts 5
 tests/core/lsp/standalone/standalone.integration.test.ts 1
 tests/core/lsp/standalone/stopping.test.ts 1
 tests/core/process/process.test.ts 1
-tests/core/review/council.test.ts 1
-tests/core/review/run-store.test.ts 1
-tests/core/review/stack-round.test.ts 1
+tests/core/review/ask/council.test.ts 1
+tests/core/review/ask/run-store.test.ts 1
+tests/core/review/ask/stack-round.test.ts 1
 tests/core/support/oauth-callback.ts 1
 tests/core/work/custody.test.ts 3
 tests/core/work/support/custody-child.ts 1

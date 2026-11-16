@@ -20,13 +20,11 @@ lib/subagent/runpi/supervisor.mjs
 lib/subagent/runpi/supervisor.ts
 lib/subagent/subagent.ts
 lib/ui
-tests/core/review
 tests/extensions
 tests/extensions/compaction-workflow/host.test.ts
 tests/extensions/mesh-workflow/mesh.test.ts
 tests/extensions/quest-workflow
 tests/extensions/quest-workflow/verbs.test.ts
-tests/extensions/review-collects-an-interrupted-round.test.ts
 tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts
 tests/extensions/subagent-workflow/run.test.ts
 tests/lib/internal
