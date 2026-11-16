@@ -288,8 +288,8 @@ const X_PROBE = `node -e '${[
 	'const ways = { file: "/tmp/.X11-unix/X0", abstract: String.fromCharCode(0) + "/tmp/.X11-unix/X0" };',
 	"for (const [way, path] of Object.entries(ways)) {",
 	"const s = net.connect({ path });",
-	's.on("connect", () => { console.log("connected " + way); s.destroy(); });',
-	's.on("error", (e) => console.log("refused " + way + " " + e.code));',
+	's.on("connect", () => { process.stdout.write("connected " + way + "\\n"); s.destroy(); });',
+	's.on("error", (e) => process.stdout.write("refused " + way + " " + e.code + "\\n"));',
 	"}",
 ].join(" ")}'`;
 
