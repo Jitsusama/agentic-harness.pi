@@ -11,6 +11,7 @@
 import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BoundTarget } from "../../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
+import { sayDid } from "../../../lib/internal/session/events.ts";
 import { sayLanded } from "../../../lib/internal/session/landings.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import { attachments } from "../engine.ts";
@@ -92,6 +93,11 @@ async function sayMerged(
 		// A change that can't be read now still landed; it is named alone.
 	}
 	const ref = change.label.slice(change.label.lastIndexOf("/") + 1);
+	sayDid(bus, {
+		kind: "merge",
+		where: change.repo.key,
+		title: read?.title ?? change.label,
+	});
 	sayLanded(bus, {
 		ref,
 		what: read?.title ?? `${change.label} merged`,

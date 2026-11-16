@@ -103,6 +103,23 @@ describe("the machine a spawn starts on by default", () => {
 		).toBeUndefined();
 		expect(asked).toEqual([]);
 	});
+
+	it("asks the node again for each spawn of a burst, following each answer", async () => {
+		const answers = ["equilibrius", "optimus", "penelope"];
+		let asks = 0;
+		const place: PlaceOnNode = async () => ({
+			ok: true,
+			machine: answers[asks++ % answers.length] ?? "optimus",
+		});
+		const chosen: (string | undefined)[] = [];
+		for (let n = 0; n < 10; n++) {
+			chosen.push(
+				await machineByDefault(undefined, [], plain, place, "optimus"),
+			);
+		}
+		expect(asks, "one ask a spawn, none remembered").toBe(10);
+		expect(chosen.slice(0, 3)).toEqual(["equilibrius", undefined, "penelope"]);
+	});
 });
 
 /** A node that starts everything on equilibrius, keeping what it ran. */
@@ -144,7 +161,7 @@ function sharing(answer: Awaited<ReturnType<ShareQuest>> = { ok: true }) {
 function spawnOn(
 	machine: string,
 	kitty: ReturnType<typeof fakeDriver>,
-	more: { window?: boolean; firstText?: string; dryRun?: boolean } = {},
+	more: { firstText?: string; dryRun?: boolean } = {},
 ) {
 	return {
 		machine,
@@ -154,7 +171,6 @@ function spawnOn(
 		home: "/home/joel",
 		questId: "QEST-20261013-4UHC5Q",
 		layout: "tab",
-		...(more.window !== undefined ? { window: more.window } : {}),
 		...(more.firstText !== undefined ? { firstText: more.firstText } : {}),
 		options: { ...opening, drivers: [kitty], dryRun: more.dryRun ?? false },
 	} as const;
@@ -202,7 +218,7 @@ describe("a spawn on another machine", () => {
 		);
 	});
 
-	it("opens no window anywhere unless asked, and says how to join it", async () => {
+	it("opens no window, though a tab was asked, and says how to join it", async () => {
 		const kitty = fakeDriver("kitty");
 		const outcome = await spawnHeld(
 			spawnOn("equilibrius", kitty),
@@ -214,18 +230,6 @@ describe("a spawn on another machine", () => {
 		expect(outcome.ok && outcome.message).toContain(
 			"No window was opened; join it with: 'ssh' '-t' '--' 'equilibrius' 'mycelium' 'attach' 'c97b4852'",
 		);
-	});
-
-	it("opens a window when the call asks for one", async () => {
-		const kitty = fakeDriver("kitty");
-		await spawnHeld(
-			spawnOn("equilibrius", kitty, { window: true }),
-			node().start,
-			sharing().share,
-		);
-		expect(kitty.calls.typed.map((typed) => typed.text)).toEqual([
-			"'ssh' '-t' '--' 'equilibrius' 'mycelium' 'attach' 'c97b4852'\n",
-		]);
 	});
 
 	it("shares nothing and starts nothing on a dry run, saying it would share", async () => {

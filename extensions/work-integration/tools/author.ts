@@ -23,6 +23,8 @@ import {
 } from "../../../lib/core/work/fresh-start.ts";
 import type { WorkHistory } from "../../../lib/core/work/history.ts";
 import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.ts";
+import { sayDid } from "../../../lib/internal/session/events.ts";
+import { repositoryKey } from "../../../lib/mesh/scope.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { GLYPH } from "../render.ts";
 import { recordMessage } from "./message.ts";
@@ -114,6 +116,11 @@ export async function record(
 	const recorded = paths
 		? before.changed.length - (await history.status(found.path)).changed.length
 		: before.changed.length;
+	sayDid(pi.events, {
+		kind: "commit",
+		where: repositoryKey(found.path) ?? "",
+		title: asked.subject,
+	});
 	const rewrapped = message.wrapped
 		? " The body ran past 72 columns, so it was wrapped to fit."
 		: "";

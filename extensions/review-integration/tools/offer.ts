@@ -315,7 +315,7 @@ export async function runOffer(
 		// the gate that shows them.
 
 		if (params.action === "propose") {
-			return propose(ctx, bound, authoring, params);
+			return propose(ctx, bound, authoring, params, pi.events);
 		}
 
 		if (params.action === "propose-stack") {

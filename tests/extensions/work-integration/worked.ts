@@ -42,6 +42,7 @@ let scratch = "";
 let repo = "";
 let savedState: string | undefined;
 let tool: RegisteredTool | undefined;
+let said: { event: string; data: unknown }[] = [];
 
 /** Cuts each tree as a copy of the test's repository, at what was asked. */
 const COPYING: TreeProvider = {
@@ -69,7 +70,9 @@ beforeEach(async () => {
 	process.env.XDG_STATE_HOME = join(scratch, "state");
 	forgetTreeBroker();
 	repo = await freshRepo("worked");
-	tool = toolNamed(activateWith(workIntegration), "work");
+	const stub = activateWith(workIntegration);
+	said = stub.emitted;
+	tool = toolNamed(stub, "work");
 	registerTreeProvider(COPYING);
 });
 
@@ -85,6 +88,11 @@ afterEach(() => {
 /** The repository trees are cut from, on `main` with one commit. */
 export function checkout(): string {
 	return repo;
+}
+
+/** What the tool said on pi's bus, in order. */
+export function emitted(): readonly { event: string; data: unknown }[] {
+	return said;
 }
 
 /** A folder of this test's own, removed after it. */

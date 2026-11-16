@@ -90,6 +90,7 @@ import {
 	isPersonText,
 	isPersonWords,
 } from "../../lib/internal/session/driven.ts";
+import { onDid, type SessionEvent } from "../../lib/internal/session/events.ts";
 import {
 	firstPromptPending,
 	runStarted,
@@ -899,6 +900,7 @@ export function meshWorkflow(
 		let settleClock: ReturnType<typeof setInterval> | undefined;
 		const wanting = new Map<WantKind, Want>();
 		const unlanded: Landing[] = [];
+		const undone: SessionEvent[] = [];
 		// A session on no model is said at its start, perhaps before this
 		// peer is made, and before every turn after: held until then, and
 		// told once.
@@ -1992,6 +1994,7 @@ export function meshWorkflow(
 			hideWants?.();
 			hideWants = showWants();
 			for (const landing of unlanded.splice(0)) peer.landed(landing);
+			for (const event of undone.splice(0)) peer.did(event);
 			if (onNoModelUntold) tellNoModel(onNoModelUntold);
 			if (waiting) {
 				settleFromVerdicts(waiting);
@@ -2433,6 +2436,11 @@ export function meshWorkflow(
 		// What this session lands, kept in its presence; held until the peer
 		// is made, as its wants are.
 		if (pi.events) {
+			// What it does in its repositories and quests, held the same way.
+			onDid(pi.events, (event) => {
+				if (peer) peer.did(event);
+				else undone.push(event);
+			});
 			onLanded(pi.events, (landing) => {
 				if (peer) peer.landed(landing);
 				else unlanded.push(landing);

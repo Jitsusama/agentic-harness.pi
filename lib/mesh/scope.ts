@@ -136,18 +136,38 @@ export function repositoryName(checkout: string): string {
 }
 
 function originName(checkout: string): string | undefined {
+	const name = originUrl(checkout)
+		?.replace(/\/+$/, "")
+		.split(/[/:]/)
+		.pop()
+		?.replace(/\.git$/, "");
+	return name && name.length > 0 ? name : undefined;
+}
+
+/**
+ * The key of the repository checked out here, as the tree broker and
+ * mycelium write one (`github:Jitsusama/mycelium`): its origin's host,
+ * GitHub's as `github`, then the owner and name. Undefined with no
+ * origin to read it from.
+ */
+export function repositoryKey(checkout: string): string | undefined {
+	const url = originUrl(checkout)
+		?.replace(/\/+$/, "")
+		.replace(/\.git$/, "");
+	const parts = url?.match(/^(?:[a-z+]+:\/\/)?(?:[^@/]+@)?([^/:]+)[:/](.+)$/);
+	const [, host, path] = parts ?? [];
+	if (!host || !path) return undefined;
+	return `${host === "github.com" ? "github" : host}:${path}`;
+}
+
+/** The URL of a checkout's origin remote, read from git's own config. */
+function originUrl(checkout: string): string | undefined {
 	try {
 		const config = readFileSync(join(commonGitDir(checkout), "config"), "utf8");
 		const origin = config
 			.split(/^\[/m)
 			.find((section) => section.startsWith('remote "origin"]'));
-		const url = origin?.match(/^\s*url\s*=\s*(\S+)\s*$/m)?.[1];
-		const name = url
-			?.replace(/\/+$/, "")
-			.split(/[/:]/)
-			.pop()
-			?.replace(/\.git$/, "");
-		return name && name.length > 0 ? name : undefined;
+		return origin?.match(/^\s*url\s*=\s*(\S+)\s*$/m)?.[1];
 	} catch {
 		return undefined;
 	}

@@ -10,6 +10,8 @@ import type { HeldTree } from "../../../lib/core/work/broker.ts";
 import type { WorkHistory } from "../../../lib/core/work/history.ts";
 import { cautionsFrom, refusalFrom } from "../../../lib/core/work/objection.ts";
 import { createGitPublisher } from "../../../lib/core/work/publish.ts";
+import { sayDid } from "../../../lib/internal/session/events.ts";
+import { repositoryKey } from "../../../lib/mesh/scope.ts";
 import { objectionsTo } from "../broker.ts";
 import { GLYPH } from "../render.ts";
 import { type Answer, refuse, say } from "./shared.ts";
@@ -60,6 +62,11 @@ export async function publish(
 			{ ok: true, branch: outcome.branch, published: false },
 		);
 	}
+	sayDid(pi.events, {
+		kind: "push",
+		where: repositoryKey(found.path) ?? "",
+		title: outcome.branch,
+	});
 	const notes = [
 		outcome.tracked ? "tracking it from now on" : undefined,
 		outcome.replaced ? "replacing what was there" : undefined,

@@ -20,7 +20,9 @@
  * Mac while the node would have picked the Mac (WCJQSG [66388615]). One
  * started on another machine has its quest shared there first, carries
  * its first words in the start, since the file spawn leaves here names
- * nothing there, and opens no window unless asked (WM4KSZ [a124c9cb]).
+ * nothing there, and opens no window, even when asked: one opened here
+ * for a session there lands on Joel's screen (WM4KSZ [a124c9cb]; Joel,
+ * 18:45 on 15 November).
  */
 
 import { hostname } from "node:os";
@@ -77,8 +79,6 @@ export interface HeldSpawn {
 	 * no file this machine left can reach it.
 	 */
 	readonly firstText?: string;
-	/** Whether the call asked for a window; one here always opens. */
-	readonly window?: boolean;
 	readonly layout?: TerminalLayout;
 	readonly options: OpenOptions;
 }
@@ -335,7 +335,7 @@ export async function spawnHeld(
 	const here = isThisMachine(asked.machine);
 	const folder = folderFor(asked.cwd, asked.home, here);
 	const where = folder ?? "its home";
-	const window = here || asked.window === true;
+	const window = here;
 	if (asked.options.dryRun) {
 		const sharing = here ? "" : `run mycelium share ${asked.questId}, then `;
 		if (!window) {

@@ -565,7 +565,7 @@ export async function spawn(
 	if (!read.ok) return refuse(read.refusal);
 	if (machine !== undefined) {
 		// Words left on this machine reach only a session held here; one
-		// elsewhere carries them in its start, and opens a window if asked.
+		// elsewhere carries them in its start, and opens no window.
 		const local = isThisMachine(machine);
 		const token = local ? leftUnder(uuidv7()) : undefined;
 		const held = await spawnHeld({
@@ -577,7 +577,6 @@ export async function spawn(
 			questId: questIdForSpawn,
 			...(token ? { firstWords: token } : {}),
 			...(!local && firstWords ? { firstText: firstWords } : {}),
-			window: Boolean(params.terminal?.trim() || asked),
 			...(read.layout ? { layout: read.layout } : {}),
 			options: read.options,
 		});

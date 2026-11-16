@@ -65,7 +65,6 @@ function asked(kitty: ReturnType<typeof fakeDriver>, dryRun = false) {
 		home: "/home/joel",
 		questId: "QEST-20261013-4UHC5Q",
 		layout: "tab",
-		window: true,
 		options: { ...opening, drivers: [kitty], dryRun },
 	} as const;
 }
@@ -146,7 +145,7 @@ describe("the words a held spawn uses", () => {
 });
 
 describe("spawning on a machine", () => {
-	it("starts the session held there and opens a window here on its attach words", async () => {
+	it("starts the session held there and opens no window here", async () => {
 		const kitty = fakeDriver("kitty");
 		const { asked: starts, start } = node(equilibrius);
 		const outcome = await spawnHeld(asked(kitty), start, shares);
@@ -158,9 +157,8 @@ describe("spawning on a machine", () => {
 				command: heldWords("pi", "QEST-20261013-4UHC5Q"),
 			},
 		]);
-		expect(kitty.calls.typed.map((typed) => typed.text)).toEqual([
-			"'ssh' '-t' '--' 'equilibrius' 'mycelium' 'attach' 'c97b4852'\n",
-		]);
+		expect(kitty.calls.spawned, "no window opened").toEqual([]);
+		expect(kitty.calls.typed).toEqual([]);
 		expect(outcome.ok && outcome.message).toContain(
 			"Started a held session on equilibrius (equilibrius holds it as c97b4852, begun in /Users/joel/src/core.nix)",
 		);

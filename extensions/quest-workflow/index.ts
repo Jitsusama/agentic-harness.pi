@@ -43,6 +43,7 @@ import { forgetDoing, keepDoingSaid } from "../../lib/internal/quest/doing.ts";
 import { formatRelativeAge } from "../../lib/internal/quest/session-liveness.ts";
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/url-fetchers.ts";
+import { sayDid, stageTitle } from "../../lib/internal/session/events.ts";
 import {
 	isParking,
 	PARK_ASK,
@@ -446,6 +447,14 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 			}
 			updateScoreboard(state, ctx);
 			keepDoingSaid(state, currentSessionId(ctx, undefined), ctx.ui);
+			const stage = stageTitle(params.action, state.documentId ?? params.id);
+			if (stage && !params.dryRun) {
+				sayDid(pi.events, {
+					kind: "stage",
+					where: state.questId ?? "",
+					title: stage,
+				});
+			}
 			// A session a spawn started is looked for a minute on.
 			const spawned = spawnedBy(params.action, result.details);
 			if (spawned) watchFirstTurn(pi, ctx, spawned);
