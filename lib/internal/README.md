@@ -188,6 +188,10 @@ may import from here, and any of it may change without notice.
   the fence hides in sight), claimed by its environment while it runs
   nothing and seen fenced in the last day, or unfenced
   (`pi-fence census`).
+- **`fence-census-here.ts`**: the census run on this machine, over
+  every realm's presences and what earlier censuses saw, loaded by
+  `pi-fence` only when the census is asked for, so its run path needs
+  no package.
 - **`fence-preflight.ts`**: how the fence's pre-flight runs a check,
   fenced as a session's command or outside, and turns verdicts into a
   report and an exit status (`scripts/fence-preflight.ts`).
