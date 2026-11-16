@@ -103,6 +103,22 @@ describe("a day's run", () => {
 		expect(figuresOf(report).real, "no real model's figures without one").toBe(
 			undefined,
 		);
+		expect(figuresOf(report).reloadWave, "no wave's figures without one").toBe(
+			undefined,
+		);
+	});
+
+	it("says a reload wave's figures, each reload left in the report", () => {
+		const figures = { count: 2, first: { ms: 2400, loopMaxMs: 1800 } };
+		const reloadWave = {
+			checkpoint: 2,
+			reloads: [{ conversation: 0, ms: 2400, loopMaxMs: 1800 }],
+			figures,
+		};
+		expect(figuresOf({ ...report, reloadWave }).reloadWave).toEqual({
+			checkpoint: 2,
+			...figures,
+		});
 	});
 
 	it("says a real-model slice's refusals and tokens", () => {

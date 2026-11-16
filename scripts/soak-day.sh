@@ -5,8 +5,8 @@
 # (plan item 10, OSPHT4, 14 November). A day is two runs, each held by its
 # own lender: the volume run takes the day's share of a real week's turns
 # unpaced, 20 conversations as tests/host/soak/week.ts cuts them, with
-# bursts of wakes at each checkpoint, a planned restart mid-run and one at
-# the end; the paced run takes 20 conversations of 4 turns at the week's
+# bursts of wakes at each checkpoint, a planned restart mid-run, a wave
+# of reloads onto a moved install and a restart at the end; the paced run takes 20 conversations of 4 turns at the week's
 # real pace, which the latency bar is judged on, since unpaced turns all
 # land in bursts.
 #
@@ -85,7 +85,7 @@ soak_there() {
 
 first=0
 soak_there volume --turns "$turns" --checkpoints "$VOLUME_CHECKPOINTS" \
-  --burst --restart-mid --restart || first=$?
+  --burst --restart-mid --reload-wave --restart || first=$?
 soak_there paced --turns "$paced" --checkpoints 2 --burst "${PACE[@]}" \
   || { status=$?; [[ $first != 0 ]] || first=$status; }
 exit "$first"

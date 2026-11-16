@@ -106,8 +106,18 @@ export function figuresOf(
 		restart:
 			report.restart === undefined ? undefined : restartOf(report.restart),
 		restartMid: report.restartMid,
+		reloadWave:
+			report.reloadWave === undefined
+				? undefined
+				: reloadWaveOf(report.reloadWave),
 		real: report.real === undefined ? undefined : realOf(report.real),
 	};
+}
+
+/** A reload wave's checkpoint and figures, each reload left to the report. */
+function reloadWaveOf(wave: unknown): Record<string, unknown> {
+	const { checkpoint, figures } = recordOf(wave);
+	return { checkpoint, ...recordOf(figures) };
 }
 
 /** A real-model slice's model, how many requests it refused, and each side's tokens. */
