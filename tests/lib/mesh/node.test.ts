@@ -280,7 +280,12 @@ describe("asking the node whom a cell is tied to", () => {
 		expect(await tiesAt(socket, ["85PKB2"])).toEqual([]);
 		expect(asked).toEqual([
 			{ id: 1, ask: "hello" },
-			{ id: 2, ask: "list", kind: "tie" },
+			{
+				id: 2,
+				ask: "list",
+				kind: "tie",
+				fields: ["hour", "today", "intents", "strength"],
+			},
 		]);
 	});
 

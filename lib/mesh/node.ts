@@ -389,6 +389,12 @@ export const TIE_HALF_LIFE_MS = 2 * 60 * 60 * 1000;
 export const TIES_PATIENCE_MS = 2000;
 
 /**
+ * The fields a tie is read by; the node always adds `key`, `kind` and
+ * `heard`, so its groups and the rest stay off the wire.
+ */
+const TIE_FIELDS = ["hour", "today", "intents", "strength"];
+
+/**
  * The ties of the cell going by any of `cells`, strongest first, from
  * the node serving `socket` (Jitsusama/mycelium's `tie` kind); nothing
  * when no node answers or it keeps no ties, as before mycelium #245.
@@ -400,7 +406,11 @@ export async function tiesAt(
 	now: number = Date.now(),
 	patience: number = TIES_PATIENCE_MS,
 ): Promise<Tie[] | undefined> {
-	const line = await askDaemon(socket, { ask: "list", kind: "tie" }, patience);
+	const line = await askDaemon(
+		socket,
+		{ ask: "list", kind: "tie", fields: TIE_FIELDS },
+		patience,
+	);
 	return line === undefined ? undefined : tiesFrom(line, cells, now);
 }
 
