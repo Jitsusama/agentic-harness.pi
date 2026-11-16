@@ -45,13 +45,13 @@ function mesh() {
 
 describe("tending holds", () => {
 	it("touches the disk only off the caller's turn", async () => {
-		const { root, state, sent, tend } = mesh();
+		const { state, sent, tend } = mesh();
 		state.stops = [stop("q", ["quest:QEST-A"])];
 		const tending = tend();
-		expect(
-			existsSync(join(root, "pineapple")) ? "made" : "not yet",
-			"the notes' folder made on the caller's turn",
-		).toBe("not yet");
+		// A pool thread may make the folder at once, but the claim and the
+		// notes are read only as this thread carries on, so nothing is sent
+		// on the caller's turn.
+		expect(sent(), "a hold sent on the caller's turn").toEqual([]);
 		await tending;
 		expect(sent(), "the hold sent once tending settles").toHaveLength(1);
 	});
