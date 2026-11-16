@@ -82,10 +82,12 @@ export function budgetOf(
 
 /**
  * Each README's front matter, parsed again only once it changes, since
- * the budget is asked for before every model call.
+ * the budget is asked for before every model call. It is copied out of
+ * the text, since a value the YAML parser cut from it can be a slice
+ * that holds the whole README.
  */
-const frontMatterOf = parsedFiles(
-	(readme) => parseQuestFrontMatter(readme)?.frontMatter,
+const frontMatterOf = parsedFiles((readme) =>
+	structuredClone(parseQuestFrontMatter(readme)?.frontMatter),
 );
 
 /**
