@@ -16,6 +16,19 @@
  * strings is the order they were sent.
  */
 
+import type { Transport } from "./transport.ts";
+
+/**
+ * The ids a starting peer marks seen: those at or below the floor it
+ * catches up from, oldest first.
+ */
+export function seenAtStart(
+	transport: Pick<Transport, "ids" | "recentIds">,
+	floor: string,
+): string[] {
+	return transport.ids().filter((id) => id <= floor);
+}
+
 /** Where the marker may move as messages are taken and handed over. */
 export interface ReadFront {
 	/** A message reaching this peer was taken and is not yet handed over. */
