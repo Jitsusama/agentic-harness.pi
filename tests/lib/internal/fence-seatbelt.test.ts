@@ -6,19 +6,23 @@
 import { describe, expect, it } from "vitest";
 import {
 	MAC_HIDDEN,
+	MAC_PROGRAMS,
+	MAC_READ_ONLY,
 	MACH_ALLOWED,
 	seatbeltProfile,
 } from "../../../lib/internal/fence-seatbelt.ts";
 
 const same = (path: string) => path;
 
-/** The profile's lines after its fixed opening, the mounts' own. */
+/** The profile's lines between its fixed opening and its fixed close, the mounts' own. */
 function fileRules(args: readonly string[]): string[] {
 	const { profile } = seatbeltProfile(args, { sockets: [], real: same });
 	const lines = profile.split("\n");
+	const close = MAC_PROGRAMS.length + 1;
 	return lines.slice(
 		lines.indexOf(";; Mounts, in the order bubblewrap takes them, last wins.") +
 			1,
+		-close,
 	);
 }
 
@@ -157,6 +161,47 @@ describe("what a fenced command reaches beyond its files", () => {
 		);
 		expect(lines.slice(local + 1)).toContain(
 			'(allow network-outbound (remote ip "localhost:8484"))',
+		);
+	});
+
+	it("keeps what runs later as the person from writes, after every mount, but the folder's own", () => {
+		const { profile: kept } = seatbeltProfile(
+			["--bind", "/Users/j", "/Users/j"],
+			{
+				sockets: [],
+				real: same,
+				home: "/Users/j",
+				folder: "/Users/j/src/t",
+				path: [
+					"/Users/j/src/t/node_modules/.bin",
+					"/Users/j/.cargo/bin",
+					"bin",
+				],
+			},
+		);
+		const lines = kept.split("\n");
+		const mounted = lines.indexOf(
+			'(allow file-read* file-write* (subpath "/Users/j"))',
+		);
+		const written = [
+			...MAC_READ_ONLY.map((entry) => `/Users/j/${entry}`),
+			...MAC_PROGRAMS,
+			"/Users/j/.cargo/bin",
+		];
+
+		for (const where of written) {
+			const rule = `(deny file-write* (subpath "${where}"))`;
+			expect(
+				lines.indexOf(rule),
+				`${where} is kept after the mounts`,
+			).toBeGreaterThan(mounted);
+		}
+		expect(kept, "the folder's own programs stay writable").not.toContain(
+			"node_modules/.bin",
+		);
+		expect(kept, "a relative PATH entry names nothing").not.toContain('"bin"');
+		expect(lines.at(-1), "no preference is written through cfprefsd").toBe(
+			"(deny user-preference-write)",
 		);
 	});
 

@@ -11,7 +11,9 @@
  * last that matches wins, as a later mount covers an earlier one, so
  * each mount becomes a rule or two in the order bubblewrap takes them
  * (tried on a Mac on 16 November). Beyond files, which stay as they
- * are but for the mounts and the Mac's own secrets (`MAC_HIDDEN`):
+ * are but for the mounts, the Mac's own secrets (`MAC_HIDDEN`), what
+ * runs later as the person (`MAC_READ_ONLY`, `MAC_PROGRAMS` and the
+ * folders on `PATH`) and their preferences:
  *
  * - **Mach services only by name** (`MACH_ALLOWED`): LaunchServices
  *   (`open -a Terminal`), Apple Events (`osascript`) and launchd
@@ -82,6 +84,35 @@ export const MAC_HIDDEN = [
 ] as const;
 
 /**
+ * What in the home folder runs later as the person, kept from writes
+ * beyond Linux's read-only list: launchd's agents, which start at the
+ * next login unfenced, preferences, login items, services, scripts,
+ * apps' containers and the person's own apps (ISXEG8, 16 November).
+ */
+export const MAC_READ_ONLY = [
+	"Library/LaunchAgents",
+	"Library/Preferences",
+	"Library/Application Support/com.apple.backgroundtaskmanagementagent",
+	"Library/Services",
+	"Library/Scripts",
+	"Library/Application Scripts",
+	"Library/Containers",
+	"Library/Group Containers",
+	"Applications",
+] as const;
+
+/**
+ * Where the person's programs live outside the home folder, which an
+ * admin can write on a Mac, unlike Linux's read-only store: Homebrew's,
+ * the system's local one and the apps.
+ */
+export const MAC_PROGRAMS = [
+	"/opt/homebrew",
+	"/usr/local",
+	"/Applications",
+] as const;
+
+/**
  * The system's own sockets every command needs: mDNSResponder's, which
  * answers each name lookup, so with none no host resolves (tried on a
  * Mac on 16 November).
@@ -110,8 +141,12 @@ export interface SeatbeltReach {
 	readonly sockets: readonly string[];
 	/** The ports on this machine a command may connect to, none when left out. */
 	readonly ports?: readonly number[];
-	/** The home folder, whose `MAC_HIDDEN` the profile hides. */
+	/** The home folder, whose `MAC_HIDDEN` the profile hides and `MAC_READ_ONLY` keeps. */
 	readonly home?: string;
+	/** The folders on `PATH`, kept from writes but those within `folder`. */
+	readonly path?: readonly string[];
+	/** Where the command works and writes, whose own programs it may write. */
+	readonly folder?: string;
 	/** A path as the kernel names it, past its links (`/tmp` is `/private/tmp`). */
 	readonly real?: (path: string) => string;
 }
@@ -195,12 +230,23 @@ export function seatbeltProfile(
 				throw new Error(`the Mac's fence can't say bubblewrap's ${option}`);
 		}
 	}
-	const hidden = reach.home
+	const home = reach.home;
+	const hidden = home
 		? MAC_HIDDEN.map(
 				(secret) =>
-					`(deny file-read* file-write* (subpath ${path(join(reach.home ?? "", secret))}))`,
+					`(deny file-read* file-write* (subpath ${path(join(home, secret))}))`,
 			)
 		: [];
+	const within = (entry: string, folder: string | undefined) =>
+		folder !== undefined &&
+		(entry === folder || entry.startsWith(`${folder}/`));
+	const programs = [
+		...(home ? MAC_READ_ONLY.map((kept) => join(home, kept)) : []),
+		...MAC_PROGRAMS,
+		...(reach.path ?? []).filter(
+			(entry) => entry.startsWith("/") && !within(entry, reach.folder),
+		),
+	].map((kept) => `(deny file-write* (subpath ${path(kept)}))`);
 	const profile = [
 		"(version 1)",
 		"(allow default)",
@@ -223,6 +269,10 @@ export function seatbeltProfile(
 		";; Mounts, in the order bubblewrap takes them, last wins.",
 		...mounts,
 		...hidden,
+		...[...new Set(programs)],
+		// What cfprefsd writes for a command, past every file rule:
+		// `defaults write com.apple.Terminal` would set a startup command.
+		"(deny user-preference-write)",
 	].join("\n");
 	return { profile, stoodIn };
 }

@@ -248,6 +248,8 @@ function macFenceText(
 	const { profile } = seatbeltProfile([...mounts, ...strict], {
 		sockets: [MAC_NIX_DAEMON],
 		home,
+		path: (place.env.PATH ?? "").split(":").filter(Boolean),
+		folder,
 	});
 	return {
 		folder,
