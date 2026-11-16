@@ -49,6 +49,7 @@
 		"btrfs",
 		"devx",
 		"kitty",
+		"mkfifo",
 		"mycelium",
 		"niri",
 		"nix-store",
