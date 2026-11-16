@@ -7,6 +7,7 @@
  */
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { withCallSignal } from "../../lib/core/exec/call-signal.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import type {
 	Conversation,
@@ -117,7 +118,13 @@ export async function openHostedConversation(options: {
 					}),
 				env: options.env,
 				...(options.renewed ? { renewed: options.renewed } : {}),
-				...(options.within ? { within: options.within } : {}),
+				// Durable starts each task in the context of whatever kicked its drain, as a review
+				// call running under its own signal, which durable aborts as that call ends. Starting
+				// the conversation's work under no call's signal keeps a later call's commands alive.
+				within: (work) =>
+					withCallSignal(undefined, () =>
+						options.within ? options.within(work) : work(),
+					),
 			});
 			// Durable resumes from the agent's recover, once pi's session holds the agent and can show what it does.
 			return agent;
