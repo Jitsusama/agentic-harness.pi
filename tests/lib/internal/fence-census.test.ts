@@ -215,8 +215,17 @@ function keeper(pid: number, parent: number, session: string): void {
 	});
 }
 
-/** The tee keeping a call's output, a fork of its keeper that ran tee. */
-function tee(pid: number, parent: number, session: string): void {
+/**
+ * The tee keeping a call's output, a fork of its keeper that ran tee:
+ * the store's tee, or its coreutils whole, which runs as the program
+ * its first word names, as on optimus.
+ */
+function tee(
+	pid: number,
+	parent: number,
+	session: string,
+	exe: string = TEE,
+): void {
 	lay({
 		pid,
 		parent,
@@ -225,7 +234,7 @@ function tee(pid: number, parent: number, session: string): void {
 		noNewPrivs: 0,
 		env: { PI_BASH_KEEP: KEEP, PI_SESSION_ID: session },
 		argv: ["tee", "-p", "-a", `${KEEP}.out`],
-		exe: TEE,
+		exe,
 	});
 }
 
@@ -317,7 +326,10 @@ function piWithCommand(pid: number, session: string, run: Run): void {
 	command(pid + 2, pid + 1, session, run);
 }
 
-/** A pi running no command, whose environment asks `sandbox`. */
+/**
+ * A pi running no command, whose environment asks `sandbox`: a fleet's
+ * subagent, the one pi that keeps `PI_SANDBOX=fence` (fence-lifted.ts).
+ */
 function idlePi(pid: number, sandbox: string): void {
 	lay({
 		pid,
@@ -325,7 +337,7 @@ function idlePi(pid: number, sandbox: string): void {
 		name: "node",
 		mounts: MACHINE,
 		noNewPrivs: 0,
-		env: { PI_SANDBOX: sandbox },
+		env: { PI_SANDBOX: sandbox, SUBAGENT_RUN_ID: "run-1" },
 	});
 }
 
@@ -351,6 +363,14 @@ describe("the fence's census", () => {
 		piWithCommand(100, ONE, "fenced");
 		const census = fenceCensus(place([presence(ONE, 100, { fence: "fence" })]));
 		expect(census.rows.map((row) => row.judged)).toEqual(["proven"]);
+	});
+
+	it("leaves out the keeper's tee when the store's coreutils runs it as tee", () => {
+		idlePi(100, "fence");
+		keeper(102, 100, ONE);
+		tee(103, 102, ONE, "/nix/store/0000-coreutils-full-9.12/bin/coreutils");
+		const census = fenceCensus(place([presence(ONE, 100, { fence: "fence" })]));
+		expect(census.rows.map((row) => row.judged)).toEqual(["claimed"]);
 	});
 
 	it("leaves a process under a second old unjudged, as bubblewrap sets its flag once begun", () => {
@@ -410,29 +430,34 @@ describe("the fence's census", () => {
 			`${HOME}/.local/share/keyrings/login.keyring`,
 			"PRIVATE\n",
 		],
-	])("counts unfenced a command with both marks that still sees %s", (_, path, text) => {
-		idlePi(100, "fence");
-		keeper(102, 100, ONE);
-		lay({
-			pid: 103,
-			parent: 102,
-			name: "sleep",
-			mounts: FENCED,
-			noNewPrivs: 1,
-			env: {},
-			argv: ["sleep", "60"],
-			root: "fenced",
-		});
-		put(join(proc, "103/root"), path, text);
-		const census = fenceCensus(place([presence(ONE, 100, { fence: "fence" })]));
-		expect(census.rows.map((row) => [row.judged, row.why])).toEqual([
-			[
-				"unfenced",
-				"a command sees what the fence hides: sleep, pid 103, " +
-					`reads ${path}`,
-			],
-		]);
-	});
+	])(
+		"counts unfenced a command with both marks that still sees %s",
+		(_, path, text) => {
+			idlePi(100, "fence");
+			keeper(102, 100, ONE);
+			lay({
+				pid: 103,
+				parent: 102,
+				name: "sleep",
+				mounts: FENCED,
+				noNewPrivs: 1,
+				env: {},
+				argv: ["sleep", "60"],
+				root: "fenced",
+			});
+			put(join(proc, "103/root"), path, text);
+			const census = fenceCensus(
+				place([presence(ONE, 100, { fence: "fence" })]),
+			);
+			expect(census.rows.map((row) => [row.judged, row.why])).toEqual([
+				[
+					"unfenced",
+					"a command sees what the fence hides: sleep, pid 103, " +
+						`reads ${path}`,
+				],
+			]);
+		},
+	);
 
 	it("counts unfenced a command with both marks whose root can't be read", () => {
 		idlePi(100, "fence");
@@ -533,9 +558,7 @@ describe("the fence's census", () => {
 		});
 		const census = fenceCensus(place([presence(ONE, 100, { fence: "fence" })]));
 		expect(census.rows[0]?.judged).toBe("unfenced");
-		expect(census.rows[0]?.why).toBe(
-			"a command runs unfenced: bash, pid 102",
-		);
+		expect(census.rows[0]?.why).toBe("a command runs unfenced: bash, pid 102");
 	});
 
 	it("judges a keeper's fork running the command's own builtins", () => {
@@ -544,9 +567,7 @@ describe("the fence's census", () => {
 		tee(103, 102, ONE);
 		keeper(104, 102, ONE);
 		const census = fenceCensus(place([presence(ONE, 100, { fence: "fence" })]));
-		expect(census.rows[0]?.why).toBe(
-			"a command runs unfenced: bash, pid 104",
-		);
+		expect(census.rows[0]?.why).toBe("a command runs unfenced: bash, pid 104");
 	});
 
 	it("leaves pi's own helpers, outside the fence by design, unjudged", () => {
@@ -580,6 +601,34 @@ describe("the fence's census", () => {
 			"its presence says none, its environment asks strict",
 		);
 		expect(census.rows[1]?.differs).toBeUndefined();
+	});
+
+	// A pi lifts PI_SANDBOX=fence from itself unless it is a subagent
+	// (fence-lifted.ts), and /proc still shows what it was started with: on
+	// 16 November a pi started so ran its sleep unfenced.
+	it("reads an idle session's PI_SANDBOX=fence as its pi does, lifted unless a subagent's", () => {
+		lay({
+			pid: 100,
+			parent: 1,
+			name: "node",
+			mounts: MACHINE,
+			noNewPrivs: 0,
+			env: { PI_SANDBOX: "fence" },
+		});
+		idlePi(200, "fence");
+		const census = fenceCensus(
+			place([
+				presence(ONE, 100, { fence: "none" }),
+				presence(TWO, 200, { fence: "fence" }),
+			]),
+		);
+		expect(census.rows.map((row) => [row.judged, row.why])).toEqual([
+			[
+				"unfenced",
+				"its environment runs commands as they are, PI_SANDBOX=fence lifted",
+			],
+			["claimed", "no command running; its environment asks fence"],
+		]);
 	});
 
 	it("reads an idle session as fenced when the stage lists it, as its pi would", () => {

@@ -88,10 +88,16 @@ function lay(pid: number, parent: number, name: string, laid: Laid = {}): void {
 	);
 }
 
+/**
+ * A subagent's environment, the one pi that keeps `PI_SANDBOX=fence`
+ * rather than lifting it (fence-lifted.ts).
+ */
+const SUBAGENT_FENCED = "PI_SANDBOX=fence\0SUBAGENT_RUN_ID=run-1\0";
+
 /** A pi asking for the fence, and one fenced call under it. */
 function fencedCall(): void {
 	const keep = join(root, "state/pi/agentic-harness.pi/shell-workflow/kept/a");
-	lay(100, 1, "node", { env: "PI_SANDBOX=fence\0" });
+	lay(100, 1, "node", { env: SUBAGENT_FENCED });
 	lay(102, 100, "bash", {
 		env: `PI_BASH_KEEP=${keep}\0`,
 		argv: ["bash", "-c", KEEPING_STUB],
@@ -131,7 +137,7 @@ function census(
 
 describe("pi-fence census", () => {
 	it("exits 1 for a session that claims the fence but was never seen fenced", async () => {
-		lay(100, 1, "node", { env: "PI_SANDBOX=fence\0" });
+		lay(100, 1, "node", { env: SUBAGENT_FENCED });
 		const ran = await census(join(root, "proc"));
 		expect(ran.out).toBe(
 			"1 live session: 0 proven fenced, 1 claimed, 0 unfenced\n" +
