@@ -585,7 +585,7 @@ const PRESENCE_FILES: MirroredFiles<Presence> = {
 	readOff,
 };
 
-/** Each folder of presence's one mirror in this process, for a host. */
+/** Presence's mirror of each folder, one for each copy of this module. */
 const mirrored = folderMirrors(PRESENCE_FILES);
 
 function read(path: string): Presence | undefined {

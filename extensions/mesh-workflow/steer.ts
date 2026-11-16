@@ -66,11 +66,11 @@ export function createSteering(host: SteeringHost): Steering {
 		let takes = takers.get(inbox);
 		if (takes === undefined) {
 			takes = coalescing(async () => {
-				// A take already reading delivers what it took; none starts after.
+				// Stopped, none starts; one already reading claims nothing.
 				if (stopped) return;
 				let taken: Taken;
 				try {
-					taken = await takenSteers(inbox, taker);
+					taken = await takenSteers(inbox, taker, undefined, () => !stopped);
 				} catch {
 					// An inbox that cannot be read now is read at the next look.
 					return;
@@ -90,7 +90,7 @@ export function createSteering(host: SteeringHost): Steering {
 			await take(inbox);
 			if (stopped) return;
 			const watcher = watch(inbox, (_kind, name) => {
-				if (name?.endsWith(".json")) void take(inbox);
+				if (name?.endsWith(".json")) void take(inbox).catch(lookAgain);
 			});
 			watcher.unref?.();
 			watching.set(inbox, watcher);
@@ -239,6 +239,11 @@ export function lookAnswerText(look: Look, from?: string): string {
 		look.answer;
 	const asked = look.ask ? ` It asked: ${look.ask}` : "";
 	return `[${asker(from)} answered from outside this window what this session put on their look list, "${look.title}".${asked} They picked: ${label}. Act on it, and take nothing back: the look is already off their list.]`;
+}
+
+/** Nothing, for a take whose delivery threw: the next look takes again. */
+export function lookAgain(): void {
+	// A session gone as its steer arrived; what still waits is taken later.
 }
 
 /** Who a steer's writer reads as: Joel by name, else the person. */

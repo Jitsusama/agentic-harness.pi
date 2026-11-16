@@ -14,6 +14,7 @@ import {
 	answerSteered,
 	createSteering,
 	LOOK_GONE,
+	lookAgain,
 	steerDelivery,
 	steerText,
 } from "../steer.ts";
@@ -150,7 +151,10 @@ export function createSteerer(m: MeshState) {
 				);
 			},
 		});
-		setTimeout(() => void m.steering?.look(), FIRST_STEER_MS).unref?.();
+		setTimeout(
+			() => void m.steering?.look().catch(lookAgain),
+			FIRST_STEER_MS,
+		).unref?.();
 	};
 
 	return { steered, answerFromAway, steer };

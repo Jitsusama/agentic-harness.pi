@@ -48,8 +48,12 @@ export function coalescing(work: () => Promise<void>): () => Promise<void> {
 		return run;
 	};
 	return () => {
+		// A run queued and not yet started covers this ask too, even in the
+		// turn between one run's end and its start: one started now would
+		// run beside it.
+		if (again !== undefined) return again;
 		if (running === undefined) return start();
-		again ??= running.then(ended, ended).then(() => {
+		again = running.then(ended, ended).then(() => {
 			again = undefined;
 			return start();
 		});
