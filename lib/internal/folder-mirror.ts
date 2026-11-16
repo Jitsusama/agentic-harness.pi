@@ -231,7 +231,7 @@ function mirrorOf<T>(
 		rewatch();
 		void refresh().catch(nothing);
 	};
-	const files = (): Mirrored<T> => {
+	const ask = (): void => {
 		asked = Date.now();
 		// The first ask reads at once; after an idle spell, the last listing
 		// answers while a fresh one is read.
@@ -242,11 +242,18 @@ function mirrorOf<T>(
 			clock.unref();
 			rewatch();
 		}
-		return view();
 	};
 	return {
-		files,
-		file: (path) => files().get(path),
+		files() {
+			ask();
+			return view();
+		},
+		// Only listed files and this process's writes are kept, so one file
+		// is read without listing them all.
+		file(path) {
+			ask();
+			return kept.get(path)?.value;
+		},
 		refresh,
 		put(path, value) {
 			writes += 1;

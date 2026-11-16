@@ -220,6 +220,9 @@ may import from here, and any of it may change without notice.
 - **`file-reads.ts`**: what each file in a folder said when the
   process last read it, asked again only once the file changes, so a
   ledger asked at every conversation's start reads only what moved.
+- **`folder-mirror.ts`**: a folder's files and their parses, kept for a
+  host's synchronous readers and read again off the thread each second
+  while asked, so a stalled disk holds none of its conversations.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.
