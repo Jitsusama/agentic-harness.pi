@@ -483,7 +483,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		});
 		const prompting = session.prompt(first, {
 			source: "rpc",
-			// A reopened conversation may be carrying a run on as pi's, which pi would refuse words without saying how to queue them.
+			// An extension may begin a run of pi's as the carried one settles, and pi refuses words that don't say how to queue behind it, as its editor's do.
 			streamingBehavior: "followUp",
 			preflightResult: (disposition) => {
 				if (disposition === "handled") handled();
