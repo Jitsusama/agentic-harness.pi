@@ -163,7 +163,8 @@ describe("queryStored", () => {
 			const handleInText = /handle (result-[0-9a-f]{16})/.exec(text);
 			expect(handleInText).not.toBeNull();
 			const cited = handleInText?.[1];
-			if (cited === undefined) throw new Error("the cut answer should name its handle");
+			if (cited === undefined)
+				throw new Error("the cut answer should name its handle");
 
 			const followed = queryStored(store, cited, "$[0].name");
 			expect(textOf(followed)).toContain("record number 0");

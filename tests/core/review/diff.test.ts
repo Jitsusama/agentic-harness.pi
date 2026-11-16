@@ -361,7 +361,9 @@ describe("reading a diff line's number on one side", () => {
 
 	it("reports a removed line only on the old side", () => {
 		const file = at(parseUnifiedDiff(modified).files, 0);
-		const removed = at(file.hunks, 0).lines.find((line) => line.kind === "removed");
+		const removed = at(file.hunks, 0).lines.find(
+			(line) => line.kind === "removed",
+		);
 		if (!removed) throw new Error("the fixture should hold a removed line");
 		expect(lineNumberOn(removed, "old")).toBe(2);
 		expect(lineNumberOn(removed, "new")).toBeUndefined();
@@ -369,7 +371,9 @@ describe("reading a diff line's number on one side", () => {
 
 	it("reports a context line on both sides", () => {
 		const file = at(parseUnifiedDiff(modified).files, 0);
-		const context = at(file.hunks, 0).lines.find((line) => line.kind === "context");
+		const context = at(file.hunks, 0).lines.find(
+			(line) => line.kind === "context",
+		);
 		if (!context) throw new Error("the fixture should hold a context line");
 		expect(lineNumberOn(context, "old")).toBe(1);
 		expect(lineNumberOn(context, "new")).toBe(1);

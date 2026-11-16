@@ -13,7 +13,8 @@ import {
 
 /** The default TypeScript server, which these tests vary and resolve. */
 const TYPESCRIPT = DEFAULT_SERVERS.typescript;
-if (!TYPESCRIPT) throw new Error("the defaults should hold a TypeScript server");
+if (!TYPESCRIPT)
+	throw new Error("the defaults should hold a TypeScript server");
 
 const tmpRoots: string[] = [];
 function tmp(): string {

@@ -163,7 +163,9 @@ describe("reading threads", () => {
 		expect(thread).toMatchObject({ resolved: false });
 		expect(thread?.anchor?.subject).toBe("line");
 		expect(thread?.anchor && anchorPath(thread.anchor)).toBe("lib/app.ts");
-		expect(thread?.anchor?.subject === "line" && thread.anchor.blob).toBe("new");
+		expect(thread?.anchor?.subject === "line" && thread.anchor.blob).toBe(
+			"new",
+		);
 		expect(thread?.comments[0]?.body).toBe("why?");
 	});
 
@@ -179,7 +181,9 @@ describe("reading threads", () => {
 			},
 		]);
 		const [thread] = (await gh.conversation?.threads(ref)) ?? [];
-		expect(thread?.anchor?.subject === "line" && thread.anchor.blob).toBe("old");
+		expect(thread?.anchor?.subject === "line" && thread.anchor.blob).toBe(
+			"old",
+		);
 	});
 
 	it("reads a whole-file remark as one, not as a remark on line 1", async () => {

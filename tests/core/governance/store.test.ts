@@ -76,7 +76,9 @@ describe("openRuleStore", () => {
 		// The unparseable content was moved aside, not lost.
 		const backups = readdirSync(dir).filter((f) => f.includes(".corrupt-"));
 		expect(backups).toHaveLength(1);
-		expect(readFileSync(join(dir, at(backups, 0)), "utf8")).toContain("keep me");
+		expect(readFileSync(join(dir, at(backups, 0)), "utf8")).toContain(
+			"keep me",
+		);
 	});
 
 	it("drops malformed entries rather than rendering blanks", () => {
