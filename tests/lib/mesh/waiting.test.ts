@@ -22,12 +22,16 @@ import {
 	isKnowing,
 	markOwner,
 	settleWaiting,
+	type Verdict,
 	verdictsFile,
 	verdictsIn,
+	verdictsOff,
 	type WaitingItem,
 	waitingFile,
 	waitingFolder,
 	waitingOf,
+	waitingOff,
+	withVerdicts,
 } from "../../../lib/mesh/waiting.ts";
 
 let folder: string;
@@ -94,6 +98,23 @@ describe("what waits on the person", () => {
 
 	it("is nothing for a quest with no file", () => {
 		expect(waitingOf(folder, QUEST)).toEqual([]);
+	});
+
+	// A host's settle clock reads this each minute for every conversation
+	// that raised something, so it reads off the host's one thread.
+	it("reads off the thread as it reads on it", async () => {
+		expect(await waitingOff(folder, QUEST), "no file is nothing").toEqual([]);
+		const { doneWhen: _, ...before } = item({ id: "old" });
+		writeFileSync(
+			waitingFile(folder, QUEST),
+			JSON.stringify({ updated: "x", quest: QUEST, items: [item(), before] }),
+		);
+
+		expect(await waitingOff(folder, QUEST)).toEqual(waitingOf(folder, QUEST));
+		writeFileSync(waitingFile(folder, QUEST), "{");
+		expect(await waitingOff(folder, QUEST), "a torn file is nothing").toEqual(
+			[],
+		);
 	});
 
 	it("reads an item written before items said how as the person's to settle", () => {
@@ -265,6 +286,36 @@ describe("the desktop's verdicts", () => {
 		expect(waitingOf(folder, QUEST)[0]?.checkedAt).toBe(
 			"2026-10-26T04:00:00.000Z",
 		);
+	});
+
+	it("are read off the thread as on it", async () => {
+		const path = verdictsFile(join(folder, "waiting"));
+		expect((await verdictsOff(path)).size, "no file is no verdicts").toBe(0);
+		const on = verdicts({
+			[`${QUEST}:eero-login`]: { state: "done", at: "t" },
+			[`${QUEST}:look`]: { state: "later", at: "t" },
+		});
+
+		expect(await verdictsOff(path)).toEqual(on);
+	});
+
+	// What a tick writes only when a verdict changes something, so a tick
+	// that finds nothing new touches no file under the quest's lock.
+	it("say, without writing, whether they change anything", () => {
+		const held = [item(), item({ id: "look", ready: true, checkedAt: "t1" })];
+		const found = (state: Verdict["state"], when = "t1") =>
+			new Map<string, Verdict>([[`${QUEST}:look`, { state, at: when }]]);
+
+		expect(
+			withVerdicts(QUEST, held, found("ready")).changed,
+			"ready again, found no later",
+		).toBe(false);
+		expect(
+			withVerdicts(QUEST, held, found("done")),
+			"done takes the item away",
+		).toEqual({ items: [item()], changed: true });
+		const file = waitingFile(folder, QUEST);
+		expect(existsSync(file), `${file} is never written`).toBe(false);
 	});
 
 	it("are none while the daemon has written none", () => {
