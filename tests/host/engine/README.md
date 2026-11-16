@@ -22,6 +22,9 @@ pause past a second at the heap now, and collection off, said once,
 where V8 exposes no gc),
 counts tool calls from session
 events, and runs V8's own collection and reads this process's Pss.
+pi-runs.test.ts opens the agent's own runs as pi's through a session
+standing in for pi's runForHost: one run for nested holds, none for a
+run pi began, and no settle once the host parks.
 
 hosted-agent.test.ts, call-signal.test.ts and engine.test.ts are the
 exceptions. The first runs fixtures/hosted-session.mts in child node

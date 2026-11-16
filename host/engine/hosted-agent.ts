@@ -131,7 +131,7 @@ export class HostedAgent {
 	private readonly recovery: Recovery;
 	/** Where words this agent queues past pi's session show as pending, once the host gives it. */
 	private pending: ShowQueued | undefined;
-	private readonly piRuns = new PiRuns();
+	private readonly piRuns = new PiRuns(() => this.parked);
 
 	constructor(
 		options: AgentOptions,

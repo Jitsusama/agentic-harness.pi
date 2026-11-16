@@ -33,9 +33,15 @@ interface OpenRun {
  * both, as it would for a run of its own and its continues.
  */
 export class PiRuns {
+	private readonly parked: () => boolean;
 	private session: HostRunningSession | undefined;
 	private holds = 0;
 	private open: OpenRun | undefined;
+
+	/** Runs whose host is stopping once `parked` says so. */
+	constructor(parked: () => boolean) {
+		this.parked = parked;
+	}
 
 	/** Open runs in `session` from now on. */
 	tell(session: HostRunningSession): void {
