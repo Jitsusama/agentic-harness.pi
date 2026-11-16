@@ -28,6 +28,10 @@ import { holdMessagesThroughCarriedTurns } from "../../../../host/engine/carried
 import { loadHostPi } from "../../../../host/engine/host-pi.ts";
 import { openHostedConversation } from "../../../../host/engine/hosted-conversation.ts";
 import { piLibrary } from "../../../../host/engine/pi-library.ts";
+import {
+	callSignal,
+	withCallSignal,
+} from "../../../../lib/core/exec/call-signal.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
 
 /** What the fixture drives of a pi session. */
@@ -242,6 +246,8 @@ let note = (_event: {
 	readonly waiting?: number;
 	readonly ms?: number;
 	readonly first?: boolean;
+	/** The signal a command started now would stop with: none, one still live, or one already aborted. */
+	readonly signal?: "none" | "live" | "aborted";
 }): void => {};
 
 /** Answer only after SLOW_FIRST_TOKEN_MS, as a provider that pays an abort no heed does. */
@@ -337,6 +343,61 @@ function echo(
 	];
 }
 
+/** The prompt a call left to say its result once the session is idle, once the call made it. */
+let leftToSay: Promise<void> | undefined;
+
+/** Prompt with `text` once the session is idle, as a job a call handed off says its result. */
+async function sayOnceIdle(session: Session, text: string): Promise<void> {
+	while (!session.isIdle)
+		await new Promise((done) => setTimeout(done, QUEUED_POLL_MS));
+	await session.prompt(text);
+}
+
+/**
+ * Two calls in two runs. The first runs under its own call's signal, as a
+ * review tool does, and leaves work that says a result once the session
+ * is idle, as a council handed off to the background does; the run that
+ * result starts makes the second call, which notes the call signal a
+ * command it started would stop with. pi's own agent carries the first
+ * call's signal into that run as well, live since pi never aborts it; the
+ * host's must carry none, since durable aborts it as the call ends.
+ */
+function signalledThenPlain() {
+	return (session: () => Session) => [
+		{
+			name: "echo",
+			label: "echo",
+			description: "Echo the text back",
+			parameters: {
+				type: "object",
+				properties: { text: { type: "string" } },
+				required: ["text"],
+			},
+			async execute(
+				_id: string,
+				params: { text: string },
+				signal?: AbortSignal,
+			) {
+				if (params.text === "signalled")
+					withCallSignal(signal, () => {
+						leftToSay = sayOnceIdle(session(), "the job's result");
+					});
+				else {
+					const left = callSignal();
+					note({
+						type: "call signal",
+						signal: !left ? "none" : left.aborted ? "aborted" : "live",
+					});
+				}
+				return {
+					content: [{ type: "text", text: `echo: ${params.text}` }],
+					details: { echoed: params.text },
+				};
+			},
+		},
+	];
+}
+
 const scenarios: Record<string, Scenario> = {
 	plain: {
 		responses: () => [say("hello there")],
@@ -346,6 +407,19 @@ const scenarios: Record<string, Scenario> = {
 		responses: () => [call("call-1", "ping"), say("done")],
 		tools: echo(),
 		drive: (session) => session.prompt("use the tool"),
+	},
+	"call-signal": {
+		responses: () => [
+			call("call-1", "signalled"),
+			say("handed off"),
+			call("call-2", "plain"),
+			say("done"),
+		],
+		tools: signalledThenPlain(),
+		drive: async (session) => {
+			await session.prompt("use the tool");
+			await leftToSay;
+		},
 	},
 	steer: {
 		responses: () => [call("call-1", "ping"), say("steered")],
