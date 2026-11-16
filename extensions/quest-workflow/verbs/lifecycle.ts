@@ -104,6 +104,7 @@ import {
 	renderRowBrief,
 } from "../render-rows.ts";
 import type { QuestState } from "../state.ts";
+import { parentlessRefusal } from "./create-parent.ts";
 import { subdirForDocumentId } from "./queries.ts";
 import {
 	currentSessionId,
@@ -263,6 +264,14 @@ export async function create(
 			`Parent quest "${parent}" not found. Create the parent first, or omit parent for a top-level quest.`,
 		);
 	}
+	const parentless =
+		parent === null
+			? parentlessRefusal(
+					state.questId,
+					(quest) => index.quests.get(quest)?.doc.frontMatter,
+				)
+			: undefined;
+	if (parentless) return refuse(parentless);
 
 	// The realm it was made in, so a reader across realms can tell: its
 	// parent's when the parent has one, since that is where a reader
