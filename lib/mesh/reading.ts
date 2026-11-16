@@ -19,14 +19,20 @@
 import type { Transport } from "./transport.ts";
 
 /**
- * The ids a starting peer marks seen: those at or below the floor it
- * catches up from, oldest first.
+ * The ids a starting peer marks seen: those at the top of the folder at
+ * or below the floor it catches up from, oldest first.
+ *
+ * Only the top is looked at again or watched, so an id moved to its
+ * day's folder never comes back to be judged, and marking it would only
+ * hold it in memory, in each conversation: the floor's whole day.
+ * One written back at the top later is still never handed over, since
+ * taking it finds it below the floor, though its answers and ends count.
  */
 export function seenAtStart(
-	transport: Pick<Transport, "ids" | "recentIds">,
+	transport: Pick<Transport, "recentIds">,
 	floor: string,
 ): string[] {
-	return transport.ids().filter((id) => id <= floor);
+	return transport.recentIds().filter((id) => id <= floor);
 }
 
 /** Where the marker may move as messages are taken and handed over. */

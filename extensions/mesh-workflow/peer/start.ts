@@ -29,7 +29,7 @@ import { nodeSocket } from "../../../lib/mesh/node.ts";
 import { localPeer } from "../../../lib/mesh/peer.ts";
 import { questEnded, windowTitle } from "../../../lib/mesh/presence.ts";
 import { keepPresent, whenPresent } from "../../../lib/mesh/present.ts";
-import { createReadFront } from "../../../lib/mesh/reading.ts";
+import { createReadFront, seenAtStart } from "../../../lib/mesh/reading.ts";
 import { usageFromLog } from "../../../lib/mesh/usage.ts";
 import { identifyCurrentTerminal } from "../../../lib/terminal/resolve.ts";
 import type { TerminalSessionHandle } from "../../../lib/terminal/types.ts";
@@ -299,16 +299,14 @@ export function onSessionStart(
 			m.transport.lastRead(m.peer.addresses) ??
 			`${Date.now() - FIRST_CATCH_UP_MS}`;
 		m.caughtUpFrom = since;
+		for (const id of seenAtStart(m.transport, since)) m.seen.add(id);
 		const missed: Message[] = [];
 		// Only the days a message after `since` can rest in: listing every
 		// day's folder took 325 ms of a wake on 15 November, for ids then
 		// passed by as read. What rests in the days before is never taken,
 		// since a watcher and the minute's look list only the top.
 		for (const id of m.transport.idsFromDayOf(since)) {
-			if (id <= since) {
-				m.seen.add(id);
-				continue;
-			}
+			if (id <= since) continue;
 			const message = f.take(id);
 			if (message) missed.push(message);
 		}

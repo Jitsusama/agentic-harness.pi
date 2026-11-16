@@ -29,7 +29,8 @@ describe("what a starting peer marks seen", () => {
 	it("is only the top folder's messages at or below the floor", () => {
 		// On 16 November each hosted conversation's seen set held every id
 		// of the store's 71,836 messages, about 9 MB a conversation, though
-		// it is only ever shown again what stays at the top.
+		// it is only ever shown again what stays at the top. Catching up
+		// from the floor's day on still marked that whole day.
 		const transport = folderTransport(dir);
 		const moved = transport.send(fyi("yesterday"));
 		transport.settle(Date.now() + 1000);
