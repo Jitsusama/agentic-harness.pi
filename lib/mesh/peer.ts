@@ -24,6 +24,7 @@
 import type { TickedOwner } from "../internal/process-ticks.ts";
 import { type Doing, readDoing } from "../internal/quest/doing.ts";
 import type { Orchestration } from "../internal/quest/orchestration.ts";
+import { recentEvents, type SessionEvent } from "../internal/session/events.ts";
 import {
 	type Landing,
 	standing,
@@ -109,6 +110,10 @@ export interface Peer {
 	readonly yieldedTo: Presence | undefined;
 	/** What it landed within the day, newest first. */
 	readonly landings: readonly Landing[];
+	/** What it did within the hour, newest first (internal/session/events.ts). */
+	readonly events: readonly SessionEvent[];
+	/** Say it did this, keeping the newest twenty of the hour. */
+	did(event: SessionEvent): void;
 	/** Say it landed this, in place of any earlier landing of its ref. */
 	landed(landing: Landing): void;
 	/** Take back what landed as `ref`, when it did. */
@@ -340,6 +345,7 @@ export function localPeer(at: Surroundings): Peer {
 	let stops: Stop[] = [...(before?.stops ?? [])];
 	const now = at.now ?? Date.now;
 	let landings: Landing[] = standing(before?.landings ?? [], now());
+	let events: SessionEvent[] = recentEvents(before?.events ?? [], now());
 	// A pause outlasts a reload, as its person left it.
 	let paused = before?.state === "paused";
 	// A move outlasts a reload, in the same process; the conversation that
@@ -459,6 +465,7 @@ export function localPeer(at: Surroundings): Peer {
 				: {}),
 			...(usage ? { usage } : {}),
 			...(landings.length > 0 ? { landings } : {}),
+			...(events.length > 0 ? { events } : {}),
 			...(at.owner ? { owner: at.owner } : {}),
 			...(at.hosted ? { hosted: at.hosted } : {}),
 			...titled(at.title?.()),
@@ -595,6 +602,13 @@ export function localPeer(at: Surroundings): Peer {
 		},
 		get landings() {
 			return landings;
+		},
+		get events() {
+			return events;
+		},
+		did(event) {
+			events = recentEvents([event, ...events], now());
+			publish();
 		},
 		landed(landing) {
 			landings = withLanding(landings, landing, now());

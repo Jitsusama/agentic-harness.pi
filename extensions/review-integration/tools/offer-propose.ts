@@ -9,10 +9,11 @@
  * somewhere else.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BoundTarget, Change } from "../../../lib/core/review/index.ts";
 import { fillProposal } from "../../../lib/core/review/index.ts";
 import { sessionCwd } from "../../../lib/core/session/index.ts";
+import { sayDid } from "../../../lib/internal/session/events.ts";
 import { REVIEW_COMMANDS } from "../commands.ts";
 import { GLYPH, proposalLine } from "../render.ts";
 import { checkoutFacts } from "./offer-checkout.ts";
@@ -26,6 +27,7 @@ export async function propose(
 	bound: BoundTarget,
 	authoring: NonNullable<BoundTarget["provider"]["authoring"]>,
 	params: OfferParams,
+	bus?: Pick<EventBus, "emit">,
 ): Promise<Answer> {
 	if (params.draft === undefined) {
 		// Not defaulted, on purpose, and not guessable from the checkout
@@ -115,6 +117,7 @@ export async function propose(
 		}
 	}
 
+	sayDid(bus, { kind: "pr", where: bound.repo.key, title: made.title });
 	return say(`${GLYPH.lands} ${proposalLine(made)}${asking}`, {
 		ok: true,
 		change: made.ref.label,

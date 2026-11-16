@@ -1,9 +1,12 @@
 /**
  * Scope: the groups a peer's work puts it in.
  */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { groupNamed, hears } from "../../../lib/mesh/group.ts";
-import { part, scopesOf } from "../../../lib/mesh/scope.ts";
+import { part, repositoryKey, scopesOf } from "../../../lib/mesh/scope.ts";
 
 describe("a peer's scopes", () => {
 	it("name its quest down from the root, so the root's group reaches it", () => {
@@ -64,6 +67,45 @@ describe("a peer's scopes", () => {
 
 	it("are none for a peer on no quest outside any repository", () => {
 		expect(scopesOf({ questChain: [], repositories: [] })).toEqual([]);
+	});
+});
+
+describe("a checkout's repository key", () => {
+	/** A checkout whose origin is `url`, or that has none. */
+	function checkoutWith(url: string | undefined): string {
+		const at = mkdtempSync(join(tmpdir(), "scope-key-"));
+		mkdirSync(join(at, ".git"));
+		const origin = url ? `[remote "origin"]\n\turl = ${url}\n` : "";
+		writeFileSync(
+			join(at, ".git", "config"),
+			`[core]\n\tbare = false\n${origin}`,
+		);
+		return at;
+	}
+
+	it("names GitHub as github and any other host by its name", () => {
+		const cases: [string, string][] = [
+			[
+				"https://github.com/Jitsusama/mycelium.git",
+				"github:Jitsusama/mycelium",
+			],
+			["git@github.com:Jitsusama/core.nix.git", "github:Jitsusama/core.nix"],
+			[
+				"https://delta.example.io/shop/world.git",
+				"delta.example.io:shop/world",
+			],
+		];
+		for (const [url, key] of cases) {
+			const at = checkoutWith(url);
+			expect(repositoryKey(at), url).toBe(key);
+			rmSync(at, { recursive: true, force: true });
+		}
+	});
+
+	it("is nothing without an origin", () => {
+		const at = checkoutWith(undefined);
+		expect(repositoryKey(at)).toBeUndefined();
+		rmSync(at, { recursive: true, force: true });
 	});
 });
 

@@ -36,6 +36,7 @@ import {
 import { parsedFiles } from "../internal/quest/parsed-file.ts";
 import { isSealedStatus } from "../internal/quest/status.ts";
 import { isRecord } from "../internal/record.ts";
+import { eventsFrom, type SessionEvent } from "../internal/session/events.ts";
 import { isLanding, type Landing } from "../internal/session/landings.ts";
 import {
 	type RefusedWake,
@@ -138,6 +139,11 @@ export interface Presence {
 	 * orchestrator reads it rather than sent. Missing while it has none.
 	 */
 	readonly landings?: readonly Landing[];
+	/**
+	 * What it did in its repositories and quests within the hour, newest
+	 * first, at most twenty (see internal/session/events.ts).
+	 */
+	readonly events?: readonly SessionEvent[];
 	/** The process holding it, when the machine would say. */
 	readonly owner?: TickedOwner;
 	/** A hosted conversation, independently live within its owner process. */
@@ -595,6 +601,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(typeof one.since === "string" ? { since: one.since } : {}),
 		...(typeof one.step === "string" ? { step: one.step } : {}),
 		...(wantFrom(one.wants) ? { wants: wantFrom(one.wants) } : {}),
+		...(eventsFrom(one.events).length > 0
+			? { events: eventsFrom(one.events) }
+			: {}),
 		...(landingsFrom(one.landings).length > 0
 			? { landings: landingsFrom(one.landings) }
 			: {}),
