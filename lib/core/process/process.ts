@@ -45,6 +45,9 @@ export const SAME_PROCESS_MS = 2_000;
  */
 const PS_TIMEOUT_MS = 2_000;
 
+/** The most a process listing may print: 256 KiB, past 5,000 processes. */
+const PS_LISTING_BYTES = 256 * 1024;
+
 /**
  * Asking the machine about a process.
  *
@@ -65,6 +68,13 @@ export interface ProcessFacts {
 	bootId?(): string | undefined;
 	/** Optional list snapshot shared by one census or sweep, not a cached verdict. */
 	sessionStanding?(owner: Owner): "running" | "gone" | "unknown";
+	/**
+	 * Every process's start, by pid, from one listing, or undefined when
+	 * it can't be read. Optional: only a machine where each start costs a
+	 * program of its own gives one, and `askedOnce` then asks it once
+	 * rather than starting a program per pid.
+	 */
+	startTimes?(): Promise<ReadonlyMap<number, number> | undefined>;
 }
 
 /**
@@ -193,18 +203,47 @@ export async function ownerStanding(
 export function askedOnce(facts: ProcessFacts): ProcessFacts {
 	const startedAt = new Map<number, Promise<number | undefined>>();
 	const bootId = facts.bootId?.bind(facts);
+	const list = facts.startTimes?.bind(facts);
+	let listed: Promise<ReadonlyMap<number, number> | undefined> | undefined;
+	const startTimes =
+		list &&
+		(() => {
+			listed ??= list();
+			return listed;
+		});
 	return {
 		sessionStanding: facts.sessionStanding ?? askedHostOnce(),
 		alive: (pid) => facts.alive(pid),
 		...(bootId === undefined ? {} : { bootId }),
+		...(startTimes === undefined ? {} : { startTimes }),
 		startedAt: (pid) => {
 			const already = startedAt.get(pid);
 			if (already !== undefined) return already;
-			const answer = facts.startedAt(pid);
+			const answer = startTimes
+				? startedAtListed(facts, startTimes, pid)
+				: facts.startedAt(pid);
 			startedAt.set(pid, answer);
 			return answer;
 		},
 	};
+}
+
+/**
+ * A pid's start from the one listing, asked of the machine on its own
+ * only when the listing can't be read, or when the pid is alive and
+ * missing from it, as a process started since the listing is. A dead
+ * pid the listing lacks is nobody, as `ps -p` says of it.
+ */
+async function startedAtListed(
+	facts: ProcessFacts,
+	startTimes: () => Promise<ReadonlyMap<number, number> | undefined>,
+	pid: number,
+): Promise<number | undefined> {
+	const listed = await startTimes();
+	if (listed === undefined) return facts.startedAt(pid);
+	const at = listed.get(pid);
+	if (at !== undefined) return at;
+	return facts.alive(pid) ? facts.startedAt(pid) : undefined;
 }
 
 /** What the machine itself says, which is what everything but a test uses. */
@@ -213,6 +252,9 @@ export const systemFacts: ProcessFacts = {
 		if (process.platform === "linux") return startedAtFromProc(pid);
 		return startedAtFromPs(pid);
 	},
+	// Linux reads each start from /proc in microseconds; elsewhere each
+	// is a `ps` of its own, so a census lists them all at once instead.
+	...(process.platform === "linux" ? {} : { startTimes: startTimesFromPs }),
 	bootId: () => {
 		bootOnce ??= { id: readBootId() };
 		return bootOnce.id;
@@ -323,6 +365,47 @@ async function startedAtFromProc(pid: number): Promise<number | undefined> {
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * Every process's start, from one `ps` listing, where there is no /proc.
+ *
+ * One program for a whole census rather than one per pid: on a Mac
+ * running 49 pis, a census of a hundred peers each started a hundred
+ * `ps` at once, whose exits piled up unreaped while every loop waited
+ * its turn, 469 of them at load 155 on 16 November.
+ */
+async function startTimesFromPs(): Promise<
+	ReadonlyMap<number, number> | undefined
+> {
+	try {
+		const { stdout } = await promisify(execFile)(
+			"ps",
+			["-A", "-o", "pid=,lstart="],
+			{
+				timeout: PS_TIMEOUT_MS,
+				maxBuffer: PS_LISTING_BYTES,
+				env: { ...process.env, LC_ALL: "C" },
+			},
+		);
+		return startTimesIn(stdout);
+	} catch {
+		// A table too wedged to list in time: each pid is asked on its own,
+		// as it was before there was a listing.
+		return undefined;
+	}
+}
+
+/** Each pid's start in a `ps -o pid=,lstart=` listing. */
+export function startTimesIn(listing: string): ReadonlyMap<number, number> {
+	const starts = new Map<number, number>();
+	for (const line of listing.split("\n")) {
+		const match = /^\s*(\d+)\s+(\S.*?)\s*$/.exec(line);
+		if (!match) continue;
+		const at = Date.parse(match[2] ?? "");
+		if (!Number.isNaN(at)) starts.set(Number(match[1]), at);
+	}
+	return starts;
 }
 
 /** When a process started, by asking `ps`, where there is no /proc. */
