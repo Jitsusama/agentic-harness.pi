@@ -122,7 +122,7 @@ export default function pineappleWorkflow(pi: ExtensionAPI) {
 		void (async () => {
 			try {
 				await parking.tick();
-				tendHolds({
+				await tendHolds({
 					stops,
 					notes: join(mesh, "pineapple"),
 					send: (draft) => transport.send(draft),

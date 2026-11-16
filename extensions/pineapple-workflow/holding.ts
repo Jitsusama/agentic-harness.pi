@@ -11,16 +11,23 @@
  * A stop still in shadow sends nothing: its would-be hold is written to
  * a log for Joel to read, once each renewal, and a note kept so the next
  * session doesn't write it again.
+ *
+ * A host tends on every conversation's clock on its one thread, so the
+ * claim and the notes, read or touched each minute, go through the
+ * promise API, where a stalled disk holds only the tending. What is
+ * written only when a hold changes (the hold, its note, the shadow
+ * log) stays synchronous and whole.
  */
 
+import { rmSync, writeFileSync } from "node:fs";
 import {
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import {
 	HOLD_SENDER,
@@ -52,11 +59,11 @@ const STALE_CLAIM_MS = 2 * 60 * 1000;
 const CLAIM = "claim";
 
 /** Send, renew and end holds, unless another session is doing so. */
-export function tendHolds(deps: HoldingDeps): void {
-	mkdirSync(deps.notes, { recursive: true });
-	if (!claim(deps)) return;
+export async function tendHolds(deps: HoldingDeps): Promise<void> {
+	await mkdir(deps.notes, { recursive: true });
+	if (!(await claim(deps))) return;
 	try {
-		const kept = keptNotes(deps.notes);
+		const kept = await keptNotes(deps.notes);
 		const now = deps.now();
 		for (const step of tending(
 			deps.stops(),
@@ -109,22 +116,22 @@ export function tendHolds(deps: HoldingDeps): void {
 			);
 		}
 	} finally {
-		rmSync(join(deps.notes, CLAIM), { force: true });
+		await rm(join(deps.notes, CLAIM), { force: true });
 	}
 }
 
-function claim(deps: HoldingDeps): boolean {
+async function claim(deps: HoldingDeps): Promise<boolean> {
 	const path = join(deps.notes, CLAIM);
 	try {
-		writeFileSync(path, String(deps.pid), { flag: "wx" });
+		await writeFile(path, String(deps.pid), { flag: "wx" });
 		return true;
 	} catch {
 		// Claimed: by a live session, which tends them now, or a dead one.
 	}
 	try {
-		if (deps.now() - statSync(path).mtimeMs < STALE_CLAIM_MS) return false;
-		rmSync(path, { force: true });
-		writeFileSync(path, String(deps.pid), { flag: "wx" });
+		if (deps.now() - (await stat(path)).mtimeMs < STALE_CLAIM_MS) return false;
+		await rm(path, { force: true });
+		await writeFile(path, String(deps.pid), { flag: "wx" });
 		return true;
 	} catch {
 		// Another session took the stale claim first, or it just went.
@@ -132,13 +139,13 @@ function claim(deps: HoldingDeps): boolean {
 	}
 }
 
-function keptNotes(notes: string): Kept[] {
+async function keptNotes(notes: string): Promise<Kept[]> {
 	const kept: Kept[] = [];
-	for (const name of readdirSync(notes)) {
+	for (const name of await readdir(notes)) {
 		if (!name.endsWith(".json")) continue;
 		try {
 			const note = JSON.parse(
-				readFileSync(join(notes, name), "utf8"),
+				await readFile(join(notes, name), "utf8"),
 			) as unknown;
 			if (isKept(note)) kept.push(note);
 		} catch {
