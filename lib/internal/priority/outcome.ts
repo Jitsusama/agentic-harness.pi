@@ -741,6 +741,11 @@ export function outcomesSince(
 	};
 }
 
+/** The file's outcomes for every session in this process. */
+export function processOutcomes(file: string): readonly Outcome[] {
+	return outcomesIn(file);
+}
+
 /** `length` bytes of a file from `from`, or nothing once it can't be read. */
 function readBytes(
 	file: string,
