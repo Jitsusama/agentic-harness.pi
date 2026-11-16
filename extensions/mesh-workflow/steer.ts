@@ -69,17 +69,28 @@ export function createSteering(host: SteeringHost): Steering {
 		let takes = takers.get(inbox);
 		if (takes === undefined) {
 			takes = coalescing(async () => {
-				// Stopped, none starts; one already reading claims nothing.
-				if (stopped) return;
+				// Stopped, or the inbox let go, none starts; one already reading
+				// claims nothing, since another session may hold the address now.
+				const still = () => !stopped && wanted.has(inbox);
+				if (!still()) return;
 				let taken: Taken;
 				try {
-					taken = await takenSteers(inbox, taker, undefined, () => !stopped);
+					taken = await takenSteers(inbox, taker, undefined, still);
 				} catch {
 					// An inbox that cannot be read now is read at the next look.
 					return;
 				}
-				for (const steer of taken.steers) host.deliver(steer, inbox);
+				// Each is claimed already, so one that fails costs none after it.
+				const failed: unknown[] = [];
+				for (const steer of taken.steers) {
+					try {
+						host.deliver(steer, inbox);
+					} catch (error) {
+						failed.push(error);
+					}
+				}
 				if (taken.bad.length > 0) host.setAside(inbox, taken.bad);
+				if (failed.length > 0) throw failed[0];
 			});
 			takers.set(inbox, takes);
 		}
@@ -247,7 +258,8 @@ export function lookAnswerText(look: Look, from?: string): string {
 
 /** Nothing, for a take whose delivery threw: the next look takes again. */
 export function lookAgain(): void {
-	// A session gone as its steer arrived; what still waits is taken later.
+	// A session gone as its steer arrived: the others taken with it were
+	// delivered, and what still waits is taken at the next look.
 }
 
 /** Who a steer's writer reads as: Joel by name, else the person. */

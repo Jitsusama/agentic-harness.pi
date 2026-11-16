@@ -240,12 +240,20 @@ function mirrorOf<T>(
 			// An unreadable folder leaves the last listing, never "no files".
 			if (names === undefined) return view();
 			const paths = pathsIn(dir, kind, names);
+			// Read beside what is kept, so a read the thread overtook lands none.
+			const fresh = new Map(kept);
 			await Promise.all(
-				paths.map((path) => readStampedOff(kept, path, kind.readOff)),
+				paths.map((path) => readStampedOff(fresh, path, kind.readOff)),
 			);
-			// The thread read the folder since this listed it: its listing
+			// The thread read the folder since this listed it: what it read
 			// is the newer, so it stands.
-			if (fills === filled) settle(paths, since);
+			if (fills !== filled) return view();
+			for (const path of paths) {
+				const one = fresh.get(path);
+				if (one === undefined) kept.delete(path);
+				else kept.set(path, one);
+			}
+			settle(paths, since);
 			return view();
 		} finally {
 			reading = undefined;
@@ -289,10 +297,12 @@ function mirrorOf<T>(
 		// a spell in which nothing listed the folder, since a listing that
 		// old would start a new peer blind. A host's conversations list it
 		// off the thread each minute, so there one landed meanwhile answers
-		// while it is read again.
+		// while it is read again. One still reading may be on a stalled
+		// disk, which the thread would then wait on: the last listing
+		// answers until it lands.
 		if (clock === undefined) {
-			if (order === undefined || Date.now() - landed > STALE_SPELLS * idleMs)
-				fill();
+			const stale = Date.now() - landed > STALE_SPELLS * idleMs;
+			if (order === undefined || (stale && flight === undefined)) fill();
 			else void refresh().catch(nothing);
 			clock = setInterval(tick, pollMs);
 			clock.unref();
