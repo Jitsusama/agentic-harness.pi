@@ -15,13 +15,15 @@
 import { type FSWatcher, watch } from "node:fs";
 import { withSession } from "../../lib/core/session/index.ts";
 import { answerWant } from "../../lib/internal/session/wants.ts";
+import { coalescing } from "../../lib/internal/single-flight.ts";
 import { answerLook, type Look, looksIn } from "../../lib/mesh/looks.ts";
 import {
 	FROM_MACHINE,
 	FROM_PERSON,
 	inboxOf,
 	type Steer,
-	takeSteers,
+	type Taken,
+	takenSteers,
 } from "../../lib/mesh/steer.ts";
 
 /** What steering needs from the session it delivers to. */
@@ -39,28 +41,67 @@ export interface SteeringHost {
 /** Steering for one session, until it is stopped. */
 export interface Steering {
 	/** Settles the inboxes watched, and takes what waits in each. */
-	look(): void;
+	look(): Promise<void>;
 	stop(): void;
 }
 
-/** Starts steering: nothing is watched or taken until the first look. */
+/**
+ * Starts steering: nothing is watched or taken until the first look.
+ *
+ * Each inbox is read off the thread, since a host runs every
+ * conversation's look on one thread and a stalled disk would hold them
+ * all. An inbox's takes never run beside each other, so steers arrive
+ * in the order they were written: an ask while one reads runs once more
+ * after it, rather than being passed over, so what arrived meanwhile
+ * is read at once rather than at the next look.
+ */
 export function createSteering(host: SteeringHost): Steering {
 	const watching = new Map<string, FSWatcher>();
+	const starting = new Set<string>();
+	const takers = new Map<string, () => Promise<void>>();
 	const taker = `${process.pid}`;
+	let stopped = false;
 
-	const take = (inbox: string) => {
-		let taken: ReturnType<typeof takeSteers>;
-		try {
-			taken = takeSteers(inbox, taker);
-		} catch {
-			// An inbox that cannot be read now is read at the next look.
-			return;
+	const take = (inbox: string): Promise<void> => {
+		let takes = takers.get(inbox);
+		if (takes === undefined) {
+			takes = coalescing(async () => {
+				// A take already reading delivers what it took; none starts after.
+				if (stopped) return;
+				let taken: Taken;
+				try {
+					taken = await takenSteers(inbox, taker);
+				} catch {
+					// An inbox that cannot be read now is read at the next look.
+					return;
+				}
+				for (const steer of taken.steers) host.deliver(steer, inbox);
+				if (taken.bad.length > 0) host.setAside(inbox, taken.bad);
+			});
+			takers.set(inbox, takes);
 		}
-		for (const steer of taken.steers) host.deliver(steer, inbox);
-		if (taken.bad.length > 0) host.setAside(inbox, taken.bad);
+		return takes();
 	};
 
-	const settle = () => {
+	const watchFrom = async (inbox: string): Promise<void> => {
+		starting.add(inbox);
+		try {
+			// Taking first makes the folder a watcher needs.
+			await take(inbox);
+			if (stopped) return;
+			const watcher = watch(inbox, (_kind, name) => {
+				if (name?.endsWith(".json")) void take(inbox);
+			});
+			watcher.unref?.();
+			watching.set(inbox, watcher);
+		} catch {
+			// Left unwatched, it is still taken at every look.
+		} finally {
+			starting.delete(inbox);
+		}
+	};
+
+	const settle = async (): Promise<Set<string>> => {
 		const now = new Set(
 			host.addresses().map((address) => inboxOf(host.root, address)),
 		);
@@ -69,28 +110,20 @@ export function createSteering(host: SteeringHost): Steering {
 			watcher.close();
 			watching.delete(inbox);
 		}
-		for (const inbox of now) {
-			if (watching.has(inbox)) continue;
-			// Taking first makes the folder a watcher needs.
-			take(inbox);
-			try {
-				const watcher = watch(inbox, (_kind, name) => {
-					if (name?.endsWith(".json")) take(inbox);
-				});
-				watcher.unref?.();
-				watching.set(inbox, watcher);
-			} catch {
-				// Left unwatched, it is still taken at every look.
-			}
-		}
+		await Promise.all(
+			[...now]
+				.filter((inbox) => !watching.has(inbox) && !starting.has(inbox))
+				.map(watchFrom),
+		);
 		return now;
 	};
 
 	return {
-		look() {
-			for (const inbox of settle()) take(inbox);
+		async look() {
+			await Promise.all([...(await settle())].map(take));
 		},
 		stop() {
+			stopped = true;
 			for (const watcher of watching.values()) watcher.close();
 			watching.clear();
 		},

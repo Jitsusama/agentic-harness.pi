@@ -6,6 +6,7 @@
 import { firstPromptPending } from "../../../lib/internal/session/first-prompt.ts";
 import { namesLanding } from "../../../lib/internal/session/landings.ts";
 import { askWake, isParked } from "../../../lib/internal/session/park.ts";
+import { singleFlight } from "../../../lib/internal/single-flight.ts";
 import {
 	attend,
 	type Concern,
@@ -33,6 +34,7 @@ import {
 import { nodeSocket } from "../../../lib/mesh/node.ts";
 import { ASK_AGAIN_MS } from "../../../lib/mesh/owed.ts";
 import { wakeSteered } from "../../../lib/mesh/parked.ts";
+import type { Presence } from "../../../lib/mesh/presence.ts";
 import type { Judge } from "../../../lib/mesh/routing.ts";
 import { isStopped } from "../../../lib/mesh/stop.ts";
 import {
@@ -72,9 +74,10 @@ function dayBefore(id: string, other: string): boolean {
 
 /** How this peer hears and routes what reaches it. */
 export function createHearing(m: MeshState, f: Handing) {
-	const countLive = async () => {
+	/** Count who is live, of `everyone` when a clock has just listed them. */
+	const countLive = async (everyone?: readonly Presence[]) => {
 		try {
-			const { present } = await census(m.presences.all());
+			const { present } = await census(everyone ?? m.presences.all());
 			m.live = new Set(present.map((one) => one.session));
 		} catch {
 			// Uncounted, the last count stands.
@@ -481,30 +484,49 @@ export function createHearing(m: MeshState, f: Handing) {
 		);
 	};
 
+	/**
+	 * Who is still there, read again: it changes without a message saying
+	 * so, and a quest's address left to a peer that ended is taken back.
+	 * Every peer is listed once, off the thread, for each step that asks.
+	 */
+	const lookAround = async () => {
+		const everyone = await m.presences.listed();
+		await countLive(everyone);
+		m.peer?.refresh(everyone);
+		identity();
+		await m.steering?.look();
+		// A parked peer told to close or carry is started again to do it.
+		if (m.paths.steer !== undefined) {
+			await wakeSteered(everyone, m.paths.steer, isParked, askWake);
+		}
+	};
+
 	/** Messages the watcher never reported, taken as it would have. */
+	const lookForMissed = async () => {
+		// Listed off the thread: the folder holds a week of messages, and
+		// listing it at once held the thread a key waits on.
+		const missed = (await m.transport.listIds())
+			.filter((id) => !m.seen.has(id))
+			.map(take)
+			.filter((one): one is Message => one !== undefined);
+		if (missed.length > 0) void route(missed);
+	};
+
+	// A tick that comes while the last look still reads is passed over:
+	// on a stalled disk, looks stacking up would only queue more reads.
+	const looking = singleFlight<string, void>();
+
+	/** What a minute changed that nothing said, looked at again. */
 	const lookAgain = () => {
 		if (!m.peer) return;
 		chase();
-		// Who is still there changes without a message saying so: a
-		// quest's address left to a peer that ended is taken back.
-		void countLive().then(() => {
-			m.peer?.refresh();
-			identity();
-			m.steering?.look();
-			// A parked peer told to close or carry is started again to do it.
-			if (m.paths.steer !== undefined) {
-				wakeSteered(m.presences.all(), m.paths.steer, isParked, askWake);
-			}
-		});
 		if (m.left.size > 0) void reconsider();
-		// Listed a little at a time: the folder holds a week of messages,
-		// and listing it at once held the thread a key waits on.
-		void m.transport.listIds().then((ids) => {
-			const missed = ids
-				.filter((id) => !m.seen.has(id))
-				.map(take)
-				.filter((one): one is Message => one !== undefined);
-			if (missed.length > 0) void route(missed);
+		looking("again", async () => {
+			// Both end before the next tick may look: one failing leaves the
+			// other to finish rather than run beside its next.
+			await Promise.allSettled([lookAround(), lookForMissed()]);
+		}).catch(() => {
+			// Unread now: the next tick looks again.
 		});
 	};
 

@@ -150,7 +150,7 @@ export function createSteerer(m: MeshState) {
 				);
 			},
 		});
-		setTimeout(() => m.steering?.look(), FIRST_STEER_MS).unref?.();
+		setTimeout(() => void m.steering?.look(), FIRST_STEER_MS).unref?.();
 	};
 
 	return { steered, answerFromAway, steer };

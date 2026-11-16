@@ -46,6 +46,7 @@ import {
 	statSync,
 	unlinkSync,
 } from "node:fs";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isMachineName } from "../internal/machine.ts";
 import { isMoveTarget } from "../internal/session/move.ts";
@@ -403,29 +404,32 @@ function lastChange(dir: string): { at: number; empty: boolean } | undefined {
 }
 
 /**
- * The steers waiting in an inbox, oldest name first, read and left where
- * they are for their own session to take: what is not a steer, or was
- * taken as it was read, is passed over.
+ * The steers waiting in an inbox, oldest name first, read off the thread
+ * and left where they are for their own session to take: what is not a
+ * steer, or was taken as it was read, is passed over. A clock reads every
+ * parked peer's this way, and a host runs every conversation's clock on
+ * one thread.
  */
-export function waitingSteers(inbox: string): Steer[] {
+export async function waitingSteers(inbox: string): Promise<Steer[]> {
 	let names: string[];
 	try {
-		names = readdirSync(inbox);
+		names = await readdir(inbox);
 	} catch {
 		// No inbox: nothing was ever written to it.
 		return [];
 	}
-	return names
-		.filter((name) => name.endsWith(READY))
-		.sort()
-		.flatMap((name) => {
-			try {
-				return steerFrom(readFileSync(join(inbox, name), "utf8"), name) ?? [];
-			} catch {
-				// Taken by its session between the listing and the read.
-				return [];
-			}
-		});
+	const read = await Promise.all(
+		readyOf(names).map((name) =>
+			readFile(join(inbox, name), "utf8").then(
+				(raw) => steerFrom(raw, name),
+				() => {
+					// Taken by its session between the listing and the read.
+					return undefined;
+				},
+			),
+		),
+	);
+	return read.filter((steer): steer is Steer => steer !== undefined);
 }
 
 /**
@@ -435,28 +439,74 @@ export function waitingSteers(inbox: string): Steer[] {
  */
 export function takeSteers(inbox: string, taker: string): Taken {
 	mkdirSync(inbox, { recursive: true });
-	const steers: Steer[] = [];
-	const bad: string[] = [];
-	const ready = readdirSync(inbox)
-		.filter((name) => name.endsWith(READY))
-		.sort();
-	for (const name of ready) {
-		const from = join(inbox, name);
-		const taking = `${from}.${taker}${TAKEN}`;
-		try {
-			renameSync(from, taking);
-		} catch {
-			// Another session took it first, or its writer withdrew it.
-			continue;
-		}
-		const steer = steerFrom(readFileSync(taking, "utf8"), name);
-		if (steer) {
-			steers.push(steer);
-			unlinkSync(taking);
-		} else {
-			renameSync(taking, `${from}${BAD}`);
-			bad.push(name);
-		}
+	const taken: Taken = { steers: [], bad: [] };
+	for (const name of readyOf(readdirSync(inbox))) {
+		const taking = claim(inbox, name, taker);
+		if (taking !== undefined)
+			settle(inbox, name, taking, readFileSync(taking, "utf8"), taken);
 	}
-	return { steers, bad };
+	return taken;
+}
+
+/**
+ * Every steer waiting in an inbox, as `takeSteers` takes them, with the
+ * folder and each steer read off the thread: every conversation a host
+ * holds looks at its inboxes on a clock, and a disk that stalls a
+ * synchronous read holds them all. Taking each stays a rename at once,
+ * so a steer is never half taken.
+ */
+export async function takenSteers(
+	inbox: string,
+	taker: string,
+): Promise<Taken> {
+	await mkdir(inbox, { recursive: true });
+	const taken: Taken = { steers: [], bad: [] };
+	for (const name of readyOf(await readdir(inbox))) {
+		const taking = claim(inbox, name, taker);
+		if (taking !== undefined)
+			settle(inbox, name, taking, await readFile(taking, "utf8"), taken);
+	}
+	return taken;
+}
+
+/** The steers ready to take among an inbox's `names`, oldest first. */
+function readyOf(names: string[]): string[] {
+	return names.filter((name) => name.endsWith(READY)).sort();
+}
+
+/**
+ * The steer `name` taken off its inbox for `taker`, answering where it
+ * now lies; none when another session took it first, or its writer
+ * withdrew it.
+ */
+function claim(inbox: string, name: string, taker: string): string | undefined {
+	const taking = `${join(inbox, name)}.${taker}${TAKEN}`;
+	try {
+		renameSync(join(inbox, name), taking);
+		return taking;
+	} catch {
+		// Another session took it first, or its writer withdrew it.
+		return undefined;
+	}
+}
+
+/**
+ * The steer taken to `taking`, which read `raw`, added to `taken` and
+ * let go, or set aside as bad when it is not a steer.
+ */
+function settle(
+	inbox: string,
+	name: string,
+	taking: string,
+	raw: string,
+	taken: Taken,
+): void {
+	const steer = steerFrom(raw, name);
+	if (steer) {
+		taken.steers.push(steer);
+		unlinkSync(taking);
+	} else {
+		renameSync(taking, `${join(inbox, name)}${BAD}`);
+		taken.bad.push(name);
+	}
 }

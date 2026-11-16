@@ -276,8 +276,9 @@ may import from here, and any of it may change without notice.
   forbid (output cut with tail, long sleeps, git stash), as
   `shell-habit-interceptor` catches them.
 - **`single-flight.ts`**: one flight per key, which later callers
-  join, and `loadOnce`, through which every lazy import loads its
-  module once.
+  join; work that coalesces, running once more after the run going
+  for every call that came during it; and `loadOnce`, through which
+  every lazy import loads its module once.
 - **`spend-watch.ts`**: the bill for a period, asked of spend-watch's
   command line where it is installed, for the spend tool.
 - **`spend-watch-budgets.ts`**: where every budget stands, its
