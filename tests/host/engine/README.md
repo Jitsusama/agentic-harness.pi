@@ -27,7 +27,8 @@ on pi's scripted provider. The second runs fixtures/hosted-engine.mts, a
 host's life one start at a time in a sealed folder: open, a refused key,
 a stop and resume, a kill mid-tool and the start after it, a park
 that keeps what an ended command left and the start after it, a
-restart's stop that keeps it too, a close that ends it, ordinary
+restart's stop and a release that keep it too, a close that ends it,
+ordinary
 pi reading the file, and an extension whose link moves onto another
 copy once its first is deleted, as a switch and a store collection
 leave Shopify's proxy. One step loads this package as a conversation's

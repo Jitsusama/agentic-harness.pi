@@ -12,7 +12,7 @@
  * left building with `&` (WCJQSG [b675818d]); an hour's idle park ends
  * one the same way.
  *
- * So a park, or any stop short of a close, such as a restart's of a
+ * So a park, or any stop of the host's, such as a restart's of a
  * conversation busy at the drain, notes by each call's mark what the
  * conversation's ended calls left, and every reap after spares those
  * marks: the stop's own, the wake's and the next host's at its start. A
@@ -20,8 +20,10 @@
  * by its mark before the look, or it is carried to the next host and
  * left out, so what is still marked then is what ended calls left. What
  * an extension started carries no call's mark, and still ends with the
- * stop. A close for good notes nothing and drops the conversation's
- * notes, so what its earlier parks kept ends with it, parked or running.
+ * stop. A release or pi's replacement in the seat hands the conversation
+ * on, and keeps the same way. A close for good notes nothing and drops
+ * the conversation's notes, so what its earlier parks kept ends with it,
+ * parked or running.
  * A crash or a kill -9 notes nothing, so what they cut ends as before.
  * A note goes a day after its stop, the same day a carried call nobody
  * took up runs (carried-shells.ts).
@@ -50,8 +52,8 @@ export interface LeftRunning {
 	note(session: string, marks: Iterable<string>): void;
 	/** What a reap spares: what is carried, and what parks noted within a day. */
 	spared(carried: CarriedCalls): CarriedCalls;
-	/** A conversation closed for good: spare no longer what its parks kept. */
-	closed(session: string): void;
+	/** A conversation closed for good: spare no longer what its parks kept, answering how many calls' notes went. */
+	closed(session: string): number;
 }
 
 function isLeftCall(value: unknown): value is LeftCall {
@@ -112,12 +114,14 @@ export function leftRunning(options: {
 		closed(session) {
 			const left = read();
 			const kept = left.filter((call) => call.session !== session);
-			if (kept.length === left.length) return;
+			const ended = left.length - kept.length;
+			if (ended === 0) return 0;
 			try {
 				writeWhole(file, `${JSON.stringify(kept)}\n`);
 			} catch (error) {
 				options.report(error);
 			}
+			return ended;
 		},
 	};
 }

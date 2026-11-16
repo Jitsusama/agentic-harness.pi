@@ -163,6 +163,11 @@ interface Live {
 	closing?: boolean;
 	/** It asked to park, so its close keeps its screen's terminal for the wake. */
 	parking?: boolean;
+	/**
+	 * Its close hands it on, to pi's replacement in its seat or to another
+	 * holder, so what its ended calls left is kept, as a stop keeps it.
+	 */
+	handsOn?: boolean;
 }
 
 /**
@@ -199,6 +204,8 @@ export async function createEngine(
 	const owner = ownerMark();
 	// What parks kept of what ended calls left running is spared by every reap.
 	const left = leftRunning({ stateDir: options.stateDir, report });
+	// Conversations the service is releasing to another holder, whose close keeps what parks kept.
+	const handedOn = new Set<string>();
 	const reaped = await reapLeftBehind(
 		host.key,
 		undefined,
@@ -560,6 +567,8 @@ export async function createEngine(
 		}
 		seat.current = next;
 		seat.next = undefined;
+		// Plain pi keeps what the conversation it replaces left running.
+		previous.handsOn = true;
 		previous.runtime = undefined;
 		previous.disposed = true;
 		previous.unsubscribe?.();
@@ -795,9 +804,12 @@ export async function createEngine(
 		// such as its agent, stays in memory while the reap below reads every
 		// process's environment.
 		await release(sessionId, record, why);
-		// A park or a restart's stop keeps what its ended calls left running,
-		// as plain pi does; a close for good ends what its parks kept too.
-		if (record.ending === "closed") left.closed(sessionId);
+		// Any stop short of a close for good, a park, a host's stop, a release
+		// or pi's replacement, keeps what its ended calls left running, as
+		// plain pi does; a close for good ends what its parks kept too.
+		if (handedOn.delete(sessionId)) record.handsOn = true;
+		if (record.ending === "closed" && !record.handsOn)
+			endKept(sessionId);
 		else await keepLeftRunning(sessionId, record.parking ? "park" : "stop");
 		// The signal kills a tool's own group; a descendant that left it ends here.
 		await reapToolChildren(sessionId, undefined, left.spared(carriedCalls()));
@@ -807,6 +819,16 @@ export async function createEngine(
 			Promise.resolve()
 				.then(() => events.ended(sessionId, why))
 				.catch(report);
+	}
+
+	/** Spare no longer what a conversation closed for good kept, saying it in the journal; true when it kept any. */
+	function endKept(sessionId: string): boolean {
+		const ended = left.closed(sessionId);
+		if (ended > 0)
+			report(
+				`Ending at ${sessionId}'s close what ${ended} ended command${ended === 1 ? "" : "s"} left`,
+			);
+		return ended > 0;
 	}
 
 	/** Note what a stopped conversation's ended calls left running, saying it in the journal. */
@@ -1101,6 +1123,10 @@ export async function createEngine(
 
 		parkSettled: (sessionId) => parked.settled(sessionId),
 
+		handsOn(sessionId) {
+			handedOn.add(sessionId);
+		},
+
 		async dropped(sessionId, why) {
 			warming.stop(sessionId);
 			logs.release(sessionId);
@@ -1109,19 +1135,19 @@ export async function createEngine(
 			providers.delete(sessionId);
 			rmSync(providersFile(sessionId), { force: true });
 			parked.closed(sessionId);
-			// Closed while parked, what its parks kept ends with it, as a
-			// running one's close ends it.
-			left.closed(sessionId);
-			try {
-				await reapToolChildren(
-					sessionId,
-					undefined,
-					left.spared(carriedCalls()),
-				);
-			} catch (error) {
-				// The close goes on; what the reap missed runs out the day it was kept for.
-				report(error);
-			}
+			// Closed for good while parked, what its parks kept ends with it,
+			// as a running one's close ends it; released, it is kept.
+			if (!handedOn.delete(sessionId) && endKept(sessionId))
+				try {
+					await reapToolChildren(
+						sessionId,
+						undefined,
+						left.spared(carriedCalls()),
+					);
+				} catch (error) {
+					// The close goes on; what the reap missed runs out the day it was kept for.
+					report(error);
+				}
 			await options.screens?.closed(sessionId, why);
 		},
 

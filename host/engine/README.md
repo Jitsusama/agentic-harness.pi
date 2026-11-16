@@ -296,8 +296,8 @@ shell marks its kept files `.carried` with the call's own mark, and
 every process carrying that mark, whatever group it moved to as
 `timeout` does, is spared until the plain pi says its end.
 
-A park, or a restart's stop of a conversation that never parked,
-keeps what the conversation's ended commands left running, as plain pi
+A park, or any stop of the host's (for a restart or for good), keeps
+what the conversation's ended commands left running, as plain pi
 does while its session idles, such as a build started with `&`
 (left-running.ts). By then any call still running was signalled and
 ended what it left, or is carried to the next host and left out, so
@@ -307,8 +307,10 @@ carries. It writes them to `left-running.json` in its state folder, and
 says so in the journal. Every reap after spares them for a day: the
 stop's own, the wake's and the next host's at its start. What an
 extension started carries no call's mark and ends with the stop. A
-close for good, parked or running, drops the conversation's notes and
-ends what its parks kept. A crash or a kill -9 notes nothing, so what
+release to another holder, or pi replacing the conversation in its
+seat, hands it on and keeps the same way. A close for good, parked or
+running, drops the conversation's notes and ends what its parks kept,
+saying so in the journal. A crash or a kill -9 notes nothing, so what
 they cut ends as before.
 
 A host's own restart carries its conversations' bash calls the same

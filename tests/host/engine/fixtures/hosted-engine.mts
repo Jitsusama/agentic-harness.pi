@@ -634,6 +634,16 @@ const scenarios: Record<string, Scenario> = {
 			return {};
 		},
 	},
+	/** The next host releases the conversation the last one parked, as the service hands one on to plain pi. */
+	"release-parked": {
+		responses: () => [],
+		run: async (engine) => {
+			const { sessionId } = readEntry();
+			engine.handsOn?.(sessionId);
+			await engine.dropped?.(sessionId, "released, asked by a test");
+			return {};
+		},
+	},
 	/** The next host resumes the conversation the last one parked, then closes it for good. */
 	"resume-and-close": {
 		responses: () => [],
@@ -641,10 +651,10 @@ const scenarios: Record<string, Scenario> = {
 			const entry = readEntry();
 			await engine.resume(entry);
 			await idle(engine, entry.sessionId);
-			// What the wake's reap left, before the close.
-			const woken = leftRunning().filter(alive);
+			// What the resume's reap left, before the close.
+			const resumed = leftRunning().filter(alive);
 			await host.close(entry.sessionId, "closed, asked by a test");
-			return { woken };
+			return { resumed };
 		},
 	},
 	/**
