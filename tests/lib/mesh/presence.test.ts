@@ -177,6 +177,54 @@ describe("presences", () => {
 		expect(presences.of("s-1")).toBeUndefined();
 	});
 
+	// A clock lists them in every conversation a host holds, and a disk
+	// stalled at 09:14 on 16 November held a host's thread 5 to 17 s at a
+	// time inside a synchronous listing.
+	it("list every peer as all() does, letting the thread turn while they are read", async () => {
+		const presences = createPresences(root);
+		presences.publish(presence());
+		presences.publish(presence({ session: "s-2", addresses: ["B"] }));
+		writeFileSync(join(root, "torn.json"), "{", "utf8");
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		const listed = await presences.listed();
+
+		expect(turned, "the thread turned while the folder was read").toBe(true);
+		expect(
+			listed.map((one) => one.session).sort(),
+			"the torn file passed over",
+		).toEqual(["s-1", "s-2"]);
+		expect(listed, "what all() lists").toEqual(presences.all());
+	});
+
+	it("keep one parse of a file between a listing and all()", async () => {
+		const presences = createPresences(root);
+		presences.publish(presence());
+		const first = (await presences.listed())[0];
+		expect(presences.all()[0], "all() keeps the listing's parse").toBe(first);
+		expect(
+			(await presences.listed())[0],
+			"a listing keeps all()'s parse",
+		).toBe(first);
+
+		presences.publish(presence({ busy: true }));
+		expect((await presences.listed())[0]?.busy, "a publish is read").toBe(
+			true,
+		);
+		rmSync(join(root, "s-1.json"));
+		expect(await presences.listed(), "a removed file is gone").toEqual([]);
+		expect(presences.of("s-1")).toBeUndefined();
+	});
+
+	it("list none for a folder not made yet", async () => {
+		await expect(
+			createPresences(join(root, "never")).listed(),
+		).resolves.toEqual([]);
+	});
+
 	it("say why a parked peer's host refused its last wake, reading it again only once it changed", () => {
 		const presences = createPresences(root);
 		const wake = join(root, "a", "wake");

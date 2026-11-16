@@ -3,6 +3,7 @@
  * peer has read.
  */
 import {
+	Dir,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -147,6 +148,22 @@ describe("the folder transport", () => {
 
 		expect(listed).toHaveLength(600);
 		expect(turns, "other work ran between batches").toBeGreaterThan(1);
+	});
+
+	// A batch read synchronously holds the thread for as long as the
+	// disk takes: at 09:14 on 16 November a stalled one held a host's,
+	// and every conversation on it, 5 to 17 s at a time.
+	it("reads no batch with the thread held", async () => {
+		const transport = folderTransport(dir);
+		for (let n = 0; n < 600; n++) transport.send(draft({ text: `${n}` }));
+		const held = vi.spyOn(Dir.prototype, "readSync");
+
+		try {
+			expect(await transport.listIds()).toHaveLength(600);
+			expect(held, "no entry was read synchronously").not.toHaveBeenCalled();
+		} finally {
+			held.mockRestore();
+		}
 	});
 
 	it("lists from the day an id was stamped on, passing the days before", () => {
