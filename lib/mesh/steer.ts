@@ -452,8 +452,11 @@ export function takeSteers(inbox: string, taker: string): Taken {
  * Every steer waiting in an inbox, as `takeSteers` takes them, with the
  * folder and each steer read off the thread: every conversation a host
  * holds looks at its inboxes on a clock, and a disk that stalls a
- * synchronous read holds them all. Taking each stays a rename at once,
- * so a steer is never half taken.
+ * synchronous read holds them all. Each is read under its own name and
+ * then claimed and settled in one turn with what was read, so a taker
+ * ended while a read waits leaves the steer waiting, never claimed and
+ * lost. A steer is published whole by a rename and never rewritten
+ * under its name, so what was read is what is claimed.
  */
 export async function takenSteers(
 	inbox: string,
@@ -463,9 +466,13 @@ export async function takenSteers(
 	await mkdir(inbox, { recursive: true });
 	const taken: Taken = { steers: [], bad: [] };
 	for (const name of readyOf(await readdir(inbox))) {
+		const raw = await readOff(join(inbox, name)).catch(() => {
+			// Taken by another session, or withdrawn, since it was listed.
+			return undefined;
+		});
+		if (raw === undefined) continue;
 		const taking = claim(inbox, name, taker);
-		if (taking !== undefined)
-			settle(inbox, name, taking, await readOff(taking), taken);
+		if (taking !== undefined) settle(inbox, name, taking, raw, taken);
 	}
 	return taken;
 }
