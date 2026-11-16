@@ -13,8 +13,8 @@ import {
 	expireLooks,
 	type LookState,
 	leaveSeenLooks,
-	looksIn,
 	looksDue,
+	looksIn,
 	looksListed,
 	MOST_CHOICES,
 	pointAt,
@@ -576,10 +576,14 @@ describe("a look list that keeps only what's useful", () => {
 		).toEqual({ ...none, expired: true });
 
 		mark(shows.id, "opened");
-		pointAt(dir, { ...pr, target: `${pr.target}4` }, {
-			session: "S4",
-			quest: "QEST-2",
-		});
+		pointAt(
+			dir,
+			{ ...pr, target: `${pr.target}4` },
+			{
+				session: "S4",
+				quest: "QEST-2",
+			},
+		);
 		const due = looksDue(looksIn(dir), ownedHere, ended, t0);
 		expect(due, "an opened showing look, and an ended quest's").toEqual({
 			...none,
