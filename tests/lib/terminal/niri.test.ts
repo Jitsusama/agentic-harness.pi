@@ -207,7 +207,7 @@ describe("placing a window", () => {
 		const placed = await placeWindow(niri.call, { beside: [lead, own] });
 
 		expect(placed).toBeUndefined();
-		expect(niri.asked).toEqual(["Windows"]);
+		expect(niri.asked).toEqual(["Windows", "Workspaces"]);
 	});
 
 	it("goes to the first title found alone, its orchestrator's before its own", async () => {
@@ -227,7 +227,7 @@ describe("placing a window", () => {
 			column: 1,
 			asked: true,
 		});
-		expect(niri.asked[1]).toEqual({
+		expect(niri.asked[2]).toEqual({
 			Action: {
 				OpenNextWindowOn: {
 					app_id: "pi-spawned.1",

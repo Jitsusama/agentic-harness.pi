@@ -68,9 +68,13 @@ that sorts before its own `title`. Niri is asked, by
 class of its own, `pi-spawned.<n>`, there and in that column; a
 niri that refuses the column is asked without one. A niri that
 refuses the ask outright has the window moved there once it opens,
-by `MoveWindowToWorkspace` without focus, so it goes last. No
-window of a title it names, and the window opens where niri puts
-it, as it did before (`niri.ts`).
+by `MoveWindowToWorkspace` without focus, so it goes last.
+
+It never opens on the workspace you are looking at. When the
+window it belongs with is on that workspace, or no window of a
+title it names is found, it opens on an empty workspace instead,
+your screen's lowest first. Only when niri lists no empty
+workspace but yours does it open where niri puts it (`niri.ts`).
 
 A request may set `endsWithCommand` for one simple command, as a
 pi is: the line typed into the new shell then starts with `exec`,
