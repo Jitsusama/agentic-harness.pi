@@ -38,8 +38,8 @@ import {
 	createSupervisorRunPi,
 	createSupervisorStartPi,
 } from "../../../../lib/subagent/runpi/supervisor.ts";
-import { gone, noSuchProcess } from "../../../support/processes.ts";
 import { at } from "../../../support/at.ts";
+import { gone, noSuchProcess } from "../../../support/processes.ts";
 import { sessionHost } from "../../../support/session-host.ts";
 import { APPEARS_WITHIN_MS, appears } from "./appears.ts";
 

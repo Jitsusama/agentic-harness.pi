@@ -570,7 +570,9 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 		// And never an idle clock tighter than the wall it runs under.
 		// Shortening an idle clock on its own is what killed six rounds
 		// of working reviewers: silence is not idleness.
-		expect(at(calls, 1).idleTimeoutMs).toBeLessThanOrEqual(at(calls, 1).timeoutMs ?? 0);
+		expect(at(calls, 1).idleTimeoutMs).toBeLessThanOrEqual(
+			at(calls, 1).timeoutMs ?? 0,
+		);
 	});
 
 	it("keeps the fragment when the ask cannot even be made", async () => {

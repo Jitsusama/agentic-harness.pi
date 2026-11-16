@@ -33,7 +33,9 @@ function colourOf(line: string, needle: string): string {
 		.slice(1)
 		.map((part) => Number.parseInt(part, 10));
 	const last = codes.at(-1);
-	return last === undefined || last === 39 ? "plain" : (NAMES[last] ?? `code ${last}`);
+	return last === undefined || last === 39
+		? "plain"
+		: (NAMES[last] ?? `code ${last}`);
 }
 
 describe("a navigable list", () => {

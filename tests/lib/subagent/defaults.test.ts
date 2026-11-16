@@ -11,8 +11,8 @@ import {
 	registerSubagentDefaultSkill,
 	runReviewer,
 } from "../../../lib/subagent/index.ts";
-import { installTestHost } from "../../support/session-host.ts";
 import { at } from "../../support/at.ts";
+import { installTestHost } from "../../support/session-host.ts";
 
 // The registry is process-global on purpose so a
 // Shopify-style credentials extension can register once
