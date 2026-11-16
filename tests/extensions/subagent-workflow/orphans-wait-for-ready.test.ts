@@ -86,9 +86,7 @@ describe("the look for orphaned subagents", () => {
 		const stub = activateWith(subagentWorkflow);
 
 		await handler(stub, "session_start")({ reason: "startup" }, {});
-		await until("the fleet sweep to claim its window", () =>
-			claimed("sweep"),
-		);
+		await until("the fleet sweep to claim its window", () => claimed("sweep"));
 		// Absence, so a real wait: long beside the few milliseconds the
 		// look took to begin once the sweep was done, when it began at
 		// the session's start.
