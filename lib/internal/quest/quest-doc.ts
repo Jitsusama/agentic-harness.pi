@@ -81,18 +81,21 @@ export function shownReadme(text: string): ShownReadme | undefined {
 	const parsed = parseQuestFrontMatter(text);
 	if (!parsed) return undefined;
 	const { frontMatter, body } = parsed;
-	const [title, worksOn] = [headingOf(body), worksOnOf(body)];
+	const title = headingOf(body);
+	const worksOn = worksOnOf(title, body);
 	return structuredClone({ frontMatter, title, worksOn });
 }
 
-/** A README's heading, or nothing. */
+/**
+ * A README's heading, or nothing: the text after `# ` on its line, as a
+ * peer has always shown it, where `extractTitle` lets any space follow.
+ */
 function headingOf(body: string): string {
 	return body.match(/^# (.+)$/m)?.[1]?.trim() ?? "";
 }
 
 /** The quest's title and the start of its summary. */
-function worksOnOf(body: string): string {
-	const title = headingOf(body);
+function worksOnOf(title: string, body: string): string {
 	const summary =
 		body
 			.split(/^## .*Summary.*$/m)[1]

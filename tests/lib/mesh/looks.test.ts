@@ -550,19 +550,21 @@ describe("whether a look's quest has ended", () => {
 		expect(questEnded(dir, "QEST-20261111-DDDDDD"), "no README").toBe(false);
 	});
 
-	it("keeps none of a README's text once it has said", () => {
+	it("holds on to no README's text once it has said", () => {
 		// 16 November: 10.2 MB of the background host's heap was quest
 		// READMEs read for whether a look's quest had ended, each kept
 		// whole for its status alone.
 		setFlagsFromString("--expose-gc");
 		const gc = runInNewContext("gc") as () => void;
-		const quests = 8;
+		// Sixteen, so the last README a RegExp keeps as its input is lost
+		// in the margin.
+		const quests = 16;
 		const bodyBytes = 1024 * 1024;
 		const ids = Array.from(
 			{ length: quests },
 			(_, at) => `QEST-20261116-PIN00${at}`,
 		);
-		const written = new Date("2026-11-16T00:00:00Z");
+		const written = new Date(Date.now() - 60 * 60 * 1000);
 		for (const id of ids) {
 			quest(id, "active");
 			const readme = join(dir, id, "README.md");
