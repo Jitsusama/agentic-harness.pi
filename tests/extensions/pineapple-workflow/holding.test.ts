@@ -8,7 +8,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { tendHolds } from "../../../extensions/pineapple-workflow/holding.ts";
+import {
+	type HoldingDeps,
+	tendHolds,
+} from "../../../extensions/pineapple-workflow/holding.ts";
 import {
 	END_TEXT,
 	HOLD_SENDER,
@@ -23,7 +26,7 @@ function stop(id: string, reaches: string[], shadow = false): Stop {
 	return made;
 }
 
-function mesh() {
+function mesh(over: Partial<HoldingDeps> = {}) {
 	const root = mkdtempSync(join(tmpdir(), "pineapple-holds-"));
 	const transport = folderTransport(join(root, "messages"));
 	const clock = { now: 10 * RENEW_MS };
@@ -39,6 +42,7 @@ function mesh() {
 			chainOf: (quest) => [quest],
 			pid: 4242,
 			now: () => clock.now,
+			...over,
 		});
 	return { root, clock, state, sent, tend };
 }
@@ -125,5 +129,53 @@ describe("tending holds", () => {
 		clock.now = Date.now() + 3 * 60 * 1000;
 		await tend();
 		expect(sent()).toHaveLength(1);
+	});
+
+	it("tends once when conversations take a stale claim at once", async () => {
+		const { root, clock, state, sent, tend } = mesh();
+		state.stops = [stop("q", ["quest:QEST-A"])];
+		mkdirSync(join(root, "pineapple"), { recursive: true });
+		writeFileSync(join(root, "pineapple", "claim"), "1");
+		clock.now = Date.now() + 3 * 60 * 1000;
+		await Promise.all([tend(), tend(), tend(), tend()]);
+		expect(sent(), "one hold, from one tending").toHaveLength(1);
+	});
+
+	it("leaves a claim another session took meanwhile", async () => {
+		const at = { claim: "" };
+		const { root, state, tend } = mesh({
+			// Another session takes the claim as this one sends.
+			send: () => {
+				writeFileSync(at.claim, "another");
+				return { id: "m1" };
+			},
+		});
+		at.claim = join(root, "pineapple", "claim");
+		const claim = () => at.claim;
+		state.stops = [stop("q", ["quest:QEST-A"])];
+		await tend();
+		expect(
+			existsSync(claim()) && readFileSync(claim(), "utf8"),
+			"the other session's claim",
+		).toBe("another");
+	});
+
+	it("gives its claim back when tending fails", async () => {
+		const failing = { now: true };
+		const transport = { sent: 0 };
+		const { state, tend } = mesh({
+			send: () => {
+				if (failing.now) throw new Error("the mesh moved");
+				transport.sent += 1;
+				return { id: "m1" };
+			},
+		});
+		state.stops = [stop("q", ["quest:QEST-A"])];
+		await expect(tend(), "the failed tending").rejects.toThrow(
+			"the mesh moved",
+		);
+		failing.now = false;
+		await tend();
+		expect(transport.sent, "sent by the next tending").toBe(1);
 	});
 });
