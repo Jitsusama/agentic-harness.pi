@@ -6,9 +6,9 @@
  * 460 to 940 MB fell to 205 to 240 after one).
  *
  * So once a turn ends, a conversation closes or one parks, the host runs
- * one last-resort collection, a pause of about a quarter second, when it
- * is quiet: no tool call or job running, and no viewer's key or resize
- * for VIEWER_QUIET_MS. A conversation mid-turn that is only waiting on
+ * one last-resort collection, a pause of about a quarter second on a
+ * fresh host, when it is quiet: no tool call or job running, and no
+ * viewer's key or resize for VIEWER_QUIET_MS. A conversation mid-turn that is only waiting on
  * the model doesn't count against it, since the attended host almost
  * always has one, and the pause costs it at most a stall in streaming.
  * It runs at most once each SPACING_MS, and a park may bring one forward
@@ -23,6 +23,14 @@
  * Where V8 exposes no gc, or its gc throws, it says so once and
  * collects nothing more, rather than keeping the host, and every
  * conversation in it, from starting or running.
+ *
+ * The pause grows with the heap a collection walks, about a second for
+ * each GB the live hosts used, while what it gives back shrinks beside
+ * it. So a collection due is left uncollected, and said, when the heap
+ * it would walk, at the slowest pace of the last PACE_WINDOW, would hold
+ * the loop past HELD_MS: a loop held that long stalls every conversation
+ * and its viewer, which costs more than the pages it would give back.
+ * One runs again once the heap has fallen within it.
  */
 import { readFileSync } from "node:fs";
 import { getHeapSpaceStatistics, setFlagsFromString } from "node:v8";
@@ -45,11 +53,18 @@ export const SETTLE_MS = 5_000;
 /** How long a collection may wait on running tool calls and jobs before it runs anyway. */
 export const CEILING_MS = 60 * MS_PER_MINUTE;
 
-/** A pause longer than this is said as the loop held, as a late watchdog beat is. */
+/**
+ * A pause longer than this is said as the loop held, as a late watchdog
+ * beat is, and a collection foretold to take longer is left uncollected.
+ */
 const HELD_MS = 1_000;
 
-const MB = 1024 * 1024;
+/** How many of its last collections foretell the next one's pause, by the slowest. */
+export const PACE_WINDOW = 4;
+
 const KB = 1024;
+const MB = KB * KB;
+const GB = KB * MB;
 const MS_PER_SECOND = 1000;
 
 /** What runs one collection that gives pooled pages back. */
@@ -116,6 +131,8 @@ export function quietCollection(options: {
 	let lastViewed = Number.NEGATIVE_INFINITY;
 	// Since when a collection has been due but held off by running work.
 	let dueSince: number | undefined;
+	// The last collections' pauses, in ms for each byte of heap they walked.
+	const paces: number[] = [];
 
 	const forPark = (now: number) => parkOwed && now - lastForPark >= SPACING_MS;
 	const due = (now: number) =>
@@ -155,11 +172,26 @@ export function quietCollection(options: {
 		parkOwed = false;
 		dueSince = undefined;
 		lastCollected = now;
-		collected(reading, working);
-	};
-	const collected = (reading: QuietReading, working: boolean) => {
-		const before = weigh();
 		const heapBefore = heap();
+		const pace = paces.length > 0 ? Math.max(...paces) : undefined;
+		if (
+			heapBefore !== undefined &&
+			pace !== undefined &&
+			pace * heapBefore.used > HELD_MS
+		) {
+			options.report?.(
+				uncollectedLine(heapBefore, { pace, paced: paces.length }, reading),
+			);
+			return;
+		}
+		collected(reading, working, heapBefore);
+	};
+	const collected = (
+		reading: QuietReading,
+		working: boolean,
+		heapBefore: Heap | undefined,
+	) => {
+		const before = weigh();
 		const started = clock();
 		try {
 			collect();
@@ -174,6 +206,10 @@ export function quietCollection(options: {
 			return;
 		}
 		const took = Math.round(clock() - started);
+		if (heapBefore !== undefined && heapBefore.used > 0) {
+			paces.push(took / heapBefore.used);
+			if (paces.length > PACE_WINDOW) paces.shift();
+		}
 		const after = weigh();
 		const heaps = { before: heapBefore, after: heap() };
 		options.report?.(
@@ -307,6 +343,20 @@ function collectedLine(
 	return took > HELD_MS
 		? `${line}; the loop held ${(took / MS_PER_SECOND).toFixed(1)} s for it`
 		: line;
+}
+
+/**
+ * The journal's line for a collection left uncollected, its pause
+ * foretold at `pace` ms a byte, the slowest of the last `paced`.
+ */
+function uncollectedLine(
+	heap: Heap,
+	foretelling: { readonly pace: number; readonly paced: number },
+	reading: QuietReading,
+): string {
+	const { pace, paced } = foretelling;
+	const seconds = ((pace * heap.used) / MS_PER_SECOND).toFixed(1);
+	return `Left uncollected while quiet: the heap uses ${Math.round(heap.used / MB)} MB, which at ${Math.round(pace * GB)} ms a GB, the slowest of the last ${paced} collections, would hold the loop about ${seconds} s, past the ${HELD_MS / MS_PER_SECOND} s a pause may take; with ${reading.waiting} conversations waiting on the model`;
 }
 
 /**

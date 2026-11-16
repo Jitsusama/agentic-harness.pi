@@ -261,7 +261,10 @@ says so once and collects nothing, rather than refusing to start. The
 journal line says the pause in ms,
 the Pss before and after and how many conversations were waiting on
 the model, and names a pause over a second as the loop held, as the
-watchdog names a late beat. The `host` section of the package's config
+watchdog names a late beat. Its pause grows with the heap, about a
+second a GB on the live hosts, so a collection whose heap, at the
+slowest pace of the last four, would hold the loop past a second is
+left uncollected and said, until the heap falls within it. The `host` section of the package's config
 file turns it off with `collectWhenQuiet: false` (service/settings.ts). Given
 screens, the engine hands each built conversation to them; without, it
 binds extensions with no interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a

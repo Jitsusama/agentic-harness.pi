@@ -13,7 +13,9 @@ holds the quiet collection to its rules on fake timers (none while a
 tool call runs or a viewer typed in the last 30 s, one while a
 conversation only waits on the model, none within 10 minutes of the
 last but one a park brings forward, one after an hour due with a job
-running, and collection off, said once, where V8 exposes no gc),
+running, none, said, where the slowest of the last four foretells a
+pause past a second at the heap now, and collection off, said once,
+where V8 exposes no gc),
 counts tool calls from session
 events, and runs V8's own collection and reads this process's Pss.
 
