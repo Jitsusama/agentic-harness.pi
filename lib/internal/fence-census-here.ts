@@ -6,11 +6,11 @@
  * It lives apart from scripts/pi-fence.ts, which loads it only when the
  * census is asked for, because it reaches the mesh's presences and
  * through them packages, and core runs pi-fence's run path with no
- * node_modules (tests/scripts/pi-fence-runs-bare.test.ts).
+ * node_modules (tests/scripts/pi-fence.test.ts runs it so).
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createPresences } from "../mesh/presence.ts";
@@ -18,6 +18,7 @@ import { censusHolds, censusText, fenceCensus } from "./fence-census.ts";
 import { stageFolder } from "./fence-stage.ts";
 import { everyRealmsDir, stateDir } from "./paths.ts";
 import { keptFolder } from "./shell/kept.ts";
+import { writeWhole } from "./write-whole.ts";
 
 /** The status a census finding a session unfenced exits with. */
 const UNFENCED = 1;
@@ -74,7 +75,9 @@ function keepSightings(sightings: Readonly<Record<string, number>>): void {
 		recursive: true,
 		mode: PRIVATE_FOLDER,
 	});
-	writeFileSync(sightingsFile(), `${JSON.stringify(sightings)}\n`, {
+	// Whole or not at all, so a census cut short or two at once never
+	// leave a half-written file that fails a claimed session for a day.
+	writeWhole(sightingsFile(), `${JSON.stringify(sightings)}\n`, {
 		mode: PRIVATE,
 	});
 }
@@ -82,7 +85,8 @@ function keepSightings(sightings: Readonly<Record<string, number>>): void {
 /**
  * Run the census over the /proc named, this machine's unless asked
  * otherwise, write what it says, and answer the status pi-fence exits
- * with: 0 when every session was seen fenced, 1 otherwise.
+ * with: 0 when there is at least one session and each was seen fenced,
+ * 1 otherwise.
  */
 export function censusHere(
 	proc: string,
