@@ -26,6 +26,13 @@ import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { hostPiFor } from "../end-to-end/support/host-pi.ts";
+import {
+	type Observed,
+	said,
+	sealedEnv,
+	sessionRuns,
+	textOf,
+} from "./fixtures/session-runs.ts";
 
 const run = promisify(execFile);
 /** The host's pi, found again for each case, which skips or fails without one. */
@@ -33,73 +40,11 @@ let packageDir = "";
 beforeEach(({ skip }) => {
 	packageDir = hostPiFor(skip);
 });
-const FIXTURE = join(import.meta.dirname, "fixtures", "hosted-session.mts");
+const { fixtureArgs, observe, killed } = sessionRuns(() => packageDir);
 /** Two sessions in two processes, each loading pi's whole package. */
 const SESSION_PAIR_MS = 60_000;
 /** The longest a park may hold a stopping host's close, whatever the provider does. */
 const PARKED_CLOSE_MOST_MS = 5_000;
-
-interface Observed {
-	readonly events: readonly {
-		readonly type: string;
-		/** How long a timed step took, for an event that timed one. */
-		readonly ms?: number;
-		/** Whether a turn taken to carry a run on went to words a person wrote. */
-		readonly first?: boolean;
-		/** What a step threw, for an event that notes one. */
-		readonly error?: string;
-		/** Whether the agent still counted a run under way once the step returned. */
-		readonly streaming?: boolean;
-	}[];
-	readonly transcript: readonly {
-		readonly role: string;
-		readonly content: unknown;
-	}[];
-	/** How many times the scenario's tool really ran, for a kept session. */
-	readonly ran?: number;
-	/** The words pi's screen listed as pending once the run ended. */
-	readonly pendingAtEnd?: readonly string[];
-	/** The patches of seams the host wants that its pi lacks. */
-	readonly lacking?: readonly string[];
-}
-
-/** A child's environment: none of this session's pi or credentials, only what node needs. */
-function sealedEnv(): NodeJS.ProcessEnv {
-	return {
-		PATH: process.env.PATH ?? "",
-		HOME: process.env.HOME ?? "",
-		TMPDIR: process.env.TMPDIR ?? "",
-	};
-}
-
-function fixtureArgs(
-	mode: "pi" | "hosted",
-	scenario: string,
-	folder?: string,
-): string[] {
-	return [
-		"--no-warnings",
-		FIXTURE,
-		packageDir,
-		mode,
-		scenario,
-		...(folder ? [folder] : []),
-	];
-}
-
-/** What pi's listeners saw in one scenario, on pi's agent or the host's. */
-async function observe(
-	mode: "pi" | "hosted",
-	scenario: string,
-	folder?: string,
-): Promise<Observed> {
-	const { stdout } = await run(
-		process.execPath,
-		fixtureArgs(mode, scenario, folder),
-		{ env: sealedEnv() },
-	);
-	return JSON.parse(stdout);
-}
 
 /** The turns a run took and gave back, among the ends of pi's runs and any other events named. */
 function turnsOf(observed: Observed, among: readonly string[] = []): unknown[] {
@@ -183,25 +128,6 @@ function besideTheWord(folder: string): [string, string] {
 	return [said[word - 1] ?? "nothing", said[word + 1] ?? "nothing"];
 }
 
-/** Run a hosted scenario to its death, keeping what it left in `folder`; answers the signal that ended it. */
-async function killed(
-	scenario: string,
-	folder: string,
-): Promise<string | null> {
-	try {
-		await run(process.execPath, fixtureArgs("hosted", scenario, folder), {
-			env: sealedEnv(),
-		});
-		return null;
-	} catch (error) {
-		const signal =
-			typeof error === "object" && error !== null && "signal" in error
-				? error.signal
-				: null;
-		return typeof signal === "string" ? signal : null;
-	}
-}
-
 const SCENARIOS = {
 	plain: "answers a prompt",
 	tool: "runs a tool round",
@@ -239,22 +165,6 @@ function outboxOf(observed: Observed): unknown {
 	};
 }
 
-/** A message's text, its parts joined. */
-function textOf(message: { readonly content: unknown }): string {
-	const { content } = message;
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.map((part: unknown) => {
-			const text: unknown =
-				typeof part === "object" && part !== null
-					? Reflect.get(part, "text")
-					: undefined;
-			return typeof text === "string" ? text : "";
-		})
-		.join("");
-}
-
 /** Whether an event carries a message whose text is `text`. */
 function carries(event: object, text: string): boolean {
 	const message: unknown = Reflect.get(event, "message");
@@ -270,12 +180,6 @@ function refusals(observed: Observed): unknown[] {
 				Reflect.get(message, "stopReason") === "error",
 		)
 		.map((message) => Reflect.get(message, "errorMessage"));
-}
-
-function said(observed: Observed, role: string): string[] {
-	return observed.transcript
-		.filter((message) => message.role === role)
-		.map(textOf);
 }
 
 /**
