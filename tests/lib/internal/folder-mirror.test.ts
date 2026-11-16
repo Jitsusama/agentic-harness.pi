@@ -49,6 +49,29 @@ function put(name: string, words: string): void {
 }
 
 /** The words of a folder's files, in the order it gives them. */
+/**
+ * A read held until released: `reached` settles once one is held, so a
+ * test knows the refresh listed the folder and stalled.
+ */
+function stalling() {
+	let reach = (): void => undefined;
+	let release = (): void => undefined;
+	const reached = new Promise<void>((settle) => {
+		reach = settle;
+	});
+	const held = new Promise<void>((settle) => {
+		release = settle;
+	});
+	return {
+		reached,
+		release: () => release(),
+		here: () => {
+			reach();
+			return held;
+		},
+	};
+}
+
 function wordsOf(files: ReadonlyMap<string, string | undefined>): string[] {
 	return [...files.values()].filter((one) => one !== undefined);
 }
@@ -121,13 +144,28 @@ describe("a host's mirror of a folder", () => {
 	});
 
 	it("keeps a write made while a refresh was reading", async () => {
-		const folder = mirror();
+		const stall = stalling();
+		const folder = folderMirrors<string>(
+			{
+				...WORDS,
+				readOff: async (path) => {
+					const words = await readFile(path, "utf8");
+					await stall.here();
+					return words;
+				},
+			},
+			{},
+		)(dir);
 		const path = join(dir, "own.txt");
 		put("own.txt", "before");
 		folder.files();
+		// Written again, so the refresh reads it, and holds what it read.
+		put("own.txt", "between");
 		const reading = folder.refresh();
+		await stall.reached;
 		put("own.txt", "after");
 		folder.put(path, "after");
+		stall.release();
 		await reading;
 		expect(folder.file(path), "not the file it replaced").toBe("after");
 	});
@@ -196,16 +234,13 @@ describe("a host's mirror of a folder", () => {
 	// The council on #1721: a refresh the thread overtook skipped its
 	// listing but still landed what it had read, undoing a publish since.
 	it("keeps its own publish over what a refresh the first ask overtook read", async () => {
-		let release = (): void => undefined;
-		const stalled = new Promise<void>((settle) => {
-			release = settle;
-		});
+		const stall = stalling();
 		const folder = folderMirrors<string>(
 			{
 				...WORDS,
 				readOff: async (path) => {
 					const words = await readFile(path, "utf8");
-					await stalled;
+					await stall.here();
 					return words;
 				},
 			},
@@ -214,12 +249,11 @@ describe("a host's mirror of a folder", () => {
 		const path = join(dir, "own.txt");
 		put("own.txt", "before");
 		const reading = folder.refresh();
-		// Long enough for the refresh to read the file and stall.
-		await new Promise((settle) => setTimeout(settle, 50));
+		await stall.reached;
 		put("own.txt", "mine");
 		folder.put(path, "mine");
 		folder.files();
-		release();
+		stall.release();
 		await reading;
 		expect(folder.file(path), "this process's publish").toBe("mine");
 	});
@@ -227,16 +261,13 @@ describe("a host's mirror of a folder", () => {
 	// The council on #1721: past two idle spells the first ask read the
 	// disk on the thread, though a read already stuck on it said it stalled.
 	it("answers from its last listing while a stale read is still in flight", async () => {
-		const stall = { on: false };
-		let release = (): void => undefined;
-		const stalled = new Promise<void>((settle) => {
-			release = settle;
-		});
+		const stall = stalling();
+		let stuck = false;
 		const folder = folderMirrors<string>(
 			{
 				...WORDS,
 				readOff: async (path) => {
-					if (stall.on) await stalled;
+					if (stuck) await stall.here();
 					return readFile(path, "utf8");
 				},
 			},
@@ -248,16 +279,16 @@ describe("a host's mirror of a folder", () => {
 		await new Promise((done) => setTimeout(done, 300));
 		// Written again, so the refresh reads it rather than keep its parse.
 		put("a.txt", "rewritten");
-		stall.on = true;
+		stuck = true;
 		const reading = folder.refresh();
-		// Long enough for the refresh to list the folder and stall on a read.
-		await new Promise((settle) => setTimeout(settle, 50));
+		// Stalled on a read, so the folder was listed before b.txt came.
+		await stall.reached;
 		put("b.txt", "since");
 		expect(
 			wordsOf(folder.files()),
 			"the last listing, not one read on the thread",
 		).toEqual(["here"]);
-		release();
+		stall.release();
 		await reading;
 		expect(wordsOf(folder.files()), "the stalled read, landed").toEqual([
 			"rewritten",

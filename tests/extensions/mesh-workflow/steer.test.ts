@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	ANSWER_GONE,
 	answerLookSteered,
@@ -341,15 +341,19 @@ describe("steering", () => {
 		]);
 	});
 
-	// The council on #1721: every steer is claimed before any is delivered,
-	// so one delivery that threw lost every steer after it.
-	it("delivers the rest when one delivery throws", async () => {
+	// The councils on #1721: every steer is claimed before any is delivered,
+	// so one delivery that threw lost every steer after it; and rethrown, it
+	// left the inbox unwatched and held back the minute's wakes.
+	it("delivers the rest when one delivery throws, says so, and keeps watching", async () => {
 		root = mkdtempSync(join(tmpdir(), "steering-"));
 		const inbox = inboxOf(root, "P9R1KI");
 		mkdirSync(inbox, { recursive: true });
 		writeFileSync(join(inbox, "1-a.json"), JSON.stringify({ text: "first" }));
 		writeFileSync(join(inbox, "2-b.json"), JSON.stringify({ text: "second" }));
+		writeFileSync(join(inbox, "3-c.json"), "not json");
 		const delivered: string[] = [];
+		const lost: string[] = [];
+		const aside: string[] = [];
 		const steering = createSteering({
 			root,
 			addresses: () => ["P9R1KI"],
@@ -357,10 +361,19 @@ describe("steering", () => {
 				if (steer.text === "first") throw new Error("a session gone stale");
 				delivered.push(steer.text);
 			},
-			setAside: () => undefined,
+			setAside: (_inbox, names) => aside.push(...names),
+			undelivered: (steer) => lost.push(steer.file),
 		});
-		await steering.look().catch(() => undefined);
-		steering.stop();
+		await steering.look();
 		expect(delivered, "the steer after the one that threw").toEqual(["second"]);
+		expect(lost, "the one that threw, said").toEqual(["1-a.json"]);
+		expect(aside, "what is not a steer, set aside still").toEqual(["3-c.json"]);
+		const name = join(inbox, "4-d.json");
+		writeFileSync(`${name}.tmp`, JSON.stringify({ text: "after" }));
+		renameSync(`${name}.tmp`, name);
+		await vi.waitFor(() =>
+			expect(delivered, "taken by the inbox's watch").toContain("after"),
+		);
+		steering.stop();
 	});
 });
