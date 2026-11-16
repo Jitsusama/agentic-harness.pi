@@ -123,12 +123,7 @@ async function completeUpload(
 	// race with other messages landing in the channel.
 	const [first] = result.files;
 	if (opts.channelId && first) {
-		result.ts = await fetchShareTs(
-			client,
-			first.id,
-			opts.channelId,
-			signal,
-		);
+		result.ts = await fetchShareTs(client, first.id, opts.channelId, signal);
 	}
 
 	return result;
