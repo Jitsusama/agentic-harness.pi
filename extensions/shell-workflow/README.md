@@ -169,7 +169,13 @@ of yours or this machine, and nix-offload sends its committed objects
 alone. It runs the store's own binary, started by its path
 with the call's own words and an environment of its own (home, runtime
 folder, account, the system's `PATH`), and a test fails from 28
-November while the exemption is still here. A flake never goes out:
+November while the exemption is still here. A nix-offload that has
+`outside` (core #4914) builds that environment itself, with
+`NIX_CONFIG=accept-flake-config = false` so a commit's own settings
+add nothing, and is given only the home, account and runtime folder,
+the tree's git folder and files as its flags, and `--lent-only` for a
+commit; so the terms are kept once, for the harness and a Mac's gate
+alike. An older one is given the same list from here. A flake never goes out:
 nix-offload sends one that isn't a git tree, or any `path:` one, as
 its whole folder read as you. Nor does a checkout's commit, since its
 refs are a command's to point anywhere. Any of these, alone, is

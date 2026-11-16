@@ -223,7 +223,8 @@ may import from here, and any of it may change without notice.
   `PI_NOTIFY=off` silences it.
 - **`offload-exemption.ts`**: the fence's one exemption, a
   `nix-offload there` call let out to run as the person: what may go
-  out, and the environment and git it is given there.
+  out, and the environment and git it is given there, through
+  `nix-offload outside` where it has one.
 - **`paths.ts`**: the package's configuration, data, state and cache
   paths, by the XDG base directories.
 - **`process-global.ts`**: singletons shared across an extension's
