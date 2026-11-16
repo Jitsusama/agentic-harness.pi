@@ -104,7 +104,8 @@ export function wakePlaces(
 		let as = asker;
 		if (as === "window") windows += 1;
 		else placed += 1;
-		const began = Date.now();
+		// Monotonic, so a suspend or a clock step can't misstate how long.
+		const began = performance.now();
 		let counted = true;
 		let lapsed = false;
 		const uncount = (): void => {
@@ -125,10 +126,11 @@ export function wakePlaces(
 		const longest = setTimeout(() => {
 			if (!counted) return;
 			lapsed = true;
+			// Uncounted first, so a journal that throws can't keep the place.
+			uncount();
 			options.say?.(
 				`The wake of ${sessionId} is still resuming after ${seconds(longestMs)} s; it holds back no other wake from now`,
 			);
-			uncount();
 		}, longestMs);
 		longest.unref?.();
 		return (failed) => {
@@ -137,7 +139,7 @@ export function wakePlaces(
 			if (counted) uncount();
 			else if (lapsed)
 				options.say?.(
-					`The wake of ${sessionId} ${failed ? "failed" : "resumed"} after ${seconds(Date.now() - began)} s`,
+					`The wake of ${sessionId} ${failed ? "failed" : "resumed"} after ${seconds(performance.now() - began)} s`,
 				);
 		};
 	}

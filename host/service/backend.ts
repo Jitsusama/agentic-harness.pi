@@ -417,6 +417,9 @@ export function hostBackend(options: {
 		why: "closed" | "released",
 		by: string | undefined,
 	) {
+		// Its wake waiting for a place goes in at once, as before places, so
+		// the close waits for that one resume rather than the queue ahead.
+		const hurried = placesOfWakes.hurry(sessionId);
 		const owed = startOwes(sessionId);
 		return inTurn(sessionId, async () => {
 			await owed;
@@ -436,7 +439,7 @@ export function hostBackend(options: {
 				await engine.dropped?.(sessionId, asked);
 			}
 			return { sessionId };
-		});
+		}).finally(hurried);
 	}
 
 	// Said in the journal with who asked, since a drain parks conversations

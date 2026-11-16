@@ -35,7 +35,9 @@ input pipeline or screen. No unit or running host is installed yet.
   up to `WAKE_PLACES` (4) waking conversations at once; a window's
   wake (a person opening one, or typing to it parked) resumes at once,
   taking in a wake of that conversation already waiting or resuming,
-  and no other wake begins while it runs. Each resume holds the others
+  and no other wake begins while it runs. A close or release of one
+  whose wake waits takes it in the same way, so the close waits for
+  that one resume, not the queue. Each resume holds the others
   back for at most `WAKE_LONGEST_MS` (20 s); past that it counts no
   more, and the journal names it and says when it ends or fails, so a
   resume that never ends delays those behind it once rather than for

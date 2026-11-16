@@ -271,7 +271,9 @@ describe("waking conversations side by side, a window's first", () => {
 		finish(messaged);
 		await Promise.all([woken, queued]);
 
-		expect(wakes.host.holds(messaged), "the message's wake still ran").toBe("idle");
+		expect(wakes.host.holds(messaged), "the message's wake still ran").toBe(
+			"idle",
+		);
 	});
 
 	it("begins no other wake while a window's resumes", async () => {
@@ -293,7 +295,9 @@ describe("waking conversations side by side, a window's first", () => {
 		finish(messaged);
 		await Promise.all([attached, queued]);
 
-		expect(wakes.host.holds(messaged), "it runs once the window's has").toBe("idle");
+		expect(wakes.host.holds(messaged), "it runs once the window's has").toBe(
+			"idle",
+		);
 	});
 
 	it("resumes at once a window opened on one whose own wake waits for a place", async () => {
@@ -432,9 +436,9 @@ describe("waking conversations side by side, a window's first", () => {
 		await backend.execute(attach(messaged));
 		const queued = backend.wake(other);
 		await settle();
-		expect(begun, "a place is free, yet the window's resume holds it").toEqual(
-			[messaged],
-		);
+		expect(begun, "a place is free, yet the window's resume holds it").toEqual([
+			messaged,
+		]);
 		await until("the other wake to resume", () => begun.length === 2);
 
 		expect(
@@ -472,8 +476,10 @@ describe("waking conversations side by side, a window's first", () => {
 		await until("the closed one's wake to resume", () => begun.length === 2);
 		finish(closing);
 
-		await expect(closed, "the close lands with the first still resuming")
-			.resolves.toEqual({ sessionId: closing });
+		await expect(
+			closed,
+			"the close lands with the first still resuming",
+		).resolves.toEqual({ sessionId: closing });
 		await queued;
 		finish(waking);
 		await woken;
