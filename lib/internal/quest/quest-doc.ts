@@ -59,6 +59,53 @@ export function extractTitle(body: string): string | undefined {
 	return match?.[1]?.trim();
 }
 
+/** How much of the summary a peer says, which is enough to name the work. */
+const SUMMARY_CHARS = 240;
+
+/** What a peer shows of its quest's README. */
+export interface ShownReadme {
+	readonly frontMatter: QuestFrontMatter;
+	/** The README's heading. */
+	readonly title: string;
+	/** The quest's title and the start of its summary. */
+	readonly worksOn: string;
+}
+
+/**
+ * What a peer shows of a quest README, copied out of its text. A
+ * substring can be a slice holding the whole text it came from, so
+ * keeping even a title kept the README: on 16 November READMEs read for
+ * their status alone held 10.2 MB of a pi host's heap.
+ */
+export function shownReadme(text: string): ShownReadme | undefined {
+	const parsed = parseQuestFrontMatter(text);
+	if (!parsed) return undefined;
+	const { frontMatter, body } = parsed;
+	const [title, worksOn] = [headingOf(body), worksOnOf(body)];
+	return structuredClone({ frontMatter, title, worksOn });
+}
+
+/** A README's heading, or nothing. */
+function headingOf(body: string): string {
+	return body.match(/^# (.+)$/m)?.[1]?.trim() ?? "";
+}
+
+/** The quest's title and the start of its summary. */
+function worksOnOf(body: string): string {
+	const title = headingOf(body);
+	const summary =
+		body
+			.split(/^## .*Summary.*$/m)[1]
+			?.split(/^## /m)[0]
+			?.replace(/\s+/g, " ")
+			.trim() ?? "";
+	const opening =
+		summary.length > SUMMARY_CHARS
+			? `${summary.slice(0, SUMMARY_CHARS)}...`
+			: summary;
+	return [title, opening].filter(Boolean).join(": ");
+}
+
 /**
  * Extract the lines of a named section from a body. Returns
  * the lines between the matching `## Section` header and

@@ -27,13 +27,13 @@ import { basename, join } from "node:path";
 import { isOwner } from "../core/process/index.ts";
 import { keepTicks, type TickedOwner } from "../internal/process-ticks.ts";
 import { type Doing, isDoing } from "../internal/quest/doing.ts";
-import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
 import {
 	type Orchestration,
 	orchestrationOf,
 	windowWorkspaceOf,
 } from "../internal/quest/orchestration.ts";
 import { parsedFiles } from "../internal/quest/parsed-file.ts";
+import { shownReadme } from "../internal/quest/quest-doc.ts";
 import { isSealedStatus } from "../internal/quest/status.ts";
 import { isRecord } from "../internal/record.ts";
 import { eventsFrom, type SessionEvent } from "../internal/session/events.ts";
@@ -357,9 +357,6 @@ export function windowTitle(
 		: `${PI_TITLE} - ${folder}`;
 }
 
-/** How much of the summary is said, which is enough to name the work. */
-const SUMMARY_CHARS = 240;
-
 /** What a peer's work is, as presence says it. */
 export interface PeerWork {
 	readonly worksOn: string;
@@ -427,12 +424,12 @@ export function workOf(
 		quest,
 		questInfo: {
 			id: quest,
-			title: titleOf(parsed.body),
+			title: parsed.title,
 			short: questAddress(quest),
 			status: parsed.frontMatter.status,
 		},
 		...(repo ? { repo } : {}),
-		worksOn: describe(parsed.body),
+		worksOn: parsed.worksOn,
 		owns: [...new Set([quest, ...repositories, ...here, ...named])],
 		scopes: scopesOf({
 			questChain: questChain(quest, parsed.frontMatter.parent, read),
@@ -745,35 +742,14 @@ function isQuestInfo(value: unknown): value is QuestInfo {
 	return [id, title, short, status].every((one) => typeof one === "string");
 }
 
-/** A README's heading. */
-function titleOf(body: string): string {
-	return body.match(/^# (.+)$/m)?.[1]?.trim() ?? "";
-}
-
-/** The quest's title and the start of its summary. */
-function describe(body: string): string {
-	const title = titleOf(body);
-	const summary =
-		body
-			.split(/^## .*Summary.*$/m)[1]
-			?.split(/^## /m)[0]
-			?.replace(/\s+/g, " ")
-			.trim() ?? "";
-	const opening =
-		summary.length > SUMMARY_CHARS
-			? `${summary.slice(0, SUMMARY_CHARS)}...`
-			: summary;
-	return [title, opening].filter(Boolean).join(": ");
-}
-
 /**
  * Quest READMEs, each parsed again only once it changes. Every peer
  * works out its presence from its quest and each parent's on every
  * refresh, and orchestrators' front matter runs to tens of kilobytes
  * of YAML: on 11 November an idle pi allocated 35 MB in 90 s parsing
- * READMEs that hadn't changed.
+ * READMEs that hadn't changed. Only what a peer shows of each is kept.
  */
-const readmes = parsedFiles(parseQuestFrontMatter);
+const readmes = parsedFiles(shownReadme);
 
 /**
  * Whether the quest `quest` under `quests` has ended, concluded or
@@ -787,7 +763,7 @@ export function questEnded(quests: string, quest: string): boolean {
 function parsedReadme(
 	quests: string,
 	quest: string,
-): ReturnType<typeof parseQuestFrontMatter> {
+): ReturnType<typeof readmes> {
 	try {
 		return readmes(join(quests, quest, "README.md"));
 	} catch {
