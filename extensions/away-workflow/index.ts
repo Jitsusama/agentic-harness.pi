@@ -82,7 +82,6 @@ import {
 	wantsShown,
 } from "../../lib/internal/session/wants.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
-import { sessionAddress } from "../../lib/mesh/address.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
 import {
@@ -121,6 +120,7 @@ import {
 	EVERY_NOTICE,
 	type NoticeKind,
 	raiseNotice,
+	signed,
 	withdrawNotices,
 } from "./notices.ts";
 import {
@@ -200,11 +200,10 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	 */
 	const reach = (kind: NoticeKind, notice: Notice | undefined) => {
 		if (!notice || !latest?.hasUI) return;
-		const session = latest.sessionManager.getSessionId();
-		void raiseNotice(kind, {
-			...notice,
-			cell: session ? sessionAddress(session) : undefined,
-		});
+		void raiseNotice(
+			kind,
+			signed(notice, latest.sessionManager.getSessionId()),
+		);
 	};
 
 	/**

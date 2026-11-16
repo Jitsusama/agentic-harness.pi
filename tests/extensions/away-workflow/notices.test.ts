@@ -99,6 +99,16 @@ describe("the notices a session has up", () => {
 		);
 	});
 
+	it("signs a notice with the session's own address, the end of its id", async () => {
+		const { signed } = await notices();
+		const session = "01a1e64b-1835-7563-a889-c1011fd09c8a";
+		expect(signed({ title: "t" }, session).cell).toBe("1FD09C8A");
+		expect(
+			signed({ title: "t", cell: "QUESTADR" }, undefined).cell,
+			"no session, no cell, whatever the notice said",
+		).toBeUndefined();
+	});
+
 	it("takes back, after a reload, what the copy before it raised", async () => {
 		const before = await notices();
 		const screen = desktop();

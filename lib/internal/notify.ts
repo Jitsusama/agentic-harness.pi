@@ -46,7 +46,9 @@ export interface Notice {
 	/**
 	 * The mesh address of the session it is from, its own and not its
 	 * quest's, so the launcher can lead from the notice to that session.
-	 * None, or empty, sends no hint.
+	 * Only notify-send carries it; macOS's notices have nowhere to. None,
+	 * or anything that isn't an address's letters and digits, sends no
+	 * hint.
 	 */
 	cell?: string;
 }
@@ -56,6 +58,9 @@ export interface Notice {
  * the launcher's notices read to talk to that cell and go to it.
  */
 const CELL_HINT = "x-cell";
+
+/** What a mesh address is: capitals and digits, a few of them. */
+const ADDRESS = /^[A-Z0-9]{1,12}$/;
 
 /** A notification on screen: its id, where the desktop can take it back. */
 export interface Raised {
@@ -125,9 +130,10 @@ export function notifyCommand(
 	) {
 		// `--` ends the options, so a title that opens with a dash is text.
 		const text = body === "" ? [notice.title] : [notice.title, body];
-		const cell = notice.cell
-			? [`--hint=string:${CELL_HINT}:mycelium:cell/${notice.cell}`]
-			: [];
+		const cell =
+			notice.cell && ADDRESS.test(notice.cell)
+				? [`--hint=string:${CELL_HINT}:mycelium:cell/${notice.cell}`]
+				: [];
 		return {
 			command: "notify-send",
 			args: [
