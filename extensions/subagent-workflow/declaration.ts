@@ -64,8 +64,7 @@ export const SUBAGENT_PARAMETERS = Type.Object({
 			),
 			tools: Type.Optional(
 				Type.Array(Type.String(), {
-					description:
-						"Tool palette, e.g. [read,bash]. Omit for the default.",
+					description: "Tool palette, e.g. [read,bash]. Omit for the default.",
 				}),
 			),
 			cwd: Type.String({
@@ -94,8 +93,7 @@ export const SUBAGENT_PARAMETERS = Type.Object({
 			),
 			extraSkills: Type.Optional(
 				Type.Array(Type.String(), {
-					description:
-						"Absolute skill paths to load, e.g. an output contract.",
+					description: "Absolute skill paths to load, e.g. an output contract.",
 				}),
 			),
 			timeoutMs: Type.Optional(
@@ -118,8 +116,7 @@ export const SUBAGENT_PARAMETERS = Type.Object({
 				Type.Object(
 					{
 						extensionPath: Type.String({
-							description:
-								"Absolute path to the verify extension entry file.",
+							description: "Absolute path to the verify extension entry file.",
 						}),
 						skillPath: Type.Optional(
 							Type.String({
