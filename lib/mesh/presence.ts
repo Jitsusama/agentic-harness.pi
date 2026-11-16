@@ -15,18 +15,8 @@
  * whose process has ended is gone, however recently it wrote.
  */
 
-import {
-	existsSync,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	statSync,
-} from "node:fs";
-import {
-	readdir,
-	readFile as readFileOff,
-	stat as statOff,
-} from "node:fs/promises";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { readdir, readFile as readFileOff } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { isOwner } from "../core/process/index.ts";
@@ -48,6 +38,11 @@ import {
 	readRefusedWake,
 	refusedWakePath,
 } from "../internal/session/refused-wake.ts";
+import {
+	readStamped,
+	readStampedOff,
+	type Stamped,
+} from "../internal/stamped-read.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
@@ -505,7 +500,7 @@ function questChain(
 export function createPresences(dir: string): Presences {
 	const file = (session: string) =>
 		join(dir, `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`);
-	const kept = new Map<string, Kept<Presence>>();
+	const kept = new Map<string, Stamped<Presence>>();
 	// Each file's parse, kept while the file is the one it was read from:
 	// a publish renames a new file in, so its inode says a change, and
 	// mtime and size say one written in place. Every pi lists every
@@ -516,7 +511,7 @@ export function createPresences(dir: string): Presences {
 		readStamped(kept, path, read);
 	// A parked peer's refused wake, by the file it is kept in, read the
 	// same way, so a listing costs a stat for each parked peer.
-	const refusals = new Map<string, Kept<RefusedWake>>();
+	const refusals = new Map<string, Stamped<RefusedWake>>();
 	// The paths a listing found, with what is kept for files gone let go.
 	const listedPaths = (files: string[]): string[] => {
 		const paths = new Set(
@@ -584,59 +579,6 @@ export function createPresences(dir: string): Presences {
 		// staged and never renamed is old here; ended peers are forgotten.
 		expire: (before) => removeStaged(dir, before),
 	};
-}
-
-/** A file's parse, and the file it came from, by its stat. */
-interface Kept<T> {
-	readonly stamp: string;
-	readonly value: T | undefined;
-}
-
-/**
- * The file at `path` as `read` parses it, kept in `kept` while its inode,
- * mtime and size stay as they were; a file gone is forgotten.
- */
-function readStamped<T>(
-	kept: Map<string, Kept<T>>,
-	path: string,
-	read: (path: string) => T | undefined,
-): T | undefined {
-	let stamp: string;
-	try {
-		const stat = statSync(path);
-		stamp = `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
-	} catch {
-		// Gone since it was listed, or never there: nothing to read.
-		kept.delete(path);
-		return undefined;
-	}
-	const was = kept.get(path);
-	if (was?.stamp === stamp) return was.value;
-	const value = read(path);
-	kept.set(path, { stamp, value });
-	return value;
-}
-
-/** The file at `path` as `readStamped` keeps it, read off the thread. */
-async function readStampedOff<T>(
-	kept: Map<string, Kept<T>>,
-	path: string,
-	read: (path: string) => Promise<T | undefined>,
-): Promise<T | undefined> {
-	let stamp: string;
-	try {
-		const stat = await statOff(path);
-		stamp = `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
-	} catch {
-		// Gone since it was listed, or never there: nothing to read.
-		kept.delete(path);
-		return undefined;
-	}
-	const was = kept.get(path);
-	if (was?.stamp === stamp) return was.value;
-	const value = await read(path);
-	kept.set(path, { stamp, value });
-	return value;
 }
 
 function read(path: string): Presence | undefined {
