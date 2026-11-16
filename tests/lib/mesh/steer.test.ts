@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	inboxOf,
 	isPersonsTalk,
@@ -126,7 +126,7 @@ describe("the steer inbox", () => {
 			reading = true;
 			return stalled;
 		});
-		await expect.poll(() => reading, "the read began").toBe(true);
+		await vi.waitFor(() => expect(reading, "the read began").toBe(true));
 
 		expect(
 			readdirSync(inbox),
