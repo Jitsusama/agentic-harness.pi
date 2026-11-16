@@ -62,6 +62,23 @@ describe("a folder read as asked", () => {
 		expect(wordsOf(folder.files()), "seen at once").toEqual(["first"]);
 		expect(folder.file(join(dir, "a.txt")), "one file").toBe("first");
 	});
+
+	// The council on #1721: a failed listing read as an empty folder, so a
+	// plain pi's minute's look saw no peers.
+	it("keeps its last listing when the folder can't be read, rather than none", async () => {
+		const folder = folderRead(dir, WORDS);
+		put("a.txt", "here");
+		folder.files();
+		chmodSync(dir, 0o000);
+		try {
+			expect(wordsOf(folder.files()), "read as asked").toEqual(["here"]);
+			expect(wordsOf(await folder.refresh()), "read off the thread").toEqual([
+				"here",
+			]);
+		} finally {
+			chmodSync(dir, 0o700);
+		}
+	});
 });
 
 describe("a host's mirror of a folder", () => {
@@ -143,6 +160,61 @@ describe("a host's mirror of a folder", () => {
 		release();
 		await reading;
 		expect(folder.file(path), "this process's publish").toBe("mine");
+	});
+
+	// The council on #1721: a refresh that listed before the thread's
+	// first read landed after it and put its older listing back.
+	it("keeps what its first ask read over a refresh that listed before it", async () => {
+		let release = (): void => undefined;
+		const stalled = new Promise<void>((settle) => {
+			release = settle;
+		});
+		const folder = folderMirrors<string>(
+			{
+				...WORDS,
+				readOff: async (path) => {
+					await stalled;
+					return readFile(path, "utf8");
+				},
+			},
+			{},
+		)(dir);
+		put("a.txt", "listed first");
+		const reading = folder.refresh();
+		// Long enough for the refresh to list the folder and stall on a read.
+		await new Promise((settle) => setTimeout(settle, 50));
+		put("b.txt", "a peer since");
+		folder.files();
+		release();
+		await reading;
+		expect(wordsOf(folder.files()).sort(), "the newer listing").toEqual([
+			"a peer since",
+			"listed first",
+		]);
+	});
+
+	// The council on #1721: only a synchronous ask kept the poll, so a host
+	// asking less than each minute listed the folder on its thread each time.
+	it("answers the first ask after an idle spell from a listing a look landed meanwhile", async () => {
+		const folder = mirror({ pollMs: 20, idleMs: 60 });
+		folder.files();
+		// Past the idle spell, with a few polls' room for the last to land.
+		await new Promise((done) => setTimeout(done, 200));
+		put("c.txt", "listed by a look");
+		await folder.refresh();
+		put("d.txt", "written since");
+		expect(
+			wordsOf(folder.files()),
+			"the look's listing, not one read on the thread",
+		).toEqual(["listed by a look"]);
+		await vi.waitFor(
+			() =>
+				expect(
+					wordsOf(folder.files()).sort(),
+					"read again off the thread",
+				).toEqual(["listed by a look", "written since"]),
+			{ timeout: 2000 },
+		);
 	});
 
 	// The council on #1721: any failed listing emptied the mirror, so

@@ -282,4 +282,29 @@ describe("steering", () => {
 			"steer 3",
 		]);
 	});
+
+	// The council on #1721: a watch still starting was left watching an
+	// inbox the next look had let go.
+	it("watches no inbox a later look let go while its watch was starting", async () => {
+		root = mkdtempSync(join(tmpdir(), "steering-"));
+		const delivered: string[] = [];
+		const held = { addresses: ["P9R1KI"] };
+		const steering = createSteering({
+			root,
+			addresses: () => held.addresses,
+			deliver: (steer) => delivered.push(steer.text),
+			setAside: () => undefined,
+		});
+		const first = steering.look();
+		held.addresses = [];
+		await steering.look();
+		await first;
+		const name = join(inboxOf(root, "P9R1KI"), "1-a.json");
+		writeFileSync(`${name}.tmp`, JSON.stringify({ text: "for another" }));
+		renameSync(`${name}.tmp`, name);
+		// Long enough for a watcher, were one left, to hear it and take it.
+		await new Promise((done) => setTimeout(done, 300));
+		steering.stop();
+		expect(delivered, "none taken for an address let go").toEqual([]);
+	});
 });
