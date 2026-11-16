@@ -567,16 +567,10 @@ export function createPresences(dir: string): Presences {
 			return presentOf(listedPaths(files).map(readKept));
 		},
 		async listed() {
-			let files: string[];
-			try {
-				files = await readdir(dir);
-			} catch {
-				// No folder yet: nobody has published.
-				return [];
-			}
-			const paths = listedPaths(files);
+			// No folder yet: nobody has published.
+			const files = await readdir(dir).catch((): string[] => []);
 			const read = await Promise.all(
-				paths.map((path) => readStampedOff(kept, path, readOff)),
+				listedPaths(files).map((path) => readStampedOff(kept, path, readOff)),
 			);
 			return presentOf(read);
 		},
