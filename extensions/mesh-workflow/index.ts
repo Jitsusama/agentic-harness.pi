@@ -291,6 +291,12 @@ import {
 } from "./leases.ts";
 import { expiredText, keepLooks } from "./looks-clock.ts";
 import { createMoving, holdsOf, moveNoteOf } from "./moving.ts";
+import {
+	createOrderedCarrying,
+	fenceKindOf,
+	orderedHolds,
+	refuseInHandover,
+} from "./ordered-carry.ts";
 import { createPausing, RESUMED_TEXT } from "./pausing.ts";
 import {
 	type Folding,
@@ -1030,6 +1036,42 @@ export function meshWorkflow(
 						sessionFile: ctx.sessionManager.getSessionFile(),
 					})
 				: undefined;
+		// A carry its orchestrator ordered, through the node (ordered-carry.ts).
+		const ordering = createOrderedCarrying({
+			idle: () => ctx?.isIdle?.() ?? true,
+			abort: () => {
+				// Ended from outside, as Pause ends a run: away mode stays on.
+				if (!ctx) return;
+				stoppingFromOutside(ctx);
+				ctx.abort?.();
+			},
+			holds: (runEnded) =>
+				orderedHolds(
+					{
+						ctx,
+						events: pi.events,
+						prompts,
+						board,
+						session: peer?.session ?? "",
+					},
+					runEnded,
+				),
+			carry: async (to) => {
+				if (!ctx) throw new Error("the session isn't there to carry.");
+				await carryThisSession(ctx, to);
+			},
+			refuse: async (why) => {
+				if (!peer) throw new Error("the session isn't on the mesh yet");
+				await refuseInHandover(peer.session, why);
+			},
+			tell: (text) => {
+				if (ctx?.hasUI) ctx.ui.notify(text, "info");
+			},
+			close: (by) => {
+				if (ctx) endConversation(ctx, by);
+			},
+			carryOn: (text) => pi.sendUserMessage(text),
+		});
 		// Move into a host or out of one, from outside the window (moving.ts).
 		const moving = createMoving({
 			holds: () => holdsOf(ctx, pi.events, prompts),
@@ -1146,6 +1188,11 @@ export function meshWorkflow(
 				root,
 				addresses: () => peer?.addresses ?? [],
 				deliver: (one, inbox) => {
+					// Never the person's carry: the node vouches for who ordered it.
+					if (one.ordered) {
+						void ordering.order(one.ordered);
+						return;
+					}
 					if (one.act === "carry") {
 						if (one.to !== undefined) void pausing.carry(one.to, one.from);
 						return;
@@ -1981,6 +2028,8 @@ export function meshWorkflow(
 				...terminalOf(),
 				// Kept a month past the presence, for the desktop's Landed.
 				history: landingKeeper(paths.mesh),
+				// Which mycelium matches against the machine it carries to.
+				fence: fenceKindOf(env),
 			});
 			for (const want of wanting.values()) peer.want(want);
 			// A move asked before a reload goes on waiting for the session.
@@ -2131,6 +2180,7 @@ export function meshWorkflow(
 			const message = glanceDigest();
 			if (message) pi.sendMessage(message, { triggerTurn: false });
 			pausing.turnEnded();
+			ordering.turnEnded();
 			// Only a turn whose tools ran goes on to ask the model again; one
 			// handed on at the run's end finished it, and isn't cut off.
 			if (turn.toolResults.length > 0 && turn.outcome === "completed")
@@ -2192,6 +2242,7 @@ export function meshWorkflow(
 			// Whatever woke a paused session, it sleeps on.
 			pausing.started();
 			moving.started();
+			ordering.started();
 		});
 		// And the step it is on, by the tool it runs, for the desktop's Busy;
 		// a talk the person follows hears the step, its reply as it is

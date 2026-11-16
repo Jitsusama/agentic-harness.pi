@@ -46,6 +46,7 @@ import type { LandingKeeper } from "./landing-history.ts";
 import type { Listener } from "./message.ts";
 import type { MoveOff, Moving } from "./moving.ts";
 import {
+	type FenceKind,
 	type PeerState,
 	type Presence,
 	type Presences,
@@ -204,6 +205,8 @@ export interface Surroundings {
 	 * is (see landing-history.ts).
 	 */
 	readonly history?: LandingKeeper;
+	/** How its commands are fenced, when the harness says. */
+	readonly fence?: FenceKind;
 }
 
 /** How long a step said stands before a newer one is said. */
@@ -480,6 +483,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(moving ? { moving } : {}),
 			...(moveOff ? { moveOff } : {}),
 			driven,
+			...(at.fence ? { fence: at.fence } : {}),
 		};
 		const text = JSON.stringify(said);
 		if (text === published) return;

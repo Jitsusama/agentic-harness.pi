@@ -24,7 +24,12 @@
  * person says when to break into a task (Joel, 12 November: a message
  * to a session mid-task waits for its turn to end unless he says now). A
  * program of the machine's writes `"from": "machine"` and may name itself
- * as `by` (`"by": "nix-offload"`), which the session is told. The
+ * as `by` (`"by": "nix-offload"`), which the session is told. An
+ * orchestrator's carry, `{"act": "ordered-carry", "to", "why", "by"}`,
+ * which mycelium's node writes stamped with the orchestrator's address as
+ * `by` and `from`, is read as `ordered`, never as an act, so nothing that
+ * trusts the person's carry takes it (ISXEG8's condition 3, 15 November;
+ * extensions/mesh-workflow/ordered-carry.ts). The
  * session going by that address takes it by renaming it again, so two
  * sessions looking at once deliver it once, then reads and removes it.
  * A file that is not a steer is set aside as `.bad`, never retried.
@@ -86,6 +91,25 @@ export const FROM_MACHINE = "machine";
 
 /** A program's name as a machine steer's `by` may give it. */
 const PROGRAM_NAME = /^[a-z][a-z0-9-]{0,39}$/;
+
+/** The act an orchestrator's carry is written with, apart from STEER_ACTS. */
+export const ORDERED_CARRY = "ordered-carry";
+
+/** A peer's address, a quest's six or a session's eight, as `by` names one. */
+const ADDRESS = /^[A-Za-z0-9]{6,8}$/;
+
+/** The most an ordered carry's `why` says, so it reads as a reason. */
+const MOST_WHY = 500;
+
+/** A carry an orchestrator ordered, as the node stamped it. */
+export interface OrderedCarry {
+	/** The machine it goes to, as it names itself. */
+	readonly to: string;
+	/** Why, in the orchestrator's words. */
+	readonly why: string;
+	/** The orchestrator's address, which the node proved ordered it. */
+	readonly by: string;
+}
 
 /**
  * The `from` mycelium's node writes for what the person asked through it,
@@ -158,8 +182,29 @@ export interface Steer {
 	 * it to end; only for words, never for an act.
 	 */
 	readonly now?: true;
+	/** An orchestrator's carry, which is never an act of the person's. */
+	readonly ordered?: OrderedCarry;
 	/** The file it came in, for what is said about it on screen. */
 	readonly file: string;
+}
+
+/**
+ * The ordered carry a steer holds, or nothing unless it is whole and
+ * from an orchestrator: `from` and `by` one address, never the person or
+ * the machine, a machine's name to go to, and a reason.
+ */
+function orderedFrom(parsed: object, from: string): OrderedCarry | undefined {
+	if (!("act" in parsed) || parsed.act !== ORDERED_CARRY) return undefined;
+	const by = "by" in parsed ? parsed.by : undefined;
+	const to = "to" in parsed ? parsed.to : undefined;
+	const why =
+		"why" in parsed && typeof parsed.why === "string" ? parsed.why.trim() : "";
+	if (typeof by !== "string" || !ADDRESS.test(by)) return undefined;
+	if (from.toUpperCase() !== by.toUpperCase()) return undefined;
+	if (!isMachineName(to) || why === "" || why.length > MOST_WHY) {
+		return undefined;
+	}
+	return { to, why, by: by.toUpperCase() };
 }
 
 /** What taking the inbox found: steers to deliver, and files set aside. */
@@ -204,6 +249,11 @@ export function steerFrom(raw: string, file: string): Steer | undefined {
 	if (typeof parsed !== "object" || parsed === null) return undefined;
 	const from =
 		"from" in parsed && typeof parsed.from === "string" ? parsed.from : "";
+	const ordered = orderedFrom(parsed, from);
+	if (ordered) {
+		const at = "at" in parsed && typeof parsed.at === "string" ? parsed.at : "";
+		return { text: "", ordered, ...(at ? { at } : {}), from, file };
+	}
 	// Only the person may pause, resume, stop, close, carry or move a session.
 	const asked =
 		"act" in parsed && isSteerAct(parsed.act) && isFromPerson(from)

@@ -974,8 +974,32 @@ A steer may instead carry an `act`, with no text needed
 Only the person may act: a steer from anyone else that carries
 an `act` is read for its text alone.
 
+One act comes from elsewhere: `ordered-carry`, which only the
+mycelium node writes, once its own record shows the session
+asking orchestrates this one's quest, with `by` and `from` both
+stamped as that orchestrator's address, `to` a machine and `why`
+its reason ([`ordered-carry.ts`](ordered-carry.ts)). It is read
+apart from every act, so nothing that trusts the person's
+`carry` takes it. The session carries as `carry` does only when
+nothing of its own would be lost: a background job out, a lease
+it or its hands hold, a rebase halted in a tree it holds, a
+message queued, a prompt open or words typed each refuse at
+once. A run under way is let end its turn first, up to ten
+minutes, and its own leases then count too. A refusal says why
+on screen, takes up a run it ended, and writes
+`<session>.refused.json` beside where its done file would go,
+holding only `session`, `why` and `at`, for the node to fail
+fast on ([`lib/internal/carry/ordered.ts`](../../lib/internal/carry/ordered.ts)).
+A second order while one is under way is said on screen alone,
+since a refusal written then would read as the live carry's.
+On arrival, `pi-carry arrive --by --why` tells the session by a
+steer from the machine's pi-carry who carried it and why, never
+as the person. Presence says `fence` (`none`, `fence` or
+`strict`, as `PI_SANDBOX` asks), which the node matches against
+the machine it carries to.
+
 A parked session reads its inbox only as it wakes, and `close`,
-`carry` and `move` wait on it running. So each session, as it looks
+`carry`, `ordered-carry` and `move` wait on it running. So each session, as it looks
 about itself every minute, asks the holder of any parked peer
 whose inbox holds one to wake it, as a sender does for a message
 that would give it a turn ([`lib/mesh/parked.ts`](../../lib/mesh/parked.ts)).
