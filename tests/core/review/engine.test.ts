@@ -73,6 +73,7 @@ describe("probing a checkout", () => {
 		const probe = await engine.probe("/src/world/sub/dir");
 		expect(probe.repoRoot).toBe("/src/world");
 		expect(probe.remoteUrls).toContain("git@github.com:Shopify/world.git");
+		expect(probe.origin).toBe("git@github.com:Shopify/world.git");
 	});
 
 	it("reports nothing when the directory is not a repo", async () => {
