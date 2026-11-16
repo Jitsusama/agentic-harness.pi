@@ -90,7 +90,9 @@ describe("resolveToolMode", () => {
 
 	it("does not auto-hide a backend at or below the threshold", () => {
 		const some = Array.from({ length: 10 }, (_, i) => tool(`gws_t${i}`));
-		expect(resolveToolMode(at(some, 0), config(), some, backendOf)).toBe("direct");
+		expect(resolveToolMode(at(some, 0), config(), some, backendOf)).toBe(
+			"direct",
+		);
 	});
 
 	it("does not auto-hide when autoProgressive is off", () => {
@@ -126,8 +128,8 @@ describe("resolveToolMode", () => {
 		expect(resolveToolMode(at(tools, 0), config(), tools, lump)).toBe(
 			"progressive",
 		);
-		expect(resolveToolMode(at(tools, 0), config(), tools, defaultBackendOf)).toBe(
-			"direct",
-		);
+		expect(
+			resolveToolMode(at(tools, 0), config(), tools, defaultBackendOf),
+		).toBe("direct");
 	});
 });

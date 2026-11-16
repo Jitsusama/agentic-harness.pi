@@ -16,7 +16,10 @@ describe("tokenize", () => {
 		const line = tokenize("git status");
 
 		expect(line.commands).toHaveLength(1);
-		expect(at(line.commands, 0).argv.map((w) => w.text)).toEqual(["git", "status"]);
+		expect(at(line.commands, 0).argv.map((w) => w.text)).toEqual([
+			"git",
+			"status",
+		]);
 	});
 
 	it("keeps a single-quoted argument as one word with its quote style", () => {
@@ -260,8 +263,10 @@ describe("tokenize", () => {
 	});
 
 	it("keeps a double-quoted word whole across an escaped quote and does not swallow a later flag", () => {
-		const argv = at(tokenize('gh pr create --title "a \\" b" --draft').commands, 0)
-			.argv;
+		const argv = at(
+			tokenize('gh pr create --title "a \\" b" --draft').commands,
+			0,
+		).argv;
 
 		expect(argv.map((w) => w.text)).toEqual([
 			"gh",

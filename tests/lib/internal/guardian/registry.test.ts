@@ -14,7 +14,10 @@ describe("guardian registry", () => {
 		record("commit", { kind: "blocked", reason: "bad prose" });
 		const [entry] = list();
 		expect(entry?.name).toBe("commit");
-		expect(entry?.lastOutcome).toEqual({ kind: "blocked", reason: "bad prose" });
+		expect(entry?.lastOutcome).toEqual({
+			kind: "blocked",
+			reason: "bad prose",
+		});
 		expect(entry?.lastCalledAt).toBeInstanceOf(Date);
 	});
 

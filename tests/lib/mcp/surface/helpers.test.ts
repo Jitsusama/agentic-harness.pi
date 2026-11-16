@@ -131,7 +131,10 @@ describe("createProgressiveHelpers", () => {
 
 	it("run_tool dispatches a known tool with extracted args", async () => {
 		const { list, runTool } = helpers();
-		await at(list, 2).run({ name: "slack_post", arguments: { channel: "x" } }, ctx);
+		await at(list, 2).run(
+			{ name: "slack_post", arguments: { channel: "x" } },
+			ctx,
+		);
 		expect(runTool).toHaveBeenCalledWith("slack_post", { channel: "x" }, ctx);
 	});
 });
