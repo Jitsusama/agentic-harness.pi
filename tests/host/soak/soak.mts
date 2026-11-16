@@ -24,7 +24,14 @@
  * checkpoint is held mid-answer while the host restarts as systemd
  * restarts it, and the fresh host is timed to its socket and to each
  * cut-off turn answered, as durable carries them on; those turns are
- * named in the report and left out of its latency. Then plain pi takes
+ * named in the report and left out of its latency. With --reload-wave,
+ * the hosted side links its extensions from an install of two copies of
+ * this tree, and three quarters through the checkpoints the install moves
+ * to the second and every awake conversation is reloaded through its
+ * host in turn, as the follower reloads them, each reload timed to its
+ * screen saying it reloaded and weighed for the most its host's loop ran
+ * late meanwhile; the reloads' own notes to the model, which plain pi
+ * never writes, are left out of the records compared. Then plain pi takes
  * the same turns, one RPC process a conversation, all at once as the
  * host's were.
  *
@@ -39,7 +46,8 @@
  * cache cold, as before.
  *
  *   node tests/host/soak/soak.mts --turns 120,40,40,... [--checkpoints 8]
- *     [--no-park] [--burst] [--restart] [--restart-mid] [--profile] [--cold]
+ *     [--no-park] [--burst] [--restart] [--restart-mid] [--reload-wave]
+ *     [--profile] [--cold]
  *     [--answer-ms P50[,P90]] [--tool-ms P50[,P90]] [--rounds P50[,P90]]
  *     [--out DIR]
  *
@@ -70,6 +78,7 @@ import {
 	cpSync,
 	existsSync,
 	mkdirSync,
+	mkdtempSync,
 	openSync,
 	readdirSync,
 	readFileSync,
@@ -79,15 +88,18 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { isRecord } from "../../../lib/internal/record.ts";
+import { LOADED_MESSAGE } from "../../../lib/internal/reload/loaded.ts";
 import { askWake } from "../../../lib/internal/session/park.ts";
 import { type Folders, folders } from "../end-to-end/support/folders.ts";
 import {
 	hostPackageDir,
 	hostPiMissing,
 } from "../end-to-end/support/host-pi.ts";
+import { moveTo, version } from "../end-to-end/support/install.ts";
 import {
 	type ScreenHost,
 	startScreenHost,
@@ -117,6 +129,12 @@ import {
 	timeSpent,
 	timeSpentWithin,
 } from "./profile.ts";
+import {
+	type WaveFigures,
+	type WaveReload,
+	waveCheckpoint,
+	waveOf,
+} from "./reload-wave.ts";
 import {
 	barOf,
 	entriesOf,
@@ -178,6 +196,8 @@ const PARK_MS = 4 * 60_000;
 const REWEIGH_EVERY_MS = 5_000;
 /** How long a viewer may take to draw its first frame. */
 const DRAWN_MS = 30_000;
+/** What pi's screen says once a reload has landed in it. */
+const RELOADED = /Reloaded keybindings/;
 /** How often a viewer's frames are looked through for a prompt just typed. */
 const SHOWN_LOOK_MS = 5;
 /** How long past a turn's going idle its answer may take to be drawn. */
@@ -276,6 +296,16 @@ interface RestartMid {
 	readonly answered: readonly CarriedAnswer[];
 }
 
+/**
+ * The reload wave: the checkpoint it ran at, each conversation's reload
+ * in the order it ran, and what they cost.
+ */
+interface ReloadWave {
+	readonly checkpoint: number;
+	readonly reloads: readonly WaveReload[];
+	readonly figures: WaveFigures;
+}
+
 /** A turn the mid-run restart cut off, answered `ms` after the stop began, or never. */
 interface CarriedAnswer {
 	readonly tag: string;
@@ -299,6 +329,7 @@ const { values } = parseArgs({
 		burst: { type: "boolean", default: false },
 		restart: { type: "boolean", default: false },
 		"restart-mid": { type: "boolean", default: false },
+		"reload-wave": { type: "boolean", default: false },
 		profile: { type: "boolean", default: false },
 		cold: { type: "boolean", default: false },
 		"answer-ms": { type: "string" },
@@ -377,6 +408,12 @@ const also = readdirSync(join(HARNESS, "extensions"), { withFileTypes: true })
 say(
 	`${counts.length} conversations, ${sum(counts)} turns, ${also.length + 3} extensions`,
 );
+/**
+ * Under --reload-wave, the install the hosted side links its extensions
+ * from: two copies of this tree, outside either seal so that neither's
+ * paths name the other's, its `current` on the first until the wave.
+ */
+const install = values["reload-wave"] ? installOf() : undefined;
 
 const hostSeal = await seal();
 const hosted = await runHosted(hostSeal);
@@ -437,6 +474,7 @@ const report = {
 	staggerMs,
 	...(hosted.restart ? { restart: hosted.restart } : {}),
 	...(hosted.restartMid ? { restartMid: hosted.restartMid } : {}),
+	...(hosted.reloadWave ? { reloadWave: hosted.reloadWave } : {}),
 	kinds: kindsOf(counts),
 	slowKeys: slow,
 	slowSteps: spentIn(
@@ -513,6 +551,7 @@ process.stdout.write(`soak report: ${JSON.stringify(report)}\n`);
 await provider.close();
 await hostSeal.dispose();
 await plainSeal.dispose();
+if (install) rmSync(install, { recursive: true, force: true });
 
 /** The hosted turns' latency in the engine, and what the screens add to it, from their logs. */
 function latencyOf(logs: readonly Record<string, unknown>[][]): {
@@ -655,7 +694,7 @@ async function warmHosted(sealed: Seal): Promise<ColdOpen> {
 		const agentFile = join(warming.root, "soak-agent.json");
 		writeFileSync(agentFile, JSON.stringify(agent));
 		const host = await startScreenHost(
-			warming,
+			{ ...warming, env: linkedFrom(warming.env) },
 			packageDir ?? "",
 			also,
 			agentFile,
@@ -690,6 +729,7 @@ async function runHosted(sealed: Seal): Promise<{
 	readonly checkpoints: readonly Checkpoint[];
 	readonly restart?: Restart;
 	readonly restartMid?: RestartMid;
+	readonly reloadWave?: ReloadWave;
 	readonly logs: readonly Record<string, unknown>[][];
 	readonly errors: string;
 	/** When the host's process started and ended, to lay its profile on the wall clock. */
@@ -703,7 +743,7 @@ async function runHosted(sealed: Seal): Promise<{
 	// afresh, so each is checked.
 	const start = async () => {
 		const started = await startScreenHost(
-			{ ...sealed, env: profiled(sealed.env, profiles.hosted) },
+			{ ...sealed, env: linkedFrom(profiled(sealed.env, profiles.hosted)) },
 			packageDir ?? "",
 			also,
 			agentFile,
@@ -743,6 +783,9 @@ async function runHosted(sealed: Seal): Promise<{
 	const weighings: Checkpoint[] = [];
 	/** Conversations left parked, for their next visit's first key to wake. */
 	const byKey = new Set<string>();
+	/** The reload wave, once it has run, and when it began, in ms since the epoch. */
+	let wave: ReloadWave | undefined;
+	let waveAt: number | undefined;
 	const barrier = barrierOf(conversations.length, async (done) => {
 		const awake = await host.weigh();
 		const recordBytes = sum(conversations.map((one) => sizeOf(one.file)));
@@ -751,6 +794,15 @@ async function runHosted(sealed: Seal): Promise<{
 		);
 		say(`latency so far ${JSON.stringify(soFar)}`);
 		const atMs = () => Date.now() - started;
+		// Counted from one, as the wave's checkpoint is.
+		const reached = weighings.length + 1;
+		if (install && reached === waveCheckpoint(checkpoints)) {
+			waveAt = Date.now();
+			const reloads = await reloadWave(host, conversations, install);
+			const figures = waveOf(reloads);
+			wave = { checkpoint: reached, reloads, figures };
+			say(`reload wave at checkpoint ${reached}: ${JSON.stringify(figures)}`);
+		}
 		if (values["no-park"]) {
 			weighings.push({ turnsDone: done, atMs: atMs(), awake, recordBytes });
 			say(
@@ -842,7 +894,9 @@ async function runHosted(sealed: Seal): Promise<{
 		: undefined;
 	if (timed) every.push(timed.host);
 	const last = timed?.host ?? host;
-	const logs = conversations.map((one) => entriesOf(readOr(one.file)));
+	const logs = conversations.map((one) =>
+		entriesOf(readOr(one.file)).filter((entry) => !waveNote(entry, waveAt)),
+	);
 	const errors = every.map((one) => one.errors()).join("");
 	await last.stop();
 	const pinned = { startedAt, endedAt: Date.now() };
@@ -856,6 +910,7 @@ async function runHosted(sealed: Seal): Promise<{
 		opened,
 		checkpoints: weighings,
 		...(timed ? { restart: timed.restart } : {}),
+		...(wave ? { reloadWave: wave } : {}),
 		...(mid
 			? {
 					restartMid: {
@@ -1349,6 +1404,81 @@ function firstShown(
 }
 
 /** `env` with node told to write a CPU profile into `folder`, under --profile. */
+/** An install of two copies of this tree, its `current` on the first. */
+function installOf(): string {
+	const made = mkdtempSync(join(tmpdir(), "soak-install-"));
+	version(made, "one");
+	version(made, "two");
+	moveTo(made, "one");
+	return made;
+}
+
+/** `env`, naming the install's `current` to link extensions from, under --reload-wave. */
+function linkedFrom(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	return install
+		? { ...env, SCREEN_HOST_HARNESS: join(install, "current") }
+		: env;
+}
+
+/**
+ * Whether `entry` is a reload's own note to the model, written once the
+ * wave began at `since`: plain pi, never reloaded, writes none, so each
+ * is left out of the records compared.
+ */
+function waveNote(
+	entry: Record<string, unknown>,
+	since: number | undefined,
+): boolean {
+	return (
+		since !== undefined &&
+		entry.customType === LOADED_MESSAGE &&
+		Date.parse(String(entry.timestamp)) >= since
+	);
+}
+
+/**
+ * Move `install` to its second copy and reload each of `conversations`
+ * through `host` in turn, as the follower does: a window attached and
+ * drawn, the host weighed so its loop's figures begin here, the reload
+ * asked for and timed to the screen saying it landed, and the host
+ * weighed again for the most its loop ran late meanwhile. A reload that
+ * never lands is a fault, and left out.
+ */
+async function reloadWave(
+	host: ScreenHost,
+	conversations: readonly Conversation[],
+	onto: string,
+): Promise<WaveReload[]> {
+	moveTo(onto, "two");
+	const reloads: WaveReload[] = [];
+	for (const one of conversations) {
+		const window = await attach(host.path, one.sessionId, ROWS, COLUMNS);
+		await tried(
+			window.sent(/\S/, DRAWN_MS),
+			`a window on ${one.sessionId} drew nothing before its reload`,
+		);
+		await host.weigh();
+		const asked = Date.now();
+		window.type(`/host-reload${ENTER}`);
+		const landed = await window.sent(RELOADED, TURN_MS).then(
+			() => true,
+			(error: unknown) => {
+				fault(`${one.sessionId}'s reload never landed: ${String(error)}`);
+				return false;
+			},
+		);
+		const ms = Date.now() - asked;
+		const { loopMaxMs } = await host.weigh();
+		if (landed) reloads.push({ conversation: one.index, ms, loopMaxMs });
+		await tried(
+			host.idle(one.sessionId, TURN_MS),
+			`${one.sessionId} didn't settle after its reload`,
+		);
+		await window.leave();
+	}
+	return reloads;
+}
+
 function profiled(env: NodeJS.ProcessEnv, folder: string): NodeJS.ProcessEnv {
 	if (!values.profile) return env;
 	mkdirSync(folder, { recursive: true });

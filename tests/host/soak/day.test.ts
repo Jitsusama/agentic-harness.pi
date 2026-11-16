@@ -103,10 +103,9 @@ describe("a day's run", () => {
 		expect(figuresOf(report).real, "no real model's figures without one").toBe(
 			undefined,
 		);
-		expect(
-			figuresOf(report).reloadWave,
-			"no wave's figures without one",
-		).toBe(undefined);
+		expect(figuresOf(report).reloadWave, "no wave's figures without one").toBe(
+			undefined,
+		);
 	});
 
 	it("says a reload wave's figures, each reload left in the report", () => {

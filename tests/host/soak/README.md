@@ -22,9 +22,15 @@ host adds, and records that drift from plain pi's.
   mid-answer while the host restarts as systemd restarts it, and the
   fresh host is timed to its socket and to each cut-off turn answered as
   durable carries it on; a turn the person drives (a steer, an abort, a
-  compaction) is typed after the restart instead. Each side warms
-  jiti's cache before its timed run, as a live host's stays warm, and
-  says those starts apart as the cold open; `--cold` leaves it cold.
+  compaction) is typed after the restart instead. Under
+  `--reload-wave`, the host links its extensions from an install of two
+  copies of the tree; three quarters through the checkpoints the install
+  moves to the second and each awake conversation is reloaded through
+  the host in turn, as the follower reloads them once an install moves,
+  each timed to its screen saying so and weighed for its loop. Each
+  side warms jiti's cache before its timed run, as a live host's stays
+  warm, and says those starts apart as the cold open; `--cold` leaves
+  it cold.
 - `turns.ts`: the script, the same on every run of the same sizes, with
   reads, bash, background bash jobs and long answers among the echoes,
   and a person's own moves: a steer typed while its turn runs a tool, an
@@ -72,7 +78,8 @@ host adds, and records that drift from plain pi's.
 `scripts/soak-day.sh DAY OUT` runs day DAY (1 to 7) of the real week on
 lent builders from the commit checked out, in two runs of a lender each:
 the day's turns unpaced, with a burst of wakes at each of 24
-checkpoints, a restart mid-run and one at the end, then 20 conversations
+checkpoints, a restart mid-run, a reload wave onto a moved install at
+the 18th checkpoint and a restart at the end, then 20 conversations
 of 4 turns at the real pace below. Each run's lines go to `OUT/<run>.log`
 and its report, cut into files, to `OUT/<run>/`. Run it under
 `systemd-run --user --scope`, so nothing that restarts the session
@@ -270,6 +277,13 @@ It prints a line a checkpoint and the report as one JSON line after
 - `restartMid`, under `--restart-mid`: how long the host took to stop
   and its socket to answer, the conversations' states then, the turns
   cut off, and how long after the restart began each was answered.
+- `reloadWave`, under `--reload-wave`: the checkpoint it ran at, each
+  conversation's reload (from asked to its screen saying it reloaded,
+  and the most the host's loop ran late meanwhile), and their figures:
+  the first reload, which loads the new copy's code, apart from the
+  rest, and `overBar`, how many held the loop past 1 s. Each reload's
+  note to the model, which plain pi never writes, is left out of
+  `parity`.
 - `faults`, `hostErrors` and `plainErrors`: what went wrong.
 - `plainProcesses`: what one process a conversation costs, measured on
   plain pi. `readyMs` spreads each plain pi's time from its start to

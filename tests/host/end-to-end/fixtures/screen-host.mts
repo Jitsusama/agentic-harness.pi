@@ -37,6 +37,9 @@
  * parks a conversation the park switch names, by plain pi's rule, and
  * SCREEN_HOST_ALSO names more of the harness's extensions, by folder,
  * for a case that needs them, such as the mesh a release steers by.
+ * SCREEN_HOST_HARNESS names another copy of the harness to link every
+ * extension from, such as an install's moving `current`, for a case
+ * that reloads its conversations onto a moved install.
  * SCREEN_HOST_AGENT names a JSON file of more `providers` for its
  * models.json and more `settings` for its settings.json, such as the
  * soak's provider over HTTP made the default. At
@@ -631,6 +634,7 @@ export default function (pi) {
 	const also = (process.env.SCREEN_HOST_ALSO ?? "")
 		.split(",")
 		.filter((one) => one !== "");
+	const linkedFrom = process.env.SCREEN_HOST_HARNESS || harness;
 	for (const extension of [
 		"panel-lifecycle-workflow",
 		"panel-zoom-widget",
@@ -641,7 +645,7 @@ export default function (pi) {
 		// the last one's link.
 		const link = join(agentDir, "extensions", extension);
 		rmSync(link, { force: true });
-		symlinkSync(join(harness, "extensions", extension), link);
+		symlinkSync(join(linkedFrom, "extensions", extension), link);
 	}
 }
 
