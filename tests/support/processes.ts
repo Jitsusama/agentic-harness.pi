@@ -6,6 +6,8 @@
  * where a wrong answer signals a process nobody meant to touch.
  */
 
+import { until } from "./until.ts";
+
 /**
  * A pid nothing is wearing.
  *
@@ -29,15 +31,16 @@ export function noSuchProcess(): number {
 
 /** Wait for a process to go, or give up saying it never did. */
 export async function gone(pid: number, withinMs: number): Promise<void> {
-	const until = Date.now() + withinMs;
-	while (Date.now() < until) {
-		try {
-			process.kill(pid, 0);
-		} catch {
-			// Nobody is wearing it, which is the whole assertion.
-			return;
-		}
-		await new Promise((resolve) => setTimeout(resolve, 50));
+	await until(`${pid} to stop running`, () => !answers(pid), withinMs);
+}
+
+/** Whether something still wears `pid`. */
+function answers(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		// Nobody is wearing it, which is the whole assertion.
+		return false;
 	}
-	throw new Error(`${pid} was still running after ${withinMs}ms`);
 }

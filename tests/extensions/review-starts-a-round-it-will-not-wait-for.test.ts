@@ -40,6 +40,10 @@ import {
 	supervisorStanding,
 	systemFacts,
 } from "../../lib/subagent/index.ts";
+import { until } from "../support/until.ts";
+
+/** How long a supervisor may take to reach the next thing a case reads. */
+const SUPERVISOR_MS = 20_000;
 
 /** The parts of a run everyoneFinished reads, for a single reviewer. */
 const RUN: AskRun = {
@@ -68,13 +72,15 @@ beforeEach(() => {
 // unrelated case, or a green run over files nobody wrote.
 afterEach(async () => {
 	const store = new ReviewerArtifactsStore(root);
-	const until = Date.now() + 30_000;
+	const deadline = Date.now() + 30_000;
 	for (const run of spawned) {
 		const ids = run.participants.map((one) => one.id);
 		while (
-			Date.now() < until &&
+			Date.now() < deadline &&
 			(await heldByLiveSupervisor(store, run.id, ids)) !== undefined
 		) {
+			// A look, not a wait: it ends when the supervisor lets go, and
+			// gives up quietly, since a teardown that threw would fail the case.
 			await new Promise((resolve) => setTimeout(resolve, 50));
 		}
 	}
@@ -101,31 +107,19 @@ const answer = JSON.stringify({ findings: [{
 process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:answer}]}})+"\\n");`;
 }
 
-/** Poll until something is true, saying what never happened if it is not. */
-async function waitFor(
-	ready: () => Promise<boolean>,
-	complaint: string,
-): Promise<void> {
-	const until = Date.now() + 20_000;
-	while (Date.now() < until) {
-		if (await ready()) return;
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	throw new Error(complaint);
-}
-
 /** Wait for every reviewer in a round to have written its result. */
 async function everyoneFinished(run: AskRun): Promise<void> {
 	const store = new ReviewerArtifactsStore(root);
-	const until = Date.now() + 60_000;
-	while (Date.now() < until) {
-		const left = await Promise.all(
-			run.participants.map((p) => answerLeftBehind(store, run.id, p.id)),
-		);
-		if (left.every((one) => one.kind === "answer")) return;
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
-	throw new Error("the reviewers never finished");
+	await until(
+		"every reviewer to write its result",
+		async () => {
+			const left = await Promise.all(
+				run.participants.map((p) => answerLeftBehind(store, run.id, p.id)),
+			);
+			return left.every((one) => one.kind === "answer");
+		},
+		60_000,
+	);
 }
 
 describe("a round nobody waited for", () => {
@@ -205,10 +199,11 @@ describe("a round nobody waited for", () => {
 		const store = new ReviewerArtifactsStore(root);
 		// Held by a lease, specifically: the refusal before any lease is
 		// written says starting, and it is the lease this case is about.
-		await waitFor(
+		await until(
+			"a supervisor's lease to refuse a collect (if none does, no lease was taken, or every reviewer finished before anything looked)",
 			async () =>
 				(await whyNotYet(store, held))?.includes("is still being run") === true,
-			"a collect was never refused: no supervisor took a lease, or every reviewer finished before anything looked",
+			SUPERVISOR_MS,
 		);
 		expect(await whyNotYet(store, held)).toContain("is still being run");
 
@@ -220,7 +215,8 @@ describe("a round nobody waited for", () => {
 		// since a reviewer's answer is written before its supervisor gives
 		// its lease back, and the round is free only once both have.
 		for (const participant of held.participants) {
-			await waitFor(
+			await until(
+				`${participant.id}'s lease to be closed, the one thing telling a finished supervisor from a dead one`,
 				async () =>
 					(
 						await supervisorStanding(
@@ -230,7 +226,7 @@ describe("a round nobody waited for", () => {
 							systemFacts,
 						)
 					).kind === "finished",
-				`${participant.id}'s lease was never closed, so nothing distinguishes a finished supervisor from a dead one`,
+				SUPERVISOR_MS,
 			);
 		}
 		expect(await whyNotYet(store, held)).toBeUndefined();
@@ -327,9 +323,10 @@ describe("a round nobody waited for", () => {
 				stop: async () => {},
 				pollMs: 20,
 			});
-			await waitFor(
+			await until(
+				"the watching session to be told the round is ready",
 				async () => said.length > 0,
-				"the watching session was never told the round was ready",
+				SUPERVISOR_MS,
 			);
 			for (const participant of run.participants) {
 				const left = await answerLeftBehind(store, run.id, participant.id);

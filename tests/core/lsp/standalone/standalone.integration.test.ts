@@ -14,6 +14,7 @@ import {
 	MissingServerError,
 	type StandaloneBackend,
 } from "../../../../lib/core/lsp/index.ts";
+import { until } from "../../../support/until.ts";
 
 const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url));
 const serverBin = join(repoRoot, "node_modules", ".bin", "tsc");
@@ -191,8 +192,11 @@ describe.skipIf(!hasServer)("standalone backend idle shutdown", () => {
 			const first = await backend.diagnostics(file);
 			expect(backend.serverCount()).toBe(1);
 
-			await new Promise((r) => setTimeout(r, IDLE_MS * 3));
-			expect(backend.serverCount()).toBe(0);
+			await until(
+				"the idle server to stop",
+				() => backend.serverCount() === 0,
+				IDLE_MS * 20,
+			);
 
 			const again = await backend.diagnostics(file);
 			expect(backend.serverCount()).toBe(1);

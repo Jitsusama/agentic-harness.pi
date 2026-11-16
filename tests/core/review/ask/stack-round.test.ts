@@ -149,6 +149,7 @@ describe("a stack-wide round", () => {
 			...d,
 			async ask(participant, prompt, context) {
 				if (participant.id === "wren") {
+					// The delay is the case: it puts wren's answer after finch's.
 					await new Promise((r) => setTimeout(r, 5));
 				}
 				return d.ask(participant, prompt, context);

@@ -27,6 +27,7 @@ import {
 	unregisterTreeProvider,
 } from "../../lib/core/work/index.ts";
 import { disposeRepo, freshRepo, git } from "../support/git-fixture.ts";
+import { until } from "../support/until.ts";
 import {
 	activateWith,
 	HEADLESS,
@@ -54,26 +55,9 @@ function alive(pid: number): boolean {
 	}
 }
 
-/** Wait until a process is gone, polling. */
-async function dies(pid: number, ms: number): Promise<boolean> {
-	const deadline = Date.now() + ms;
-	while (Date.now() < deadline) {
-		if (!alive(pid)) return true;
-		await new Promise((resolve) => setTimeout(resolve, 20));
-	}
-	return false;
-}
-
-/** Wait until a file exists, polling. */
-async function appears(path: string, ms: number): Promise<boolean> {
-	const deadline = Date.now() + ms;
-	while (Date.now() < deadline) {
-		if (existsSync(path) && readFileSync(path, "utf8").trim() !== "") {
-			return true;
-		}
-		await new Promise((resolve) => setTimeout(resolve, 20));
-	}
-	return false;
+/** Whether a file exists and holds something. */
+function written(path: string): boolean {
+	return existsSync(path) && readFileSync(path, "utf8").trim() !== "";
 }
 
 const REPO = "test:elsewhere/stoppable";
@@ -199,10 +183,11 @@ describe("stopping a cut the built-in git provider is making", () => {
 		);
 		cutting.catch(() => undefined);
 
-		expect(
-			await appears(pidFile, 10_000),
-			`the hook writes its pid to ${pidFile} within 10 s`,
-		).toBe(true);
+		await until(
+			`the hook to write its pid to ${pidFile}`,
+			() => written(pidFile),
+			10_000,
+		);
 		hookPid = Number(readFileSync(pidFile, "utf8").trim());
 		stop.abort();
 
@@ -212,9 +197,11 @@ describe("stopping a cut the built-in git provider is making", () => {
 				5_000,
 			),
 		).toBe("answered");
-		expect(
-			await dies(hookPid, 2_000),
-			`the hook, pid ${hookPid}, dies within 2 s of the stop`,
-		).toBe(true);
+		const hook = hookPid;
+		await until(
+			`the hook, pid ${hook}, to die after the stop`,
+			() => !alive(hook),
+			2_000,
+		);
 	}, 20_000);
 });

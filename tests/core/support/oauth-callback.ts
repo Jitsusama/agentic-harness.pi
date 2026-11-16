@@ -6,6 +6,7 @@
 
 import { createServer } from "node:net";
 import { expect, it } from "vitest";
+import { until } from "../../support/until.ts";
 
 /** What a callback server's waiting function looks like. */
 export type WaitForCallback = (
@@ -39,12 +40,11 @@ async function portIsFree(port: number): Promise<boolean> {
 }
 
 async function listening(port: number): Promise<void> {
-	const end = Date.now() + 2000;
-	while (Date.now() < end) {
-		if (!(await portIsFree(port))) return;
-		await new Promise((resolve) => setTimeout(resolve, 20));
-	}
-	throw new Error(`nothing listened on ${port}`);
+	await until(
+		`something to listen on ${port}`,
+		async () => !(await portIsFree(port)),
+		2000,
+	);
 }
 
 function timers(): number {

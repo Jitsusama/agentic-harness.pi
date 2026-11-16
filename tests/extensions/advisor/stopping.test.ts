@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { endTurn } from "../../support/turn-end.ts";
+import { until } from "../../support/until.ts";
 
 /**
  * The advisor reviews a substantive turn with a second model, which
@@ -123,10 +124,11 @@ function settled(work: Promise<unknown>): Promise<string> {
 
 /** Until the review under way has been handed to the model. */
 async function reviewStarted(count: number): Promise<void> {
-	const deadline = Date.now() + 2000;
-	while (reviews.length < count && Date.now() < deadline) {
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
+	await until(
+		`review ${count} to reach the model`,
+		() => reviews.length >= count,
+		2000,
+	);
 }
 
 beforeEach(() => {
@@ -175,6 +177,8 @@ describe("the advisor at the end of a turn", () => {
 		void turnEnds(handlers, run);
 		await reviewStarted(1);
 		void turnEnds(handlers, run);
+		// A second review that never starts leaves nothing to wait on, so
+		// this pause is the case.
 		await new Promise((resolve) => setTimeout(resolve, 100));
 
 		expect(reviews).toHaveLength(1);

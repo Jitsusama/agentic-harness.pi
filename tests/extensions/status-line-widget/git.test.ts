@@ -445,8 +445,12 @@ describe("the engine, kept running", () => {
 		chmodSync(quitter, 0o755);
 		const engine = new Engine(quitter, () => {}, none);
 		engine.ask(dir);
+		// The engine says nothing when a program ends unheard, so these
+		// pauses are the case: one for the quitter to start and end, one
+		// for a second start that must not come.
 		await new Promise((resolve) => setTimeout(resolve, 300));
 		engine.ask(dir);
+		// See above: the absence of a second start is what's asserted.
 		await new Promise((resolve) => setTimeout(resolve, 300));
 
 		expect(readFileSync(starts, "utf8")).toBe("start\n");

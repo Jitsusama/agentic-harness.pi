@@ -14,6 +14,7 @@ import {
 	type LspCallOptions,
 	type StandaloneBackend,
 } from "../../../../lib/core/lsp/index.ts";
+import { until } from "../../../support/until.ts";
 
 const fixture = fileURLToPath(
 	new URL("./fixtures/silent-server.mjs", import.meta.url),
@@ -47,31 +48,32 @@ async function outcome(call: Promise<unknown>): Promise<string> {
 
 /** Waits until the server has a request for `method`. */
 async function arrived(received: string, method: string): Promise<void> {
-	const seen = await logged(received, method, REQUEST_ARRIVES_MS);
-	if (!seen.includes(method)) {
-		throw new Error(`The server never got ${method}.`);
-	}
+	await until(
+		`the server to get ${method}`,
+		() => logged(received).includes(method),
+		REQUEST_ARRIVES_MS,
+	);
 }
 
 /** The methods the server was told to stop working on, once it has been. */
 async function cancelled(log: string, method: string): Promise<string[]> {
-	return logged(log, method, CANCEL_ARRIVES_MS);
+	try {
+		await until(
+			`the server to be told to stop ${method}`,
+			() => logged(log).includes(method),
+			CANCEL_ARRIVES_MS,
+		);
+	} catch {
+		// The caller's expectation says what the server was told instead.
+	}
+	return logged(log);
 }
 
-/** The methods in a log the server writes, once `method` is, or by `withinMs`. */
-async function logged(
-	log: string,
-	method: string,
-	withinMs: number,
-): Promise<string[]> {
-	const deadline = Date.now() + withinMs;
-	for (;;) {
-		const seen = existsSync(log)
-			? readFileSync(log, "utf8").split("\n").filter(Boolean)
-			: [];
-		if (seen.includes(method) || Date.now() > deadline) return seen;
-		await new Promise((resolve) => setTimeout(resolve, 50));
-	}
+/** The methods in a log the server writes, as it stands. */
+function logged(log: string): string[] {
+	return existsSync(log)
+		? readFileSync(log, "utf8").split("\n").filter(Boolean)
+		: [];
 }
 
 type Operation = (

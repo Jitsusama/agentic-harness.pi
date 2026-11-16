@@ -558,6 +558,8 @@ describe("writing one change's ledger from several places at once", () => {
 			const writing = store.record(change, run()).then(() => {
 				landed = true;
 			});
+			// A write that doesn't land leaves nothing to wait on, so this
+			// pause, some fifteen of the lock's 20 ms retries, is the case.
 			await new Promise((done) => setTimeout(done, 300));
 			expect(
 				landed,

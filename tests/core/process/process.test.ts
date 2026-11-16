@@ -20,6 +20,7 @@ import {
 	sameProcess,
 	systemFacts,
 } from "../../../lib/core/process/index.ts";
+import { until } from "../../support/until.ts";
 
 /**
  * A machine where these pids run, and started when it says, on this
@@ -278,9 +279,12 @@ describe("what the machine itself says", () => {
 			chmodSync(script, 0o755);
 			const child = spawn(script, [], { stdio: ["pipe", "ignore", "ignore"] });
 			try {
-				await new Promise((wake) => setTimeout(wake, 300));
 				const pid = child.pid as number;
-				expect(readFileSync(`/proc/${pid}/comm`, "utf8")).toBe("a) b\n");
+				// Named after node's own until the script's exec lands.
+				await until(
+					"the script to run under its own name",
+					() => readFileSync(`/proc/${pid}/comm`, "utf8") === "a) b\n",
+				);
 				const fromPs = Date.parse(
 					execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
 						encoding: "utf8",
