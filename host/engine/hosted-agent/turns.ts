@@ -24,12 +24,7 @@ import {
 	toolCalls,
 	truncatedCallText,
 } from "../tool-round.ts";
-import {
-	isAssistant,
-	lastOfRole,
-	resultOf,
-	resultsOf,
-} from "./messages.ts";
+import { isAssistant, lastOfRole, resultOf, resultsOf } from "./messages.ts";
 import { applyModel, type Run } from "./run.ts";
 import { declareToolChanges } from "./tool-changes.ts";
 import type { Transcript } from "./transcript.ts";

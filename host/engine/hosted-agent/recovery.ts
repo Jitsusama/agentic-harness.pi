@@ -4,10 +4,7 @@
  * queue behind it, and a request the stop cut off is asked again.
  */
 import type { RunFailure } from "../durable-types.ts";
-import type {
-	AgentMessage,
-	AssistantMessage,
-} from "../pi-types.ts";
+import type { AgentMessage, AssistantMessage } from "../pi-types.ts";
 import type { MessageQueue, QueuedMessage } from "../queue.ts";
 import {
 	beganWithPersonsWords,
