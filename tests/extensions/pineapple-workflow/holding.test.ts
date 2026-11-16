@@ -44,11 +44,23 @@ function mesh() {
 }
 
 describe("tending holds", () => {
-	it("sends one hold for a stop, from the safe word's address", () => {
+	it("touches the disk only off the caller's turn", async () => {
+		const { root, state, sent, tend } = mesh();
+		state.stops = [stop("q", ["quest:QEST-A"])];
+		const tending = tend();
+		expect(
+			existsSync(join(root, "pineapple")) ? "made" : "not yet",
+			"the notes' folder made on the caller's turn",
+		).toBe("not yet");
+		await tending;
+		expect(sent(), "the hold sent once tending settles").toHaveLength(1);
+	});
+
+	it("sends one hold for a stop, from the safe word's address", async () => {
 		const { state, sent, tend } = mesh();
 		state.stops = [stop("q", ["quest:QEST-A"])];
-		tend();
-		tend();
+		await tend();
+		await tend();
 		const messages = sent();
 		expect(messages).toHaveLength(1);
 		expect(messages[0]).toMatchObject({
@@ -58,22 +70,22 @@ describe("tending holds", () => {
 		});
 	});
 
-	it("renews a hold before its two hours end, replacing the last", () => {
+	it("renews a hold before its two hours end, replacing the last", async () => {
 		const { clock, state, sent, tend } = mesh();
 		state.stops = [stop("q", ["quest:QEST-A"])];
-		tend();
+		await tend();
 		clock.now += RENEW_MS;
-		tend();
+		await tend();
 		const [first, second] = sent();
 		expect(second).toMatchObject({ intent: "hold", supersedes: first?.id });
 	});
 
-	it("ends the hold once Joel resumes, and keeps no note of it", () => {
+	it("ends the hold once Joel resumes, and keeps no note of it", async () => {
 		const { root, state, sent, tend } = mesh();
 		state.stops = [stop("q", ["quest:QEST-A"])];
-		tend();
+		await tend();
 		state.stops = [];
-		tend();
+		await tend();
 		const [hold, end] = sent();
 		expect(end).toMatchObject({
 			intent: "fyi",
@@ -86,13 +98,13 @@ describe("tending holds", () => {
 		).toBe("gone");
 	});
 
-	it("sends nothing for a shadow stop, writing the would-be hold once a renewal", () => {
+	it("sends nothing for a shadow stop, writing the would-be hold once a renewal", async () => {
 		const { root, clock, state, sent, tend } = mesh();
 		state.stops = [stop("q", ["everything"], true)];
-		tend();
-		tend();
+		await tend();
+		await tend();
 		clock.now += RENEW_MS;
-		tend();
+		await tend();
 		expect(sent()).toEqual([]);
 		const lines = readFileSync(join(root, "would-hold.jsonl"), "utf8")
 			.trim()
@@ -102,16 +114,16 @@ describe("tending holds", () => {
 		expect(lines[0]).toMatchObject({ stop: "q", to: ["#all"] });
 	});
 
-	it("leaves the holds to the session tending them, until its claim goes stale", () => {
+	it("leaves the holds to the session tending them, until its claim goes stale", async () => {
 		const { root, clock, state, sent, tend } = mesh();
 		state.stops = [stop("q", ["quest:QEST-A"])];
 		mkdirSync(join(root, "pineapple"), { recursive: true });
 		writeFileSync(join(root, "pineapple", "claim"), "1");
 		clock.now = Date.now();
-		tend();
+		await tend();
 		expect(sent()).toEqual([]);
 		clock.now = Date.now() + 3 * 60 * 1000;
-		tend();
+		await tend();
 		expect(sent()).toHaveLength(1);
 	});
 });
