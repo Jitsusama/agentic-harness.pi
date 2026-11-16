@@ -71,7 +71,7 @@ export interface Parking {
 	 * wake has, rejecting with why it failed, so whoever asked can say so
 	 * and ask again. A window's (`asker`) goes ahead of other wakes.
 	 */
-	wake(sessionId: string, asker?: WakeAsker): Promise<void>;
+	wake(sessionId: string, asker: WakeAsker): Promise<void>;
 	/** Once a park of it under way has settled, at once when none is. */
 	settled(sessionId: string): Promise<void>;
 	/**
@@ -164,7 +164,7 @@ export function parking(options: {
 		mkdirSync(folderOf(sessionId), { recursive: true });
 		// Woken for `messageId`, or for nothing named; a refusal is kept beside its file.
 		const ask = (watching: Sleeper, messageId: string | undefined) =>
-			wake(sessionId).catch((error: unknown) => {
+			wake(sessionId, "other").catch((error: unknown) => {
 				// Reported as it failed; kept for the mesh to say, until the next
 				// message writes the file again or the conversation runs. One
 				// settling once this watch is gone, at a close or another park,
@@ -223,7 +223,7 @@ export function parking(options: {
 			});
 	}
 
-	function wake(sessionId: string, asker: WakeAsker = "other"): Promise<void> {
+	function wake(sessionId: string, asker: WakeAsker): Promise<void> {
 		const parked = settling.get(sessionId);
 		if (parked)
 			return new Promise((resolve, reject) => {

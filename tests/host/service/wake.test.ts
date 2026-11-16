@@ -643,9 +643,14 @@ describe("waking conversations side by side, a window's first", () => {
 
 	it("says nothing of a resume that ends within its longest", async () => {
 		const said: string[] = [];
-		const backend = backendWith(engine(), undefined, (line) => said.push(line), {
-			wakeLongestMs: LONGEST_MS,
-		});
+		const backend = backendWith(
+			engine(),
+			undefined,
+			(line) => said.push(line),
+			{
+				wakeLongestMs: LONGEST_MS,
+			},
+		);
 		const sessionId = await parked(backend);
 
 		await backend.wake(sessionId);

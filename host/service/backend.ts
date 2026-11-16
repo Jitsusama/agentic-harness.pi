@@ -127,7 +127,7 @@ export interface ConversationEngine {
 export interface ConversationEvents {
 	ended(sessionId: string, why: string): Promise<void>;
 	became(previousId: string, next: Prepared): Promise<void>;
-	wake?(sessionId: string, asker?: WakeAsker): Promise<void>;
+	wake?(sessionId: string, asker: WakeAsker): Promise<void>;
 }
 
 /** The engine's live ownership, as SessionHost keeps it. */
@@ -174,9 +174,15 @@ export interface HostBackend extends ControlBackend {
 	 * a wake of it after says so. One still parking is woken once settled.
 	 * Its resume runs beside a few others, a window's (`asker`) at once and
 	 * ahead of the rest, taking in with it a wake of the same conversation
-	 * already waiting (wake-places.ts).
+	 * already waiting or resuming (wake-places.ts).
 	 */
 	wake(sessionId: string, asker?: WakeAsker): Promise<void>;
+	/**
+	 * The host stops: refuse with `why` every wake not yet resuming, so a
+	 * stop parks what is running rather than resuming the rest only to park
+	 * them.
+	 */
+	refuseWakes(why: Error): void;
 	/**
 	 * Once every wake and end under way has finished, so a stop parks what
 	 * they leave rather than racing a resume into a host it disposes.
@@ -445,6 +451,7 @@ export function hostBackend(options: {
 	return {
 		identity: options.identity,
 		wake,
+		refuseWakes: (why) => placesOfWakes.close(why),
 		async settled() {
 			while (turns.size > 0) await Promise.all(turns.values());
 		},
@@ -506,7 +513,7 @@ export function conversationEvents(options: {
 	roster: HostRoster;
 	report: (error: unknown) => void;
 	/** How a parked conversation is woken: the backend's wake, once it exists. */
-	wake?: (sessionId: string, asker?: WakeAsker) => Promise<void>;
+	wake?: (sessionId: string, asker: WakeAsker) => Promise<void>;
 	now?: () => Date;
 	/** Writes a line to the host's journal: one for each conversation that ends, and why. */
 	say?: (line: string) => void;

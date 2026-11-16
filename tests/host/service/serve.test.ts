@@ -306,7 +306,7 @@ describe("serveHost", () => {
 		const { sessionId } = parseOpenResult(reply.result);
 		await sessionHost?.stop(sessionId, "parked while idle");
 
-		const woke = events?.wake?.(sessionId);
+		const woke = events?.wake?.(sessionId, "other");
 		await until("the wake to resume it", () => resuming);
 		const stopped = serving.stop();
 		// Resumed only once the stop has closed its socket, as it would go on
@@ -359,7 +359,7 @@ describe("serveHost", () => {
 		await sessionHost?.stop(sessionId, "parked while idle");
 
 		const stopped = serving.stop();
-		const woke = events?.wake?.(sessionId);
+		const woke = events?.wake?.(sessionId, "window");
 
 		await expect(
 			woke,
@@ -399,7 +399,7 @@ describe("serveHost", () => {
 					},
 					// A message wrote its wake file while the host was down.
 					restsParked: (entry) => {
-						woke = events?.wake?.(entry.sessionId);
+						woke = events?.wake?.(entry.sessionId, "other");
 						return true;
 					},
 					resume: async (entry, woken) => {

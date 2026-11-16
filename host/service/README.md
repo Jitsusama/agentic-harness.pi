@@ -34,12 +34,14 @@ input pipeline or screen. No unit or running host is installed yet.
 - wake-places.ts: wakes side by side, a window's first. A host resumes
   up to `WAKE_PLACES` (4) waking conversations at once; a window's
   wake (a person opening one, or typing to it parked) resumes at once,
-  taking in a wake of that conversation already waiting, and no other
-  wake begins while it runs. Each resume holds the others back for at
-  most `WAKE_LONGEST_MS` (20 s); past that it counts no more, and the
-  journal names it, so a resume that never ends delays those behind it
-  once rather than for good. Only the resume waits, not the rollout
-  gate before it.
+  taking in a wake of that conversation already waiting or resuming,
+  and no other wake begins while it runs. Each resume holds the others
+  back for at most `WAKE_LONGEST_MS` (20 s); past that it counts no
+  more, and the journal names it and says when it ends, so a resume
+  that never ends delays those behind it once rather than for good. A
+  stopping host refuses the wakes still waiting rather than resume them
+  only to park them. Only the resume waits, not the rollout gate before
+  it.
 - rollout.ts: the rollout gate. A host opens, adopts or resumes a
   second conversation only once every live pi (each `loaded/<pid>`
   in the install whose pid runs) loaded a harness holding 5b5b7260,
