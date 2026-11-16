@@ -5,7 +5,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { formatFleetSummary, locateArtifacts, summarizeStderrTail } from "../../../extensions/subagent-workflow/run.ts";
+import {
+	formatFleetSummary,
+	locateArtifacts,
+	summarizeStderrTail,
+} from "../../../extensions/subagent-workflow/run.ts";
 import { makeUsage } from "./fleet-usage.ts";
 
 describe("formatFleetSummary", () => {

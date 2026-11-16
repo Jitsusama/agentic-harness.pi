@@ -10,8 +10,15 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ReviewerArtifactsStore, type ReviewerRunPaths } from "../../../../lib/subagent/artifacts.ts";
-import { createSupervisorRunPi as createRealSupervisorRunPi, type SupervisorRunPiConfig, type SupervisorSpawnFn } from "../../../../lib/subagent/runpi/supervisor.ts";
+import {
+	ReviewerArtifactsStore,
+	type ReviewerRunPaths,
+} from "../../../../lib/subagent/artifacts.ts";
+import {
+	createSupervisorRunPi as createRealSupervisorRunPi,
+	type SupervisorRunPiConfig,
+	type SupervisorSpawnFn,
+} from "../../../../lib/subagent/runpi/supervisor.ts";
 import type { RunPiResult } from "../../../../lib/subagent/subagent.ts";
 import type { FakeChildControls } from "./fake-child.ts";
 

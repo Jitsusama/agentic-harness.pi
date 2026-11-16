@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { review, assistantEvent, fakeRun } from "./fake-runs.ts";
+import { assistantEvent, fakeRun, review } from "./fake-runs.ts";
 
 describe("runReviewer: usage extraction", () => {
 	it("returns the token + cost usage from the final assistant message", async () => {

@@ -4,8 +4,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { mergeResumeOutcome, mergeWrapUpOutcome, type RunReviewerResult } from "../../../lib/subagent/subagent.ts";
-import { review, assistantEvent, fakeRun, scriptedRun } from "./fake-runs.ts";
+import {
+	mergeResumeOutcome,
+	mergeWrapUpOutcome,
+	type RunReviewerResult,
+} from "../../../lib/subagent/subagent.ts";
+import { assistantEvent, fakeRun, review, scriptedRun } from "./fake-runs.ts";
 
 describe("runReviewer: how a run ended", () => {
 	it("carries the runner's terminal state through to the caller", async () => {

@@ -17,7 +17,16 @@
  *   - Warnings for malformed events and non-zero exits.
  */
 
-import { type CouncilReviewer, type ReviewerError, type ReviewerVerification, type RunPi, type RunPiResult, type RunReviewerOptions, type RunReviewerResult, runReviewer } from "../../../lib/subagent/subagent.ts";
+import {
+	type CouncilReviewer,
+	type ReviewerError,
+	type ReviewerVerification,
+	type RunPi,
+	type RunPiResult,
+	type RunReviewerOptions,
+	type RunReviewerResult,
+	runReviewer,
+} from "../../../lib/subagent/subagent.ts";
 import { at } from "../../support/at.ts";
 
 /** The reviewer these tests run unless one says otherwise. */

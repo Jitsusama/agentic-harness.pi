@@ -9,8 +9,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { offerShellEnvironment } from "../../../../lib/internal/shell/environment.ts";
-import { pinChildEnvironment, unpinChildEnvironment } from "../../../../lib/subagent/child-env.ts";
-import { TEST_TIMEOUT_MS, tempStateDir, GENEROUS_MS, createSupervisorRunPi, runChild, expectRan } from "./supervised.ts";
+import {
+	pinChildEnvironment,
+	unpinChildEnvironment,
+} from "../../../../lib/subagent/child-env.ts";
+import {
+	createSupervisorRunPi,
+	expectRan,
+	GENEROUS_MS,
+	runChild,
+	TEST_TIMEOUT_MS,
+	tempStateDir,
+} from "./supervised.ts";
 
 // Slack for spawning, not a work budget: TEST_TIMEOUT_MS says why.
 vi.setConfig({ testTimeout: TEST_TIMEOUT_MS });

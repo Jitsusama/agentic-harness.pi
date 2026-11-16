@@ -87,7 +87,9 @@ export function staleFleet(id: string): string {
  * that announcement comes after every run has been decided and after
  * the sweep that runs before them.
  */
-export async function alsoOrphaned(store: ReviewerArtifactsStore): Promise<void> {
+export async function alsoOrphaned(
+	store: ReviewerArtifactsStore,
+): Promise<void> {
 	await orphaned(store, "zz-orphan");
 }
 

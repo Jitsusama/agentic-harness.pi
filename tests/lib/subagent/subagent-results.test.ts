@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { REVIEWER, review, assistantEvent, fakeRun } from "./fake-runs.ts";
+import { assistantEvent, fakeRun, REVIEWER, review } from "./fake-runs.ts";
 
 describe("runReviewer: result extraction", () => {
 	it("captures verify_output from the raw stdout stream", async () => {

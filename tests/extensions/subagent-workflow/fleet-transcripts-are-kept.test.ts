@@ -20,7 +20,22 @@ import { createFleetLedger } from "../../../lib/subagent/fleet.ts";
 import { ReviewerArtifactsStore } from "../../../lib/subagent/index.ts";
 import { systemFacts } from "../../../lib/subagent/lease.ts";
 import { noSuchProcess } from "../../support/processes.ts";
-import { said, holdFleetState, stateDir, staleFleet, alsoOrphaned, DAY_MS, holdTheClock, finished, age, aboutFleets, NEW, CAME_BACK, startSession, recordOf } from "./fleet-session.ts";
+import {
+	aboutFleets,
+	age,
+	alsoOrphaned,
+	CAME_BACK,
+	DAY_MS,
+	finished,
+	holdFleetState,
+	holdTheClock,
+	NEW,
+	recordOf,
+	said,
+	staleFleet,
+	startSession,
+	stateDir,
+} from "./fleet-session.ts";
 
 // A state directory of its own, and a screen whose notices are kept.
 holdFleetState();

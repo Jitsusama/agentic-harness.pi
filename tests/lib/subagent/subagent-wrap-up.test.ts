@@ -6,7 +6,11 @@
 
 import { describe, expect, it } from "vitest";
 import type { ReviewerTerminalState } from "../../../lib/subagent/artifacts.ts";
-import { type RunPi, type RunPiResult, runReviewer } from "../../../lib/subagent/subagent.ts";
+import {
+	type RunPi,
+	type RunPiResult,
+	runReviewer,
+} from "../../../lib/subagent/subagent.ts";
 import { at } from "../../support/at.ts";
 import { REVIEWER, review, scriptedRun } from "./fake-runs.ts";
 
@@ -292,7 +296,9 @@ describe("runReviewer: asking a stopped reviewer for what it has", () => {
 		// And never an idle clock tighter than the wall it runs under.
 		// Shortening an idle clock on its own is what killed six rounds
 		// of working reviewers: silence is not idleness.
-		expect(at(calls, 1).idleTimeoutMs).toBeLessThanOrEqual(at(calls, 1).timeoutMs ?? 0);
+		expect(at(calls, 1).idleTimeoutMs).toBeLessThanOrEqual(
+			at(calls, 1).timeoutMs ?? 0,
+		);
 	});
 
 	it("keeps the fragment when the ask cannot even be made", async () => {

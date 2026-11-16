@@ -8,7 +8,14 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { makeFakeChild } from "./fake-child.ts";
-import { TEST_TIMEOUT_MS, tempStateDir, runChild, runOnFake, fakeSupervisor, expectRan } from "./supervised.ts";
+import {
+	expectRan,
+	fakeSupervisor,
+	runChild,
+	runOnFake,
+	TEST_TIMEOUT_MS,
+	tempStateDir,
+} from "./supervised.ts";
 
 // Slack for spawning, not a work budget: TEST_TIMEOUT_MS says why.
 vi.setConfig({ testTimeout: TEST_TIMEOUT_MS });

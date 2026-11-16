@@ -4,8 +4,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { clearSubagentDefaults, registerSubagentDefaultExtension } from "../../../lib/subagent/index.ts";
-import { type ReviewerError, type RunPiResult } from "../../../lib/subagent/subagent.ts";
+import {
+	clearSubagentDefaults,
+	registerSubagentDefaultExtension,
+} from "../../../lib/subagent/index.ts";
+import type {
+	ReviewerError,
+	RunPiResult,
+} from "../../../lib/subagent/subagent.ts";
 import { at } from "../../support/at.ts";
 import { review, scriptedRun } from "./fake-runs.ts";
 

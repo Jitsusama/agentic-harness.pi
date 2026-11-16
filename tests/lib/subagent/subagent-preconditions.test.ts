@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { review, assistantEvent, fakeRun } from "./fake-runs.ts";
+import { assistantEvent, fakeRun, review } from "./fake-runs.ts";
 
 describe("runReviewer: stale runtime detection", () => {
 	it("refuses to spawn when the captured pi binary path is gone", async () => {

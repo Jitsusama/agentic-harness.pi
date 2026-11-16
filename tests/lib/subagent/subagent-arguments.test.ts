@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { type RunPi, runReviewer } from "../../../lib/subagent/subagent.ts";
 import { at } from "../../support/at.ts";
-import { REVIEWER, review, assistantEvent, fakeRun } from "./fake-runs.ts";
+import { assistantEvent, fakeRun, REVIEWER, review } from "./fake-runs.ts";
 
 describe("runReviewer: argument composition", () => {
 	it("passes the reviewer model via --model and tools via --tools (csv)", async () => {

@@ -11,7 +11,12 @@ import { describe, expect, it, vi } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
 import { UNFINISHED } from "../../../../lib/subagent/reviewer-error.ts";
 import type { RunPiResult } from "../../../../lib/subagent/subagent.ts";
-import { TEST_TIMEOUT_MS, tempStateDir, createSupervisorRunPi, runChild } from "./supervised.ts";
+import {
+	createSupervisorRunPi,
+	runChild,
+	TEST_TIMEOUT_MS,
+	tempStateDir,
+} from "./supervised.ts";
 
 // Slack for spawning, not a work budget: TEST_TIMEOUT_MS says why.
 vi.setConfig({ testTimeout: TEST_TIMEOUT_MS });

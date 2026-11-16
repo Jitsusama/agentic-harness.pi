@@ -10,8 +10,14 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { FleetCancellationRegistry } from "../../../extensions/subagent-workflow/cancellation.ts";
-import type { FleetProgress, FleetProgressEntry } from "../../../extensions/subagent-workflow/progress.ts";
-import { dispatchFleet, type FleetAssignment } from "../../../extensions/subagent-workflow/run.ts";
+import type {
+	FleetProgress,
+	FleetProgressEntry,
+} from "../../../extensions/subagent-workflow/progress.ts";
+import {
+	dispatchFleet,
+	type FleetAssignment,
+} from "../../../extensions/subagent-workflow/run.ts";
 import type { RunRecord } from "../../../lib/core/observability/index.ts";
 import { registerRunRecorder } from "../../../lib/core/observability/index.ts";
 import { UNFINISHED } from "../../../lib/subagent/reviewer-error.ts";
