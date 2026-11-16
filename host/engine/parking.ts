@@ -35,6 +35,7 @@ import {
 	writeRefusedWake,
 } from "../../lib/internal/session/refused-wake.ts";
 import { type SteerWatch, watchWakingSteers } from "../../lib/mesh/parked.ts";
+import type { WakeAsker } from "../service/wake-places.ts";
 
 /** The file inside a conversation's folder that, once written, wakes it from a park. */
 const WAKE_FILE = "wake";
@@ -68,9 +69,9 @@ export interface Parking {
 	/**
 	 * It is asked for: wake it, or once its park settles. Settles once the
 	 * wake has, rejecting with why it failed, so whoever asked can say so
-	 * and ask again.
+	 * and ask again. A window's (`asker`) goes ahead of other wakes.
 	 */
-	wake(sessionId: string): Promise<void>;
+	wake(sessionId: string, asker?: WakeAsker): Promise<void>;
 	/** Once a park of it under way has settled, at once when none is. */
 	settled(sessionId: string): Promise<void>;
 	/**
@@ -109,7 +110,11 @@ export interface SteerInboxes {
 /** A park under way: when it settles, and the wakes asked of it meanwhile. */
 interface Settling {
 	readonly done: Promise<void>;
-	readonly asked: { resolve(): void; reject(error: unknown): void }[];
+	readonly asked: {
+		readonly asker: WakeAsker;
+		resolve(): void;
+		reject(error: unknown): void;
+	}[];
 }
 
 /**
@@ -120,7 +125,9 @@ interface Settling {
 export function parking(options: {
 	readonly stateDir: string;
 	readonly stop: (sessionId: string, why: string) => Promise<void>;
-	readonly asking: () => ((sessionId: string) => Promise<void>) | undefined;
+	readonly asking: () =>
+		| ((sessionId: string, asker: WakeAsker) => Promise<void>)
+		| undefined;
 	readonly report: (error: unknown) => void;
 	/** It parked: said before its wake is watched, so any wake comes after. */
 	readonly parked?: (sessionId: string) => void;
@@ -216,11 +223,11 @@ export function parking(options: {
 			});
 	}
 
-	function wake(sessionId: string): Promise<void> {
+	function wake(sessionId: string, asker: WakeAsker = "other"): Promise<void> {
 		const parked = settling.get(sessionId);
 		if (parked)
 			return new Promise((resolve, reject) => {
-				parked.asked.push({ resolve, reject });
+				parked.asked.push({ asker, resolve, reject });
 			});
 		const asking = options.asking();
 		if (!asking) {
@@ -230,7 +237,7 @@ export function parking(options: {
 			report(error);
 			return Promise.reject(error);
 		}
-		return asking(sessionId).catch((error: unknown) => {
+		return asking(sessionId, asker).catch((error: unknown) => {
 			report(error);
 			throw error;
 		});
@@ -248,9 +255,13 @@ export function parking(options: {
 		} finally {
 			settling.delete(sessionId);
 		}
-		// A key or a message while it parked asked for it before it could wake.
+		// A key or a message while it parked asked for it before it could
+		// wake; a window among them asks it as a window's.
 		if (asked.length > 0)
-			wake(sessionId).then(
+			wake(
+				sessionId,
+				asked.some((one) => one.asker === "window") ? "window" : "other",
+			).then(
 				() => {
 					for (const one of asked) one.resolve();
 				},

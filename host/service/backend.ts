@@ -121,12 +121,13 @@ export interface ConversationEngine {
  * or resume), awaited before the engine registers the new id, which it
  * must not register when this rejects. wake: a conversation the engine
  * parked is asked for (its wake file was written, or a viewer typed to
- * it): the service wakes it as an attach would, or says why not.
+ * it, the `asker` a window): the service wakes it as an attach would, or
+ * says why not.
  */
 export interface ConversationEvents {
 	ended(sessionId: string, why: string): Promise<void>;
 	became(previousId: string, next: Prepared): Promise<void>;
-	wake?(sessionId: string): Promise<void>;
+	wake?(sessionId: string, asker?: WakeAsker): Promise<void>;
 }
 
 /** The engine's live ownership, as SessionHost keeps it. */
@@ -172,7 +173,8 @@ export interface HostBackend extends ControlBackend {
 	 * one whose build fails stays held, parked, as a failed open does, and
 	 * a wake of it after says so. One still parking is woken once settled.
 	 * Its resume runs beside a few others, a window's (`asker`) at once and
-	 * ahead of the rest (wake-places.ts).
+	 * ahead of the rest, taking in with it a wake of the same conversation
+	 * already waiting (wake-places.ts).
 	 */
 	wake(sessionId: string, asker?: WakeAsker): Promise<void>;
 	/**
@@ -205,7 +207,7 @@ export function hostBackend(options: {
 	held?: Pick<HeldOrder, "ahead">;
 	/** How many wakes, other than a window's, resume at once. */
 	wakePlaces?: number;
-	/** How long a wake waits for a place before it resumes anyway. */
+	/** How long one resume holds back the other wakes before it counts no more. */
 	wakeLongestMs?: number;
 }): HostBackend {
 	const { host, roster, engine } = options;
@@ -223,7 +225,13 @@ export function hostBackend(options: {
 	// closed (QCXZEB's move in place, 11 November).
 	const starts = new Map<string, Promise<void>>();
 	// The wakes' resumes, a few side by side, a window's at once.
-	const placesOfWakes = wakePlaces(options.wakePlaces, options.wakeLongestMs);
+	const placesOfWakes = wakePlaces({
+		...(options.wakePlaces === undefined ? {} : { places: options.wakePlaces }),
+		...(options.wakeLongestMs === undefined
+			? {}
+			: { longestMs: options.wakeLongestMs }),
+		...(options.say ? { say: options.say } : {}),
+	});
 
 	function inTurn<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
 		const before = turns.get(sessionId) ?? Promise.resolve();
@@ -243,6 +251,14 @@ export function hostBackend(options: {
 	}
 
 	function wake(sessionId: string, asker: WakeAsker = "other"): Promise<void> {
+		// Asked as the call comes, so a wake of it already waiting its turn
+		// goes in as the window's.
+		const hurried =
+			asker === "window" ? placesOfWakes.hurry(sessionId) : undefined;
+		return waking(sessionId, asker).finally(() => hurried?.());
+	}
+
+	function waking(sessionId: string, asker: WakeAsker): Promise<void> {
 		const owed = startOwes(sessionId);
 		return inTurn(sessionId, async () => {
 			await owed;
@@ -268,7 +284,9 @@ export function hostBackend(options: {
 				// The gate may wait long on another host, so only the resume
 				// itself waits for a place.
 				if (another) await options.admitAnother?.("wake");
-				await placesOfWakes.inPlace(asker, () => engine.resume(entry, true));
+				await placesOfWakes.inPlace(asker, sessionId, () =>
+					engine.resume(entry, true),
+				);
 			} finally {
 				beginning -= 1;
 			}
@@ -488,7 +506,7 @@ export function conversationEvents(options: {
 	roster: HostRoster;
 	report: (error: unknown) => void;
 	/** How a parked conversation is woken: the backend's wake, once it exists. */
-	wake?: (sessionId: string) => Promise<void>;
+	wake?: (sessionId: string, asker?: WakeAsker) => Promise<void>;
 	now?: () => Date;
 	/** Writes a line to the host's journal: one for each conversation that ends, and why. */
 	say?: (line: string) => void;

@@ -135,8 +135,11 @@ function settle(): Promise<void> {
 	return quietFor(BEGINS_WITHIN_MS);
 }
 
-/** A resume's longest, short enough to wait out in a test. */
-const LONGEST_MS = 60;
+/**
+ * A resume's longest, short enough to wait out in a test, and three times
+ * the checks made while one counts, so none lapses during them.
+ */
+const LONGEST_MS = 150;
 
 /** A longest no test waits out, so only a place freeing lets a wake on. */
 const NEVER_MS = 60_000;
@@ -489,12 +492,10 @@ describe("waking conversations side by side, a window's first", () => {
 	it("lets the other wakes on once a window's resume has run its longest", async () => {
 		const said: string[] = [];
 		const { fake, begun, finish } = heldResumes();
-		const backend = backendWith(
-			fake,
-			undefined,
-			(line) => said.push(line),
-			{ wakePlaces: 4, wakeLongestMs: LONGEST_MS },
-		);
+		const backend = backendWith(fake, undefined, (line) => said.push(line), {
+			wakePlaces: 4,
+			wakeLongestMs: LONGEST_MS,
+		});
 		const watched = await parked(backend);
 		const messaged = await parked(backend);
 
@@ -650,9 +651,10 @@ describe("waking conversations side by side, a window's first", () => {
 		const woken = ids.map((id) => backend.wake(id));
 		for (let ended = 0; ended < burst; ended += 1) {
 			const resuming = Math.min(burst, ended + WAKE_PLACES);
-			await until(`${resuming} wakes to have begun`, () => {
-				return begun.length === resuming;
-			});
+			await until(
+				`${resuming} wakes to have begun`,
+				() => begun.length === resuming,
+			);
 			await settle();
 			expect(
 				begun.length,

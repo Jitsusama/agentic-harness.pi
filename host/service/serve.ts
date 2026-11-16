@@ -137,8 +137,10 @@ export async function serveHost(options: {
 				roster,
 				report: options.report,
 				...(options.say ? { say: options.say } : {}),
-				wake: (sessionId) =>
-					wakes ? wakes(sessionId) : listened.then((wake) => wake(sessionId)),
+				wake: (sessionId, asker) =>
+					wakes
+						? wakes(sessionId, asker)
+						: listened.then((wake) => wake(sessionId, asker)),
 			}),
 		);
 		const order = heldOrder(roster);

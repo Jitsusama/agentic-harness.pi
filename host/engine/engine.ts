@@ -859,7 +859,8 @@ export async function createEngine(
 		if (record.runtime || record.questioned) {
 			const screens = options.screens;
 			if (record.parking && screens?.parked)
-				await screens.parked(sessionId, () => parked.wake(sessionId));
+				// A key typed to its window is a person at it, so it goes first.
+				await screens.parked(sessionId, () => parked.wake(sessionId, "window"));
 			else await screens?.closed(sessionId, why);
 		}
 		const agent = record.conversation?.agent;
