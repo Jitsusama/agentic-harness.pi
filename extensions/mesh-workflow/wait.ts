@@ -30,8 +30,11 @@ import {
 	settleWaiting,
 	verdictsFile,
 	verdictsIn,
+	verdictsOff,
 	type WaitingItem,
 	waitingOf,
+	waitingOff,
+	withVerdicts,
 } from "../../lib/mesh/waiting.ts";
 
 /** Where what waits on the person is kept, and whose it is here. */
@@ -66,6 +69,14 @@ export interface SettleWatch {
 	 * daemon's verdicts first. The first look only learns what waits.
 	 */
 	settled(): WaitingItem[];
+	/**
+	 * What {@link settled} answers, read off the thread, for a host's
+	 * clock: it writes, under the quest's lock, only when a verdict
+	 * changes something. It answers nothing while another look runs, or
+	 * when the quest or what is known moved while it read, so the next
+	 * tick looks again.
+	 */
+	settledOff(): Promise<WaitingItem[]>;
 	/** Whether anything it raised still waits. */
 	watching(): boolean;
 }
@@ -79,12 +90,33 @@ export interface SettleWatch {
  */
 export function watchSettling(waiting: Waiting): SettleWatch {
 	let known: { quest: string; items: Map<string, WaitingItem> } | undefined;
+	// Bumped by each take, so a read off the thread knows it was overtaken.
+	let takes = 0;
+	let reading = false;
 	const take = (quest: string, items: readonly WaitingItem[]) => {
 		const owner = waiting.owner?.();
 		const mine = owner
 			? items.filter((one) => one.owner?.session === owner.session)
 			: [];
 		known = { quest, items: new Map(mine.map((one) => [one.id, one])) };
+		takes += 1;
+	};
+	const seen = (quest: string, items: readonly WaitingItem[]) => {
+		const before = known;
+		take(quest, items);
+		// Another quest's items left with the quest, not with the person.
+		if (!before || before.quest !== quest) return [];
+		return [...before.items.values()].filter(
+			(one) => !known?.items.has(one.id),
+		);
+	};
+	const readOff = async (quest: string) => {
+		const items = await waitingOff(waiting.folder, quest);
+		if (items.length === 0) return items;
+		const verdicts = await verdictsOff(verdictsFile(waiting.folder));
+		if (verdicts.size === 0) return items;
+		if (!withVerdicts(quest, items, verdicts).changed) return items;
+		return undefined;
 	};
 	return {
 		heard(items) {
@@ -95,13 +127,23 @@ export function watchSettling(waiting: Waiting): SettleWatch {
 			const quest = waiting.quest();
 			if (!quest) return [];
 			settleFromVerdicts(waiting);
-			const before = known;
-			take(quest, waitingOf(waiting.folder, quest));
-			// Another quest's items left with the quest, not with the person.
-			if (!before || before.quest !== quest) return [];
-			return [...before.items.values()].filter(
-				(one) => !known?.items.has(one.id),
-			);
+			return seen(quest, waitingOf(waiting.folder, quest));
+		},
+		async settledOff() {
+			const quest = waiting.quest();
+			if (!quest || reading) return [];
+			reading = true;
+			const at = takes;
+			try {
+				const read = await readOff(quest);
+				if (waiting.quest() !== quest || takes !== at) return [];
+				if (read) return seen(quest, read);
+				// A verdict changes something: written whole, under the lock.
+				settleFromVerdicts(waiting);
+				return seen(quest, waitingOf(waiting.folder, quest));
+			} finally {
+				reading = false;
+			}
 		},
 		watching: () => (known?.items.size ?? 0) > 0,
 	};

@@ -22,19 +22,24 @@ export function createWaits(m: MeshState) {
 	 * Tell this session what it raised for the person has settled: a
 	 * turn of its own when idle, since a run that ended Blocked on him
 	 * has nothing else to wake it, and after the run under way if not.
+	 * It reads off the thread: a host ticks it each minute for every
+	 * conversation that raised something.
 	 */
-	const tellSettled = () => {
-		if (!m.settleWatch || !m.ctx) return;
-		let gone: ReturnType<typeof m.settleWatch.settled>;
+	const tellSettled = async () => {
+		const watch = m.settleWatch;
+		if (!watch || !m.ctx) return;
+		let gone: Awaited<ReturnType<typeof watch.settledOff>>;
 		let idle: boolean;
 		try {
-			gone = m.settleWatch.settled();
+			gone = await watch.settledOff();
+			// The session went or started again while it read.
+			if (m.settleWatch !== watch || !m.ctx) return;
 			idle = m.ctx.isIdle?.() ?? false;
 		} catch {
 			// A file being replaced or a stale context: the next tick looks again.
 			return;
 		}
-		if (!m.settleWatch.watching()) {
+		if (!watch.watching()) {
 			clearInterval(m.settleClock);
 			m.settleClock = undefined;
 		}
@@ -54,7 +59,7 @@ export function createWaits(m: MeshState) {
 	};
 	const watchSettled = () => {
 		if (m.settleClock || !m.settleWatch?.watching()) return;
-		m.settleClock = setInterval(tellSettled, m.waitCheckMs);
+		m.settleClock = setInterval(() => void tellSettled(), m.waitCheckMs);
 		m.settleClock.unref?.();
 	};
 
