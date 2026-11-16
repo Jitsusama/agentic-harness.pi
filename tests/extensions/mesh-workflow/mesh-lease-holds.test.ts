@@ -292,6 +292,35 @@ describe("a lease", () => {
 		expect(sentOut()).toEqual([]);
 	});
 
+	it("tells nobody of a background command's claim, though another holds the same", async () => {
+		// Two sessions running one script share job ids and first words.
+		peer("session-w", ["WCJQSG"], []);
+		leased("session-w", { kind: "heavy", subject: "background j7: ls" });
+		const { sent, fire } = await startSession();
+
+		await fire("tool_call", {
+			type: "tool_call",
+			toolName: "bash",
+			toolCallId: "b1",
+			input: { command: "ls" },
+		});
+		await fire("tool_result", {
+			type: "tool_result",
+			toolCallId: "b1",
+			content: [{ type: "text", text: "Running as background command j7." }],
+		});
+
+		await vi.waitFor(() =>
+			expect(ownBoard()).toMatchObject([
+				{ kind: "heavy", subject: "background j7: ls" },
+			]),
+		);
+		// A real pause: the test is that neither side is told in it.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(sent).toEqual([]);
+		expect(sentOut()).toEqual([]);
+	});
+
 	it("claims a heavy shell command's work until its call answers", async () => {
 		const { fire, emit } = await startSession();
 		const running = (id: string, command: string) =>

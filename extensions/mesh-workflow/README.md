@@ -616,7 +616,12 @@ doing only when it is the easy thing:
   qemu-system-x86` does, or work named in quotes or a heredoc,
   claims nothing. One handed
   to a job runs on past its answer, until the job says it has
-  ended (`jobs:finished:v1`). Any extension can claim heavy work too, by
+  ended (`jobs:finished:v1`). Any command handed to the background
+  claims heavy work too, whatever it runs, as `background <job>:
+  <first words>` for two hours at most, so a mycelium node moving
+  only idle sessions never moves one under it; its presence says
+  `leases: { background: true }`, which a node reads to tell this
+  harness from an older one. Any extension can claim heavy work too, by
   emitting `mesh:lease:v1` on pi's bus with
   `{ take: { subject, why?, ms? } }` or `{ release: subject }`;
   the subject names the kind of work. It lasts an hour unless

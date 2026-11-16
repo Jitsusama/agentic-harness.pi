@@ -118,13 +118,23 @@ const RENEWAL_MS = 60 * 1000;
  * The event any extension emits on pi's bus to say this peer is running
  * heavy work, or has stopped: `{ take: { subject, why?, ms? } }` or
  * `{ release: subject }`. The subject names the kind of work (`qemu`,
- * `nix build`), which is what two peers' heavy work overlaps on.
+ * `nix build`), which is what two peers' heavy work overlaps on. A
+ * `quiet` take is claimed for the machine's readers alone and never told
+ * to another peer holding the same subject, as a background command's
+ * claim is its own session's (a mycelium node reads it).
  */
 export const LEASE_EVENT = "mesh:lease:v1";
 
 /** What the lease event carries. */
 export type LeaseEvent =
-	| { readonly take: { subject: string; why?: string; ms?: number } }
+	| {
+			readonly take: {
+				subject: string;
+				why?: string;
+				ms?: number;
+				quiet?: boolean;
+			};
+	  }
 	| { readonly release: string };
 
 /** The lease event as read from the bus, or nothing when it is not one. */
@@ -144,6 +154,7 @@ export function leaseEventFrom(value: unknown): LeaseEvent | undefined {
 			subject: take.subject.trim(),
 			...(typeof take.why === "string" ? { why: take.why } : {}),
 			...(typeof take.ms === "number" && take.ms > 0 ? { ms: take.ms } : {}),
+			...(take.quiet === true ? { quiet: true } : {}),
 		},
 	};
 }

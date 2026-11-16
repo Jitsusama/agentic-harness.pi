@@ -639,6 +639,20 @@ describe("this session's peer", () => {
 		).not.toHaveProperty("fence");
 	});
 
+	// 5HJZ8Z, 16 November: a node tells a harness that leases its
+	// background commands from an older one, which it can't judge idle.
+	it("says it leases its background commands, where its harness does", () => {
+		const at = { ...surroundings(), leases: { background: true } };
+		localPeer(at);
+		expect(at.presences.of(session)?.leases).toEqual({ background: true });
+		const unsaid = surroundings();
+		localPeer(unsaid);
+		expect(
+			unsaid.presences.of(session),
+			"left out where the harness doesn't say",
+		).not.toHaveProperty("leases");
+	});
+
 	it("reads no move it can't make sense of", () => {
 		const presences = createPresences(join(root, "presence"));
 		mkdirSync(join(root, "presence"), { recursive: true });

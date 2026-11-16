@@ -471,6 +471,14 @@ describe("the lease event", () => {
 			take: { subject: "qemu" },
 		});
 		expect(leaseEventFrom({ release: "qemu" })).toEqual({ release: "qemu" });
+		expect(
+			leaseEventFrom({ take: { subject: "background j1: ls", quiet: true } }),
+			"a quiet take stays quiet",
+		).toEqual({ take: { subject: "background j1: ls", quiet: true } });
+		expect(
+			leaseEventFrom({ take: { subject: "qemu", quiet: "yes" } }),
+			"and only a true one is",
+		).toEqual({ take: { subject: "qemu" } });
 	});
 
 	it("is nothing without a subject", () => {

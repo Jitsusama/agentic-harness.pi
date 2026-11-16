@@ -184,6 +184,9 @@ export function onSessionStart(
 			history: landingKeeper(m.paths.mesh),
 			// Which mycelium matches against the machine it carries to.
 			fence: fenceKindOf(m.env),
+			// Its background commands hold heavy leases (leases/heavy-calls.ts),
+			// so a node can tell an idle session from one an older harness runs.
+			leases: { background: true },
 		});
 		for (const want of m.wanting.values()) m.peer.want(want);
 		// A move asked before a reload goes on waiting for the session.
@@ -227,8 +230,8 @@ export function onSessionStart(
 		// Restored after a reboot, nothing it claimed is under way.
 		m.leasing.forgetEarlierBoots();
 		for (const event of m.unowned.splice(0)) f.claim(event);
-		for (const [toolCallId, label] of m.takenUnowned.splice(0))
-			f.heavyCalls.called(toolCallId, label);
+		for (const [toolCallId, jobId, label] of m.takenUnowned.splice(0))
+			f.heavyCalls.takenUp(toolCallId, jobId, label);
 		clearInterval(m.waitClock);
 		m.waitClock = undefined;
 		f.watchWaits();
