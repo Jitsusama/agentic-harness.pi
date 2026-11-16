@@ -151,18 +151,25 @@ export function resultsOf(
 	});
 }
 
-export function isAssistant(message: AgentMessage): message is AssistantMessage {
+export function isAssistant(
+	message: AgentMessage,
+): message is AssistantMessage {
 	return message.role === "assistant" && Array.isArray(message.content);
 }
 
-export function isToolResult(message: AgentMessage): message is ToolResultMessage {
+export function isToolResult(
+	message: AgentMessage,
+): message is ToolResultMessage {
 	return (
 		message.role === "toolResult" && typeof message.toolCallId === "string"
 	);
 }
 
 /** pi's text for a result durable wrote for a call no tool ran. */
-export function unrunText(entry: EntryRecord, committed: ToolResultMessage): string {
+export function unrunText(
+	entry: EntryRecord,
+	committed: ToolResultMessage,
+): string {
 	const data = entry.data as
 		| { diagnostics?: readonly { code?: string }[] }
 		| undefined;

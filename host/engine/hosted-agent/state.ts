@@ -4,7 +4,12 @@
  * change of tools telling the agent to install them again.
  */
 import type { PiLibrary } from "../pi-library.ts";
-import type { AgentMessage, AgentOptions, AgentTool, Model } from "../pi-types.ts";
+import type {
+	AgentMessage,
+	AgentOptions,
+	AgentTool,
+	Model,
+} from "../pi-types.ts";
 
 const DEFAULT_MODEL: Model = {
 	id: "unknown",

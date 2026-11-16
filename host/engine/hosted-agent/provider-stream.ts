@@ -118,9 +118,7 @@ export function teeStream(
 	let final: Promise<AssistantMessage> | undefined;
 	/** The aborted answer the run gave up on the provider with, once it has. */
 	let abandoned: AssistantMessage | undefined;
-	const finish = async (
-		stream: ProviderStream,
-	): Promise<AssistantMessage> => {
+	const finish = async (stream: ProviderStream): Promise<AssistantMessage> => {
 		final ??= (async () => {
 			const message = await stream.result();
 			// An answer that comes after the run gave up on it changes nothing.
@@ -202,8 +200,7 @@ export function teeStream(
 					await finish(stream);
 				} else if (answer.started && event.partial) {
 					answer.partial = event.partial;
-					run.context.messages[run.context.messages.length - 1] =
-						event.partial;
+					run.context.messages[run.context.messages.length - 1] = event.partial;
 					await side.emit({
 						type: "message_update",
 						assistantMessageEvent: event,
