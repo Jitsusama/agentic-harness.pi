@@ -133,6 +133,9 @@ async function reloadOnto(
 		`the reload onto ${name}`,
 		async () => reloadsIn(conversation.file) > before,
 	);
+	// The old runtime's teardown runs on after the new one says it landed,
+	// with nothing to wait on from outside, and only what it has let go can
+	// be collected or counted.
 	await pause(SETTLE_MS);
 }
 
