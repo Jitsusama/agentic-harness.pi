@@ -23,6 +23,12 @@ export interface Observed {
 		readonly error?: string;
 		/** Whether the agent still counted a run under way once the step returned. */
 		readonly streaming?: boolean;
+		/** What began a run pi prepared: a person's words, a custom message or a run carried on. */
+		readonly trigger?: unknown;
+		/** Whether a request carried the fixture's section. */
+		readonly sectioned?: boolean;
+		/** The sections a request carried, as JSON. */
+		readonly prompt?: string;
 	}[];
 	readonly transcript: readonly {
 		readonly role: string;
