@@ -12,7 +12,8 @@ import {
 import { parseOpenResult } from "../../../host/service/protocol.ts";
 import type { AdmitAnother } from "../../../host/service/rollout.ts";
 import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
-import { until } from "../../support/until.ts";
+import { WAKE_PLACES } from "../../../host/service/wake-places.ts";
+import { quietFor, until } from "../../support/until.ts";
 
 const KEY = "work-attended";
 const owner = { pid: process.pid, startedAt: 1 };
@@ -123,14 +124,22 @@ const attach = (sessionId: string) =>
 		columns: 120,
 	}) as const;
 
-/** Long enough for a resume that could begin to have begun. */
-const SETTLE_MS = 20;
+/**
+ * How soon a resume that may begin does: a wake reaches its place in
+ * microtasks, so a few milliseconds is ample.
+ */
+const BEGINS_WITHIN_MS = 5;
 
 /** Let a resume that may begin do so, before checking that it didn't. */
 function settle(): Promise<void> {
-	// A real pause is the point: a resume held back must not begin in it.
-	return new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+	return quietFor(BEGINS_WITHIN_MS);
 }
+
+/** A resume's longest, short enough to wait out in a test. */
+const LONGEST_MS = 60;
+
+/** A longest no test waits out, so only a place freeing lets a wake on. */
+const NEVER_MS = 60_000;
 
 const open = {
 	v: 1,
@@ -426,58 +435,236 @@ describe("waking conversations side by side, a window's first", () => {
 		expect(host.holds(messaged), "it runs once the window's has").toBe("idle");
 	});
 
-	it("resumes a wake that has waited its longest though no place is free", async () => {
-		const longestMs = 60;
+	it("resumes at once a window opened on one whose own wake waits for a place", async () => {
 		const { fake, begun, finish } = heldResumes();
 		const backend = backendWith(fake, undefined, undefined, {
 			wakePlaces: 1,
-			wakeLongestMs: longestMs,
+			wakeLongestMs: NEVER_MS,
+		});
+		const waking = await parked(backend);
+		const messaged = await parked(backend);
+
+		const woken = backend.wake(waking);
+		await until("the first wake to resume", () => begun.length === 1);
+		const queued = backend.wake(messaged);
+		await settle();
+		const attached = backend.execute(attach(messaged));
+		await until("the window's wake to resume", () => begun.length === 2);
+
+		expect(begun, "its waiting wake went in as the window's").toEqual([
+			waking,
+			messaged,
+		]);
+		finish(messaged);
+		await Promise.all([attached, queued]);
+		finish(waking);
+		await woken;
+
+		expect(fake.resume, "each resumed once").toHaveBeenCalledTimes(2);
+	});
+
+	it("resumes at once a wake a person asked for by typing to its window", async () => {
+		const { fake, begun, finish } = heldResumes();
+		const backend = backendWith(fake, undefined, undefined, {
+			wakePlaces: 1,
+			wakeLongestMs: NEVER_MS,
+		});
+		const waking = await parked(backend);
+		const typedTo = await parked(backend);
+
+		const woken = backend.wake(waking);
+		await until("the first wake to resume", () => begun.length === 1);
+		const typed = backend.wake(typedTo, "window");
+		await until("the typed-to wake to resume", () => begun.length === 2);
+
+		expect(begun, "a key's wake went past the place taken").toEqual([
+			waking,
+			typedTo,
+		]);
+		finish(typedTo);
+		finish(waking);
+		await Promise.all([woken, typed]);
+	});
+
+	it("lets the other wakes on once a window's resume has run its longest", async () => {
+		const said: string[] = [];
+		const { fake, begun, finish } = heldResumes();
+		const backend = backendWith(
+			fake,
+			undefined,
+			(line) => said.push(line),
+			{ wakePlaces: 4, wakeLongestMs: LONGEST_MS },
+		);
+		const watched = await parked(backend);
+		const messaged = await parked(backend);
+
+		const attached = backend.execute(attach(watched));
+		await until("the window's wake to resume", () => begun.length === 1);
+		const askedAt = Date.now();
+		const queued = backend.wake(messaged);
+		await until("the message's wake to resume", () => begun.length === 2);
+
+		expect(
+			Date.now() - askedAt,
+			"it waited for the window's resume first",
+		).toBeGreaterThanOrEqual(LONGEST_MS - BEGINS_WITHIN_MS);
+		expect(
+			said.some((line) => line.includes(watched)),
+			`the journal names the resume that ran its longest: ${said.join("; ")}`,
+		).toBe(true);
+		finish(messaged);
+		finish(watched);
+		await Promise.all([attached, queued]);
+	});
+
+	it("counts a resume that has run its longest no more, yet keeps to its places", async () => {
+		const { fake, begun, finish } = heldResumes();
+		const backend = backendWith(fake, undefined, undefined, {
+			wakePlaces: 1,
+			wakeLongestMs: LONGEST_MS,
 		});
 		const stuck = await parked(backend);
 		const next = await parked(backend);
+		const third = await parked(backend);
 
 		const woken = backend.wake(stuck);
 		await until("the first wake to resume", () => begun.length === 1);
 		const askedAt = Date.now();
 		const waited = backend.wake(next);
 		await until("the second wake to resume", () => begun.length === 2);
-
 		expect(
 			Date.now() - askedAt,
 			"it waited for a place first",
-		).toBeGreaterThanOrEqual(longestMs - 5);
-		finish(next);
-		await waited;
-		expect(host.holds(next), "it runs, the first still resuming").toBe("idle");
+		).toBeGreaterThanOrEqual(LONGEST_MS - BEGINS_WITHIN_MS);
+		const last = backend.wake(third);
+		await settle();
+
+		expect(begun, "the third waits for the second's place").toEqual([
+			stuck,
+			next,
+		]);
 		finish(stuck);
 		await woken;
+		await settle();
+		expect(
+			begun,
+			"the first ending gives back no place it no longer held",
+		).toEqual([stuck, next]);
+		finish(next);
+		await until("the third wake to resume", () => begun.length === 3);
+		finish(third);
+		await Promise.all([waited, last]);
 	});
 
-	it("wakes a burst of twenty in a few resumes' time, not twenty", async () => {
-		// Each resume waits this long on its disk, as a real one waits on its
-		// session file and extensions, and holds no place on the thread.
-		const waitsMs = 50;
-		const burst = 20;
-		const fake = engine({
-			resume: vi.fn(async (entry) => {
-				await new Promise((resolve) => setTimeout(resolve, waitsMs));
-				register(entry);
+	it("gives a place back when a resume fails", async () => {
+		const failed = new Error("its build failed");
+		const { fake, begun, finish } = heldResumes();
+		const held = fake.resume;
+		const failing = engine({
+			resume: vi.fn(async (entry, adopted) => {
+				if (entry.sessionId === first) throw failed;
+				return held(entry, adopted);
 			}),
 		});
+		const backend = backendWith(failing, undefined, undefined, {
+			wakePlaces: 1,
+			wakeLongestMs: NEVER_MS,
+		});
+		const first = await parked(backend);
+		const second = await parked(backend);
+
+		await expect(backend.wake(first), "the first fails").rejects.toBe(failed);
+		const woken = backend.wake(second);
+		await until("the second wake to resume", () => begun.length === 1);
+		finish(second);
+		await woken;
+
+		expect(host.holds(second), "the second runs").toBe("idle");
+	});
+
+	it("lets the others on when a window's resume fails", async () => {
+		const failed = new Error("its build failed");
+		const { fake, begun, finish } = heldResumes();
+		const held = fake.resume;
+		const failing = engine({
+			resume: vi.fn(async (entry, adopted) => {
+				if (entry.sessionId === watched) throw failed;
+				return held(entry, adopted);
+			}),
+		});
+		const backend = backendWith(failing, undefined, undefined, {
+			wakePlaces: 1,
+			wakeLongestMs: NEVER_MS,
+		});
+		const watched = await parked(backend);
+		const messaged = await parked(backend);
+
+		await expect(
+			backend.wake(watched, "window"),
+			"the window's fails",
+		).rejects.toBe(failed);
+		const woken = backend.wake(messaged);
+		await until("the message's wake to resume", () => begun.length === 1);
+		finish(messaged);
+		await woken;
+
+		expect(host.holds(messaged), "the message's wake ran").toBe("idle");
+	});
+
+	it("lets no waiting wake on as a place frees beside a window's resume", async () => {
+		const { fake, begun, finish } = heldResumes();
+		const backend = backendWith(fake, undefined, undefined, {
+			wakePlaces: 1,
+			wakeLongestMs: NEVER_MS,
+		});
+		const waking = await parked(backend);
+		const messaged = await parked(backend);
+		const watched = await parked(backend);
+
+		const woken = backend.wake(waking);
+		await until("the first wake to resume", () => begun.length === 1);
+		const queued = backend.wake(messaged);
+		const attached = backend.execute(attach(watched));
+		await until("the window's wake to resume", () => begun.length === 2);
+		finish(waking);
+		await woken;
+		await settle();
+
+		expect(begun, "the freed place waits for the window's resume").toEqual([
+			waking,
+			watched,
+		]);
+		finish(watched);
+		await until("the message's wake to resume", () => begun.length === 3);
+		finish(messaged);
+		await Promise.all([attached, queued]);
+	});
+
+	it("wakes a burst of twenty four at a time, each next as one ends", async () => {
+		const burst = 20;
+		const { fake, begun, finish } = heldResumes();
 		const backend = backendWith(fake);
 		const ids: string[] = [];
 		for (let made = 0; made < burst; made += 1) ids.push(await parked(backend));
 
-		const began = Date.now();
-		await Promise.all(ids.map((id) => backend.wake(id)));
-		const tookMs = Date.now() - began;
+		const woken = ids.map((id) => backend.wake(id));
+		for (let ended = 0; ended < burst; ended += 1) {
+			const resuming = Math.min(burst, ended + WAKE_PLACES);
+			await until(`${resuming} wakes to have begun`, () => {
+				return begun.length === resuming;
+			});
+			await settle();
+			expect(
+				begun.length,
+				`${ended} ended, so ${WAKE_PLACES} at most resume`,
+			).toBe(resuming);
+			const oldest = begun[ended];
+			if (oldest === undefined) throw new Error(`no wake began ${ended}th`);
+			finish(oldest);
+		}
+		await Promise.all(woken);
 
-		// One at a time would take the burst times each wait; half of that
-		// leaves a slow machine room and still fails a burst taken in turn.
-		expect(
-			tookMs,
-			`twenty wakes took ${tookMs} ms, against ${burst * waitsMs} ms one at a time`,
-		).toBeLessThan((burst * waitsMs) / 2);
+		expect(WAKE_PLACES, "a few side by side, not one or all").toBe(4);
 		for (const id of ids)
 			expect(host.holds(id), `${id} runs again`).toBe("idle");
 	});

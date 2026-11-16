@@ -145,7 +145,10 @@ describe("parking a conversation", () => {
 		await settling;
 		await woke;
 
-		expect(asking, "woken once parked").toHaveBeenCalledExactlyOnceWith("a");
+		expect(asking, "woken once parked").toHaveBeenCalledExactlyOnceWith(
+			"a",
+			"other",
+		);
 		await expect(
 			parked.settled("a"),
 			"settled at once with no park under way",
@@ -179,7 +182,7 @@ describe("parking a conversation", () => {
 		await writeFile(parked.wakeFile("a"), "message");
 
 		await until("the wake file to wake it", () => asking.mock.calls.length > 0);
-		expect(asking, "it was woken").toHaveBeenCalledWith("a");
+		expect(asking, "it was woken").toHaveBeenCalledWith("a", "other");
 		parked.unwatch("a");
 	});
 
@@ -265,7 +268,7 @@ describe("parking a conversation", () => {
 		giveSteer(steers(), ADDRESS, { text: "are you there?", from: "joel" });
 
 		await until("the talk to wake it", () => asked.length > 0);
-		expect(asking, "woken for its talk").toHaveBeenCalledWith("a");
+		expect(asking, "woken for its talk").toHaveBeenCalledWith("a", "other");
 		expect(
 			(asked[0] ?? Number.POSITIVE_INFINITY) - landed,
 			"steer landed to wake asked, in ms",
@@ -442,7 +445,7 @@ describe("parking while the host drains", () => {
 		draining = false;
 		parked.release();
 		await until("the lifted drain to wake it", () => asked.length > 0);
-		expect(asking, "woken once").toHaveBeenCalledExactlyOnceWith("a");
+		expect(asking, "woken once").toHaveBeenCalledExactlyOnceWith("a", "other");
 		parked.unwatch("a");
 	});
 
@@ -461,7 +464,7 @@ describe("parking while the host drains", () => {
 		draining = false;
 		parked.release();
 		await until("the lifted drain to wake it", () => asked.length > 0);
-		expect(asking, "woken once").toHaveBeenCalledExactlyOnceWith("a");
+		expect(asking, "woken once").toHaveBeenCalledExactlyOnceWith("a", "other");
 		parked.unwatch("a");
 	});
 
@@ -472,9 +475,30 @@ describe("parking while the host drains", () => {
 		letStop();
 		await parking;
 
-		await parked.wake("a");
+		await parked.wake("a", "window");
 
-		expect(asking, "a window's wake is never held").toHaveBeenCalledWith("a");
+		expect(asking, "a window's wake is never held").toHaveBeenCalledWith(
+			"a",
+			"window",
+		);
+		parked.unwatch("a");
+	});
+
+	it("wakes as a window once parked, when a window asked while it parked", async () => {
+		const asking = vi.fn(() => Promise.resolve());
+		const { parked, letStop } = held(asking);
+
+		const parking = parked.park("a");
+		const byMessage = parked.wake("a");
+		const byWindow = parked.wake("a", "window");
+		letStop();
+		await parking;
+		await Promise.all([byMessage, byWindow]);
+
+		expect(
+			asking,
+			"one wake, as the window asked",
+		).toHaveBeenCalledExactlyOnceWith("a", "window");
 		parked.unwatch("a");
 	});
 });
