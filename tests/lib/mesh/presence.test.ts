@@ -205,15 +205,12 @@ describe("presences", () => {
 		presences.publish(presence());
 		const first = (await presences.listed())[0];
 		expect(presences.all()[0], "all() keeps the listing's parse").toBe(first);
-		expect(
-			(await presences.listed())[0],
-			"a listing keeps all()'s parse",
-		).toBe(first);
+		expect((await presences.listed())[0], "a listing keeps all()'s parse").toBe(
+			first,
+		);
 
 		presences.publish(presence({ busy: true }));
-		expect((await presences.listed())[0]?.busy, "a publish is read").toBe(
-			true,
-		);
+		expect((await presences.listed())[0]?.busy, "a publish is read").toBe(true);
 		rmSync(join(root, "s-1.json"));
 		expect(await presences.listed(), "a removed file is gone").toEqual([]);
 		expect(presences.of("s-1")).toBeUndefined();

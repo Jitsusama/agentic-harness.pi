@@ -547,9 +547,7 @@ export function createPresences(dir: string): Presences {
 		// Each park names a wake of its own, so only the parked keep theirs.
 		const sleeping = new Set(
 			present.flatMap(({ state, wake }) =>
-				state === "parked" && wake !== undefined
-					? [refusedWakePath(wake)]
-					: [],
+				state === "parked" && wake !== undefined ? [refusedWakePath(wake)] : [],
 			),
 		);
 		for (const path of refusals.keys()) {

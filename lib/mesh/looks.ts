@@ -644,11 +644,7 @@ function isSeen(look: Look): boolean {
 }
 
 /** Whether `look` stands past its time and is `owns`'s to expire. */
-function isDue(
-	look: Look,
-	owns: (look: Look) => boolean,
-	now: Date,
-): boolean {
+function isDue(look: Look, owns: (look: Look) => boolean, now: Date): boolean {
 	return (
 		stands(look) &&
 		look.expiresAt !== undefined &&
