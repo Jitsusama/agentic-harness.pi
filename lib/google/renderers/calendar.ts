@@ -289,20 +289,18 @@ export function computeFreeSlots(
 	windowStart: string,
 	windowEnd: string,
 ): BusyPeriod[] {
-	if (busy.length === 0) {
+	// We sort by start time, then merge overlapping ranges.
+	const [first, ...rest] = [...busy].sort(
+		(a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+	);
+	if (first === undefined) {
 		return [{ start: windowStart, end: windowEnd }];
 	}
 
-	// We sort by start time, then merge overlapping ranges.
-	const sorted = [...busy].sort(
-		(a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
-	);
-
 	const merged: BusyPeriod[] = [];
-	let current = { ...sorted[0] };
+	let current = { ...first };
 
-	for (let i = 1; i < sorted.length; i++) {
-		const next = sorted[i];
+	for (const next of rest) {
 		if (new Date(next.start).getTime() <= new Date(current.end).getTime()) {
 			// Overlapping or adjacent; we extend the current range.
 			if (new Date(next.end).getTime() > new Date(current.end).getTime()) {

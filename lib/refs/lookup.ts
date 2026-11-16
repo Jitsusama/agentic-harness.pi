@@ -33,8 +33,8 @@ export function listRefTypes(): RefType[] {
  */
 export function parseRef(text: string): Ref | undefined {
 	for (const rt of list()) {
-		const matches = rt.matchAll(text);
-		if (matches.length > 0) return { type: rt.type, value: matches[0] };
+		const [first] = rt.matchAll(text);
+		if (first !== undefined) return { type: rt.type, value: first };
 	}
 	return undefined;
 }

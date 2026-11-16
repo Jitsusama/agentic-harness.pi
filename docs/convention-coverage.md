@@ -443,9 +443,8 @@ is followed by judgment, not by a regex.
   folders past 40 entries, each saying why, past the shrink-only
   list in `tests/package/long-files-waiting.txt`
   (`tests/package/every-long-file-says-why.test.ts`), 🟢 rule 4's
-  unchecked index reads, counted per file by
-  `pnpm typecheck:indexed` past the shrink-only list in
-  `scripts/indexed-access-waiting.txt`, 🟢 rule 5's programs of more than
+  unchecked index reads, refused by `pnpm typecheck` under
+  `noUncheckedIndexedAccess` in `tsconfig.json`, 🟢 rule 5's programs of more than
   five lines written as strings, past the shrink-only list in
   `tests/package/embedded-programs.txt`
   (`tests/package/programs-live-in-their-own-files.test.ts`),
