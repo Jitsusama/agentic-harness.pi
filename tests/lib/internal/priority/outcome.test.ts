@@ -24,6 +24,7 @@ import {
 	outcomesIn,
 	outcomesSince,
 	peakGibAfter,
+	processOutcomes,
 	QUICK_S,
 	quickAfter,
 	RUNS_READ,
@@ -558,5 +559,30 @@ describe("how heavy work ended", () => {
 			"z",
 		]);
 		expect(outcomesSince(join(dir, "none"), grown).outcomes).toEqual([]);
+	});
+
+	it("keeps one parsed read of a file for every session in the process", async () => {
+		const file = join(dir, "state", "outcomes.jsonl");
+		await keepOutcome(file, outcome({ id: "a" }));
+		const first = processOutcomes(file);
+		expect(
+			processOutcomes(file),
+			"a second session is handed the same outcomes, not its own copy",
+		).toBe(first);
+
+		await keepOutcome(file, outcome({ id: "b" }));
+		const grown = processOutcomes(file);
+		expect(grown.map((one) => one.id)).toEqual(["a", "b"]);
+		expect(
+			processOutcomes(file),
+			"what one session read as it grew serves the next",
+		).toBe(grown);
+
+		// Halved, it is a new file by its inode, read whole once for all.
+		const halved = `${file}.new`;
+		writeFileSync(halved, `${JSON.stringify(outcome({ id: "z" }))}\n`);
+		renameSync(halved, file);
+		expect(processOutcomes(file).map((one) => one.id)).toEqual(["z"]);
+		expect(processOutcomes(join(dir, "none"))).toEqual([]);
 	});
 });

@@ -741,6 +741,24 @@ export function outcomesSince(
 	};
 }
 
+// The process's one read of each outcomes file, by path. A host runs a
+// conversation's priority folder for each of its sessions, all reading
+// the machine's one file, and a parsed copy each cost 17.5 MB of what
+// a host kept over 28 minutes. Outcomes are readonly, so all share it.
+const processReads = new Map<string, OutcomesRead>();
+
+/**
+ * The file's outcomes for every session in this process: one read,
+ * advanced by what was added since, and read whole again once a halving
+ * puts a new file, by its inode, in its place.
+ */
+export function processOutcomes(file: string): readonly Outcome[] {
+	const read = outcomesSince(file, processReads.get(file));
+	if (read === NOTHING_READ) processReads.delete(file);
+	else processReads.set(file, read);
+	return read.outcomes;
+}
+
 /** `length` bytes of a file from `from`, or nothing once it can't be read. */
 function readBytes(
 	file: string,

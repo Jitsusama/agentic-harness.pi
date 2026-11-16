@@ -59,12 +59,10 @@ import {
 	kindAfter,
 	mostBeside,
 	NOTHING_BESIDE,
-	NOTHING_READ,
 	type Outcome,
-	type OutcomesRead,
 	outcomeOf,
-	outcomesSince,
 	peakGibAfter,
+	processOutcomes,
 	quickAfter,
 	ranSAfter,
 	vmsFor,
@@ -317,9 +315,6 @@ export function queueFolder(
 		return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 	};
 
-	// The queue is kept every two seconds and the file is up to 2 MiB, so
-	// only what was added to it since is read.
-	let read: OutcomesRead = NOTHING_READ;
 	// Outcomes this session is still adding, by job, which count from the
 	// moment their job is given up, as when they were written at once.
 	const adding = new Map<string, Outcome>();
@@ -332,17 +327,17 @@ export function queueFolder(
 	let lastWrite: Promise<void> = Promise.resolve();
 	const recorded = (): readonly Outcome[] => {
 		if (!outcomes) return [];
-		read = outcomesSince(outcomes, read);
-		if (adding.size === 0) return read.outcomes;
+		// The queue is kept every two seconds and the file is up to 2 MiB,
+		// so the process reads only what was added since, once for all.
+		const read = processOutcomes(outcomes);
+		if (adding.size === 0) return read;
 		const lately = new Set(
-			read.outcomes.slice(-ADDED_WITHIN).map((outcome) => outcome.id),
+			read.slice(-ADDED_WITHIN).map((outcome) => outcome.id),
 		);
 		const unwritten = [...adding.values()].filter(
 			(outcome) => !lately.has(outcome.id),
 		);
-		return unwritten.length === 0
-			? read.outcomes
-			: [...read.outcomes, ...unwritten];
+		return unwritten.length === 0 ? read : [...read, ...unwritten];
 	};
 
 	const drop = (id: string) => {
