@@ -18,8 +18,9 @@
  * written only when a hold changes (the hold, its note, the shadow
  * log) stays synchronous and whole. Since a host's conversations now
  * reach the claim between each other's awaits, a process tends a notes
- * folder once at a time, and a claim is given back only by the tending
- * that wrote it.
+ * folder once at a time, passing over a tending stuck past a claim's
+ * stale spell as another session would its claim, and a claim is given
+ * back only by the tending that wrote it.
  */
 
 import { randomUUID } from "node:crypto";
