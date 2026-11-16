@@ -1,8 +1,12 @@
 /**
  * One realm-kind host's life: take its roster's lock, own its conversations,
- * load the engine, resume what it holds, then listen. Each step refuses
+ * load the engine, listen, then resume what it holds. Each step refuses
  * before the next starts, so a second host, an unreadable roster or an
- * unpatched pi never gets as far as a socket. Stopping parks every
+ * unpatched pi never gets as far as a socket. Listening before the resumes
+ * lets a window or a wake for one still to resume bring it forward, rather
+ * than wait behind every other the host held.
+ *
+ * The start is done, and the host ready, only once the last has resumed. Stopping parks every
  * conversation as signalled and keeps every hold for the next start.
  *
  * A host is one process for many conversations, so a stale-context
@@ -24,6 +28,7 @@ import {
 	type ConversationEngine,
 	conversationEvents,
 	type HostBackend,
+	heldOrder,
 	hostBackend,
 	type ResumePhase,
 	type Resuming,
@@ -37,7 +42,7 @@ import { listenControl, type ViewerBridge } from "./server.ts";
 
 /**
  * A step a starting host has reached: building its engine, then each held
- * conversation it resumes. A host listens only after the last, so these
+ * conversation it resumes. A host is ready only after the last, so these
  * are how whoever waits on it knows a slow start still moves.
  */
 export type StartStep = { readonly step: "engine" } | Resuming;
@@ -110,6 +115,7 @@ export async function serveHost(options: {
 		standing: options.standing,
 	});
 	let host: SessionHost | undefined;
+	let listener: Awaited<ReturnType<typeof listenControl>> | undefined;
 	try {
 		host = new SessionHost({ key, owner, registryDir: options.registryDir });
 		await options.starting?.({ step: "engine" });
@@ -135,14 +141,7 @@ export async function serveHost(options: {
 					wakes ? wakes(sessionId) : listened.then((wake) => wake(sessionId)),
 			}),
 		);
-		const { unresumed } = await resumeHeld({
-			roster,
-			engine,
-			admitAnother,
-			starting: options.starting,
-			mark: options.mark,
-		});
-		for (const { reason } of unresumed) options.report(reason);
+		const order = heldOrder(roster);
 		const identity = { key: host.key, owner: host.owner };
 		const backend = hostBackend({
 			identity,
@@ -150,19 +149,30 @@ export async function serveHost(options: {
 			roster,
 			engine,
 			admitAnother,
+			held: order,
 			...(options.say ? { say: options.say } : {}),
 		});
-		const listener = await listenControl({
+		const control = await listenControl({
 			path,
 			backend,
 			viewer: options.viewer?.(host),
 			report: options.report,
 		});
+		listener = control;
+		wakes = backend.wake;
+		listening(backend.wake);
+		const { unresumed } = await resumeHeld({
+			roster,
+			engine,
+			admitAnother,
+			starting: options.starting,
+			mark: options.mark,
+			order,
+		});
+		for (const { reason } of unresumed) options.report(reason);
 		const running = host;
 		let stopping: Promise<void> | undefined;
 		let restarting = false;
-		wakes = backend.wake;
-		listening(backend.wake);
 		return {
 			identity,
 			path,
@@ -187,8 +197,8 @@ export async function serveHost(options: {
 								"the host is stopping, and takes the conversation up again as it starts",
 							),
 						);
-					if (restarting) await listener.restarting();
-					await listener.close();
+					if (restarting) await control.restarting();
+					await control.close();
 					// A wake already resuming finishes first, so it is parked with
 					// the rest rather than left running in a host disposed under it.
 					await backend.settled();
@@ -203,6 +213,7 @@ export async function serveHost(options: {
 			},
 		};
 	} catch (error) {
+		await listener?.close().catch(options.report);
 		if (host) {
 			await park(host).catch(options.report);
 			// A conversation that would not park keeps the host installed; the

@@ -11,15 +11,18 @@ at start with the launch environment held at open, refusal of one
 naming a credential, and two sessions each in its own environment. Its rollout
 gate tests check a second open, an adopt and a resume past the first
 are refused before anything is held, and that two opens at once can't
-both go first.
+both go first. Its start-order tests hold one resume back and check one
+asked for goes next, and that a window, wake and close asked meanwhile
+each wait for the start's own resume rather than resuming again.
 rollout.test.ts judges a `loaded/` folder with fake pid and dating
 facts, and dates roots against a throwaway git repository in a private
 folder: self, dead and malformed files, roots dated once, cleared roots
 kept and stale ones asked again, and a host run from a tree keeping to
 one conversation.
 serve.test.ts starts and stops whole hosts in a private folder: a second
-host of one key and a refused engine never listen, and holds survive
-stop and resume at the next start. The stale-rejection net is mocked,
+host of one key and a refused engine never listen, holds survive
+stop and resume at the next start, and a starting host answers a list
+before it has resumed what it held. The stale-rejection net is mocked,
 so the test worker keeps its own handling; the test checks a host sets
 it before its engine loads.
 killed-host.test.ts runs a host in a node process of its own, kills it

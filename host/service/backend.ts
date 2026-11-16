@@ -185,6 +185,12 @@ export function hostBackend(options: {
 	say?: (line: string) => void;
 	/** How long a wake waits behind another's resume before it resumes anyway. */
 	wakeTurnMostMs?: number;
+	/**
+	 * The start's order, when the host listens while it resumes: a window,
+	 * wake, end or abort of one the start still owes brings it forward and
+	 * waits for the start's own resume, so none resumes twice.
+	 */
+	held?: Pick<HeldOrder, "ahead">;
 }): HostBackend {
 	const { host, roster, engine } = options;
 	const now = options.now ?? (() => new Date());
@@ -215,8 +221,16 @@ export function hostBackend(options: {
 		return turn;
 	}
 
+	// Asked as the call comes, not in its turn, so the start resumes those
+	// asked for in the order they were.
+	function startOwes(sessionId: string): Promise<void> {
+		return options.held?.ahead(sessionId) ?? Promise.resolve();
+	}
+
 	function wake(sessionId: string, asker: WakeAsker = "other"): Promise<void> {
+		const owed = startOwes(sessionId);
 		return inTurn(sessionId, async () => {
+			await owed;
 			await engine.parkSettled?.(sessionId);
 			const holds = host.holds(sessionId);
 			// Held and not running: its last start failed, or a park's stop did
@@ -349,7 +363,9 @@ export function hostBackend(options: {
 		why: "closed" | "released",
 		by: string | undefined,
 	) {
+		const owed = startOwes(sessionId);
 		return inTurn(sessionId, async () => {
+			await owed;
 			// A park under way holds it while no longer running: once settled,
 			// it is closed as a parked one, its viewers told and the end said.
 			await engine.parkSettled?.(sessionId);
@@ -392,6 +408,7 @@ export function hostBackend(options: {
 				case "release":
 					return end(request.sessionId, "released", request.by);
 				case "abort":
+					await startOwes(request.sessionId);
 					live(request.sessionId);
 					await engine.abort(request.sessionId);
 					return { sessionId: request.sessionId };
@@ -399,7 +416,9 @@ export function hostBackend(options: {
 					// A window opened on a conversation still starting views it once
 					// its screen exists, or is refused as its failed start is; one
 					// opened on a parked conversation is its person asking for it,
-					// as soon as a park under way has settled.
+					// as soon as a park under way has settled. One the host's start
+					// has yet to resume goes next.
+					await startOwes(request.sessionId);
 					await starts.get(request.sessionId);
 					await engine.parkSettled?.(request.sessionId);
 					if (
@@ -488,8 +507,74 @@ export interface Resuming {
 }
 
 /**
+ * The order a start resumes what its roster held as it began: as held,
+ * apart from those asked for (`ahead`), which go first, first asked
+ * first. Only the start takes from it (`next`), says each it is done
+ * with (`settled`), and ends it (`end`).
+ */
+export interface HeldOrder {
+	/** How many the start owes as it begins. */
+	readonly total: number;
+	/**
+	 * Bring it forward if the start still owes it, and settle once the
+	 * start has resumed it or left it, failed included; at once for one it
+	 * owes nothing, or once the start has ended.
+	 */
+	ahead(sessionId: string): Promise<void>;
+	/** The next the start resumes, or none once it owes no more. */
+	next(): RosterEntry | undefined;
+	/** The start is done with it, resumed or not. */
+	settled(sessionId: string): void;
+	/** The start is over: whoever still waits is answered. */
+	end(): void;
+}
+
+/** The order a start resumes what `roster` holds now. */
+export function heldOrder(roster: HostRoster): HeldOrder {
+	const rest = [...roster.entries()];
+	const asked: RosterEntry[] = [];
+	const owed = new Set(rest.map(({ sessionId }) => sessionId));
+	const waiting = new Map<
+		string,
+		{ done: Promise<void>; settle: () => void }
+	>();
+
+	function settled(sessionId: string): void {
+		owed.delete(sessionId);
+		waiting.get(sessionId)?.settle();
+		waiting.delete(sessionId);
+	}
+
+	return {
+		total: rest.length,
+		ahead(sessionId) {
+			if (!owed.has(sessionId)) return Promise.resolve();
+			const queued = rest.findIndex((held) => held.sessionId === sessionId);
+			if (queued >= 0) asked.push(...rest.splice(queued, 1));
+			let wait = waiting.get(sessionId);
+			if (!wait) {
+				let settle = (): void => undefined;
+				const done = new Promise<void>((resolve) => {
+					settle = resolve;
+				});
+				wait = { done, settle };
+				waiting.set(sessionId, wait);
+			}
+			return wait.done;
+		},
+		next: () => asked.shift() ?? rest.shift(),
+		settled,
+		end() {
+			for (const sessionId of [...owed]) settled(sessionId);
+			rest.length = 0;
+			asked.length = 0;
+		},
+	};
+}
+
+/**
  * Resume every held conversation at start, one at a time in the order
- * they were held, apart from one that parked before the start and
+ * they were held, or as `order` brings one forward, apart from one that parked before the start and
  * rests parked (`restsParked`), which builds nothing, so passes no gate
  * and counts as none resumed. One that can't resume stays held, since only a
  * deliberate close or release may drop a hold, and is reported for a
@@ -502,6 +587,8 @@ export interface Resuming {
  * The runs a restart cut off wait until the last has resumed
  * (`resuming`, then `resumed`, also when one throws), so a few go at a
  * time in the whole start's order rather than racing the resumes.
+ * One no longer held when its turn comes, closed while the start ran,
+ * is passed over.
  */
 export async function resumeHeld(options: {
 	roster: HostRoster;
@@ -509,31 +596,42 @@ export async function resumeHeld(options: {
 	admitAnother?: AdmitAnother;
 	starting?: (step: Resuming) => Promise<void>;
 	mark?: (phase: ResumePhase) => void;
+	order?: HeldOrder;
 }): Promise<{ resumed: string[]; unresumed: Unresumed[] }> {
 	const resumed: string[] = [];
 	const unresumed: Unresumed[] = [];
-	const entries = options.roster.entries();
+	const order = options.order ?? heldOrder(options.roster);
+	let number = 0;
 	options.engine.resuming?.();
 	try {
-		for (const [index, entry] of entries.entries()) {
+		for (let entry = order.next(); entry; entry = order.next()) {
+			number += 1;
+			const { sessionId } = entry;
 			try {
+				if (
+					!options.roster.entries().some((held) => held.sessionId === sessionId)
+				)
+					continue;
 				await options.starting?.({
 					step: "resume",
-					number: index + 1,
-					of: entries.length,
-					sessionId: entry.sessionId,
+					number,
+					of: order.total,
+					sessionId,
 				});
 				options.mark?.("ask");
 				if (options.engine.restsParked?.(entry)) continue;
 				if (resumed.length > 0) await options.admitAnother?.();
 				options.mark?.("gate");
 				await options.engine.resume(entry, false, options.mark);
-				resumed.push(entry.sessionId);
+				resumed.push(sessionId);
 			} catch (reason) {
-				unresumed.push({ sessionId: entry.sessionId, reason });
+				unresumed.push({ sessionId, reason });
+			} finally {
+				order.settled(sessionId);
 			}
 		}
 	} finally {
+		order.end();
 		options.engine.resumed?.();
 	}
 	return { resumed, unresumed };

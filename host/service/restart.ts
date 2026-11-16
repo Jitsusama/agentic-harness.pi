@@ -9,8 +9,9 @@
  * be, and a hosted conversation's follower moves only the code each
  * conversation loads, never the host's own (OSPHT4, 10 November, part 2
  * of the found loss against plain pi). A restart parks every
- * conversation and the next host resumes each before it listens, so a
- * viewer told the host is restarting joins the same conversation again.
+ * conversation and the next host resumes each, a viewer's first, before
+ * it answers that viewer, so a viewer told the host is restarting joins
+ * the same conversation again.
  * The restart itself is systemd's, so the next start reads the unit as
  * systemd has it now, and viewers hear of it only once systemd has it
  * queued, as the host stops (serve.ts).

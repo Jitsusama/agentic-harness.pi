@@ -50,12 +50,17 @@ input pipeline or screen. No unit or running host is installed yet.
   host run from a tree keeps to one. `node scripts/host-rollout.ts` prints the same
   verdict for a person.
 - serve.ts: one realm-kind host's life. It takes the roster's lock,
-  installs SessionHost, loads the engine, resumes what is held and only
-  then listens, so a second host, an unreadable roster or a pi the
-  engine refuses never reaches a socket. Stop closes the socket, parks
-  every conversation as signalled and releases the lock, keeping holds.
-  It watches the engine before resuming, so no end or replacement is
-  missed. The engine's wakes reach the backend only while it listens.
+  installs SessionHost, loads the engine, listens, then resumes what is
+  held, so a second host, an unreadable roster or a pi the engine
+  refuses never reaches a socket. A window, wake, close or abort of one
+  the start has yet to resume brings it forward and waits for that
+  resume (backend.ts's `heldOrder`), so a person's conversation is back
+  first and none resumes twice; a list shows those still to come as
+  parked. The host is ready only once the last has resumed. Stop closes
+  the socket, parks every conversation as signalled and releases the
+  lock, keeping holds. It watches the engine before resuming, so no end
+  or replacement is missed. The engine's wakes reach the backend only
+  while it listens.
   One before then does nothing, since the start resumes what is held;
   one once it stops is refused, saying the next start takes the
   conversation up, so the window that asked says so. The stop waits

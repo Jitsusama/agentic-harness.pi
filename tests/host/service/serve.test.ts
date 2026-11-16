@@ -458,7 +458,10 @@ describe("serveHost", () => {
 		const path = join(dir, "run", "pi-host", "work-attended.sock");
 		await until("the host to listen as it starts", () => exists(path));
 		expect(
-			(await listed(path)).sessions.map(({ sessionId: id, state }) => [id, state]),
+			(await listed(path)).sessions.map(({ sessionId: id, state }) => [
+				id,
+				state,
+			]),
 			"held, not yet resumed",
 		).toEqual([[sessionId, "parked"]]);
 		go();

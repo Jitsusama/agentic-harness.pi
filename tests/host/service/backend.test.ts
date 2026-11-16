@@ -721,9 +721,7 @@ describe("the order a start resumes what it held", () => {
 		const first = backendWith(engine().fake);
 		const ids: string[] = [];
 		for (const id of ["a", "b", "c"])
-			ids.push(
-				parseOpenResult(await first.execute({ ...open, id })).sessionId,
-			);
+			ids.push(parseOpenResult(await first.execute({ ...open, id })).sessionId);
 		for (const id of ids) await host.stop(id);
 		const [a, b, c] = ids as [string, string, string];
 		let go = (): void => undefined;
