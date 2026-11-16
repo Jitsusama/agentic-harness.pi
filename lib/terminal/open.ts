@@ -322,9 +322,10 @@ interface Placing {
 
 /**
  * The request with a class niri was told to open on the workspace of
- * the first window the request names, else the asker's, for a window
- * that doesn't take focus; the request as it was when niri isn't
- * there, the terminal can't carry a class, or no window named is found.
+ * the first window the request names, else the asker's, or an empty one
+ * when that is the focused workspace or none is found, for a window that
+ * doesn't take focus; the request as it was when niri isn't there, the
+ * terminal can't carry a class, or niri lists nowhere to put it.
  */
 async function placed(
 	context: Context,
@@ -343,7 +344,8 @@ async function placed(
 			...(request.window?.beside ?? []),
 			...(asker ? [asker] : []),
 		];
-		if (beside.length === 0) return { request };
+		// Asked with nothing to sit beside too, so it still opens away
+		// from the workspace Joel is looking at.
 		const where = await placeWindow(niri, { ...request.window, beside });
 		if (!where) return { request };
 		return { request: { ...request, windowClass: where.windowClass }, where };
@@ -375,13 +377,16 @@ async function settled(
 ): Promise<string | undefined> {
 	if (!where) return undefined;
 	const column = where.column ? `, column ${where.column}` : "";
+	const why = where.away
+		? "an empty one, away from the workspace you're looking at"
+		: "beside the window it belongs with";
 	if (where.asked) {
-		return `opens on niri workspace ${where.workspace}${column}, beside the window it belongs with`;
+		return `opens on niri workspace ${where.workspace}${column}, ${why}`;
 	}
 	const niri = context.niri;
 	try {
 		if (niri && (await moveOnceOpen(niri, where, context.opened))) {
-			return `moved to niri workspace ${where.workspace} once it opened, beside the window it belongs with, since this niri can't be told beforehand`;
+			return `moved to niri workspace ${where.workspace} once it opened, ${why}, since this niri can't be told beforehand`;
 		}
 	} catch {
 		// A niri that stops answering leaves the window where it opened.

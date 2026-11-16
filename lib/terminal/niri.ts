@@ -26,6 +26,14 @@
  * `MoveWindowToWorkspace` and no focus, and goes last, since stock niri
  * moves only the focused column within a workspace. Any answer missing
  * and the window stays where niri put it, as before.
+ *
+ * It never opens on the workspace Joel is looking at. When the window
+ * it belongs with is there, or none is found, it opens on an empty
+ * workspace instead, his screen's first: on 15 November at 21:03 a
+ * spawn opened beside its orchestrator, on the workspace he was at
+ * (WCJQSG [200a60a9]), and at 18:44 one with nothing to sit beside
+ * opened on his Chrome workspace. Only when niri lists no empty one
+ * away from him does it open where niri puts it.
  */
 
 import { randomInt } from "node:crypto";
@@ -123,6 +131,59 @@ export function windowsIn(reply: unknown): NiriWindow[] {
 	});
 }
 
+/** What niri says of one workspace, as far as this reads it. */
+export interface NiriWorkspace {
+	readonly id: number;
+	readonly idx: number;
+	readonly output?: string;
+	readonly focused: boolean;
+	/** Whether it holds no window. */
+	readonly empty: boolean;
+}
+
+/** The workspaces in niri's reply to `"Workspaces"`, or none when it isn't one. */
+export function workspacesIn(reply: unknown): NiriWorkspace[] {
+	if (!isRecord(reply) || !isRecord(reply.Ok)) return [];
+	const workspaces = reply.Ok.Workspaces;
+	if (!Array.isArray(workspaces)) return [];
+	return workspaces.flatMap((one): NiriWorkspace[] => {
+		if (
+			!isRecord(one) ||
+			typeof one.id !== "number" ||
+			typeof one.idx !== "number"
+		) {
+			return [];
+		}
+		return [
+			{
+				id: one.id,
+				idx: one.idx,
+				...(typeof one.output === "string" ? { output: one.output } : {}),
+				focused: one.is_focused === true,
+				empty: one.active_window_id === null,
+			},
+		];
+	});
+}
+
+/**
+ * An empty workspace other than the focused one, on the focused one's
+ * screen first and lowest there, or undefined when niri lists none.
+ */
+export function emptyAwayFromFocus(
+	workspaces: readonly NiriWorkspace[],
+): number | undefined {
+	const screen = workspaces.find((one) => one.focused)?.output;
+	const away = workspaces
+		.filter((one) => one.empty && !one.focused)
+		.sort(
+			(a, b) =>
+				Number(b.output === screen) - Number(a.output === screen) ||
+				a.idx - b.idx,
+		);
+	return away[0]?.id;
+}
+
 /**
  * The workspace of the one window titled `title`, or undefined when no
  * window is, or more than one is, which would leave it a guess.
@@ -204,6 +265,12 @@ export interface Placed {
 	 * moved there once it opens ({@link moveOnceOpen}).
 	 */
 	readonly asked: boolean;
+	/**
+	 * Set when it opens on an empty workspace rather than beside the
+	 * window it belongs with, since that one is the workspace Joel is
+	 * looking at or none was found.
+	 */
+	readonly away?: true;
 }
 
 function handled(reply: unknown): boolean {
@@ -212,10 +279,11 @@ function handled(reply: unknown): boolean {
 
 /**
  * Ask niri to open the next window of a class of its own on the
- * workspace holding the first window `place` names, in its column,
- * answering where, or undefined when no window it names can be found.
- * A niri that refuses a column is asked again without one; one that
- * refuses both is answered as not asked, so the window is moved after.
+ * workspace holding the first window `place` names, in its column, or
+ * on an empty workspace when that one is focused or none is found;
+ * answers where, or undefined when niri lists neither. A niri that
+ * refuses a column is asked again without one; one that refuses both
+ * is answered as not asked, so the window is moved after.
  */
 export async function placeWindow(
 	niri: NiriCall,
@@ -223,12 +291,20 @@ export async function placeWindow(
 	windowClass: string = classOfItsOwn(),
 ): Promise<Placed | undefined> {
 	const windows = windowsIn(await niri("Windows"));
-	const workspace = place.beside
+	const workspaces = workspacesIn(await niri("Workspaces"));
+	const focused = workspaces.find((one) => one.focused)?.id;
+	const beside = place.beside
 		.map((title) => workspaceTitled(windows, title))
 		.find((found) => found !== undefined);
+	const away =
+		beside === undefined || beside === focused
+			? emptyAwayFromFocus(workspaces)
+			: undefined;
+	const workspace = away ?? beside;
 	if (workspace === undefined) return undefined;
+	const moved = away !== undefined ? { away: true as const } : {};
 	const column =
-		place.title !== undefined
+		place.title !== undefined && away === undefined
 			? columnFor(windows, workspace, place.title, place.first)
 			: undefined;
 	const ask = (at?: number) =>
@@ -242,10 +318,12 @@ export async function placeWindow(
 			},
 		});
 	if (column !== undefined && handled(await ask(column))) {
-		return { windowClass, workspace, column, asked: true };
+		return { windowClass, workspace, column, asked: true, ...moved };
 	}
-	if (handled(await ask())) return { windowClass, workspace, asked: true };
-	return { windowClass, workspace, asked: false };
+	if (handled(await ask())) {
+		return { windowClass, workspace, asked: true, ...moved };
+	}
+	return { windowClass, workspace, asked: false, ...moved };
 }
 
 /** How long, and how often, a window is waited for. */

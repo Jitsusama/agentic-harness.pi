@@ -292,7 +292,7 @@ describe("a window opened without focus, under niri", () => {
 		const windowClass = kitty.calls.spawned[0]?.windowClass;
 
 		expect(windowClass).toMatch(/^pi-spawned\.[0-9]+$/);
-		expect(desk.asked[1]).toEqual({
+		expect(desk.asked[2]).toEqual({
 			Action: {
 				OpenNextWindowOn: { app_id: windowClass, reference: { Id: 3 } },
 			},
@@ -321,7 +321,7 @@ describe("a window opened without focus, under niri", () => {
 			},
 		});
 
-		expect(desk.asked[1]).toMatchObject({
+		expect(desk.asked[2]).toMatchObject({
 			Action: { OpenNextWindowOn: { reference: { Id: 5 }, column: 3 } },
 		});
 		expect(opened.notes).toContain(
@@ -370,8 +370,50 @@ describe("a window opened without focus, under niri", () => {
 		]);
 		await open(kitty, desk.call);
 
-		expect(desk.asked).toEqual(["Windows"]);
+		expect(desk.asked).toEqual(["Windows", "Workspaces"]);
 		expect(kitty.calls.spawned[0]?.windowClass).toBeUndefined();
+	});
+
+	it("opens a spawn with nothing to sit beside on an empty workspace, not the one Joel is at", async () => {
+		// The 21:03 spawn of 15 November: its session had no window, and
+		// the kitty launched for it opened on his focused workspace. Its
+		// asker's pane has no title niri knows.
+		const kitty = fakeDriver("kitty", { titles: {} });
+		const desk = niri(
+			kitty,
+			[{ title: "Chrome", workspace_id: 1 }],
+			(request) =>
+				request === "Workspaces"
+					? {
+							Ok: {
+								Workspaces: [
+									{
+										id: 1,
+										idx: 1,
+										output: "eDP-1",
+										is_focused: true,
+										active_window_id: 4,
+									},
+									{
+										id: 8,
+										idx: 2,
+										output: "eDP-1",
+										is_focused: false,
+										active_window_id: null,
+									},
+								],
+							},
+						}
+					: { Ok: "Handled" },
+		);
+		const opened = await open(kitty, desk.call);
+
+		expect(desk.asked[2]).toMatchObject({
+			Action: { OpenNextWindowOn: { reference: { Id: 8 } } },
+		});
+		expect(opened.notes).toContain(
+			"opens on niri workspace 8, an empty one, away from the workspace you're looking at",
+		);
 	});
 
 	it("asks nothing for a tab, which opens in the asker's own window", async () => {
