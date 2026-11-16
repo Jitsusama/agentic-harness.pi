@@ -74,7 +74,12 @@ import { takeNotes } from "../lib/internal/carry/notes.ts";
 import { tellCarried } from "../lib/internal/carry/ordered.ts";
 import { questHere, runsHere } from "../lib/internal/carry/quest-here.ts";
 import { carryRest } from "../lib/internal/carry/rest.ts";
-import { holderIn, processCwds, settle } from "../lib/internal/carry/settle.ts";
+import {
+	holderIn,
+	type ProcessCwd,
+	processCwds,
+	settle,
+} from "../lib/internal/carry/settle.ts";
 import {
 	getSection,
 	loadPackageConfig,
@@ -165,6 +170,7 @@ if (settling) {
 	if (session === undefined || !SESSION_ID.test(session)) {
 		refuse("Say which session's old place to let go, with --session.");
 	}
+	let cwds: Promise<ProcessCwd[]> | undefined;
 	const settled = await settle({
 		exec,
 		from: handoverOf(workspaces, quest, thisMachine()),
@@ -175,7 +181,11 @@ if (settling) {
 			holderIn(folder, {
 				brokerHolds: async (tree) =>
 					(await createTreeMemory(treeRecordDir()).otherHolders(tree)).length,
-				cwds: () => processCwds(exec),
+				// Read once a settle, since lsof on a Mac takes about a second.
+				cwds: () => {
+					cwds ??= processCwds(exec);
+					return cwds;
+				},
 				self: process.pid,
 			}),
 		forget: (folder) => createTreeMemory(treeRecordDir()).forget(folder),
