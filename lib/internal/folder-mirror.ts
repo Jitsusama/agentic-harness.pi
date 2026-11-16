@@ -103,13 +103,12 @@ export function folderRead<T>(
 	kind: MirroredFiles<T>,
 ): FolderMirror<T> {
 	const kept = new Map<string, Stamped<T>>();
-	// What the folder last listed, kept while it can't be read.
+	// What the folder last listed, answered as kept while it can't be read.
 	let last: string[] = [];
-	const namesOf = (error: unknown): string[] => {
-		// No folder yet is nothing written there; else unreadable now.
-		last = isMissing(error) ? [] : last;
-		return last;
-	};
+	const lastRead = (): Mirrored<T> =>
+		new Map(
+			pathsIn(dir, kind, last).map((path) => [path, kept.get(path)?.value]),
+		);
 	const listed = (names: string[], values: (T | undefined)[]): Mirrored<T> => {
 		last = names;
 		const paths = pathsIn(dir, kind, names);
@@ -123,7 +122,10 @@ export function folderRead<T>(
 			try {
 				names = readdirSync(dir);
 			} catch (error) {
-				names = namesOf(error);
+				// Unreadable now: what it last read stands, never "no files".
+				if (!isMissing(error)) return lastRead();
+				// No folder yet: nothing written there.
+				names = [];
 			}
 			const paths = pathsIn(dir, kind, names);
 			return listed(
@@ -133,7 +135,12 @@ export function folderRead<T>(
 		},
 		file: (path) => readStamped(kept, path, kind.read),
 		async refresh() {
-			const names = await readdir(dir).catch(namesOf);
+			const names = await readdir(dir).catch((error: unknown) => {
+				// No folder yet is nothing written there; else unreadable now.
+				if (isMissing(error)) return [];
+				return undefined;
+			});
+			if (names === undefined) return lastRead();
 			const paths = pathsIn(dir, kind, names);
 			const values = await Promise.all(
 				paths.map((path) => readStampedOff(kept, path, kind.readOff)),
