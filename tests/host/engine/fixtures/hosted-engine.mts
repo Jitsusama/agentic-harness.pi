@@ -566,6 +566,37 @@ const scenarios: Record<string, Scenario> = {
 		},
 	},
 	/**
+	 * A command that ends by itself, leaving one process running under a
+	 * call's mark as shell-workflow gives it and one under none, then the
+	 * conversation parks.
+	 */
+	"leave-and-park": {
+		responses: () => [
+			compat.fauxAssistantMessage(
+				[
+					compat.fauxToolCall(
+						"bash",
+						{
+							command: [
+								`PI_BASH_CALL=ended-call sleep 300 >/dev/null 2>&1 & echo $! > ${children}`,
+								`sleep 301 >/dev/null 2>&1 & echo $! >> ${children}`,
+							].join("\n"),
+						},
+						{ id: "call-1" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+			say("left them"),
+		],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "leave them" });
+			await idle(engine, id);
+			await parkNow(engine, host, id);
+			return { held: host.holds(id) ?? "let go" };
+		},
+	},
+	/**
 	 * Open on the harness and have the probe note every tool the
 	 * conversation has, for the test to hold against a plain pi's.
 	 */

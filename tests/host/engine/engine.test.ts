@@ -816,6 +816,30 @@ describe("the host's engine", () => {
 	);
 
 	it(
+		"keeps through a park and the next host's start what an ended command left under its call's mark",
+		async () => {
+			const folder = hostFolder();
+			const parked = await step(folder, "leave-and-park");
+			const [marked, unmarked] = leftRunning(folder);
+			expect(parked.held, "the park let it go").toBe("let go");
+			expect(
+				parked.childrenAlive,
+				"the park ends only what carries no call's mark",
+			).toEqual([marked]);
+			expect(unmarked).toBeDefined();
+			expect(parked.reported, "said as one line, not an error").toEqual([
+				expect.stringMatching(/park what 1 ended command left$/),
+			]);
+			const started = await step(folder, "start");
+			expect(
+				started.childrenAlive,
+				"the next host's start spares it, though its host is gone",
+			).toEqual([marked]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
 		"ends at its start what a killed host's tools left, for a conversation it does not resume",
 		async () => {
 			const folder = hostFolder();

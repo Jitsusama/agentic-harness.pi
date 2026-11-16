@@ -40,6 +40,7 @@ import {
 	readParked,
 	WAKE_ENV,
 } from "../../lib/internal/session/park.ts";
+import { carriedCalls } from "../../lib/internal/shell/kept.ts";
 import {
 	pendingWarmsDir,
 	warmingCarryDir,
@@ -82,6 +83,7 @@ import {
 	registerKept,
 	writeKept,
 } from "./kept-providers.ts";
+import { leftRunning } from "./left-running.ts";
 import { parkedWarming, warmThrough } from "./parked-warming.ts";
 import { parking } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";
@@ -123,6 +125,7 @@ import {
 	pinSubagentKey,
 } from "./subagent-install.ts";
 import {
+	callsLeftRunning,
 	conversationMarker,
 	ownerMark,
 	reapLeftBehind,
@@ -194,7 +197,13 @@ export async function createEngine(
 	const report = options.report ?? (() => {});
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
 	const owner = ownerMark();
-	const reaped = await reapLeftBehind(host.key);
+	// What parks kept of what ended calls left running is spared by every reap.
+	const left = leftRunning({ stateDir: options.stateDir, report });
+	const reaped = await reapLeftBehind(
+		host.key,
+		undefined,
+		left.spared(carriedCalls()),
+	);
 	if (reaped.groups.length > 0 || reaped.pids.length > 0)
 		report(
 			`Ended what an earlier host's tools left running: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,
@@ -598,7 +607,7 @@ export async function createEngine(
 	): Promise<void> {
 		const { sessionId, cwd } = record.traits;
 		// What an earlier host's tools left running for it ends before this start reports them cut off.
-		await reapToolChildren(sessionId);
+		await reapToolChildren(sessionId, undefined, left.spared(carriedCalls()));
 		mark?.("reap");
 		const first = request?.op === "open" ? request.first : undefined;
 		noteFirstPrompt(first);
@@ -786,14 +795,31 @@ export async function createEngine(
 		// such as its agent, stays in memory while the reap below reads every
 		// process's environment.
 		await release(sessionId, record, why);
+		// A park keeps what its ended calls left running, as plain pi does.
+		if (record.parking) await keepLeftRunning(sessionId);
 		// The signal kills a tool's own group; a descendant that left it ends here.
-		await reapToolChildren(sessionId);
+		await reapToolChildren(sessionId, undefined, left.spared(carriedCalls()));
 		const events = watched;
 		if (record.ending === "closed" && events)
 			// Not awaited: the service's answer may close this very conversation, whose close waits on this.
 			Promise.resolve()
 				.then(() => events.ended(sessionId, why))
 				.catch(report);
+	}
+
+	/** Note what a parked conversation's ended calls left running, saying it in the journal. */
+	async function keepLeftRunning(sessionId: string): Promise<void> {
+		try {
+			const marks = await callsLeftRunning(sessionId);
+			if (marks.size === 0) return;
+			left.note(sessionId, marks);
+			report(
+				`Kept running through ${sessionId}'s park what ${marks.size} ended command${marks.size === 1 ? "" : "s"} left`,
+			);
+		} catch (error) {
+			// The park goes on, and its reap ends them as before.
+			report(error);
+		}
 	}
 
 	/** Let go of a conversation's screen, session and store, and take it off the table. */
