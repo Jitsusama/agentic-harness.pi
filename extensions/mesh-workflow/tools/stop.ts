@@ -1,7 +1,7 @@
 /** mesh_stop: stopping a peer reaching this one, and saying who has. */
 
 import { groupNamed } from "../../../lib/mesh/group.ts";
-import { stoppedBy } from "../../../lib/mesh/stop.ts";
+import type { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, tell } from "./local.ts";
 
 /** The stops on this peer, said to it. */

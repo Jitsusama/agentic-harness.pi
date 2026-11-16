@@ -6,8 +6,8 @@
 
 import { sessionSlot } from "../../../lib/core/session/index.ts";
 import {
-	type Kind,
 	KIND_SAID,
+	type Kind,
 	kindOf,
 	whatOf,
 } from "../../../lib/internal/priority/queue.ts";

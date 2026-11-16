@@ -125,7 +125,10 @@ function saidLately(at: Local, group: string): string {
 		: "";
 }
 
-export async function leave(at: Local, params: { group: string }): Promise<Answer> {
+export async function leave(
+	at: Local,
+	params: { group: string },
+): Promise<Answer> {
 	const group = groupNamed(params.group);
 	const left = group !== undefined && at.peer.leave(group);
 	const scoped = group !== undefined && at.peer.scopes.includes(group);

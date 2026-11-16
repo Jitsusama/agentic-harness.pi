@@ -16,8 +16,8 @@ import {
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import { idNamed, mayReplace, sentBy } from "../../../lib/mesh/thread.ts";
 import {
-	unanswered,
 	UNANSWERED_WITHIN_MS,
+	unanswered,
 	withinOrchestration,
 } from "../../../lib/mesh/unanswered.ts";
 import { count } from "../../../lib/ui/count.ts";

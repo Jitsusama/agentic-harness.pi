@@ -8,7 +8,10 @@ import { groupNamed } from "../../../lib/mesh/group.ts";
 import { closeThroughHost, hostedHere } from "../../../lib/mesh/host-close.ts";
 import { type Answer, answer, type EndProcess, type Local } from "./local.ts";
 
-export async function end(at: Local, params: { peer: string }): Promise<Answer> {
+export async function end(
+	at: Local,
+	params: { peer: string },
+): Promise<Answer> {
 	const home = groupNamed(params.peer);
 	const address = home?.startsWith("@") ? home.slice(1) : params.peer.trim();
 	const target = endTarget(

@@ -41,11 +41,11 @@ import {
 	type Lease,
 	type LeaseEvent,
 	MOST_HOLD_MS,
+	type OwnLeases,
 	othersIn,
 	othersOn,
-	type OwnLeases,
-	rewriteIn,
 	RUN_LEASE_MS,
+	rewriteIn,
 } from "../../lib/mesh/lease.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { clock, type Message, senderIdentity } from "../../lib/mesh/message.ts";

@@ -14,8 +14,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
 	LOOK_KINDS,
-	pointAt,
 	type Pointing,
+	pointAt,
 	refusalOf,
 	withdrawLook,
 } from "../../lib/mesh/looks.ts";
@@ -27,7 +27,7 @@ import { end } from "./tools/end.ts";
 import { groupsText, join, leave, peersText } from "./tools/groups.ts";
 import { type Answer, answer, type Local, peers } from "./tools/local.ts";
 import { MOST_READ, read } from "./tools/read.ts";
-import { send, sendAcross, type SendParams } from "./tools/send.ts";
+import { type SendParams, send, sendAcross } from "./tools/send.ts";
 import { stop } from "./tools/stop.ts";
 import { waitOnPerson } from "./wait.ts";
 
