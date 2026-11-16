@@ -48,6 +48,23 @@ describe("computeFreeSlots", () => {
 		]);
 	});
 
+	it("leaves a gap between busy blocks that don't meet", () => {
+		const slots = computeFreeSlots(
+			[
+				{ start: "2026-01-05T13:00:00.000Z", end: "2026-01-05T14:00:00.000Z" },
+				{ start: "2026-01-05T10:00:00.000Z", end: "2026-01-05T11:00:00.000Z" },
+			],
+			WINDOW_START,
+			WINDOW_END,
+		);
+
+		expect(slots).toEqual([
+			{ start: WINDOW_START, end: "2026-01-05T10:00:00.000Z" },
+			{ start: "2026-01-05T11:00:00.000Z", end: "2026-01-05T13:00:00.000Z" },
+			{ start: "2026-01-05T14:00:00.000Z", end: WINDOW_END },
+		]);
+	});
+
 	it("yields no leading free slot for a block straddling the window start", () => {
 		const slots = computeFreeSlots(
 			[{ start: "2026-01-05T08:00:00.000Z", end: "2026-01-05T10:00:00.000Z" }],
