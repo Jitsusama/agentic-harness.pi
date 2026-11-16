@@ -175,6 +175,7 @@ export function reapLeftBehind(
 export async function callsLeftRunning(
 	sessionId: string,
 	table: ProcessTable = linuxProcessTable(),
+	_carried: CarriedCalls = carriedCalls(),
 ): Promise<Set<string>> {
 	const marks = new Set<string>();
 	for (const environ of (

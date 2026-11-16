@@ -54,6 +54,8 @@ interface Seen {
 	readonly registeredHeadersSeen: readonly string[];
 	readonly ran: number;
 	readonly childrenAlive: readonly number[];
+	/** What still ran once a wake had reaped, before the step closed it. */
+	readonly woken?: readonly number[];
 	readonly probe: readonly Record<string, string>[];
 	/** The subagent install the probe extension found each time it loaded. */
 	readonly installs: readonly {
@@ -835,6 +837,62 @@ describe("the host's engine", () => {
 				started.childrenAlive,
 				"the next host's start spares it, though its host is gone",
 			).toEqual([marked]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"keeps through a restart's stop of a conversation never parked what an ended command left",
+		async () => {
+			const folder = hostFolder();
+			const stopped = await step(folder, "leave-and-stop");
+			const [marked] = leftRunning(folder);
+			expect(stopped.held, "the stop let it go").toBe("let go");
+			expect(
+				stopped.childrenAlive,
+				"the stop ends only what carries no call's mark",
+			).toEqual([marked]);
+			expect(stopped.reported, "said as one line, not an error").toEqual([
+				expect.stringMatching(/stop what 1 ended command left$/),
+			]);
+			const started = await step(folder, "start");
+			expect(
+				started.childrenAlive,
+				"the next host's start spares it",
+			).toEqual([marked]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"ends what a park kept once its conversation is closed for good while parked",
+		async () => {
+			const folder = hostFolder();
+			const parked = await step(folder, "leave-and-park");
+			const [marked] = leftRunning(folder);
+			expect(parked.childrenAlive, "the park kept it").toEqual([marked]);
+			const closed = await step(folder, "close-parked");
+			expect(
+				closed.childrenAlive,
+				"the close ends it, as the next host's start would not",
+			).toEqual([]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"ends what a park kept once its conversation, woken again, is closed for good",
+		async () => {
+			const folder = hostFolder();
+			const parked = await step(folder, "leave-and-park");
+			const [marked] = leftRunning(folder);
+			expect(parked.childrenAlive, "the park kept it").toEqual([marked]);
+			const closed = await step(folder, "resume-and-close");
+			expect(closed.woken, "the wake's reap spares it").toEqual([marked]);
+			expect(
+				closed.childrenAlive,
+				"the close ends it, as the resume would not",
+			).toEqual([]);
 		},
 		HOST_LIFE_MS,
 	);
