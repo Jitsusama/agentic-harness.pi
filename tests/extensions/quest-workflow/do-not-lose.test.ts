@@ -53,9 +53,9 @@ const DO_NOT_LOSE: Capability[] = [
 		guards: [
 			"lib/core/internal/quest/write-classifier.ts",
 			"lib/core/internal/quest/record-gate.ts",
-			"tests/extensions/quest-workflow/record-gate.test.ts",
-			"tests/extensions/quest-workflow/discipline.test.ts",
-			"tests/extensions/quest-workflow/tree-gate.test.ts",
+			"tests/extensions/quest-workflow/guards/record-gate.test.ts",
+			"tests/extensions/quest-workflow/guards/discipline.test.ts",
+			"tests/extensions/quest-workflow/guards/tree-gate.test.ts",
 		],
 	},
 	{
@@ -77,7 +77,7 @@ const DO_NOT_LOSE: Capability[] = [
 	{
 		name: "Richness of the show projection",
 		guards: [
-			"tests/extensions/quest-workflow/render.test.ts",
+			"tests/extensions/quest-workflow/sessions/render.test.ts",
 			"lib/core/quest/render-rows.ts",
 		],
 	},
@@ -90,7 +90,9 @@ const DO_NOT_LOSE: Capability[] = [
 	},
 	{
 		name: "Working-directory auto-load",
-		guards: ["tests/extensions/quest-workflow/cwd-auto-attach.test.ts"],
+		guards: [
+			"tests/extensions/quest-workflow/sessions/cwd-auto-attach.test.ts",
+		],
 	},
 	{
 		name: "Human-owned prose body",

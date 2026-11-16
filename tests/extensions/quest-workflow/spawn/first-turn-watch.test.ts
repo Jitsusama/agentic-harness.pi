@@ -1,0 +1,407 @@
+import { existsSync } from "node:fs";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	FIRST_TURN_WATCH_MS,
+	MOST_START_MS,
+	offerReopen,
+	piRunsFor,
+	spawnedBy,
+	stopFirstTurnWatches,
+	watchFirstTurn,
+} from "../../../../extensions/quest-workflow/first-turn-watch.ts";
+import { withSession } from "../../../../lib/core/session/index.ts";
+import type { FirstTurn } from "../../../../lib/internal/quest/first-words.ts";
+import { installTestHost } from "../../../support/session-host.ts";
+
+let said: { text: string; options: unknown }[];
+let noted: { content: unknown; options: unknown }[];
+let pi: ExtensionAPI;
+let idle: boolean;
+const ctx = { isIdle: () => idle } as unknown as ExtensionContext;
+
+beforeEach(() => {
+	vi.useFakeTimers();
+	said = [];
+	noted = [];
+	idle = true;
+	pi = {
+		sendUserMessage: (text: string, options?: unknown) => {
+			said.push({ text, options });
+		},
+		sendMessage: (message: { content: unknown }, options?: unknown) => {
+			noted.push({ content: message.content, options });
+		},
+	} as unknown as ExtensionAPI;
+});
+afterEach(() => {
+	stopFirstTurnWatches();
+	vi.useRealTimers();
+});
+
+const spawned = { key: "token-1", questId: "QEST-1" };
+const waiting: FirstTurn = {
+	started: false,
+	waiting: true,
+	sessionId: "019a-slow",
+	found: "no session has taken the first words the spawn left it",
+};
+const running = () => true;
+const gone = () => false;
+
+/** Watch a spawn whose words wait at every look, its pi running or gone. */
+function watchWaiting(
+	piRuns: () => boolean,
+	whose: Parameters<typeof watchFirstTurn>[2] = spawned,
+): void {
+	watchFirstTurn(pi, ctx, whose, () => waiting, FIRST_TURN_WATCH_MS, piRuns);
+}
+
+/** Let the spawn be opened again through `how`, keeping each key opened. */
+function reopensThrough(how = "a window through kitty"): string[] {
+	const opened: string[] = [];
+	offerReopen(spawned.key, async () => {
+		opened.push(spawned.key);
+		return how;
+	});
+	return opened;
+}
+
+describe("a spawner watching for its session's first turn", () => {
+	it("looks once, a minute after the spawn, and says nothing when it ran", () => {
+		const asked: string[] = [];
+		watchFirstTurn(pi, ctx, spawned, ({ key }) => {
+			asked.push(key);
+			return { started: true, sessionId: "019a-new" };
+		});
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS - 1);
+		expect(asked).toEqual([]);
+		vi.advanceTimersByTime(1);
+		vi.advanceTimersByTime(10 * FIRST_TURN_WATCH_MS);
+		expect(asked).toEqual(["token-1"]);
+		expect(said).toEqual([]);
+	});
+
+	it("counts only a turn taken since the spawn, so a resumed log's old turns don't", () => {
+		const spawnedAt = Date.now();
+		const since: number[] = [];
+		watchFirstTurn(pi, ctx, spawned, (_spawned, after) => {
+			since.push(after);
+			return { started: true, sessionId: "019a-new" };
+		});
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(since).toEqual([spawnedAt]);
+	});
+
+	it("starts its own turn naming the session, the quest and what it found", () => {
+		const found: FirstTurn = {
+			started: false,
+			sessionId: "019a-mute",
+			found: "it took its first words but has no session log",
+		};
+		watchFirstTurn(pi, ctx, spawned, () => found);
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(said).toHaveLength(1);
+		const [told] = said;
+		expect(told?.options).toBeUndefined();
+		expect(told?.text).toMatch(/^\[Automated message, no human input: /);
+		expect(told?.text).toContain("019a-mute");
+		expect(told?.text).toContain("QEST-1");
+		expect(told?.text).toContain(
+			"it took its first words but has no session log",
+		);
+	});
+
+	it("says it inside a run under way, once its tool calls finish, not when the run ends", () => {
+		// 2026-11-10: a warning raised at 06:54 waited as a follow-up for
+		// the spawner's run to end, and reached it at 08:18.
+		idle = false;
+		watchFirstTurn(pi, ctx, spawned, () => ({
+			started: false,
+			found: "no session has taken the first words",
+		}));
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(said[0]?.options).toEqual({ deliverAs: "steer" });
+		expect(said[0]?.text).toContain("an id not yet known");
+	});
+
+	it("says the time it looked, so a warning read later reads as late", () => {
+		vi.setSystemTime(new Date(2026, 10, 10, 6, 53, 0));
+		watchWaiting(gone);
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(said[0]?.text).toContain("when looked at 06:54");
+	});
+
+	it("looks again while its words wait and its pi runs, saying nothing once it starts", () => {
+		// 2026-11-04 17:05: a spawn's pi took 77 s to start at CPU pressure
+		// 80%, and a look at 60 s told its spawner it never had.
+		let looks = 0;
+		watchFirstTurn(
+			pi,
+			ctx,
+			spawned,
+			() => {
+				looks += 1;
+				return looks < 2 ? waiting : { started: true, sessionId: "019a-slow" };
+			},
+			FIRST_TURN_WATCH_MS,
+			running,
+		);
+		vi.advanceTimersByTime(MOST_START_MS * 2);
+		expect(looks).toBe(2);
+		expect(said).toEqual([]);
+	});
+
+	it("tells once its words have waited the longest a start may take, though its pi runs", () => {
+		watchWaiting(running);
+		vi.advanceTimersByTime(MOST_START_MS - 1);
+		expect(said).toEqual([]);
+		vi.advanceTimersByTime(MOST_START_MS);
+		expect(said).toHaveLength(1);
+		expect(said[0]?.text).toContain(
+			`${MOST_START_MS / 1000} s after the spawn`,
+		);
+	});
+
+	it("tells at the first look when its words wait and no pi of it runs", () => {
+		watchWaiting(gone);
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(said).toHaveLength(1);
+		expect(said[0]?.text).toContain("60 s after the spawn");
+	});
+
+	it("reads the folder a spawn said waits to be trusted from its answer", () => {
+		const details = {
+			firstWordsKey: "token-1",
+			autoloadQuestId: "QEST-1",
+			trustWaits: "/trees/alpha",
+		};
+
+		expect(spawnedBy("spawn", details)).toEqual({
+			key: "token-1",
+			questId: "QEST-1",
+			trustWaits: "/trees/alpha",
+		});
+	});
+
+	it("tells at the first look, naming the folder, when its pi waits to be trusted", () => {
+		// 11-07 20:20: a pi at the trust prompt runs and leaves its words
+		// waiting, which the look took for a slow start for five minutes.
+		watchWaiting(running, { ...spawned, trustWaits: "/trees/alpha" });
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(said).toHaveLength(1);
+		expect(said[0]?.text).toContain(
+			"Nothing had trusted /trees/alpha when it was spawned",
+		);
+	});
+
+	it.runIf(existsSync("/proc/self/cmdline"))(
+		"finds a running process by a word of its command line, and none by a word no process has",
+		() => {
+			const ownWord = process.argv[1] ?? "";
+			expect(
+				piRunsFor({ ...spawned, sessionId: ownWord }),
+				"a word of this process's own command line finds it",
+			).toBe(true);
+			expect(
+				piRunsFor({ ...spawned, sessionId: "01a1ffff-no-such-session" }),
+				"a word no process has finds none",
+			).toBe(false);
+			expect(
+				piRunsFor(spawned),
+				"a spawn naming no session finds no process",
+			).toBe(false);
+		},
+	);
+
+	describe("a session whose pi ended before it took its words", () => {
+		// 11-10 from 04:27: the launcher's holder ran pi without the PATH
+		// Shopify's wrapper fetches its key by, so each session it started
+		// exited at once ("Failed to get LLM token") and five never ran.
+		it("is opened again once from here, said without a turn, and watched afresh", async () => {
+			const opened = reopensThrough();
+			let looks = 0;
+			watchFirstTurn(
+				pi,
+				ctx,
+				{ ...spawned, sessionId: "019a-dead" },
+				() => {
+					looks += 1;
+					return looks === 1
+						? waiting
+						: { started: true, sessionId: "019a-reopened" };
+				},
+				FIRST_TURN_WATCH_MS,
+				gone,
+			);
+
+			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+			expect(opened).toEqual(["token-1"]);
+			expect(said).toEqual([]);
+			expect(noted).toHaveLength(1);
+			expect(String(noted[0]?.content)).toContain(
+				"It was opened again from this session: a window through kitty.",
+			);
+			expect(noted[0]?.options).toBeUndefined();
+
+			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+			expect(looks).toBe(2);
+			expect(said).toEqual([]);
+		});
+
+		it("is told as before when the session opened again doesn't start either", async () => {
+			const opened = reopensThrough();
+			watchWaiting(gone);
+
+			await vi.advanceTimersByTimeAsync(2 * FIRST_TURN_WATCH_MS);
+			expect(opened).toEqual(["token-1"]);
+			expect(said).toHaveLength(1);
+			expect(said[0]?.text).toContain("60 s after the spawn");
+		});
+
+		it("is told, with why, when opening it again fails", async () => {
+			offerReopen(spawned.key, async () => {
+				throw new Error("kitty is not installed");
+			});
+			watchWaiting(gone);
+
+			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+			expect(said).toHaveLength(1);
+			expect(said[0]?.text).toContain(
+				"Opening it again from here failed: kitty is not installed.",
+			);
+			expect(noted).toEqual([]);
+		});
+
+		// 11-10 13:28: the launcher took RCTRF8's session but opened its
+		// window past the minute, and the look opened it again from here,
+		// so RCTRF8 ran as two sessions.
+		it("is left to the launcher that took it until a pi of it was seen, then told", async () => {
+			const opened = reopensThrough("a window in the desktop's sessions kitty");
+			watchWaiting(gone, {
+				...spawned,
+				sessionId: "019a-queued",
+				handed: true,
+			});
+
+			await vi.advanceTimersByTimeAsync(MOST_START_MS - 1);
+			expect(opened).toEqual([]);
+			expect(said).toEqual([]);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(opened).toEqual([]);
+			expect(said).toHaveLength(1);
+			expect(said[0]?.text).toContain(
+				"The desktop's launcher took it, but no pi of it has run since",
+			);
+		});
+
+		it("is opened again once the launcher's pi of it was seen and has gone", async () => {
+			const opened = reopensThrough("a window in the desktop's sessions kitty");
+			let looks = 0;
+			watchFirstTurn(
+				pi,
+				ctx,
+				{ ...spawned, sessionId: "019a-died", handed: true },
+				() => waiting,
+				FIRST_TURN_WATCH_MS,
+				() => {
+					looks += 1;
+					return looks === 2;
+				},
+			);
+
+			await vi.advanceTimersByTimeAsync(2 * FIRST_TURN_WATCH_MS);
+			expect(opened).toEqual([]);
+			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+			expect(opened).toEqual(["token-1"]);
+			expect(said).toEqual([]);
+		});
+
+		it("reads a spawn the launcher took from its answer", () => {
+			expect(
+				spawnedBy("spawn", {
+					how: "launcher",
+					firstWordsKey: "token-1",
+					autoloadQuestId: "QEST-1",
+				}),
+			).toEqual({ key: "token-1", questId: "QEST-1", handed: true });
+		});
+
+		it("is never opened twice while its pi still runs", async () => {
+			const opened = reopensThrough();
+			watchWaiting(running);
+
+			await vi.advanceTimersByTimeAsync(MOST_START_MS);
+			expect(opened).toEqual([]);
+			expect(said).toHaveLength(1);
+		});
+	});
+
+	it("neither says nor watches again when a reopen settles after its spawner ended", async () => {
+		let opened: (words: string) => void = () => {};
+		offerReopen(
+			spawned.key,
+			() =>
+				new Promise<string>((settle) => {
+					opened = settle;
+				}),
+		);
+		let looks = 0;
+		watchFirstTurn(
+			pi,
+			ctx,
+			{ ...spawned, sessionId: "019a-dead" },
+			() => {
+				looks += 1;
+				return waiting;
+			},
+			FIRST_TURN_WATCH_MS,
+			gone,
+		);
+		await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+
+		stopFirstTurnWatches();
+		opened("a window through kitty");
+		await vi.advanceTimersByTimeAsync(MOST_START_MS);
+
+		expect(looks, "no look armed after the end").toBe(1);
+		expect(noted).toEqual([]);
+		expect(said).toEqual([]);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("stops only the looks of the conversation that ended, in a host", async () => {
+		const host = installTestHost();
+		try {
+			const asked: string[] = [];
+			for (const id of ["a", "b"])
+				withSession(id, () =>
+					watchFirstTurn(pi, ctx, { key: id, questId: "QEST-1" }, ({ key }) => {
+						asked.push(key);
+						return { started: true, sessionId: `019a-${key}` };
+					}),
+				);
+			withSession("a", stopFirstTurnWatches);
+			await vi.advanceTimersByTimeAsync(FIRST_TURN_WATCH_MS);
+
+			expect(asked).toEqual(["b"]);
+		} finally {
+			host.dispose();
+		}
+	});
+
+	it("looks no more once the session doing the watching ends", () => {
+		const asked: string[] = [];
+		watchFirstTurn(pi, ctx, spawned, ({ key }) => {
+			asked.push(key);
+			return { started: false, found: "nothing" };
+		});
+		stopFirstTurnWatches();
+		vi.advanceTimersByTime(FIRST_TURN_WATCH_MS);
+		expect(asked).toEqual([]);
+		expect(said).toEqual([]);
+	});
+});
