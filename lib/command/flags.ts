@@ -48,13 +48,13 @@ export function findFlags(
 
 	const { argv } = command;
 	const matches: FlagMatch[] = [];
-	for (let i = 0; i < argv.length; i++) {
-		const direct = matchAt(def, argv[i], argv[i + 1]);
+	for (const [i, word] of argv.entries()) {
+		const direct = matchAt(def, word, argv[i + 1]);
 		if (direct) {
 			matches.push(direct);
 			continue;
 		}
-		const clustered = matchInCluster(spec, def, argv[i], argv[i + 1]);
+		const clustered = matchInCluster(spec, def, word, argv[i + 1]);
 		if (clustered) matches.push(clustered);
 	}
 	return matches;

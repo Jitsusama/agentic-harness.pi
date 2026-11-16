@@ -628,7 +628,7 @@ export default function slackIntegration(pi: ExtensionAPI) {
 			if (textContent.startsWith("✓")) {
 				return drawInto(
 					context?.lastComponent,
-					theme.fg("success", textContent.split("\n")[0]),
+					theme.fg("success", textContent.split("\n")[0] ?? ""),
 				);
 			}
 

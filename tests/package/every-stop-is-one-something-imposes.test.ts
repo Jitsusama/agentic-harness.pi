@@ -34,14 +34,17 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const source = (...parts: string[]) =>
 	readFileSync(join(ROOT, ...parts), "utf8");
 
+/** What each match of a pattern holds in its first group, in order. */
+function firstGroups(text: string, pattern: RegExp): string[] {
+	return [...text.matchAll(pattern)].flatMap((one) => one[1] ?? []);
+}
+
 /** Every state named on the left of the reviewer's limit table. */
 function mappedStates(): string[] {
 	const text = source("extensions", "review-integration", "reviewer.ts");
-	const table = /const LIMITS[^{]*{([\s\S]*?)\n};/.exec(text);
-	if (table === null) throw new Error("the limit table has moved");
-	const states = [...table[1].matchAll(/^\t"?([a-z-]+)"?:/gm)].map(
-		(one) => one[1],
-	);
+	const table = /const LIMITS[^{]*{([\s\S]*?)\n};/.exec(text)?.[1];
+	if (table === undefined) throw new Error("the limit table has moved");
+	const states = firstGroups(table, /^\t"?([a-z-]+)"?:/gm);
 	// Refused rather than returned. A scrape that reads nothing leaves
 	// every loop below with nothing to check and every case green,
 	// which is the one failure a gate must not have: it would report
@@ -60,11 +63,9 @@ function imposedStates(): string[] {
 	const supervisor = source("lib", "subagent", "runpi", "supervisor.mjs");
 	const adapter = source("extensions", "review-integration", "reviewer.ts");
 	return [
-		...[...watchdog.matchAll(/return "([a-z-]+)"/g)].map((one) => one[1]),
-		...[...supervisor.matchAll(/stopChild\("([a-z-]+)"\)/g)].map(
-			(one) => one[1],
-		),
-		...[...adapter.matchAll(/state: "([a-z-]+)"/g)].map((one) => one[1]),
+		...firstGroups(watchdog, /return "([a-z-]+)"/g),
+		...firstGroups(supervisor, /stopChild\("([a-z-]+)"\)/g),
+		...firstGroups(adapter, /state: "([a-z-]+)"/g),
 	];
 }
 

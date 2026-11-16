@@ -273,6 +273,7 @@ export function stripShellData(command: string): string {
 
 	for (let i = 0; i < command.length; i++) {
 		const ch = command[i];
+		if (ch === undefined) break;
 
 		// The previous character was an unquoted backslash, so
 		// this character is escaped.

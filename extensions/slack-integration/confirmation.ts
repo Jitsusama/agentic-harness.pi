@@ -228,7 +228,8 @@ export async function confirmUploadFile(
 	text?: string,
 	threadTs?: string,
 ): Promise<ConfirmResult<true>> {
-	const context = `Upload ${files.length === 1 ? files[0].name : `${files.length} files`} to ${conversationName}`;
+	const [only] = files;
+	const context = `Upload ${files.length === 1 && only ? only.name : `${files.length} files`} to ${conversationName}`;
 	const skip = unasked(ctx, true as const, context, text);
 	if (skip) return skip;
 
@@ -306,8 +307,8 @@ function renderTablePreview(
 	const totalWidth = widths.reduce((a, b) => a + b, 0);
 	if (totalWidth > available) {
 		const scale = available / totalWidth;
-		for (let c = 0; c < colCount; c++) {
-			widths[c] = Math.max(3, Math.floor(widths[c] * scale));
+		for (const [c, width] of widths.entries()) {
+			widths[c] = Math.max(3, Math.floor(width * scale));
 		}
 	}
 
@@ -325,7 +326,8 @@ function renderTablePreview(
 
 	/** Pad and truncate a cell value to the column width. */
 	function padCell(value: string, col: number): string {
-		const w = widths[col];
+		// Every column was measured above, so the 0 is never reached.
+		const w = widths[col] ?? 0;
 		const truncated = value.length > w ? `${value.slice(0, w - 1)}…` : value;
 		if (aligns[col] === "right") return truncated.padStart(w);
 		if (aligns[col] === "center") {

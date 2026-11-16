@@ -56,6 +56,12 @@ function sourceFiles(dir: string): string[] {
 	return found;
 }
 
+/** What comes before the first separator, or all of it when there is none. */
+function firstPiece(text: string, separator: string): string {
+	const at = text.indexOf(separator);
+	return at === -1 ? text : text.slice(0, at);
+}
+
 /**
  * The first parameter of each execute in a file that registers a tool.
  *
@@ -68,13 +74,18 @@ function executeSignatures(
 	const found: Array<{ line: number; first: string }> = [];
 	const lines = source.split("\n");
 	lines.forEach((text, index) => {
-		const match =
-			/(?:async\s+execute\s*\(|execute\s*:\s*async\s*\()\s*(.*)$/.exec(text);
-		if (!match) return;
+		const after =
+			/(?:async\s+execute\s*\(|execute\s*:\s*async\s*\()\s*(.*)$/.exec(
+				text,
+			)?.[1];
+		if (after === undefined) return;
 		// A multi-line signature puts the first parameter on the next line.
-		const head = match[1].trim();
+		const head = after.trim();
 		const rest = head === "" ? (lines[index + 1] ?? "").trim() : head;
-		const first = rest.split(",")[0].split(")")[0].split(":")[0].trim();
+		const first = firstPiece(
+			firstPiece(firstPiece(rest, ","), ")"),
+			":",
+		).trim();
 		found.push({ line: index + 1, first });
 	});
 	return found;

@@ -43,16 +43,17 @@ function sharedActionLists(toolFile: string): string[] {
 	for (const sibling of filesUnder(dir, "actions.ts")) {
 		const source = readFileSync(sibling, "utf8");
 		for (const [, act] of source.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
-			found.push(act);
+			if (act !== undefined) found.push(act);
 		}
 		// A re-export barrel points its real action list at the module
 		// that holds it, such as core's quest actions in `lib/core`;
 		// follow the re-export or the gate reads an empty shell.
 		for (const [, from] of source.matchAll(/from "(\.\.?\/[^"]+\.ts)"/g)) {
+			if (from === undefined) continue;
 			try {
 				const held = readFileSync(join(sibling, "..", from), "utf8");
 				for (const [, act] of held.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
-					found.push(act);
+					if (act !== undefined) found.push(act);
 				}
 			} catch {
 				// A missing module fails the typecheck, which names it.
@@ -84,11 +85,12 @@ export function registered(): Map<string, Set<string>> {
 		const source = readFileSync(file, "utf8");
 		if (!source.includes("registerTool")) continue;
 		for (const [, name] of source.matchAll(/name:\s*"([a-z][a-z0-9_]*)"/g)) {
+			if (name === undefined) continue;
 			const actions = tools.get(name) ?? new Set<string>(tools.get(name) ?? []);
 			for (const [, act] of source.matchAll(
 				/Type\.Literal\("([a-z][a-zA-Z-]*)"\)/g,
 			)) {
-				actions.add(act);
+				if (act !== undefined) actions.add(act);
 			}
 			// Every constant list in the file, not only its actions: review_offer's
 			// labelMode ("add", "set") counts as its verbs too. That errs towards

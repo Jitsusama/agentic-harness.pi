@@ -73,7 +73,9 @@ function missingIn(file: string): string[] {
 	const describesThisRepository = !inSkills || name.endsWith("/README.md");
 	if (describesThisRepository) {
 		for (const match of text.matchAll(PATH)) {
-			const path = match[1].replace(/\/$/, "");
+			const named = match[1];
+			if (named === undefined) continue;
+			const path = named.replace(/\/$/, "");
 			const before = text.slice(Math.max(0, match.index - 8), match.index);
 			if (CORES.test(before) || `${name} ${path}` in EXEMPT) continue;
 			if (!existsSync(join(ROOT, path))) missing.push(`${name}: \`${path}\``);
@@ -82,6 +84,7 @@ function missingIn(file: string): string[] {
 	const prose = text.replace(/`[^`\n]*`/g, "");
 	const targets = [...prose.matchAll(LINK), ...prose.matchAll(REFERENCE)];
 	for (const [, target] of targets) {
+		if (target === undefined) continue;
 		if (!existsSync(join(dirname(file), target)))
 			missing.push(`${name}: (${target})`);
 	}
@@ -97,6 +100,8 @@ describe("the package's markdown", () => {
 	it("keeps no exemption for a mention that has gone", () => {
 		const stale = Object.keys(EXEMPT).filter((key) => {
 			const [file, path] = key.split(" ");
+			// A key that names no file and path can no longer be said.
+			if (file === undefined || path === undefined) return true;
 			return !readFileSync(join(ROOT, file), "utf8").includes(path);
 		});
 		expect(stale, `exempt but no longer said:\n${stale.join("\n")}`).toEqual(

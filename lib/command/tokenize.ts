@@ -219,24 +219,19 @@ function buildCommand(
 	const openerWords = scanWords(source, start, scanEnd).filter(
 		(word) => !heredoc || word.span.start < heredoc.index,
 	);
-	if (openerWords.length === 0) return undefined;
+	const first = openerWords[0];
+	const last = openerWords.at(-1);
+	if (first === undefined || last === undefined) return undefined;
 
-	let firstArgv = 0;
-	while (
-		firstArgv < openerWords.length &&
-		isAssignment(openerWords[firstArgv].text)
-	) {
-		firstArgv++;
-	}
+	const leading = openerWords.findIndex((word) => !isAssignment(word.text));
+	const firstArgv = leading === -1 ? openerWords.length : leading;
 
 	const assignments = openerWords.slice(0, firstArgv);
 	const { argv, redirects } = extractRedirects(openerWords.slice(firstArgv));
-	const spanEnd = heredoc
-		? heredoc.end
-		: openerWords[openerWords.length - 1].span.end;
+	const spanEnd = heredoc ? heredoc.end : last.span.end;
 
 	return {
-		span: { start: openerWords[0].span.start, end: spanEnd },
+		span: { start: first.span.start, end: spanEnd },
 		assignments,
 		argv,
 		redirects,
@@ -280,6 +275,7 @@ function extractRedirects(words: Word[]): {
 
 	for (let j = 0; j < words.length; j++) {
 		const word = words[j];
+		if (word === undefined) continue;
 		const match = REDIRECT.exec(word.text);
 		if (!match) {
 			argv.push(word);
@@ -332,7 +328,7 @@ function isAssignment(text: string): boolean {
 	return ASSIGNMENT.test(text);
 }
 
-const isWhitespace = (ch: string): boolean =>
+const isWhitespace = (ch: string | undefined): boolean =>
 	ch === " " || ch === "\t" || ch === "\n";
 
 /** Whether a backslash-newline line continuation begins at i. */

@@ -138,7 +138,7 @@ export async function proposeStack(
 	// than a handful of changes proposed together.
 	const drafts = heads.map((head, at) => ({
 		repo: bound.repo,
-		base: at === 0 ? base : heads[at - 1],
+		base: at === 0 ? base : (heads[at - 1] ?? base),
 		head,
 		title: subjects[at] ?? head,
 		body: bodies?.[at] ?? "",

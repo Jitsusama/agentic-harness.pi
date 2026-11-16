@@ -51,8 +51,8 @@ export function parseBudgetFile(text: string): BudgetFile {
 		const line = raw.trim();
 		if (line === "") return;
 		if (line.startsWith("#")) {
-			const said = /^#\s*label:\s*(.+)$/i.exec(line);
-			if (said) label = said[1].trim();
+			const said = /^#\s*label:\s*(.+)$/i.exec(line)?.[1];
+			if (said !== undefined) label = said.trim();
 			return;
 		}
 		const assignment = line.replace(/^export\s+/, "");

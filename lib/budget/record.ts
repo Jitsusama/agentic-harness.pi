@@ -80,6 +80,7 @@ export function lastRecorded(
 ): string | null | undefined {
 	for (let at = branch.length - 1; at >= 0; at--) {
 		const entry = branch[at];
+		if (entry === undefined) continue;
 		if (entry.type !== "custom" || entry.customType !== BUDGET_ENTRY) continue;
 		const name = nameIn(entry.data);
 		if (name !== undefined) return name;

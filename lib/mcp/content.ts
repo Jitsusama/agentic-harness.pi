@@ -84,8 +84,9 @@ export function truncateForDisplay(
 
 	let byteCount = 0;
 	let shownLines = 0;
-	for (let i = 0; i < lines.length && shownLines < limits.maxLines; i++) {
-		const lineBytes = Buffer.byteLength(lines[i], "utf-8") + 1;
+	for (const line of lines) {
+		if (shownLines >= limits.maxLines) break;
+		const lineBytes = Buffer.byteLength(line, "utf-8") + 1;
 		if (byteCount + lineBytes > limits.maxBytes && shownLines > 0) break;
 		byteCount += lineBytes;
 		shownLines++;
@@ -246,7 +247,7 @@ function splitExtension(filename: string): [string, string] {
 }
 
 function extensionForMimeType(mimeType: string | undefined): string {
-	switch (mimeType?.toLowerCase().split(";")[0].trim()) {
+	switch (mimeType?.toLowerCase().split(";")[0]?.trim()) {
 		case "application/gzip":
 		case "application/x-gzip":
 			return ".gz";
