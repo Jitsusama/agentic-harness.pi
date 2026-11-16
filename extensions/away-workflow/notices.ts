@@ -19,6 +19,7 @@ import {
 	notify,
 	withdrawNotice,
 } from "../../lib/internal/notify.ts";
+import { sessionAddress } from "../../lib/mesh/address.ts";
 
 /** What a notice is about: one of each kind is up at a time. */
 export type NoticeKind = "held" | "blocked" | "asked" | "resting";
@@ -49,6 +50,17 @@ function upNow(): Partial<Record<NoticeKind, Up>> {
 	const fresh: Partial<Record<NoticeKind, Up>> = {};
 	cell.set(fresh);
 	return fresh;
+}
+
+/**
+ * `notice` naming the session it is from by that session's own address,
+ * the one it always has, never its quest's, so the launcher leads from
+ * it to this session wherever its quest goes. With no session, none.
+ */
+export function signed(notice: Notice, sessionId: string | undefined): Notice {
+	return sessionId
+		? { ...notice, cell: sessionAddress(sessionId) }
+		: { ...notice, cell: undefined };
 }
 
 /**

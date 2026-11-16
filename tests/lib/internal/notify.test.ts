@@ -77,6 +77,43 @@ describe("notify", () => {
 		]);
 	});
 
+	const HINT = "--hint=string:x-cell:mycelium:cell/1C8A2F0E";
+
+	it("names the cell it is from as a hint among the options", () => {
+		const args =
+			notifyCommand({ title: "t", cell: "1C8A2F0E" }, "linux")?.args ?? [];
+		expect(args).toContain(HINT);
+		expect(args.indexOf(HINT), "before the -- that ends them").toBeLessThan(
+			args.indexOf("--"),
+		);
+	});
+
+	it("sends no hint for no address, or one not shaped as one", () => {
+		for (const cell of [undefined, "", "1C8A/talk", "1c8a2f0e"]) {
+			expect(
+				notifyCommand({ title: "t", cell }, "linux")?.args.join(" "),
+				`no hint for ${cell}`,
+			).not.toContain("x-cell");
+		}
+	});
+
+	it("sends no hint on macOS, whose notices have nowhere to carry one", () => {
+		expect(
+			notifyCommand({ title: "t", cell: "1C8A2F0E" }, "darwin")?.args.join(" "),
+		).not.toContain("x-cell");
+	});
+
+	it("keeps the hint when an old notify-send is asked again without --print-id", async () => {
+		const { exec, calls } = recording(0, "", (_command, args) =>
+			args.includes("--print-id") ? 1 : 0,
+		);
+		await notify(
+			{ title: "t", cell: "1C8A2F0E" },
+			{ platform: "linux", exec, env: ON },
+		);
+		expect(calls.map(([, args]) => args.includes(HINT))).toEqual([true, true]);
+	});
+
 	it("answers false when the notifier refuses or is missing", async () => {
 		const { exec } = recording(1);
 		expect(
