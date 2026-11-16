@@ -269,6 +269,7 @@ let note = (_event: {
 	readonly trigger?: unknown;
 	readonly sectioned?: boolean;
 	readonly prompt?: string;
+	readonly streaming?: boolean;
 }): void => {};
 
 /** Answer only after SLOW_FIRST_TOKEN_MS, as a provider that pays an abort no heed does. */
@@ -664,7 +665,7 @@ const scenarios: Record<string, Scenario> = {
 		drive: async () => {},
 		persist: true,
 	},
-	/** Reopen with a prompt sent while the recovery carries the cut-off turn on, as job-workflow said a cut-off notice on 14 November. */
+	/** Reopen with a prompt sent while the recovery carries the cut-off turn on, queued as pi's editor queues words typed into a run under way. */
 	"reopen-prompted-during": {
 		responses: () => [
 			() => answerOnceQueued("after the restart"),
@@ -672,8 +673,19 @@ const scenarios: Record<string, Scenario> = {
 		],
 		tools: echo(async () => noteEffect("ping")),
 		during: async (session) => {
+			const by = Date.now() + QUEUED_WAIT_MS;
+			while (!session.isStreaming && Date.now() < by) {
+				// Polled: typed once the carried turn shows as pi's run under way.
+				await new Promise((done) => setTimeout(done, QUEUED_POLL_MS));
+			}
+			note({ type: "prompted", streaming: session.isStreaming });
 			try {
-				await session.prompt("sent during the turn");
+				// The carried turn is pi's own run, so pi refuses words that
+				// don't say how to wait, as it does in any run; its editor
+				// sends them as a follow-up.
+				await session.prompt("sent during the turn", {
+					streamingBehavior: session.isStreaming ? "followUp" : undefined,
+				});
 			} catch (error) {
 				// Noted rather than thrown, so the test sees what pi's caller was told.
 				note({ type: "prompt_refused", error: String(error) });

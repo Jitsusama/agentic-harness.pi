@@ -668,6 +668,7 @@ describe("the hosted agent resuming a turn a restart cut off", {
 
 	it("queues a prompt sent while the recovery carries a turn on behind it, rather than refusing it", async () => {
 		// On 14 November job-workflow said a cut-off notice while the recovery ran; pi, idle by its own account, began a run each time, the agent refused it as already processing, and the notice went again at once, about every 1.2 s for a minute.
+		// The carried turn is now pi's own run, so words typed into it go to pi's queue as its editor sends them, and pi hands them to the agent to keep: what keeps Joel's words.
 		const folder = mkdtempSync(join(tmpdir(), "hosted-prompted-during-"));
 		try {
 			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
@@ -676,6 +677,10 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				"reopen-prompted-during",
 			);
 			expect(reported, "durable reported nothing").toBe("");
+			expect(
+				observed.events.find((event) => event.type === "prompted")?.streaming,
+				"sent into pi's run, so through pi's own queue",
+			).toBe(true);
 			expect(
 				observed.events.filter((event) => event.type === "prompt_refused"),
 				"the prompt was not refused",

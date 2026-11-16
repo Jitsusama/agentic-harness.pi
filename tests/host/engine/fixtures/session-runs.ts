@@ -29,6 +29,8 @@ export interface Observed {
 		readonly sectioned?: boolean;
 		/** The sections a request carried, as JSON. */
 		readonly prompt?: string;
+		/** Whether pi had a run under way as words were sent. */
+		readonly streaming?: boolean;
 	}[];
 	readonly transcript: readonly {
 		readonly role: string;
