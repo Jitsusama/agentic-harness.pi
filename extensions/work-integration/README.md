@@ -295,7 +295,10 @@ finds its trees whole. Each worktree the done file names goes, by
 branch carried, at the commit carried, with uncommitted changes byte
 for byte the patch that went; files git ignores go with it, as the
 carry left them out. One holding anything since keeps every tree,
-named with why, and so does a pi running the session here again. A
+named with why, as does one a live session holds by the broker's
+record or any process works inside, since a quest's sessions share
+its trees, and a pi running the session here again. A tree let go
+leaves the broker's records too. A
 checkout of its own stays, being the person's. One line a tree,
 `{"kind": "tree", "path", "did": "let go" | "gone" | "stays" |
 "kept", "why"?}`, then `{"kind": "settled", "session", "let"}`. It

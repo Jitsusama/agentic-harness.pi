@@ -46,7 +46,8 @@
  * worktree its done file names that holds only what went
  * (lib/internal/carry/settle.ts), ending with `{"kind": "settled"}`.
  * It exits 1, letting none go, when any holds work the carry lacks or
- * a pi runs the session here again (KP0L6A [e034b3f1]).
+ * something live here stands in one, or a pi runs the session here
+ * again (KP0L6A [e034b3f1], [893e1f9f]).
  *
  * Each exits 2 when it was asked wrongly.
  */
@@ -61,6 +62,7 @@ import {
 	QUEST_WORKFLOW_SLUG,
 	resolveQuestsRoot,
 } from "../lib/core/quest/config.ts";
+import { createTreeMemory } from "../lib/core/work/memory.ts";
 import { arrive, arrivedIn } from "../lib/internal/carry/arrive.ts";
 import { sandboxAsking } from "../lib/internal/carry/fence.ts";
 import {
@@ -72,7 +74,7 @@ import { takeNotes } from "../lib/internal/carry/notes.ts";
 import { tellCarried } from "../lib/internal/carry/ordered.ts";
 import { questHere, runsHere } from "../lib/internal/carry/quest-here.ts";
 import { carryRest } from "../lib/internal/carry/rest.ts";
-import { settle } from "../lib/internal/carry/settle.ts";
+import { holderIn, processCwds, settle } from "../lib/internal/carry/settle.ts";
 import {
 	getSection,
 	loadPackageConfig,
@@ -169,6 +171,14 @@ if (settling) {
 		session,
 		home,
 		runsHere: runsAgain(session),
+		holderOf: (folder) =>
+			holderIn(folder, {
+				brokerHolds: async (tree) =>
+					(await createTreeMemory(treeRecordDir()).otherHolders(tree)).length,
+				cwds: () => processCwds(exec),
+				self: process.pid,
+			}),
+		forget: (folder) => createTreeMemory(treeRecordDir()).forget(folder),
 		say,
 	});
 	process.exit(settled ? 0 : 1);

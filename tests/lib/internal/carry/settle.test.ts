@@ -4,11 +4,15 @@
  * anything since stays and is named, and a checkout of its own stays.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { carryAway } from "../../../../lib/internal/carry/carry-away.ts";
 import {
+	holderIn,
+	lsofCwds,
+	processCwds,
 	type SettleLine,
 	settle,
 } from "../../../../lib/internal/carry/settle.ts";
@@ -62,18 +66,21 @@ async function carried(
 async function settled(
 	home: string,
 	from: string,
-	runsHere = false,
-): Promise<{ whole: boolean; lines: SettleLine[] }> {
+	{ runsHere = false, holder }: { runsHere?: boolean; holder?: string } = {},
+): Promise<{ whole: boolean; lines: SettleLine[]; forgot: string[] }> {
 	const lines: SettleLine[] = [];
+	const forgot: string[] = [];
 	const whole = await settle({
 		exec,
 		from,
 		session: "s-1",
 		home,
 		runsHere,
+		holderOf: async () => holder,
+		forget: (folder) => forgot.push(folder),
 		say: (line) => lines.push(line),
 	});
-	return { whole, lines };
+	return { whole, lines, forgot };
 }
 
 describe("letting the old place go", () => {
@@ -82,8 +89,9 @@ describe("letting the old place go", () => {
 		const head = await git(tree, "rev-parse", "HEAD");
 		await carried(home, from, [tree]);
 
-		const { whole, lines } = await settled(home, from);
+		const { whole, lines, forgot } = await settled(home, from);
 
+		expect(forgot, "its broker record is dropped").toEqual([tree]);
 		expect(lines).toEqual([
 			{ kind: "tree", path: "~/trees/app-topic", did: "let go" },
 			{ kind: "settled", session: "s-1", let: 1 },
@@ -163,7 +171,7 @@ describe("letting the old place go", () => {
 		const { home, tree, from } = await homeWithWorktree();
 		await carried(home, from, [tree]);
 
-		const { whole, lines } = await settled(home, from, true);
+		const { whole, lines } = await settled(home, from, { runsHere: true });
 
 		expect(whole, "it didn't settle").toBe(false);
 		expect(lines).toEqual([
@@ -172,6 +180,24 @@ describe("letting the old place go", () => {
 				why: "Session s-1 runs on this machine again, so its place here is still in use.",
 			},
 		]);
+		expect(existsSync(tree), "the worktree stays").toBe(true);
+	});
+
+	it("keeps a tree something live here stands in, though it changed nothing", async () => {
+		const { home, tree, from } = await homeWithWorktree();
+		await carried(home, from, [tree]);
+
+		const { whole, lines } = await settled(home, from, {
+			holder: "Process 42 works inside it.",
+		});
+
+		expect(whole, "it didn't settle").toBe(false);
+		expect(lines[0]).toEqual({
+			kind: "tree",
+			path: "~/trees/app-topic",
+			did: "kept",
+			why: "Process 42 works inside it.",
+		});
 		expect(existsSync(tree), "the worktree stays").toBe(true);
 	});
 
@@ -186,6 +212,69 @@ describe("letting the old place go", () => {
 				kind: "failed",
 				why: `No done file in ${from} names session s-1, so nothing here was carried to let go.`,
 			},
+		]);
+	});
+});
+
+describe("what stands in a tree here", () => {
+	it("names a live session the work broker's record says holds it", async () => {
+		const tree = folder(made, "held");
+
+		const why = await holderIn(tree, {
+			brokerHolds: async () => 2,
+			cwds: async () => [],
+			self: process.pid,
+		});
+
+		expect(why).toBe("The work broker's record says 2 live sessions hold it.");
+	});
+
+	it("names a process working inside it, and none beside it", async () => {
+		const tree = realpathSync(folder(made, "app"));
+		const holders = (cwd: string) => ({
+			brokerHolds: async () => 0,
+			cwds: async () => [{ pid: 4242, cwd }],
+			self: process.pid,
+		});
+
+		expect(await holderIn(tree, holders(join(tree, "src")))).toBe(
+			"Process 4242 works inside it, so letting it go would pull its folder out from under it.",
+		);
+		expect(
+			await holderIn(tree, holders(`${tree}-sibling`)),
+			"a folder whose name merely starts the same is elsewhere",
+		).toBeUndefined();
+		expect(
+			await holderIn(tree, { ...holders(tree), self: 4242 }),
+			"and the process asking never holds it",
+		).toBeUndefined();
+	});
+
+	it("finds a real process standing in a folder", async () => {
+		const tree = realpathSync(folder(made, "stood-in"));
+		// Waits until killed, standing in the tree meanwhile.
+		const child = spawn("node", ["-e", "setInterval(() => {}, 1000)"], {
+			cwd: tree,
+			stdio: "ignore",
+		});
+		try {
+			const pid = child.pid ?? -1;
+			const cwds = await processCwds(exec);
+			expect(
+				cwds.find((one) => one.pid === pid)?.cwd,
+				"the child's folder is read",
+			).toBe(tree);
+		} finally {
+			child.kill();
+		}
+	});
+
+	it("reads lsof's folders as a Mac lists them", () => {
+		expect(
+			lsofCwds("p12\nfcwd\nn/Users/joel/src/app\np40\nfcwd\nn/\n"),
+		).toEqual([
+			{ pid: 12, cwd: "/Users/joel/src/app" },
+			{ pid: 40, cwd: "/" },
 		]);
 	});
 });

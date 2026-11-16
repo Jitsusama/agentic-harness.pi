@@ -12,13 +12,24 @@
  * with why, since its work went nowhere. Only a worktree is let go, and
  * by git, which leaves its branch naming its commits; a checkout of its
  * own stays, being the person's. Files git ignores go with the worktree,
- * as the carry left them out: build output, never work.
+ * as the carry left them out: build output, never work. A tree another
+ * live session or process here stands in stays too, though it changed
+ * nothing, since a quest's sessions share its trees (KP0L6A, 16 Nov).
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	readlinkSync,
+	realpathSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
+import { count, verb } from "../../ui/count.ts";
 import { patchChanges } from "./changes.ts";
 import {
 	doneFileOf,
@@ -48,7 +59,27 @@ export interface Settling {
 	readonly home: string;
 	/** Whether a pi runs the session on this machine again. */
 	readonly runsHere: boolean;
+	/** Why something live here stands in `folder`, or nothing ({@link holderIn}). */
+	readonly holderOf: (folder: string) => Promise<string | undefined>;
+	/** Drops the work broker's record of a tree let go. */
+	readonly forget: (folder: string) => void;
 	readonly say: (line: SettleLine) => void;
+}
+
+/** What may stand in a tree on this machine, for {@link holderIn}. */
+export interface Holders {
+	/** How many live sessions the work broker's record says hold `folder`. */
+	readonly brokerHolds: (folder: string) => Promise<number>;
+	/** Each running process's working folder, links followed. */
+	readonly cwds: () => Promise<readonly ProcessCwd[]>;
+	/** The process asking, whose own folder never holds a tree. */
+	readonly self: number;
+}
+
+/** A running process and the folder it works in. */
+export interface ProcessCwd {
+	readonly pid: number;
+	readonly cwd: string;
 }
 
 /** What one tree's judgement found. */
@@ -62,7 +93,7 @@ type Judged =
  * when any holds work the carry lacks; answers whether it settled.
  */
 export async function settle(settling: Settling): Promise<boolean> {
-	const { exec, from, session, home, say } = settling;
+	const { exec, from, session, say } = settling;
 	const done = readHandover(doneFileOf(from, session));
 	if (done === undefined) {
 		say({
@@ -80,7 +111,7 @@ export async function settle(settling: Settling): Promise<boolean> {
 	}
 	const judged: [HandedTree, Judged][] = [];
 	for (const tree of done.trees) {
-		judged.push([tree, await judge(exec, tree, from, home)]);
+		judged.push([tree, await judge(settling, tree)]);
 	}
 	const held = judged.filter(([, one]) => one.kind === "kept").length;
 	if (held > 0) {
@@ -117,6 +148,7 @@ export async function settle(settling: Settling): Promise<boolean> {
 			one.folder,
 		]);
 		if (removed.code === 0) {
+			settling.forget(one.folder);
 			let_++;
 			say({ kind: "tree", path: tree.path, did: "let go" });
 		} else {
@@ -150,12 +182,8 @@ function treeLine(
 }
 
 /** Whether a carried tree holds only what went, and so may go. */
-async function judge(
-	exec: Exec,
-	tree: HandedTree,
-	from: string,
-	home: string,
-): Promise<Judged> {
+async function judge(settling: Settling, tree: HandedTree): Promise<Judged> {
+	const { exec, from, home } = settling;
 	const folder = underHome(tree.path, home);
 	if (!existsSync(folder)) return { kind: "gone" };
 	const ask = async (...args: string[]) => {
@@ -172,6 +200,8 @@ async function judge(
 		return { kind: "kept", why: "git couldn't say what it is." };
 	}
 	if (gitDir === common) return { kind: "stays" };
+	const holder = await settling.holderOf(folder);
+	if (holder !== undefined) return { kind: "kept", why: holder };
 	const branch = await ask("symbolic-ref", "--short", "-q", "HEAD");
 	if (branch !== tree.branch) {
 		return {
@@ -222,5 +252,78 @@ async function sameChanges(
 			: "Its uncommitted changes differ from the ones carried.";
 	} finally {
 		rmSync(scratch, { recursive: true, force: true });
+	}
+}
+
+/**
+ * Why something live here stands in `folder`, or nothing: a session the
+ * work broker's record says holds it, or any process working inside it,
+ * which letting it go would pull the folder out from under.
+ */
+export async function holderIn(
+	folder: string,
+	holders: Holders,
+): Promise<string | undefined> {
+	const held = await holders.brokerHolds(folder);
+	if (held > 0) {
+		return `The work broker's record says ${count(held, "live session")} ${verb(held, "holds", "hold")} it.`;
+	}
+	const root = canonical(folder);
+	const inside = (await holders.cwds()).find(
+		({ pid, cwd }) =>
+			pid !== holders.self && (cwd === root || cwd.startsWith(root + sep)),
+	);
+	return inside === undefined
+		? undefined
+		: `Process ${inside.pid} works inside it, so letting it go would pull its folder out from under it.`;
+}
+
+/**
+ * Each running process's working folder: read from /proc where there is
+ * one, else from `lsof`, as a Mac has it. One that can't be read, gone
+ * or another user's, is left out.
+ */
+export async function processCwds(
+	exec: Exec,
+	proc = "/proc",
+): Promise<ProcessCwd[]> {
+	if (existsSync(proc)) {
+		return readdirSync(proc).flatMap((name) => {
+			if (!/^\d+$/.test(name)) return [];
+			try {
+				return [
+					{ pid: Number(name), cwd: readlinkSync(join(proc, name, "cwd")) },
+				];
+			} catch {
+				// Gone since the listing, or not ours to read: it can't be
+				// standing in one of our trees as far as we can know.
+				return [];
+			}
+		});
+	}
+	const said = await exec("lsof", ["-n", "-d", "cwd", "-Fn"]);
+	return lsofCwds(said.stdout);
+}
+
+/** The working folders in `lsof -d cwd -Fn`'s output: a `p` line, then its `n`. */
+export function lsofCwds(said: string): ProcessCwd[] {
+	const found: ProcessCwd[] = [];
+	let pid: number | undefined;
+	for (const line of said.split("\n")) {
+		if (line.startsWith("p")) pid = Number(line.slice(1));
+		else if (line.startsWith("n") && pid !== undefined) {
+			found.push({ pid, cwd: line.slice(1) });
+		}
+	}
+	return found;
+}
+
+/** A path as the disk names it, links followed, where it can be. */
+function canonical(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		// Not there: compared as written.
+		return path;
 	}
 }
