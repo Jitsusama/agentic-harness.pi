@@ -1,0 +1,240 @@
+/**
+ * The quest workflow answering the working layer's claims question.
+ *
+ * Tested from the bus outwards rather than by calling the collector,
+ * because the failure this guards against is not a wrong answer. It is
+ * no answer: a listener never wired up, or wired to a name nothing
+ * emits, in which case reclamation sees an empty claim list and calls
+ * a quest's tree abandoned. A test that called the function directly
+ * would pass against exactly that system.
+ */
+
+import {
+	mkdirSync,
+	mkdtempSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+	answerTreeClaims,
+	forgetSweptTrees,
+} from "../../../../extensions/quest-workflow/claims.ts";
+import {
+	type SweptTrees,
+	type TreeClaims,
+	WORK_TREE_CLAIMS,
+	WORK_TREES_SWEPT,
+} from "../../../../lib/core/work/index.ts";
+
+/** Just enough of pi's bus for a listener to be reached over it. */
+function bus() {
+	const listeners = new Map<string, ((data: unknown) => void)[]>();
+	return {
+		events: {
+			on(name: string, fn: (data: unknown) => void) {
+				listeners.set(name, [...(listeners.get(name) ?? []), fn]);
+			},
+			emit(name: string, data: unknown) {
+				for (const fn of listeners.get(name) ?? []) fn(data);
+			},
+		},
+	};
+}
+
+/** A quests root holding one active quest that lists the given trees. */
+function questsRootHolding(...paths: string[]): string {
+	return questsRootWith("active", ...paths);
+}
+
+/** A quests root holding one quest of `status` that lists the given trees. */
+function questsRootWith(status: string, ...paths: string[]): string {
+	const root = mkdtempSync(join(tmpdir(), "claims-quests-"));
+	const id = "QEST-20260731-AAAAAA";
+	mkdirSync(join(root, id), { recursive: true });
+	const trees = paths
+		.map(
+			(path) =>
+				`  - path: ${path}\n    providerId: git-worktree\n` +
+				`    repoRoot: ${path}\n    origin: cut\n`,
+		)
+		.join("");
+	writeFileSync(
+		join(root, id, "README.md"),
+		`---\nid: ${id}\nkind: quest\nstatus: ${status}\npriority: active\n` +
+			"rank: 1\nstarted: 2026-07-31\nupdated: 2026-07-31\n" +
+			(paths.length > 0 ? `trees:\n${trees}` : "") +
+			"---\n\n# Holding trees\n\n## Summary\n\nA quest with trees.\n",
+	);
+	return root;
+}
+
+describe("answering who holds a tree", () => {
+	it("names a quest's trees when the working layer asks", () => {
+		const root = questsRootHolding("/src/repo/.worktrees/mine");
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+
+		const claims: TreeClaims = { paths: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+		expect(claims.paths).toEqual(["/src/repo/.worktrees/mine"]);
+	});
+
+	it("appends rather than replacing, so no other holder is dropped", () => {
+		const root = questsRootHolding("/src/repo/.worktrees/mine");
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+
+		// Somebody else answered first. Their claim has to survive, or the
+		// last handler to run decides what is safe for everybody.
+		const claims: TreeClaims = { paths: ["/src/other/.worktrees/theirs"] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+		expect(claims.paths).toEqual([
+			"/src/other/.worktrees/theirs",
+			"/src/repo/.worktrees/mine",
+		]);
+	});
+
+	it("leaves a finished quest's trees to the working layer's own judgement", () => {
+		// A quest that is over is nobody's reason to keep a tree: claimed
+		// for good, its trees were never offered back, since the prune that
+		// would release them is never run once the quest is done.
+		for (const status of ["concluded", "retired"]) {
+			const pi = bus();
+			answerTreeClaims(
+				pi as never,
+				questsRootWith(status, "/src/repo/.worktrees/done"),
+			);
+
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+			expect(claims.paths, status).toEqual([]);
+		}
+	});
+
+	it("still claims the trees of a quest that is only paused or blocked", () => {
+		for (const status of ["paused", "blocked"]) {
+			const pi = bus();
+			answerTreeClaims(
+				pi as never,
+				questsRootWith(status, "/src/repo/.worktrees/waiting"),
+			);
+
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+			expect(claims.paths, status).toEqual(["/src/repo/.worktrees/waiting"]);
+		}
+	});
+
+	it("claims another realm's quests' trees too, since the machine's trees are shared", () => {
+		// A personal session sweeping trees must still see the work
+		// realm's quests holding theirs, and the other way round.
+		const data = process.env.XDG_DATA_HOME ?? "";
+		const personal = join(
+			data,
+			"pi",
+			"agentic-harness.pi",
+			"realms",
+			"personal",
+			"quest-workflow",
+		);
+		mkdirSync(personal, { recursive: true });
+		const theirs = questsRootHolding("/src/core/.worktrees/personal");
+		renameSync(theirs, join(personal, "quests"));
+		try {
+			const pi = bus();
+			answerTreeClaims(
+				pi as never,
+				questsRootHolding("/src/repo/.worktrees/mine"),
+			);
+
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+			expect(claims.paths).toEqual(
+				expect.arrayContaining([
+					"/src/repo/.worktrees/mine",
+					"/src/core/.worktrees/personal",
+				]),
+			);
+		} finally {
+			rmSync(join(data, "pi", "agentic-harness.pi", "realms"), {
+				recursive: true,
+				force: true,
+			});
+		}
+	});
+
+	it("claims nothing when no quest holds a tree", () => {
+		const pi = bus();
+		answerTreeClaims(pi as never, questsRootHolding());
+
+		const claims: TreeClaims = { paths: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+		expect(claims.paths).toEqual([]);
+	});
+
+	it("holds a live quest's trees only until spent for an asker that offers that list", () => {
+		// A quest lists every tree it ever cut, and claiming them for good
+		// kept 220 ended trees of 456 on one machine: the sweep judges them
+		// by reclaim's rules instead, once their sessions have ended.
+		const pi = bus();
+		answerTreeClaims(
+			pi as never,
+			questsRootHolding("/src/repo/.worktrees/mine"),
+		);
+
+		const claims: TreeClaims = { paths: [], untilSpent: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+		expect(claims.paths, "held for good").toEqual([]);
+		expect(claims.untilSpent, "held until spent").toEqual([
+			"/src/repo/.worktrees/mine",
+		]);
+	});
+});
+
+describe("hearing that a sweep took a tree", () => {
+	it("drops a tree the sweep took from the quest that listed it", () => {
+		const root = questsRootHolding(
+			"/src/repo/.worktrees/spent",
+			"/src/repo/.worktrees/working",
+		);
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+		forgetSweptTrees(pi as never, root);
+
+		const swept: SweptTrees = { paths: ["/src/repo/.worktrees/spent"] };
+		pi.events.emit(WORK_TREES_SWEPT, swept);
+
+		const claims: TreeClaims = { paths: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+		expect(claims.paths, "what the quest lists after the sweep").toEqual([
+			"/src/repo/.worktrees/working",
+		]);
+	});
+
+	it("leaves a quest's trees alone when the sweep took others", () => {
+		const root = questsRootHolding("/src/repo/.worktrees/mine");
+		const pi = bus();
+		answerTreeClaims(pi as never, root);
+		forgetSweptTrees(pi as never, root);
+
+		const swept: SweptTrees = { paths: ["/src/repo/.worktrees/nobodys"] };
+		pi.events.emit(WORK_TREES_SWEPT, swept);
+
+		const claims: TreeClaims = { paths: [] };
+		pi.events.emit(WORK_TREE_CLAIMS, claims);
+		expect(claims.paths, "what the quest lists after the sweep").toEqual([
+			"/src/repo/.worktrees/mine",
+		]);
+	});
+});

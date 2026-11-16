@@ -1,0 +1,161 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	attachCurrentSession,
+	detachSessionIfOwner,
+} from "../../../../extensions/quest-workflow/lifecycle.ts";
+import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
+import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { parseQuestFrontMatter } from "../../../../lib/quest/index.ts";
+import { fakePi } from "../../../support/fake-pi.ts";
+import { createEnvGuard } from "../_helpers.ts";
+
+let tmpRoot: string;
+
+function fakeCtx(cwd: string) {
+	return {
+		cwd,
+		sessionManager: {
+			getSessionId: () => "sess-1",
+			isPersisted: () => true,
+			getEntries: () => [],
+		},
+	} as unknown as Parameters<typeof handle>[2];
+}
+function buildState() {
+	return createQuestState({ questsRoot: join(tmpRoot, "quests") });
+}
+async function createQuest(state: ReturnType<typeof buildState>) {
+	// Created with no session of its own, so each test attaches the one
+	// it is about.
+	const r = await handle(
+		state,
+		fakePi(),
+		{
+			cwd: tmpRoot,
+			sessionManager: {
+				getSessionId: () => undefined,
+				isPersisted: () => false,
+			},
+		} as unknown as Parameters<typeof handle>[2],
+		{ action: "create", kind: "quest", title: "Identity" },
+	);
+	if (!r.ok) throw new Error("create failed");
+	return state.questDir as string;
+}
+function sessionOf(dir: string, id: string) {
+	const parsed = parseQuestFrontMatter(
+		readFileSync(join(dir, "README.md"), "utf8"),
+	);
+	return parsed?.frontMatter.sessions.find((s) => s.id === id);
+}
+
+const IDENTITY = {
+	instanceId: "inst-1",
+	process: { hostId: "host-a", pid: 1234, startToken: "tok-1" },
+	terminal: { driverId: "wezterm", value: "3", scope: "/sock/gui-1" },
+};
+
+const envGuard = createEnvGuard();
+let savedHome: string | undefined;
+beforeEach(() => {
+	envGuard.enter();
+	tmpRoot = mkdtempSync(join(tmpdir(), "session-identity-"));
+	savedHome = process.env.HOME;
+	process.env.HOME = tmpRoot;
+});
+afterEach(() => {
+	if (savedHome !== undefined) process.env.HOME = savedHome;
+	else delete process.env.HOME;
+	rmSync(tmpRoot, { recursive: true, force: true });
+	envGuard.leave();
+});
+
+describe("attachCurrentSession identity capture", () => {
+	it("records the process, instance and terminal identity passed in", async () => {
+		const state = buildState();
+		const dir = await createQuest(state);
+		attachCurrentSession(state, { id: "sess-1", cwd: tmpRoot, ...IDENTITY });
+		const s = sessionOf(dir, "sess-1");
+		expect(s?.instanceId).toBe("inst-1");
+		expect(s?.process).toEqual(IDENTITY.process);
+		expect(s?.terminal).toEqual(IDENTITY.terminal);
+	});
+});
+
+describe("session-attach identity capture", () => {
+	it("captures the current process identity when attaching the current session", async () => {
+		const state = buildState();
+		const dir = await createQuest(state);
+		const r = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "session-attach",
+		});
+		expect(r).toMatchObject({ ok: true });
+		const s = sessionOf(dir, "sess-1");
+		expect(typeof s?.instanceId).toBe("string");
+		expect(s?.instanceId?.length).toBeGreaterThan(0);
+		expect(s?.process?.pid).toBe(process.pid);
+	});
+
+	it("does not attribute the current identity to a different session id", async () => {
+		const state = buildState();
+		const dir = await createQuest(state);
+		const r = await handle(state, fakePi(), fakeCtx(tmpRoot), {
+			action: "session-attach",
+			sessionId: "sess-OTHER",
+		});
+		expect(r).toMatchObject({ ok: true });
+		const s = sessionOf(dir, "sess-OTHER");
+		expect(s?.instanceId).toBeUndefined();
+		expect(s?.process).toBeUndefined();
+	});
+});
+
+describe("detachSessionIfOwner (instance lease)", () => {
+	it("keeps the replacement attached after a prior pi load shuts down late", async () => {
+		const state = buildState();
+		const dir = await createQuest(state);
+		const old = await import("../../../../lib/core/quest/lifecycle.ts");
+		const prior = old.captureSessionIdentity();
+		old.attachCurrentSession(state, { id: "sess-1", ...prior });
+		vi.resetModules();
+		const fresh = await import("../../../../lib/core/quest/lifecycle.ts");
+		const replacement = fresh.captureSessionIdentity();
+		fresh.attachCurrentSession(state, { id: "sess-1", ...replacement });
+		old.detachSessionIfOwner(dir, "sess-1", prior.instanceId);
+		expect(sessionOf(dir, "sess-1")?.status).toBe("active");
+		expect(replacement.instanceId).not.toBe(prior.instanceId);
+	});
+
+	it("detaches when the caller's instance owns the record", async () => {
+		const state = buildState();
+		const dir = await createQuest(state);
+		attachCurrentSession(state, { id: "sess-1", ...IDENTITY });
+		const r = detachSessionIfOwner(dir, "sess-1", "inst-1");
+		expect(r).toMatchObject({ ok: true, detached: true });
+		expect(sessionOf(dir, "sess-1")?.status).toBe("detached");
+	});
+
+	it("leaves the record active when a different instance owns it", async () => {
+		const state = buildState();
+		const dir = await createQuest(state);
+		attachCurrentSession(state, { id: "sess-1", ...IDENTITY });
+		const r = detachSessionIfOwner(dir, "sess-1", "inst-OTHER");
+		expect(
+			r.ok && r.detached,
+			"a session another instance owns stays attached",
+		).toBe(false);
+		expect(sessionOf(dir, "sess-1")?.status).toBe("active");
+	});
+
+	it("detaches a legacy record that carries no instance id", async () => {
+		const state = buildState();
+		const dir = await createQuest(state);
+		attachCurrentSession(state, { id: "sess-1", cwd: tmpRoot });
+		const r = detachSessionIfOwner(dir, "sess-1", "inst-1");
+		expect(r).toMatchObject({ ok: true, detached: true });
+		expect(sessionOf(dir, "sess-1")?.status).toBe("detached");
+	});
+});
