@@ -438,7 +438,9 @@ function isCut(what: string): boolean {
 /** The checks a command names in full, sorted, each once. */
 function checksNamed(what: string): string[] {
 	return [
-		...new Set([...what.matchAll(CHECK_NAMED)].flatMap((match) => match[1] ?? [])),
+		...new Set(
+			[...what.matchAll(CHECK_NAMED)].flatMap((match) => match[1] ?? []),
+		),
 	].sort();
 }
 

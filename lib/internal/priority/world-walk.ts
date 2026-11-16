@@ -144,8 +144,7 @@ export function skipsWorldPushHooks(
 	where: Where = { home: homedir() },
 ): boolean {
 	return worldWalks(runSteps(command), where).some(
-		(walk) =>
-			walk[2] === "push" && lastSayOnHooks(walk[3] ?? "") === NO_VERIFY,
+		(walk) => walk[2] === "push" && lastSayOnHooks(walk[3] ?? "") === NO_VERIFY,
 	);
 }
 
