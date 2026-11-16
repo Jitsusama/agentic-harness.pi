@@ -31,6 +31,13 @@ input pipeline or screen. No unit or running host is installed yet.
   busy conversation lets go only between runs (mesh-workflow
   moving.ts), what was queued behind its run waits in its log for
   plain pi (E27), and away mode holds its send-back meanwhile (E28).
+- wake-turns.ts: wakes in turn. A host resumes one waking conversation
+  at a time, since they share its one thread and resumed together each
+  ends late; an attach's wake, a person opening a window, goes ahead of
+  every wake still waiting. A wake waits at most `WAKE_TURN_MOST_MS`
+  (20 s) behind the one resuming, then resumes beside it, so a resume
+  that never ends holds up none of the rest for good. Only the resume
+  waits its turn, not the rollout gate before it.
 - rollout.ts: the rollout gate. A host opens, adopts or resumes a
   second conversation only once every live pi (each `loaded/<pid>`
   in the install whose pid runs) loaded a harness holding 5b5b7260,

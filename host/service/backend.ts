@@ -11,6 +11,7 @@ import type { ControlBackend } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
+import { type WakeAsker, wakeTurns } from "./wake-turns.ts";
 
 /** An open request as the wire validated it. */
 export type OpenRequest = Extract<ControlRequest, { op: "open" }>;
@@ -155,8 +156,11 @@ export interface HostBackend extends ControlBackend {
 	 * conversation. One running already, or no longer held, is left alone;
 	 * one whose build fails stays held, parked, as a failed open does, and
 	 * a wake of it after says so. One still parking is woken once settled.
+	 * Its resume waits for any other wake's to end first, a window's
+	 * (`asker`) going ahead of the rest, but none longer than its longest
+	 * (wake-turns.ts).
 	 */
-	wake(sessionId: string): Promise<void>;
+	wake(sessionId: string, asker?: WakeAsker): Promise<void>;
 	/**
 	 * Once every wake and end under way has finished, so a stop parks what
 	 * they leave rather than racing a resume into a host it disposes.
@@ -179,6 +183,8 @@ export function hostBackend(options: {
 	now?: () => Date;
 	/** Writes a line to the host's journal, as each close of one held but not running. */
 	say?: (line: string) => void;
+	/** How long a wake waits behind another's resume before it resumes anyway. */
+	wakeTurnMostMs?: number;
 }): HostBackend {
 	const { host, roster, engine } = options;
 	const now = options.now ?? (() => new Date());
@@ -194,6 +200,9 @@ export function hostBackend(options: {
 	// open: an attach inside those seconds found no screen, and its window
 	// closed (QCXZEB's move in place, 11 November).
 	const starts = new Map<string, Promise<void>>();
+	// The wakes' resumes, one at a time across conversations, a window's
+	// first: they share the host's one thread, so together each ends late.
+	const turnsOfWakes = wakeTurns(options.wakeTurnMostMs);
 
 	function inTurn<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
 		const before = turns.get(sessionId) ?? Promise.resolve();
@@ -206,7 +215,7 @@ export function hostBackend(options: {
 		return turn;
 	}
 
-	function wake(sessionId: string): Promise<void> {
+	function wake(sessionId: string, asker: WakeAsker = "other"): Promise<void> {
 		return inTurn(sessionId, async () => {
 			await engine.parkSettled?.(sessionId);
 			const holds = host.holds(sessionId);
@@ -227,8 +236,10 @@ export function hostBackend(options: {
 				beginning > 0;
 			beginning += 1;
 			try {
+				// The gate may wait long on another host, so only the resume
+				// itself waits its turn.
 				if (another) await options.admitAnother?.("wake");
-				await engine.resume(entry, true);
+				await turnsOfWakes.inTurn(asker, () => engine.resume(entry, true));
 			} finally {
 				beginning -= 1;
 			}
@@ -395,7 +406,7 @@ export function hostBackend(options: {
 						host.holds(request.sessionId) === undefined &&
 						rostered(request.sessionId)
 					)
-						await wake(request.sessionId);
+						await wake(request.sessionId, "window");
 					live(request.sessionId);
 					return { sessionId: request.sessionId };
 			}
