@@ -166,6 +166,25 @@ export function reapLeftBehind(
 	);
 }
 
+/**
+ * The marks of the bash calls whose processes still carry the
+ * conversation's marker: what its calls left running, once none runs.
+ * What an extension started carries no call's mark, so it is left out.
+ */
+export async function callsLeftRunning(
+	sessionId: string,
+	table: ProcessTable = linuxProcessTable(),
+): Promise<Set<string>> {
+	const marks = new Set<string>();
+	for (const environ of (
+		await markedWhere(conversationSought(sessionId), table)
+	).values()) {
+		const mark = environ[CALL_VARIABLE];
+		if (mark !== undefined && mark !== "") marks.add(mark);
+	}
+	return marks;
+}
+
 /** Every process other than this one carrying the conversation's marker. */
 export async function marked(
 	sessionId: string,

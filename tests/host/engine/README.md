@@ -8,7 +8,9 @@ is scrubbed from each streamed update and from the committed result.
 parked-warming.test.ts warms a parked conversation's carry on fake
 timers with a scripted send, over real files. kept-providers.test.ts
 keeps what a conversation's extensions registered of its providers and
-registers it on a warm's runtime, over real files. quiet-collection.test.ts
+registers it on a warm's runtime, over real files. left-running.test.ts
+keeps what a park noted for a day beside what is carried, over real
+files. quiet-collection.test.ts
 holds the quiet collection to its rules on fake timers (none while a
 tool call runs or a viewer typed in the last 30 s, one while a
 conversation only waits on the model, none within 10 minutes of the
@@ -23,7 +25,8 @@ hosted-agent.test.ts and engine.test.ts are the exceptions. The first runs
 fixtures/hosted-session.mts in child node processes, beside pi's own agent,
 on pi's scripted provider. The second runs fixtures/hosted-engine.mts, a
 host's life one start at a time in a sealed folder: open, a refused key,
-a stop and resume, a kill mid-tool and the start after it, ordinary
+a stop and resume, a kill mid-tool and the start after it, a park
+that keeps what an ended command left and the start after it, ordinary
 pi reading the file, and an extension whose link moves onto another
 copy once its first is deleted, as a switch and a store collection
 leave Shopify's proxy. One step loads this package as a conversation's

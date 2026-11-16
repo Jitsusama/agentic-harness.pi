@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	CONVERSATION_MARKER,
+	callsLeftRunning,
 	conversationMarker,
 	linuxProcessTable,
 	marked,
@@ -195,6 +196,43 @@ describe("reaping a conversation's tool children", () => {
 				},
 			});
 			expect((await reapToolChildren("a", table)).groups).toEqual([20]);
+		});
+	});
+
+	it("names the calls whose processes carry its marker, leaving out what no call started", async () => {
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			10: {
+				group: 10,
+				env: { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "call-1" },
+			},
+			11: {
+				group: 10,
+				env: { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "call-1" },
+			},
+			12: { group: 12, env: conversationMarker("a", HOST) },
+			20: {
+				group: 20,
+				env: { ...conversationMarker("b", HOST), [CALL_VARIABLE]: "call-2" },
+			},
+		});
+		expect([...(await callsLeftRunning("a", table))]).toEqual(["call-1"]);
+		expect(table.killed, "naming them kills nothing").toEqual([]);
+	});
+
+	it("spares by its call's mark what a park kept, killing the rest of the conversation's", async () => {
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			10: {
+				group: 10,
+				env: { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "call-1" },
+			},
+			12: { group: 12, env: conversationMarker("a", HOST) },
+		});
+		const spared = { marks: new Set(["call-1"]), groups: new Set<number>() };
+		expect(await reapToolChildren("a", table, spared)).toEqual({
+			groups: [12],
+			pids: [],
 		});
 	});
 

@@ -296,6 +296,17 @@ shell marks its kept files `.carried` with the call's own mark, and
 every process carrying that mark, whatever group it moved to as
 `timeout` does, is spared until the plain pi says its end.
 
+A park keeps what the conversation's ended commands left running, as
+plain pi does while its session idles, such as a build started with
+`&` (left-running.ts). By then any call still running was signalled
+and ended what it left, so the park notes the `PI_BASH_CALL` mark of
+each process still carrying the conversation's marker. It writes them
+to `left-running.json` in its state folder, and says so in the
+journal. Every reap after spares them for a day: the park's own, the
+wake's and the next host's at its start. What an extension started
+carries no call's mark and ends with the park. A close, a crash or a
+kill -9 notes nothing, so what they cut ends as before.
+
 A host's own restart carries its conversations' bash calls the same
 way, to the next host (carried-shells.ts). The service stops each
 conversation with `restarting`, whose callback tells its bus
