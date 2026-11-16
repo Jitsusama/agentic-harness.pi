@@ -196,7 +196,7 @@ export function queuedCommand(
 			? pushesLine(queueing.folder.dir)
 			: undefined;
 	// A push that leaves out its scan walks no packs, so it is held to
-	// what it uses rather than to a walk's (queue.ts's `PUSH_GIB`).
+	// what it uses rather than to a walk's (needs.ts's `PUSH_GIB`).
 	const walkGib = hooks
 		? Math.max(PUSH_GIB, seen ?? 0)
 		: Math.max(NEEDS_GIB[kind], seen ?? 0);
