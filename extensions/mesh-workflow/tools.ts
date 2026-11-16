@@ -24,7 +24,13 @@ import { leasesText } from "./leases.ts";
 import { refusedSection } from "./refusals.ts";
 import { sendDrawing } from "./send-drawing.ts";
 import { end } from "./tools/end.ts";
-import { groupsText, join, leave, peersText } from "./tools/groups.ts";
+import {
+	groupsText,
+	join,
+	leave,
+	peersText,
+	tiesText,
+} from "./tools/groups.ts";
 import { type Answer, answer, type Local, peers } from "./tools/local.ts";
 import { MOST_READ, read } from "./tools/read.ts";
 import { type SendParams, send, sendAcross } from "./tools/send.ts";
@@ -403,12 +409,12 @@ export function registerTools(
 		name: "mesh_groups",
 		label: "Mesh",
 		description:
-			"List the peers on the mesh and what each works on, the groups, who is in each, and which this peer is in, and the leases peers hold: what each is changing, answering, holding or waiting on, and the heavy work it runs or waits its turn for in the machine's queue.",
+			"List the peers on the mesh and what each works on, the groups, who is in each, and which this peer is in, the leases peers hold (what each is changing, answering, holding or waiting on, and the heavy work it runs or waits its turn for in the machine's queue), and the peers this one is tied to by who has talked with whom in the last day, strongest first.",
 		parameters: Type.Object({}),
 		execute: using(async (at) => {
-			const standing = await peers(at);
+			const [standing, ties] = await Promise.all([peers(at), at.ties?.()]);
 			return answer(
-				`${groupsText(standing, at.peer)}${refusedSection(standing.present, at.presences.refusal)}${peersText(standing.present, at.peer, Date.now())}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}`,
+				`${groupsText(standing, at.peer)}${refusedSection(standing.present, at.presences.refusal)}${peersText(standing.present, at.peer, Date.now())}${leasesText(at.board.all(), standing.present, Date.now(), at.queue?.())}${tiesText(ties, standing.present)}`,
 				{ groups: at.peer.groups },
 			);
 		}),

@@ -11,6 +11,7 @@ import { homeOf } from "../../../lib/mesh/group.ts";
 import type { Board } from "../../../lib/mesh/lease.ts";
 import { type Census, census } from "../../../lib/mesh/liveness.ts";
 import { type Message, senderIdentity } from "../../../lib/mesh/message.ts";
+import type { Tie } from "../../../lib/mesh/node.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presences } from "../../../lib/mesh/presence.ts";
 import type { Judge } from "../../../lib/mesh/routing.ts";
@@ -30,6 +31,8 @@ export interface Local {
 	readonly queue?: () => QueueRecord["jobs"] | undefined;
 	/** The realms the node lets this one send to (see lib/mesh/flow.ts). */
 	readonly flows?: () => Promise<readonly string[]>;
+	/** This peer's ties, strongest first, as the node keeps them (lib/mesh/node.ts). */
+	readonly ties?: () => Promise<readonly Tie[] | undefined>;
 	/** Hand a message to the node to send into another realm. */
 	readonly cross?: (crossing: Crossing) => Promise<CrossAnswer>;
 	/** Note a message this peer sent, so it is never handed back to it. */
