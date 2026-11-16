@@ -46,8 +46,10 @@ lib/core/session/env.ts:env-write 6 The session seam: plain pi's environment is 
 lib/core/session/host.ts:global 1 The seam: the one host installed in the process (H1 for 85PKB2, 2026-11-10).
 lib/core/session/identity.ts:global 1 The seam: one AsyncLocalStorage carrying each call's ambient session (H1 for 85PKB2, 2026-11-10).
 lib/core/session/slot.ts:global 3 The seam: plain pi's slots stay on their own process symbols, and hosted slots are keyed by session in one process map (H1 for 85PKB2, 2026-11-10).
-lib/core/web/browser.ts:global 2 One Chrome and one profile per process, shared by every conversation in a host, whose pages each conversation opens and closes as its own (H1 for 85PKB2, 2026-11-10).
-lib/core/web/browser.ts:pid 3 The profile and owner record name the process that launched Chrome, and a terminating signal is re-raised at the process after Chrome is killed (H1 for 85PKB2, 2026-11-10).
+lib/core/web/browser/profile.ts:global 1 One Chrome profile per process, shared by every conversation in a host (H1 for 85PKB2, 2026-11-10).
+lib/core/web/browser/profile.ts:pid 2 The profile and owner record name the process that launched Chrome (H1 for 85PKB2, 2026-11-10).
+lib/core/web/browser/shared.ts:global 1 One Chrome per process, shared by every conversation in a host, whose pages each conversation opens and closes as its own (H1 for 85PKB2, 2026-11-10).
+lib/core/web/browser/shared.ts:pid 1 A terminating signal is re-raised at the process after Chrome is killed (H1 for 85PKB2, 2026-11-10).
 lib/core/web/session/recording.ts:global 1 The one trace permit for the process, as Chrome is one per process and records one trace at a time; a permit per module copy let two conversations trace it at once (H1 for 85PKB2, 2026-11-10).
 lib/core/web/procs.ts:pid 1 Skips the process itself when listing Chromes that hold the profile (H1 for 85PKB2, 2026-11-10).
 lib/core/work/memory.ts:pid 1 Names a record's staging file with a random tail, written and renamed in one synchronous tick (H1 for 85PKB2, 2026-11-10).

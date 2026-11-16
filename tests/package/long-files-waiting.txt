@@ -13,9 +13,6 @@ extensions/quest-workflow/session-registry.ts
 extensions/quest-workflow/verbs/stage.ts
 extensions/subagent-workflow/index.ts
 host/engine/hosted-agent.ts
-lib/core/web/a11y/walk.ts
-lib/core/web/browser.ts
-lib/core/web/session.ts
 lib/internal
 lib/internal/quest
 lib/internal/quest/discovery.ts
@@ -24,8 +21,6 @@ lib/subagent/runpi/supervisor.ts
 lib/subagent/subagent.ts
 lib/ui
 tests/core/review
-tests/core/web/a11y/walk.test.ts
-tests/core/web/audit/axe.test.ts
 tests/extensions
 tests/extensions/compaction-workflow/host.test.ts
 tests/extensions/mesh-workflow/mesh.test.ts

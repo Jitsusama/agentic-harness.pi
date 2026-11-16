@@ -13,660 +13,128 @@
  * different lifetime.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import * as path from "node:path";
+import type { BrowserContext, CDPSession, Page } from "puppeteer-core";
 import type {
-	BrowserContext,
-	CDPSession,
-	ElementHandle,
-	KeyInput,
-	Page,
-} from "puppeteer-core";
-// The key table is reached through the driver's declared
-// internal subpath rather than its barrel, which marks the
-// table private and strips it from the public types. Copying
-// the 255 entries instead would mean maintaining a second
-// opinion about which keys exist, and being wrong separately.
-import { _keyDefinitions } from "puppeteer-core/internal/common/USKeyboardLayout.js";
-import { loadOnce } from "../../internal/single-flight.ts";
-import {
-	type Announcement,
-	type AxNode,
-	FOCUS_PROBE,
-	type FocusHolder,
-	type FrameAxTree,
-	normalizeAxTree,
-	type RawAxNode,
-	renderAxOutline,
-	renderReading,
-	scopeTree,
-	spliceFrames,
-	subtreeAt,
-	type TreeScope,
-	type Unreachable,
-	WALK_COLLECT,
-	WALK_READ,
-	WALK_REMEMBER,
-	WALK_RESTORE,
-	type WalkCandidate,
-	type WalkCapture,
-	type WalkStop,
+	Announcement,
+	FocusHolder,
+	TreeScope,
+	WalkCapture,
 } from "./a11y/index.ts";
-import { bounded } from "./bound.ts";
+import type {
+	A11yFinding,
+	BehindReport,
+	CapturedTarget,
+	ConformanceBar,
+	ContrastLevel,
+	MotionCapture,
+	PageBox,
+	PairReport,
+	StructureNode,
+	VisualNode,
+} from "./audit/index.ts";
 import { holdWhile, newContextPage } from "./browser.ts";
 import type { Comparison } from "./compare/index.ts";
-import {
-	type BaselineProvenance,
-	describeDrift,
-	parse as parseProvenance,
-	sidecarFor,
-	stringify,
-} from "./compare/provenance.ts";
-import { injectCookies, isSetUp } from "./cookies/index.ts";
-import {
-	type Actionability,
-	type ActionabilityFacts,
-	ANCESTORS_PROBE,
-	ANIMATIONS_PROBE,
-	type Animation,
-	type BoxModel,
-	CONTENT_PROBE,
-	type DelegatedListeners,
-	diffStyles,
-	type HoverReport,
-	judgeActionability,
-	judgeVisibility,
-	type Listener,
-	type Measurement,
-	measureBetween,
-	normalizeAnimations,
-	normalizeBoxModel,
-	normalizeListeners,
-	OCCLUDER_PROBE,
-	PAINTING_ELEMENT_PROBE,
-	type PseudoState,
-	type PseudoVariant,
-	type RawAnimation,
-	type RawBoxModel,
-	type RawListener,
-	type Rect,
-	SELECT_TEXT_PROBE,
-	SETTLE_PROBE,
-	sameBox,
-	type VisibilityVerdict,
-} from "./element/index.ts";
-import { DIR_MODE, FILE_MODE, pathComponent } from "./envelope/index.ts";
-import {
-	chooseTab,
-	type Divergence,
-	type EmulationState,
-	matchesPattern,
-	type NetworkRule,
-	type ObservedEnvironment,
-	type SavedState,
-	type SessionStatus,
-	type StorageSnapshot,
-	type TabRecord,
-	type ThrottleConditions,
+import { isSetUp } from "./cookies/index.ts";
+import type { StyleSample, TextBlock } from "./design/index.ts";
+import type { HoverReport } from "./element/index.ts";
+import type {
+	Divergence,
+	EmulationState,
+	NetworkRule,
+	ObservedEnvironment,
+	SavedState,
+	SessionStatus,
+	StorageSnapshot,
+	TabRecord,
+	ThrottleConditions,
 } from "./environment/index.ts";
-import {
-	type ChordRefusal,
-	type Point,
-	type PointerEventStep,
-	parseChords,
-	type TouchStep,
+import type { EvalFrame, EvalOutcome } from "./evaluate/index.ts";
+import type { HydrationCapture } from "./hydration/index.ts";
+import type {
+	ChordRefusal,
+	Point,
+	PointerEventStep,
+	TouchStep,
 } from "./input/index.ts";
-import { defaultBrowserDataRoot } from "./paths.ts";
-import {
-	inFlight,
-	isIdle,
-	type Settled,
-	type WaitCondition,
-	type WaitOutcome,
-} from "./wait/index.ts";
-
-const imagesModule = loadOnce(() => import("./compare/images.ts"));
-
-/**
- * The styles a snapshot carries by default.
- *
- * Enough to answer why something is not where it should be,
- * without dragging the whole computed style of every node into
- * the answer.
- */
-const SNAPSHOT_STYLES: readonly string[] = [
-	"display",
-	"visibility",
-	"opacity",
-	"position",
-	"color",
-	"background-color",
-	"font-size",
-];
-
-/** Extra stops beyond two full passes, to show a cycle clearly. */
-const WALK_SLACK = 4;
-
-/**
- * How far the walk goes when nobody said, however large the page.
- *
- * A ceiling on the default rather than on the caller: asked for
- * more stops than this, the walk takes them.
- */
-const MAX_WALK_STOPS = 400;
-
-/** How many trailing stops to inspect for being stuck. */
-const WALK_STUCK_SAMPLE = 4;
-
-/** What a stop outside the candidates has for a style. */
-const BLANK_STYLE = {
-	outlineStyle: "none",
-	outlineWidth: "0px",
-	outlineColor: "",
-	boxShadow: "none",
-	backgroundColor: "",
-	borderColor: "",
-	color: "",
-} as const;
-
-/** How long a wait runs before it gives up and says so. */
-const DEFAULT_WAIT_MS = 10_000;
-
-/** How often a wait looks again. */
-const WAIT_POLL_MS = 100;
-
-/**
- * Every key the driver knows how to send.
- *
- * The chord parser is given this rather than keeping its own
- * copy, so there is one table and it is the one that will
- * actually be used to dispatch.
- */
-const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(_keyDefinitions));
-
-import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import type { SessionRef } from "../session/index.ts";
-import {
-	type A11yFinding,
-	type AxFacts,
-	type BehindReport,
-	buildStructure,
-	type CapturedTarget,
-	type ConformanceBar,
-	type ContrastLevel,
-	enabledRules,
-	MOTION_CAPTURE,
-	type MotionCapture,
-	type PageBox,
-	type PairReport,
-	type RawAxeRun,
-	readAxeRun,
-	type StructureNode,
-	TARGET_CAPTURE,
-	type VisualNode,
-	visualCaptureSource,
-} from "./audit/index.ts";
-import {
-	inventorySource,
-	type StyleSample,
-	type TextBlock,
-	TYPOGRAPHY_CAPTURE,
-} from "./design/index.ts";
-import {
-	describeThrow,
-	type EvalFrame,
-	type EvalOutcome,
-	type EvalValue,
-	evaluationSource,
-} from "./evaluate/index.ts";
-import { HYDRATION_CAPTURE, type HydrationCapture } from "./hydration/index.ts";
-import {
-	categoriesFor,
-	compareHeap,
-	foldProfile,
-	foldTrace,
-	type HeapComparison,
-	type HeapReading,
-	type Hotspots,
-	type LayerReport,
-	observerBootstrap,
-	type RawProfile,
-	type RawTraceEvent,
-	readVitalsSource,
-	type TraceCapture,
-	type TraceProfile,
-	type Vitals,
+import type {
+	HeapComparison,
+	Hotspots,
+	LayerReport,
+	TraceCapture,
+	TraceProfile,
+	Vitals,
 } from "./perf/index.ts";
-import { captureTiles } from "./screenshot.ts";
-import { ArtifactLedger } from "./session/artifacts.ts";
-import { SessionContrast } from "./session/contrast.ts";
-import { EmulationController } from "./session/emulation.ts";
-import { SessionPainting } from "./session/painting.ts";
+import { assembleSession, type SessionParts } from "./session/assembly.ts";
+import { describeRecording, recordingInProgress } from "./session/recording.ts";
+import type { StateLoaded } from "./session/storage.ts";
 import {
-	claimRecording,
-	describeRecording,
-	type RecordingRefused,
-	recordingInProgress,
-	releaseRecording,
-} from "./session/recording.ts";
-import { PageSettler } from "./session/settling.ts";
-import { NetworkShaper } from "./session/shaping.ts";
-import { SourceMapStore } from "./session/sourcemaps.ts";
-import { SessionStorage, type StateLoaded } from "./session/storage.ts";
-import { SessionTelemetry } from "./session/telemetry.ts";
+	type ActResult,
+	CookieSetupNeeded,
+	type InspectOptions,
+	type InspectResult,
+	type MeasureResult,
+	type Observation,
+	type ObserveResult,
+	type PageAction,
+	type PageForm,
+	type SessionOptions,
+	type ShotOptions,
+	type ShotResult,
+} from "./session/types.ts";
 import type { SessionWires } from "./session/wires.ts";
-import {
-	flattenSnapshot,
-	type IndexedNode,
-	type RawSnapshot,
-} from "./snapshot/index.ts";
-import {
-	asCall,
-	COMPUTED_STYLE_PROBE,
-	type ComputedStyles,
-	curateStyles,
-	INITIALS_PROBE,
-	normalizeCascade,
-	type PropertyTrace,
-	type RawMatchedStyles,
-	SHORTHAND_PROPERTIES,
-	type StyleGroup,
-	traceProperty,
-} from "./styles/index.ts";
-import {
-	ambiguityRefusal,
-	notFoundRefusal,
-	resolveTarget,
-	type Target,
-	type TargetRefusal,
-} from "./target/index.ts";
+import type { IndexedNode } from "./snapshot/index.ts";
+import type { Target, TargetRefusal } from "./target/index.ts";
 import {
 	type DialogEvent,
 	type DialogPolicy,
 	type DownloadRecord,
-	diedWithTheTab,
-	failureText,
 	type LifecycleEvent,
 	type LogEntry,
 	type NetworkRequest,
 	type Recorded,
-	requestStatus,
 	type SocketRecord,
 	toHar,
-	wasAborted,
 } from "./telemetry/index.ts";
+import type { Settled, WaitCondition, WaitOutcome } from "./wait/index.ts";
+
+export type {
+	ActResult,
+	Inspection,
+	InspectOptions,
+	InspectResult,
+	MeasureResult,
+	Observation,
+	ObserveResult,
+	PageAction,
+	PageForm,
+	SessionOptions,
+	Shot,
+	ShotOptions,
+	ShotResult,
+	TargetedAction,
+} from "./session/types.ts";
+export { CookieSetupNeeded } from "./session/types.ts";
 
 /**
- * The image comparison, loaded the first time a session compares or
- * reads a capture. Its PNG codec took 135 to 222 ms to load on 3
- * November, and every pi start paid that while most never look at an
- * image.
- */
-function images(): Promise<typeof import("./compare/images.ts")> {
-	return imagesModule();
-}
-
-/** How a page should be laid out for reading. */
-export type PageForm = "outline" | "reading";
-
-/** One node of Chrome's frame tree, as much of it as we read. */
-interface FrameTreeNode {
-	readonly frame: { readonly id: string };
-	readonly childFrames?: readonly FrameTreeNode[];
-}
-
-/** What else to gather while inspecting an element. */
-export interface InspectOptions {
-	/** Exactly these properties instead of the curated set. */
-	readonly styles?: readonly string[];
-	/** Trace why this one property has the value it has. */
-	readonly why?: string;
-	/** Also report what is listening and what is moving. */
-	readonly behaviour?: boolean;
-	/** Hold each of these states and report what changes. */
-	readonly states?: readonly PseudoState[];
-}
-
-/** Everything the browser will say about one element. */
-/**
- * What came of measuring between two elements.
+ * A driveable browser session over a single tab.
  *
- * A target refusal is passed through with the target that earned
- * it, so the caller can say which of the two they named was the
- * problem rather than making them inspect both to find out.
+ * The session owns the tab, its protocol channel and its context,
+ * and hands the work to collaborators in session/, each driving the
+ * browser through the live wires below. Its methods are the one
+ * surface callers see, and the full account of each lives on the
+ * collaborator that answers it.
  */
-export type MeasureResult =
-	| { readonly ok: true; readonly measurement: Measurement }
-	| {
-			readonly ok: false;
-			readonly target: Target;
-			readonly refusal: TargetRefusal;
-	  }
-	| { readonly ok: false; readonly problem: string };
-
-/** A font the browser really used, and how much of it. */
-export interface RenderedFont {
-	readonly family: string;
-	readonly glyphs: number;
-}
-
-export interface Inspection {
-	readonly node: AxNode;
-	readonly visibility: VisibilityVerdict;
-	/**
-	 * What the element actually says, as opposed to what it is
-	 * called. A counter reading "42" has an accessible name that
-	 * mentions no number.
-	 */
-	readonly text?: string;
-	/** What a field is holding, which its name never says. */
-	readonly value?: string;
-	/** Data and state attributes, which the a11y tree cannot see. */
-	readonly attributes?: Readonly<Record<string, string>>;
-	/** The fonts actually painted, as opposed to the stack asked for. */
-	readonly fonts?: readonly RenderedFont[];
-	readonly box?: BoxModel;
-	readonly styles?: readonly StyleGroup[];
-	readonly trace?: PropertyTrace;
-	readonly listeners?: readonly Listener[];
-	/**
-	 * Handlers on ancestors, which events from here still reach.
-	 * Delegation is how most frameworks bind, so without these an
-	 * element that is listened to reads as one that is not.
-	 */
-	readonly delegated?: readonly DelegatedListeners[];
-	readonly animations?: readonly Animation[];
-	readonly variants?: readonly PseudoVariant[];
-}
-
-/**
- * How long to let a state settle before reading it.
- *
- * Forcing a state starts whatever transition the page declared,
- * so a reading taken at once catches the resting values and
- * reports that nothing changed. The wait is on the browser's
- * own promise that its animations have finished; this only caps
- * a page that keeps starting new ones.
- */
-const SETTLE_CAP_MS = 2000;
-
-/** How long past its own cap the transition probe may run. */
-const SETTLE_CAP_SLACK_MS = 500;
-
-/** An inspection, or the refusal that stopped it. */
-export type InspectResult =
-	| { readonly ok: true; readonly inspection: Inspection }
-	| { readonly ok: false; readonly refusal: TargetRefusal };
-
-/** What to photograph. */
-export interface ShotOptions {
-	/** One element rather than the page. */
-	readonly target?: Target;
-	/** The whole scrollable page rather than what is on screen. */
-	readonly fullPage?: boolean;
-	/** Hold this state while capturing. */
-	readonly state?: PseudoState;
-}
-
-/** Where the images landed, and what had to be left out. */
-export interface Shot {
-	readonly paths: readonly string[];
-	readonly truncated: boolean;
-	readonly width: number;
-	readonly height: number;
-}
-
-/** A capture, or the refusal that stopped it. */
-export type ShotResult =
-	| { readonly ok: true; readonly shot: Shot }
-	| { readonly ok: false; readonly refusal: TargetRefusal };
-
-/** The result of observing a page. */
-export interface Observation {
-	readonly url: string;
-	readonly title: string;
-	readonly outline: string;
-	/**
-	 * The tree the outline was rendered from, already scoped.
-	 *
-	 * The rendered outline is for reading and the tree is for
-	 * querying, and a caller who stores one so the other can be
-	 * narrowed needs them to be the same capture. Deriving the tree
-	 * again afterwards would read a page that has moved on.
-	 */
-	readonly tree: AxNode;
-}
-
-/** An action that operates on a named element. */
-export type TargetedAction =
-	| { kind: "click"; target: Target }
-	| { kind: "type"; target: Target; text: string }
-	| { kind: "hover"; target: Target }
-	| { kind: "focus"; target: Target }
-	| { kind: "clear"; target: Target }
-	| { kind: "select"; target: Target; text: string }
-	| { kind: "upload"; target: Target; files: readonly string[] }
-	| { kind: "scrollTo"; target: Target };
-
-/**
- * How long to wait for an element to become ready, and how
- * often to look. A page that animates a dialog in takes a few
- * hundred milliseconds, and waiting is far cheaper than a click
- * that silently misses.
- */
-const READY_BUDGET_MS = 2000;
-const READY_POLL_MS = 100;
-
-/**
- * How long to give Chrome to announce a crash that has already
- * broken a call, and how often to look for the announcement.
- *
- * Only spent on a call that has just failed with the tab dying
- * underneath it, so the wait is never on the healthy path. The
- * announcement arrives in milliseconds; the budget is generous
- * because the alternative to waiting is losing the call.
- */
-const CRASH_NOTICE_BUDGET_MS = 2000;
-const CRASH_NOTICE_POLL_MS = 25;
-
-/**
- * How long a tab has to answer whether it lives, after an abort.
- *
- * A live tab answers in a millisecond or two and a dead one is
- * refused as closed within 20 ms, as measured on 12 November. A tab
- * busy in a long script answers only once it is free, so past this
- * it counts as alive and the abort stands.
- */
-const ALIVE_BUDGET_MS = 500;
-
-/**
- * Whether an action arrives by pointer.
- *
- * A pointer has to reach the element's centre unobstructed and
- * on screen. Everything else addresses the element directly and
- * would succeed where a click could not.
- */
-/** Whether claiming the recording permit came back as a refusal. */
-function isRecordingRefused(value: unknown): value is RecordingRefused {
-	return typeof value === "object" && value !== null && "refusal" in value;
-}
-
-function usesPointer(action: TargetedAction): boolean {
-	return action.kind === "click" || action.kind === "hover";
-}
-
-/** What has to be true of an element before an action can happen. */
-interface ActionNeeds {
-	/** Where a pointer would land, which only a pointer cares about. */
-	readonly pointer: boolean;
-	/** That the element is rendered where a person could see it. */
-	readonly sight: boolean;
-	/**
-	 * A handle from the driver's own aria selector, which brings
-	 * the scrolling and hit testing a raw protocol call does not.
-	 */
-	readonly handle: boolean;
-}
-
-/**
- * What this action needs, which for one action is unusually
- * little.
- *
- * Choosing a file happens in the operating system's dialog, and
- * the input that receives it is nearly always hidden with a
- * styled label over it, which is the recommended way to build
- * one. So an upload asks neither to be seen nor to be reachable
- * by a pointer: it asks that the input exists and takes files.
- *
- * It also does without the driver's handle. The aria selector
- * that produces one does not offer a node it considers hidden,
- * so for the ordinary hidden input the two matchers disagree,
- * our own outline finds it and the selector does not, and the
- * act refuses something it had just listed. The file is set
- * through the protocol against the node the outline resolved.
- */
-function needsOf(action: TargetedAction): ActionNeeds {
-	if (action.kind === "upload") {
-		return { pointer: false, sight: false, handle: false };
-	}
-	return { pointer: usesPointer(action), sight: true, handle: true };
-}
-
-/** An action to perform against the page. */
-export type PageAction = { kind: "navigate"; url: string } | TargetedAction;
-
-/** Why an act could not target an element, and what would work. */
-export type ActFailure = { ok: false; refusal: TargetRefusal };
-
-/** An element that never became ready, and what held it up. */
-export interface Blocked {
-	readonly ready: false;
-	readonly waitedMs: number;
-	readonly blocker: string;
-}
-
-/** The outcome of an act call. */
-export type ActResult =
-	| { ok: true; waitedMs?: number }
-	| ActFailure
-	| { ok: false; blocked: Blocked };
-
-/** The outcome of reading one named branch of a page. */
-export type ObserveResult =
-	| { ok: true; observation: Observation }
-	| { ok: false; refusal: TargetRefusal };
-
-/** How a session should behave for its whole life. */
-export interface SessionOptions {
-	/** Caller identity for captured artifacts; defaults to ambient identity in a host. */
-	readonly artifactRef?: SessionRef;
-	/**
-	 * Carry the user's own Chrome cookies into this session, so
-	 * internal apps that expect a signed-in browser are drivable.
-	 * Off by default: a session is a clean user unless asked.
-	 */
-	readonly cookies?: boolean;
-	/**
-	 * Where durable artifacts a user might want to look at (right
-	 * now, comparison baselines) are written. Defaults to an
-	 * adapter-neutral XDG data directory shared across whatever
-	 * drives this library; an adapter with its own established
-	 * convention for durable data passes its own root instead.
-	 */
-	readonly dataRoot?: string;
-}
-
-/** Chrome cookie injection was asked for but is not set up. */
-export class CookieSetupNeeded extends Error {
-	constructor() {
-		super(
-			"Chrome cookie injection is not set up. Run Chrome cookie " +
-				"setup, or open the browser without cookies.",
-		);
-		this.name = "CookieSetupNeeded";
-	}
-}
-
-/** A driveable browser session over a single tab. */
-/**
- * Where axe-core's bundle sits on disk.
- *
- * Resolved through node rather than assembled from a relative
- * path, so it keeps working wherever the package is installed
- * and however the dependency is hoisted.
- */
-function axeSource(): string {
-	return createRequire(import.meta.url).resolve("axe-core/axe.min.js");
-}
-
 export class BrowserSession {
-	/** What every property computes to untouched, read once. */
-	private initialStyles?: ComputedStyles;
-
-	/** The recovery in flight, so nothing reads a tab mid-replacement. */
-	private recovery?: Promise<void>;
-
 	/** The live view collaborators drive the browser through. */
 	private readonly wires: SessionWires = {
 		page: () => this.page,
 		cdp: () => this.cdp,
 		context: () => this.context,
-		ready: () => this.ready(),
+		ready: () => this.parts.tab.ready(),
 	};
 
-	/** The maps the page has declared, for authored positions. */
-	private readonly sourceMaps = new SourceMapStore(this.wires);
-
-	/** What this session pretends to be, and its keeper. */
-	private readonly emulation = new EmulationController(this.wires, {
-		settle: () => this.settlePage(),
-	});
-
-	/** The rules and throttle this session's network answers to. */
-	private readonly shaper = new NetworkShaper(this.wires);
-
-	/** What the page keeps, read and written. */
-	private readonly stores = new SessionStorage(this.wires);
-
-	/** How readable the page is, judged through this session's nodes. */
-	private readonly contrast = new SessionContrast(this.wires, {
-		axTree: () => this.axTree(),
-		objectFor: (id) => this.objectFor(id),
-		paintingElement: (id) => this.paintingElement(id),
-		stylesOf: (id) => this.stylesOf(id),
-		capture: (id) => this.capture(id, {}),
-		release: (id) => this.release(id),
-		readShot: async (shot) => {
-			const { readPng } = await images();
-			return readPng(readFileSync(shot));
-		},
-	});
-
-	/** Layers and hover states, read through this session's nodes. */
-	private readonly painting = new SessionPainting(this.wires, {
-		frontendNodeFor: (id) => this.frontendNodeFor(id),
-		objectFor: (id) => this.objectFor(id),
-		stylesOf: (id) => this.stylesOf(id),
-		settleForcedState: (id) => this.settleForcedState(id),
-	});
-
-	/** The disk side of this session: sink, stamps and ledger. */
-	private readonly artifacts: ArtifactLedger;
-
-	/** The wait between a change and an honest reading of it. */
-	private readonly settler = new PageSettler(this.wires, () => this.requests());
-
-	/** Everything this session overhears, and its buffers. */
-	private readonly telemetry = new SessionTelemetry(this.wires, {
-		onCrash: () => {
-			this.startRecovery();
-		},
-		downloadDir: () => this.artifacts.sink().dir,
-		keep: (path) => {
-			this.artifacts.keep(path);
-		},
-	});
+	/** The collaborators this session hands its work to. */
+	private readonly parts: SessionParts;
 
 	readonly name: string;
 	// The page and its protocol channel are replaced wholesale when the
@@ -674,7 +142,6 @@ export class BrowserSession {
 	private page: Page;
 	private cdp: CDPSession;
 	private readonly context: BrowserContext;
-	private readonly options: SessionOptions;
 
 	private constructor(
 		name: string,
@@ -687,12 +154,15 @@ export class BrowserSession {
 		this.page = page;
 		this.cdp = cdp;
 		this.context = context;
-		this.options = options;
-		this.artifacts = new ArtifactLedger(options.artifactRef);
+		this.parts = assembleSession(this.wires, {
+			name,
+			options,
+			adopt: (adopted, channel) => {
+				this.page = adopted;
+				this.cdp = channel;
+			},
+		});
 	}
-
-	/** Wall clock time of the last operation. See ready(). */
-	private usedAt = Date.now();
 
 	/**
 	 * Open a fresh session in a browser context of its own, so
@@ -712,14 +182,14 @@ export class BrowserSession {
 			await cdp.send("DOM.enable");
 			await cdp.send("CSS.enable");
 			const session = new BrowserSession(name, page, cdp, context, options);
-			await session.telemetry.listenForAnnouncements();
-			await session.telemetry.listenForLogs();
-			await session.telemetry.listenForRequests();
-			await session.telemetry.listenForDialogs();
-			await session.telemetry.listenForLifecycle();
-			await session.telemetry.listenForDownloads();
-			await session.sourceMaps.listen();
-			await session.watchVitals();
+			await session.parts.telemetry.listenForAnnouncements();
+			await session.parts.telemetry.listenForLogs();
+			await session.parts.telemetry.listenForRequests();
+			await session.parts.telemetry.listenForDialogs();
+			await session.parts.telemetry.listenForLifecycle();
+			await session.parts.telemetry.listenForDownloads();
+			await session.parts.sourceMaps.listen();
+			await session.parts.probes.watchVitals();
 			return session;
 		} catch (err) {
 			// Do not leak the context if the CDP channel could not be
@@ -731,7 +201,7 @@ export class BrowserSession {
 
 	/** Decide how dialogs will be answered from here on. */
 	setDialogPolicy(policy: DialogPolicy): void {
-		this.telemetry.setDialogPolicy(policy);
+		this.parts.telemetry.setDialogPolicy(policy);
 	}
 
 	/** How dialogs are currently answered. */
@@ -739,12 +209,12 @@ export class BrowserSession {
 		readonly policy: DialogPolicy;
 		readonly seen: readonly DialogEvent[];
 	} {
-		return this.telemetry.dialogs;
+		return this.parts.telemetry.dialogs;
 	}
 
 	/** Every request the page has made. */
 	requests(): readonly NetworkRequest[] {
-		return this.telemetry.requests();
+		return this.parts.telemetry.requests();
 	}
 
 	/**
@@ -761,13 +231,13 @@ export class BrowserSession {
 			if (fetched && fetched.body.length > 0) bodies.set(request.id, fetched);
 		}
 
-		const path = this.artifacts
+		const path = this.parts.artifacts
 			.sink()
 			.writeText(
-				`capture-${this.artifacts.nextArchive()}.har`,
+				`capture-${this.parts.artifacts.nextArchive()}.har`,
 				JSON.stringify(toHar(requests, { bodies }), null, 2),
 			);
-		return this.artifacts.keep(path);
+		return this.parts.artifacts.keep(path);
 	}
 
 	/**
@@ -781,7 +251,7 @@ export class BrowserSession {
 	async bodyOf(
 		requestId: string,
 	): Promise<{ body: string; base64Encoded: boolean } | undefined> {
-		return this.telemetry.bodyOf(requestId);
+		return this.parts.telemetry.bodyOf(requestId);
 	}
 
 	/**
@@ -795,58 +265,12 @@ export class BrowserSession {
 		readonly dropped: number;
 		readonly cursor: number;
 	} {
-		return this.telemetry.logs(since);
+		return this.parts.telemetry.logs(since);
 	}
 
-	/** Navigate the tab to a URL and wait for the network to settle. */
-	async navigate(url: string): Promise<{ status?: number; failure?: string }> {
-		await this.ready();
-		// Cookies are per-domain, so they are injected against the
-		// URL we are about to visit rather than once at open.
-		if (this.options.cookies) await injectCookies(this.page, url);
-		// A navigation that never arrives is an answer, not an
-		// exception. Offline, or against a host that does not resolve,
-		// this threw a raw driver error straight past a doc that
-		// promises the opposite two lines below, and the caller got a
-		// stack trace where it had asked a question. What the network
-		// said is the useful part, so it is returned.
-		let response: Awaited<ReturnType<Page["goto"]>> = null;
-		try {
-			response = await this.page.goto(url, { waitUntil: "networkidle2" });
-		} catch (error) {
-			const failure = failureText(error);
-			// The tab can die under this very call, and Chrome tells the
-			// driver the frame is detached before it announces the crash
-			// that detached it. Returning here would hand the caller a
-			// driver error for a session that is about to be perfectly
-			// healthy, and leave it parked on the replacement's blank
-			// page: measured, a crash made a session permanently
-			// unnavigable while every later call reported success.
-			if (
-				!(await this.tabDiedUnder(failure)) ||
-				!(await this.awaitReplacement())
-			) {
-				return { failure };
-			}
-			try {
-				response = await this.page.goto(url, { waitUntil: "networkidle2" });
-			} catch (afterRecovery) {
-				return { failure: failureText(afterRecovery) };
-			}
-		}
-		await this.emulation.reassert();
-		// Chrome's idle heuristics fire before a client-rendered app
-		// has anything on screen, so this waits for the DOM as well.
-		// Without it, navigating to a real application answered with an
-		// outline whose only content was "Loading page".
-		await this.settlePage();
-		// The status was thrown away, so a 404 or a 500 read as a
-		// successful arrival and every later check judged the error
-		// page. Returned rather than thrown: an error page is
-		// sometimes exactly what a caller means to look at, and the
-		// answer should say which one they got.
-		const status = response?.status();
-		return status === undefined ? {} : { status };
+	/** Navigate the tab to a url (session/navigation.ts). */
+	navigate(url: string): Promise<{ status?: number; failure?: string }> {
+		return this.parts.navigation.navigate(url);
 	}
 
 	/** Where the session currently is. */
@@ -854,25 +278,9 @@ export class BrowserSession {
 		return this.page.url();
 	}
 
-	/**
-	 * Fetch the page again.
-	 *
-	 * ignoreCache is the useful default for a developer, who
-	 * reloads to see a change they just made. A reload that served
-	 * the old file back would be the one thing it must not do.
-	 */
-	async reload(): Promise<{ failure?: string }> {
-		await this.ready();
-		try {
-			await this.page.reload({ waitUntil: "networkidle2" });
-		} catch (error) {
-			// Same reasoning as navigate: reloading with no network is a
-			// thing a tester does deliberately.
-			return { failure: failureText(error) };
-		}
-		await this.emulation.reassert();
-		await this.settlePage();
-		return {};
+	/** Fetch the page again, past its cache. */
+	reload(): Promise<{ failure?: string }> {
+		return this.parts.navigation.reload();
 	}
 
 	/**
@@ -885,163 +293,44 @@ export class BrowserSession {
 	 * final.
 	 */
 	async settlePage(budgetMs?: number): Promise<Settled> {
-		return this.settler.settle(budgetMs);
+		return this.parts.settler.settle(budgetMs);
 	}
 
 	/** What the last settle saw, for a reader that wants to say so. */
 	get settledLast(): Settled | undefined {
-		return this.settler.lastSeen;
+		return this.parts.settler.lastSeen;
 	}
 
-	/**
-	 * Step through the history the session accumulated.
-	 *
-	 * Refuses rather than doing nothing at either end. Silently
-	 * staying put looks identical to a page that ignored the
-	 * request, and the caller then has no way to tell whether
-	 * going back was possible at all.
-	 *
-	 * The refusal is driven by the thrown error, not by a null
-	 * return. Puppeteer returns null whenever a navigation has no
-	 * HTTP response, which includes about:blank and same-document
-	 * moves, so reading null as failure reported a successful step
-	 * back to about:blank as an impossible one. An absent entry is
-	 * what throws.
-	 */
-	async step(direction: "back" | "forward"): Promise<
+	/** Step through the history the session accumulated. */
+	step(
+		direction: "back" | "forward",
+	): Promise<
 		| { readonly ok: true; readonly url: string }
-		| {
-				readonly ok: false;
-				readonly refusal: string;
-		  }
+		| { readonly ok: false; readonly refusal: string }
 	> {
-		await this.ready();
-		try {
-			if (direction === "back") {
-				await this.page.goBack({ waitUntil: "networkidle2" });
-			} else {
-				await this.page.goForward({ waitUntil: "networkidle2" });
-			}
-			await this.emulation.reassert();
-			await this.settlePage();
-		} catch (error) {
-			// Not every failure here is an empty history. Stepping back
-			// with the network off fails too, and this used to answer
-			// that there was nothing behind the page: a confident, wrong
-			// account of the session's own history, which is the kind of
-			// lie that sends someone looking in the wrong place.
-			const said = failureText(error);
-			if (!/History entry/i.test(said)) {
-				return {
-					ok: false,
-					refusal:
-						`Going ${direction} did not arrive: ${said}. The page ` +
-						"is where it was. Read requests to see what the network " +
-						"did.",
-				};
-			}
-			return {
-				ok: false,
-				refusal:
-					direction === "back"
-						? "There is nothing behind this page in the browser's " +
-							"history. It is where the browser started."
-						: "There is nothing ahead of this page. Going forward " +
-							"only works after going back.",
-			};
-		}
-		return { ok: true, url: this.page.url() };
+		return this.parts.navigation.step(direction);
 	}
 
-	/**
-	 * Render the page's accessibility outline, plus url and
-	 * title. A scope narrows the tree before it is rendered; with
-	 * none, the whole page is read.
-	 */
-	async observe(
+	/** Render the page's accessibility outline, plus url and title. */
+	observe(
 		scope: TreeScope = {},
 		form: PageForm = "outline",
 	): Promise<Observation> {
-		const tree = await this.axTree();
-		return await this.describe(scopeTree(tree, scope), form);
+		return this.parts.navigation.observe(scope, form);
 	}
 
-	/**
-	 * Read one branch of the page, named the way the caller names
-	 * anything else. Unlike a whole-page read this can fail, so
-	 * it reports what would have worked instead.
-	 */
-	async observeWithin(
+	/** Read one named branch of the page, or say what would work. */
+	observeWithin(
 		target: Target,
 		scope: TreeScope = {},
 		form: PageForm = "outline",
 	): Promise<ObserveResult> {
-		const tree = await this.axTree();
-		const resolution = resolveTarget(tree, target);
-		if (resolution.kind === "ambiguous") {
-			return { ok: false, refusal: ambiguityRefusal(tree, target) };
-		}
-		if (resolution.kind === "notFound") {
-			return { ok: false, refusal: notFoundRefusal(tree, target) };
-		}
-		const branch = subtreeAt(tree, resolution.backendDomId);
-		if (!branch) {
-			return { ok: false, refusal: notFoundRefusal(tree, target) };
-		}
-		return {
-			ok: true,
-			observation: await this.describe(scopeTree(branch, scope), form),
-		};
+		return this.parts.navigation.observeWithin(target, scope, form);
 	}
 
-	/** Wrap a tree as an observation of where the session is. */
-	private async describe(tree: AxNode, form: PageForm): Promise<Observation> {
-		return {
-			url: this.page.url(),
-			title: await this.page.title(),
-			outline: form === "reading" ? renderReading(tree) : renderAxOutline(tree),
-			tree,
-		};
-	}
-
-	/** Perform an action, resolving semantic targets against the a11y tree. */
-	async act(action: PageAction): Promise<ActResult> {
-		if (action.kind === "navigate") {
-			await this.navigate(action.url);
-			return { ok: true };
-		}
-		// Readiness is established before targeting, because an
-		// element that has not appeared yet is the commonest reason
-		// an action is early rather than wrong.
-		const needs = needsOf(action);
-		const ready = await this.awaitReady(
-			action.target,
-			needs.pointer,
-			needs.sight,
-		);
-		if (!ready.ready) {
-			// Never showing up and never existing look the same from
-			// here, and only one of them has a spelling suggestion
-			// worth making, so ask the targeting to explain itself.
-			const missing = await this.resolve(action.target);
-			if (!missing.ok) return missing;
-			await missing.element.dispose();
-			return { ok: false, blocked: ready };
-		}
-
-		if (!needs.handle) {
-			await this.perform(action, undefined, ready.backendDomId);
-			if (ready.waitedMs > 0) return { ok: true, waitedMs: ready.waitedMs };
-			return { ok: true };
-		}
-
-		const handle = await this.resolve(action.target);
-		if (!handle.ok) return handle;
-
-		await this.perform(action, handle.element, ready.backendDomId);
-		await handle.element.dispose();
-		if (ready.waitedMs > 0) return { ok: true, waitedMs: ready.waitedMs };
-		return { ok: true };
+	/** Perform an action on a named element (session/acting.ts). */
+	act(action: PageAction): Promise<ActResult> {
+		return this.parts.acting.act(action);
 	}
 
 	/**
@@ -1053,215 +342,26 @@ export class BrowserSession {
 	async resolveFrames(
 		frames: readonly EvalFrame[],
 	): Promise<readonly EvalFrame[]> {
-		return this.sourceMaps.resolveFrames(frames);
-	}
-
-	/**
-	 * Replace the dead tab with a live one.
-	 *
-	 * The context survives a tab crash and can still make pages,
-	 * so the session keeps its identity, its cookies and every
-	 * buffer it has filled; only the tab is new. Watchers have to
-	 * be reinstalled because they were bound to a protocol channel
-	 * that no longer answers.
-	 */
-	private startRecovery(): Promise<void> {
-		const recovery = this.recover();
-		// A crash usually lands between calls, so nothing awaits this
-		// until the next one arrives. A replacement that cannot be made
-		// would be an unhandled rejection meanwhile, and in a host with
-		// no handler for one, pi among them, that ends the process.
-		// Whoever awaits it later still sees the failure.
-		recovery.catch(() => {});
-		this.recovery = recovery;
-		return recovery;
-	}
-
-	private async recover(): Promise<void> {
-		// The dead page will not answer, but closing it does work,
-		// and leaving it would leak a renderer for the session's life.
-		// Between the old tab closing and the new one opening the
-		// session has no tab holding the event loop, so it claims one.
-		await holdWhile(async () => {
-			await this.page.close().catch(() => {});
-			await this.bindTo(await this.context.newPage());
-		});
-	}
-
-	/**
-	 * Point the session at a tab and make it whole again.
-	 *
-	 * Every watcher is bound to one tab's protocol channel, so a
-	 * session that changes tabs without reinstalling them goes on
-	 * answering while quietly deaf to everything the new tab does.
-	 * That is the same wound a crash leaves, which is why recovering
-	 * from a crash and switching tabs are one piece of code: two
-	 * copies would drift, and the half that drifted would fail
-	 * silently in exactly this way.
-	 */
-	private async bindTo(page: Page): Promise<void> {
-		const cdp = await page.createCDPSession();
-		this.page = page;
-		this.cdp = cdp;
-
-		await cdp.send("Accessibility.enable");
-		await cdp.send("DOM.enable");
-		await cdp.send("CSS.enable");
-		await this.telemetry.listenForAnnouncements();
-		await this.telemetry.listenForLogs();
-		await this.telemetry.listenForRequests();
-		await this.telemetry.listenForDialogs();
-		// Every listener open() installs has to come back, or the
-		// session goes on answering while quietly deaf to part of
-		// what the page does. Downloads and source maps were the two
-		// that did not, so after a crash a file the page handed back
-		// went unrecorded and a cascade trace lost its authored
-		// positions, with nothing anywhere saying why.
-		await this.telemetry.listenForDownloads();
-		await this.sourceMaps.listen();
-
-		// A fresh tab knows nothing of what the old one was
-		// pretending, so the standing intent is put back before
-		// anything reads from it.
-		await this.emulation.apply();
-
-		const { frameTree } = await cdp.send("Page.getFrameTree");
-		this.telemetry.readoptLifecycle(frameTree.frame.id);
-	}
-
-	/**
-	 * Wait for the replacement tab, when one is coming.
-	 *
-	 * The crash announcement that starts a recovery can arrive
-	 * after the failure it caused, so asking whether a recovery is
-	 * under way immediately gets the wrong answer. This gives the
-	 * announcement its moment and then waits the recovery out,
-	 * reporting whether there was one, so a caller that died for
-	 * some other reason is not left waiting on a tab nobody is
-	 * replacing.
-	 */
-	/**
-	 * Whether the tab died under a call that failed with `failure`.
-	 *
-	 * A detached frame says so. An abort doesn't: a renderer killed
-	 * outright, as the OOM killer kills one, aborts the navigation it
-	 * was loading before Chrome announces the crash, about half the
-	 * time when measured. So an abort asks the tab, and only a tab
-	 * refused as closed counts as dead. One that answers is alive, so
-	 * an abort the page itself caused stands and isn't retried.
-	 */
-	private async tabDiedUnder(failure: string): Promise<boolean> {
-		if (diedWithTheTab(failure)) return true;
-		if (!wasAborted(failure)) return false;
-		const asked = this.cdp.send("Runtime.evaluate", { expression: "0" }).then(
-			() => false,
-			(error: unknown) => diedWithTheTab(failureText(error)),
-		);
-		let timer: NodeJS.Timeout | undefined;
-		const busy = new Promise<boolean>((answer) => {
-			timer = setTimeout(() => answer(false), ALIVE_BUDGET_MS);
-		});
-		try {
-			return await Promise.race([asked, busy]);
-		} finally {
-			clearTimeout(timer);
-		}
-	}
-
-	private async awaitReplacement(): Promise<boolean> {
-		const deadline = Date.now() + CRASH_NOTICE_BUDGET_MS;
-		while (!this.recovery && Date.now() < deadline) {
-			await new Promise((wake) => setTimeout(wake, CRASH_NOTICE_POLL_MS));
-		}
-		if (!this.recovery) return false;
-		try {
-			await this.recovery;
-		} catch {
-			// No replacement came, so the caller answers with the failure
-			// that sent it here; the next call tries to make the tab again.
-			return false;
-		}
-		return true;
-	}
-
-	/**
-	 * Wait for any recovery to finish.
-	 *
-	 * Called before anything that touches the tab, so a read that
-	 * arrives during a crash waits for the replacement instead of
-	 * hanging on a renderer that is never coming back.
-	 */
-	private async ready(): Promise<void> {
-		// Every operation passes through here, which makes it the one
-		// honest place to record that the session is being used. The
-		// registry reaps on idleness, and it used to measure that
-		// from when a call started rather than from the last thing
-		// the session did, so a health sweep or a long wait could
-		// have the browser closed out from under it mid-call.
-		this.usedAt = Date.now();
-		if (!this.recovery) return;
-		try {
-			await this.recovery;
-		} catch {
-			// The last attempt to replace the tab failed. Kept as the
-			// answer, it failed every call for the rest of the session,
-			// so each call tries once more and this attempt's failure,
-			// if it fails too, is that call's answer.
-			await this.startRecovery();
-		}
+		return this.parts.sourceMaps.resolveFrames(frames);
 	}
 
 	/** When this session last did anything, for the idle reaper. */
 	get lastUsedAt(): number {
-		return this.usedAt;
+		return this.parts.tab.lastUsedAt;
 	}
 
 	/** Files the page has handed back. */
 	downloads(): readonly DownloadRecord[] {
-		return this.telemetry.downloads();
+		return this.parts.telemetry.downloads();
 	}
 
-	/**
-	 * Record what the page's JavaScript is doing, for a while.
-	 *
-	 * A long task says three seconds went somewhere. This says
-	 * where. The profiler is started, the page is left alone for
-	 * the window asked for, and the samples are folded into time
-	 * per function.
-	 *
-	 * Nothing is done to the page in between on purpose: whatever
-	 * is being profiled has to be the page's own work, and a probe
-	 * running during the window would appear in its own results.
-	 */
-	async profile(forMs: number): Promise<Hotspots> {
-		await this.ready();
-		await this.cdp.send("Profiler.enable");
-		// A thousand microseconds is Chrome's own default. Sampling
-		// faster buys precision the reader cannot use and costs the
-		// page time that then shows up in its own profile.
-		await this.cdp.send("Profiler.setSamplingInterval", { interval: 1000 });
-		await this.cdp.send("Profiler.start");
-		await new Promise((wake) => setTimeout(wake, forMs));
-		const { profile } = await this.cdp.send("Profiler.stop");
-		await this.cdp.send("Profiler.disable");
-		return foldProfile(profile as RawProfile);
+	/** Profile the page's JavaScript (session/profiling.ts). */
+	profile(forMs: number): Promise<Hotspots> {
+		return this.parts.profiler.profile(forMs);
 	}
 
-	/**
-	 * Record a trace around some work, and say what it cost.
-	 *
-	 * The work runs inside the recording rather than before it,
-	 * because a trace only holds what happened while it was on.
-	 * Measured: a timer installed before the recording starts has
-	 * no install event, so its lateness cannot be explained and a
-	 * fetch begun earlier has no url. Tracing after the fact is
-	 * not a weaker answer, it is no answer.
-	 *
-	 * The work's own result is handed back whatever the recording
-	 * did, so a refused permit or a protocol failure costs the
-	 * caller the trace and never the action.
-	 */
-	async recordWhile<T>(
+	/** Record a trace around some work, and say what it cost. */
+	recordWhile<T>(
 		profiles: readonly TraceProfile[],
 		work: () => Promise<T>,
 	): Promise<{
@@ -1269,142 +369,18 @@ export class BrowserSession {
 		readonly trace?: TraceCapture;
 		readonly refusal?: string;
 	}> {
-		await this.ready();
-		const permit = claimRecording(this.name, profiles);
-		if (isRecordingRefused(permit)) {
-			return { result: await work(), refusal: permit.refusal };
-		}
-
-		const events: RawTraceEvent[] = [];
-		const collect = (batch: { value?: RawTraceEvent[] }): void => {
-			if (batch.value) events.push(...batch.value);
-		};
-		this.cdp.on("Tracing.dataCollected", collect);
-
-		let started = false;
-		try {
-			await this.cdp.send("Tracing.start", {
-				transferMode: "ReportEvents",
-				traceConfig: {
-					recordMode: "recordContinuously",
-					includedCategories: [...categoriesFor(profiles)],
-				},
-			});
-			started = true;
-		} catch (error) {
-			this.cdp.off("Tracing.dataCollected", collect);
-			releaseRecording();
-			return {
-				result: await work(),
-				refusal: `The browser refused to start tracing: ${String(error)}`,
-			};
-		}
-
-		// The action runs whatever the recording does next, and the
-		// permit is given back on every path out of here.
-		try {
-			const result = await work();
-			const delivered = new Promise<void>((resolve) => {
-				this.cdp.once("Tracing.tracingComplete", () => resolve());
-			});
-			await this.cdp.send("Tracing.end");
-			await delivered;
-			return {
-				result,
-				trace: foldTrace(events, {
-					frames: await this.ownFrameIds(),
-					profiles,
-				}),
-			};
-		} finally {
-			this.cdp.off("Tracing.dataCollected", collect);
-			if (started) releaseRecording();
-		}
-	}
-
-	/**
-	 * Every frame id this session owns, its own and its children's.
-	 *
-	 * This is what separates our work from another session's in a
-	 * recording that necessarily contains both.
-	 */
-	private async ownFrameIds(): Promise<ReadonlySet<string>> {
-		const ids = new Set<string>();
-		try {
-			const { frameTree } = (await this.cdp.send("Page.getFrameTree")) as {
-				frameTree: FrameTreeNode;
-			};
-			const queue: FrameTreeNode[] = [frameTree];
-			while (queue.length > 0) {
-				const node = queue.shift();
-				if (node === undefined) continue;
-				ids.add(node.frame.id);
-				queue.push(...(node.childFrames ?? []));
-			}
-		} catch {
-			// Without a frame tree nothing can be attributed, which the
-			// fold reports as unattributed rather than guessing.
-		}
-		return ids;
+		return this.parts.profiler.recordWhile(profiles, work);
 	}
 
 	/** Every websocket conversation the page has held. */
 	sockets(): readonly SocketRecord[] {
-		return this.telemetry.sockets();
+		return this.parts.telemetry.sockets();
 	}
 
-	/**
-	 * Measure what the page is holding, against the last measurement.
-	 *
-	 * A collection is forced first unless refused, because a heap
-	 * that grew means nothing while uncollected garbage is still in
-	 * it. The previous reading is kept on the session so a caller
-	 * can measure, do the thing they suspect, and measure again
-	 * without having to carry a number between calls.
-	 */
-	async heap(collect = true): Promise<HeapComparison> {
-		await this.ready();
-
-		if (collect) {
-			// Chrome exposes this on two domains and neither is
-			// guaranteed enabled. Failing to collect is not worth
-			// failing the read over, but it does change what the
-			// reading means, which is what `collected` carries.
-			try {
-				await this.cdp.send("HeapProfiler.collectGarbage");
-			} catch {
-				collect = false;
-			}
-		}
-
-		// The domain answers with an empty list until it is enabled,
-		// which reads as a heap of zero that never changes: a leak
-		// check that always says everything is fine. Enabling is
-		// idempotent, so it costs nothing to do it on every read.
-		// Measured: without this the domain answers with every metric
-		// at zero rather than refusing, which reads as a page holding
-		// no memory that never changes. A leak check that always says
-		// everything is fine is worse than no leak check. Enabling is
-		// idempotent, so it costs nothing to do on every read.
-		await this.cdp.send("Performance.enable");
-		const { metrics } = await this.cdp.send("Performance.getMetrics");
-		const read = (named: string): number =>
-			metrics.find((metric) => metric.name === named)?.value ?? 0;
-
-		const reading: HeapReading = {
-			usedBytes: read("JSHeapUsedSize"),
-			totalBytes: read("JSHeapTotalSize"),
-			collected: collect,
-			at: Date.now(),
-		};
-
-		const compared = compareHeap(reading, this.lastHeap);
-		this.lastHeap = reading;
-		return compared;
+	/** Measure what the page holds, against the last measurement. */
+	heap(collect = true): Promise<HeapComparison> {
+		return this.parts.profiler.heap(collect);
 	}
-
-	/** The previous heap reading, for the next comparison. */
-	private lastHeap?: HeapReading;
 
 	/** Judge text against the background behind it (session/contrast.ts). */
 	contrastBehind(
@@ -1413,7 +389,7 @@ export class BrowserSession {
 	): Promise<
 		{ ok: true; report: BehindReport } | { ok: false; refusal: TargetRefusal }
 	> {
-		return this.contrast.behind(target, bar);
+		return this.parts.contrast.behind(target, bar);
 	}
 
 	/** Judge the contrast between two elements the caller named. */
@@ -1425,27 +401,27 @@ export class BrowserSession {
 		| { ok: true; report: PairReport }
 		| { ok: false; target: Target; refusal: TargetRefusal }
 	> {
-		return this.contrast.pair(one, other, bar);
+		return this.parts.contrast.pair(one, other, bar);
 	}
 
 	/** The layers the compositor made (session/painting.ts). */
 	layers(): Promise<LayerReport> {
-		return this.painting.layers();
+		return this.parts.painting.layers();
 	}
 
 	/** What the page does on hover, and whether focus does it too. */
 	hovers(limit?: number): Promise<HoverReport> {
-		return this.painting.hovers(limit);
+		return this.parts.painting.hovers(limit);
 	}
 
 	/** Socket events dropped to stay within the buffer's budget. */
 	get socketFramesDropped(): number {
-		return this.telemetry.socketFramesDropped;
+		return this.parts.telemetry.socketFramesDropped;
 	}
 
 	/** Where the page has been. */
 	get history(): readonly LifecycleEvent[] {
-		return this.telemetry.history;
+		return this.parts.telemetry.history;
 	}
 
 	/**
@@ -1458,7 +434,7 @@ export class BrowserSession {
 	 * replaces the state wholesale.
 	 */
 	async restoreEmulation(state: EmulationState): Promise<void> {
-		await this.emulation.restore(state);
+		await this.parts.emulation.restore(state);
 	}
 
 	/**
@@ -1479,12 +455,12 @@ export class BrowserSession {
 		observed: ObservedEnvironment;
 		gaps: readonly Divergence[];
 	}> {
-		return this.emulation.change(change, clear);
+		return this.parts.emulation.change(change, clear);
 	}
 
 	/** What this session has asked the browser to pretend. */
 	get emulated(): EmulationState {
-		return this.emulation.asked;
+		return this.parts.emulation.asked;
 	}
 
 	/** Read what the page has kept (session/storage.ts). */
@@ -1494,7 +470,7 @@ export class BrowserSession {
 		cookies?: boolean;
 		clipboard?: boolean;
 	}): Promise<StorageSnapshot> {
-		return this.stores.storage(wanted);
+		return this.parts.stores.storage(wanted);
 	}
 
 	/** Put a value into one of the DOM stores. */
@@ -1503,102 +479,32 @@ export class BrowserSession {
 		key: string,
 		value: string,
 	): Promise<void> {
-		return this.stores.setStored(isLocalStorage, key, value);
+		return this.parts.stores.setStored(isLocalStorage, key, value);
 	}
 
-	/**
-	 * Measure the space between two elements.
-	 *
-	 * The border box is the one measured, because that is the edge
-	 * a designer sees and points at. Margins are the space itself,
-	 * so measuring between margin boxes would report the gap that
-	 * remains after the gap, which is nearly always zero.
-	 */
-	async measure(a: Target, b: Target): Promise<MeasureResult> {
-		// Which target failed matters: the caller named two, and a
-		// refusal that does not say which one leaves them guessing.
-		const first = await this.inspect(a);
-		if (!first.ok) return { ok: false, target: a, refusal: first.refusal };
-		const second = await this.inspect(b);
-		if (!second.ok) return { ok: false, target: b, refusal: second.refusal };
-
-		const boxA = first.inspection.box;
-		const boxB = second.inspection.box;
-		if (boxA === undefined || boxB === undefined) {
-			// An element with no box is not laid out, so there is no
-			// space between it and anything. Saying which one it was
-			// saves the caller inspecting both to find out.
-			const missing = boxA === undefined ? a : b;
-			return {
-				ok: false,
-				problem:
-					`${missing.role} ${missing.name} has no box, so it is not ` +
-					"laid out and there is no space between it and anything.",
-			};
-		}
-
-		return { ok: true, measurement: measureBetween(boxA.border, boxB.border) };
+	/** Measure the space between two elements (session/inspecting.ts). */
+	measure(a: Target, b: Target): Promise<MeasureResult> {
+		return this.parts.inspector.measure(a, b);
 	}
 
-	/**
-	 * Every tab this session's context is holding open.
-	 *
-	 * A page that opens another one is doing something ordinary: a
-	 * target of _blank, a sign-in or a payment handed to a second
-	 * window. Until this existed the new tab was real, live and
-	 * entirely invisible, and the click that made it looked like a
-	 * click that did nothing.
-	 */
-	async tabs(): Promise<readonly TabRecord[]> {
-		await this.ready();
-		const pages = await this.context.pages();
-		return await Promise.all(
-			pages.map(async (page, at) => ({
-				index: at + 1,
-				url: page.url(),
-				// A tab still loading has no title yet, and asking a closing
-				// one throws. Either way the url still identifies it, which
-				// is what the caller picks by.
-				title: await page.title().catch(() => ""),
-				current: page === this.page,
-			})),
-		);
+	/** Every tab this session's context holds open (session/tab.ts). */
+	tabs(): Promise<readonly TabRecord[]> {
+		return this.parts.tab.tabs();
 	}
 
-	/**
-	 * Drive a different tab from now on.
-	 *
-	 * The tab left behind is not closed. A sign-in that opened a
-	 * second window usually wants the first one back afterwards, and
-	 * closing it would make switching a one-way trip.
-	 */
-	async switchTab(index: number): Promise<TabRecord | { refusal: string }> {
-		const open = await this.tabs();
-		const chosen = chooseTab(open, index);
-		if ("refusal" in chosen) return chosen;
-
-		const pages = await this.context.pages();
-		const page = pages[chosen.index - 1];
-		if (page === undefined) {
-			return {
-				refusal: `Tab ${index} closed between being listed and being chosen.`,
-			};
-		}
-		if (page === this.page) return { ...chosen, current: true };
-
-		await page.bringToFront();
-		await this.bindTo(page);
-		return { ...chosen, current: true };
+	/** Drive a different tab from now on. */
+	switchTab(index: number): Promise<TabRecord | { refusal: string }> {
+		return this.parts.tab.switchTab(index);
 	}
 
 	/** Keep everything that makes this session signed in. */
 	saveState(): Promise<SavedState> {
-		return this.stores.saveState();
+		return this.parts.stores.saveState();
 	}
 
 	/** Wear a state saved earlier, and report exactly what landed. */
 	loadState(state: SavedState): Promise<StateLoaded> {
-		return this.stores.loadState(state);
+		return this.parts.stores.loadState(state);
 	}
 
 	/** Empty the stores named, and only those. */
@@ -1607,12 +513,12 @@ export class BrowserSession {
 		session?: boolean;
 		cookies?: boolean;
 	}): Promise<void> {
-		return this.stores.clearStorage(wanted);
+		return this.parts.stores.clearStorage(wanted);
 	}
 
 	/** Put text on the clipboard. */
 	writeClipboard(text: string): Promise<void> {
-		return this.stores.writeClipboard(text);
+		return this.parts.stores.writeClipboard(text);
 	}
 
 	/**
@@ -1633,874 +539,114 @@ export class BrowserSession {
 		rules: readonly NetworkRule[];
 		throttle: ThrottleConditions | undefined;
 	}> {
-		return this.shaper.shape(change);
+		return this.parts.shaper.shape(change);
 	}
 
-	/**
-	 * Press a chord, or a sequence of them.
-	 *
-	 * Dispatch goes through the driver's keyboard rather than the
-	 * protocol directly, because the driver owns the layout table
-	 * that turns a key name into a code, a virtual key number and
-	 * the text it produces. Keeping a second opinion about that
-	 * would be a second thing to be wrong about.
-	 */
-	async press(
+	/** Press a chord, or a sequence of them (session/acting.ts). */
+	press(
 		keys: string,
 	): Promise<{ pressed: readonly string[] } | { refusal: ChordRefusal }> {
-		await this.ready();
-		const parsed = parseChords(keys, KNOWN_KEYS);
-		if ("refusal" in parsed) return parsed;
-
-		const pressed: string[] = [];
-		for (const chord of parsed.chords) {
-			for (const modifier of chord.modifiers) {
-				await this.page.keyboard.down(modifier);
-			}
-			try {
-				await this.page.keyboard.press(chord.key as KeyInput);
-			} finally {
-				// Whatever the key press did, the modifiers come back up.
-				// A chord that threw mid-press used to leave Control or
-				// Meta logically held for the life of a session that is
-				// long lived by design, so every later click became a
-				// modified click and the symptom appeared calls away
-				// from the cause.
-				for (const modifier of [...chord.modifiers].reverse()) {
-					await this.page.keyboard.up(modifier).catch(() => {
-						// The page may be gone; there is no key state left
-						// to corrupt if it is.
-					});
-				}
-			}
-			pressed.push([...chord.modifiers, chord.key].join("+"));
-		}
-		return { pressed };
+		return this.parts.acting.press(keys);
 	}
 
 	/** Send raw text as keystrokes, wherever focus happens to be. */
-	async typeRaw(text: string): Promise<void> {
-		await this.ready();
-		await this.page.keyboard.type(text);
+	typeRaw(text: string): Promise<void> {
+		return this.parts.acting.typeRaw(text);
 	}
 
 	/** Dispatch a composed mouse gesture. */
-	async pointerGesture(steps: readonly PointerEventStep[]): Promise<void> {
-		await this.ready();
-		for (const step of steps) {
-			await this.cdp.send("Input.dispatchMouseEvent", {
-				type: step.type,
-				x: step.x,
-				y: step.y,
-				button: step.button,
-				clickCount: step.clickCount,
-			});
-		}
+	pointerGesture(steps: readonly PointerEventStep[]): Promise<void> {
+		return this.parts.acting.pointerGesture(steps);
 	}
 
 	/** Scroll by wheel, which is not the same as scrolling by script. */
-	async wheel(at: Point, byX: number, byY: number): Promise<void> {
-		await this.ready();
-		await this.cdp.send("Input.dispatchMouseEvent", {
-			type: "mouseWheel",
-			x: at.x,
-			y: at.y,
-			deltaX: byX,
-			deltaY: byY,
-			button: "none",
-			clickCount: 0,
-		});
+	wheel(at: Point, byX: number, byY: number): Promise<void> {
+		return this.parts.acting.wheel(at, byX, byY);
 	}
 
-	/**
-	 * Dispatch a composed touch gesture.
-	 *
-	 * Touch events reach the page whether or not touch emulation
-	 * is on, so this never refuses. What emulation changes is what
-	 * the page believes about itself: maxTouchPoints and the
-	 * coarse-pointer media query. A page that decides at load time
-	 * whether to attach touch handlers will not have attached any,
-	 * and the gesture lands on nothing, so the caller is told
-	 * rather than stopped.
-	 */
-	async touchGesture(steps: readonly TouchStep[]): Promise<void> {
-		await this.ready();
-		for (const step of steps) {
-			await this.cdp.send("Input.dispatchTouchEvent", {
-				type: step.type,
-				touchPoints: step.points.map((point) => ({
-					x: point.x,
-					y: point.y,
-					id: point.id,
-				})),
-			});
-			if (step.pauseMs) {
-				await new Promise((resolve) => setTimeout(resolve, step.pauseMs));
-			}
-		}
+	/** Dispatch a composed touch gesture. */
+	touchGesture(steps: readonly TouchStep[]): Promise<void> {
+		return this.parts.acting.touchGesture(steps);
 	}
 
-	/**
-	 * Walk the page with the Tab key and report what happened.
-	 *
-	 * This is one of the two reads that deliberately change the
-	 * page, since there is no way to learn where focus goes
-	 * without moving it. Focus is put back afterwards and the
-	 * result says so.
-	 *
-	 * The walk runs to twice the number of focusable things plus a
-	 * little, which is enough for a healthy page to come round
-	 * twice and for a trap to show its cycle. Stopping sooner
-	 * would report a trap as a short page.
-	 */
-	async keyboardWalk(maxStops?: number): Promise<WalkCapture> {
-		await this.ready();
-
-		// Remember where the caller's focus and viewport were before
-		// disturbing either, so the page can be handed back as found.
-		await this.evaluateJson(WALK_REMEMBER);
-
-		// Start from the top of the document so the first Tab lands
-		// where a reader arriving at the page would land, not
-		// wherever something happened to leave focus.
-		//
-		// This has to happen before the resting styles are collected,
-		// not after. A dialog opened with showModal focuses its first
-		// control, so collecting first recorded that control's focused
-		// appearance as its resting one, and comparing the two later
-		// found no difference and reported a perfectly visible focus
-		// ring as missing.
-		await this.page.evaluate(() => {
-			if (document.activeElement instanceof HTMLElement) {
-				document.activeElement.blur();
-			}
-		});
-
-		const collected = await this.evaluateJson<{
-			candidates: WalkCandidate[];
-			unreachable: Unreachable[];
-		}>(WALK_COLLECT);
-
-		// The ceiling belongs to the default, not to the caller. It
-		// used to apply to both, so a page with more controls than
-		// the ceiling could not be walked to the end by any argument,
-		// while the report that ran out of budget told the caller to
-		// raise maxStops and walk the rest. Every larger number gave
-		// the same four hundred stops and the same advice again.
-		const cap =
-			maxStops ??
-			Math.min(collected.candidates.length * 2 + WALK_SLACK, MAX_WALK_STOPS);
-
-		const stops: WalkStop[] = [];
-		for (let step = 0; step < cap; step += 1) {
-			await this.page.keyboard.press("Tab");
-			const stop = await this.evaluateJson<WalkStop & { focused: unknown }>(
-				WALK_READ,
-			);
-			if (stop.focused === null) {
-				stops.push({ ...stop, focused: BLANK_STYLE });
-				continue;
-			}
-			stops.push(stop as WalkStop);
-		}
-
-		// If the walk ended stuck somewhere smaller than the page,
-		// find out whether a keyboard user has any way back. That is
-		// the difference between a modal and a dead end.
-		//
-		// The test used to be "any index repeats in the last four
-		// stops", which every page whose tab cycle is three stops or
-		// shorter satisfies on a healthy run, so Escape was pressed on
-		// ordinary login forms. A page is only worth probing when the
-		// loop it settled into is smaller than the set of things it
-		// could have reached.
-		let escapeFreed: boolean | undefined;
-		const tail = stops.slice(-WALK_STUCK_SAMPLE).map((stop) => stop.index);
-		const reached = new Set(
-			stops.map((stop) => stop.index).filter((index) => index >= 0),
-		);
-		const loopedSmall =
-			tail.length > 0 &&
-			new Set(tail).size < tail.length &&
-			reached.size < collected.candidates.length;
-		if (loopedSmall) {
-			const before = tail.at(-1);
-			await this.page.keyboard.press("Escape");
-			await this.page.keyboard.press("Tab");
-			const after = await this.evaluateJson<WalkStop>(WALK_READ);
-			escapeFreed = after.index !== before && !tail.includes(after.index);
-		}
-
-		await this.evaluateJson(WALK_RESTORE);
-
-		// A walk that used its whole budget has not necessarily seen
-		// the page. Saying so is what stops everything it did not
-		// reach being reported as unreachable.
-		const exhausted =
-			stops.length >= cap && reached.size < collected.candidates.length;
-
-		return {
-			candidates: collected.candidates,
-			stops,
-			unreachable: collected.unreachable,
-			...(escapeFreed === undefined ? {} : { escapeFreed }),
-			...(exhausted ? { cappedAt: cap } : {}),
-			// Which way the page reads has to come from the page. The
-			// side-by-side order that is wrong in English is correct in
-			// Arabic, and guessing left-to-right would report every
-			// right-to-left toolbar as backwards.
-			direction: await this.readingDirection(),
-		};
+	/** Walk the page with the Tab key (session/focus.ts). */
+	keyboardWalk(maxStops?: number): Promise<WalkCapture> {
+		return this.parts.focus.keyboardWalk(maxStops);
 	}
 
-	/** Which way the document says it reads. */
-	private async readingDirection(): Promise<"ltr" | "rtl"> {
-		try {
-			const reads = await this.page.evaluate(
-				() => getComputedStyle(document.documentElement).direction,
-			);
-			return reads === "rtl" ? "rtl" : "ltr";
-		} catch {
-			// Left-to-right is the safe default: it is what most pages
-			// are, and being wrong here only costs a finding nobody
-			// asked for rather than a missed barrier.
-			return "ltr";
-		}
+	/** What holds focus at this moment, moving nothing. */
+	focusHolder(): Promise<FocusHolder | undefined> {
+		return this.parts.focus.focusHolder();
 	}
 
-	/**
-	 * The whole page flattened, frames and shadow content
-	 * included.
-	 *
-	 * The style properties have to be named up front because the
-	 * protocol returns their values as a bare array positioned
-	 * against the request. Asking for a handful keeps the snapshot
-	 * small; asking for none still gives geometry and structure.
-	 */
-	async snapshot(
-		styleProperties: readonly string[] = SNAPSHOT_STYLES,
+	/** The whole page flattened (session/probes.ts). */
+	snapshot(
+		styleProperties?: readonly string[],
 	): Promise<readonly IndexedNode[]> {
-		await this.ready();
-		const raw = await this.cdp.send("DOMSnapshot.captureSnapshot", {
-			computedStyles: [...styleProperties],
-			includeDOMRects: true,
-		});
-		return flattenSnapshot(raw as unknown as RawSnapshot, styleProperties);
+		return this.parts.probes.snapshot(styleProperties);
 	}
 
-	/**
-	 * Run an expression in the page and describe what came back.
-	 *
-	 * The value is serialized inside the page rather than by the
-	 * protocol, because the protocol does not decline politely: a
-	 * circular object rejects the whole call with "object
-	 * reference chain is too long", losing the evaluation and any
-	 * account of it together.
-	 *
-	 * The protocol can still fail for its own reasons, so that is
-	 * caught too and returned as a refusal rather than thrown. An
-	 * expression that kills the session is not a useful tool.
-	 */
-	async evaluate(expression: string): Promise<EvalOutcome> {
-		await this.ready();
-		try {
-			const response = await this.cdp.send("Runtime.evaluate", {
-				expression: evaluationSource(expression),
-				returnByValue: true,
-				awaitPromise: true,
-				userGesture: true,
-			});
-			if (response.exceptionDetails) {
-				const threw = describeThrow(response.exceptionDetails);
-				return {
-					ok: false,
-					threw: {
-						...threw,
-						frames: await this.resolveFrames(threw.frames),
-					},
-				};
-			}
-			const value = response.result.value as EvalValue | undefined;
-			if (!value) {
-				return {
-					ok: false,
-					refused: "The page returned nothing the serializer could read.",
-				};
-			}
-			return { ok: true, result: value };
-		} catch (error) {
-			return {
-				ok: false,
-				refused:
-					"The browser refused to run that: " +
-					`${error instanceof Error ? error.message : String(error)}`,
-			};
-		}
+	/** Run an expression in the page and describe what came back. */
+	evaluate(expression: string): Promise<EvalOutcome> {
+		return this.parts.probes.evaluate(expression);
 	}
 
-	/**
-	 * Run axe-core against the page and read back its findings.
-	 *
-	 * axe is injected fresh on every call rather than kept across
-	 * navigations. It is half a megabyte, but a navigation clears
-	 * the world, and an audit that silently reported nothing
-	 * because the library went away with the last page would be
-	 * worse than a slow one.
-	 *
-	 * Only violations and incomplete results are asked for. Passes
-	 * and inapplicable rules together outweigh them by an order of
-	 * magnitude and answer a question nobody asks.
-	 *
-	 * The experimental rules are switched on. axe leaves them off,
-	 * and five of them carry real WCAG criteria, so leaving them
-	 * off means 2.5.3 (label in name) is never checked and 1.3.1
-	 * is checked less thoroughly than it looks. An accessibility
-	 * reviewer reported label in name as missing, and it was, in
-	 * the sense that matters: the rule sat in the bundle unused.
-	 * Their findings are reported as needing a person rather than
-	 * as failures, since axe's own doubt travels with them.
-	 */
-	async audit(bar: ConformanceBar = "AAA"): Promise<readonly A11yFinding[]> {
-		await this.ready();
-		const source = await readFile(axeSource(), "utf8");
-		await this.cdp.send("Runtime.evaluate", { expression: source });
-		const response = await this.cdp.send("Runtime.evaluate", {
-			expression:
-				"axe.run(document, { " +
-				'resultTypes: ["violations", "incomplete"], ' +
-				`rules: ${JSON.stringify(enabledRules(bar))} })`,
-			awaitPromise: true,
-			returnByValue: true,
-		});
-		if (response.exceptionDetails) {
-			const threw = describeThrow(response.exceptionDetails);
-			throw new Error(`axe could not run: ${threw.message}`);
-		}
-		return readAxeRun((response.result.value ?? {}) as RawAxeRun);
+	/** Run axe-core against the page and read back its findings. */
+	audit(bar: ConformanceBar = "AAA"): Promise<readonly A11yFinding[]> {
+		return this.parts.probes.audit(bar);
 	}
 
-	/**
-	 * The page as the structural rules need to see it.
-	 *
-	 * Two accounts from the browser, joined on the backend node id
-	 * they share: the snapshot for attributes and layout, the
-	 * accessibility tree for roles and names. Neither carries
-	 * both, and every structural rule needs both.
-	 */
-	/**
-	 * What holds focus at this moment, moving nothing.
-	 *
-	 * The keyboard walk answers what a whole page does; this answers
-	 * where focus is right now, which is the question between
-	 * actions. It reads rather than presses, so it can be asked after
-	 * a click or a navigation without disturbing what it reports.
-	 */
-	async focusHolder(): Promise<FocusHolder | undefined> {
-		await this.ready();
-		const { result } = await this.cdp.send("Runtime.evaluate", {
-			expression: FOCUS_PROBE,
-			returnByValue: true,
-		});
-		return result.value as FocusHolder | undefined;
+	/** What the page keeps doing when asked to hold still. */
+	motionUnderReduce(): Promise<MotionCapture> {
+		return this.parts.probes.motionUnderReduce();
 	}
 
-	/**
-	 * What the page keeps doing when asked to hold still.
-	 *
-	 * Emulates prefers-reduced-motion: reduce, reloads so the page
-	 * decides its motion under the preference rather than being
-	 * caught mid-flight, reads what is still moving, then puts the
-	 * emulation back exactly as it was. The reload matters: a page
-	 * picks most of its motion at load, so flipping the preference
-	 * on a settled page measures its reaction to a change, not its
-	 * behaviour for a visitor who arrived with the preference set.
-	 */
-	async motionUnderReduce(): Promise<MotionCapture> {
-		await this.ready();
-		const before = this.emulation.asked;
-		try {
-			await this.emulation.change({ reducedMotion: true });
-			await this.reload();
-			const response = await this.cdp.send("Runtime.evaluate", {
-				expression: MOTION_CAPTURE,
-				returnByValue: true,
-			});
-			if (response.exceptionDetails) {
-				const threw = describeThrow(response.exceptionDetails);
-				throw new Error(`Could not read the motion: ${threw.message}`);
-			}
-			return response.result.value as MotionCapture;
-		} finally {
-			// Wholesale, not merged: a merge cannot clear the reduce
-			// this added when the session had no opinion before.
-			await this.emulation.restore(before);
-		}
+	/** The page as the structural rules need to see it. */
+	structure(): Promise<readonly StructureNode[]> {
+		return this.parts.probes.structure();
 	}
 
-	async structure(): Promise<readonly StructureNode[]> {
-		// Every sibling read waits out a crash recovery first, and
-		// this one did not. Promise.all evaluates this.cdp.send when
-		// the array is built, so a call landing during recovery sent
-		// getFullAXTree down the channel recover() was replacing.
-		await this.ready();
-		const [nodes, tree] = await Promise.all([
-			this.snapshot(),
-			this.cdp.send("Accessibility.getFullAXTree") as Promise<{
-				nodes: RawAxNode[];
-			}>,
-		]);
-		const facts: AxFacts[] = [];
-		for (const axNode of tree.nodes) {
-			if (axNode.backendDOMNodeId === undefined) continue;
-			const focusable = axNode.properties?.find(
-				(property) => property.name === "focusable",
-			);
-			facts.push({
-				backendNodeId: axNode.backendDOMNodeId,
-				...(axNode.role?.value === undefined
-					? {}
-					: { role: axNode.role.value }),
-				...(axNode.name?.value === undefined
-					? {}
-					: { name: axNode.name.value }),
-				// Left absent when the tree did not say, rather than
-				// flattened to false. An ignored node carries no
-				// properties at all, and reporting that as "cannot take
-				// focus" is how the hidden-but-focusable rule ended up
-				// unable to see its own subject.
-				...(focusable === undefined
-					? {}
-					: { focusable: focusable.value?.value === true }),
-			});
-		}
-		return buildStructure(nodes, facts);
+	/** Every pointer target on the page, sized for WCAG 2.5.8. */
+	targets(): Promise<readonly CapturedTarget[]> {
+		return this.parts.probes.targets();
 	}
 
-	/**
-	 * What the layout actually did, as the browser measured it.
-	 *
-	 * Read in one page-side pass rather than a protocol call per
-	 * element: a page of any size would otherwise cost thousands
-	 * of round trips to answer one question.
-	 */
-	/**
-	 * Every pointer target on the page, with the facts WCAG 2.5.8
-	 * needs to judge its size.
-	 *
-	 * Separate from layout() because the two ask different
-	 * questions: layout wants everything drawn, this wants only
-	 * what a finger has to hit, plus the two exceptions the
-	 * criterion turns on.
-	 */
-	async targets(): Promise<readonly CapturedTarget[]> {
-		await this.ready();
-		const response = await this.cdp.send("Runtime.evaluate", {
-			expression: TARGET_CAPTURE,
-			returnByValue: true,
-		});
-		if (response.exceptionDetails) {
-			const threw = describeThrow(response.exceptionDetails);
-			throw new Error(`Could not measure the targets: ${threw.message}`);
-		}
-		return response.result.value as readonly CapturedTarget[];
+	/** Both renders of the page: the server's and hydration's. */
+	hydration(): Promise<HydrationCapture> {
+		return this.parts.probes.hydration();
 	}
 
-	/**
-	 * Both renders of the current page: what the server sends and
-	 * what hydration made of it.
-	 *
-	 * The server render is fetched from inside the page, so it
-	 * travels with the session's cookies, and parsed without
-	 * running a script. Judging the capture is the hydration
-	 * subdomain's job; pair it with logs() so the framework's own
-	 * complaints are read beside the comparison.
-	 */
-	async hydration(): Promise<HydrationCapture> {
-		await this.ready();
-		const response = await this.cdp.send("Runtime.evaluate", {
-			expression: HYDRATION_CAPTURE,
-			awaitPromise: true,
-			returnByValue: true,
-		});
-		if (response.exceptionDetails) {
-			const threw = describeThrow(response.exceptionDetails);
-			throw new Error(`Could not read the renders: ${threw.message}`);
-		}
-		return response.result.value as HydrationCapture;
+	/** How the page's text blocks wrap, from real line boxes. */
+	typography(): Promise<readonly TextBlock[]> {
+		return this.parts.probes.typography();
 	}
 
-	/**
-	 * How the page's text blocks wrap, measured from real line
-	 * boxes rather than estimated from fonts.
-	 */
-	async typography(): Promise<readonly TextBlock[]> {
-		await this.ready();
-		const response = await this.cdp.send("Runtime.evaluate", {
-			expression: TYPOGRAPHY_CAPTURE,
-			returnByValue: true,
-		});
-		if (response.exceptionDetails) {
-			const threw = describeThrow(response.exceptionDetails);
-			throw new Error(`Could not measure the text: ${threw.message}`);
-		}
-		return response.result.value as readonly TextBlock[];
-	}
-
-	async layout(): Promise<{
+	/** What the layout actually did, as the browser measured it. */
+	layout(): Promise<{
 		readonly nodes: readonly VisualNode[];
 		readonly viewport: PageBox;
 	}> {
-		await this.ready();
-		const response = await this.cdp.send("Runtime.evaluate", {
-			expression: visualCaptureSource(),
-			returnByValue: true,
-		});
-		if (response.exceptionDetails) {
-			const threw = describeThrow(response.exceptionDetails);
-			throw new Error(`Could not read the layout: ${threw.message}`);
-		}
-		return response.result.value as {
-			nodes: readonly VisualNode[];
-			viewport: PageBox;
-		};
+		return this.parts.probes.layout();
 	}
 
-	/**
-	 * What the page is built from, sampled element by element.
-	 *
-	 * Read in one page-side pass, and filtered there rather than
-	 * here: an inherited value is not a decision, and carrying
-	 * every element's inherited colour back only to discard it
-	 * would be most of the payload.
-	 */
-	async styleSamples(): Promise<readonly StyleSample[]> {
-		await this.ready();
-		const response = await this.cdp.send("Runtime.evaluate", {
-			expression: inventorySource(),
-			returnByValue: true,
-		});
-		if (response.exceptionDetails) {
-			const threw = describeThrow(response.exceptionDetails);
-			throw new Error(`Could not sample the styles: ${threw.message}`);
-		}
-		return (response.result.value ?? []) as readonly StyleSample[];
-	}
-
-	/**
-	 * Install the performance observers ahead of every page.
-	 *
-	 * Largest contentful paint and layout shift are events rather
-	 * than state, so an observer registered after a page loads has
-	 * missed them. The buffered flag recovers the timings but not
-	 * the element that painted or the nodes that moved, which is
-	 * the half worth having, so this goes in through the hook that
-	 * runs before the document does.
-	 */
-	private async watchVitals(): Promise<void> {
-		await this.cdp.send("Page.addScriptToEvaluateOnNewDocument", {
-			source: observerBootstrap(),
-		});
+	/** What the page is built from, sampled element by element. */
+	styleSamples(): Promise<readonly StyleSample[]> {
+		return this.parts.probes.styleSamples();
 	}
 
 	/** What the current page cost to show. */
-	async vitals(): Promise<Vitals> {
-		await this.ready();
-		const response = await this.cdp.send("Runtime.evaluate", {
-			expression: readVitalsSource(),
-			returnByValue: true,
-		});
-		if (response.exceptionDetails) {
-			const threw = describeThrow(response.exceptionDetails);
-			return { shifts: [], longTasks: [], paints: {}, error: threw.message };
-		}
-		return response.result.value as Vitals;
-	}
-
-	/** Run a page-side source string and read back its value. */
-	private async evaluateJson<T>(source: string): Promise<T> {
-		const { result } = await this.cdp.send("Runtime.evaluate", {
-			expression: source,
-			returnByValue: true,
-		});
-		return result.value as T;
+	vitals(): Promise<Vitals> {
+		return this.parts.probes.vitals();
 	}
 
 	/** Whether the page believes it is being touched. */
 	get touchEmulated(): boolean {
-		return this.emulation.touch;
+		return this.parts.emulation.touch;
 	}
 
-	/**
-	 * Wait for the page to reach a state, and say what happened.
-	 *
-	 * The timeout is a real answer rather than an error. A page
-	 * that never reaches the state is the finding, so the outcome
-	 * carries what was true instead.
-	 */
-	async waitFor(
-		condition: WaitCondition,
-		timeoutMs: number = DEFAULT_WAIT_MS,
-	): Promise<WaitOutcome> {
-		await this.ready();
-		const startedAt = Date.now();
-		const waited = () => Date.now() - startedAt;
-
-		if (condition.kind === "duration") {
-			await new Promise((resolve) => setTimeout(resolve, condition.ms));
-			return { met: true, waitedMs: waited(), condition };
-		}
-
-		// Where the request log stood when the wait began. Waiting
-		// for a request used to search the whole session's log, which
-		// is never cleared, so the second lap of an observe-act-wait
-		// loop was satisfied instantly by the previous lap's response
-		// and reported its old status. That is a green wait in the
-		// log hiding a race, which is the most expensive shape of
-		// test defect to chase.
-		const since = this.telemetry.protocolNow();
-
-		while (waited() < timeoutMs) {
-			const reached = await this.check(condition, since);
-			if (reached.met) {
-				return {
-					met: true,
-					waitedMs: waited(),
-					condition,
-					...(reached.detail === undefined ? {} : { detail: reached.detail }),
-				};
-			}
-			await new Promise((resolve) => setTimeout(resolve, WAIT_POLL_MS));
-		}
-
-		const missed = await this.check(condition);
-		return {
-			met: false,
-			waitedMs: waited(),
-			condition,
-			...(missed.saw === undefined ? {} : { saw: missed.saw }),
-		};
-	}
-
-	/** Look once: is the condition true right now? */
-	private async check(
-		condition: WaitCondition,
-		/**
-		 * Protocol time the wait began. A request that finished
-		 * before this belongs to an earlier lap and cannot satisfy
-		 * the condition.
-		 */
-		since?: number,
-	): Promise<{ met: boolean; detail?: string; saw?: string }> {
-		switch (condition.kind) {
-			case "selector":
-			case "gone": {
-				// A probe that could not run is not an absent element. A
-				// detached frame or a dead renderer used to come back as
-				// null, which satisfied kind "gone" outright, so the wait
-				// succeeded precisely when the page was broken and the
-				// real failure surfaced several calls later.
-				let found: ElementHandle | null;
-				try {
-					found = await this.page.$(condition.selector);
-				} catch (error) {
-					return {
-						met: false,
-						saw: `The page could not be asked: ${String(error)}`,
-					};
-				}
-				const present = found !== null;
-				if (found) await found.dispose();
-				const met = condition.kind === "selector" ? present : !present;
-				return {
-					met,
-					...(met
-						? {}
-						: {
-								saw: present
-									? "It is still there."
-									: "Nothing matches that selector.",
-							}),
-				};
-			}
-			case "text": {
-				const has = await this.page
-					.evaluate(
-						(needle: string) =>
-							(document.body?.innerText ?? "").includes(needle),
-						condition.text,
-					)
-					.catch(() => false);
-				return {
-					met: has,
-					...(has ? {} : { saw: "The page does not contain it." }),
-				};
-			}
-			case "idle": {
-				const requests = this.requests();
-				const met = isIdle(
-					requests,
-					condition.quietMs,
-					this.telemetry.protocolNow(),
-				);
-				const busy = inFlight(requests);
-				return {
-					met,
-					...(met
-						? {}
-						: {
-								saw:
-									busy.length > 0
-										? `${busy.length} still in flight, including ` +
-											`${busy[0]?.url}.`
-										: "The page keeps starting new requests.",
-							}),
-				};
-			}
-			case "request": {
-				const fresh = this.requests().filter(
-					(request) => since === undefined || request.startedAt >= since,
-				);
-				const matched = fresh.filter(
-					(request) =>
-						matchesPattern({
-							pattern: condition.pattern,
-							url: request.url,
-						}) && request.state !== "pending",
-				);
-				const last = matched.at(-1);
-				if (!last) {
-					const pending = fresh.filter((request) =>
-						matchesPattern({
-							pattern: condition.pattern,
-							url: request.url,
-						}),
-					);
-					return {
-						met: false,
-						saw:
-							pending.length > 0
-								? `${pending.length} matching, none finished yet.`
-								: "Nothing has requested it.",
-					};
-				}
-				if (
-					condition.status !== undefined &&
-					last.status !== condition.status
-				) {
-					// Keep waiting rather than declaring the condition met.
-					// A retry may still answer with the status asked for, and
-					// if none does, the timeout reports the status that kept
-					// arriving, which is the finding.
-					return {
-						met: false,
-						saw: `${last.method} ${last.url} answered ${requestStatus(last)}.`,
-					};
-				}
-				return {
-					met: true,
-					// A cancelled request usually carries no failure text,
-					// and printing the field raw said "cancelled: undefined"
-					// to someone waiting on a request that never arrived.
-					detail:
-						last.state === "complete"
-							? `${last.method} ${last.url} answered ${requestStatus(last)}.`
-							: `${last.method} ${last.url} ${requestStatus(last)}.`,
-				};
-			}
-			case "attribute": {
-				// Read through one evaluate rather than a handle, so an
-				// element replaced between finding it and reading it is
-				// simply absent on the next poll instead of throwing on a
-				// stale handle.
-				let held: string | null | undefined;
-				try {
-					held = await this.page.evaluate(
-						(selector: string, attribute: string) => {
-							const found = document.querySelector(selector);
-							if (found === null) return undefined;
-							return found.getAttribute(attribute);
-						},
-						condition.selector,
-						condition.attribute,
-					);
-				} catch (error) {
-					return {
-						met: false,
-						saw: `The page could not be asked: ${String(error)}`,
-					};
-				}
-
-				if (held === undefined) {
-					// Absent element and absent attribute are different
-					// answers. Treating the first as "attribute is gone"
-					// would satisfy a wait for a control that never rendered.
-					return { met: false, saw: "Nothing matches that selector." };
-				}
-
-				const met =
-					condition.value === undefined
-						? held === null
-						: held === condition.value;
-				return {
-					met,
-					...(met
-						? {}
-						: {
-								saw:
-									held === null
-										? `It has no ${condition.attribute}.`
-										: `Its ${condition.attribute} is "${held}".`,
-							}),
-				};
-			}
-			case "count": {
-				let seen: number;
-				try {
-					seen = await this.page.evaluate(
-						(selector: string) => document.querySelectorAll(selector).length,
-						condition.selector,
-					);
-				} catch (error) {
-					return {
-						met: false,
-						saw: `The page could not be asked: ${String(error)}`,
-					};
-				}
-				const met = seen === condition.count;
-				return {
-					met,
-					...(met ? {} : { saw: `There are ${seen}.` }),
-				};
-			}
-			case "animations": {
-				// Catching to zero declared the animations settled
-				// whenever the probe itself failed, which is the same
-				// false pass as the selector arm above.
-				let running: number;
-				try {
-					running = await this.page.evaluate(
-						() =>
-							document
-								.getAnimations()
-								.filter((animation) => animation.playState === "running")
-								.length,
-					);
-				} catch (error) {
-					return {
-						met: false,
-						saw: `The page could not be asked: ${String(error)}`,
-					};
-				}
-				return {
-					met: running === 0,
-					...(running === 0
-						? {}
-						: { saw: `${running} animations are still running.` }),
-				};
-			}
-			case "duration":
-				return { met: true };
-		}
+	/** Wait for the page to reach a state (session/waiting.ts). */
+	waitFor(condition: WaitCondition, timeoutMs?: number): Promise<WaitOutcome> {
+		return this.parts.waiting.waitFor(condition, timeoutMs);
 	}
 
 	/**
@@ -2511,23 +657,23 @@ export class BrowserSession {
 	 * those readings, so they are gathered here.
 	 */
 	async status(): Promise<SessionStatus> {
-		await this.ready();
+		await this.parts.tab.ready();
 		const logs = this.logs();
 		const heard = await this.heard(0);
 		const requests = this.requests();
-		const gaps = await this.emulation.currentGaps();
+		const gaps = await this.parts.emulation.currentGaps();
 		return {
 			name: this.name,
 			url: this.page.url(),
 			title: await this.page.title().catch(() => ""),
-			emulation: this.emulation.asked,
+			emulation: this.parts.emulation.asked,
 			...(gaps.length === 0 ? {} : { gaps }),
-			rules: this.shaper.current.rules,
-			...(this.shaper.current.throttle === undefined
+			rules: this.parts.shaper.current.rules,
+			...(this.parts.shaper.current.throttle === undefined
 				? {}
-				: { throttle: this.shaper.current.throttle }),
-			dialogPolicy: this.telemetry.dialogs.policy,
-			dialogsSeen: this.telemetry.dialogs.seen.length,
+				: { throttle: this.parts.shaper.current.throttle }),
+			dialogPolicy: this.parts.telemetry.dialogs.policy,
+			dialogsSeen: this.parts.telemetry.dialogs.seen.length,
 			logs: { count: logs.entries.length, cursor: logs.cursor },
 			announcements: { count: heard.entries.length, cursor: heard.cursor },
 			requests: {
@@ -2535,7 +681,7 @@ export class BrowserSession {
 				failed: requests.filter((request) => request.state === "failed").length,
 			},
 			history: this.history,
-			artifacts: this.artifacts.written,
+			artifacts: this.parts.artifacts.written,
 			recording: describeRecording(recordingInProgress(), this.name),
 		};
 	}
@@ -2545,7 +691,7 @@ export class BrowserSession {
 		rules: readonly NetworkRule[];
 		throttle: ThrottleConditions | undefined;
 	} {
-		return this.shaper.current;
+		return this.parts.shaper.current;
 	}
 
 	/**
@@ -2557,7 +703,7 @@ export class BrowserSession {
 		cursor: number;
 		dropped: number;
 	}> {
-		return this.telemetry.heard(since);
+		return this.parts.telemetry.heard(since);
 	}
 
 	/** Close the tab and the context holding its state. */
@@ -2574,391 +720,21 @@ export class BrowserSession {
 		await holdWhile(() => this.context.close());
 	}
 
-	/**
-	 * Everything worth knowing about one element.
-	 *
-	 * Each fact is asked of the browser rather than worked out
-	 * here: the box from the layout engine, the occluder from a
-	 * hit test, the styles from the cascade, the announcement from
-	 * the accessibility tree.
-	 */
-	async inspect(
+	/** Everything worth knowing about one element. */
+	inspect(
 		target: Target,
 		options: InspectOptions = {},
 	): Promise<InspectResult> {
-		const tree = await this.axTree();
-		const resolution = resolveTarget(tree, target);
-		if (resolution.kind === "notFound") {
-			return { ok: false, refusal: notFoundRefusal(tree, target) };
-		}
-		if (resolution.kind === "ambiguous") {
-			return { ok: false, refusal: ambiguityRefusal(tree, target) };
-		}
-
-		const node = subtreeAt(tree, resolution.backendDomId) ?? tree;
-		const objectId = await this.objectFor(resolution.backendDomId);
-		try {
-			return {
-				ok: true,
-				inspection: await this.inspectNode(
-					resolution.backendDomId,
-					objectId,
-					node,
-					options,
-				),
-			};
-		} finally {
-			await this.release(objectId);
-		}
+		return this.parts.inspector.inspect(target, options);
 	}
 
-	/**
-	 * Which fonts the browser actually painted with.
-	 *
-	 * A computed style reports the stack that was asked for, not
-	 * what was used. "SF Pro, Helvetica, sans-serif" reads the same
-	 * whether the first one loaded or the page quietly fell back to
-	 * the third, which is most of the answer to why a screenshot
-	 * from one machine does not match another.
-	 */
-	private async fontsOf(
-		backendNodeId: number,
-	): Promise<readonly RenderedFont[] | undefined> {
-		const nodeId = await this.frontendNodeFor(backendNodeId);
-		if (nodeId === undefined) return undefined;
-		try {
-			const { fonts } = await this.cdp.send("CSS.getPlatformFontsForNode", {
-				nodeId,
-			});
-			if (fonts.length === 0) return undefined;
-			return fonts.map((font) => ({
-				family: font.familyName,
-				glyphs: font.glyphCount,
-			}));
-		} catch {
-			// An element with no text has no fonts, and a detached one
-			// cannot be asked. Neither is worth failing an inspection.
-			return undefined;
-		}
+	/** Photograph the page, or one element (session/camera.ts). */
+	shoot(options: ShotOptions = {}): Promise<ShotResult> {
+		return this.parts.camera.shoot(options);
 	}
 
-	/**
-	 * The element's own words, and the attributes it carries.
-	 *
-	 * The accessible name answers what a control is called, which
-	 * is a different question from what it says. A counter reading
-	 * "42", a status reading "3 items updated" and an input holding
-	 * a typed email all have names that say none of that, so
-	 * asserting on them meant dropping to a raw evaluate. Data
-	 * attributes are here for the same reason: teams hang test
-	 * state on them, and the accessibility tree cannot see them.
-	 */
-	private async contentOf(objectId: string): Promise<
-		| {
-				text?: string;
-				value?: string;
-				attributes?: Readonly<Record<string, string>>;
-		  }
-		| undefined
-	> {
-		try {
-			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
-				objectId,
-				returnByValue: true,
-				functionDeclaration: CONTENT_PROBE,
-			});
-			const read = result.value as
-				| { text: string; value?: string; attributes: [string, string][] }
-				| undefined;
-			if (read === undefined) return undefined;
-			return {
-				...(read.text === "" ? {} : { text: read.text }),
-				...(read.value === undefined ? {} : { value: read.value }),
-				...(read.attributes.length === 0
-					? {}
-					: { attributes: Object.fromEntries(read.attributes) }),
-			};
-		} catch {
-			// A detached node cannot be read, and an inspection that
-			// reports everything else is worth more than a refusal.
-			return undefined;
-		}
-	}
-
-	/**
-	 * A handle on the element inside this session.
-	 *
-	 * Object identifiers belong to the protocol session that
-	 * minted them, so puppeteer's own handles are unusable here.
-	 * A backend node id is the identity both sides agree on.
-	 */
-	private async objectFor(backendNodeId: number): Promise<string | undefined> {
-		try {
-			const { object } = await this.cdp.send("DOM.resolveNode", {
-				backendNodeId,
-			});
-			return object.objectId;
-		} catch {
-			// The node can go out of the document between being named
-			// and being looked at; the inspection reports what it can.
-			return undefined;
-		}
-	}
-
-	/**
-	 * Swap a text node for the element that paints it.
-	 *
-	 * A `StaticText` target resolves to a text node, which is right
-	 * for reading its box and wrong for everything that touches
-	 * style. Returns the original handle when it is already an
-	 * element, so callers can promote unconditionally.
-	 */
-	private async paintingElement(objectId: string): Promise<string> {
-		try {
-			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
-				objectId,
-				functionDeclaration: PAINTING_ELEMENT_PROBE,
-			});
-			return result.objectId ?? objectId;
-		} catch {
-			// A detached node has no painting element either, and the
-			// caller's own reads will report what it could not find.
-			return objectId;
-		}
-	}
-
-	/** Let go of a handle, whether or not the page still has it. */
-	private async release(objectId: string | undefined): Promise<void> {
-		if (!objectId) return;
-		await this.cdp
-			.send("Runtime.releaseObject", { objectId })
-			// Releasing a handle the page already dropped is not a
-			// failure worth surfacing.
-			.catch(() => {});
-	}
-
-	/** Gather every fact about an element the browser will give. */
-	private async inspectNode(
-		backendNodeId: number,
-		objectId: string | undefined,
-		node: AxNode,
-		options: InspectOptions,
-	): Promise<Inspection> {
-		const box = await this.boxOf(backendNodeId);
-		const styles = objectId ? await this.stylesOf(objectId) : undefined;
-		const viewport = await this.viewport();
-		const coveredBy =
-			box && objectId ? await this.occluderOf(objectId) : undefined;
-
-		const visibility = judgeVisibility({
-			rendered: box !== undefined,
-			...(box === undefined ? {} : { border: box.border }),
-			...(viewport === undefined ? {} : { viewport }),
-			...(coveredBy === undefined ? {} : { coveredBy }),
-			...(styles?.opacity === undefined
-				? {}
-				: { opacity: Number(styles.opacity) }),
-			...(styles?.visibility === undefined
-				? {}
-				: { visibility: styles.visibility }),
-		});
-
-		const initials = await this.initials();
-		const curated =
-			styles === undefined
-				? undefined
-				: curateStyles(styles, {
-						...(initials === undefined ? {} : { initials }),
-						...(options.styles === undefined ? {} : { only: options.styles }),
-					});
-
-		const wantsBehaviour = options.behaviour === true && objectId !== undefined;
-		const variants =
-			options.states && objectId && curated
-				? await this.variantsOf(
-						backendNodeId,
-						objectId,
-						curated,
-						options.states,
-						initials,
-						options,
-					)
-				: undefined;
-
-		const content = objectId ? await this.contentOf(objectId) : undefined;
-		const fonts = await this.fontsOf(backendNodeId);
-
-		return {
-			node,
-			visibility,
-			...(content ?? {}),
-			...(fonts === undefined ? {} : { fonts }),
-			...(box === undefined ? {} : { box }),
-			...(curated === undefined ? {} : { styles: curated }),
-			...(wantsBehaviour && objectId
-				? {
-						listeners: await this.listenersOf(objectId),
-						delegated: await this.delegatedTo(objectId),
-						animations: await this.animationsOf(objectId),
-					}
-				: {}),
-			...(variants === undefined ? {} : { variants }),
-			...(options.why === undefined
-				? {}
-				: {
-						trace: await this.traceOf(backendNodeId, options.why, styles),
-					}),
-		};
-	}
-
-	/**
-	 * Photograph the page, or one element of it.
-	 *
-	 * Images never come back inline: a screenshot is far larger
-	 * than any response budget and would crowd out the reading it
-	 * was meant to illustrate. They go to the session's bundle
-	 * directory and the answer carries the paths.
-	 *
-	 * A full-page capture is tiled, because a long page makes an
-	 * image taller than a model will accept. The tiling and its
-	 * ceiling are the ones web_read already uses, so a page reads
-	 * the same either way.
-	 */
-	async shoot(options: ShotOptions = {}): Promise<ShotResult> {
-		const target = options.target;
-		let held: number | undefined;
-		try {
-			if (target) {
-				const tree = await this.axTree();
-				const resolution = resolveTarget(tree, target);
-				if (resolution.kind === "notFound") {
-					return { ok: false, refusal: notFoundRefusal(tree, target) };
-				}
-				if (resolution.kind === "ambiguous") {
-					return { ok: false, refusal: ambiguityRefusal(tree, target) };
-				}
-				held = resolution.backendDomId;
-			}
-
-			if (options.state !== undefined) {
-				await this.holdState(held, options.state);
-			}
-			return { ok: true, shot: await this.capture(held, options) };
-		} finally {
-			if (options.state !== undefined) await this.holdState(held, undefined);
-		}
-	}
-
-	/** Force or release a state for the duration of a capture. */
-	private async holdState(
-		backendNodeId: number | undefined,
-		state: PseudoState | undefined,
-	): Promise<void> {
-		if (backendNodeId === undefined) return;
-		const nodeId = await this.frontendNodeFor(backendNodeId);
-		if (nodeId === undefined) return;
-		await this.cdp
-			.send("CSS.forcePseudoState", {
-				nodeId,
-				forcedPseudoClasses: state ? [state] : [],
-			})
-			// A page that navigated took the forced state with it.
-			.catch(() => {});
-		const objectId = await this.objectFor(backendNodeId);
-		try {
-			// Photographing mid-transition catches a state part way
-			// there, which is the one thing a picture must not do.
-			if (objectId) await this.settleForcedState(objectId);
-		} finally {
-			await this.release(objectId);
-		}
-	}
-
-	/** Take the picture and write it out. */
-	private async capture(
-		backendNodeId: number | undefined,
-		options: ShotOptions,
-	): Promise<Shot> {
-		const sink = this.artifacts.sink();
-		const stamp = this.artifacts.nextShot();
-
-		const keep = (path: string): string => this.artifacts.keep(path);
-
-		if (backendNodeId !== undefined) {
-			const box = await this.boxOf(backendNodeId);
-			const clip = box?.border;
-			// The box model measures from the viewport and a screenshot
-			// clip is measured from the document, so the two agree only
-			// while the page sits at the top. Scrolled, a clip taken
-			// straight from the box lands wherever the page has moved
-			// from: a picture of the right size, of real content, of the
-			// wrong element, with nothing about it to say so.
-			const scroll = clip ? await this.scrollOffset() : undefined;
-			const data = await this.page.screenshot({
-				type: "png",
-				encoding: "base64",
-				...(clip
-					? {
-							clip: {
-								x: clip.x + (scroll?.x ?? 0),
-								y: clip.y + (scroll?.y ?? 0),
-								width: clip.width,
-								height: clip.height,
-							},
-						}
-					: {}),
-			});
-			return {
-				paths: [keep(sink.writeBinary(`element-${stamp}.png`, String(data)))],
-				truncated: false,
-				width: Math.round(clip?.width ?? 0),
-				height: Math.round(clip?.height ?? 0),
-			};
-		}
-
-		if (options.fullPage) {
-			const captured = await captureTiles(this.page);
-			return {
-				paths: captured.tiles.map((tile, index) =>
-					keep(
-						sink.writeBinary(
-							`page-${stamp}-${String(index + 1).padStart(2, "0")}.png`,
-							tile,
-						),
-					),
-				),
-				truncated: captured.truncated,
-				width: 0,
-				height: 0,
-			};
-		}
-
-		const data = await this.page.screenshot({
-			type: "png",
-			encoding: "base64",
-		});
-		const seen = await this.viewport();
-		return {
-			paths: [keep(sink.writeBinary(`viewport-${stamp}.png`, String(data)))],
-			truncated: false,
-			width: seen?.width ?? 0,
-			height: seen?.height ?? 0,
-		};
-	}
-
-	/**
-	 * Compare the page now against a baseline of it, or record
-	 * one when there is none.
-	 *
-	 * A missing baseline is not a failure. The first run of any
-	 * comparison has nothing to compare against, and refusing
-	 * would make the tool need a setup step it can perform itself.
-	 *
-	 * The elements are read after the shot rather than before, so
-	 * a region is attributed against the layout that was actually
-	 * photographed.
-	 */
-	async compareToBaseline(
+	/** Compare the page against a baseline, or record one. */
+	compareToBaseline(
 		label: string,
 		options: { readonly update?: boolean; readonly threshold?: number } = {},
 	): Promise<{
@@ -2966,879 +742,6 @@ export class BrowserSession {
 		readonly recorded?: string;
 		readonly artifacts: readonly string[];
 	}> {
-		await this.ready();
-		const safe = pathComponent(label);
-		const baselinePath = path.join(this.baselineDir(), `${safe}.png`);
-
-		const shot = Buffer.from(
-			String(await this.page.screenshot({ type: "png", encoding: "base64" })),
-			"base64",
-		);
-
-		const takenUnder = this.provenance();
-		if (options.update || !existsSync(baselinePath)) {
-			mkdirSync(path.dirname(baselinePath), {
-				recursive: true,
-				mode: DIR_MODE,
-			});
-			writeFileSync(baselinePath, shot, { mode: FILE_MODE });
-			writeFileSync(sidecarFor(baselinePath), stringify(takenUnder), {
-				mode: FILE_MODE,
-			});
-			this.artifacts.keep(baselinePath);
-			return { comparison: undefined, recorded: baselinePath, artifacts: [] };
-		}
-
-		// Refuse rather than diff two different subjects. A baseline
-		// recorded before this library stored provenance has none, and
-		// is compared as before rather than being thrown away.
-		const sidecar = sidecarFor(baselinePath);
-		const was = existsSync(sidecar)
-			? parseProvenance(readFileSync(sidecar, "utf8"))
-			: undefined;
-		const differs = was && describeDrift(was, takenUnder);
-		if (differs) {
-			return {
-				comparison: { kind: "incomparable", because: differs },
-				artifacts: [],
-			};
-		}
-
-		// The screenshot is of the viewport; the rects are in
-		// document coordinates. The two only coincide at scroll
-		// origin, and driving the page before checking it is the
-		// loop this tool teaches, so every region was attributed to
-		// whatever sat at those coordinates at the top of the page
-		// once anything had scrolled.
-		const { nodes, viewport } = await this.layout();
-		const offsetX = viewport.scrollX ?? 0;
-		const offsetY = viewport.scrollY ?? 0;
-		const placed = nodes.map((node) => ({
-			selector: node.selector,
-			rect: {
-				...node.rect,
-				x: node.rect.x - offsetX,
-				y: node.rect.y - offsetY,
-			},
-		}));
-
-		const { compareImages, readPng } = await images();
-		const { comparison, image } = compareImages(
-			readPng(readFileSync(baselinePath)),
-			readPng(shot),
-			placed,
-			{
-				...(options.threshold === undefined
-					? {}
-					: { threshold: options.threshold }),
-				scale: this.emulation.asked.viewport?.deviceScaleFactor ?? 1,
-			},
-		);
-
-		if (image === undefined) return { comparison, artifacts: [] };
-
-		// The three together, because a diff on its own shows where
-		// something changed and never what it changed from.
-		const sink = this.artifacts.sink();
-		const stamp = this.artifacts.nextShot();
-		const artifacts = [
-			sink.writeBinary(
-				`${safe}-${stamp}-baseline.png`,
-				readFileSync(baselinePath).toString("base64"),
-			),
-			sink.writeBinary(`${safe}-${stamp}-current.png`, shot.toString("base64")),
-			sink.writeBinary(`${safe}-${stamp}-diff.png`, image.toString("base64")),
-		];
-		for (const artifact of artifacts) this.artifacts.keep(artifact);
-		return { comparison, artifacts };
-	}
-
-	/**
-	 * Where this session's baselines live.
-	 *
-	 * Under the data directory, not the bundle root. This used to
-	 * sit at BUNDLE_ROOT/baselines, which the bundle reaper treats
-	 * as an ownerless directory (the name is not a pid) and deletes
-	 * once it is six hours old. Writing a baseline touches the
-	 * session subdirectory rather than its parent, so the parent's
-	 * age kept climbing and a stable set of baselines was reaped on
-	 * a timer. The next comparison then found nothing, recorded the
-	 * current page as truth and reported a warning, which is data
-	 * loss wearing a first run's clothes.
-	 *
-	 * A baseline is a durable artifact the user asked for and may
-	 * want to look at, which is what dataDir is for.
-	 */
-	private baselineDir(): string {
-		// The session name is chosen by whoever is driving. Joined raw,
-		// a name of "../../../../tmp/evil" put the baseline write at
-		// /Users/tmp/evil: the label beside it was being cleaned and
-		// this was not, which is why both now go through one rule.
-		return path.join(
-			this.options.dataRoot ?? defaultBrowserDataRoot(),
-			"baselines",
-			pathComponent(this.name),
-		);
-	}
-
-	/**
-	 * What a baseline was taken under, stored beside the image.
-	 *
-	 * Without this a comparison cannot tell a regression from a
-	 * change of subject: record on one page, navigate to another,
-	 * and the diff reports confident failures attributed to the
-	 * second page's elements. The size check alone cannot see it,
-	 * because two pages at one viewport are the same size.
-	 */
-	private provenance(): BaselineProvenance {
-		const viewport = this.emulation.asked.viewport;
-		return {
-			url: this.url,
-			...(viewport?.width === undefined ? {} : { width: viewport.width }),
-			...(viewport?.height === undefined ? {} : { height: viewport.height }),
-			deviceScaleFactor: viewport?.deviceScaleFactor ?? 1,
-		};
-	}
-
-	/** Carry out an action against an element judged ready. */
-	private async perform(
-		action: TargetedAction,
-		element: ElementHandle | undefined,
-		backendNodeId: number,
-	): Promise<void> {
-		if (action.kind === "upload") {
-			// Set through our own protocol channel against the node the
-			// outline resolved. The driver's aria selector does not
-			// offer a node it considers hidden, and a hidden input is
-			// the ordinary shape of an upload, so there is no handle to
-			// hold here and none is needed.
-			const objectId = await this.objectFor(backendNodeId);
-			if (!objectId) return;
-			try {
-				await this.cdp.send("DOM.setFileInputFiles", {
-					objectId,
-					files: [...action.files],
-				});
-			} finally {
-				await this.release(objectId);
-			}
-			return;
-		}
-		if (!element) return;
-		switch (action.kind) {
-			case "click":
-				await element.click();
-				return;
-			case "type":
-				await element.type(action.text);
-				return;
-			case "hover":
-				await element.hover();
-				return;
-			case "focus":
-				await element.focus();
-				return;
-			case "select":
-				await element.select(action.text);
-				return;
-			case "scrollTo":
-				await element.scrollIntoView();
-				return;
-			case "clear": {
-				// Select what is there and delete it, so the page sees
-				// the same input and change events it would from a
-				// person at a keyboard. The field is asked to select
-				// itself rather than triple clicked, so clearing works
-				// under an overlay, and rather than sending a select-all
-				// shortcut, so there is no platform to guess at.
-				await element.focus();
-				// Resolved through our own session: an identifier minted
-				// by puppeteer's connection means nothing on this one.
-				const objectId = await this.objectFor(backendNodeId);
-				try {
-					if (objectId) {
-						await this.cdp.send("Runtime.callFunctionOn", {
-							objectId,
-							functionDeclaration: SELECT_TEXT_PROBE,
-							returnByValue: true,
-						});
-					}
-				} finally {
-					await this.release(objectId);
-				}
-				await this.page.keyboard.press("Backspace");
-				return;
-			}
-		}
-	}
-
-	/**
-	 * Wait until an element can actually be acted on.
-	 *
-	 * A click on an element that is not ready does nothing and
-	 * says nothing, leaving a caller believing the page was acted
-	 * on. So readiness is established first, and when the budget
-	 * runs out the condition still in the way is reported rather
-	 * than the action being attempted regardless.
-	 */
-	private async awaitReady(
-		target: Target,
-		pointer: boolean,
-		sight = true,
-	): Promise<
-		{ ready: true; waitedMs: number; backendDomId: number } | Blocked
-	> {
-		const started = Date.now();
-		let previous: Rect | undefined;
-		let scrolled = false;
-		let last: Actionability = {
-			ready: false,
-			blocker: "it is not in the page",
-		};
-
-		while (Date.now() - started < READY_BUDGET_MS) {
-			const look = await this.readinessOf(target, previous, pointer, sight);
-			previous = look.box;
-			last = judgeActionability(look.facts);
-			if (last.ready && look.backendDomId !== undefined) {
-				return {
-					ready: true,
-					waitedMs: Date.now() - started,
-					backendDomId: look.backendDomId,
-				};
-			}
-			// Waiting cannot bring an element into the viewport, so
-			// polling one that is merely below the fold spends the whole
-			// budget to reach the verdict it already had. Scrolling is
-			// what the caller means by acting on it, and what a person
-			// does. Once only: if it is still out of view after being
-			// scrolled to, something else is moving it and the blocker
-			// is the honest answer.
-			if (!scrolled && look.facts.visibility?.state === "off screen") {
-				scrolled = true;
-				const found = await this.resolve(target);
-				if (found.ok) {
-					await found.element.scrollIntoView();
-					await found.element.dispose();
-					previous = undefined;
-					continue;
-				}
-			}
-			await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
-		}
-		return {
-			ready: false,
-			waitedMs: Date.now() - started,
-			blocker: last.blocker ?? "it never became ready",
-		};
-	}
-
-	/** One look at whether an element is ready. */
-	private async readinessOf(
-		target: Target,
-		previous: Rect | undefined,
-		pointer: boolean,
-		sight = true,
-	): Promise<{
-		facts: ActionabilityFacts;
-		box: Rect | undefined;
-		backendDomId?: number;
-	}> {
-		const tree = await this.axTree();
-		const resolution = resolveTarget(tree, target);
-		if (resolution.kind !== "resolved") {
-			return {
-				facts: { present: false, enabled: false, settled: false },
-				box: undefined,
-			};
-		}
-
-		const node = subtreeAt(tree, resolution.backendDomId);
-		const box = await this.boxOf(resolution.backendDomId);
-
-		// Where the click lands only matters when there is a click.
-		// Focusing, typing, choosing an option and scrolling all
-		// reach an element the pointer could not, so holding them to
-		// a pointer's standard refuses work that would have
-		// succeeded. Being rendered at a real size still matters to
-		// every action, so that part of the verdict always applies.
-		const viewport = pointer ? await this.viewport() : undefined;
-		const coveredBy =
-			pointer && box
-				? await this.coveredAtCentre(resolution.backendDomId)
-				: undefined;
-		const visibility = sight
-			? judgeVisibility({
-					rendered: box !== undefined,
-					...(box === undefined ? {} : { border: box.border }),
-					...(viewport === undefined ? {} : { viewport }),
-					...(coveredBy === undefined ? {} : { coveredBy }),
-				})
-			: undefined;
-		return {
-			facts: {
-				present: true,
-				...(visibility === undefined ? {} : { visibility }),
-				// The tree reports what the browser exposes to assistive
-				// technology, which is the same disabled a person meets.
-				enabled: node?.properties.disabled !== true,
-				settled: sameBox(previous, box?.border),
-			},
-			box: box?.border,
-			backendDomId: resolution.backendDomId,
-		};
-	}
-
-	/**
-	 * Whether something is painted over the element's centre.
-	 *
-	 * Only the centre, unlike a full inspection: this runs on
-	 * every poll, and the centre is where a click is aimed.
-	 */
-	private async coveredAtCentre(
-		backendNodeId: number,
-	): Promise<string | undefined> {
-		const objectId = await this.objectFor(backendNodeId);
-		if (!objectId) return undefined;
-		try {
-			return await this.hitTest(objectId, false);
-		} finally {
-			await this.release(objectId);
-		}
-	}
-
-	/** What is listening on the element. */
-	private async listenersOf(objectId: string): Promise<readonly Listener[]> {
-		try {
-			const { listeners } = (await this.cdp.send(
-				"DOMDebugger.getEventListeners",
-				{ objectId },
-			)) as { listeners: RawListener[] };
-			return normalizeListeners(listeners);
-		} catch {
-			// Without the debugger agent this one section is missing;
-			// the rest of the inspection still stands.
-			return [];
-		}
-	}
-
-	/**
-	 * What is listening further up, which events from here reach.
-	 *
-	 * The protocol reads listeners off one object at a time and can
-	 * walk down into children but not up, so the ancestors are
-	 * collected in the page and each one asked separately. A live
-	 * button whose click was handled on the body reported nothing
-	 * listening, which is the answer that most invites the wrong
-	 * conclusion from an inspection meant to explain a dead click.
-	 */
-	private async delegatedTo(
-		objectId: string,
-	): Promise<readonly DelegatedListeners[]> {
-		try {
-			const { result } = (await this.cdp.send("Runtime.callFunctionOn", {
-				objectId,
-				functionDeclaration: ANCESTORS_PROBE,
-				returnByValue: false,
-			})) as { result: { objectId?: string } };
-			if (!result.objectId) return [];
-			try {
-				return await this.listenersUp(result.objectId);
-			} finally {
-				await this.release(result.objectId);
-			}
-		} catch {
-			// The element's own handlers are the answer more often than
-			// not, and they are already in hand. Losing the ancestors
-			// costs a section, not the inspection.
-			return [];
-		}
-	}
-
-	/** Ask each ancestor in the array what is listening on it. */
-	private async listenersUp(
-		arrayId: string,
-	): Promise<readonly DelegatedListeners[]> {
-		const { result } = (await this.cdp.send("Runtime.getProperties", {
-			objectId: arrayId,
-			ownProperties: true,
-		})) as {
-			result: readonly {
-				name: string;
-				value?: { objectId?: string; description?: string };
-			}[];
-		};
-		const found: DelegatedListeners[] = [];
-		for (const property of result) {
-			// getProperties hands back 'length' and the indices together.
-			if (!/^\d+$/.test(property.name)) continue;
-			const ancestor = property.value?.objectId;
-			if (!ancestor) continue;
-			try {
-				const listeners = await this.listenersOf(ancestor);
-				if (listeners.length > 0) {
-					found.push({
-						element: property.value?.description ?? "an ancestor",
-						listeners,
-					});
-				}
-			} finally {
-				await this.release(ancestor);
-			}
-		}
-		return found;
-	}
-
-	/** What is moving on the element. */
-	private async animationsOf(objectId: string): Promise<readonly Animation[]> {
-		try {
-			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
-				objectId,
-				functionDeclaration: ANIMATIONS_PROBE,
-				returnByValue: true,
-			});
-			return normalizeAnimations((result.value ?? []) as RawAnimation[]);
-		} catch {
-			// A page that navigated mid-inspection has nothing left to
-			// report here.
-			return [];
-		}
-	}
-
-	/**
-	 * How the element looks in each state, against how it looks at
-	 * rest.
-	 *
-	 * The forced state is always released afterwards, including
-	 * when a reading throws part way through. Leaving a page stuck
-	 * in a forced hover would quietly corrupt every later
-	 * observation of it.
-	 */
-	private async variantsOf(
-		backendNodeId: number,
-		objectId: string,
-		atRest: readonly StyleGroup[],
-		states: readonly PseudoState[],
-		initials: ComputedStyles | undefined,
-		options: InspectOptions,
-	): Promise<readonly PseudoVariant[]> {
-		const nodeId = await this.frontendNodeFor(backendNodeId);
-		if (nodeId === undefined) return [];
-
-		const variants: PseudoVariant[] = [];
-		try {
-			for (const state of states) {
-				await this.cdp.send("CSS.forcePseudoState", {
-					nodeId,
-					forcedPseudoClasses: [state],
-				});
-				await this.settleForcedState(objectId);
-				const held = await this.stylesOf(objectId);
-				if (!held) continue;
-				variants.push({
-					state,
-					changes: diffStyles(
-						atRest,
-						curateStyles(held, {
-							...(initials === undefined ? {} : { initials }),
-							...(options.styles === undefined ? {} : { only: options.styles }),
-						}),
-					),
-				});
-			}
-		} finally {
-			await this.cdp
-				.send("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] })
-				// A page that navigated took the forced state with it.
-				.catch(() => {});
-			// Releasing the state starts the transition back, so the
-			// element is only truly as it was found once that has
-			// finished. Without this the next reading catches it part
-			// way home and reports a colour nobody chose.
-			await this.settleForcedState(objectId);
-		}
-		return variants;
-	}
-
-	/**
-	 * Let whatever the forced state started finish before reading.
-	 *
-	 * Without this the reading catches a transition at its resting
-	 * values and reports that the state changes nothing, which is
-	 * exactly backwards.
-	 */
-	private async settleForcedState(objectId: string): Promise<void> {
-		try {
-			// The probe caps itself on the page's own timer, which a
-			// page that runs no script never fires, so the cap is kept
-			// here as well.
-			await bounded(
-				this.cdp.send("Runtime.callFunctionOn", {
-					objectId,
-					functionDeclaration: SETTLE_PROBE,
-					arguments: [{ value: SETTLE_CAP_MS }],
-					awaitPromise: true,
-					returnByValue: true,
-				}),
-				{
-					wallMs: SETTLE_CAP_MS + SETTLE_CAP_SLACK_MS,
-					what: "waiting for transitions",
-				},
-			);
-		} catch {
-			// A reading taken early is worse than one taken late, but
-			// neither is worth abandoning the inspection over.
-		}
-	}
-
-	/** The front-end node id, which the CSS agent works in. */
-	private async frontendNodeFor(
-		backendNodeId: number,
-	): Promise<number | undefined> {
-		try {
-			// A front-end id only exists once the document has been
-			// walked at least once.
-			await this.cdp.send("DOM.getDocument", { depth: 0 });
-			const { nodeIds } = await this.cdp.send(
-				"DOM.pushNodesByBackendIdsToFrontend",
-				{ backendNodeIds: [backendNodeId] },
-			);
-			return nodeIds[0];
-		} catch {
-			// Without a front-end id the CSS agent cannot be addressed.
-			return undefined;
-		}
-	}
-
-	/** The element's four boxes, or nothing when it has none. */
-	private async boxOf(backendNodeId: number): Promise<BoxModel | undefined> {
-		try {
-			const { model } = (await this.cdp.send("DOM.getBoxModel", {
-				backendNodeId,
-			})) as { model: RawBoxModel };
-			return normalizeBoxModel(model);
-		} catch {
-			// An element with display none has no box at all, and the
-			// protocol says so by refusing. That is an answer, not a
-			// failure: the visibility verdict reports it as unrendered.
-			return undefined;
-		}
-	}
-
-	/** Every computed property of the element, as the browser has it. */
-	private async stylesOf(
-		objectId: string,
-	): Promise<ComputedStyles | undefined> {
-		try {
-			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
-				objectId,
-				functionDeclaration: COMPUTED_STYLE_PROBE,
-				arguments: [{ value: SHORTHAND_PROPERTIES }],
-				returnByValue: true,
-			});
-			return result.value as ComputedStyles;
-		} catch {
-			// A page that navigated mid-inspection leaves nothing to
-			// read; the rest of the inspection still stands.
-			return undefined;
-		}
-	}
-
-	/**
-	 * What every property computes to untouched, read once per
-	 * session. These decide which values were actually chosen.
-	 */
-	private async initials(): Promise<ComputedStyles | undefined> {
-		if (this.initialStyles) return this.initialStyles;
-		try {
-			const { result } = await this.cdp.send("Runtime.evaluate", {
-				expression: asCall(INITIALS_PROBE, SHORTHAND_PROPERTIES),
-				returnByValue: true,
-			});
-			this.initialStyles = result.value as ComputedStyles;
-			return this.initialStyles;
-		} catch {
-			// Without these nothing is suppressed as a default, which
-			// is verbose but never wrong.
-			return undefined;
-		}
-	}
-
-	/** Why one property has the value it has. */
-	private async traceOf(
-		backendNodeId: number,
-		property: string,
-		styles: ComputedStyles | undefined,
-	): Promise<PropertyTrace | undefined> {
-		try {
-			const nodeId = await this.frontendNodeFor(backendNodeId);
-			if (nodeId === undefined) return undefined;
-			const raw = (await this.cdp.send("CSS.getMatchedStylesForNode", {
-				nodeId,
-			})) as RawMatchedStyles;
-			const trace = traceProperty(
-				normalizeCascade(raw),
-				property,
-				styles?.[property],
-			);
-			return trace === undefined ? undefined : await this.authorTrace(trace);
-		} catch {
-			// The cascade domain needs the CSS agent; without it the
-			// rest of the inspection is still worth returning.
-			return undefined;
-		}
-	}
-
-	/**
-	 * Tell each declaration in a trace where it was written.
-	 *
-	 * A build step that rewrote the CSS makes the reported line
-	 * useless in the same way a minified stack frame is: it names
-	 * a file nobody edits. The winner is usually the declaration
-	 * somebody wants to go and change, so it is the one that most
-	 * needs an address that exists.
-	 */
-	private async authorTrace(trace: PropertyTrace): Promise<PropertyTrace> {
-		const declarations = await Promise.all(
-			trace.declarations.map(async (declaration) => {
-				const { source } = declaration;
-				if (source?.styleSheet === undefined || source.line === undefined) {
-					return declaration;
-				}
-				const authored = await this.sourceMaps.authoredForSheet(
-					source.styleSheet,
-					{ line: source.line, column: source.column ?? 0 },
-				);
-				if (authored === undefined) return declaration;
-				return { ...declaration, source: { ...source, authored } };
-			}),
-		);
-		// The winner is compared by identity, so it has to be
-		// re-found among the rebuilt declarations rather than kept.
-		const winnerAt = trace.winner
-			? trace.declarations.indexOf(trace.winner)
-			: -1;
-		return {
-			...trace,
-			declarations,
-			...(winnerAt < 0 ? {} : { winner: declarations[winnerAt] }),
-		};
-	}
-
-	/** The area a person can currently see. */
-	private async viewport(): Promise<
-		{ width: number; height: number } | undefined
-	> {
-		try {
-			const metrics = (await this.cdp.send("Page.getLayoutMetrics")) as {
-				cssVisualViewport?: { clientWidth: number; clientHeight: number };
-			};
-			const seen = metrics.cssVisualViewport;
-			if (!seen) return undefined;
-			return { width: seen.clientWidth, height: seen.clientHeight };
-		} catch {
-			// Without the viewport an element is judged on everything
-			// else known about it rather than not at all.
-			return undefined;
-		}
-	}
-
-	/**
-	 * How far the page has been scrolled, in CSS pixels.
-	 *
-	 * Read from the browser's own layout metrics rather than from the
-	 * page, so a capture does not have to run script to be correct.
-	 * Answers zero when the metrics are unavailable, which is what the
-	 * offset was assumed to be before it was asked for at all.
-	 */
-	private async scrollOffset(): Promise<{ x: number; y: number }> {
-		try {
-			const metrics = (await this.cdp.send("Page.getLayoutMetrics")) as {
-				cssVisualViewport?: { pageX?: number; pageY?: number };
-			};
-			const seen = metrics.cssVisualViewport;
-			return { x: seen?.pageX ?? 0, y: seen?.pageY ?? 0 };
-		} catch {
-			// A page that went away mid-capture has no offset to report,
-			// and the capture around this will fail on its own terms.
-			// Zero is what the clip assumed before the offset was asked
-			// for at all, so it is the honest fallback rather than a new
-			// guess.
-			return { x: 0, y: 0 };
-		}
-	}
-
-	/**
-	 * What is painted over the element, if anything.
-	 *
-	 * The centre and the corners, since a full inspection should
-	 * report an element clipped at one edge. Anything the element
-	 * contains counts as itself, since a click there still reaches
-	 * it.
-	 */
-	private async occluderOf(objectId: string): Promise<string | undefined> {
-		return await this.hitTest(objectId, true);
-	}
-
-	/**
-	 * Who receives a click, when it is not us.
-	 *
-	 * The point is chosen inside the page rather than out here. Both
-	 * halves of the question used to be asked separately, the box
-	 * from the box model and the hit from `DOM.getNodeForLocation`,
-	 * and they disagree by the scroll offset, so anything the driver
-	 * had to scroll to was reported as covered by whatever sat at
-	 * the wrong point.
-	 */
-	private async hitTest(
-		objectId: string,
-		alsoCorners: boolean,
-	): Promise<string | undefined> {
-		try {
-			const { result } = await this.cdp.send("Runtime.callFunctionOn", {
-				objectId,
-				functionDeclaration: OCCLUDER_PROBE,
-				arguments: [{ value: alsoCorners }],
-				returnByValue: true,
-			});
-			return (result.value as string | null) ?? undefined;
-		} catch {
-			// An element that has gone from the page between resolving
-			// and asking cannot be occluded by anything, and the next
-			// poll reports it as absent.
-			return undefined;
-		}
-	}
-
-	private async resolve(
-		target: Target,
-	): Promise<{ ok: true; element: ElementHandle } | ActFailure> {
-		// Confirm uniqueness against our own outline so an ambiguous
-		// target becomes a prompt to narrow it rather than a wrong click.
-		const tree = await this.axTree();
-		const resolution = resolveTarget(tree, target);
-		if (resolution.kind === "notFound") {
-			return { ok: false, refusal: notFoundRefusal(tree, target) };
-		}
-		if (resolution.kind === "ambiguous") {
-			return { ok: false, refusal: ambiguityRefusal(tree, target) };
-		}
-
-		// Drive the real element through puppeteer's aria selector, which
-		// brings the scrolling, visibility and hit testing that a raw
-		// protocol click does not. But the selector is page-wide and knows
-		// nothing of a container, and its ordering is its own, so the
-		// candidate that matches is chosen by the identity the resolution
-		// already settled rather than by position in a second list.
-		// Choosing by index here is how a click lands on the wrong row.
-		// A target with no name is written with none, not with the
-		// word "undefined": interpolating a missing name produced
-		// aria/undefined[role="button"], which matches nothing, so an
-		// element the outline had just offered refused every act.
-		const handles = await this.page.$$(
-			`aria/${target.name ?? ""}[role="${target.role}"]`,
-		);
-		let element: ElementHandle | undefined;
-		for (const handle of handles) {
-			if (
-				element === undefined &&
-				(await this.backendIdOf(handle)) === resolution.backendDomId
-			) {
-				element = handle;
-				continue;
-			}
-			await handle.dispose();
-		}
-		// The outline named a node the aria selector does not offer: the
-		// page moved, or the two matchers disagree. Refusing is the only
-		// honest answer, because any handle we still hold is a guess.
-		if (!element) return { ok: false, refusal: notFoundRefusal(tree, target) };
-		return { ok: true, element };
-	}
-
-	/**
-	 * The backend node id behind a handle, or undefined if it has gone.
-	 *
-	 * This asks puppeteer rather than sending DOM.describeNode ourselves
-	 * because a remote object id is scoped to the session that minted it,
-	 * and these handles were minted by puppeteer's session, not ours.
-	 * Resolving them through this.cdp fails for every handle, which reads
-	 * as "no candidate matched" and refuses every act.
-	 */
-	private async backendIdOf(
-		handle: ElementHandle,
-	): Promise<number | undefined> {
-		try {
-			return await handle.backendNodeId();
-		} catch {
-			// The node left the document between the outline and this
-			// lookup. It cannot be the one we resolved, so say so.
-			return undefined;
-		}
-	}
-
-	private async axTree(): Promise<AxNode> {
-		// Nearly every reading starts here, which makes it the right
-		// place to wait out a crash recovery rather than issuing a
-		// call to a renderer that will never answer.
-		await this.ready();
-		const { nodes } = (await this.cdp.send("Accessibility.getFullAXTree")) as {
-			nodes: RawAxNode[];
-		};
-		return normalizeAxTree(spliceFrames(nodes, await this.frameTrees()));
-	}
-
-	/**
-	 * Each same-origin child frame's tree, and what owns it.
-	 *
-	 * Chrome answers for one frame at a time, so a page built from
-	 * embeds read as a row of empty boxes: the outline stopped at
-	 * the Iframe node and said nothing about stopping. Everything
-	 * downstream inherited that, so a keyboard walk skipped an
-	 * embedded form and an audit passed a page it had not seen.
-	 *
-	 * Breadth-first, parents before children, because the splice
-	 * attaches each frame to an owner that must already be in the
-	 * tree by the time its turn comes.
-	 *
-	 * A frame that cannot be read is left out rather than reported
-	 * as empty. Cross-origin frames are the common case and are a
-	 * real limit, not a fault; the count of what could not be read
-	 * belongs to the callers that already report it.
-	 */
-	private async frameTrees(): Promise<readonly FrameAxTree[]> {
-		let tree: { frameTree: FrameTreeNode };
-		try {
-			tree = (await this.cdp.send("Page.getFrameTree")) as {
-				frameTree: FrameTreeNode;
-			};
-		} catch {
-			// No frame tree means nothing to splice, which is the answer
-			// for the overwhelming majority of pages.
-			return [];
-		}
-
-		const queue: FrameTreeNode[] = [...(tree.frameTree.childFrames ?? [])];
-		const collected: FrameAxTree[] = [];
-		while (queue.length > 0) {
-			const node = queue.shift();
-			if (!node) break;
-			queue.push(...(node.childFrames ?? []));
-			const frameId = node.frame.id;
-			try {
-				const { backendNodeId } = (await this.cdp.send("DOM.getFrameOwner", {
-					frameId,
-				})) as { backendNodeId: number };
-				const { nodes } = (await this.cdp.send("Accessibility.getFullAXTree", {
-					frameId,
-				})) as { nodes: RawAxNode[] };
-				collected.push({ ownerBackendNodeId: backendNodeId, nodes });
-			} catch {
-				// A cross-origin frame refuses both calls, and a frame can
-				// be torn down between listing it and asking about it.
-				// Neither is a reason to fail the whole read.
-			}
-		}
-		return collected;
+		return this.parts.camera.compareToBaseline(label, options);
 	}
 }
