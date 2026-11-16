@@ -184,6 +184,39 @@ describe("parking", () => {
 	});
 });
 
+// 15 November: health counted 24 sessions put down on purpose as agents
+// that died, since a quit left the same presence a crash does (80ECO2).
+describe("ending", () => {
+	const presence = () =>
+		createPresences(join(fixture.paths.mesh, "presence")).of(session);
+
+	it("says a session quit for good has ended", async () => {
+		const { fire } = await startSession();
+		expect(presence(), "a running session").not.toHaveProperty("ended");
+
+		await fire("session_shutdown", { reason: "quit" });
+		expect(presence()?.ended).toMatch(/^\d{4}-\d\d-\d\dT/);
+	});
+
+	it("says nothing ended when it reloads or parks", async () => {
+		const reloaded = await startSession();
+		await reloaded.fire("session_shutdown", { reason: "reload" });
+		expect(presence(), "a reload").not.toHaveProperty("ended");
+
+		const parked = await startSession();
+		parked.emit(PARKING, { session, addresses: [] });
+		await parked.fire("session_shutdown", { reason: "quit" });
+		expect(presence(), "a park").toMatchObject({ state: "parked" });
+		expect(presence(), "a park").not.toHaveProperty("ended");
+	});
+
+	it("says a session switched away from has ended", async () => {
+		const { fire } = await startSession();
+		await fire("session_shutdown", { reason: "new" });
+		expect(presence()?.ended).toMatch(/^\d{4}-\d\d-\d\dT/);
+	});
+});
+
 describe("a pi that keeps no session", () => {
 	it("stays off the mesh, as a reload's load check does", async () => {
 		// Seen live: every reload's load check showed up as a peer named for

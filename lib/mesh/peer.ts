@@ -148,6 +148,12 @@ export interface Peer {
 	 */
 	park(wake?: string): void;
 	/**
+	 * Say its session has ended for good, as its last word, so the
+	 * presence it leaves reads apart from a crashed session's. A parked
+	 * peer says nothing more: it is still there to wake.
+	 */
+	end(): void;
+	/**
 	 * Say the step a run is on: the tool it is running, and what the call
 	 * is about (see step.ts). Said at most once every STEP_MS, since the
 	 * desktop watches presence and a run starts a tool every few seconds;
@@ -373,6 +379,8 @@ export function localPeer(at: Surroundings): Peer {
 	// but never pass to another session, as a carried presence would.
 	let driven = at.presences.of(at.session)?.driven === true;
 	let parked = false;
+	// When its session ended for good, once it has.
+	let ended: string | undefined;
 	// The file its holder wakes it on, while it's parked.
 	let wakeFile: string | undefined;
 	let scopes: string[] = [];
@@ -456,6 +464,7 @@ export function localPeer(at: Surroundings): Peer {
 			busy,
 			state: stateOf(busy, personal().length > 0, paused, parked),
 			...(parked && wakeFile ? { wake: wakeFile } : {}),
+			...(ended ? { ended } : {}),
 			...(busy && since ? { since } : {}),
 			...(busy && step ? { step: stepName(step) } : {}),
 			...stepDetailOf(busy, step, longestStanding(personal())),
@@ -674,6 +683,12 @@ export function localPeer(at: Surroundings): Peer {
 		park(wake) {
 			parked = true;
 			wakeFile = wake;
+			publish();
+		},
+		end() {
+			// A parked session is still there to wake, so it hasn't ended.
+			if (parked) return;
+			ended = new Date(now()).toISOString();
 			publish();
 		},
 		setStep(tool, detail = "") {

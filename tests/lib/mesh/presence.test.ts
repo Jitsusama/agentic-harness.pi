@@ -355,6 +355,39 @@ describe("this session's peer", () => {
 		});
 	});
 
+	it("says when it ended for good, so a session put down reads apart from one that crashed", () => {
+		// 15 November: health counted 24 sessions put down on purpose as
+		// agents that died, since their presence read as a crash's (80ECO2).
+		const at = {
+			...surroundings(),
+			now: () => Date.parse("2026-11-15T23:02:00Z"),
+		};
+		const peer = localPeer(at);
+		peer.refresh();
+		expect(at.presences.of(session), "a running peer").not.toHaveProperty(
+			"ended",
+		);
+
+		peer.end();
+
+		expect(at.presences.of(session)).toMatchObject({
+			ended: "2026-11-15T23:02:00.000Z",
+		});
+	});
+
+	it("says no end once parked, since a parked session is still there to wake", () => {
+		const at = surroundings();
+		const peer = localPeer(at);
+		peer.park();
+
+		peer.end();
+
+		expect(at.presences.of(session)).toMatchObject({ state: "parked" });
+		expect(at.presences.of(session), "a parked peer").not.toHaveProperty(
+			"ended",
+		);
+	});
+
 	it("says what it is doing: since when a run began, and its step at most every 30 s", () => {
 		let clock = Date.parse("2026-10-26T06:00:00Z");
 		const at = { ...surroundings(), now: () => clock };

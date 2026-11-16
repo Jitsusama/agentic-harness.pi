@@ -214,6 +214,14 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		m.unhearPresent = undefined;
 		m.steering?.stop();
 		m.steering = undefined;
+		// A plain pi's presence stays a day after it ends, so it says it
+		// ended rather than read as a crash: on 15 November health counted
+		// 24 sessions put down on purpose as agents that died (80ECO2).
+		// A reload carries on, a parked peer stays parked, and a hosted
+		// conversation's presence goes below.
+		if (m.peer && !hosted() && !reloading(event)) {
+			m.peer.end();
+		}
 		// The peer goes with its session. Work still in flight from it, a
 		// count of who is live or a message being judged, finds no peer
 		// and stops: on 29 October one such refresh read the session's

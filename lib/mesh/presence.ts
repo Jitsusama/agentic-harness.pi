@@ -127,6 +127,13 @@ export interface Presence {
 	 * from an older presence, where `busy` and `wants` say the same.
 	 */
 	readonly state?: PeerState;
+	/**
+	 * When its session ended for good, as an ISO time: put down, or
+	 * switched away from, rather than parked, reloaded or killed. Its
+	 * presence stays a day so senders hear it ended, and this tells that
+	 * from a crash, which leaves none (health's agents that died).
+	 */
+	readonly ended?: string;
 	/** When the run in progress began, as an ISO time, while busy. */
 	readonly since?: string;
 	/**
@@ -652,6 +659,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(typeof one.cwd === "string" ? { cwd: one.cwd } : {}),
 		...(typeof one.wake === "string" && one.wake !== ""
 			? { wake: one.wake }
+			: {}),
+		...(typeof one.ended === "string" && one.ended !== ""
+			? { ended: one.ended }
 			: {}),
 		...(typeof one.repo === "string" ? { repo: one.repo } : {}),
 		...(standingFrom(one.wanting).length > 0
