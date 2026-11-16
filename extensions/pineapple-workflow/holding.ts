@@ -16,9 +16,13 @@
  * claim and the notes, read or touched each minute, go through the
  * promise API, where a stalled disk holds only the tending. What is
  * written only when a hold changes (the hold, its note, the shadow
- * log) stays synchronous and whole.
+ * log) stays synchronous and whole. Since a host's conversations now
+ * reach the claim between each other's awaits, a process tends a notes
+ * folder once at a time, and a claim is given back only by the tending
+ * that wrote it.
  */
 
+import { randomUUID } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
 import {
 	mkdir,
@@ -35,6 +39,7 @@ import {
 	tending,
 } from "../../lib/internal/pineapple/hold.ts";
 import type { Stop } from "../../lib/internal/pineapple/stops.ts";
+import { processGlobal } from "../../lib/internal/process-global.ts";
 import type { Draft, Message } from "../../lib/mesh/message.ts";
 import { writeAtomically } from "../../lib/mesh/transport.ts";
 
@@ -58,10 +63,26 @@ const STALE_CLAIM_MS = 2 * 60 * 1000;
 
 const CLAIM = "claim";
 
+/** The notes folders this process tends now, in every copy of this module. */
+const TENDING = "agentic-harness.pineapple.tending";
+
 /** Send, renew and end holds, unless another session is doing so. */
 export async function tendHolds(deps: HoldingDeps): Promise<void> {
-	await mkdir(deps.notes, { recursive: true });
-	if (!(await claim(deps))) return;
+	// Taken on the caller's turn, so no two of a host's conversations, nor
+	// two ticks of one, are past this at once.
+	const here = processGlobal(TENDING, () => new Set<string>());
+	if (here.has(deps.notes)) return;
+	here.add(deps.notes);
+	try {
+		await mkdir(deps.notes, { recursive: true });
+		const token = await claim(deps);
+		if (token !== undefined) await tendClaimed(deps, token);
+	} finally {
+		here.delete(deps.notes);
+	}
+}
+
+async function tendClaimed(deps: HoldingDeps, token: string): Promise<void> {
 	try {
 		const kept = await keptNotes(deps.notes);
 		const now = deps.now();
@@ -116,27 +137,39 @@ export async function tendHolds(deps: HoldingDeps): Promise<void> {
 			);
 		}
 	} finally {
-		await rm(join(deps.notes, CLAIM), { force: true });
+		await release(join(deps.notes, CLAIM), token);
 	}
 }
 
-async function claim(deps: HoldingDeps): Promise<boolean> {
+/** The claim's token once this session holds it, else nothing. */
+async function claim(deps: HoldingDeps): Promise<string | undefined> {
 	const path = join(deps.notes, CLAIM);
+	const token = `${deps.pid}:${randomUUID()}`;
 	try {
-		await writeFile(path, String(deps.pid), { flag: "wx" });
-		return true;
+		await writeFile(path, token, { flag: "wx" });
+		return token;
 	} catch {
 		// Claimed: by a live session, which tends them now, or a dead one.
 	}
 	try {
-		if (deps.now() - (await stat(path)).mtimeMs < STALE_CLAIM_MS) return false;
+		if (deps.now() - (await stat(path)).mtimeMs < STALE_CLAIM_MS) return;
 		await rm(path, { force: true });
-		await writeFile(path, String(deps.pid), { flag: "wx" });
-		return true;
+		await writeFile(path, token, { flag: "wx" });
+		return token;
 	} catch {
 		// Another session took the stale claim first, or it just went.
-		return false;
 	}
+}
+
+/** Give the claim back, unless another session has taken it since. */
+async function release(path: string, token: string): Promise<void> {
+	const held = await readFile(path, "utf8").catch(() => {
+		// Gone already: nothing to give back.
+		return undefined;
+	});
+	// Another session can take it only once it is stale, minutes on, so
+	// nobody takes it between this read and the removal.
+	if (held === token) await rm(path, { force: true });
 }
 
 async function keptNotes(notes: string): Promise<Kept[]> {
