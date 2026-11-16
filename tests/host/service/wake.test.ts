@@ -334,10 +334,7 @@ describe("waking conversations in turn", () => {
 		finish(second);
 		await Promise.all(woken);
 
-		expect(begun, "each resumed, in the order asked").toEqual([
-			first,
-			second,
-		]);
+		expect(begun, "each resumed, in the order asked").toEqual([first, second]);
 		expect(host.holds(second), "the second runs too").toBe("idle");
 	});
 
@@ -362,9 +359,7 @@ describe("waking conversations in turn", () => {
 		finish(messaged);
 		await Promise.all([woken, queued, attached]);
 
-		expect(host.holds(messaged), "the message's wake still ran").toBe(
-			"idle",
-		);
+		expect(host.holds(messaged), "the message's wake still ran").toBe("idle");
 	});
 
 	it("resumes a wake that has waited its longest beside the one ahead", async () => {
@@ -386,9 +381,7 @@ describe("waking conversations in turn", () => {
 		).toBeGreaterThanOrEqual(waitMs - 5);
 		finish(next);
 		await waited;
-		expect(host.holds(next), "it runs, the first still resuming").toBe(
-			"idle",
-		);
+		expect(host.holds(next), "it runs, the first still resuming").toBe("idle");
 		finish(stuck);
 		await woken;
 	});
