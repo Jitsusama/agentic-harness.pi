@@ -1,0 +1,514 @@
+/**
+ * Hearing the mesh: who is still there, taking each message once, judging
+ * what attention it gets here, and chasing what went unanswered.
+ */
+
+import { firstPromptPending } from "../../../lib/internal/session/first-prompt.ts";
+import { namesLanding } from "../../../lib/internal/session/landings.ts";
+import { askWake, isParked } from "../../../lib/internal/session/park.ts";
+import {
+	attend,
+	type Concern,
+	concernFrom,
+	concernQuestionFor,
+	concernState,
+	type Heed,
+	mentions,
+	type Receiver,
+} from "../../../lib/mesh/attention.ts";
+import { caughtUp, MOST_CAUGHT_UP } from "../../../lib/mesh/damping.ts";
+import { flowsAt } from "../../../lib/mesh/flow.ts";
+import { groupNamed, homeOf, isJoinable } from "../../../lib/mesh/group.ts";
+import { awaitedSessions, changesOf } from "../../../lib/mesh/lease.ts";
+import { census } from "../../../lib/mesh/liveness.ts";
+import {
+	asksEach,
+	clock,
+	isHomeTo,
+	type Message,
+	reaches,
+	senderIdentity,
+	shortId,
+} from "../../../lib/mesh/message.ts";
+import { nodeSocket } from "../../../lib/mesh/node.ts";
+import { ASK_AGAIN_MS } from "../../../lib/mesh/owed.ts";
+import { wakeSteered } from "../../../lib/mesh/parked.ts";
+import type { Judge } from "../../../lib/mesh/routing.ts";
+import { isStopped } from "../../../lib/mesh/stop.ts";
+import {
+	answers,
+	answersQuestion,
+	depthOf,
+	mayReplace,
+	type Self,
+	sentBy,
+} from "../../../lib/mesh/thread.ts";
+import { NOTED } from "../delivery.ts";
+import type { Handing } from "./handing.ts";
+import {
+	answeringAt,
+	delivered,
+	type Heeded,
+	LEFT_MS,
+	ledBy,
+	type MeshState,
+	STOPPED,
+} from "./mesh.ts";
+
+/**
+ * How long a classifier may take over one message before it is noted
+ * unjudged. Jev answers in well under half a second; this is for the
+ * network having gone, which must not leave a message undelivered.
+ */
+const JUDGE_MS = 2500;
+
+/** How this peer hears and routes what reaches it. */
+export function createHearing(m: MeshState, f: Handing) {
+	const countLive = async () => {
+		try {
+			const { present } = await census(m.presences.all());
+			m.live = new Set(present.map((one) => one.session));
+		} catch {
+			// Uncounted, the last count stands.
+		}
+	};
+
+	/**
+	 * Who the live peers are parked on, for the machine queue to give
+	 * their heavy work its turn first (see lib/internal/priority/awaited.ts).
+	 */
+	const awaited = () =>
+		awaitedSessions(
+			m.board.all(),
+			// This peer is there whether or not it was counted yet.
+			m.presences
+				.all()
+				.filter(
+					(one) =>
+						one.session === m.peer?.session ||
+						(m.live?.has(one.session) ?? true),
+				),
+		);
+
+	const askFlows = () => {
+		m.flows = flowsAt(nodeSocket(m.env));
+	};
+
+	/**
+	 * Tell both sides when this peer leaves its quest's address to a
+	 * live peer that already signs with it: two sessions on one quest
+	 * are how work gets done twice, so each is asked to say what it
+	 * takes. A change of signature is said on screen.
+	 */
+	const identity = () => {
+		if (!m.peer) return;
+		const holder = m.peer.yieldedTo;
+		const quest = holder?.addresses[0];
+		if (holder && quest && holder.session !== m.leftTo) {
+			const sig = m.peer.signature;
+			const message = m.transport.send({
+				from: sig,
+				to: [homeOf(quest)],
+				intent: "fyi",
+				text: `${sig} has quest ${quest} loaded too. ${quest} stays this peer's address and ${sig} signs as itself; both hear the quest's group. Say which part of the quest each is taking, so neither repeats the other's work.`,
+				...senderIdentity(),
+			});
+			m.seen.add(message.id);
+			m.pi.sendMessage(
+				{
+					customType: NOTED,
+					content: `Another live session, ${quest}, already has this quest loaded and signs with its address, so this peer signs as ${sig} until it ends; both hear the quest's group, and ${quest} has been told. Before starting on the quest, see what ${quest} is on (mesh_groups) and agree with it which part each takes, so neither repeats the other's work.`,
+					display: true,
+					details: { ...delivered([], []), leftTo: holder.session },
+				},
+				{ triggerTurn: false },
+			);
+		}
+		m.leftTo = holder?.session;
+		if (
+			m.signed !== undefined &&
+			m.signed !== m.peer.signature &&
+			m.ctx?.hasUI
+		) {
+			m.ctx.ui.notify(
+				`Mesh: this peer signs as ${m.peer.signature} now`,
+				"info",
+			);
+		}
+		m.signed = m.peer.signature;
+	};
+
+	/** Whose business a message is, by the classifier, or nothing. */
+	const judge = async (
+		message: Message,
+		receiver: Receiver,
+	): Promise<Concern | undefined> => {
+		// What is sent to this peer is noted whatever it says, so asking
+		// about it would spend a call on an answer nothing reads.
+		if (isHomeTo(message, receiver.addresses)) return undefined;
+		// What the words already show needs no classifier: naming this peer
+		// or what it owns is about its work.
+		if (mentions(message, receiver)) return "receiver";
+		try {
+			const found = await m.classifier;
+			if (!found?.ok) return undefined;
+			const result = await found.classify(
+				{
+					state: concernState(message, receiver),
+					questions: concernQuestionFor(receiver),
+				},
+				AbortSignal.timeout(JUDGE_MS),
+			);
+			return result.stopReason === "stop"
+				? concernFrom(result.answers.about)
+				: undefined;
+		} catch {
+			// An unjudged message is noted, which is never wrong for long.
+			return undefined;
+		}
+	};
+
+	/**
+	 * The classifier's pick of a group for a message its sender named
+	 * none for, or nothing, in which case it is routed by rule.
+	 */
+	const routing: Judge = async (context) => {
+		const found = await m.classifier;
+		if (!found?.ok) return undefined;
+		const result = await found.classify(context, AbortSignal.timeout(JUDGE_MS));
+		return result.stopReason === "stop" ? result.answers.to : undefined;
+	};
+
+	/**
+	 * The attention each message gets here, judged together. Starting,
+	 * it is a catch-up: nothing takes a turn, and a long one is held to what
+	 * a peer starting can take in.
+	 */
+	const route = async (messages: readonly Message[], starting = false) => {
+		if (messages.length === 0 || !m.ctx || !m.peer) return;
+		// The peer this was routed for: a session that ends while it is
+		// judged leaves the rest undone (see session_shutdown).
+		const routedFor = m.peer;
+		m.peer.refresh();
+		identity();
+		// What it changes now tells its business from another's best.
+		const receiver: Receiver = {
+			...m.peer.receiver,
+			changing: changesOf(m.board.of(m.peer.session)?.leases ?? []),
+		};
+		const self: Self = { addresses: m.peer.addresses, ...senderIdentity() };
+		const listener = m.peer.listener;
+		// Every address the orchestrator signs with, so a pivot under
+		// either its quest's or its session's is known as its own.
+		const orchestrator = m.peer.orchestratedBy
+			? addressesOf(m.peer.orchestratedBy)
+			: undefined;
+		const read = (id: string) => m.transport.read(id);
+		const everyone = m.presences.all();
+		const stopped = messages.map((message) =>
+			isStopped(message, m.peer?.stops ?? [], everyone),
+		);
+		const answering = messages.map((message) => answers(message, read, self));
+		// What an orchestrator can read from a sender's presence rather than
+		// its message: only an orchestrator is spared, since only it is sent
+		// status (RSCH-20261031-GUDOJV, piece 1).
+		const restating = messages.map(
+			(message) =>
+				m.peer?.orchestrates !== undefined &&
+				message.intent === "fyi" &&
+				namesLanding(
+					message.text,
+					everyone.find((one) => one.addresses.includes(message.from))
+						?.landings ?? [],
+				),
+		);
+		const led = messages.map(
+			(message) =>
+				routedFor.orchestrates !== undefined &&
+				ledBy(
+					everyone.find((one) => one.addresses.includes(message.from)),
+					routedFor.addresses,
+				),
+		);
+		const asked = messages.map((message) =>
+			answersQuestion(message, read, self),
+		);
+		const concerns = await Promise.all(
+			messages.map((message, at) =>
+				// A peer hearing only what is put to it glances at the rest
+				// whatever the classifier says, so it isn't asked.
+				stopped[at] ||
+				answeringAt(answering, at) ||
+				receiver.hears === "addressed"
+					? undefined
+					: judge(message, receiver),
+			),
+		);
+		if (m.peer !== routedFor) return;
+		// Never while starting: the first prompt is about to run, and pi
+		// refuses a second turn asked for beside it.
+		const idle = !starting && (m.ctx.isIdle?.() ?? false);
+		const raisedAll: Heed[] = messages.map((message, at) => {
+			// Stopped is absolute: a line, never more, whatever it is.
+			if (stopped[at]) return { attention: "glance", why: STOPPED };
+			const judged = attend(message, {
+				receiver,
+				idle,
+				answers: answeringAt(answering, at),
+				asked: answeringAt(asked, at),
+				askedEach: asksEach(message, listener),
+				now: Date.now(),
+				...(restating[at] ? { restates: true } : {}),
+				...(led[at] ? { led: true } : {}),
+				...(orchestrator ? { orchestrator } : {}),
+				...(concerns[at] ? { concern: concerns[at] } : {}),
+			});
+			// What a starting peer catches up on rides the first prompt. A
+			// peer started with none, as a parked one is woken by a message,
+			// has no turn coming but this one: on 6 November a question
+			// that woke one was only noted, owed nothing, and the peer
+			// parked again with it unanswered.
+			const worth: Heed =
+				starting && judged.attention === "turn" && firstPromptPending()
+					? { attention: "note", why: judged.why }
+					: judged;
+			const replaced = replacedBy(message);
+			// A withdrawal reaches in full everyone who heard what it
+			// withdraws, and what it withdraws is never handed over after it.
+			// A peer hearing only what is put to it glanced at the original,
+			// so a glance takes its place.
+			const heard =
+				replaced !== undefined &&
+				receiver.hears !== "addressed" &&
+				reaches(replaced, listener, senderIdentity().pid);
+			if (replaced) {
+				m.glances.drop(replaced.id);
+				m.acts?.drop((one) => one.message.id === replaced.id);
+				f.handedOver([replaced]);
+			}
+			return heard && worth.attention === "glance"
+				? { attention: "note", why: "replacing what this peer heard" }
+				: worth;
+		});
+		const homes = m.peer.addresses.map(homeOf);
+		const raisedEach =
+			starting && messages.length > MOST_CAUGHT_UP
+				? caughtUp(
+						messages.map((message, at) => ({
+							message,
+							heed: raisedAll[at] as Heed,
+							own:
+								message.intent === "hold" ||
+								answeringAt(answering, at) ||
+								answeringAt(asked, at) ||
+								message.to.some((group) => homes.includes(group)),
+						})),
+					)
+				: raisedAll;
+		const damped: string[] = [];
+		const inFull: Message[] = [];
+		const heeded: Heeded[] = messages.map((message, at) => {
+			const raised = raisedEach[at] as Heed;
+			const heed = m.damper.damp(
+				message,
+				raised,
+				depthOf(message, read),
+				Date.now(),
+				inFull,
+			);
+			if (heed.attention !== raised.attention) damped.push(heed.why);
+			if (heed.attention !== "glance") inFull.push(message);
+			return { message, heed };
+		});
+		f.say(damped);
+		for (const { message, heed } of heeded) {
+			if (heed.attention === "glance") f.glance(message, heed.why);
+			if (heed.attention === "act") m.acts?.add({ message, heed });
+		}
+		const now = heeded.filter(
+			({ heed }) => heed.attention === "note" || heed.attention === "turn",
+		);
+		f.note(
+			now,
+			now.some(({ heed }) => heed.attention === "turn"),
+		);
+	};
+
+	/** The earlier message this one validly replaces, if any. */
+	const replacedBy = (message: Message): Message | undefined => {
+		if (message.supersedes === undefined) return undefined;
+		const original = m.transport.read(message.supersedes);
+		return original && mayReplace(message, original) ? original : undefined;
+	};
+
+	const take = (id: string): Message | undefined => {
+		if (m.seen.has(id) || !m.peer) return undefined;
+		m.seen.add(id);
+		const message = m.transport.read(id);
+		// A file caught half written reads as nothing: the next look takes
+		// it again rather than counting it seen and losing it for good.
+		if (!message) m.seen.delete(id);
+		// A hold this peer waits on can end in a message to a group it does
+		// not hear, so ends are looked for before what reaches it.
+		const end = message ? m.leasing.ended(message) : undefined;
+		if (end) m.resumes?.add(end);
+		// Answers are counted wherever they went, so a question to a group
+		// one peer took up is known as answered by every other.
+		if (
+			message?.re !== undefined &&
+			!sentBy(message, { addresses: m.peer.addresses, ...senderIdentity() })
+		) {
+			m.answered.add(message.re);
+			m.awaiting.answered(message.re, () => addressesOf(message.from));
+		}
+		if (!message || !reaches(message, m.peer.listener, senderIdentity().pid)) {
+			return undefined;
+		}
+		// An old copy written back at the top, as a link to another machine
+		// does, is counted above but never handed over. On 14 November one
+		// wrote a week of expired messages back, and every session took
+		// each as new, its questions and pivots with a turn.
+		if (m.caughtUpFrom !== undefined && id <= m.caughtUpFrom) return undefined;
+		// The marker passes it only once it is handed over (see reading.ts).
+		m.front.taken(id);
+		// Brought into a group by another peer: it joins without being
+		// asked, as Joel wants agents to organise themselves, and the note
+		// it gets says how to leave.
+		if (
+			message.invite !== undefined &&
+			!isStopped(message, m.peer.stops, m.presences.all()) &&
+			isHomeTo(message, m.peer.addresses) &&
+			groupNamed(message.invite) === message.invite &&
+			message.invite.startsWith("#") &&
+			isJoinable(message.invite)
+		) {
+			m.peer.join(message.invite);
+		}
+		return message;
+	};
+
+	/**
+	 * Questions left to a peer that took them up, waiting to act here
+	 * after all once it lets one go unanswered: its run ended, or it did,
+	 * with no answer sent. Every other peer had stood aside, so a question
+	 * one took up and dropped was otherwise answered by nobody.
+	 */
+	const reconsider = async () => {
+		const now = Date.now();
+		for (const [id, one] of [...m.left]) {
+			if (m.answered.has(id) || now - Date.parse(one.message.at) > LEFT_MS) {
+				m.left.delete(id);
+				continue;
+			}
+			const still = await m.leasing.answeredBy(one.message).catch(() => one.by);
+			if (still !== undefined || !m.left.delete(id) || !m.acts) continue;
+			m.acts.add({
+				message: one.message,
+				heed: {
+					...one.heed,
+					why: `${one.heed.why}, let go unanswered by ${one.by}`,
+				},
+			});
+		}
+	};
+
+	/** The addresses of the peer signing as this, as far as presence says. */
+	const addressesOf = (from: string): readonly string[] =>
+		m.presences.all().find((one) => one.addresses.includes(from))
+			?.addresses ?? [from];
+
+	/**
+	 * Questions put to this peer that it hasn't answered, handed again
+	 * with a turn; and questions it put that are stuck, said on screen
+	 * and to its model, once each.
+	 */
+	const chase = () => {
+		// A busy session reads what it was handed when pi gets to it, one
+		// at a time; asking again meanwhile only queues reminders that
+		// arrive after the answer they ask for. Its run ending unanswered
+		// is what the asking again is for.
+		const again = (m.ctx?.isIdle?.() ?? true) ? m.owing.due() : [];
+		if (again.length > 0) {
+			const minutes = Math.round(ASK_AGAIN_MS / 60_000);
+			f.note(
+				again.map(({ message }) => ({
+					message,
+					heed: {
+						attention: "turn",
+						why: "asked again, unanswered",
+						addressed: true,
+					},
+				})),
+				true,
+				`Asked again: ${again.length === 1 ? "this question was" : "these questions were"} put to you at least ${minutes} minutes ago and you have sent no answer. Answer now with mesh_send, re set to its id, or say when you will.`,
+			);
+		}
+		const stuck = m.awaiting.stuck();
+		if (stuck.length === 0) return;
+		const lines = stuck.map(
+			({ message, waitingOn }) =>
+				`Your question [${shortId(message)}] from ${clock(message)} has had no answer from ${waitingOn.join(", ")}. It has been put to them again; mesh_groups says what each is doing.`,
+		);
+		if (m.ctx?.hasUI) {
+			m.ctx.ui.notify(
+				`Mesh: no answer yet from ${[...new Set(stuck.flatMap((one) => one.waitingOn))].join(", ")}`,
+				"warning",
+			);
+		}
+		m.pi.sendMessage(
+			{
+				customType: NOTED,
+				content: lines.join("\n\n"),
+				display: true,
+				details: delivered([], []),
+			},
+			{ triggerTurn: false },
+		);
+	};
+
+	/** Messages the watcher never reported, taken as it would have. */
+	const lookAgain = () => {
+		if (!m.peer) return;
+		chase();
+		// Who is still there changes without a message saying so: a
+		// quest's address left to a peer that ended is taken back.
+		void countLive().then(() => {
+			m.peer?.refresh();
+			identity();
+			m.steering?.look();
+			// A parked peer told to close or carry is started again to do it.
+			if (m.paths.steer !== undefined) {
+				wakeSteered(m.presences.all(), m.paths.steer, isParked, askWake);
+			}
+		});
+		if (m.left.size > 0) void reconsider();
+		// Listed a little at a time: the folder holds a week of messages,
+		// and listing it at once held the thread a key waits on.
+		void m.transport.listIds().then((ids) => {
+			const missed = ids
+				.filter((id) => !m.seen.has(id))
+				.map(take)
+				.filter((one): one is Message => one !== undefined);
+			if (missed.length > 0) void route(missed);
+		});
+	};
+
+	return {
+		countLive,
+		awaited,
+		askFlows,
+		identity,
+		judge,
+		routing,
+		route,
+		replacedBy,
+		take,
+		reconsider,
+		addressesOf,
+		chase,
+		lookAgain,
+	};
+}
+
+/** What createHearing gives the modules after it. */
+export type Hearing = ReturnType<typeof createHearing>;

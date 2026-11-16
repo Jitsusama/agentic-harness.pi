@@ -4,28 +4,34 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	endReasonForShutdown,
-	forgetRecord,
 	handOverSession,
-	installSignalStamp,
 	keepRecordTrue,
-	lastBootRestorable,
-	loadRecords,
-	lostSessionCount,
-	observeRecords,
-	readRecord,
-	recentlyClosedSessions,
 	recordSession,
-	recordSessionEnd,
-	restorableSessions,
-	saveRecord,
-	seedLiveSessions,
-	sessionRegistryDir,
-	setSignalStampSession,
 	startedWith,
 	startHeartbeat,
 	stopHeartbeat,
-	touchHeartbeat,
 } from "../../../extensions/quest-workflow/session-registry.ts";
+import {
+	forgetRecord,
+	loadRecords,
+	observeRecords,
+	readRecord,
+	recordSessionEnd,
+	saveRecord,
+	seedLiveSessions,
+	sessionRegistryDir,
+	touchHeartbeat,
+} from "../../../extensions/quest-workflow/sessions/records.ts";
+import {
+	lastBootRestorable,
+	lostSessionCount,
+	recentlyClosedSessions,
+	restorableSessions,
+} from "../../../extensions/quest-workflow/sessions/restore.ts";
+import {
+	installSignalStamp,
+	setSignalStampSession,
+} from "../../../extensions/quest-workflow/sessions/signal-stamp.ts";
 import { rosterDir, rosterPath } from "../../../lib/core/session/roster.ts";
 import { currentProcessIdentity } from "../../../lib/internal/quest/process-liveness.ts";
 import {

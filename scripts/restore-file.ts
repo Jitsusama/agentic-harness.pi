@@ -14,7 +14,7 @@
  */
 
 import { join } from "node:path";
-import { refreshRestoreFile } from "../extensions/quest-workflow/session-registry.ts";
+import { refreshRestoreFile } from "../extensions/quest-workflow/sessions/restore.ts";
 import { dataDir } from "../lib/internal/paths.ts";
 
 refreshRestoreFile(join(dataDir("quest-workflow"), "quests"));

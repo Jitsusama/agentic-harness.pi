@@ -1,21 +1,17 @@
-import {
-	type ChildProcess,
-	spawn as nodeSpawn,
-	type SpawnOptions,
-} from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+/**
+ * The durable runner that waits: it tells a supervisor what to run,
+ * listens to it, and settles on its result file, with backstops for a
+ * supervisor that wedges, hangs its pipes or never reports.
+ *
+ * What a supervisor is told lives in `supervisor-request.ts`, what it
+ * said in `supervisor-result.ts`, and the runner that walks away in
+ * `supervisor-detached.ts`. Their public names are said here too, so
+ * importers read every runner from one place.
+ */
+
+import { spawn as nodeSpawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { hosted, sessionOwner } from "../../core/session/index.ts";
-import { withoutOff } from "../../internal/fence-stage.ts";
-import { offeredShellEnvironment } from "../../internal/shell/environment.ts";
-import {
-	ReviewerArtifactsStore,
-	type ReviewerRunPaths,
-	type ReviewerTerminalState,
-} from "../artifacts.ts";
-import { pinnedChildEnvironment } from "../child-env.ts";
-import type { PiInstall } from "../install.ts";
-import type { ReviewerError } from "../reviewer-error.ts";
+import { ReviewerArtifactsStore } from "../artifacts.ts";
 import type { RunPi, RunPiResult } from "../subagent.ts";
 // The same grace the supervisor gives its reviewer, read from the
 // same place. This is one hazard a level apart, and holding the
@@ -23,6 +19,34 @@ import type { RunPi, RunPiResult } from "../subagent.ts";
 import { fromScript } from "./fresh.ts";
 // biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { STDIO_GRACE_MS } from "./grace.mjs";
+import {
+	DEFAULT_KILL_GRACE_MS,
+	DEFAULT_STDERR_TAIL_BYTES,
+	DEFAULT_TIMEOUT_MS,
+	type SupervisorRunPiConfig,
+	type SupervisorSpawnFn,
+	supervisorEnvironment,
+	told,
+} from "./supervisor-request.ts";
+import {
+	fromResult,
+	groupOf,
+	parseSupervisorLine,
+	readResult,
+	supervisorPostMortem,
+	tail,
+} from "./supervisor-result.ts";
+
+export {
+	createSupervisorStartPi,
+	type StartedPi,
+	type StartPi,
+} from "./supervisor-detached.ts";
+export {
+	type SupervisorRunPiConfig,
+	type SupervisorSpawnFn,
+	withSessionPersistence,
+} from "./supervisor-request.ts";
 
 /**
  * The grace, checked once where it enters TypeScript.
@@ -40,66 +64,6 @@ const drainMs = fromScript(
 	"lib/subagent/runpi/grace.mjs",
 );
 
-/** Subset of `child_process.spawn`'s signature we depend on. */
-export type SupervisorSpawnFn = (
-	command: string,
-	args: readonly string[],
-	options: SpawnOptions,
-) => ChildProcess;
-
-/** Configuration for supervised reviewer subprocesses. */
-export interface SupervisorRunPiConfig {
-	/**
-	 * The pinned parent pi install. The supervisor launches
-	 * each reviewer as `install.node install.entry ...args`
-	 * so it runs the parent's exact install rather than
-	 * whatever bare `pi` resolves to on PATH.
-	 */
-	readonly piInstall: PiInstall;
-	readonly stateDir: string;
-	readonly nodeBinary?: string;
-	readonly supervisorPath?: string;
-	readonly spawn?: SupervisorSpawnFn;
-	readonly timeoutMs?: number;
-	/**
-	 * How long past its own deadline a supervisor gets before the
-	 * parent stops waiting. Only worth setting to keep a test that
-	 * exercises the backstop from spending the default on waiting.
-	 */
-	readonly supervisorGraceMs?: number;
-	readonly idleTimeoutMs?: number;
-	readonly killGraceMs?: number;
-	readonly maxEventBytes?: number;
-	readonly maxEventRotations?: number;
-	readonly maxStderrBytes?: number;
-	readonly maxStderrRotations?: number;
-	readonly stderrTailBytes?: number;
-	readonly maxLineBytes?: number;
-	readonly maxAssistantTextBytes?: number;
-	readonly maxWarnings?: number;
-	/**
-	 * How long the provider keeps the child's prompt cached, as
-	 * `PI_CACHE_RETENTION` says it, in place of what the session runs
-	 * with. Left out, the child keeps the session's.
-	 */
-	readonly cacheRetention?: "short" | "long";
-}
-
-interface SupervisorResultFile {
-	readonly state?: ReviewerTerminalState;
-	readonly exitCode: number;
-	readonly finalAssistantText: string;
-	readonly usage?: RunPiResult["usage"];
-	readonly sessionIds?: RunPiResult["sessionIds"];
-	readonly warnings?: readonly string[];
-	readonly stderrTail?: string;
-	readonly verification?: RunPiResult["verification"];
-	readonly journal?: RunPiResult["journal"];
-	readonly journalWarnings?: RunPiResult["journalWarnings"];
-	readonly error?: ReviewerError;
-	readonly artifacts?: RunPiResult["artifacts"];
-}
-
 /**
  * How long past its own deadline a supervisor gets before the
  * parent stops waiting.
@@ -109,9 +73,6 @@ interface SupervisorResultFile {
  */
 const SUPERVISOR_GRACE_MS = 10_000;
 
-const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
-const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
-const DEFAULT_KILL_GRACE_MS = 5 * 1000;
 /** What the supervisor reports for a cancelled run: 128 plus SIGINT. */
 const CANCELLED_EXIT_CODE = 130;
 
@@ -126,248 +87,6 @@ const CANCELLED_EXIT_CODE = 130;
  * those writes is slow.
  */
 const FINISH_WRITE_MARGIN_MS = 15 * 1000;
-const DEFAULT_MAX_EVENT_BYTES = 10 * 1024 * 1024;
-/**
- * How many rotated segments of a subagent's event stream to keep before
- * the oldest is deleted.
- *
- * The oldest segment holds the start of the run, so deleting it loses
- * the session header and the first turns before anything has had a
- * chance to digest them. At three, that happened past 40 MB of events,
- * and the largest real stream had already reached its second rotation.
- * Rotated segments are gzipped at roughly ten to one and are reclaimed
- * once digested, so a much higher ceiling is cheap and transient while
- * losing the head is permanent.
- */
-const DEFAULT_MAX_EVENT_ROTATIONS = 32;
-const DEFAULT_MAX_STDERR_BYTES = 1024 * 1024;
-const DEFAULT_MAX_STDERR_ROTATIONS = 3;
-const DEFAULT_STDERR_TAIL_BYTES = 8 * 1024;
-const DEFAULT_MAX_LINE_BYTES = 1024 * 1024;
-const DEFAULT_MAX_ASSISTANT_TEXT_BYTES = 512 * 1024;
-const DEFAULT_MAX_WARNINGS = 20;
-
-/**
- * Rewrite composed reviewer args to persist the session.
- *
- * The composed args default to `--no-session` because the
- * fleet and legacy runners want ephemeral runs. The
- * supervisor owns a private per-reviewer artifacts
- * directory, so it swaps that flag for `--session-dir
- * <dir>`, giving a dropped reviewer a session to resume
- * without ever writing to the user's session list. When the
- * flag is absent the session dir is appended.
- */
-export function withSessionPersistence(
-	args: readonly string[],
-	sessionDir: string,
-): string[] {
-	// A resume already names its session file with --session,
-	// and an explicit --session-dir is honoured as-is. Either
-	// way the session is handled, so leave the args untouched.
-	if (args.includes("--session") || args.includes("--session-dir")) {
-		return [...args];
-	}
-	const index = args.indexOf("--no-session");
-	if (index === -1) {
-		return [...args, "--session-dir", sessionDir];
-	}
-	return [
-		...args.slice(0, index),
-		"--session-dir",
-		sessionDir,
-		...args.slice(index + 1),
-	];
-}
-
-/** A reviewer that was started and is nobody's to wait for. */
-export interface StartedPi {
-	readonly runId: string;
-	readonly reviewerId: string;
-	/** The supervisor's pid, or undefined if the OS never gave one. */
-	readonly pid: number | undefined;
-	/** Where the supervisor was told what to do. */
-	readonly requestPath: string;
-}
-
-/** Start a reviewer without waiting for it. */
-export type StartPi = (options: Parameters<RunPi>[0]) => Promise<StartedPi>;
-
-/** Build a `StartPi` that leaves the reviewer running on its own. */
-export function createSupervisorStartPi(
-	config: SupervisorRunPiConfig,
-): StartPi {
-	const spawnFn = config.spawn ?? (nodeSpawn as SupervisorSpawnFn);
-	const where = supervisorPlaces(config);
-	const failures: string[] = [];
-
-	return async function startPi(options) {
-		const { paths, runId, reviewerId } = await told(config, options, true);
-		const env = await supervisorEnvironment(config, options.env);
-
-		const supervisor = spawnFn(
-			where.nodeBinary,
-			[where.script, paths.requestPath],
-			{
-				cwd: options.cwd,
-				env,
-				// Its own process group. A child in the session's group
-				// takes the session's signals, so the interrupt that ends a
-				// pi session would end the round with it, which is the
-				// thing being fixed rather than a detail of how.
-				detached: true,
-				// Nothing is listening, so nothing may be held open. A pipe
-				// nobody drains fills and blocks the writer, and one whose
-				// reader has exited kills the writer outright. The
-				// supervisor's real output is the files it writes; its
-				// stdout was only ever a convenience for a waiting parent.
-				stdio: ["ignore", "ignore", "ignore"],
-			},
-		);
-		// A spawn that fails reports it as an event, and an 'error'
-		// event nothing is listening for is thrown as an exception at
-		// the top level. On the waiting path the promise catches it; here
-		// there is no promise, so an unspawnable supervisor would take
-		// down the session that was trying to walk away from it.
-		supervisor.on("error", (error) => {
-			failures.push(`${options.reviewerId ?? "reviewer"}: ${error.message}`);
-		});
-		// Off this process's books, so node can exit without waiting.
-		supervisor.unref();
-
-		// Spawn failures arrive on the next tick at the earliest, so a
-		// synchronous return would report a pid for a process that never
-		// existed. One turn of the loop is enough to hear ENOENT and
-		// EACCES, which are the ones a caller can act on.
-		await new Promise((resolve) => setImmediate(resolve));
-		const failure = failures.shift();
-		if (failure !== undefined) throw new Error(failure);
-
-		return {
-			runId,
-			reviewerId,
-			pid: supervisor.pid,
-			requestPath: paths.requestPath,
-		};
-	};
-}
-
-/**
- * What a supervisor and its reviewer run with: pi's own environment
- * and what the session offers its commands, such as the loaded quest.
- * A subagent does its session's work, so the machine counts it for the
- * same quest. A runner that names a cache retention gives it in place of
- * the session's. What the process pinned for its children, such as a
- * host's gateway key, goes over those. The run's own variables go on top,
- * on the supervisor rather than in its request, since the reviewer takes
- * the supervisor's environment and a request on disk outlives the run
- * that wrote it.
- */
-async function supervisorEnvironment(
-	config: SupervisorRunPiConfig,
-	given: Readonly<Record<string, string>> | undefined,
-): Promise<NodeJS.ProcessEnv> {
-	return {
-		// A session set off is so alone, never its subagents (fence-stage.ts).
-		...withoutOff(process.env),
-		...offeredShellEnvironment(),
-		...(config.cacheRetention === undefined
-			? {}
-			: { PI_CACHE_RETENTION: config.cacheRetention }),
-		...(await pinnedChildEnvironment()),
-		...given,
-	};
-}
-
-/** Where the supervisor script is and what runs it. */
-function supervisorPlaces(config: SupervisorRunPiConfig): {
-	script: string;
-	nodeBinary: string;
-} {
-	return {
-		script:
-			config.supervisorPath ??
-			fileURLToPath(new URL("./supervisor.mjs", import.meta.url)),
-		nodeBinary: config.nodeBinary ?? process.execPath,
-	};
-}
-
-/**
- * Make a reviewer's directory and write down what it is being asked.
- *
- * Shared by the runner that waits and the one that walks away,
- * because everything a supervisor needs is in this file and neither
- * caller adds anything to it. Two copies would be two answers to
- * questions like whether a detached reviewer persists its session,
- * and the detached one is exactly where that has to be true: a
- * session is what a resume reads.
- */
-async function told(
-	config: SupervisorRunPiConfig,
-	options: Parameters<RunPi>[0],
-	/**
-	 * Whether the caller is going to walk away.
-	 *
-	 * Required rather than defaulted, because the two runners want
-	 * opposite answers and the wrong one is silent: a detached round
-	 * that inherits the waiting path's parent pid dies with the
-	 * session and looks exactly like a round nobody started.
-	 */
-	orphaned: boolean,
-): Promise<{
-	paths: Awaited<ReturnType<ReviewerArtifactsStore["ensureReviewerDir"]>>;
-	runId: string;
-	reviewerId: string;
-}> {
-	const store = new ReviewerArtifactsStore(config.stateDir);
-	const runId = options.runId ?? `reviewer-${Date.now()}`;
-	const reviewerId = options.reviewerId ?? "reviewer";
-	const paths = await store.ensureReviewerDir(runId, reviewerId);
-	const root = store.rootPaths(runId);
-	const request = await buildRequest(
-		config,
-		paths,
-		root.cancelPath,
-		{
-			runId,
-			reviewerId,
-			binary: config.piInstall.node,
-			// Pin the child's asset resolution (theme, package.json)
-			// to the parent's dereferenced install. The supervisor
-			// sets PI_PACKAGE_DIR from this so a mid-session upgrade
-			// that deletes the versioned symlink cannot strand the
-			// child on a path that no longer exists.
-			...(config.piInstall.packageDir
-				? { piPackageDir: config.piInstall.packageDir }
-				: {}),
-			// Only persist the session when the caller asked for
-			// it (the reviewer path, to enable resume). Fleet jobs
-			// leave persistSession false and stay ephemeral on the
-			// composed `--no-session`.
-			args: [
-				config.piInstall.entry,
-				...(options.persistSession
-					? withSessionPersistence(options.args, paths.sessionDir)
-					: options.args),
-			],
-			cwd: options.cwd,
-			...(orphaned ? { orphaned } : {}),
-		},
-		{
-			...(options.timeoutMs !== undefined
-				? { timeoutMs: options.timeoutMs }
-				: {}),
-			...(options.idleTimeoutMs !== undefined
-				? { idleTimeoutMs: options.idleTimeoutMs }
-				: {}),
-			...(options.wrapUpReserveMs !== undefined
-				? { wrapUpReserveMs: options.wrapUpReserveMs }
-				: {}),
-		},
-	);
-	await store.writeJsonAtomic(paths.requestPath, request);
-	return { paths, runId, reviewerId };
-}
 
 /** Build a `RunPi` backed by durable reviewer supervisor jobs. */
 export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
@@ -652,33 +371,6 @@ export function createSupervisorRunPi(config: SupervisorRunPiConfig): RunPi {
 }
 
 /**
- * What can still be told about a supervisor that never reported.
- *
- * Read from disk and from the process rather than guessed, because
- * the guesses are all plausible and only one of them is true: a
- * process that never started looks nothing like one that ran and
- * died, and both look like silence from here. The supervisor keeps
- * a lease and a progress file precisely so its state outlives it.
- */
-/**
- * How long ago a file was last written, in milliseconds.
- *
- * Clamped at zero because a clock that moved between the write and
- * the read should not report a negative age, which reads as a file
- * written in the future and sends the reader after the wrong thing.
- */
-async function ageOf(path: string): Promise<number> {
-	try {
-		const { mtimeMs } = await stat(path);
-		return Math.max(0, Math.round(Date.now() - mtimeMs));
-	} catch {
-		// The file was readable a moment ago, so this is a race with
-		// cleanup rather than a real answer. Nothing is claimed.
-		return 0;
-	}
-}
-
-/**
  * How long the parent waits past the supervisor's own budget.
  *
  * The ladder only works if every rung below this one has room: the
@@ -710,213 +402,4 @@ export function parentGraceMs(
 		SUPERVISOR_GRACE_MS,
 		killGraceMs + drainMs + FINISH_WRITE_MARGIN_MS,
 	);
-}
-
-async function supervisorPostMortem(
-	supervisor: ChildProcess,
-	paths: ReviewerRunPaths,
-): Promise<string> {
-	// Neither field is set until the process is gone, so both being
-	// null is how "still running" is spelled.
-	const running =
-		supervisor.exitCode === null && supervisor.signalCode === null;
-	const said: string[] = [
-		running
-			? `pid ${supervisor.pid ?? "unknown"} was still running`
-			: `already gone (exit ${supervisor.exitCode}, ` +
-				`signal ${supervisor.signalCode})`,
-	];
-	for (const [what, path] of [
-		["lease", paths.leasePath],
-		["progress", paths.progressPath],
-	] as const) {
-		try {
-			const raw = JSON.parse(await readFile(path, "utf-8")) as {
-				state?: unknown;
-			};
-			// The age matters as much as the state, and for a while only
-			// the state was reported. Both ways this fails say "running":
-			// a supervisor starved of CPU is still writing, so its last
-			// word is seconds old, while one that wedged early wrote once
-			// and stopped, so its last word is as old as the whole wait.
-			// Without the age a CI log cannot say which happened, which
-			// is exactly the question an unreproducible hang turns on.
-			said.push(
-				`${what} says ${JSON.stringify(raw.state ?? raw)}, ` +
-					`last written ${await ageOf(path)}ms ago`,
-			);
-		} catch {
-			// Absent is the interesting answer here: no lease means the
-			// supervisor never got as far as its first write.
-			said.push(`no ${what} file`);
-		}
-	}
-	return `What was found: ${said.join("; ")}.`;
-}
-
-/**
- * Turn the supervisor's durable result into the caller's, so the
- * close path and the exit backstop cannot describe one run two
- * different ways.
- */
-function fromResult(
-	result: NonNullable<Awaited<ReturnType<typeof readResult>>>,
-	warnings: readonly string[],
-	stderrTail: string,
-): RunPiResult {
-	return {
-		exitCode: result.exitCode,
-		finalAssistantText: result.finalAssistantText,
-		...(result.state ? { state: result.state } : {}),
-		...(result.usage ? { usage: result.usage } : {}),
-		...(result.sessionIds ? { sessionIds: result.sessionIds } : {}),
-		warnings: [...warnings, ...(result.warnings ?? [])],
-		stderrTail: result.stderrTail ?? stderrTail,
-		...(result.verification ? { verification: result.verification } : {}),
-		...(result.journal ? { journal: result.journal } : {}),
-		...(result.journalWarnings
-			? { journalWarnings: result.journalWarnings }
-			: {}),
-		...(result.error ? { error: result.error } : {}),
-		...(result.artifacts ? { artifacts: result.artifacts } : {}),
-	};
-}
-
-/**
- * The wall clock, and where inside it to ask for an answer.
- *
- * Computed together because they are one decision. The caller says
- * how much time to keep back and this is the only place that knows
- * what it is keeping it back from, since an unset timeout means the
- * configured default rather than no deadline at all.
- *
- * A reserve is refused rather than honoured when it would leave the
- * reviewer less time to work than to wrap up. Something has been
- * misconfigured at that point, and the safe reading is that the run
- * wants its full budget: wrapping up before it has done anything
- * would spend the whole clock asking for findings nobody had time to
- * form.
- */
-function softDeadline(
-	wall: number,
-	reserve: number | undefined,
-): { timeoutMs: number; softDeadlineMs?: number } {
-	// Zero is the documented off switch, and it has to mean that here
-	// too. Left to the arithmetic it yields a soft deadline exactly
-	// equal to the wall clock: not off, just inert, and inert in a way
-	// that reads as configured to anybody looking at the request file.
-	if (reserve === undefined || reserve === 0 || wall <= reserve * 2) {
-		return { timeoutMs: wall };
-	}
-	return { timeoutMs: wall, softDeadlineMs: wall - reserve };
-}
-
-async function buildRequest(
-	config: SupervisorRunPiConfig,
-	paths: ReviewerRunPaths,
-	runCancelPath: string,
-	input: {
-		readonly runId: string;
-		readonly reviewerId: string;
-		readonly binary: string;
-		readonly piPackageDir?: string;
-		readonly args: readonly string[];
-		readonly cwd: string;
-		/** Nobody is waiting, so the parent's death means nothing. */
-		readonly orphaned?: boolean;
-	},
-	overrides: {
-		readonly timeoutMs?: number;
-		readonly idleTimeoutMs?: number;
-		readonly wrapUpReserveMs?: number;
-	} = {},
-): Promise<unknown> {
-	const parentOwner =
-		!input.orphaned && hosted() ? await sessionOwner() : undefined;
-	return {
-		schemaVersion: 1,
-		...(parentOwner ? { parentOwner } : {}),
-		...input,
-		// Only when somebody is waiting. The supervisor stops its child
-		// as soon as this pid is gone, which is right for a round the
-		// session is holding and fatal for one it deliberately let go:
-		// a detached round would be killed within half a second of the
-		// session exiting, which is the whole thing it exists not to do.
-		...(input.orphaned ? {} : { parentPid: process.pid }),
-		paths,
-		runCancelPath,
-		...softDeadline(
-			overrides.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-			overrides.wrapUpReserveMs,
-		),
-		idleTimeoutMs:
-			overrides.idleTimeoutMs ??
-			config.idleTimeoutMs ??
-			DEFAULT_IDLE_TIMEOUT_MS,
-		killGraceMs: config.killGraceMs ?? DEFAULT_KILL_GRACE_MS,
-		maxEventBytes: config.maxEventBytes ?? DEFAULT_MAX_EVENT_BYTES,
-		maxEventRotations: config.maxEventRotations ?? DEFAULT_MAX_EVENT_ROTATIONS,
-		maxStderrBytes: config.maxStderrBytes ?? DEFAULT_MAX_STDERR_BYTES,
-		maxStderrRotations:
-			config.maxStderrRotations ?? DEFAULT_MAX_STDERR_ROTATIONS,
-		stderrTailBytes: config.stderrTailBytes ?? DEFAULT_STDERR_TAIL_BYTES,
-		maxLineBytes: config.maxLineBytes ?? DEFAULT_MAX_LINE_BYTES,
-		maxAssistantTextBytes:
-			config.maxAssistantTextBytes ?? DEFAULT_MAX_ASSISTANT_TEXT_BYTES,
-		maxWarnings: config.maxWarnings ?? DEFAULT_MAX_WARNINGS,
-	};
-}
-
-function parseSupervisorLine(
-	line: string,
-	warnings: string[],
-): Record<string, unknown> | null {
-	const trimmed = line.trim();
-	if (!trimmed) return null;
-	try {
-		const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-		return typeof parsed === "object" && parsed !== null ? parsed : null;
-	} catch {
-		warnings.push(
-			`Malformed supervisor protocol line: ${truncate(trimmed, 80)}`,
-		);
-		return null;
-	}
-}
-
-/**
- * The process group a started event names, when it names a real one.
- *
- * Zero and one are refused, not merely unlikely: signalling group zero
- * reaches our own group, and a supervisor that never spawned reports its
- * child's pid as zero.
- */
-function groupOf(event: Record<string, unknown>): number | null {
-	const group = event.pgid ?? event.pid;
-	return typeof group === "number" && Number.isInteger(group) && group > 1
-		? group
-		: null;
-}
-
-async function readResult(path: string): Promise<SupervisorResultFile | null> {
-	try {
-		return JSON.parse(await readFile(path, "utf-8")) as SupervisorResultFile;
-	} catch {
-		return null;
-	}
-}
-
-function tail(text: string, maxBytes: number): string {
-	if (Buffer.byteLength(text) <= maxBytes) return text;
-	let start = text.length - 1;
-	while (start > 0) {
-		const candidate = text.slice(start);
-		if (Buffer.byteLength(candidate) > maxBytes) return text.slice(start + 1);
-		start--;
-	}
-	return text;
-}
-
-function truncate(s: string, max: number): string {
-	return s.length <= max ? s : `${s.slice(0, max)}...`;
 }

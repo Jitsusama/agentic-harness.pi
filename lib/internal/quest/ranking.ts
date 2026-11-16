@@ -54,7 +54,7 @@ function move<T extends RankEntry>(
 ): T[] {
 	const arr = [...entries];
 	const [moved] = arr.splice(from, 1);
-	arr.splice(to, 0, moved);
+	if (moved !== undefined) arr.splice(to, 0, moved);
 	return arr.map((e, i) => ({ ...e, rank: i + 1 }));
 }
 

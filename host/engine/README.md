@@ -78,7 +78,10 @@ changes: pi's createAgentSession builds it through the agent-interface
 patch's createAgent option. The agent is HostedAgent (hosted-agent.ts),
 shaped as pi's Agent and run by the conversation's own durable harness,
 which openHostedConversation (hosted-conversation.ts) opens on a SQLite
-store of its own. pi keeps its state, queues, listeners, hooks, retry and
+store of its own. What a run holds, the agent's state, the provider
+stream, durable's transcript mirrored to pi, pi's turns around each
+request, the queued words given to durable and the recovery live beside
+it in hosted-agent/. pi keeps its state, queues, listeners, hooks, retry and
 compaction, and every request is built from pi's projection of the
 session. Durable admits inputs, makes each request through pi's stream
 with the conversation's environment, and runs each tool, never rerunning
@@ -88,6 +91,14 @@ the file. A request a restart cut off is asked again: durable,
 whose own retry stays off, ends that run as interrupted, and the
 recovery then continues the conversation, unless durable ended it for
 being cut off again and again.
+
+pi tells its extensions agent_settled only when a run it began ends, so
+the agent tells them itself when one of its own ends
+(hosted-agent/settles.ts): the recovery's, once any ask again is over
+too, and a run durable carries on alone. It says nothing while a run of
+pi's is under way, which settles as pi's run ends, nor for a run pi was
+never shown. Without it, job-workflow's outbox held a job's result from
+a carried run until a person typed.
 
 A host coming back carries only a few cut-off runs on at once
 (resume-turns.ts, RESUMED_RUNS_AT_ONCE, 4). As a start resumes what it
@@ -123,7 +134,7 @@ on, queued on the agent rather than on pi's session, whose screen lists
 only what it queued itself: queueing them there too would run them through
 the extensions' input handlers and onto the agent a second time. So the
 agent shows them through the agent-interface patch's showQueued
-(showQueuedIn), and pi takes each off its list as its message starts or
+(joinSession), and pi takes each off its list as its message starts or
 the queue is cleared. On a pi without that seam they show only as their
 turn starts.
 

@@ -424,7 +424,7 @@ describe("reading a document without all of it", () => {
 			"Work",
 			"Notes",
 		]);
-		expect(outline.sections[1].bytes).toBe(
+		expect(outline.sections[1]?.bytes).toBe(
 			Buffer.byteLength("## Notes\n\nSome notes.\n"),
 		);
 		const wrapped = outlineOf(

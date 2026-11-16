@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { digestEvents } from "../../../lib/subagent/digest.ts";
+import { at } from "../../support/at.ts";
 
 const USAGE = {
 	input: 4,
@@ -71,8 +72,8 @@ describe("digestEvents", () => {
 		const turn = records.find((r) => r.kind === "assistant");
 
 		expect(turn?.toolCalls).toHaveLength(1);
-		expect(turn?.toolCalls?.[0].name).toBe("bash");
-		expect(turn?.toolCalls?.[0].argsDigest).toMatch(/^[0-9a-f]{24}$/);
+		expect(turn?.toolCalls?.[0]?.name).toBe("bash");
+		expect(turn?.toolCalls?.[0]?.argsDigest).toMatch(/^[0-9a-f]{24}$/);
 		expect(JSON.stringify(records)).not.toContain("/very/long/path");
 	});
 
@@ -86,7 +87,9 @@ describe("digestEvents", () => {
 		);
 		const digests = records
 			.filter((r) => r.kind === "assistant")
-			.map((r) => r.toolCalls?.[0].argsDigest);
+			.map((r) =>
+				r.toolCalls === undefined ? undefined : at(r.toolCalls, 0).argsDigest,
+			);
 
 		expect(digests[0]).toBe(digests[1]);
 		expect(digests[0]).not.toBe(digests[2]);

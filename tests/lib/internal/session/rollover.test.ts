@@ -71,28 +71,42 @@ const assistant = (text: string, cost = 0.25) => ({
  */
 function longSession(): {
 	manager: SessionManager;
-	ids: Record<string, string>;
+	ids: LongSessionIds;
 } {
 	const manager = SessionManager.create(dir, dir);
-	const ids: Record<string, string> = {};
 	manager.appendModelChange("anthropic", "claude");
-	ids.state = manager.appendCustomEntry("quest-workflow", { questId: "Q1" });
-	ids.early = manager.appendMessage(user("early question"));
+	const state = manager.appendCustomEntry("quest-workflow", {
+		questId: "Q1",
+	});
+	const early = manager.appendMessage(user("early question"));
 	manager.appendMessage(assistant("early answer"));
-	ids.earlyLabel = manager.appendLabelChange(ids.early, "start");
+	const earlyLabel = manager.appendLabelChange(early, "start");
 	manager.appendThinkingLevelChange("high");
-	ids.kept = manager.appendMessage(user("kept question"));
+	const kept = manager.appendMessage(user("kept question"));
 	manager.appendMessage(assistant("kept answer"));
-	ids.keptLabel = manager.appendLabelChange(ids.kept, "kept");
-	ids.compaction = manager.appendCompaction(
+	const keptLabel = manager.appendLabelChange(kept, "kept");
+	const compaction = manager.appendCompaction(
 		"what happened early",
-		ids.kept,
+		kept,
 		1000,
 	);
 	manager.appendCustomEntry("away-state", { away: false });
 	manager.appendMessage(user("after"));
 	manager.appendMessage(assistant("after answer"));
-	return { manager, ids };
+	return {
+		manager,
+		ids: { state, early, earlyLabel, kept, keptLabel, compaction },
+	};
+}
+
+/** The ids of the entries in a long session that the tests look for. */
+interface LongSessionIds {
+	state: string;
+	early: string;
+	earlyLabel: string;
+	kept: string;
+	keptLabel: string;
+	compaction: string;
 }
 
 function branchOf(manager: SessionManager): Entry[] {

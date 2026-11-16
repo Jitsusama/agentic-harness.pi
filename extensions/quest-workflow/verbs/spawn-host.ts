@@ -47,7 +47,7 @@ import {
 } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import { spawnHostSetting } from "../config.ts";
-import { readRecord } from "../session-registry.ts";
+import { readRecord } from "../sessions/records.ts";
 import {
 	ok,
 	type QuestResult,

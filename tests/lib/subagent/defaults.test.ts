@@ -11,6 +11,7 @@ import {
 	registerSubagentDefaultSkill,
 	runReviewer,
 } from "../../../lib/subagent/index.ts";
+import { at } from "../../support/at.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
 // The registry is process-global on purpose so a
@@ -193,7 +194,7 @@ describe("runReviewer + defaults integration", () => {
 			cwd: "/tmp",
 			runPi,
 		});
-		const args = calls[0].args.join(" ");
+		const args = at(calls, 0).args.join(" ");
 		expect(args).toContain("--extension /abs/auth.ts");
 		expect(args).toContain("--skill /abs/conv.md");
 	});
@@ -213,7 +214,7 @@ describe("runReviewer + defaults integration", () => {
 			runPi,
 			extraExtensions: ["/abs/auth.ts", "/abs/verify.ts"],
 		});
-		const args = calls[0].args;
+		const args = at(calls, 0).args;
 		const extensions = args.filter(
 			(_, i) => i > 0 && args[i - 1] === "--extension",
 		);
@@ -238,7 +239,7 @@ describe("runReviewer + defaults integration", () => {
 			cwd: "/tmp",
 			runPi,
 		});
-		expect(calls[0].args.join(" ")).toContain("--extension /abs/auth.ts");
+		expect(at(calls, 0).args.join(" ")).toContain("--extension /abs/auth.ts");
 	});
 
 	it("emits no --extension / --skill flags when nothing is registered or passed", async () => {
@@ -253,7 +254,7 @@ describe("runReviewer + defaults integration", () => {
 			cwd: "/tmp",
 			runPi,
 		});
-		const args = calls[0].args;
+		const args = at(calls, 0).args;
 		expect(args).not.toContain("--extension");
 		expect(args).not.toContain("--skill");
 	});
@@ -274,7 +275,7 @@ describe("runReviewer + defaults integration", () => {
 			isolated: true,
 			runPi,
 		});
-		const args = calls[0].args.join(" ");
+		const args = at(calls, 0).args.join(" ");
 		expect(args).toContain("--no-extensions");
 		expect(args).toContain("--no-skills");
 		expect(args).toContain("--extension /abs/auth.ts");

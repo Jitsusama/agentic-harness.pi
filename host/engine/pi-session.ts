@@ -187,9 +187,13 @@ export interface AgentSession {
 	readonly sessionId: string;
 	readonly sessionFile: string | undefined;
 	readonly isStreaming: boolean;
-	/** The extensions' runner, asked which commands they registered. */
+	/** The extensions' runner, asked which commands they registered and told when a run the host began settled. */
 	readonly extensionRunner: {
 		getCommand(name: string): object | undefined;
+		emit(event: {
+			readonly type: "agent_settled";
+			readonly aborted: boolean;
+		}): Promise<unknown>;
 	};
 	prompt(
 		text: string,

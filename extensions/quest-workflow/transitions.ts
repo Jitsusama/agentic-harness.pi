@@ -29,6 +29,7 @@ import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
 import { budget } from "./verbs/budget.ts";
+import { concludeOrRetire } from "./verbs/conclude.ts";
 import { config } from "./verbs/config.ts";
 import {
 	checkedItem,
@@ -65,6 +66,7 @@ import {
 } from "./verbs/queries.ts";
 import { queueOrder } from "./verbs/queue.ts";
 import { priorityJump, priorityShift, reorder } from "./verbs/reorder.ts";
+import { reopenQuest } from "./verbs/seal.ts";
 import {
 	sessionAttach,
 	sessionAudit,
@@ -78,11 +80,7 @@ import {
 	type QuestToolParams,
 	refuse,
 } from "./verbs/shared.ts";
-import {
-	concludeOrRetire,
-	reopenQuest,
-	stageTransition,
-} from "./verbs/stage.ts";
+import { stageTransition } from "./verbs/stage.ts";
 import { reparent, undo } from "./verbs/structural.ts";
 import {
 	treeAdd,

@@ -45,9 +45,7 @@ import {
 	getQuestEntry,
 	linksForLoaded,
 	locateOwner,
-	recentSessions,
 	resolveRefQuery,
-	sessionsAtWork,
 	type TreeNode,
 	treeAll,
 } from "../lookup.ts";
@@ -59,15 +57,15 @@ import {
 	renderListing,
 	renderRowBrief,
 } from "../render-rows.ts";
+import { pruneClosedRecords, seedLiveSessions } from "../sessions/records.ts";
+import { reopenLostSessions } from "../sessions/reopen.ts";
 import {
 	carriedHome,
 	lastBootRestorable,
-	pruneClosedRecords,
 	recentlyClosedSessions,
-	reopenLostSessions,
 	savedSessions,
-	seedLiveSessions,
-} from "../session-registry.ts";
+} from "../sessions/restore.ts";
+import { recentSessions, sessionsAtWork } from "../sessions/views.ts";
 import type { QuestState } from "../state.ts";
 import { type TerminalCall, terminalOptions } from "../terminal.ts";
 import {

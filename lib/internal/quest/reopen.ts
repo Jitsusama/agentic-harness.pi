@@ -324,15 +324,15 @@ export function pickResumeSession(
 		sessions.filter((s) => s.liveness === want).sort(byActivityDesc);
 
 	const live = byLiveness("live");
-	if (live.length === 1) return { id: live[0].id };
+	const [only] = live;
+	if (only !== undefined && live.length === 1) return { id: only.id };
 	if (live.length > 1) return { ambiguous: live };
 
 	// No live session: resume the most-recent idle one. Idle is
 	// stale, not concurrent, so several idle sessions are never
 	// ambiguous, and the newest is the one you left the work in.
-	const idle = byLiveness("idle");
-	if (idle.length > 0) return { id: idle[0].id };
-	return undefined;
+	const [newestIdle] = byLiveness("idle");
+	return newestIdle === undefined ? undefined : { id: newestIdle.id };
 }
 
 /**

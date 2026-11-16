@@ -4,28 +4,14 @@
 # The test fails on one that's split, says why or is gone, so the list
 # only shrinks.
 extensions
-extensions/mesh-workflow/index.ts
-extensions/mesh-workflow/leases.ts
-extensions/mesh-workflow/tools.ts
 extensions/quest-workflow/index.ts
-extensions/quest-workflow/lookup.ts
-extensions/quest-workflow/session-registry.ts
-extensions/quest-workflow/verbs/stage.ts
-extensions/subagent-workflow/index.ts
-host/engine/hosted-agent.ts
 lib/internal
 lib/internal/quest
 lib/internal/quest/discovery.ts
 lib/subagent/runpi/supervisor.mjs
-lib/subagent/runpi/supervisor.ts
-lib/subagent/subagent.ts
 lib/ui
 tests/extensions
 tests/extensions/compaction-workflow/host.test.ts
 tests/extensions/quest-workflow
-tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts
-tests/extensions/subagent-workflow/run.test.ts
 tests/lib/mesh/presence.test.ts
-tests/lib/subagent/runpi/supervisor.test.ts
-tests/lib/subagent/subagent.test.ts
 tests/package

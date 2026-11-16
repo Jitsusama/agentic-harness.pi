@@ -38,6 +38,7 @@ import {
 	createSupervisorRunPi,
 	createSupervisorStartPi,
 } from "../../../../lib/subagent/runpi/supervisor.ts";
+import { at } from "../../../support/at.ts";
 import { gone, noSuchProcess } from "../../../support/processes.ts";
 import { sessionHost } from "../../../support/session-host.ts";
 import { APPEARS_WITHIN_MS, appears } from "./appears.ts";
@@ -134,8 +135,8 @@ describe("a supervisor whose session has gone", () => {
 				store.paths("hosted", "a").resultPath,
 			);
 			expect(a.state).toBe("parent-exit");
-			await gone(children[0], APPEARS_WITHIN_MS);
-			expect(() => process.kill(children[1], 0)).not.toThrow();
+			await gone(at(children, 0), APPEARS_WITHIN_MS);
+			expect(() => process.kill(at(children, 1), 0)).not.toThrow();
 			expect(host.holds("b")).toBe("idle");
 
 			await host.close("b", "test");

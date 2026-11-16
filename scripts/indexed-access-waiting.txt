@@ -7,7 +7,6 @@ extensions/google-workspace-integration/render-result.ts 4
 extensions/guard-policy-workflow/command.ts 2
 extensions/guard-policy-workflow/lifecycle.ts 3
 extensions/quest-workflow/enforce.ts 2
-extensions/quest-workflow/lookup.ts 1
 extensions/quest-workflow/render.ts 1
 extensions/quest-workflow/verbs/document.ts 2
 extensions/quest-workflow/verbs/tree-ops.ts 2
@@ -59,18 +58,6 @@ lib/internal/priority/next-turn.ts 3
 lib/internal/priority/outcome.ts 20
 lib/internal/priority/push-hooks.mjs 10
 lib/internal/priority/world-walk.ts 11
-lib/internal/quest/alias-index.ts 1
-lib/internal/quest/body-edits.ts 19
-lib/internal/quest/doing.ts 1
-lib/internal/quest/id.ts 2
-lib/internal/quest/journey-sweep.ts 4
-lib/internal/quest/journey.ts 10
-lib/internal/quest/owned-fields.ts 3
-lib/internal/quest/quest-doc.ts 7
-lib/internal/quest/ranking.ts 1
-lib/internal/quest/reopen.ts 2
-lib/internal/quest/trees.ts 2
-lib/internal/quest/url-fetchers.ts 1
 lib/internal/refs/builtins.ts 1
 lib/mcp/ceiling.ts 1
 lib/mcp/config-panel.ts 1
@@ -91,10 +78,6 @@ lib/slack/detect.ts 7
 lib/slack/renderers/message.ts 11
 lib/slack/resolvers/conversation.ts 1
 lib/slack/resolvers/url.ts 3
-lib/subagent/artifacts.ts 4
-lib/subagent/runpi/supervisor.mjs 1
-lib/subagent/subagent.ts 1
-lib/ui/prompt-toggle-list.ts 1
 scripts/learning-sensor.ts 2
 tests/core/browser/conformance.test.ts 2
 tests/core/browser/signals.test.ts 2
@@ -164,7 +147,8 @@ tests/extensions/review-ask-actions-offered.test.ts 2
 tests/extensions/review-integration.test.ts 1
 tests/extensions/slack-integration/bounded.test.ts 3
 tests/extensions/spend-workflow/hosted.test.ts 3
-tests/extensions/subagent-workflow/run.test.ts 26
+tests/extensions/subagent-workflow/run-dispatch.test.ts 18
+tests/extensions/subagent-workflow/run-summary.test.ts 8
 tests/extensions/work-stack-render.test.ts 3
 tests/lib/command/flags.test.ts 8
 tests/lib/command/tokenize.test.ts 61
@@ -174,11 +158,6 @@ tests/lib/internal/guardian/registry.test.ts 6
 tests/lib/internal/notify.test.ts 3
 tests/lib/internal/priority/queued-exec.test.ts 1
 tests/lib/internal/priority/room.test.ts 3
-tests/lib/internal/quest/body-edits.test.ts 1
-tests/lib/internal/quest/footprint.test.ts 9
-tests/lib/internal/quest/liveness-snapshot.test.ts 2
-tests/lib/internal/reload/follow.test.ts 1
-tests/lib/internal/session/rollover.test.ts 2
 tests/lib/ledger/calls.test.ts 18
 tests/lib/ledger/compaction-model.test.ts 1
 tests/lib/ledger/dropped.test.ts 8
@@ -193,7 +172,6 @@ tests/lib/mcp/surface/helpers.test.ts 5
 tests/lib/mcp/surface/manager.test.ts 8
 tests/lib/mcp/surface/policy.test.ts 6
 tests/lib/memory/store.test.ts 2
-tests/lib/mesh/presence.test.ts 3
 tests/lib/prose/detect.test.ts 3
 tests/lib/prose/spelling-binding.test.ts 3
 tests/lib/quest/discovery-toc-mentions.test.ts 4
@@ -201,14 +179,6 @@ tests/lib/quest/journey-sweep.test.ts 1
 tests/lib/quest/quest-doc.test.ts 7
 tests/lib/roles/archaic.test.ts 4
 tests/lib/shell/parse.test.ts 9
-tests/lib/subagent/api.test.ts 15
-tests/lib/subagent/defaults.test.ts 5
-tests/lib/subagent/digest.test.ts 3
-tests/lib/subagent/runpi/parent-exit.test.ts 2
-tests/lib/subagent/runpi/spawn.test.ts 3
-tests/lib/subagent/runpi/supervisor.test.ts 1
-tests/lib/subagent/subagent.test.ts 32
-tests/lib/ui/navigable-list.test.ts 6
 tests/package/docs-name-what-exists.test.ts 4
 tests/package/every-stop-is-one-something-imposes.test.ts 3
 tests/package/exports.test.ts 1
@@ -216,4 +186,3 @@ tests/package/refusals-are-actionable.test.ts 2
 tests/package/registered-tools.ts 7
 tests/package/skills-name-real-tools.test.ts 2
 tests/package/tool-execute-signature.test.ts 4
-tests/packs/review-journal.test.ts 6

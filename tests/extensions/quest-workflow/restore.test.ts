@@ -4,9 +4,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	readRecord,
-	reopenLostSessions,
 	saveRecord,
-} from "../../../extensions/quest-workflow/session-registry.ts";
+} from "../../../extensions/quest-workflow/sessions/records.ts";
+import { reopenLostSessions } from "../../../extensions/quest-workflow/sessions/reopen.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { restore } from "../../../extensions/quest-workflow/verbs/queries.ts";

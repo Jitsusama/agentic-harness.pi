@@ -248,14 +248,22 @@ sessions skip the board and just return results.
 
 ## Files
 
-- `index.ts`: registration, plus the session-start
-  housekeeping. Declares the tool, wires the supervisor,
-  the cancellation registry and the progress reporter,
-  and holds `sweepFleetRuns`, which is its own function
-  rather than a handler body because it is four policies
-  in a row. It says each fleet in its run record, the
+- `index.ts`: registration. Registers the tool, wires
+  the supervisor, the cancellation registry and the
+  progress reporter, and starts the session-start
+  upkeep. It says each fleet in its run record, the
   mesh's `runs/` file the launcher reads, from before it
   runs until its call returns.
+- `declaration.ts`: what the model reads of the tool,
+  its description, guidelines and parameter schema.
+- `upkeep.ts`: the session-start housekeeping. Holds
+  `sweepFleetRuns`, which is its own function rather
+  than a handler body because it is four policies in a
+  row, the orphaned-subagent stop, and the word a
+  returning conversation gets about its cut-off fleets.
+- `bookkeeping.ts`: writing a fleet down without letting
+  a failed write cost it, and reading which conversation
+  and owner it belongs to.
 
 - `sizing.ts`, `place.ts`, `fleet-settings.ts`: what
   each job runs on and the fleet's cap (see
@@ -395,6 +403,14 @@ those, and says which ones it stopped. The rest skip it:
 the look walks every run kept, and a restart or an
 install starts every session at once, each of which
 found what the first had just found.
+
+The look waits until the session is ready, once pi has
+asked for resources after every extension's start, and
+runs after the fleet sweep, since the two walk one tree.
+It gives the thread back every 20 ms as it walks. On a
+wake on 15 November it walked 436 runs and 737
+reviewers in 1.3 s of the thread, inside the first
+6.5 s, while sessions were still starting beside it.
 
 One gap is known and open. A record for a fleet that
 never wrote a transcript is protected like any other and

@@ -30,7 +30,7 @@ export function splitAtBody(text: string): SplitDocument {
 	const lines = text.split("\n");
 	if (lines[0]?.trim() !== FENCE) return { head: "", body: text };
 	for (let i = 1; i < lines.length; i++) {
-		if (lines[i].trim() === FENCE) {
+		if (lines[i]?.trim() === FENCE) {
 			const head = `${lines.slice(0, i + 1).join("\n")}\n`;
 			return { head, body: text.slice(head.length) };
 		}
@@ -81,7 +81,7 @@ export function setCheckbox(
 	const found = findItem(items, item);
 	if (!found.ok) return found;
 	const { match } = found;
-	const parts = CHECKBOX.exec(lines[match.index]);
+	const parts = CHECKBOX.exec(lines[match.index] ?? "");
 	if (!parts) return { ok: false, reason: "The item could not be read." };
 	const mark = done ? "x" : " ";
 	const wasDone = parts[2] !== " ";
@@ -164,7 +164,8 @@ function findItem(
 			reason: `No item reads "${item.trim()}": the items are only the template's placeholders (${items.map((i) => `"${i.text.trim()}"`).join(", ")}), so this document's items are not written yet. Write them with \`section\` on the section that holds them (Work, in a plan), then name one.`,
 		};
 	}
-	if (matches.length === 0) {
+	const [match] = matches;
+	if (match === undefined) {
 		const reach =
 			numbered && /^\d+$/.test(wanted)
 				? `: its items are numbered up to ${highestNumber(items)}.`
@@ -180,7 +181,7 @@ function findItem(
 			reason: `${matches.length} items fit "${item.trim()}"; name more of the one meant:\n${listItems(matches, !numbered)}`,
 		};
 	}
-	return { ok: true, match: matches[0] };
+	return { ok: true, match };
 }
 
 /**
@@ -238,8 +239,8 @@ export function outlineOf(body: string): Outline {
 	const located = checkboxLines(lines);
 	const positioned = !numbersItsItems(located);
 	const items = located.map((i) => {
-		const parts = CHECKBOX.exec(lines[i.index]);
-		const indent = parts?.[1].match(/^\s*/)?.[0].replace(/\t/g, "  ").length;
+		const parts = CHECKBOX.exec(lines[i.index] ?? "");
+		const indent = parts?.[1]?.match(/^\s*/)?.[0].replace(/\t/g, "  ").length;
 		const wrapped: string[] = [i.text];
 		for (const line of lines.slice(i.index + 1)) {
 			if (!line.trim() || indentOf(line) <= (indent ?? 0)) break;
@@ -278,7 +279,8 @@ export function sectionOf(
 	const lines = body.split("\n");
 	const headings = secondLevelHeadings(lines);
 	const at = headings.findIndex((h) => headingWords(h.text) === wanted);
-	if (at === -1) {
+	const target = headings[at];
+	if (target === undefined) {
 		const known = headings.map((h) => h.text).join(", ");
 		return {
 			ok: false,
@@ -286,8 +288,8 @@ export function sectionOf(
 		};
 	}
 	const end = headings[at + 1]?.index ?? lines.length;
-	const text = trimBlankEdges(lines.slice(headings[at].index + 1, end));
-	return { ok: true, found: headings[at].text, text: text.join("\n") };
+	const text = trimBlankEdges(lines.slice(target.index + 1, end));
+	return { ok: true, found: target.text, text: text.join("\n") };
 }
 
 /**
@@ -346,16 +348,16 @@ export function itemOf(body: string, item: string): ReadFound | EditRefused {
 	const found = findItem(items, item);
 	if (!found.ok) return found;
 	const at = found.match.index;
-	const depth = indentOf(lines[at]);
+	const depth = indentOf(lines[at] ?? "");
 	let end = at + 1;
 	while (end < lines.length) {
 		const line = lines[end];
-		if (/^#{1,6}\s/.test(line)) break;
+		if (line === undefined || /^#{1,6}\s/.test(line)) break;
 		if (line.trim() !== "" && indentOf(line) <= depth) break;
 		end++;
 	}
 	const notes = trimBlankEdges(lines.slice(at + 1, end));
-	return { ok: true, found: lines[at].trim(), text: notes.join("\n") };
+	return { ok: true, found: (lines[at] ?? "").trim(), text: notes.join("\n") };
 }
 
 /** A line a search of a document found, with where it sits. */
@@ -515,7 +517,8 @@ export function replaceSection(
 			: appended(body, title, text);
 		return { ok: true, body: result, changed: true, added: true };
 	}
-	if (at === -1) {
+	const target = headings[at];
+	if (target === undefined) {
 		const known = headings.map((h) => h.text).join(", ");
 		const addable =
 			missing === "readme"
@@ -530,7 +533,7 @@ export function replaceSection(
 			reason: `No section is headed "${heading.trim()}".${known ? ` The sections are: ${known}.` : ""}${addable}`,
 		};
 	}
-	const start = headings[at].index + 1;
+	const start = target.index + 1;
 	const end = headings[at + 1]?.index ?? lines.length;
 	// A blank line before the next heading, or the file's final newline.
 	const trailing = end < lines.length || body.endsWith("\n") ? [""] : [];
@@ -595,19 +598,23 @@ interface Located {
 function checkboxLines(lines: readonly string[]): Located[] {
 	return outsideFences(lines)
 		.flatMap((index) => {
-			const parts = CHECKBOX.exec(lines[index]);
-			return parts ? [{ index, text: parts[4], done: parts[2] !== " " }] : [];
+			const parts = CHECKBOX.exec(lines[index] ?? "");
+			const text = parts?.[4];
+			return parts && text !== undefined
+				? [{ index, text, done: parts[2] !== " " }]
+				: [];
 		})
 		.map((item, at) => ({ ...item, position: at + 1 }));
 }
 
 /** Second-level headings outside fenced code. */
 function secondLevelHeadings(lines: readonly string[]): Located[] {
-	return outsideFences(lines).flatMap((index) =>
-		/^##\s/.test(lines[index])
-			? [{ index, text: lines[index].replace(/^##\s+/, "").trim() }]
-			: [],
-	);
+	return outsideFences(lines).flatMap((index) => {
+		const line = lines[index];
+		return line !== undefined && /^##\s/.test(line)
+			? [{ index, text: line.replace(/^##\s+/, "").trim() }]
+			: [];
+	});
 }
 
 /** Indices of the lines not inside a fenced code block. */
@@ -658,7 +665,7 @@ function listItems(items: readonly Located[], positioned: boolean): string {
 function trimBlankEdges(lines: string[]): string[] {
 	let start = 0;
 	let end = lines.length;
-	while (start < end && lines[start].trim() === "") start++;
-	while (end > start && lines[end - 1].trim() === "") end--;
+	while (start < end && lines[start]?.trim() === "") start++;
+	while (end > start && lines[end - 1]?.trim() === "") end--;
 	return lines.slice(start, end);
 }

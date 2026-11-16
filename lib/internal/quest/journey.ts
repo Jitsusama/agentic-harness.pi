@@ -89,7 +89,7 @@ function partsOf(body: readonly string[]): JourneyParts {
 	for (const line of body) {
 		const entry = ENTRY.exec(line);
 		const current = parts.entries.at(-1);
-		if (entry) parts.entries.push({ date: entry[1], lines: [line] });
+		if (entry) parts.entries.push({ date: entry[1] ?? "", lines: [line] });
 		else if (DEFINITION.test(line)) parts.definitions.push(line);
 		else if (current) current.lines.push(line);
 		else parts.lead.push(line);
@@ -118,10 +118,15 @@ export function mergeJourneyBodies(
 	let i = 0;
 	let j = 0;
 	while (i < a.entries.length || j < b.entries.length) {
+		const left = a.entries[i];
+		const right = b.entries[j];
 		const takeFirst =
-			j >= b.entries.length ||
-			(i < a.entries.length && a.entries[i].date >= b.entries[j].date);
-		merged.push(...(takeFirst ? a.entries[i++] : b.entries[j++]).lines);
+			right === undefined || (left !== undefined && left.date >= right.date);
+		const next = takeFirst ? left : right;
+		if (next === undefined) break;
+		if (takeFirst) i++;
+		else j++;
+		merged.push(...next.lines);
 	}
 	const labels = new Set<string>();
 	const definitions = [...a.definitions, ...b.definitions].filter((line) => {
@@ -164,7 +169,7 @@ export function journeyBody(text: string): string[] {
 	const lines = text.replace(/\n+$/, "").split("\n");
 	let start = 0;
 	if (lines[0]?.startsWith("# ")) start = 1;
-	while (start < lines.length && lines[start].trim() === "") start++;
+	while (start < lines.length && lines[start]?.trim() === "") start++;
 	return lines.slice(start).filter((line) => !isJourneyPointer(line));
 }
 
@@ -186,7 +191,7 @@ export function readmeJourneySection(
 	const heading = lines.findIndex((l) => JOURNEY_HEADING.test(l));
 	if (heading < 0) return undefined;
 	let end = heading + 1;
-	while (end < lines.length && !ANY_H2.test(lines[end])) end++;
+	while (end < lines.length && !ANY_H2.test(lines[end] ?? "")) end++;
 	return { start: heading, end, lines: lines.slice(heading + 1, end) };
 }
 
@@ -202,9 +207,8 @@ export function questJourneyLines(questDir: string, readme: string): string[] {
 	const unswept = section.filter(
 		(l) => !isJourneyPointer(l) && !/^<!--.*-->$/.test(l.trim()),
 	);
-	while (unswept.length > 0 && unswept[0].trim() === "") unswept.shift();
-	while (unswept.length > 0 && unswept[unswept.length - 1].trim() === "")
-		unswept.pop();
+	while (unswept[0]?.trim() === "") unswept.shift();
+	while (unswept.at(-1)?.trim() === "") unswept.pop();
 	return [...unswept, ...readJourneyFile(questDir)];
 }
 
@@ -219,7 +223,7 @@ export function journeyEntriesFrom(lines: readonly string[]): JourneyEntry[] {
 		const m = ENTRY.exec(line);
 		if (m) {
 			if (current) entries.push(current);
-			current = { date: m[1], prose: m[2].trim() };
+			current = { date: m[1] ?? "", prose: (m[2] ?? "").trim() };
 			continue;
 		}
 		if (current && CONTINUATION.test(line) && line.trim()) {

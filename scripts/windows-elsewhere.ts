@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { refreshRestoreFile } from "../extensions/quest-workflow/session-registry.ts";
+import { refreshRestoreFile } from "../extensions/quest-workflow/sessions/restore.ts";
 import { dataDir, stateDir } from "../lib/internal/paths.ts";
 import { currentBootToken } from "../lib/internal/quest/process-liveness.ts";
 import { sessionsKittyDoor } from "../lib/internal/quest/sessions-kitty.ts";

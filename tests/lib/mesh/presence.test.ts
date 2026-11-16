@@ -701,7 +701,7 @@ describe("this session's peer", () => {
 		// A tree taken away since names no repository: its folder's name
 		// is the broker's, not the repository's.
 		const gone = join(root, "worktree-github-someone-widget-a-branch");
-		for (const [id, text] of [
+		const quests: readonly (readonly [id: string, text: string])[] = [
 			[
 				"QEST-20261021-LUQ49E",
 				readme(
@@ -715,7 +715,8 @@ describe("this session's peer", () => {
 				readme("QEST-20261021-5GV2AH", "QEST-20261013-4UHC5Q"),
 			],
 			["QEST-20261013-4UHC5Q", readme("QEST-20261013-4UHC5Q", "null")],
-		]) {
+		];
+		for (const [id, text] of quests) {
 			mkdirSync(join(root, "quests", id), { recursive: true });
 			writeFileSync(join(root, "quests", id, "README.md"), text);
 		}

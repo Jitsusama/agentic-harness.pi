@@ -84,12 +84,13 @@ function topLevelScalars(text: string): Map<string, string> {
 	const values = new Map<string, string>();
 	for (const line of head.split("\n")) {
 		const match = /^([A-Za-z][\w-]*):[ \t]*(.*?)[ \t]*$/.exec(line);
-		if (match) values.set(match[1], unquote(match[2]));
+		const [, key, value = ""] = match ?? [];
+		if (key !== undefined) values.set(key, unquote(value));
 	}
 	return values;
 }
 
 function unquote(value: string): string {
 	const quoted = /^(["'])(.*)\1$/.exec(value);
-	return quoted ? quoted[2] : value;
+	return quoted?.[2] ?? value;
 }

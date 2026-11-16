@@ -13,7 +13,9 @@ tests/extensions/shell-workflow/hand-off.test.ts 2
 tests/extensions/shell-workflow/reap.test.ts 1
 tests/lib/subagent/fleet-ledger.test.ts 1
 tests/lib/subagent/runpi/detached.test.ts 3
-tests/lib/subagent/runpi/supervisor.test.ts 6
+tests/lib/subagent/runpi/supervisor-endings.test.ts 4
+tests/lib/subagent/runpi/supervisor-parent.test.ts 1
+tests/lib/subagent/runpi/supervisor-records.test.ts 1
 tests/lib/ui/gate-over-live-transcript.test.ts 1
 tests/lib/ui/pi-screen.ts 1
 tests/screen/dock-hop.test.ts 2

@@ -56,7 +56,9 @@ export function buildAliasIndex(index: QuestIndex): AliasIndex {
 	const collisions = new Map<string, string[]>();
 	for (const [key, ids] of occurrences) {
 		const sorted = [...ids].sort();
-		byKey.set(key, sorted[0]);
+		const [first] = sorted;
+		if (first === undefined) continue;
+		byKey.set(key, first);
 		if (sorted.length > 1) collisions.set(key, sorted);
 	}
 	return { byKey, collisions };

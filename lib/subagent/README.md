@@ -100,8 +100,21 @@ companion skill.
 ## Files
 
 - `subagent.ts`: top-level entry, being `runSubagent`,
-  `runFleet`, `runReviewer` (legacy), arg composition,
-  result extraction and verify enforcement.
+  `runFleet`, `runReviewer` (legacy) and `startReviewer`.
+  It runs the pieces below in order and re-exports what
+  callers name, so they import from here alone.
+- `run-contract.ts`: the shapes a run is asked and
+  answers in: the spec, the runner, its result and a
+  reviewer's options and result.
+- `launch.ts`: how a reviewer's pi is started: its argv,
+  the extensions and skills it loads, its tools and the
+  brief file it reads.
+- `follow-up.ts`: the resume after a transient drop and
+  the wrap-up for a reviewer we stopped, each run on the
+  first run's session and folded into its result.
+- `reviewer-result.ts`: what a run answered, read off its
+  pi process: the text, usage, verify enforcement and the
+  warnings a caller acts on.
 - `stream.ts`: JSON-stream parser. Collects the final
   assistant turn, watches `verify_output` tool calls,
   enforces line and warning caps.
@@ -167,7 +180,16 @@ companion skill.
 - `runpi/spawn.ts`: fire-and-forget runner. Cheapest path.
 - `runpi/supervisor.ts`: durable runner. Each call writes
   a request file, spawns `supervisor.mjs` detached and
-  streams events back via the artifacts store.
+  streams events back via the artifacts store. It holds
+  the runner that waits and the grace it gives the
+  supervisor; three files beside it hold the rest:
+  - `runpi/supervisor-request.ts`: what a supervisor is
+    told and run with, its environment and its places.
+  - `runpi/supervisor-result.ts`: what a supervisor said,
+    read from its result file, its stream or, when it
+    never answered, its post-mortem.
+  - `runpi/supervisor-detached.ts`: the runner that starts
+    a supervisor and walks away.
 - `runpi/supervisor.mjs`: the supervisor process itself,
   and the four `.mjs` it shares with the parent. They stay
   `.mjs` because node spawns this directly, and node

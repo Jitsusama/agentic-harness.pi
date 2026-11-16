@@ -2,12 +2,12 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readRecord } from "../../../extensions/quest-workflow/sessions/records.ts";
 import {
 	endBySignal,
 	installSignalStamp,
-	readRecord,
 	removeSignalStamp,
-} from "../../../extensions/quest-workflow/session-registry.ts";
+} from "../../../extensions/quest-workflow/sessions/signal-stamp.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { parseQuestFrontMatter } from "../../../lib/quest/index.ts";

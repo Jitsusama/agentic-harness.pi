@@ -56,7 +56,7 @@ export function parseQuestDoc(text: string): QuestDoc | undefined {
 /** Extract the first H1 from a body. */
 export function extractTitle(body: string): string | undefined {
 	const match = /^#\s+(.+)$/m.exec(body);
-	return match ? match[1].trim() : undefined;
+	return match?.[1]?.trim();
 }
 
 /**
@@ -73,7 +73,7 @@ export function extractSection(
 	const lines = body.split("\n");
 	let start = -1;
 	for (let i = 0; i < lines.length; i++) {
-		if (headerRegex.test(lines[i])) {
+		if (headerRegex.test(lines[i] ?? "")) {
 			start = i + 1;
 			break;
 		}
@@ -81,7 +81,7 @@ export function extractSection(
 	if (start === -1) return [];
 	let end = lines.length;
 	for (let i = start; i < lines.length; i++) {
-		if (ANY_H2.test(lines[i])) {
+		if (ANY_H2.test(lines[i] ?? "")) {
 			end = i;
 			break;
 		}
@@ -141,9 +141,10 @@ export function extractCast(body: string): CastEntry[] {
 	const bulletRegex = /^-\s+\*\*([\w-]+)\*\*:\s*(.+)$/;
 	for (const line of lines) {
 		const m = bulletRegex.exec(line.trim());
-		if (!m) continue;
-		const role = m[1].toLowerCase();
-		const rest = m[2].trim();
+		const [, name, said] = m ?? [];
+		if (name === undefined || said === undefined) continue;
+		const role = name.toLowerCase();
+		const rest = said.trim();
 		// The subject is the leading person token (a handle
 		// like @joel.gerber or a name like Joel Gerber).
 		// Names can be multi-word; we stop at the first
@@ -186,7 +187,7 @@ export function milestoneProgress(body: string): {
 	let done = 0;
 	for (let m = rx.exec(section); m !== null; m = rx.exec(section)) {
 		total++;
-		if (m[1].toLowerCase() === "x") done++;
+		if (m[1]?.toLowerCase() === "x") done++;
 	}
 	return { total, done };
 }
@@ -214,7 +215,7 @@ export function checkboxProgress(body: string): {
 	let currentItem: string | undefined;
 	for (let m = rx.exec(body); m !== null; m = rx.exec(body)) {
 		total++;
-		const isDone = m[1].toLowerCase() === "x";
+		const isDone = m[1]?.toLowerCase() === "x";
 		if (isDone) {
 			done++;
 			continue;

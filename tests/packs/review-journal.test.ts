@@ -98,7 +98,7 @@ describe("recording a finding", () => {
 			finding: { subject: "nowhere to go" },
 		})) as { content: { text: string }[] };
 
-		expect(answer.content[0].text).toMatch(/final answer/i);
+		expect(answer.content[0]?.text).toMatch(/final answer/i);
 	});
 
 	it("reads a finding the reviewer serialized as a string", async () => {
@@ -119,7 +119,7 @@ describe("recording a finding", () => {
 		expect(await written()).toEqual([
 			{ label: "note", subject: "sent as text", discussion: "..." },
 		]);
-		expect(answer.content[0].text).toMatch(/recorded/i);
+		expect(answer.content[0]?.text).toMatch(/recorded/i);
 	});
 
 	it("reads a batch the reviewer serialized as a string", async () => {
@@ -143,7 +143,7 @@ describe("recording a finding", () => {
 		})) as { content: { text: string }[] };
 
 		expect(await written()).toEqual([]);
-		expect(answer.content[0].text).toMatch(/nothing was recorded/i);
+		expect(answer.content[0]?.text).toMatch(/nothing was recorded/i);
 	});
 
 	it("unpacks a batch rather than swallowing it whole", async () => {
@@ -162,7 +162,7 @@ describe("recording a finding", () => {
 			{ subject: "the first" },
 			{ subject: "the second" },
 		]);
-		expect(answer.content[0].text).toMatch(/as you find it/i);
+		expect(answer.content[0]?.text).toMatch(/as you find it/i);
 	});
 
 	it("says what it dropped out of a batch, not just what it kept", async () => {
@@ -173,7 +173,7 @@ describe("recording a finding", () => {
 		})) as { content: { text: string }[] };
 
 		expect(await written()).toEqual([{ subject: "a real one" }]);
-		expect(answer.content[0].text).toMatch(/other 1 were not findings/i);
+		expect(answer.content[0]?.text).toMatch(/other 1 were not findings/i);
 	});
 
 	it("tells the reviewer to carry on when the write fails", async () => {
@@ -186,7 +186,7 @@ describe("recording a finding", () => {
 			finding: { subject: "nowhere to put this" },
 		})) as { content: { text: string }[] };
 
-		expect(answer.content[0].text).toMatch(/final answer|carry on/i);
+		expect(answer.content[0]?.text).toMatch(/final answer|carry on/i);
 	});
 
 	it("refuses something that is not a finding without writing it", async () => {

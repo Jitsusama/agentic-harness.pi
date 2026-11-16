@@ -15,6 +15,7 @@ import {
 	reclaimableOf,
 	type Size,
 } from "../../../../lib/internal/quest/footprint.ts";
+import { at } from "../../../support/at.ts";
 
 let root: string;
 
@@ -157,9 +158,9 @@ describe("measureHoldings", () => {
 			workspaces,
 			measure,
 		);
-		expect(ownOf(quests[0])).toEqual({ bytes: 12, complete: true });
-		expect(reclaimableOf(quests[0]).bytes).toBe(5);
-		expect(leftBehindOf(quests[0]).bytes).toBe(7);
+		expect(ownOf(at(quests, 0))).toEqual({ bytes: 12, complete: true });
+		expect(reclaimableOf(at(quests, 0)).bytes).toBe(5);
+		expect(leftBehindOf(at(quests, 0)).bytes).toBe(7);
 	});
 
 	it("holds everything a quest under way made", async () => {
@@ -171,8 +172,8 @@ describe("measureHoldings", () => {
 			workspaces,
 			measure,
 		);
-		expect(reclaimableOf(quests[0]).bytes).toBe(0);
-		expect(leftBehindOf(quests[0]).bytes).toBe(0);
+		expect(reclaimableOf(at(quests, 0)).bytes).toBe(0);
+		expect(leftBehindOf(at(quests, 0)).bytes).toBe(0);
 	});
 
 	it("measures an adopted tree once however many quests adopted it, and frees none of it", async () => {
@@ -196,7 +197,7 @@ describe("measureHoldings", () => {
 				quests: ["Q1", "Q2"],
 			},
 		]);
-		expect(reclaimableOf(holdings.quests[0]).bytes).toBe(0);
+		expect(reclaimableOf(at(holdings.quests, 0)).bytes).toBe(0);
 	});
 
 	it("does not count a tree cut inside a workspace twice", async () => {
@@ -216,7 +217,7 @@ describe("measureHoldings", () => {
 			measure,
 		);
 		expect(asked).not.toContain(inner);
-		expect(ownOf(quests[0]).bytes).toBe(5);
+		expect(ownOf(at(quests, 0)).bytes).toBe(5);
 	});
 
 	it("leaves out quests holding nothing on disk", async () => {
@@ -254,7 +255,10 @@ describe("measureHoldings", () => {
 			workspaces,
 			async (path) => sizes[path],
 		);
-		expect(ownOf(quests[0])).toEqual({ bytes: 7, complete: false });
-		expect(leftBehindOf(quests[0])).toEqual({ bytes: 2, complete: false });
+		expect(ownOf(at(quests, 0))).toEqual({ bytes: 7, complete: false });
+		expect(leftBehindOf(at(quests, 0))).toEqual({
+			bytes: 2,
+			complete: false,
+		});
 	});
 });

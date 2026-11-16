@@ -12,7 +12,7 @@ import {
 	auditSessionMembership,
 	planDeadSessions,
 	planSessionRepair,
-} from "../../../extensions/quest-workflow/lookup.ts";
+} from "../../../extensions/quest-workflow/sessions/membership.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import { sessionsDir } from "../../../lib/internal/paths.ts";

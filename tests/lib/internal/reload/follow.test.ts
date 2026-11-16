@@ -26,6 +26,7 @@ import {
 	watchHeads,
 	whenToReload,
 } from "../../../../lib/internal/reload/follow.ts";
+import { at } from "../../../support/at.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
 import { quietFor, until } from "../../../support/until.ts";
 
@@ -64,7 +65,8 @@ describe("an idle session's place in the spread of reloads", () => {
 		const tenths = new Array<number>(10).fill(0);
 		for (let n = 0; n < 1000; n += 1) {
 			const id = `01a1af3c-26bc-7b80-990f-${String(n).padStart(12, "0")}`;
-			tenths[Math.floor((spreadOf(id) / SPREAD_MS) * 10)] += 1;
+			const tenth = Math.floor((spreadOf(id) / SPREAD_MS) * 10);
+			tenths[tenth] = at(tenths, tenth) + 1;
 		}
 		for (const count of tenths) {
 			expect(count).toBeGreaterThan(60);

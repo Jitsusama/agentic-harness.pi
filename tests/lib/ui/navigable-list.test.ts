@@ -11,6 +11,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { renderNavigableList } from "../../../lib/ui/navigable-list.ts";
+import { at } from "../../support/at.ts";
 
 const CODES: Record<string, number> = { accent: 32, success: 33, dim: 90 };
 const NAMES = Object.fromEntries(
@@ -32,7 +33,9 @@ function colourOf(line: string, needle: string): string {
 		.slice(1)
 		.map((part) => Number.parseInt(part, 10));
 	const last = codes.at(-1);
-	return last === undefined || last === 39 ? "plain" : NAMES[last];
+	return last === undefined || last === 39
+		? "plain"
+		: (NAMES[last] ?? `code ${last}`);
 }
 
 describe("a navigable list", () => {
@@ -50,17 +53,17 @@ describe("a navigable list", () => {
 	);
 
 	it("draws the selected row's cursor and text in the accent, past a coloured glyph", () => {
-		expect(colourOf(lines[0], "▸")).toBe("accent");
-		expect(colourOf(lines[0], "◆")).toBe("success");
-		expect(colourOf(lines[0], "chosen")).toBe("accent");
+		expect(colourOf(at(lines, 0), "▸")).toBe("accent");
+		expect(colourOf(at(lines, 0), "◆")).toBe("success");
+		expect(colourOf(at(lines, 0), "chosen")).toBe("accent");
 	});
 
 	it("keeps the accent off the selected row's subtitle", () => {
-		expect(colourOf(lines[1], "under it")).toBe("dim");
-		expect(lines[1]).not.toContain(`\x1b[${CODES.accent}m`);
+		expect(colourOf(at(lines, 1), "under it")).toBe("dim");
+		expect(at(lines, 1)).not.toContain(`\x1b[${CODES.accent}m`);
 	});
 
 	it("draws the other rows plain", () => {
-		expect(colourOf(lines[2], "other")).toBe("plain");
+		expect(colourOf(at(lines, 2), "other")).toBe("plain");
 	});
 });

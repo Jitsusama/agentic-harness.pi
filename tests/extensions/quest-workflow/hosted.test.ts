@@ -17,12 +17,14 @@ import {
 } from "../../../extensions/quest-workflow/lifecycle.ts";
 import { livePeers } from "../../../extensions/quest-workflow/peers.ts";
 import {
-	followHostStamps,
-	readRecord,
-	recordSessionEnd,
 	stopHeartbeat,
 	trackSession,
 } from "../../../extensions/quest-workflow/session-registry.ts";
+import {
+	readRecord,
+	recordSessionEnd,
+} from "../../../extensions/quest-workflow/sessions/records.ts";
+import { followHostStamps } from "../../../extensions/quest-workflow/sessions/signal-stamp.ts";
 import { createQuestState } from "../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import {

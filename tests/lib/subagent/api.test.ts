@@ -6,6 +6,7 @@ import {
 	runSubagent,
 	verifyProtocolInstruction,
 } from "../../../lib/subagent/subagent.ts";
+import { at } from "../../support/at.ts";
 
 // The composite `runSubagent` / `runFleet` API sits on top
 // of the flat `runReviewer` engine. These tests pin the
@@ -13,7 +14,7 @@ import {
 // CLI args, how verify packs flow through, how the fleet
 // fan-out aggregates results. The deeper engine behaviour
 // (verify enforcement, stream parsing, recovery) is
-// covered by subagent.test.ts and friends.
+// covered by the subagent-*.test.ts files and friends.
 
 interface FakeRunPi {
 	readonly runPi: RunPi;
@@ -69,21 +70,21 @@ describe("runSubagent", () => {
 			runPi: fake.runPi,
 		});
 		expect(fake.calls).toHaveLength(1);
-		const args = fake.calls[0].args.join(" ");
+		const args = at(fake.calls, 0).args.join(" ");
 		expect(args).toContain("--model anthropic/claude-haiku-4-7");
 		expect(args).toContain("--system-prompt You are a careful reader.");
 		expect(args).toContain("--skill /abs/skills/foo/SKILL.md");
 		expect(args).toContain("--extension /abs/extensions/foo.ts");
 		// The prompt rides an @file reference, not argv, so a
 		// large prompt never overflows the spawn. Content
-		// fidelity is pinned in subagent.test.ts; here we only
+		// fidelity is pinned in subagent-arguments.test.ts; here we only
 		// assert the final positional is the reference and the
 		// raw prompt is not passed as an argument.
-		const positional = fake.calls[0].args[fake.calls[0].args.length - 1];
+		const positional = at(fake.calls, 0).args.at(-1);
 		expect(positional).toMatch(/^@/);
 		expect(args).not.toContain("investigate the parser");
-		expect(fake.calls[0].cwd).toBe("/tmp/wt-a");
-		expect(fake.calls[0].reviewerId).toBe("fleet-1");
+		expect(at(fake.calls, 0).cwd).toBe("/tmp/wt-a");
+		expect(at(fake.calls, 0).reviewerId).toBe("fleet-1");
 	});
 
 	it("emits isolation flags when job.isolated is true", async () => {
@@ -105,7 +106,7 @@ describe("runSubagent", () => {
 			job: { userPrompt: "p", cwd: "/tmp/iso", isolated: true },
 			runPi: fake.runPi,
 		});
-		const args = fake.calls[0].args;
+		const args = at(fake.calls, 0).args;
 		expect(args).toContain("--no-skills");
 		expect(args).toContain("--no-context-files");
 		expect(args).toContain("--no-extensions");
@@ -121,7 +122,7 @@ describe("runSubagent", () => {
 			job: { userPrompt: "p", cwd: "/tmp/ambient" },
 			runPi: fake.runPi,
 		});
-		const args = fake.calls[0].args;
+		const args = at(fake.calls, 0).args;
 		expect(args).not.toContain("--no-skills");
 		expect(args).not.toContain("--no-context-files");
 		expect(args).not.toContain("--no-extensions");
@@ -147,7 +148,7 @@ describe("runSubagent", () => {
 			},
 			runPi: fake.runPi,
 		});
-		const args = fake.calls[0].args.join(" ");
+		const args = at(fake.calls, 0).args.join(" ");
 		expect(args).toContain("--extension /abs/verify.ts");
 		expect(args).toContain("--skill /abs/output.skill");
 		expect(result.verification).toMatchObject({ called: false, ok: false });
@@ -186,8 +187,8 @@ describe("runSubagent", () => {
 			},
 			runPi: fake.runPi,
 		});
-		expect(fake.calls[0].timeoutMs).toBe(45 * 60 * 1000);
-		expect(fake.calls[0].idleTimeoutMs).toBe(15 * 60 * 1000);
+		expect(at(fake.calls, 0).timeoutMs).toBe(45 * 60 * 1000);
+		expect(at(fake.calls, 0).idleTimeoutMs).toBe(15 * 60 * 1000);
 	});
 
 	it("omits timeout overrides from the runner opts when the job omits them", async () => {
@@ -202,8 +203,8 @@ describe("runSubagent", () => {
 			job: { userPrompt: "p", cwd: "/tmp/default" },
 			runPi: fake.runPi,
 		});
-		expect(fake.calls[0].timeoutMs).toBeUndefined();
-		expect(fake.calls[0].idleTimeoutMs).toBeUndefined();
+		expect(at(fake.calls, 0).timeoutMs).toBeUndefined();
+		expect(at(fake.calls, 0).idleTimeoutMs).toBeUndefined();
 	});
 
 	it("maps reviewerId onto subagentId in the result", async () => {
@@ -307,7 +308,7 @@ describe("runFleet", () => {
 			runPi,
 		});
 		expect(results.map((r) => r.subagentId)).toEqual(["ok", "broken"]);
-		const broken = results[1];
+		const broken = at(results, 1);
 		expect(broken.exitCode).toBe(-1);
 		expect(broken.finalAssistantText).toBe("");
 		expect(broken.warnings.join(" ")).toMatch(
