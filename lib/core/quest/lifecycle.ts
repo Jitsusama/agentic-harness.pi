@@ -247,5 +247,5 @@ export function stampQuestUpdated(state: QuestState): void {
 
 function extractTitle(body: string): string | null {
 	const match = /^#\s+(.+)$/m.exec(body);
-	return match ? match[1].trim() : null;
+	return match?.[1]?.trim() ?? null;
 }

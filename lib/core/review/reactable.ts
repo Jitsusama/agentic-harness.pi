@@ -144,7 +144,7 @@ export function findReactable(
 	const addressed = /^\[?([CcMm])(\d+)\]?$/.exec(wanted);
 	if (addressed) {
 		const kind: ReactableKind =
-			addressed[1].toLowerCase() === "c" ? "comment" : "message";
+			addressed[1]?.toLowerCase() === "c" ? "comment" : "message";
 		const at = Number(addressed[2]);
 		const family = among.filter((one) => one.kind === kind);
 		const found = family.find((one) => one.index === at);

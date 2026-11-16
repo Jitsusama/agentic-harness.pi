@@ -89,9 +89,9 @@ export function refusalFrom(
 	objections: readonly Objection[],
 ): string | undefined {
 	const blocking = objections.filter((one) => one.blocking !== false);
-	if (blocking.length === 0) return undefined;
-	if (blocking.length === 1) {
-		const [only] = blocking;
+	const [only, ...others] = blocking;
+	if (only === undefined) return undefined;
+	if (others.length === 0) {
 		return [
 			`${only.from} says not to publish this yet. ${only.reason}`,
 			...(only.instead === undefined ? [] : ["", only.instead]),

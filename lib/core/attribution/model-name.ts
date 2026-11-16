@@ -16,8 +16,8 @@ export function formatModelName(modelId: string): string {
 	const result: string[] = [];
 	for (const part of parts) {
 		const isDigit = /^\d+$/.test(part);
-		const prevIsDigit =
-			result.length > 0 && /^\d/.test(result[result.length - 1]);
+		const previous = result.at(-1);
+		const prevIsDigit = previous !== undefined && /^\d/.test(previous);
 		if (isDigit && prevIsDigit) {
 			result[result.length - 1] += `.${part}`;
 		} else {

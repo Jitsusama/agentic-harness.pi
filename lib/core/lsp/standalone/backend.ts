@@ -252,7 +252,7 @@ export function createStandaloneBackend(
 	const withInstances = async <T>(
 		filePath: string,
 		typeOnly: boolean,
-		fn: (instances: StandaloneServer[]) => Promise<T>,
+		fn: (instances: [StandaloneServer, ...StandaloneServer[]]) => Promise<T>,
 	): Promise<T> => {
 		const claimed: string[] = [];
 		try {
@@ -266,7 +266,7 @@ export function createStandaloneBackend(
 		filePath: string,
 		typeOnly: boolean,
 		claimed: string[],
-	): Promise<StandaloneServer[]> => {
+	): Promise<[StandaloneServer, ...StandaloneServer[]]> => {
 		const candidates = serversForFile(filePath, servers).filter(
 			(server) => !typeOnly || !server.isLinter,
 		);
@@ -289,13 +289,14 @@ export function createStandaloneBackend(
 			instances.push(await started);
 			if (typeOnly) break;
 		}
-		if (instances.length === 0) {
+		const [first, ...rest] = instances;
+		if (first === undefined) {
 			if (candidates.length === 0) {
 				reasons.push("no server handles this file type");
 			}
 			throw new MissingServerError(filePath, reasons);
 		}
-		return instances;
+		return [first, ...rest];
 	};
 
 	/**

@@ -137,7 +137,7 @@ function entriesFrom(text: string, from: number): unknown[] {
 	};
 
 	for (let at = from; at < text.length; at++) {
-		const char = text[at];
+		const char = text.charAt(at);
 
 		if (inString) {
 			if (escaped) escaped = false;

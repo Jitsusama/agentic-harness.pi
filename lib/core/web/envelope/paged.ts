@@ -75,6 +75,7 @@ export function paginate<T>(
 	const consumed = start + items.length;
 	const remaining = all.length - consumed;
 	const cut = candidates.length - items.length;
+	const last = items.at(-1);
 
 	return {
 		...summary,
@@ -83,8 +84,8 @@ export function paginate<T>(
 		// there are no items and this read index -1, so asking for an
 		// empty window of a non-empty list threw a TypeError instead
 		// of answering with nothing.
-		...(remaining > 0 && items.length > 0
-			? { nextCursor: String(shape.idOf(items[items.length - 1])) }
+		...(remaining > 0 && last !== undefined
+			? { nextCursor: String(shape.idOf(last)) }
 			: {}),
 		...(cut > 0 ? { elided: elision(cut, budget, shape.more) } : {}),
 	};

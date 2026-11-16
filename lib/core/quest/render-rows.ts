@@ -286,8 +286,8 @@ export function collapseListingPreview(
 	listing: ListingDetails,
 	content: string,
 ): string {
-	if (listing.rows.length === 0) return content.split("\n")[0];
-	const firstRow = content.split("\n")[0];
+	const [firstRow = ""] = content.split("\n");
+	if (listing.rows.length === 0) return firstRow;
 	const more = listing.rows.length - 1 + listing.remaining;
 	if (more <= 0) return firstRow;
 	return `${firstRow} (+${more} more)`;

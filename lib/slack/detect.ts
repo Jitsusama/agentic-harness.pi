@@ -109,8 +109,8 @@ export function detectSlackViolations(text: string): SlackViolation[] {
  */
 function flagTables(lines: string[], violations: SlackViolation[]): void {
 	let runStart = -1;
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
+	let runFirst = "";
+	for (const [i, line] of lines.entries()) {
 		if (TABLE_SEPARATOR.test(line) && line.includes("|")) {
 			violations.push({
 				kind: "slack-table",
@@ -120,11 +120,14 @@ function flagTables(lines: string[], violations: SlackViolation[]): void {
 			return;
 		}
 		if (PIPE_ROW.test(line)) {
-			if (runStart < 0) runStart = i;
+			if (runStart < 0) {
+				runStart = i;
+				runFirst = line;
+			}
 			if (i - runStart >= 1) {
 				violations.push({
 					kind: "slack-table",
-					found: lines[runStart].trim(),
+					found: runFirst.trim(),
 					rule: TABLE_RULE,
 				});
 				return;
@@ -144,15 +147,20 @@ function flagLists(
 	rule: string,
 ): void {
 	let runStart = -1;
+	let runFirst = "";
+	// One past the end, so a run the lines end on is closed too.
 	for (let i = 0; i <= lines.length; i++) {
-		const matches = i < lines.length && marker.test(lines[i]);
-		if (matches) {
-			if (runStart < 0) runStart = i;
+		const line = lines[i];
+		if (line !== undefined && marker.test(line)) {
+			if (runStart < 0) {
+				runStart = i;
+				runFirst = line;
+			}
 		} else {
 			if (runStart >= 0 && i - runStart >= 2) {
 				violations.push({
 					kind,
-					found: lines[runStart].trim(),
+					found: runFirst.trim(),
 					rule,
 				});
 			}

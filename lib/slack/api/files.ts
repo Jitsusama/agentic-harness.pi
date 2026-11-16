@@ -121,13 +121,9 @@ async function completeUpload(
 	// share metadata via files.info. This is deterministic
 	// (keyed on the file we just uploaded) so there's no
 	// race with other messages landing in the channel.
-	if (opts.channelId && result.files.length > 0) {
-		result.ts = await fetchShareTs(
-			client,
-			result.files[0].id,
-			opts.channelId,
-			signal,
-		);
+	const [first] = result.files;
+	if (opts.channelId && first) {
+		result.ts = await fetchShareTs(client, first.id, opts.channelId, signal);
 	}
 
 	return result;
@@ -252,7 +248,8 @@ export function isTextMimeType(mimeType: string | undefined): boolean {
 
 /** Strip parameters from a MIME type (e.g. "text/plain; charset=utf-8" → "text/plain"). */
 function baseMimeType(mimeType: string): string {
-	return mimeType.split(";")[0].trim().toLowerCase();
+	const [base = ""] = mimeType.split(";");
+	return base.trim().toLowerCase();
 }
 
 /** Options for downloading files from Slack messages. */

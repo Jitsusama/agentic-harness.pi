@@ -52,7 +52,7 @@ export async function resolveUsersInMessages(
 		if (msg.text) {
 			for (const match of msg.text.matchAll(USER_MENTION_PATTERN)) {
 				const userId = match[1];
-				if (!lookupName(USER_CACHE_FILE, userId)) {
+				if (userId !== undefined && !lookupName(USER_CACHE_FILE, userId)) {
 					unknownIds.add(userId);
 				}
 			}

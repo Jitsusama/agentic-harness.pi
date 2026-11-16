@@ -75,8 +75,8 @@ export async function resolveConversation(
 	if (parsed) return resolveById(client, parsed.channel);
 
 	// URL that contains /archives/CHANNELID/ but didn't match the full pattern.
-	const archiveMatch = input.match(/archives\/([CDG][A-Z0-9]+)/);
-	if (archiveMatch) return resolveById(client, archiveMatch[1]);
+	const archived = input.match(/archives\/([CDG][A-Z0-9]+)/)?.[1];
+	if (archived !== undefined) return resolveById(client, archived);
 
 	// User handle: @joel.gerber → resolve to user ID, then DM.
 	if (input.startsWith("@")) {

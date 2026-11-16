@@ -21,7 +21,8 @@ export function resolveId(
 	const matches = [...index.notes.keys()].filter(
 		(id) => id.startsWith(ref) || id.includes(ref),
 	);
-	if (matches.length === 1) return { id: matches[0] };
+	const [only] = matches;
+	if (matches.length === 1 && only !== undefined) return { id: only };
 	if (matches.length > 1) {
 		return {
 			error: `"${ref}" is ambiguous, matches: ${matches.slice(0, 10).join(", ")}`,

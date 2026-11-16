@@ -70,8 +70,10 @@ export function detectSectionViolations(
 	let within: string | undefined;
 
 	for (const match of masked.matchAll(HEADING_REGEX)) {
-		if (isPartHeading(match[1], within, depth)) continue;
-		const heading = canonical(match[1], match[2]);
+		const [, hashes, text] = match;
+		if (hashes === undefined || text === undefined) continue;
+		if (isPartHeading(hashes, within, depth)) continue;
+		const heading = canonical(hashes, text);
 		within = heading;
 		if (sanctionedSet.has(heading)) {
 			if (!present.has(heading)) presentInOrder.push(heading);

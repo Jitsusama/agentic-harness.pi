@@ -87,7 +87,7 @@ export function githubStacking(exec: Exec): StackingFacet {
 
 			const ordered: StackNode[] = [];
 			ancestors.forEach((proposal, index) => {
-				const parent = index === 0 ? undefined : ancestors[index - 1].head;
+				const parent = ancestors[index - 1]?.head;
 				ordered.push({
 					ref: proposal.head,
 					...(parent ? { parent } : {}),

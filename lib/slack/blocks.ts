@@ -199,11 +199,12 @@ export function mrkdwnToBlocks(text: string): {
 		let start = 0;
 		while (start < listItems.length) {
 			const first = listItems[start];
+			if (first === undefined) break;
 			let end = start + 1;
 			while (
 				end < listItems.length &&
-				listItems[end].indent === first.indent &&
-				listItems[end].style === first.style
+				listItems[end]?.indent === first.indent &&
+				listItems[end]?.style === first.style
 			) {
 				end++;
 			}
@@ -323,26 +324,28 @@ export function mrkdwnToBlocks(text: string): {
 
 		const ordered = line.match(ORDERED_LIST_LINE);
 		if (ordered) {
+			const [, indent = "", , content = ""] = ordered;
 			flushSection();
 			flushQuote();
 			emitSpacer();
 			listItems.push({
-				indent: indentLevel(ordered[1]),
+				indent: indentLevel(indent),
 				style: "ordered",
-				content: ordered[3],
+				content,
 			});
 			continue;
 		}
 
 		const unordered = line.match(UNORDERED_LIST_LINE);
 		if (unordered) {
+			const [, indent = "", content = ""] = unordered;
 			flushSection();
 			flushQuote();
 			emitSpacer();
 			listItems.push({
-				indent: indentLevel(unordered[1]),
+				indent: indentLevel(indent),
 				style: "bullet",
-				content: unordered[2],
+				content,
 			});
 			continue;
 		}
@@ -352,7 +355,8 @@ export function mrkdwnToBlocks(text: string): {
 			flushSection();
 			flushList();
 			emitSpacer();
-			quoteLines.push(quote[1]);
+			const [, content = ""] = quote;
+			quoteLines.push(content);
 			continue;
 		}
 

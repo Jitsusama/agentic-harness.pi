@@ -42,10 +42,9 @@ function ymd(date: Date): string {
 
 /** Build a six-character base-36 uppercase random suffix. */
 function randomSuffix(): string {
-	const bytes = randomBytes(6);
 	const out: string[] = [];
-	for (let i = 0; i < 6; i++) {
-		out.push((bytes[i] % 36).toString(36).toUpperCase());
+	for (const byte of randomBytes(6)) {
+		out.push((byte % 36).toString(36).toUpperCase());
 	}
 	return out.join("");
 }

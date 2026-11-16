@@ -51,7 +51,8 @@ function gitSubcommandIndex(argv: Word[]): number {
 	if (argv[0]?.text !== "git") return -1;
 	let i = 1;
 	while (i < argv.length) {
-		const token = argv[i].text;
+		const token = argv[i]?.text;
+		if (token === undefined) break;
 		if (!token.startsWith("-")) return i;
 		i += GIT_GLOBAL_VALUE_FLAGS.has(token) ? 2 : 1;
 	}

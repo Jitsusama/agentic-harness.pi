@@ -34,8 +34,8 @@ function parseAliasInput(raw: string): QuestAlias | undefined {
 	if (!trimmed) return undefined;
 	const literal = /^([a-z][a-z0-9-]*):(.+)$/i.exec(trimmed);
 	if (literal) {
-		const type = literal[1].trim();
-		const value = literal[2].trim();
+		const type = literal[1]?.trim();
+		const value = literal[2]?.trim();
 		if (type && value && !/^https?$/i.test(type)) {
 			return { type, value };
 		}
