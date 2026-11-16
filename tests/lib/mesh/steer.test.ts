@@ -16,6 +16,7 @@ import {
 	inboxOf,
 	isPersonsTalk,
 	steerFrom,
+	takenSteers,
 	takeSteers,
 	waitingSteers,
 } from "../../../lib/mesh/steer.ts";
@@ -76,6 +77,37 @@ describe("the steer inbox", () => {
 		});
 		expect(readdirSync(inbox).sort()).toEqual(["4-d.json.bad", "5-e.json.bad"]);
 		expect(takeSteers(inbox, "1").bad).toEqual([]);
+	});
+
+	// Every conversation a host holds looks at its inboxes each minute, so
+	// a disk that stalls a synchronous read stalls them all.
+	it("takes as it takes at once, letting the thread turn while it reads", async () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		expect(await takenSteers(inbox, "1"), "made on first look").toEqual({
+			steers: [],
+			bad: [],
+		});
+		put(inbox, "2-b.json", JSON.stringify({ text: "then this", from: "joel" }));
+		put(inbox, "1-a.json", JSON.stringify({ text: " pivot to the disk " }));
+		put(inbox, "4-d.json", "not json");
+		writeFileSync(join(inbox, "3-c.json.tmp"), '{"text": "half');
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		const taken = await takenSteers(inbox, "1");
+
+		expect(turned, "the thread turned while the inbox was read").toBe(true);
+		expect(
+			taken.steers.map((steer) => steer.text),
+			"oldest name first",
+		).toEqual(["pivot to the disk", "then this"]);
+		expect(taken.bad, "what is not a steer set aside").toEqual(["4-d.json"]);
+		expect(readdirSync(inbox).sort(), "only the half-written one left").toEqual(
+			["3-c.json.tmp", "4-d.json.bad"],
+		);
+		expect((await takenSteers(inbox, "2")).steers, "taken once").toEqual([]);
 	});
 
 	it("reads only text, at and from, as strings", () => {
