@@ -2,8 +2,9 @@
  * A host's loop watched from a thread beside it: a hold past the bar is
  * said while it lasts and once it ends, with what the main thread did,
  * and a loop that turns says nothing. The loop is held here by spinning,
- * since the test shares it.
+ * since the test shares it, or by a call that waits in the kernel.
  */
+import { spawnSync } from "node:child_process";
 import {
 	closeSync,
 	mkdtempSync,
@@ -11,8 +12,9 @@ import {
 	readFileSync,
 	rmSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { watchHolds } from "../../../host/service/hold-watch.ts";
 
@@ -98,6 +100,41 @@ describe("watchHolds", () => {
 			`said again while it held: ${during.join(" | ")}`,
 		).toBeGreaterThanOrEqual(2);
 	});
+
+	it.runIf(ON_LINUX)(
+		"names the call a held thread waits in, and the path it was given",
+		async () => {
+			// Opening a pipe to write waits in the kernel until a reader opens it,
+			// as a create waits on its folder's lock; a thread of the test's own
+			// opens the reader once the hold has been seen.
+			const pipe = join(dir, "waited-on");
+			expect(spawnSync("mkfifo", [pipe]).status, "a pipe made").toBe(0);
+			stop = watchHolds({ fd, every: EVERY_MS, after: 300, still: 60_000 });
+			// A turn first, so the thread has started and seen the loop move.
+			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+			const reader = new Worker(
+				`const { openSync, closeSync } = require("node:fs");
+				setTimeout(() => closeSync(openSync(${JSON.stringify(pipe)}, "r")), 1200);`,
+				{ eval: true },
+			);
+			try {
+				closeSync(openSync(pipe, "w"));
+				await vi.waitFor(() => {
+					expect(said().join("\n"), "a line once it turned").toMatch(
+						/the loop held /,
+					);
+				});
+			} finally {
+				await reader.terminate();
+			}
+			const end = said().find((line) => /the loop held /.test(line)) ?? "";
+			const home = homedir();
+			const shown = pipe.startsWith(`${home}/`)
+				? `~${pipe.slice(home.length)}`
+				: pipe;
+			expect(end, "the call and its path").toContain(`in openat ${shown}`);
+		},
+	);
 
 	it("says nothing while the loop turns, nor once stopped", async () => {
 		stop = watchHolds({ fd, every: EVERY_MS, after: AFTER_MS });
