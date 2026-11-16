@@ -11,6 +11,8 @@
 
 /** pi's session, as far as running the agent's own runs as its own needs it. */
 export interface HostRunningSession {
+	/** Whether a run of pi's is under way, which pi prepares and settles itself. */
+	readonly isStreaming?: boolean;
 	/**
 	 * Run `work` as a run of pi's: prepared as a prompt's, then settled once
 	 * `work` ends. Inside a run of pi's already under way, `work` joins it.
@@ -77,12 +79,13 @@ export class PiRuns {
 	 * Open pi's run for the work held, if none is open, before pi is shown
 	 * its start, and resolve once pi prepared it, every extension adding
 	 * its sections, as for a prompt. Inside a run of pi's own, as when pi's
-	 * prompt reached the agent, the work joins that run and nothing is
-	 * prepared again.
+	 * prompt reached the agent, the work is that run's, which pi settles,
+	 * and a run of the agent's after it opens its own.
 	 */
 	async opening(): Promise<void> {
 		const session = this.session;
 		if (this.open || this.holds === 0 || !session?.runForHost) return;
+		if (session.isStreaming) return;
 		let end = () => {};
 		const ended = new Promise<void>((done) => {
 			end = done;
