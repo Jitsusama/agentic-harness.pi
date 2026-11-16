@@ -133,26 +133,35 @@ describe("tending holds", () => {
 	});
 
 	// Our council on #1728: tendings started at once settle by the pool's
-	// timing, so a second is started inside the first, while its claim,
-	// by this clock, reads as stale to any session that looks.
+	// timing, so the first is held inside its claim while a second runs its
+	// whole course, with a clock by which that claim reads as stale.
 	it("tends once at a time in a process, though its claim reads as stale", async () => {
-		const stops = [stop("q", ["quest:QEST-A"])];
 		const run: { tendings: number; second?: Promise<void> } = { tendings: 0 };
 		const inner: { tend?: () => Promise<void> } = {};
-		const { clock, tend } = mesh({
+		const { root, clock, tend } = mesh({
 			stops: () => {
 				run.tendings += 1;
-				return stops;
+				return [];
 			},
-			send: () => {
-				run.second ??= inner.tend?.();
-				return { id: "m1" };
+			readNote: async (path) => {
+				const note = readFileSync(path, "utf8");
+				if (run.second === undefined) {
+					run.second = inner.tend?.();
+					await run.second;
+				}
+				return note;
 			},
 		});
 		inner.tend = tend;
+		const notes = join(root, "pineapple");
+		mkdirSync(notes, { recursive: true });
+		writeFileSync(
+			join(notes, "q.json"),
+			`${JSON.stringify({ stop: "q", hold: "", to: ["#quest/a"], at: clock.now, shadow: false })}\n`,
+		);
 		clock.now = Date.now() + 3 * 60 * 1000;
 		await tend();
-		await run.second;
+		expect(run.second, "a second tending started").toBeDefined();
 		expect(run.tendings, "tendings past the claim").toBe(1);
 	});
 
