@@ -82,7 +82,9 @@ const SHARED_BRIEF_PACK = join(
  * Defaults first and deduplicated, so a path registered as a default
  * and passed again by a caller loads once.
  */
-export function reviewerLoadout(options: RunReviewerOptions | StartReviewerOptions): {
+export function reviewerLoadout(
+	options: RunReviewerOptions | StartReviewerOptions,
+): {
 	extraExtensions: string[];
 	extraSkills: string[];
 } {
@@ -128,7 +130,9 @@ export async function writeWhole(path: string, text: string): Promise<void> {
 }
 
 /** Everything a reviewer was asked, as the record of its question. */
-export function wholeQuestion(options: RunReviewerOptions | StartReviewerOptions) {
+export function wholeQuestion(
+	options: RunReviewerOptions | StartReviewerOptions,
+) {
 	return options.ask === undefined
 		? options.prompt
 		: `${options.prompt}\n\n${options.ask}`;

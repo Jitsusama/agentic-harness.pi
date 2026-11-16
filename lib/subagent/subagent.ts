@@ -71,6 +71,7 @@ export {
 	WRAP_UP_SUFFIX,
 } from "./follow-up.ts";
 export { VERIFY_TOOL_NAME } from "./launch.ts";
+export type { ReviewerError } from "./reviewer-error.ts";
 export type {
 	CouncilReviewer,
 	ReviewerRunArtifacts,
@@ -85,7 +86,6 @@ export type {
 	StartReviewerOptions,
 	SubagentSpec,
 } from "./run-contract.ts";
-export type { ReviewerError } from "./reviewer-error.ts";
 
 /**
  * Synthetic exit code used when `runReviewer` short-
