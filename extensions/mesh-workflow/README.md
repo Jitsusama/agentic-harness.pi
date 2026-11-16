@@ -194,7 +194,15 @@ and can answer a question or a gate left open on screen.
   peer is in, and who is in each. `mesh_groups` also lists
   each other peer still there, one line each, saying whether
   it is busy or idle and what it works on, and the leases of
-  the peers still there. A bare name joins a peer's
+  the peers still there. Last, it lists the peers this one is
+  tied to, as the machine's mycelium node keeps ties from who
+  talked with whom in the last day (its `tie` kind): at most
+  twelve, strongest first, each faded to now (one a message,
+  halving every two hours) with what each end said on it this
+  hour and today. A message ties its sender to each peer its
+  `to` names and to the one it answers; one only to groups ties
+  no one. With no node, or one before ties, it says nothing of
+  them. A bare name joins a peer's
   home group when some peer goes by it, and a named group
   otherwise; joining a group nobody is in makes it. A join
   answers with the group's last ten messages, a line each, so

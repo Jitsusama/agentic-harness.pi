@@ -365,6 +365,161 @@ export function agentsFrom(line: string): ReadonlyMap<string, string> {
 	return agents;
 }
 
+/** A tie the node keeps between a cell and another, faded to now. */
+export interface Tie {
+	/** The other end, as the node names it: the address its messages sign. */
+	readonly other: string;
+	/** How strong it is now: one a message, halving every two hours. */
+	readonly strength: number;
+	/** This cell's messages on it and the other's, in the last hour. */
+	readonly hour: readonly [number, number];
+	/** This cell's messages on it and the other's, in the last day. */
+	readonly today: readonly [number, number];
+	/** The intents its messages had, sorted. */
+	readonly intents: readonly string[];
+}
+
+/** How long a tie's strength takes to halve, as the node fades it. */
+export const TIE_HALF_LIFE_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * How long the node has to list its ties: every tie of the realm comes
+ * back, 50,000 at the node's ceiling, so more than a sessions answer.
+ */
+export const TIES_PATIENCE_MS = 2000;
+
+/**
+ * The ties of the cell going by any of `cells`, strongest first, from
+ * the node serving `socket` (Jitsusama/mycelium's `tie` kind); nothing
+ * when no node answers or it keeps no ties, as before mycelium #245.
+ * Asked once a call, never watched, since a reader wants them now.
+ */
+export async function tiesAt(
+	socket: string | undefined,
+	cells: readonly string[],
+	now: number = Date.now(),
+	patience: number = TIES_PATIENCE_MS,
+): Promise<Tie[] | undefined> {
+	const line = await askDaemon(socket, { ask: "list", kind: "tie" }, patience);
+	return line === undefined ? undefined : tiesFrom(line, cells, now);
+}
+
+/**
+ * The ties in a node's list of its `tie` kind that hold one of `cells`
+ * at an end, each faded to `now` by 2^-((now - heard) / 2 h) and
+ * strongest first; nothing for an answer that lists no records, such
+ * as a node refusing a kind it doesn't know.
+ */
+export function tiesFrom(
+	line: string,
+	cells: readonly string[],
+	now: number,
+): Tie[] | undefined {
+	let answer: unknown;
+	try {
+		answer = JSON.parse(line);
+	} catch {
+		return undefined;
+	}
+	if (!isRecord(answer) || !Array.isArray(answer.records)) return undefined;
+	const mine = new Set(cells.map((cell) => cell.toUpperCase()));
+	const ties = answer.records.flatMap((record: unknown): Tie[] => {
+		if (!isRecord(record) || typeof record.key !== "string") return [];
+		// A cell's own talk, `tie:<A>`, names no other end.
+		const ends = record.key.replace(/^tie:/, "").split("~");
+		const [first, second] = ends;
+		if (ends.length !== 2 || first === undefined || second === undefined) {
+			return [];
+		}
+		const at = mine.has(first) ? 0 : mine.has(second) ? 1 : undefined;
+		const hour = pair(record.hour);
+		const today = pair(record.today);
+		const { strength, heard } = record;
+		if (at === undefined || !hour || !today) return [];
+		if (typeof strength !== "number" || typeof heard !== "number") return [];
+		const ours = (counts: [number, number]): [number, number] =>
+			at === 0 ? counts : [counts[1], counts[0]];
+		return [
+			{
+				other: at === 0 ? second : first,
+				strength: strength * 2 ** (-(now - heard) / TIE_HALF_LIFE_MS),
+				hour: ours(hour),
+				today: ours(today),
+				intents: Array.isArray(record.intents)
+					? record.intents.filter((one) => typeof one === "string")
+					: [],
+			},
+		];
+	});
+	return ties.sort((a, b) => b.strength - a.strength);
+}
+
+/** Two counts, as a tie says each end's, or nothing for anything else. */
+function pair(said: unknown): [number, number] | undefined {
+	if (!Array.isArray(said) || said.length !== 2) return undefined;
+	const [a, b] = said;
+	return typeof a === "number" && typeof b === "number" ? [a, b] : undefined;
+}
+
+/**
+ * Asks the node serving `socket` one request in its daemon interface,
+ * which a client opens with `hello` before any other ask, answering the
+ * request's one line, or nothing when none answers within `patience`.
+ */
+function askDaemon(
+	socket: string | undefined,
+	request: Record<string, unknown>,
+	patience: number,
+): Promise<string | undefined> {
+	if (socket === undefined) return Promise.resolve(undefined);
+	return new Promise((resolve) => {
+		let said = "";
+		let settled = false;
+		const asking = connect(socket);
+		const settle = (answer: string | undefined) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(waiting);
+			asking.destroy();
+			resolve(answer);
+		};
+		const waiting = setTimeout(() => settle(undefined), patience);
+		asking.setEncoding("utf8");
+		asking.on("connect", () =>
+			asking.write(`${JSON.stringify({ id: 1, ask: "hello" })}\n`),
+		);
+		asking.on("data", (chunk: string) => {
+			said += chunk;
+			for (let end = said.indexOf("\n"); end >= 0; end = said.indexOf("\n")) {
+				const line = said.slice(0, end);
+				said = said.slice(end + 1);
+				const id = answerId(line);
+				if (id === 1) {
+					asking.write(`${JSON.stringify({ id: 2, ...request })}\n`);
+				} else if (id === 2) {
+					settle(line);
+				} else {
+					// A node that speaks no daemon interface answers no id.
+					settle(undefined);
+				}
+			}
+		});
+		// No node there, or one that went away: either way none answers.
+		asking.on("error", () => settle(undefined));
+		asking.on("close", () => settle(undefined));
+	});
+}
+
+/** The id an answer in the daemon interface carries, or nothing. */
+function answerId(line: string): unknown {
+	try {
+		const answer: unknown = JSON.parse(line);
+		return isRecord(answer) ? answer.id : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** The socket the machine's node serves, or nothing when no realm is named. */
 export function nodeSocket(
 	env: NodeJS.ProcessEnv = process.env,

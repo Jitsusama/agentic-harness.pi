@@ -17,6 +17,8 @@ import {
 	sessionsFrom,
 	startAt,
 	startedFrom,
+	tiesAt,
+	tiesFrom,
 } from "../../../lib/mesh/node.ts";
 
 let root: string;
@@ -259,6 +261,84 @@ describe("asking the node where work goes", () => {
 			reason: `no mycelium node answered at ${none}`,
 		});
 		expect(await placeAt(undefined, [])).toMatchObject({ ok: false });
+	});
+});
+
+describe("asking the node whom a cell is tied to", () => {
+	it("says hello before it lists, as the daemon interface wants", async () => {
+		const asked: unknown[] = [];
+		const socket = await serving((line) => {
+			const ask = JSON.parse(line);
+			asked.push(ask);
+			return JSON.stringify(
+				ask.ask === "hello"
+					? { id: ask.id, version: 1 }
+					: { id: ask.id, records: [] },
+			);
+		});
+
+		expect(await tiesAt(socket, ["85PKB2"])).toEqual([]);
+		expect(asked).toEqual([
+			{ id: 1, ask: "hello" },
+			{ id: 2, ask: "list", kind: "tie" },
+		]);
+	});
+
+	it("hears none from a node that speaks no daemon interface, or none at all", async () => {
+		const old = await serving(() => JSON.stringify({ Err: "not a request" }));
+
+		expect(await tiesAt(old, ["85PKB2"])).toBeUndefined();
+		expect(await tiesAt(join(root, "none.sock"), ["85PKB2"])).toBeUndefined();
+		expect(await tiesAt(undefined, ["85PKB2"])).toBeUndefined();
+	});
+
+	it("takes a node refusing the kind, as one before ties, as no ties to say", () => {
+		const refused = JSON.stringify({ id: 2, error: "no kind tie" });
+
+		expect(tiesFrom(refused, ["85PKB2"], 0)).toBeUndefined();
+		expect(tiesFrom("not json", ["85PKB2"], 0)).toBeUndefined();
+	});
+
+	it("keeps only ties with an end it goes by, its own counts first", () => {
+		const line = JSON.stringify({
+			id: 2,
+			records: [
+				{
+					key: "tie:6849CB76~WCJQSG",
+					heard: 0,
+					hour: [1, 2],
+					today: [3, 4],
+					intents: ["fyi"],
+					strength: 2,
+				},
+				{
+					key: "tie:KP0L6A~WCJQSG",
+					heard: 0,
+					hour: [1, 1],
+					today: [1, 1],
+					intents: [],
+					strength: 9,
+				},
+				{ key: "tie:6849CB76", heard: 0, hour: 1, today: 3, ties: 1 },
+				{
+					key: "tie:85PKB2~X",
+					heard: 0,
+					hour: [1],
+					today: [1, 1],
+					strength: 1,
+				},
+			],
+		});
+
+		expect(tiesFrom(line, ["85PKB2", "6849cb76"], 0)).toEqual([
+			{
+				other: "WCJQSG",
+				strength: 2,
+				hour: [1, 2],
+				today: [3, 4],
+				intents: ["fyi"],
+			},
+		]);
 	});
 });
 

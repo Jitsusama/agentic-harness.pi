@@ -1,6 +1,6 @@
 /**
  * mesh_join, mesh_leave and mesh_groups: the groups a peer is in, who
- * else is, and what each peer is doing.
+ * else is, what each peer is doing, and whom this one is tied to.
  */
 
 import {
@@ -12,6 +12,7 @@ import {
 } from "../../../lib/mesh/group.ts";
 import type { Census } from "../../../lib/mesh/liveness.ts";
 import { clock, line, senderIdentity } from "../../../lib/mesh/message.ts";
+import type { Tie } from "../../../lib/mesh/node.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
@@ -275,6 +276,44 @@ function runText(one: Presence, now: number): string {
 	if (step.kind === "tool") return `busy, in ${step.name} for ${span}`;
 	if (step.kind === "thinking") return `busy, thinking for ${span}`;
 	return `busy, waiting on its person for ${span}`;
+}
+
+/** The most ties mesh_groups lists, strongest first. */
+const MOST_TIES = 12;
+
+/** The longest a tied peer's work is quoted at. */
+const TIE_WORK_CHARS = 60;
+
+/**
+ * The cells this peer is tied to, strongest first, as the node keeps
+ * them from who has talked with whom in the last day (mycelium's `tie`
+ * kind): each by its address and what it works on, with how strong the
+ * tie is now and what each end said on it. Nothing when the node keeps
+ * no ties, as one before mycelium #245, or none answers.
+ */
+export function tiesText(
+	ties: readonly Tie[] | undefined,
+	present: readonly Presence[],
+): string {
+	if (ties === undefined) return "";
+	if (ties.length === 0) {
+		return "\nTies: none in the last day. A message ties its sender to each peer its to names and to the one it answers; one only to groups ties no one.";
+	}
+	const lines = ties.slice(0, MOST_TIES).map((tie) => {
+		const work = present
+			.find((one) => one.addresses.includes(tie.other))
+			?.worksOn.replace(/\s+/g, " ")
+			.trim();
+		const cut =
+			work && work.length > TIE_WORK_CHARS
+				? `${work.slice(0, TIE_WORK_CHARS - 3)}...`
+				: work;
+		const intents = tie.intents.length > 0 ? `; ${tie.intents.join(", ")}` : "";
+		return `${tie.other}${cut ? ` (${cut})` : ""}: ${tie.strength.toFixed(1)}; this hour ${tie.hour[0]} sent, ${tie.hour[1]} heard; today ${tie.today[0]} sent, ${tie.today[1]} heard${intents}`;
+	});
+	const more =
+		ties.length > MOST_TIES ? [`and ${ties.length - MOST_TIES} weaker`] : [];
+	return `\nTies, strongest first (one a message, halving every two hours):\n${[...lines, ...more].join("\n")}`;
 }
 
 /**

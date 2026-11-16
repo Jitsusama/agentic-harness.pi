@@ -1,10 +1,11 @@
 /**
  * Groups: joining, leaving and listing them with who is in each, the
- * scopes a peer hears, the groups it joins by writing to them, and an
- * invitation into one.
+ * scopes a peer hears, the groups it joins by writing to them, an
+ * invitation into one, and the ties the node keeps.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { writeRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
@@ -308,6 +309,100 @@ describe("groups", () => {
 			`P9R1KI, busy: Optimus: ${"memory floors ".repeat(10).slice(0, 88)}...`,
 			"WCJQSG, idle: the launcher",
 		]);
+	});
+
+	it("lists the peers it is tied to, strongest first, as the node keeps them", async () => {
+		const presences = createPresences(join(fixture.paths.mesh, "presence"));
+		presences.publish({
+			session: "session-w",
+			addresses: ["WCJQSG"],
+			groups: [],
+			worksOn: "the launcher",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const run = join(fixture.root, "run");
+		mkdirSync(join(run, "mycelium"), { recursive: true });
+		const asked: unknown[] = [];
+		const now = Date.now();
+		const node = createServer((client) => {
+			client.setEncoding("utf8");
+			client.on("data", (chunk: string) => {
+				for (const line of chunk.split("\n").filter(Boolean)) {
+					const ask = JSON.parse(line);
+					asked.push(ask);
+					const me = presences.of(session)?.addresses[0] ?? "";
+					const records = [
+						// Halved once by two hours gone, so weaker than P9R1KI's.
+						{
+							key: `tie:${me}~WCJQSG`,
+							heard: now - 2 * 60 * 60 * 1000,
+							hour: [0, 0],
+							today: [4, 2],
+							intents: ["fyi"],
+							strength: 6,
+						},
+						{
+							key: `tie:P9R1KI~${me}`,
+							heard: now,
+							hour: [1, 2],
+							today: [3, 5],
+							intents: ["answer", "question"],
+							strength: 4,
+						},
+						{
+							key: "tie:P9R1KI~WCJQSG",
+							heard: now,
+							hour: [1, 1],
+							today: [1, 1],
+							intents: [],
+							strength: 9,
+						},
+						{ key: `tie:${me}`, heard: now, hour: 1, today: 7, ties: 2 },
+					];
+					client.write(
+						`${JSON.stringify(ask.ask === "hello" ? { id: ask.id, version: 1, domain: "node" } : { id: ask.id, records })}\n`,
+					);
+				}
+			});
+		});
+		await new Promise<void>((listening) =>
+			node.listen(join(run, "mycelium", "test.sock"), listening),
+		);
+		try {
+			const { tools } = await startSession({
+				MYCELIUM_REALM: "test",
+				XDG_RUNTIME_DIR: run,
+			});
+
+			const listed = await tools.get("mesh_groups")?.execute("call-1", {});
+
+			const text = listed?.content[0]?.text ?? "";
+			expect(asked.at(-1), "it lists the node's ties").toMatchObject({
+				ask: "list",
+				kind: "tie",
+			});
+			expect(
+				text.split("\nTies, strongest first")[1]?.split("\n").slice(1),
+			).toEqual([
+				"P9R1KI: 4.0; this hour 2 sent, 1 heard; today 5 sent, 3 heard; answer, question",
+				"WCJQSG (the launcher): 3.0; this hour 0 sent, 0 heard; today 4 sent, 2 heard; fyi",
+			]);
+		} finally {
+			await new Promise((done) => node.close(done));
+		}
+	});
+
+	it("says nothing of ties where no node keeps them", async () => {
+		const { tools } = await startSession();
+
+		const listed = await tools.get("mesh_groups")?.execute("call-1", {});
+
+		expect(
+			listed?.content[0]?.text ?? "",
+			"no node, no ties line",
+		).not.toContain("Ties");
 	});
 
 	it("says what a busy peer's step is once it has gone on a minute", async () => {
