@@ -75,6 +75,22 @@ describe("memory store", () => {
 		);
 	});
 
+	it("lists a scope's active facts alone, oldest first, without counting a recall", async () => {
+		await store.retain({ scope: quest, text: "first" });
+		await store.retain({ scope: global, text: "everywhere" });
+		await store.retain({ scope: other, text: "elsewhere" });
+		const gone = await store.retain({ scope: quest, text: "wrong" });
+		await store.invalidate(gone.id);
+		await store.retain({ scope: quest, text: "second" });
+
+		const listed = await store.active(quest);
+
+		expect(listed.map((fact) => fact.text)).toEqual(["first", "second"]);
+		expect(listed.map((fact) => fact.recalledCount)).toEqual([0, 0]);
+		const recalled = await store.recall({ scope: quest, includeGlobal: false });
+		expect(recalled.map((fact) => fact.recalledCount)).toEqual([1, 1]);
+	});
+
 	it("bumps recall stats but keeps old facts (no age eviction)", async () => {
 		const fact = await store.retain({ scope: quest, text: "durable" });
 		await store.recall({ scope: quest });

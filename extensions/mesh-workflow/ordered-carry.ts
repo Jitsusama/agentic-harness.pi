@@ -38,11 +38,6 @@ import { writeRefused } from "../../lib/internal/carry/ordered.ts";
 import { thisMachine } from "../../lib/internal/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
-import {
-	SANDBOX_NAMES,
-	STRICT,
-	sandboxName,
-} from "../../lib/internal/sandbox.ts";
 import { treesHeldBy } from "../../lib/internal/work-records.ts";
 import {
 	type Board,
@@ -50,7 +45,6 @@ import {
 	type Lease,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
-import type { FenceKind } from "../../lib/mesh/presence.ts";
 import type { OrderedCarry } from "../../lib/mesh/steer.ts";
 import { holdsOf } from "./moving.ts";
 
@@ -196,18 +190,6 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			if (underWay && !host.idle()) end();
 		},
 	};
-}
-
-/**
- * How this session's commands are fenced, as its presence says for
- * mycelium to match a carry's machine against: the sandbox its
- * `PI_SANDBOX` asks for (the first stage's fence included), or `none`.
- */
-export function fenceKindOf(env: NodeJS.ProcessEnv): FenceKind {
-	const name = sandboxName(env);
-	if (name === STRICT) return "strict";
-	if (name === SANDBOX_NAMES.fence) return "fence";
-	return "none";
 }
 
 /** What holding a lease is said as: its kind and what it claims. */

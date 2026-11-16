@@ -19,6 +19,7 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { bundleTree, neededFrom } from "../../core/work/carry.ts";
+import type { FenceKind } from "../../mesh/presence.ts";
 import { patchChanges } from "./changes.ts";
 import {
 	type HandedTree,
@@ -26,6 +27,7 @@ import {
 	withinHome,
 	writeHandover,
 } from "./handover.ts";
+import type { CarriedNote } from "./notes.ts";
 
 /** What is carried, and where. */
 export interface Carrying {
@@ -45,6 +47,10 @@ export interface Carrying {
 	};
 	/** The trees it holds, by their folders here. */
 	readonly trees: readonly string[];
+	/** The fence its commands ran under; unknown for sessions no pi runs. */
+	readonly fence?: FenceKind;
+	/** Its quest's remembered facts. */
+	readonly notes?: readonly CarriedNote[];
 }
 
 /** What became of one tree. */
@@ -80,6 +86,10 @@ export async function carryAway(carrying: Carrying): Promise<CarriedAway> {
 		...(session.title ? { title: session.title } : {}),
 		...(sessionFile === undefined ? {} : { sessionFile }),
 		trees: trees.flatMap((one) => (one.kind === "carried" ? [one.tree] : [])),
+		...(carrying.fence === undefined ? {} : { fence: carrying.fence }),
+		...(carrying.notes === undefined || carrying.notes.length === 0
+			? {}
+			: { notes: carrying.notes }),
 	};
 	return { file: writeHandover(into, handover), handover, trees };
 }

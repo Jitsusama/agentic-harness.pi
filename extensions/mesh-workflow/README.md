@@ -923,7 +923,8 @@ A steer may instead carry an `act`, with no text needed
   "penelope"}`), takes the session's work to that machine, as
   `mycelium carry <quest> --to <machine>` asks of each of a
   quest's sessions: any run in progress is ended and waited
-  out, every tree the work broker holds for it and its own file
+  out, every tree the work broker holds for it, its own file, the
+  fence its commands run under and its quest's remembered facts
   go into its quest's handover with its done file written last
   ([`carrying.ts`](carrying.ts)), and then it closes as `close`
   does. A run that starts from then on is ended. A carry with no

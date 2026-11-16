@@ -1,7 +1,8 @@
 /**
  * Carrying this session's work to another machine, when the person
  * steers it to (pausing.ts's Carry): every tree the work broker holds
- * for it, and its own file, into its quest's handover, with the done file
+ * for it, its own file, the fence its commands run under and its quest's
+ * remembered facts, into its quest's handover, with the done file
  * mycelium waits for written last (lib/internal/carry/carry-away.ts).
  *
  * Its run is ended first and waited out, so the file carried holds the
@@ -15,11 +16,14 @@ import { homedir } from "node:os";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { spawnExec } from "../../lib/core/exec/index.ts";
 import { carryAway } from "../../lib/internal/carry/carry-away.ts";
+import { fenceKindOf } from "../../lib/internal/carry/fence.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
+import { type CarriedNote, notesOf } from "../../lib/internal/carry/notes.ts";
 import { thisMachine } from "../../lib/internal/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { treesHeldBy } from "../../lib/internal/work-records.ts";
+import { memoryDbPath, openMemoryStore } from "../../lib/memory/index.ts";
 
 /** How long an ended run may take to wind down before the carry gives up. */
 const WIND_DOWN_MS = 30_000;
@@ -37,6 +41,10 @@ export type CarriedContext = Pick<
 export interface CarryingPlaces {
 	readonly home?: string;
 	readonly windDownMs?: number;
+	/** The session's environment, whose `PI_SANDBOX` says its fence. */
+	readonly env?: NodeJS.ProcessEnv;
+	/** The quest's remembered facts; this machine's memory store's by default. */
+	readonly notes?: (quest: string) => Promise<readonly CarriedNote[]>;
 }
 
 /**
@@ -71,6 +79,8 @@ export async function carryThisSession(
 			...(file !== undefined && existsSync(file) ? { file } : {}),
 		},
 		trees: treesHeldBy(id),
+		fence: fenceKindOf(places.env ?? process.env),
+		notes: await (places.notes ?? questNotes)(quest),
 	});
 	const stayed = carried.trees.flatMap((one) =>
 		one.kind === "refused" ? [`${one.path}: ${one.why}`] : [],
@@ -82,6 +92,16 @@ export async function carryThisSession(
 		);
 	}
 	return carried.file;
+}
+
+/** The quest's facts in this machine's memory store. */
+async function questNotes(quest: string): Promise<CarriedNote[]> {
+	const store = await openMemoryStore(await memoryDbPath());
+	try {
+		return await notesOf(store, quest);
+	} finally {
+		await store.close();
+	}
 }
 
 /** Waits until the session is between runs, or throws once it never is. */

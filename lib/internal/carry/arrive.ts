@@ -24,6 +24,7 @@
 import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
+import type { FenceKind } from "../../mesh/presence.ts";
 import { placeTakenOver } from "../quest/carried.ts";
 import {
 	doneFileOf,
@@ -32,6 +33,7 @@ import {
 	readHandover,
 	underHome,
 } from "./handover.ts";
+import type { CarriedNote } from "./notes.ts";
 
 /** How long a done file is waited for: the share may land late. */
 export const ARRIVAL_WAIT_MS = 10 * 60_000;
@@ -67,6 +69,11 @@ export type ArrivalLine =
 	| {
 			readonly kind: "sessions";
 			readonly sessions: readonly { id: string; cwd: string }[];
+			/**
+			 * The fence the session ran under, for the node to start it under
+			 * again; absent when an older harness carried it.
+			 */
+			readonly fence?: FenceKind;
 	  };
 
 /** What arriving needs. */
@@ -84,6 +91,11 @@ export interface Arriving {
 	readonly sessions: string;
 	readonly clock: Clock;
 	readonly say: (line: ArrivalLine) => void;
+	/** Adds the quest's carried facts that this machine lacks, answering how many. */
+	readonly takeNotes: (
+		quest: string,
+		notes: readonly CarriedNote[],
+	) => Promise<number>;
 }
 
 /** Arrives with the session; answers whether everything came and stands. */
@@ -97,7 +109,8 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 		say(line);
 		if (line.did !== "refused") brought.push(tree);
 	}
-	const whole = brought.length === handover.trees.length;
+	const noted = await notesTaken(arriving, handover);
+	const whole = brought.length === handover.trees.length && noted;
 	if (handover.sessionFile === undefined) {
 		say({ kind: "sessions", sessions: [] });
 		return whole;
@@ -122,8 +135,35 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 		say({ kind: "sessions", sessions: [] });
 		return false;
 	}
-	say({ kind: "sessions", sessions: [{ id: handover.session, cwd }] });
+	// The node starts pi itself, so it, not this environment, sets the
+	// fence the session arrives under (KP0L6A [35567865]).
+	say({
+		kind: "sessions",
+		sessions: [{ id: handover.session, cwd }],
+		...(handover.fence === undefined ? {} : { fence: handover.fence }),
+	});
 	return whole;
+}
+
+/**
+ * Takes up the done file's notes, answering whether that went; a store
+ * that can't take them is said, and arriving again tries once more.
+ */
+async function notesTaken(
+	arriving: Arriving,
+	handover: Handover,
+): Promise<boolean> {
+	if (handover.notes === undefined || handover.notes.length === 0) return true;
+	try {
+		await arriving.takeNotes(handover.quest, handover.notes);
+		return true;
+	} catch (error) {
+		arriving.say({
+			kind: "failed",
+			why: `The quest's ${handover.notes.length} notes weren't taken up: ${error instanceof Error ? error.message : String(error)}`,
+		});
+		return false;
+	}
 }
 
 /**

@@ -52,6 +52,12 @@ export interface MemoryStore {
 	retain(input: RetainInput): Promise<Fact>;
 	/** Recall active facts for a scope, bumping their recall stats. */
 	recall(query: RecallQuery): Promise<Fact[]>;
+	/**
+	 * Every active fact in exactly this scope, oldest first, for
+	 * carrying them elsewhere; it leaves their recall stats alone,
+	 * since nobody recalled them.
+	 */
+	active(scope: Scope): Promise<Fact[]>;
 	/** Synthesize a short answer over the facts matching a scope. */
 	reflect(query: { scope: Scope; question: string }): Promise<string>;
 	/** Amend a fact's text or tags. Returns the updated fact, or null. */
