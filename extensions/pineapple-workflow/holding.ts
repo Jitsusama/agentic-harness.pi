@@ -152,12 +152,14 @@ async function claim(deps: HoldingDeps): Promise<string | undefined> {
 		// Claimed: by a live session, which tends them now, or a dead one.
 	}
 	try {
-		if (deps.now() - (await stat(path)).mtimeMs < STALE_CLAIM_MS) return;
+		const fresh = deps.now() - (await stat(path)).mtimeMs < STALE_CLAIM_MS;
+		if (fresh) return undefined;
 		await rm(path, { force: true });
 		await writeFile(path, token, { flag: "wx" });
 		return token;
 	} catch {
 		// Another session took the stale claim first, or it just went.
+		return undefined;
 	}
 }
 
