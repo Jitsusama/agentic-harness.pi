@@ -795,8 +795,10 @@ export async function createEngine(
 		// such as its agent, stays in memory while the reap below reads every
 		// process's environment.
 		await release(sessionId, record, why);
-		// A park keeps what its ended calls left running, as plain pi does.
-		if (record.parking) await keepLeftRunning(sessionId);
+		// A park or a restart's stop keeps what its ended calls left running,
+		// as plain pi does; a close for good ends what its parks kept too.
+		if (record.ending === "closed") left.closed(sessionId);
+		else await keepLeftRunning(sessionId, record.parking ? "park" : "stop");
 		// The signal kills a tool's own group; a descendant that left it ends here.
 		await reapToolChildren(sessionId, undefined, left.spared(carriedCalls()));
 		const events = watched;
@@ -807,17 +809,20 @@ export async function createEngine(
 				.catch(report);
 	}
 
-	/** Note what a parked conversation's ended calls left running, saying it in the journal. */
-	async function keepLeftRunning(sessionId: string): Promise<void> {
+	/** Note what a stopped conversation's ended calls left running, saying it in the journal. */
+	async function keepLeftRunning(
+		sessionId: string,
+		stop: "park" | "stop",
+	): Promise<void> {
 		try {
 			const marks = await callsLeftRunning(sessionId);
 			if (marks.size === 0) return;
 			left.note(sessionId, marks);
 			report(
-				`Kept running through ${sessionId}'s park what ${marks.size} ended command${marks.size === 1 ? "" : "s"} left`,
+				`Kept running through ${sessionId}'s ${stop} what ${marks.size} ended command${marks.size === 1 ? "" : "s"} left`,
 			);
 		} catch (error) {
-			// The park goes on, and its reap ends them as before.
+			// The stop goes on, and its reap ends them as before.
 			report(error);
 		}
 	}
@@ -1104,6 +1109,19 @@ export async function createEngine(
 			providers.delete(sessionId);
 			rmSync(providersFile(sessionId), { force: true });
 			parked.closed(sessionId);
+			// Closed while parked, what its parks kept ends with it, as a
+			// running one's close ends it.
+			left.closed(sessionId);
+			try {
+				await reapToolChildren(
+					sessionId,
+					undefined,
+					left.spared(carriedCalls()),
+				);
+			} catch (error) {
+				// The close goes on; what the reap missed runs out the day it was kept for.
+				report(error);
+			}
 			await options.screens?.closed(sessionId, why);
 		},
 
