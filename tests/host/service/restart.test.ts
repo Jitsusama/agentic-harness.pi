@@ -379,11 +379,7 @@ describe("followWhatStarts", () => {
 	// A heap far under V8's limit, unless a test says otherwise.
 	const small = () => ({ usedBytes: MB, limitBytes: 4144 * MB });
 
-	async function follow(
-		systemctl: Systemctl,
-		report = vi.fn(),
-		heap = small,
-	) {
+	async function follow(systemctl: Systemctl, report = vi.fn(), heap = small) {
 		const timers = manualTimers();
 		const serving = {
 			held: () => [{ state: "idle" as const, since: long }],

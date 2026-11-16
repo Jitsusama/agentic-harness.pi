@@ -126,9 +126,11 @@ input pipeline or screen. No unit or running host is installed yet.
   the install's current version changes the code the host process
   loads itself (every module `scripts/pi-host.ts` reaches through
   runtime imports, with package.json and pnpm-lock.yaml), or systemd
-  has read a new unit file, as a switch naming a new pi writes. Code
+  has read a new unit file, as a switch naming a new pi writes, or
+  its heap holds more than half of what V8 allows, so a stop still
+  parks quickly rather than running into the limit. Code
   only a conversation loads moves with that conversation instead
-  (reload-workflow's follower). Once either differs, and every
+  (reload-workflow's follower). Once any of these holds, and every
   conversation has been idle or parked for two minutes, with no
   background work held (the engine's count of each conversation's
   job-workflow) and every screen at rest (screens.ts), it asks
