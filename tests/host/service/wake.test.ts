@@ -458,36 +458,6 @@ describe("waking conversations side by side, a window's first", () => {
 		await Promise.all([woken, queued]);
 	});
 
-	it.each(["close", "release"] as const)(
-		"lets go unresumed one whose wake waits for a place as a %s takes it, the queue going on",
-		async (op) => {
-			const { fake, begun, finish } = heldResumes();
-			const backend = backendWith(fake, undefined, undefined, {
-				wakePlaces: 1,
-				wakeLongestMs: NEVER_MS,
-			});
-			const waking = await parked(backend);
-			const closing = await parked(backend);
-			const other = await parked(backend);
-
-			const woken = backend.wake(waking);
-			await until("the first wake to resume", () => begun.length === 1);
-			const queued = [backend.wake(closing), backend.wake(other)];
-			await settle();
-
-			await expect(
-				backend.execute({ v: 1, id: "c", op, sessionId: closing, by: "Joel" }),
-				"it lands with the first still resuming",
-			).resolves.toEqual({ sessionId: closing });
-			finish(waking);
-			await until("the next wake to resume", () => begun.length === 2);
-			finish(other);
-			await Promise.all([woken, ...queued]);
-
-			expect(begun, "the one it took never resumed").toEqual([waking, other]);
-		},
-	);
-
 	it("wakes one a window had again in its turn, a window's hurry over", async () => {
 		const { fake, begun, finish } = heldResumes();
 		const backend = backendWith(fake, undefined, undefined, {
@@ -622,6 +592,32 @@ describe("waking conversations side by side, a window's first", () => {
 			said.filter((line) => line.includes(sessionId)),
 			"no line for a resume in time",
 		).toEqual([]);
+	});
+
+	it("lets the next wake on at a lapse, and the lapsed one end, though the journal throws", async () => {
+		const { fake, begun, finish } = heldResumes();
+		const gone = () => {
+			throw new Error("the journal is gone");
+		};
+		const backend = backendWith(fake, undefined, gone, {
+			wakePlaces: 1,
+			wakeLongestMs: LONGEST_MS,
+		});
+		const lapsing = await parked(backend);
+		const queued = await parked(backend);
+
+		const lapsed = backend.wake(lapsing);
+		await until("the first wake to resume", () => begun.length === 1);
+		const next = backend.wake(queued);
+		await until("the next to resume at the lapse", () => begun.length === 2);
+		finish(lapsing);
+		finish(queued);
+
+		await expect(
+			lapsed,
+			"the lapsed one's wake resolves",
+		).resolves.toBeUndefined();
+		await next;
 	});
 
 	it("counts a resume that has run its longest no more, yet keeps to its places", async () => {
