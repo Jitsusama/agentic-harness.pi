@@ -154,6 +154,12 @@ link onto a folder of versions. Once the link moves, a steer's run ends
 with the host reloading the conversation, and its new runtime says the
 move was its own and that it runs the new version.
 
+reload-frees.test.ts reloads a hosted conversation onto new versions
+of such an install and reads the sealed host through its inspector:
+the heap after forced collections stays within a bound of the first
+reload, and one copy of mesh-workflow's teller and timer still runs, so
+each old runtime lets its copy of the harness go.
+
 screen-reload.test.ts reloads a hosted conversation through its host,
 as the follower does, on the screen host: its screen draws the new
 load's footer, takes a resize and the next words, and the host stays

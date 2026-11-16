@@ -12,13 +12,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import {
-	cpSync,
-	mkdirSync,
-	renameSync,
-	symlinkSync,
-	utimesSync,
-} from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { sessionAddress } from "../../../lib/mesh/address.ts";
@@ -30,16 +24,11 @@ import {
 	textOf,
 	untilAnswered,
 } from "./support/hosted-case.ts";
+import { moveTo, version } from "./support/install.ts";
 import { SCRIPTED } from "./support/scripted-model.ts";
 import { type Seal, seal } from "./support/seal.ts";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
-
-/** This tree, which each version is a copy of. */
-const HARNESS = resolve(import.meta.dirname, "../../..");
-
-/** What a version of the install leaves out of the tree, at its top. */
-const LEFT_OUT = new Set(["node_modules", ".git", "tests"]);
 
 /** What the reloaded runtime says, as lifecycle.ts's landedText puts it. */
 const FOLLOWED = "Reloaded between runs, because the install moved";
@@ -57,29 +46,6 @@ afterEach(async () => {
 
 function said(): string {
 	return `The host wrote:\n${host?.errors()}`;
-}
-
-/**
- * A version of the install under `versions`: this tree's code, sharing
- * its installed dependencies, with a lockfile older than their install
- * record, so the follower takes it as installed.
- */
-function version(install: string, name: string): string {
-	const folder = join(install, "versions", name);
-	cpSync(HARNESS, folder, {
-		recursive: true,
-		filter: (from) => !LEFT_OUT.has(relative(HARNESS, from)),
-	});
-	symlinkSync(join(HARNESS, "node_modules"), join(folder, "node_modules"));
-	utimesSync(join(folder, "pnpm-lock.yaml"), 0, 0);
-	return folder;
-}
-
-/** Move the install's link onto `name` in one rename, as pi-packages does. */
-function moveTo(install: string, name: string): void {
-	const link = join(install, "current");
-	symlinkSync(join("versions", name), `${link}.new`);
-	renameSync(`${link}.new`, link);
 }
 
 it(

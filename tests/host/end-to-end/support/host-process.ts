@@ -91,6 +91,8 @@ export async function startHost(options: {
 	env?: Readonly<Record<string, string>>;
 	/** Refuse every conversation but the first it holds. */
 	admitsOne?: boolean;
+	/** Flags for node itself, ahead of the host's source, as an inspector. */
+	nodeArgs?: readonly string[];
 }): Promise<HostProcess> {
 	const rollout = options.admitsOne
 		? `() => Promise.reject(hostRefusal("rollout_refused", "this host admits one conversation"))`
@@ -116,7 +118,13 @@ await run.stopped;
 process.exit(0);`;
 	const child = spawn(
 		process.execPath,
-		["--no-warnings", "--input-type=module", "-e", source],
+		[
+			"--no-warnings",
+			...(options.nodeArgs ?? []),
+			"--input-type=module",
+			"-e",
+			source,
+		],
 		{
 			env: { ...options.seal.env, ...options.env },
 			stdio: ["ignore", "pipe", "pipe"],
