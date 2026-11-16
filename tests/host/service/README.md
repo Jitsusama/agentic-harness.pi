@@ -63,3 +63,7 @@ without closing, lock refusal and takeover races, launch environments
 written only when they hold something, and refusal to start over an
 unreadable roster, in a private temporary folder. They do not
 start a production host, copy credential files or use Joel's screen.
+
+- `support/`: the fixture wake.test.ts wakes conversations over: a real
+  SessionHost and roster in a private folder, and an engine and rollout
+  gate whose resumes the test holds and lets go.
