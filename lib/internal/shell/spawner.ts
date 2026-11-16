@@ -22,7 +22,11 @@
  * running across a reload isn't killed. A load from before retiring was
  * possible left its spawner running, idle, for good: on 11 November one pi
  * had two after one reload. So before a load starts its own, it stops each
- * pi-spawner its pi started that runs nothing.
+ * pi-spawner its pi started that runs nothing. Where there is no /proc, as
+ * on a Mac, one listing of every process says the same, and the load
+ * starts its own only once that listing is read, so its own is never
+ * taken for one left behind. Until it was read there, pis on the Mac kept
+ * an idle spawner beside their own (two of 49 at 03:20 on 16 November).
  *
  * When pi goes, pi-spawner kills every command it still runs but one kept
  * on disk (shell-workflow's keeping.ts), which a shared host hands to the
@@ -30,9 +34,16 @@
  * command is kept, and each holds a host's restart as before.
  */
 
-import { spawn } from "node:child_process";
-import { constants, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import {
+	constants,
+	existsSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+} from "node:fs";
 import { access } from "node:fs/promises";
+import { basename } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import {
 	type BashOperations,
@@ -109,7 +120,7 @@ export interface SpawnerOptions {
 	 * would otherwise keep that one idle until it ends, as eight did on
 	 * 11 November.
 	 */
-	reap?: () => void;
+	reap?: () => void | Promise<void>;
 }
 
 /** pi's bash operations, and a way to retire the spawner behind them. */
@@ -161,7 +172,10 @@ export function spawnedBy(
 	options: SpawnerOptions = {},
 ): SpawnerOperations {
 	const env = options.env ?? process.env;
-	(options.reap ?? stopIdleSpawners)();
+	const sweeping = (options.reap ?? stopIdleSpawners)();
+	// A sweep that lists every process finishes before this load's own
+	// spawner starts; one that fails stops nothing, and holds nothing up.
+	const swept = sweeping ? sweeping.catch(() => undefined) : undefined;
 	if (!spawnerWanted(env)) {
 		return {
 			exec: (command, cwd, settings) => fallback.exec(command, cwd, settings),
@@ -206,6 +220,7 @@ export function spawnedBy(
 	};
 	return {
 		exec: async (command, cwd, settings) => {
+			if (swept) await swept;
 			try {
 				shell ??= getShellConfig(options.shellPath);
 			} catch {
@@ -272,26 +287,76 @@ export function spawnerKeeps(program: string): Promise<boolean> {
 /** The name a pi-spawner goes by in /proc, as its comm. */
 const SPAWNER_COMM = SPAWNER_PROGRAM;
 
+/** How long a listing of every process may take before it counts as none. */
+const LISTING_TIMEOUT_MS = 10_000;
+
 /**
  * Stop each pi-spawner `parent` started that runs no command, as an
- * earlier load of this extension left it; on Linux only, where /proc
- * says which processes a process started.
+ * earlier load of this extension left it. /proc says which processes a
+ * process started; where it can't, a listing of every process does, and
+ * the stop then ends once that listing is read.
  */
 export function stopIdleSpawners(
 	parent: number = process.pid,
 	proc = "/proc",
 	stop: (pid: number) => void = (pid) => process.kill(pid, "SIGTERM"),
-): void {
-	if (process.platform !== "linux" && proc === "/proc") return;
+	list: () => Promise<string> = listEveryProcess,
+): void | Promise<void> {
+	if (!existsSync(`${proc}/${parent}`)) {
+		return list().then((listing) => {
+			for (const idle of idleSpawnersListed(listing, parent))
+				stopping(idle, stop);
+		});
+	}
 	for (const child of childrenOf(parent, proc)) {
 		if (commOf(child, proc) !== SPAWNER_COMM) continue;
 		if (childrenOf(child, proc).length > 0) continue;
-		try {
-			stop(child);
-		} catch {
-			// One that ended since it was read needs no stopping.
-		}
+		stopping(child, stop);
 	}
+}
+
+/** Stop `pid`, which may have ended since it was read. */
+function stopping(pid: number, stop: (pid: number) => void): void {
+	try {
+		stop(pid);
+	} catch {
+		// One that ended since it was read needs no stopping.
+	}
+}
+
+/**
+ * The pi-spawners `parent` started that run nothing, from a listing of
+ * every process as `ps -A -o pid=,ppid=,comm=` prints it; none from a
+ * listing that can't be read.
+ */
+export function idleSpawnersListed(listing: string, parent: number): number[] {
+	const rows = listing.split("\n").flatMap((line) => {
+		const row = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
+		return row?.[1] && row[2] && row[3]
+			? [{ pid: Number(row[1]), ppid: Number(row[2]), comm: row[3] }]
+			: [];
+	});
+	const parents = new Set(rows.map((row) => row.ppid));
+	return rows
+		.filter(
+			(row) =>
+				row.ppid === parent &&
+				basename(row.comm) === SPAWNER_COMM &&
+				!parents.has(row.pid),
+		)
+		.map((row) => row.pid);
+}
+
+/** Every process, as `ps` lists it, or nothing where it can't. */
+function listEveryProcess(): Promise<string> {
+	return new Promise((resolve) => {
+		execFile(
+			"ps",
+			["-A", "-o", "pid=,ppid=,comm="],
+			{ timeout: LISTING_TIMEOUT_MS },
+			(error, out) => resolve(error ? "" : out),
+		);
+	});
 }
 
 /** The processes `pid` started, from each of its threads. */
