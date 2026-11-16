@@ -269,12 +269,12 @@ describe("releaseFacts", () => {
 		}
 	});
 
-	it("calls a move off as the person at the desk would", () => {
+	it("calls a move off as the person at the desk would", async () => {
 		const { root, places } = releasePlaces("taken");
 		try {
 			releaseFacts(places).callOff("HOPPER");
 			expect(
-				waitingSteers(join(places.steer, "HOPPER")).map(
+				(await waitingSteers(join(places.steer, "HOPPER"))).map(
 					({ act, from, text }) => ({ act, from, text }),
 				),
 			).toEqual([{ act: "resume", from: "joel", text: "" }]);

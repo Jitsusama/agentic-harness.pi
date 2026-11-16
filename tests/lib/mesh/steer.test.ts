@@ -388,15 +388,22 @@ describe("the steer inbox", () => {
 		).toBeUndefined();
 	});
 
-	it("reads what waits without taking it", () => {
+	it("reads what waits without taking it, letting the thread turn", async () => {
 		const inbox = inboxOf(root, "P9R1KI");
 		takeSteers(inbox, "1");
 		put(inbox, "1-a.json", JSON.stringify({ act: "carry", to: "penelope" }));
 		put(inbox, "2-b.json", "not json");
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
 
-		expect(waitingSteers(inbox).map((one) => one.act)).toEqual(["carry"]);
+		const waiting = await waitingSteers(inbox);
+
+		expect(turned, "the thread turned while the inbox was read").toBe(true);
+		expect(waiting.map((one) => one.act)).toEqual(["carry"]);
 		expect(readdirSync(inbox).sort()).toEqual(["1-a.json", "2-b.json"]);
-		expect(waitingSteers(inboxOf(root, "NOBODY"))).toEqual([]);
+		expect(await waitingSteers(inboxOf(root, "NOBODY"))).toEqual([]);
 	});
 
 	it("leaves a talk's replies folder in the inbox alone", () => {
