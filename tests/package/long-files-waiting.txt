@@ -27,7 +27,6 @@ tests/extensions/quest-workflow
 tests/extensions/quest-workflow/verbs.test.ts
 tests/extensions/subagent-workflow/fleet-outlives-its-session.test.ts
 tests/extensions/subagent-workflow/run.test.ts
-tests/lib/internal
 tests/lib/mesh/presence.test.ts
 tests/lib/subagent/runpi/supervisor.test.ts
 tests/lib/subagent/subagent.test.ts
