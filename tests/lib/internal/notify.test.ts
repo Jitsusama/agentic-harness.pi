@@ -77,6 +77,21 @@ describe("notify", () => {
 		]);
 	});
 
+	it("names the cell that sent it as a hint, so the launcher can lead to it", () => {
+		const args = notifyCommand({ title: "t", cell: "DAHTNJ" }, "linux")?.args;
+		expect(args).toContain("--hint=string:x-cell:mycelium:cell/DAHTNJ");
+		expect(args?.indexOf("--")).toBeGreaterThan(
+			args?.indexOf("--hint=string:x-cell:mycelium:cell/DAHTNJ") ?? -1,
+		);
+		expect(
+			notifyCommand({ title: "t", cell: "" }, "linux")?.args.join(" "),
+			"no address, no hint, rather than an empty one",
+		).not.toContain("x-cell");
+		expect(
+			notifyCommand({ title: "t", cell: "DAHTNJ" }, "darwin")?.args.join(" "),
+		).not.toContain("x-cell");
+	});
+
 	it("answers false when the notifier refuses or is missing", async () => {
 		const { exec } = recording(1);
 		expect(

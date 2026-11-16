@@ -82,6 +82,7 @@ import {
 	wantsShown,
 } from "../../lib/internal/session/wants.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
+import { sessionAddress } from "../../lib/mesh/address.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";
 import { firstText } from "../../lib/ui/tool-result.ts";
 import {
@@ -194,11 +195,16 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	 * only: a subagent's needs reach them through the session that ran it.
 	 * Never waited on, so a slow desktop holds nothing up. It replaces
 	 * this session's notice of the same kind, and is taken back once it
-	 * no longer applies.
+	 * no longer applies. It names this session's own address, so the
+	 * launcher can lead from it to this session.
 	 */
 	const reach = (kind: NoticeKind, notice: Notice | undefined) => {
 		if (!notice || !latest?.hasUI) return;
-		void raiseNotice(kind, notice);
+		const session = latest.sessionManager.getSessionId();
+		void raiseNotice(kind, {
+			...notice,
+			cell: session ? sessionAddress(session) : undefined,
+		});
 	};
 
 	/**
