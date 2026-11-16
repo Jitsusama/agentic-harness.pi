@@ -83,6 +83,20 @@ function shellPidOf(dir: string, id: string): number | undefined {
 }
 
 /**
+ * A call whose limit these operations hold, for a hand-off to carry: the
+ * signal its caller ran it under, the one it runs under below, the time
+ * left of its limit, and a way to stop the clock once another process
+ * holds the call.
+ */
+export interface TimedCall {
+	readonly outer: AbortSignal;
+	readonly inner: AbortSignal;
+	/** When the limit runs out if the call runs on unfrozen from now. */
+	deadline(): number;
+	disarm(): void;
+}
+
+/**
  * `ops`, starting the time limit of a call the queue holds when its turn
  * begins rather than when its shell starts, and pausing it while the
  * shell's cgroup is frozen.
@@ -98,6 +112,8 @@ export function timedFromTurn(
 		commandOf?: (command: string, env: NodeJS.ProcessEnv | undefined) => string;
 		/** Whether a pid's cgroup is frozen now; tests stand in for /proc. */
 		frozen?: (pid: number) => boolean;
+		/** Told of each call whose limit is held here, as it starts. */
+		onTimed?: (call: TimedCall) => void;
 	} = {},
 ): BashOperations {
 	const pollMs = options.pollMs ?? POLL_MS;
@@ -139,6 +155,13 @@ export function timedFromTurn(
 				timedOut = true;
 				stop.abort();
 			}, pollMs);
+			if (signal)
+				options.onTimed?.({
+					outer: signal,
+					inner: stop.signal,
+					deadline: () => Date.now() + timeout * 1000 - ranMs,
+					disarm: () => clearInterval(watch),
+				});
 			try {
 				const { timeout: _counted, ...rest } = call;
 				return await ops.exec(command, cwd, { ...rest, signal: stop.signal });

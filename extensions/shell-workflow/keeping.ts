@@ -10,7 +10,8 @@
  * carried so the host that started it doesn't reap it.
  *
  * The hand-off finds its call's files through the signal it ran the
- * call under, which is the one pi hands these operations.
+ * call under, which is the one these operations are handed: pi's own,
+ * or for a call timed from its turn, the one timed-keeping.ts names.
  *
  * A kept call's time limit is held here rather than by the operations
  * below, so a hand-off can lift it: the pi that takes the call up holds
