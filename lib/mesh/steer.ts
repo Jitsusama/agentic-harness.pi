@@ -458,13 +458,14 @@ export function takeSteers(inbox: string, taker: string): Taken {
 export async function takenSteers(
 	inbox: string,
 	taker: string,
+	readOff: (path: string) => Promise<string> = (path) => readFile(path, "utf8"),
 ): Promise<Taken> {
 	await mkdir(inbox, { recursive: true });
 	const taken: Taken = { steers: [], bad: [] };
 	for (const name of readyOf(await readdir(inbox))) {
 		const taking = claim(inbox, name, taker);
 		if (taking !== undefined)
-			settle(inbox, name, taking, await readFile(taking, "utf8"), taken);
+			settle(inbox, name, taking, await readOff(taking), taken);
 	}
 	return taken;
 }

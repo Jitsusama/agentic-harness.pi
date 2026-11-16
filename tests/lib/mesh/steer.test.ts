@@ -110,6 +110,36 @@ describe("the steer inbox", () => {
 		expect((await takenSteers(inbox, "2")).steers, "taken once").toEqual([]);
 	});
 
+	// A taker can end while its read waits: a reload, a host's restart,
+	// or its watchdog's kill on the stalled disk the read waits on.
+	it("leaves a steer waiting while its read stalls, never claimed and lost", async () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		put(inbox, "1-a.json", JSON.stringify({ text: "the person's answer" }));
+		let land: (raw: string) => void = () => undefined;
+		const stalled = new Promise<string>((resolve) => {
+			land = resolve;
+		});
+		let reading = false;
+
+		const taking = takenSteers(inbox, "1", () => {
+			reading = true;
+			return stalled;
+		});
+		await expect.poll(() => reading, "the read began").toBe(true);
+
+		expect(
+			readdirSync(inbox),
+			"still waiting under its own name while the read stalls",
+		).toEqual(["1-a.json"]);
+		land(JSON.stringify({ text: "the person's answer" }));
+		expect(
+			(await taking).steers.map((steer) => steer.text),
+			"taken once the read lands",
+		).toEqual(["the person's answer"]);
+		expect(readdirSync(inbox), "nothing left behind").toEqual([]);
+	});
+
 	it("reads only text, at and from, as strings", () => {
 		expect(steerFrom('{"text":"go","at":3,"from":"joel"}', "f")).toEqual({
 			text: "go",
