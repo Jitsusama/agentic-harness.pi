@@ -41,6 +41,7 @@ import {
 	clipboardRoundTrip,
 	focusedWindow,
 	windowBehind,
+	xDisplayOut,
 } from "./fence-preflight-desktop.ts";
 import { everydayGit, heldTreeGit, plantLoop } from "./fence-preflight-git.ts";
 import { SANDBOX_VARIABLE, sandboxFor } from "./sandbox.ts";
@@ -648,6 +649,12 @@ export const CHECKS: readonly Check[] = [
 				),
 				"finding wayland-1 or niri's socket",
 			),
+	},
+	{
+		id: "15d",
+		group: "refused",
+		what: "X's sockets stay out, file and abstract",
+		run: xDisplayOut,
 	},
 	{
 		id: "j",

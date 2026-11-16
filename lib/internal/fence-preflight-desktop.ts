@@ -275,3 +275,69 @@ export async function windowBehind(
 		`a fenced window opened on workspace ${on}, behind, in ${appeared} ms; focus and workspace unchanged`,
 	);
 }
+
+/**
+ * Tries X's display :0 both ways it listens, the file under
+ * /tmp/.X11-unix and the abstract socket of the same name, printing
+ * `connected <way>` or `refused <way> <code>` for each. The abstract
+ * name begins with a NUL, which a shell argument can't carry, so node
+ * makes it.
+ */
+const X_PROBE = `node -e '${[
+	'const net = require("node:net");',
+	'const ways = { file: "/tmp/.X11-unix/X0", abstract: String.fromCharCode(0) + "/tmp/.X11-unix/X0" };',
+	"for (const [way, path] of Object.entries(ways)) {",
+	"const s = net.connect({ path });",
+	's.on("connect", () => { console.log("connected " + way); s.destroy(); });',
+	's.on("error", (e) => console.log("refused " + way + " " + e.code));',
+	"}",
+].join(" ")}'`;
+
+/** The ways the X probe tried, as it names them. */
+const X_WAYS = ["file", "abstract"] as const;
+
+/** The ways `said`, the X probe's output, says it connected. */
+function xReached(said: string): string[] {
+	return X_WAYS.filter((way) => said.includes(`connected ${way}`));
+}
+
+/**
+ * Judges check (15d) from what the X probe said outside the fence and
+ * inside: inside must reach no X socket, and must have said so for
+ * each, so a probe that never ran isn't read as refused. Outside says
+ * whether an X server listens at all.
+ */
+export function xDisplayJudged(
+	outsideSaid: string,
+	insideSaid: string,
+): Verdict {
+	const reached = xReached(insideSaid);
+	if (reached.length > 0) {
+		return failed(
+			`a fenced command reached X's ${reached.join(" and ")} socket`,
+		);
+	}
+	const unsaid = X_WAYS.filter((way) => !insideSaid.includes(`refused ${way}`));
+	if (unsaid.length > 0) {
+		return failed(
+			`the probe said nothing inside of the ${unsaid.join(" and ")} socket`,
+		);
+	}
+	const listening = xReached(outsideSaid);
+	return listening.length === 0
+		? passed("no X server listens here, and none was reached inside")
+		: passed(
+				`X answers outside (${listening.join(", ")}) and refuses a fenced command on every socket`,
+			);
+}
+
+/**
+ * Check (15d): X's sockets stay out, so a copy xwayland-satellite
+ * bridges to X can't be read through it (ISXEG8, 120e6f5d).
+ */
+export async function xDisplayOut(context: PreflightContext): Promise<Verdict> {
+	const { scratch, session } = context;
+	const plain = await outside(X_PROBE, scratch);
+	const inside = await fenced(X_PROBE, scratch, session);
+	return xDisplayJudged(plain.out, inside.out);
+}
