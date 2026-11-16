@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
 import { WAKE_PLACES } from "../../../host/service/wake-places.ts";
-import { quietFor, until } from "../../support/until.ts";
+import { until } from "../../support/until.ts";
 import {
 	attach,
 	heldGate,
@@ -422,16 +422,20 @@ describe("waking conversations side by side, a window's first", () => {
 
 	it("lets the others on once a resume a window took in has run the longest it began with", async () => {
 		const { fake, begun, begunAt, finish } = heldResumes();
+		const longest = 3 * LONGEST_MS;
 		const backend = backendWith(fake, undefined, undefined, {
 			wakePlaces: 2,
-			wakeLongestMs: LONGEST_MS,
+			wakeLongestMs: longest,
 		});
 		const messaged = await parked(backend);
 		const other = await parked(backend);
 
 		const woken = backend.wake(messaged);
 		await until("the message's wake to resume", () => begun.length === 1);
-		await quietFor(LONGEST_MS / 2, 1);
+		// A real pause is the point: the attach comes a third of the way into
+		// the first resume's longest, late enough that a clock begun afresh at
+		// it would show, with two thirds left before a slow runner lapses it.
+		await new Promise((resolve) => setTimeout(resolve, LONGEST_MS));
 		const attachedAt = Date.now();
 		await backend.execute(attach(messaged));
 		const queued = backend.wake(other);
@@ -444,46 +448,45 @@ describe("waking conversations side by side, a window's first", () => {
 		expect(
 			Number(begunAt[1]) - Number(begunAt[0]),
 			"it waited out the first resume's longest",
-		).toBeGreaterThanOrEqual(LONGEST_MS - TIMER_EARLY_MS);
+		).toBeGreaterThanOrEqual(longest - TIMER_EARLY_MS);
 		expect(
 			Number(begunAt[1]) - attachedAt,
 			"from its begin, not a fresh one from the attach",
-		).toBeLessThan(LONGEST_MS - TIMER_EARLY_MS);
+		).toBeLessThan(longest - TIMER_EARLY_MS);
 		finish(messaged);
 		finish(other);
 		await Promise.all([woken, queued]);
 	});
 
-	it("closes one whose wake waits for a place after its one resume, not the queue's", async () => {
-		const { fake, begun, finish } = heldResumes();
-		const backend = backendWith(fake, undefined, undefined, {
-			wakePlaces: 1,
-			wakeLongestMs: NEVER_MS,
-		});
-		const waking = await parked(backend);
-		const closing = await parked(backend);
+	it.each(["close", "release"] as const)(
+		"lets go unresumed one whose wake waits for a place as a %s takes it, the queue going on",
+		async (op) => {
+			const { fake, begun, finish } = heldResumes();
+			const backend = backendWith(fake, undefined, undefined, {
+				wakePlaces: 1,
+				wakeLongestMs: NEVER_MS,
+			});
+			const waking = await parked(backend);
+			const closing = await parked(backend);
+			const other = await parked(backend);
 
-		const woken = backend.wake(waking);
-		await until("the first wake to resume", () => begun.length === 1);
-		const queued = backend.wake(closing);
-		await settle();
-		const closed = backend.execute({
-			v: 1,
-			id: "c",
-			op: "close",
-			sessionId: closing,
-		});
-		await until("the closed one's wake to resume", () => begun.length === 2);
-		finish(closing);
+			const woken = backend.wake(waking);
+			await until("the first wake to resume", () => begun.length === 1);
+			const queued = [backend.wake(closing), backend.wake(other)];
+			await settle();
 
-		await expect(
-			closed,
-			"the close lands with the first still resuming",
-		).resolves.toEqual({ sessionId: closing });
-		await queued;
-		finish(waking);
-		await woken;
-	});
+			await expect(
+				backend.execute({ v: 1, id: "c", op, sessionId: closing, by: "Joel" }),
+				"it lands with the first still resuming",
+			).resolves.toEqual({ sessionId: closing });
+			finish(waking);
+			await until("the next wake to resume", () => begun.length === 2);
+			finish(other);
+			await Promise.all([woken, ...queued]);
+
+			expect(begun, "the one it took never resumed").toEqual([waking, other]);
+		},
+	);
 
 	it("wakes one a window had again in its turn, a window's hurry over", async () => {
 		const { fake, begun, finish } = heldResumes();
@@ -614,7 +617,6 @@ describe("waking conversations side by side, a window's first", () => {
 		const sessionId = await parked(backend);
 
 		await backend.wake(sessionId);
-		await quietFor(LONGEST_MS, 2);
 
 		expect(
 			said.filter((line) => line.includes(sessionId)),

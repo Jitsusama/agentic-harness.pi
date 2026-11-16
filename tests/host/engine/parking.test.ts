@@ -502,7 +502,7 @@ describe("parking while the host drains", () => {
 
 		await parked.wake("a", "window");
 
-		expect(asking, "a window's wake is never held").toHaveBeenCalledWith(
+		expect(asking, "a direct wake is never held").toHaveBeenCalledWith(
 			"a",
 			"window",
 		);
