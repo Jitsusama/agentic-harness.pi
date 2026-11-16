@@ -38,7 +38,10 @@ export {
 	refreshRestoreFile,
 	settleMoveNote,
 } from "./sessions/restore.ts";
-export { followHostStamps, setSignalStampSession } from "./sessions/signal-stamp.ts";
+export {
+	followHostStamps,
+	setSignalStampSession,
+} from "./sessions/signal-stamp.ts";
 
 /**
  * How often a running session re-dates its own record.
