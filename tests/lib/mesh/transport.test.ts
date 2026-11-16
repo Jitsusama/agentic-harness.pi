@@ -152,9 +152,12 @@ describe("the folder transport", () => {
 	it("lists from the day an id was stamped on, passing the days before", () => {
 		const transport = folderTransport(dir);
 		const day = 24 * 60 * 60 * 1000;
-		const at = (ms: number, tail: string) => `${FROZEN_MS + ms}-WCJQSG-7-${tail}`;
+		const at = (ms: number, tail: string) =>
+			`${FROZEN_MS + ms}-WCJQSG-7-${tail}`;
 		const kept = (id: string) => {
-			const folder = new Date(Number(id.split("-")[0])).toISOString().slice(0, 10);
+			const folder = new Date(Number(id.split("-")[0]))
+				.toISOString()
+				.slice(0, 10);
 			mkdirSync(join(dir, folder), { recursive: true });
 			writeFileSync(join(dir, folder, `${id}.json`), "{}", "utf8");
 		};

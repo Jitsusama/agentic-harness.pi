@@ -30,7 +30,9 @@ const watching = vi.hoisted(() => ({
 // The folders listed, while a test keeps a list of them.
 const listing = vi.hoisted(() => ({ dirs: undefined as string[] | undefined }));
 // The files read, while a test keeps a list of them.
-const reading = vi.hoisted(() => ({ files: undefined as string[] | undefined }));
+const reading = vi.hoisted(() => ({
+	files: undefined as string[] | undefined,
+}));
 vi.mock("node:fs", async (importOriginal) => {
 	const fs = await importOriginal<typeof import("node:fs")>();
 	return {
@@ -115,7 +117,11 @@ describe("a message never lost", () => {
 
 	/** The day's folder a message stamped at this time settles into. */
 	const dayFolder = (at: number) =>
-		join(fixture.paths.mesh, "messages", new Date(at).toISOString().slice(0, 10));
+		join(
+			fixture.paths.mesh,
+			"messages",
+			new Date(at).toISOString().slice(0, 10),
+		);
 
 	/** A question to this peer stamped at this time, kept in its day's folder. */
 	const settled = (at: number, text: string): string => {
@@ -182,19 +188,35 @@ describe("a message never lost", () => {
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, ".read-7M6JKG"), `${now - 3 * day}-X-1-bbbbbbbb`);
 		const first = await startSession({}, { isIdle: () => true });
-		fromElsewhere({ to: ["@7M6JKG"], intent: "question", text: "7M6JKG: before?" });
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: before?",
+		});
 		await vi.waitFor(() => expect(handed(first.sent)).toHaveLength(1));
 		await first.fire("session_shutdown");
 		// While it was gone: one message settled into its day's folder with
 		// the one it was handed, and one still at the top.
-		fromElsewhere({ to: ["@7M6JKG"], intent: "question", text: "7M6JKG: settled?" });
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: settled?",
+		});
 		folderTransport(dir).settle(Date.now() + 1000);
-		fromElsewhere({ to: ["@7M6JKG"], intent: "question", text: "7M6JKG: at the top?" });
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: at the top?",
+		});
 
 		const again = await startSession({}, { isIdle: () => true });
 
 		await vi.waitFor(() => expect(handed(again.sent)).toHaveLength(2));
-		fromElsewhere({ to: ["@7M6JKG"], intent: "question", text: "7M6JKG: after?" });
+		fromElsewhere({
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "7M6JKG: after?",
+		});
 		await vi.waitFor(() => expect(handed(again.sent)).toHaveLength(3));
 		// A real pause: the test is that nothing is handed over twice in it.
 		await new Promise((resolve) => setTimeout(resolve, 100));
