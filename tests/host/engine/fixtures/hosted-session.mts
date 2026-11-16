@@ -125,7 +125,11 @@ interface Coding {
 /** What the fixture's extension uses of pi's extension API. */
 interface ExtensionPi {
 	on(
-		event: "agent_start" | "agent_settled" | "message_end",
+		event:
+			| "agent_start"
+			| "agent_settled"
+			| "message_end"
+			| "before_agent_start",
 		handler: (event: Record<string, unknown>) => void,
 	): void;
 }
@@ -202,6 +206,12 @@ interface Scenario {
 	 * the extensions hear.
 	 */
 	listens?: boolean;
+	/**
+	 * Load an extension that adds a section to every run pi prepares, as
+	 * the harness's resident block and standing context do, noting each
+	 * run it prepares.
+	 */
+	sections?: boolean;
 }
 
 /** Two models of different sizes, for a scenario that tells which answered. */
@@ -256,6 +266,9 @@ let note = (_event: {
 	readonly streaming?: boolean;
 	/** The signal a command started now would stop with: none, one still live, or one already aborted. */
 	readonly signal?: "none" | "live" | "aborted";
+	readonly trigger?: unknown;
+	readonly sectioned?: boolean;
+	readonly prompt?: string;
 }): void => {};
 
 /** Answer only after SLOW_FIRST_TOKEN_MS, as a provider that pays an abort no heed does. */
@@ -294,6 +307,43 @@ function continuedWith(session: Session): Promise<string> {
 		(refused: unknown) =>
 			refused instanceof Error ? refused.message : String(refused),
 	);
+}
+
+/** The section the fixture's sectioning extension adds to every run pi prepares. */
+const SECTION = "Kept for every run of this conversation.";
+
+/** The name the fixture's sectioning extension gives its section. */
+const SECTION_NAME = "host-carried-run";
+
+/**
+ * The sections in force at a request's end: its system messages folded in
+ * order, each replacing sections by name and a null removing one, as pi's
+ * transcript says they do.
+ */
+function sectionsInForce(messages: readonly unknown[]): Record<string, string> {
+	const sections: Record<string, string> = {};
+	for (const message of messages) {
+		if (!isRecord(message) || message.role !== "system") continue;
+		if (!isRecord(message.sections)) continue;
+		for (const [name, value] of Object.entries(message.sections)) {
+			if (typeof value === "string") sections[name] = value;
+			else delete sections[name];
+		}
+	}
+	return sections;
+}
+
+/** Answer `text`, noting the sections the request carried and whether the extension's is among them. */
+function sectionedAnswer(text: string) {
+	return (context: { readonly messages: readonly unknown[] }): unknown => {
+		const sections = sectionsInForce(context.messages);
+		note({
+			type: "request",
+			sectioned: (sections[SECTION_NAME] ?? "").includes(SECTION),
+			prompt: JSON.stringify(sections),
+		});
+		return say(text);
+	};
 }
 
 /**
@@ -584,6 +634,17 @@ const scenarios: Record<string, Scenario> = {
 		persist: true,
 		turns: true,
 		typed: "are you back?",
+	},
+	/** As reopen, with an extension adding a section to each run, and words typed once the carried run ends. */
+	"reopen-sectioned": {
+		responses: () => [
+			sectionedAnswer("after the restart"),
+			sectionedAnswer("and your words"),
+		],
+		tools: echo(async () => noteEffect("ping")),
+		drive: (session) => session.prompt("typed once it was back"),
+		persist: true,
+		sections: true,
 	},
 	/** A fresh conversation recovering as a start's resume does: nothing carried, so no turn. */
 	"fresh-taking-turns": {
@@ -970,14 +1031,19 @@ try {
 		...scenario.settings,
 	});
 	// pi's own loader, as createAgentSession builds it, with the fixture's extension beside.
-	const resourceLoader = scenario.listens
-		? new coding.DefaultResourceLoader({
-				cwd: folder,
-				agentDir,
-				settingsManager,
-				extensionFactories: [listeningExtension(builtSession)],
-			})
-		: undefined;
+	const extensionFactories = [
+		...(scenario.listens ? [listeningExtension(builtSession)] : []),
+		...(scenario.sections ? [sectioningExtension] : []),
+	];
+	const resourceLoader =
+		extensionFactories.length > 0
+			? new coding.DefaultResourceLoader({
+					cwd: folder,
+					agentDir,
+					settingsManager,
+					extensionFactories,
+				})
+			: undefined;
 	await resourceLoader?.reload();
 	const { session } = await coding.createAgentSession({
 		cwd: folder,
@@ -1099,6 +1165,21 @@ try {
 } finally {
 	faux.unregister();
 	if (!keptFolder) rmSync(folder, { recursive: true, force: true });
+}
+
+/**
+ * An extension that adds a section to every run pi prepares, as the
+ * harness's resident block does, and notes what began each run it
+ * prepares: a person's words, a custom message or a run carried on.
+ */
+function sectioningExtension(pi: ExtensionPi): void {
+	pi.on("before_agent_start", (event) => {
+		note({ type: "prepared", trigger: event.messageType });
+		const options = event.systemPromptOptions;
+		if (!isRecord(options)) return;
+		const sections = isRecord(options.sections) ? options.sections : {};
+		options.sections = { ...sections, [SECTION_NAME]: SECTION };
+	});
 }
 
 /** The session file under the folder, opened if a run before left one. */
