@@ -286,6 +286,9 @@ may import from here, and any of it may change without notice.
   asked of `spend-watch budgets --json`, for the footer and `/budget`.
 - **`stale.ts`**: telling pi's stale-context error, after a reload
   or session switch, from any other.
+- **`stamped-read.ts`**: a file's parse kept while its inode, mtime
+  and size say it is the same file, read on the thread or off it, for
+  the mesh's presence listings.
 - **`state.ts`**: persisting an extension's state across sessions
   and restoring it.
 - **`system-program.ts`**: finding a program that runs outside the
