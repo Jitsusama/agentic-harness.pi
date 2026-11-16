@@ -52,8 +52,11 @@ It is off until one of these turns it on:
 - **The switch,** at
   `~/.local/state/pi/agentic-harness.pi/park-workflow/switch` (under
   `XDG_STATE_HOME`), read every minute. A line `on` parks every
-  session after an hour idle. A line holding a session's id parks
-  that one after two minutes, to prove parking on one session.
+  session after half an hour idle, and a plain pi whose process is
+  over a day old after ten minutes, since its wake starts a fresh
+  process (one over a day old held 481 MiB on 15 November, against
+  267 MiB for one under an hour). A line holding a session's id
+  parks that one after two minutes, to prove parking on one session.
 - **`PI_PARK=on`,** read at start, as the line `on` does.
 
 `PI_PARK=off` keeps a session out, whatever the switch says. A

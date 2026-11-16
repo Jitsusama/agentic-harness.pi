@@ -31,7 +31,10 @@ import {
 	isParkAsk,
 	isParking,
 	NAMED_PARK_AFTER_MS,
+	OLD_PARK_AFTER_MS,
+	OLD_PI_MS,
 	opensOnlyItself,
+	PARK_AFTER_MS,
 	PARK_ASK,
 	PARKED_EXIT,
 	PARKING,
@@ -113,6 +116,35 @@ const watching = (
 	});
 
 describe("parking a session", () => {
+	it("parks a pi over a day old sooner, so its wake starts a fresh one", () => {
+		writeFileSync(parkSwitch(folder), "on\n");
+		const aged = (startedAt: number) =>
+			watch(session(), events, {
+				env: holder(),
+				args: [],
+				pid: HELD_PID,
+				switchPath: parkSwitch(folder),
+				folder,
+				now: () => clock,
+				startedAt,
+				exitWith: (code) => exits.push(code),
+				clock: false,
+			});
+		expect(OLD_PARK_AFTER_MS, "sooner than the usual wait").toBeLessThan(
+			PARK_AFTER_MS,
+		);
+		// Both are watched from now, and looked at once idle long enough.
+		const young = aged(OLD_PARK_AFTER_MS - OLD_PI_MS + 1);
+		const old = aged(OLD_PARK_AFTER_MS - OLD_PI_MS);
+		clock = OLD_PARK_AFTER_MS;
+		expect(young.look(), "a day short, it waits as usual").toBe(
+			"not idle long enough",
+		);
+		young.stop();
+		expect(old.look(), "a day old, it parks").toBeUndefined();
+		expect(old.endedItsProcess(), "parked, it ended pi").toBe(true);
+	});
+
 	it("parks one idle past its time, with what the mesh says of it, exiting for its holder", () => {
 		const wakes: (string | undefined)[] = [];
 		events.on(PARKING, (data) => {
