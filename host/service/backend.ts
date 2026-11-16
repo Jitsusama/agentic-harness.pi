@@ -102,6 +102,13 @@ export interface ConversationEngine {
 	 * terminal and viewers among it, telling them `why` as a close does.
 	 */
 	dropped?(sessionId: string, why: string): Promise<void>;
+	/**
+	 * The conversation is about to be released to another holder, such as
+	 * plain pi or another machine: its close, running or parked, keeps what
+	 * its ended calls left running, as a stop does, where a close for good
+	 * ends it.
+	 */
+	handsOn?(sessionId: string): void;
 }
 
 /**
@@ -370,6 +377,7 @@ export function hostBackend(options: {
 			if (!running && !rostered(sessionId))
 				throw new Error(`Conversation is not hosted: ${sessionId}`);
 			const asked = `${why}, asked by ${askedBy(by)}`;
+			if (why === "released") engine.handsOn?.(sessionId);
 			if (running) await host.close(sessionId, asked);
 			await roster.drop(sessionId);
 			if (!running) {

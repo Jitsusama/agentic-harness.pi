@@ -54,8 +54,8 @@ interface Seen {
 	readonly registeredHeadersSeen: readonly string[];
 	readonly ran: number;
 	readonly childrenAlive: readonly number[];
-	/** What still ran once a wake had reaped, before the step closed it. */
-	readonly woken?: readonly number[];
+	/** What still ran once a resume had reaped, before the step closed it. */
+	readonly resumed?: readonly number[];
 	readonly probe: readonly Record<string, string>[];
 	/** The subagent install the probe extension found each time it loaded. */
 	readonly installs: readonly {
@@ -865,6 +865,21 @@ describe("the host's engine", () => {
 	);
 
 	it(
+		"keeps what a park kept once its conversation is released while parked",
+		async () => {
+			const folder = hostFolder();
+			await step(folder, "leave-and-park");
+			const [marked] = leftRunning(folder);
+			const released = await step(folder, "release-parked");
+			expect(
+				released.childrenAlive,
+				"plain pi takes the conversation on, and keeps what it left",
+			).toEqual([marked]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
 		"ends what a park kept once its conversation is closed for good while parked",
 		async () => {
 			const folder = hostFolder();
@@ -881,14 +896,14 @@ describe("the host's engine", () => {
 	);
 
 	it(
-		"ends what a park kept once its conversation, woken again, is closed for good",
+		"ends what a park kept once its conversation, resumed by the next host, is closed for good",
 		async () => {
 			const folder = hostFolder();
 			const parked = await step(folder, "leave-and-park");
 			const [marked] = leftRunning(folder);
 			expect(parked.childrenAlive, "the park kept it").toEqual([marked]);
 			const closed = await step(folder, "resume-and-close");
-			expect(closed.woken, "the wake's reap spares it").toEqual([marked]);
+			expect(closed.resumed, "the resume's reap spares it").toEqual([marked]);
 			expect(
 				closed.childrenAlive,
 				"the close ends it, as the resume would not",

@@ -47,12 +47,15 @@ describe("what parks kept running", () => {
 
 	it("keeps each note a day after its park, a note made again counting from then", () => {
 		const left = kept();
-		left.note("a", ["old"]);
+		left.note("a", ["old", "expires"]);
 		at += STRAY_FOR_MS / 2;
 		left.note("b", ["newer"]);
 		left.note("a", ["old"]);
 		at += STRAY_FOR_MS / 2;
-		expect([...left.spared(NONE).marks].sort()).toEqual(["newer", "old"]);
+		expect(
+			[...left.spared(NONE).marks].sort(),
+			"the note not made again went after its day",
+		).toEqual(["newer", "old"]);
 		const notes = JSON.parse(readFileSync(join(stateDir, LEFT_FILE), "utf8"));
 		expect(notes, "one note a mark, the newer").toEqual([
 			{ session: "b", mark: "newer", at: at - STRAY_FOR_MS / 2 },
@@ -63,11 +66,15 @@ describe("what parks kept running", () => {
 	it("spares no longer what a closed conversation's parks kept, keeping every other's", () => {
 		kept().note("a", ["call-1", "call-2"]);
 		kept().note("b", ["call-3"]);
-		kept().closed("a");
+		expect(kept().closed("a"), "both its calls' notes went").toBe(2);
 		expect([...kept().spared(NONE).marks]).toEqual(["call-3"]);
-		kept().closed("b");
+		expect(kept().closed("b")).toBe(1);
 		expect(kept().spared(NONE)).toBe(NONE);
-		kept().closed("never-parked");
+		kept().note("c", ["call-4"]);
+		expect(kept().closed("never-parked"), "it kept nothing").toBe(0);
+		expect([...kept().spared(NONE).marks], "nor did another's go").toEqual([
+			"call-4",
+		]);
 		expect(reported).toEqual([]);
 	});
 
