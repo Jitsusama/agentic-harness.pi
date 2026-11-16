@@ -326,6 +326,7 @@ describe("waking conversations in turn", () => {
 
 		const woken = [backend.wake(first), backend.wake(second)];
 		await until("the first wake to resume", () => begun.length > 0);
+		// A real pause is the point: the second's resume must not begin in it.
 		await new Promise((resolve) => setTimeout(resolve, 20));
 
 		expect(begun, "the second waits its turn").toEqual([first]);
@@ -349,6 +350,7 @@ describe("waking conversations in turn", () => {
 		await until("the first wake to resume", () => begun.length > 0);
 		const queued = backend.wake(messaged);
 		const attached = backend.execute(attach(watched));
+		// A real pause is the point: both wakes must be waiting when the turn passes.
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		finish(waking);
 		await until("the next wake to resume", () => begun.length > 1);
