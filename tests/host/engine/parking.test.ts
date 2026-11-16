@@ -135,7 +135,7 @@ describe("parking a conversation", () => {
 		const settling = parked.settled("a").then(() => {
 			settled = true;
 		});
-		const woke = parked.wake("a");
+		const woke = parked.wake("a", "other");
 		await until("the park to stop it", () => stop.mock.calls.length > 0);
 		expect(stop, "it stops as a park").toHaveBeenCalledWith("a", PARKED);
 		expect(settled, "unsettled while it stops").toBe(false);
@@ -155,15 +155,35 @@ describe("parking a conversation", () => {
 		).resolves.toBeUndefined();
 	});
 
+	it("wakes as a window once parked, when a window asked among others while it parked", async () => {
+		const asking = vi.fn(() => Promise.resolve());
+		const { parked, letStop } = held(asking);
+
+		const parking = parked.park("a");
+		const byWindow = parked.wake("a", "window");
+		const byMessage = parked.wake("a", "other");
+		letStop();
+		await parking;
+		await Promise.all([byWindow, byMessage]);
+
+		expect(
+			asking,
+			"one wake, as the window asked, whichever asked last",
+		).toHaveBeenCalledExactlyOnceWith("a", "window");
+		parked.unwatch("a");
+	});
+
 	it("rejects a wake that failed, with why, both alone and asked while it parked", async () => {
 		const refused = new Error("the rollout gate said no");
 		const { parked, stop, report, letStop } = held(() =>
 			Promise.reject(refused),
 		);
 
-		await expect(parked.wake("a"), "a wake alone").rejects.toBe(refused);
+		await expect(parked.wake("a", "other"), "a wake alone").rejects.toBe(
+			refused,
+		);
 		const parking = parked.park("a");
-		const woke = parked.wake("a");
+		const woke = parked.wake("a", "other");
 		await until("the park to stop it", () => stop.mock.calls.length > 0);
 		letStop();
 		await parking;
@@ -484,21 +504,4 @@ describe("parking while the host drains", () => {
 		parked.unwatch("a");
 	});
 
-	it("wakes as a window once parked, when a window asked while it parked", async () => {
-		const asking = vi.fn(() => Promise.resolve());
-		const { parked, letStop } = held(asking);
-
-		const parking = parked.park("a");
-		const byMessage = parked.wake("a");
-		const byWindow = parked.wake("a", "window");
-		letStop();
-		await parking;
-		await Promise.all([byMessage, byWindow]);
-
-		expect(
-			asking,
-			"one wake, as the window asked",
-		).toHaveBeenCalledExactlyOnceWith("a", "window");
-		parked.unwatch("a");
-	});
 });
