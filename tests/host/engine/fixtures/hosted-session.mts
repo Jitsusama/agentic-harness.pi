@@ -36,7 +36,10 @@ import { isRecord } from "../../../../lib/internal/record.ts";
 
 /** What the fixture drives of a pi session. */
 interface Session {
-	prompt(text: string): Promise<void>;
+	prompt(
+		text: string,
+		options?: { streamingBehavior?: "steer" | "followUp" },
+	): Promise<void>;
 	steer(text: string): Promise<void>;
 	followUp(text: string): Promise<void>;
 	sendCustomMessage(
