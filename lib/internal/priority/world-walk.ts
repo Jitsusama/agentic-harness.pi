@@ -144,7 +144,7 @@ export function skipsWorldPushHooks(
 	where: Where = { home: homedir() },
 ): boolean {
 	return worldWalks(runSteps(command), where).some(
-		(walk) => walk[2] === "push" && lastSayOnHooks(walk[3]) === NO_VERIFY,
+		(walk) => walk[2] === "push" && lastSayOnHooks(walk[3] ?? "") === NO_VERIFY,
 	);
 }
 
@@ -186,6 +186,7 @@ function answersFetch(walk: RegExpExecArray): boolean {
 	const args: string[] = [];
 	for (let at = 0; at < words.length; at += 1) {
 		const word = words[at];
+		if (word === undefined) continue;
 		if (REDIRECT.test(word)) {
 			// A bare operator's file is the next word.
 			if (/^(?:\d|&)?>>?$/.test(word)) at += 1;
@@ -262,10 +263,11 @@ export function worldWalks(
 	for (const whole of steps) {
 		let step = whole.trim();
 		for (let set = SETS.exec(step); set !== null; set = SETS.exec(step)) {
-			const value = set[2].startsWith("$(") ? undefined : pathOf(set[2], "/");
-			if (value === undefined) variables.delete(set[1]);
-			else variables.set(set[1], value);
-			step = step.slice(set[0].length);
+			const [matched, name = "", raw = ""] = set;
+			const value = raw.startsWith("$(") ? undefined : pathOf(raw, "/");
+			if (value === undefined) variables.delete(name);
+			else variables.set(name, value);
+			step = step.slice(matched.length);
 		}
 		const words = step.split(/\s+/);
 		if (words[0] === "cd" || words[0] === "pushd") {
@@ -274,15 +276,15 @@ export function worldWalks(
 		}
 		const walk = GIT_WALK.exec(step);
 		if (walk === null) continue;
-		const options = walk[1].trim().split(/\s+/);
+		const options = (walk[1] ?? "").trim().split(/\s+/);
 		let at = folder;
 		const named: (string | undefined)[] = [];
 		options.forEach((option, index) => {
 			if (option === "-C") at = pathOf(options[index + 1] ?? "", at);
-			const dir = /^--(?:git-dir|work-tree)=(.+)$/.exec(option);
-			if (dir) named.push(pathOf(dir[1], at));
+			const dir = /^--(?:git-dir|work-tree)=(.+)$/.exec(option)?.[1];
+			if (dir !== undefined) named.push(pathOf(dir, at));
 		});
-		for (const word of walk[3].trim().split(/\s+/)) {
+		for (const word of (walk[3] ?? "").trim().split(/\s+/)) {
 			if (/^(?:[/~.$]|file:\/\/)/.test(word)) named.push(pathOf(word, at));
 		}
 		if (inWorld(at) || named.some(inWorld)) walks.push(walk);

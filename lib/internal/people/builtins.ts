@@ -38,15 +38,16 @@ const slack: HandleType = {
 		const seen = new Set<string>();
 		// User IDs in raw form
 		for (const m of text.matchAll(/\b(U[A-Z0-9]{7,12})\b/g)) {
-			if (!seen.has(m[1])) {
-				seen.add(m[1]);
-				results.push(m[1]);
+			const id = m[1];
+			if (id !== undefined && !seen.has(id)) {
+				seen.add(id);
+				results.push(id);
 			}
 		}
 		// @handles in prose
 		for (const m of text.matchAll(/@([a-z0-9._-]+)\b/g)) {
-			const value = m[1].toLowerCase();
-			if (!seen.has(value)) {
+			const value = m[1]?.toLowerCase();
+			if (value !== undefined && !seen.has(value)) {
 				seen.add(value);
 				results.push(value);
 			}
@@ -75,9 +76,10 @@ const github: HandleType = {
 		for (const m of text.matchAll(
 			/https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![A-Za-z0-9-])(?!\/[A-Za-z0-9])/g,
 		)) {
-			if (!seen.has(m[1])) {
-				seen.add(m[1]);
-				results.push(m[1]);
+			const handle = m[1];
+			if (handle !== undefined && !seen.has(handle)) {
+				seen.add(handle);
+				results.push(handle);
 			}
 		}
 		return results;

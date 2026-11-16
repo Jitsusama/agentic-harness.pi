@@ -289,11 +289,15 @@ function setParameters(
 	parameters: ReadonlySet<string>,
 ): Set<string> {
 	const sets = new Set<string>();
-	const outer = OUTER_PARAMETER.exec(bare);
-	if (outer !== null) sets.add(outer[1]);
-	for (const match of bare.matchAll(MAPPED_VALUE)) sets.add(match[1]);
+	const outer = OUTER_PARAMETER.exec(bare)?.[1];
+	if (outer !== undefined) sets.add(outer);
+	for (const match of bare.matchAll(MAPPED_VALUE)) {
+		const value = match[1];
+		if (value !== undefined) sets.add(value);
+	}
 	for (const match of bare.matchAll(NAMES_OF)) {
-		if (parameters.has(match[1])) sets.add(match[1]);
+		const set = match[1];
+		if (set !== undefined && parameters.has(set)) sets.add(set);
 	}
 	return sets;
 }
@@ -336,7 +340,7 @@ function appliesNamesOnly(step: string): boolean {
 	if (expression.includes("${")) return false;
 	const bare = expression.replace(NIX_STRING, '""');
 	const parameters = new Set(
-		[...bare.matchAll(NIX_PARAMETER)].map((match) => match[1]),
+		[...bare.matchAll(NIX_PARAMETER)].flatMap((match) => match[1] ?? []),
 	);
 	const names = bare.match(NIX_NAME) ?? [];
 	const sets = setParameters(bare, parameters);

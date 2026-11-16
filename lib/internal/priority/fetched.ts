@@ -65,6 +65,7 @@ export function answeringFetch(
 ): Outcome | undefined {
 	for (let at = outcomes.length - 1; at >= 0; at -= 1) {
 		const outcome = outcomes[at];
+		if (outcome === undefined) continue;
 		if (now - Date.parse(outcome.ended) > ANSWERED_FOR_MS) continue;
 		if (outcome.walk === "main-fetch" && outcome.movedMain) return outcome;
 	}
