@@ -23,6 +23,9 @@ import type { HeavyWork } from "./heavy.ts";
 import { delivered, type MeshState } from "./mesh.ts";
 import { CARRY_NAME } from "./start.ts";
 
+/** What begins a run a host carries on, which pi's runForHost names it. */
+const CARRIED_ON = "continue";
+
 /** Follow this peer's session through its runs and its end. */
 export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 	// A glance reaches the model with its next turn: at the end of this
@@ -41,8 +44,12 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 			m.moving.turnEnded();
 	});
 	// A run started by something else takes what was waiting to act
-	// with it, in full, and the turn it waited for is never started.
-	m.pi.on("before_agent_start", async () => {
+	// with it, in full, and the turn it waited for is never started. A
+	// run a host carries on after a restart takes nothing: pi holds its
+	// message for the prompt after it, so what waits acts as it ends.
+	m.pi.on("before_agent_start", async (event) => {
+		const trigger: string = event.messageType;
+		if (trigger === CARRIED_ON) return undefined;
 		const waiting = f.unstopped(m.acts?.take() ?? []);
 		if (waiting.length === 0) {
 			const message = f.glanceDigest();
