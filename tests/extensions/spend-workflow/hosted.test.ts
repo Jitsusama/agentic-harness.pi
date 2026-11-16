@@ -127,9 +127,9 @@ it("uses one host resource baseline across interleaved sessions and module reloa
 	expect(readdirSync(root)).toEqual([
 		`host-test%2Fspend-${process.pid}-1.jsonl`,
 	]);
-	expect(at([...samples.values()], 0).map((sample) => sample.cpuSelfMs)).toEqual([
-		100, 50, 50,
-	]);
+	expect(
+		at([...samples.values()], 0).map((sample) => sample.cpuSelfMs),
+	).toEqual([100, 50, 50]);
 	const rows = useByQuest(samples, [
 		{ session: at([...samples.keys()], 0), at: "2000-01-01", quest: "QEST-A" },
 	]);
