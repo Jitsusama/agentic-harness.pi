@@ -15,11 +15,19 @@
  * whose process has ended is gone, however recently it wrote.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { readdir, readFile as readFileOff } from "node:fs/promises";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { readFile as readFileOff } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { isOwner } from "../core/process/index.ts";
+import { hosted } from "../core/session/host.ts";
+import {
+	type FolderMirror,
+	folderMirrors,
+	folderRead,
+	type Mirrored,
+	type MirroredFiles,
+} from "../internal/folder-mirror.ts";
 import { keepTicks, type TickedOwner } from "../internal/process-ticks.ts";
 import { type Doing, isDoing } from "../internal/quest/doing.ts";
 import { parseQuestFrontMatter } from "../internal/quest/frontmatter.ts";
@@ -38,11 +46,7 @@ import {
 	readRefusedWake,
 	refusedWakePath,
 } from "../internal/session/refused-wake.ts";
-import {
-	readStamped,
-	readStampedOff,
-	type Stamped,
-} from "../internal/stamped-read.ts";
+import { readStamped, type Stamped } from "../internal/stamped-read.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
@@ -512,33 +516,25 @@ function questChain(
 export function createPresences(dir: string): Presences {
 	const file = (session: string) =>
 		join(dir, `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`);
-	const kept = new Map<string, Stamped<Presence>>();
 	// Each file's parse, kept while the file is the one it was read from:
 	// a publish renames a new file in, so its inode says a change, and
 	// mtime and size say one written in place. Every pi lists every
 	// presence at least once a minute (the minute's look, which the peer
 	// refresh, the live count and the steer wakes share), and a hundred
-	// parses each time were most of what an idle pi allocated.
-	const readKept = (path: string): Presence | undefined =>
-		readStamped(kept, path, read);
+	// parses each time were most of what an idle pi allocated. A host
+	// holds every conversation on one thread, so there they all read the
+	// folder's one mirror instead, refreshed off the thread.
+	const direct = folderRead(dir, PRESENCE_FILES);
+	const folder = (): FolderMirror<Presence> =>
+		hosted() === undefined ? direct : mirrored(dir);
 	// A parked peer's refused wake, by the file it is kept in, read the
 	// same way, so a listing costs a stat for each parked peer.
 	const refusals = new Map<string, Stamped<RefusedWake>>();
-	// The paths a listing found, with what is kept for files gone let go.
-	const listedPaths = (files: string[]): string[] => {
-		const paths = new Set(
-			files
-				.filter((name) => name.endsWith(".json"))
-				.map((name) => join(dir, name)),
-		);
-		for (const path of kept.keys()) {
-			if (!paths.has(path)) kept.delete(path);
-		}
-		return [...paths];
-	};
 	// The presences read, with the refusals of peers no longer parked let go.
-	const presentOf = (read: (Presence | undefined)[]): Presence[] => {
-		const present = read.filter((one): one is Presence => one !== undefined);
+	const presentOf = (listed: Mirrored<Presence>): Presence[] => {
+		const present = [...listed.values()].filter(
+			(one): one is Presence => one !== undefined,
+		);
 		// Each park names a wake of its own, so only the parked keep theirs.
 		const sleeping = new Set(
 			present.flatMap(({ state, wake }) =>
@@ -551,41 +547,40 @@ export function createPresences(dir: string): Presences {
 		return present;
 	};
 	return {
-		of: (session) => readKept(file(session)),
+		of: (session) => folder().file(file(session)),
 		publish(presence) {
 			mkdirSync(dir, { recursive: true });
-			writeWhole(file(presence.session), JSON.stringify(presence));
+			const text = JSON.stringify(presence);
+			writeWhole(file(presence.session), text);
+			folder().put(file(presence.session), presenceFrom(JSON.parse(text)));
 		},
-		all() {
-			let files: string[];
-			try {
-				files = readdirSync(dir);
-			} catch {
-				// No folder yet: nobody has published.
-				return [];
-			}
-			return presentOf(listedPaths(files).map(readKept));
-		},
-		async listed() {
-			// No folder yet: nobody has published.
-			const files = await readdir(dir).catch((): string[] => []);
-			const read = await Promise.all(
-				listedPaths(files).map((path) => readStampedOff(kept, path, readOff)),
-			);
-			return presentOf(read);
-		},
+		all: () => presentOf(folder().files()),
+		listed: async () => presentOf(await folder().refresh()),
 		refusal({ state, wake }) {
 			if (state !== "parked" || wake === undefined) return undefined;
 			return readStamped(refusals, refusedWakePath(wake), () =>
 				readRefusedWake(wake),
 			);
 		},
-		forget: (session) => removeQuietly(file(session)),
+		forget(session) {
+			removeQuietly(file(session));
+			folder().drop(file(session));
+		},
 		// A presence is current while its peer is, so only what a publish
 		// staged and never renamed is old here; ended peers are forgotten.
 		expire: (before) => removeStaged(dir, before),
 	};
 }
+
+/** Presence files, as a folder of them is read or mirrored. */
+const PRESENCE_FILES: MirroredFiles<Presence> = {
+	suffix: ".json",
+	read,
+	readOff,
+};
+
+/** Each folder of presence's one mirror in this process, for a host. */
+const mirrored = folderMirrors(PRESENCE_FILES);
 
 function read(path: string): Presence | undefined {
 	try {
