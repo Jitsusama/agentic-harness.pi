@@ -55,9 +55,7 @@ function wordsOf(files: ReadonlyMap<string, string | undefined>): string[] {
 describe("a folder read as asked", () => {
 	it("reads the disk at each ask, keeping a parse while its file holds", () => {
 		const folder = folderRead(dir, WORDS);
-		expect(wordsOf(folder.files()), "no folder yet reads as empty").toEqual(
-			[],
-		);
+		expect(wordsOf(folder.files()), "no folder yet reads as empty").toEqual([]);
 		put("a.txt", "first");
 		put("b.json", "not ours");
 		expect(wordsOf(folder.files()), "seen at once").toEqual(["first"]);
@@ -80,10 +78,9 @@ describe("a host's mirror of a folder", () => {
 		const folder = mirror();
 		folder.files();
 		put("b.txt", "another process wrote this");
-		expect(
-			wordsOf(folder.files()),
-			"not read on the caller's turn",
-		).toEqual([]);
+		expect(wordsOf(folder.files()), "not read on the caller's turn").toEqual(
+			[],
+		);
 		await vi.waitFor(
 			() =>
 				expect(wordsOf(folder.files()), "seen within 2 s").toEqual([
