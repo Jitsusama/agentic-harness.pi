@@ -47,20 +47,29 @@ describe("what parks kept running", () => {
 
 	it("keeps each note a day after its park, a note made again counting from then", () => {
 		const left = kept();
-		left.note("a", ["old", "expires"]);
+		left.note("a", ["old"]);
 		at += STRAY_FOR_MS / 2;
 		left.note("b", ["newer"]);
 		left.note("a", ["old"]);
 		at += STRAY_FOR_MS / 2;
-		expect(
-			[...left.spared(NONE).marks].sort(),
-			"the note not made again went after its day",
-		).toEqual(["newer", "old"]);
+		expect([...left.spared(NONE).marks].sort()).toEqual(["newer", "old"]);
 		const notes = JSON.parse(readFileSync(join(stateDir, LEFT_FILE), "utf8"));
 		expect(notes, "one note a mark, the newer").toEqual([
 			{ session: "b", mark: "newer", at: at - STRAY_FOR_MS / 2 },
 			{ session: "a", mark: "old", at: at - STRAY_FOR_MS / 2 },
 		]);
+	});
+
+	it("spares a note no longer once its day is out", () => {
+		const left = kept();
+		left.note("a", ["expires"]);
+		at += STRAY_FOR_MS / 2;
+		left.note("b", ["newer"]);
+		at += STRAY_FOR_MS / 2;
+		expect(
+			[...left.spared(NONE).marks],
+			"the note not made again went after its day",
+		).toEqual(["newer"]);
 	});
 
 	it("spares no longer what a closed conversation's parks kept, keeping every other's", () => {
