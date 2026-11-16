@@ -9,12 +9,16 @@
  * output and input pass straight through, and pi-fence exits with its
  * status, 128 and the signal's number when a signal ended it. It exits
  * 126, saying why on stderr, when it refuses to run, and 2 when it was
- * asked wrongly.
+ * asked wrongly. `--help` says how to ask it, on stdout.
  */
 
 import { spawnSync } from "node:child_process";
 import { constants, homedir } from "node:os";
-import { fenceRunAsked, fenceRunText } from "../lib/internal/fence-run.ts";
+import {
+	FENCE_RUN_HELP,
+	fenceRunAsked,
+	fenceRunText,
+} from "../lib/internal/fence-run.ts";
 
 /** The status a refusal exits with, as a shell's for a command it can't run. */
 const REFUSED = 126;
@@ -26,6 +30,10 @@ const ASKED_WRONGLY = 2;
 const SIGNALLED = 128;
 
 const asked = fenceRunAsked(process.argv.slice(2), process.cwd());
+if ("help" in asked) {
+	process.stdout.write(FENCE_RUN_HELP);
+	process.exit(0);
+}
 if ("wrong" in asked) {
 	process.stderr.write(`pi-fence: ${asked.wrong}\n`);
 	process.exit(ASKED_WRONGLY);
