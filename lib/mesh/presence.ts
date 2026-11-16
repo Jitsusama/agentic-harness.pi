@@ -261,6 +261,13 @@ export interface Presence {
 	 */
 	readonly fence?: FenceKind;
 	/**
+	 * What its harness leases: `background` when each command it hands
+	 * to the background holds a heavy lease until it ends, so a node
+	 * moving only idle sessions can judge it; missing from a peer whose
+	 * harness doesn't, which can't be told idle (5HJZ8Z, 16 November).
+	 */
+	readonly leases?: PresenceLeases;
+	/**
 	 * The name Agents shows it under at the launcher's top, never folded,
 	 * and the words that find it, as its README's `stands-at-top` says.
 	 */
@@ -271,6 +278,11 @@ export interface Presence {
 
 /** How a session's commands are fenced, as its presence says. */
 export type FenceKind = "none" | "fence" | "strict";
+
+/** What a session's harness leases, as its presence says. */
+export interface PresenceLeases {
+	readonly background: boolean;
+}
 
 /** How a session stands at the launcher's top: its name, words and what. */
 export interface StandsAtTop {
@@ -663,6 +675,9 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(moveOffFrom(one.moveOff) ? { moveOff: moveOffFrom(one.moveOff) } : {}),
 		...(typeof one.driven === "boolean" ? { driven: one.driven } : {}),
 		...(isFenceKind(one.fence) ? { fence: one.fence } : {}),
+		...(isPresenceLeases(one.leases)
+			? { leases: { background: one.leases.background } }
+			: {}),
 		...standingAtTop(one.standsAtTop),
 		at: typeof one.at === "string" ? one.at : "",
 	};
@@ -671,6 +686,15 @@ function presenceFrom(value: unknown): Presence | undefined {
 /** Whether a value is one of the fence kinds a presence says. */
 function isFenceKind(value: unknown): value is FenceKind {
 	return value === "none" || value === "fence" || value === "strict";
+}
+
+/** Whether a value says what a harness leases. */
+function isPresenceLeases(value: unknown): value is PresenceLeases {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as { background?: unknown }).background === "boolean"
+	);
 }
 
 /** Whether a presence names a hosted conversation. */

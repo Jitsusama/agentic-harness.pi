@@ -119,11 +119,12 @@ export function watchHeavyWork(m: MeshState) {
 		// A bash call carried here through a host's restart or a move claims
 		// its heavy work again, so its end above lets it go: the session it
 		// left let go of everything as it ended. Its label is its command's
-		// first line, which names its kind of work as the command did.
-		onJobTakenUp(m.pi.events, ({ toolCallId, kind, label }) => {
+		// first line, which names its kind of work as the command did, and
+		// one running none still claims its background job.
+		onJobTakenUp(m.pi.events, ({ toolCallId, jobId, kind, label }) => {
 			if (toolCallId === undefined || kind !== "shell") return;
-			if (m.own && m.peer) heavyCalls.called(toolCallId, label);
-			else m.takenUnowned.push([toolCallId, label]);
+			if (m.own && m.peer) heavyCalls.takenUp(toolCallId, jobId, label);
+			else m.takenUnowned.push([toolCallId, jobId, label]);
 		});
 	}
 

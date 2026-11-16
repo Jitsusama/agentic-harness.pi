@@ -58,10 +58,10 @@ import { heavySaid } from "./leases/heavy-calls.ts";
 
 export {
 	createHeavyCalls,
-	type HeavyCall,
 	heavySaid,
 	parkHeavyCalls,
 	reloading,
+	type TakenCall,
 	takeHeavyCalls,
 } from "./leases/heavy-calls.ts";
 export { leasesText } from "./leases/said.ts";

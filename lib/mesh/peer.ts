@@ -49,6 +49,7 @@ import {
 	type FenceKind,
 	type PeerState,
 	type Presence,
+	type PresenceLeases,
 	type Presences,
 	type QuestInfo,
 	type StandsAtTop,
@@ -208,6 +209,8 @@ export interface Surroundings {
 	readonly history?: LandingKeeper;
 	/** How its commands are fenced, when the harness says. */
 	readonly fence?: FenceKind;
+	/** What its harness leases, when it says (see Presence's `leases`). */
+	readonly leases?: PresenceLeases;
 }
 
 /** How long a step said stands before a newer one is said. */
@@ -488,6 +491,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(moveOff ? { moveOff } : {}),
 			driven,
 			...(at.fence ? { fence: at.fence } : {}),
+			...(at.leases ? { leases: at.leases } : {}),
 		};
 		const text = JSON.stringify(said);
 		if (text === published) return;

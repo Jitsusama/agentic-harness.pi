@@ -52,7 +52,7 @@ import type { Settling } from "../acts.ts";
 import { carryThisSession } from "../carrying.ts";
 import { createGlances } from "../glances.ts";
 import { handOverOf } from "../in-place.ts";
-import { createLeasing, type HeavyCall, queueKept } from "../leases.ts";
+import { createLeasing, queueKept, type TakenCall } from "../leases.ts";
 import { createMoving, holdsOf, moveNoteOf } from "../moving.ts";
 import {
 	createOrderedCarrying,
@@ -106,7 +106,7 @@ export function createState(
 	// Heavy work that ended before this runtime had its leases to release.
 	const unowned: LeaseEvent[] = [];
 	// Bash calls taken up from a restart or a move before it had its leases.
-	const takenUnowned: HeavyCall[] = [];
+	const takenUnowned: TakenCall[] = [];
 	const leasing = createLeasing({
 		board,
 		presences,

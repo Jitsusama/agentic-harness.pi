@@ -34,7 +34,7 @@ import type { Acts, Settling } from "../acts.ts";
 import type { Delivered } from "../delivery.ts";
 import type { createGlances } from "../glances.ts";
 import type { handOverOf } from "../in-place.ts";
-import type { createLeasing, HeavyCall, HoldEnd } from "../leases.ts";
+import type { createLeasing, HoldEnd, TakenCall } from "../leases.ts";
 import type { createMoving } from "../moving.ts";
 import type { createOrderedCarrying } from "../ordered-carry.ts";
 import type { createPausing } from "../pausing.ts";
@@ -250,7 +250,7 @@ export interface MeshState {
 	readonly crossings: Crossings;
 	readonly tidy: ReturnType<typeof sweeper>;
 	readonly unowned: LeaseEvent[];
-	readonly takenUnowned: HeavyCall[];
+	readonly takenUnowned: TakenCall[];
 	readonly leasing: ReturnType<typeof createLeasing>;
 	readonly answered: Set<string>;
 	readonly left: Map<string, Left>;
