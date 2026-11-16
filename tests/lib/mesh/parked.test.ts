@@ -183,7 +183,7 @@ function steer(root: string, address: string, body: object): void {
 }
 
 describe("waking a parked peer for a steer", () => {
-	it("wakes it for a carry, a close, a move or a fill, which it can only do by running", () => {
+	it("wakes it for a carry, a close, a move or a fill, which it can only do by running", async () => {
 		for (const act of [
 			{ act: "carry", to: "penelope" },
 			{ act: "close" },
@@ -201,7 +201,7 @@ describe("waking a parked peer for a steer", () => {
 			steer(root, "8859FF67", act);
 			const asked: string[] = [];
 
-			const woken = wakeSteered(
+			const woken = await wakeSteered(
 				[parked],
 				root,
 				() => true,
@@ -213,7 +213,7 @@ describe("waking a parked peer for a steer", () => {
 		}
 	});
 
-	it("wakes it for a talk, which a running peer would answer at once", () => {
+	it("wakes it for a talk, which a running peer would answer at once", async () => {
 		for (const said of [
 			{ text: "put the void's card on top", id: "talk-1" },
 			{ act: "resume", text: "carry on, and say where it went" },
@@ -222,7 +222,7 @@ describe("waking a parked peer for a steer", () => {
 			steer(root, "85PKB2", said);
 			const asked: string[] = [];
 
-			const woken = wakeSteered(
+			const woken = await wakeSteered(
 				[parked],
 				root,
 				() => true,
@@ -235,7 +235,7 @@ describe("waking a parked peer for a steer", () => {
 
 	// 14 November: Joel's pick on a look, or his answer to a question,
 	// waited for an unrelated wake, as only a running pi takes it.
-	it("wakes it for the person's answer to a look or a question, which only a running peer takes", () => {
+	it("wakes it for the person's answer to a look or a question, which only a running peer takes", async () => {
 		for (const answer of [
 			{ act: "answer", look: "look-1", value: "Keep it" },
 			{
@@ -248,7 +248,7 @@ describe("waking a parked peer for a steer", () => {
 			steer(root, "85PKB2", answer);
 			const asked: string[] = [];
 
-			const woken = wakeSteered(
+			const woken = await wakeSteered(
 				[parked],
 				root,
 				() => true,
@@ -262,13 +262,13 @@ describe("waking a parked peer for a steer", () => {
 		}
 	});
 
-	it("lets a pause, a stop or a bare resume wait for its next start, as each does nothing parked", () => {
+	it("lets a pause, a stop or a bare resume wait for its next start, as each does nothing parked", async () => {
 		for (const act of ["pause", "stop", "resume"]) {
 			const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
 			steer(root, "85PKB2", { act });
 
 			expect(
-				wakeSteered(
+				await wakeSteered(
 					[parked],
 					root,
 					() => true,
@@ -279,7 +279,7 @@ describe("waking a parked peer for a steer", () => {
 		}
 	});
 
-	it("asks only for peers parked now, whose marker stands", () => {
+	it("asks only for peers parked now, whose marker stands", async () => {
 		const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
 		steer(root, "85PKB2", { act: "carry", to: "penelope" });
 		const listening: Presence = {
@@ -289,7 +289,7 @@ describe("waking a parked peer for a steer", () => {
 		};
 
 		expect(
-			wakeSteered(
+			await wakeSteered(
 				[listening],
 				root,
 				() => true,
@@ -297,7 +297,7 @@ describe("waking a parked peer for a steer", () => {
 			),
 		).toEqual([]);
 		expect(
-			wakeSteered(
+			await wakeSteered(
 				[parked],
 				root,
 				() => false,
@@ -306,7 +306,28 @@ describe("waking a parked peer for a steer", () => {
 		).toEqual([]);
 	});
 
-	it("writes the wake its holder starts it again on", () => {
+	// The clock asks this of every parked peer each minute, in every
+	// conversation a host holds, so a stalled disk would hold them all.
+	it("reads the parked peers' inboxes letting the thread turn", async () => {
+		const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
+		steer(root, "85PKB2", { act: "close" });
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		const woken = await wakeSteered(
+			[parked],
+			root,
+			() => true,
+			() => {},
+		);
+
+		expect(woken).toEqual(["s-parked"]);
+		expect(turned, "the thread turned while the inbox was read").toBe(true);
+	});
+
+	it("writes the wake its holder starts it again on", async () => {
 		const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
 		const park = mkdtempSync(join(tmpdir(), "park-"));
 		const wake = join(park, "s-parked.wake");
@@ -325,7 +346,7 @@ describe("waking a parked peer for a steer", () => {
 		steer(root, "85PKB2", { act: "carry", to: "penelope" });
 		const booted = () => undefined;
 
-		wakeSteered(
+		await wakeSteered(
 			[parked],
 			root,
 			(session) => isParked(session, park, booted),
