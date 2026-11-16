@@ -165,7 +165,7 @@ function clockTicksFromAuxv(): number | undefined {
 }
 
 /** The start ticks in one `/proc/<pid>/stat` line. */
-function ticksOfStat(stat: string): number | undefined {
+export function ticksOfStat(stat: string): number | undefined {
 	// The command name sits in parentheses and may hold anything, so the
 	// fields are counted from the last closing one.
 	const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");

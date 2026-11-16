@@ -73,6 +73,7 @@ const PROCESS_TESTS = [
 	"tests/lib/internal/fence-sockets.test.ts",
 	"tests/scripts/host-join.test.ts",
 	"tests/scripts/pi-carry.test.ts",
+	"tests/scripts/pi-fence.test.ts",
 	"tests/scripts/pi-host.test.ts",
 	"tests/scripts/spawn-decide.test.ts",
 	"tests/host/service/killed-host.test.ts",

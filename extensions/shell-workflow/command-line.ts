@@ -26,46 +26,18 @@
  */
 
 import type { BashSpawnContext } from "@earendil-works/pi-coding-agent";
+import { COMMAND_VARIABLE } from "../../lib/internal/shell/kept.ts";
 
-/** The variable the command travels in. */
-export const COMMAND_VARIABLE = "PI_BASH_COMMAND";
+// The keeping stub and its variables live beside the kept files, where
+// the fence's census reads them too, to tell the keeper from a command.
+export {
+	COMMAND_VARIABLE,
+	KEEP_VARIABLE,
+	KEEPING_STUB,
+} from "../../lib/internal/shell/kept.ts";
 
 /** What the shell's command line holds instead of the command. */
 export const COMMAND_STUB = `eval "unset ${COMMAND_VARIABLE}; $${COMMAND_VARIABLE}"`;
-
-/** The variable a kept call's path travels in (lib/internal/shell/kept.ts). */
-export const KEEP_VARIABLE = "PI_BASH_KEEP";
-
-/**
- * The stub of a call that keeps itself on disk, so another process can
- * say how it ended once pi has gone. It writes its shell's pid first,
- * runs the command in a subshell, so the command's own `exit` and traps
- * can't skip what follows, and sends its output through `tee -p`, which
- * pi reads as before and which writes on to the file when pi's pipe
- * closes. Then it waits for that tee, so pi has the output before the
- * shell exits, writes the command's status and exits with it. Still one
- * line, so a failing command's line numbers are what they were.
- *
- * The tee is opened from a group, not the subshell, so it is this
- * shell's own and `$!` names it: opened by the subshell, the wait found
- * nothing, the shell could exit first, and pi, which reads a pipe only
- * briefly once its shell has gone, lost what came late. Anything the
- * command left running with its output keeps the tee open, so the wait
- * stops after a second, as the watchdog's signal says, as pi stops
- * reading what such a child writes.
- */
-export const KEEPING_STUB = [
-	`printf '%s\\n' "$$" > "$${KEEP_VARIABLE}.pid"`,
-	`{ ( eval "unset ${COMMAND_VARIABLE} ${KEEP_VARIABLE}; $${COMMAND_VARIABLE}" ); } > >(trap '' PIPE; exec tee -p -a "$${KEEP_VARIABLE}.out") 2>&1`,
-	"s=$?",
-	"t=$!",
-	"trap : USR1",
-	"( read -t 1 <> <(:); kill -USR1 $$ ) </dev/null >/dev/null 2>&1 & w=$!",
-	"wait $t 2>/dev/null",
-	"kill $w 2>/dev/null",
-	`printf '%s\\n' "$s" > "$${KEEP_VARIABLE}.end"`,
-	"exit $s",
-].join("; ");
 
 /** A spawn hook that moves the command off the shell's command line. */
 export function offCommandLine(context: BashSpawnContext): BashSpawnContext {

@@ -66,13 +66,14 @@ export interface FenceRunAsk {
 
 /** How pi-fence is asked, said when it was asked wrongly. */
 export const FENCE_RUN_USAGE =
-	"usage: pi-fence --kind fence|strict [--folder DIR] -- PROGRAM [ARGUMENT...]";
+	"usage: pi-fence --kind fence|strict [--folder DIR] -- PROGRAM [ARGUMENT...], or pi-fence census [--proc DIR]";
 
 /** What `pi-fence --help` says, each line within 60 columns. */
 export const FENCE_RUN_HELP = `pi-fence runs one command in pi's own agent fence.
 
 Usage:
   pi-fence --kind KIND [--folder DIR] -- PROGRAM [ARG...]
+  pi-fence census [--proc DIR]
 
 Kinds:
   fence    the agent fence a pi session lays
@@ -88,6 +89,15 @@ Options:
 
 It exits with the command's status, 126 when it refuses
 to run, saying why, and 2 when asked wrongly.
+
+The census judges every live session on this machine
+by what its commands' processes show: proven fenced,
+claimed by its environment while it runs none, or
+unfenced. It reads /proc unless --proc names another.
+It exits 0 only when it found a session and each was
+seen fenced, a claimed one by a census in the last
+day; 1 otherwise, or when the processes can't be read.
+Linux only: on macOS it can't judge and exits 1.
 `;
 
 /**
@@ -98,8 +108,13 @@ to run, saying why, and 2 when asked wrongly.
 export function fenceRunAsked(
 	args: readonly string[],
 	cwd: string,
-): FenceRunAsk | { readonly wrong: string } | { readonly help: true } {
+):
+	| FenceRunAsk
+	| { readonly wrong: string }
+	| { readonly help: true }
+	| { readonly census: string } {
 	if (args[0] === "--help" || args[0] === "-h") return { help: true };
+	if (args[0] === "census") return censusAsked(args.slice(1));
 	const split = args.indexOf("--");
 	if (split === -1) return { wrong: `nothing follows --. ${FENCE_RUN_USAGE}` };
 	const words = args.slice(split + 1);
@@ -125,6 +140,18 @@ export function fenceRunAsked(
 		};
 	}
 	return { kind: known, folder: folder ?? cwd, words };
+}
+
+/** The /proc a census was asked to read, or what is wrong with asking. */
+function censusAsked(
+	args: readonly string[],
+): { readonly census: string } | { readonly wrong: string } {
+	if (args.length === 0) return { census: "/proc" };
+	const [name, value, ...rest] = args;
+	if (name !== "--proc" || value === undefined || rest.length > 0) {
+		return { wrong: `census takes only --proc DIR. ${FENCE_RUN_USAGE}` };
+	}
+	return { census: value };
 }
 
 /** Where a fenced run takes its machine from; tests give their own. */

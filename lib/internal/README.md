@@ -182,6 +182,12 @@ may import from here, and any of it may change without notice.
   a sandbox-exec profile, rule for rule, mach services allowed only
   by name, its own processes, the sockets and ports it is given, and
   the Mac's own secrets hidden.
+- **`fence-census.ts`**: every live session on the machine, judged
+  by what its commands' processes show rather than what its presence
+  claims: proven fenced (NoNewPrivs, mounts of its own, and nothing
+  the fence hides in sight), claimed by its environment while it runs
+  nothing and seen fenced in the last day, or unfenced
+  (`pi-fence census`).
 - **`fence-preflight.ts`**: how the fence's pre-flight runs a check,
   fenced as a session's command or outside, and turns verdicts into a
   report and an exit status (`scripts/fence-preflight.ts`).

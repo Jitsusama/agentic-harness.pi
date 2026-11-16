@@ -64,6 +64,26 @@ describe("reading how pi-fence was asked", () => {
 		expect(wide, "lines past 60 columns").toEqual([]);
 	});
 
+	it("reads a census, of /proc unless another is named", () => {
+		expect(fenceRunAsked(["census"], "/w")).toEqual({ census: "/proc" });
+		expect(fenceRunAsked(["census", "--proc", "/p"], "/w")).toEqual({
+			census: "/p",
+		});
+		for (const args of [
+			["census", "--proc"],
+			["census", "--kind", "fence"],
+		]) {
+			expect(fenceRunAsked(args, "/w"), args.join(" ")).toHaveProperty("wrong");
+		}
+		expect(FENCE_RUN_HELP, "its help names it").toContain("pi-fence census");
+	});
+
+	it("says a census on a Mac can't judge, so its exit isn't read as sessions unfenced", () => {
+		expect(FENCE_RUN_HELP.replace(/\s+/g, " ")).toContain(
+			"Linux only: on macOS it can't judge and exits 1.",
+		);
+	});
+
 	it("says what is wrong with a missing or unknown kind, a stray option or no command", () => {
 		const wrongs = [
 			["--", "true"],
