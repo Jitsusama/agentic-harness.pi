@@ -174,7 +174,12 @@ may import from here, and any of it may change without notice.
   pi, such as the mycelium node's `runs` prefix: the agent fence, or
   the strict profile inside the fence's bubblewrap root, refusing a
   folder whose writes would reach what runs outside
-  (`scripts/pi-fence.ts`).
+  (`scripts/pi-fence.ts`). On a Mac it runs the command under
+  sandbox-exec instead.
+- **`fence-seatbelt.ts`**: the fence on a Mac: the same mounts as
+  a sandbox-exec profile, rule for rule, mach services allowed only
+  by name, its own processes, the sockets and ports it is given, and
+  the Mac's own secrets hidden.
 - **`fence-preflight.ts`**: how the fence's pre-flight runs a check,
   fenced as a session's command or outside, and turns verdicts into a
   report and an exit status (`scripts/fence-preflight.ts`).
