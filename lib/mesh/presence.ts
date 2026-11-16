@@ -241,6 +241,14 @@ export interface Presence {
 	 */
 	readonly driven?: boolean;
 	/**
+	 * How its commands are fenced: as they are (`none`), in the fence, or
+	 * in the strict sandbox, as its `PI_SANDBOX` asks. A mycelium node
+	 * carries a session only to a machine that offers the same, at least
+	 * as strictly (ISXEG8's condition 2, 15 November); missing from a peer
+	 * whose harness doesn't say, which the node refuses to carry.
+	 */
+	readonly fence?: FenceKind;
+	/**
 	 * The name Agents shows it under at the launcher's top, never folded,
 	 * and the words that find it, as its README's `stands-at-top` says.
 	 */
@@ -248,6 +256,9 @@ export interface Presence {
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
 }
+
+/** How a session's commands are fenced, as its presence says. */
+export type FenceKind = "none" | "fence" | "strict";
 
 /** How a session stands at the launcher's top: its name, words and what. */
 export interface StandsAtTop {
@@ -638,9 +649,15 @@ function presenceFrom(value: unknown): Presence | undefined {
 		...(movingFrom(one.moving) ? { moving: movingFrom(one.moving) } : {}),
 		...(moveOffFrom(one.moveOff) ? { moveOff: moveOffFrom(one.moveOff) } : {}),
 		...(typeof one.driven === "boolean" ? { driven: one.driven } : {}),
+		...(isFenceKind(one.fence) ? { fence: one.fence } : {}),
 		...standingAtTop(one.standsAtTop),
 		at: typeof one.at === "string" ? one.at : "",
 	};
+}
+
+/** Whether a value is one of the fence kinds a presence says. */
+function isFenceKind(value: unknown): value is FenceKind {
+	return value === "none" || value === "fence" || value === "strict";
 }
 
 /** Whether a presence names a hosted conversation. */

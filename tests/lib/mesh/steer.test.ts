@@ -211,6 +211,63 @@ describe("the steer inbox", () => {
 		).toMatchObject({ act: "carry", to: "penelope" });
 	});
 
+	// ISXEG8's condition 3, 15 November: an orchestrator's carry is never
+	// the person's, so nothing that trusts the person's carry reads it.
+	it("reads an orchestrator's ordered carry apart from the person's carry", () => {
+		const ordered = {
+			act: "ordered-carry",
+			to: "penelope",
+			why: "its camera work needs the Mac",
+			by: "WCJQSG",
+			from: "WCJQSG",
+			at: "2026-11-15T15:00:00Z",
+		};
+
+		const read = steerFrom(JSON.stringify(ordered), "f");
+
+		expect(read).toEqual({
+			text: "",
+			ordered: {
+				to: "penelope",
+				why: "its camera work needs the Mac",
+				by: "WCJQSG",
+			},
+			at: "2026-11-15T15:00:00Z",
+			from: "WCJQSG",
+			file: "f",
+		});
+		expect(read, "never an act the person's path takes").not.toHaveProperty(
+			"act",
+		);
+	});
+
+	it("takes no ordered carry that claims the person or misses its words", () => {
+		const ordered = {
+			act: "ordered-carry",
+			to: "penelope",
+			why: "the Mac",
+			by: "WCJQSG",
+			from: "WCJQSG",
+		};
+		for (const [said, body] of [
+			["from the person", { ...ordered, from: "person" }],
+			["from Joel", { ...ordered, from: "joel" }],
+			["from nobody", { ...ordered, from: undefined }],
+			["from the machine", { ...ordered, from: "machine" }],
+			["by someone else than it is from", { ...ordered, by: "OSPHT4" }],
+			["by no address", { ...ordered, by: "../x", from: "../x" }],
+			["with no machine", { ...ordered, to: undefined }],
+			["to no machine's name", { ...ordered, to: "../x" }],
+			["with no why", { ...ordered, why: "  " }],
+		] as const) {
+			expect(steerFrom(JSON.stringify(body), "f"), said).toBeUndefined();
+		}
+		expect(
+			steerFrom(JSON.stringify({ ...ordered, from: "joel", text: "hi" }), "f"),
+			"words from the person stay words, with no carry",
+		).toEqual({ text: "hi", from: "joel", file: "f" });
+	});
+
 	it("reads a move with where it goes, and no move that names nowhere a session goes", () => {
 		for (const to of ["attended", "background", "pi"]) {
 			expect(steerFrom(`{"act":"move","to":"${to}"}`, "f")).toEqual({

@@ -379,11 +379,14 @@ export function createMoving(host: MovingHost): MovingSession {
  * the jobs that can't be carried with it, named, the prompts open for
  * its person (`prompts`, counted from pi's prompt events) and its
  * editor's text. A job host from before carrying holds on every job.
+ * With `runAside`, a run under way isn't counted, for an ordered carry
+ * that ends the run itself once nothing else holds.
  */
 export function holdsOf(
 	ctx: ExtensionContext | undefined,
 	events: EventBus | undefined,
 	prompts: number,
+	options: { readonly runAside?: boolean } = {},
 ): string | undefined {
 	if (!ctx) return "the session isn't there yet";
 	let typed = false;
@@ -395,7 +398,7 @@ export function holdsOf(
 	const host = events ? findJobHost(events) : undefined;
 	const heldBy = host?.holds?.();
 	return whatHolds({
-		agentIdle: ctx.isIdle(),
+		agentIdle: options.runAside === true || ctx.isIdle(),
 		pendingMessages: ctx.hasPendingMessages(),
 		jobs: heldBy ? heldBy.length : (host?.pending?.() ?? 0),
 		...(heldBy ? { heldBy } : {}),

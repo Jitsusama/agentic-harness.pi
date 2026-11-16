@@ -13,7 +13,9 @@ may import from here, and any of it may change without notice.
   machines: a session's trees, as bundles and patches, and its file
   put in the quest's handover with a done file saying so, what
   `pi-carry` carries of the rest, and arriving with it on the other
-  machine.
+  machine; for a carry an orchestrator ordered, the refusal a
+  session writes and the steer that tells it on arrival who carried
+  it and why.
 - **`clipboard/`**: Ctrl+V under Wayland without the session
   forking: the shell it forks once for its clipboard reads, and what
   a paste reads and puts in the editor, in pi's own order.

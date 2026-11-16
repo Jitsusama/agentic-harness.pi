@@ -32,6 +32,7 @@ import type { Presence } from "../../../lib/mesh/presence.ts";
 import {
 	giveSteer,
 	inboxOf,
+	ORDERED_CARRY,
 	STEER_ACTS,
 	steerFrom,
 } from "../../../lib/mesh/steer.ts";
@@ -188,6 +189,13 @@ describe("waking a parked peer for a steer", () => {
 			{ act: "close" },
 			{ act: "move", to: "background" },
 			{ act: "fill", text: "Ready for this, if it still holds." },
+			{
+				act: "ordered-carry",
+				to: "penelope",
+				why: "the Mac",
+				by: "WCJQSG",
+				from: "WCJQSG",
+			},
 		]) {
 			const root = mkdtempSync(join(tmpdir(), "steer-wake-"));
 			steer(root, "8859FF67", act);
@@ -433,6 +441,13 @@ describe("telling a holder in another language which steers wake", () => {
 			{ act: "move", to: "background" },
 			{ act: "fill", text: "Ready for this." },
 			{ act: "answer", look: "look-1", value: "Keep it" },
+			{
+				act: "ordered-carry",
+				to: "penelope",
+				why: "the Mac",
+				by: "WCJQSG",
+				from: "WCJQSG",
+			},
 		]) {
 			const raw = JSON.stringify(body);
 			const steer = steerFrom(raw, "1-a.json");
@@ -448,7 +463,7 @@ describe("telling a holder in another language which steers wake", () => {
 		const leftParked = ["pause", "resume", "stop"];
 
 		expect([...WAKING_STEERS.acts, ...leftParked].sort()).toEqual(
-			[...STEER_ACTS].sort(),
+			[...STEER_ACTS, ORDERED_CARRY].sort(),
 		);
 	});
 

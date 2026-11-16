@@ -6,6 +6,7 @@
  *
  *   node scripts/pi-carry.ts <quest> --to <machine>
  *   node scripts/pi-carry.ts arrive <quest> --from <machine> --session <id>
+ *       [--by <address> --why <reason>]
  *   node scripts/pi-carry.ts where <quest> --from <machine> --session <id>
  *
  * The first, run on the machine the quest leaves once its steered
@@ -16,7 +17,11 @@
  * The second, run on the machine it goes to, waits for one session's
  * done file, puts its trees in place and places its file for
  * `pi --session <id>` (lib/internal/carry/arrive.ts), ending with
- * `{"kind": "sessions", "sessions"}`. It exits 1 when a tree was refused
+ * `{"kind": "sessions", "sessions"}`. Given `--by` and `--why`, which
+ * the mycelium node passes only for a carry an orchestrator ordered, it
+ * then tells the session, by a steer from this machine's pi-carry, who
+ * carried it and why (lib/internal/carry/ordered.ts), so it never takes
+ * the carry for its person's. It exits 1 when a tree was refused
  * or the done file never came, so `pi-carry arrive ... && exec pi
  * --session <id>` starts nothing half arrived.
  *
@@ -40,6 +45,7 @@ import {
 } from "../lib/core/quest/config.ts";
 import { arrive, arrivedIn } from "../lib/internal/carry/arrive.ts";
 import { handoverOf } from "../lib/internal/carry/handover.ts";
+import { tellCarried } from "../lib/internal/carry/ordered.ts";
 import { questHere, runsHere } from "../lib/internal/carry/quest-here.ts";
 import { carryRest } from "../lib/internal/carry/rest.ts";
 import {
@@ -47,7 +53,7 @@ import {
 	loadPackageConfig,
 } from "../lib/internal/config/loader.ts";
 import { isMachineName, thisMachine } from "../lib/internal/machine.ts";
-import { dataDir, sessionsDir } from "../lib/internal/paths.ts";
+import { dataDir, sessionsDir, stateDir } from "../lib/internal/paths.ts";
 import { isId } from "../lib/internal/quest/id.ts";
 import { sessionRegistryDir } from "../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../lib/internal/quest/workspace-root.ts";
@@ -59,6 +65,9 @@ const ASKED_WRONGLY = 2;
 
 /** A session's id as a done file's name may hold it. */
 const SESSION_ID = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
+
+/** An orchestrator's mesh address, as the node stamps an order's `by`. */
+const ADDRESS = /^[A-Za-z0-9]{6,8}$/;
 
 function say(line: object): void {
 	process.stdout.write(`${JSON.stringify(line)}\n`);
@@ -78,6 +87,8 @@ const { values, positionals } = (() => {
 				to: { type: "string" },
 				from: { type: "string" },
 				session: { type: "string" },
+				by: { type: "string" },
+				why: { type: "string" },
 			},
 		});
 	} catch (error) {
@@ -102,11 +113,23 @@ const home = homedir();
 const workspaces = questWorkspacesRoot();
 
 if (arriving) {
-	const { from, session } = values;
+	const { from, session, by, why } = values;
 	if (!isMachineName(from))
 		refuse("Say which machine it comes from, with --from.");
 	if (session === undefined || !SESSION_ID.test(session)) {
 		refuse("Say which session arrives, with --session.");
+	}
+	const ordered = by !== undefined || why !== undefined;
+	if (
+		ordered &&
+		(by === undefined ||
+			!ADDRESS.test(by) ||
+			why === undefined ||
+			why.trim() === "")
+	) {
+		refuse(
+			"Say who ordered the carry and why together, with --by <address> --why <reason>, or neither.",
+		);
 	}
 	const handover = handoverOf(workspaces, quest, from);
 	const scratch = join(workspaces, quest);
@@ -134,6 +157,14 @@ if (arriving) {
 		},
 		say,
 	});
+	if (whole && by !== undefined && why !== undefined) {
+		tellCarried(stateDir("steer"), {
+			session,
+			from,
+			by: by.toUpperCase(),
+			why: why.trim(),
+		});
+	}
 	process.exit(whole ? 0 : 1);
 }
 

@@ -590,6 +590,22 @@ describe("this session's peer", () => {
 		expect(fresh.driven, "a new session starts undriven").toBe(false);
 	});
 
+	// ISXEG8's condition 2: a node carries a session only to a machine
+	// fenced at least as strictly, so it reads how this one is fenced.
+	it("says how its commands are fenced, as its surroundings say", () => {
+		for (const fence of ["none", "fence", "strict"] as const) {
+			const at = { ...surroundings(), fence };
+			localPeer(at);
+			expect(at.presences.of(session)?.fence, fence).toBe(fence);
+		}
+		const unsaid = surroundings();
+		localPeer(unsaid);
+		expect(
+			unsaid.presences.of(session),
+			"left out where the harness doesn't say",
+		).not.toHaveProperty("fence");
+	});
+
 	it("reads no move it can't make sense of", () => {
 		const presences = createPresences(join(root, "presence"));
 		mkdirSync(join(root, "presence"), { recursive: true });

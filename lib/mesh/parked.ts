@@ -35,7 +35,7 @@ import type { HolderSteers, WakingSteers } from "../internal/session/park.ts";
 import { attend } from "./attention.ts";
 import { asksEach, type Message, reaches } from "./message.ts";
 import type { Presence } from "./presence.ts";
-import { inboxOf, type Steer, waitingSteers } from "./steer.ts";
+import { inboxOf, ORDERED_CARRY, type Steer, waitingSteers } from "./steer.ts";
 import { answers, answersQuestion, type Reader } from "./thread.ts";
 
 /** Whether a presence says its session is parked. */
@@ -87,12 +87,14 @@ export function wakes(
 /**
  * Whether a steer waits on its parked peer running: a talk, or a resume
  * with words, which a running peer answers; a close, a carry or a move,
- * which only a running session can make; a fill, since the person is
+ * which only a running session can make, and so an orchestrator's
+ * ordered carry; a fill, since the person is
  * coming to its window to send it; or the person's answer to a look or a
  * question, which only a running pi takes (an answer the mesh keeps
  * always says what it answers and what it gives).
  */
 export function steerWakes(steer: Steer): boolean {
+	if (steer.ordered) return WAKING_STEERS.acts.includes(ORDERED_CARRY);
 	if (steer.act === undefined) return WAKING_STEERS.talk;
 	if (steer.act === "resume" && steer.text !== "") {
 		return WAKING_STEERS.resumeWithWords;
@@ -106,7 +108,7 @@ export function steerWakes(steer: Steer): boolean {
  * still wakes its peer, which finds nothing to take and parks again.
  */
 export const WAKING_STEERS: WakingSteers = {
-	acts: ["close", "carry", "move", "fill", "answer"],
+	acts: ["close", "carry", ORDERED_CARRY, "move", "fill", "answer"],
 	talk: true,
 	resumeWithWords: true,
 };
