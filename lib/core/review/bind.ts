@@ -228,7 +228,11 @@ function resolveIn(
 		.map((id) => getReviewProvider(id))
 		.filter((provider): provider is ReviewProvider => provider !== undefined);
 	const byConfig = claimRepo(mapped, probe, tried);
-	if (byConfig) return { resolved: true, ...byConfig, via: "config-repo" };
+	if (byConfig) {
+		const atOrigin = originsOwn(byConfig, probe, tried);
+		if (atOrigin) return { resolved: true, ...atOrigin, via: "claim" };
+		return { resolved: true, ...byConfig, via: "config-repo" };
+	}
 
 	const remaining = listReviewProviders().filter(
 		(provider) => !tried.includes(provider.id),
@@ -241,6 +245,33 @@ function resolveIn(
 		tried,
 		message: unclaimed(ids),
 	};
+}
+
+/**
+ * The provider that claims the checkout's `origin`, when a pin's provider
+ * claimed it through another remote; nothing otherwise.
+ *
+ * A pin is honoured as far as it reaches origin. A World checkout keeps
+ * a `github` mirror beside its Delta `origin`, and a pin written before
+ * the cut-over named GitHub for it: on 15 November that sent two
+ * proposals to the read-only mirror (WCJQSG [d5024ee5], [b260d80e]).
+ * Changes go where origin points, so a provider that claims origin
+ * itself wins over a pin that only reached a mirror. With no origin, or
+ * nobody else claiming it, the pin stands.
+ */
+function originsOwn(
+	pinned: { provider: ReviewProvider; repo: RepoLocator },
+	probe: RepoProbe,
+	tried: string[],
+): { provider: ReviewProvider; repo: RepoLocator } | undefined {
+	const origin = probe.origin;
+	if (origin === undefined || pinned.repo.remoteUrl === origin)
+		return undefined;
+	if (pinned.repo.remoteUrl === undefined) return undefined;
+	const others = listReviewProviders().filter(
+		(provider) => provider.id !== pinned.provider.id,
+	);
+	return claimRepo(others, { ...probe, remoteUrls: [origin] }, tried);
 }
 
 /** Why nobody claimed a repo, naming a pin that names nobody. */

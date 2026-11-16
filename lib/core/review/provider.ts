@@ -40,6 +40,8 @@ export interface RepoProbe {
 	repoRoot?: string;
 	/** Remote URLs configured in that checkout. */
 	remoteUrls?: string[];
+	/** The `origin` remote's URL among them, where changes go by convention. */
+	origin?: string;
 }
 
 /** Which changes to list. */

@@ -169,14 +169,15 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			"--get-regexp",
 			"^remote\\..*\\.url$",
 		]);
-		const remoteUrls =
+		const lines =
 			remotes.code === 0
-				? remotes.stdout
-						.split("\n")
-						.map((line) => line.trim().split(/\s+/)[1])
-						.filter((url): url is string => Boolean(url))
+				? remotes.stdout.split("\n").map((line) => line.trim().split(/\s+/))
 				: [];
-		return { repoRoot, remoteUrls };
+		const remoteUrls = lines
+			.map((words) => words[1])
+			.filter((url): url is string => Boolean(url));
+		const origin = lines.find((words) => words[0] === "remote.origin.url")?.[1];
+		return { repoRoot, remoteUrls, ...(origin ? { origin } : {}) };
 	}
 
 	/** Wrap a resolved target in everything reachable from it. */
