@@ -3,10 +3,13 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerLook,
@@ -621,5 +624,42 @@ describe("whether a look's quest has ended", () => {
 
 	it("doesn't call a quest it can't read ended", () => {
 		expect(questEnded(dir, "QEST-20261111-DDDDDD"), "no README").toBe(false);
+	});
+
+	it("keeps none of a README's text once it has said", () => {
+		// 16 November: 10.2 MB of the background host's heap was quest
+		// READMEs read for whether a look's quest had ended, each kept
+		// whole for its status alone.
+		setFlagsFromString("--expose-gc");
+		const gc = runInNewContext("gc") as () => void;
+		const quests = 8;
+		const bodyBytes = 1024 * 1024;
+		const ids = Array.from(
+			{ length: quests },
+			(_, at) => `QEST-20261116-PIN00${at}`,
+		);
+		const written = new Date("2026-11-16T00:00:00Z");
+		for (const id of ids) {
+			quest(id, "active");
+			const readme = join(dir, id, "README.md");
+			writeFileSync(
+				readme,
+				readFileSync(readme, "utf8") +
+					`\n## Summary\n\n${"A line of the quest's story.\n".repeat(bodyBytes / 29)}`,
+			);
+			// Written well before it is read, so its parse is kept.
+			utimesSync(readme, written, written);
+		}
+		gc();
+		const before = process.memoryUsage().heapUsed;
+
+		const ended = ids.filter((id) => questEnded(dir, id));
+		gc();
+		const kept = process.memoryUsage().heapUsed - before;
+
+		expect(ended, "none of the quests has ended").toEqual([]);
+		expect(kept, "bytes still held after reading the READMEs").toBeLessThan(
+			(quests * bodyBytes) / 4,
+		);
 	});
 });
