@@ -26,7 +26,6 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
 import { placeTakenOver } from "../quest/carried.ts";
-import { looserFence } from "./fence.ts";
 import {
 	doneFileOf,
 	type HandedTree,
@@ -70,6 +69,11 @@ export type ArrivalLine =
 	| {
 			readonly kind: "sessions";
 			readonly sessions: readonly { id: string; cwd: string }[];
+			/**
+			 * The fence the session ran under, for the node to start it under
+			 * again; absent when an older harness carried it.
+			 */
+			readonly fence?: FenceKind;
 	  };
 
 /** What arriving needs. */
@@ -87,8 +91,6 @@ export interface Arriving {
 	readonly sessions: string;
 	readonly clock: Clock;
 	readonly say: (line: ArrivalLine) => void;
-	/** The fence pi starts under here, which a fenced session's done file must match. */
-	readonly fence: FenceKind;
 	/** Adds the quest's carried facts that this machine lacks, answering how many. */
 	readonly takeNotes: (
 		quest: string,
@@ -101,14 +103,6 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	const { from, home, say } = arriving;
 	const handover = await waitForHandover(arriving);
 	if (handover === undefined) return false;
-	const looser =
-		handover.fence === undefined
-			? undefined
-			: looserFence(handover.fence, arriving.fence);
-	if (looser !== undefined) {
-		say({ kind: "failed", why: looser });
-		return false;
-	}
 	const brought: HandedTree[] = [];
 	for (const tree of handover.trees) {
 		const line = await arriveTree(arriving.exec, tree, from, home);
@@ -141,7 +135,13 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 		say({ kind: "sessions", sessions: [] });
 		return false;
 	}
-	say({ kind: "sessions", sessions: [{ id: handover.session, cwd }] });
+	// The node starts pi itself, so it, not this environment, sets the
+	// fence the session arrives under (KP0L6A [35567865]).
+	say({
+		kind: "sessions",
+		sessions: [{ id: handover.session, cwd }],
+		...(handover.fence === undefined ? {} : { fence: handover.fence }),
+	});
 	return whole;
 }
 

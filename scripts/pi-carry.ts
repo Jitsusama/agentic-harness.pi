@@ -8,6 +8,7 @@
  *   node scripts/pi-carry.ts arrive <quest> --from <machine> --session <id>
  *       [--by <address> --why <reason>]
  *   node scripts/pi-carry.ts where <quest> --from <machine> --session <id>
+ *   node scripts/pi-carry.ts fence <quest> --from <machine> --session <id>
  *
  * The first, run on the machine the quest leaves once its steered
  * sessions have carried their own, carries the rest into the quest's
@@ -17,9 +18,9 @@
  * The second, run on the machine it goes to, waits for one session's
  * done file, puts its trees in place and places its file for
  * `pi --session <id>` (lib/internal/carry/arrive.ts), ending with
- * `{"kind": "sessions", "sessions"}`. It adds the quest's carried notes
- * this machine's memory lacks, and refuses a fenced session whose fence
- * this environment wouldn't start it under. Given `--by` and `--why`, which
+ * `{"kind": "sessions", "sessions", "fence"}`, the fence naming what the
+ * session ran under for the node to start it under again. It adds the
+ * quest's carried notes this machine's memory lacks. Given `--by` and `--why`, which
  * the mycelium node passes only for a carry an orchestrator ordered, it
  * then tells the session, by a steer from this machine's pi-carry, who
  * carried it and why (lib/internal/carry/ordered.ts), so it never takes
@@ -32,6 +33,12 @@
  * it starts pi there: its own folder where a tree it brought holds it,
  * else its quest's scratch. It exits 1, printing nothing but a failed
  * line on stderr, when no done file names a session to arrive.
+ *
+ * The fourth prints what to set `PI_SANDBOX` to for the session to start
+ * under the fence it ran under (`fence`, `strict`, or `off` for none),
+ * or nothing when an older harness carried it without saying, since the
+ * node's shell starts pi and can't read JSON (KP0L6A [ce41f2b6]). It
+ * exits 1 as the third does.
  *
  * Each exits 2 when it was asked wrongly.
  */
@@ -46,8 +53,12 @@ import {
 	resolveQuestsRoot,
 } from "../lib/core/quest/config.ts";
 import { arrive, arrivedIn } from "../lib/internal/carry/arrive.ts";
-import { fenceKindOf } from "../lib/internal/carry/fence.ts";
-import { handoverOf } from "../lib/internal/carry/handover.ts";
+import { sandboxAsking } from "../lib/internal/carry/fence.ts";
+import {
+	doneFileOf,
+	handoverOf,
+	readHandover,
+} from "../lib/internal/carry/handover.ts";
 import { takeNotes } from "../lib/internal/carry/notes.ts";
 import { tellCarried } from "../lib/internal/carry/ordered.ts";
 import { questHere, runsHere } from "../lib/internal/carry/quest-here.ts";
@@ -101,7 +112,10 @@ const { values, positionals } = (() => {
 	}
 })();
 
-const arriving = positionals[0] === "arrive" || positionals[0] === "where";
+const arriving =
+	positionals[0] === "arrive" ||
+	positionals[0] === "where" ||
+	positionals[0] === "fence";
 const quest = arriving ? positionals[1] : positionals[0];
 if (
 	quest === undefined ||
@@ -109,7 +123,7 @@ if (
 	positionals.length > (arriving ? 2 : 1)
 ) {
 	refuse(
-		"Say which quest: pi-carry <quest> --to <machine>, or pi-carry arrive (or where) <quest> --from <machine> --session <id>.",
+		"Say which quest: pi-carry <quest> --to <machine>, or pi-carry arrive (or where, or fence) <quest> --from <machine> --session <id>.",
 	);
 }
 
@@ -138,15 +152,24 @@ if (arriving) {
 	}
 	const handover = handoverOf(workspaces, quest, from);
 	const scratch = join(workspaces, quest);
+	const noDoneFile = (): never => {
+		process.stderr.write(
+			`${JSON.stringify({ kind: "failed", why: `No done file in ${handover} names session ${session} to arrive.` })}\n`,
+		);
+		process.exit(1);
+	};
 	if (positionals[0] === "where") {
 		const folder = arrivedIn(handover, session, home, scratch);
-		if (folder === undefined) {
-			process.stderr.write(
-				`${JSON.stringify({ kind: "failed", why: `No done file in ${handover} names session ${session} to arrive.` })}\n`,
-			);
-			process.exit(1);
-		}
+		if (folder === undefined) noDoneFile();
 		process.stdout.write(`${folder}\n`);
+		process.exit(0);
+	}
+	if (positionals[0] === "fence") {
+		const done = readHandover(doneFileOf(handover, session));
+		if (done?.sessionFile === undefined) noDoneFile();
+		if (done?.fence !== undefined) {
+			process.stdout.write(`${sandboxAsking(done.fence)}\n`);
+		}
 		process.exit(0);
 	}
 	const whole = await arrive({
@@ -161,7 +184,6 @@ if (arriving) {
 			sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
 		},
 		say,
-		fence: fenceKindOf(process.env),
 		takeNotes: async (carried, notes) => {
 			const store = await openMemoryStore(await memoryDbPath());
 			try {

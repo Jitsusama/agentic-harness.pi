@@ -276,16 +276,15 @@ head and its patch; one line each, `{"kind": "tree", "path",
 "branch", "did": "cloned" | "fetched" | "refused", "why"?}`. A
 folder with another origin or changes of its own, or a branch
 holding commits the carried one lacks, is refused, never written
-over; a tree that already stands as carried is left as it is. A
-session that ran under a fence arrives only under the same one: where
-this environment's `PI_SANDBOX` would start it under another, nothing
-is touched and it fails, naming the one to start it with. Each note
-the memory store here lacks for the quest, judged by its text, is
-added, so arriving twice adds nothing. The session's file is placed where pi finds it from its folder here,
-over any older copy, and it ends with `{"kind": "sessions",
-"sessions": [{"id", "cwd"}]}`. It exits 1 when a tree was refused,
-the fence differs, the notes couldn't be added or nothing came, so nothing starts half arrived, and 2 when it was
-asked wrongly.
+over; a tree that already stands as carried is left as it is. Each
+note the memory store here lacks for the quest, judged by its text,
+is added, so arriving twice adds nothing. The session's file is
+placed where pi finds it from its folder here, over any older copy,
+and it ends with `{"kind": "sessions", "sessions": [{"id", "cwd"}],
+"fence"}`, the fence naming what the session ran under; the node
+starts pi under that one, never another. It exits 1 when a tree was
+refused, the notes couldn't be added or nothing came, so nothing
+starts half arrived, and 2 when it was asked wrongly.
 
 ## What It Will Not Do
 

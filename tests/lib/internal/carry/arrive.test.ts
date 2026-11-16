@@ -25,7 +25,6 @@ import {
 } from "../../../../lib/internal/carry/carry-away.ts";
 import type { CarriedNote } from "../../../../lib/internal/carry/notes.ts";
 import { sessionFolderOf } from "../../../../lib/internal/quest/carried.ts";
-import type { FenceKind } from "../../../../lib/mesh/presence.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
 	bareOrigin,
@@ -113,13 +112,11 @@ async function arriveAt(
 	home: string,
 	from: string,
 	clock: Clock = fakeClock(),
-	here: { fence?: FenceKind; taken?: CarriedNote[][] } = {},
+	taken: CarriedNote[][] = [],
 ) {
 	const said: ArrivalLine[] = [];
 	const store = folder(made, "store");
-	const taken = here.taken ?? [];
 	const whole = await arrive({
-		fence: here.fence ?? "none",
 		takeNotes: async (quest, notes) => {
 			expect(quest, "notes are taken up for the carried quest").toBe(QUEST);
 			taken.push([...notes]);
@@ -371,39 +368,26 @@ describe("arriving with a carried session", () => {
 			folder(made, "arriving"),
 			from,
 			fakeClock(),
-			{ fence: "fence", taken },
+			taken,
 		);
 
-		expect(whole, "it arrived whole under its own fence").toBe(true);
+		expect(whole, "it arrived whole").toBe(true);
 		expect(taken).toEqual([notes]);
 		expect(said.at(-1)).toMatchObject({ kind: "sessions" });
 	});
 
-	it("refuses a fenced session where it would start under another fence, before touching anything", async () => {
-		const { from } = await carried(undefined, {
-			fence: "strict",
-			notes: [{ text: "kept for later", tags: [] }],
-		});
+	it("names the fence it ran under on its last line, for the node to start it under", async () => {
+		const { from } = await carried(undefined, { fence: "strict" });
 		const home = folder(made, "arriving");
-		const taken: CarriedNote[][] = [];
 
-		const { whole, said } = await arriveAt(home, from, fakeClock(), {
-			fence: "fence",
-			taken,
+		const { whole, said } = await arriveAt(home, from);
+
+		expect(whole, "it arrived whole").toBe(true);
+		expect(said.at(-1)).toEqual({
+			kind: "sessions",
+			sessions: [{ id: SESSION, cwd: join(home, "src", "app") }],
+			fence: "strict",
 		});
-
-		expect(
-			whole,
-			"a session that would start under another fence never arrives",
-		).toBe(false);
-		expect(said).toEqual([
-			{
-				kind: "failed",
-				why: expect.stringContaining("Start it with PI_SANDBOX=strict."),
-			},
-		]);
-		expect(existsSync(join(home, "src")), "nothing was cloned").toBe(false);
-		expect(taken, "no notes were taken up").toEqual([]);
 	});
 
 	it("says notes it couldn't take up, and doesn't call the arrival whole", async () => {
@@ -421,7 +405,6 @@ describe("arriving with a carried session", () => {
 			sessions: folder(made, "store"),
 			clock: fakeClock(),
 			say: (line) => said.push(line),
-			fence: "none",
 			takeNotes: async () => {
 				throw new Error("database is locked");
 			},

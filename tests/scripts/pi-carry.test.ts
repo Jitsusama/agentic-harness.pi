@@ -206,6 +206,41 @@ describe("pi-carry", () => {
 			),
 			"and names no folder for a session nothing carried",
 		).toEqual({ code: 1, stdout: "" });
+		const fenceOf = (session: string) =>
+			piCarryRaw(
+				to.env,
+				"fence",
+				QUEST,
+				"--from",
+				thisMachine(),
+				"--session",
+				session,
+			);
+		expect(
+			await fenceOf(SESSION),
+			"fence says nothing of a session carried without its fence",
+		).toEqual({ code: 0, stdout: "" });
+		expect(
+			await fenceOf("01a19111-never-carried"),
+			"and fails for a session nothing carried",
+		).toEqual({ code: 1, stdout: "" });
+		const done = join(handover, `${SESSION}.done.json`);
+		for (const [kind, asked] of [
+			["strict", "strict\n"],
+			["none", "off\n"],
+		] as const) {
+			writeFileSync(
+				done,
+				JSON.stringify({
+					...JSON.parse(readFileSync(done, "utf8")),
+					fence: kind,
+				}),
+			);
+			expect(
+				await fenceOf(SESSION),
+				`fence says what PI_SANDBOX starts a session that ran under ${kind}`,
+			).toEqual({ code: 0, stdout: asked });
+		}
 
 		const elsewhere = machine("refusing", cache);
 		await cloneAt(await bareOrigin(made), join(elsewhere.home, "src", "app"));
