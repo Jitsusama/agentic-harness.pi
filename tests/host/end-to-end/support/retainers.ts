@@ -121,7 +121,7 @@ export function retainersOf(json: string, mark: string, most = 5): string[] {
 		if (!seen[script]) continue;
 		held++;
 		const steps: string[] = [];
-		for (let n = script; n > 0 && parent[n] >= 0; n = parent[n] ?? -1) {
+		for (let n = script; n > 0 && (parent[n] ?? -1) >= 0; n = parent[n] ?? -1) {
 			const via = edgeName(parentEdge[n] ?? 0);
 			const own = name(n).slice(0, NAME_CHARS).replaceAll("\n", " ");
 			steps.unshift(`-${via}-> ${type(n)} ${own}`);
