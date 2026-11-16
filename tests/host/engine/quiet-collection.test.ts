@@ -4,13 +4,16 @@
  * VIEWER_QUIET_MS, though conversations may be waiting on the model; at
  * most one each SPACING_MS, plus one owed after a park; none until
  * something stirs; one anyway once due CEILING_MS with work running;
- * none, said once, where V8 exposes no gc or its gc throws. Fake timers stand in for the clock; the last cases
- * run V8's own collection and read this process's Pss.
+ * none, said once, where V8 exposes no gc or its gc throws; none, said,
+ * where the heap has grown so that the pause the last collections foretell
+ * would hold the loop over a second. Fake timers stand in for the clock;
+ * the last cases run V8's own collection and read this process's Pss.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	CEILING_MS,
 	lastResortCollect,
+	PACE_WINDOW,
 	processHeap,
 	pssBytes,
 	type QuietReading,
@@ -224,6 +227,86 @@ describe("the host's collection once quiet", () => {
 		expect(said).toEqual([
 			"Collected while quiet in 1240 ms, Pss unread, with 2 conversations waiting on the model; the loop held 1.2 s for it",
 		]);
+	});
+
+	/**
+	 * A host whose heap uses `used()` and whose collections each take the
+	 * next of `pauses` ms, collecting each time something stirs once spaced.
+	 */
+	function paced(used: () => number, pauses: number[]) {
+		const collect = vi.fn();
+		const said: string[] = [];
+		let now = 0;
+		let started = true;
+		const quiet = quietCollection({
+			reading: () => ({ tools: 0, jobs: 0, waiting: 1 }),
+			collect,
+			weigh: () => undefined,
+			heap: () => ({
+				used: used(),
+				total: used(),
+				external: 0,
+				arrayBuffers: 0,
+				spaces: [],
+			}),
+			report: (one) => said.push(one),
+			// Each collection reads the clock twice, before and after.
+			clock: () => {
+				started = !started;
+				if (started) now += pauses.shift() ?? 0;
+				return now;
+			},
+		});
+		const next = () => {
+			quiet.stirred();
+			vi.advanceTimersByTime(SPACING_MS);
+		};
+		return { collect, said, next };
+	}
+
+	it("leaves uncollected a heap whose pause would hold the loop over a second, saying why, and collects once it has fallen", () => {
+		let used = 800 * MB;
+		const { collect, said, next } = paced(() => used, [600, 450]);
+		next();
+		expect(collect).toHaveBeenCalledTimes(1);
+		used = 1600 * MB;
+		next();
+		expect(collect).toHaveBeenCalledTimes(1);
+		expect(said[1]).toBe(
+			"Left uncollected while quiet: the heap uses 1600 MB, which at 768 ms a GB, the slowest of the last 1 collections, would hold the loop about 1.2 s, past the 1 s a pause may take; with 1 conversations waiting on the model",
+		);
+		used = 1200 * MB;
+		next();
+		expect(collect).toHaveBeenCalledTimes(2);
+		expect(said[2]).toMatch(/^Collected while quiet in 450 ms/);
+	});
+
+	it("foretells the pause by the slowest of its last collections, forgetting older ones", () => {
+		let used = 500 * MB;
+		// One at 1 ms a MB, then the rest of the window at half that.
+		const fast = Array.from({ length: PACE_WINDOW }, () => 250);
+		const { collect, said, next } = paced(() => used, [500, ...fast, 550]);
+		for (let one = 0; one < PACE_WINDOW; one += 1) next();
+		used = 1100 * MB;
+		next();
+		expect(collect).toHaveBeenCalledTimes(PACE_WINDOW);
+		expect(said.at(-1)).toMatch(/^Left uncollected while quiet/);
+		used = 500 * MB;
+		next();
+		used = 1100 * MB;
+		next();
+		expect(collect).toHaveBeenCalledTimes(PACE_WINDOW + 2);
+		expect(said.at(-1)).toMatch(/^Collected while quiet in 550 ms/);
+	});
+
+	it("keeps a collection that has run past a second from running again at that heap", () => {
+		const { collect, said, next } = paced(() => 900 * MB, [1100]);
+		next();
+		next();
+		expect(collect).toHaveBeenCalledTimes(1);
+		expect(said[1]).toMatch(
+			/^Left uncollected while quiet: the heap uses 900 MB, which at 1252 ms a GB/,
+		);
 	});
 
 	it("starts with collection off, said once, where V8 exposes no gc", () => {
