@@ -7,16 +7,27 @@
  * PI_PACKAGE_DIR names the host's patched pi install, and MYCELIUM_REALM
  * or PI_HOME_REALM its realm. Node runs it as it stands, stripping the
  * types, so it needs no loader; every pi import the harness makes is
- * bound to that install before the host's code loads. It serves until a
+ * bound to that install before the host's code loads, and what node
+ * compiles of it is kept for the install's next start. It serves until a
  * stop signal, then exits once every conversation is parked and every
  * hold kept. It exits 78 when its configuration is refused, which no
  * restart would change, and 1 on any other failure to start, which a
  * restart might.
  */
 
-import { registerHooks } from "node:module";
-import { isAbsolute } from "node:path";
+import { flushCompileCache, registerHooks } from "node:module";
+import { dirname, isAbsolute } from "node:path";
+import { startCompileCache } from "../host/service/compile-cache.ts";
 import { piFromHost } from "../host/service/pi-resolution.ts";
+
+// First, so every module the host loads after is compiled once an install.
+const compiled = startCompileCache({
+	argv: process.argv.slice(2),
+	env: process.env,
+	harnessRoot: dirname(import.meta.dirname),
+});
+if (compiled.state === "off")
+	process.stderr.write(`pi-host: no compile cache: ${compiled.reason}\n`);
 
 const packageDir = process.env.PI_PACKAGE_DIR;
 // Without an absolute install there is nothing to bind to; the program
@@ -34,6 +45,8 @@ try {
 		argv: process.argv.slice(2),
 		env: process.env,
 	});
+	// Node writes its cache at exit, which a killed host never reaches.
+	if (compiled.state === "on") flushCompileCache();
 	await run.stopped;
 	// A screen's timers or a viewer's socket can outlive the host's stop;
 	// every conversation is parked and held by now, so nothing is lost.
