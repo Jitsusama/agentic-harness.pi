@@ -151,6 +151,15 @@ input pipeline or screen. No unit or running host is installed yet.
   made from outside the host's pi to that pi. The harness's install
   carries no pi of its own, so without it the viewer's terminal would
   find no pi-tui, or in a tree the dev copy rather than the host's.
+- compile-cache.ts: node's compile cache, which `scripts/pi-host.ts`
+  enables before anything else loads, so a start reads back what an
+  earlier start of the same install compiled rather than compiling
+  pi's and the harness's modules again. Each realm, kind and install
+  has its own folder in the harness's cache (`host-compile`), and a
+  host removes its own earlier installs' folders as it starts. It is
+  flushed once the host serves, since a killed host never reaches the
+  exit where node would write it. A cache that can't be had is said
+  in the journal, and the host starts without it.
 - roster.ts: the durable realm-kind roster behind one lock per key.
   Holds are written before registration and dropped only after a close
   or release commits, or once a conversation ended itself; replace swaps
