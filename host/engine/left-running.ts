@@ -12,15 +12,19 @@
  * left building with `&` (WCJQSG [b675818d]); an hour's idle park ends
  * one the same way.
  *
- * So a park notes, by each call's mark, what the conversation's ended
- * calls left, and every reap after spares those marks: the park's own,
- * the wake's and the next host's at its start. A call running at the
- * park is signalled, and its stop ends what it left by its mark before
- * the park looks, so what is still marked then is what ended calls
- * left. What an extension started carries no call's mark, and still
- * ends with the park. A close, a crash or a kill -9 notes nothing, so
- * what they cut ends as before. A note goes a day after its park, the
- * same day a carried call nobody took up runs (carried-shells.ts).
+ * So a park, or any stop short of a close, such as a restart's of a
+ * conversation busy at the drain, notes by each call's mark what the
+ * conversation's ended calls left, and every reap after spares those
+ * marks: the stop's own, the wake's and the next host's at its start. A
+ * call running at the stop is signalled, and its stop ends what it left
+ * by its mark before the look, or it is carried to the next host and
+ * left out, so what is still marked then is what ended calls left. What
+ * an extension started carries no call's mark, and still ends with the
+ * stop. A close for good notes nothing and drops the conversation's
+ * notes, so what its earlier parks kept ends with it, parked or running.
+ * A crash or a kill -9 notes nothing, so what they cut ends as before.
+ * A note goes a day after its stop, the same day a carried call nobody
+ * took up runs (carried-shells.ts).
  */
 
 import { readFileSync } from "node:fs";
@@ -42,7 +46,7 @@ interface LeftCall {
 
 /** What the engine asks of what parks kept running. */
 export interface LeftRunning {
-	/** Note that a parking conversation's ended calls, by these marks, left processes running. */
+	/** Note that a stopping conversation's ended calls, by these marks, left processes running. */
 	note(session: string, marks: Iterable<string>): void;
 	/** What a reap spares: what is carried, and what parks noted within a day. */
 	spared(carried: CarriedCalls): CarriedCalls;
@@ -105,6 +109,15 @@ export function leftRunning(options: {
 				groups: carried.groups,
 			};
 		},
-		closed() {},
+		closed(session) {
+			const left = read();
+			const kept = left.filter((call) => call.session !== session);
+			if (kept.length === left.length) return;
+			try {
+				writeWhole(file, `${JSON.stringify(kept)}\n`);
+			} catch (error) {
+				options.report(error);
+			}
+		},
 	};
 }
