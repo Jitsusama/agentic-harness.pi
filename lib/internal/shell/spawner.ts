@@ -28,6 +28,14 @@
  * taken for one left behind. Until it was read there, pis on the Mac kept
  * an idle spawner beside their own (two of 49 at 03:20 on 16 November).
  *
+ * The machine files a pi-spawner's whole tree of commands under the
+ * quest its own environment names (core's jobs-sorter reads `PI_QUEST`
+ * from the tree's root), so each is started naming the quest of the
+ * first command it runs. A command for another quest retires it, and
+ * the next is started naming that one. Before that, a host's spawners
+ * carried the host's environment, which names no quest, and every
+ * hosted session's work was filed as no quest's (VRZKID, 15 November).
+ *
  * When pi goes, pi-spawner kills every command it still runs but one kept
  * on disk (shell-workflow's keeping.ts), which a shared host hands to the
  * next. A spawner from before that answers no `keeps`, so through it no
@@ -74,6 +82,9 @@ const CLOSED = "c".charCodeAt(0);
 const EXITED = "x".charCodeAt(0);
 const FAILED = "e".charCodeAt(0);
 
+/** The variable naming the quest a command's work is for. */
+const QUEST_VARIABLE = "PI_QUEST";
+
 /** A frame's kind, id and length, ahead of its payload. */
 const HEAD_BYTES = 9;
 
@@ -107,7 +118,8 @@ export interface SpawnerOptions {
 	program?: string;
 	/** How the program is found, when `program` doesn't say. */
 	find?: (program: string) => string | undefined;
-	start?: (program: string) => Started;
+	/** Start the program, its environment naming `quest`, the work it runs. */
+	start?: (program: string, quest?: string) => Started;
 	/** Whether the program at a path spares kept commands when pi goes. */
 	asksKeeps?: (program: string) => Promise<boolean>;
 	/** Kill a command's process group, as pi's stop does. */
@@ -185,6 +197,7 @@ export function spawnedBy(
 	}
 	const kill = options.kill ?? killGroup;
 	let link: Link | undefined;
+	let linkQuest: string | undefined;
 	let lost = false;
 	let shell: Shell | undefined = options.shell;
 	let found: { program: string | undefined } | undefined;
@@ -199,19 +212,32 @@ export function spawnedBy(
 		return found.program;
 	};
 	let keeps: Promise<boolean> | undefined;
-	const linked = (): Link | undefined => {
+	const linked = (quest: string | undefined): Link | undefined => {
 		if (lost) return undefined;
-		if (link) return link;
+		if (link && linkQuest === quest) return link;
+		// Another quest's work: the one running closes once its own commands
+		// end, and the next is filed under this quest from its start.
+		link?.retire();
+		link = undefined;
 		const program = programOf();
 		if (program === undefined) {
 			lost = true;
 			return undefined;
 		}
 		try {
-			link = connect((options.start ?? startProgram)(program), kill, () => {
-				lost = true;
-				link = undefined;
-			});
+			let made: Link | undefined;
+			made = connect(
+				(options.start ?? startProgram)(program, quest),
+				kill,
+				() => {
+					// One retired for another quest's ends with no loss to the next.
+					if (link !== made) return;
+					lost = true;
+					link = undefined;
+				},
+			);
+			link = made;
+			linkQuest = quest;
 		} catch {
 			// A program that won't start leaves pi's own spawn to do it.
 			lost = true;
@@ -229,7 +255,7 @@ export function spawnedBy(
 			}
 			const through =
 				shell.commandTransport !== "stdin" && settings.env !== undefined
-					? linked()
+					? linked(settings.env[QUEST_VARIABLE])
 					: undefined;
 			if (through === undefined) return fallback.exec(command, cwd, settings);
 			return runThrough(through, shell, command, cwd, settings, kill);
@@ -473,10 +499,11 @@ function killGroup(pid: number): void {
  * never reach it, and without holding pi open at its exit, when the end
  * of its input tells it to kill every command it still runs.
  */
-function startProgram(program: string): Started {
+function startProgram(program: string, quest?: string): Started {
 	const child = spawn(program, [], {
 		stdio: ["pipe", "pipe", "ignore"],
 		detached: true,
+		env: quest ? { ...process.env, [QUEST_VARIABLE]: quest } : process.env,
 	});
 	child.unref();
 	for (const stream of [child.stdin, child.stdout]) {

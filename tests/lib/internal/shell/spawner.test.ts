@@ -340,7 +340,10 @@ describe("whether a kept command outlives pi's going", () => {
 
 			const asked = join(dir, "new", "pi-spawner");
 			expect(asksKeeps, "asked where the link led").toHaveBeenCalledWith(asked);
-			expect(start, "started the one it asked").toHaveBeenCalledWith(asked);
+			expect(start, "started the one it asked").toHaveBeenCalledWith(
+				asked,
+				undefined,
+			);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -395,6 +398,83 @@ describe("asking a pi-spawner whether it keeps", () => {
 			await spawnerKeeps("/no/such/pi-spawner"),
 			"no program at that path",
 		).toBe(false);
+	});
+});
+
+describe("the quest a pi-spawner's work is filed under", () => {
+	const FIRST = "QEST-20261116-AAAAAA";
+	const SECOND = "QEST-20261116-BBBBBB";
+
+	/** A start handing out `programs` in turn, keeping the quest each was named. */
+	function starting(...programs: SpawnerStandIn[]) {
+		const quests: (string | undefined)[] = [];
+		const start = (_program: string, quest?: string) => {
+			quests.push(quest);
+			const next = programs.shift();
+			if (!next) throw new Error("started more often than stood in for");
+			return next.start();
+		};
+		return { quests, start };
+	}
+
+	it("is the quest of the first command it runs", async () => {
+		const program = standIn();
+		const { quests, start } = starting(program);
+		const { operations } = through({ start });
+
+		void operations.exec("true", "/", {
+			onData: () => {},
+			env: { PI_QUEST: FIRST },
+		});
+		await askedFor(program, 1);
+
+		expect(quests, "the quests each pi-spawner was started with").toEqual([
+			FIRST,
+		]);
+	});
+
+	it("starts another for another quest's command, closing the first once its own end", async () => {
+		const first = standIn();
+		const second = standIn();
+		const { quests, start } = starting(first, second);
+		const { operations } = through({ start });
+		const job = operations.exec("sleep 60", "/", {
+			onData: () => {},
+			env: { PI_QUEST: FIRST },
+		});
+		await askedFor(first, 1);
+		first.started(1, 20);
+		await delivered();
+
+		const next = operations.exec("true", "/", {
+			onData: () => {},
+			env: { PI_QUEST: SECOND },
+		});
+		await askedFor(second, 1);
+		expect(quests, "the quests each pi-spawner was started with").toEqual([
+			FIRST,
+			SECOND,
+		]);
+		expect(first.hungUp(), "closed under its job").toBe(false);
+
+		first.closed(1, 1);
+		first.closed(1, 2);
+		first.exited(1, 0);
+		await expect(job).resolves.toEqual({ exitCode: 0 });
+		expect(first.hungUp(), "closed once its job ended").toBe(true);
+		first.stop();
+		second.ends(1, 21);
+		await next;
+
+		void operations.exec("true", "/", {
+			onData: () => {},
+			env: { PI_QUEST: SECOND },
+		});
+		await askedFor(second, 2);
+		expect(quests, "the same quest's command went to the same one").toEqual([
+			FIRST,
+			SECOND,
+		]);
 	});
 });
 
