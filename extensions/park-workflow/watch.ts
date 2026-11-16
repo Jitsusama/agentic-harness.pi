@@ -17,6 +17,8 @@ import {
 	holderCommand,
 	holderRecord,
 	isRestartAsk,
+	OLD_PARK_AFTER_MS,
+	OLD_PI_MS,
 	opensOnlyItself,
 	PARK_ASK,
 	PARK_ENV,
@@ -180,6 +182,8 @@ export interface WatchOptions {
 	readonly clock?: boolean;
 	/** This process, which its holder's record must name to park. */
 	readonly pid?: number;
+	/** When this process started, by `now`'s clock, which an old one parks sooner by. */
+	readonly startedAt?: number;
 	/**
 	 * The app id of the window the desktop has focused, or null when it
 	 * can't be told; asked only as a restart is weighed.
@@ -394,6 +398,7 @@ export function watch(
 	options: WatchOptions = {},
 ): Watch {
 	const now = options.now ?? Date.now;
+	const startedAt = options.startedAt ?? now() - process.uptime() * 1000;
 	const env = options.env ?? process.env;
 	const wake = env[WAKE_ENV] ?? "";
 	const again = env[AGAIN_ENV] ?? "";
@@ -448,7 +453,15 @@ export function watch(
 	const dueAfterMs = (): number | undefined => {
 		const usual = parkAfterMs(session, options.env, options.switchPath);
 		if (env[PARK_ENV] === "off") return usual;
-		return parkingHost() && hosted()?.draining?.(session) === true ? 0 : usual;
+		if (parkingHost()) {
+			return hosted()?.draining?.(session) === true ? 0 : usual;
+		}
+		if (usual === undefined) return usual;
+		// A plain pi parks sooner once its process is old, since its wake
+		// starts a fresh one; a host's conversation keeps the host's process.
+		return now() - startedAt >= OLD_PI_MS
+			? Math.min(usual, OLD_PARK_AFTER_MS)
+			: usual;
 	};
 	const end = () => {
 		parked = true;

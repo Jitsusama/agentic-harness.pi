@@ -264,8 +264,23 @@ export function holderRecord(
 	return isRecord(record) ? record : undefined;
 }
 
-/** How long a session waits idle before it parks, once parking is on. */
-export const PARK_AFTER_MS = 60 * 60 * 1000;
+/**
+ * How long a session waits idle before it parks, once parking is on:
+ * half an hour, since a window in sight never parks and a key wakes one
+ * in seconds, while each idle one holds a quarter of a gigabyte or more.
+ */
+export const PARK_AFTER_MS = 30 * 60 * 1000;
+
+/**
+ * How old a pi process is before it parks sooner: on 15 November one
+ * over a day old held 481 MiB against 267 MiB for one under an hour,
+ * since what a long run gathers stays with the process, and a wake
+ * starts a fresh one.
+ */
+export const OLD_PI_MS = 24 * 60 * 60 * 1000;
+
+/** How long a pi process over {@link OLD_PI_MS} old waits idle before it parks. */
+export const OLD_PARK_AFTER_MS = 10 * 60 * 1000;
 
 /**
  * How long a session the switch names waits idle before it parks: long

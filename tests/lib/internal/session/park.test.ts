@@ -52,7 +52,7 @@ describe("whether a session parks, and after how long", () => {
 		expect(parkAfterMs("s-1", {}, parkSwitch(folder))).toBeUndefined();
 	});
 
-	it("parks every session after an hour once the switch or the environment says on", () => {
+	it("parks every session after half an hour once the switch or the environment says on", () => {
 		expect(parkAfterMs("s-1", {}, switchSays("on"))).toBe(PARK_AFTER_MS);
 		expect(parkAfterMs("s-1", { PI_PARK: "on" }, parkSwitch(folder))).toBe(
 			PARK_AFTER_MS,
