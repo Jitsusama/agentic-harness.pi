@@ -47,6 +47,7 @@ import {
 } from "../../../lib/mesh/thread.ts";
 import { dayOf } from "../../../lib/mesh/transport.ts";
 import { NOTED } from "../delivery.ts";
+import { takenAtNextLook } from "../steer.ts";
 import type { Handing } from "./handing.ts";
 import {
 	answeringAt,
@@ -494,7 +495,8 @@ export function createHearing(m: MeshState, f: Handing) {
 		await countLive(everyone);
 		m.peer?.refresh(everyone);
 		identity();
-		await m.steering?.look();
+		// This session's inboxes never hold back another peer's wake.
+		await m.steering?.look().catch(takenAtNextLook);
 		// A parked peer told to close or carry is started again to do it.
 		if (m.paths.steer !== undefined) {
 			await wakeSteered(everyone, m.paths.steer, isParked, askWake);

@@ -36,6 +36,11 @@ export interface SteeringHost {
 	readonly deliver: (steer: Steer, inbox: string) => void;
 	/** Says on screen that a file was set aside, and which. */
 	readonly setAside: (inbox: string, names: readonly string[]) => void;
+	/**
+	 * Says, where it can, that a steer taken off its inbox could not be
+	 * delivered: it is claimed already, so this is the trace it leaves.
+	 */
+	readonly undelivered?: (steer: Steer, inbox: string) => void;
 }
 
 /** Steering for one session, until it is stopped. */
@@ -80,21 +85,28 @@ export function createSteering(host: SteeringHost): Steering {
 					// An inbox that cannot be read now is read at the next look.
 					return;
 				}
-				// Each is claimed already, so one that fails costs none after it.
-				const failed: unknown[] = [];
+				// Each is claimed already, so one that fails costs none after it,
+				// and the look or watch that took it carries on.
 				for (const steer of taken.steers) {
 					try {
 						host.deliver(steer, inbox);
-					} catch (error) {
-						failed.push(error);
+					} catch {
+						undelivered(steer, inbox);
 					}
 				}
 				if (taken.bad.length > 0) host.setAside(inbox, taken.bad);
-				if (failed.length > 0) throw failed[0];
 			});
 			takers.set(inbox, takes);
 		}
 		return takes();
+	};
+
+	const undelivered = (steer: Steer, inbox: string) => {
+		try {
+			host.undelivered?.(steer, inbox);
+		} catch {
+			// A session gone as its steer arrived has no screen left to say it on.
+		}
 	};
 
 	const watchFrom = async (inbox: string): Promise<void> => {
@@ -104,7 +116,7 @@ export function createSteering(host: SteeringHost): Steering {
 			await take(inbox);
 			if (stopped || !wanted.has(inbox)) return;
 			const watcher = watch(inbox, (_kind, name) => {
-				if (name?.endsWith(".json")) void take(inbox).catch(lookAgain);
+				if (name?.endsWith(".json")) void take(inbox).catch(takenAtNextLook);
 			});
 			watcher.unref?.();
 			watching.set(inbox, watcher);
@@ -256,10 +268,9 @@ export function lookAnswerText(look: Look, from?: string): string {
 	return `[${asker(from)} answered from outside this window what this session put on their look list, "${look.title}".${asked} They picked: ${label}. Act on it, and take nothing back: the look is already off their list.]`;
 }
 
-/** Nothing, for a take whose delivery threw: the next look takes again. */
-export function lookAgain(): void {
-	// A session gone as its steer arrived: the others taken with it were
-	// delivered, and what still waits is taken at the next look.
+/** Nothing, for a look that failed: what still waits, the next one takes. */
+export function takenAtNextLook(): void {
+	// No retry here: the minute's look reads every inbox again.
 }
 
 /** Who a steer's writer reads as: Joel by name, else the person. */

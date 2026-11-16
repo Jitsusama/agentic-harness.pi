@@ -149,6 +149,8 @@ export function tellLooksExpired(
  * thread, since a host runs every conversation's clock on one, and a
  * step reads it again, at once, only when it has something to write,
  * so it never writes over what another session changed meanwhile.
+ * Whether a look's quest ended is still read on the thread: a stat of
+ * its README each tick, kept parsed while it stands.
  */
 export async function keepLooksFor(
 	pi: Pick<ExtensionAPI, "exec" | "sendMessage">,
