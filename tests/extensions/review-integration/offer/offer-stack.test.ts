@@ -24,7 +24,11 @@ import {
 } from "../../../../lib/core/review/index.ts";
 import { composePrBody } from "../../../../lib/core/sections/index.ts";
 import { stubProvider } from "../../../support/stub-provider.ts";
-import { activate, HEADLESS, toolNamed } from "../../support/review-extension.ts";
+import {
+	activate,
+	HEADLESS,
+	toolNamed,
+} from "../../support/review-extension.ts";
 
 const world: RepoLocator = { key: "meteorite:shop/world" };
 

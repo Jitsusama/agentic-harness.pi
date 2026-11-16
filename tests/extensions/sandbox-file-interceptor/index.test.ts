@@ -26,7 +26,10 @@ import {
 	toolPaths,
 } from "../../../lib/internal/sandbox-files.ts";
 import { offerShellEnvironment } from "../../../lib/internal/shell/environment.ts";
-import { cutTreeDir, treeRecordDir } from "../../../lib/internal/work-records.ts";
+import {
+	cutTreeDir,
+	treeRecordDir,
+} from "../../../lib/internal/work-records.ts";
 
 // What the interceptor would write to the system's log, kept here rather
 // than written to the machine's real one.

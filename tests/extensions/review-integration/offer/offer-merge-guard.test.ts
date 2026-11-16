@@ -22,7 +22,11 @@ import {
 	registerReviewProvider,
 } from "../../../../lib/core/review/index.ts";
 import { stubProvider } from "../../../support/stub-provider.ts";
-import { activate, HEADLESS, toolNamed } from "../../support/review-extension.ts";
+import {
+	activate,
+	HEADLESS,
+	toolNamed,
+} from "../../support/review-extension.ts";
 
 const AT = "b8210c7420448a5390ca3b2d8bc65c5ceab2af0f";
 const CLAIMED = "b8210c7409c9c25e5c62ac0cbe0d84d8c2ea0d33";

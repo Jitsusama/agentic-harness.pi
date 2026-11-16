@@ -129,7 +129,7 @@ describe("a credential where a file or a shell keeps it", () => {
 
 	it("keeps an address and its user, whatever the password's shape", () => {
 		const lines = [
-			`origin https://x-access:[secret scrubbed: credential]@github.com/a/b.git`,
+			"origin https://x-access:[secret scrubbed: credential]@github.com/a/b.git",
 			`registry=https://npm:${mixed(32)}@npm.example.com/repo/`,
 		].join("\n");
 		expect(scrubSecrets(lines).text).toBe(

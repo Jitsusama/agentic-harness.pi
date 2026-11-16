@@ -29,7 +29,11 @@ import {
 	SESSION_LANDED,
 } from "../../../../lib/internal/session/landings.ts";
 import { stubProvider } from "../../../support/stub-provider.ts";
-import { activate, HEADLESS, toolNamed } from "../../support/review-extension.ts";
+import {
+	activate,
+	HEADLESS,
+	toolNamed,
+} from "../../support/review-extension.ts";
 
 const NOW = Date.parse("2026-11-09T06:00:00Z");
 
