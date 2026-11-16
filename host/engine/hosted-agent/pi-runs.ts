@@ -62,7 +62,10 @@ export class PiRuns {
 			if (this.holds > 0) return;
 			const open = this.open;
 			this.open = undefined;
-			if (!open) return;
+			// A parked host is stopping and shows pi nothing more: its run stays
+			// open, unsettled, and goes with the session, so no extension wakes to
+			// act on a conversation that is closing.
+			if (!open || this.parked()) return;
 			open.end();
 			await open.settled;
 		};
