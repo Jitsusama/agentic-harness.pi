@@ -101,8 +101,16 @@ export function createHeavyCalls(
 	const background = (toolCallId: string, jobId: string, command: string) => {
 		const subject = backgroundSubject(jobId, command);
 		calls.set(toolCallId, subject);
+		// Quiet: two sessions running the same script share job ids and
+		// commands, and a note that both run at once would land in each
+		// conversation as words its person never said.
 		heavy({
-			take: { subject, why: firstWords(command), ms: BACKGROUND_MS },
+			take: {
+				subject,
+				why: firstWords(command),
+				ms: BACKGROUND_MS,
+				quiet: true,
+			},
 		});
 	};
 	// The heavy work a command runs by its kind, claimed, if it runs any.

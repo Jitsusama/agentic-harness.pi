@@ -504,7 +504,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				own.release("heavy", event.release);
 				return undefined;
 			}
-			const { subject, why, ms } = event.take;
+			const { subject, why, ms, quiet } = event.take;
 			const now = Date.now();
 			const fresh = own.held("heavy", subject, now) === undefined;
 			own.take(
@@ -514,7 +514,7 @@ export function createLeasing(at: LeaseSurroundings): Leasing {
 				why,
 				now,
 			);
-			if (!fresh || at.queueKept?.()) return undefined;
+			if (!fresh || quiet === true || at.queueKept?.()) return undefined;
 			const overlapping = await untold(
 				othersOn(at.board.all(), peer.session, "heavy", subject, now),
 			);

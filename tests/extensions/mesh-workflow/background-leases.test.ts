@@ -34,6 +34,7 @@ describe("a command handed to the background", () => {
 					subject: "background j7: ls -la",
 					why: "ls -la",
 					ms: MOST_HOLD_MS,
+					quiet: true,
 				},
 			},
 		]);
@@ -91,6 +92,7 @@ describe("a command handed to the background", () => {
 					subject: "background j3: pnpm -s lint",
 					why: "pnpm -s lint",
 					ms: MOST_HOLD_MS,
+					quiet: true,
 				},
 			},
 			{ release: "background j3: pnpm -s lint" },
