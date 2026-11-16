@@ -7,6 +7,9 @@
  * one ends in the machine's mounts without it; a session running
  * nothing is judged by what its environment asks, and by whether a
  * census saw its commands fenced in the last day.
+ *
+ * Long because every case lays its tree through the one set of fixtures
+ * below, and a file split from it would carry them all again.
  */
 
 import {
