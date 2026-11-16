@@ -75,12 +75,17 @@ function executeSignatures(
 	const lines = source.split("\n");
 	lines.forEach((text, index) => {
 		const after =
-			/(?:async\s+execute\s*\(|execute\s*:\s*async\s*\()\s*(.*)$/.exec(text)?.[1];
+			/(?:async\s+execute\s*\(|execute\s*:\s*async\s*\()\s*(.*)$/.exec(
+				text,
+			)?.[1];
 		if (after === undefined) return;
 		// A multi-line signature puts the first parameter on the next line.
 		const head = after.trim();
 		const rest = head === "" ? (lines[index + 1] ?? "").trim() : head;
-		const first = firstPiece(firstPiece(firstPiece(rest, ","), ")"), ":").trim();
+		const first = firstPiece(
+			firstPiece(firstPiece(rest, ","), ")"),
+			":",
+		).trim();
 		found.push({ line: index + 1, first });
 	});
 	return found;

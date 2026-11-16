@@ -174,7 +174,11 @@ export function signalsFromResult(
 	if (trimmed.startsWith("⊘")) {
 		const [first, ...rest] = trimmed.slice(1).split("\n");
 		const signals: Signal[] = [
-			{ kind: "refusal", key: `${toolName}: ${normalise(first ?? "")}`, sample },
+			{
+				kind: "refusal",
+				key: `${toolName}: ${normalise(first ?? "")}`,
+				sample,
+			},
 		];
 		for (const line of rest) {
 			if (/^\s*- /.test(line)) {
