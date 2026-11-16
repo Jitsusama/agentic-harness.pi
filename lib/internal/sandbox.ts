@@ -100,9 +100,9 @@ import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import {
 	inStore,
 	type Offload,
+	offloadAt,
 	offloadedOutside,
 	offloadKeptIn,
-	takesLentOnly,
 } from "./offload-exemption.ts";
 import { questWorkspacesRoot } from "./quest/workspace-root.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
@@ -562,9 +562,7 @@ function fenceFor(
 		bwrap,
 		landrun,
 		...(githubDoor ? { githubDoor } : {}),
-		...(program && env
-			? { offload: { program, env, lentOnly: takesLentOnly(program) } }
-			: {}),
+		...(program && env ? { offload: offloadAt(program, env) } : {}),
 	};
 }
 

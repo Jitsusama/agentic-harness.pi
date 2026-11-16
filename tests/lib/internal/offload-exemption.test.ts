@@ -28,6 +28,7 @@ import {
 	offloadedOutside,
 	offloadKeptIn,
 	takesLentOnly,
+	takesOutside,
 } from "../../../lib/internal/offload-exemption.ts";
 import { folderGit, heldTree } from "../../../lib/internal/sandbox-trees.ts";
 
@@ -504,5 +505,97 @@ describe("the fence's guarded git folders", () => {
 			candidates.length,
 		);
 		expect([...listed]).toContain(join(home, "src/a/.git"));
+	});
+});
+
+// ISXEG8's term (VRZKID [fc9b30ee]): the exemption's environment is built
+// once, by `nix-offload outside`, for the harness and a Mac's gate alike.
+describe("a call through nix-offload outside", () => {
+	const OUTSIDE = { ...OFFLOAD, outside: true };
+	const through = (command: string, place: Partial<OffloadPlace> = {}) =>
+		offloadedOutside(command, OUTSIDE, {
+			home: "/home/someone",
+			env: { USER: "someone", XDG_RUNTIME_DIR: "/run/user/1000", SECRET: "x" },
+			...place,
+		});
+
+	it("gives outside only the home, the account and the runtime folder", () => {
+		expect(through(DRV_CALL)).toBe(
+			[
+				"exec -a env",
+				`'${OFFLOAD.env}'`,
+				"-i",
+				"'HOME=/home/someone'",
+				"'USER=someone'",
+				"'XDG_RUNTIME_DIR=/run/user/1000'",
+				`'${OFFLOAD.program}'`,
+				"outside",
+				"--",
+				"'there'",
+				`'${DRV}'`,
+			].join(" "),
+		);
+	});
+
+	it("names a held tree's git folder and files, and keeps its commit to the lent builders", () => {
+		const text = through("nix-offload there --changed", HELD_TREE);
+		expect(text).toBe(
+			[
+				"cd '/tree' &&",
+				"exec -a env",
+				`'${OFFLOAD.env}'`,
+				"-i",
+				"'HOME=/home/someone'",
+				"'USER=someone'",
+				"'XDG_RUNTIME_DIR=/run/user/1000'",
+				`'${OFFLOAD.program}'`,
+				"outside --git-dir '/repo/.git' --work-tree '/tree' --lent-only --",
+				"'there'",
+				"'--changed'",
+			].join(" "),
+		);
+		expect(
+			through(DRV_CALL, HELD_TREE),
+			"a derivations' build goes where it goes",
+		).not.toContain("--lent-only");
+	});
+
+	it("lets out no more than the list did", () => {
+		for (const command of [
+			"nix-offload there --here /tree checks.x86_64-linux.a",
+			"nix-offload there /tree#checks.x86_64-linux.a",
+			"nix-offload there --changed",
+		]) {
+			expect(through(command), command).toBeUndefined();
+		}
+	});
+
+	it("asks nix-offload once whether it runs outside", () => {
+		const folder = mkdtempSync(join(tmpdir(), "offload-outside-"));
+		try {
+			const program = (name: string, help: string) => {
+				const path = join(folder, name);
+				const script = [
+					"#!/bin/sh",
+					`echo asked >> ${join(folder, `${name}.asked`)}`,
+					`[ "$1 $2" = "outside --help" ] && echo '${help}'`,
+					"exit 0",
+				];
+				writeFileSync(path, `${script.join("\n")}\n`, { mode: 0o755 });
+				return path;
+			};
+			const newer = program("newer", "nix-offload outside: run a call");
+			const older = program("older", "nix-offload: unknown command outside");
+			expect(takesOutside(newer), "one that runs it").toBe(true);
+			expect(takesOutside(newer), "asked again").toBe(true);
+			expect(takesOutside(older), "one that doesn't").toBe(false);
+			expect(takesOutside(join(folder, "none")), "none there").toBe(false);
+			expect(
+				readFileSync(join(folder, "newer.asked"), "utf8"),
+				"asked once",
+			).toBe("asked\n");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
 	});
 });

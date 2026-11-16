@@ -49,13 +49,74 @@ export interface Offload {
 	 * commit goes out through it.
 	 */
 	readonly lentOnly?: boolean;
+	/**
+	 * Whether this nix-offload runs a call through `outside` (core #4914),
+	 * which builds the exemption's environment itself, `NIX_CONFIG`
+	 * turning off a flake's own settings among it, so the terms are kept
+	 * once for the harness and a Mac's gate alike (ISXEG8, VRZKID [fc9b30ee]).
+	 * One from before it is given the same list from here, less `NIX_CONFIG`.
+	 */
+	readonly outside?: boolean;
 }
 
 /** How long `there --takes` may take to answer before it counts as no. */
 const TAKES_MS = 5_000;
 
-/** What each nix-offload in the store said it takes, by its path. */
-const taken = new Map<string, boolean>();
+/**
+ * What each nix-offload in the store answered, by the question and its
+ * path, since a path in the store never changes.
+ */
+const answered = new Map<string, boolean>();
+
+/**
+ * Whether the nix-offload at `program`, asked `question` once, answers as
+ * `judge` wants. One that can't answer, or answers otherwise, doesn't.
+ */
+function answersOnce(
+	program: string,
+	question: readonly string[],
+	judge: (said: string) => boolean,
+): boolean {
+	const key = `${question.join(" ")} ${program}`;
+	const known = answered.get(key);
+	if (known !== undefined) return known;
+	let answers = false;
+	try {
+		answers = judge(
+			execFileSync(program, [...question], {
+				encoding: "utf8",
+				timeout: TAKES_MS,
+				stdio: ["ignore", "pipe", "ignore"],
+			}),
+		);
+	} catch {
+		// An older nix-offload refuses the question, or none answered in
+		// time: either way it can't be trusted to do what was asked of it.
+	}
+	answered.set(key, answers);
+	return answers;
+}
+
+/** The nix-offload at `program`, started by `env`, with what it takes. */
+export function offloadAt(program: string, env: string): Offload {
+	return {
+		program,
+		env,
+		lentOnly: takesLentOnly(program),
+		outside: takesOutside(program),
+	};
+}
+
+/**
+ * Whether the nix-offload at `program` runs `outside`, asked once a path
+ * by its `--help`, which opens with its name. One without it is given
+ * the exemption's list from here.
+ */
+export function takesOutside(program: string): boolean {
+	return answersOnce(program, ["outside", "--help"], (said) =>
+		said.startsWith("nix-offload outside:"),
+	);
+}
 
 /**
  * Whether the nix-offload at `program` takes `--lent-only`, asked once
@@ -63,23 +124,9 @@ const taken = new Map<string, boolean>();
  * or says otherwise, doesn't.
  */
 export function takesLentOnly(program: string): boolean {
-	const known = taken.get(program);
-	if (known !== undefined) return known;
-	let takes = false;
-	try {
-		takes = execFileSync(program, ["there", "--takes"], {
-			encoding: "utf8",
-			timeout: TAKES_MS,
-			stdio: ["ignore", "pipe", "ignore"],
-		})
-			.split("\n")
-			.includes("lent-only");
-	} catch {
-		// An older nix-offload refuses `--takes`, or none answered in time:
-		// either way it can't be trusted to keep a run to the lent builders.
-	}
-	taken.set(program, takes);
-	return takes;
+	return answersOnce(program, ["there", "--takes"], (said) =>
+		said.split("\n").includes("lent-only"),
+	);
 }
 
 /**
@@ -244,7 +291,9 @@ export interface OffloadPlace {
  * from a held tree, its commit (`sendsCommit`), which goes to the lent
  * builders alone. It runs the store's binary by its path with the call's own words, in an environment of its own: the home and runtime
  * folders, the account's name, the system's `PATH`, and nothing from
- * the shell that asked.
+ * the shell that asked. A nix-offload that runs `outside` builds that
+ * environment itself and is given only the home, the account and the
+ * runtime folder (`throughOutside`).
  *
  * A derivations' build reads no git, but nix-offload may run some for
  * minutes, and a fenced command could point a tree's `.git` at a git
@@ -285,6 +334,9 @@ export function offloadedOutside(
 		sendsCommit(words.slice(1));
 	if (!(sends || letOut(words.slice(1)))) return undefined;
 	const user = place.env.USER;
+	if (offload.outside === true) {
+		return throughOutside(words, offload, place, held, sends);
+	}
 	const environment = [
 		`HOME=${place.home}`,
 		`PATH=${systemPath(user)}`,
@@ -309,6 +361,45 @@ export function offloadedOutside(
 		"-i",
 		...environment.map(quoted),
 		quoted(offload.program),
+		...words.map(quoted),
+	].join(" ");
+}
+
+/**
+ * The shell text that runs a let-out call through `nix-offload outside`,
+ * which builds the rest of the environment from these three alone: the
+ * home, the account's name and the runtime folder. A tree's git folder
+ * and files go as its flags, and a commit's call keeps to the lent
+ * builders with `--lent-only`.
+ */
+function throughOutside(
+	words: readonly string[],
+	offload: Offload,
+	place: OffloadPlace,
+	held: HeldGit | undefined,
+	sends: boolean,
+): string {
+	const user = place.env.USER;
+	const account = [
+		`HOME=${place.home}`,
+		...(user ? [`USER=${user}`] : []),
+		...(place.env.XDG_RUNTIME_DIR
+			? [`XDG_RUNTIME_DIR=${place.env.XDG_RUNTIME_DIR}`]
+			: []),
+	];
+	return [
+		...(held ? ["cd", quoted(held.folder), "&&"] : []),
+		"exec -a env",
+		quoted(offload.env),
+		"-i",
+		...account.map(quoted),
+		quoted(offload.program),
+		"outside",
+		...(held
+			? ["--git-dir", quoted(held.gitDir), "--work-tree", quoted(held.folder)]
+			: []),
+		...(sends ? ["--lent-only"] : []),
+		"--",
 		...words.map(quoted),
 	].join(" ");
 }
