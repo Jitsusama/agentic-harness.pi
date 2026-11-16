@@ -46,6 +46,8 @@ export interface LeftRunning {
 	note(session: string, marks: Iterable<string>): void;
 	/** What a reap spares: what is carried, and what parks noted within a day. */
 	spared(carried: CarriedCalls): CarriedCalls;
+	/** A conversation closed for good: spare no longer what its parks kept. */
+	closed(session: string): void;
 }
 
 function isLeftCall(value: unknown): value is LeftCall {
@@ -103,5 +105,6 @@ export function leftRunning(options: {
 				groups: carried.groups,
 			};
 		},
+		closed() {},
 	};
 }
