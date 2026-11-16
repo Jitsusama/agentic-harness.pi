@@ -78,6 +78,12 @@ describe("reading how pi-fence was asked", () => {
 		expect(FENCE_RUN_HELP, "its help names it").toContain("pi-fence census");
 	});
 
+	it("says a census on a Mac can't judge, so its exit isn't read as sessions unfenced", () => {
+		expect(FENCE_RUN_HELP.replace(/\s+/g, " ")).toContain(
+			"Linux only: on macOS it can't judge and exits 1.",
+		);
+	});
+
 	it("says what is wrong with a missing or unknown kind, a stray option or no command", () => {
 		const wrongs = [
 			["--", "true"],
