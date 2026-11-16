@@ -135,6 +135,98 @@ describe("refusing to run where the fence can't hold", () => {
 		});
 		expect(made).toEqual({ refused: "bwrap isn't installed" });
 	});
+
+	it("refuses on a Mac without sandbox-exec, and the home folder there too", () => {
+		const bare = fenceRunText(asking(join(base, "plain")), {
+			env: {},
+			home,
+			platform: "darwin",
+			sandboxExec: undefined,
+		});
+		const homed = fenceRunText(asking(home), {
+			env: {},
+			home,
+			platform: "darwin",
+			sandboxExec: "/usr/bin/sandbox-exec",
+		});
+
+		expect(JSON.stringify(bare), "names what is missing").toContain(
+			"/usr/bin/sandbox-exec",
+		);
+		expect(bare).toHaveProperty("refused");
+		expect(homed).toHaveProperty("refused");
+	});
+});
+
+describe("the fence on a Mac", () => {
+	let home: string;
+	let folder: string;
+
+	beforeAll(() => {
+		home = realpathSync(mkdtempSync(join(tmpdir(), "fm-")));
+		folder = join(home, "work");
+		mkdirSync(join(home, ".ssh"), { recursive: true });
+		mkdirSync(folder, { recursive: true });
+	});
+
+	afterAll(() => rmSync(home, { recursive: true, force: true }));
+
+	const onMac = (kind: FenceRunAsk["kind"]) => {
+		const made = fenceRunText(
+			{ kind, folder, words: ["echo", "it's here"] },
+			{
+				env: {},
+				home,
+				platform: "darwin",
+				sandboxExec: "/usr/bin/sandbox-exec",
+			},
+		);
+		if (!("text" in made)) throw new Error(JSON.stringify(made));
+		return made.text;
+	};
+
+	it("tries the profile first and refuses with 126 when it doesn't apply", () => {
+		const text = onMac("fence");
+
+		expect(text).toMatch(
+			/^unset SSH_AUTH_SOCK\n'\/usr\/bin\/sandbox-exec' -p '\(version 1\)[^']*' \/usr\/bin\/true \|\| \{ [^\n]* exit 126; \}\nexec '\/usr\/bin\/sandbox-exec' -p '\(version 1\)[^']*' \/bin\/bash -c /,
+		);
+	});
+
+	it("hides ~/.ssh and keeps home's visible entries read-only but the folder's", () => {
+		const text = onMac("fence");
+
+		expect(text).toContain(
+			`(deny file-read* file-write* (subpath "${join(home, ".ssh")}"))`,
+		);
+		expect(text).toContain(`(deny file-write* (subpath "${home}"))`);
+		expect(text).toContain(
+			`(allow file-read* file-write* (subpath "${folder}"))`,
+		);
+	});
+
+	it("writes only the folder when strict, without letting back what is hidden", () => {
+		// The profile the command runs under, after the one tried on true.
+		const lines = (onMac("strict").split("\nexec ")[1] ?? "").split("\n");
+		const hidden = lines.indexOf(
+			`(deny file-read* file-write* (subpath "${join(home, ".ssh")}"))`,
+		);
+		const kept = lines.lastIndexOf(`(deny file-write* (subpath "${home}"))`);
+
+		expect(hidden, "~/.ssh is hidden").toBeGreaterThan(-1);
+		expect(kept, "home is kept from writes after it").toBeGreaterThan(hidden);
+		expect(lines.slice(kept + 1)).toContain(
+			`(allow file-read* file-write* (subpath "${folder}"))`,
+		);
+		expect(
+			lines
+				.slice(hidden + 1)
+				.some((line) =>
+					line.startsWith(`(allow file-read* (subpath "${home}"))`),
+				),
+			"nothing lets home's reads back after the hiding",
+		).toBe(false);
+	});
 });
 
 /** curl, as the store has it, for a fenced command to connect with. */

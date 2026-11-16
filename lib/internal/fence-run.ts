@@ -15,6 +15,10 @@
  *   kernel's Landlock that let a connect through still finds nothing
  *   there.
  *
+ * On a Mac, both are a sandbox-exec profile read from the same mounts
+ * (`fence-seatbelt.ts`): strict also keeps the home folder read-only
+ * but for the folder, and a Mac without sandbox-exec refuses.
+ *
  * The folder is where the command runs and what it may write, the
  * working directory when none is named. One that is the home folder,
  * holds it, or holds its repository's git folder is refused, since its
@@ -23,8 +27,13 @@
  * runs unfenced because the fence couldn't be laid.
  */
 
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { fenceArgs } from "./fence.ts";
+import {
+	SANDBOX_EXEC,
+	seatbeltProfile,
+	seatbeltText,
+} from "./fence-seatbelt.ts";
 import {
 	SANDBOX_VARIABLE,
 	type Sandbox,
@@ -68,6 +77,9 @@ Usage:
 Kinds:
   fence    the agent fence a pi session lays
   strict   the strict Landlock profile inside its root
+
+On a Mac both run under sandbox-exec, and strict writes
+only the folder.
 
 Options:
   --folder DIR   where it runs and may write, the working
@@ -121,7 +133,14 @@ export interface FenceRunPlace {
 	readonly home: string;
 	/** The fence this machine can lay, `sandbox.ts`'s reading of it. */
 	readonly sandbox?: Sandbox;
+	/** The system it runs on, this one's unless given. */
+	readonly platform?: NodeJS.Platform;
+	/** On a Mac, sandbox-exec, or nothing where it isn't there. */
+	readonly sandboxExec?: string | undefined;
 }
+
+/** The Nix daemon's socket on a Mac, which a fenced command builds through. */
+const MAC_NIX_DAEMON = "/nix/var/nix/daemon-socket/socket";
 
 /**
  * The shell text that runs `ask` fenced, to be run by bash in its
@@ -141,6 +160,9 @@ export function fenceRunText(
 	};
 	const unfenced = unfencedFolder(folder, home, `pi-fence --kind ${ask.kind}`);
 	if (unfenced) return { refused: unfenced };
+	if ((place.platform ?? process.platform) === "darwin") {
+		return macFenceText(ask, folder, place);
+	}
 	const sandbox = place.sandbox ?? sandboxFor(env);
 	if (sandbox.kind !== "fence") {
 		return {
@@ -186,5 +208,49 @@ export function fenceRunText(
 			"-- bash -c",
 			quoted(inner),
 		].join(" "),
+	};
+}
+
+/**
+ * The shell text that runs `ask` in the Mac's fence: the fence's own
+ * mounts for `folder` as a sandbox-exec profile, reaching the Nix
+ * daemon, and for strict the home folder read-only but the folder. A
+ * Mac without sandbox-exec refuses, so nothing runs unfenced.
+ */
+function macFenceText(
+	ask: FenceRunAsk,
+	folder: string,
+	place: FenceRunPlace,
+):
+	| { readonly folder: string; readonly text: string }
+	| { readonly refused: string } {
+	const sandboxExec =
+		"sandboxExec" in place
+			? place.sandboxExec
+			: existsSync(SANDBOX_EXEC)
+				? SANDBOX_EXEC
+				: undefined;
+	if (sandboxExec === undefined) {
+		return {
+			refused: `the fence on a Mac needs ${SANDBOX_EXEC}, which isn't there, so nothing runs`,
+		};
+	}
+	const { home } = place;
+	const mounts = fenceArgs({
+		home,
+		runtimeDir: undefined,
+		...sessionWorktrees(folder, undefined),
+	});
+	// Writes only, last: a read-only mount of the home folder here would
+	// let back what the fence's mounts hid in it.
+	const strict =
+		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
+	const { profile } = seatbeltProfile([...mounts, ...strict], {
+		sockets: [MAC_NIX_DAEMON],
+		home,
+	});
+	return {
+		folder,
+		text: seatbeltText(ask.words.map(quoted).join(" "), profile, sandboxExec),
 	};
 }
