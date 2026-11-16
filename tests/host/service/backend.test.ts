@@ -719,11 +719,12 @@ describe("the order a start resumes what it held", () => {
 	 */
 	async function heldThree() {
 		const first = backendWith(engine().fake);
-		const ids: string[] = [];
-		for (const id of ["a", "b", "c"])
-			ids.push(parseOpenResult(await first.execute({ ...open, id })).sessionId);
-		for (const id of ids) await host.stop(id);
-		const [a, b, c] = ids as [string, string, string];
+		const held = async (id: string) =>
+			parseOpenResult(await first.execute({ ...open, id })).sessionId;
+		const a = await held("a");
+		const b = await held("b");
+		const c = await held("c");
+		for (const id of [a, b, c]) await host.stop(id);
 		let go = (): void => undefined;
 		const going = new Promise<void>((resolve) => {
 			go = resolve;
@@ -783,6 +784,8 @@ describe("the order a start resumes what it held", () => {
 			id: "w",
 			op: "attach",
 			sessionId: c,
+			rows: 24,
+			columns: 80,
 		});
 		const woke = backend.wake(b);
 		const closed = backend.execute({
