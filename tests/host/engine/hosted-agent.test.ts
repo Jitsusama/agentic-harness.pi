@@ -212,7 +212,25 @@ const SCENARIOS = {
 	retry: "retries a provider's passing error by continuing the run",
 	overflow: "compacts on a context overflow and continues",
 	branch: "answers on the branch the session went back to",
+	"job-result":
+		"settles each run pi starts once, a job's result said after it as its own turn",
 } as const;
+
+/** The ends of pi's runs and the settles its extensions heard, in order. */
+function endsOf(observed: Observed): string[] {
+	return observed.events
+		.map((event) => event.type)
+		.filter((type) => type === "agent_end" || type === "agent_settled");
+}
+
+/** What an outbox noted once its result was said, or its wait ended. */
+function outboxOf(observed: Observed): unknown {
+	const outbox = observed.events.find((event) => event.type === "outbox");
+	return {
+		sends: Reflect.get(outbox ?? {}, "sends"),
+		waiting: Reflect.get(outbox ?? {}, "waiting"),
+	};
+}
 
 /** A message's text, its parts joined. */
 function textOf(message: { readonly content: unknown }): string {
@@ -281,6 +299,16 @@ const SHOWN: Partial<
 	branch: {
 		what: (observed) => said(observed, "user"),
 		is: ["first", "third"],
+	},
+	"job-result": {
+		what: (observed) => ({
+			ends: endsOf(observed),
+			outbox: outboxOf(observed),
+		}),
+		is: {
+			ends: ["agent_end", "agent_settled", "agent_end", "agent_settled"],
+			outbox: { sends: 1, waiting: 0 },
+		},
 	},
 };
 
@@ -504,6 +532,37 @@ describe("the hosted agent resuming a turn a restart cut off", {
 			rmSync(folder, { recursive: true, force: true });
 		}
 	});
+
+	// 15 November's soak: a job begun in a run a restart cut off reported only once a person typed, its conversation listed busy meanwhile. The host's own runs told extensions they began and never that they settled, so job-workflow's outbox waited on a settle that never came.
+	for (const [crash, carried] of [
+		["crash-in-tool", "a carried tool round"],
+		["crash-in-request-automated", "an ask again"],
+	] as const) {
+		it(`says a job's result that comes after ${carried} ends as its own turn, each run settled once`, async () => {
+			const folder = mkdtempSync(join(tmpdir(), "hosted-job-after-"));
+			try {
+				expect(await killed(crash, folder)).toBe("SIGKILL");
+				const { observed } = await reopenedWithReports(
+					folder,
+					"reopen-job-reports-after",
+				);
+				expect(
+					endsOf(observed),
+					"the carried run settles as it ends, and the result's run settles once",
+				).toEqual(["agent_end", "agent_settled", "agent_end", "agent_settled"]);
+				expect(
+					outboxOf(observed),
+					"the result went once and left the outbox",
+				).toEqual({ sends: 1, waiting: 0 });
+				expect(
+					said(observed, "assistant").slice(-2),
+					"the carried turn's answer, then the result's",
+				).toEqual(["after the restart", "and the job's result"]);
+			} finally {
+				rmSync(folder, { recursive: true, force: true });
+			}
+		});
+	}
 
 	it("takes no turn for a conversation with nothing to carry on", async () => {
 		const fresh = await observe("hosted", "fresh-taking-turns");

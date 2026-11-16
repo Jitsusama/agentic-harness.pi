@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
 	createOutbox,
+	type Outbox,
 	STEERED_RESULTS,
 } from "../../../../extensions/job-workflow/outbox.ts";
 import { holdMessagesThroughCarriedTurns } from "../../../../host/engine/carried-turn-messages.ts";
@@ -97,6 +98,20 @@ interface Coding {
 	};
 	readonly SettingsManager: { inMemory(settings: object): unknown };
 	createAgentSession(options: object): Promise<{ session: Session }>;
+	readonly DefaultResourceLoader: new (options: {
+		cwd: string;
+		agentDir: string;
+		settingsManager: unknown;
+		extensionFactories: readonly ((pi: ExtensionPi) => void)[];
+	}) => { reload(): Promise<void> };
+}
+
+/** What the fixture's extension uses of pi's extension API. */
+interface ExtensionPi {
+	on(
+		event: "agent_start" | "agent_settled" | "message_end",
+		handler: (event: Record<string, unknown>) => void,
+	): void;
 }
 
 /** What the fixture uses of pi's model runtime. */
@@ -165,6 +180,12 @@ interface Scenario {
 	models?: readonly object[];
 	/** The model the session selects, given the runtime and the scripted provider's id; its first model, otherwise. */
 	select?: (runtime: ModelRuntime, provider: string) => unknown;
+	/**
+	 * Load an extension that tells job-workflow's outbox what the session
+	 * does, as job-workflow's extension does, and notes each agent_settled
+	 * the extensions hear.
+	 */
+	listens?: boolean;
 }
 
 /** Two models of different sizes, for a scenario that tells which answered. */
@@ -186,6 +207,14 @@ const QUEUED_POLL_MS = 20;
 const OUTBOX_WAIT_MS = 10_000;
 /** How often it looks. */
 const OUTBOX_POLL_MS = 50;
+/** A background command's result, as job-workflow says one. */
+const JOB_RESULT = {
+	jobId: "j1",
+	label: "background command j1",
+	text: "soak job done",
+};
+/** The outbox the fixture's extension keeps, and how many prompts it sent, once pi loaded it. */
+let listened: { readonly box: Outbox; sends(): number } | undefined;
 /** How long a slow provider takes to its first token, deaf to an abort meanwhile. */
 const SLOW_FIRST_TOKEN_MS = 30_000;
 /** Resolve askedOnce, once the slow provider is asked. */
@@ -433,6 +462,15 @@ const scenarios: Record<string, Scenario> = {
 		persist: true,
 		turns: true,
 	},
+	/** As reopen-taking-turns, a background job's result coming once the carried run ended, as soak conversations' did on 15 November. */
+	"reopen-job-reports-after": {
+		responses: () => [say("after the restart"), say("and the job's result")],
+		tools: echo(async () => noteEffect("ping")),
+		drive: (session) => reportThroughTheExtension(session, JOB_RESULT),
+		persist: true,
+		turns: true,
+		listens: true,
+	},
 	/** As reopen-taking-turns, Joel typing into the conversation while its carried run waits for a turn. */
 	"reopen-typed-while-waiting": {
 		responses: () => [say("after the restart"), say("and your words")],
@@ -550,6 +588,15 @@ const scenarios: Record<string, Scenario> = {
 		tools: echo(),
 		drive: async () => {},
 		persist: true,
+	},
+	/** Answer a prompt, then say a background job's result through the extension's outbox once the run settled. */
+	"job-result": {
+		responses: () => [say("hello"), say("and the job's result")],
+		drive: async (session) => {
+			await session.prompt("hi");
+			await reportThroughTheExtension(session, JOB_RESULT);
+		},
+		listens: true,
 	},
 	"two-prompts": {
 		responses: () => [call("call-1", "ping"), say("first"), say("second")],
@@ -748,25 +795,38 @@ try {
 				})
 			: undefined;
 	let built: Session | undefined;
+	const builtSession = (): Session => {
+		if (!built) throw new Error("the session is not built yet");
+		return built;
+	};
+	const agentDir = join(folder, "agent");
+	const settingsManager = coding.SettingsManager.inMemory({
+		retry: { enabled: false },
+		compaction: { enabled: false },
+		...scenario.settings,
+	});
+	// pi's own loader, as createAgentSession builds it, with the fixture's extension beside.
+	const resourceLoader = scenario.listens
+		? new coding.DefaultResourceLoader({
+				cwd: folder,
+				agentDir,
+				settingsManager,
+				extensionFactories: [listeningExtension(builtSession)],
+			})
+		: undefined;
+	await resourceLoader?.reload();
 	const { session } = await coding.createAgentSession({
 		cwd: folder,
-		agentDir: join(folder, "agent"),
+		agentDir,
 		sessionManager: scenario.persist
 			? persisted()
 			: coding.SessionManager.inMemory(folder),
-		settingsManager: coding.SettingsManager.inMemory({
-			retry: { enabled: false },
-			compaction: { enabled: false },
-			...scenario.settings,
-		}),
+		settingsManager,
+		...(resourceLoader ? { resourceLoader } : {}),
 		modelRuntime,
 		model: selected,
 		noTools: "builtin",
-		customTools:
-			scenario.tools?.(() => {
-				if (!built) throw new Error("the session is not built yet");
-				return built;
-			}) ?? [],
+		customTools: scenario.tools?.(builtSession) ?? [],
 		...(conversation ? { createAgent: conversation.createAgent } : {}),
 	});
 	built = session;
@@ -935,6 +995,73 @@ async function sayThroughAnOutbox(
 	box.pause();
 	stop();
 	note({ type: "outbox", sends, waiting: box.waiting().length });
+}
+
+/**
+ * An extension that tells an outbox what the session does through pi's
+ * extension events, as job-workflow's does, steering and prompting as it
+ * does, and notes each agent_settled it hears.
+ */
+function listeningExtension(session: () => Session) {
+	return (pi: ExtensionPi): void => {
+		let sends = 0;
+		const box = createOutbox({
+			send: (text) => {
+				sends++;
+				session()
+					.prompt(text)
+					.catch((error: unknown) => {
+						note({ type: "prompt_refused", error: String(error) });
+					});
+			},
+			steer: (text) => {
+				if (session().isIdle) throw new Error("no run to put it in");
+				void session().sendCustomMessage(
+					{ customType: STEERED_RESULTS, content: text, display: true },
+					{ triggerTurn: true, deliverAs: "steer" },
+				);
+			},
+			idle: () => session().isIdle,
+			now: Date.now,
+			every: (ms, tick) => {
+				const clock = setInterval(tick, ms);
+				clock.unref();
+				return () => clearInterval(clock);
+			},
+		});
+		pi.on("agent_start", () => box.runStarted());
+		pi.on("agent_settled", (event) => {
+			note({ type: "agent_settled" });
+			box.runSettled(event.aborted === true);
+		});
+		pi.on("message_end", (event) => {
+			const { message } = event;
+			if (isRecord(message) && message.role === "user")
+				box.seen(textIn(message.content));
+		});
+		listened = { box, sends: () => sends };
+	};
+}
+
+/**
+ * Post `result` to the fixture's extension's outbox, and note how many
+ * prompts it sent and what still waits, once the result is seen and the
+ * session idle, or the wait ends.
+ */
+async function reportThroughTheExtension(
+	session: Session,
+	result: { jobId: string; label: string; text: string },
+): Promise<void> {
+	if (!listened) throw new Error("the scenario loads no extension");
+	const { box, sends } = listened;
+	box.post(result);
+	const by = Date.now() + OUTBOX_WAIT_MS;
+	while ((box.waiting().length > 0 || !session.isIdle) && Date.now() < by) {
+		// Polled: the outbox says nothing when a result leaves it.
+		await new Promise((done) => setTimeout(done, OUTBOX_POLL_MS));
+	}
+	box.pause();
+	note({ type: "outbox", sends: sends(), waiting: box.waiting().length });
 }
 
 /** The text of a message's content. */
