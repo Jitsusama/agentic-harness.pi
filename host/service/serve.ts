@@ -193,12 +193,15 @@ export async function serveHost(options: {
 			stopping: () => stopping !== undefined,
 			stop() {
 				stopping ??= (async () => {
-					const refused = new Error(
-						"the host is stopping, and takes the conversation up again as it starts",
-					);
-					wakes = () => Promise.reject(refused);
-					// Those waiting for a place too, so the stop parks only what runs.
-					backend.refuseWakes(refused);
+					wakes = () =>
+						Promise.reject(
+							new Error(
+								"the host is stopping, and takes the conversation up again as it starts",
+							),
+						);
+					// Those waiting for a place resume together, so the stop below
+					// waits for one round of resumes, not one per few.
+					backend.freeWakes();
 					if (restarting) await control.restarting();
 					await control.close();
 					// A wake already resuming finishes first, so it is parked with

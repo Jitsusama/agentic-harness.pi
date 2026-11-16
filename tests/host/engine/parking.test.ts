@@ -158,22 +158,25 @@ describe("parking a conversation", () => {
 	it.each([
 		["window", "other"],
 		["other", "window"],
-	] as const)("wakes as a window once parked, when a window asked among others while it parked (%s first)", async (first, then) => {
-		const asking = vi.fn(() => Promise.resolve());
-		const { parked, letStop } = held(asking);
+	] as const)(
+		"wakes as a window once parked, when a window asked among others while it parked (%s first)",
+		async (first, then) => {
+			const asking = vi.fn(() => Promise.resolve());
+			const { parked, letStop } = held(asking);
 
-		const parking = parked.park("a");
-		const asked = [parked.wake("a", first), parked.wake("a", then)];
-		letStop();
-		await parking;
-		await Promise.all(asked);
+			const parking = parked.park("a");
+			const asked = [parked.wake("a", first), parked.wake("a", then)];
+			letStop();
+			await parking;
+			await Promise.all(asked);
 
-		expect(
-			asking,
-			"one wake, as the window asked, in whichever order",
-		).toHaveBeenCalledExactlyOnceWith("a", "window");
-		parked.unwatch("a");
-	});
+			expect(
+				asking,
+				"one wake, as the window asked, in whichever order",
+			).toHaveBeenCalledExactlyOnceWith("a", "window");
+			parked.unwatch("a");
+		},
+	);
 
 	it("rejects a wake that failed, with why, both alone and asked while it parked", async () => {
 		const refused = new Error("the rollout gate said no");

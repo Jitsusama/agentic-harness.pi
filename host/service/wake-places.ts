@@ -11,10 +11,13 @@
  *
  * Each resume holds back the others for at most its longest: past that
  * it counts against neither the places nor the windows, and the journal
- * says which, and again when it ends. So a resume that never ends costs
- * those behind it one longest, not the host's life, and a deep queue
- * still goes in a few at a time. Once the host stops, the wakes still
- * waiting are refused rather than resumed only to be parked.
+ * says which, and again when it ends or fails. So a resume that never
+ * ends costs those behind it one longest, not the host's life, and a deep
+ * queue still goes in a few at a time; a promoted resume keeps the clock
+ * it began with, so the bound holds. Once the host stops, every wake
+ * still waiting goes in at once, as before places: its wake file is
+ * already taken, so refusing it would lose it, and the stop waits for one
+ * round of resumes rather than several.
  */
 
 /** How many wakes, other than a window's, resume at once. */
@@ -47,18 +50,14 @@ export interface WakePlaces {
 	 * the window's own wake has settled.
 	 */
 	hurry(sessionId: string): () => void;
-	/**
-	 * The host stops: refuse with `why` every wake still waiting for a
-	 * place, and any asked after, leaving those resuming to end.
-	 */
-	close(why: Error): void;
+	/** The host stops: every wake waiting goes in now, and any asked after. */
+	stopping(): void;
 }
 
 /** A wake waiting for its place. */
 interface Waiting {
 	readonly sessionId: string;
 	enter(as: WakeAsker): void;
-	refuse(why: Error): void;
 }
 
 /** Wakes resumed `places` at a time, a window's at once and before the rest. */
@@ -81,9 +80,9 @@ export function wakePlaces(
 	const promotions = new Map<string, () => void>();
 	let placed = 0;
 	let windows = 0;
-	let closed: Error | undefined;
+	let stopped = false;
 
-	const free = (): boolean => windows === 0 && placed < places;
+	const free = (): boolean => stopped || (windows === 0 && placed < places);
 	const seconds = (ms: number): string => (ms / MS_PER_SECOND).toFixed(1);
 
 	// Let in as many waiting wakes, first asked first, as there are places,
@@ -97,8 +96,11 @@ export function wakePlaces(
 	}
 
 	// Count one resume against the windows or the places, until it ends or
-	// has run its longest; answers how it ends.
-	function occupy(asker: WakeAsker, sessionId: string): () => void {
+	// has run its longest; answers how it ends, failed or not.
+	function occupy(
+		asker: WakeAsker,
+		sessionId: string,
+	): (failed: boolean) => void {
 		let as = asker;
 		if (as === "window") windows += 1;
 		else placed += 1;
@@ -129,23 +131,22 @@ export function wakePlaces(
 			uncount();
 		}, longestMs);
 		longest.unref?.();
-		return () => {
+		return (failed) => {
 			clearTimeout(longest);
 			if (promotions.get(sessionId) === promote) promotions.delete(sessionId);
 			if (counted) uncount();
 			else if (lapsed)
 				options.say?.(
-					`The wake of ${sessionId} resumed after ${seconds(Date.now() - began)} s`,
+					`The wake of ${sessionId} ${failed ? "failed" : "resumed"} after ${seconds(Date.now() - began)} s`,
 				);
 		};
 	}
 
-	function placeFor(sessionId: string): Promise<() => void> {
-		return new Promise((resolve, reject) => {
+	function placeFor(sessionId: string): Promise<(failed: boolean) => void> {
+		return new Promise((resolve) => {
 			waiting.push({
 				sessionId,
 				enter: (as) => resolve(occupy(as, sessionId)),
-				refuse: reject,
 			});
 		});
 	}
@@ -155,16 +156,18 @@ export function wakePlaces(
 		sessionId: string,
 		resume: () => Promise<T>,
 	): Promise<T> {
-		if (closed) throw closed;
 		const as = hurried.has(sessionId) ? "window" : asker;
 		const ended =
 			as === "window" || (free() && waiting.length === 0)
 				? occupy(as, sessionId)
 				: await placeFor(sessionId);
+		let failed = true;
 		try {
-			return await resume();
+			const resumed = await resume();
+			failed = false;
+			return resumed;
 		} finally {
-			ended();
+			ended(failed);
 		}
 	}
 
@@ -183,10 +186,10 @@ export function wakePlaces(
 		};
 	}
 
-	function close(why: Error): void {
-		closed = why;
-		for (const one of waiting.splice(0)) one.refuse(why);
+	function stopping(): void {
+		stopped = true;
+		handOn();
 	}
 
-	return { inPlace, hurry, close };
+	return { inPlace, hurry, stopping };
 }

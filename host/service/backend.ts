@@ -178,11 +178,11 @@ export interface HostBackend extends ControlBackend {
 	 */
 	wake(sessionId: string, asker?: WakeAsker): Promise<void>;
 	/**
-	 * The host stops: refuse with `why` every wake not yet resuming, so a
-	 * stop parks what is running rather than resuming the rest only to park
-	 * them.
+	 * The host stops: every wake waiting for a place resumes now, as before
+	 * places, so the stop waits for one round of resumes rather than
+	 * several, and no wake whose file was taken is lost.
 	 */
-	refuseWakes(why: Error): void;
+	freeWakes(): void;
 	/**
 	 * Once every wake and end under way has finished, so a stop parks what
 	 * they leave rather than racing a resume into a host it disposes.
@@ -297,6 +297,21 @@ export function hostBackend(options: {
 				beginning -= 1;
 			}
 		});
+	}
+
+	async function attachTo(sessionId: string) {
+		const hurried = placesOfWakes.hurry(sessionId);
+		try {
+			await startOwes(sessionId);
+			await starts.get(sessionId);
+			await engine.parkSettled?.(sessionId);
+			if (host.holds(sessionId) === undefined && rostered(sessionId))
+				await wake(sessionId, "window");
+			live(sessionId);
+			return { sessionId };
+		} finally {
+			hurried();
+		}
 	}
 
 	function live(sessionId: string): SessionIdentity {
@@ -451,7 +466,7 @@ export function hostBackend(options: {
 	return {
 		identity: options.identity,
 		wake,
-		refuseWakes: (why) => placesOfWakes.close(why),
+		freeWakes: () => placesOfWakes.stopping(),
 		async settled() {
 			while (turns.size > 0) await Promise.all(turns.values());
 		},
@@ -484,17 +499,9 @@ export function hostBackend(options: {
 					// its screen exists, or is refused as its failed start is; one
 					// opened on a parked conversation is its person asking for it,
 					// as soon as a park under way has settled. One the host's start
-					// has yet to resume goes next.
-					await startOwes(request.sessionId);
-					await starts.get(request.sessionId);
-					await engine.parkSettled?.(request.sessionId);
-					if (
-						host.holds(request.sessionId) === undefined &&
-						rostered(request.sessionId)
-					)
-						await wake(request.sessionId, "window");
-					live(request.sessionId);
-					return { sessionId: request.sessionId };
+					// has yet to resume goes next. Its wake already under way, which
+					// holds it from its first step, goes as a window's too.
+					return attachTo(request.sessionId);
 			}
 		},
 	};
