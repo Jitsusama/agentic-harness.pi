@@ -9,16 +9,19 @@ import {
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { auditQuestRecord } from "../../../../lib/core/internal/quest/record-audit.ts";
 
-vi.mock("../../../../lib/core/internal/quest/record-audit.ts", async (actual) => {
-	const module =
-		await actual<
-			typeof import("../../../../lib/core/internal/quest/record-audit.ts")
-		>();
-	return {
-		...module,
-		auditQuestRecord: vi.fn(module.auditQuestRecord),
-	};
-});
+vi.mock(
+	"../../../../lib/core/internal/quest/record-audit.ts",
+	async (actual) => {
+		const module =
+			await actual<
+				typeof import("../../../../lib/core/internal/quest/record-audit.ts")
+			>();
+		return {
+			...module,
+			auditQuestRecord: vi.fn(module.auditQuestRecord),
+		};
+	},
+);
 
 const audits = vi.mocked(auditQuestRecord);
 
