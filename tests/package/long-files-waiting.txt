@@ -13,7 +13,6 @@ extensions/quest-workflow/session-registry.ts
 extensions/quest-workflow/verbs/stage.ts
 extensions/subagent-workflow/index.ts
 host/engine/hosted-agent.ts
-lib/core/quest/lifecycle.ts
 lib/core/web/a11y/walk.ts
 lib/core/web/browser.ts
 lib/core/web/session.ts
