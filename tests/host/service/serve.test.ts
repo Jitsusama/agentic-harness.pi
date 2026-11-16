@@ -428,6 +428,54 @@ describe("serveHost", () => {
 		}
 	});
 
+	it("listens before it resumes, listing one it has yet to resume as parked until it has", async () => {
+		const first = await serveHost({
+			...places(),
+			engine: async (h) => engine(h),
+		});
+		const reply = await opened(first.path, "a");
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+		await first.stop();
+
+		let go = (): void => undefined;
+		const going = new Promise<void>((resolve) => {
+			go = resolve;
+		});
+		const starting = serveHost({
+			...places(),
+			engine: async (h) => {
+				const plain = engine(h);
+				return {
+					...plain,
+					resume: async (entry, woken) => {
+						await going;
+						await plain.resume(entry, woken);
+					},
+				};
+			},
+		});
+		const path = join(dir, "run", "pi-host", "work-attended.sock");
+		await until("the host to listen as it starts", () => exists(path));
+		expect(
+			(await listed(path)).sessions.map(({ sessionId: id, state }) => [id, state]),
+			"held, not yet resumed",
+		).toEqual([[sessionId, "parked"]]);
+		go();
+		const second = await starting;
+		try {
+			expect(
+				(await listed(second.path)).sessions.map(({ sessionId: id, state }) => [
+					id,
+					state,
+				]),
+				"resumed once the start is done",
+			).toEqual([[sessionId, "idle"]]);
+		} finally {
+			await second.stop();
+		}
+	});
+
 	it("watches the engine before it resumes, so a conversation that ends inside pi is dropped", async () => {
 		const first = await serveHost({
 			...places(),
