@@ -26,6 +26,43 @@ export function singleFlight<K, V>(): (
 }
 
 /**
+ * `work`, never run beside itself: a call while it runs is answered by
+ * one more run once it ends, however many calls came meanwhile, so each
+ * call is answered by a run that started after it. A run that fails
+ * still lets the one after it run.
+ *
+ * A flight joined suits a clock, whose next tick looks again anyway;
+ * this suits a watcher, whose ask passed over could leave a file that
+ * arrived during the run unread until the clock came round.
+ */
+export function coalescing(work: () => Promise<void>): () => Promise<void> {
+	let running: Promise<void> | undefined;
+	let again: Promise<void> | undefined;
+	const start = (): Promise<void> => {
+		const run = (async () => work())();
+		running = run;
+		const landed = (): void => {
+			if (running === run) running = undefined;
+		};
+		void run.then(landed, landed);
+		return run;
+	};
+	return () => {
+		if (running === undefined) return start();
+		again ??= running.then(ended, ended).then(() => {
+			again = undefined;
+			return start();
+		});
+		return again;
+	};
+}
+
+/** Nothing, for a run whose end is all that's waited on. */
+function ended(): void {
+	// How the run ended is its own caller's to hear.
+}
+
+/**
  * A module loaded on first use, once: callers who ask while it loads
  * join that load, and the module is kept once it lands. A failed load
  * is forgotten, so the next caller tries again.

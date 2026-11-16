@@ -20,6 +20,7 @@ import { isPersonWords } from "../../../lib/internal/session/driven.ts";
 import { sessionLeft } from "../../../lib/internal/session/left.ts";
 import { carriedBy } from "../../../lib/internal/session/rollover.ts";
 import { showWants } from "../../../lib/internal/session/wants.ts";
+import { singleFlight } from "../../../lib/internal/single-flight.ts";
 import { writerHold } from "../../../lib/internal/session/writer-hold.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import { MESH_SESSION_ENV } from "../../../lib/mesh/hand.ts";
@@ -37,18 +38,12 @@ import type { TerminalSessionHandle } from "../../../lib/terminal/types.ts";
 import { createActs } from "../acts.ts";
 import { type Entry, handedIn, leftToIn, saidIn } from "../glances.ts";
 import { hostedPresence } from "../in-place.ts";
-import { keepLooks } from "../looks-clock.ts";
 import { keptOffIn, quietIn } from "../quiet.ts";
 import { markOwnerRunning, settleFromVerdicts } from "../wait.ts";
 import type { Handing } from "./handing.ts";
 import type { Hearing } from "./hearing.ts";
 import type { HeavyWork } from "./heavy.ts";
-import {
-	askAboutLooks,
-	endLooksOfQuests,
-	LOOKS_CHECK_MS,
-	tellLooksExpired,
-} from "./looks.ts";
+import { keepLooksFor, LOOKS_CHECK_MS } from "./looks.ts";
 import {
 	isEphemeral,
 	MESH_CLASSIFIER_ENV,
@@ -280,18 +275,18 @@ export function onSessionStart(
 		if (looksDir) {
 			const asking = m.peer.session;
 			const questsDir = m.paths.quests;
+			// A tick that comes while the last still reads is passed over.
+			const keeping = singleFlight<string, void>();
 			m.looksClock = setInterval(() => {
-				// A quest ended in another session, or before this one began.
-				endLooksOfQuests(looksDir, (quest) => questEnded(questsDir, quest));
-				void askAboutLooks(m.pi, looksDir, asking);
 				const quest = loadedQuest(asking, m.paths.sessions);
-				tellLooksExpired(
-					m.pi,
-					keepLooks(looksDir, {
-						session: asking,
-						...(quest ? { quest } : {}),
-					}),
-				);
+				const owner = { session: asking, ...(quest ? { quest } : {}) };
+				// A quest ended in another session, or before this one began.
+				const ended = (one: string) => questEnded(questsDir, one);
+				keeping(looksDir, () =>
+					keepLooksFor(m.pi, looksDir, owner, ended),
+				).catch(() => {
+					// The looks unreadable now: kept again on the next tick.
+				});
 				// Asks a session of this quest left as it ended come here, so
 				// Needs You sends the person to one that runs.
 				if (m.waiting) markOwnerRunning(m.waiting, true);
