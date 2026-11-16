@@ -1,7 +1,8 @@
 /**
  * Carrying on what a restart cut off: durable resumes the run it holds
  * as a run of pi's, once that run has its turn, words said meanwhile
- * queue behind it, and a request the stop cut off is asked again.
+ * queue behind it, a request the stop cut off is asked again, and pi's
+ * extensions hear the runs settle once both are over.
  */
 import type { RunFailure } from "../durable-types.ts";
 import type { AgentMessage, AssistantMessage } from "../pi-types.ts";
@@ -36,9 +37,11 @@ export interface RecoverySide {
 	/** Whether words Joel typed have come in. */
 	joelTyped(): boolean;
 	pending(): ShowQueued | undefined;
-	runWithLifecycle(start: (run: Run) => Promise<void>): Promise<void>;
+	runWithLifecycle(start: (run: Run) => Promise<void>): Promise<Run>;
 	/** Run pi's continue: a run asking the model again on what it holds. */
-	continueRun(): Promise<void>;
+	continueRun(): Promise<Run>;
+	/** Tell pi's extensions that these runs, begun by the agent itself, have settled. */
+	settled(runs: readonly Run[]): Promise<void>;
 	startRound(
 		run: Run,
 		assistant: AssistantMessage,
@@ -120,7 +123,11 @@ export class Recovery {
 		await Promise.race([started, settled]);
 		return {
 			settled: settled
-				.then(() => this.askAgainIfCutOff(before))
+				.then(async (carried) => {
+					const asked = await this.askAgainIfCutOff(before);
+					// Settled once both are over, as pi's own run settles once its continues are: settled between them, an extension's prompt would race the ask again.
+					await side.settled(asked ? [carried, asked] : [carried]);
+				})
 				.finally(() => {
 					this.answered = undefined;
 					giveBack();
@@ -135,18 +142,19 @@ export class Recovery {
 	 * so the turn would otherwise sit unanswered until a new word arrived,
 	 * as one did for four minutes on 14 November. A failure from before this
 	 * recovery is left alone, and so is `restart_limit`, durable's own end to
-	 * a request cut off again and again.
+	 * a request cut off again and again. Answers the run it asked in, if it
+	 * asked.
 	 */
 	private async askAgainIfCutOff(
 		before: RunFailure | undefined,
-	): Promise<void> {
+	): Promise<Run | undefined> {
 		const side = this.side;
-		if (side.parked() || side.active()) return;
+		if (side.parked() || side.active()) return undefined;
 		const failure = await side.durable.runFailure();
 		if (failure?.reason !== INTERRUPTED || failure.taskId === before?.taskId)
-			return;
-		if (side.parked() || side.active()) return;
-		await side.continueRun();
+			return undefined;
+		if (side.parked() || side.active()) return undefined;
+		return side.continueRun();
 	}
 
 	/**

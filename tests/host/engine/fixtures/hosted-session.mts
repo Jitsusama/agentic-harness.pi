@@ -49,6 +49,12 @@ interface Session {
 	getFollowUpMessages(): readonly string[];
 	navigateTree(targetId: string, options: object): Promise<unknown>;
 	readonly isStreaming: boolean;
+	readonly extensionRunner: {
+		emit(event: {
+			readonly type: "agent_settled";
+			readonly aborted: boolean;
+		}): Promise<unknown>;
+	};
 	subscribe(listener: (event: { readonly type: string }) => void): () => void;
 	readonly sessionManager: {
 		appendCustomMessageEntry(
@@ -835,7 +841,7 @@ try {
 		holdMessagesThroughCarriedTurns(session, conversation.agent, (error) =>
 			process.stderr.write(`held message reported: ${String(error)}\n`),
 		);
-		conversation.agent.showQueuedIn(session);
+		conversation.agent.joinSession(session);
 	}
 	stopHost = () => {
 		// As the engine's release does for a stopping host, then the process ends before any turn does.

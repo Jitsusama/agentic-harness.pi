@@ -505,7 +505,8 @@ export async function createEngine(
 		// The hold ends with the session's dispose, writing what it held, so nothing here keeps its undo.
 		holdMessagesThroughCarriedTurns(created.session, agentOf(record), report);
 		// Words the agent queues past the session show as pending, where pi has the seam; the host says at start when it lacks it.
-		agentOf(record).showQueuedIn(created.session);
+		// pi settles only runs it began, so the agent tells the session's extensions when one of its own settles.
+		agentOf(record).joinSession(created.session);
 		return { ...created, services, diagnostics: said };
 	}
 

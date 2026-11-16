@@ -49,6 +49,7 @@ import {
 	type Run,
 	unansweredMessage,
 } from "./hosted-agent/run.ts";
+import { OwnSettles, type SettlingSession } from "./hosted-agent/settles.ts";
 import {
 	createState,
 	type HostedAgentState,
@@ -127,6 +128,7 @@ export class HostedAgent {
 	private readonly recovery: Recovery;
 	/** Where words this agent queues past pi's session show as pending, once the host gives it. */
 	private pending: ShowQueued | undefined;
+	private readonly settles: OwnSettles;
 
 	constructor(
 		options: AgentOptions,
@@ -179,6 +181,7 @@ export class HostedAgent {
 			stream: (options) => this.stream(options),
 			admitted: () => this.admissions.settled(),
 		});
+		this.settles = new OwnSettles(durable, () => this.parked);
 		this.recovery = new Recovery({
 			durable,
 			state: this.state,
@@ -192,6 +195,7 @@ export class HostedAgent {
 			pending: () => this.pending,
 			runWithLifecycle: (start) => this.runWithLifecycle(start),
 			continueRun: () => this.continueRun(),
+			settled: (runs) => this.settles.settled(runs),
 			startRound: (run, assistant, options) =>
 				this.startRound(run, assistant, options),
 			queue: (queue, message, mode) => this.queue(queue, message, mode),
@@ -374,11 +378,12 @@ export class HostedAgent {
 	}
 
 	/**
-	 * Show the words this agent queues itself, past pi's session, in that
-	 * session's pending list, where pi has the seam: pi's session lists only
-	 * what it queued, so without it they show nowhere until their turn starts.
+	 * Join the pi session holding this agent. Words the agent queues past it
+	 * show in its pending list, where pi has the seam, as pi lists only what
+	 * it queued. Its extensions hear the agent's own runs settle (settles.ts).
 	 */
-	showQueuedIn(session: QueueShowingSession): void {
+	joinSession(session: QueueShowingSession & SettlingSession): void {
+		this.settles.tell(session);
 		if (typeof session.showQueued !== "function") return;
 		this.pending = (text, mode) => session.showQueued?.(text, mode);
 	}
@@ -462,7 +467,7 @@ export class HostedAgent {
 	}
 
 	/** pi's continue: a run that asks the model again on what the session holds. */
-	private continueRun(): Promise<void> {
+	private continueRun(): Promise<Run> {
 		return this.runWithLifecycle(async (run) => {
 			await this.emit({ type: "agent_start" });
 			await this.emit({ type: "turn_start" });
@@ -470,7 +475,7 @@ export class HostedAgent {
 		});
 	}
 
-	private runWithLifecycle(start: (run: Run) => Promise<void>): Promise<void> {
+	private runWithLifecycle(start: (run: Run) => Promise<void>): Promise<Run> {
 		return this.within(() => this.lifecycle(start));
 	}
 
@@ -478,7 +483,7 @@ export class HostedAgent {
 		return this.durable.within ? this.durable.within(work) : work();
 	}
 
-	private async lifecycle(start: (run: Run) => Promise<void>): Promise<void> {
+	private async lifecycle(start: (run: Run) => Promise<void>): Promise<Run> {
 		if (this.active) throw new Error("Agent is already processing.");
 		let resolve = () => {};
 		const promise = new Promise<void>((done) => {
@@ -532,6 +537,7 @@ export class HostedAgent {
 			this.active = undefined;
 			resolve();
 		}
+		return run;
 	}
 
 	/** Admit the run's starting submission with the model it asks for. */
@@ -626,9 +632,7 @@ export class HostedAgent {
 
 	/** Open a run for what durable does on its own; it ends once durable is idle. */
 	private carryOn(): void {
-		this.runWithLifecycle(async () => {}).catch(() => {
-			// The run's failure is shown to pi as its end; nobody awaits it here.
-		});
+		this.settles.after(this.runWithLifecycle(async () => {}));
 	}
 
 	private currentRun(): Run {

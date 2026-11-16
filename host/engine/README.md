@@ -92,6 +92,14 @@ whose own retry stays off, ends that run as interrupted, and the
 recovery then continues the conversation, unless durable ended it for
 being cut off again and again.
 
+pi tells its extensions agent_settled only when a run it began ends, so
+the agent tells them itself when one of its own ends
+(hosted-agent/settles.ts): the recovery's, once any ask again is over
+too, and a run durable carries on alone. It says nothing while a run of
+pi's is under way, which settles as pi's run ends, nor for a run pi was
+never shown. Without it, job-workflow's outbox held a job's result from
+a carried run until a person typed.
+
 A host coming back carries only a few cut-off runs on at once
 (resume-turns.ts, RESUMED_RUNS_AT_ONCE, 4). As a start resumes what it
 holds, each conversation whose durable store holds a run waits for a
@@ -126,7 +134,7 @@ on, queued on the agent rather than on pi's session, whose screen lists
 only what it queued itself: queueing them there too would run them through
 the extensions' input handlers and onto the agent a second time. So the
 agent shows them through the agent-interface patch's showQueued
-(showQueuedIn), and pi takes each off its list as its message starts or
+(joinSession), and pi takes each off its list as its message starts or
 the queue is cleared. On a pi without that seam they show only as their
 turn starts.
 
