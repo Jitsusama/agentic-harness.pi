@@ -6,10 +6,16 @@
  * claimed one wasn't seen fenced in the last day, when there is no
  * session at all, or when the machine's processes can't be read
  * (fence-census.ts judges them). What it saw is kept between runs.
+ *
+ * And pi-fence as core runs it: straight from the harness's source, with
+ * the store's node and no node_modules. Its run path loads there, and the
+ * census, which needs packages, refuses with 126 saying so rather than
+ * failing as an unfenced session would.
  */
 
 import { execFile } from "node:child_process";
 import {
+	cpSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -19,9 +25,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { FENCE_RUN_HELP } from "../../lib/internal/fence-run.ts";
 import { KEEPING_STUB } from "../../lib/internal/shell/kept.ts";
 
-const SCRIPT = join(import.meta.dirname, "..", "..", "scripts", "pi-fence.ts");
+const HARNESS = join(import.meta.dirname, "..", "..");
+const SCRIPT = join(HARNESS, "scripts", "pi-fence.ts");
 const BOOT = "b0075eed-0000-4000-8000-000000000000";
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const MACHINE = "mnt:[4026531841]";
@@ -185,5 +193,70 @@ describe("pi-fence census", () => {
 		const ran = await census(join(root, "nowhere"));
 		expect(ran.out).toContain("can't read");
 		expect(ran.code).toBe(1);
+	});
+});
+
+/** pi-fence run from `harness` with `args`, as core's store build runs it. */
+function bare(
+	harness: string,
+	args: readonly string[],
+): Promise<{
+	readonly code: number;
+	readonly out: string;
+	readonly err: string;
+}> {
+	return new Promise((done) => {
+		execFile(
+			process.execPath,
+			[
+				"--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+				join(harness, "scripts", "pi-fence.ts"),
+				...args,
+			],
+			{ env: { PATH: process.env.PATH, HOME: root }, cwd: root },
+			(error, stdout, stderr) => {
+				const code = error ? Number(error.code ?? 1) : 0;
+				done({ code, out: String(stdout), err: String(stderr) });
+			},
+		);
+	});
+}
+
+describe("pi-fence with no packages", () => {
+	let harness = "";
+	beforeEach(() => {
+		// The source as core's store build has it: no node_modules beside it.
+		harness = join(root, "harness");
+		for (const part of ["scripts", "lib", "data"]) {
+			cpSync(join(HARNESS, part), join(harness, part), { recursive: true });
+		}
+	});
+
+	it("loads its run path, saying how to ask it", async () => {
+		const ran = await bare(harness, ["--help"]);
+		expect(ran.err, "nothing on stderr").toBe("");
+		expect(ran.code, ran.err).toBe(0);
+		expect(ran.out).toBe(FENCE_RUN_HELP);
+	});
+
+	it("builds a fenced run as far as its refusal of a folder holding the home", async () => {
+		const ran = await bare(harness, [
+			"--kind",
+			"fence",
+			"--folder",
+			"/",
+			"--",
+			"true",
+		]);
+		expect(ran.code, ran.err).toBe(126);
+		expect(ran.err).toMatch(
+			/^pi-fence: pi-fence --kind fence won't let commands write \/,/u,
+		);
+	});
+
+	it("refuses a census it can't load, with 126 and why, not as an unfenced session", async () => {
+		const ran = await bare(harness, ["census"]);
+		expect(ran.code, ran.err).toBe(126);
+		expect(ran.err).toMatch(/^pi-fence: the census couldn't load: .*yaml/u);
 	});
 });
