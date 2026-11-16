@@ -124,8 +124,12 @@ export interface Peer {
 	want(want: Want): void;
 	/** Say it no longer waits for this kind; answers whether it did. */
 	settle(kind: WantKind): boolean;
-	/** Look its addresses and work up again, and publish any change. */
-	refresh(): void;
+	/**
+	 * Look its addresses and work up again, and publish any change; from
+	 * `everyone`, when a clock has just listed every peer off the thread,
+	 * and otherwise from a listing of its own.
+	 */
+	refresh(everyone?: readonly Presence[]): void;
 	/** Say whether it is in the middle of a run. */
 	setBusy(busy: boolean): void;
 	/** Say whether its person paused it. */
@@ -509,8 +513,8 @@ export function localPeer(at: Surroundings): Peer {
 		}
 	};
 	let yieldedTo: Presence | undefined;
-	const refresh = () => {
-		const everyone = at.presences.all();
+	const refresh = (listed?: readonly Presence[]) => {
+		const everyone = listed ?? at.presences.all();
 		// Another process wrote this peer's file: on 10 November a plain pi
 		// opened a hosted conversation's log and left its own pid there,
 		// which the host's peer, publishing only changes, never wrote over.

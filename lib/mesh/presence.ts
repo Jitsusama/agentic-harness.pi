@@ -22,6 +22,11 @@ import {
 	readFileSync,
 	statSync,
 } from "node:fs";
+import {
+	readdir,
+	readFile as readFileOff,
+	stat as statOff,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { isOwner } from "../core/process/index.ts";
@@ -312,6 +317,12 @@ export interface Presences {
 	/** Every peer's presence. */
 	all(): Presence[];
 	/**
+	 * Every peer's presence as `all()` answers it, read off the thread, for
+	 * a clock: a host runs every conversation's on one thread, and a disk
+	 * that stalls holds them all for as long as a synchronous read waits.
+	 */
+	listed(): Promise<Presence[]>;
+	/**
 	 * Why its host refused the last wake of a peer that says it is parked,
 	 * while the refusal is kept beside its wake file
 	 * (internal/session/refused-wake.ts); none for a peer not parked.
@@ -498,14 +509,42 @@ export function createPresences(dir: string): Presences {
 	// Each file's parse, kept while the file is the one it was read from:
 	// a publish renames a new file in, so its inode says a change, and
 	// mtime and size say one written in place. Every pi lists every
-	// presence three times a minute (the peer refresh, the live count and
-	// the steer look), and a hundred parses each time were most of what
-	// an idle pi allocated.
+	// presence at least once a minute (the minute's look, which the peer
+	// refresh, the live count and the steer wakes share), and a hundred
+	// parses each time were most of what an idle pi allocated.
 	const readKept = (path: string): Presence | undefined =>
 		readStamped(kept, path, read);
 	// A parked peer's refused wake, by the file it is kept in, read the
 	// same way, so a listing costs a stat for each parked peer.
 	const refusals = new Map<string, Kept<RefusedWake>>();
+	// The paths a listing found, with what is kept for files gone let go.
+	const listedPaths = (files: string[]): string[] => {
+		const paths = new Set(
+			files
+				.filter((name) => name.endsWith(".json"))
+				.map((name) => join(dir, name)),
+		);
+		for (const path of kept.keys()) {
+			if (!paths.has(path)) kept.delete(path);
+		}
+		return [...paths];
+	};
+	// The presences read, with the refusals of peers no longer parked let go.
+	const presentOf = (read: (Presence | undefined)[]): Presence[] => {
+		const present = read.filter((one): one is Presence => one !== undefined);
+		// Each park names a wake of its own, so only the parked keep theirs.
+		const sleeping = new Set(
+			present.flatMap(({ state, wake }) =>
+				state === "parked" && wake !== undefined
+					? [refusedWakePath(wake)]
+					: [],
+			),
+		);
+		for (const path of refusals.keys()) {
+			if (!sleeping.has(path)) refusals.delete(path);
+		}
+		return present;
+	};
 	return {
 		of: (session) => readKept(file(session)),
 		publish(presence) {
@@ -513,31 +552,28 @@ export function createPresences(dir: string): Presences {
 			writeWhole(file(presence.session), JSON.stringify(presence));
 		},
 		all() {
-			let files: string[] = [];
+			let files: string[];
 			try {
-				files = readdirSync(dir).filter((name) => name.endsWith(".json"));
+				files = readdirSync(dir);
 			} catch {
+				// No folder yet: nobody has published.
 				return [];
 			}
-			const paths = new Set(files.map((name) => join(dir, name)));
-			for (const path of kept.keys()) {
-				if (!paths.has(path)) kept.delete(path);
+			return presentOf(listedPaths(files).map(readKept));
+		},
+		async listed() {
+			let files: string[];
+			try {
+				files = await readdir(dir);
+			} catch {
+				// No folder yet: nobody has published.
+				return [];
 			}
-			const present = [...paths]
-				.map(readKept)
-				.filter((one): one is Presence => one !== undefined);
-			// Each park names a wake of its own, so only the parked keep theirs.
-			const sleeping = new Set(
-				present.flatMap(({ state, wake }) =>
-					state === "parked" && wake !== undefined
-						? [refusedWakePath(wake)]
-						: [],
-				),
+			const paths = listedPaths(files);
+			const read = await Promise.all(
+				paths.map((path) => readStampedOff(kept, path, readOff)),
 			);
-			for (const path of refusals.keys()) {
-				if (!sleeping.has(path)) refusals.delete(path);
-			}
-			return present;
+			return presentOf(read);
 		},
 		refusal({ state, wake }) {
 			if (state !== "parked" || wake === undefined) return undefined;
@@ -583,10 +619,41 @@ function readStamped<T>(
 	return value;
 }
 
+/** The file at `path` as `readStamped` keeps it, read off the thread. */
+async function readStampedOff<T>(
+	kept: Map<string, Kept<T>>,
+	path: string,
+	read: (path: string) => Promise<T | undefined>,
+): Promise<T | undefined> {
+	let stamp: string;
+	try {
+		const stat = await statOff(path);
+		stamp = `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
+	} catch {
+		// Gone since it was listed, or never there: nothing to read.
+		kept.delete(path);
+		return undefined;
+	}
+	const was = kept.get(path);
+	if (was?.stamp === stamp) return was.value;
+	const value = await read(path);
+	kept.set(path, { stamp, value });
+	return value;
+}
+
 function read(path: string): Presence | undefined {
 	try {
 		return presenceFrom(JSON.parse(readFileSync(path, "utf8")));
 	} catch {
+		return undefined;
+	}
+}
+
+async function readOff(path: string): Promise<Presence | undefined> {
+	try {
+		return presenceFrom(JSON.parse(await readFileOff(path, "utf8")));
+	} catch {
+		// Gone or torn since it was listed: no presence to read.
 		return undefined;
 	}
 }
