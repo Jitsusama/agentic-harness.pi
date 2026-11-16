@@ -242,6 +242,36 @@ describe("pi-carry", () => {
 			).toEqual({ code: 0, stdout: asked });
 		}
 
+		const settled = await piCarry(
+			from.env,
+			"settle",
+			QUEST,
+			"--session",
+			SESSION,
+		);
+		expect(
+			settled,
+			"settle leaves a checkout of its own where it is, and says it settled",
+		).toEqual({
+			code: 0,
+			lines: [
+				{ kind: "tree", path: "~/src/app", did: "stays" },
+				{ kind: "settled", session: SESSION, let: 0 },
+			],
+		});
+		expect(
+			(
+				await piCarry(
+					from.env,
+					"settle",
+					QUEST,
+					"--session",
+					"01a19111-never-carried",
+				)
+			).code,
+			"and fails for a session nothing carried",
+		).toBe(1);
+
 		const elsewhere = machine("refusing", cache);
 		await cloneAt(await bareOrigin(made), join(elsewhere.home, "src", "app"));
 		const refused = await piCarry(

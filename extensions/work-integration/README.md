@@ -222,6 +222,7 @@ carried:
 ```sh
 node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/pi-carry.ts <quest> --to <machine>
 node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/pi-carry.ts arrive <quest> --from <machine> --session <id>
+node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/pi-carry.ts settle <quest> --session <id>
 ```
 
 The first carries the quest's sessions nobody closed that no pi
@@ -285,6 +286,24 @@ and it ends with `{"kind": "sessions", "sessions": [{"id", "cwd"}],
 starts pi under that one, never another. It exits 1 when a tree was
 refused, the notes couldn't be added or nothing came, so nothing
 starts half arrived, and 2 when it was asked wrongly.
+
+`pi-carry settle` lets the old place go, on the machine the session
+left. The node runs it once the arrival is confirmed and the carry
+has passed the launcher's Carried day, so a Carry Back within the day
+finds its trees whole. Each worktree the done file names goes, by
+`git worktree remove`, which keeps its branch, only when it is on the
+branch carried, at the commit carried, with uncommitted changes byte
+for byte the patch that went; files git ignores go with it, as the
+carry left them out. One holding anything since keeps every tree,
+named with why, as does one a live session holds by the broker's
+record or any process works inside, since a quest's sessions share
+its trees, and a pi running the session here again. A tree let go
+leaves the broker's records too. A
+checkout of its own stays, being the person's. One line a tree,
+`{"kind": "tree", "path", "did": "let go" | "gone" | "stays" |
+"kept", "why"?}`, then `{"kind": "settled", "session", "let"}`. It
+exits 1 when it kept them, and settling again finds each tree gone
+and settles.
 
 ## What It Will Not Do
 
