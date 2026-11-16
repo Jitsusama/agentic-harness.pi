@@ -14,6 +14,7 @@ import {
 	sessionKeyOf,
 	sessionOwner,
 } from "../../../lib/core/session/index.ts";
+import { fenceKindOf } from "../../../lib/internal/carry/fence.ts";
 import { tellAwaited } from "../../../lib/internal/priority/awaited.ts";
 import { isPersonWords } from "../../../lib/internal/session/driven.ts";
 import { sessionLeft } from "../../../lib/internal/session/left.ts";
@@ -37,7 +38,6 @@ import { createActs } from "../acts.ts";
 import { type Entry, handedIn, leftToIn, saidIn } from "../glances.ts";
 import { hostedPresence } from "../in-place.ts";
 import { keepLooks } from "../looks-clock.ts";
-import { fenceKindOf } from "../ordered-carry.ts";
 import { keptOffIn, quietIn } from "../quiet.ts";
 import { markOwnerRunning, settleFromVerdicts } from "../wait.ts";
 import type { Handing } from "./handing.ts";

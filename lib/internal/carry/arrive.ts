@@ -24,7 +24,9 @@
 import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
+import type { FenceKind } from "../../mesh/presence.ts";
 import { placeTakenOver } from "../quest/carried.ts";
+import { looserFence } from "./fence.ts";
 import {
 	doneFileOf,
 	type HandedTree,
@@ -32,6 +34,7 @@ import {
 	readHandover,
 	underHome,
 } from "./handover.ts";
+import type { CarriedNote } from "./notes.ts";
 
 /** How long a done file is waited for: the share may land late. */
 export const ARRIVAL_WAIT_MS = 10 * 60_000;
@@ -84,6 +87,13 @@ export interface Arriving {
 	readonly sessions: string;
 	readonly clock: Clock;
 	readonly say: (line: ArrivalLine) => void;
+	/** The fence pi starts under here, which a fenced session's done file must match. */
+	readonly fence: FenceKind;
+	/** Adds the quest's carried facts that this machine lacks, answering how many. */
+	readonly takeNotes: (
+		quest: string,
+		notes: readonly CarriedNote[],
+	) => Promise<number>;
 }
 
 /** Arrives with the session; answers whether everything came and stands. */
@@ -91,13 +101,22 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	const { from, home, say } = arriving;
 	const handover = await waitForHandover(arriving);
 	if (handover === undefined) return false;
+	const looser =
+		handover.fence === undefined
+			? undefined
+			: looserFence(handover.fence, arriving.fence);
+	if (looser !== undefined) {
+		say({ kind: "failed", why: looser });
+		return false;
+	}
 	const brought: HandedTree[] = [];
 	for (const tree of handover.trees) {
 		const line = await arriveTree(arriving.exec, tree, from, home);
 		say(line);
 		if (line.did !== "refused") brought.push(tree);
 	}
-	const whole = brought.length === handover.trees.length;
+	const noted = await notesTaken(arriving, handover);
+	const whole = brought.length === handover.trees.length && noted;
 	if (handover.sessionFile === undefined) {
 		say({ kind: "sessions", sessions: [] });
 		return whole;
@@ -124,6 +143,27 @@ export async function arrive(arriving: Arriving): Promise<boolean> {
 	}
 	say({ kind: "sessions", sessions: [{ id: handover.session, cwd }] });
 	return whole;
+}
+
+/**
+ * Takes up the done file's notes, answering whether that went; a store
+ * that can't take them is said, and arriving again tries once more.
+ */
+async function notesTaken(
+	arriving: Arriving,
+	handover: Handover,
+): Promise<boolean> {
+	if (handover.notes === undefined || handover.notes.length === 0) return true;
+	try {
+		await arriving.takeNotes(handover.quest, handover.notes);
+		return true;
+	} catch (error) {
+		arriving.say({
+			kind: "failed",
+			why: `The quest's ${handover.notes.length} notes weren't taken up: ${error instanceof Error ? error.message : String(error)}`,
+		});
+		return false;
+	}
 }
 
 /**

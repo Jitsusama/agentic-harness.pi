@@ -19,7 +19,10 @@
 import { readFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import type { Needed } from "../../core/work/carry.ts";
+import type { FenceKind } from "../../mesh/presence.ts";
 import { writeWhole } from "../write-whole.ts";
+import { isFenceKind } from "./fence.ts";
+import { type CarriedNote, isCarriedNote } from "./notes.ts";
 
 /** The folder of a quest's scratch a handover is put in. */
 export const HANDOVER = "handover";
@@ -56,6 +59,10 @@ export interface Handover {
 	readonly sessionFile?: string;
 	/** Each tree it held. */
 	readonly trees: readonly HandedTree[];
+	/** The fence its commands ran under, which it arrives under; absent from older harnesses. */
+	readonly fence?: FenceKind;
+	/** Its quest's remembered facts; absent from older harnesses and from trees no session held. */
+	readonly notes?: readonly CarriedNote[];
 }
 
 const DONE = ".done.json";
@@ -130,7 +137,10 @@ function isHandover(value: unknown): value is Handover {
 		(said.title === undefined || typeof said.title === "string") &&
 		(said.sessionFile === undefined || isPlain(said.sessionFile)) &&
 		Array.isArray(said.trees) &&
-		said.trees.every(isHandedTree)
+		said.trees.every(isHandedTree) &&
+		(said.fence === undefined || isFenceKind(said.fence)) &&
+		(said.notes === undefined ||
+			(Array.isArray(said.notes) && said.notes.every(isCarriedNote)))
 	);
 }
 

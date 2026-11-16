@@ -17,7 +17,9 @@
  * The second, run on the machine it goes to, waits for one session's
  * done file, puts its trees in place and places its file for
  * `pi --session <id>` (lib/internal/carry/arrive.ts), ending with
- * `{"kind": "sessions", "sessions"}`. Given `--by` and `--why`, which
+ * `{"kind": "sessions", "sessions"}`. It adds the quest's carried notes
+ * this machine's memory lacks, and refuses a fenced session whose fence
+ * this environment wouldn't start it under. Given `--by` and `--why`, which
  * the mycelium node passes only for a carry an orchestrator ordered, it
  * then tells the session, by a steer from this machine's pi-carry, who
  * carried it and why (lib/internal/carry/ordered.ts), so it never takes
@@ -44,7 +46,9 @@ import {
 	resolveQuestsRoot,
 } from "../lib/core/quest/config.ts";
 import { arrive, arrivedIn } from "../lib/internal/carry/arrive.ts";
+import { fenceKindOf } from "../lib/internal/carry/fence.ts";
 import { handoverOf } from "../lib/internal/carry/handover.ts";
+import { takeNotes } from "../lib/internal/carry/notes.ts";
 import { tellCarried } from "../lib/internal/carry/ordered.ts";
 import { questHere, runsHere } from "../lib/internal/carry/quest-here.ts";
 import { carryRest } from "../lib/internal/carry/rest.ts";
@@ -59,6 +63,7 @@ import { sessionRegistryDir } from "../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../lib/internal/quest/workspace-root.ts";
 import { isParked } from "../lib/internal/session/park.ts";
 import { treeRecordDir } from "../lib/internal/work-records.ts";
+import { memoryDbPath, openMemoryStore } from "../lib/memory/index.ts";
 
 /** What pi-carry exits with when it was asked wrongly. */
 const ASKED_WRONGLY = 2;
@@ -156,6 +161,15 @@ if (arriving) {
 			sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
 		},
 		say,
+		fence: fenceKindOf(process.env),
+		takeNotes: async (carried, notes) => {
+			const store = await openMemoryStore(await memoryDbPath());
+			try {
+				return await takeNotes(store, carried, notes);
+			} finally {
+				await store.close();
+			}
+		},
 	});
 	if (whole && by !== undefined && why !== undefined) {
 		tellCarried(stateDir("steer"), {

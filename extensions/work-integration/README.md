@@ -245,7 +245,9 @@ once every file it names is in place:
   "title": "...", "sessionFile": "<its file, beside it>",
   "trees": [{"path": "~/src/app", "origin": "<url>", "branch": "topic",
              "head": "<commit>", "bundle": "<file>", "needs": [...],
-             "patch": "<file>"}]
+             "patch": "<file>"}],
+  "fence": "none" | "fence" | "strict",
+  "notes": [{"text": "...", "tags": [...], "source": "..."}]
 }
 ```
 
@@ -258,7 +260,10 @@ committed, untracked files included, made from a copy of the tree's
 index so the tree's own index and files are never touched, and is
 absent when it was clean. A tree on no branch is passed over when
 it's clean at a commit a remote has, and refused otherwise; the
-rest still go. The quest's own done file holds trees only.
+rest still go. `fence` is how the session's commands were fenced
+(its `PI_SANDBOX`), and `notes` are its quest's remembered facts,
+which live in each machine's own memory store; older harnesses
+leave both out. The quest's own done file holds trees only.
 
 `pi-carry arrive` runs on the machine the quest went to, before
 `pi --session <id>`. It waits up to ten minutes for the done file
@@ -271,11 +276,15 @@ head and its patch; one line each, `{"kind": "tree", "path",
 "branch", "did": "cloned" | "fetched" | "refused", "why"?}`. A
 folder with another origin or changes of its own, or a branch
 holding commits the carried one lacks, is refused, never written
-over; a tree that already stands as carried is left as it is. The
-session's file is placed where pi finds it from its folder here,
+over; a tree that already stands as carried is left as it is. A
+session that ran under a fence arrives only under the same one: where
+this environment's `PI_SANDBOX` would start it under another, nothing
+is touched and it fails, naming the one to start it with. Each note
+the memory store here lacks for the quest, judged by its text, is
+added, so arriving twice adds nothing. The session's file is placed where pi finds it from its folder here,
 over any older copy, and it ends with `{"kind": "sessions",
-"sessions": [{"id", "cwd"}]}`. It exits 1 when a tree was refused
-or nothing came, so nothing starts half arrived, and 2 when it was
+"sessions": [{"id", "cwd"}]}`. It exits 1 when a tree was refused,
+the fence differs, the notes couldn't be added or nothing came, so nothing starts half arrived, and 2 when it was
 asked wrongly.
 
 ## What It Will Not Do

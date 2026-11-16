@@ -69,7 +69,7 @@ function loaded(id: string, quest: string): void {
 }
 
 describe("carrying a steered session's work", () => {
-	it("puts the trees it holds and its file in its quest's handover, once its run ends", async () => {
+	it("puts the trees it holds, its file, its fence and its quest's notes in its quest's handover, once its run ends", async () => {
 		const home = folder(made, "home");
 		const tree = await cloneAt(
 			await bareOrigin(made),
@@ -90,6 +90,10 @@ describe("carrying a steered session's work", () => {
 			"penelope",
 			{
 				home,
+				env: { PI_SANDBOX: "fence" },
+				notes: async (quest) => [
+					{ text: `what ${quest} learned`, tags: ["move"] },
+				],
 			},
 		);
 
@@ -102,6 +106,8 @@ describe("carrying a steered session's work", () => {
 			title: "Carry me",
 			sessionFile: "2026-11-07_s-carry.jsonl",
 			trees: [{ path: "~/src/app", branch: "main" }],
+			fence: "fence",
+			notes: [{ text: `what ${QUEST} learned`, tags: ["move"] }],
 		});
 	});
 

@@ -10,8 +10,9 @@ may import from here, and any of it may change without notice.
   by every session on it and read by the gates without importing
   `away-workflow`.
 - **`carry/`**: carrying a quest's work to another of the person's
-  machines: a session's trees, as bundles and patches, and its file
-  put in the quest's handover with a done file saying so, what
+  machines: a session's trees, as bundles and patches, its file, its
+  fence and its quest's remembered facts put in the quest's handover
+  with a done file saying so, what
   `pi-carry` carries of the rest, and arriving with it on the other
   machine; for a carry an orchestrator ordered, the refusal a
   session writes and the steer that tells it on arrival who carried

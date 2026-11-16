@@ -125,6 +125,14 @@ export async function openMemoryStore(dbPath: string): Promise<MemoryStore> {
 			);
 		},
 
+		async active(scope: Scope): Promise<Fact[]> {
+			const rows = await db.all<FactRow>(
+				"SELECT * FROM facts WHERE scope = ? AND status = 'active' ORDER BY created_at ASC, id ASC",
+				[serializeScope(scope)],
+			);
+			return rows.map(rowToFact);
+		},
+
 		async reflect(query): Promise<string> {
 			const facts = await api.recall({ scope: query.scope });
 			if (facts.length === 0) return "No remembered facts for this scope.";

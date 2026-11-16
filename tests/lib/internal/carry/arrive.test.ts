@@ -19,8 +19,13 @@ import {
 	arrive,
 	type Clock,
 } from "../../../../lib/internal/carry/arrive.ts";
-import { carryAway } from "../../../../lib/internal/carry/carry-away.ts";
+import {
+	type Carrying,
+	carryAway,
+} from "../../../../lib/internal/carry/carry-away.ts";
+import type { CarriedNote } from "../../../../lib/internal/carry/notes.ts";
 import { sessionFolderOf } from "../../../../lib/internal/quest/carried.ts";
+import type { FenceKind } from "../../../../lib/mesh/presence.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
 	bareOrigin,
@@ -55,7 +60,10 @@ function fakeClock(at: (now: number) => void = () => {}): Clock {
  * session file, put in a handover folder. The session ran in the tree,
  * or in the folder `ranIn` names under the leaving home.
  */
-async function carried(ranIn?: string) {
+async function carried(
+	ranIn?: string,
+	moved: Pick<Carrying, "fence" | "notes"> = {},
+) {
 	const origin = await bareOrigin(made);
 	const leaving = folder(made, "leaving");
 	const tree = await cloneAt(origin, join(leaving, "src", "app"));
@@ -81,6 +89,7 @@ async function carried(ranIn?: string) {
 		quest: QUEST,
 		session: { id: SESSION, cwd, file: sessionFile },
 		trees: [tree],
+		...moved,
 	});
 	return { origin, from, head };
 }
@@ -104,10 +113,18 @@ async function arriveAt(
 	home: string,
 	from: string,
 	clock: Clock = fakeClock(),
+	here: { fence?: FenceKind; taken?: CarriedNote[][] } = {},
 ) {
 	const said: ArrivalLine[] = [];
 	const store = folder(made, "store");
+	const taken = here.taken ?? [];
 	const whole = await arrive({
+		fence: here.fence ?? "none",
+		takeNotes: async (quest, notes) => {
+			expect(quest, "notes are taken up for the carried quest").toBe(QUEST);
+			taken.push([...notes]);
+			return notes.length;
+		},
 		exec,
 		from,
 		session: SESSION,
@@ -343,5 +360,77 @@ describe("arriving with a carried session", () => {
 			why: expect.stringContaining("10 minutes"),
 		});
 		expect(existsSync(join(home, "src")), "nothing was cloned").toBe(false);
+	});
+
+	it("takes up its quest's notes before its session is placed", async () => {
+		const notes = [{ text: "the gate is host-gate.sh", tags: ["gate"] }];
+		const { from } = await carried(undefined, { fence: "fence", notes });
+		const taken: CarriedNote[][] = [];
+
+		const { whole, said } = await arriveAt(
+			folder(made, "arriving"),
+			from,
+			fakeClock(),
+			{ fence: "fence", taken },
+		);
+
+		expect(whole, "it arrived whole under its own fence").toBe(true);
+		expect(taken).toEqual([notes]);
+		expect(said.at(-1)).toMatchObject({ kind: "sessions" });
+	});
+
+	it("refuses a fenced session where it would start under another fence, before touching anything", async () => {
+		const { from } = await carried(undefined, {
+			fence: "strict",
+			notes: [{ text: "kept for later", tags: [] }],
+		});
+		const home = folder(made, "arriving");
+		const taken: CarriedNote[][] = [];
+
+		const { whole, said } = await arriveAt(home, from, fakeClock(), {
+			fence: "fence",
+			taken,
+		});
+
+		expect(
+			whole,
+			"a session that would start under another fence never arrives",
+		).toBe(false);
+		expect(said).toEqual([
+			{
+				kind: "failed",
+				why: expect.stringContaining("Start it with PI_SANDBOX=strict."),
+			},
+		]);
+		expect(existsSync(join(home, "src")), "nothing was cloned").toBe(false);
+		expect(taken, "no notes were taken up").toEqual([]);
+	});
+
+	it("says notes it couldn't take up, and doesn't call the arrival whole", async () => {
+		const { from } = await carried(undefined, {
+			notes: [{ text: "kept for later", tags: [] }],
+		});
+		const said: ArrivalLine[] = [];
+
+		const whole = await arrive({
+			exec,
+			from,
+			session: SESSION,
+			home: folder(made, "arriving"),
+			scratch: scratchOf(from),
+			sessions: folder(made, "store"),
+			clock: fakeClock(),
+			say: (line) => said.push(line),
+			fence: "none",
+			takeNotes: async () => {
+				throw new Error("database is locked");
+			},
+		});
+
+		expect(whole, "an arrival without its notes is not whole").toBe(false);
+		expect(said).toContainEqual({
+			kind: "failed",
+			why: "The quest's 1 notes weren't taken up: database is locked",
+		});
 	});
 });

@@ -75,6 +75,20 @@ describe("a handover", () => {
 		expect(readHandover(file)).toEqual(handover);
 	});
 
+	it("reads back the fence it ran under and its quest's notes", () => {
+		const dir = mkdtempSync(join(tmpdir(), "handover-"));
+		const moved: Handover = {
+			...handover,
+			fence: "strict",
+			notes: [
+				{ text: "retry lives in supervisor.ts", tags: ["retry"] },
+				{ text: "the gate is host-gate.sh", tags: [], source: "AGENTS.md" },
+			],
+		};
+
+		expect(readHandover(writeHandover(dir, moved))).toEqual(moved);
+	});
+
 	it("trusts nothing in another machine's done file that could reach elsewhere", () => {
 		const tree = handover.trees[0];
 		for (const [why, said] of [
@@ -101,6 +115,16 @@ describe("a handover", () => {
 				{ ...handover, trees: [{ ...tree, head: "HEAD~1" }] },
 			],
 			["no trees", { ...handover, trees: undefined }],
+			["a fence no harness names", { ...handover, fence: "loose" }],
+			["notes that aren't a list", { ...handover, notes: "remember" }],
+			[
+				"a note with no words",
+				{ ...handover, notes: [{ text: " ", tags: [] }] },
+			],
+			[
+				"a note whose tags aren't words",
+				{ ...handover, notes: [{ text: "x", tags: [1] }] },
+			],
 		] as const) {
 			expect(readHandover(arrived(said)), why).toBeUndefined();
 		}
