@@ -3,7 +3,14 @@
  * came from, or a machine's, saying they aren't the person's.
  */
 
-import { mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -306,5 +313,54 @@ describe("steering", () => {
 		await new Promise((done) => setTimeout(done, 300));
 		steering.stop();
 		expect(delivered, "none taken for an address let go").toEqual([]);
+	});
+
+	// The council on #1721: a look's take still reading claimed for an
+	// inbox a later look let go, which another session may hold by then.
+	it("claims nothing waiting in an inbox a later look let go", async () => {
+		root = mkdtempSync(join(tmpdir(), "steering-"));
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		writeFileSync(join(inbox, "1-a.json"), JSON.stringify({ text: "waiting" }));
+		const delivered: string[] = [];
+		const held = { addresses: ["P9R1KI"] };
+		const steering = createSteering({
+			root,
+			addresses: () => held.addresses,
+			deliver: (steer) => delivered.push(steer.text),
+			setAside: () => undefined,
+		});
+		const first = steering.look();
+		held.addresses = [];
+		await steering.look();
+		await first;
+		steering.stop();
+		expect(delivered, "left for the address's new holder").toEqual([]);
+		expect(readdirSync(inbox), "still waiting in the inbox").toEqual([
+			"1-a.json",
+		]);
+	});
+
+	// The council on #1721: every steer is claimed before any is delivered,
+	// so one delivery that threw lost every steer after it.
+	it("delivers the rest when one delivery throws", async () => {
+		root = mkdtempSync(join(tmpdir(), "steering-"));
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		writeFileSync(join(inbox, "1-a.json"), JSON.stringify({ text: "first" }));
+		writeFileSync(join(inbox, "2-b.json"), JSON.stringify({ text: "second" }));
+		const delivered: string[] = [];
+		const steering = createSteering({
+			root,
+			addresses: () => ["P9R1KI"],
+			deliver: (steer) => {
+				if (steer.text === "first") throw new Error("a session gone stale");
+				delivered.push(steer.text);
+			},
+			setAside: () => undefined,
+		});
+		await steering.look().catch(() => undefined);
+		steering.stop();
+		expect(delivered, "the steer after the one that threw").toEqual(["second"]);
 	});
 });

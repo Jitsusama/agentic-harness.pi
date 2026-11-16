@@ -193,6 +193,72 @@ describe("a host's mirror of a folder", () => {
 		]);
 	});
 
+	// The council on #1721: a refresh the thread overtook skipped its
+	// listing but still landed what it had read, undoing a publish since.
+	it("keeps its own publish over what a refresh the first ask overtook read", async () => {
+		let release = (): void => undefined;
+		const stalled = new Promise<void>((settle) => {
+			release = settle;
+		});
+		const folder = folderMirrors<string>(
+			{
+				...WORDS,
+				readOff: async (path) => {
+					const words = await readFile(path, "utf8");
+					await stalled;
+					return words;
+				},
+			},
+			{},
+		)(dir);
+		const path = join(dir, "own.txt");
+		put("own.txt", "before");
+		const reading = folder.refresh();
+		// Long enough for the refresh to read the file and stall.
+		await new Promise((settle) => setTimeout(settle, 50));
+		put("own.txt", "mine");
+		folder.put(path, "mine");
+		folder.files();
+		release();
+		await reading;
+		expect(folder.file(path), "this process's publish").toBe("mine");
+	});
+
+	// The council on #1721: past two idle spells the first ask read the
+	// disk on the thread, though a read already stuck on it said it stalled.
+	it("answers from its last listing while a stale read is still in flight", async () => {
+		const stall = { on: false };
+		let release = (): void => undefined;
+		const stalled = new Promise<void>((settle) => {
+			release = settle;
+		});
+		const folder = folderMirrors<string>(
+			{
+				...WORDS,
+				readOff: async (path) => {
+					if (stall.on) await stalled;
+					return readFile(path, "utf8");
+				},
+			},
+			{ pollMs: 20, idleMs: 60 },
+		)(dir);
+		put("a.txt", "here");
+		folder.files();
+		// Past the idle spell and two more, so the last listing reads stale.
+		await new Promise((done) => setTimeout(done, 300));
+		stall.on = true;
+		const reading = folder.refresh();
+		// Long enough for the refresh to list the folder and stall on a read.
+		await new Promise((settle) => setTimeout(settle, 50));
+		put("b.txt", "since");
+		expect(
+			wordsOf(folder.files()),
+			"the last listing, not one read on the thread",
+		).toEqual(["here"]);
+		release();
+		await reading;
+	});
+
 	// The council on #1721: only a synchronous ask kept the poll, so a host
 	// asking less than each minute listed the folder on its thread each time.
 	it("answers the first ask after an idle spell from a listing a look landed meanwhile", async () => {
