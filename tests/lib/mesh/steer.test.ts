@@ -6,6 +6,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	renameSync,
 	writeFileSync,
 } from "node:fs";
@@ -138,6 +139,41 @@ describe("the steer inbox", () => {
 			"taken once the read lands",
 		).toEqual(["the person's answer"]);
 		expect(readdirSync(inbox), "nothing left behind").toEqual([]);
+	});
+
+	// The council on #1721: a taker stopped while a later read stalled
+	// still claimed what it read after, for a session that had ended.
+	it("claims nothing once its taker stops while a read waits", async () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		put(inbox, "1-a.json", JSON.stringify({ text: "first" }));
+		put(inbox, "2-b.json", JSON.stringify({ text: "second" }));
+		let land: () => void = () => undefined;
+		const stalled = new Promise<void>((resolve) => {
+			land = resolve;
+		});
+		let stopped = false;
+		let reads = 0;
+
+		const taking = takenSteers(
+			inbox,
+			"1",
+			async (path) => {
+				reads += 1;
+				if (reads === 2) await stalled;
+				return readFileSync(path, "utf8");
+			},
+			() => !stopped,
+		);
+		await vi.waitFor(() => expect(reads, "the second read began").toBe(2));
+		stopped = true;
+		land();
+
+		expect((await taking).steers, "none taken for an ended taker").toEqual([]);
+		expect(readdirSync(inbox).sort(), "both still waiting").toEqual([
+			"1-a.json",
+			"2-b.json",
+		]);
 	});
 
 	it("reads only text, at and from, as strings", () => {

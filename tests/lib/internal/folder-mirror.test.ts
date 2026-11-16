@@ -4,6 +4,7 @@
  * own writes do, and that the poll keeps up when the watch can't.
  */
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -114,6 +115,51 @@ describe("a host's mirror of a folder", () => {
 		expect(folder.file(path), "not the file it replaced").toBe("after");
 	});
 
+	// The council on #1721: a first ask's read settled every write, so a
+	// refresh listed before this process's publish then dropped it.
+	it("keeps its own write when a refresh listed before it lands after the first ask", async () => {
+		let release = (): void => undefined;
+		const stalled = new Promise<void>((settle) => {
+			release = settle;
+		});
+		const folder = folderMirrors<string>(
+			{
+				...WORDS,
+				readOff: async (path) => {
+					await stalled;
+					return readFile(path, "utf8");
+				},
+			},
+			{},
+		)(dir);
+		put("a.txt", "another's");
+		const reading = folder.refresh();
+		// Long enough for the refresh to list the folder and stall on a read.
+		await new Promise((settle) => setTimeout(settle, 50));
+		const path = join(dir, "own.txt");
+		put("own.txt", "mine");
+		folder.put(path, "mine");
+		folder.files();
+		release();
+		await reading;
+		expect(folder.file(path), "this process's publish").toBe("mine");
+	});
+
+	// The council on #1721: any failed listing emptied the mirror, so
+	// every conversation read "no peers".
+	it("keeps its last listing when the folder can't be read, rather than none", async () => {
+		const folder = mirror();
+		put("a.txt", "here");
+		folder.files();
+		chmodSync(dir, 0o000);
+		try {
+			await folder.refresh().catch(() => undefined);
+			expect(wordsOf(folder.files()), "what it last read").toEqual(["here"]);
+		} finally {
+			chmodSync(dir, 0o700);
+		}
+	});
+
 	it("joins a refresh already reading rather than reading beside it", () => {
 		const folder = mirror();
 		expect(folder.refresh(), "one read in flight").toBe(folder.refresh());
@@ -148,16 +194,11 @@ describe("a host's mirror of a folder", () => {
 		// Long enough for several polls, were any still running.
 		await new Promise((done) => setTimeout(done, 200));
 		expect(offReads, "no read while nobody asks").toBe(read);
+		// The council on #1721: a listing an idle spell old let a new peer
+		// start blind to what was published meanwhile.
 		expect(
 			wordsOf(folder.files()),
-			"the last listing answers while a fresh one is read",
-		).toEqual([]);
-		await vi.waitFor(
-			() =>
-				expect(wordsOf(folder.files()), "read again once asked").toEqual([
-					"written while idle",
-				]),
-			{ timeout: 2000 },
-		);
+			"the first ask after an idle spell reads the disk",
+		).toEqual(["written while idle"]);
 	});
 });

@@ -195,6 +195,24 @@ describe("coalescing", () => {
 		expect(covered, "the run after it does").toBe(true);
 	});
 
+	// The council on #1721: a caller whose await of one run asks again
+	// runs between that run's end and the queued run's start.
+	it("never runs beside itself when a caller asks again as its run ends", async () => {
+		let running = 0;
+		let most = 0;
+		const take = coalescing(async () => {
+			running += 1;
+			most = Math.max(most, running);
+			await new Promise((settle) => setImmediate(settle));
+			running -= 1;
+		});
+
+		const again = take().then(() => take());
+		const queued = take();
+		await Promise.all([again, queued]);
+		expect(most, "runs at once").toBe(1);
+	});
+
 	it("runs again after a run that failed, and still answers its asks", async () => {
 		const runs: ReturnType<typeof held>[] = [];
 		const take = coalescing(() => {
