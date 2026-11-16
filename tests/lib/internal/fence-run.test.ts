@@ -27,6 +27,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+	FENCE_RUN_HELP,
 	type FenceRunAsk,
 	fenceRunAsked,
 	fenceRunText,
@@ -52,6 +53,15 @@ describe("reading how pi-fence was asked", () => {
 			folder: "/f",
 			words: ["bash", "-lc", "ls --all"],
 		});
+	});
+
+	it("answers --help with its help, opening with its name, within 60 columns", () => {
+		expect(fenceRunAsked(["--help"], "/w")).toEqual({ help: true });
+		expect(FENCE_RUN_HELP.startsWith("pi-fence "), "opens with its name").toBe(
+			true,
+		);
+		const wide = FENCE_RUN_HELP.split("\n").filter((line) => line.length > 60);
+		expect(wide, "lines past 60 columns").toEqual([]);
 	});
 
 	it("says what is wrong with a missing or unknown kind, a stray option or no command", () => {

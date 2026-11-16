@@ -59,15 +59,35 @@ export interface FenceRunAsk {
 export const FENCE_RUN_USAGE =
 	"usage: pi-fence --kind fence|strict [--folder DIR] -- PROGRAM [ARGUMENT...]";
 
+/** What `pi-fence --help` says, each line within 60 columns. */
+export const FENCE_RUN_HELP = `pi-fence runs one command in pi's own agent fence.
+
+Usage:
+  pi-fence --kind KIND [--folder DIR] -- PROGRAM [ARG...]
+
+Kinds:
+  fence    the agent fence a pi session lays
+  strict   the strict Landlock profile inside its root
+
+Options:
+  --folder DIR   where it runs and may write, the working
+                 directory unless named
+  --help         say this
+
+It exits with the command's status, 126 when it refuses
+to run, saying why, and 2 when asked wrongly.
+`;
+
 /**
- * What `args` ask for, run from `cwd`, or what is wrong with them: a
- * kind is required, the folder is the working directory unless named,
+ * What `args` ask for, run from `cwd`, or what is wrong with them, or
+ * for its help when they open with `--help`: a kind is required, the folder is the working directory unless named,
  * and every word after `--` is the command's, flags included.
  */
 export function fenceRunAsked(
 	args: readonly string[],
 	cwd: string,
-): FenceRunAsk | { readonly wrong: string } {
+): FenceRunAsk | { readonly wrong: string } | { readonly help: true } {
+	if (args[0] === "--help" || args[0] === "-h") return { help: true };
 	const split = args.indexOf("--");
 	if (split === -1) return { wrong: `nothing follows --. ${FENCE_RUN_USAGE}` };
 	const words = args.slice(split + 1);
