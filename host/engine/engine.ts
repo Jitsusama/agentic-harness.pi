@@ -808,8 +808,7 @@ export async function createEngine(
 		// or pi's replacement, keeps what its ended calls left running, as
 		// plain pi does; a close for good ends what its parks kept too.
 		if (handedOn.delete(sessionId)) record.handsOn = true;
-		if (record.ending === "closed" && !record.handsOn)
-			endKept(sessionId);
+		if (record.ending === "closed" && !record.handsOn) endKept(sessionId);
 		else await keepLeftRunning(sessionId, record.parking ? "park" : "stop");
 		// The signal kills a tool's own group; a descendant that left it ends here.
 		await reapToolChildren(sessionId, undefined, left.spared(carriedCalls()));

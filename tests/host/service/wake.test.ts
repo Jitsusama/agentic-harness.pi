@@ -156,9 +156,7 @@ describe("waking a parked conversation", () => {
 		const fake = engine();
 		const backend = backendWith(fake);
 		const sleeping = await parked(backend);
-		const { sessionId: running } = parseOpenResult(
-			await backend.execute(open),
-		);
+		const { sessionId: running } = parseOpenResult(await backend.execute(open));
 
 		for (const [id, sessionId] of [
 			["c1", sleeping],
@@ -166,7 +164,10 @@ describe("waking a parked conversation", () => {
 		] as const)
 			await backend.execute({ v: 1, id, op: "close", sessionId, by: "Joel" });
 
-		expect(fake.handsOn, "a close ends what its calls left").not.toHaveBeenCalled();
+		expect(
+			fake.handsOn,
+			"a close ends what its calls left",
+		).not.toHaveBeenCalled();
 		expect(host.holds(running), "it closed").toBeUndefined();
 	});
 

@@ -856,10 +856,9 @@ describe("the host's engine", () => {
 				expect.stringMatching(/stop what 1 ended command left$/),
 			]);
 			const started = await step(folder, "start");
-			expect(
-				started.childrenAlive,
-				"the next host's start spares it",
-			).toEqual([marked]);
+			expect(started.childrenAlive, "the next host's start spares it").toEqual([
+				marked,
+			]);
 		},
 		HOST_LIFE_MS,
 	);
