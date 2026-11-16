@@ -17,9 +17,9 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { hostname } from "node:os";
 import { join } from "node:path";
 import { withFileLock } from "../core/internal/file-lock.ts";
+import { thisMachine } from "../internal/machine.ts";
 import type { Landing } from "../internal/session/landings.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 
@@ -91,11 +91,6 @@ export function kept(landing: Landing, whose: Whose): KeptLanding {
 		...(repo ? { repo } : {}),
 		...(whose.machine ? { machine: whose.machine } : {}),
 	};
-}
-
-/** This machine's short name, as the history names it. */
-export function thisMachine(): string {
-	return hostname().split(".")[0] ?? hostname();
 }
 
 /** The landings still kept at `now`, newest first. */
