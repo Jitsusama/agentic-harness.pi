@@ -9,6 +9,7 @@
  *       [--by <address> --why <reason>]
  *   node scripts/pi-carry.ts where <quest> --from <machine> --session <id>
  *   node scripts/pi-carry.ts fence <quest> --from <machine> --session <id>
+ *   node scripts/pi-carry.ts settle <quest> --session <id>
  *
  * The first, run on the machine the quest leaves once its steered
  * sessions have carried their own, carries the rest into the quest's
@@ -40,9 +41,17 @@
  * node's shell starts pi and can't read JSON (KP0L6A [ce41f2b6]). It
  * exits 1 as the third does.
  *
+ * The fifth, run on the machine a session left once its arrival is
+ * confirmed and its carry has passed the Carried day, lets go of each
+ * worktree its done file names that holds only what went
+ * (lib/internal/carry/settle.ts), ending with `{"kind": "settled"}`.
+ * It exits 1, letting none go, when any holds work the carry lacks or
+ * a pi runs the session here again (KP0L6A [e034b3f1]).
+ *
  * Each exits 2 when it was asked wrongly.
  */
 
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -63,6 +72,7 @@ import { takeNotes } from "../lib/internal/carry/notes.ts";
 import { tellCarried } from "../lib/internal/carry/ordered.ts";
 import { questHere, runsHere } from "../lib/internal/carry/quest-here.ts";
 import { carryRest } from "../lib/internal/carry/rest.ts";
+import { settle } from "../lib/internal/carry/settle.ts";
 import {
 	getSection,
 	loadPackageConfig,
@@ -71,6 +81,7 @@ import { isMachineName, thisMachine } from "../lib/internal/machine.ts";
 import { dataDir, sessionsDir, stateDir } from "../lib/internal/paths.ts";
 import { isId } from "../lib/internal/quest/id.ts";
 import { sessionRegistryDir } from "../lib/internal/quest/loaded.ts";
+import { parseSessionRecord } from "../lib/internal/quest/session-registry.ts";
 import { questWorkspacesRoot } from "../lib/internal/quest/workspace-root.ts";
 import { isParked } from "../lib/internal/session/park.ts";
 import { treeRecordDir } from "../lib/internal/work-records.ts";
@@ -87,6 +98,21 @@ const ADDRESS = /^[A-Za-z0-9]{6,8}$/;
 
 function say(line: object): void {
 	process.stdout.write(`${JSON.stringify(line)}\n`);
+}
+
+/** Whether a pi on this machine runs `session` again, by its record here. */
+function runsAgain(session: string): boolean {
+	try {
+		const record = parseSessionRecord(
+			JSON.parse(
+				readFileSync(join(sessionRegistryDir(), `${session}.json`), "utf8"),
+			),
+		);
+		return record !== undefined && runsHere(record);
+	} catch {
+		// No record here, or none readable: no pi here has loaded it since.
+		return false;
+	}
 }
 
 function refuse(why: string): never {
@@ -112,24 +138,41 @@ const { values, positionals } = (() => {
 	}
 })();
 
+const settling = positionals[0] === "settle";
 const arriving =
 	positionals[0] === "arrive" ||
 	positionals[0] === "where" ||
 	positionals[0] === "fence";
-const quest = arriving ? positionals[1] : positionals[0];
+const quest = arriving || settling ? positionals[1] : positionals[0];
 if (
 	quest === undefined ||
 	!isId(quest) ||
-	positionals.length > (arriving ? 2 : 1)
+	positionals.length > (arriving || settling ? 2 : 1)
 ) {
 	refuse(
-		"Say which quest: pi-carry <quest> --to <machine>, or pi-carry arrive (or where, or fence) <quest> --from <machine> --session <id>.",
+		"Say which quest: pi-carry <quest> --to <machine>, pi-carry arrive (or where, or fence) <quest> --from <machine> --session <id>, or pi-carry settle <quest> --session <id>.",
 	);
 }
 
 const exec = spawnExec();
 const home = homedir();
 const workspaces = questWorkspacesRoot();
+
+if (settling) {
+	const { session } = values;
+	if (session === undefined || !SESSION_ID.test(session)) {
+		refuse("Say which session's old place to let go, with --session.");
+	}
+	const settled = await settle({
+		exec,
+		from: handoverOf(workspaces, quest, thisMachine()),
+		session,
+		home,
+		runsHere: runsAgain(session),
+		say,
+	});
+	process.exit(settled ? 0 : 1);
+}
 
 if (arriving) {
 	const { from, session, by, why } = values;
