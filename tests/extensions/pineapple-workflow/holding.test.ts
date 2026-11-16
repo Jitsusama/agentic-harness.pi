@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	type HoldingDeps,
 	tendHolds,
@@ -46,6 +46,30 @@ function mesh(over: Partial<HoldingDeps> = {}) {
 			...over,
 		});
 	return { root, clock, state, sent, tend };
+}
+
+/** A note on disk for a stop no longer held, which a tending ends. */
+function aNote(root: string, at: number): void {
+	const notes = join(root, "pineapple");
+	mkdirSync(notes, { recursive: true });
+	writeFileSync(
+		join(notes, "q.json"),
+		`${JSON.stringify({ stop: "q", hold: "", to: ["#quest/a"], at, shadow: false })}\n`,
+	);
+}
+
+/** Holds the first `stalled` note reads until each is let go. */
+function stalls(stalled: number) {
+	const gates: (() => void)[] = [];
+	return {
+		readNote: async (path: string): Promise<string> => {
+			const note = readFileSync(path, "utf8");
+			if (gates.length >= stalled) return note;
+			return new Promise((go) => gates.push(() => go(note)));
+		},
+		count: () => gates.length,
+		letGo: (which: number) => gates[which]?.(),
+	};
 }
 
 describe("tending holds", () => {
@@ -153,16 +177,62 @@ describe("tending holds", () => {
 			},
 		});
 		inner.tend = tend;
-		const notes = join(root, "pineapple");
-		mkdirSync(notes, { recursive: true });
-		writeFileSync(
-			join(notes, "q.json"),
-			`${JSON.stringify({ stop: "q", hold: "", to: ["#quest/a"], at: clock.now, shadow: false })}\n`,
-		);
+		aNote(root, clock.now);
 		clock.now = Date.now() + 3 * 60 * 1000;
 		await tend();
 		expect(run.second, "a second tending started").toBeDefined();
 		expect(run.tendings, "tendings past the claim").toBe(1);
+	});
+
+	it("passes over a tending stuck past the stale spell", async () => {
+		const held = stalls(2);
+		const run = { tendings: 0 };
+		const { root, clock, tend } = mesh({
+			stops: () => {
+				run.tendings += 1;
+				return [];
+			},
+			readNote: held.readNote,
+		});
+		aNote(root, clock.now);
+		clock.now = Date.now();
+		const first = tend();
+		await vi.waitFor(() => expect(held.count(), "the first held").toBe(1));
+		clock.now += 3 * 60 * 1000;
+		const second = tend();
+		await vi.waitFor(() =>
+			expect(held.count(), "the second past the stuck first").toBe(2),
+		);
+		held.letGo(1);
+		await second;
+		held.letGo(0);
+		await first;
+		expect(run.tendings, "both tended").toBe(2);
+	});
+
+	it("leaves a later tending's mark when a stuck one ends", async () => {
+		const held = stalls(2);
+		const run = { tendings: 0 };
+		const { root, clock, tend } = mesh({
+			stops: () => {
+				run.tendings += 1;
+				return [];
+			},
+			readNote: held.readNote,
+		});
+		aNote(root, clock.now);
+		clock.now = Date.now();
+		const first = tend();
+		await vi.waitFor(() => expect(held.count(), "the first held").toBe(1));
+		clock.now += 3 * 60 * 1000;
+		const second = tend();
+		await vi.waitFor(() => expect(held.count(), "the second held").toBe(2));
+		held.letGo(0);
+		await first;
+		await tend();
+		expect(run.tendings, "only the first, while the second runs").toBe(1);
+		held.letGo(1);
+		await second;
 	});
 
 	it("leaves a claim another session took meanwhile", async () => {
@@ -183,7 +253,8 @@ describe("tending holds", () => {
 		).toBe("another");
 	});
 
-	it("ends as it should when its claim went meanwhile", async () => {
+	// What release does when the claim it would give back is gone.
+	it("settles, giving back nothing, when its claim went meanwhile", async () => {
 		const at = { claim: "" };
 		const { root, state, tend } = mesh({
 			// Taken back from outside as this one sends.
