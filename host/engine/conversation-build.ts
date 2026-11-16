@@ -332,7 +332,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		// The hold ends with the session's dispose, writing what it held, so nothing here keeps its undo.
 		holdMessagesThroughCarriedTurns(created.session, agentOf(record), report);
 		// Words the agent queues past the session show as pending, where pi has the seam; the host says at start when it lacks it.
-		// pi settles only runs it began, so the agent tells the session's extensions when one of its own settles.
+		// The agent's own runs open as pi's, where pi has the seam, so pi prepares and settles them as it does a prompt's.
 		agentOf(record).joinSession(created.session);
 		return { ...created, services, diagnostics: said };
 	}
@@ -483,6 +483,8 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		});
 		const prompting = session.prompt(first, {
 			source: "rpc",
+			// A reopened conversation may be carrying a run on as pi's, which pi would refuse words without saying how to queue them.
+			streamingBehavior: "followUp",
 			preflightResult: (disposition) => {
 				if (disposition === "handled") handled();
 			},

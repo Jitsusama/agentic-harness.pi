@@ -37,6 +37,7 @@ import {
 	normalizePromptInput,
 	userContent,
 } from "./hosted-agent/messages.ts";
+import { type HostRunningSession, PiRuns } from "./hosted-agent/pi-runs.ts";
 import {
 	durableModels,
 	isPayloadHook,
@@ -52,7 +53,6 @@ import {
 	type Run,
 	unansweredMessage,
 } from "./hosted-agent/run.ts";
-import { OwnSettles, type SettlingSession } from "./hosted-agent/settles.ts";
 import {
 	createState,
 	type HostedAgentState,
@@ -131,7 +131,7 @@ export class HostedAgent {
 	private readonly recovery: Recovery;
 	/** Where words this agent queues past pi's session show as pending, once the host gives it. */
 	private pending: ShowQueued | undefined;
-	private readonly settles: OwnSettles;
+	private readonly piRuns = new PiRuns();
 
 	constructor(
 		options: AgentOptions,
@@ -184,7 +184,6 @@ export class HostedAgent {
 			stream: (options) => this.stream(options),
 			admitted: () => this.admissions.settled(),
 		});
-		this.settles = new OwnSettles(durable, () => this.parked);
 		this.recovery = new Recovery({
 			durable,
 			state: this.state,
@@ -198,7 +197,7 @@ export class HostedAgent {
 			pending: () => this.pending,
 			runWithLifecycle: (start) => this.runWithLifecycle(start),
 			continueRun: () => this.continueRun(),
-			settled: (runs) => this.settles.settled(runs),
+			holdPiRun: () => this.piRuns.hold(),
 			startRound: (run, assistant, options) =>
 				this.startRound(run, assistant, options),
 			queue: (queue, message, mode) => this.queue(queue, message, mode),
@@ -383,10 +382,10 @@ export class HostedAgent {
 	/**
 	 * Join the pi session holding this agent. Words the agent queues past it
 	 * show in its pending list, where pi has the seam, as pi lists only what
-	 * it queued. Its extensions hear the agent's own runs settle (settles.ts).
+	 * it queued. The agent's own runs open as pi's there (pi-runs.ts).
 	 */
-	joinSession(session: QueueShowingSession & SettlingSession): void {
-		this.settles.tell(session);
+	joinSession(session: QueueShowingSession & HostRunningSession): void {
+		this.piRuns.tell(session);
 		if (typeof session.showQueued !== "function") return;
 		this.pending = (text, mode) => session.showQueued?.(text, mode);
 	}
@@ -527,7 +526,7 @@ export class HostedAgent {
 	}
 
 	private runWithLifecycle(start: (run: Run) => Promise<void>): Promise<Run> {
-		return this.within(() => this.lifecycle(start));
+		return this.within(() => this.piRuns.holding(() => this.lifecycle(start)));
 	}
 
 	private within<T>(work: () => T): T {
@@ -683,7 +682,9 @@ export class HostedAgent {
 
 	/** Open a run for what durable does on its own; it ends once durable is idle. */
 	private carryOn(): void {
-		this.settles.after(this.runWithLifecycle(async () => {}));
+		this.runWithLifecycle(async () => {}).catch(() => {
+			// The run's failure is shown to pi as its end, and pi settles it as its own.
+		});
 	}
 
 	private currentRun(): Run {
@@ -834,6 +835,7 @@ export class HostedAgent {
 		const run = this.active?.run;
 		if (run && !run.opened) {
 			run.opened = true;
+			await this.piRuns.opening();
 			if (event.type !== "agent_start") {
 				// A recovering run shows pi the run and the turn it carries on before its first event.
 				await this.emit({ type: "agent_start" });
