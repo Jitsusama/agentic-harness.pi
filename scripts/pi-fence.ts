@@ -14,10 +14,14 @@
  *
  * The census judges every live session on the machine, in every realm,
  * by its commands' processes (lib/internal/fence-census.ts), says so on
- * stdout, and exits 1 when one runs unfenced or /proc can't be read.
+ * stdout, and exits 1 unless each was seen fenced: when one runs
+ * unfenced, when a claimed one wasn't seen fenced in the last day, when
+ * there is none, or when /proc can't be read. When it saw each session
+ * fenced is kept in its state folder for the next census.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { constants, homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -31,7 +35,8 @@ import {
 	fenceRunText,
 } from "../lib/internal/fence-run.ts";
 import { stageFolder } from "../lib/internal/fence-stage.ts";
-import { everyRealmsDir } from "../lib/internal/paths.ts";
+import { everyRealmsDir, stateDir } from "../lib/internal/paths.ts";
+import { keptFolder } from "../lib/internal/shell/kept.ts";
 import { createPresences } from "../lib/mesh/presence.ts";
 
 /** The status a refusal exits with, as a shell's for a command it can't run. */
@@ -62,6 +67,45 @@ function ticksPerSecond(): number {
 	}
 }
 
+/** Where the census keeps when it last saw each session fenced. */
+const SIGHTINGS = join(stateDir("fence-census"), "proven.json");
+
+/** Only the person reads or writes what the census saw. */
+const PRIVATE = 0o600;
+const PRIVATE_FOLDER = 0o700;
+
+/**
+ * What an earlier census saw: session ids and when each was last seen
+ * proven. A file that is missing or isn't that holds nothing, which can
+ * only make a claimed session fail.
+ */
+function keptSightings(): Record<string, number> {
+	let said: unknown;
+	try {
+		said = JSON.parse(readFileSync(SIGHTINGS, "utf8"));
+	} catch {
+		// No census ran here yet, or its file was spoiled: nothing was seen.
+		return {};
+	}
+	if (typeof said !== "object" || said === null) return {};
+	return Object.fromEntries(
+		Object.entries(said).filter(
+			(entry): entry is [string, number] => typeof entry[1] === "number",
+		),
+	);
+}
+
+/** Keep what this census saw for the next. */
+function keepSightings(sightings: Readonly<Record<string, number>>): void {
+	mkdirSync(stateDir("fence-census"), {
+		recursive: true,
+		mode: PRIVATE_FOLDER,
+	});
+	writeFileSync(SIGHTINGS, `${JSON.stringify(sightings)}\n`, {
+		mode: PRIVATE,
+	});
+}
+
 const asked = fenceRunAsked(process.argv.slice(2), process.cwd());
 if ("help" in asked) {
 	process.stdout.write(FENCE_RUN_HELP);
@@ -79,7 +123,15 @@ if ("census" in asked) {
 		),
 		stage: stageFolder(),
 		ticksPerSecond: ticksPerSecond(),
+		home: homedir(),
+		...(process.env.XDG_RUNTIME_DIR
+			? { runtimeDir: process.env.XDG_RUNTIME_DIR }
+			: {}),
+		kept: keptFolder(),
+		sightings: keptSightings(),
+		now: Date.now(),
 	});
+	if (census.read) keepSightings(census.sightings);
 	process.stdout.write(censusText(census));
 	process.exit(censusHolds(census) ? 0 : UNFENCED);
 }

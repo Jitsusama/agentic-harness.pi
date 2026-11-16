@@ -93,9 +93,11 @@ to run, saying why, and 2 when asked wrongly.
 The census judges every live session on this machine
 by what its commands' processes show: proven fenced,
 claimed by its environment while it runs none, or
-unfenced. It reads /proc unless --proc names another,
-and exits 1 when a session is unfenced or the processes
-can't be read, 0 otherwise.
+unfenced. It reads /proc unless --proc names another.
+It exits 0 only when it found a session and each was
+seen fenced, a claimed one by a census in the last
+day; 1 otherwise, or when the processes can't be read.
+Linux only: on macOS it can't judge and exits 1.
 `;
 
 /**
