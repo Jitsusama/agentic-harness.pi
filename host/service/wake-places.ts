@@ -7,7 +7,9 @@
  * wake begins while one runs, so the conversation someone is looking at
  * shares the thread only with those already resuming. A window asking for
  * a conversation whose own wake waits, or already resumes, takes that wake
- * in as its own.
+ * in as its own. A close or release of one whose wake waits lets that wake
+ * go unresumed, since nobody is looking at a conversation being closed:
+ * it lands at once, and the queue goes on.
  *
  * Each resume holds back the others for at most its longest: past that
  * it counts against neither the places nor the windows, and the journal
@@ -38,18 +40,27 @@ export type WakeAsker = "window" | "other";
 
 /** The host's wakes, each resumed once it has its place. */
 export interface WakePlaces {
-	/** Run one wake's resume once it has a place, a window's at once. */
+	/**
+	 * Run one wake's resume once it has a place, a window's at once; one a
+	 * close let go answers undefined, never resumed.
+	 */
 	inPlace<T>(
 		asker: WakeAsker,
 		sessionId: string,
 		resume: () => Promise<T>,
-	): Promise<T>;
+	): Promise<T | undefined>;
 	/**
 	 * A window asks for `sessionId`: its wake resuming, waiting for a place,
 	 * or the next to come, counts as a window's. Call what it answers once
 	 * the window's own wake has settled.
 	 */
 	hurry(sessionId: string): () => void;
+	/**
+	 * A close or release takes `sessionId`: its wake waiting for a place, or
+	 * one still to ask for it, goes unresumed. A resume under way is left to
+	 * end. Call what it answers once the close has settled.
+	 */
+	skip(sessionId: string): () => void;
 	/** The host stops: every wake waiting goes in now, and any asked after. */
 	stopping(): void;
 }
@@ -58,6 +69,8 @@ export interface WakePlaces {
 interface Waiting {
 	readonly sessionId: string;
 	enter(as: WakeAsker): void;
+	/** Let it go unresumed. */
+	leave(): void;
 }
 
 /** Wakes resumed `places` at a time, a window's at once and before the rest. */
@@ -75,6 +88,8 @@ export function wakePlaces(
 	const waiting: Waiting[] = [];
 	// How many windows ask for each conversation, and so hurry its wake.
 	const hurried = new Map<string, number>();
+	// How many closes take each conversation, and so let its wake go.
+	const skipped = new Map<string, number>();
 	// How to count each conversation's resume under way as a window's; a
 	// conversation's wakes take turns, so it has one at most.
 	const promotions = new Map<string, () => void>();
@@ -84,6 +99,14 @@ export function wakePlaces(
 
 	const free = (): boolean => stopped || (windows === 0 && placed < places);
 	const seconds = (ms: number): string => (ms / MS_PER_SECOND).toFixed(1);
+	const tell = (line: string): void => {
+		try {
+			options.say?.(line);
+		} catch {
+			// A journal that fails must not fail the wake it tells of, nor keep
+			// its place: the line is lost, the resume's outcome is not.
+		}
+	};
 
 	// Let in as many waiting wakes, first asked first, as there are places,
 	// none while a window's resumes.
@@ -126,9 +149,8 @@ export function wakePlaces(
 		const longest = setTimeout(() => {
 			if (!counted) return;
 			lapsed = true;
-			// Uncounted first, so a journal that throws can't keep the place.
 			uncount();
-			options.say?.(
+			tell(
 				`The wake of ${sessionId} is still resuming after ${seconds(longestMs)} s; it holds back no other wake from now`,
 			);
 		}, longestMs);
@@ -138,17 +160,22 @@ export function wakePlaces(
 			if (promotions.get(sessionId) === promote) promotions.delete(sessionId);
 			if (counted) uncount();
 			else if (lapsed)
-				options.say?.(
+				tell(
 					`The wake of ${sessionId} ${failed ? "failed" : "resumed"} after ${seconds(performance.now() - began)} s`,
 				);
 		};
 	}
 
-	function placeFor(sessionId: string): Promise<(failed: boolean) => void> {
+	// Answers how its resume ends once it has a place, or undefined once a
+	// close lets it go.
+	function placeFor(
+		sessionId: string,
+	): Promise<((failed: boolean) => void) | undefined> {
 		return new Promise((resolve) => {
 			waiting.push({
 				sessionId,
 				enter: (as) => resolve(occupy(as, sessionId)),
+				leave: () => resolve(undefined),
 			});
 		});
 	}
@@ -157,12 +184,14 @@ export function wakePlaces(
 		asker: WakeAsker,
 		sessionId: string,
 		resume: () => Promise<T>,
-	): Promise<T> {
+	): Promise<T | undefined> {
+		if (skipped.has(sessionId)) return undefined;
 		const as = hurried.has(sessionId) ? "window" : asker;
 		const ended =
 			as === "window" || (free() && waiting.length === 0)
 				? occupy(as, sessionId)
 				: await placeFor(sessionId);
+		if (!ended) return undefined;
 		let failed = true;
 		try {
 			const resumed = await resume();
@@ -173,19 +202,38 @@ export function wakePlaces(
 		}
 	}
 
-	function hurry(sessionId: string): () => void {
-		hurried.set(sessionId, (hurried.get(sessionId) ?? 0) + 1);
-		const index = waiting.findIndex((one) => one.sessionId === sessionId);
-		if (index !== -1) waiting.splice(index, 1)[0]?.enter("window");
-		else promotions.get(sessionId)?.();
+	// Count one more asking for `sessionId` in `counts`, and answer how to
+	// count it out again, once however often called.
+	function countIn(counts: Map<string, number>, sessionId: string): () => void {
+		counts.set(sessionId, (counts.get(sessionId) ?? 0) + 1);
 		let done = false;
 		return () => {
 			if (done) return;
 			done = true;
-			const left = (hurried.get(sessionId) ?? 1) - 1;
-			if (left > 0) hurried.set(sessionId, left);
-			else hurried.delete(sessionId);
+			const left = (counts.get(sessionId) ?? 1) - 1;
+			if (left > 0) counts.set(sessionId, left);
+			else counts.delete(sessionId);
 		};
+	}
+
+	// Take `sessionId`'s wake waiting for a place out of the queue, if any.
+	function takeWaiting(sessionId: string): Waiting | undefined {
+		const index = waiting.findIndex((one) => one.sessionId === sessionId);
+		return index === -1 ? undefined : waiting.splice(index, 1)[0];
+	}
+
+	function hurry(sessionId: string): () => void {
+		const counted = countIn(hurried, sessionId);
+		const queued = takeWaiting(sessionId);
+		if (queued) queued.enter("window");
+		else promotions.get(sessionId)?.();
+		return counted;
+	}
+
+	function skip(sessionId: string): () => void {
+		const counted = countIn(skipped, sessionId);
+		takeWaiting(sessionId)?.leave();
+		return counted;
 	}
 
 	function stopping(): void {
@@ -193,5 +241,5 @@ export function wakePlaces(
 		handOn();
 	}
 
-	return { inPlace, hurry, stopping };
+	return { inPlace, hurry, skip, stopping };
 }

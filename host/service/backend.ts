@@ -417,9 +417,10 @@ export function hostBackend(options: {
 		why: "closed" | "released",
 		by: string | undefined,
 	) {
-		// Its wake waiting for a place goes in at once, as before places, so
-		// the close waits for that one resume rather than the queue ahead.
-		const hurried = placesOfWakes.hurry(sessionId);
+		// Its wake waiting for a place goes unresumed, so the close waits for
+		// neither the queue ahead nor a resume of what it closes, and takes no
+		// window's turn from the wakes behind.
+		const skipped = placesOfWakes.skip(sessionId);
 		const owed = startOwes(sessionId);
 		return inTurn(sessionId, async () => {
 			await owed;
@@ -439,7 +440,7 @@ export function hostBackend(options: {
 				await engine.dropped?.(sessionId, asked);
 			}
 			return { sessionId };
-		}).finally(hurried);
+		}).finally(skipped);
 	}
 
 	// Said in the journal with who asked, since a drain parks conversations
