@@ -39,6 +39,8 @@ export interface QuestRecords {
 	readonly quests: string;
 	/** What each session says it is doing (lib/internal/quest/doing.ts). */
 	readonly doing?: string;
+	/** The work broker's records of the trees it cut (internal/work-records.ts). */
+	readonly trees?: string;
 }
 
 /** The address a quest gives a peer: its id's last six letters. */
