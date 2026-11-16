@@ -56,6 +56,8 @@ export interface HoldingDeps {
 	readonly chainOf: (quest: string) => readonly string[];
 	readonly pid: number;
 	readonly now: () => number;
+	/** How a note is read off the thread, so a test can stall a tending. */
+	readonly readNote?: (path: string) => Promise<string>;
 }
 
 /** How old a claim is before it is taken for a dead session's. */
@@ -91,7 +93,10 @@ export async function tendHolds(deps: HoldingDeps): Promise<void> {
 
 async function tendClaimed(deps: HoldingDeps, token: string): Promise<void> {
 	try {
-		const kept = await keptNotes(deps.notes);
+		const kept = await keptNotes(
+			deps.notes,
+			deps.readNote ?? ((path) => readFile(path, "utf8")),
+		);
 		const now = deps.now();
 		for (const step of tending(
 			deps.stops(),
@@ -182,14 +187,15 @@ async function release(path: string, token: string): Promise<void> {
 	if (held === token) await rm(path, { force: true });
 }
 
-async function keptNotes(notes: string): Promise<Kept[]> {
+async function keptNotes(
+	notes: string,
+	readNote: (path: string) => Promise<string>,
+): Promise<Kept[]> {
 	const kept: Kept[] = [];
 	for (const name of await readdir(notes)) {
 		if (!name.endsWith(".json")) continue;
 		try {
-			const note = JSON.parse(
-				await readFile(join(notes, name), "utf8"),
-			) as unknown;
+			const note = JSON.parse(await readNote(join(notes, name))) as unknown;
 			if (isKept(note)) kept.push(note);
 		} catch {
 			// Half written or gone: the next tending writes it again.
