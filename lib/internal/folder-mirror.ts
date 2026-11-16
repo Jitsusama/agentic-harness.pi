@@ -75,7 +75,7 @@ export function folderMirrors<T>(
 	return (dir) => {
 		let mirror = mirrors.get(dir);
 		if (mirror === undefined) {
-			mirror = times === undefined ? mirrorOf(dir, kind, times) : folderRead(dir, kind);
+			mirror = mirrorOf(dir, kind, times);
 			mirrors.set(dir, mirror);
 		}
 		return mirror;
