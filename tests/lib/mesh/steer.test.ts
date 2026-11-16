@@ -80,6 +80,24 @@ describe("the steer inbox", () => {
 		expect(takeSteers(inbox, "1").bad).toEqual([]);
 	});
 
+	it("costs only the one it cannot set aside, delivering the steers around it", async () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		await takenSteers(inbox, "1");
+		put(inbox, "1-a.json", JSON.stringify({ text: "first" }));
+		put(inbox, "5-x.json", "not json");
+		// Where it would be set aside is taken, so setting it aside throws.
+		mkdirSync(join(inbox, "5-x.json.bad"));
+		put(inbox, "6-z.json", JSON.stringify({ text: "last" }));
+
+		const taken = await takenSteers(inbox, "1");
+
+		expect(
+			taken.steers.map((steer) => steer.text),
+			"both delivered",
+		).toEqual(["first", "last"]);
+		expect(taken.bad, "still said to be bad").toEqual(["5-x.json"]);
+	});
+
 	// Every conversation a host holds looks at its inboxes each minute, so
 	// a disk that stalls a synchronous read stalls them all.
 	it("takes as it takes at once, letting the thread turn while it reads", async () => {
