@@ -90,7 +90,8 @@ may import from here, and any of it may change without notice.
 - **`verbs/`**: the verbs server the launcher keeps a connection to:
   each verb as its markdown file says it, the prompt it builds over a
   selection once the scrubber finds no secret in it, each use and what
-  became of it, and a thin client for agents and tests.
+  became of it, a thin client for agents and tests, and what
+  pi-verbs' words ask, read before it looks for its socket.
 - **`verification/`**: a process-global check another extension can
   ask whether the code is failing.
 
@@ -223,6 +224,9 @@ may import from here, and any of it may change without notice.
   later try could get past, by pi's own judgement, and the wait
   before each try, for `model-retry-workflow` and the compaction
   summary.
+- **`nearest.ts`**: the known word nearest one typed wrongly, by
+  edit distance, which a command or tool says back when it doesn't
+  know a word: the quest tool's actions, pi-verbs' commands.
 - **`notify.ts`**: reaching the person at the machine through a
   desktop notification. It decides how; the mesh decides when.
   `PI_NOTIFY=off` silences it.
