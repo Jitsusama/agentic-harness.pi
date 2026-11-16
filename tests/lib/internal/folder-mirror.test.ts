@@ -246,6 +246,8 @@ describe("a host's mirror of a folder", () => {
 		folder.files();
 		// Past the idle spell and two more, so the last listing reads stale.
 		await new Promise((done) => setTimeout(done, 300));
+		// Written again, so the refresh reads it rather than keep its parse.
+		put("a.txt", "rewritten");
 		stall.on = true;
 		const reading = folder.refresh();
 		// Long enough for the refresh to list the folder and stall on a read.
@@ -257,6 +259,9 @@ describe("a host's mirror of a folder", () => {
 		).toEqual(["here"]);
 		release();
 		await reading;
+		expect(wordsOf(folder.files()), "the stalled read, landed").toEqual([
+			"rewritten",
+		]);
 	});
 
 	// The council on #1721: only a synchronous ask kept the poll, so a host
