@@ -282,8 +282,11 @@ export function onSessionStart(
 				const owner = { session: asking, ...(quest ? { quest } : {}) };
 				// A quest ended in another session, or before this one began.
 				const ended = (one: string) => questEnded(questsDir, one);
+				// Shutdown clears the clock, and a new start replaces it.
+				const clock = m.looksClock;
+				const stands = () => m.looksClock === clock;
 				keeping(looksDir, () =>
-					keepLooksFor(m.pi, looksDir, owner, ended),
+					keepLooksFor(m.pi, looksDir, owner, ended, stands),
 				).catch(() => {
 					// The looks unreadable now: kept again on the next tick.
 				});
