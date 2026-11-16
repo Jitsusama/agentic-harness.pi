@@ -20,6 +20,7 @@ import {
 	sameProcess,
 	systemFacts,
 } from "../../../lib/core/process/index.ts";
+import { startTimesIn } from "../../../lib/core/process/process.ts";
 import { until } from "../../support/until.ts";
 
 /**
@@ -202,6 +203,69 @@ describe("asking once", () => {
 		expect(askedOnce(machine({}, "b1")).bootId?.()).toBe("b1");
 		expect(askedOnce(machine({})).bootId).toBeUndefined();
 	});
+
+	/** A machine that lists every start at once, counting what it is asked. */
+	function listing(
+		running: Record<number, number>,
+		listed: Record<number, number> | undefined,
+	) {
+		const asked = { listings: 0, singly: [] as number[] };
+		const facts: ProcessFacts = {
+			alive: (pid) => pid in running,
+			startedAt: async (pid) => {
+				asked.singly.push(pid);
+				return running[pid];
+			},
+			startTimes: async () => {
+				asked.listings++;
+				return listed === undefined
+					? undefined
+					: new Map(Object.entries(listed).map(([p, at]) => [+p, at]));
+			},
+		};
+		return { facts, asked };
+	}
+
+	it("answers every pid from one listing where the machine gives one", async () => {
+		const { facts, asked } = listing({ 1: 10, 2: 20 }, { 1: 10, 2: 20 });
+		const once = askedOnce(facts);
+
+		expect(await Promise.all([1, 2, 1].map(once.startedAt))).toEqual([
+			10, 20, 10,
+		]);
+		expect(asked).toEqual({ listings: 1, singly: [] });
+	});
+
+	it("asks singly only for a live pid the listing missed", async () => {
+		// Started after the listing was taken: alive, and not in it.
+		const { facts, asked } = listing({ 1: 10, 3: 30 }, { 1: 10 });
+		const once = askedOnce(facts);
+
+		expect(await once.startedAt(3)).toBe(30);
+		expect(await once.startedAt(4), "a pid nothing wears").toBeUndefined();
+		expect(asked).toEqual({ listings: 1, singly: [3] });
+	});
+
+	it("reads each pid's start from a ps listing", () => {
+		const listed = startTimesIn(
+			[
+				"    1 Tue Nov 11 09:58:12 2026",
+				"51708 Mon Nov 16 14:21:00 2026  ",
+				"garbled",
+				"",
+			].join("\n"),
+		);
+
+		expect([...listed.keys()]).toEqual([1, 51708]);
+		expect(listed.get(51708)).toBe(Date.parse("Mon Nov 16 14:21:00 2026"));
+	});
+
+	it("asks singly when the listing can't be read", async () => {
+		const { facts, asked } = listing({ 1: 10 }, undefined);
+
+		expect(await askedOnce(facts).startedAt(1)).toBe(10);
+		expect(asked).toEqual({ listings: 1, singly: [1] });
+	});
 });
 
 describe("what the machine itself says", () => {
@@ -221,6 +285,22 @@ describe("what the machine itself says", () => {
 		// can be another user's session.
 		expect(systemFacts.alive(1), "pid 1 reads as alive").toBe(true);
 	});
+
+	it.runIf(process.platform !== "linux")(
+		"lists this process's start as asking for it alone does",
+		async () => {
+			const listed = await systemFacts.startTimes?.();
+			const alone = await systemFacts.startedAt(process.pid);
+			expect(listed?.get(process.pid)).toBe(alone);
+		},
+	);
+
+	it.runIf(process.platform === "linux")(
+		"lists nothing on Linux, where each start is a file read",
+		() => {
+			expect(systemFacts.startTimes).toBeUndefined();
+		},
+	);
 
 	it("says nothing about a pid nothing wears", async () => {
 		// Above the system maximum, so it cannot be allocated.

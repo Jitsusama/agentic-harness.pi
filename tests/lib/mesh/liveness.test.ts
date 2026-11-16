@@ -293,4 +293,33 @@ describe("a census", () => {
 
 		expect(facts.asked).toEqual([40]);
 	});
+
+	it("lists the process table once however many peers it counts", async () => {
+		// A Mac has no /proc, so each start time was a `ps` of its own, all
+		// at once: fifty peers made fifty children per census in every pi,
+		// which left hundreds unreaped and a work Mac at load 155.
+		const running: Record<number, number> = {};
+		for (let pid = 100; pid < 150; pid++) running[pid] = pid * 1000;
+		const facts = machine(running);
+		let listings = 0;
+		const listing: ProcessFacts = {
+			...facts,
+			startTimes: async () => {
+				listings++;
+				return new Map(Object.entries(running).map(([p, at]) => [+p, at]));
+			},
+		};
+		const everyone = Object.keys(running).map((pid) =>
+			presence({
+				session: `s-${pid}`,
+				owner: { pid: +pid, startedAt: +pid * 1000 },
+			}),
+		);
+
+		const { present } = await census(everyone, listing);
+
+		expect(present).toHaveLength(50);
+		expect(listings, "one listing for the whole census").toBe(1);
+		expect(facts.asked, "no process asked about on its own").toEqual([]);
+	});
 });
