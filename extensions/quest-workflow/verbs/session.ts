@@ -38,6 +38,7 @@ import {
 } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import { hostHold } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
+import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 import {
 	describePlan,
@@ -380,6 +381,10 @@ export async function spawn(
 	// before anything else is read.
 	const target = hostTargetOf(params);
 	if (!target.ok) return refuse(target.refusal);
+	// A note is the spawner's order to the new session, so it says whose
+	// limit it puts on a verdict, as a pivot does (unasked-limits.ts).
+	const unasked = params.note ? limitsRefusal(params.note) : undefined;
+	if (unasked !== undefined) return refuse(`Nothing was opened: ${unasked}`);
 	// An explicit `id:` lets the agent open a tab for
 	// another quest without touching its own loaded state.
 	// We resolve through discovery so a typo fails fast.

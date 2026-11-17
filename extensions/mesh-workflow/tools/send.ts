@@ -29,6 +29,7 @@ import type { Presence } from "../../../lib/mesh/presence.ts";
 import { type Route, routeOf } from "../../../lib/mesh/routing.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
+import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import { handsRefusal } from "../joels-hands.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { reach, unheardOf } from "./reach.ts";
@@ -273,6 +274,33 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	const crossedAnswer = crossedAnswerRefused(at, answersNamed);
 	if (crossedAnswer) return crossedAnswer;
 
+	const supersedes = params.supersedes
+		? messageNamed(at, params.supersedes)
+		: undefined;
+	const replaced = supersedes ? at.transport.read(supersedes) : undefined;
+	// A send is not refused for a field that doesn't hold: that is left
+	// out and said, and the message goes on without it.
+	const ownReplaced = replaced && sentBy(replaced, self) ? replaced : undefined;
+	const intent = answeringIntent(
+		params.intent,
+		kept ?? (answersNamed ? at.transport.read(answersNamed) : undefined),
+		self,
+		ownReplaced,
+	);
+	// An orchestrator's order to its sessions, as a pivot or a question,
+	// says whose limit it puts on a verdict (lib/orchestration/unasked-limits.ts).
+	// It is read from the words alone, so before the person is asked to
+	// confirm a hold's end, which a refusal would throw away.
+	const limits =
+		at.peer.orchestrates !== undefined &&
+		(params.intent === "pivot" || intent.intent === "question")
+			? limitsRefusal(params.text)
+			: undefined;
+	if (limits !== undefined) {
+		return answer(`Not sent: ${limits}`, {
+			sent: false,
+		} satisfies SendDetails);
+	}
 	const ended = endedOnWord(at, params.endsHold, answersNamed);
 	if (ended.hold) {
 		const refused = at.confirmEnd
@@ -284,19 +312,6 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 			} satisfies SendDetails);
 		}
 	}
-	const supersedes = params.supersedes
-		? messageNamed(at, params.supersedes)
-		: undefined;
-	const replaced = supersedes ? at.transport.read(supersedes) : undefined;
-	// A send is never refused for how it was written: what does not hold
-	// is left out and said, and the message goes on without it.
-	const ownReplaced = replaced && sentBy(replaced, self) ? replaced : undefined;
-	const intent = answeringIntent(
-		params.intent,
-		kept ?? (answersNamed ? at.transport.read(answersNamed) : undefined),
-		self,
-		ownReplaced,
-	);
 	const target = orchestratorNamed(params.to ?? "", at.peer.orchestratedBy);
 	const named = groupsNamed(target.to);
 	// Meant for one recipient that is not there: routed by rule, it would

@@ -171,16 +171,26 @@ and can answer a question or a gate left open on screen.
   in a group it goes to, and says so; with two such questions
   it answers neither. An answer that names nothing reads to
   every other peer as no answer, so each goes on to answer the
-  question too. A send is never
-  refused for how it was written: an id nobody has, another
+  question too. A send is not refused
+  for a field that doesn't hold: an id nobody has, another
   peer's message to replace, or what cannot be a group is left
-  out and said. Two sends are refused: one to the home of a
+  out and said. Three sends are refused for what they say: one to the home of a
   peer that stopped this one (see Stop), and a question to the
   orchestrator that asks for the person's hands (a touch, a
   paste, a sign-in, a sitting) without a line "his acts: N;
   the fewest: M", with a reason when N is more
   ([`joels-hands.ts`](joels-hands.ts)). One sitting on 14
   November spread a paste over four approvals, uncounted.
+  And an orchestrator's pivot or question that limits a
+  verdict in the person's name (approve, block, request
+  changes, comment-only) without its source: his words
+  quoted just after his name, a message id, a standing rule
+  on something, a document or a skill by its name, or an
+  owner's ruling by address. A question, a draft review and
+  an outright ban on posting are left alone
+  ([`unasked-limits.ts`](../../lib/orchestration/unasked-limits.ts)).
+  On 16 November one told a review cell to post no approval
+  or block, which he had never asked.
 - `mesh_read`: the latest messages this peer hears, and what
   it sent, for catching up after a reload or a compaction, or
   for reading a glance in full. Under each message it sent, it

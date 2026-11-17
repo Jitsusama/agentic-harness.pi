@@ -89,6 +89,8 @@ Two have no barrel yet, and are imported file by file.
 - **[`memory/`](memory/)**: quest-scoped durable facts.
 - **[`mesh/`](mesh/)**: the mesh between sessions on a machine:
   addresses, groups, messages and leases. No barrel.
+- **[`orchestration/`](orchestration/)**: what an orchestrator may
+  put to its sessions, read before it goes. No barrel.
 - **[`prose/`](prose/)**: finding prose-standard violations,
   wrapping and the prose gate's decision.
 - **[`roles/`](roles/)**: which of a provider's models are premium,
