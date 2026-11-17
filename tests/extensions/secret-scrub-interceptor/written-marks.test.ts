@@ -48,9 +48,12 @@ describe("a write or an edit holding a scrub's mark", () => {
 	});
 
 	const call = (toolName: string, input: Record<string, unknown>) =>
-		handler({ type: "tool_call", toolCallId: "t1", toolName, input }, {
-			cwd: dir,
-		});
+		handler(
+			{ type: "tool_call", toolCallId: "t1", toolName, input },
+			{
+				cwd: dir,
+			},
+		);
 
 	it("is refused as a write over the file whose credential it stands for", async () => {
 		const env = mark("environment value");
@@ -86,7 +89,10 @@ describe("a write or an edit holding a scrub's mark", () => {
 		const big = join(dir, "big.log");
 		writeFileSync(big, `A=${env}\n`);
 		truncateSync(big, 17 * 1024 * 1024);
-		const answer = await call("write", { path: "big.log", content: `A=${env}\n` });
+		const answer = await call("write", {
+			path: "big.log",
+			content: `A=${env}\n`,
+		});
 		expect(answer).toMatchObject({ block: true });
 	});
 

@@ -147,7 +147,12 @@ describe("a write to an address no tool can read", () => {
 	it("is let start, and holds back no read", async () => {
 		const args = { path: "file://host/a.ts" };
 		const started = on.get("tool_execution_start")?.(
-			{ type: "tool_execution_start", toolCallId: "w", toolName: "write", args },
+			{
+				type: "tool_execution_start",
+				toolCallId: "w",
+				toolName: "write",
+				args,
+			},
 			ctx,
 		);
 		await expect(started).resolves.toBeUndefined();
