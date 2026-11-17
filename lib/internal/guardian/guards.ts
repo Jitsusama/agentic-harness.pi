@@ -297,6 +297,17 @@ export const GUARDS = {
 		defaultMode: "block",
 		groups: ["git", "github", "review"],
 	}),
+	// A credential a mark replaced in a file git doesn't track, as a
+	// `.env`, can't be brought back, so this blocks; a person who must
+	// have a mark written sets it off.
+	secretMarks: declare({
+		name: "secret-marks",
+		class: "safety",
+		description:
+			"Refuses a write or edit that would put a secret scrub's mark where a credential was",
+		defaultMode: "block",
+		groups: ["files"],
+	}),
 	vmHere: declare({
 		name: "vm-here",
 		class: "form",

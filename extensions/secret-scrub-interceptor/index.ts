@@ -35,18 +35,24 @@
  * loads no extension is scrubbed the same way.
  *
  * A mark stands where a credential was only in what the agent read, not
- * in the file, so a write or an edit that would put a mark the file
- * doesn't already hold into it is refused before it runs, naming why
+ * in the file, so a write or an edit that would leave the file holding a
+ * mark more often than it does is refused before it runs, naming why
  * (`lib/internal/secrets/marks.ts`): written back, a `.env` read through
- * the scrub would lose its credentials for good.
+ * the scrub would lose its credentials for good. The `secret-marks`
+ * guard blocks by default. It reads pi's write and edit only, so a shell
+ * command that writes a mark isn't seen, and it holds wherever this
+ * extension loads, a hosted conversation's tool calls included, but not
+ * in a hosted conversation that loads no extension.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import {
 	type ExtensionAPI,
 	isToolCallEventType,
 } from "@earendil-works/pi-coding-agent";
+import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { toolPath } from "../../lib/internal/files/tool-path.ts";
+import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	type MarkedEdit,
 	markRefusal,
@@ -56,10 +62,21 @@ import {
 import { scrubSavedOutput } from "../../lib/internal/secrets/saved-output.ts";
 import { scrubToolResult } from "../../lib/internal/secrets/secrets.ts";
 
-/** What a file holds now, or nothing when it can't be read, as a new one. */
+/** The most of a file read to count the marks it holds. */
+const MOST_HELD_BYTES = 16 * 1024 * 1024;
+
+/**
+ * What a file holds now, or nothing when it can't be read, as a new one.
+ * A pipe or a device would block pi or never end, and a huge file stall
+ * it, so each is read as holding nothing, which refuses any mark rather
+ * than waiting.
+ */
 function heldNow(path: string, cwd: string): string {
 	try {
-		return readFileSync(toolPath(path, cwd), "utf8");
+		const file = toolPath(path, cwd);
+		const found = statSync(file);
+		if (!found.isFile() || found.size > MOST_HELD_BYTES) return "";
+		return readFileSync(file, "utf8");
 	} catch {
 		// A file not there, or not readable, holds no mark to keep.
 		return "";
@@ -85,6 +102,7 @@ function replacementsOf(input: unknown): MarkedEdit[] {
 
 /** Wires the scrub onto every tool's answer, and its guard onto writes. */
 export default function secretScrubInterceptor(pi: ExtensionAPI) {
+	declareGuards(GUARDS.secretMarks);
 	pi.on("tool_call", async (event, ctx) => {
 		let added: string[] = [];
 		if (isToolCallEventType("write", event)) {
@@ -97,10 +115,19 @@ export default function secretScrubInterceptor(pi: ExtensionAPI) {
 				content,
 			);
 		} else if (isToolCallEventType("edit", event)) {
-			added = marksEditAdds(replacementsOf(event.input));
+			const { path } = event.input;
+			added = marksEditAdds(
+				typeof path === "string" ? heldNow(path, ctx.cwd) : "",
+				replacementsOf(event.input),
+			);
 		}
 		if (added.length === 0) return undefined;
-		return { block: true, reason: markRefusal(added) };
+		return refusalUnder(
+			GUARDS.secretMarks.name,
+			{ block: true, reason: markRefusal(added) },
+			"A scrub's mark written into a file",
+			JSON.stringify(event.input),
+		);
 	});
 
 	pi.on("tool_result", async (event) => {

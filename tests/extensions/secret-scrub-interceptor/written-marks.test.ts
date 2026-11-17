@@ -7,6 +7,7 @@
  * the test runs.
  */
 
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -57,6 +58,15 @@ describe("a write or an edit holding a scrub's mark", () => {
 		const { reason } = answer as { reason: string };
 		expect(reason).toContain(env);
 		expect(reason).toContain("credential");
+	});
+
+	it("is refused at once as a write over a pipe, which is never read", async () => {
+		execFileSync("mkfifo", [join(dir, "pipe")]);
+		const answer = await call("write", {
+			path: "pipe",
+			content: `TOKEN=${mark("environment value")}\n`,
+		});
+		expect(answer).toMatchObject({ block: true });
 	});
 
 	it("is refused as a write of a new file", async () => {
