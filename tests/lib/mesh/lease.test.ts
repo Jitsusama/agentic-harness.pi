@@ -163,7 +163,8 @@ describe("the board on a host", () => {
 		const dir = join(root, "not-a-folder");
 		writeFileSync(dir, "");
 
-		createBoard(dir, { failed }).hold({ session: "one", leases: [lease()] });
+		const board = createBoard(dir, { failed });
+		board.hold({ session: "one", leases: [lease()] });
 
 		await vi.waitFor(() => {
 			expect(failed, "said").toHaveBeenCalledTimes(1);
@@ -172,6 +173,39 @@ describe("the board on a host", () => {
 			join(dir, "one.json"),
 			expect.any(Error),
 		);
+
+		// Once it can land it does, and nothing is left trying.
+		rmSync(dir);
+		board.settle();
+		expect(existsSync(join(dir, "one.json"))).toBe(true);
+	});
+
+	it("answers with what is on its way before its folder is made", () => {
+		const dir = join(root, "leases");
+		const board = createBoard(dir, { write: () => new Promise(() => {}) });
+
+		board.hold({ session: "one", leases: [lease()] });
+
+		expect(board.all().map(({ session }) => session)).toEqual(["one"]);
+	});
+
+	it("leaves a lapsed hold whose renewal is on its way", () => {
+		const dir = join(root, "leases");
+		mkdirSync(dir, { recursive: true });
+		const lapsed = lease({
+			since: new Date(Date.now() - 120_000).toISOString(),
+			until: new Date(Date.now() - 60_000).toISOString(),
+		});
+		writeFileSync(
+			join(dir, "one.json"),
+			JSON.stringify({ session: "one", leases: [lapsed] }),
+		);
+		const board = createBoard(dir, { write: () => new Promise(() => {}) });
+
+		board.hold({ session: "one", leases: [lease()] });
+		board.expire(Date.now());
+
+		expect(existsSync(join(dir, "one.json")), "its file stays").toBe(true);
 	});
 });
 

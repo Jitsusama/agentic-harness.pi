@@ -20,6 +20,7 @@ import {
 	clearRefusedWake,
 	writeRefusedWake,
 } from "../../../../lib/internal/session/refused-wake.ts";
+import type { Wanted } from "../../../../lib/internal/write-whole.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
 import { presence, session } from "./support/presences.ts";
 
@@ -283,6 +284,23 @@ describe("a presence's landings, read back", () => {
 	});
 });
 
+/** Writes held until each is let go, by its place in the order sent. */
+function heldWrites() {
+	const calls: { wanted: Wanted; go: () => void }[] = [];
+	const write = (file: string, wanted: Wanted) =>
+		new Promise<void>((resolve) => {
+			calls.push({
+				wanted,
+				go: () => {
+					if (wanted === null) rmSync(file, { force: true });
+					else writeFileSync(file, wanted);
+					resolve();
+				},
+			});
+		});
+	return { calls, write, go: (at: number) => calls[at]?.go() };
+}
+
 describe("presences on a host", () => {
 	let uninstall: (() => void) | undefined;
 
@@ -370,24 +388,47 @@ describe("presences on a host", () => {
 	});
 
 	it("forget on the thread a presence whose publish is still out, for good", async () => {
-		const presences = createPresences(root);
+		const held = heldWrites();
+		const presences = createPresences(root, { write: held.write });
 		const path = join(root, "s-1.json");
+		mkdirSync(root, { recursive: true });
+		writeFileSync(path, JSON.stringify(presence()));
 
-		presences.publish(presence());
+		presences.publish(presence({ addresses: ["B"] }));
 		presences.forget("s-1");
 		expect(existsSync(path), "gone at once").toBe(false);
-		presences.publish(presence({ session: "s-2" }));
-		await vi.waitFor(() => {
-			expect(existsSync(join(root, "s-2.json")), "a later publish landed").toBe(
-				true,
-			);
-		});
-		// Every write sent before s-2's has had as long to land as it had.
-		await new Promise((resolve) => setTimeout(resolve, 100));
 
+		// The publish that was out lands late, as a rename stuck in a stall.
+		held.go(0);
+		await vi.waitFor(() => {
+			expect(held.calls.length, "its removal written after it").toBe(2);
+		});
+		expect(held.calls[1]?.wanted).toBe(null);
+		held.go(1);
 		expect(existsSync(path), "the publish out never brought it back").toBe(
 			false,
 		);
+		expect(presences.of("s-1")).toBeUndefined();
+	});
+
+	it("answer every conversation with a publish on its way, though a listing read the disk without it", async () => {
+		const held = heldWrites();
+		const presences = createPresences(root, { write: held.write });
+		mkdirSync(root, { recursive: true });
+
+		presences.publish(presence());
+		const other = createPresences(root);
+		expect(
+			(await other.listed()).map((one) => one.session),
+			"another conversation's listing",
+		).toEqual(["s-1"]);
+		expect(other.of("s-1"), "another conversation's read").toEqual(presence());
+		expect(presences.of("s-1"), "its own read").toEqual(presence());
+
+		held.go(0);
+		await vi.waitFor(() => {
+			expect(existsSync(join(root, "s-1.json"))).toBe(true);
+		});
 	});
 
 	it("say a publish that couldn't land once", async () => {
@@ -408,6 +449,13 @@ describe("presences on a host", () => {
 			expect.any(Error),
 		);
 		expect(presences.of("s-1")?.addresses, "still its own").toEqual(["B"]);
+
+		// Once it can land, the latest does, and nothing is left trying.
+		rmSync(dir);
+		presences.settle();
+		expect(
+			JSON.parse(readFileSync(join(dir, "s-1.json"), "utf8")).addresses,
+		).toEqual(["B"]);
 	});
 
 	it("answer the first ask from the disk, never empty", () => {

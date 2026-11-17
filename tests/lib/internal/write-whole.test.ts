@@ -13,7 +13,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearWriting,
+	sayWriteFailed,
 	type Wanted,
+	WRITE_FAILED_ENTRY,
 	WRITING,
 	wholeWrites,
 	writeWhole,
@@ -73,11 +75,19 @@ describe("writing a file whole off the thread", () => {
 	});
 });
 
-/** A write that waits until it is let go, one for each call, in order. */
+/**
+ * A write that waits until it is let go, or failed, one for each call,
+ * in order.
+ */
 function heldWrites() {
-	const calls: { file: string; wanted: Wanted; go: () => void }[] = [];
+	const calls: {
+		file: string;
+		wanted: Wanted;
+		go: () => void;
+		fail: () => void;
+	}[] = [];
 	const write = (file: string, wanted: Wanted) =>
-		new Promise<void>((resolve) => {
+		new Promise<void>((resolve, reject) => {
 			calls.push({
 				file,
 				wanted,
@@ -86,6 +96,7 @@ function heldWrites() {
 					else writeFileSync(file, wanted);
 					resolve();
 				},
+				fail: () => reject(new Error("EIO: the disk is gone")),
 			});
 		});
 	return { calls, write };
@@ -204,6 +215,115 @@ describe("a peer's whole writes", () => {
 		expect(readFileSync(file, "utf8")).toBe("ended");
 	});
 
+	// On a reload a conversation's old runtime settles and its new one
+	// writes the same files, while the old one's write may still be out.
+	it("write each file in one order for the process, whichever writer asks", async () => {
+		const file = join(dir, "a.json");
+		const held = heldWrites();
+		const old = wholeWrites({ write: held.write });
+		const fresh = wholeWrites({ write: held.write });
+
+		old.ask(file, "old");
+		old.settle();
+		fresh.ask(file, "new");
+		expect(
+			held.calls.map(({ wanted }) => wanted),
+			"one out for the file, whoever asked",
+		).toEqual(["old"]);
+		expect(old.waiting(file), "either writer reads what waits").toBe("new");
+
+		// The old runtime's write lands late, as a rename stuck in a stall.
+		held.calls[0]?.go();
+		await vi.waitFor(() => {
+			expect(held.calls.length, "the newest ask written after it").toBe(2);
+		});
+		expect(held.calls[1]?.wanted).toBe("new");
+		held.calls[1]?.go();
+		await vi.waitFor(() => {
+			expect(fresh.waiting(file)).toBe(undefined);
+		});
+		expect(readFileSync(file, "utf8"), "the new runtime's, last").toBe("new");
+	});
+
+	it("write again a file a write on the thread couldn't land", async () => {
+		// A file where its folder should be, so no write can land there.
+		const blocked = join(dir, "blocked");
+		writeFileSync(blocked, "");
+		const file = join(blocked, "a.json");
+		const writes = wholeWrites({ retry: { first: 10, most: 10 } });
+
+		expect(() => writes.now(file, "ended")).toThrow();
+		expect(writes.waiting(file), "it still waits").toBe("ended");
+		rmSync(blocked);
+
+		await vi.waitFor(() => {
+			expect(readFileSync(file, "utf8"), "landed once it could").toBe("ended");
+		});
+	});
+
+	it("say nothing of a write out that failed once a settle landed its file", async () => {
+		const file = join(dir, "a.json");
+		const held = heldWrites();
+		const failed = vi.fn();
+		const writes = wholeWrites({
+			failed,
+			retry: { first: 10, most: 10 },
+			write: held.write,
+		});
+		writes.ask(file, "ended");
+		writes.settle();
+
+		held.calls[0]?.fail();
+		// Three retry spells: one would have been sent by now.
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(failed, "nothing failed that waits").not.toHaveBeenCalled();
+		expect(held.calls.length, "nothing written again").toBe(1);
+		expect(readFileSync(file, "utf8")).toBe("ended");
+	});
+
+	it("wait out a failing file's spell, then write the latest, the spell doubling to its most", async () => {
+		vi.useFakeTimers();
+		try {
+			const file = join(dir, "a.json");
+			const failed = vi.fn();
+			const wrote: Wanted[] = [];
+			const fails = new Set([1, 2, 3, 5]);
+			const writes = wholeWrites({
+				failed,
+				retry: { first: 100, most: 200 },
+				write: async (_, wanted) => {
+					wrote.push(wanted);
+					if (fails.has(wrote.length)) throw new Error("EIO");
+				},
+			});
+
+			writes.ask(file, "one");
+			await vi.advanceTimersByTimeAsync(0);
+			writes.ask(file, "two");
+			await vi.advanceTimersByTimeAsync(99);
+			expect(wrote, "an ask in its spell waits for it").toEqual(["one"]);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(wrote, "then the latest").toEqual(["one", "two"]);
+			await vi.advanceTimersByTimeAsync(199);
+			expect(wrote.length, "the spell doubled").toBe(2);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(wrote.length).toBe(3);
+			await vi.advanceTimersByTimeAsync(200);
+			expect(wrote.length, "held to its most").toBe(4);
+			expect(writes.waiting(file), "landed").toBe(undefined);
+			expect(failed, "said once while it failed").toHaveBeenCalledTimes(1);
+
+			writes.ask(file, "three");
+			await vi.advanceTimersByTimeAsync(0);
+			expect(failed, "a new failure, said again").toHaveBeenCalledTimes(2);
+			await vi.advanceTimersByTimeAsync(100);
+			expect(wrote.length, "from its first spell again").toBe(6);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("write one at once on the thread, over a write still out", async () => {
 		const file = join(dir, "a.json");
 		const held = heldWrites();
@@ -220,5 +340,27 @@ describe("a peer's whole writes", () => {
 		expect(held.calls[1]?.wanted).toBe(null);
 		held.calls[1]?.go();
 		expect(existsSync(file), "gone, as asked last").toBe(false);
+	});
+});
+
+describe("a write that couldn't land, said", () => {
+	it("goes in the session's log and on standard error, a host's journal", () => {
+		const append = vi.fn();
+		const stderr = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation(() => true);
+		try {
+			sayWriteFailed(append)("/mesh/presence/a.json", new Error("EIO: gone"));
+
+			expect(append).toHaveBeenCalledWith(WRITE_FAILED_ENTRY, {
+				file: "/mesh/presence/a.json",
+				error: "EIO: gone",
+			});
+			expect(stderr).toHaveBeenCalledWith(
+				expect.stringMatching(/\/mesh\/presence\/a\.json.*EIO: gone/),
+			);
+		} finally {
+			stderr.mockRestore();
+		}
 	});
 });
