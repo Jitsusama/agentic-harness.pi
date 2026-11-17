@@ -38,7 +38,7 @@ import {
 } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import { hostHold } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
-import { limitsRefusal } from "../../../lib/mesh/unasked-limits.ts";
+import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 import {
 	describePlan,

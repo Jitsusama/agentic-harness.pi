@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { limitsRefusal } from "../../../lib/mesh/unasked-limits.ts";
+import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 
 describe("an orchestrator's limit on what is done in the person's name", () => {
 	it("is refused when it narrows his verdict and cites no source", () => {

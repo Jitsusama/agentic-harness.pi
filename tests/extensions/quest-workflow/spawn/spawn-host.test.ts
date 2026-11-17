@@ -197,7 +197,7 @@ describe("spawn into a host", () => {
 	});
 
 	// A spawn note is the spawner's order to the new session, read as a
-	// pivot is (lib/mesh/unasked-limits.ts).
+	// pivot is (lib/orchestration/unasked-limits.ts).
 	it("opens nothing for a note narrowing a verdict the person didn't limit", async () => {
 		await serveHost("home", "background");
 		const { state, id } = await questNamed("Alpha");
@@ -209,7 +209,7 @@ describe("spawn into a host", () => {
 			note: "Review Jon's PR in Joel's name. Post no approval or block: a comment review.",
 		});
 
-		expect(refused.ok).toBe(false);
+		expect(refused).toMatchObject({ ok: false });
 		expect(said(refused)).toContain(
 			'this limits a verdict the person didn\'t ask to limit ("Post no approval or block: a comment review.")',
 		);

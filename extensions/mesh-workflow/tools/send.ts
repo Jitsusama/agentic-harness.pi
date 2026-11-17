@@ -29,7 +29,7 @@ import type { Presence } from "../../../lib/mesh/presence.ts";
 import { type Route, routeOf } from "../../../lib/mesh/routing.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
-import { limitsRefusal } from "../../../lib/mesh/unasked-limits.ts";
+import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import { handsRefusal } from "../joels-hands.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { reach, unheardOf } from "./reach.ts";
@@ -367,7 +367,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		} satisfies SendDetails);
 	}
 	// An orchestrator's order to its sessions, as a pivot or a question,
-	// says whose limit it puts on a verdict (lib/mesh/unasked-limits.ts).
+	// says whose limit it puts on a verdict (lib/orchestration/unasked-limits.ts).
 	const limits =
 		at.peer.orchestrates !== undefined &&
 		(params.intent === "pivot" || intent.intent === "question")
