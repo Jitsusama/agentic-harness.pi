@@ -11,10 +11,10 @@ may import from here, and any of it may change without notice.
   `away-workflow`, and reaching the person there through a desktop
   notification (`notify.ts`), which decides how while the mesh
   decides when; `PI_NOTIFY=off` silences it.
-- **`cache/`**: keeping an idle session's hour-long cache entry warm:
-  when a warm falls due and what it costs, its record while no pi
-  runs the session, and whether a call is on that a warm would cut
-  into.
+- **`cache/`**: the model's prompt cache: the prices a compaction is
+  weighed at, and keeping an idle session's hour-long entry warm, with
+  its record while no pi runs the session and whether a call is on
+  that a warm would cut into.
 - **`carry/`**: carrying a quest's work to another of the person's
   machines: a session's trees, as bundles and patches, its file, its
   fence and its quest's remembered facts put in the quest's handover

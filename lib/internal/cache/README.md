@@ -1,6 +1,7 @@
 # Cache
 
-Keeping an idle session's hour-long cache entry warm, for
+The model's prompt cache: what its prices make a compaction cost, and
+keeping an idle session's hour-long entry warm, for
 `compaction-workflow` and the pi host's parked sessions.
 
 ## Files
