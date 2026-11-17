@@ -440,7 +440,36 @@ export function hostBackend(options: {
 				await engine.dropped?.(sessionId, asked);
 			}
 			return { sessionId };
-		}).finally(skipped);
+		}).then(
+			(ended) => {
+				skipped();
+				return ended;
+			},
+			(error: unknown) => {
+				// A close that failed closed nothing, so a wake it let go is asked
+				// again: parking took that wake's file, so nothing else would.
+				if (skipped()) void wakeAgain(sessionId);
+				throw error;
+			},
+		);
+	}
+
+	// Ask again a wake a failed close let go, saying in the journal if it
+	// fails again, since nobody waits on it.
+	async function wakeAgain(sessionId: string): Promise<void> {
+		try {
+			await wake(sessionId);
+		} catch (error: unknown) {
+			const why = error instanceof Error ? error.message : String(error);
+			try {
+				options.say?.(
+					`The wake of ${sessionId} a failed close let go failed again: ${why}`,
+				);
+			} catch {
+				// The journal failing too leaves nothing to tell; the wake is lost
+				// either way, and must not become an unhandled rejection.
+			}
+		}
 	}
 
 	// Said in the journal with who asked, since a drain parks conversations

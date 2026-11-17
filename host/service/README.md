@@ -37,7 +37,8 @@ input pipeline or screen. No unit or running host is installed yet.
   taking in a wake of that conversation already waiting or resuming,
   and no other wake begins while it runs. A close or release of one
   whose wake waits lets that wake go unresumed, so the close lands at
-  once and the queue goes on. Each resume holds the others
+  once and the queue goes on; a window's wake is never let go, and a
+  close that fails asks again the wake it let go. Each resume holds the others
   back for at most `WAKE_LONGEST_MS` (20 s); past that it counts no
   more, and the journal names it and says when it ends or fails, so a
   resume that never ends delays those behind it once rather than for

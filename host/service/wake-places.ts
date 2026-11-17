@@ -9,7 +9,9 @@
  * a conversation whose own wake waits, or already resumes, takes that wake
  * in as its own. A close or release of one whose wake waits lets that wake
  * go unresumed, since nobody is looking at a conversation being closed:
- * it lands at once, and the queue goes on.
+ * it lands at once, and the queue goes on. A window's wake is never let
+ * go, since the person asked first; and a close that fails says it let a
+ * wake go, so its caller can ask that wake again.
  *
  * Each resume holds back the others for at most its longest: past that
  * it counts against neither the places nor the windows, and the journal
@@ -57,10 +59,11 @@ export interface WakePlaces {
 	hurry(sessionId: string): () => void;
 	/**
 	 * A close or release takes `sessionId`: its wake waiting for a place, or
-	 * one still to ask for it, goes unresumed. A resume under way is left to
-	 * end. Call what it answers once the close has settled.
+	 * one still to ask for it, goes unresumed, unless a window asked for it.
+	 * A resume under way is left to end. Call what it answers once the close
+	 * has settled: it says whether it let any wake go.
 	 */
-	skip(sessionId: string): () => void;
+	skip(sessionId: string): () => boolean;
 	/** The host stops: every wake waiting goes in now, and any asked after. */
 	stopping(): void;
 }
@@ -88,8 +91,9 @@ export function wakePlaces(
 	const waiting: Waiting[] = [];
 	// How many windows ask for each conversation, and so hurry its wake.
 	const hurried = new Map<string, number>();
-	// How many closes take each conversation, and so let its wake go.
-	const skipped = new Map<string, number>();
+	// The closes taking each conversation, so letting its wake go, each
+	// counting the wakes it let go.
+	const skipped = new Map<string, Set<{ letGo: number }>>();
 	// How to count each conversation's resume under way as a window's; a
 	// conversation's wakes take turns, so it has one at most.
 	const promotions = new Map<string, () => void>();
@@ -185,8 +189,8 @@ export function wakePlaces(
 		sessionId: string,
 		resume: () => Promise<T>,
 	): Promise<T | undefined> {
-		if (skipped.has(sessionId)) return undefined;
 		const as = hurried.has(sessionId) ? "window" : asker;
+		if (as === "other" && letGo(sessionId)) return undefined;
 		const ended =
 			as === "window" || (free() && waiting.length === 0)
 				? occupy(as, sessionId)
@@ -230,10 +234,32 @@ export function wakePlaces(
 		return counted;
 	}
 
-	function skip(sessionId: string): () => void {
-		const counted = countIn(skipped, sessionId);
-		takeWaiting(sessionId)?.leave();
-		return counted;
+	// Count a wake of `sessionId` let go against every close taking it, and
+	// answer whether any did.
+	function letGo(sessionId: string): boolean {
+		const closes = skipped.get(sessionId);
+		if (!closes) return false;
+		for (const close of closes) close.letGo += 1;
+		return true;
+	}
+
+	function skip(sessionId: string): () => boolean {
+		const close = { letGo: 0 };
+		const closes = skipped.get(sessionId) ?? new Set();
+		closes.add(close);
+		skipped.set(sessionId, closes);
+		// A window's wake never waits, so one waiting is nobody's at a window.
+		const queued = takeWaiting(sessionId);
+		if (queued) {
+			letGo(sessionId);
+			queued.leave();
+		}
+		return () => {
+			closes.delete(close);
+			if (closes.size === 0 && skipped.get(sessionId) === closes)
+				skipped.delete(sessionId);
+			return close.letGo > 0;
+		};
 	}
 
 	function stopping(): void {
