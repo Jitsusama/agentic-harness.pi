@@ -21,10 +21,13 @@ where V8 exposes no gc),
 counts tool calls from session
 events, and runs V8's own collection and reads this process's Pss.
 
-hosted-agent.test.ts and engine.test.ts are the exceptions. The first runs
-fixtures/hosted-session.mts in child node processes, beside pi's own agent,
-on pi's scripted provider. The second runs fixtures/hosted-engine.mts, a
-host's life one start at a time in a sealed folder: open, a refused key,
+hosted-agent.test.ts, call-signal.test.ts and engine.test.ts are the
+exceptions. The first runs fixtures/hosted-session.mts in child node
+processes, beside pi's own agent, on pi's scripted provider; the second
+runs its call-signal scenario the same way, holding that a later call's
+commands start under no signal an earlier call left behind. The third
+runs fixtures/hosted-engine.mts, a host's life one start at a time in a
+sealed folder: open, a refused key,
 a stop and resume, a kill mid-tool and the start after it, a park
 that keeps what an ended command left and the start after it, ordinary
 pi reading the file, and an extension whose link moves onto another
@@ -39,7 +42,7 @@ restart that leaves it resting parked. Another runs a turn on this package, a
 bash call included, and holds that nothing it starts from its prompt to
 idle starts a child with spawnSync, execFileSync or execSync, which
 would hold every conversation's loop (tests/support/spawns.ts watches).
-Both need a pi built with the host's
+All three need a pi built with the host's
 patches, found as tests/host/end-to-end/support/host-pi.ts finds it, so
 an ordinary `pnpm test` skips each case, saying how to get one. They sit
 in the process lane, since they spawn node from node. Run them before
@@ -48,7 +51,8 @@ rather than skips without that pi, or on one build:
 
 ```sh
 PI_HOST_PACKAGE_DIR=<root> pnpm exec vitest run --project process \
-  tests/host/engine/hosted-agent.test.ts tests/host/engine/engine.test.ts
+  tests/host/engine/hosted-agent.test.ts tests/host/engine/call-signal.test.ts \
+  tests/host/engine/engine.test.ts
 ```
 
 The root is the pi-monorepo folder of a pi carrying every patch in
