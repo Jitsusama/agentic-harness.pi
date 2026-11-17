@@ -5,11 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	PARKED,
-	type Parking,
-	parking,
-} from "../../../host/engine/parking.ts";
+import { PARKED, type Parking, parking } from "../../../host/engine/parking.ts";
 import { askWake, writeParked } from "../../../lib/internal/session/park.ts";
 import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import { giveSteer, inboxOf } from "../../../lib/mesh/steer.ts";
