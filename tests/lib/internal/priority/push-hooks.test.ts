@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { withoutOurs } from "../../../../lib/internal/priority/push-hooks.mjs";
 import {
@@ -20,18 +20,40 @@ import {
 	pushHook,
 } from "../../../../lib/internal/priority/pushes.ts";
 
-// A git of its own: no person's config, so nothing signs or hooks.
-const GIT_ENV: NodeJS.ProcessEnv = {
-	...process.env,
+/**
+ * A git of its own: no person's config, so nothing signs or hooks, and
+ * none of the git variables of whatever launched the run (a hook's
+ * GIT_DIR, a walk's GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS), which
+ * steered every case on a lender (2QZBX9, 17 November); none of the
+ * hook's own PI_PUSH_ variables; and none of what makes bash read a
+ * file before its line runs. Read per call, so a case can set the
+ * launcher's variables and see them dropped.
+ */
+const LAUNCHERS = /^(GIT_|PI_PUSH_)/;
+const BASH_STARTUP = new Set([
+	"BASH_ENV",
+	"ENV",
+	"SHELLOPTS",
+	"BASHOPTS",
+	"SSH_CLIENT",
+	"SSH_CONNECTION",
+	"SSH2_CLIENT",
+]);
+const gitEnv = (): NodeJS.ProcessEnv => ({
+	...Object.fromEntries(
+		Object.entries(process.env).filter(
+			([name]) => !LAUNCHERS.test(name) && !BASH_STARTUP.has(name),
+		),
+	),
+	HOME: root,
+	XDG_CONFIG_HOME: join(root, "config"),
 	GIT_CONFIG_GLOBAL: "/dev/null",
 	GIT_CONFIG_NOSYSTEM: "1",
 	GIT_AUTHOR_NAME: "t",
 	GIT_AUTHOR_EMAIL: "t@example.com",
 	GIT_COMMITTER_NAME: "t",
 	GIT_COMMITTER_EMAIL: "t@example.com",
-};
-// The test's own shell may be a pushing walk's, already holding one.
-delete GIT_ENV.GIT_CONFIG_COUNT;
+});
 
 // World's pre-push, as it runs each hook in pre-push.d in order.
 const DISPATCHER = new URL("./world-pre-push.sh", import.meta.url);
@@ -45,7 +67,7 @@ const git = (...args: string[]) =>
 	execFileSync("git", ["-C", work, ...args], {
 		encoding: "utf8",
 		// What the hooks run in setting up is marked apart from the push's.
-		env: { ...GIT_ENV, MARK: join(root, "setup") },
+		env: { ...gitEnv(), MARK: join(root, "setup") },
 		input: "",
 	}).trim();
 
@@ -64,10 +86,13 @@ const commit = (path: string, text: string) => {
 const pushing = (script: string, env: Record<string, string> = {}) => {
 	const line = pushesLine(queue);
 	if (line === undefined) throw new Error("the queue's folder can't be quoted");
+	// No socket on stdin: bash given one sources the system's bashrc,
+	// which on NixOS sets PATH again.
 	return spawnSync("bash", ["-c", `${line}\n${script}`], {
 		cwd: work,
 		encoding: "utf8",
-		env: { ...GIT_ENV, MARK: mark, ...env },
+		stdio: ["ignore", "pipe", "pipe"],
+		env: { ...gitEnv(), MARK: mark, ...env },
 		timeout: 60_000,
 	});
 };
@@ -86,8 +111,8 @@ beforeEach(() => {
 	work = join(root, "work");
 	mark = join(root, "ran");
 	const remote = join(root, "remote.git");
-	execFileSync("git", ["init", "-q", "--bare", remote], { env: GIT_ENV });
-	execFileSync("git", ["init", "-q", "-b", "main", work], { env: GIT_ENV });
+	execFileSync("git", ["init", "-q", "--bare", remote], { env: gitEnv() });
+	execFileSync("git", ["init", "-q", "-b", "main", work], { env: gitEnv() });
 	git("remote", "add", "origin", remote);
 	commit(".gitattributes", "*.bin filter=lfs diff=lfs merge=lfs -text\n");
 	git("push", "-q", "origin", "main");
@@ -115,6 +140,26 @@ afterEach(() => {
 });
 
 describe("a push of one existing branch", () => {
+	it("keeps its git and bash from the variables of whatever launched the run", () => {
+		vi.stubEnv("GIT_DIR", join(root, "elsewhere.git"));
+		vi.stubEnv("GIT_CONFIG_PARAMETERS", "'core.hooksPath'='/nonexistent'");
+		vi.stubEnv("GIT_CONFIG_COUNT", "1");
+		vi.stubEnv("GIT_CONFIG_KEY_0", "core.hooksPath");
+		vi.stubEnv("GIT_CONFIG_VALUE_0", "/nonexistent");
+		vi.stubEnv("PI_PUSH_SKIPS_STALE_CUTOFF", "1");
+		const startup = join(root, "startup.sh");
+		writeFileSync(startup, 'echo startup >> "$MARK"\n');
+		vi.stubEnv("BASH_ENV", startup);
+		try {
+			commit("notes.txt", "plain\n");
+			const push = pushing("git push -q origin main");
+			expect(push.status, push.stderr).toBe(0);
+			expect(ran()).toEqual(["other unset refs/heads/main"]);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it("leaves out the LFS hook when its commits hold no LFS file, and runs the rest", () => {
 		commit("notes.txt", "plain\n");
 		commit("more.txt", "plain too\n");
@@ -316,7 +361,7 @@ describe("a push replacing a branch on a remote main isn't fetched from", () => 
 	// past, and an LFS file among them.
 	const rebasedOntoMainElsewhere = () => {
 		const delta = join(root, "delta.git");
-		execFileSync("git", ["init", "-q", "--bare", delta], { env: GIT_ENV });
+		execFileSync("git", ["init", "-q", "--bare", delta], { env: gitEnv() });
 		git("remote", "add", "delta", delta);
 		git("checkout", "-q", "-b", "topic");
 		commit("notes.txt", "plain\n");
