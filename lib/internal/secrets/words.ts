@@ -188,6 +188,9 @@ const USER = /:\/\/([^/@\s]*)@/g;
  */
 const PERCENT_ESCAPE = /%[\dA-Fa-f]{2}/g;
 
+/** A digit, as a user's address writes one escaped. */
+const PERCENT_DIGIT = /%3\d/g;
+
 /** What parts a word into pieces: a break, or a joiner. */
 const PIECE_BREAK = /[\s'"=\][:,;|()]/;
 
@@ -211,13 +214,15 @@ interface Segment {
  * `word`, read with each command as what it holds. Joined across its
  * breaks alone, as a model reads it; then in pieces a break or a joiner
  * parts, a colour within text parting none, each piece holding a
- * payload judged whole, and each payload joined to the text touching it
- * on either side, from the last slash before the payload to the first
- * after, so a path or an address just before it exempts nothing. Two
- * commands side by side are judged only whole, as a model reads them.
+ * payload judged whole, and each run of payloads side by side joined to
+ * the text touching it on either side, that text read from its last
+ * slash before the run and to its first after, so a path or an address
+ * just before it exempts nothing. A payload itself is never cut, so a
+ * link's address, or a title's path, beside its own name stays a path.
  * One pass over the word.
  */
 function runsAcross(word: string): boolean {
+	if (!word.includes("\x1b]")) return false;
 	const read = word.replace(ESCAPE, payloadOf).split(WORD_BREAK);
 	if (read.some((piece) => looksLikeSecret(piece))) return true;
 	const pieces: Segment[][] = [[]];
@@ -247,15 +252,22 @@ function runsAcross(word: string): boolean {
 	const text = (segment: Segment | undefined) =>
 		segment && !segment.payload ? segment.text : "";
 	const across = (piece: Segment[], at: number) => {
+		if (piece[at - 1]?.payload) return false;
+		let end = at;
+		while (piece[end + 1]?.payload) end++;
 		const prior = text(piece[at - 1]);
-		const after = text(piece[at + 1]);
-		if (!prior && !after) return false;
-		const before = `${prior}${piece[at]?.text ?? ""}`;
+		const after = text(piece[end + 1]);
+		if (!prior && !after && end === at) return false;
+		const payloads = piece
+			.slice(at, end + 1)
+			.map((segment) => segment.text)
+			.join("");
 		const slash = after.indexOf("/");
-		const run = `${before.slice(before.lastIndexOf("/") + 1)}${
-			slash < 0 ? after : after.slice(0, slash)
-		}`;
-		return looksLikeSecret(run);
+		return looksLikeSecret(
+			`${prior.slice(prior.lastIndexOf("/") + 1)}${payloads}${
+				slash < 0 ? after : after.slice(0, slash)
+			}`,
+		);
 	};
 	return pieces.some(
 		(piece) =>
@@ -346,7 +358,10 @@ export function hidden(word: string, kind: string): string | undefined {
 		.split(ESCAPE)
 		.flatMap((piece) => piece.split(JOINER));
 	const users = [...word.matchAll(USER)].map(([, user = ""]) =>
-		user.replace(ESCAPE, "").replace(PERCENT_ESCAPE, "_"),
+		user
+			.replace(ESCAPE, "")
+			.replace(PERCENT_DIGIT, "0")
+			.replace(PERCENT_ESCAPE, "_"),
 	);
 	const could =
 		looksLikeSecret(word.replace(ESCAPE, "")) ||
