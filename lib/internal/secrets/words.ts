@@ -347,10 +347,10 @@ export function replaceWords(
  * Whether a link's `text` is the `name` its address ends with, decoded,
  * or that name without its extension, or, for an all-hex name, a
  * commit's short id of `SHORT_ID` characters or more, so the address
- * shows nothing the text doesn't beyond a commit's id. A name holding a
- * break is shown a word at a time, so its first word stands for it; a
- * line after a name is a word of its own. Any other shortening of it is
- * none.
+ * shows nothing the text doesn't beyond a commit's id. The text reaches
+ * here cut at its first break, joiner or slash, so a name holding one is
+ * matched by its first piece, cut the same way; a line after a name is a
+ * piece of its own. Any other shortening of it is none.
  */
 function repeats(text: string, name: string): boolean {
 	let plain = name;
@@ -360,11 +360,12 @@ function repeats(text: string, name: string): boolean {
 		// A percent that escapes nothing: the name is read as written.
 	}
 	const dot = plain.lastIndexOf(".");
-	const [word = ""] = plain.split(WORD_BREAK);
+	const [piece = ""] = plain.split(PIECE_BREAK);
+	const [first = ""] = piece.split("/");
 	return (
 		text === plain ||
 		(dot > 0 && text === plain.slice(0, dot)) ||
-		(word !== plain && text === word) ||
+		text === first ||
 		(text.length >= SHORT_ID && HEX.test(plain) && plain.startsWith(text))
 	);
 }
