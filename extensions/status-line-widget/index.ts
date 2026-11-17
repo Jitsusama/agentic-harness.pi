@@ -28,7 +28,7 @@ import {
 	contextGauge,
 	marginalText,
 	sessionText,
-} from "../../lib/internal/cost-meter/index.ts";
+} from "../../lib/internal/spend/cost-meter/index.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import {

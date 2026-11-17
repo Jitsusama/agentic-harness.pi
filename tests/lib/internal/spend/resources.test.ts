@@ -9,7 +9,7 @@ import {
 	parseStat,
 	readCounters,
 	usageBetween,
-} from "../../../lib/internal/resources.ts";
+} from "../../../../lib/internal/spend/resources.ts";
 
 /** A `/proc/self/stat` line, its CPU fields in clock ticks. */
 function stat(

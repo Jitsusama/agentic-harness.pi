@@ -10,7 +10,7 @@
  * this reads it.
  */
 
-import { isRecord } from "./record.ts";
+import { isRecord } from "../record.ts";
 
 /** The diagnostic the provider writes, by its type. */
 export const RATE_LIMIT = "claude-code.rate-limit";

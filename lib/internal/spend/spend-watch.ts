@@ -13,8 +13,8 @@
  * ledger's own answer still stands.
  */
 
-import type { Exec } from "../core/exec/index.ts";
-import { isRecord } from "./record.ts";
+import type { Exec } from "../../core/exec/index.ts";
+import { isRecord } from "../record.ts";
 
 /** The periods spend-watch answers for, in its own words. */
 export const BILL_PERIODS = [

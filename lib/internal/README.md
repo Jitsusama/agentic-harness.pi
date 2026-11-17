@@ -28,9 +28,6 @@ may import from here, and any of it may change without notice.
   a paste reads and puts in the editor, in pi's own order.
 - **`config/`**: the loader for the package's one configuration
   file.
-- **`cost-meter/`**: what the status line says about money and
-  context, shared by the extension that knows the figures and the
-  widget that lays them out.
 - **`errors/`**: telling one failure from another: a failed model
   call a later try could get past, and pi's stale-context error.
 - **`fence/`**: the agent fence: its mounts, the copies it binds
@@ -108,6 +105,9 @@ may import from here, and any of it may change without notice.
   habits the standing rules forbid (output cut with tail, long
   sleeps, git stash), as `shell-habit-interceptor` catches them
   (`shell-habits.ts`).
+- **`spend/`**: what the session spends and what is left: the bill and
+  budgets asked of spend-watch, a Claude plan's allowances, the
+  resources a process used, and the status line's money and context.
 - **`stray/`**: catching writes that would land behind pi's screen.
 - **`verbs/`**: the verbs server the launcher keeps a connection to:
   each verb as its markdown file says it, the prompt it builds over a
@@ -125,9 +125,6 @@ may import from here, and any of it may change without notice.
   pi's prompt path.
 - **`booted.ts`**: when the machine booted, which bounds what is
   still under way.
-- **`claude-plan.ts`**: where a Claude plan's five-hour and weekly
-  allowances stand, read from what the Claude Code provider says
-  after each turn, for spend-workflow's budget item.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
   tool, sandbox and session but never what was asked for.
@@ -164,8 +161,6 @@ may import from here, and any of it may change without notice.
 - **`record.ts`**: whether a parsed value is an object whose keys
   can be read by name; one copy for the whole package, `lib/core`
   included.
-- **`resources.ts`**: the CPU, disk and memory this pi process and
-  its work used, from the kernel's counters.
 - **`sandbox.ts`**: which sandbox a session asked for and the shell
   text that runs each command in it: the strict profile as landrun's
   rules, and the agent fence from `fence/fence.ts`.
@@ -173,11 +168,6 @@ may import from here, and any of it may change without notice.
   join; work that coalesces, running once more after the run going
   for every call that came during it; and `loadOnce`, through which
   every lazy import loads its module once.
-- **`spend-watch.ts`**: the bill for a period, asked of spend-watch's
-  command line where it is installed, for the spend tool.
-- **`spend-watch-budgets.ts`**: where every budget stands, its
-  allowances in their own units, and the total across all AI spend,
-  asked of `spend-watch budgets --json`, for the footer and `/budget`.
 - **`stamped-read.ts`**: a file's parse kept while its inode, mtime
   and size say it is the same file, read on the thread or off it, for
   the mesh's presence listings.

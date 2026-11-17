@@ -15,7 +15,7 @@ import { overridesMark } from "../../../extensions/guard-policy-workflow/render.
 import { statusLine } from "../../../extensions/job-workflow/lifecycle.ts";
 import { quietStatus } from "../../../extensions/mesh-workflow/quiet.ts";
 import { budgetMark } from "../../../extensions/spend-workflow/budget.ts";
-import type { Allowance } from "../../../lib/internal/spend-watch-budgets.ts";
+import type { Allowance } from "../../../lib/internal/spend/spend-watch-budgets.ts";
 import {
 	FOOTER_GLYPH,
 	footerMark,

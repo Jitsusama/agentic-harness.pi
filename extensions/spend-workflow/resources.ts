@@ -31,7 +31,7 @@ import {
 	readCounters,
 	type Usage,
 	usageBetween,
-} from "../../lib/internal/resources.ts";
+} from "../../lib/internal/spend/resources.ts";
 import { count } from "../../lib/ui/count.ts";
 
 /** One turn's use, as a session's file holds it. */
