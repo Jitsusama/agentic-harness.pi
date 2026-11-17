@@ -318,7 +318,10 @@ describe("what a printing of the environment keeps", () => {
 			"\x1b]8;;file://mbp/Users/joel/report2024.md\x07report2024\x1b]8;;\x07\n",
 			"\x1b]8;;file://mbp/Users/joel/notes%2C%20v2.txt\x07notes, v2.txt\x1b]8;;\x07\n",
 			"\x1b]8;;file://mbp/Users/joel/notes%282%29.txt\x07notes(2).txt\x1b]8;;\x07\n",
-			"\x1b]8;;file:///repo/src/main.c\x07main.c:42\x1b]8;;\x07\n",
+			"\x1b]8;;file://mbp/Users/joel/my%20notes2.txt\x07my%20notes2.txt\x1b]8;;\x07\n",
+			"\x1b]8;;file://mbp/Users/joel/my%20notes2.txt\x07my%20notes2\x1b]8;;\x07\n",
+			"\x1b]8;;file://mbp/Users/joel/abc%2Fnotes.md\x07abc/notes.md\x1b]8;;\x07\n",
+			"\x1b]8;;file:///repo/src/report2024.c\x07report2024.c:42\x1b]8;;\x07\n",
 			`\x1b]8;;https://github.com/o/r/commit/${"abc1234d".repeat(5)}\x07abc1234\x1b]8;;\x07\n`,
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBeUndefined();
@@ -326,14 +329,16 @@ describe("what a printing of the environment keeps", () => {
 	});
 
 	// A link's text exempts its address's name only when it is that whole
-	// name, decoded, the name without its extension, or a commit's short
-	// id, so the address shows nothing the text doesn't: a link whose text
-	// shortens the name otherwise is put out of sight, the trade this makes
-	// for failing closed.
+	// name, as written or decoded, the name without its extension, its
+	// first piece, or a commit's short id, so the address shows nothing
+	// the text doesn't: a link whose text shortens the name otherwise is
+	// put out of sight, the trade this makes for failing closed.
 	it("is put out of sight as a link whose text shortens its name", () => {
 		for (const printed of [
 			`\x1b]8;;https://github.com/o/r/commit/${"abc1234d".repeat(5)}\x07abc12\x1b]8;;\x07\n`,
-			"\x1b]8;;file:///repo/src/main.c#L42\x07main.c:42\x1b]8;;\x07\n",
+			`\x1b]8;;https://github.com/o/r/commit/${"abc1234d".repeat(5)}\x07abc123\x1b]8;;\x07\n`,
+			`\x1b]8;;https://github.com/o/r/commit/abc1234dg${"abc1234d".repeat(4)}\x07abc1234\x1b]8;;\x07\n`,
+			"\x1b]8;;file:///repo/src/main.c#L4242\x07main.c:4242\x1b]8;;\x07\n",
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBe(
 				`${VALUE_MARK}\n`,
