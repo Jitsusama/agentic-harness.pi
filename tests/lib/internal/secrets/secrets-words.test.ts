@@ -131,6 +131,8 @@ describe("a bare value in a printing of the environment", () => {
 			`${one}\x1b]8;;${other}\x07\n`,
 			`${one}:\x1b]0;${other}\x07\n`,
 			`/x/${one.slice(0, 4)}\x1b[31m${one.slice(4)}\x1b]0;${other}\x07\n`,
+			`/opt/bin/${one}\x1b]0;${other}/x\x07\n`,
+			`/x/${one}\x1b]0;${other.slice(0, 4)}\x07\x1b]0;${other.slice(4)}\x07\n`,
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBe(
 				`${VALUE_MARK}\n`,
@@ -169,9 +171,19 @@ describe("a bare value in a printing of the environment", () => {
 			expect(text, password).toBeDefined();
 			expect(text, password).not.toContain(password.slice(0, 16));
 		}
-		const user = `${fresh().slice(0, 10)}%2B${fresh().slice(0, 5)}`;
-		expect(shown(`API=https://${user}@host/x\n`)).toBe(
-			"API=[secret scrubbed: API]\n",
+		for (const user of [
+			`${fresh().slice(0, 10)}%2B${fresh().slice(0, 5)}`,
+			"ABCDEFGHIJKLMNOP%31",
+		]) {
+			expect(shown(`API=https://${user}@host/x\n`), user).toBe(
+				"API=[secret scrubbed: API]\n",
+			);
+		}
+	});
+
+	it("is put out of sight as an address's query, the address kept", () => {
+		expect(shown(`API=https://h/cb?token=${fresh()}\n`)).toBe(
+			`API=https://h/cb?token=${VALUE_MARK}\n`,
 		);
 	});
 
@@ -271,6 +283,9 @@ describe("what a printing of the environment keeps", () => {
 			"\x1b]0;user@mbp2: ~/src/py3\x07\x1b]1337;CurrentDir=/Users/joel\x07\n",
 			"\x1b]0;joel@mbp: ~/src/service-v2\x07\n",
 			"\x1b]0;joel@mbp: ~/src/service-v2\x07\x1b]1337;CurrentDir=/Users/joel\x07\n",
+			"\x1b]8;;file://mbp/Users/joel/report2024.pdf\x07report2024.pdf\x1b]8;;\x07\n",
+			"\x1b]8;;https://jira.example.com/browse/PROJ-1234\x07PROJ-1234\x1b]8;;\x07\n",
+			"/srv/app\x1b]0;x\x07/data/v2/reports_2024\n",
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBeUndefined();
 		}
@@ -357,7 +372,8 @@ describe("a long printing of the environment", () => {
 			[`\x1b]0;${"a1 ".repeat(50_000)}\x07`, false],
 			["://u@h:1/".repeat(50_000), false],
 			["ab\x1b]0;cd\x07".repeat(50_000), false],
-			["a1\x1b]0;b2\x07".repeat(50_000), true],
+			[`/${"a1\x1b]0;b2\x07".repeat(50_000)}`, false],
+			["a\x1b]0;1\x07".repeat(50_000), true],
 			[`\x1b[${"1;".repeat(100_000)}${github}`, true],
 		];
 		for (const [printed, hides] of printings) {
