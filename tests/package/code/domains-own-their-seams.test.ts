@@ -16,7 +16,7 @@
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
@@ -33,9 +33,22 @@ function sourcesUnder(dir: string): string[] {
 	return found;
 }
 
-/** The contract suffixes that mark an extension directory. */
-const EXTENSION =
-	/-(?:integration|workflow|guardian|provider|widget|interceptor|capture)$/;
+/** The folder every extension sits straight under. */
+const EXTENSIONS = join(ROOT, "extensions");
+
+/**
+ * The extension an import from a file lands in, or undefined when it
+ * lands outside `extensions/`. Where the import resolves decides, not
+ * the names along its path, since `advisor` and `convention-context`
+ * carry no contract suffix to be known by.
+ */
+function extensionReached(file: string, target: string): string | undefined {
+	const landed = relative(EXTENSIONS, resolve(dirname(file), target));
+	const first = landed.split(sep)[0];
+	return first === undefined || first === "" || first === ".."
+		? undefined
+		: first;
+}
 
 describe("bus names are declared by a library, not an extension", () => {
 	it("finds no versioned bus name declared inside an extension", () => {
@@ -140,17 +153,15 @@ describe("bus names are declared by a library, not an extension", () => {
 describe("an extension never imports a sibling extension", () => {
 	it("finds no cross-extension import", () => {
 		const reaching: string[] = [];
-		const extensions = join(ROOT, "extensions");
-		for (const file of sourcesUnder(extensions)) {
-			const owner = file.slice(extensions.length + 1).split("/")[0];
+		for (const file of sourcesUnder(EXTENSIONS)) {
+			const owner = file.slice(EXTENSIONS.length + 1).split("/")[0];
 			const source = readFileSync(file, "utf8");
 			for (const match of source.matchAll(/from\s+"(\.\.[^"]*)"/g)) {
 				const target = match[1] ?? "";
 				// Only a hop that lands in another extension counts. Reaching
 				// up into lib is the sanctioned direction and is most of what
 				// these files do.
-				const segments = target.split("/");
-				const landed = segments.find((s) => EXTENSION.test(s));
+				const landed = extensionReached(file, target);
 				if (landed !== undefined && landed !== owner) {
 					reaching.push(`${file.slice(ROOT.length + 1)} -> ${target}`);
 				}
@@ -160,10 +171,16 @@ describe("an extension never imports a sibling extension", () => {
 		expect(reaching).toEqual([]);
 	});
 
-	it("would notice one", () => {
-		const target = "../review-integration/engine.js";
-		const landed = target.split("/").find((s) => EXTENSION.test(s));
+	it("would notice one, whether its name has a suffix or not", () => {
+		const file = join(EXTENSIONS, "review-integration", "tools", "ask.ts");
 
-		expect(landed).toBe("review-integration");
+		expect(extensionReached(file, "../../work-integration/engine.ts")).toBe(
+			"work-integration",
+		);
+		expect(extensionReached(file, "../../advisor/index.ts")).toBe("advisor");
+		expect(extensionReached(file, "../engine.ts")).toBe("review-integration");
+		expect(
+			extensionReached(file, "../../../lib/core/review/index.ts"),
+		).toBeUndefined();
 	});
 });

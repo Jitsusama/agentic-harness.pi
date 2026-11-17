@@ -3,4 +3,3 @@
 # be split by what changes for one reason, or to say why it stays whole.
 # The test fails on one that's split, says why or is gone, so the list
 # only shrinks.
-extensions
