@@ -13,7 +13,7 @@ import { chooseTree, treeInPlay } from "../../../lib/core/work/inplay.ts";
 import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import { heldNames } from "../../../lib/core/work/survey.ts";
-import { unattendedExec } from "../../../lib/internal/unattended-exec.ts";
+import { unattendedExec } from "../../../lib/internal/sandbox/unattended-exec.ts";
 import { treeBroker } from "../broker.ts";
 import { GLYPH } from "../render.ts";
 import { makeBranch, record } from "./author.ts";

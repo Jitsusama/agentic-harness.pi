@@ -3,10 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	type HostedMode,
 	type HostedModeOptions,
-	type HostedView,
 	hostedModeOf,
-	hostScreens,
-} from "../../../host/screen/screens.ts";
+} from "../../../host/screen/hosted-mode.ts";
+import { type HostedView, hostScreens } from "../../../host/screen/screens.ts";
 import { LEFT_RUNNING } from "../../../lib/core/viewer/terminal.ts";
 
 /**

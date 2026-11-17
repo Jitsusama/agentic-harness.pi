@@ -11,7 +11,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
-import { loadOnce } from "../../../internal/single-flight.ts";
+import { loadOnce } from "../../../internal/process/single-flight.ts";
 import type { Comparison } from "../compare/index.ts";
 import {
 	type BaselineProvenance,

@@ -8,7 +8,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { systemFolders, systemProgram } from "../system-program.ts";
+import { systemFolders, systemProgram } from "../sandbox/system-program.ts";
 
 /** What writes to the system's log, and the arguments it takes. */
 export interface JournalCommand {

@@ -19,7 +19,7 @@
  * Hierarchy is expressed by the `parent:` front-matter field
  * on each note, not by directory nesting -- the same
  * invariant quest enforces for its own tree
- * (`internal/quest/discovery.ts`), and for the same reason:
+ * (`internal/quest/discovery/discovery.ts`), and for the same reason:
  * a note's location on disk should never need to change just
  * because its place in a hierarchy does.
  *

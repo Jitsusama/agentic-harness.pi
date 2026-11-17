@@ -26,11 +26,11 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-import type { QuestEntry } from "../../lib/internal/quest/discovery.ts";
+import type { QuestEntry } from "../../lib/internal/quest/discovery/discovery.ts";
 import {
 	QUEST_KIND_MARK,
 	QUEST_STATUS_MARK,
-} from "../../lib/internal/quest/quest-marks.ts";
+} from "../../lib/internal/quest/discovery/quest-marks.ts";
 import type {
 	DocumentKind,
 	QuestKind,

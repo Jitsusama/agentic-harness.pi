@@ -23,13 +23,13 @@ import {
 	inStore,
 	OFFLOAD_EXEMPTION_ENDS,
 	offloadedOutside,
-} from "../../../../lib/internal/offload-exemption.ts";
-import { fileToolRefusal } from "../../../../lib/internal/sandbox/sandbox-files.ts";
+} from "../../../../lib/internal/fence/offload-exemption.ts";
 import {
 	type Sandbox,
 	sandboxFor,
 	wrapFor,
-} from "../../../../lib/internal/sandbox.ts";
+} from "../../../../lib/internal/sandbox/sandbox.ts";
+import { fileToolRefusal } from "../../../../lib/internal/sandbox/sandbox-files.ts";
 
 const STORE_OFFLOAD = "/nix/store/0000-nix-offload/bin/nix-offload";
 const DRV = `/nix/store/${"a".repeat(32)}-check.drv`;

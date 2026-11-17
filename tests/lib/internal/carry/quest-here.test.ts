@@ -13,8 +13,8 @@ import {
 	questHere,
 	type Stores,
 } from "../../../../lib/internal/carry/quest-here.ts";
-import { serializeQuestFrontMatter } from "../../../../lib/internal/quest/frontmatter.ts";
-import type { SessionRecord } from "../../../../lib/internal/quest/session-registry.ts";
+import { serializeQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
+import type { SessionRecord } from "../../../../lib/internal/quest/sessions/session-registry.ts";
 
 const QUEST = "QEST-20261107-CARRY1";
 

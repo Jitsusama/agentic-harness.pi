@@ -1,7 +1,7 @@
 /**
  * Filesystem-safe filename sanitizing.
  *
- * Unrelated to quest's `internal/quest/sanitize.ts`, which
+ * Unrelated to quest's `internal/quest/creation/sanitize.ts`, which
  * defends against prompt injection in text the agent reads
  * back. This one has a narrower, mechanical job: take a
  * human title (from an import, or typed by a caller) and

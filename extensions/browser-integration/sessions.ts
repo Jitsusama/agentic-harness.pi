@@ -8,7 +8,7 @@
  * first call.
  */
 
-import { loadOnce } from "../../lib/internal/single-flight.ts";
+import { loadOnce } from "../../lib/internal/process/single-flight.ts";
 import type { RegistryOptions, SessionRegistry } from "./registry.ts";
 
 const registryModule = loadOnce(() => import("./registry.ts"));

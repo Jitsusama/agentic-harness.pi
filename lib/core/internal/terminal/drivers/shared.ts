@@ -14,7 +14,7 @@
  */
 
 import { withoutBudget } from "../../../../budget/environment.ts";
-import { withoutOff } from "../../../../internal/fence-stage.ts";
+import { withoutOff } from "../../../../internal/fence/fence-stage.ts";
 
 /**
  * POSIX-shell-quote a single string. Wraps in single
@@ -180,7 +180,7 @@ export const SESSION_ONLY_VARIABLES: readonly string[] = [
  * a session the terminal starts draws on its own quest's budget
  * (lib/budget/environment.ts) rather than this one's. Nor with
  * `PI_SANDBOX=off`, which is one session's way back, not its spawns'
- * (lib/internal/fence-stage.ts).
+ * (lib/internal/fence/fence-stage.ts).
  */
 export function launchEnvironment(
 	env: Readonly<Record<string, string | undefined>>,

@@ -14,7 +14,7 @@
  * a reader wondering why should be able to find out.
  */
 
-import { processGlobal } from "../../../internal/process-global.ts";
+import { processGlobal } from "../../../internal/process/process-global.ts";
 import type { TraceProfile } from "../perf/trace.ts";
 
 /** A recording in progress, and who asked for it. */

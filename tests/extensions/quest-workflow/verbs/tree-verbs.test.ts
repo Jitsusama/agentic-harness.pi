@@ -19,9 +19,9 @@ import {
 	registerTreeProvider,
 	type TreeProvider,
 } from "../../../../lib/core/tree/index.ts";
-import { parseQuestFrontMatter } from "../../../../lib/internal/quest/frontmatter.ts";
-import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/mutate.ts";
-import { addTreeToQuest } from "../../../../lib/internal/quest/trees.ts";
+import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
+import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/fields/mutate.ts";
+import { addTreeToQuest } from "../../../../lib/internal/quest/workspace/trees.ts";
 import { clearUrlFetchers } from "../../../../lib/quest/index.ts";
 import {
 	clearRefTypes,

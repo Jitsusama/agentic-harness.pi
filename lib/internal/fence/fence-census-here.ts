@@ -14,11 +14,11 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createPresences } from "../../mesh/presence.ts";
-import { stageFolder } from "../fence-stage.ts";
 import { everyRealmsDir, stateDir } from "../paths.ts";
 import { keptFolder } from "../shell/kept.ts";
 import { writeWhole } from "../write-whole.ts";
 import { censusHolds, censusText, fenceCensus } from "./fence-census.ts";
+import { stageFolder } from "./fence-stage.ts";
 
 /** The status a census finding a session unfenced exits with. */
 const UNFENCED = 1;

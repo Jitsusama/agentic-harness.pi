@@ -5,14 +5,14 @@
  * (cross-bucket priority moves).
  */
 
-import { appendJourneyByPath } from "../../../internal/quest/append-journey.ts";
 import {
 	discoverQuests,
 	siblingRanks,
-} from "../../../internal/quest/discovery.ts";
-import { nextRank } from "../../../internal/quest/ranking.ts";
+} from "../../../internal/quest/discovery/discovery.ts";
+import { appendJourneyByPath } from "../../../internal/quest/documents/append-journey.ts";
+import { nextRank } from "../../../internal/quest/fields/ranking.ts";
+import { recordStructuralOp } from "../../../internal/quest/fields/structural-journal.ts";
 import { isSealedStatus } from "../../../internal/quest/status.ts";
-import { recordStructuralOp } from "../../../internal/quest/structural-journal.ts";
 import type { QuestPriority } from "../../../quest/index.ts";
 import { count } from "../../../ui/count.ts";
 import {

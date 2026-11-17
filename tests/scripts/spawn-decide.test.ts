@@ -23,7 +23,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { SPAWN_STAYS } from "../../extensions/quest-workflow/launched-spawn.ts";
-import { leaveFirstWords } from "../../lib/internal/quest/first-words.ts";
+import { leaveFirstWords } from "../../lib/internal/quest/sessions/first-words.ts";
 
 const SCRIPT = join(
 	import.meta.dirname,

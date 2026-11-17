@@ -33,7 +33,7 @@ import {
 	type SessionRef,
 	sessionOwner,
 } from "../core/session/index.ts";
-import { fileReads } from "../internal/file-reads.ts";
+import { fileReads } from "../internal/files/file-reads.ts";
 import {
 	askedOnceWithTicks,
 	isTickedOwner,

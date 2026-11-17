@@ -3,7 +3,7 @@
  * starts or switches quest, re-dated on a heartbeat, handed to the
  * session it switches into, and closed for the reason it ended.
  *
- * The pure store in `lib/internal/quest/session-registry` shapes
+ * The pure store in `lib/internal/quest/sessions/session-registry` shapes
  * records and answers questions about them. The rest of the live
  * wiring sits in `sessions/`: the records on disk, the signal stamp,
  * what restore offers and reopening it. The extension's entry imports
@@ -20,7 +20,7 @@ import {
 	type SessionRecord,
 	switchQuest,
 	wronglyEnded,
-} from "../../lib/internal/quest/session-registry.ts";
+} from "../../lib/internal/quest/sessions/session-registry.ts";
 import {
 	type CarriedEnvironment,
 	carriedEnvironment,

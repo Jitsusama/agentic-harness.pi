@@ -21,7 +21,7 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { processGlobal } from "../process-global.ts";
+import { processGlobal } from "../process/process-global.ts";
 
 /** How pi's error for a replaced context begins. */
 const STALE = "This extension ctx is stale after session replacement or reload";

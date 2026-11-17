@@ -3,7 +3,7 @@
  * wants, ended quests, parking and restarts, and what will wake it.
  */
 
-import { onConcluded } from "../../../lib/internal/quest/concluded.ts";
+import { onConcluded } from "../../../lib/internal/quest/fields/concluded.ts";
 import { onDid } from "../../../lib/internal/session/events.ts";
 import {
 	onClosed,

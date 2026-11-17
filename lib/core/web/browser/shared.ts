@@ -13,7 +13,7 @@
 
 import * as fs from "node:fs";
 import type { Browser, Target } from "puppeteer-core";
-import { processGlobal } from "../../../internal/process-global.ts";
+import { processGlobal } from "../../../internal/process/process-global.ts";
 import { CookieJar } from "../jar.ts";
 import { verifyBrowser } from "../procs.ts";
 import {

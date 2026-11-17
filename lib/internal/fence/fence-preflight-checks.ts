@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox.ts";
+import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox/sandbox.ts";
 import { askRoute } from "../secrets/secret-ask.ts";
 import { FENCE, NEVER_THROUGH } from "./fence.ts";
 import { lenderFolders } from "./fence-builders.ts";

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
-import { setJournalSession } from "../../../../lib/internal/quest/structural-journal.ts";
+import { setJournalSession } from "../../../../lib/internal/quest/fields/structural-journal.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,

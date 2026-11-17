@@ -57,7 +57,7 @@ import {
 	type BashOperations,
 	getShellConfig,
 } from "@earendil-works/pi-coding-agent";
-import { systemProgram } from "../system-program.ts";
+import { systemProgram } from "../sandbox/system-program.ts";
 import { spawnerWanted } from "./spawner-variable.ts";
 
 /** The program's name, as core.nix puts it on the PATH. */

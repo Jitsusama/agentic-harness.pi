@@ -20,7 +20,7 @@
 
 import { readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { startedSession } from "../fence-stage.ts";
+import { startedSession } from "../fence/fence-stage.ts";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
 import { writeWhole } from "../write-whole.ts";

@@ -7,9 +7,9 @@ import {
 	buildAliasIndex,
 	lookupAlias,
 	lookupAliasDetail,
-} from "../../../lib/internal/quest/alias-index.ts";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
-import { scaffoldQuestReadme } from "../../../lib/internal/quest/scaffold.ts";
+} from "../../../lib/internal/quest/creation/alias-index.ts";
+import { scaffoldQuestReadme } from "../../../lib/internal/quest/creation/scaffold.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import type { QuestAlias, QuestFrontMatter } from "../../../lib/quest/types.ts";
 
 let root: string;

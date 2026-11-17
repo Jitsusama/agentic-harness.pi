@@ -23,8 +23,8 @@ import {
 import {
 	clearDiscoveryCache,
 	discoverQuests,
-} from "../../../../lib/internal/quest/discovery.ts";
-import type { LivenessSnapshot } from "../../../../lib/internal/quest/session-liveness.ts";
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
+import type { LivenessSnapshot } from "../../../../lib/internal/quest/sessions/session-liveness.ts";
 
 const MISSION = "QEST-20260101-MISSON";
 const CHILD = "QEST-20260101-CHILDQ";

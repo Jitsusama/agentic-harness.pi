@@ -32,7 +32,7 @@ import { shellQuote } from "../../../lib/core/internal/terminal/drivers/shared.t
 import {
 	FIRST_TEXT_VARIABLE,
 	FIRST_WORDS_VARIABLE,
-} from "../../../lib/internal/quest/first-words.ts";
+} from "../../../lib/internal/quest/sessions/first-words.ts";
 import {
 	agentsAt,
 	type NodeStarted,
@@ -71,7 +71,7 @@ export interface HeldSpawn {
 	readonly questId: string;
 	/**
 	 * The token naming the first words spawn left for the session, when
-	 * it left some (lib/internal/quest/first-words.ts).
+	 * it left some (lib/internal/quest/sessions/first-words.ts).
 	 */
 	readonly firstWords?: string;
 	/**

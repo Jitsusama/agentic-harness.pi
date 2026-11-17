@@ -40,7 +40,7 @@ and can answer a question or a gate left open on screen.
   groups (`#harness`, `#optimus/power`) nest: a member of
   `#optimus/power` also hears `#optimus`.
 - **Realm:** a session's mesh is its realm's (see
-  `lib/internal/realm.ts`), and a machine in two realms keeps
+  `lib/internal/machine/realm.ts`), and a machine in two realms keeps
   two meshes that share nothing, with one exception. A hold
   sent to `#machine` also reaches each other realm's
   `#machine`, from `MACHINE`, in one fixed sentence holding
@@ -79,7 +79,7 @@ and can answer a question or a gate left open on screen.
   had. When a quest or document is concluded or retired, the
   mesh tells the session's orchestrator itself, one fyi line
   quoting what the quest tool answered, heard over pi's bus
-  (`lib/internal/quest/concluded.ts`). A session left on no
+  (`lib/internal/quest/fields/concluded.ts`). A session left on no
   model, which answers nothing it is sent, has the mesh tell
   its orchestrator once, as a finding naming the model and why
   it can't be set back (`lib/internal/session/no-model.ts`).

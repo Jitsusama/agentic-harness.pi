@@ -7,7 +7,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded.ts";
+import { QUEST_CONCLUDED } from "../../../lib/internal/quest/fields/concluded.ts";
 import { wantsShown } from "../../../lib/internal/session/wants.ts";
 import { looksIn } from "../../../lib/mesh/looks.ts";
 import { fixture, onQuest, session, startSession } from "./support/mesh.ts";

@@ -9,7 +9,7 @@ import type {
 	ExtensionAPI,
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { keepDoingSaid } from "../../../lib/internal/quest/doing.ts";
+import { keepDoingSaid } from "../../../lib/internal/quest/sessions/doing.ts";
 import type { BudgetKeeper } from "../budget.ts";
 import { isFocusedDocWrite, questVerdicts } from "../enforce.ts";
 import { adoptTree, applyQuestGuards } from "../guard.ts";

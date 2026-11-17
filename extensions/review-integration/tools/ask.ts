@@ -33,7 +33,7 @@ import {
 	describeRun,
 } from "../../../lib/core/review/index.ts";
 import { sessionCwd, sessionKeyOf } from "../../../lib/core/session/index.ts";
-import { questLoadedIn } from "../../../lib/internal/quest/loaded.ts";
+import { questLoadedIn } from "../../../lib/internal/quest/sessions/loaded.ts";
 import {
 	endsWithItsPrompts,
 	runOrHandOff,

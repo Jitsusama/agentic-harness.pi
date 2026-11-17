@@ -10,9 +10,9 @@ import {
 	auditQuestRecord,
 	isRecordSound,
 } from "../../../lib/core/internal/quest/record-audit.ts";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
-import { appendHarnessLog } from "../../../lib/internal/quest/harness-log.ts";
-import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
+import { appendHarnessLog } from "../../../lib/internal/quest/documents/harness-log.ts";
+import { reapQuestScratchDir } from "../../../lib/internal/quest/workspace/scratch.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { wakeSealedQuestParks } from "../ends-with-quest.ts";

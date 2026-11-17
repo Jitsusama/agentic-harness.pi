@@ -2,7 +2,7 @@
  * Sandbox File Interceptor Extension
  *
  * Holds pi's own file tools to the strict sandbox's fence, in a session
- * that sets `PI_SANDBOX=strict` (see `lib/internal/sandbox.ts`).
+ * that sets `PI_SANDBOX=strict` (see `lib/internal/sandbox/sandbox.ts`).
  *
  * The sandbox fences each command an agent runs, but pi's read, grep,
  * find, ls, edit and write run in pi's own process, where Landlock
@@ -19,7 +19,7 @@
  * talk its way past.
  *
  * Each refusal leaves a line in the system's log under `pi-fence`
- * (`lib/internal/fence-log.ts`): the tool, the sandbox and the session,
+ * (`lib/internal/fence/fence-log.ts`): the tool, the sandbox and the session,
  * never the path, so a reader outside the session sees an agent probing
  * the fence. When the log doesn't take it, the refusal says so.
  *
@@ -31,9 +31,12 @@
 import { homedir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sessionKeyOf } from "../../lib/core/session/identity.ts";
-import { recordRefusal, systemLogger } from "../../lib/internal/fence-log.ts";
+import {
+	recordRefusal,
+	systemLogger,
+} from "../../lib/internal/fence/fence-log.ts";
+import { sandboxName } from "../../lib/internal/sandbox/sandbox.ts";
 import { fileToolRefusal } from "../../lib/internal/sandbox/sandbox-files.ts";
-import { sandboxName } from "../../lib/internal/sandbox.ts";
 import { offeredShellEnvironment } from "../../lib/internal/shell/environment.ts";
 
 /** Wires the fence onto each call to pi's file tools. */

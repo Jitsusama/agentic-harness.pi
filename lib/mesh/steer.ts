@@ -48,7 +48,7 @@ import {
 } from "node:fs";
 import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isMachineName } from "../internal/machine.ts";
+import { isMachineName } from "../internal/machine/machine.ts";
 import { isMoveTarget } from "../internal/session/move.ts";
 import { type GivenAnswer, givenFrom } from "../internal/session/wants.ts";
 import { writeWhole } from "../internal/write-whole.ts";

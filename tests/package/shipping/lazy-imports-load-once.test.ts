@@ -6,7 +6,7 @@
  * then finds that module's own imports undefined. On 13 November two of
  * three review_offer calls made at once failed reading `refuseFailure`,
  * from a bare `await import("./offer.ts")` in the tool's execute.
- * `loadOnce` (`lib/internal/single-flight.ts`) shares the one load.
+ * `loadOnce` (`lib/internal/process/single-flight.ts`) shares the one load.
  */
 
 import { readFileSync } from "node:fs";

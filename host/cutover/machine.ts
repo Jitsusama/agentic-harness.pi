@@ -16,22 +16,22 @@ import {
 	tickedStanding,
 	tickFacts,
 } from "../../lib/internal/process-ticks.ts";
-import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
 import {
 	discoverQuests,
 	type QuestIndex,
-} from "../../lib/internal/quest/discovery.ts";
+} from "../../lib/internal/quest/discovery/discovery.ts";
+import { appendJourneyByPath } from "../../lib/internal/quest/documents/append-journey.ts";
+import {
+	orchestrationOf,
+	windowWorkspaceOf,
+} from "../../lib/internal/quest/fields/orchestration.ts";
 import {
 	type HandedSession,
 	handOver,
 	type LauncherCall,
 	launcherTakes,
-} from "../../lib/internal/quest/hand-over.ts";
-import {
-	orchestrationOf,
-	windowWorkspaceOf,
-} from "../../lib/internal/quest/orchestration.ts";
-import { indexSessionFiles } from "../../lib/internal/quest/session-liveness.ts";
+} from "../../lib/internal/quest/reopening/hand-over.ts";
+import { indexSessionFiles } from "../../lib/internal/quest/sessions/session-liveness.ts";
 import { rosterHolds } from "../../lib/internal/session/host-holds.ts";
 import {
 	claimMoveNote,

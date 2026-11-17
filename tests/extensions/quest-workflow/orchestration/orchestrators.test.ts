@@ -19,7 +19,7 @@ import {
 import {
 	clearDiscoveryCache,
 	discoverQuests,
-} from "../../../../lib/internal/quest/discovery.ts";
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
 
 const MISSION = "QEST-20260101-MISSON";
 const NESTED = "QEST-20260101-NESTED";

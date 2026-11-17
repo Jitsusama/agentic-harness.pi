@@ -24,8 +24,8 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { abortError, WallClockExceeded } from "../../../../clock/bound.ts";
-import { gitRules } from "../../../../internal/sandbox.ts";
-import { guardedExec } from "../../../../internal/tree-git.ts";
+import { gitRules } from "../../../../internal/sandbox/sandbox.ts";
+import { guardedExec } from "../../../../internal/sandbox/tree-git.ts";
 import { spawnExec } from "../../../exec/spawn.ts";
 import type {
 	CreateTreeInput,

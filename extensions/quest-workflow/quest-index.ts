@@ -36,26 +36,26 @@ import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import {
 	discoverQuests,
 	type QuestIndex,
-} from "../../lib/internal/quest/discovery.ts";
-import { orchestrationOf } from "../../lib/internal/quest/orchestration.ts";
-import {
-	currentBootToken,
-	type ProcessInspection,
-	probeProcess,
-} from "../../lib/internal/quest/process-liveness.ts";
-import { extractSectionParagraph } from "../../lib/internal/quest/quest-doc.ts";
+} from "../../lib/internal/quest/discovery/discovery.ts";
+import { extractSectionParagraph } from "../../lib/internal/quest/documents/quest-doc.ts";
+import { orchestrationOf } from "../../lib/internal/quest/fields/orchestration.ts";
 import {
 	ancestorTreesOf,
 	resolveSpawnCwd,
 	sessionToReopen,
-} from "../../lib/internal/quest/reopen.ts";
+} from "../../lib/internal/quest/reopening/reopen.ts";
+import {
+	currentBootToken,
+	type ProcessInspection,
+	probeProcess,
+} from "../../lib/internal/quest/sessions/process-liveness.ts";
 import {
 	activityFromIndex,
 	buildLivenessSnapshot,
 	deriveLiveness,
 	indexSessionFiles,
 	type LivenessSnapshot,
-} from "../../lib/internal/quest/session-liveness.ts";
+} from "../../lib/internal/quest/sessions/session-liveness.ts";
 import { rosterHolds } from "../../lib/internal/session/host-holds.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";

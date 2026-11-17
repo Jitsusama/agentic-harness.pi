@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import type { handle } from "../../../extensions/quest-workflow/transitions.ts";
 import type { QuestResult } from "../../../extensions/quest-workflow/verbs/shared.ts";
-import { questJourneyLines } from "../../../lib/internal/quest/journey.ts";
+import { questJourneyLines } from "../../../lib/internal/quest/documents/journey.ts";
 
 /** The context a verb runs in: a session at `cwd`. */
 export function fakeCtx(cwd: string, sessionId = "sess-1") {

@@ -3,10 +3,9 @@
 The agent fence: what every fenced command may see and write, the
 copies it binds over files inside, its doors to GitHub, the clipboard
 and the builders, the routes a refused command is told, its profile on
-a Mac, the census of who runs fenced, and the pre-flight checks that
-prove it still lets the work through. Which pis it takes
-(`fence-stage.ts`), the refusal log (`fence-log.ts`) and its one
-exemption (`offload-exemption.ts`) sit beside this folder for now.
+a Mac, the census of who runs fenced, the pre-flight checks that prove
+it still lets the work through, which pis it takes, the line each
+refusal leaves in the system's log, and its one exemption.
 
 ## Files
 
@@ -114,3 +113,15 @@ exemption (`offload-exemption.ts`) sit beside this folder for now.
 - **`fence-ssh.ts`**: the copy of the system's SSH settings the fence
   binds over them, each included file written in, since ssh inside
   refuses root's files as nobody's.
+- **`fence-stage.ts`**: which pis the fence takes by default in its
+  first stage (subagents, fresh `quest spawn` sessions and those listed
+  by hand, under pi's state, `scripts/fence-stage.ts`), and how
+  `PI_SANDBOX` reads: `off` runs a session as it is, and an empty or
+  unknown value reads as the fence, saying so once.
+- **`fence-log.ts`**: the line each sandbox refusal in pi's own
+  process leaves in the system's log under `pi-fence`, naming the
+  tool, sandbox and session but never what was asked for.
+- **`offload-exemption.ts`**: the fence's one exemption, a
+  `nix-offload there` call let out to run as the person: what may go
+  out, and the environment and git it is given there, through
+  `nix-offload outside` where it has one.

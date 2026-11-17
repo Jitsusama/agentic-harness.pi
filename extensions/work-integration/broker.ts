@@ -38,9 +38,9 @@ import {
 	QUEUED_LIMIT_MS,
 	queuedExec,
 } from "../../lib/internal/priority/queued-exec.ts";
-import { gitRules } from "../../lib/internal/sandbox.ts";
-import { guardedExec } from "../../lib/internal/tree-git.ts";
-import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
+import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
+import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
+import { unattendedExec } from "../../lib/internal/sandbox/unattended-exec.ts";
 import { cutTreeDir, treeRecordDir } from "../../lib/internal/work-records.ts";
 import { createFleetLedger } from "../../lib/subagent/fleet.ts";
 

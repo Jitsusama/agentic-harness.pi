@@ -17,16 +17,16 @@ import { join } from "node:path";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	systemFolders,
+	systemProgram,
+} from "../../../../lib/internal/sandbox/system-program.ts";
+import {
 	type SpawnerOptions,
 	spawnedBy,
 	spawnerKeeps,
 	stopIdleSpawners,
 } from "../../../../lib/internal/shell/spawner.ts";
 import { SPAWNER_VARIABLE } from "../../../../lib/internal/shell/spawner-variable.ts";
-import {
-	systemFolders,
-	systemProgram,
-} from "../../../../lib/internal/system-program.ts";
 import {
 	type SpawnerStandIn,
 	spawnerStandIn as standIn,

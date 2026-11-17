@@ -18,7 +18,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { dataDir, stateDir } from "../lib/internal/paths.ts";
-import { discoverQuests } from "../lib/internal/quest/discovery.ts";
+import { discoverQuests } from "../lib/internal/quest/discovery/discovery.ts";
 import { isRecord } from "../lib/internal/record.ts";
 import {
 	type OpenQuest,

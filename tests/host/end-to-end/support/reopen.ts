@@ -1,7 +1,7 @@
 /**
  * What the launcher's Reopen Them All would open from a seal's session
  * records on the boot after this one: the restore file the harness would
- * write then (lib/internal/quest/restore-file.ts), read as the launcher
+ * write then (lib/internal/quest/reopening/restore-file.ts), read as the launcher
  * reads it (core.nix's modules/quickshell/Sessions.qml, restoreOf). An
  * entry marked `hosted` is kept, but only its viewer opens, since its
  * host brings the conversation back and a pi too would start it twice;
@@ -19,8 +19,8 @@ import {
 	type RestoreFile,
 	restoreFileOf,
 	type SeenRecord,
-} from "../../../../lib/internal/quest/restore-file.ts";
-import { parseSessionRecord } from "../../../../lib/internal/quest/session-registry.ts";
+} from "../../../../lib/internal/quest/reopening/restore-file.ts";
+import { parseSessionRecord } from "../../../../lib/internal/quest/sessions/session-registry.ts";
 import type { Seal } from "./seal.ts";
 
 /** The boot after this one, as far as the records can tell. */

@@ -2,7 +2,7 @@
  * The session records on disk: where they live, reading and writing
  * them, and the repairs a reader makes when it finds them wrong.
  *
- * The pure store in `lib/internal/quest/session-registry` shapes
+ * The pure store in `lib/internal/quest/sessions/session-registry` shapes
  * records and answers questions about them; this is the file side.
  * Every record is written by exactly one live process, its own, so
  * there is no lock here and no read-modify-write race to protect
@@ -20,11 +20,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
-import { sessionRegistryDir } from "../../../lib/internal/quest/loaded.ts";
+import { sessionRegistryDir } from "../../../lib/internal/quest/sessions/loaded.ts";
 import {
 	localProcessDeps,
 	probeProcess,
-} from "../../../lib/internal/quest/process-liveness.ts";
+} from "../../../lib/internal/quest/sessions/process-liveness.ts";
 import {
 	closeRecord,
 	openRecord,
@@ -32,7 +32,7 @@ import {
 	pruneRecords,
 	type SessionEndReason,
 	type SessionRecord,
-} from "../../../lib/internal/quest/session-registry.ts";
+} from "../../../lib/internal/quest/sessions/session-registry.ts";
 import { rosterHolds } from "../../../lib/internal/session/host-holds.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 

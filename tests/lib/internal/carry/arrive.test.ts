@@ -24,7 +24,7 @@ import {
 	carryAway,
 } from "../../../../lib/internal/carry/carry-away.ts";
 import type { CarriedNote } from "../../../../lib/internal/carry/notes.ts";
-import { sessionFolderOf } from "../../../../lib/internal/quest/carried.ts";
+import { sessionFolderOf } from "../../../../lib/internal/quest/reopening/carried.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
 	bareOrigin,

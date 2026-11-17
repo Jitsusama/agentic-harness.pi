@@ -14,8 +14,8 @@
  * extras, and core's verbs write it back untouched.
  */
 
-import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
+import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import { needFrom, needWords } from "../../../lib/mesh/placement.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
 import type { QuestState } from "../state.ts";

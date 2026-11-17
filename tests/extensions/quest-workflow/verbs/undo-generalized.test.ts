@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
-import { reversibleFields } from "../../../../lib/internal/quest/fields.ts";
+import { reversibleFields } from "../../../../lib/internal/quest/fields/fields.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,
@@ -127,7 +127,7 @@ describe("undo over any journalled field", () => {
 		// Two layers refuse this now, the lens and the parse-back check on
 		// the write itself, and removing either one leaves this test
 		// passing. That is the point of it: it pins the outcome, not the
-		// layer. The lens tests in tests/lib/internal/quest/fields.test.ts
+		// layer. The lens tests in tests/lib/internal/quest/fields/fields.test.ts
 		// are what pin the lens.
 		const state = buildState();
 		const quest = await createQuest(state, "Vocabulary Drift");

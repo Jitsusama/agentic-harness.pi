@@ -8,7 +8,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { GLANCE } from "../../../extensions/mesh-workflow/delivery.ts";
-import { QUEST_CONCLUDED } from "../../../lib/internal/quest/concluded.ts";
+import { QUEST_CONCLUDED } from "../../../lib/internal/quest/fields/concluded.ts";
 import { SESSION_ON_NO_MODEL } from "../../../lib/internal/session/no-model.ts";
 import { PARK_ASK } from "../../../lib/internal/session/park.ts";
 import { WAKERS_ASK } from "../../../lib/internal/session/wakers.ts";

@@ -15,11 +15,11 @@ import {
 	BrowserSession,
 	type SessionOptions,
 } from "../../lib/core/web/session.ts";
+import { dataDir } from "../../lib/internal/paths.ts";
 import {
 	type AsyncMutex,
 	createMutex,
-} from "../../lib/internal/async-mutex.ts";
-import { dataDir } from "../../lib/internal/paths.ts";
+} from "../../lib/internal/process/async-mutex.ts";
 
 /**
  * Where this extension's baselines already live on disk.

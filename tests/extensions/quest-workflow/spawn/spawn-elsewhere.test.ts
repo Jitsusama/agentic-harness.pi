@@ -17,7 +17,7 @@ import {
 	spawnHeld,
 } from "../../../../extensions/quest-workflow/verbs/spawn-held.ts";
 import { launchHints } from "../../../../lib/core/session/index.ts";
-import { FIRST_TEXT_VARIABLE } from "../../../../lib/internal/quest/first-words.ts";
+import { FIRST_TEXT_VARIABLE } from "../../../../lib/internal/quest/sessions/first-words.ts";
 import type { Need } from "../../../../lib/mesh/placement.ts";
 import { fakeDriver } from "../../../lib/terminal/fakes.ts";
 

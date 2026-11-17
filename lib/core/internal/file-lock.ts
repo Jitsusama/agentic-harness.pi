@@ -24,7 +24,7 @@
 
 import { randomUUID } from "node:crypto";
 import { link, open, readFile, rename, stat, unlink } from "node:fs/promises";
-import { processGlobal } from "../../internal/process-global.ts";
+import { processGlobal } from "../../internal/process/process-global.ts";
 
 /** How long a writer waits for a live holder before saying so. */
 const WAIT_MS = 10_000;

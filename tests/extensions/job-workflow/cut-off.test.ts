@@ -29,7 +29,7 @@ import {
 	SESSION_STAMP_EVENT,
 	withSession,
 } from "../../../lib/core/session/index.ts";
-import { processGlobal } from "../../../lib/internal/process-global.ts";
+import { processGlobal } from "../../../lib/internal/process/process-global.ts";
 import { CRASH_SLOT } from "../../../lib/internal/session/crash-record.ts";
 import { cutByMove } from "../../../lib/internal/session/cut-off-record.ts";
 import { JOBS_CARRIED } from "../../../lib/jobs/host.ts";

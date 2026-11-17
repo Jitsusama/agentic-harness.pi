@@ -6,8 +6,8 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { projectOf } from "../../lib/internal/project.ts";
-import { questLoadedIn } from "../../lib/internal/quest/loaded.ts";
+import { projectOf } from "../../lib/internal/config/project.ts";
+import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
 import type { FleetPlace, JobSettings } from "./sizing.ts";
 
 /** Where this fleet is being asked from. */

@@ -23,7 +23,7 @@ import {
 	writeQuestWeights,
 } from "../../../../extensions/quest-workflow/weights.ts";
 import { QUEUE_FIRST_FILE } from "../../../../lib/internal/priority/folder.ts";
-import { discoverQuests } from "../../../../lib/internal/quest/discovery.ts";
+import { discoverQuests } from "../../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,

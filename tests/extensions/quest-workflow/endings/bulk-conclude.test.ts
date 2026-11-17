@@ -13,9 +13,9 @@ import { createQuestState } from "../../../../extensions/quest-workflow/state.ts
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import { QUEST_PARAMETERS } from "../../../../extensions/quest-workflow/wiring/parameters.ts";
 import { defaultWorkspaceRoot } from "../../../../extensions/quest-workflow/workspace.ts";
-import { harnessLogPath } from "../../../../lib/internal/quest/harness-log.ts";
-import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/mutate.ts";
-import { ensureQuestScratchDir } from "../../../../lib/internal/quest/scratch.ts";
+import { harnessLogPath } from "../../../../lib/internal/quest/documents/harness-log.ts";
+import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/fields/mutate.ts";
+import { ensureQuestScratchDir } from "../../../../lib/internal/quest/workspace/scratch.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { journeyOf } from "../_helpers.ts";
 

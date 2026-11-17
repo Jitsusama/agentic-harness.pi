@@ -4,7 +4,7 @@ import {
 	sanitizeExcerpt,
 	sanitizeHandle,
 	sanitizeSingleLine,
-} from "../../../lib/internal/quest/sanitize.ts";
+} from "../../../lib/internal/quest/creation/sanitize.ts";
 
 describe("sanitizeSingleLine", () => {
 	it("strips newlines and collapses whitespace", () => {

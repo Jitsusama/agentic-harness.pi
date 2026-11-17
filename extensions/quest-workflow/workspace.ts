@@ -1,5 +1,5 @@
 /**
- * A quest's workspace, under the root `lib/internal/quest/workspace-root.ts`
+ * A quest's workspace, under the root `lib/internal/quest/workspace/workspace-root.ts`
  * names.
  */
 
@@ -7,8 +7,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, statfsSync } from "node:fs";
 import { dirname } from "node:path";
 import { questWorkspace } from "../../lib/core/internal/quest/workspace.ts";
-import { isId, prefixOf } from "../../lib/internal/quest/id.ts";
-import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
+import { isId, prefixOf } from "../../lib/internal/quest/creation/id.ts";
+import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
 
 /** Where quests' workspaces live, honouring `XDG_CACHE_HOME`. */
 export const defaultWorkspaceRoot = questWorkspacesRoot;

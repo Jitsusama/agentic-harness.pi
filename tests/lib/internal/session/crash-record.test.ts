@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { processGlobal } from "../../../../lib/internal/process-global.ts";
+import { processGlobal } from "../../../../lib/internal/process/process-global.ts";
 import {
 	CRASH_SLOT,
 	type Crash,

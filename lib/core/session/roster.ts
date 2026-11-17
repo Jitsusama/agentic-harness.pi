@@ -41,7 +41,8 @@ export interface Roster {
 export type HeldStatus = "held" | "unheld" | "unknown";
 
 const ROSTER_SUFFIX = ".json";
-// A realm name, as lib/internal/realm.ts holds it, then -attended or -background.
+// A realm name, as lib/internal/machine/realm.ts holds it, then -attended
+// or -background.
 const KEY = /^[a-z0-9-]{1,64}-(?:attended|background)$/;
 /** An environment variable's name, as a POSIX shell takes one. */
 export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;

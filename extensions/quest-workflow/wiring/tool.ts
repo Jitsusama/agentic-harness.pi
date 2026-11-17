@@ -10,7 +10,7 @@ import { keyHint } from "@earendil-works/pi-coding-agent";
 import type { Static } from "@sinclair/typebox";
 import { boundedByDetails } from "../../../lib/core/result/details.ts";
 import { openSessionStore } from "../../../lib/core/result/location.ts";
-import { keepDoingSaid } from "../../../lib/internal/quest/doing.ts";
+import { keepDoingSaid } from "../../../lib/internal/quest/sessions/doing.ts";
 import { sayDid, stageTitle } from "../../../lib/internal/session/events.ts";
 import { asText, drawInto, renderToolCall } from "../../../lib/ui/tool-call.ts";
 import { firstText } from "../../../lib/ui/tool-result.ts";

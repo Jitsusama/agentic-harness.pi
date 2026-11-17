@@ -55,7 +55,7 @@
 
 import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { type Booted, machineBooted } from "../booted.ts";
+import { type Booted, machineBooted } from "../machine/booted.ts";
 import { stateDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
 import { writeWhole } from "../write-whole.ts";

@@ -20,7 +20,7 @@ import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sandboxFileInterceptor from "../../../extensions/sandbox-file-interceptor/index.ts";
-import type { Refusal } from "../../../lib/internal/fence-log.ts";
+import type { Refusal } from "../../../lib/internal/fence/fence-log.ts";
 import {
 	fileToolRefusal,
 	toolPaths,
@@ -37,7 +37,7 @@ const logged = vi.hoisted(() => ({
 	refusals: [] as Refusal[],
 	answer: undefined as string | undefined,
 }));
-vi.mock("../../../lib/internal/fence-log.ts", () => ({
+vi.mock("../../../lib/internal/fence/fence-log.ts", () => ({
 	recordRefusal: async (refusal: Refusal) => {
 		logged.refusals.push(refusal);
 		return logged.answer;

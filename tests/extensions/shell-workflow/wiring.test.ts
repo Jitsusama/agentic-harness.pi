@@ -11,8 +11,8 @@ import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import shellWorkflow from "../../../extensions/shell-workflow/index.ts";
-import { OFF } from "../../../lib/internal/fence-stage.ts";
-import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox.ts";
+import { OFF } from "../../../lib/internal/fence/fence-stage.ts";
+import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox/sandbox.ts";
 import { announceJobHost, type JobSpec } from "../../../lib/jobs/host.ts";
 
 interface Tool {

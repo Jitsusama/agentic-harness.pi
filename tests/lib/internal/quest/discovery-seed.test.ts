@@ -5,7 +5,8 @@
  * 30 October that first walk took 17.2 s at CPU pressure 76%, over
  * 772 quests, paid by every start and by 40 sessions at once after
  * each install. These count reads at the filesystem boundary, as
- * discovery-reads.test.ts does, across a memo cleared between walks.
+ * discovery/discovery-reads.test.ts does, across a memo cleared
+ * between walks.
  */
 
 import * as fs from "node:fs";
@@ -16,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
-} from "../../../../lib/internal/quest/discovery.ts";
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	ID,
 	plan,
@@ -138,9 +139,10 @@ describe("a seed left for the next process", () => {
 		expect(readsOf(readmePath)).toBe(1);
 	});
 
-	// The seed's key hashes the modules beside the one that computes it, so
-	// a move of that module out of the folder would key seeds by the wrong
-	// code and leave records shaped by an older parse standing.
+	// The seed's key hashes every module under the folder of the one that
+	// computes it, subfolders included, so a move of that module down into
+	// a subfolder would key seeds by the wrong code and leave records
+	// shaped by an older parse standing.
 	it("is keyed by every module that shapes a record, the walk's included", async () => {
 		vi.resetModules();
 		const freshFs = await import("node:fs");
@@ -155,11 +157,11 @@ describe("a seed left for the next process", () => {
 		const hashed = freshReads.mock.calls.map(([path]) => String(path));
 		const quest = join(import.meta.dirname, "../../../../lib/internal/quest");
 		for (const name of [
-			"discovery.ts",
-			"discovery-reads.ts",
+			"discovery/discovery.ts",
+			"discovery/discovery-reads.ts",
 			"discovery-seed.ts",
-			"frontmatter.ts",
-			"quest-doc.ts",
+			"documents/frontmatter.ts",
+			"documents/quest-doc.ts",
 		]) {
 			expect(hashed, `${name} is hashed`).toContain(join(quest, name));
 		}

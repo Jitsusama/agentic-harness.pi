@@ -15,21 +15,23 @@ import { hostRefusal } from "../../../../host/service/dispatch.ts";
 import type { ControlRequest } from "../../../../host/service/protocol.ts";
 import { listenControl } from "../../../../host/service/server.ts";
 import { withSession } from "../../../../lib/core/session/index.ts";
-import { recordUnlisted } from "../../../../lib/internal/fence-log.ts";
+import { recordUnlisted } from "../../../../lib/internal/fence/fence-log.ts";
 import {
 	joinSpawns,
 	leaveSpawns,
 	listedForStage,
-} from "../../../../lib/internal/fence-stage.ts";
+} from "../../../../lib/internal/fence/fence-stage.ts";
 import { packageConfigPath } from "../../../../lib/internal/paths.ts";
-import { openRecord } from "../../../../lib/internal/quest/session-registry.ts";
+import { openRecord } from "../../../../lib/internal/quest/sessions/session-registry.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { installTestHost } from "../../../support/session-host.ts";
 import { createEnvGuard } from "../_helpers.ts";
 
 // A miss is counted from the system's log, which a test must never write.
-vi.mock("../../../../lib/internal/fence-log.ts", async (original) => ({
-	...(await original<typeof import("../../../../lib/internal/fence-log.ts")>()),
+vi.mock("../../../../lib/internal/fence/fence-log.ts", async (original) => ({
+	...(await original<
+		typeof import("../../../../lib/internal/fence/fence-log.ts")
+	>()),
 	recordUnlisted: vi.fn(async () => undefined),
 }));
 

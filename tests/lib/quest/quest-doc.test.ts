@@ -9,7 +9,7 @@ import {
 	milestoneProgress,
 	parseQuestDoc,
 	shownReadme,
-} from "../../../lib/internal/quest/quest-doc.ts";
+} from "../../../lib/internal/quest/documents/quest-doc.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,

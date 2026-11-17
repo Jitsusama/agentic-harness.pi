@@ -12,7 +12,7 @@ import {
 import { hosted } from "../../lib/core/session/host.ts";
 import type { SessionRef } from "../../lib/core/session/index.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
-import { type Sandbox, wrapFor } from "../../lib/internal/sandbox.ts";
+import { type Sandbox, wrapFor } from "../../lib/internal/sandbox/sandbox.ts";
 import { isBash, teePersists } from "../../lib/internal/shell/kept.ts";
 import {
 	type SpawnerOptions,

@@ -12,8 +12,8 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
-import { gitRules } from "../../lib/internal/sandbox.ts";
-import { gitRun } from "../../lib/internal/tree-git.ts";
+import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
+import { gitRun } from "../../lib/internal/sandbox/tree-git.ts";
 
 /** How long one git question may take before it counts as unanswered. */
 const GIT_WALL_MS = 5_000;

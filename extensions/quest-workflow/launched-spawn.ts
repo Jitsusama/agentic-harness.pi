@@ -57,7 +57,7 @@ import {
 	leaveFirstWords,
 	recordTaking,
 	takeFirstWords,
-} from "../../lib/internal/quest/first-words.ts";
+} from "../../lib/internal/quest/sessions/first-words.ts";
 import { carriedEnvironment } from "../../lib/internal/session/carried-environment.ts";
 import { spawnHostSetting, startHostSetting } from "./config.ts";
 import { agentCommand } from "./verbs/spawn-held.ts";

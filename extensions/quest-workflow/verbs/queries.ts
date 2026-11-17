@@ -7,33 +7,33 @@
  * subdir.
  */
 
+import { realmSegments } from "../../../lib/internal/machine/realm.ts";
 import { stateDir } from "../../../lib/internal/paths.ts";
 import {
 	discoverQuests,
 	type QuestIndex,
-} from "../../../lib/internal/quest/discovery.ts";
+} from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	callLauncher,
 	type HandedSession,
 	handOver,
 	type LauncherCall,
-} from "../../../lib/internal/quest/hand-over.ts";
-import { currentBootToken } from "../../../lib/internal/quest/process-liveness.ts";
-import { settleHere } from "../../../lib/internal/quest/reopen-in-place.ts";
-import type { RestoreEntry } from "../../../lib/internal/quest/restore-file.ts";
-import {
-	restoreRecipe,
-	type SessionRecord,
-	shellSingleQuote,
-	wasLost,
-} from "../../../lib/internal/quest/session-registry.ts";
+} from "../../../lib/internal/quest/reopening/hand-over.ts";
+import { settleHere } from "../../../lib/internal/quest/reopening/reopen-in-place.ts";
+import type { RestoreEntry } from "../../../lib/internal/quest/reopening/restore-file.ts";
 import {
 	type BootWindows,
 	readWindowsNote,
 	windowsNotePath,
 	windowsToReopen,
-} from "../../../lib/internal/quest/windows-elsewhere.ts";
-import { realmSegments } from "../../../lib/internal/realm.ts";
+} from "../../../lib/internal/quest/reopening/windows-elsewhere.ts";
+import { currentBootToken } from "../../../lib/internal/quest/sessions/process-liveness.ts";
+import {
+	restoreRecipe,
+	type SessionRecord,
+	shellSingleQuote,
+	wasLost,
+} from "../../../lib/internal/quest/sessions/session-registry.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import {

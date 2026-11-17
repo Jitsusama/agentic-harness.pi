@@ -9,12 +9,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
+import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
 import {
 	JOURNEY_FILE,
 	JOURNEY_POINTER,
 	recentJourney,
-} from "../../../lib/internal/quest/journey.ts";
+} from "../../../lib/internal/quest/documents/journey.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 
 let questDir: string;
