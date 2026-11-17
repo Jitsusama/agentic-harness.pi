@@ -110,13 +110,13 @@ export function watchSettling(waiting: Waiting): SettleWatch {
 			(one) => !known?.items.has(one.id),
 		);
 	};
+	// What waits, as the daemon's verdicts leave it, and whether they
+	// change it, so a tick tells what its own write settles.
 	const readOff = async (quest: string) => {
 		const items = await waitingOff(waiting.folder, quest);
-		if (items.length === 0) return items;
+		if (items.length === 0) return { items, changed: false };
 		const verdicts = await verdictsOff(verdictsFile(waiting.folder));
-		if (verdicts.size === 0) return items;
-		if (!withVerdicts(quest, items, verdicts).changed) return items;
-		return undefined;
+		return withVerdicts(quest, items, verdicts);
 	};
 	return {
 		heard(items) {
@@ -137,13 +137,11 @@ export function watchSettling(waiting: Waiting): SettleWatch {
 			try {
 				const read = await readOff(quest);
 				if (waiting.quest() !== quest || takes !== at) return [];
-				if (read) return seen(quest, read);
 				// A verdict changes something: written whole, under the lock, and
-				// read back by the reader that refuses a file it can't read.
-				settleFromVerdicts(waiting);
-				const after = await waitingOff(waiting.folder, quest);
-				if (waiting.quest() !== quest || takes !== at) return [];
-				return seen(quest, after);
+				// told as it leaves what waits, with no read after to overtake it.
+				// Anything else written meanwhile is read at the next tick.
+				if (read.changed) settleFromVerdicts(waiting);
+				return seen(quest, read.items);
 			} finally {
 				reading = false;
 			}
