@@ -218,13 +218,14 @@ export function quietCollection(options: {
 		// The code is counted by a walk of the heap, so it is read inside the
 		// pause's time, where the pace that spares a large heap counts it,
 		// and its own part is timed too.
-		const codeFrom = performance.now();
+		const codeFrom = clock();
 		const heldCode = code();
+		const ended = clock();
 		const codeRead = heldCode && {
 			...heldCode,
-			took: Math.round(performance.now() - codeFrom),
+			took: Math.round(ended - codeFrom),
 		};
-		const took = Math.round(clock() - started);
+		const took = Math.round(ended - started);
 		if (heapBefore !== undefined && heapBefore.used > 0) {
 			paces.push(took / heapBefore.used);
 			if (paces.length > PACE_WINDOW) paces.shift();
@@ -310,11 +311,14 @@ export interface Heap {
 
 /**
  * The code V8 holds, in bytes: compiled code and its metadata, bytecode
- * and its metadata, and the source of every script it keeps. Source that
- * grows beside compiled code says new source is being compiled; compiled
- * code growing alone says optimisation. The live host's code space grew
- * from 5 to 147 MB by 17 November, and a soak of reloads and resumes
- * grew it by none of that, so this says which of the two it was.
+ * and its metadata, and the source of scripts kept as external strings.
+ * V8 counts only those there, which in node are its own built-in
+ * modules, not the source a module loader reads from disk, so it moves
+ * only as built-ins are loaded. Bytecode that grows beside compiled code
+ * says new source is being compiled; compiled code growing alone says
+ * optimisation. The live host's code space grew from 5 to 147 MB by 17
+ * November, and a soak of reloads and resumes grew it by none of that,
+ * so this says which of the two it was.
  */
 export interface HeapCode {
 	readonly compiled: number;
@@ -354,11 +358,11 @@ export function processCode(): HeapCode {
 
 /**
  * The code held and how long reading it took, as `code and metadata 18
- * MB, bytecode 6 MB, script source 25 MB, read in 40 ms`.
+ * MB, bytecode 6 MB, external script source 25 MB, read in 40 ms`.
  */
 function codeSaid(code: HeapCode & { readonly took: number }): string {
 	const megabytes = (bytes: number) => `${Math.round(bytes / MB)} MB`;
-	return `code and metadata ${megabytes(code.compiled)}, bytecode ${megabytes(code.bytecode)}, script source ${megabytes(code.source)}, read in ${code.took} ms`;
+	return `code and metadata ${megabytes(code.compiled)}, bytecode ${megabytes(code.bytecode)}, external script source ${megabytes(code.source)}, read in ${code.took} ms`;
 }
 
 /** Each space of at least a megabyte, as `old 100 of 120 MB`. */

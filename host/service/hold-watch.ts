@@ -265,9 +265,9 @@ const swapMb = () => {
 // A path read from the process's memory may hold anything a file's name
 // can, so a control character is written as its code: a name with a
 // newline must not start a journal line of its own, nor a direction
-// mark turn what follows it around.
+// mark turn what follows it around, nor an invisible one hide part of it.
 const plain = (text) =>
-	text.replace(/[\\x00-\\x1f\\x7f-\\x9f\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]/g, (one) => {
+	text.replace(/[\\x00-\\x1f\\x7f-\\x9f\\u00ad\\u061c\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u2069\\ufeff]/g, (one) => {
 		const code = one.charCodeAt(0);
 		return code < 0x100 ? "\\\\x" + code.toString(16).padStart(2, "0") : "\\\\u" + code.toString(16).padStart(4, "0");
 	});
@@ -378,15 +378,18 @@ const described = (hold, held, over) => {
 // this thread in it. The shell is a child of this thread, so it and its
 // beats stay in the host's own cgroup, as systemd needs to credit them:
 // the placement that moves children into jobs patches only the main
-// thread's spawn. It ends when this thread does, as its input closes.
+// thread's spawn. It ends when this thread does, as its input closes,
+// and is reaped with the host.
 let helper;
+let beating = false;
 let asked;
 let lastBeat = -Infinity;
 const ended = (why) => {
-	if (helper === undefined) return;
+	if (!beating) return;
+	beating = false;
 	helper = undefined;
 	if (asked) say("couldn't beat " + asked.what + ": " + why);
-	else say("can't beat the watchdog for the loop any more: " + why);
+	say("can't beat the watchdog for the loop any more: " + why);
 	asked = undefined;
 };
 const answered = (code) => {
@@ -396,8 +399,9 @@ const answered = (code) => {
 	say(code === "0" ? "beat " + what : "couldn't beat " + what + ": it ended with " + code);
 };
 if (beat) {
+	beating = true;
 	try {
-		helper = spawn("/bin/sh", ["-c", 'while read -r _; do "$@" >/dev/null 2>&1; echo "$?"; done', "sh", ...beat.command], { env: beat.env, stdio: ["pipe", "pipe", "ignore"] });
+		helper = spawn("/bin/sh", ["-c", 'while read -r _; do "$@" </dev/null >/dev/null 2>&1; echo "$?"; done', "sh", ...beat.command], { env: beat.env, stdio: ["pipe", "pipe", "ignore"] });
 		let out = "";
 		helper.stdout.setEncoding("utf8");
 		helper.stdout.on("data", (chunk) => {
@@ -422,10 +426,11 @@ if (beat) {
 // already knows how much of it ran.
 const QUARTER = 4;
 const beatFor = (hold, now, held) => {
-	if (helper === undefined || hold.last === undefined || hold.capped) return;
+	if (!beating || hold.last === undefined || hold.capped) return;
 	if (hold.moving === undefined) return;
 	const ran = (hold.last.cpu - hold.moving.cpu) * 1000;
-	if (ran * QUARTER > held) return;
+	// A reading that isn't a number can't be judged, so it isn't beaten.
+	if (!(ran * QUARTER <= held)) return;
 	if (held > beat.cap) {
 		hold.capped = true;
 		say("stopped beating the watchdog for the loop at its cap of " + seconds(beat.cap) + " s, held " + seconds(held) + " s in " + hold.last.said);
