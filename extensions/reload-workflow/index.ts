@@ -34,7 +34,13 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { hosted } from "../../lib/core/session/index.ts";
+import {
+	type Held,
+	heldNote,
+	holdRunningInstall,
+} from "../../lib/internal/install/held.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
+import { processGlobal } from "../../lib/internal/process/process-global.ts";
 import {
 	describeLoaded,
 	type Loaded,
@@ -89,12 +95,37 @@ function settledAborted(event: unknown): boolean {
 	);
 }
 
+/**
+ * Say once in this process, where the person sees it, that the pi it
+ * runs isn't kept from a switch's collection.
+ */
+async function sayHeld(
+	held: Promise<Held>,
+	ctx: ExtensionContext,
+): Promise<void> {
+	const note = heldNote(await held);
+	const once = processGlobal("pi.install.held.said", () => ({ said: false }));
+	if (note === undefined || once.said || !ctx.hasUI) return;
+	once.said = true;
+	try {
+		ctx.ui.notify(note, "warning");
+	} catch {
+		// The session was replaced while the hold ran: the next one says it.
+		once.said = false;
+	}
+}
+
 export default function reloadWorkflow(pi: ExtensionAPI) {
 	if (!hosted())
 		spareStaleRejections(
 			join(stateDir("reload-workflow"), "stale-rejections.jsonl"),
 		);
 	keepMcpServersAcrossReloads(pi);
+	// The store paths this pi runs from stay rooted while it runs, so a
+	// switch's collection can't take them (lib/internal/install/held.ts).
+	const held = holdRunningInstall(
+		join(stateDir("reload-workflow"), "held-installs"),
+	);
 	const settings = piPackageSettings();
 	let running: Loaded = { root: PACKAGE_ROOT };
 	let follower: Follower | undefined;
@@ -122,6 +153,7 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (event, ctx) => {
 		tellPiPackages(settings);
+		void sayHeld(held, ctx);
 		// A session this process rolled away from, started again, follows
 		// nothing: on 3 November one ran code older than the install, so it
 		// saw a move every 30 seconds and reloaded the live session each
