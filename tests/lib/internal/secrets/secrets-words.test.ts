@@ -320,6 +320,7 @@ describe("what a printing of the environment keeps", () => {
 			"\x1b]8;;file://mbp/Users/joel/notes%282%29.txt\x07notes(2).txt\x1b]8;;\x07\n",
 			"\x1b]8;;file://mbp/Users/joel/my%20notes2.txt\x07my%20notes2.txt\x1b]8;;\x07\n",
 			"\x1b]8;;file://mbp/Users/joel/my%20notes2.txt\x07my%20notes2\x1b]8;;\x07\n",
+			"\x1b]8;;file://mbp/Users/joel/r%C3%A9sum%C3%A9s.pdf\x07résumés\x1b]8;;\x07\n",
 			"\x1b]8;;file://mbp/Users/joel/abc%2Fnotes.md\x07abc/notes.md\x1b]8;;\x07\n",
 			"\x1b]8;;file:///repo/src/report2024.c\x07report2024.c:42\x1b]8;;\x07\n",
 			`\x1b]8;;https://github.com/o/r/commit/${"abc1234d".repeat(5)}\x07abc1234\x1b]8;;\x07\n`,
@@ -339,6 +340,7 @@ describe("what a printing of the environment keeps", () => {
 			`\x1b]8;;https://github.com/o/r/commit/${"abc1234d".repeat(5)}\x07abc123\x1b]8;;\x07\n`,
 			`\x1b]8;;https://github.com/o/r/commit/abc1234dg${"abc1234d".repeat(4)}\x07abc1234\x1b]8;;\x07\n`,
 			"\x1b]8;;file:///repo/src/main.c#L4242\x07main.c:4242\x1b]8;;\x07\n",
+			"\x1b]8;;file://mbp/x/a.ghp1234567890%2Eabc\x07a\x1b]8;;\x07\n",
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBe(
 				`${VALUE_MARK}\n`,
