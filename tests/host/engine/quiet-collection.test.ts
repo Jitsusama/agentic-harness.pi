@@ -232,6 +232,31 @@ describe("the host's collection once quiet", () => {
 		]);
 	});
 
+	it("counts reading the code in the pause the loop held for", () => {
+		const said: string[] = [];
+		let now = 0;
+		const quiet = quietCollection({
+			reading: () => ({ tools: 0, jobs: 0, waiting: 0 }),
+			collect: () => {
+				now += 400;
+			},
+			weigh: () => undefined,
+			heap: () => undefined,
+			// V8 walks the heap to count its code, which can take longer.
+			code: () => {
+				now += 700;
+				return { compiled: MB, bytecode: MB, source: MB };
+			},
+			report: (one) => said.push(one),
+			clock: () => now,
+		});
+		quiet.stirred();
+		vi.advanceTimersByTime(SETTLE_MS);
+		expect(said[0]).toMatch(
+			/^Collected while quiet in 1100 ms, .*; the loop held 1\.1 s for it$/,
+		);
+	});
+
 	/**
 	 * A host whose heap uses `used()` and whose collections each take the
 	 * next of `pauses` ms, collecting each time something stirs once spaced.

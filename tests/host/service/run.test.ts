@@ -450,7 +450,7 @@ describe("runHost's watchdog", () => {
 	it("watches what holds its loop while systemd watches it, and stops with it", async () => {
 		const serve = async (extra: NodeJS.ProcessEnv) => {
 			const watches = { started: 0, stopped: 0 };
-			const beats: BeatOptions[] = [];
+			const beats: (BeatOptions | undefined)[] = [];
 			const signals = new EventEmitter();
 			const run = await runHost({
 				argv: ["background"],
@@ -460,8 +460,8 @@ describe("runHost's watchdog", () => {
 				ready: async () => {},
 				status: async () => {},
 				alive: async () => {},
-				holds: (beat) => {
-					beats.push(beat);
+				holds: (watch) => {
+					beats.push(watch.beat);
 					watches.started += 1;
 					return () => {
 						watches.stopped += 1;
@@ -476,15 +476,20 @@ describe("runHost's watchdog", () => {
 			await run.stopped;
 			return { running, stopped: watches, beats };
 		};
-		const watched = await serve(WATCHED);
+		const socket = { ...WATCHED, NOTIFY_SOCKET: "/run/systemd/notify" };
+		const watched = await serve(socket);
 		expect(
-			watched.beats.map((beat) => beat.every),
+			watched.beats.map((beat) => beat?.every),
 			"beats for a loop in the disk as often as the loop beats",
 		).toEqual([TIMEOUT_MS / 4]);
 		expect(
-			watched.beats[0]?.env.WATCHDOG_USEC,
+			watched.beats[0]?.env.NOTIFY_SOCKET,
 			"in the environment naming systemd's socket",
-		).toBe(WATCHED.WATCHDOG_USEC);
+		).toBe(socket.NOTIFY_SOCKET);
+		expect(
+			(await serve(WATCHED)).beats,
+			"watched, but unbeaten, where systemd names no socket",
+		).toEqual([undefined]);
 		expect(watched.running, "watched once while serving").toEqual({
 			started: 1,
 			stopped: 0,

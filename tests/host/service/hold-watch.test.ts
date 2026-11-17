@@ -215,10 +215,15 @@ describe("watchHolds", () => {
 		 * Have the stand-in /proc say `look` from `seconds` on, while this
 		 * thread's loop is held, by a process of its own; its state goes
 		 * first, as a look reads it first. Answers the file that says, in
-		 * ns, when it did.
+		 * ns, when it did, named `name` so one hold may change twice.
 		 */
-		function sayingLater(proc: string, look: Look, seconds: number): string {
-			const next = join(proc, "next");
+		function sayingLater(
+			proc: string,
+			look: Look,
+			seconds: number,
+			name = "changed",
+		): string {
+			const next = join(proc, `${name}.next`);
 			mkdirSync(next, { recursive: true });
 			const files = taskFiles(look);
 			for (const [name, text] of Object.entries(files)) {
@@ -226,16 +231,16 @@ describe("watchHolds", () => {
 			}
 			const task = join("task", String(process.pid));
 			const moves = Object.keys(files)
-				.map((name) => `mv next/${name} ${task}/${name}`)
+				.map((file) => `mv ${name}.next/${file} ${task}/${file}`)
 				.join("; ");
 			// The wait is the point: the change lands partway through a hold.
 			const child = spawn(
 				"sh",
-				["-c", `sleep ${seconds}; ${moves}; date +%s%N > changed`],
+				["-c", `sleep ${seconds}; ${moves}; date +%s%N > ${name}`],
 				{ cwd: proc, stdio: "ignore" },
 			);
 			child.unref();
-			return join(proc, "changed");
+			return join(proc, name);
 		}
 
 		/** Wait a few of the thread's looks. */
@@ -270,6 +275,9 @@ describe("watchHolds", () => {
 			wchan: "btrfs_read_lock_root_node",
 			call: "openat",
 		};
+
+		/** A time a beat or a change was written, in ms. */
+		const msOf = (ns: string) => Number(BigInt(ns) / 1_000_000n);
 
 		it.runIf(NUMBERED && ON_LINUX)(
 			"beats for a loop asleep in a filesystem call, and says so",
@@ -317,6 +325,86 @@ describe("watchHolds", () => {
 			},
 		);
 
+		it.runIf(NUMBERED && ON_LINUX)(
+			"counts its CPU from as the loop last moved, not from the thread's start",
+			async () => {
+				// A host up for hours has used far more CPU than any hold.
+				stop = watching(procSaying({ ...IN_THE_DISK, cpu: 3600 }));
+				await started();
+				await heldFor(1500);
+				expect(
+					beaten().length,
+					"beats a stall whatever it ran before",
+				).toBeGreaterThanOrEqual(1);
+			},
+		);
+
+		it.runIf(NUMBERED)(
+			"never beats for a loop asleep in a filesystem call it may leave",
+			async () => {
+				// Interruptible: a FIFO's open waits on its writer, not the disk.
+				stop = watching(
+					procSaying({ state: "S", wchan: "wait_for_partner", call: "openat" }),
+				);
+				await started();
+				const lines = await heldFor(1500);
+				expect(lines, "the call named").toContain(`in openat ${PATH}`);
+				expect(beaten(), "only D is the disk's").toEqual([]);
+			},
+		);
+
+		it.runIf(NUMBERED && ON_LINUX)(
+			"keeps beating a stall whose thread a look finds between calls",
+			async () => {
+				const proc = procSaying(IN_THE_DISK);
+				stop = watching(proc);
+				await started();
+				sayingLater(
+					proc,
+					{ state: "R", wchan: "0", call: "openat" },
+					0.4,
+					"ran",
+				);
+				const back = sayingLater(proc, IN_THE_DISK, 1, "back");
+				const lines = await heldFor(2500);
+				expect(lines, "seen running partway").toMatch(/seen .*R \d+/);
+				const returned = msOf(readFileSync(back, "utf8").trim());
+				expect(
+					beaten()
+						.map(msOf)
+						.filter((time) => time > returned),
+					"beats once back in the disk",
+				).not.toEqual([]);
+			},
+		);
+
+		it.runIf(NUMBERED && ON_LINUX)(
+			"sends no beat beside one still out, across holds, and says it once",
+			async () => {
+				stop = watching(
+					procSaying(IN_THE_DISK),
+					beat(60_000, ["sh", "-c", `date +%s%N >> '${beats()}'; sleep 30`]),
+				);
+				await started();
+				await heldFor(1500);
+				hold(1500);
+				await vi.waitFor(() => {
+					expect(
+						said()
+							.join("\n")
+							.match(/the loop held /g),
+					).toHaveLength(2);
+				});
+				const lines = said().join("\n");
+				expect(beaten().length, "one beat, never answered").toBe(1);
+				expect(
+					lines.match(/hasn't answered in \d+\.\d s/g),
+					"its silence said once",
+				).toHaveLength(1);
+				expect(lines, "never claimed").not.toMatch(/pi-host: beat the/);
+			},
+		);
+
 		it.runIf(NUMBERED)(
 			"never beats for a loop waiting off the disk",
 			async () => {
@@ -357,18 +445,20 @@ describe("watchHolds", () => {
 			async () => {
 				// Counted from as the loop last moved, so even the hold's first
 				// look sees the CPU it ran, which came after it.
+				// Its first look comes 2 s in, so a change due at 0.2 s lands
+				// first even on a loaded lane.
 				const proc = procSaying(IN_THE_DISK);
 				stop = watchHolds({
 					fd,
 					every: EVERY_MS,
-					after: 800,
+					after: 2000,
 					still: 60_000,
 					proc,
 					beat: beat(),
 				});
 				await started();
 				const changed = sayingLater(proc, { ...IN_THE_DISK, cpu: 100 }, 0.2);
-				await heldFor(1800);
+				await heldFor(2800);
 				expect(existsSync(changed), "its CPU said partway through").toBe(true);
 				expect(beaten(), "a busy loop is the watchdog's to kill").toEqual([]);
 			},
@@ -386,9 +476,8 @@ describe("watchHolds", () => {
 					1,
 				);
 				await heldFor(2500);
-				const at = (ns: string) => Number(BigInt(ns) / 1_000_000n);
-				const left = at(readFileSync(changed, "utf8").trim());
-				const times = beaten().map(at);
+				const left = msOf(readFileSync(changed, "utf8").trim());
+				const times = beaten().map(msOf);
 				expect(times.length, "beats while in the disk").toBeGreaterThanOrEqual(
 					1,
 				);
@@ -434,12 +523,12 @@ describe("watchHolds", () => {
 			"writes a control character in a path as its code",
 			async () => {
 				const proc = procSaying(IN_THE_DISK);
-				writeFileSync(join(proc, "mem"), "/home/one/a\nb.json\0");
+				writeFileSync(join(proc, "mem"), "/home/one/a\nb\u202ec.json\0");
 				stop = watching(proc);
 				await started();
 				const lines = await heldFor(1500);
-				expect(lines, "the newline as its code").toContain(
-					"in openat /home/one/a\\x0ab.json",
+				expect(lines, "the newline and direction mark as codes").toContain(
+					"in openat /home/one/a\\x0ab\\u202ec.json",
 				);
 			},
 		);
