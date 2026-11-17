@@ -1,7 +1,10 @@
 # Presence Tests
 
 The tests of `lib/mesh/presence.ts` and of what this session's own peer
-publishes through it, one file for each thing a presence says:
+publishes through it, one file for each thing a presence says. Each
+case keeps the describe it had in the single file these came from, so
+a run names the same cases; a reload's effect on a step, a pause or a
+move is tested beside that step, pause or move.
 
 | File                    | Tests                                                   |
 | ----------------------- | ------------------------------------------------------- |
@@ -11,7 +14,7 @@ publishes through it, one file for each thing a presence says:
 | `orchestration.test.ts` | its place in an orchestration                           |
 | `activity.test.ts`      | what it is doing, and what it waits on its person for   |
 | `moves.test.ts`         | what a node needs to move it                            |
-| `kept.test.ts`          | what it keeps across a reload                           |
+| `kept.test.ts`          | the groups, stops and landings it keeps across a reload |
 
 - `support/`: what they share, this session's id, a peer's presence and
   the surroundings its own peer runs in.
