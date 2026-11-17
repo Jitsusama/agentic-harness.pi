@@ -500,7 +500,7 @@ describe("a tool's answer", () => {
 			);
 		});
 
-		it("has the file a failed dump names only in its error's words scrubbed, before those words are handed on", async () => {
+		it("has the file a failed dump names only in its error's words scrubbed, by any path", async () => {
 			const value = mixed(60);
 			const file = saved(
 				`pi-bash-${randomBytes(8).toString("hex")}.log`,
@@ -508,7 +508,7 @@ describe("a tool's answer", () => {
 			);
 			// A command that times out throws, and pi answers with its words.
 			const result = await answer({
-				input: { command: "printenv; exit 1" },
+				input: { command: "/usr/bin/printenv; exit 1" },
 				isError: true,
 				content: [
 					{

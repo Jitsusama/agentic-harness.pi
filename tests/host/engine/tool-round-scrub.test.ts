@@ -219,7 +219,7 @@ describe("a hosted tool round", () => {
 			const dump = conversation(
 				"call-failed",
 				"",
-				{ command: "printenv; exit 1" },
+				{ command: "/usr/bin/printenv; exit 1" },
 				throwing,
 			);
 			const outcome = await dump.round.run(dump.callId, undefined);

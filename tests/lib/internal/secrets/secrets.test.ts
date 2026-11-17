@@ -119,6 +119,29 @@ describe("a printing of the environment, however it is asked for", () => {
 		"node -e 'console.log(process.env)'",
 		"ruby -e 'p ENV.to_h'",
 		"perl -e 'print \"$_=$ENV{$_}\\n\" for keys %ENV'",
+		"cd /x\nenv\necho ok",
+		"env 2>&1 | sort",
+		"export 2>/dev/null",
+		"set # every variable",
+		"bash -c set",
+		"sh -c 'export'",
+		"ssh build-host set",
+		"{ set; } > out.txt",
+		"time env",
+		"python3 -c 'import os; print(os.environb)'",
+		"python3 -c 'from os import environ; print(environ)'",
+		"node --eval 'console.log(process.env)'",
+		"deno eval 'console.log(Deno.env.toObject())'",
+		"bun -e 'console.log(Bun.env)'",
+		"php -r 'print_r($_ENV);'",
+		"ruby -e 'puts ENV.values'",
+		"python3 <<EOF\nimport os\nprint(os.environ)\nEOF",
+		"awk 'BEGIN { for (k in ENVIRON) print k \"=\" ENVIRON[k] }'",
+		"jq -n '$ENV'",
+		"jq -n env",
+		"docker inspect web",
+		"ps -E -p 1",
+		"ps -wwE 1",
 	];
 	for (const command of dumps) {
 		it(`is known as one: ${command}`, () => {
@@ -138,6 +161,12 @@ describe("a printing of the environment, however it is asked for", () => {
 		"python3 -c 'import os; print(os.environ[\"HOME\"])'",
 		"python3 -c 'import os; print(os.environ.get(\"HOME\"))'",
 		"node -e 'console.log(process.env.HOME)'",
+		"rg process.env src",
+		"grep -rn 'os.environ' .",
+		"git grep 'getenv()'",
+		"python3 script.py # reads os.environ",
+		"ps -o pid,comm -p 1",
+		"jq -r .env package.json",
 	];
 	for (const command of runs) {
 		it(`is not one: ${command}`, () => {
@@ -147,6 +176,30 @@ describe("a printing of the environment, however it is asked for", () => {
 			).toBe(false);
 		});
 	}
+
+	it("reads a long run of env's options in one way, so it answers at once", () => {
+		const started = performance.now();
+		expect(
+			dumpsEnvironment(`env${" -uA".repeat(28)} x`),
+			"env with options then a command runs the command",
+		).toBe(false);
+		expect(
+			dumpsEnvironment(`env${" -u -u".repeat(28)} x`),
+			"env unsetting then a command runs the command",
+		).toBe(false);
+		expect(performance.now() - started).toBeLessThan(100);
+	});
+
+	it("has env -0's every NUL-ended value scrubbed", () => {
+		const access = fresh();
+		const { text } = scrubSecrets(
+			`HOME=/h\0PROXY_ACCESS=${access}\0LANG=en\0`,
+			[],
+			{ environment: true },
+		);
+		expect(text).not.toContain(access);
+		expect(text).toContain("\0PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]\0");
+	});
 
 	it("has a Python environment's every value scrubbed, read by its command", () => {
 		const secret = fresh();
@@ -203,11 +256,63 @@ describe("an output that reads as a printing of the environment", () => {
 		expect(scrubSecrets(printed, []).text).toBe(printed);
 	});
 
-	it("is not one when such lines are under half of it", () => {
-		const words = Array.from({ length: 6 }, (_, i) => `step ${i} done`);
-		const printed = [...words, ...variables(fresh())].join("\n");
+	it("is not one when such lines are under half of it, none five in a row", () => {
+		const printed = ["begin"]
+			.concat(...variables(fresh()).map((line, i) => [line, `step ${i}`]))
+			.join("\n");
 		expect(readsAsDump(printed), "five of eleven lines are not half").toBe(
 			false,
 		);
+	});
+
+	it("is one when such lines are half of it, the fewest that make one", () => {
+		const printed = variables(fresh())
+			.flatMap((line, i) => [line, `step ${i}`])
+			.join("\n");
+		expect(readsAsDump(printed), "five of ten lines are half").toBe(true);
+	});
+
+	it("is one with five such lines in a row, inside a longer output", () => {
+		const access = fresh();
+		const steps = Array.from({ length: 12 }, (_, i) => `step ${i} done`);
+		const printed = [...steps, ...variables(access)].join("\n");
+		expect(readsAsDump(printed), "five in a row are a dump").toBe(true);
+		expect(scrubSecrets(printed, []).text).not.toContain(access);
+	});
+
+	it("counts no blank line towards its length", () => {
+		const printed = variables(fresh()).join("\n\n\n");
+		expect(readsAsDump(printed), "blank lines hold nothing").toBe(true);
+	});
+
+	it("is one with env -0's NUL-ended lines", () => {
+		const access = fresh();
+		const printed = `${variables(access).join("\0")}\0`;
+		expect(readsAsDump(printed), "NUL ends each line").toBe(true);
+		expect(scrubSecrets(printed, []).text).not.toContain(access);
+	});
+
+	it("is not one for log lines of several pairs, nor pinned packages", () => {
+		const logged = Array.from(
+			{ length: 6 },
+			(_, i) => `ts=2026-11-17T10:0${i} level=info msg=step${i}`,
+		).join("\n");
+		expect(readsAsDump(logged), "logfmt sets no one variable").toBe(false);
+		const frozen = ["requests==2.31.0", "urllib3==2.0.7", "idna==3.4"]
+			.concat(["certifi==2023.7.22", "charset-normalizer==3.3.0"])
+			.join("\n");
+		expect(readsAsDump(frozen), "a pin is not a variable").toBe(false);
+	});
+
+	it("keeps its other lines' long words when only its lines make it one", () => {
+		const access = fresh();
+		const commit = "3f9c2a7be41d08e5c6a1f2b3d4e5f60718293a4b";
+		const path = "build/output/a1b2c3d4e5f6a7b8c9d0/index.js";
+		const printed = [`commit ${commit}`, `wrote ${path}`, ...variables(access)]
+			.join("\n");
+		const { text } = scrubSecrets(printed, []);
+		expect(text).not.toContain(access);
+		expect(text).toContain(commit);
+		expect(text).toContain(path);
 	});
 });

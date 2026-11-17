@@ -214,7 +214,7 @@ describe("what a log says was carried", () => {
 
 describe("taking up", () => {
 	/** Take up one carried call `j3`, with a result `j2` not yet said. */
-	function tookUp() {
+	function tookUp(label = "sleep 45") {
 		const { jobs, said } = registry();
 		const work = shellWork();
 		const watch = handWatch();
@@ -222,7 +222,7 @@ describe("taking up", () => {
 		takeUp(
 			{
 				at: 5000,
-				jobs: [{ id: "j3", kind: "shell", label: "sleep 45", work }],
+				jobs: [{ id: "j3", kind: "shell", label, work }],
 				results: [
 					{ jobId: "j2", label: "echo hi", text: "`echo hi` exited 0." },
 				],
@@ -285,6 +285,19 @@ describe("taking up", () => {
 			"LANG=en_CA.UTF-8",
 			"TERM=xterm-256color",
 		].join("\n");
+		watch.end({ how: "exited", code: 0, output: `${printed}\n` });
+		await settled();
+		const text = said.at(-1)?.text ?? "";
+		expect(text.includes(access), "the value is not said").toBe(false);
+		expect(text).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
+	});
+
+	it("says a carried call's printing of the environment scrubbed, read by its label", async () => {
+		const { said, watch } = tookUp("printenv");
+		const access = `z9${"5f6e7d8c9b".repeat(4)}`;
+		const printed = ["HOME=/home/someone", `PROXY_ACCESS=${access}`].join(
+			"\n",
+		);
 		watch.end({ how: "exited", code: 0, output: `${printed}\n` });
 		await settled();
 		const text = said.at(-1)?.text ?? "";

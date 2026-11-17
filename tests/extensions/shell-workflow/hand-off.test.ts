@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import type { JsonObject } from "@earendil-works/pi-ai";
 import {
 	type AgentToolResult,
 	type AgentToolUpdateCallback,
@@ -465,17 +466,56 @@ describe("a moved command's printing of the environment", () => {
 	});
 
 	for (const hosted of [false, true]) {
-		it(`is scrubbed when run in the background ${hosted ? "on a host" : "in plain pi"}: printenv`, async () => {
-			if (hosted) disposers.push(installTestHost().dispose);
+		it(`is scrubbed when run in the background ${hosted ? "on a host" : "in plain pi"}, the whole output it keeps too: printenv`, async () => {
+			const temp = mkdtempSync(join(tmpdir(), "moved-dump-"));
+			disposers.push(() => rmSync(temp, { recursive: true, force: true }));
+			if (hosted) {
+				const installed = installTestHost();
+				disposers.push(installed.dispose);
+				sessionEnv("a").set("TMPDIR", temp);
+			}
 			const { text, values } = dump();
+			const filler = Array.from(
+				{ length: FINISHED_LINES + 10 },
+				(_, i) => `line ${i}`,
+			);
 			const { running, ended } = await moved("printenv", {
 				background: true,
 				session: hosted ? "a" : SESSION,
 			});
-			running.end(said(text));
-			expectScrubbed((await ended())?.summary ?? "", values);
+			running.end(said([text, ...filler].join("\n")));
+			const summary = (await ended())?.summary ?? "";
+			const kept = /Full output: (\S+\.log)/.exec(summary)?.[1] ?? "";
+			if (!hosted) disposers.push(() => rmSync(kept, { force: true }));
+			if (hosted) {
+				expect(dirname(kept), "kept in the conversation's TMPDIR").toBe(
+					temp,
+				);
+			}
+			const whole = readFileSync(kept, "utf8");
+			for (const value of values) {
+				expect(whole.includes(value), "no value is kept").toBe(false);
+			}
+			expect(whole).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
 		});
 	}
+
+	it("withholds its output when the scrub cannot read the answer", async () => {
+		const { text, values } = dump();
+		const { running, ended } = await moved("printenv", { background: true });
+		const structuredContent: JsonObject = { output: text };
+		structuredContent.self = structuredContent;
+		running.end({ ...said(text), structuredContent });
+		const outcome = await ended();
+		expect(outcome).toMatchObject({ failed: true });
+		for (const value of values) {
+			expect(
+				outcome?.summary.includes(value),
+				"no value is said raw",
+			).toBe(false);
+		}
+		expect(outcome?.summary).toContain("withheld");
+	});
 
 	it("is scrubbed when it exits non-zero: printenv; exit 1", async () => {
 		const { text, values } = dump();
