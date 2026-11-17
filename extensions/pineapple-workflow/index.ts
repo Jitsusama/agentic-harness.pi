@@ -51,6 +51,7 @@ import {
 import { sessionRealmName } from "../../lib/internal/realm.ts";
 import { isPersonText } from "../../lib/internal/session/driven.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
+import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { senderIdentity } from "../../lib/mesh/message.ts";
 import { folderTransport } from "../../lib/mesh/transport.ts";
 import { type Judging, judge, questChain, questsOf } from "./enforce.ts";
@@ -73,7 +74,7 @@ export default function pineappleWorkflow(pi: ExtensionAPI) {
 	const folder = stopsFolder();
 	const stops = (): Stop[] => [...standingStops(folder).stops];
 	const quests = join(dataDir("quest-workflow"), "quests");
-	const whereabouts = createWhereabouts(join(stateDir("work"), "cut"));
+	const whereabouts = createWhereabouts(treeRecordDir());
 	const parking = createParking({
 		stops,
 		session: async (standing) => {
