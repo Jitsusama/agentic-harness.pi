@@ -742,6 +742,32 @@ describe("hostBackend", () => {
 		expect(said.join(""), "no control character left").not.toMatch(/\p{Cc}/u);
 	});
 
+	// A control client names who asks, and an override or isolate in that
+	// name would reorder the line it shares with the runs' labels.
+	it("cleans who asked for a drain as it cleans the runs' labels", async () => {
+		const { fake } = engine({ drain: () => [] });
+		const said: string[] = [];
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: fake,
+			say: (line) => said.push(line),
+		});
+		await backend.execute({
+			v: 1,
+			id: "d",
+			op: "drain",
+			on: true,
+			by: "integ\u202eration\u2028",
+		});
+		expect(said, "the name with no override or separator").toEqual([
+			expect.stringMatching(
+				/^Draining for a restart, asked by integ ration over the control socket:/,
+			),
+		]);
+	});
+
 	it("drains over the real socket naming the host it listed, and refuses a drain naming none", async () => {
 		const { fake } = engine({ drain: () => [] });
 		const backend = backendWith(fake);

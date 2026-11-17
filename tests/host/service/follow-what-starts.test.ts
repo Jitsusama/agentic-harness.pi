@@ -240,14 +240,13 @@ describe("followWhatStarts", () => {
 			heap: () => ({ usedBytes: used, limitBytes: 4144 * MB }),
 			timing: { after: timers.after },
 		});
-		for (let cycle = 0; cycle < 3; cycle++) {
-			await timers.fire();
-			parked = true;
-			used = 1650 * MB;
-			await timers.fire();
-			parked = false;
-			used = 3100 * MB;
-		}
+		// One cycle: on the real clock the wake's window outlasts the case.
+		await timers.fire();
+		parked = true;
+		used = 1650 * MB;
+		await timers.fire();
+		parked = false;
+		used = 3100 * MB;
 		for (let look = 0; look < 3; look++) await timers.fire();
 		expect(
 			calls.filter((call) => call.includes("restart")),

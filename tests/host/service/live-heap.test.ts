@@ -86,12 +86,14 @@ describe("heapAfterFullCollections", () => {
 	});
 
 	// Node can hand an observer several collections at once, as V8 runs
-	// them back to back near its limit.
-	it("counts each full collection V8 reports at once", () => {
+	// them back to back near its limit and in a last-resort collection,
+	// but they give one reading, and a reader waiting for two fresh ones
+	// would otherwise weigh one from before what it waits on.
+	it("counts one reading for several full collections delivered at once", () => {
 		const v8 = fakeV8(900);
 		const heap = heapAfterFullCollections(v8.watch, v8.read);
 		v8.collect(1200, 3);
-		expect(heap.collections(), "three in one delivery").toBe(3);
+		expect(heap.collections(), "three in one delivery, read once").toBe(1);
 	});
 
 	it("reads the heap as it stands before V8 has collected in full", () => {
@@ -142,6 +144,9 @@ describe("heapAfterFullCollections", () => {
 			read.mock.calls.length,
 			"not after a minor collection, only V8's own full ones",
 		).toBe(seen.majors());
+		expect(heap.collections(), "one reading for each delivery").toBe(
+			read.mock.calls.length,
+		);
 
 		// Cleared, so only this collection can answer the wait.
 		read.mockClear();
