@@ -4,6 +4,7 @@
 
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -61,6 +62,15 @@ describe("whether a session parks, and after how long", () => {
 		expect(parkAfterMs("s-1", {}, path)).toBe(NAMED_PARK_AFTER_MS);
 		expect(parkAfterMs("s-2", {}, path)).toBeUndefined();
 		expect(parkAfterMs("s-2", { PI_PARK: "on" }, path)).toBe(PARK_AFTER_MS);
+		expect(parkAfterMs("s-2", {}, switchSays("Off"))).toBeUndefined();
+	});
+
+	it("parks none but those it names where the switch is there but can't be read", () => {
+		// A folder where the file should be reads as EISDIR: it may have
+		// said off, so it is taken to.
+		const path = join(folder, "unreadable");
+		mkdirSync(path);
+		expect(parkAfterMs("s-1", {}, path)).toBeUndefined();
 	});
 
 	it("parks every session after half an hour once the switch or the environment says on", () => {

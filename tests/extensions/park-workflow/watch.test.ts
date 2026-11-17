@@ -177,6 +177,18 @@ describe("parking a session", () => {
 		expect(shutdowns).toBe(1);
 	});
 
+	// 16 November: no machine had written a switch, so a Mac with 43
+	// sessions and its swap near full parked none of them.
+	it("parks a held session idle past its time on a machine with no switch at all", () => {
+		rmSync(parkSwitch(folder));
+		const watched = watching();
+		clock = PARK_AFTER_MS - 1;
+		expect(watched.look()).toBe("not idle long enough");
+		clock = PARK_AFTER_MS;
+		expect(watched.look()).toBeUndefined();
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
 	it("names its holder the command that opens its log, to wake with", () => {
 		const watched = watching();
 		clock = NAMED_PARK_AFTER_MS;

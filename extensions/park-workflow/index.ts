@@ -3,7 +3,7 @@
  * it waits, for its holder to start it again when something needs it.
  *
  * On unless the switch or `PI_PARK` turns it off, and only for a session
- * a holder keeps (`MYCELIUM_HELD`), since a parked pi with nobody to wake
+ * a holder keeps and wakes (`MYCELIUM_WAKE`), since a parked pi with nobody to wake
  * it has simply ended. See lib/internal/session/park.ts for the contract
  * with the holder and the mesh.
  */

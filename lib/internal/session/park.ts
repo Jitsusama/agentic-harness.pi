@@ -67,8 +67,9 @@ import { carriedEnvironment } from "./carried-environment.ts";
 import { type Holding, whatHolds } from "./free.ts";
 
 /**
- * The variable that turns parking on (`on`) or keeps it off whatever the
- * switch says (`off`), read at start.
+ * The variable that parks a session whatever a switch's `off` says
+ * (`on`), or keeps it awake whatever the switch says (`off`), read at
+ * start.
  */
 export const PARK_ENV = "PI_PARK";
 
@@ -389,7 +390,7 @@ export function parkFolder(): string {
 	return stateDir("park-workflow");
 }
 
-/** The switch that turns parking on while sessions run. */
+/** The switch that turns parking off, or on again, while sessions run. */
 export function parkSwitch(folder: string = parkFolder()): string {
 	return join(folder, "switch");
 }
@@ -411,10 +412,12 @@ export function parkAfterMs(
 	if (env[PARK_ENV] === "off") return undefined;
 	const lines = switchLines(switchPath);
 	if (session !== "" && lines.includes(session)) return NAMED_PARK_AFTER_MS;
-	return env[PARK_ENV] === "on" || !lines.includes("off")
-		? PARK_AFTER_MS
-		: undefined;
+	const off = lines.some((line) => line.toLowerCase() === SWITCH_OFF);
+	return env[PARK_ENV] === "on" || !off ? PARK_AFTER_MS : undefined;
 }
+
+/** The switch's line that keeps every session it doesn't name awake. */
+const SWITCH_OFF = "off";
 
 function switchLines(path: string): string[] {
 	try {
@@ -422,9 +425,10 @@ function switchLines(path: string): string[] {
 			.split("\n")
 			.map((line) => line.trim())
 			.filter((line) => line !== "");
-	} catch {
-		// No switch is the switch saying nothing.
-		return [];
+	} catch (error) {
+		// No switch is the switch saying nothing. One there that can't be
+		// read may say off, so it is taken to, rather than parking all.
+		return isRecord(error) && error.code === "ENOENT" ? [] : [SWITCH_OFF];
 	}
 }
 
