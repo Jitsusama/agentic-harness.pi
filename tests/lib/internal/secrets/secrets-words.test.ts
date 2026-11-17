@@ -188,6 +188,17 @@ describe("a bare value in a printing of the environment", () => {
 		expect(shown(`API=https://h/cb?token=${fresh()}\n`)).toBe(
 			`API=https://h/cb?token=${VALUE_MARK}\n`,
 		);
+		expect(shown(`API=https://h/cb?token=${fresh()}&page=2\n`)).toBe(
+			`API=https://h/cb?token=${VALUE_MARK}=2\n`,
+		);
+	});
+
+	it("holds a query a highlight marks between its equals", () => {
+		const printed =
+			"URL=https://h/p?a=b&\x1b[01;31m\x1b[Ktoken\x1b[m\x1b[K=xyz\n";
+		expect(
+			shown(printed, "env | grep --color=always token"),
+		).toBeUndefined();
 	});
 
 	it("is put out of sight behind a path or an address, an equals after it", () => {
@@ -298,6 +309,10 @@ describe("what a printing of the environment keeps", () => {
 			"\x1b]8;;file://mbp/Users/joel/report2024.pdf\x07report2024.pdf\x1b]8;;\x07\n",
 			"\x1b]8;;https://jira.example.com/browse/PROJ-1234\x07PROJ-1234\x1b]8;;\x07\n",
 			"/srv/app\x1b]0;x\x07/data/v2/reports_2024\n",
+			"\x1b]8;;file://mbp/Users/joel/my%20notes.txt\x07my notes.txt\x1b]8;;\x07\n",
+			"\x1b]8;;file://mbp/Users/joel/r%C3%A9sum%C3%A9s.pdf\x07résumés.pdf\x1b]8;;\x07\n",
+			"\x1b]8;;https://github.com/o/r/commit/a1b2c3d4e5f6a7b8c9d0\x07a1b2c3d\x1b]8;;\x07\n",
+			"\x1b]8;;file:///repo/src/main.c#L42\x07main.c:42\x1b]8;;\x07\n",
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBeUndefined();
 		}
@@ -386,6 +401,7 @@ describe("a long printing of the environment", () => {
 			["ab\x1b]0;cd\x07".repeat(50_000), false],
 			[`/${"a1\x1b]0;b2\x07".repeat(50_000)}`, false],
 			["a\x1b]0;1\x07".repeat(50_000), true],
+			["\x1b]0;/a\x07b".repeat(50_000), false],
 			["\x1b]0;a\x07".repeat(50_000), false],
 			[`/${"\x1b]0;a1\x07".repeat(50_000)}`, true],
 			[`\x1b[${"1;".repeat(100_000)}${github}`, true],
