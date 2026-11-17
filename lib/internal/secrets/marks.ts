@@ -180,6 +180,6 @@ export function markRefusal(marks: readonly string[]): string {
 		`Refused: this would write ${named} into the file more often than it holds it now.`,
 		"The secret scrub put that mark where a credential was in what you read; written back, it replaces the credential, which is then lost.",
 		"Leave that span as the file has it: edit around it, or ask the person for what belongs there.",
-		'Code or a test that quotes a mark builds it from pieces, as `[secret ${"scrubbed"}: kind]`.',
+		`Code or a test that quotes a mark builds it from pieces, as \`[secret \${"scrubbed"}: kind]\`.`,
 	].join(" ");
 }
