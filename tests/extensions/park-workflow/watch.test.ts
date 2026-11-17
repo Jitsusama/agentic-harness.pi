@@ -849,7 +849,7 @@ describe("starting again on a fresh log", () => {
 		bare.stop();
 		mkdirSync(parkSwitch(folder));
 		restarting();
-		expect(asked()).toMatchObject({ why: "parking is off" });
+		expect(asked()).toMatchObject({ why: "the park switch can't be read" });
 	});
 
 	it("answers only for its own session", () => {

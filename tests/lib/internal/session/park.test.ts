@@ -54,7 +54,6 @@ describe("whether a session parks, and after how long", () => {
 		// so 45 sessions idled awake at up to 480 MiB each while its swap
 		// filled. A holder that names a wake is all parking needs.
 		expect(parkAfterMs("s-1", {}, parkSwitch(folder))).toBe(PARK_AFTER_MS);
-		expect(parkAfterMs("s-1", {}, switchSays(""))).toBe(PARK_AFTER_MS);
 	});
 
 	it("parks every session after half an hour where the switch says on, and those it names soon", () => {
@@ -70,6 +69,24 @@ describe("whether a session parks, and after how long", () => {
 		expect(parkAfterMs("s-2", {}, path)).toBeUndefined();
 		// A line it can't read as on or off is no leave to park everyone.
 		expect(parkAfterMs("s-2", {}, switchSays("disabled"))).toBeUndefined();
+		// An id is read by its first word too, like on and off.
+		const noted = switchSays("s-1 # the trial");
+		expect(parkAfterMs("s-1", {}, noted)).toBe(NAMED_PARK_AFTER_MS);
+	});
+
+	it("parks a session whose PI_PARK says on under a trial, and only there", () => {
+		const trial = switchSays("s-1");
+		for (const on of ["on", "ON", "1", "true", "yes"]) {
+			expect(parkAfterMs("s-2", { PI_PARK: on }, trial), on).toBe(
+				PARK_AFTER_MS,
+			);
+		}
+		expect(parkAfterMs("s-2", {}, trial)).toBeUndefined();
+	});
+
+	it("parks none where the switch is there and empty, as one caught being written", () => {
+		expect(parkAfterMs("s-2", {}, switchSays())).toBeUndefined();
+		expect(parkAfterMs("s-2", {}, switchSays("", "  "))).toBeUndefined();
 	});
 
 	it("parks none but those it names where the switch says off, by its first word in any case", () => {
@@ -102,6 +119,12 @@ describe("whether a session parks, and after how long", () => {
 		for (const off of ["off", "OFF", "0", "false", "no", " off "]) {
 			expect(parkAfterMs("s-1", { PI_PARK: off }, path), off).toBeUndefined();
 		}
+		// One it can't read as on keeps it awake too, as a switch's would.
+		for (const odd of ["disable", "never", "n"]) {
+			expect(parkAfterMs("s-1", { PI_PARK: odd }, path), odd).toBeUndefined();
+		}
+		// Set to nothing, it says nothing.
+		expect(parkAfterMs("s-2", { PI_PARK: "" }, path)).toBe(PARK_AFTER_MS);
 	});
 });
 

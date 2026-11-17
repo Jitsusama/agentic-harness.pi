@@ -396,13 +396,15 @@ export function parkSwitch(folder: string = parkFolder()): string {
 
 /**
  * How long this session waits idle before it parks, or nothing while
- * parking is off for it. `PI_PARK` saying off keeps it off whatever the
- * switch says. A line of the switch holding this session's id parks it
- * after {@link NAMED_PARK_AFTER_MS}, to prove parking on one session.
- * Every other session parks after {@link PARK_AFTER_MS} where there is no
- * switch, or it is empty or says `on`; a switch saying `off`, or naming
- * only ids, keeps them awake. Read whenever it is asked, so the switch
- * turns running sessions on and off.
+ * parking is off for it. `PI_PARK` saying anything but on keeps it off
+ * whatever the switch says. The switch's lines count by their first word:
+ * this session's id parks it after {@link NAMED_PARK_AFTER_MS}, to prove
+ * parking on one session, and `off` keeps every other awake. Otherwise a
+ * session parks after {@link PARK_AFTER_MS} where there is no switch, it
+ * says `on`, or `PI_PARK` says on; a switch naming only ids is a trial of
+ * those alone, and one that is empty may be caught being written, so it
+ * keeps them awake, as one that can't be read does. Read whenever it is
+ * asked, so the switch turns running sessions on and off.
  */
 export function parkAfterMs(
 	session: string,
@@ -411,10 +413,13 @@ export function parkAfterMs(
 ): number | undefined {
 	if (keptAwake(env)) return undefined;
 	const lines = switchLines(switchPath);
-	if (session !== "" && lines.includes(session)) return NAMED_PARK_AFTER_MS;
-	const said = lines.map((line) => line.split(/\s/)[0]?.toLowerCase());
+	if (lines === "missing") return PARK_AFTER_MS;
+	if (lines === "unreadable") return undefined;
+	const first = lines.map((line) => line.split(/\s/)[0] ?? "");
+	if (session !== "" && first.includes(session)) return NAMED_PARK_AFTER_MS;
+	const said = first.map((word) => word.toLowerCase());
 	if (said.includes(SWITCH_OFF)) return undefined;
-	return lines.length === 0 || said.includes(SWITCH_ON)
+	return said.includes(SWITCH_ON) || envSays(env) !== ""
 		? PARK_AFTER_MS
 		: undefined;
 }
@@ -426,24 +431,42 @@ export function parkAfterMs(
 const SWITCH_OFF = "off";
 const SWITCH_ON = "on";
 
-/** What `PI_PARK` may say, in any case, to keep a session awake. */
-const ENV_OFF: ReadonlySet<string> = new Set(["off", "0", "false", "no"]);
+/**
+ * What `PI_PARK` may say, in any case, to let a session park. Anything
+ * else it says keeps the session awake, as a switch's unknown word does.
+ */
+const ENV_ON: ReadonlySet<string> = new Set(["on", "1", "true", "yes"]);
+
+function envSays(env: NodeJS.ProcessEnv): string {
+	return (env[PARK_ENV] ?? "").trim().toLowerCase();
+}
 
 /** Whether `PI_PARK` keeps this session awake whatever else is said. */
 export function keptAwake(env: NodeJS.ProcessEnv = process.env): boolean {
-	return ENV_OFF.has((env[PARK_ENV] ?? "").trim().toLowerCase());
+	const said = envSays(env);
+	return said !== "" && !ENV_ON.has(said);
 }
 
-function switchLines(path: string): string[] {
+/**
+ * Whether the switch is there but can't be read, so a session it keeps
+ * awake can say that rather than that parking is off.
+ */
+export function switchUnreadable(path: string = parkSwitch()): boolean {
+	return switchLines(path) === "unreadable";
+}
+
+/** The switch's lines, or whether it is missing or can't be read. */
+function switchLines(path: string): string[] | "missing" | "unreadable" {
 	try {
 		return readFileSync(path, "utf8")
 			.split("\n")
 			.map((line) => line.trim())
 			.filter((line) => line !== "");
 	} catch (error) {
-		// No switch is the switch saying nothing. One there that can't be
-		// read may say off, so it is taken to, rather than parking all.
-		return isRecord(error) && error.code === "ENOENT" ? [] : [SWITCH_OFF];
+		// One there that can't be read may say off, so it is taken to.
+		return isRecord(error) && error.code === "ENOENT"
+			? "missing"
+			: "unreadable";
 	}
 }
 

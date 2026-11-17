@@ -322,7 +322,7 @@ export function nextTurn(
 		if (isQuick(job)) {
 			const queuedPast = passes(job) && quick.running >= QUICK_AT_ONCE;
 			if (quick.left < 1 || queuedPast || !fits(job)) continue;
-			if (quickWalkWaits(job, walks, rules)) continue;
+			if (quickWalkWaits(job, jobs, rules)) continue;
 			return Number.isFinite(quick.left) ? { ...job, capped: true } : job;
 		}
 		if (holds(job) || waitsForLending(job, room, now)) continue;
@@ -428,7 +428,7 @@ export function waitReasons(
 				if (quick.left < 1) return "behind";
 				if (passes(job) && quick.running >= QUICK_AT_ONCE) return "order";
 				if (!fits(job)) return "memory";
-				if (quickWalkWaits(job, walks, rules)) return "walks";
+				if (quickWalkWaits(job, jobs, rules)) return "walks";
 				given = true;
 				return "order";
 			}
@@ -486,16 +486,21 @@ function walkWaits(
 }
 
 /**
- * Whether a quick push of World waits for the walks a machine's rules
- * hold it to. Quick work passes the usual two walks, as a push that skips
- * its LFS scan ends in seconds; a machine holding walks to fewer does so
- * for its memory, which a push's packs press as much as any walk's.
+ * Whether a quick push of World waits for another to end. Quick work
+ * passes every walk, as a push that skips its LFS scan ends in seconds.
+ * A machine holding walks below {@link WALKS_AT_ONCE} does so for its
+ * memory, which a push's packs press, so there its pushes go one at a
+ * time; they still pass its fetches, which may run for minutes.
  */
-function quickWalkWaits(job: Job, walks: number, rules: Rules): boolean {
-	if (job.kind !== "world-walk" || rules.walksAtOnce === undefined) {
-		return false;
-	}
-	return walks >= rules.walksAtOnce;
+function quickWalkWaits(job: Job, jobs: readonly Job[], rules: Rules): boolean {
+	if (job.kind !== "world-walk") return false;
+	if ((rules.walksAtOnce ?? WALKS_AT_ONCE) >= WALKS_AT_ONCE) return false;
+	return jobs.some(
+		(other) =>
+			other.started !== undefined &&
+			other.kind === "world-walk" &&
+			isQuick(other),
+	);
 }
 
 /**

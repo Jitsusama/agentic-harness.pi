@@ -33,6 +33,7 @@ import {
 	restartCommand,
 	SESSION_WOKEN,
 	STEERS_ENV,
+	switchUnreadable,
 	tellHolderSteers,
 	WAKE_ENV,
 	whyNotPark,
@@ -449,7 +450,9 @@ export function watch(
 	// How long it waits idle before it parks: not at all while its host
 	// drains for a restart, since on 16 November the background host's 17
 	// conversations took turns that overlapped for over an hour, and no
-	// moment came with none running. PI_PARK=off keeps it awake still.
+	// moment came with none running. It parks then whatever the switch
+	// says, as the host ends either way and parking is what carries its
+	// conversations over. PI_PARK=off keeps it awake still.
 	const dueAfterMs = (): number | undefined => {
 		const usual = parkAfterMs(session, options.env, options.switchPath);
 		if (keptAwake(env)) return usual;
@@ -554,7 +557,9 @@ export function watch(
 		if (parked) return "parking already";
 		if (hosted()) return HOST_PARKS;
 		if (parkAfterMs(session, options.env, options.switchPath) === undefined) {
-			return "parking is off";
+			return switchUnreadable(options.switchPath)
+				? "the park switch can't be read"
+				: "parking is off";
 		}
 		const ask: ParkAsk = { session, refusals: [], restart: true };
 		bus.emit(PARK_ASK, ask);

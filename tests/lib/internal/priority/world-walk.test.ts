@@ -147,26 +147,52 @@ describe("a walk of World's objects", () => {
 		expect(nextTurn(jobs, plenty, NOW)?.id).toBe("two");
 	});
 
-	it("holds a quick push to the one walk on a Mac too, and lets other work past", () => {
+	describe("a quick push on a Mac", () => {
 		const long = startedAgo(RAMP_MS + 60_000);
-		const jobs = [
-			job("fetch", { kind: "world-walk", what: "git fetch", started: long }),
-			job("push", {
+		const plenty = { ...ROOMY, availableGib: 100 };
+		const push = (id: string, over: Partial<Job> = {}) =>
+			job(id, {
 				kind: "world-walk",
 				what: "git push",
 				walk: "push",
 				quick: true,
 				cappable: true,
-				since: startedAgo(9_000),
-			}),
-			job("build", { since: startedAgo(8_000) }),
-		];
-		const plenty = { ...ROOMY, availableGib: 100 };
+				...over,
+			});
 
-		expect(nextTurn(jobs, plenty, NOW, MAC_RULES)?.id).toBe("build");
-		expect(waitReasons(jobs, plenty, NOW, MAC_RULES).get("push")).toBe("walks");
-		// Elsewhere a quick push passes, as it always has.
-		expect(nextTurn(jobs, plenty, NOW)?.id).toBe("push");
+		it("waits for another quick push, and lets other work past", () => {
+			const jobs = [
+				push("first", { started: long }),
+				push("second", { since: startedAgo(9_000) }),
+				job("build", { since: startedAgo(8_000) }),
+			];
+
+			expect(nextTurn(jobs, plenty, NOW, MAC_RULES)?.id).toBe("build");
+			expect(waitReasons(jobs, plenty, NOW, MAC_RULES).get("second")).toBe(
+				"walks",
+			);
+			// Elsewhere quick pushes pass each other, as they always have.
+			expect(nextTurn(jobs, plenty, NOW)?.id).toBe("second");
+		});
+
+		it("passes a fetch that may run for minutes", () => {
+			const jobs = [
+				job("fetch", { kind: "world-walk", what: "git fetch", started: long }),
+				push("push", { since: startedAgo(9_000) }),
+			];
+
+			expect(nextTurn(jobs, plenty, NOW, MAC_RULES)?.id).toBe("push");
+		});
+
+		it("keeps to the usual rule where a machine's rules name the usual count", () => {
+			const jobs = [
+				push("first", { started: long }),
+				push("second", { since: startedAgo(9_000) }),
+			];
+			const usual = { ...MAC_RULES, walksAtOnce: WALKS_AT_ONCE };
+
+			expect(nextTurn(jobs, plenty, NOW, usual)?.id).toBe("second");
+		});
 	});
 
 	it("waits on memory like any job when its 6 GiB isn't free", () => {
