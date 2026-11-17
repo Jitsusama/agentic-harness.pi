@@ -177,7 +177,8 @@ or adopt names. It loads the host's pi
 (host-pi.ts refuses one lacking any host patch), pins that pi as the
 install every conversation's subagents run (subagent-install.ts), since
 the host's own script is no pi to launch, and builds each
-conversation with pi's own runtime (pi-session.ts declares what it uses).
+conversation with pi's own runtime (pi-session.ts declares what it uses,
+and judges whether a held conversation's session file is gone).
 A conversation is registered with SessionHost, then its extensions load,
 bound by its screen or, with none, as pi's RPC mode binds them
 (headless.ts), its session is built and its first words are sent, all

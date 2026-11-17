@@ -30,9 +30,18 @@ describe("readyStatus", () => {
 		expect(readyStatus(some)).toBe(
 			"ready: loaded 3, parked 2, dropped 32, 1 held but not resumed",
 		);
+	});
+});
+
+describe("stoppingStatus", () => {
+	it("says how many it parks, in words for none, one and more", () => {
+		expect(stoppingStatus(0)).toBe("stopping, parking no conversations");
+		expect(stoppingStatus(1)).toBe("stopping, parking 1 conversation");
 		expect(stoppingStatus(2)).toBe("stopping, parking 2 conversations");
 	});
+});
 
+describe("readyCount", () => {
 	it("counts a resume that failed once it registered as not resumed, never as parked", () => {
 		const since = "2026-11-17T05:07:00.000Z";
 		const count = readyCount({
@@ -48,7 +57,9 @@ describe("readyStatus", () => {
 		});
 		expect(count).toEqual({ loaded: 1, parked: 3, dropped: 1, unresumed: 1 });
 	});
+});
 
+describe("droppedNames", () => {
 	it("names the holds a start dropped, for the journal, and nothing when none", () => {
 		expect(droppedNames([])).toBe("");
 		expect(droppedNames(["a", "b"])).toBe(

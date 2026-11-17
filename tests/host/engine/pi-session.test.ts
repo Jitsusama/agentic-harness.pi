@@ -17,7 +17,7 @@ import { sessionFileGone } from "../../../host/engine/pi-session.ts";
 
 let dir: string;
 beforeEach(() => {
-	dir = mkdtempSync(join(tmpdir(), "session-file-"));
+	dir = mkdtempSync(join(tmpdir(), "pi-session-"));
 });
 afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
@@ -38,6 +38,15 @@ describe("sessionFileGone", () => {
 		expect(
 			sessionFileGone(join(dir, "unmounted", "s.jsonl")),
 			"can't tell, so kept",
+		).toBe(false);
+	});
+
+	it("is false for a path it can't look at, as one under a file", () => {
+		const file = join(dir, "s.jsonl");
+		writeFileSync(file, "");
+		expect(
+			sessionFileGone(join(file, "inner.jsonl")),
+			"not a folder, so kept",
 		).toBe(false);
 	});
 
