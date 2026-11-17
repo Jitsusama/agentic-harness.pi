@@ -7,13 +7,15 @@
  * the host loaded here asks the mock for its summary.
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { afterAll, vi } from "vitest";
 import { conversationProvider } from "../../../extensions/compaction-workflow/conversation.ts";
 import {
 	registerCompactionHost,
@@ -21,13 +23,25 @@ import {
 } from "../../../extensions/compaction-workflow/host.ts";
 import { COMPACTION_OUTCOME } from "../../../lib/compaction/index.ts";
 
+if (!vi.isMockFunction(completeSimple)) {
+	throw new Error(
+		"mock pi-ai's completeSimple before loading host-fixtures.ts, or the host asks a real model for its summaries",
+	);
+}
+
 type Handler = (event: unknown, ctx: unknown) => unknown;
 
 /** Where a reload's request waits on plain pi, as every version names it. */
 export const HANDOFF = "agentic-harness.pi:compaction-summary-handoff";
 
-/** Where this file's sessions keep a request across a restart. */
+/**
+ * Where the sessions of the test file loading this keep a request
+ * across a restart: one folder for each such file, removed after it.
+ */
 const keptDir = mkdtempSync(join(tmpdir(), "host-kept-"));
+afterAll(() => {
+	rmSync(keptDir, { recursive: true, force: true });
+});
 
 /**
  * Load the host into a fresh fake pi, answering with how to fire its

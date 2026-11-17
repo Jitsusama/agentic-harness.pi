@@ -9,9 +9,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const completeSimple = vi.fn();
 vi.mock("@earendil-works/pi-ai/compat", () => ({ completeSimple }));
 
-const { activate, asContext, compactEvent, context, replyEntry, sentPayload, settle, userEntry } = await import(
-	"./host-fixtures.ts"
-);
+const {
+	activate,
+	asContext,
+	compactEvent,
+	context,
+	replyEntry,
+	sentPayload,
+	settle,
+	userEntry,
+} = await import("./host-fixtures.ts");
 const { AHEAD_UNUSED_ENTRY, SUMMARY_WALL_MS } = await import(
 	"../../../extensions/compaction-workflow/host.ts"
 );

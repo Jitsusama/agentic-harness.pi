@@ -9,9 +9,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const completeSimple = vi.fn();
 vi.mock("@earendil-works/pi-ai/compat", () => ({ completeSimple }));
 
-const { activate, compactEvent, context, fellBack, model, replyEntry, sentPayload, userEntry } = await import(
-	"./host-fixtures.ts"
-);
+const {
+	activate,
+	compactEvent,
+	context,
+	fellBack,
+	model,
+	replyEntry,
+	sentPayload,
+	userEntry,
+} = await import("./host-fixtures.ts");
 
 describe("the conversation summariser", () => {
 	beforeEach(() => {
