@@ -20,6 +20,16 @@ They fall into six categories:
   event bus without importing its registry: decorating an MCP
   server's tools, or writing or adding to compaction summaries.
 
+Many entries because each extension is a folder straight under this
+one, and its suffix is its grouping. pi looks only one folder down a
+package's listed folder, for each subfolder's `index.ts`, so a folder
+per category would have to be named in `package.json`, and so would
+every path that names an extension today: the tests' mirror, the host
+gate, the fixtures that link one in, and any setting that names one by
+path. A category folder would only repeat the suffix that 63 of the
+66 names already end in; `advisor`, `convention-context` and
+`correction-capture` have none.
+
 Packs are the category deliberately not here. A pack is an
 extension loaded into a subagent by path rather than discovered,
 so it lives under [`packs/`](../packs/): pi scans this directory,

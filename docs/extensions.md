@@ -6,8 +6,11 @@ keeps the one-line version of each category.
 
 ## Extension Categories
 
-Every extension has a contract suffix that identifies what
-it does:
+An extension's contract suffix says what it does, and is its
+only grouping: each extension is a folder straight under
+`extensions/`, since pi finds them only one folder down, and
+[its README](../extensions/README.md) says why it stays one
+folder. The categories:
 
 - **Guardians** (`*-guardian`): intercept shell commands and
   present them for human review, inline or in a gate as the
