@@ -5,9 +5,9 @@
  *   - prompt(): interactive decisions (single or tabbed)
  *   - view(): read-only display
  *
- * Delegates to prompt-single.ts and prompt-tabbed.ts for the
- * interactive implementations. Shared layout helpers live in
- * panel-layout.ts.
+ * Delegates to prompt/prompt-single.ts and prompt/prompt-tabbed.ts
+ * for the interactive implementations. Shared layout helpers live in
+ * panel/panel-layout.ts.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";

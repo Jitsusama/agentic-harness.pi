@@ -8,9 +8,9 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { chord } from "../frame.ts";
-import { panelRoom } from "./panel-room.ts";
 import { submitKeyLabel } from "../submit-key.ts";
 import type { KeyAction, ListChoice, PromptView } from "../types.ts";
+import { panelRoom } from "./panel-room.ts";
 
 /**
  * Compute total chrome lines for the panel (borders, tabs,
@@ -77,7 +77,7 @@ export function renderFooter(opts: FooterOptions): string[] {
  * The footer as a docked panel shows it: blank once it has been answered,
  * the same number of rows so the record stands exactly as tall as the
  * panel did, since no key reaches a record (its verdict goes on its last
- * row, see `gate-dock.ts`); and while the editor has the keyboard, how to
+ * row, see `../gate/gate-dock.ts`); and while the editor has the keyboard, how to
  * come back, in place of keys that would not reach it. Every row of them
  * goes, not only the last: an action row left standing drew its keys in
  * the accent, which is where the keys go, beside the one chord that does

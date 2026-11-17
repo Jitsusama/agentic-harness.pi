@@ -18,9 +18,9 @@ import {
 	WANT_AFTER_MS,
 	type WantEvent,
 	wantId,
-} from "../../../../lib/internal/session/wants.ts";
-import { promptSingle, promptTabbed } from "../../../../lib/ui/panel.ts";
-import type { AnsweredElsewhere } from "../../../../lib/ui/prompt/prompt-single.ts";
+} from "../../../lib/internal/session/wants.ts";
+import { promptSingle, promptTabbed } from "../../../lib/ui/panel.ts";
+import type { AnsweredElsewhere } from "../../../lib/ui/prompt/prompt-single.ts";
 
 const { answers, shown } = vi.hoisted(() => {
 	const answers = {
@@ -36,11 +36,11 @@ const { answers, shown } = vi.hoisted(() => {
 		});
 	return { answers, shown };
 });
-vi.mock("../../../../lib/ui/prompt/prompt-single.ts", () => ({
+vi.mock("../../../lib/ui/prompt/prompt-single.ts", () => ({
 	showSinglePrompt: shown,
 	elsewhereVerdict: () => "Picked, from outside this window",
 }));
-vi.mock("../../../../lib/ui/prompt/prompt-tabbed.ts", () => ({
+vi.mock("../../../lib/ui/prompt/prompt-tabbed.ts", () => ({
 	showTabbedPrompt: shown,
 }));
 

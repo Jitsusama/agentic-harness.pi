@@ -23,8 +23,8 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { QUEUE_NAME } from "./screen-gates.ts";
 import { screenShared } from "../screen-slot.ts";
+import { QUEUE_NAME } from "./screen-gates.ts";
 
 /** Handed to the gate holding the screen. */
 export interface GateHold {

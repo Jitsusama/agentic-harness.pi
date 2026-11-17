@@ -38,9 +38,9 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
+import { DOCK_NAME } from "./gate/screen-gates.ts";
 import { repaintOnHeightChange } from "./panel/panel-height.ts";
 import { findEditor, focusedIn, roomForDock } from "./pi-layout.ts";
-import { DOCK_NAME } from "./gate/screen-gates.ts";
 import { screenShared } from "./screen-slot.ts";
 import { isTyped } from "./terminal-reports.ts";
 

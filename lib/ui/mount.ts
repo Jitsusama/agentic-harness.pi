@@ -95,7 +95,7 @@ export interface GateMountOptions<T> extends MountOptions<T> {
 
 /**
  * Mount a gate: a panel waiting on a decision, docked above the editor
- * where pi draws to a terminal (see `gate-dock.ts`), an overlay where it
+ * where pi draws to a terminal (see `gate/gate-dock.ts`), an overlay where it
  * does not. It waits its turn, closes and fails closed exactly as
  * `mountPanel` does.
  */

@@ -130,7 +130,7 @@ export function selectedValues(model: ToggleListModel): Record<string, string> {
  * the config's initial values otherwise, as headless callers get them too.
  *
  * It is a question waiting on its person, so in a terminal it docks above
- * the editor as a gate does (see `gate-dock.ts`) rather than covering the
+ * the editor as a gate does (see `../gate/gate-dock.ts`) rather than covering the
  * transcript, and settles into it as a record saying how many rows changed.
  */
 export async function promptToggleList(

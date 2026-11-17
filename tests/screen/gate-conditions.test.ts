@@ -17,7 +17,10 @@ import type {
 import { Type } from "@sinclair/typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
-import { GATE_ARM_MS, GATE_TYPING_IDLE_MS } from "../../lib/ui/gate/gate-dock.ts";
+import {
+	GATE_ARM_MS,
+	GATE_TYPING_IDLE_MS,
+} from "../../lib/ui/gate/gate-dock.ts";
 import {
 	getPanelHeightFraction,
 	setPanelHeightMode,

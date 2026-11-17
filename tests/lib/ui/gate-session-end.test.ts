@@ -18,8 +18,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { overlaysLeft } from "../../../lib/ui/mount.ts";
-import { promptSingle } from "../../../lib/ui/panel.ts";
 import { closeEveryPanel } from "../../../lib/ui/panel/panel-registry.ts";
+import { promptSingle } from "../../../lib/ui/panel.ts";
 import type { SinglePromptConfig } from "../../../lib/ui/types.ts";
 import { Lines, type PiScreen, pinStdout, piScreen } from "./pi-screen.ts";
 

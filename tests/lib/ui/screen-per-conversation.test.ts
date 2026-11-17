@@ -22,7 +22,10 @@ import {
 	getPanelHeightMode,
 	setPanelHeightMode,
 } from "../../../lib/ui/panel/panel-height.ts";
-import { closeEveryPanel, trackPanel } from "../../../lib/ui/panel/panel-registry.ts";
+import {
+	closeEveryPanel,
+	trackPanel,
+} from "../../../lib/ui/panel/panel-registry.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
 let host: ReturnType<typeof installTestHost> | undefined;
