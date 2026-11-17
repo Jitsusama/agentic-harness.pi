@@ -218,8 +218,9 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				signal,
 				onUpdate: undefined,
 				bus: pi.events,
-				// Under the job's own signal, since a run handed off outlives
-				// the call, which would leave it reading the inherited one.
+				// Under the run's own signal, whether or not it is handed off:
+				// git a handed-off run starts after the call returned would
+				// otherwise read past the ended call to the inherited one.
 				run: (owned) =>
 					withCallSignal(owned, () => answerWork(pi, args, owned, ctx)),
 			});
