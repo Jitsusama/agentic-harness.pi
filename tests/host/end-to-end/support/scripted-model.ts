@@ -167,15 +167,17 @@ const FIFTY_ROWS = `SELECT value FROM json_each('${JSON.stringify(
  * What bash runs for `account`: the budget and its variable, the
  * session, the commit credit and the host runtime's own tools and pi,
  * then a commit in the conversation's repository and the message it was
- * given. Each variable is printed by name, not read out of `env`, whose
- * whole dump the secret scrub blanks.
+ * given. Each variable is printed by name as `NAME: value`, neither read
+ * out of `env` nor printed as `NAME=value`: five lines setting variables
+ * read as a printing of the environment, whose values the secret scrub
+ * hides.
  */
 const ACCOUNTING = [
-	"printf 'PI_BUDGET=%s\\nE3_KEY=%s\\nPI_SESSION_ID=%s\\nPI_CO_AUTHOR=%s\\n'" +
+	"printf 'PI_BUDGET: %s\\nE3_KEY: %s\\nPI_SESSION_ID: %s\\nPI_CO_AUTHOR: %s\\n'" +
 		' "$PI_BUDGET" "$E3_KEY" "$PI_SESSION_ID" "$PI_CO_AUTHOR"',
-	"printf 'AI_PROXY_HEADERS_BIN=%s\\nWORKTRAIL_BIN=%s\\nPI_PACKAGE_DIR=%s\\n'" +
+	"printf 'AI_PROXY_HEADERS_BIN: %s\\nWORKTRAIL_BIN: %s\\nPI_PACKAGE_DIR: %s\\n'" +
 		' "$AI_PROXY_HEADERS_BIN" "$WORKTRAIL_BIN" "$PI_PACKAGE_DIR"',
-	"printf 'PI_IMAGE_PROTOCOL=%s\\nPI_TRUE_COLOR=%s\\nPI_HYPERLINKS=%s\\n'" +
+	"printf 'PI_IMAGE_PROTOCOL: %s\\nPI_TRUE_COLOR: %s\\nPI_HYPERLINKS: %s\\n'" +
 		' "$PI_IMAGE_PROTOCOL" "$PI_TRUE_COLOR" "$PI_HYPERLINKS"',
 	"git commit --quiet --allow-empty -m 'test(e3): credit this model'",
 	"git log -1 --format=%B",
