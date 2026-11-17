@@ -56,14 +56,14 @@ export function writeSettled(path: string, text: string): void {
 }
 
 /** Where a tree's quests root, README and plan are. */
-export interface QuestTree {
+export interface SettledTree {
 	readonly root: string;
 	readonly readmePath: string;
 	readonly planPath: string;
 }
 
 /** A fresh tree under the system's temporary folder, settled. */
-export function questTree(): QuestTree {
+export function settledTree(): SettledTree {
 	const root = mkdtempSync(join(tmpdir(), "disc-reads-"));
 	const dir = join(root, ID);
 	mkdirSync(join(dir, "plans"), { recursive: true });

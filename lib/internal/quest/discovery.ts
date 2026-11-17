@@ -211,13 +211,13 @@ export function withDiscoveryHeld<T>(fn: () => T): T {
 
 /**
  * Walk `questsRoot` and build the index, memoized per root. The
- * walk re-parses every README and document, which is the costly
- * part; this caches the result behind a cheap mtime-and-size
- * signature so repeated read verbs in a session do not re-parse
- * an unchanged tree. The signature recomputes on every call (a
- * directory traversal plus stats, no file reads), so any change
- * to a README, a document, or the set of quests invalidates the
- * cache on the next read.
+ * walk parses READMEs and documents, which is the costly part;
+ * this caches the result behind the tree's content signature
+ * (`discoverySignature`) so repeated read verbs in a session do
+ * not re-parse an unchanged tree. The signature recomputes on
+ * every call, a listing per folder and a stat per settled file,
+ * so any change to a README, a document, or the set of quests
+ * invalidates the cache on the next read.
  */
 export function discoverQuests(
 	questsRoot: string,

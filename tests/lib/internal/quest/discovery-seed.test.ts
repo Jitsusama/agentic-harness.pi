@@ -17,7 +17,12 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 } from "../../../../lib/internal/quest/discovery.ts";
-import { ID, plan, questTree, writeSettled } from "./discovery-tree.ts";
+import {
+	ID,
+	plan,
+	settledTree,
+	writeSettled,
+} from "./support/discovery-tree.ts";
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
@@ -39,7 +44,7 @@ function readsOf(path: string): number {
 }
 
 beforeEach(() => {
-	({ root, readmePath, planPath } = questTree());
+	({ root, readmePath, planPath } = settledTree());
 	seeds = mkdtempSync(join(tmpdir(), "disc-seeds-"));
 	clearDiscoveryCache();
 	reads.mockClear();
@@ -131,5 +136,32 @@ describe("a seed left for the next process", () => {
 		discoverQuests(root, { dir: seeds, code: "older" });
 
 		expect(readsOf(readmePath)).toBe(1);
+	});
+
+	// The seed's key hashes the modules beside the one that computes it, so
+	// a move of that module out of the folder would key seeds by the wrong
+	// code and leave records shaped by an older parse standing.
+	it("is keyed by every module that shapes a record, the walk's included", async () => {
+		vi.resetModules();
+		const freshFs = await import("node:fs");
+		const { codeKey } = await import(
+			"../../../../lib/internal/quest/discovery-seed.ts"
+		);
+		const freshReads = vi.mocked(freshFs.readFileSync);
+		freshReads.mockClear();
+
+		codeKey();
+
+		const hashed = freshReads.mock.calls.map(([path]) => String(path));
+		const quest = join(import.meta.dirname, "../../../../lib/internal/quest");
+		for (const name of [
+			"discovery.ts",
+			"discovery-reads.ts",
+			"discovery-seed.ts",
+			"frontmatter.ts",
+			"quest-doc.ts",
+		]) {
+			expect(hashed, `${name} is hashed`).toContain(join(quest, name));
+		}
 	});
 });

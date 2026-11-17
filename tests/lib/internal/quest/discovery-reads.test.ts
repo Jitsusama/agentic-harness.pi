@@ -19,10 +19,10 @@ import {
 import {
 	ID,
 	plan,
-	questTree,
 	readme,
+	settledTree,
 	writeSettled,
-} from "./discovery-tree.ts";
+} from "./support/discovery-tree.ts";
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
@@ -50,7 +50,7 @@ let readmePath: string;
 let planPath: string;
 
 beforeEach(() => {
-	({ root, readmePath, planPath } = questTree());
+	({ root, readmePath, planPath } = settledTree());
 	clearDiscoveryCache();
 	reads.mockClear();
 	listings.mockClear();
