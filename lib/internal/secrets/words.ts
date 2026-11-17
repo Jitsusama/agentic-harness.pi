@@ -219,14 +219,12 @@ interface Segment {
  * slash before the run and to its first after, so a path or an address
  * just before it exempts nothing. A run is read whole, and, when text
  * follows it, cut at its last slash too, so a path opening it exempts
- * nothing either, unless the text repeats the name the run ends with,
- * as a link's text repeats its address's. A word holding no command is
- * judged by what comes before each equals, which would read as a name;
- * what ends it is judged as a value. One pass over the word.
+ * nothing either, unless the text repeats or shortens the name the run
+ * ends with (`repeats`), as a link's text does its address's. One pass
+ * over the word.
  */
 function runsAcross(word: string): boolean {
-	if (!word.includes("\x1b]"))
-		return word.split(WORD_BREAK).slice(0, -1).some(looksLikeSecret);
+	if (!word.includes("\x1b]")) return false;
 	const read = word.replace(ESCAPE, payloadOf).split(WORD_BREAK);
 	if (read.some((piece) => looksLikeSecret(piece))) return true;
 	const pieces: Segment[][] = [[]];
@@ -273,7 +271,7 @@ function runsAcross(word: string): boolean {
 		if (!tail) return false;
 		const run = `${prior}${payloads}`;
 		const name = run.slice(run.lastIndexOf("/") + 1);
-		return !tail.startsWith(name) && looksLikeSecret(`${name}${tail}`);
+		return !repeats(tail, name) && looksLikeSecret(`${name}${tail}`);
 	};
 	return pieces.some(
 		(piece) =>
@@ -346,6 +344,36 @@ export function replaceWords(
 }
 
 /**
+ * Whether a link's `text` repeats the `name` its address ends with, or
+ * shortens it, as a commit's short id or a file's name without its line
+ * does, the name read as written and with its percent escapes decoded.
+ */
+function repeats(text: string, name: string): boolean {
+	let plain = name;
+	try {
+		plain = decodeURIComponent(name);
+	} catch {
+		// A percent that escapes nothing: the name is read as written.
+	}
+	return [name, plain].some(
+		(each) => text.startsWith(each) || each.startsWith(text),
+	);
+}
+
+/**
+ * Whether a value, its escapes aside, holds what could be a credential
+ * before one of its equals, shaped as a name: the word pass keeps such a
+ * word as a variable's name, and hides any other itself.
+ */
+function namesASecret(value: string): boolean {
+	return value
+		.replace(ESCAPE, "")
+		.split(WORD_BREAK)
+		.slice(0, -1)
+		.some((piece) => NAME.test(piece) && looksLikeSecret(piece));
+}
+
+/**
  * A value or a word judged by what a terminal shows of it, its escapes
  * aside, and by each piece they or a joiner (a bracket, a colon, a
  * comma, a semicolon, a bar, a parenthesis) part, an address's port
@@ -355,8 +383,9 @@ export function replaceWords(
  * credential running across a terminal command's payload (`runsAcross`)
  * puts the word out of sight whole, commands and all, as does one that
  * could be a credential beside a command it would keep holding a
- * payload, so no half of it shows in a command kept. The escapes are
- * found by one walk over them.
+ * payload, so no half of it shows in a command kept; so does a value
+ * holding one shaped as a name before an equals (`namesASecret`). The
+ * escapes are found by one walk over them.
  */
 export function hidden(word: string, kind: string): string | undefined {
 	const pieces = word
@@ -372,7 +401,10 @@ export function hidden(word: string, kind: string): string | undefined {
 	const could =
 		looksLikeSecret(word.replace(ESCAPE, "")) ||
 		[...pieces, ...users].some((piece) => looksLikeSecret(piece));
-	if (!could) return runsAcross(word) ? scrubbedMark(kind) : undefined;
+	if (!could)
+		return runsAcross(word) || namesASecret(word)
+			? scrubbedMark(kind)
+			: undefined;
 	let opening = 0;
 	let runStart = 0;
 	let runEnd = -1;
