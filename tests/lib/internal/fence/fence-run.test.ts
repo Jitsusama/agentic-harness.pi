@@ -326,6 +326,68 @@ describe("refusing to run where the fence can't hold", () => {
 			);
 		});
 
+		it("spares no neighbour named in other case", () => {
+			const made = inTree(within("worktree-r-Feature"), [
+				within("worktree-r-feature"),
+			]);
+			expect(JSON.stringify(made), "another branch's tree").toContain(
+				"a work tree its asker doesn't hold",
+			);
+		});
+
+		describe("by the broker's records", () => {
+			const inRecorded = (session: string, records: string) => {
+				const tree = within("worktree-one");
+				mkdirSync(tree, { recursive: true });
+				return fenceRunText(
+					{ kind: "fence", folder: tree, words: ["true"] },
+					{
+						env: { PATH: "/usr/bin", PI_SESSION_ID: session },
+						home,
+						platform: "darwin",
+						sandboxExec: "/usr/bin/sandbox-exec",
+						treesRoot: within(""),
+						treeRecords: records,
+					},
+				);
+			};
+			const recorded = () => {
+				const records = join(home, "records");
+				mkdirSync(records, { recursive: true });
+				writeFileSync(
+					join(records, "one.json"),
+					JSON.stringify({
+						identity: { key: "one" },
+						path: within("worktree-one"),
+						providerId: "git-worktree",
+						sessions: ["s1"],
+					}),
+				);
+				return records;
+			};
+
+			it("runs for the session they say holds it", () => {
+				const made = inRecorded("s1", recorded());
+				expect(made, JSON.stringify(made)).toHaveProperty("text");
+			});
+
+			it("refuses a session they don't name", () => {
+				const made = inRecorded("s2", recorded());
+				expect(JSON.stringify(made), "another session's").toContain(
+					"a work tree its asker doesn't hold",
+				);
+			});
+
+			it("refuses, never crashes, when they can't be read", () => {
+				const records = join(home, "records-file");
+				writeFileSync(records, "not a folder");
+				const made = inRecorded("s1", records);
+				expect(JSON.stringify(made), "unread records hold nothing").toContain(
+					"a work tree its asker doesn't hold",
+				);
+			});
+		});
+
 		it("spares no tree for a record naming more than one", () => {
 			const made = inTree(within("worktree-two"), [within("")]);
 			expect(JSON.stringify(made), "the trees root isn't a tree").toContain(

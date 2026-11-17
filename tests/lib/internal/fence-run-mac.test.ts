@@ -314,11 +314,14 @@ describe("the fence on a Mac", () => {
 		mkdirSync(join(tree, "src"), { recursive: true });
 		writeFileSync(join(tree, ".git"), `gitdir: ${own}\n`);
 		writeFileSync(join(own, "gitdir"), `${join(tree, ".git")}\n`);
+		// A hidden folder the fence's own list names, and a program's folder.
+		mkdirSync(join(home, ".local/share/keyrings"), { recursive: true });
+		mkdirSync(join(home, ".bun/bin"), { recursive: true });
 		for (const kind of ["fence", "strict"] as const) {
 			const made = fenceRunText(
 				{ kind, folder: join(tree, "src"), words: ["true"] },
 				{
-					env: {},
+					env: { PATH: join(home, ".bun/bin") },
 					home,
 					platform: "darwin",
 					sandboxExec: "/usr/bin/sandbox-exec",
@@ -347,6 +350,8 @@ describe("the fence on a Mac", () => {
 				join(home, ".local"),
 				join(home, ".local/state"),
 				join(home, ".pi"),
+				join(home, ".local/share"),
+				join(home, ".bun"),
 			]) {
 				expect(
 					deciding(made.text, above, "file-write-unlink"),

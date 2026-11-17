@@ -32,7 +32,7 @@
  * runs unfenced because the fence couldn't be laid.
  */
 
-import { existsSync, lstatSync, mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { quoted } from "../sandbox/sandbox-shell.ts";
 import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
@@ -203,6 +203,8 @@ export interface FenceRunPlace {
 	readonly treesRoot?: string;
 	/** The trees the asking session holds, by the broker's records unless given. */
 	readonly heldTrees?: readonly string[];
+	/** Where the work broker records who holds each tree, its own unless given. */
+	readonly treeRecords?: string;
 }
 
 /** The Nix daemon's socket on a Mac, which a fenced command builds through. */
@@ -218,14 +220,16 @@ export function fenceRunText(
 ):
 	| { readonly folder: string; readonly text: string }
 	| { readonly refused: string } {
-	const folder = real(ask.folder);
+	const mac = (place.platform ?? process.platform) === "darwin";
+	// On a Mac, as the volume spells it, so a name in other case or
+	// folded otherwise is the folder it opens and no neighbour.
+	const folder = mac ? onDisk(real(ask.folder)) : real(ask.folder);
 	const { home } = place;
 	const env: NodeJS.ProcessEnv = {
 		...place.env,
 		[SANDBOX_VARIABLE]: "fence",
 	};
 	const asker = `pi-fence --kind ${ask.kind}`;
-	const mac = (place.platform ?? process.platform) === "darwin";
 	const treesRoot = place.treesRoot ?? cutTreeDir();
 	const unfenced = unfencedFolder(folder, home, asker);
 	if (unfenced) return { refused: unfenced };
@@ -234,7 +238,8 @@ export function fenceRunText(
 		held: () =>
 			ask.shared === true
 				? "shared"
-				: (place.heldTrees ?? heldBy(place.env.PI_SESSION_ID, treesRoot)),
+				: (place.heldTrees ??
+					heldBy(place.env.PI_SESSION_ID, treesRoot, place.treeRecords)),
 		mac,
 	});
 	if ("refused" in away) return away;
@@ -327,8 +332,9 @@ function fencedAway(
 		const tree = named.slice(0, trees.length + 1 + below.length);
 		const held = where.held();
 		if (held === "shared") return { tree };
-		// Only the tree itself, so a record naming more never widens it.
-		if (held.some((each) => resolved(each) === spelled(tree))) {
+		// Only the tree itself, spelled exactly, so a record naming more,
+		// or a neighbour named in other case, never widens it.
+		if (held.some((each) => real(resolve(each)) === tree)) {
 			return { tree };
 		}
 		return {
@@ -365,12 +371,25 @@ function fencedAway(
 function heldBy(
 	session: string | undefined,
 	treesRoot: string,
+	records: string | undefined,
 ): readonly string[] {
 	try {
-		return brokerTrees(session, treesRoot).held;
+		return records === undefined
+			? brokerTrees(session, treesRoot).held
+			: brokerTrees(session, treesRoot, records).held;
 	} catch {
 		// Unread records hold nothing, so the tree is refused, never run.
 		return [];
+	}
+}
+
+/** `path` as its volume spells it, or as given where it isn't there. */
+function onDisk(path: string): string {
+	try {
+		return realpathSync.native(path);
+	} catch {
+		// Not there yet: nothing on disk to spell it otherwise.
+		return path;
 	}
 }
 

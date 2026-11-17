@@ -291,13 +291,16 @@ export function seatbeltProfile(
 			),
 		)
 		.flatMap(({ rules }) => rules);
-	const programs = [
+	const programFolders = [
 		...(home ? MAC_READ_ONLY.map((kept) => join(home, kept)) : []),
 		...MAC_PROGRAMS,
 		...(reach.path ?? []).filter(
 			(entry) => entry.startsWith("/") && !within(entry, reach.folder),
 		),
-	].map((kept) => `(deny file-write* (subpath ${path(kept)}))`);
+	];
+	const programs = programFolders.map(
+		(kept) => `(deny file-write* (subpath ${path(kept)}))`,
+	);
 	const profile = [
 		"(version 1)",
 		"(allow default)",
@@ -344,6 +347,8 @@ export function seatbeltProfile(
 				[
 					...closing.map(({ to }) => to),
 					...(home ? MAC_HIDDEN.map((secret) => join(home, secret)) : []),
+					// Nor one holding a program, swapped for a folder planting one.
+					...programFolders,
 				].flatMap((to) => above(to, home)),
 			),
 		].map((folder) => `(deny file-write-unlink (literal ${path(folder)}))`),
