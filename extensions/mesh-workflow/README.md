@@ -171,10 +171,10 @@ and can answer a question or a gate left open on screen.
   in a group it goes to, and says so; with two such questions
   it answers neither. An answer that names nothing reads to
   every other peer as no answer, so each goes on to answer the
-  question too. A send is never
-  refused for how it was written: an id nobody has, another
+  question too. A send is not refused
+  for a field that doesn't hold: an id nobody has, another
   peer's message to replace, or what cannot be a group is left
-  out and said. Three sends are refused: one to the home of a
+  out and said. Three sends are refused for what they say: one to the home of a
   peer that stopped this one (see Stop), and a question to the
   orchestrator that asks for the person's hands (a touch, a
   paste, a sign-in, a sitting) without a line "his acts: N;

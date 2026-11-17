@@ -66,6 +66,15 @@ describe("an orchestrator's limit on what is done in the person's name", () => {
 			"Withhold approval; a comment review.",
 			"Avoid approving it; a comment review.",
 			"No approval is to be posted, only a comment.",
+			// A comment as the whole verdict, however it's put.
+			"Keep it comment-only.",
+			"Post only a comment.",
+			"Post a comment only.",
+			// A polite order, or any tag, asks nothing.
+			"Could you post it with no approval or block?",
+			"Post no approval or block, understood?",
+			// A state word further on tells of nothing.
+			"Don't approve it as it is.",
 		]);
 	});
 
@@ -126,6 +135,18 @@ describe("an orchestrator's limit on what is done in the person's name", () => {
 			"Don't post a verdict without reading the whole diff.",
 			// 16 November, 23:30: a state, which the replay refused once.
 			"The PR is blocked only by one outstanding finding.",
+			// A condition after the verdict, however it opens, is hygiene.
+			"Don't approve until Joel has looked.",
+			"Never approve unless CI is green.",
+			"Approve it only if CI is green.",
+			"Never approve your own PR.",
+			// A verdict waited on, waived or told of.
+			"No restart without approval.",
+			"No need to re-approve; the approval stands.",
+			"Not approved yet.",
+			"No approvals yet.",
+			"No approval needed from Joel.",
+			"It only needs an approval.",
 		]);
 	});
 

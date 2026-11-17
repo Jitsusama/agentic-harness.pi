@@ -55,6 +55,8 @@ const VERDICT = new RegExp(
 		"comment review",
 		"verdicts?",
 		"blocking (review|verdict|comments?)",
+		// "Post only a comment", "a comment only": a comment as the whole verdict.
+		"\\b(a|one|just a) comment(?=\\s*$)",
 		String.raw`block(s|ed)?(?=\s*$|\s+(that|which|it|this|the (pr|change|review))\b)`,
 	].join("|"),
 	"i",
@@ -62,13 +64,24 @@ const VERDICT = new RegExp(
 
 /** A verdict word told of rather than ordered: "no blocking comments remain". */
 const TOLD_OF =
-	/\b(remains?|is|are|was|were|left|exists?|stands?|limits?|rules?)\b(?!\s+to\b)/i;
+	/^\W*(\w+\s+)?(remains?|is|are|was|were|left|exists?|stands?|limits?|rules?|needed|needs?|required|necessary|yet)\b(?!\s+to\b)/i;
+
+/**
+ * What the limit waives or tells of rather than forbids: "no need to
+ * re-approve", "it only needs an approval".
+ */
+const WAIVER = /^(need|needs|needed|reason|one needs)\b/i;
+
+/** A verdict waited on, not ordered: "no restart without approval". */
+const WAITED_ON =
+	/\b(without|until|till|after|pending|awaiting|before|for|on)\s+(\w+\s+)?$/i;
 
 /**
  * A condition on a verdict, which keeps review hygiene ("never approve a
  * PR with failing CI") rather than narrowing what he decided.
  */
-const CONDITION = /\b(if|with|without|before|unless)\b/i;
+const CONDITION =
+	/\b(if|with|without|before|unless|until|till|when|while|once|after)\b|\b(your|its|their) own\b/i;
 
 /** Publishing, which a limit may ban outright by the person's drafts rule. */
 const PUBLISHING =
@@ -123,9 +136,7 @@ function sentences(text: string): string[] {
 /** What a limit covers, split at commas, "or" and "and", up to its clause's end. */
 function covered(rest: string): string[] {
 	const clause =
-		rest.split(
-			/[:;.\u2014\u2013]|\s-\s|\b(?:so|because|since|until|unless|but|while|when)\b/,
-		)[0] ?? "";
+		rest.split(/[:;.\u2014\u2013]|\s-\s|\b(?:so|because|since|but)\b/)[0] ?? "";
 	return clause
 		.split(/,|\bor\b|\band\b|\bnor\b/)
 		.map((one) => one.trim())
@@ -141,8 +152,10 @@ function sourced(sentence: string): boolean {
 
 /** Whether one item a limit covers is a verdict ordered, not told of. */
 function verdictOrdered(item: string): boolean {
+	if (WAIVER.test(item)) return false;
 	const verdict = VERDICT.exec(item);
 	if (!verdict) return false;
+	if (WAITED_ON.test(item.slice(0, verdict.index))) return false;
 	const after = item.slice(verdict.index + verdict[0].length);
 	return !TOLD_OF.test(after) && !CONDITION.test(after);
 }
@@ -155,13 +168,27 @@ function narrowed(items: string[]): boolean {
 	return !outright && items.some(verdictOrdered);
 }
 
-/** Whether a sentence asks rather than orders: a tag such as ", OK?" asks nothing. */
+/**
+ * Whether a sentence asks rather than orders: a tag such as ", OK?", or
+ * a polite order ("Could you post it with no approval?"), asks nothing.
+ */
 function asks(sentence: string): boolean {
 	return (
 		sentence.endsWith("?") &&
-		!/,\s*(ok|okay|right|yes|yeah|alright|got it|ja)\?$/i.test(sentence)
+		!/,\s*[\w ]{1,12}\?$/i.test(sentence) &&
+		!/^(please |so )?(could|can|would|will) you\b/i.test(sentence)
 	);
 }
+
+/** What's posted, just before a "without" that limits its verdict. */
+const POSTED_BEFORE =
+	/\b(post|publish|send|submit|review|leave)\w*(\s+\w+){0,3}\s+without$/i;
+
+/** A clause telling how things stand, whose trailing "only" orders nothing. */
+const STATE = /\b(is|are|was|were|be|been|remains?|stays?)\b/i;
+
+/** A comment-only verdict named as the whole of it: "keep it comment-only". */
+const COMMENT_ONLY = /\bcomment[- ]only\b/i;
 
 /** The clause a trailing limit bounds: the words before it, back to a stop. */
 function before(sentence: string, at: number): string[] {
@@ -179,16 +206,37 @@ function narrowsVerdict(sentence: string): boolean {
 	if (DRAFTS.test(sentence) && !NOT_A_DRAFT.test(sentence)) return false;
 	// What is quoted is named, not ordered: "drop my 'comment review only'".
 	const said = sentence.replace(QUOTED, (quote) => " ".repeat(quote.length));
+	const commentOnly = COMMENT_ONLY.exec(said);
+	if (
+		commentOnly &&
+		verdictOrdered(said.slice(commentOnly.index)) &&
+		!TOLD_OF.test(
+			said.slice(0, commentOnly.index).split(/\s+/).slice(-2).join(" "),
+		)
+	) {
+		return true;
+	}
 	return [...said.matchAll(LIMIT)].some((limit) => {
 		const at = limit.index ?? 0;
 		const word = limit[1] ?? "";
-		const bounded = TRAILING.test(word)
-			? before(said, at + limit[0].length - word.length)
-			: [];
+		// "Without" limits a verdict only on what's posted: "post it
+		// without approval", not "no restart without approval".
+		if (
+			/^without$/i.test(word) &&
+			!POSTED_BEFORE.test(said.slice(0, at + limit[0].length))
+		) {
+			return false;
+		}
+		const rest = said.slice(at + limit[0].length);
+		// "Approve it only if CI is green" keeps hygiene.
+		const bounded =
+			TRAILING.test(word) && !CONDITION.test(rest.split(/[,;.]/)[0] ?? "")
+				? before(said, at + limit[0].length - word.length)
+				: [];
 		return (
 			narrowed(covered(said.slice(at + limit[0].length))) ||
 			// "Is blocked only by one finding" tells of it.
-			bounded.some((clause) => verdictOrdered(clause) && !TOLD_OF.test(clause))
+			bounded.some((clause) => verdictOrdered(clause) && !STATE.test(clause))
 		);
 	});
 }

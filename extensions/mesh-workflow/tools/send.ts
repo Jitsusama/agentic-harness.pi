@@ -278,8 +278,8 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		? messageNamed(at, params.supersedes)
 		: undefined;
 	const replaced = supersedes ? at.transport.read(supersedes) : undefined;
-	// A send is never refused for how it was written: what does not hold
-	// is left out and said, and the message goes on without it.
+	// A send is not refused for a field that doesn't hold: that is left
+	// out and said, and the message goes on without it.
 	const ownReplaced = replaced && sentBy(replaced, self) ? replaced : undefined;
 	const intent = answeringIntent(
 		params.intent,
