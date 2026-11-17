@@ -24,7 +24,7 @@
  * runs so late that the entry has probably expired gives up rather
  * than paying for a full write (`warmDeadline`); a failed warm is tried
  * once more if its deadline allows. No warm goes while a call is on
- * (lib/internal/calls.ts), since each sends the whole conversation up
+ * (lib/internal/cache/calls.ts), since each sends the whole conversation up
  * the line the call needs: one due during a call looks again every 15
  * seconds and goes once the call ends, if its deadline allows, and
  * otherwise warming ends, saying so.
@@ -48,7 +48,7 @@
  * A restart is not real work either: a pi host restarts itself when the
  * install moves, and a session parks after an hour idle. On any other
  * shutdown the same carry is written to disk by the kept requests'
- * rules (`lib/internal/warming-carry.ts`), with no header that could
+ * rules (`lib/internal/cache/warming-carry.ts`), with no header that could
  * hold a credential, and the next start of the session takes it back,
  * once, while the entry it warmed can still be warm. A pi host warms a
  * parked session's carry on (`host/engine/parked-warming.ts`), keeping
@@ -83,8 +83,8 @@ import {
 	warmDeadline,
 	warmingDelayMs,
 	warmingPayload,
-} from "../../lib/internal/cache-warming.ts";
-import { CALL_LOOK_MS, callIsOn } from "../../lib/internal/calls.ts";
+} from "../../lib/internal/cache/cache-warming.ts";
+import { CALL_LOOK_MS, callIsOn } from "../../lib/internal/cache/calls.ts";
 import {
 	getSection,
 	loadPackageConfig,
@@ -93,7 +93,7 @@ import {
 import { isStaleContext } from "../../lib/internal/errors/stale.ts";
 import { processGlobal } from "../../lib/internal/process-global.ts";
 import { isRecord } from "../../lib/internal/record.ts";
-import { scrubSecrets } from "../../lib/internal/secrets.ts";
+import { scrubSecrets } from "../../lib/internal/secrets/secrets.ts";
 import {
 	pendingWarmsDir,
 	sweepPendingWarms,
@@ -102,7 +102,7 @@ import {
 	type WarmingCarry,
 	warmingCarryDir,
 	writeWarmingCarry,
-} from "../../lib/internal/warming-carry.ts";
+} from "../../lib/internal/cache/warming-carry.ts";
 import { keepingRequests, sweepKeptRequests } from "./kept-request.ts";
 
 /** A warm, with its usage and cost, for the spend ledger to count. */

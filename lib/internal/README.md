@@ -11,6 +11,10 @@ may import from here, and any of it may change without notice.
   `away-workflow`, and reaching the person there through a desktop
   notification (`notify.ts`), which decides how while the mesh
   decides when; `PI_NOTIFY=off` silences it.
+- **`cache/`**: keeping an idle session's hour-long cache entry warm:
+  when a warm falls due and what it costs, its record while no pi
+  runs the session, and whether a call is on that a warm would cut
+  into.
 - **`carry/`**: carrying a quest's work to another of the person's
   machines: a session's trees, as bundles and patches, its file, its
   fence and its quest's remembered facts put in the quest's handover
@@ -73,6 +77,9 @@ may import from here, and any of it may change without notice.
   the shell text, which tree a fenced command stands in, the check
   pi's own file tools are held to, and the brokers' hour-long cloud
   and GitHub tokens for the strict sandbox.
+- **`secrets/`**: credentials kept from what the model and the disk
+  see: the shapes one takes in a tool's output and the mark that
+  replaces it, and an agent's ask for one work secret.
 - **`session/`**: rolling a session over into a fresh log that
   keeps only what the model still sees, on the model it ran on, and
   reading a log's header to tell a log that carries a session on
@@ -118,13 +125,6 @@ may import from here, and any of it may change without notice.
   pi's prompt path.
 - **`booted.ts`**: when the machine booted, which bounds what is
   still under way.
-- **`cache-prices.ts`**: the cache prices a compaction is weighed
-  at, from the active model's own rates.
-- **`cache-warming.ts`**: the rules for keeping an idle session's
-  hour-long cache entry warm: when a warm falls due, which requests
-  may be replayed, and when a warm missed its prefix.
-- **`calls.ts`**: whether a call is on, as `a-call-is-on` says, for
-  work that would cut into one, such as a warm's upload.
 - **`claude-plan.ts`**: where a Claude plan's five-hour and weekly
   allowances stand, read from what the Claude Code provider says
   after each turn, for spend-workflow's budget item.
@@ -169,9 +169,6 @@ may import from here, and any of it may change without notice.
 - **`sandbox.ts`**: which sandbox a session asked for and the shell
   text that runs each command in it: the strict profile as landrun's
   rules, and the agent fence from `fence/fence.ts`.
-- **`secrets.ts`**: the shapes a credential takes in a tool's output,
-  and how one is replaced by a mark naming its kind, for the answers,
-  the saved output and the stored results that hold them.
 - **`single-flight.ts`**: one flight per key, which later callers
   join; work that coalesces, running once more after the run going
   for every call that came during it; and `loadOnce`, through which
@@ -201,8 +198,5 @@ may import from here, and any of it may change without notice.
 - **`work-records.ts`**: where the work broker writes down the trees
   it cut, and which trees each session holds, for the work extension
   and for carrying a session's work.
-- **`warming-carry.ts`**: an idle session's warming as kept on disk
-  while no pi runs it, which a pi host warms on while the session is
-  parked, and the warms it sent for the session's next start to record.
 - **`write-whole.ts`**: replacing a file whole through a `.writing`
   subfolder, so a watcher of its folder hears one event a write.

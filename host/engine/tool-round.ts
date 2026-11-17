@@ -13,7 +13,7 @@
  * loads the secret-scrub extension. pi's afterToolCall still sees the raw
  * result, as on pi, and a result with nothing to hide passes untouched.
  */
-import { scrubDeep, scrubSecrets } from "../../lib/internal/secrets.ts";
+import { scrubDeep, scrubSecrets } from "../../lib/internal/secrets/secrets.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import type {
 	AgentContext,

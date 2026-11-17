@@ -6,7 +6,7 @@
  */
 
 import { type FSWatcher, watch } from "node:fs";
-import { answerOf, type SecretAnswer } from "../../lib/internal/secret-ask.ts";
+import { answerOf, type SecretAnswer } from "../../lib/internal/secrets/secret-ask.ts";
 
 /** How a wait ended. */
 export type Waited =

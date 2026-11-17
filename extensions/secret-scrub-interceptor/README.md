@@ -14,7 +14,7 @@ provider with every later turn, and stayed in the session's log. On
 string, and a backup copied those logs off the machine every hour.
 
 So every answer's text, its details and its structured answer are read
-for the shapes in `lib/internal/secrets.ts`, and each one found is
+for the shapes in `lib/internal/secrets/secrets.ts`, and each one found is
 replaced:
 
 - **Shapes a service gives its credentials:** GitHub, GitLab, npm,

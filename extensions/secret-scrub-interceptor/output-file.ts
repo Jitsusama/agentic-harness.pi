@@ -25,7 +25,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { isRecord } from "../../lib/internal/record.ts";
-import { type ScrubOptions, scrubSecrets } from "../../lib/internal/secrets.ts";
+import { type ScrubOptions, scrubSecrets } from "../../lib/internal/secrets/secrets.ts";
 
 /** How pi names the files it saves output to: `pi-bash-<hex>.log` and its kin. */
 const PI_OUTPUT_FILE = /^pi-[a-z]+-[0-9a-f]+\.log$/;

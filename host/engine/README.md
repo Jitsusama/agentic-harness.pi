@@ -227,7 +227,7 @@ did, and a wake written while the host was down wakes it once the host
 listens. Any other it resumes clearing the marker, so the conversation
 counts idle from its log and parks again at its first look. While a conversation is parked, parked-warming.ts keeps its
 cache entry warm, on what kept-requests.ts kept of it, from the carry its session's warming wrote as it
-parked (`lib/internal/warming-carry.ts`): on the session's schedule, at
+parked (`lib/internal/cache/warming-carry.ts`): on the session's schedule, at
 most four warms in all, through pi's model runtime with the
 conversation's key, each kept for the session's next start to record.
 A warm's runtime loads no extensions, so kept-providers.ts keeps what

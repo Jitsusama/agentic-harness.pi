@@ -17,7 +17,7 @@ import {
 	type SecretAsk,
 	takeAsk,
 	withSecretNote,
-} from "../../../lib/internal/secret-ask.ts";
+} from "../../../../lib/internal/secrets/secret-ask.ts";
 
 let dir: string;
 let asks: string;

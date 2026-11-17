@@ -12,11 +12,11 @@ import { keepingRequests } from "../../extensions/compaction-workflow/kept-reque
 import { warmingSwitchedOn } from "../../extensions/compaction-workflow/warm.ts";
 import type { SessionEnvironment } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
-import { callIsOn } from "../../lib/internal/calls.ts";
+import { callIsOn } from "../../lib/internal/cache/calls.ts";
 import {
 	pendingWarmsDir,
 	warmingCarryDir,
-} from "../../lib/internal/warming-carry.ts";
+} from "../../lib/internal/cache/warming-carry.ts";
 import { conversationAuthContext } from "./auth-context.ts";
 import type { EngineOptions } from "./contract.ts";
 import {

@@ -25,7 +25,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { scrubSecrets } from "../../internal/secrets.ts";
+import { scrubSecrets } from "../../internal/secrets/secrets.ts";
 
 /** Owner only, since a payload can hold anything the tool saw. */
 const DIR_MODE = 0o700;

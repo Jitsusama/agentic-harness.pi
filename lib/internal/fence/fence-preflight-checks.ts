@@ -19,7 +19,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox.ts";
-import { askRoute } from "../secret-ask.ts";
+import { askRoute } from "../secrets/secret-ask.ts";
 import { FENCE, NEVER_THROUGH } from "./fence.ts";
 import { lenderFolders } from "./fence-builders.ts";
 import { DISK } from "./fence-disk.ts";

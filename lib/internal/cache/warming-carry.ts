@@ -24,9 +24,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { stateDir } from "./paths.ts";
-import { isRecord } from "./record.ts";
-import { writeWhole } from "./write-whole.ts";
+import { stateDir } from "../paths.ts";
+import { isRecord } from "../record.ts";
+import { writeWhole } from "../write-whole.ts";
 
 /** What a session's warming carries while no pi runs it. */
 export interface WarmingCarry {

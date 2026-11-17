@@ -18,7 +18,7 @@ import {
 	takePendingWarms,
 	type WarmingCarry,
 	writeWarmingCarry,
-} from "../../../lib/internal/warming-carry.ts";
+} from "../../../lib/internal/cache/warming-carry.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 
 const MINUTE = 60_000;

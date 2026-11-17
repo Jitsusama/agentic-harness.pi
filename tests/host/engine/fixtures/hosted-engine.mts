@@ -37,7 +37,7 @@ import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 import {
 	LONG_CACHE_LIFETIME_MS,
 	warmingDelayMs,
-} from "../../../../lib/internal/cache-warming.ts";
+} from "../../../../lib/internal/cache/cache-warming.ts";
 import {
 	WAKE_ENV,
 	writeParked,
@@ -47,7 +47,7 @@ import {
 	takePendingWarms,
 	warmingCarryDir,
 	writeWarmingCarry,
-} from "../../../../lib/internal/warming-carry.ts";
+} from "../../../../lib/internal/cache/warming-carry.ts";
 import { watchSpawns } from "../../../support/spawns.ts";
 
 /** What the fixture uses of pi-ai's scripted provider. */
