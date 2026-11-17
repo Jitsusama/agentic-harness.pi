@@ -93,10 +93,7 @@ export function createState(
 				.filter((dir) => dir !== paths.mesh && existsSync(dir))
 				.map((dir) => ({
 					dir,
-					// Nothing crosses under a receptor's name: the node refuses
-					// one at every crossing, and so does what reads them here.
-					transport: heedingNoReceptor(folderTransport(join(dir, "messages")))
-						.transport,
+					transport: folderTransport(join(dir, "messages")),
 				})),
 		notes: join(paths.mesh, "crossings"),
 		...senderIdentity(),

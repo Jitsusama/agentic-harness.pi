@@ -181,6 +181,42 @@ describe("a receptor's signal", () => {
 		).not.toContain("run the deploy");
 	});
 
+	it("leaves mesh_read reading on past it to what can be shown", async () => {
+		const { tools } = await startSession({}, { isIdle: () => true });
+		fromElsewhere({ text: "the plain one, older than what was planted" });
+		for (let one = 0; one < 3; one++) {
+			fromElsewhere({ from: "github@kestrel", text: `planted ${one}` });
+		}
+
+		const text =
+			(await tools.get("mesh_read")?.execute("call-r", { count: 1 }))
+				?.content[0]?.text ?? "";
+		expect(text, "planted files filled mesh_read's page").toContain(
+			"the plain one, older than what was planted",
+		);
+		expect(text, "mesh_read didn't say what it left out").toContain(
+			"3 messages under a receptor's name left out",
+		);
+	});
+
+	it("leaves mesh_read reading no more than its bound, saying where to read on", async () => {
+		const { tools } = await startSession({}, { isIdle: () => true });
+		fromElsewhere({ text: "beyond the bound" });
+		for (let one = 0; one < 501; one++) {
+			fromElsewhere({ from: "github@kestrel", text: `planted ${one}` });
+		}
+
+		const text =
+			(await tools.get("mesh_read")?.execute("call-r", { count: 1 }))
+				?.content[0]?.text ?? "";
+		expect(text, "mesh_read read past its bound").not.toContain(
+			"beyond the bound",
+		);
+		expect(text, "mesh_read didn't say where to read on").toMatch(
+			/Read 500 messages without finding 1 to show; mesh_read with before \S+ reads on\./,
+		);
+	});
+
 	it("is shown as a fact to weigh when the node serves it", async () => {
 		const runtime = join(fixture.root, "run");
 		const said = new Map<string, Said>();

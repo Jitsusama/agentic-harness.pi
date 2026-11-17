@@ -54,9 +54,12 @@ const MOST_EXAMINED = 10 * MOST_READ;
 function leftOut(dropped: number, why: ReadonlySet<Unvouched>): string {
 	if (dropped === 0) return "";
 	const them = dropped === 1 ? "it" : "them";
-	const because = why.has("unanswered")
-		? `no node answered with what it holds to vouch for ${them}`
-		: `the node doesn't serve ${them} as written since it started`;
+	const said: Record<Unvouched, string> = {
+		unanswered: `no node answered with what it holds to vouch for ${them}`,
+		unserved: `the node doesn't serve ${them} as written since it started`,
+		misshapen: `${dropped === 1 ? "it isn't" : "some aren't"} shaped as a signal`,
+	};
+	const because = [...why].map((one) => said[one]).join("; ");
 	return `\n${capitalized(count(dropped, "message"))} under a receptor's name left out: ${because}.`;
 }
 
@@ -87,16 +90,29 @@ export async function read(
 	let dropped = 0;
 	const why = new Set<Unvouched>();
 	let index = from - 1;
+	const examined = () => from - 1 - index;
+	// A node that didn't answer once isn't asked again in this read, so
+	// a folder of planted files costs one wait on it, not one a batch.
+	const asked = at.served ?? (async () => undefined);
+	let silent = false;
+	const served: typeof asked = async (ids) => {
+		if (silent) return undefined;
+		const said = await asked(ids);
+		if (said === undefined) silent = true;
+		return said;
+	};
 	// Read on past what is dropped until enough are shown, so planted
 	// files at the top can't fill the page and leave no id to read on
-	// from; but no further than MOST_EXAMINED.
-	while (
-		latest.length < wanted &&
-		index >= 0 &&
-		from - index <= MOST_EXAMINED
-	) {
+	// from; but no more than MOST_EXAMINED in all.
+	while (latest.length < wanted && index >= 0 && examined() < MOST_EXAMINED) {
 		const found: Message[] = [];
-		for (; index >= 0 && found.length < wanted - latest.length; index--) {
+		for (
+			;
+			index >= 0 &&
+			found.length < wanted - latest.length &&
+			examined() < MOST_EXAMINED;
+			index--
+		) {
 			const message = await readOne(ids[index] as string);
 			if (
 				message &&
@@ -115,7 +131,7 @@ export async function read(
 		// isn't asked again.
 		const kept = await vouchedOnly(
 			found,
-			at.served ?? (async () => undefined),
+			served,
 			(_, because) => {
 				dropped++;
 				why.add(because);
@@ -126,10 +142,10 @@ export async function read(
 	}
 	// Stopped short of the folder's start with too few to show: say
 	// where to read on from, since the oldest read may not be shown.
-	const examined = ids[index + 1];
+	const readTo = ids[index + 1];
 	const further =
-		latest.length < wanted && index >= 0 && examined
-			? `\nRead ${MOST_EXAMINED} messages without finding ${wanted} to show; mesh_read with before ${shortId({ id: examined })} reads on.`
+		latest.length < wanted && index >= 0 && readTo
+			? `\nRead ${examined()} messages without finding ${wanted} to show; mesh_read with before ${shortId({ id: readTo })} reads on.`
 			: "";
 	const present = (await peers(at)).present;
 	const receipt = receipts(at, present);

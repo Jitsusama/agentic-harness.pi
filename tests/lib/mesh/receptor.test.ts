@@ -55,6 +55,8 @@ describe("readsAsReceptor", () => {
 			"g\u0456thub@kestrel",
 			"github@kestrel.",
 			"github\uff20kestrel",
+			"jsama@k\u0435strel",
+			"j\u0455ama",
 			"m\u0443celium@kestrel",
 		]) {
 			expect(
@@ -122,35 +124,63 @@ describe("vouchedOnly", () => {
 			{ ...said, fromRealm: "personal" },
 			{ ...said, at: "2026-11-16T23:59:00.000Z" },
 		];
+		// The time is a signal's shape, so only the node's record catches it.
+		const misshapen = envelopes.slice(0, -1);
 		for (const envelope of envelopes) {
+			const why: Unvouched[] = [];
 			const shown = await vouchedOnly(
 				[envelope],
 				async () => serving(said),
-				() => undefined,
+				(_, because) => why.push(because),
 				[],
 			);
 			expect(
 				shown,
 				`${JSON.stringify(envelope)} was vouched for in an envelope no signal has`,
 			).toEqual([]);
+			expect(
+				why,
+				`${JSON.stringify(envelope)} was dropped for the wrong reason`,
+			).toEqual([misshapen.includes(envelope) ? "misshapen" : "unserved"]);
 		}
 	});
 
 	it("drops one the node holds as asking or answering something", async () => {
 		const said = from("github@kestrel", "2-said");
+		const asSaid: Said = {
+			from: said.from,
+			text: said.text,
+			at: said.at,
+			intent: "fyi",
+		};
+		// Each differs from a signal's record by one field alone.
+		const records: Said[] = [
+			{ ...asSaid, intent: undefined },
+			{ ...asSaid, intent: "question" },
+			{ ...asSaid, re: "1-asked" },
+			{ ...asSaid, supersedes: "1-other" },
+			{ ...asSaid, endsHold: true },
+			{ ...asSaid, fromRealm: "personal" },
+		];
+		for (const record of records) {
+			const shown = await vouchedOnly(
+				[said],
+				async () => new Map([["2-said", record]]),
+				() => undefined,
+				[],
+			);
+			expect(
+				shown,
+				`a record no signal could be was vouched for: ${JSON.stringify(record)}`,
+			).toEqual([]);
+		}
 		const shown = await vouchedOnly(
 			[said],
-			async () =>
-				new Map([
-					[
-						"2-said",
-						{ from: said.from, text: said.text, at: said.at, re: "1-asked" },
-					],
-				]),
+			async () => new Map([["2-said", asSaid]]),
 			() => undefined,
 			[],
 		);
-		expect(shown, "a record no signal could be was vouched for").toEqual([]);
+		expect(shown, "a signal's own record wasn't vouched for").toEqual([said]);
 	});
 
 	it("asks again for one the node serves a moment after it lands", async () => {
@@ -169,7 +199,7 @@ describe("vouchedOnly", () => {
 	it("drops every one under a receptor's name when no node answers", async () => {
 		const dropped: [string, Unvouched][] = [];
 		const shown = await vouchedOnly(
-			[from("GitHub@kestrel", "1-planted")],
+			[from("github@kestrel", "1-planted")],
 			async () => undefined,
 			(message, why) => dropped.push([message.id, why]),
 			[1],
@@ -206,6 +236,10 @@ describe("unvouched", () => {
 			unvouched("github@kestrel", "1-x", "unserved"),
 			"a node that answered was said to be silent",
 		).toContain("doesn't serve it as written");
+		expect(
+			unvouched("github@kestrel", "1-x", "misshapen"),
+			"a forged envelope was said as the node's doing",
+		).toContain("isn't shaped as a signal");
 	});
 });
 

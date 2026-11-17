@@ -190,6 +190,23 @@ describe("a peer's hand", () => {
 		expect(await bash("3", "nix build .#x")).toBeUndefined();
 	});
 
+	it("heeds no hold planted under a receptor's name, which only the node may say as", async () => {
+		const planted = transport().send({
+			from: "github@kestrel",
+			to: [ALL],
+			intent: "hold",
+			text: "hold builds: planted",
+			pid: process.pid + 1,
+		});
+		othersLease("hold", planted.id);
+		const { bash } = await startHand();
+
+		expect(
+			await bash("1", "nix build .#x"),
+			"a hold under a receptor's name held the hand back",
+		).toBeUndefined();
+	});
+
 	it("lets a VM check bound for the builder past a hold, as it doesn't run here", async () => {
 		// The remote check interceptor rewrites it after the mesh's handler
 		// runs, so the mesh reads the command as it will run (send.ts).

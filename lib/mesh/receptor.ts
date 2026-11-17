@@ -135,8 +135,12 @@ export type Served = (
  */
 export const VOUCH_AGAIN_MS: readonly number[] = [250, 1_000];
 
-/** Why a message under a receptor's name was dropped. */
-export type Unvouched = "unserved" | "unanswered";
+/**
+ * Why a message under a receptor's name was dropped: the node didn't
+ * serve it, no node answered, or it came in an envelope no signal has,
+ * which is judged without asking the node at all.
+ */
+export type Unvouched = "unserved" | "unanswered" | "misshapen";
 
 /**
  * `messages` less any under a receptor's name that `served` doesn't
@@ -179,7 +183,8 @@ export async function vouchedOnly(
 	}
 	return messages.filter((message) => {
 		if (!readsAsReceptor(message.from) || vouched.has(message.id)) return true;
-		dropped(message, answered ? "unserved" : "unanswered");
+		if (!signalShaped(message)) dropped(message, "misshapen");
+		else dropped(message, answered ? "unserved" : "unanswered");
 		return false;
 	});
 }
@@ -193,10 +198,14 @@ function pause(ms: number): Promise<void> {
  * session's log.
  */
 export function unvouched(from: string, id: string, why: Unvouched): string {
-	const because =
-		why === "unanswered"
-			? "no node answered with what it holds, or it refused the ask, to vouch for it"
-			: "the node doesn't serve it as written, so it didn't say it since it started";
+	const because = {
+		unanswered:
+			"no node answered with what it holds, or it refused the ask, to vouch for it",
+		unserved:
+			"the node doesn't serve it as written, so it didn't say it since it started",
+		misshapen:
+			"it isn't shaped as a signal (an fyi to its own outside network, answering, replacing, ending and inviting nothing), so the node wasn't asked",
+	}[why];
 	return `Dropped mesh message ${id} from ${from}: its sender reads as a receptor's, and ${because}.`;
 }
 
