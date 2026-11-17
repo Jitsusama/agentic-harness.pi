@@ -44,7 +44,11 @@ function partial(text: string, extra: Record<string, unknown> = {}) {
 	return {
 		type: "message_update",
 		assistantMessageEvent: {
-			partial: { role: "assistant", content: [{ type: "text", text }], ...extra },
+			partial: {
+				role: "assistant",
+				content: [{ type: "text", text }],
+				...extra,
+			},
 		},
 	};
 }
@@ -154,7 +158,9 @@ describe("what a reviewer spent", () => {
 describe("how a reviewer's run ended", () => {
 	it("on an error when its last finished turn stopped on one", () => {
 		const { said } = reading();
-		said.read(finished("", { stopReason: "error", errorMessage: "overloaded" }));
+		said.read(
+			finished("", { stopReason: "error", errorMessage: "overloaded" }),
+		);
 
 		expect(said.error("complete")).toEqual({
 			stopReason: "error",

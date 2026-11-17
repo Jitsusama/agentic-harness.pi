@@ -54,7 +54,9 @@ describe("the journal a reviewer kept", () => {
 
 		expect(await readJournal(path, warn)).toEqual([]);
 		expect(warned).toEqual([
-			expect.stringContaining(`(EISDIR); anything it recorded is still at ${path}`),
+			expect.stringContaining(
+				`(EISDIR); anything it recorded is still at ${path}`,
+			),
 		]);
 	});
 });
