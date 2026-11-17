@@ -7,5 +7,4 @@ extensions
 lib/internal
 lib/internal/quest
 lib/ui
-tests/extensions/compaction-workflow/host.test.ts
 tests/package
