@@ -353,13 +353,15 @@ describe("asking the node whom a cell is tied to", () => {
 		});
 
 		expect(await tiesAt(socket, ["85PKB2"])).toEqual([]);
+		// The node adds only key and kind: asked without heard, the live
+		// node of 17 November answered 1268 ties and every one was dropped.
 		expect(asked).toEqual([
 			{ id: 1, ask: "hello" },
 			{
 				id: 2,
 				ask: "list",
 				kind: "tie",
-				fields: ["hour", "today", "intents", "strength"],
+				fields: ["hour", "today", "intents", "strength", "heard"],
 			},
 		]);
 	});

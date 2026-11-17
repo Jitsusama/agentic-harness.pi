@@ -420,10 +420,11 @@ export const TIE_HALF_LIFE_MS = 2 * 60 * 60 * 1000;
 export const TIES_PATIENCE_MS = 2000;
 
 /**
- * The fields a tie is read by; the node always adds `key`, `kind` and
- * `heard`, so its groups and the rest stay off the wire.
+ * The fields a tie is read by, so its groups and the rest stay off the
+ * wire. The node adds only `key` and `kind`: asked without `heard`, it
+ * answered 1268 ties on 17 November and every one was dropped unfaded.
  */
-const TIE_FIELDS = ["hour", "today", "intents", "strength"];
+const TIE_FIELDS = ["hour", "today", "intents", "strength", "heard"];
 
 /**
  * The ties of the cell going by any of `cells`, strongest first, from
@@ -497,7 +498,7 @@ export function tiesFrom(
 
 /**
  * The node's list of one kind of record, with only `fields` beside the
- * key, kind and heard it always adds, as its one answer line; nothing
+ * key and kind it always adds, as its one answer line; nothing
  * when no node answers within `patience`. A node that holds no such kind
  * answers with an error, which its reader takes as none.
  */

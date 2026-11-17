@@ -345,7 +345,10 @@ describe("keeping a need", () => {
 });
 
 describe("asking the node for a need's fit", () => {
-	/** A node answering each daemon ask by its kind. */
+	/**
+	 * A node answering each daemon ask by its kind, with only the fields
+	 * asked beside the key and kind, as the live node does.
+	 */
 	async function serving(kinds: Record<string, object[] | undefined>) {
 		const socket = join(root, "work.sock");
 		const server = createServer((client) => {
@@ -356,7 +359,12 @@ describe("asking the node for a need's fit", () => {
 				for (let end = said.indexOf("\n"); end >= 0; end = said.indexOf("\n")) {
 					const ask = JSON.parse(said.slice(0, end));
 					said = said.slice(end + 1);
-					const records = kinds[ask.kind];
+					const kept = new Set(["key", "kind", ...(ask.fields ?? [])]);
+					const records = kinds[ask.kind]?.map((record) =>
+						Object.fromEntries(
+							Object.entries(record).filter(([field]) => kept.has(field)),
+						),
+					);
 					const reply =
 						ask.ask === "hello"
 							? { id: ask.id, hello: true }

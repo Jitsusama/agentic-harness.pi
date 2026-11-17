@@ -341,7 +341,7 @@ export async function needAt(
 ): Promise<NeedRecord | undefined> {
 	const [cells, ties, hubs] = await Promise.all([
 		listAt(socket, "cell", ["title", "repo"], LIST_PATIENCE_MS),
-		listAt(socket, "tie", ["strength"], LIST_PATIENCE_MS),
+		listAt(socket, "tie", ["strength", "heard"], LIST_PATIENCE_MS),
 		listAt(socket, "hub", ["hub", "fits"], LIST_PATIENCE_MS),
 	]);
 	if (cells === undefined) return undefined;
