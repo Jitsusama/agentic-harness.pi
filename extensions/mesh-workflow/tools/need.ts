@@ -21,6 +21,7 @@ import {
 	needId,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
+import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import type { SendDetails, SendParams } from "./send.ts";
 
@@ -50,7 +51,7 @@ export async function needRead(
 	});
 	const fromText = params.about === undefined;
 	const words = wordsOf(params.about ?? params.text);
-	const asker = at.peer.addresses[0];
+	const [asker, ...selves] = at.peer.addresses;
 	if (words.length === 0) {
 		return refused(
 			"a need goes to whichever cell works on what it is about, and nothing in it says what that is. Say it in about, in a few words of the work.",
@@ -62,9 +63,20 @@ export async function needRead(
 		);
 	}
 	const standing = await peers(at);
-	const live = new Set(standing.present.flatMap((one) => one.addresses));
+	// A peer that stopped this one is not written to, so it can't take
+	// a need from it either: it counts as not there.
+	const stopped = new Set(
+		stoppedBy(at.peer, standing.present).flatMap(
+			({ stopper }) => stopper.addresses,
+		),
+	);
+	const live = new Set(
+		standing.present
+			.flatMap((one) => one.addresses)
+			.filter((address) => !stopped.has(address)),
+	);
 	const found = await at.need(
-		{ need: needId(asker, now), asker, words, at: now, fromText },
+		{ need: needId(asker, now), asker, words, at: now, fromText, selves },
 		(address) => live.has(address),
 	);
 	if (found === undefined) {
@@ -75,7 +87,9 @@ export async function needRead(
 	const about = found.words.join(" ");
 	if (found.words.length === 0) {
 		return refused(
-			"no word of its text is one any cell works on, so it is counted as lost, never sent to an orchestrator. Say what it is about in about, or name the peers it is for by address.",
+			fromText
+				? "no word of its text is one any cell works on, so it is counted as lost, never sent to an orchestrator. Say what it is about in about, or name the peers it is for by address."
+				: "no word of its about is one any cell works on, so it is counted as lost, never sent to an orchestrator. Say it in other words of the work, or name the peers it is for by address.",
 		);
 	}
 	const ended = endedText(found);

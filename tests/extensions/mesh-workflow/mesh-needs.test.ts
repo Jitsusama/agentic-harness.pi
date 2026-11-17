@@ -9,6 +9,7 @@ import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import { fixture, peer, startSession } from "./support/mesh.ts";
 
@@ -149,6 +150,72 @@ describe("sending to a need", () => {
 		expect(JSON.parse(file)).toMatchObject({ words: ["carry"] });
 		expect(file).not.toContain("ghp");
 		expect(file.toLowerCase()).not.toContain("ab3ab3");
+	});
+
+	it("takes no cell the node keeps that isn't on the mesh now, and names it", async () => {
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Does a carry keep its tree's network?",
+			about: "carry",
+		});
+
+		expect(said).toContain("Not sent");
+		expect(said).toContain("5HJZ8Z works on it but has ended");
+	});
+
+	it("takes no cell that stopped this one, since it can't be written to", async () => {
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-c",
+			addresses: ["5HJZ8Z"],
+			groups: [],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			stops: [{ address: "7M6JKG", at: new Date().toISOString() }],
+			at: new Date().toISOString(),
+		});
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Does a carry keep its tree's network?",
+			about: "carry",
+		});
+
+		expect(said).toContain("Not sent");
+		expect(said).toContain("counted as lost");
+	});
+
+	it("never crosses into another realm", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "fyi",
+			text: "The carry note is up.",
+			about: "carry",
+			realm: "home",
+		});
+
+		expect(said).toContain("Not sent");
+		expect(said).toContain("can't cross into another");
 	});
 
 	it("is refused when no node answers", async () => {

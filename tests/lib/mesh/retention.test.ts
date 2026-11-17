@@ -357,13 +357,16 @@ describe("the sweep", () => {
 		const day = (ago: number) => `${dayAgo(ago)}.jsonl`;
 		writeFileSync(join(needs, day(KEEP_MS + DAY)), "{}\n");
 		writeFileSync(join(needs, day(KEEP_MS - DAY)), "{}\n");
+		// The day the week's edge falls in has not ended before it, so it
+		// stays, though it began before the edge.
+		writeFileSync(join(needs, day(KEEP_MS)), "{}\n");
 		writeFileSync(join(needs, "notes.txt"), "not a day's needs");
 		const at = { ...kept(), needs: root };
 
 		await sweep(at, now, async () => ({ present: [], gone: [] }));
 
 		expect(readdirSync(needs).sort()).toEqual(
-			[day(KEEP_MS - DAY), "notes.txt"].sort(),
+			[day(KEEP_MS - DAY), day(KEEP_MS), "notes.txt"].sort(),
 		);
 	});
 

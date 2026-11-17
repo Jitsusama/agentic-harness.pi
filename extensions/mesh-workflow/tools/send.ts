@@ -13,6 +13,7 @@ import {
 	homeOf,
 	MACHINE,
 	machineTakes,
+	needNamed,
 	orchestratorNamed,
 } from "../../../lib/mesh/group.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
@@ -199,6 +200,14 @@ export async function sendAcross(
 	params: SendParams,
 ): Promise<Answer> {
 	const realm = params.realm?.trim() ?? "";
+	// Read before the flows, so `need` never crosses as a peer called
+	// NEED: a need is found among this realm's cells alone.
+	if (needNamed(params.to ?? "").asked) {
+		return answer(
+			"Not sent: a need is found among this realm's cells, so it can't cross into another. Name the peers there by address.",
+			{ sent: false } satisfies SendDetails,
+		);
+	}
 	const flows = (await at.flows?.()) ?? [];
 	if (!flows.includes(realm) || !at.cross) {
 		return answer(

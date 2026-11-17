@@ -4,7 +4,13 @@
  * run's judge reads.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +27,8 @@ import {
 	needAt,
 	needId,
 	needsFile,
-	routeNeed,
+	type Reach,
+	routeNeed as routeOver,
 	type TieGraph,
 	tieGraphFrom,
 	wordsOf,
@@ -51,6 +58,12 @@ const asked = (asker: string, ...words: string[]): NeedAsked => ({
 	words,
 	at: AT,
 });
+
+/** A need routed where every cell is there unless `live` says not. */
+const routeNeed = (
+	need: NeedAsked,
+	reach: Omit<Reach, "live"> & Partial<Pick<Reach, "live">>,
+) => routeOver(need, { live: () => true, ...reach });
 
 /** Cells with the words each works on. */
 const cells = (held: Record<string, string[]>): Forager[] =>
@@ -212,6 +225,64 @@ describe("routing a need", () => {
 		expect(found).toMatchObject({ path: [], fit: null });
 	});
 
+	it(`finds it at ${MOST_HOPS} hops, the last within reach`, () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({ A: [], B: [], C: [], D: ["carry"] }),
+			ties: ties(["A", "B", 1], ["B", "C", 1], ["C", "D", 1]),
+			hubs: [],
+		});
+
+		expect(found).toMatchObject({ path: ["B", "C", "D"], fit: "D" });
+	});
+
+	it("goes by the words its asker doesn't work on, however rare the rest", () => {
+		const found = routeNeed(asked("A", "mesh", "hubs"), {
+			foragers: cells({
+				A: ["mesh"],
+				B: ["mesh"],
+				C: ["hubs"],
+				D: ["hubs"],
+			}),
+			ties: ties(["A", "B", 9], ["A", "C", 1]),
+			hubs: [],
+		});
+
+		expect(found).toMatchObject({ path: ["C"], fit: "C" });
+	});
+
+	it("walks for the next rarest word when none near works on the rarest", () => {
+		const found = routeNeed(asked("A", "carry", "tree"), {
+			foragers: cells({ A: [], B: ["tree"], C: ["tree"], F: ["carry"] }),
+			ties: ties(["A", "B", 1]),
+			hubs: [],
+		});
+
+		expect(found).toMatchObject({ path: ["B"], fit: "B" });
+	});
+
+	it("sets out from each of its asker's addresses, and takes none of them", () => {
+		const found = routeNeed(
+			{ ...asked("A", "carry"), selves: ["A2"] },
+			{
+				foragers: cells({ A: [], A2: [], B: ["carry"] }),
+				ties: ties(["A", "A2", 9], ["A2", "B", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found).toMatchObject({ path: ["B"], fit: "B" });
+	});
+
+	it("follows the strongest tie first, so of two as near it goes the stronger way", () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({ A: [], B: [], C: [], D: ["carry"] }),
+			ties: ties(["A", "C", 9], ["A", "B", 1], ["B", "D", 1], ["C", "D", 1]),
+			hubs: [],
+		});
+
+		expect(found).toMatchObject({ path: ["C", "D"], fit: "D" });
+	});
+
 	it("counts it lost when no cell works on any of it", () => {
 		const found = routeNeed(asked("A", "carry"), {
 			foragers: cells({ A: [], B: ["web"] }),
@@ -233,6 +304,35 @@ describe("routing a need", () => {
 		expect(found).toMatchObject({ path: ["C", "D"], fit: "D" });
 	});
 
+	it("passes through no cell that has ended, though the shortest way is through it", () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({ A: [], B: [], C: [], E: [], D: ["carry"] }),
+			ties: ties(
+				["A", "B", 9],
+				["B", "D", 9],
+				["A", "C", 1],
+				["C", "E", 1],
+				["E", "D", 1],
+			),
+			hubs: [],
+			live: (address) => address !== "B",
+		});
+
+		expect(found).toMatchObject({ path: ["C", "E", "D"], fit: "D" });
+	});
+
+	it("names every cell working on it when all of them have ended", () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({ A: [], B: ["carry"], C: ["carry"] }),
+			ties: ties(["A", "B", 1]),
+			hubs: [],
+			live: (address) => address === "A",
+		});
+
+		expect(found).toMatchObject({ path: [], fit: null });
+		expect([...(found.ended ?? [])].sort()).toEqual(["B", "C"]);
+	});
+
 	it("names a cell working on it that has ended, rather than skipping it unsaid", () => {
 		const found = routeNeed(asked("A", "carry"), {
 			foragers: cells({
@@ -247,11 +347,8 @@ describe("routing a need", () => {
 			live: (address) => address !== "B" && address !== "F",
 		});
 
-		expect(found).toMatchObject({
-			path: ["C", "D"],
-			fit: "D",
-			ended: ["F", "B"],
-		});
+		expect(found).toMatchObject({ path: ["C", "D"], fit: "D" });
+		expect([...(found.ended ?? [])].sort()).toEqual(["B", "F"]);
 	});
 
 	it("names none ended when every cell on the way is there", () => {
@@ -326,10 +423,21 @@ describe("routing a need", () => {
 		expect(found).toMatchObject({ words: ["carry"], fit: "B" });
 	});
 
+	it("keeps, of what it was said to be about, only words some cell works on", () => {
+		const found = routeNeed(asked("A", "carry", "sk1x9q7tokenz"), {
+			foragers: cells({ A: [], B: ["carry"] }),
+			ties: ties(["A", "B", 1]),
+			hubs: [],
+		});
+
+		expect(found).toMatchObject({ words: ["carry"], fit: "B" });
+	});
+
 	it(`keeps at most ${MOST_WORDS} words, none past 32 characters, however it was said`, () => {
 		const many = Array.from({ length: 14 }, (_, at) => `word${at}`);
-		const found = routeNeed(asked("A", "q".repeat(33), ...many), {
-			foragers: cells({ A: [] }),
+		const long = "q".repeat(33);
+		const found = routeNeed(asked("A", long, ...many), {
+			foragers: cells({ A: [], B: [long, ...many] }),
 			ties: ties(),
 			hubs: [],
 		});
@@ -445,5 +553,43 @@ describe("asking the node for a need's fit", () => {
 		});
 
 		expect(found).toBeUndefined();
+		expect(existsSync(needsFile(root, AT))).toBe(false);
+	});
+
+	it("answers nothing, never a lost need, when the node won't list its ties", async () => {
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{ key: "cell:B", title: "Carry a Session" },
+			],
+		});
+
+		const found = await needAt(socket, asked("A", "carry"), {
+			live: () => true,
+			keep: root,
+		});
+
+		expect(found).toBeUndefined();
+		expect(existsSync(needsFile(root, AT))).toBe(false);
+	});
+
+	it("still answers when the needs folder won't take the line", async () => {
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{ key: "cell:B", title: "Carry a Session" },
+			],
+			tie: [{ key: "tie:A~B", strength: 2, heard: AT }],
+		});
+		// A file where the folder would go, so its needs/ can't be made.
+		const file = join(root, "a-file");
+		writeFileSync(file, "");
+
+		const found = await needAt(socket, asked("A", "carry"), {
+			live: () => true,
+			keep: file,
+		});
+
+		expect(found).toMatchObject({ fit: "B" });
 	});
 });
