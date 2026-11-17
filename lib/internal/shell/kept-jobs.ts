@@ -23,9 +23,14 @@
  * reaper spares what the close stops.
  */
 
-import { readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+	readdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
-import { writeWhole } from "../write-whole.ts";
 import { alive, type CarriedShell, isCarriedShell } from "./carried.ts";
 import {
 	endOf,
@@ -53,15 +58,20 @@ const FILE_MODE = 0o600;
 
 /**
  * Write the record of a call handed to a job, replacing one there, whole
- * so a reader never takes up half of one.
+ * so a reader never takes up half of one: written under a name of this
+ * write's own beside it and renamed into place. Not through the kept
+ * folder's `.writing`, which would stay there once every call's files
+ * went; one left by a pi that died mid-write goes with the week's sweep.
  */
 export function recordKeptJob(job: KeptJob): void {
+	const file = `${job.work.keep}${JOB_SUFFIX}`;
+	const staged = `${file}.${process.pid}.new`;
 	try {
-		writeWhole(`${job.work.keep}${JOB_SUFFIX}`, JSON.stringify(job), {
-			mode: FILE_MODE,
-		});
+		writeFileSync(staged, JSON.stringify(job), { mode: FILE_MODE });
+		renameSync(staged, file);
 	} catch {
 		// Its files went as it ended: nothing is left to take up.
+		rmSync(staged, { force: true });
 	}
 }
 

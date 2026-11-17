@@ -324,6 +324,11 @@ command runs on. The host started after resumes the conversation and
 says the command's end in it under the same job id, leaving nothing
 kept. E24, in the same file, kills the command's shell while no host
 runs, and the next host says the job was lost rather than dropping it.
+E32, in the same file too, kills the host outright while the command
+runs, as systemd killed one whose stop outran 60 s on 17 November, so
+nothing is carried through the log. The conversation's record of the
+command spares it from the next host's reap, and the conversation,
+resumed, says the command's end under the same job id.
 
 steer-wake.test.ts is E25: a conversation its host holds parked wakes
 as the person's talk lands in its steer inbox, as Super+S leaves one,

@@ -57,9 +57,9 @@ function folder(): string {
 	return join(dir, "kept");
 }
 
-/** What the kept folder holds, leaving out where whole writes are staged. */
+/** What the kept folder holds, nothing staged left beside a record. */
 function listed(where: string): string[] {
-	return readdirSync(where).filter((name) => !name.startsWith("."));
+	return readdirSync(where);
 }
 
 /** A call kept in `where`, its shell's pid written, recorded for `session`. */

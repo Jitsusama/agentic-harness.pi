@@ -11,6 +11,14 @@
  * so it writes no exit status. The next host says it was lost, with its
  * job id, rather than dropping it or running it again.
  *
+ * E32: a host killed outright, with a hosted conversation's background
+ * command running, carries nothing through the log, yet the command runs
+ * on: the conversation recorded it beside what its call keeps, so the
+ * next host's reap spares it and the conversation takes it up as it
+ * resumes, saying its end under the same job id. On 17 November systemd
+ * killed a host whose stop outran 60 s, and the next host ended four
+ * suites and proofs whose commands still ran.
+ *
  * Runs on the host's pi, as support/host-pi.ts finds it, skipped saying
  * why without one.
  */
@@ -166,6 +174,57 @@ it(
 		});
 	},
 	ROUND_TRIP_MS * 4 + CARRIED_MS,
+);
+
+it(
+	"E32: a host killed outright leaves its running background command to the next host, which says its end",
+	async ({ skip }) => {
+		await onHostPi(skip, said, async (pi) => {
+			const first = await start(pi);
+			const { file, held, shell } = await carrying(first);
+			// The record follows the call's start; without one, as before this
+			// change, the kill goes ahead and the case says what was lost.
+			await untilAnswered(
+				"the conversation records its background command",
+				async () => kept().some((name) => name.endsWith(".job")),
+				ROUND_TRIP_MS,
+			).catch(() => undefined);
+
+			await first.kill();
+			const second = await start(pi);
+			await untilAnswered(
+				"the next host resumes the conversation",
+				async () => (await second.list()).length === 1,
+				ROUND_TRIP_MS,
+			);
+			await untilAnswered(
+				"the command's end is said after the kill, under its job id",
+				async () => {
+					const there = saidAfter(file, held.length);
+					return there.includes(CARRIED_END) && there.includes("[j1]");
+				},
+				CARRIED_MS,
+			).catch((failed: unknown) => {
+				throw new Error(
+					[
+						String(failed),
+						`the command ran on: ${alive(shell)}`,
+						`kept: ${kept().join(", ")}`,
+						`said: ${saidAfter(file, held.length)}`,
+						said(),
+					].join("\n"),
+				);
+			});
+			await untilAnswered(
+				"nothing the shell kept of the command is left once its end is said",
+				async () => kept().length === 0,
+				ROUND_TRIP_MS,
+			).catch((failed: unknown) => {
+				throw new Error(`${String(failed)}; left: ${kept().join(", ")}`);
+			});
+		});
+	},
+	ROUND_TRIP_MS * 5 + CARRIED_MS,
 );
 
 it(
