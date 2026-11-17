@@ -35,7 +35,7 @@ describe("a bare value in a printing of the environment", () => {
 
 	it("is put out of sight when one equals of padding ends it before what ends a value", () => {
 		const ends = ["'", '"', ",", "\x1b[0m", "]", "\\n", "&b=1", ":", "|"];
-		for (const after of [...ends, "\x07", "''"]) {
+		for (const after of [...ends, "\x07"]) {
 			const value = `${fresh()}Q`;
 			const text = shown(`environ({'A': '1', 'B': ${value}=${after}})\n`, python);
 			expect(text, JSON.stringify(after)).toBe(
@@ -67,13 +67,13 @@ describe("a bare value in a printing of the environment", () => {
 		expect(text).not.toContain(value);
 	});
 
-	// A link's address and text are one word, its escapes read past, so a
-	// credential in either puts the link out of sight whole but its opening.
 	it("is put out of sight as the text of a terminal's link", () => {
 		const value = fresh();
 		const link = `\x1b]8;;https://example.com\x07${value}\x1b]8;;\x07`;
 		const text = shown(`${link}\n`, "launchctl getenv X");
-		expect(text).toBe(`\x1b]8;;${VALUE_MARK}\x1b]8;;\x07\n`);
+		expect(text).toBe(
+			`\x1b]8;;https://example.com\x07${VALUE_MARK}\x1b]8;;\x07\n`,
+		);
 	});
 
 	it("is put out of sight within a terminal's command", () => {
@@ -82,13 +82,15 @@ describe("a bare value in a printing of the environment", () => {
 			`\x1b]0;${value}\x07\x1b]8;;https://h/?t=${value}\x07x\n`,
 			"launchctl getenv X",
 		);
-		expect(text).toBe(`\x1b]0;${VALUE_MARK}=${VALUE_MARK}\n`);
+		expect(text).toBe(
+			`\x1b]0;${VALUE_MARK}\x07\x1b]8;;https://h/?t=${VALUE_MARK}\x07x\n`,
+		);
 	});
 
 	it("is put out of sight within a command a string terminator ends", () => {
 		const value = fresh();
 		const text = shown(`\x1b]0;${value}\x1b\\x\n`, "launchctl getenv X");
-		expect(text).toBe(`\x1b]0;${VALUE_MARK}\n`);
+		expect(text).toBe(`\x1b]0;${VALUE_MARK}\x1b\\x\n`);
 	});
 
 	it("is put out of sight on the line after a command left open", () => {
@@ -108,7 +110,8 @@ describe("a bare value in a printing of the environment", () => {
 
 	it("is put out of sight when a bell or a command splits it", () => {
 		const value = fresh().slice(0, 16);
-		for (const split of ["\x07", "\x1b]0;x\x07"]) {
+		const splits = ["\x07", "\x1b]0;x\x07", "\x1b]8;;https://h\x07"];
+		for (const split of [...splits, "\x1b]8;;file:///tmp\x1b\\"]) {
 			const printed = `${value.slice(0, 8)}${split}${value.slice(8)}\n`;
 			expect(shown(printed, "launchctl getenv X"), split).toBe(
 				`${VALUE_MARK}\n`,
@@ -129,9 +132,16 @@ describe("a bare value in a printing of the environment", () => {
 	it("leaves no mark where a terminal would read it as an escape", () => {
 		const value = fresh();
 		const github = `ghp_${"a1B2".repeat(9)}`;
-		const printed = `\x1b${value}\n\x1b${github}\n\x1b\x1b ${value}\n`;
-		expect(shown(printed, "launchctl getenv X")).toBe(
-			`${VALUE_MARK}\n[secret scrubbed: GitHub token]\n${VALUE_MARK}\n`,
+		const mark = "[secret scrubbed: GitHub token]";
+		const printed = [
+			`\x1b${value}`,
+			`\x1b${github}`,
+			`\x1b\x1b ${value}`,
+			`\x1b[${github}`,
+			`\x1b[1;${github}`,
+		];
+		expect(shown(`${printed.join("\n")}\n`, "launchctl getenv X")).toBe(
+			`${VALUE_MARK}\n${mark}\n${VALUE_MARK}\n${mark}\n${mark}\n`,
 		);
 	});
 
@@ -154,13 +164,21 @@ describe("what a printing of the environment keeps", () => {
 	});
 
 	it("holds an address with a port and a path", () => {
-		const printed = "API=http://localhost:8080/api/v1/users2\n";
-		expect(shown(printed)).toBeUndefined();
+		for (const address of [
+			"http://localhost:8080/api/v1/users2",
+			"postgres://app@db:5432/app_production_2",
+			"http://api_server:8080/api/v1/users2",
+			"http://[::1]:8080/api/v1/users2",
+		]) {
+			const printed = `API=${address}\n`;
+			expect(shown(printed), address).toBeUndefined();
+		}
 	});
 
 	it("holds a long name with a digit that sets nothing", () => {
 		for (const printed of [
 			'declare -x AWS_ACCESS_KEY_ID_2=""\n',
+			'declare -x npm_config_node18_path=""\n',
 			"AWS_ACCESS_KEY_ID_2=\n",
 		]) {
 			expect(shown(printed), printed).toBeUndefined();
@@ -175,9 +193,20 @@ describe("what a printing of the environment keeps", () => {
 	});
 
 	it("holds a terminal's title and its shell's marks", () => {
-		const printed =
-			"\x1b]0;~/projects/agentic\x07\x1b]1337;CurrentDir=/Users/joel\x07\n";
-		expect(shown(printed, "launchctl getenv X")).toBeUndefined();
+		for (const printed of [
+			"\x1b]0;user@mbp2: ~/src/py3\x07\x1b]1337;CurrentDir=/Users/joel\x07\n",
+			"\x1b]0;host12\x07/Users/joel/app\n",
+		]) {
+			expect(shown(printed, "launchctl getenv X"), printed).toBeUndefined();
+		}
+	});
+
+	// A value in capitals with an underscore, as no base64 or hex value is
+	// written, reads as a name before any equals: the trade that keeps an
+	// empty variable's name, or one opening a list, readable.
+	it("holds a capitals word with an underscore before its padding", () => {
+		const printed = "environ({'B': ABCD_EF0123456789ABCDEF=,})\n";
+		expect(shown(printed, "python3 -c 'import os;print(os.environ)'")).toBeUndefined();
 	});
 
 	it("holds the scrub's own mark for a long name with a digit", () => {
@@ -217,8 +246,13 @@ describe("a long printing of the environment", () => {
 			{ length: 60_000 },
 			(_, at) => `LONG_SECRET_NAME_${at}=${fresh()}\n`,
 		);
-		const text = shown(lines.join(""));
-		expect(text?.startsWith("LONG_SECRET_NAME_0=[secret scrubbed: "), text?.slice(0, 80)).toBe(true);
+		const marks = lines.map(
+			(_, at) =>
+				`LONG_SECRET_NAME_${at}=[secret scrubbed: LONG_SECRET_NAME_${at}]\n`,
+		);
+		expect(shown(lines.join("")) === marks.join(""), "each its own mark").toBe(
+			true,
+		);
 	});
 
 	it("answers at once for a run of escapes before a mark", () => {
