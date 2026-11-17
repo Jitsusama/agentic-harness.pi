@@ -37,8 +37,8 @@ import {
 	sessionsNobodyClosed,
 } from "../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
-import { rosterFolders } from "../../lib/internal/session/host-holds.ts";
 import { unattendedExec } from "../../lib/internal/sandbox/unattended-exec.ts";
+import { rosterFolders } from "../../lib/internal/session/host-holds.ts";
 import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { census } from "../../lib/mesh/liveness.ts";
 import { createPresences, type Presence } from "../../lib/mesh/presence.ts";

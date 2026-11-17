@@ -80,10 +80,10 @@ import {
 } from "../fence/fence-git-root.ts";
 import { githubDoorFolder } from "../fence/fence-github.ts";
 import { foldersMadeFirst, OWN_HOMES } from "../fence/fence-home.ts";
+import { recordedInShell } from "../fence/fence-log.ts";
 import { fenceNpmrc } from "../fence/fence-npmrc.ts";
 import { seedOwnHomes } from "../fence/fence-seed.ts";
 import { fenceSshConfig } from "../fence/fence-ssh.ts";
-import { recordedInShell } from "../fence/fence-log.ts";
 import { askedSandbox, inFirstStage } from "../fence/fence-stage.ts";
 import {
 	inStore,
@@ -93,6 +93,8 @@ import {
 	offloadKeptIn,
 } from "../fence/offload-exemption.ts";
 import { questWorkspacesRoot } from "../quest/workspace/workspace-root.ts";
+import { withSecretNote } from "../secrets/secret-ask.ts";
+import { cutTreeDir } from "../work-records.ts";
 import {
 	type CloudGrant,
 	type CloudGrantSource,
@@ -109,10 +111,8 @@ import {
 	heldTree,
 	sessionWorktrees,
 } from "./sandbox-trees.ts";
-import { withSecretNote } from "../secrets/secret-ask.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";
-import { cutTreeDir } from "../work-records.ts";
 
 /** The variable that asks for the sandbox, and the strict profile's value. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";

@@ -8,7 +8,10 @@
  * and a line in the system's log saying so (fence-log.ts).
  */
 
-import { codeOf, recordUnlisted } from "../../../lib/internal/fence/fence-log.ts";
+import {
+	codeOf,
+	recordUnlisted,
+} from "../../../lib/internal/fence/fence-log.ts";
 import {
 	listForStage,
 	listSpawnForStage,

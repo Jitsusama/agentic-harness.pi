@@ -29,8 +29,6 @@
 
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { quoted } from "../sandbox/sandbox-shell.ts";
-import { sessionWorktrees } from "../sandbox/sandbox-trees.ts";
 import {
 	SANDBOX_VARIABLE,
 	type Sandbox,
@@ -42,6 +40,8 @@ import {
 	unfencedFolder,
 	wrapFor,
 } from "../sandbox/sandbox.ts";
+import { quoted } from "../sandbox/sandbox-shell.ts";
+import { sessionWorktrees } from "../sandbox/sandbox-trees.ts";
 import { real, worktreeRepository } from "../sandbox/tree-git.ts";
 import { fenceArgs } from "./fence.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";

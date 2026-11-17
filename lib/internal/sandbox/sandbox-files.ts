@@ -32,8 +32,8 @@ import {
 	STRICT,
 	unfencedFolder,
 } from "./sandbox.ts";
-import { treeGit, within, worktreeRepository } from "./tree-git.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
+import { treeGit, within, worktreeRepository } from "./tree-git.ts";
 
 /**
  * pi's file tools, by what each does with its `path`. Those that search
