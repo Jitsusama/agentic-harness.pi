@@ -174,6 +174,28 @@ describe("what this session raised, read off the thread", () => {
 		expect(watch.watching(), "still watching what waits").toBe(true);
 	});
 
+	it("tells a verdict whose write failed at the tick that writes it", async () => {
+		addWaiting(folder, item("eero-login"));
+		let fails = true;
+		const watch = watchSettling({
+			...waitingOn(),
+			locked: (_quest, apply) => {
+				if (fails) throw new Error("locked out");
+				return apply();
+			},
+		});
+		await watch.settledOff();
+		found({ "eero-login": "done" });
+
+		await expect(watch.settledOff(), "the write failed").rejects.toThrow(
+			"locked out",
+		);
+		fails = false;
+		expect(idsOf(await watch.settledOff()), "told once written").toEqual([
+			"eero-login",
+		]);
+	});
+
 	it("answers nothing to a look while another still reads", async () => {
 		addWaiting(folder, item("eero-login"));
 		const watch = watchSettling(waitingOn());
