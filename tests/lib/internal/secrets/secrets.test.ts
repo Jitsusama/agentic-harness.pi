@@ -272,9 +272,7 @@ describe("an output that reads as a printing of the environment", () => {
 	it("is one with five lines setting a variable, whatever printed it", () => {
 		const access = fresh();
 		const printed = ["starting", ...variables(access)].join("\n");
-		expect(readsAsDump(printed), "five of six lines set a variable").toBe(
-			true,
-		);
+		expect(readsAsDump(printed), "five of six lines set a variable").toBe(true);
 		const { text } = scrubSecrets(printed, []);
 		expect(text).not.toContain(access);
 		expect(text).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
@@ -385,9 +383,7 @@ describe("an output that reads as a printing of the environment", () => {
 			...variables(fresh()).slice(0, 4),
 			`PROXY_AUTH=Basic ${access}`,
 		].join("\n");
-		expect(readsAsDump(printed), "a spaced value sets one variable").toBe(
-			true,
-		);
+		expect(readsAsDump(printed), "a spaced value sets one variable").toBe(true);
 		expect(scrubSecrets(printed, []).text).not.toContain(access);
 	});
 
@@ -402,9 +398,7 @@ describe("an output that reads as a printing of the environment", () => {
 			{ name: "FOO_SECRET", value: known },
 		]);
 		expect(text.includes(known), "the known value is gone").toBe(false);
-		expect(text.includes(access), "the rest of the value is gone").toBe(
-			false,
-		);
+		expect(text.includes(access), "the rest of the value is gone").toBe(false);
 	});
 
 	it("has only its lines that set a variable read as a dump", () => {
@@ -415,10 +409,9 @@ describe("an output that reads as a printing of the environment", () => {
 
 	it("has a quoted value's every word read, as a dump's", () => {
 		const access = fresh();
-		const printed = [
-			...variables(fresh()),
-			`PROXY_AUTH="user ${access}"`,
-		].join("\n");
+		const printed = [...variables(fresh()), `PROXY_AUTH="user ${access}"`].join(
+			"\n",
+		);
 		expect(scrubSecrets(printed, []).text).not.toContain(access);
 	});
 
@@ -468,17 +461,18 @@ describe("an output that reads as a printing of the environment", () => {
 	it("answers at once for a dump followed by many blank lines", () => {
 		const printed = `${"A=1\n".repeat(5)}${"\n".repeat(200_000)}---`;
 		expect(scrubSecrets(printed, []).text).toBe(printed);
-		expect(scrubSecrets(printed, [], { environment: true }).text).toBe(
-			printed,
-		);
+		expect(scrubSecrets(printed, [], { environment: true }).text).toBe(printed);
 	});
 
 	it("keeps its other lines' long words when only its lines make it one", () => {
 		const access = fresh();
 		const commit = "3f9c2a7be41d08e5c6a1f2b3d4e5f60718293a4b";
 		const path = "build/output/a1b2c3d4e5f6a7b8c9d0/index.js";
-		const printed = [`commit ${commit}`, `wrote ${path}`, ...variables(access)]
-			.join("\n");
+		const printed = [
+			`commit ${commit}`,
+			`wrote ${path}`,
+			...variables(access),
+		].join("\n");
 		const { text } = scrubSecrets(printed, []);
 		expect(text).not.toContain(access);
 		expect(text).toContain(commit);
@@ -586,7 +580,7 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 
 	it("has a value a highlight splits put out of sight whole", () => {
 		const [head, tail] = [fresh().slice(0, 12), fresh().slice(0, 12)];
-		const lit = `\x1b[01;31m\x1b[KXYZ\x1b[m\x1b[K`;
+		const lit = "\x1b[01;31m\x1b[KXYZ\x1b[m\x1b[K";
 		const scrubbed = scrubToolPartial(
 			partialOf(`TOKEN=${head}${lit}${tail}\nready`),
 			{ command: "printenv | grep --color=always XYZ" },
@@ -671,10 +665,9 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 
 	it("has a bare value put out of sight when an escape it can't read, or one cut short, follows it", () => {
 		const value = fresh();
-		const scrubbed = scrubToolPartial(
-			partialOf(`\x1b[32m${value}\x1b[0`),
-			{ command: "launchctl getenv PROXY_CRED" },
-		);
+		const scrubbed = scrubToolPartial(partialOf(`\x1b[32m${value}\x1b[0`), {
+			command: "launchctl getenv PROXY_CRED",
+		});
 		expect(scrubbed?.content?.[0]).toEqual({
 			type: "text",
 			text: "\x1b[32m[secret scrubbed: environment value]\x1b[0",

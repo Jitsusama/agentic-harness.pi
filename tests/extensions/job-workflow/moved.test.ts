@@ -295,9 +295,7 @@ describe("taking up", () => {
 	it("says a carried call's printing of the environment scrubbed, read by its label", async () => {
 		const { said, watch } = tookUp("printenv");
 		const access = `z9${"5f6e7d8c9b".repeat(4)}`;
-		const printed = ["HOME=/home/someone", `PROXY_ACCESS=${access}`].join(
-			"\n",
-		);
+		const printed = ["HOME=/home/someone", `PROXY_ACCESS=${access}`].join("\n");
 		watch.end({ how: "exited", code: 0, output: `${printed}\n` });
 		await settled();
 		const text = said.at(-1)?.text ?? "";
@@ -309,9 +307,7 @@ describe("taking up", () => {
 		// The label is the command's first line, cut short; the work says.
 		const { said, watch } = tookUp("cd /srv/app ...", true);
 		const access = `z9${"1a2b3c4d5e".repeat(4)}`;
-		const printed = ["HOME=/home/someone", `PROXY_ACCESS=${access}`].join(
-			"\n",
-		);
+		const printed = ["HOME=/home/someone", `PROXY_ACCESS=${access}`].join("\n");
 		watch.end({ how: "exited", code: 0, output: `${printed}\n` });
 		await settled();
 		const text = said.at(-1)?.text ?? "";

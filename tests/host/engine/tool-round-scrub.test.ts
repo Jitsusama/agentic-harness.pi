@@ -185,9 +185,7 @@ describe("a hosted tool round", () => {
 		const updates = JSON.stringify(
 			shown(round.events, "tool_execution_update"),
 		);
-		expect(updates, "no streamed update holds the value").not.toContain(
-			value,
-		);
+		expect(updates, "no streamed update holds the value").not.toContain(value);
 		expect(updates).toContain("[secret scrubbed: PROXY_CRED]");
 		// A lone line no rule knows is said as the settled answer has it, as
 		// security ruled: the update scrubs it only because a dump's first
@@ -262,7 +260,12 @@ describe("a hosted tool round", () => {
 				return { content: [{ type: "text", text: "done" }] };
 			},
 		};
-		const round = conversation("call-flicker", "", { command: "./x" }, flickering);
+		const round = conversation(
+			"call-flicker",
+			"",
+			{ command: "./x" },
+			flickering,
+		);
 		await round.round.run(round.callId, undefined);
 		const updates = shown(round.events, "tool_execution_update");
 		expect(updates).toHaveLength(3);

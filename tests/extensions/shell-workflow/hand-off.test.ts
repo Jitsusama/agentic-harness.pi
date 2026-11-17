@@ -424,9 +424,7 @@ describe("a moved command's printing of the environment", () => {
 
 	function expectScrubbed(said: string, values: readonly string[]) {
 		for (const value of values) {
-			expect(said.includes(value), "no value of the dump is said").toBe(
-				false,
-			);
+			expect(said.includes(value), "no value of the dump is said").toBe(false);
 		}
 		expect(said).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
 	}
@@ -488,9 +486,7 @@ describe("a moved command's printing of the environment", () => {
 			const kept = /Full output: (\S+\.log)/.exec(summary)?.[1] ?? "";
 			if (!hosted) disposers.push(() => rmSync(kept, { force: true }));
 			if (hosted) {
-				expect(dirname(kept), "kept in the conversation's TMPDIR").toBe(
-					temp,
-				);
+				expect(dirname(kept), "kept in the conversation's TMPDIR").toBe(temp);
 			}
 			const whole = readFileSync(kept, "utf8");
 			for (const value of values) {
@@ -511,10 +507,9 @@ describe("a moved command's printing of the environment", () => {
 		expect(outcome?.failed, "it exited 0").not.toBe(true);
 		expect(outcome?.summary).toContain("exited 0");
 		for (const value of values) {
-			expect(
-				outcome?.summary.includes(value),
-				"no value is said raw",
-			).toBe(false);
+			expect(outcome?.summary.includes(value), "no value is said raw").toBe(
+				false,
+			);
 		}
 		expect(outcome?.summary).toContain("withheld");
 		expect(outcome?.summary, "the failure's kind").toContain("(RangeError)");

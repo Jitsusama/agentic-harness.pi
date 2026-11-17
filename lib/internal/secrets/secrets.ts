@@ -334,10 +334,7 @@ function namesAt(text: string, word: string, at: number): boolean {
  * cut short is read on its own. A variable's name, before its equals,
  * is kept (`namesAt`).
  */
-function replaceWords(
-	text: string,
-	replace: (word: string) => string,
-): string {
+function replaceWords(text: string, replace: (word: string) => string): string {
 	let out = "";
 	let word = -1;
 	const end = (at: number) => {
@@ -447,11 +444,7 @@ const EACH_LINE = /[^\n\r\0]+/g;
  * settled answer replaces the partial. A dump's line is read however it
  * sets its value apart, as DUMPED_VARIABLE reads it.
  */
-function scrubOpenLine(
-	text: string,
-	kinds: string[],
-	dump: boolean,
-): string {
+function scrubOpenLine(text: string, kinds: string[], dump: boolean): string {
 	const start =
 		Math.max(
 			text.lastIndexOf("\n"),

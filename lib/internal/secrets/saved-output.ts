@@ -82,8 +82,8 @@ export function scrubSavedOutput(
 		),
 		// Only a failure loses the details, so only a failure's text is read:
 		// any other answer's text may quote a trailer it never wrote.
-		...(answer.isError === true ? (answer.content ?? []) : []).flatMap(
-			(part) => savedOutputFilesIn(part, folder),
+		...(answer.isError === true ? (answer.content ?? []) : []).flatMap((part) =>
+			savedOutputFilesIn(part, folder),
 		),
 	]);
 	const kinds: string[] = [];
