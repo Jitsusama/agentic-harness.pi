@@ -835,7 +835,9 @@ export class HostedAgent {
 		const run = this.active?.run;
 		if (run && !run.opened) {
 			run.opened = true;
-			await this.piRuns.opening();
+			// What pi prepared for the run goes out with its next request, after
+			// any tool result that request owes (pi-runs.ts).
+			run.placed.push(...(await this.piRuns.opening()));
 			if (event.type !== "agent_start") {
 				// A recovering run shows pi the run and the turn it carries on before its first event.
 				await this.emit({ type: "agent_start" });

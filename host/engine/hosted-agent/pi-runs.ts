@@ -7,7 +7,17 @@
  * the host's work is over. Before the seam, such a run reached the model
  * without the harness's resident block (271 requests in one probe on 16
  * November) and settled only by the host's word (15 November).
+ *
+ * What pi prepares for such a run, as the update to its sections when
+ * they changed since the conversation last ran, it hands the host's work
+ * rather than placing itself, since the host holds the run's transcript:
+ * placed among the messages the run's next request shows, it lands after
+ * every tool result that request owes, so no call is parted from its
+ * result. A runtime whose seam hands nothing over leaves pi to correct
+ * the sections from the run's second turn, as before.
  */
+
+import type { AgentMessage } from "../pi-types.ts";
 
 /** pi's session, as far as running the agent's own runs as its own needs it. */
 export interface HostRunningSession {
@@ -15,9 +25,13 @@ export interface HostRunningSession {
 	readonly isStreaming?: boolean;
 	/**
 	 * Run `work` as a run of pi's: prepared as a prompt's, then settled once
-	 * `work` ends. Inside a run of pi's already under way, `work` joins it.
+	 * `work` ends. `work` is handed what pi prepared for the run's first
+	 * request, which an older seam leaves out. Inside a run of pi's already
+	 * under way, `work` joins it and is handed nothing.
 	 */
-	runForHost?(work: () => Promise<void>): Promise<void>;
+	runForHost?(
+		work: (prepared?: readonly AgentMessage[]) => Promise<void>,
+	): Promise<void>;
 }
 
 /** An open run of pi's, ended by `end`, settled once `settled` resolves. */
@@ -87,31 +101,33 @@ export class PiRuns {
 	/**
 	 * Open pi's run for the work held, if none is open, before pi is shown
 	 * its start, and resolve once pi prepared it, every extension adding
-	 * its sections, as for a prompt. Inside a run of pi's own, as when pi's
-	 * prompt reached the agent, the work is that run's, which pi settles,
-	 * and a run of the agent's after it opens its own.
+	 * its sections, as for a prompt. Answers what pi prepared for the run's
+	 * first request, for the run to place. Inside a run of pi's own, as when
+	 * pi's prompt reached the agent, the work is that run's, which pi
+	 * settles, and a run of the agent's after it opens its own.
 	 */
-	async opening(): Promise<void> {
+	async opening(): Promise<readonly AgentMessage[]> {
 		const session = this.session;
-		if (this.open || this.holds === 0 || !session?.runForHost) return;
-		if (session.isStreaming) return;
+		if (this.open || this.holds === 0 || !session?.runForHost) return [];
+		if (session.isStreaming) return [];
 		let end = () => {};
 		const ended = new Promise<void>((done) => {
 			end = done;
 		});
-		let begun = () => {};
-		const prepared = new Promise<void>((done) => {
+		let begun = (_handed: readonly AgentMessage[]) => {};
+		const prepared = new Promise<readonly AgentMessage[]>((done) => {
 			begun = done;
 		});
 		const settled = session
-			.runForHost(() => {
-				begun();
+			.runForHost((handed) => {
+				begun(handed ?? []);
 				return ended;
 			})
 			.catch(() => {
 				// pi reports what failed in preparing or settling its run to its own listeners; the host's work goes on either way.
 			});
 		this.open = { end, settled };
-		await Promise.race([prepared, settled]);
+		// A run pi failed to prepare hands nothing over, and the work goes on.
+		return Promise.race([prepared, settled.then(() => [])]);
 	}
 }
