@@ -13,9 +13,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	followWhatStarts,
+	GAP_LOOK_MS,
 	HELD_SAY_MS,
 	type Held,
-	GAP_LOOK_MS,
 	RESTART_DUE_MS,
 	type RestartFacts,
 	restartWhenSettled,
@@ -406,7 +406,10 @@ describe("restartWhenSettled", () => {
 		await timers.fire();
 		heap.growTo(0.75);
 		const grewAt = clock;
-		while (!said.some((line) => line.startsWith("restart")) && clock < NOW + SETTLE_CEILING_MS) {
+		while (
+			!said.some((line) => line.startsWith("restart")) &&
+			clock < NOW + SETTLE_CEILING_MS
+		) {
 			clock += timers.pending()[0]?.ms ?? 0;
 			await timers.fire();
 		}
@@ -414,13 +417,10 @@ describe("restartWhenSettled", () => {
 		expect(
 			said.filter((line) => line.startsWith("restart")),
 			"it restarted once, under the heap rule",
-		).toEqual([
-			"restart under heap",
-		]);
-		expect(
-			clock - grewAt,
-			"within one cycle of its turns",
-		).toBeLessThanOrEqual(CYCLE_MS);
+		).toEqual(["restart under heap"]);
+		expect(clock - grewAt, "within one cycle of its turns").toBeLessThanOrEqual(
+			CYCLE_MS,
+		);
 		expect(
 			seen[0]?.map(({ state }) => state),
 			"in a gap, with no conversation running",
