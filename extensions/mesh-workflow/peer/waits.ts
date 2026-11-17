@@ -3,12 +3,29 @@
  * on a clock while any stands, and told once settled.
  */
 
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { NOTED } from "../delivery.ts";
 import { settledText } from "../wait.ts";
 import type { MeshState } from "./mesh.ts";
 
+/** What the clocks over this peer's waits read and set. */
+export type WaitsOn = Pick<
+	MeshState,
+	"settleWatch" | "waitClock" | "settleClock" | "turnAsked" | "waitCheckMs"
+> & {
+	readonly pi: Pick<ExtensionAPI, "sendMessage">;
+	readonly ctx: Pick<ExtensionContext, "isIdle"> | undefined;
+	readonly pausing: { readonly paused: boolean };
+	readonly leasing: Pick<MeshState["leasing"], "lapsed">;
+	readonly own: Pick<NonNullable<MeshState["own"]>, "leases"> | undefined;
+	readonly resumes: Pick<NonNullable<MeshState["resumes"]>, "add"> | undefined;
+};
+
 /** The clocks over what this peer waits on. */
-export function createWaits(m: MeshState) {
+export function createWaits(m: WaitsOn) {
 	/** Whether the holds waited on still stand, asked while any is. */
 	const checkWaits = async () => {
 		const ends = await m.leasing.lapsed().catch(() => []);
@@ -27,13 +44,15 @@ export function createWaits(m: MeshState) {
 	 */
 	const tellSettled = async () => {
 		const watch = m.settleWatch;
-		if (!watch || !m.ctx) return;
+		const clock = m.settleClock;
+		if (!watch || !clock || !m.ctx) return;
 		let gone: Awaited<ReturnType<typeof watch.settledOff>>;
 		let idle: boolean;
 		try {
 			gone = await watch.settledOff();
-			// The session went or started again while it read.
-			if (m.settleWatch !== watch || !m.ctx) return;
+			// The session went while it read: shutdown clears the clock, and a
+			// new start replaces it.
+			if (m.settleClock !== clock || !m.ctx) return;
 			idle = m.ctx.isIdle?.() ?? false;
 		} catch {
 			// A file being replaced or a stale context: the next tick looks again.

@@ -138,9 +138,12 @@ export function watchSettling(waiting: Waiting): SettleWatch {
 				const read = await readOff(quest);
 				if (waiting.quest() !== quest || takes !== at) return [];
 				if (read) return seen(quest, read);
-				// A verdict changes something: written whole, under the lock.
+				// A verdict changes something: written whole, under the lock, and
+				// read back by the reader that refuses a file it can't read.
 				settleFromVerdicts(waiting);
-				return seen(quest, waitingOf(waiting.folder, quest));
+				const after = await waitingOff(waiting.folder, quest);
+				if (waiting.quest() !== quest || takes !== at) return [];
+				return seen(quest, after);
 			} finally {
 				reading = false;
 			}
