@@ -3,10 +3,10 @@
  * what attention it gets here, and chasing what went unanswered.
  */
 
+import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
 import { firstPromptPending } from "../../../lib/internal/session/first-prompt.ts";
 import { namesLanding } from "../../../lib/internal/session/landings.ts";
 import { askWake, isParked } from "../../../lib/internal/session/park.ts";
-import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
 import {
 	attend,
 	type Concern,

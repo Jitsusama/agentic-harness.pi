@@ -11,6 +11,7 @@
  * (sessions-kitty.ts), and one it never answered is left with it.
  */
 
+import { realmSegments } from "../../../lib/internal/machine/realm.ts";
 import {
 	askLauncher,
 	callLauncher,
@@ -19,7 +20,6 @@ import {
 	type LauncherCall,
 	launcherTakes,
 } from "../../../lib/internal/quest/hand-over.ts";
-import { realmSegments } from "../../../lib/internal/machine/realm.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import {
 	type OpenOptions,

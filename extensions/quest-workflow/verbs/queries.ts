@@ -7,6 +7,7 @@
  * subdir.
  */
 
+import { realmSegments } from "../../../lib/internal/machine/realm.ts";
 import { stateDir } from "../../../lib/internal/paths.ts";
 import {
 	discoverQuests,
@@ -33,7 +34,6 @@ import {
 	windowsNotePath,
 	windowsToReopen,
 } from "../../../lib/internal/quest/windows-elsewhere.ts";
-import { realmSegments } from "../../../lib/internal/machine/realm.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { OUTCOME_GLYPH } from "../../../lib/ui/outcome-glyphs.ts";
 import {

@@ -30,6 +30,7 @@ import {
 } from "../../lib/core/quest/lifecycle.ts";
 import { type LaunchHints, launchHints } from "../../lib/core/session/index.ts";
 import { sessionSlot } from "../../lib/core/session/slot.ts";
+import { getLastEntry } from "../../lib/internal/files/state.ts";
 import { sessionsDir } from "../../lib/internal/paths.ts";
 import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
@@ -42,7 +43,6 @@ import {
 	prunePhantomSessions,
 } from "../../lib/internal/quest/session-liveness.ts";
 import { firstPromptPending } from "../../lib/internal/session/first-prompt.ts";
-import { getLastEntry } from "../../lib/internal/files/state.ts";
 import { sessionNameFor, shortNameOf } from "./render.ts";
 import type { QuestState } from "./state.ts";
 import { orchestrate } from "./verbs/orchestrate.ts";

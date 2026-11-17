@@ -7,16 +7,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	meshRefusal,
+	realmSegments,
+	sessionRealm,
+} from "../../../../lib/internal/machine/realm.ts";
+import {
 	dataDir,
 	everyRealmsDir,
 	stateDir,
 } from "../../../../lib/internal/paths.ts";
 import { restoreFilePath } from "../../../../lib/internal/quest/restore-file.ts";
-import {
-	meshRefusal,
-	realmSegments,
-	sessionRealm,
-} from "../../../../lib/internal/machine/realm.ts";
 import { nodeSocket } from "../../../../lib/mesh/node.ts";
 
 describe("a session's realm", () => {

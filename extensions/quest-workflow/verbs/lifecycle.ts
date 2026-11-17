@@ -13,6 +13,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../../lib/core/session/host.ts";
+import { sessionRealmName } from "../../../lib/internal/machine/realm.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
@@ -31,7 +32,6 @@ import { questIdForCwd } from "../../../lib/internal/quest/resolve-cwd.ts";
 import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import { recordStructuralOp } from "../../../lib/internal/quest/structural-journal.ts";
-import { sessionRealmName } from "../../../lib/internal/machine/realm.ts";
 import {
 	fetchUrlHints,
 	mintId,

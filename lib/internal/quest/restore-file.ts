@@ -41,7 +41,11 @@
 import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { questAddress, sessionAddress } from "../../mesh/address.ts";
-import { realmSegments, type SessionRealm, sessionRealm } from "../machine/realm.ts";
+import {
+	realmSegments,
+	type SessionRealm,
+	sessionRealm,
+} from "../machine/realm.ts";
 import type { CarriedEnvironment } from "../session/carried-environment.ts";
 import type { MoveNote } from "../session/move.ts";
 import type { CarriedHome } from "./carried.ts";

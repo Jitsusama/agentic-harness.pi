@@ -35,6 +35,7 @@ import type {
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { stoppingFromOutside } from "../../lib/internal/away/state.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
+import { sessionRealmName } from "../../lib/internal/machine/realm.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import type { HeadOf } from "../../lib/internal/pineapple/cover.ts";
 import { asksRepos, type Parked } from "../../lib/internal/pineapple/park.ts";
@@ -48,7 +49,6 @@ import {
 	type GitFacts,
 	repoOfUrl,
 } from "../../lib/internal/pineapple/writes.ts";
-import { sessionRealmName } from "../../lib/internal/machine/realm.ts";
 import { isPersonText } from "../../lib/internal/session/driven.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { senderIdentity } from "../../lib/mesh/message.ts";

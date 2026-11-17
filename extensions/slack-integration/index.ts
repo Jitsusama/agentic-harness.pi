@@ -20,10 +20,13 @@ import {
 	signInFailure,
 	unattended,
 } from "../../lib/internal/away/unattended.ts";
+import { getLastEntry } from "../../lib/internal/files/state.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { sessionGateDeps } from "../../lib/internal/guardian/session-deps.ts";
-import { loadOnce, singleFlight } from "../../lib/internal/process/single-flight.ts";
-import { getLastEntry } from "../../lib/internal/files/state.ts";
+import {
+	loadOnce,
+	singleFlight,
+} from "../../lib/internal/process/single-flight.ts";
 import { registerStandingContext } from "../../lib/prompt/index.ts";
 import { SlackApiError } from "../../lib/slack/api/client.ts";
 import { clearAllConfig, getToken } from "../../lib/slack/auth/credentials.ts";

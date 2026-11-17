@@ -38,9 +38,9 @@ import { Type } from "@sinclair/typebox";
 import { resolveLspBackend } from "../../lib/core/lsp/registry.ts";
 import { findProject } from "../../lib/core/verify/project.ts";
 import { runVerify } from "../../lib/core/verify/run.ts";
+import { getLastEntry } from "../../lib/internal/files/state.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { onTurnBoundary } from "../../lib/internal/session/turn-end.ts";
-import { getLastEntry } from "../../lib/internal/files/state.ts";
 import {
 	provideVerificationCheck,
 	type VerificationCheck,

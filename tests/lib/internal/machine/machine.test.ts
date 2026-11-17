@@ -5,7 +5,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isMachineName, thisMachine } from "../../../../lib/internal/machine/machine.ts";
+import {
+	isMachineName,
+	thisMachine,
+} from "../../../../lib/internal/machine/machine.ts";
 
 let state: string;
 
