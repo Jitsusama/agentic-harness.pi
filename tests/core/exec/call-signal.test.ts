@@ -17,6 +17,18 @@ import {
 import type { ExecResult } from "../../../lib/core/exec/exec.ts";
 import { EXIT_ABORTED, spawnExec } from "../../../lib/core/exec/spawn.ts";
 
+/** The store an older copy of this module keeps signals in, made first if no call has. */
+function olderCopysStore(): AsyncLocalStorage<AbortSignal | undefined> {
+	withCallSignal(undefined, () => undefined);
+	const first: unknown = Reflect.get(
+		globalThis,
+		Symbol.for("agentic-harness.core/exec/call-signal"),
+	);
+	if (!(first instanceof AsyncLocalStorage))
+		throw new Error("the first store was never made");
+	return first;
+}
+
 /** What a run settled as within a short wait, or that it had not. */
 async function within<T>(
 	running: Promise<T>,
@@ -218,6 +230,59 @@ describe("work a call left behind", () => {
 		later.open();
 
 		expect(await after).toBe(older.signal);
+	});
+
+	it("runs its command under a fired signal an older copy left, as its call's end", async () => {
+		// What an older copy leaves a session's context holding lasts past a
+		// reload onto this one; read as its own, every git the work tool ran
+		// failed as aborted before it started until the session restarted
+		// (FEH1HE, 17 November).
+		const first = olderCopysStore();
+		const older = new AbortController();
+		older.abort();
+		const outer = new AbortController();
+
+		const ran = await first.run(older.signal, () => spawnExec()("true", []));
+		const alone = first.run(older.signal, () => callSignal());
+		const inside = await withCallSignal(outer.signal, async () =>
+			first.run(older.signal, () => callSignal()),
+		);
+
+		expect(ran.code, "the command ran").toBe(0);
+		expect(alone, "left outside any call reads none").toBeUndefined();
+		expect(inside, "left inside a call still running reads that call's").toBe(
+			outer.signal,
+		);
+	});
+
+	it("reads an older copy's signal only while it is live, which it can't say ended", () => {
+		// The cost of the case above, taken knowingly: an older copy's call
+		// still running loses Escape for commands begun after it fires, as no
+		// package but this one wraps calls, and a leak stopped every command.
+		const first = olderCopysStore();
+		const older = new AbortController();
+
+		const live = first.run(older.signal, () => callSignal());
+		older.abort();
+		const fired = first.run(older.signal, () => callSignal());
+
+		expect(live, "still live").toBe(older.signal);
+		expect(fired, "fired, with no call to say it still runs").toBeUndefined();
+	});
+
+	it("stops a command begun after its own call's signal fired, while that call runs", async () => {
+		const stop = new AbortController();
+
+		const result = await withCallSignal(stop.signal, async () => {
+			stop.abort();
+			return {
+				read: callSignal(),
+				ran: await spawnExec()("true", []),
+			};
+		});
+
+		expect(result.read, "the call's own signal").toBe(stop.signal);
+		expect(result.ran.code, "aborted before it started").toBe(EXIT_ABORTED);
 	});
 
 	it("rejects as the call did, with the promise it hands back", async () => {
