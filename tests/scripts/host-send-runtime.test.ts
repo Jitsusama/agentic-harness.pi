@@ -74,6 +74,14 @@ function lender(closure: string[], held: string[], settings?: string) {
 	standIn(lenderBin, "nix", "lender-nix");
 	standIn(lenderBin, "nix-store", "lender-nix-store");
 	writeFileSync(join(fake, "closure"), `${closure.join("\n")}\n`);
+	// Every path refers to the system's, as a cache checks before it takes one.
+	writeFileSync(
+		join(fake, "references"),
+		closure
+			.filter((path) => path !== BASE)
+			.map((path) => `${path} ${BASE}\n`)
+			.join(""),
+	);
 	writeFileSync(join(fake, "lender-store"), `${held.join("\n")}\n`);
 	writeFileSync(join(fake, "key"), "a key\n");
 	writeFileSync(join(fake, "host-key"), "ssh-ed25519 AAAAfake");
@@ -194,14 +202,29 @@ describe("host-send-runtime.sh", { timeout: 60_000 }, () => {
 
 	it("sends only the runtime to a lender holding all it refers to, though a cache takes a path only with its references", async () => {
 		const on = lender([BASE, RUNTIME], [BASE]);
-		writeFileSync(join(on.fake, "references"), `${RUNTIME} ${BASE}\n`);
 
 		const answered = await answer(on, SENDER, [RUNTIME]);
 
 		expect(answered.code, answered.said).toBe(0);
 		expect(held(on)).toContain(RUNTIME);
+		expect(logged(on, "referenced")).toEqual([BASE]);
 		expect(logged(on, "copied")).toEqual([RUNTIME]);
-		expect(logged(on, "offered")).toEqual(["1run.narinfo"]);
+		expect(logged(on, "offered")).toEqual([
+			"1run.narinfo",
+			"nar/1run.nar.xz",
+			"nix-cache-info",
+		]);
+	});
+
+	it("sends a lender lacking the whole closure all of it, compressed, with nothing put in first", async () => {
+		const on = lender([BASE, RUNTIME], []);
+
+		const answered = await answer(on, SENDER, [RUNTIME]);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(held(on)).toEqual(expect.arrayContaining([BASE, RUNTIME]));
+		expect(logged(on, "referenced")).toEqual([]);
+		expect(logged(on, "copied")).toEqual([`${BASE} ${RUNTIME}`]);
 	});
 
 	it("never sends a path the lender names that isn't in the closure", async () => {

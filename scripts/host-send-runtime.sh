@@ -178,16 +178,35 @@ pack() {
     mv "$work/sha256.part" "$work/sha256"
 }
 
+# The narinfo of the store path `$1` in the cache in `work`.
+narinfo() {
+  local name=${1##*/}
+  printf '%s\n' "$work/cache/${name%%-*}.narinfo"
+}
+
+# The nar the narinfo `$1` names, when it names one in the cache's nar/.
+nar_of() {
+  local url
+  url=$(sed -n 's/^URL: //p' "$1" 2> /dev/null | sed -n 1p)
+  [[ $url =~ ^nar/[A-Za-z0-9._+-]+$ ]] && printf '%s\n' "$url"
+}
+
 # Takes the narinfos of `others`, and the nars they name, out of the cache
-# in `work`, so only the missing paths are sent.
+# in `work`, so only the missing paths are sent. A nar a missing path's
+# narinfo names stays, though another's names it too: nix names a nar by
+# its file's hash, so two paths with one content share it.
 drop_others() {
-  local path name info nar
+  local path info nar
+  local -A needed=()
+  for path in "${paths[@]}"; do
+    nar=$(nar_of "$(narinfo "$path")") && needed[$nar]=1
+  done
   for path in "${others[@]}"; do
-    name=${path##*/}
-    info=$work/cache/${name%%-*}.narinfo
+    info=$(narinfo "$path")
     [[ -e $info ]] || continue
-    nar=$(sed -n 's/^URL: //p' "$info")
-    [[ -z $nar || $nar == */../* || $nar == ../* ]] || rm -f "$work/cache/$nar"
+    if nar=$(nar_of "$info") && [[ -z ${needed[$nar]:-} ]]; then
+      rm -f "$work/cache/$nar"
+    fi
     rm -f "$info"
   done
 }

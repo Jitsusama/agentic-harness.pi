@@ -2,7 +2,8 @@
 # This machine's nix, as host-send-runtime.test.ts stands it in: it answers
 # the closure from $FAKE/closure, naming what it was asked in $FAKE/asked,
 # and writes a file cache of the paths it's given, naming them in
-# $FAKE/copied, or in $FAKE/referenced for an uncompressed cache. As a
+# $FAKE/copied, or in $FAKE/referenced for an uncompressed cache, each
+# nar named for its compression as nix names it. As a
 # binary cache does, it refuses a path one of whose references, listed on
 # its line of $FAKE/references (`path ref...`), is neither in the cache
 # nor among the paths it's given.
@@ -35,10 +36,12 @@ copy)
   fi
   mkdir -p "$dir/nar"
   echo "StoreDir: /nix/store" > "$dir/nix-cache-info"
+  ext=.nar.xz
+  [[ $uri != *compression=none* ]] || ext=.nar
   for p; do
     h=$(hash "$p")
-    printf 'StorePath: %s\nURL: nar/%s.nar.xz\n' "$p" "$h" > "$dir/$h.narinfo"
-    head -c 3000 /dev/urandom > "$dir/nar/$h.nar.xz"
+    printf 'StorePath: %s\nURL: nar/%s%s\n' "$p" "$h" "$ext" > "$dir/$h.narinfo"
+    head -c 3000 /dev/urandom > "$dir/nar/$h$ext"
   done
   if [[ $uri == *compression=none* ]]; then
     echo "$*" >> "$FAKE/referenced"
