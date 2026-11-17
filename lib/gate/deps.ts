@@ -4,7 +4,8 @@
  * signatures it has already blocked this session; this is the
  * interface that supplies them, kept pure so the decision logic
  * stays free of any session or runtime dependency. The
- * session-backed implementation lives in lib/internal/gate.
+ * session-backed implementation lives in
+ * lib/internal/guardian/session-deps.ts.
  */
 export interface GateDeps {
 	/** Every block signature recorded this session. */

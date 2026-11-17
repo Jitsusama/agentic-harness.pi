@@ -21,8 +21,8 @@
  * count again.
  */
 
+import type { Notice } from "../../lib/internal/away/notify.ts";
 import type { PlanProgress } from "../../lib/internal/away/state.ts";
-import type { Notice } from "../../lib/internal/notify.ts";
 import { endingOf, MAX_NUDGES, type RunSummary } from "./keep-going.ts";
 
 /**

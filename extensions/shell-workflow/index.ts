@@ -17,7 +17,7 @@
  * Landlock, with no credentials and no sockets but name lookups and
  * Nix's untrusted door (sandbox.ts); in the agent fence, a git command
  * the read-only shared git folder failed is told the route and counted
- * (fence-git-route.ts). Each command keeps its output and
+ * (fence/fence-git-route.ts). Each command keeps its output and
  * end on disk while it runs, so a session moving to a host can hand a
  * running one on rather than wait for it (keeping.ts).
  *
@@ -35,21 +35,24 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
-import { jobsBroker } from "../../lib/internal/fence.ts";
-import { routedDirenv } from "../../lib/internal/fence-direnv.ts";
+import { jobsBroker } from "../../lib/internal/fence/fence.ts";
+import { routedDirenv } from "../../lib/internal/fence/fence-direnv.ts";
 import {
 	routedDelta,
 	routedPackedRefs,
 	routedSigning,
 	routedUnheldTree,
-} from "../../lib/internal/fence-git-route.ts";
-import { liftFence } from "../../lib/internal/fence-lifted.ts";
+} from "../../lib/internal/fence/fence-git-route.ts";
+import { liftFence } from "../../lib/internal/fence/fence-lifted.ts";
+import {
+	routedKeep,
+	routedReadOnly,
+} from "../../lib/internal/fence/fence-route.ts";
 import {
 	codeOf,
 	recordRefusal,
 	recordUnlisted,
 } from "../../lib/internal/fence-log.ts";
-import { routedKeep, routedReadOnly } from "../../lib/internal/fence-route.ts";
 import { settleStage } from "../../lib/internal/fence-stage.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
@@ -120,9 +123,10 @@ type RoutedRefusal =
  * A fenced bash call's output with the route added where git couldn't
  * rewrite the read-only shared git folder's `packed-refs`, write the
  * own git folder of a tree the session doesn't hold, sign, or reach
- * World's Delta (`fence-git-route.ts`), where a build couldn't keep its
- * pass, or where a write met a read-only mount (`fence-route.ts`), or
- * where direnv refused an `.envrc` (`fence-direnv.ts`), counted in the
+ * World's Delta (`fence/fence-git-route.ts`), where a build couldn't
+ * keep its pass, or where a write met a read-only mount
+ * (`fence/fence-route.ts`), or where direnv refused an `.envrc`
+ * (`fence/fence-direnv.ts`), counted in the
  * system's log; nothing, for any other call.
  */
 function routeRefused(

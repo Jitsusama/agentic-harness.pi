@@ -8,7 +8,7 @@ import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	shellEditRefusal,
 	sleepRefusal,
-} from "../../lib/internal/shell-habits.ts";
+} from "../../lib/internal/shell/shell-habits.ts";
 import {
 	normalise,
 	periodOf,

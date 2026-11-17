@@ -5,7 +5,7 @@
  * fenced: 0 when each was seen fenced, 1 when one runs unfenced, when a
  * claimed one wasn't seen fenced in the last day, when there is no
  * session at all, or when the machine's processes can't be read
- * (fence-census.ts judges them). What it saw is kept between runs.
+ * (fence/fence-census.ts judges them). What it saw is kept between runs.
  *
  * And pi-fence as core runs it: straight from the harness's source, with
  * the store's node and no node_modules. Its run path loads there, and the
@@ -25,7 +25,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FENCE_RUN_HELP } from "../../lib/internal/fence-run.ts";
+import { FENCE_RUN_HELP } from "../../lib/internal/fence/fence-run.ts";
 import { KEEPING_STUB } from "../../lib/internal/shell/kept.ts";
 
 const HARNESS = join(import.meta.dirname, "..", "..");
@@ -98,7 +98,7 @@ function lay(pid: number, parent: number, name: string, laid: Laid = {}): void {
 
 /**
  * A subagent's environment, the one pi that keeps `PI_SANDBOX=fence`
- * rather than lifting it (fence-lifted.ts).
+ * rather than lifting it (fence/fence-lifted.ts).
  */
 const SUBAGENT_FENCED = "PI_SANDBOX=fence\0SUBAGENT_RUN_ID=run-1\0";
 

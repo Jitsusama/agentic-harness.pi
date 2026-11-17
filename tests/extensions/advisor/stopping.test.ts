@@ -57,7 +57,7 @@ vi.mock("../../../lib/core/observability/recorder.ts", async (original) => ({
 	recordRunEverywhere: vi.fn(),
 }));
 
-vi.mock("../../../lib/internal/transcript.ts", () => ({
+vi.mock("../../../lib/internal/logs/transcript.ts", () => ({
 	entriesToTurns: () => [{ text: "edited a file" }],
 }));
 

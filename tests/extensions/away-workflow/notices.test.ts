@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Exec } from "../../../lib/core/exec/index.ts";
-import type { NotifyDeps } from "../../../lib/internal/notify.ts";
+import type { NotifyDeps } from "../../../lib/internal/away/notify.ts";
 
 /** Each test reads the module fresh, as a reload would. */
 async function notices() {

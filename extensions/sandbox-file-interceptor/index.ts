@@ -32,8 +32,8 @@ import { homedir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sessionKeyOf } from "../../lib/core/session/identity.ts";
 import { recordRefusal, systemLogger } from "../../lib/internal/fence-log.ts";
+import { fileToolRefusal } from "../../lib/internal/sandbox/sandbox-files.ts";
 import { sandboxName } from "../../lib/internal/sandbox.ts";
-import { fileToolRefusal } from "../../lib/internal/sandbox-files.ts";
 import { offeredShellEnvironment } from "../../lib/internal/shell/environment.ts";
 
 /** Wires the fence onto each call to pi's file tools. */

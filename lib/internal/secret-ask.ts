@@ -24,7 +24,7 @@ import {
 	rmSync,
 } from "node:fs";
 import { join } from "node:path";
-import { quoted } from "./sandbox-shell.ts";
+import { quoted } from "./sandbox/sandbox-shell.ts";
 import { writeWhole } from "./write-whole.ts";
 
 /** What a fenced command naming the daemon's program is told. */

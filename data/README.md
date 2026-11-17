@@ -4,7 +4,7 @@ What the package keeps as data, for its own code and for programs
 outside it to read from the install, so the two can't drift.
 
 - `fence-hidden.json`: what the agent fence keeps from every command,
-  read by `lib/internal/fence-hidden.ts`. Core's secret asks read it
+  read by `lib/internal/fence/fence-hidden.ts`. Core's secret asks read it
   through the install's current link, to hide the same paths from a
   released command. `version` changes only when a field changes
   meaning:

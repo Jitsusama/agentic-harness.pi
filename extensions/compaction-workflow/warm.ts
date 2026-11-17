@@ -90,10 +90,10 @@ import {
 	loadPackageConfig,
 	type SectionParse,
 } from "../../lib/internal/config/loader.ts";
+import { isStaleContext } from "../../lib/internal/errors/stale.ts";
 import { processGlobal } from "../../lib/internal/process-global.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { scrubSecrets } from "../../lib/internal/secrets.ts";
-import { isStaleContext } from "../../lib/internal/stale.ts";
 import {
 	pendingWarmsDir,
 	sweepPendingWarms,

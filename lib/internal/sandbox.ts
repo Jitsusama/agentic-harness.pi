@@ -12,52 +12,46 @@
  * - **No credentials:** nothing in the home folder is readable but git's
  *   and Nix's settings, so keys, tokens, browser profiles and session logs
  *   are out of reach, and only variables known to be harmless are passed
- *   in, since a session's environment holds tokens too. The one
- *   exception is GitHub's: where the machine's github-broker gives one,
- *   a command gets a token, an hour long, that can read code and write
- *   pull requests and issues, and nothing more, as `GH_TOKEN` and git's
- *   helper for github.com. The broker's socket stays out of reach, so a
- *   command can't mint one of its own. Where the machine names a cloud
- *   account for its agents, gcloud is handed that account's hour token
- *   and its one project, from gcloud-broker, and a settings folder of
- *   its own for the session, never the person's cloud login.
+ *   in, since a session's environment holds tokens too. The one exception
+ *   is GitHub's: where the machine's github-broker gives one, a command
+ *   gets an hour's token that reads code and writes pull requests and
+ *   issues, nothing more, as `GH_TOKEN` and git's helper for github.com;
+ *   the broker's socket stays out of reach, so it can't mint its own.
+ *   Where the machine names a cloud account for its agents, gcloud gets
+ *   that account's hour token and one project, from gcloud-broker, and a
+ *   settings folder of its own, never the person's cloud login.
  * - **No sockets but one:** no session or system bus (the way into the
- *   keyring and to root), no SSH or signing agent, no terminal's remote
- *   control, and no abstract socket. Nix answers through its door for
- *   sandboxes, which takes its caller as untrusted, since the daemon's own
- *   socket trusts the person's account and so hands over root.
+ *   keyring and root), SSH or signing agent, terminal remote control or
+ *   abstract socket. Nix answers through its sandboxes' door, which takes
+ *   callers as untrusted, since the daemon's own socket hands over root.
  * - **Writes only to the work:** the working folder, and a temporary
- *   folder and a cache of the sandbox's own, which `TMPDIR` and
- *   `XDG_CACHE_HOME` name. The person's own cache and `/tmp` stay out of
- *   reach both ways: they hold tokens, code their shell runs at every
- *   start, and scripts other sessions run unfenced. No signal reaches a
- *   process outside the sandbox.
+ *   folder and cache of its own, as `TMPDIR` and `XDG_CACHE_HOME`. The
+ *   person's cache and `/tmp` stay out of reach both ways: they hold
+ *   tokens, code their shell runs at each start, and scripts other
+ *   sessions run unfenced. No signal reaches a process outside.
  * - **The network,** since fetching is most of what such a session does.
  *
  * Landlock alone does this in 20 to 35 ms a command, with no namespaces,
- * so the person's own tools run as they do. Unlike bwrap alone, it also
- * refuses abstract Unix sockets, which a mount namespace leaves reachable
- * while the network is shared. A session that asks for the sandbox where it can't be
- * had (not Linux, or no landrun) runs no command at all rather than run
- * one unfenced.
+ * so the person's tools run as they do, and unlike bwrap alone it refuses
+ * abstract Unix sockets, which a mount namespace leaves open while the
+ * network is shared. Asked for where it can't be had (not Linux, or no
+ * landrun), it runs no command rather than one unfenced.
  *
- * A working folder that is the home folder, or holds it, would hand over
- * the person's startup files, and one holding its repository's git folder
- * would hand over the hooks and settings git runs outside, so the sandbox
- * runs no command in either; a worktree keeps its git folder elsewhere.
- * Its repository is readable, so git works, and never writable: a
- * worktree's own folder there names the repository git uses and may hold
- * its settings, so writing it would hand over the person's next git
- * command in that tree.
- * Code written in the working folder can still run later outside, an
- * `.envrc` once the person allows it. The sandbox narrows what a command
- * reaches now, not what the person later runs from what it wrote.
+ * A working folder that is or holds the home folder would hand over the
+ * person's startup files, and one holding its repository's git folder the
+ * hooks and settings git runs outside, so neither runs a command; a
+ * worktree keeps its git folder elsewhere. Its repository is readable, so
+ * git works, but never writable: a worktree's folder there names the
+ * repository and may hold its settings, handing over the person's next git
+ * command in that tree. Code written in the work can still run later
+ * outside, an `.envrc` once the person allows it: the sandbox narrows what
+ * a command reaches now, not what the person later runs from what it wrote.
  *
  * pi's own file tools run in pi's process, outside Landlock, so
- * `sandbox-files.ts` holds them to the same paths for the
+ * `sandbox/sandbox-files.ts` holds them to the same paths for the
  * `sandbox-file-interceptor` extension, less `/proc` and the devices.
  *
- * `PI_SANDBOX=fence` asks for the agent fence instead (`fence.ts`):
+ * `PI_SANDBOX=fence` asks for the agent fence instead (`fence/fence.ts`):
  * every session's commands kept off the person's desktop, with the
  * work, the network and the environment as they were.
  */
@@ -73,31 +67,24 @@ import {
 	fenceRules,
 	guardsGitFolder,
 	nixDoor,
-} from "./fence.ts";
-import { fenceShims } from "./fence-clipboard.ts";
-import { fencedCommand } from "./fence-command.ts";
-import { DIRENV_VARIABLE, fencedDirenv } from "./fence-direnv.ts";
-import { dockerHoldsCredentials } from "./fence-docker.ts";
+} from "./fence/fence.ts";
+import { fenceShims } from "./fence/fence-clipboard.ts";
+import { fencedCommand } from "./fence/fence-command.ts";
+import { DIRENV_VARIABLE, fencedDirenv } from "./fence/fence-direnv.ts";
+import { dockerHoldsCredentials } from "./fence/fence-docker.ts";
 import {
 	afterCheck,
 	guardedFolders,
 	guardedIn,
 	plantStopped,
-} from "./fence-git-root.ts";
-import { githubDoorFolder } from "./fence-github.ts";
-import { foldersMadeFirst, OWN_HOMES } from "./fence-home.ts";
+} from "./fence/fence-git-root.ts";
+import { githubDoorFolder } from "./fence/fence-github.ts";
+import { foldersMadeFirst, OWN_HOMES } from "./fence/fence-home.ts";
+import { fenceNpmrc } from "./fence/fence-npmrc.ts";
+import { seedOwnHomes } from "./fence/fence-seed.ts";
+import { fenceSshConfig } from "./fence/fence-ssh.ts";
 import { recordedInShell } from "./fence-log.ts";
-import { fenceNpmrc } from "./fence-npmrc.ts";
-import { seedOwnHomes } from "./fence-seed.ts";
-import { fenceSshConfig } from "./fence-ssh.ts";
 import { askedSandbox, inFirstStage } from "./fence-stage.ts";
-import {
-	type CloudGrant,
-	type CloudGrantSource,
-	cloudGrants,
-	namesTheCloud,
-} from "./gcloud-broker.ts";
-import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import {
 	inStore,
 	type Offload,
@@ -106,8 +93,22 @@ import {
 	offloadKeptIn,
 } from "./offload-exemption.ts";
 import { questWorkspacesRoot } from "./quest/workspace-root.ts";
-import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
-import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
+import {
+	type CloudGrant,
+	type CloudGrantSource,
+	cloudGrants,
+	namesTheCloud,
+} from "./sandbox/gcloud-broker.ts";
+import {
+	brokerTokens,
+	type GitHubTokenSource,
+} from "./sandbox/github-broker.ts";
+import { quoted, SANDBOXED_COMMAND } from "./sandbox/sandbox-shell.ts";
+import {
+	folderGit,
+	heldTree,
+	sessionWorktrees,
+} from "./sandbox/sandbox-trees.ts";
 import { withSecretNote } from "./secret-ask.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";

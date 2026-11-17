@@ -17,7 +17,10 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { fenceRules, NEVER_THROUGH } from "../../../lib/internal/fence.ts";
+import {
+	fenceRules,
+	NEVER_THROUGH,
+} from "../../../lib/internal/fence/fence.ts";
 
 /** A landrun on `PATH` that can lay a Landlock here, or nothing. */
 function workingLandrun(): string | undefined {

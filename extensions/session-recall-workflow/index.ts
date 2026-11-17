@@ -41,7 +41,7 @@ import {
 	RECALL_TOOL,
 	type Recalled,
 	recall,
-} from "../../lib/internal/recall/session.ts";
+} from "../../lib/internal/logs/recall.ts";
 import { ancestry } from "../../lib/internal/session/rollover.ts";
 import { recallSection } from "./status.ts";
 

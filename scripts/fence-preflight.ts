@@ -1,7 +1,7 @@
 /**
  * The fence's pre-flight, run from an ordinary attended pi session on
  * the machine the fence installs to, before it installs: every check in
- * `lib/internal/fence-preflight-checks.ts`, fenced as that session's
+ * `lib/internal/fence/fence-preflight-checks.ts`, fenced as that session's
  * commands would be. Any failure stops the install (ISXEG8, 14 November).
  *
  * It prints a line a check as each ends, then a summary, and answers 0
@@ -26,8 +26,8 @@ import {
 	reportLine,
 	runChecks,
 	summary,
-} from "../lib/internal/fence-preflight.ts";
-import { CHECKS } from "../lib/internal/fence-preflight-checks.ts";
+} from "../lib/internal/fence/fence-preflight.ts";
+import { CHECKS } from "../lib/internal/fence/fence-preflight-checks.ts";
 
 /** The value after `flag` in the arguments, if given. */
 function option(args: readonly string[], flag: string): string | undefined {

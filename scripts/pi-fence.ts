@@ -1,7 +1,7 @@
 /**
  * pi-fence: runs one command in pi's fence for a caller outside pi, such
  * as the mycelium node starting an agent's `mycelium run` through its
- * declared `runs` prefix (lib/internal/fence-run.ts says the whole of it):
+ * declared `runs` prefix (lib/internal/fence/fence-run.ts says the whole of it):
  *
  *   node scripts/pi-fence.ts --kind fence|strict [--folder DIR] -- PROGRAM [ARGUMENT...]
  *   node scripts/pi-fence.ts census [--proc DIR]
@@ -13,7 +13,7 @@
  * asked wrongly. `--help` says how to ask it, on stdout.
  *
  * The census judges every live session on the machine, in every realm,
- * by its commands' processes (lib/internal/fence-census.ts), says so on
+ * by its commands' processes (lib/internal/fence/fence-census.ts), says so on
  * stdout, and exits 1 unless each was seen fenced: when one runs
  * unfenced, when a claimed one wasn't seen fenced in the last day, when
  * there is none, or when /proc can't be read. When it saw each session
@@ -26,7 +26,7 @@ import {
 	FENCE_RUN_HELP,
 	fenceRunAsked,
 	fenceRunText,
-} from "../lib/internal/fence-run.ts";
+} from "../lib/internal/fence/fence-run.ts";
 
 /** The status a refusal exits with, as a shell's for a command it can't run. */
 const REFUSED = 126;
@@ -50,13 +50,13 @@ if ("census" in asked) {
 	// Loaded only here: the census reaches packages, and core runs the
 	// fence's run path with no node_modules (tests/scripts/pi-fence.test.ts).
 	// A census that can't load is refused, never read as an unfenced session.
-	const loaded = await import("../lib/internal/fence-census-here.ts").catch(
-		(error: unknown) => {
-			const why = error instanceof Error ? error.message : String(error);
-			process.stderr.write(`pi-fence: the census couldn't load: ${why}\n`);
-			return process.exit(REFUSED);
-		},
-	);
+	const loaded = await import(
+		"../lib/internal/fence/fence-census-here.ts"
+	).catch((error: unknown) => {
+		const why = error instanceof Error ? error.message : String(error);
+		process.stderr.write(`pi-fence: the census couldn't load: ${why}\n`);
+		return process.exit(REFUSED);
+	});
 	process.exit(
 		loaded.censusHere(asked.census, (text) => process.stdout.write(text)),
 	);

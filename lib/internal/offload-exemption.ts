@@ -1,8 +1,8 @@
 /**
  * The agent fence's one exemption: a `nix-offload there` call, alone and
  * of plain words, run outside the fence, since its ssh logs in to the
- * lent builders with a key the fence hides (`HIDDEN` in `fence.ts`), to
- * builders whose host keys are new each time. What may go out, and the
+ * lent builders with a key the fence hides (`HIDDEN` in `fence/fence.ts`),
+ * to builders whose host keys are new each time. What may go out, and the
  * environment and git it is given there, is decided here.
  *
  * Only what reads nothing a fenced command chose goes out: derivations
@@ -32,7 +32,7 @@
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { quoted } from "./sandbox-shell.ts";
+import { quoted } from "./sandbox/sandbox-shell.ts";
 
 /**
  * nix-offload, run outside the fence until the SSH agent's proxy lets

@@ -345,7 +345,7 @@ export function stepOf(command: string): string {
  * Each step of a command that runs heavy work, in order, as written,
  * with its kind. The queue gives the whole command one turn, as the
  * heaviest of these, so a VM step beside a build makes the build hold a
- * VM slot (shell-habits.ts refuses that).
+ * VM slot (shell/shell-habits.ts refuses that).
  */
 export function heavySteps(
 	command: string,

@@ -24,7 +24,7 @@ import type { Refusal } from "../../../lib/internal/fence-log.ts";
 import {
 	fileToolRefusal,
 	toolPaths,
-} from "../../../lib/internal/sandbox-files.ts";
+} from "../../../lib/internal/sandbox/sandbox-files.ts";
 import { offerShellEnvironment } from "../../../lib/internal/shell/environment.ts";
 import {
 	cutTreeDir,

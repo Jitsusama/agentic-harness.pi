@@ -22,7 +22,7 @@ import {
 	refreshStart,
 } from "../../../lib/core/work/fresh-start.ts";
 import type { WorkHistory } from "../../../lib/core/work/history.ts";
-import { sessionGateDeps } from "../../../lib/internal/gate/session-deps.ts";
+import { sessionGateDeps } from "../../../lib/internal/guardian/session-deps.ts";
 import { sayDid } from "../../../lib/internal/session/events.ts";
 import { repositoryKey } from "../../../lib/mesh/scope.ts";
 import { count } from "../../../lib/ui/count.ts";

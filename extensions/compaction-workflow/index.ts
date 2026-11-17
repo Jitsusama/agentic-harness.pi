@@ -107,9 +107,9 @@ import {
 	idleCompactionPays,
 } from "../../lib/compaction/trigger.ts";
 import { cachePrices } from "../../lib/internal/cache-prices.ts";
+import { whileCurrent } from "../../lib/internal/errors/stale.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
-import { whileCurrent } from "../../lib/internal/stale.ts";
 import { conversationProvider } from "./conversation.ts";
 import { registerFirstHead } from "./head.ts";
 import { registerCompactionHost } from "./host.ts";

@@ -18,12 +18,12 @@ import type {
 	CommandGuardian,
 	GuardianResult,
 } from "../../lib/guardian/types.ts";
-import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	type EntityReviewConfig,
 	reviewMarkdownEntity,
 } from "../../lib/internal/guardian/review-entity.ts";
+import { sessionGateDeps } from "../../lib/internal/guardian/session-deps.ts";
 import { isPrCommand, type PrCommand, parsePrCommand } from "./parse.ts";
 
 const PR_SECTION_CONFIG = {

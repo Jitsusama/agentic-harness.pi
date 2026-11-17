@@ -65,15 +65,15 @@ import {
 	isGuardReport,
 	OVERRIDE_HINT,
 } from "../lib/guardian/report.ts";
-import { sessionsDir } from "../lib/internal/paths.ts";
-import { isRecord } from "../lib/internal/record.ts";
-import { UNWOKEN_ENTRY } from "../lib/internal/session/wakers.ts";
 import {
 	backupIndexPath,
 	type FetchLog,
 	readAway,
 	sessionLogs,
-} from "../lib/internal/session-logs.ts";
+} from "../lib/internal/logs/session-logs.ts";
+import { sessionsDir } from "../lib/internal/paths.ts";
+import { isRecord } from "../lib/internal/record.ts";
+import { UNWOKEN_ENTRY } from "../lib/internal/session/wakers.ts";
 import { isoWeek } from "./convention-recurrence.ts";
 
 /** What kind of thing went wrong. */

@@ -24,6 +24,7 @@ import {
 	publishMachineWord,
 	readMachineWord,
 } from "../../../lib/internal/away/machine.ts";
+import type { Notice } from "../../../lib/internal/away/notify.ts";
 import {
 	hold,
 	isAway,
@@ -31,7 +32,6 @@ import {
 	setProgressSource,
 	stoppingFromOutside,
 } from "../../../lib/internal/away/state.ts";
-import type { Notice } from "../../../lib/internal/notify.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	leaveSession,
@@ -53,7 +53,7 @@ import { announceJobHost, type Job } from "../../../lib/jobs/index.ts";
 const desktop = vi.hoisted(() => [] as Notice[]);
 /** Whether the desktop has stopped answering, as while a reboot stops it. */
 const silence = vi.hoisted(() => ({ on: false }));
-vi.mock("../../../lib/internal/notify.ts", () => ({
+vi.mock("../../../lib/internal/away/notify.ts", () => ({
 	notify: async (notice: Notice) => {
 		desktop.push(notice);
 		return { id: desktop.length };

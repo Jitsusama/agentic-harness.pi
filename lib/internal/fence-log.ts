@@ -22,7 +22,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { quoted } from "./sandbox-shell.ts";
+import { quoted } from "./sandbox/sandbox-shell.ts";
 import { systemProgram } from "./system-program.ts";
 
 /** The identifier every refusal's line carries in the system's log. */
@@ -31,15 +31,17 @@ export const FENCE_LOG_TAG = "pi-fence";
 /**
  * What a refusal kept from the agent, as a kind, never the thing: a
  * `plant` is a name made in a shared git folder that would send git
- * outside the fence elsewhere (`fence-git-root.ts`); `packed-refs` is a
- * git command the read-only shared git folder failed, counted to see how
- * often agents meet it (`fence-git-route.ts`); `unheld-tree` is git
+ * outside the fence elsewhere (`fence/fence-git-root.ts`); `packed-refs`
+ * is a git command the read-only shared git folder failed, counted to see
+ * how often agents meet it (`fence/fence-git-route.ts`); `unheld-tree` is
+ * git
  * refused a tree's own git folder, in a tree the session doesn't hold;
  * `signing` is git that couldn't sign, the signing agent being outside;
  * `delta` is git that couldn't get World's Delta credential; `keep` is
  * a build whose pass couldn't be kept, and `read-only` a write outside
- * what the session holds (`fence-route.ts`); `direnv` is an `.envrc`
- * direnv wouldn't run or couldn't approve (`fence-direnv.ts`).
+ * what the session holds (`fence/fence-route.ts`); `direnv` is an
+ * `.envrc` direnv wouldn't run or couldn't approve
+ * (`fence/fence-direnv.ts`).
  */
 export type RefusedKind =
 	| "path"

@@ -9,7 +9,7 @@ import {
 	compactionsOn,
 	type StatusSection,
 } from "../../lib/compaction/status.ts";
-import { RECALL_TOOL } from "../../lib/internal/recall/session.ts";
+import { RECALL_TOOL } from "../../lib/internal/logs/recall.ts";
 
 /** Recall's section sits after the selection's. */
 export const RECALL_ORDER = 30;
