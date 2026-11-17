@@ -6,8 +6,13 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { resolveReference } from "../../../lib/core/review/index.ts";
 import {
+	heldBy,
+	type Look,
 	type LookResolution,
+	looksDue,
 	looksIn,
+	looksListed,
+	type Pointer,
 	resolveLooks,
 	resolveLooksOfQuests,
 } from "../../../lib/mesh/looks.ts";
@@ -24,7 +29,7 @@ import {
 	type HostedState,
 	resolutionsElsewhere,
 } from "../../../lib/mesh/looks-hosted.ts";
-import { expiredText } from "../looks-clock.ts";
+import { expiredText, keepLooks } from "../looks-clock.ts";
 
 /** How often a session looks whether it's its turn to ask GitHub about looks. */
 export const LOOKS_CHECK_MS = 60_000;
@@ -43,9 +48,10 @@ export async function askAboutLooks(
 	pi: Pick<ExtensionAPI, "exec">,
 	dir: string,
 	session: string,
+	listed?: readonly Look[],
 ): Promise<void> {
 	try {
-		const looks = looksIn(dir);
+		const looks = listed ?? looksIn(dir);
 		const now = Date.now();
 		const asked = askable(looks);
 		const elsewhere = askableElsewhere(looks, Math.floor(now / ASK_EVERY_MS));
@@ -133,6 +139,31 @@ export function tellLooksExpired(
 		{ customType: LOOKS_EXPIRED, content, display: true },
 		{ triggerTurn: false },
 	);
+}
+
+/**
+ * One tick of the looks clock for `owner`, a session and its quest: the
+ * looks of ended quests resolve, their hosts are asked about the
+ * changes the rest point at, and what was seen or is past its time
+ * leaves, the agent told what expired. The list is read once off the
+ * thread, since a host runs every conversation's clock on one, and a
+ * step reads it again, at once, only when it has something to write,
+ * so it never writes over what another session changed meanwhile.
+ * Whether a look's quest ended is still read on the thread: a stat of
+ * its README each tick, kept parsed while it stands.
+ */
+export async function keepLooksFor(
+	pi: Pick<ExtensionAPI, "exec" | "sendMessage">,
+	dir: string,
+	owner: Pointer,
+	ended: (quest: string) => boolean,
+): Promise<void> {
+	const looks = await looksListed(dir);
+	const due = looksDue(looks, (look) => heldBy(look, owner), ended);
+	if (due.ended) endLooksOfQuests(dir, ended);
+	// What ended quests left is read again rather than asked about.
+	void askAboutLooks(pi, dir, owner.session, due.ended ? undefined : looks);
+	if (due.seen || due.expired) tellLooksExpired(pi, keepLooks(dir, owner));
 }
 
 /**

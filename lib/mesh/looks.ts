@@ -44,6 +44,7 @@
 
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeWhole } from "../internal/write-whole.ts";
 
@@ -454,13 +455,7 @@ export function expireLooks(
 	owns: (look: Look) => boolean,
 	now: Date = new Date(),
 ): Look[] {
-	const due = looksIn(dir).filter(
-		(one) =>
-			stands(one) &&
-			one.expiresAt !== undefined &&
-			Date.parse(one.expiresAt) <= now.getTime() &&
-			owns(one),
-	);
+	const due = looksIn(dir).filter((one) => isDue(one, owns, now));
 	return due.map((one) => {
 		const expired: Look = {
 			...one,
@@ -478,9 +473,7 @@ export function expireLooks(
  * look kept before looks said whether they ask stays, as asking.
  */
 export function leaveSeenLooks(dir: string, now: Date = new Date()): number {
-	const seen = looksIn(dir).filter(
-		(one) => one.state === "opened" && one.asks === false,
-	);
+	const seen = looksIn(dir).filter(isSeen);
 	for (const one of seen) markResolvedLook(dir, one, "seen", now);
 	return seen.length;
 }
@@ -497,8 +490,7 @@ export function resolveLooksOfQuests(
 ): number {
 	let marked = 0;
 	for (const look of looksIn(dir)) {
-		if (!stands(look) || look.quest === undefined) continue;
-		if (!ended(look.quest)) continue;
+		if (!isOfEnded(look, ended)) continue;
 		markResolvedLook(dir, look, "its quest ended", now);
 		marked++;
 	}
@@ -563,17 +555,105 @@ export function looksIn(dir: string): Look[] {
 		// No folder yet is no looks yet.
 		return [];
 	}
-	return names
-		.flatMap((name) => {
+	return newestFirst(
+		names.map((name) => {
 			try {
-				const value: unknown = JSON.parse(
-					readFileSync(join(dir, name), "utf8"),
-				);
-				return isLook(value) ? [value] : [];
+				return lookFrom(readFileSync(join(dir, name), "utf8"));
 			} catch {
 				// A file being replaced is read on the next look.
-				return [];
+				return undefined;
 			}
-		})
+		}),
+	);
+}
+
+/**
+ * Every look in `dir` as `looksIn` answers them, read off the thread,
+ * for the looks clock: a host runs every conversation's on one thread,
+ * and a disk that stalls holds them all for as long as a synchronous
+ * read waits.
+ */
+export async function looksListed(dir: string): Promise<Look[]> {
+	let names: string[];
+	try {
+		names = (await readdir(dir)).filter((name) => name.endsWith(".json"));
+	} catch {
+		// No folder yet is no looks yet.
+		return [];
+	}
+	const read = await Promise.all(
+		names.map((name) =>
+			readFile(join(dir, name), "utf8").then(lookFrom, () => {
+				// A file being replaced is read on the next look.
+				return undefined;
+			}),
+		),
+	);
+	return newestFirst(read);
+}
+
+/** The look a file's `raw` text holds, or none when it holds none. */
+function lookFrom(raw: string): Look | undefined {
+	try {
+		const value: unknown = JSON.parse(raw);
+		return isLook(value) ? value : undefined;
+	} catch {
+		// Torn as it was replaced: it is read whole on the next look.
+		return undefined;
+	}
+}
+
+/** The looks read, newest first. */
+function newestFirst(read: (Look | undefined)[]): Look[] {
+	return read
+		.filter((look): look is Look => look !== undefined)
 		.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+}
+
+/** Which of the looks clock's steps have something to do. */
+export interface LooksDue {
+	/** Some look was opened and asks nothing back: `leaveSeenLooks`. */
+	readonly seen: boolean;
+	/** Some look `owns` holds is past its time: `expireLooks`. */
+	readonly expired: boolean;
+	/** Some look's quest has ended: `resolveLooksOfQuests`. */
+	readonly ended: boolean;
+}
+
+/**
+ * Which of the looks clock's steps would find something in `looks`, as
+ * each finds it, so a clock that listed them off the thread runs, and
+ * reads the folder again for, only a step with something to write.
+ */
+export function looksDue(
+	looks: readonly Look[],
+	owns: (look: Look) => boolean,
+	ended: (quest: string) => boolean,
+	now: Date = new Date(),
+): LooksDue {
+	return {
+		seen: looks.some(isSeen),
+		expired: looks.some((look) => isDue(look, owns, now)),
+		ended: looks.some((look) => isOfEnded(look, ended)),
+	};
+}
+
+/** Whether `look` was opened and asks nothing back, so it may leave. */
+function isSeen(look: Look): boolean {
+	return look.state === "opened" && look.asks === false;
+}
+
+/** Whether `look` stands past its time and is `owns`'s to expire. */
+function isDue(look: Look, owns: (look: Look) => boolean, now: Date): boolean {
+	return (
+		stands(look) &&
+		look.expiresAt !== undefined &&
+		Date.parse(look.expiresAt) <= now.getTime() &&
+		owns(look)
+	);
+}
+
+/** Whether `look` stands for a quest `ended` says has ended. */
+function isOfEnded(look: Look, ended: (quest: string) => boolean): boolean {
+	return stands(look) && look.quest !== undefined && ended(look.quest);
 }

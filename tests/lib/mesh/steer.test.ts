@@ -6,16 +6,18 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	renameSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	inboxOf,
 	isPersonsTalk,
 	steerFrom,
+	takenSteers,
 	takeSteers,
 	waitingSteers,
 } from "../../../lib/mesh/steer.ts";
@@ -76,6 +78,102 @@ describe("the steer inbox", () => {
 		});
 		expect(readdirSync(inbox).sort()).toEqual(["4-d.json.bad", "5-e.json.bad"]);
 		expect(takeSteers(inbox, "1").bad).toEqual([]);
+	});
+
+	// Every conversation a host holds looks at its inboxes each minute, so
+	// a disk that stalls a synchronous read stalls them all.
+	it("takes as it takes at once, letting the thread turn while it reads", async () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		expect(await takenSteers(inbox, "1"), "made on first look").toEqual({
+			steers: [],
+			bad: [],
+		});
+		put(inbox, "2-b.json", JSON.stringify({ text: "then this", from: "joel" }));
+		put(inbox, "1-a.json", JSON.stringify({ text: " pivot to the disk " }));
+		put(inbox, "4-d.json", "not json");
+		writeFileSync(join(inbox, "3-c.json.tmp"), '{"text": "half');
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		const taken = await takenSteers(inbox, "1");
+
+		expect(turned, "the thread turned while the inbox was read").toBe(true);
+		expect(
+			taken.steers.map((steer) => steer.text),
+			"oldest name first",
+		).toEqual(["pivot to the disk", "then this"]);
+		expect(taken.bad, "what is not a steer set aside").toEqual(["4-d.json"]);
+		expect(readdirSync(inbox).sort(), "only the half-written one left").toEqual(
+			["3-c.json.tmp", "4-d.json.bad"],
+		);
+		expect((await takenSteers(inbox, "2")).steers, "taken once").toEqual([]);
+	});
+
+	// A taker can end while its read waits: a reload, a host's restart,
+	// or its watchdog's kill on the stalled disk the read waits on.
+	it("leaves a steer waiting while its read stalls, never claimed and lost", async () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		put(inbox, "1-a.json", JSON.stringify({ text: "the person's answer" }));
+		let land: (raw: string) => void = () => undefined;
+		const stalled = new Promise<string>((resolve) => {
+			land = resolve;
+		});
+		let reading = false;
+
+		const taking = takenSteers(inbox, "1", () => {
+			reading = true;
+			return stalled;
+		});
+		await vi.waitFor(() => expect(reading, "the read began").toBe(true));
+
+		expect(
+			readdirSync(inbox),
+			"still waiting under its own name while the read stalls",
+		).toEqual(["1-a.json"]);
+		land(JSON.stringify({ text: "the person's answer" }));
+		expect(
+			(await taking).steers.map((steer) => steer.text),
+			"taken once the read lands",
+		).toEqual(["the person's answer"]);
+		expect(readdirSync(inbox), "nothing left behind").toEqual([]);
+	});
+
+	// The council on #1721: a taker stopped while a later read stalled
+	// still claimed what it read after, for a session that had ended.
+	it("claims nothing once its taker stops while a read waits", async () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		put(inbox, "1-a.json", JSON.stringify({ text: "first" }));
+		put(inbox, "2-b.json", JSON.stringify({ text: "second" }));
+		let land: () => void = () => undefined;
+		const stalled = new Promise<void>((resolve) => {
+			land = resolve;
+		});
+		let stopped = false;
+		let reads = 0;
+
+		const taking = takenSteers(
+			inbox,
+			"1",
+			async (path) => {
+				reads += 1;
+				if (reads === 2) await stalled;
+				return readFileSync(path, "utf8");
+			},
+			() => !stopped,
+		);
+		await vi.waitFor(() => expect(reads, "the second read began").toBe(2));
+		stopped = true;
+		land();
+
+		expect((await taking).steers, "none taken for an ended taker").toEqual([]);
+		expect(readdirSync(inbox).sort(), "both still waiting").toEqual([
+			"1-a.json",
+			"2-b.json",
+		]);
 	});
 
 	it("reads only text, at and from, as strings", () => {
@@ -356,15 +454,22 @@ describe("the steer inbox", () => {
 		).toBeUndefined();
 	});
 
-	it("reads what waits without taking it", () => {
+	it("reads what waits without taking it, letting the thread turn", async () => {
 		const inbox = inboxOf(root, "P9R1KI");
 		takeSteers(inbox, "1");
 		put(inbox, "1-a.json", JSON.stringify({ act: "carry", to: "penelope" }));
 		put(inbox, "2-b.json", "not json");
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
 
-		expect(waitingSteers(inbox).map((one) => one.act)).toEqual(["carry"]);
+		const waiting = await waitingSteers(inbox);
+
+		expect(turned, "the thread turned while the inbox was read").toBe(true);
+		expect(waiting.map((one) => one.act)).toEqual(["carry"]);
 		expect(readdirSync(inbox).sort()).toEqual(["1-a.json", "2-b.json"]);
-		expect(waitingSteers(inboxOf(root, "NOBODY"))).toEqual([]);
+		expect(await waitingSteers(inboxOf(root, "NOBODY"))).toEqual([]);
 	});
 
 	it("leaves a talk's replies folder in the inbox alone", () => {

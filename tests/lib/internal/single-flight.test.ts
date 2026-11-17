@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { loadOnce, singleFlight } from "../../../lib/internal/single-flight.ts";
+import {
+	coalescing,
+	loadOnce,
+	singleFlight,
+} from "../../../lib/internal/single-flight.ts";
 
 /** A start whose answer the test hands over when it chooses. */
 function pending<V>() {
@@ -129,5 +133,101 @@ describe("loadOnce", () => {
 		module.resolve("offer");
 		expect(await retry, "the module from the second load").toBe("offer");
 		expect(module.starts(), "a second load after the failure").toBe(2);
+	});
+});
+
+/** A promise and the hand that settles it, for work a test lets end. */
+function held(): { done: Promise<void>; end: () => void; fail: () => void } {
+	let end = (): void => undefined;
+	let fail = (): void => undefined;
+	const done = new Promise<void>((resolve, reject) => {
+		end = resolve;
+		fail = () => reject(new Error("the disk went away"));
+	});
+	return { done, end, fail };
+}
+
+// A steer watcher's ask can't be passed over the way a clock's tick is,
+// or what arrived during a take would wait for the next minute.
+describe("coalescing", () => {
+	it("runs once more after it ends, however many asks came while it ran", async () => {
+		const runs: ReturnType<typeof held>[] = [];
+		const take = coalescing(() => {
+			const one = held();
+			runs.push(one);
+			return one.done;
+		});
+
+		const first = take();
+		const asks = [take(), take(), take()];
+		expect(runs, "none ran beside the first").toHaveLength(1);
+
+		runs[0]?.end();
+		await first;
+		await Promise.resolve();
+		expect(runs, "one more run for every ask that came meanwhile").toHaveLength(
+			2,
+		);
+		runs[1]?.end();
+		await Promise.all(asks);
+		expect(runs, "and no more").toHaveLength(2);
+	});
+
+	it("answers each ask once the run that covers it has ended", async () => {
+		const runs: ReturnType<typeof held>[] = [];
+		const take = coalescing(() => {
+			const one = held();
+			runs.push(one);
+			return one.done;
+		});
+		let covered = false;
+
+		void take();
+		const later = take().then(() => {
+			covered = true;
+		});
+		runs[0]?.end();
+		await new Promise((settle) => setImmediate(settle));
+		expect(covered, "the run it came during does not cover it").toBe(false);
+
+		runs[1]?.end();
+		await later;
+		expect(covered, "the run after it does").toBe(true);
+	});
+
+	// The council on #1721: a caller whose await of one run asks again
+	// runs between that run's end and the queued run's start.
+	it("never runs beside itself when a caller asks again as its run ends", async () => {
+		let running = 0;
+		let most = 0;
+		const take = coalescing(async () => {
+			running += 1;
+			most = Math.max(most, running);
+			await new Promise((settle) => setImmediate(settle));
+			running -= 1;
+		});
+
+		const again = take().then(() => take());
+		const queued = take();
+		await Promise.all([again, queued]);
+		expect(most, "runs at once").toBe(1);
+	});
+
+	it("runs again after a run that failed, and still answers its asks", async () => {
+		const runs: ReturnType<typeof held>[] = [];
+		const take = coalescing(() => {
+			const one = held();
+			runs.push(one);
+			return one.done;
+		});
+
+		const failing = take();
+		const after = take();
+		runs[0]?.fail();
+		await expect(failing).rejects.toThrow("the disk went away");
+		await new Promise((settle) => setImmediate(settle));
+		expect(runs, "the ask that came meanwhile still runs").toHaveLength(2);
+		runs[1]?.end();
+		await expect(after).resolves.toBeUndefined();
 	});
 });

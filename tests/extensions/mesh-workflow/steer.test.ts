@@ -3,14 +3,22 @@
  * came from, or a machine's, saying they aren't the person's.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	ANSWER_GONE,
 	answerLookSteered,
 	answerSteered,
+	createSteering,
 	LOOK_GONE,
 	steerDelivery,
 	steerText,
@@ -23,7 +31,7 @@ import {
 	wantId,
 } from "../../../lib/internal/session/wants.ts";
 import { looksIn, pointAt } from "../../../lib/mesh/looks.ts";
-import type { Steer } from "../../../lib/mesh/steer.ts";
+import { inboxOf, type Steer } from "../../../lib/mesh/steer.ts";
 
 const AT = new Date("2026-11-12T06:00:00.000Z");
 const WANT = wantId("question", AT.toISOString());
@@ -245,5 +253,127 @@ describe("a steer as the session reads it", () => {
 		expect(said).toMatch(
 			/^\[Said by this machine's nix-offload, not by the person/,
 		);
+	});
+});
+
+describe("steering", () => {
+	let root: string;
+	afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+	// Its clock and its folder watcher both take, and a take read off the
+	// thread can still be reading when the other asks.
+	it("delivers each steer once, oldest first, when two looks come at once", async () => {
+		root = mkdtempSync(join(tmpdir(), "steering-"));
+		const delivered: string[] = [];
+		const steering = createSteering({
+			root,
+			addresses: () => ["P9R1KI"],
+			deliver: (steer) => delivered.push(steer.text),
+			setAside: () => undefined,
+		});
+		await steering.look();
+		const inbox = inboxOf(root, "P9R1KI");
+		// As the launcher writes: a temporary name, renamed in.
+		for (const n of [3, 1, 2]) {
+			const name = join(inbox, `${n}-a.json`);
+			writeFileSync(`${name}.tmp`, JSON.stringify({ text: `steer ${n}` }));
+			renameSync(`${name}.tmp`, name);
+		}
+
+		await Promise.all([steering.look(), steering.look(), steering.look()]);
+		steering.stop();
+
+		expect(delivered, "each once, by name").toEqual([
+			"steer 1",
+			"steer 2",
+			"steer 3",
+		]);
+	});
+
+	// The council on #1721: a watch still starting was left watching an
+	// inbox the next look had let go.
+	it("watches no inbox a later look let go while its watch was starting", async () => {
+		root = mkdtempSync(join(tmpdir(), "steering-"));
+		const delivered: string[] = [];
+		const held = { addresses: ["P9R1KI"] };
+		const steering = createSteering({
+			root,
+			addresses: () => held.addresses,
+			deliver: (steer) => delivered.push(steer.text),
+			setAside: () => undefined,
+		});
+		const first = steering.look();
+		held.addresses = [];
+		await steering.look();
+		await first;
+		const name = join(inboxOf(root, "P9R1KI"), "1-a.json");
+		writeFileSync(`${name}.tmp`, JSON.stringify({ text: "for another" }));
+		renameSync(`${name}.tmp`, name);
+		// Long enough for a watcher, were one left, to hear it and take it.
+		await new Promise((done) => setTimeout(done, 300));
+		steering.stop();
+		expect(delivered, "none taken for an address let go").toEqual([]);
+	});
+
+	// The council on #1721: a look's take still reading claimed for an
+	// inbox a later look let go, which another session may hold by then.
+	it("claims nothing waiting in an inbox a later look let go", async () => {
+		root = mkdtempSync(join(tmpdir(), "steering-"));
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		writeFileSync(join(inbox, "1-a.json"), JSON.stringify({ text: "waiting" }));
+		const delivered: string[] = [];
+		const held = { addresses: ["P9R1KI"] };
+		const steering = createSteering({
+			root,
+			addresses: () => held.addresses,
+			deliver: (steer) => delivered.push(steer.text),
+			setAside: () => undefined,
+		});
+		const first = steering.look();
+		held.addresses = [];
+		await steering.look();
+		await first;
+		steering.stop();
+		expect(delivered, "left for the address's new holder").toEqual([]);
+		expect(readdirSync(inbox), "still waiting in the inbox").toEqual([
+			"1-a.json",
+		]);
+	});
+
+	// The councils on #1721: every steer is claimed before any is delivered,
+	// so one delivery that threw lost every steer after it; and rethrown, it
+	// left the inbox unwatched and held back the minute's wakes.
+	it("delivers the rest when one delivery throws, says so, and keeps watching", async () => {
+		root = mkdtempSync(join(tmpdir(), "steering-"));
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		writeFileSync(join(inbox, "1-a.json"), JSON.stringify({ text: "first" }));
+		writeFileSync(join(inbox, "2-b.json"), JSON.stringify({ text: "second" }));
+		writeFileSync(join(inbox, "3-c.json"), "not json");
+		const delivered: string[] = [];
+		const lost: string[] = [];
+		const aside: string[] = [];
+		const steering = createSteering({
+			root,
+			addresses: () => ["P9R1KI"],
+			deliver: (steer) => {
+				if (steer.text === "first") throw new Error("a session gone stale");
+				delivered.push(steer.text);
+			},
+			setAside: (_inbox, names) => aside.push(...names),
+			undelivered: (steer) => lost.push(steer.file),
+		});
+		await steering.look();
+		expect(delivered, "the steer after the one that threw").toEqual(["second"]);
+		expect(lost, "the one that threw, said").toEqual(["1-a.json"]);
+		expect(aside, "what is not a steer, set aside still").toEqual(["3-c.json"]);
+		const name = join(inbox, "4-d.json");
+		writeFileSync(`${name}.tmp`, JSON.stringify({ text: "after" }));
+		renameSync(`${name}.tmp`, name);
+		await vi.waitFor(() =>
+			expect(delivered, "taken by the inbox's watch").toContain("after"),
+		);
+		steering.stop();
 	});
 });

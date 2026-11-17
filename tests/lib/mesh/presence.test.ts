@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installHost } from "../../../lib/core/session/index.ts";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
@@ -175,6 +176,51 @@ describe("presences", () => {
 		rmSync(path);
 		expect(presences.all(), "a removed file is gone").toEqual([]);
 		expect(presences.of("s-1")).toBeUndefined();
+	});
+
+	// A clock lists them in every conversation a host holds, and a disk
+	// stalled at 09:14 on 16 November held a host's thread 5 to 17 s at a
+	// time inside a synchronous listing.
+	it("list every peer as all() does, letting the thread turn while they are read", async () => {
+		const presences = createPresences(root);
+		presences.publish(presence());
+		presences.publish(presence({ session: "s-2", addresses: ["B"] }));
+		writeFileSync(join(root, "torn.json"), "{", "utf8");
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		const listed = await presences.listed();
+
+		expect(turned, "the thread turned while the folder was read").toBe(true);
+		expect(
+			listed.map((one) => one.session).sort(),
+			"the torn file passed over",
+		).toEqual(["s-1", "s-2"]);
+		expect(listed, "what all() lists").toEqual(presences.all());
+	});
+
+	it("keep one parse of a file between a listing and all()", async () => {
+		const presences = createPresences(root);
+		presences.publish(presence());
+		const first = (await presences.listed())[0];
+		expect(presences.all()[0], "all() keeps the listing's parse").toBe(first);
+		expect((await presences.listed())[0], "a listing keeps all()'s parse").toBe(
+			first,
+		);
+
+		presences.publish(presence({ busy: true }));
+		expect((await presences.listed())[0]?.busy, "a publish is read").toBe(true);
+		rmSync(join(root, "s-1.json"));
+		expect(await presences.listed(), "a removed file is gone").toEqual([]);
+		expect(presences.of("s-1")).toBeUndefined();
+	});
+
+	it("list none for a folder not made yet", async () => {
+		await expect(
+			createPresences(join(root, "never")).listed(),
+		).resolves.toEqual([]);
 	});
 
 	it("say why a parked peer's host refused its last wake, reading it again only once it changed", () => {
@@ -1302,5 +1348,77 @@ describe("a presence's landings, read back", () => {
 		);
 
 		expect(createPresences(root).of("s-1")).not.toHaveProperty("landings");
+	});
+});
+
+describe("presences on a host", () => {
+	let uninstall: (() => void) | undefined;
+
+	beforeEach(() => {
+		uninstall = installHost({
+			kind: "pi-durable",
+			key: "presence-host",
+			owner: { pid: 101, startedAt: 1000, bootId: "boot", startTicks: 10 },
+			holds: () => "idle",
+			env: () => {
+				throw new Error("Presence tests do not consume host env");
+			},
+			hints: () => ({}),
+			close: () => {},
+			stamp: () => {},
+		});
+	});
+
+	afterEach(() => {
+		uninstall?.();
+	});
+
+	it("show a conversation's own publish and forget at once", () => {
+		const presences = createPresences(root);
+		expect(presences.all(), "none published yet").toEqual([]);
+
+		presences.publish(presence());
+		expect(presences.of("s-1"), "its own publish").toEqual(presence());
+		expect(
+			createPresences(root).all(),
+			"another conversation of the host sees it",
+		).toEqual([presence()]);
+
+		presences.forget("s-1");
+		expect(presences.of("s-1"), "its own forget").toBeUndefined();
+	});
+
+	it("see another process's publish within 2 s, never reading on the caller's turn", async () => {
+		const presences = createPresences(root);
+		expect(presences.all(), "the first ask reads at once").toEqual([]);
+
+		writeFileSync(
+			join(root, "s-2.json"),
+			JSON.stringify(presence({ session: "s-2" })),
+		);
+		expect(presences.all(), "the mirror answers, not the disk").toEqual([]);
+
+		await vi.waitFor(
+			() =>
+				expect(presences.of("s-2")?.session, "another's publish is read").toBe(
+					"s-2",
+				),
+			{ timeout: 2000 },
+		);
+	});
+
+	it("answer the first ask from the disk, never empty", () => {
+		mkdirSync(root, { recursive: true });
+		writeFileSync(
+			join(root, "s-3.json"),
+			JSON.stringify(presence({ session: "s-3" })),
+		);
+
+		expect(
+			createPresences(root)
+				.all()
+				.map((one) => one.session),
+			"a peer published before the host first asked",
+		).toEqual(["s-3"]);
 	});
 });

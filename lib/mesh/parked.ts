@@ -132,20 +132,21 @@ export function holderSteers(
  * holds a steer that wakes it ({@link steerWakes}) to wake it, the
  * steer's file named as why;
  * answers the sessions asked for. The steer stays where it is, for the
- * peer to take as it starts.
+ * peer to take as it starts. Each inbox is read off the thread.
  */
-export function wakeSteered(
+export async function wakeSteered(
 	everyone: readonly Presence[],
 	root: string,
 	isParked: (session: string) => boolean,
 	askWake: (session: string, why: string) => void,
-): string[] {
+): Promise<string[]> {
 	const woken: string[] = [];
 	for (const one of everyone) {
 		if (!saysParked(one) || !isParked(one.session)) continue;
-		const waking = one.addresses
-			.flatMap((address) => waitingSteers(inboxOf(root, address)))
-			.find(steerWakes);
+		const inboxes = await Promise.all(
+			one.addresses.map((address) => waitingSteers(inboxOf(root, address))),
+		);
+		const waking = inboxes.flat().find(steerWakes);
 		if (waking === undefined) continue;
 		try {
 			askWake(one.session, `steer-${waking.file}`);
@@ -217,9 +218,13 @@ export function watchWakingSteers(options: {
 	let closed = false;
 	let rootWatch: FSWatcher | undefined;
 
-	function look(address: string): void {
+	// Read off the thread; what was asked for is checked once the read
+	// is back, so two looks that overlap still wake for a steer once.
+	async function look(address: string): Promise<void> {
 		if (closed) return;
-		const fresh = waitingSteers(inboxOf(root, address)).filter(
+		const waiting = await waitingSteers(inboxOf(root, address));
+		if (closed) return;
+		const fresh = waiting.filter(
 			(steer) => steerWakes(steer) && !asked.has(steer.file),
 		);
 		const first = fresh[0];
@@ -234,7 +239,7 @@ export function watchWakingSteers(options: {
 		inboxes.delete(address);
 		try {
 			const watcher = watch(inboxOf(root, address), (_, name) => {
-				if (name?.endsWith(READY)) look(address);
+				if (name?.endsWith(READY)) looking(address);
 			});
 			watcher.unref();
 			// A swept inbox ends its watch; the root's watch heeds it made again.
@@ -247,7 +252,11 @@ export function watchWakingSteers(options: {
 			// No inbox yet: the root's watch heeds it once it is made.
 		}
 		// One landing before its watch began.
-		look(address);
+		looking(address);
+	}
+
+	function looking(address: string): void {
+		look(address).catch(report);
 	}
 
 	try {

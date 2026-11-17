@@ -226,6 +226,9 @@ may import from here, and any of it may change without notice.
 - **`file-reads.ts`**: what each file in a folder said when the
   process last read it, asked again only once the file changes, so a
   ledger asked at every conversation's start reads only what moved.
+- **`folder-mirror.ts`**: a folder's files and their parses, kept for a
+  host's synchronous readers and read again off the thread each second
+  while asked, so a stalled disk holds none of its conversations.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.
@@ -282,8 +285,9 @@ may import from here, and any of it may change without notice.
   forbid (output cut with tail, long sleeps, git stash), as
   `shell-habit-interceptor` catches them.
 - **`single-flight.ts`**: one flight per key, which later callers
-  join, and `loadOnce`, through which every lazy import loads its
-  module once.
+  join; work that coalesces, running once more after the run going
+  for every call that came during it; and `loadOnce`, through which
+  every lazy import loads its module once.
 - **`spend-watch.ts`**: the bill for a period, asked of spend-watch's
   command line where it is installed, for the spend tool.
 - **`spend-watch-budgets.ts`**: where every budget stands, its
@@ -291,6 +295,9 @@ may import from here, and any of it may change without notice.
   asked of `spend-watch budgets --json`, for the footer and `/budget`.
 - **`stale.ts`**: telling pi's stale-context error, after a reload
   or session switch, from any other.
+- **`stamped-read.ts`**: a file's parse kept while its inode, mtime
+  and size say it is the same file, read on the thread or off it, for
+  the mesh's presence listings.
 - **`state.ts`**: persisting an extension's state across sessions
   and restoring it.
 - **`system-program.ts`**: finding a program that runs outside the

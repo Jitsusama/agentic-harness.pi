@@ -249,7 +249,9 @@ export function folderTransport(dir: string): Transport {
 			try {
 				for (;;) {
 					for (let read = 0; read < LISTING_BATCH; read++) {
-						const entry = folder.readSync();
+						// Off the thread: a batch read at once waits on the disk
+						// with every conversation the host holds.
+						const entry = await folder.read();
 						if (entry === null) return found.sort();
 						if (isMessageFile(entry.name)) found.push(idOf(entry.name));
 					}

@@ -15,13 +15,15 @@
 import { type FSWatcher, watch } from "node:fs";
 import { withSession } from "../../lib/core/session/index.ts";
 import { answerWant } from "../../lib/internal/session/wants.ts";
+import { coalescing } from "../../lib/internal/single-flight.ts";
 import { answerLook, type Look, looksIn } from "../../lib/mesh/looks.ts";
 import {
 	FROM_MACHINE,
 	FROM_PERSON,
 	inboxOf,
 	type Steer,
-	takeSteers,
+	type Taken,
+	takenSteers,
 } from "../../lib/mesh/steer.ts";
 
 /** What steering needs from the session it delivers to. */
@@ -34,63 +36,121 @@ export interface SteeringHost {
 	readonly deliver: (steer: Steer, inbox: string) => void;
 	/** Says on screen that a file was set aside, and which. */
 	readonly setAside: (inbox: string, names: readonly string[]) => void;
+	/**
+	 * Says, where it can, that a steer taken off its inbox could not be
+	 * delivered: it is claimed already, so this is the trace it leaves.
+	 */
+	readonly undelivered?: (steer: Steer, inbox: string) => void;
 }
 
 /** Steering for one session, until it is stopped. */
 export interface Steering {
 	/** Settles the inboxes watched, and takes what waits in each. */
-	look(): void;
+	look(): Promise<void>;
 	stop(): void;
 }
 
-/** Starts steering: nothing is watched or taken until the first look. */
+/**
+ * Starts steering: nothing is watched or taken until the first look.
+ *
+ * Each inbox is read off the thread, since a host runs every
+ * conversation's look on one thread and a stalled disk would hold them
+ * all. An inbox's takes never run beside each other, so steers arrive
+ * in the order they were written: an ask while one reads runs once more
+ * after it, rather than being passed over, so what arrived meanwhile
+ * is read at once rather than at the next look.
+ */
 export function createSteering(host: SteeringHost): Steering {
 	const watching = new Map<string, FSWatcher>();
+	const starting = new Set<string>();
+	const takers = new Map<string, () => Promise<void>>();
 	const taker = `${process.pid}`;
+	let stopped = false;
+	// The inboxes the last settle named, so a watch still starting for one
+	// let go meanwhile isn't left watching it.
+	let wanted = new Set<string>();
 
-	const take = (inbox: string) => {
-		let taken: ReturnType<typeof takeSteers>;
-		try {
-			taken = takeSteers(inbox, taker);
-		} catch {
-			// An inbox that cannot be read now is read at the next look.
-			return;
+	const take = (inbox: string): Promise<void> => {
+		let takes = takers.get(inbox);
+		if (takes === undefined) {
+			takes = coalescing(async () => {
+				// Stopped, or the inbox let go, none starts; one already reading
+				// claims nothing, since another session may hold the address now.
+				const still = () => !stopped && wanted.has(inbox);
+				if (!still()) return;
+				let taken: Taken;
+				try {
+					taken = await takenSteers(inbox, taker, undefined, still);
+				} catch {
+					// An inbox that cannot be read now is read at the next look.
+					return;
+				}
+				// Each is claimed already, so one that fails costs none after it,
+				// and the look or watch that took it carries on.
+				for (const steer of taken.steers) {
+					try {
+						host.deliver(steer, inbox);
+					} catch {
+						undelivered(steer, inbox);
+					}
+				}
+				if (taken.bad.length > 0) host.setAside(inbox, taken.bad);
+			});
+			takers.set(inbox, takes);
 		}
-		for (const steer of taken.steers) host.deliver(steer, inbox);
-		if (taken.bad.length > 0) host.setAside(inbox, taken.bad);
+		return takes();
 	};
 
-	const settle = () => {
+	const undelivered = (steer: Steer, inbox: string) => {
+		try {
+			host.undelivered?.(steer, inbox);
+		} catch {
+			// A session gone as its steer arrived has no screen left to say it on.
+		}
+	};
+
+	const watchFrom = async (inbox: string): Promise<void> => {
+		starting.add(inbox);
+		try {
+			// Taking first makes the folder a watcher needs.
+			await take(inbox);
+			if (stopped || !wanted.has(inbox)) return;
+			const watcher = watch(inbox, (_kind, name) => {
+				if (name?.endsWith(".json")) void take(inbox).catch(takenAtNextLook);
+			});
+			watcher.unref?.();
+			watching.set(inbox, watcher);
+		} catch {
+			// Left unwatched, it is still taken at every look.
+		} finally {
+			starting.delete(inbox);
+		}
+	};
+
+	const settle = async (): Promise<Set<string>> => {
 		const now = new Set(
 			host.addresses().map((address) => inboxOf(host.root, address)),
 		);
+		wanted = now;
 		for (const [inbox, watcher] of watching) {
 			if (now.has(inbox)) continue;
 			watcher.close();
 			watching.delete(inbox);
 		}
-		for (const inbox of now) {
-			if (watching.has(inbox)) continue;
-			// Taking first makes the folder a watcher needs.
-			take(inbox);
-			try {
-				const watcher = watch(inbox, (_kind, name) => {
-					if (name?.endsWith(".json")) take(inbox);
-				});
-				watcher.unref?.();
-				watching.set(inbox, watcher);
-			} catch {
-				// Left unwatched, it is still taken at every look.
-			}
-		}
+		await Promise.all(
+			[...now]
+				.filter((inbox) => !watching.has(inbox) && !starting.has(inbox))
+				.map(watchFrom),
+		);
 		return now;
 	};
 
 	return {
-		look() {
-			for (const inbox of settle()) take(inbox);
+		async look() {
+			await Promise.all([...(await settle())].map(take));
 		},
 		stop() {
+			stopped = true;
 			for (const watcher of watching.values()) watcher.close();
 			watching.clear();
 		},
@@ -206,6 +266,11 @@ export function lookAnswerText(look: Look, from?: string): string {
 		look.answer;
 	const asked = look.ask ? ` It asked: ${look.ask}` : "";
 	return `[${asker(from)} answered from outside this window what this session put on their look list, "${look.title}".${asked} They picked: ${label}. Act on it, and take nothing back: the look is already off their list.]`;
+}
+
+/** Nothing, for a look that failed: what still waits, the next one takes. */
+export function takenAtNextLook(): void {
+	// No retry here: the minute's look reads every inbox again.
 }
 
 /** Who a steer's writer reads as: Joel by name, else the person. */

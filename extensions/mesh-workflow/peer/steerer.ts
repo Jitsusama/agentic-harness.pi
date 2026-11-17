@@ -16,6 +16,7 @@ import {
 	LOOK_GONE,
 	steerDelivery,
 	steerText,
+	takenAtNextLook,
 } from "../steer.ts";
 import type { MeshState } from "./mesh.ts";
 
@@ -149,8 +150,18 @@ export function createSteerer(m: MeshState) {
 					"warning",
 				);
 			},
+			undelivered: (one, inbox) => {
+				if (!m.ctx?.hasUI) return;
+				m.ctx.ui.notify(
+					`Talk: ${one.file} in ${inbox} was taken but could not be delivered, so it is gone: send it again.`,
+					"warning",
+				);
+			},
 		});
-		setTimeout(() => m.steering?.look(), FIRST_STEER_MS).unref?.();
+		setTimeout(
+			() => void m.steering?.look().catch(takenAtNextLook),
+			FIRST_STEER_MS,
+		).unref?.();
 	};
 
 	return { steered, answerFromAway, steer };
