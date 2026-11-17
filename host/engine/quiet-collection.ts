@@ -33,7 +33,11 @@
  * One runs again once the heap has fallen within it.
  */
 import { readFileSync } from "node:fs";
-import { getHeapSpaceStatistics, setFlagsFromString } from "node:v8";
+import {
+	getHeapCodeStatistics,
+	getHeapSpaceStatistics,
+	setFlagsFromString,
+} from "node:v8";
 import { runInNewContext } from "node:vm";
 
 /** How long after a viewer's last key or resize the host may pause. */
@@ -277,16 +281,29 @@ interface HeapSpace {
 }
 
 /**
- * V8's heap: what it uses of what it holds, each space it keeps, and the
- * memory V8 holds for JavaScript outside it, with the array buffers among
- * that, all in bytes.
+ * V8's heap: what it uses of what it holds, each space it keeps, the code
+ * it holds, and the memory V8 holds for JavaScript outside it, with the
+ * array buffers among that, all in bytes.
  */
 export interface Heap {
 	readonly used: number;
 	readonly total: number;
 	readonly external: number;
 	readonly arrayBuffers: number;
+	readonly code: HeapCode;
 	readonly spaces: readonly HeapSpace[];
+}
+
+/**
+ * The code V8 holds, in bytes: compiled code and its metadata, bytecode
+ * and its metadata, and the source of every script it keeps. Source that
+ * grows beside compiled code says new source is being compiled; compiled
+ * code growing alone says optimisation.
+ */
+export interface HeapCode {
+	readonly compiled: number;
+	readonly bytecode: number;
+	readonly source: number;
 }
 
 /** This process's V8 heap, read from counters V8 keeps, with no pause. */
@@ -297,12 +314,29 @@ export function processHeap(): Heap {
 		total: heapTotal,
 		external,
 		arrayBuffers,
+		code: heapCode(),
 		spaces: getHeapSpaceStatistics().map((space) => ({
 			name: space.space_name,
 			used: space.space_used_size,
 			size: space.space_size,
 		})),
 	};
+}
+
+/** The code this process's V8 holds, from its counters, with no pause. */
+function heapCode(): HeapCode {
+	const code = getHeapCodeStatistics();
+	return {
+		compiled: code.code_and_metadata_size,
+		bytecode: code.bytecode_and_metadata_size,
+		source: code.external_script_source_size,
+	};
+}
+
+/** The code held, as `code and metadata 18 MB, bytecode 6 MB, script source 25 MB`. */
+function codeSaid(code: HeapCode): string {
+	const megabytes = (bytes: number) => `${Math.round(bytes / MB)} MB`;
+	return `code and metadata ${megabytes(code.compiled)}, bytecode ${megabytes(code.bytecode)}, script source ${megabytes(code.source)}`;
 }
 
 /** Each space of at least a megabyte, as `old 100 of 120 MB`. */
@@ -334,7 +368,7 @@ function collectedLine(
 		`${Math.round(one.used / MB)} of ${megabytes(one.total)}`;
 	const heap =
 		heapAround.before && heapAround.after
-			? `, heap ${held(heapAround.before)} to ${held(heapAround.after)} (${spacesSaid(heapAround.after.spaces)}), outside it ${megabytes(heapAround.before.external)} to ${megabytes(heapAround.after.external)}, of which array buffers ${megabytes(heapAround.before.arrayBuffers)} to ${megabytes(heapAround.after.arrayBuffers)}`
+			? `, heap ${held(heapAround.before)} to ${held(heapAround.after)} (${spacesSaid(heapAround.after.spaces)}; ${codeSaid(heapAround.after.code)}), outside it ${megabytes(heapAround.before.external)} to ${megabytes(heapAround.after.external)}, of which array buffers ${megabytes(heapAround.before.arrayBuffers)} to ${megabytes(heapAround.after.arrayBuffers)}`
 			: "";
 	const quiet = `Collected while quiet in ${took} ms, ${pss}${heap}, with ${reading.waiting} conversations waiting on the model`;
 	const line = working
