@@ -16,6 +16,7 @@ import type {
 	RunPiResult,
 	RunReviewerOptions,
 	RunReviewerResult,
+	WrapUpRequest,
 } from "./run-contract.ts";
 
 /**
@@ -108,7 +109,12 @@ export function wrapUpReserve(
  * when no soft deadline fired, since one that did already proved the
  * reserve was the smaller number.
  */
-function wrapUpBudget(options: RunReviewerOptions): number {
+function wrapUpBudget(
+	options: Pick<
+		RunReviewerOptions,
+		"autoResume" | "wrapUpReserveMs" | "timeoutMs"
+	>,
+): number {
 	const reserve = wrapUpReserve(options) ?? WRAP_UP_TIMEOUT_MS;
 	return Math.min(reserve, options.timeoutMs ?? reserve);
 }
@@ -127,13 +133,22 @@ export const WRAP_UP_SUFFIX = "+wrapup";
 /** The same, for a resume, and for the same reason. */
 export const RESUME_SUFFIX = "+resume";
 
-/** Ask a stopped reviewer to hand over what it already has. */
-export async function dispatchWrapUp(
-	options: RunReviewerOptions,
+/** What a wrap-up is asked and on what clocks, whoever sends it. */
+export function wrapUpAsked(
+	options: Pick<
+		RunReviewerOptions,
+		| "reviewer"
+		| "systemPrompt"
+		| "isolated"
+		| "autoResume"
+		| "wrapUpReserveMs"
+		| "timeoutMs"
+		| "idleTimeoutMs"
+	>,
 	sessionPath: string,
 	extraExtensions: readonly string[],
 	extraSkills: readonly string[],
-): Promise<RunPiResult> {
+): WrapUpRequest {
 	const args = composeArgs({
 		spec: options.reviewer,
 		prompt: WRAP_UP_PROMPT,
@@ -149,15 +164,55 @@ export async function dispatchWrapUp(
 	// silence is not idleness, and a reviewer composing a long answer
 	// goes quiet while it does.
 	const wall = wrapUpBudget(options);
-	const idle = Math.min(options.idleTimeoutMs ?? wall, wall);
-	return options.runPi({
+	return {
+		reviewerId: `${options.reviewer.id}${WRAP_UP_SUFFIX}`,
 		args,
+		timeoutMs: wall,
+		idleTimeoutMs: Math.min(options.idleTimeoutMs ?? wall, wall),
+	};
+}
+
+/**
+ * The wrap-up a reviewer nobody waits for is owed, for its supervisor
+ * to send when a clock stops it. The session it will resume is not
+ * known until then, so the supervisor puts it in place of this one.
+ */
+export function detachedWrapUp(
+	options: Parameters<typeof wrapUpAsked>[0],
+	extraExtensions: readonly string[],
+	extraSkills: readonly string[],
+): WrapUpRequest {
+	return wrapUpAsked(
+		options,
+		SESSION_NOT_YET_KNOWN,
+		extraExtensions,
+		extraSkills,
+	);
+}
+
+/**
+ * Where the session goes in a detached wrap-up's arguments, until the
+ * supervisor knows it. Never empty, or composeArgs would leave out the
+ * `--session` it marks.
+ */
+const SESSION_NOT_YET_KNOWN = "-";
+
+/** Ask a stopped reviewer to hand over what it already has. */
+export async function dispatchWrapUp(
+	options: RunReviewerOptions,
+	sessionPath: string,
+	extraExtensions: readonly string[],
+	extraSkills: readonly string[],
+): Promise<RunPiResult> {
+	const asked = wrapUpAsked(options, sessionPath, extraExtensions, extraSkills);
+	return options.runPi({
+		args: [...asked.args],
 		cwd: options.cwd,
 		...(options.env === undefined ? {} : { env: options.env }),
 		...(options.runId ? { runId: options.runId } : {}),
-		reviewerId: `${options.reviewer.id}${WRAP_UP_SUFFIX}`,
-		timeoutMs: wall,
-		idleTimeoutMs: idle,
+		reviewerId: asked.reviewerId,
+		timeoutMs: asked.timeoutMs,
+		idleTimeoutMs: asked.idleTimeoutMs,
 		signal: options.signal,
 		onEvent: options.onEvent,
 	});

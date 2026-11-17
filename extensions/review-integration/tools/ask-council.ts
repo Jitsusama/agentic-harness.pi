@@ -165,9 +165,11 @@ async function councilRefused(
  * The same roster, prompt, tree and ledger entry a council makes,
  * dispatched and abandoned on purpose. What is given up is worth
  * saying out loud rather than discovering: no progress panel, since
- * nothing is listening; no wrap-up for a reviewer that runs long,
- * since a wrap-up is dispatched by whoever was waiting; and no
- * retry, since a retry substitutes into a round that has finished.
+ * nothing is listening; and no retry, since a retry substitutes into
+ * a round that has finished. A reviewer a clock stops is still asked
+ * for what it had: its own supervisor hands the wrap-up to another,
+ * since nobody is waiting to ask, and a collect holds the round until
+ * that answer is in.
  *
  * What is kept is everything durable. Each reviewer records findings
  * as it goes, its supervisor holds its own watchdogs, and `collect`

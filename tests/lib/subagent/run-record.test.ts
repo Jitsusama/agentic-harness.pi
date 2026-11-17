@@ -196,6 +196,31 @@ describe("a run's record", () => {
 			ended: "2026-11-07T04:10:00.000Z",
 		});
 	});
+
+	it("goes on while a stopped member is asked for what it had", async () => {
+		// A detached reviewer a clock stopped is handed a wrap-up by its
+		// own supervisor, and its answer is still to come: the round is
+		// not done while that spends.
+		keep("slow", "result", {
+			state: "soft-deadline",
+			completedAt: "2026-11-07T04:05:00.000Z",
+		});
+		keep("slow+wrapup", "request", { args: [] });
+
+		const asking = await runRecord(asked(), [{ id: "slow" }], new Date());
+		keep("slow+wrapup", "result", {
+			state: "complete",
+			completedAt: "2026-11-07T04:07:00.000Z",
+		});
+		const told = await runRecord(asked(), [{ id: "slow" }], new Date());
+
+		expect(asking.members[0]).toMatchObject({ state: "running" });
+		expect(asking.state).toBe("running");
+		expect(told.members[0]).toMatchObject({
+			state: "soft-deadline",
+			ended: "2026-11-07T04:05:00.000Z",
+		});
+	});
 });
 
 describe("watching a run", () => {

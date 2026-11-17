@@ -1,5 +1,5 @@
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -133,9 +133,8 @@ describe("starting a reviewer that outlives the session", () => {
 
 		const request = JSON.parse(await readFile(started.requestPath, "utf8"));
 		expect(request.parentPid).toBeUndefined();
-		// And no soft deadline, since a wrap-up needs somebody to ask
-		// for it. Written as the wall clock it would read as configured
-		// while doing nothing.
+		// And no soft deadline when none was asked for. Written as the
+		// wall clock it would read as configured while doing nothing.
 		expect(request.softDeadlineMs).toBeUndefined();
 	});
 
@@ -176,6 +175,131 @@ describe("starting a reviewer that outlives the session", () => {
 
 		expect(started.pid).toBeGreaterThan(0);
 		expect(result.finalAssistantText).toBe("nobody waited");
+	});
+
+	it("asks a reviewer its soft deadline stopped for what it had, with nobody waiting", async () => {
+		// Three detached rounds on a megabyte brief ran every reviewer to
+		// the wall and came back with nothing: a wrap-up was only ever
+		// sent by a parent that was waiting, and nobody was. The
+		// supervisor now sends it, on the session the reviewer left, under
+		// the id a collect already reads and merges.
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		await writeFile(
+			childPath,
+			[
+				'import { writeFileSync } from "node:fs";',
+				"const args = process.argv.slice(2);",
+				"const at = (flag) => args[args.indexOf(flag) + 1];",
+				'if (args.includes("--session")) {',
+				`  process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"what I had, from " + at("--session")}]}})+"\\n");`,
+				"} else {",
+				'  writeFileSync(at("--session-dir") + "/s.jsonl", "{}\\n");',
+				// A reviewer still working when its soft deadline stops it.
+				"  await new Promise((r) => setTimeout(r, 60000));",
+				"}",
+			].join("\n"),
+		);
+		const startPi = createSupervisorStartPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+		});
+
+		await startPi({
+			args: ["--no-session"],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "slow",
+			persistSession: true,
+			timeoutMs: 4000,
+			idleTimeoutMs: 4000,
+			wrapUpReserveMs: 1500,
+			wrapUp: {
+				reviewerId: "slow+wrapup",
+				args: ["--session", "-", "say what you had"],
+				timeoutMs: 1500,
+				idleTimeoutMs: 1500,
+			},
+		});
+
+		const store = new ReviewerArtifactsStore(stateDir);
+		const stopped = await appears<{
+			state: string;
+			artifacts: { sessionPath?: string };
+		}>(store.paths("run", "slow").resultPath);
+		// Handed over before the stop was written down, so a collect
+		// never finds the round free between the two.
+		const handedPath = store.paths("run", "slow+wrapup").requestPath;
+		const handed = JSON.parse(await readFile(handedPath, "utf8"));
+		const handedAt = (await stat(handedPath)).mtimeMs;
+		const stoppedAt = (await stat(store.paths("run", "slow").resultPath))
+			.mtimeMs;
+		const answered = await appears<{ finalAssistantText: string }>(
+			store.paths("run", "slow+wrapup").resultPath,
+		);
+
+		expect(stopped.state).toBe("soft-deadline");
+		expect(
+			handedAt,
+			"the wrap-up was asked for before the stop was written down",
+		).toBeLessThanOrEqual(stoppedAt);
+		expect(handed.softDeadlineMs).toBeUndefined();
+		expect(handed.wrapUp).toBeUndefined();
+		expect(answered.finalAssistantText).toBe(
+			`what I had, from ${stopped.artifacts.sessionPath}`,
+		);
+		// Two supervised runs back to back, each on clocks of seconds,
+		// which a loaded machine stretches past the default 5 s.
+	}, 20_000);
+
+	it("asks nothing of a detached reviewer that finished", async () => {
+		const stateDir = await tempStateDir();
+		const childPath = join(stateDir, "child.mjs");
+		// A reviewer that left a session and finished, so it is the
+		// finish, not a missing session, that asks nothing of it.
+		await writeFile(
+			childPath,
+			[
+				'import { writeFileSync } from "node:fs";',
+				"const args = process.argv.slice(2);",
+				'writeFileSync(args[args.indexOf("--session-dir") + 1] + "/s.jsonl", "{}\\n");',
+				`process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"done"}]}})+"\\n");`,
+				`process.stdout.write(JSON.stringify({type:"agent_end",messages:[]})+"\\n");`,
+			].join("\n"),
+		);
+		const startPi = createSupervisorStartPi({
+			piInstall: { node: process.execPath, entry: childPath },
+			stateDir,
+		});
+
+		await startPi({
+			args: ["--no-session"],
+			cwd: stateDir,
+			runId: "run",
+			reviewerId: "quick",
+			persistSession: true,
+			timeoutMs: 30_000,
+			wrapUp: {
+				reviewerId: "quick+wrapup",
+				args: ["--session", "-", "say what you had"],
+				timeoutMs: 1500,
+				idleTimeoutMs: 1500,
+			},
+		});
+
+		const store = new ReviewerArtifactsStore(stateDir);
+		const finished = await appears<{
+			state: string;
+			artifacts: { sessionPath?: string };
+		}>(store.paths("run", "quick").resultPath);
+		expect(finished.state).toBe("complete");
+		expect(
+			finished.artifacts.sessionPath,
+			"it left a session a wrap-up could have resumed",
+		).toBeDefined();
+		await expect(
+			readFile(store.paths("run", "quick+wrapup").requestPath, "utf8"),
+		).rejects.toThrow();
 	});
 
 	it("stamps its lease the way whoever checks it will read it", async () => {

@@ -33,6 +33,7 @@ import { join } from "node:path";
 import { whyUnusableClock, whyUnusableClocks } from "../clock/index.ts";
 import { ReviewerArtifactsStore } from "./artifacts.ts";
 import {
+	detachedWrapUp,
 	dispatchResume,
 	dispatchWrapUp,
 	mergeResumeOutcome,
@@ -169,11 +170,12 @@ export { extractUsageFromPiStream } from "./stream.ts";
  *
  * The same composition `runReviewer` does, minus everything that only
  * means something to a caller who is waiting: no resume after a
- * transient drop, no wrap-up for a reviewer we stopped, no progress
- * events, no cancellation. Those are not omissions to be filled in
- * later. A detached reviewer has no parent to notice it dropped, so
- * what protects it is the supervisor's own watchdogs and the journal
- * it writes as it goes.
+ * transient drop, no progress events, no cancellation. Those are not
+ * omissions to be filled in later. A detached reviewer has no parent to
+ * notice it dropped, so what protects it is the supervisor's own
+ * watchdogs and the journal it writes as it goes. The wrap-up for a
+ * reviewer a clock stopped is spelled out here and sent by its
+ * supervisor, since nobody else is there to send it.
  */
 export async function startReviewer(
 	options: StartReviewerOptions,
@@ -201,6 +203,7 @@ export async function startReviewer(
 	}
 
 	const { extraExtensions, extraSkills } = reviewerLoadout(options);
+	const reserve = wrapUpReserve(options);
 
 	// Kept in the run's own directory, not a temp file. The waiting path
 	// removes its brief once nobody needs it, which it can tell and this
@@ -243,13 +246,14 @@ export async function startReviewer(
 		...(options.idleTimeoutMs !== undefined
 			? { idleTimeoutMs: options.idleTimeoutMs }
 			: {}),
-		// No reserve, deliberately, and by omission rather than by zero.
-		// The soft deadline buys time for a wrap-up, and a wrap-up is
-		// dispatched by the parent that was waiting. Nobody is, so
-		// reserving would stop the reviewer early and ask it nothing:
-		// strictly less review for the same money. What protects a
-		// detached reviewer instead is the journal it writes as it goes,
-		// which is why that had to exist first.
+		// The reserve and the wrap-up it buys time for, as the waiting
+		// path has them. This once reserved nothing, because only a
+		// waiting parent sent a wrap-up, and three rounds on a megabyte
+		// brief ran to the wall having written nothing down. Its
+		// supervisor now sends it, so the soft deadline asks rather than
+		// takes; switched off, a reviewer the wall stopped is still asked.
+		...(reserve === undefined ? {} : { wrapUpReserveMs: reserve }),
+		wrapUp: detachedWrapUp(options, extraExtensions, extraSkills),
 	});
 }
 

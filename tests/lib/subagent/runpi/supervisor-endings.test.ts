@@ -225,6 +225,8 @@ describe("a child that exits 0 partway through its run", () => {
 	// agent_end carries every message of the run, so on a long one it is
 	// the line most likely to be over the cap and skipped. Small enough to
 	// arrive whole, or large enough to span pipe chunks: two skip paths.
+	// Its kind is all that is read of it, so skipping it is not a loss
+	// worth a warning.
 	it.each([
 		["arrives whole", 4096],
 		["spans chunks", 256 * 1024],
@@ -242,11 +244,40 @@ describe("a child that exits 0 partway through its run", () => {
 				},
 			);
 
-			expect(result.warnings?.join(" ")).toContain("exceeded 1024 bytes");
+			expect(result.warnings?.join(" ") ?? "").not.toContain(
+				"exceeded 1024 bytes",
+			);
 			expect(result.error).toBeUndefined();
 			expect(persisted.state).toBe("complete");
 		},
 	);
+
+	// The prompt comes back as the user's message, and a council's brief
+	// is over the cap: nothing read is lost, so nothing is said of it.
+	it("says nothing of a skipped line that only echoed the prompt", async () => {
+		const asked = (type: string) =>
+			JSON.stringify({
+				type,
+				message: {
+					role: "user",
+					content: [{ type: "text", text: "x".repeat(4096) }],
+				},
+			});
+		const { result, persisted } = await supervise(
+			[
+				asked("message_start"),
+				asked("message_end"),
+				said("the answer"),
+				AGENT_END,
+				AGENT_SETTLED,
+			],
+			{ maxLineBytes: 1024 },
+		);
+
+		expect(result.warnings?.join(" ") ?? "").not.toContain("exceeded");
+		expect(result.finalAssistantText).toBe("the answer");
+		expect(persisted.state).toBe("complete");
+	});
 
 	// A tool result can be over the cap too, and a skipped end is not a
 	// tool still running once the run itself has said it finished.

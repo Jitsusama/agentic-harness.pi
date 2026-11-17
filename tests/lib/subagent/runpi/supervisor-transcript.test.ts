@@ -195,9 +195,38 @@ describe("how a reviewer's run ended", () => {
 
 	it("ended when the line too large to read was its agent_end", () => {
 		const { said } = reading();
-		said.skipped(`{"type":"agent_end","messages":[${"x".repeat(50)}`);
+		const lost = said.skipped(
+			`{"type":"agent_end","messages":[${"x".repeat(50)}`,
+		);
 
 		expect(said.error("complete")).toBeUndefined();
+		expect(lost, "its kind is all that is read of it, so nothing is lost").toBe(
+			false,
+		);
+	});
+
+	it("loses nothing when the line too large to read only echoed what it was asked", () => {
+		// pi echoes the prompt back as the user's message, twice, and a
+		// council's brief runs past a megabyte. Skipping those lines costs
+		// nothing the supervisor reads, so warning about them only put
+		// two lines of noise on every reviewer of every large round.
+		const { said } = reading();
+		const asked = `{"message":{"role":"user","content":[{"type":"text","text":"${"x".repeat(50)}`;
+
+		expect(
+			said.skipped(`{"type":"message_start",${asked.slice(1)}`),
+			"the prompt's echo as a message starts loses nothing",
+		).toBe(false);
+		expect(
+			said.skipped(`{"type":"message_end",${asked.slice(1)}`),
+			"the prompt's echo as a message ends loses nothing",
+		).toBe(false);
+		expect(
+			said.skipped(
+				`{"type":"message_end","message":{"role":"assistant","content":[${"x".repeat(50)}`,
+			),
+			"the reviewer's own answer is a loss",
+		).toBe(true);
 	});
 });
 
