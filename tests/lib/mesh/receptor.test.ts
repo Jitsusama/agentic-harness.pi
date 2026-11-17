@@ -23,7 +23,7 @@ function from(sender: string, id: string, text = SIGNAL): Message {
 		id,
 		at: "2026-11-16T23:00:00.000Z",
 		from: sender,
-		to: ["outside.github"],
+		to: ["#outside/github"],
 		intent: "fyi",
 		text,
 		pid: 1,
@@ -33,7 +33,10 @@ function from(sender: string, id: string, text = SIGNAL): Message {
 /** What a node serves of these messages, as they were written. */
 function serving(...messages: Message[]): ReadonlyMap<string, Said> {
 	return new Map(
-		messages.map((one) => [one.id, { from: one.from, text: one.text }]),
+		messages.map((one) => [
+			one.id,
+			{ from: one.from, text: one.text, at: one.at, intent: "fyi" },
+		]),
 	);
 }
 
@@ -104,6 +107,50 @@ describe("vouchedOnly", () => {
 		);
 		expect(shown, "words the node never said were vouched for").toEqual([]);
 		expect(dropped, "the forged one went unsaid").toEqual(["2-said"]);
+	});
+
+	it("drops a real signal's words in any envelope but a signal's", async () => {
+		const said = from("github@kestrel", "2-said");
+		const envelopes: Message[] = [
+			{ ...said, intent: "question" },
+			{ ...said, to: ["#all"] },
+			{ ...said, to: ["#outside/github", "@WCJQSG"] },
+			{ ...said, re: "1-asked" },
+			{ ...said, supersedes: "1-other" },
+			{ ...said, re: "1-held", endsHold: true },
+			{ ...said, invite: "quest/wcjqsg" },
+			{ ...said, fromRealm: "personal" },
+			{ ...said, at: "2026-11-16T23:59:00.000Z" },
+		];
+		for (const envelope of envelopes) {
+			const shown = await vouchedOnly(
+				[envelope],
+				async () => serving(said),
+				() => undefined,
+				[],
+			);
+			expect(
+				shown,
+				`${JSON.stringify(envelope)} was vouched for in an envelope no signal has`,
+			).toEqual([]);
+		}
+	});
+
+	it("drops one the node holds as asking or answering something", async () => {
+		const said = from("github@kestrel", "2-said");
+		const shown = await vouchedOnly(
+			[said],
+			async () =>
+				new Map([
+					[
+						"2-said",
+						{ from: said.from, text: said.text, at: said.at, re: "1-asked" },
+					],
+				]),
+			() => undefined,
+			[],
+		);
+		expect(shown, "a record no signal could be was vouched for").toEqual([]);
 	});
 
 	it("asks again for one the node serves a moment after it lands", async () => {
@@ -181,6 +228,17 @@ describe("heedingNoReceptor", () => {
 			"1-signal",
 		);
 	});
+
+	it("reads a receptor's name under its file's name, whatever id it says", () => {
+		const copied = from("github@kestrel", "1-signal");
+		const folder = {
+			read: (id: string) => (id === "9-copy" ? copied : undefined),
+		} as Transport;
+		expect(
+			heedingNoReceptor(folder).asWritten("9-copy")?.id,
+			"a copy of a real signal was read under the id it claims",
+		).toBe("9-copy");
+	});
 });
 
 describe("servedFrom", () => {
@@ -188,7 +246,22 @@ describe("servedFrom", () => {
 		const line = JSON.stringify({
 			id: 2,
 			records: [
-				{ key: "message:2-said", from: "github@kestrel", text: SIGNAL },
+				{
+					key: "message:2-said",
+					from: "github@kestrel",
+					text: SIGNAL,
+					at: "2026-11-16T23:00:00.000Z",
+					intent: "fyi",
+					groups: ["outside.github"],
+				},
+				{
+					key: "message:4-answer",
+					from: "OSPR01",
+					text: "done",
+					at: "2026-11-16T23:01:00.000Z",
+					re: "1-asked",
+					endsHold: true,
+				},
 				{ key: "message:3-bare" },
 				{ key: "receptor:github", kind: "receptor" },
 			],
@@ -196,7 +269,27 @@ describe("servedFrom", () => {
 		expect(
 			[...(servedFrom(line) ?? [])],
 			"a served message was misread",
-		).toEqual([["2-said", { from: "github@kestrel", text: SIGNAL }]]);
+		).toEqual([
+			[
+				"2-said",
+				{
+					from: "github@kestrel",
+					text: SIGNAL,
+					at: "2026-11-16T23:00:00.000Z",
+					intent: "fyi",
+				},
+			],
+			[
+				"4-answer",
+				{
+					from: "OSPR01",
+					text: "done",
+					at: "2026-11-16T23:01:00.000Z",
+					re: "1-asked",
+					endsHold: true,
+				},
+			],
+		]);
 	});
 
 	it("serves nothing for a refusal or a line it can't read", () => {

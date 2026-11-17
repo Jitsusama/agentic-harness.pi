@@ -209,17 +209,23 @@ export function createHearing(m: MeshState, f: Handing) {
 		// Only the node speaks as a receptor, but anything the account writes
 		// lands in the folder, so one under a receptor's name is shown only
 		// when the node serves it as written, and dropped, said in the log,
-		// otherwise. Nothing else waits on the node, so it keeps its order.
+		// otherwise. A batch holding none never waits on the node; one that
+		// does waits as a whole, at most the node's patience and two asks
+		// again, so its messages keep their order. One dropped is handed
+		// over as needing nothing more, or the read marker would stop
+		// behind it for the rest of the session.
 		const messages = arrived.some((one) => readsAsReceptor(one.from))
 			? await vouchedOnly(
 					arrived,
 					(ids) => servedAt(nodeSocket(m.env), ids),
-					(message, why) =>
+					(message, why) => {
 						m.pi.appendEntry(UNVOUCHED, {
 							id: message.id,
 							from: message.from,
 							why: unvouched(message.from, message.id, why),
-						}),
+						});
+						f.handedOver([message]);
+					},
 				)
 			: arrived;
 		if (messages.length === 0 || !m.ctx || m.peer !== routedFor) return;

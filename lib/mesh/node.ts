@@ -537,9 +537,12 @@ export async function servedAt(
 }
 
 /**
- * The messages a node's `get` answer holds, by id, each with its sender
- * and text, or nothing for an answer that lists no records, such as a
- * refusal. A record missing either is left out, as no message.
+ * The messages a node's `get` answer holds, by id, each with its sender,
+ * text and time, and what it asks or answers where its record says, or
+ * nothing for an answer that lists no records, such as a refusal. A
+ * record missing any of the first three is left out, as no message. A
+ * `get` answers records whole (PROTOCOL.md, The Daemon Interface), so
+ * nothing need be asked for by name.
  */
 export function servedFrom(
 	line: string,
@@ -553,21 +556,49 @@ export function servedFrom(
 	}
 	if (!isRecord(answer) || !Array.isArray(answer.records)) return undefined;
 	return new Map(
-		answer.records.flatMap((record: unknown): [string, Said][] =>
-			isRecord(record) &&
-			typeof record.key === "string" &&
-			record.key.startsWith(MESSAGE_KEY) &&
-			typeof record.from === "string" &&
-			typeof record.text === "string"
-				? [
-						[
-							record.key.slice(MESSAGE_KEY.length),
-							{ from: record.from, text: record.text },
-						],
-					]
-				: [],
-		),
+		answer.records.flatMap((record: unknown): [string, Said][] => {
+			if (
+				!isRecord(record) ||
+				typeof record.key !== "string" ||
+				!record.key.startsWith(MESSAGE_KEY)
+			) {
+				return [];
+			}
+			const said = saidIn(record);
+			return said ? [[record.key.slice(MESSAGE_KEY.length), said]] : [];
+		}),
 	);
+}
+
+/**
+ * A served message record as what the node holds of it, or nothing for
+ * one without a sender, text and time.
+ */
+function saidIn(record: Record<string, unknown>): Said | undefined {
+	const text = (field: string): string | undefined => {
+		const value = record[field];
+		return typeof value === "string" ? value : undefined;
+	};
+	const from = text("from");
+	const said = text("text");
+	const at = text("at");
+	if (from === undefined || said === undefined || at === undefined) {
+		return undefined;
+	}
+	return {
+		from,
+		text: said,
+		at,
+		...(text("intent") !== undefined ? { intent: text("intent") } : {}),
+		...(text("re") !== undefined ? { re: text("re") } : {}),
+		...(text("supersedes") !== undefined
+			? { supersedes: text("supersedes") }
+			: {}),
+		...(record.endsHold === true ? { endsHold: true } : {}),
+		...(text("fromRealm") !== undefined
+			? { fromRealm: text("fromRealm") }
+			: {}),
+	};
 }
 
 /** Two counts, as a tie says each end's, or nothing for anything else. */

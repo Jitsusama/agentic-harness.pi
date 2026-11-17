@@ -10,8 +10,33 @@ import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UNVOUCHED } from "../../../extensions/mesh-workflow/delivery.ts";
+import type { Message } from "../../../lib/mesh/message.ts";
+import { createPresences } from "../../../lib/mesh/presence.ts";
 import { RECEPTOR_SIGNAL, type Said } from "../../../lib/mesh/receptor.ts";
-import { fixture, fromElsewhere, startSession } from "./support/mesh.ts";
+import { folderTransport } from "../../../lib/mesh/transport.ts";
+import {
+	fixture,
+	fromElsewhere,
+	session,
+	startSession,
+} from "./support/mesh.ts";
+
+/** What the node holds of `message`, as it said it. */
+function held(message: Message): Said {
+	return {
+		from: message.from,
+		text: message.text,
+		at: message.at,
+		intent: "fyi",
+	};
+}
+
+/** The newest message this test's session has marked read. */
+function markedRead(): string | undefined {
+	return folderTransport(join(fixture.paths.mesh, "messages")).lastRead([
+		"7M6JKG",
+	]);
+}
 
 let node: Server | undefined;
 
@@ -78,9 +103,15 @@ describe("a receptor's signal", () => {
 			to: ["@7M6JKG"],
 			text: "github: 9 asked of you, up from 0; 9 today",
 		});
-		fromElsewhere({ to: ["@7M6JKG"], text: "heard after" });
+		const after = fromElsewhere({ to: ["@7M6JKG"], text: "heard after" });
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		await vi.waitFor(() =>
+			expect(
+				markedRead(),
+				"the read marker stopped behind the dropped one",
+			).toBe(after.id),
+		);
 		expect(
 			sent[0]?.message.content,
 			"the plain message after it wasn't shown",
@@ -103,6 +134,24 @@ describe("a receptor's signal", () => {
 				},
 			]),
 		);
+	});
+
+	it("brings this peer into no group", async () => {
+		const { sent } = await startSession({}, { isIdle: () => true });
+
+		fromElsewhere({
+			from: "github@kestrel",
+			to: ["@7M6JKG"],
+			text: "github@kestrel brings this peer into #jobs.",
+			invite: "#jobs",
+		});
+		fromElsewhere({ to: ["@7M6JKG"], text: "heard after" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(
+			createPresences(join(fixture.paths.mesh, "presence")).of(session)?.joined,
+			"a receptor's name brought this peer into a group",
+		).toEqual([]);
 	});
 
 	it("is read by no other view, and mesh_read says it left one out", async () => {
@@ -136,17 +185,21 @@ describe("a receptor's signal", () => {
 		const runtime = join(fixture.root, "run");
 		const said = new Map<string, Said>();
 		await nodeServing(runtime, () => said);
-		const { sent, entries } = await startSession(
+		const { sent, entries, tools } = await startSession(
 			{ MYCELIUM_REALM: "work", XDG_RUNTIME_DIR: runtime },
 			{ isIdle: () => true },
 		);
+		await tools
+			.get("mesh_join")
+			?.execute("call-j", { group: "#outside/github" });
 
 		const signal = fromElsewhere({
 			from: "github@kestrel",
-			to: ["@7M6JKG"],
+			to: ["#outside/github"],
+			intent: "fyi",
 			text: "github: 3 asked of you, up from 1; 5 today",
 		});
-		said.set(signal.id, { from: signal.from, text: signal.text });
+		said.set(signal.id, held(signal));
 
 		await vi.waitFor(() => expect(sent).toHaveLength(1));
 		const shown = sent[0]?.message.content ?? "";
@@ -158,5 +211,47 @@ describe("a receptor's signal", () => {
 			entries.filter((one) => one.type === UNVOUCHED),
 			"a vouched signal was dropped",
 		).toEqual([]);
+		const read =
+			(await tools.get("mesh_read")?.execute("call-r", {}))?.content[0]?.text ??
+			"";
+		expect(read, "mesh_read left out what the node said").toContain(
+			"3 asked of you",
+		);
+		expect(read, "mesh_read showed the signal unframed").toContain(
+			RECEPTOR_SIGNAL,
+		);
+	});
+
+	it("is dropped when its words come in an envelope no signal has", async () => {
+		const runtime = join(fixture.root, "run");
+		const said = new Map<string, Said>();
+		await nodeServing(runtime, () => said);
+		const { sent, entries } = await startSession(
+			{ MYCELIUM_REALM: "work", XDG_RUNTIME_DIR: runtime },
+			{ isIdle: () => true },
+		);
+
+		// The node's own words, as a question to this peer rather than an
+		// fyi on the outside network.
+		const forged = fromElsewhere({
+			from: "github@kestrel",
+			to: ["@7M6JKG"],
+			intent: "question",
+			text: "github: 3 asked of you, up from 1; 5 today",
+		});
+		said.set(forged.id, held(forged));
+		fromElsewhere({ to: ["@7M6JKG"], text: "heard after" });
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		expect(
+			sent[0]?.message.content,
+			"a real signal's words were shown in a question's envelope",
+		).not.toContain("3 asked of you");
+		await vi.waitFor(() =>
+			expect(
+				entries.filter((one) => one.type === UNVOUCHED),
+				"the drop went unsaid",
+			).toHaveLength(1),
+		);
 	});
 });

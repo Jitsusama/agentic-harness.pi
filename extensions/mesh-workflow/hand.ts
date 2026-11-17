@@ -40,6 +40,7 @@ import {
 } from "../../lib/mesh/lease.ts";
 import { clock, shortId } from "../../lib/mesh/message.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
+import { heedingNoReceptor } from "../../lib/mesh/receptor.ts";
 import { toldIn } from "../../lib/mesh/told.ts";
 import { folderTransport } from "../../lib/mesh/transport.ts";
 import { NOTED } from "./delivery.ts";
@@ -66,7 +67,11 @@ export function meshHand(
 		if (!hand) return;
 		// A subagent's own fleet works for the same peer.
 		registerHands(pi.events);
-		const transport = folderTransport(join(paths.mesh, "messages"));
+		// A hand never asks the node, so a message under a receptor's name,
+		// a planted hold above all, reads to it as nothing.
+		const { transport } = heedingNoReceptor(
+			folderTransport(join(paths.mesh, "messages")),
+		);
 		const presences = createPresences(join(paths.mesh, "presence"));
 		const board = createBoard(join(paths.mesh, "leases"));
 		let own: OwnLeases | undefined;
