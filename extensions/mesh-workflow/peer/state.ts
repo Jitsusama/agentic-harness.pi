@@ -7,6 +7,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../../lib/core/session/host.ts";
 import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { endConversation } from "../../../lib/core/session/owner.ts";
 import { stoppingFromOutside } from "../../../lib/internal/away/state.ts";
@@ -194,6 +195,12 @@ export function createState(
 		carryOn: () => pi.sendUserMessage(RESUMED_TEXT),
 		tell: (text) => {
 			if (m.ctx?.hasUI) m.ctx.ui.notify(text, "info");
+		},
+		// A host's standard error is its journal; plain pi's window said it.
+		journal: (text) => {
+			if (!hosted()) return;
+			const session = m.ctx?.sessionManager.getSessionId() ?? "unknown";
+			process.stderr.write(`pausing ${session}: ${text}\n`);
 		},
 		// Plain pi waits until it is idle, so the run just ended winds down
 		// first; a host closes it as a Close over its socket does.

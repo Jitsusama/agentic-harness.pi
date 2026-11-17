@@ -130,7 +130,8 @@ export function createSteerer(m: MeshState) {
 					m.pausing.act(one.act, one.from, one.at);
 					return;
 				}
-				m.pausing.talked();
+				// Its time, so a Pause written after it isn't taken as ended by it.
+				m.pausing.talked(one.at);
 				const idle = m.ctx?.isIdle?.() ?? true;
 				// Words that wait for the run to end are read as it ends, idle.
 				const said = steerText(one, {

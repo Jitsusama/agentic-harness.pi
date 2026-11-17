@@ -30,12 +30,18 @@
  * The pause itself is kept by the peer, in presence as `paused`, so it
  * outlasts a reload and the desktop shows it.
  *
- * A Stop or a Pause written before the run in progress began, or before
- * the session last started, is dropped, saying so. A session that parks
- * takes its inbox only as it starts again, so a Stop pressed on a row
- * still showing it under way was read on the next wake and ended the
- * run a key the person typed had begun (KP0L6A, 17 November). A steer
- * that gives no time it can be read by is acted on as written now.
+ * A session that parks takes its inbox only as it starts again, so a
+ * Stop pressed on a row still showing it under way was read on the next
+ * wake and ended the run a key the person typed had begun (KP0L6A, 17
+ * November). So a Stop written before the run in progress began is
+ * dropped, as is a Pause written before the person last talked to it,
+ * since a talk ends a pause; each is said in the window and in a host's
+ * journal. A Pause left for a parked session with no talk since still
+ * holds when it wakes. Writer and reader keep their own clocks, so a
+ * steer within {@link CLOCKS_DIFFER_MS} of either moment still acts, as
+ * does one with no time that can be read. A session made in the middle
+ * of a run, as a reload makes one, knows no start for that run, so a
+ * Stop then acts whatever its time.
  */
 
 import type { SteerAct } from "../../lib/mesh/steer.ts";
@@ -56,6 +62,8 @@ export interface PausingHost {
 	readonly carryOn: () => void;
 	/** Say on screen what the person did. */
 	readonly tell: (text: string) => void;
+	/** Say it in the host's journal too, where the session has one. */
+	readonly journal: (text: string) => void;
 	/** End the session, as /exit does, saying `by` asked. */
 	readonly close: (by: string) => void;
 	/**
@@ -82,9 +90,10 @@ export interface Pausing {
 	carry(to: string, from?: string): Promise<void>;
 	/**
 	 * The person talked to it, from the launcher or by typing in its
-	 * window: a pause ends, and what they said is the turn.
+	 * window, at the ISO time `at` a steer says or now: a pause ends, and
+	 * what they said is the turn.
 	 */
-	talked(): void;
+	talked(at?: string): void;
 	/** A run started: a paused session ends it at once. */
 	started(): void;
 	/** A turn ended, its tools done: a pause asked for mid-run lands. */
@@ -96,26 +105,50 @@ function steeredBy(from: string | undefined): string {
 	return `from outside its window, steered by ${from === undefined || from === "" ? "a writer that didn't sign it" : from}`;
 }
 
-/** The acts a steer written before what they would end no longer means. */
-const ENDS_A_RUN: readonly SteerAct[] = ["stop", "pause"];
+/**
+ * How far apart a steer's writer's clock and this session's may be
+ * before a steer written just after a moment reads as just before it:
+ * the launcher writes on this machine, and the node brings steers from
+ * machines it keeps in time.
+ */
+export const CLOCKS_DIFFER_MS = 2_000;
+
+/** When a steer says it was written, in ms, or NaN when it doesn't say. */
+function writtenAt(at: string | undefined): number {
+	return at === undefined ? Number.NaN : Date.parse(at);
+}
 
 /** Pausing, as its peer last left it. */
 export function createPausing(host: PausingHost): Pausing {
 	let carrying = false;
-	// When the latest run began, or the session started, if none has since.
-	let since = host.now();
-	let sinceWhat = "this session started";
+	// When the run in progress began, unknown until one begins here.
+	let runBegan = Number.NEGATIVE_INFINITY;
+	// When the person last talked to it, as their talk says.
+	let talkedAt = Number.NEGATIVE_INFINITY;
+	// A steer written before `moment`, beyond what clocks differ by.
+	const before = (at: string | undefined, moment: number): boolean =>
+		writtenAt(at) < moment - CLOCKS_DIFFER_MS;
+	const dropped = (
+		what: string,
+		from: string | undefined,
+		at: string | undefined,
+		why: string,
+	) => {
+		const line = `${what} ${steeredBy(from)}, written at ${at ?? "no time"}, was dropped: it came before ${why}.`;
+		host.tell(line);
+		host.journal(line);
+	};
 	return {
 		get paused() {
 			return host.paused();
 		},
 		act(act, from, at) {
-			const written = at === undefined ? Number.NaN : Date.parse(at);
-			if (ENDS_A_RUN.includes(act) && written < since) {
-				const what = act === "stop" ? "A Stop" : "A Pause";
-				host.tell(
-					`${what} ${steeredBy(from)}, written at ${at}, was dropped: it came before ${sinceWhat}.`,
-				);
+			if (act === "stop" && !host.idle() && before(at, runBegan)) {
+				dropped("A Stop", from, at, "the run in progress began");
+				return;
+			}
+			if (act === "pause" && before(at, talkedAt)) {
+				dropped("A Pause", from, at, "the person last talked to this session");
 				return;
 			}
 			if (act === "close") {
@@ -144,7 +177,9 @@ export function createPausing(host: PausingHost): Pausing {
 			host.tell("Resumed from outside this window.");
 			host.carryOn();
 		},
-		talked() {
+		talked(at) {
+			const said = writtenAt(at);
+			talkedAt = Math.max(talkedAt, Number.isNaN(said) ? host.now() : said);
 			host.setPaused(false);
 		},
 		async carry(to, from) {
@@ -166,8 +201,7 @@ export function createPausing(host: PausingHost): Pausing {
 			host.close(`a carry to ${to} ${steeredBy(from)}`);
 		},
 		started() {
-			since = host.now();
-			sinceWhat = "this session's latest run began";
+			runBegan = host.now();
 			if (host.paused() || carrying) host.abort();
 		},
 		turnEnded() {
