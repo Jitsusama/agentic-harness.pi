@@ -26,7 +26,7 @@ import { delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { askAt, nodeSocket } from "../../mesh/node.ts";
 import { loadPackageConfig } from "../config/loader.ts";
-import { isMachineName, thisMachine } from "../machine.ts";
+import { isMachineName, thisMachine } from "../machine/machine.ts";
 import { isRecord } from "../record.ts";
 
 /** The folder of stand-ins for ssh, scp, sftp and rsync. */
