@@ -19,7 +19,8 @@
  * that has settled reads as the call it was made inside, if that is
  * still running, or none. The signal itself stays in the first store,
  * as older copies of this module read it there, and a second store
- * marks which call it belongs to and whether that has ended.
+ * marks which call it belongs to and whether that has ended. A signal
+ * an older copy set marks no call, so a fired one reads as over too.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -118,8 +119,11 @@ export function callSignal(): AbortSignal | undefined {
 	const signal = store().getStore();
 	let call = calls().getStore();
 	// An older copy may have set a signal inside this call without
-	// marking a call of its own, so only the call's own signal ends.
-	if (call?.signal !== signal) return signal;
+	// marking a call of its own, so it can't say whether its call ended:
+	// one still live stands, and a fired one is read as its call's end,
+	// since what an older copy left in a session's context outlives a
+	// reload onto this one and stopped every command until a restart.
+	if (call?.signal !== signal && !signal?.aborted) return signal;
 	while (call?.ended) call = call.outer;
 	return call?.signal;
 }
