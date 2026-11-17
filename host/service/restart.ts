@@ -60,9 +60,9 @@
  * close or a turn's freed output does. The 80% tier waits
  * until it has grown 5% from a floor that a wake of one parked before
  * the first look never lifts, so a host that starts that full restarts
- * only once it climbs, not at every start; a host whose first look reads
- * past 65% leaves its heap to that tier until it falls, and says so
- * once. Since the floor stays put, a refill of one parked before the
+ * only once it climbs, not at every start; a host whose heap reads past
+ * 65% once V8 has caught up after its first look leaves its heap to that
+ * tier until it falls, and says so once. Since the floor stays put, a refill of one parked before the
  * marks were set restarts the host too once past 80% and 5% over it,
  * and the journal says a wake was loading: that near the limit, a
  * restart is the safer end. A heap past 70% that neither tier restarts
@@ -71,7 +71,9 @@
  * use holds says what holds it, once an hour too. Each look weighs one
  * reading and decides by it alone. A refused restart near the limit is
  * tried again after 1 s, then twice as late each time, up to a minute,
- * and a look that finds a turn running doesn't start that over.
+ * and a look that finds a turn running doesn't start that over; the
+ * journal names what it would end once, and each retry only that it
+ * asks again.
  * Neither tier can act before the first look, five minutes after the
  * host starts, nor until V8's full collections have given two fresh
  * readings after it, nor in the two minutes a queued restart is given
@@ -90,7 +92,7 @@ import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 import { heapMark } from "./heap-mark.ts";
 import { type HeapUse, heapAfterFullCollections } from "./live-heap.ts";
-import { oneLine } from "./one-line.ts";
+import { oneLineOf } from "./one-line.ts";
 import type { SessionIdentity } from "./protocol.ts";
 import { hostRoot } from "./rollout.ts";
 import type { ServingHost } from "./serve.ts";
@@ -353,7 +355,7 @@ export function restartWhenSettled(
 		heldSaidAt = now;
 		const holding = facts.holding?.() ?? [];
 		facts.report(
-			`Restart held past the ceiling by background work: ${holding.length > 0 ? joined(holding) : "unnamed"}`,
+			`Restart held past the ceiling by background work: ${holding.length > 0 ? oneLineOf(holding) : "unnamed"}`,
 		);
 	}
 
@@ -614,6 +616,9 @@ export async function followWhatStarts(
 	}
 
 	const settledMs = options.timing?.settledMs ?? SETTLED_MS;
+	// Whether systemd refused the last restart asked of it, so the next
+	// says only that it asks again, not every label anew.
+	let refused = false;
 	const stopLooking = restartWhenSettled(
 		{
 			differs: async () =>
@@ -639,9 +644,17 @@ export async function followWhatStarts(
 						? (options.holding?.() ?? [])
 						: [];
 				options.report(
-					`Restarting ${restartedUnder(under, settledMs)}${ending.length > 0 ? ` (${joined(ending)})` : ""}, as ${reason}`,
+					refused
+						? `Asking systemd again to restart ${askedAgainUnder(under, settledMs)}, as it refused the last`
+						: `Restarting ${restartedUnder(under, settledMs)}${ending.length > 0 ? ` (${oneLineOf(ending)})` : ""}, as ${reason}`,
 				);
-				await systemctl(["--no-block", "restart", unit]);
+				try {
+					await systemctl(["--no-block", "restart", unit]);
+				} catch (error) {
+					refused = true;
+					throw error;
+				}
+				refused = false;
 			},
 			report: options.report,
 			now: Date.now,
@@ -661,9 +674,10 @@ function counted(count: number, thing: string): string {
 
 const MINUTE_MS = 60_000;
 
-/** Background work's labels, on one journal line (one-line.ts). */
-function joined(holding: readonly string[]): string {
-	return holding.map(oneLine).join("; ");
+/** The journal's words for the rule a restart asked again came under, without what it would end. */
+function askedAgainUnder(under: RestartRule, settledMs: number): string {
+	if (under.rule !== "heap") return restartedUnder(under, settledMs);
+	return `with its heap at ${Math.round(under.share * 100)}% of what V8 allows`;
 }
 
 /** The journal's words for the rule a restart came under. */
@@ -675,7 +689,7 @@ function restartedUnder(under: RestartRule, settledMs: number): string {
 			...(under.jobs > 0 ? [counted(under.jobs, "background job")] : []),
 		];
 		const loading = under.loading
-			? ", while a conversation parked before its first look loaded again"
+			? ", while a conversation parked or begun before V8's readings caught up loaded again"
 			: "";
 		return `with its heap at ${Math.round(under.share * 100)}% of what V8 allows${loading}, ending ${ended.length > 0 ? ended.join(" and ") : "nothing that was running"}`;
 	}

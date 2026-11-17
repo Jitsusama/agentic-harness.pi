@@ -45,14 +45,21 @@ function isFullCollection(entry: PerformanceEntry): boolean {
 }
 
 /**
- * Calls `onFull` once for each delivery holding any of V8's full
- * collections, which may hold several back to back near the limit or in
- * a last-resort collection; answers the function that stops.
+ * What hears a delivery of gc entries: `onFull` once if it holds any of
+ * V8's full collections, which may be several back to back near the
+ * limit or in a last-resort collection, since they give one reading.
  */
-function watchFullCollections(onFull: () => void): () => void {
-	const observer = new PerformanceObserver((list) => {
+export function fullCollectionsIn(
+	onFull: () => void,
+): (list: { getEntries(): readonly PerformanceEntry[] }) => void {
+	return (list) => {
 		if (list.getEntries().some(isFullCollection)) onFull();
-	});
+	};
+}
+
+/** Calls `onFull` once for each delivery holding a full collection; answers the function that stops. */
+function watchFullCollections(onFull: () => void): () => void {
+	const observer = new PerformanceObserver(fullCollectionsIn(onFull));
 	observer.observe({ entryTypes: ["gc"] });
 	return () => observer.disconnect();
 }

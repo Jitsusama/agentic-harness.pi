@@ -49,33 +49,39 @@ background work runs, and past 80%, grown 5%, at once, without asking
 what would start, journalling what it ended, with a refused restart
 tried again after 1, 2, 4 s and on up to a look, across looks that find a
 turn running and from a second again once a restart is queued or the
-heap stops pressing; and a restart systemd refused leaves no viewer
+heap stops pressing, and what holds it said; and a restart systemd refused leaves no viewer
 told. restart-heap-marks.test.ts checks what those tiers weigh growth
 from: a park's freed heap not counted however parks, wakes and closes
 fall, between looks too, and however long a reading stands after a
 wake or the first look, before V8's readings catch up after it too,
 with the urgent tier's floor kept through wakes of what parked before
-it, even for a refill, climbs seen once readings are counted, what a
-close frees counted as room, and why 70% restarts nothing said once an
+it, even for a refill, climbs seen once readings are counted, marks
+that fall between wakes that keep coming, what a close frees counted
+as room, and why 70% restarts nothing said once an
 hour. restart-fakes.ts holds the clock, timers, facts and heaps both
 share. follow-what-starts.test.ts checks what it follows, with a fake
 systemctl over an install in a private folder: a restart once the
 install changes the host's own code, systemd has a new unit or the
 heap passes half its limit, no restart for heap a wake refills as the
 serving host lists its parks, nor for a reading from before a wake as
-V8's own count of readings reaches it, what it journals, that it stops watching
+V8's own count of readings reaches it, what it journals, a refill's
+heap restart and a refused one's retries included, that it stops watching
 V8's collections once it stops following, and nothing followed
 outside a unit or as a process that isn't the unit's main one.
 live-heap.test.ts checks that the heap a host weighs is the lower of
 what V8 kept after its last two full collections, through a fake
-collector, counting one reading for each delivery however many
-collections it holds, and that V8's own collector reads it after a
+collector, counting one reading for each delivery of real gc entries
+however many full collections it holds, and that V8's own collector reads it after a
 full collection only, once a delivery, and never once stopped.
 one-line.test.ts checks that a job's label loses each line break,
 NUL, escape, separator and format character a model could write into
-it, keeps the two joiners, and is cut short past journald's reach.
+it, keeps the two joiners, and is cut short past journald's reach,
+never mid-pair, and that a list of them names its first labels only,
+counting the rest.
 serve.test.ts also checks that a conversation held but not run is
-listed parked for the heap tiers, and leaves that list once closed;
+listed parked for the heap tiers, and leaves that list once closed,
+and that a park lists it parked, not held, and its wake begins it anew,
+as restart-fakes.ts stands in for;
 backend.test.ts that a drain journals its heavy runs on one line.
 what-starts.test.ts checks the import walk and fingerprint over a
 private tree, reading the unit from a cgroup file, and the unit's

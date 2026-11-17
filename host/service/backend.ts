@@ -8,7 +8,7 @@
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import type { ControlBackend } from "./dispatch.ts";
-import { oneLine } from "./one-line.ts";
+import { oneLine, oneLineOf } from "./one-line.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
@@ -409,7 +409,7 @@ export function hostBackend(options: {
 			heavy: [...heavy],
 		};
 		options.say?.(
-			`${on ? "Draining for a restart" : "Drain lifted"}, asked by ${askedBy(by)}: ${result.busy} busy, ${result.idle} idle, ${result.parked} parked; heavy runs: ${heavy.length > 0 ? heavy.map(oneLine).join("; ") : "none"}`,
+			`${on ? "Draining for a restart" : "Drain lifted"}, asked by ${askedBy(by)}: ${result.busy} busy, ${result.idle} idle, ${result.parked} parked; heavy runs: ${heavy.length > 0 ? oneLineOf(heavy) : "none"}`,
 		);
 		return result;
 	}

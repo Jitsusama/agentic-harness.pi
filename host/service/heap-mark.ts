@@ -18,7 +18,11 @@
  * park and wake that both fall between two looks show as a conversation
  * that began again, and count as a wake under the marks as they stand.
  * After any wake the marks don't fall until V8 has collected in full
- * twice once the wake's conversations have had time to load.
+ * twice once the wake's conversations have had time to load. A wake
+ * while that while is open doesn't lengthen it, since a host's wakes can
+ * come every few minutes and would otherwise hold the marks up all day,
+ * so room a close freed would never count; one after its time is up
+ * waits only for two fresh readings of its own.
  *
  * One parked, or begun again, before the marks were set did so under
  * no mark, so its wake lets the gap tier's mark rise with the readings
@@ -101,6 +105,15 @@ export function heapMark(): {
 		return { loadedAt: look.now + HEAP_SETTLE_MS, readingsThen: undefined };
 	}
 
+	// A wake's while: a new one when none is open, else the open one, its
+	// fresh readings counted from this wake once its time is up.
+	function woken(open: Loading | undefined, look: HeapLook): Loading {
+		if (open === undefined) return since(look);
+		if (look.now >= open.loadedAt && look.readings !== undefined)
+			open.readingsThen = look.readings;
+		return open;
+	}
+
 	function restore(under: Marks): void {
 		if (marks === undefined) return;
 		marks = {
@@ -146,8 +159,8 @@ export function heapMark(): {
 		held: () => (rising ? "rising" : settling ? "settling" : undefined),
 		weigh(look) {
 			const { woke, unmarked } = wakes(look);
-			if (woke) settling = since(look);
-			if (unmarked) rising = since(look);
+			if (woke) settling = woken(settling, look);
+			if (unmarked) rising = woken(rising, look);
 			firstReadings ??= look.readings ?? 0;
 			if (!set) {
 				marks = { lowest: look.share, floor: look.share };

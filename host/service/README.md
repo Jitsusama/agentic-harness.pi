@@ -118,7 +118,8 @@ input pipeline or screen. No unit or running host is installed yet.
   garbage the next collection frees. It is the lower of the last two,
   so a turn's passing data, live in one collection, isn't taken for a
   climb, and it counts its readings, one for several collections Node
-  delivers at once, since a reader waits for two fresh ones.
+  delivers at once (`fullCollectionsIn`), since a reader waits for two
+  fresh ones.
 - heap-mark.ts: what the heap tiers weigh growth from, the gap tier's
   lowest and the urgent tier's floor, set once two fresh readings have
   come after the first look. A park keeps the marks it parked under and
@@ -126,13 +127,17 @@ input pipeline or screen. No unit or running host is installed yet.
   lets them go; a conversation the session host numbers anew woke
   between two looks. After a wake the marks don't fall until two fresh
   readings have come past ten minutes on, so a reading from before it
-  can't stand for room. A wake of one parked, or begun again, before
+  can't stand for room; a wake inside that while doesn't lengthen it,
+  and one after waits only for two fresh readings of its own, so wakes
+  every few minutes can't hold the marks up all day. A wake of one parked, or begun again, before
   the marks were set lets the gap tier's mark rise with the readings
   for that while, the one ending it included; the floor never rises so.
 - one-line.ts: a label a model wrote, made one journal line, so a line
   break, NUL, escape or format character in a job's label, or in who a
   control request says asked, can't forge or reorder a host's line, and
-  a long one is cut short of where journald would split it.
+  a long one is cut short of where journald would split it, never
+  between a character's two halves; `oneLineOf` joins a list of them,
+  naming the first 20 and counting the rest.
 - restart.ts and what-starts.ts: the host restarting itself. A host
   systemd runs as its unit's main process looks every minute, from
   five minutes after it starts, whether it would start differently:
@@ -157,7 +162,9 @@ input pipeline or screen. No unit or running host is installed yet.
   refill alone that high restarts it too, which its journal line says.
   A heap past 70% that neither restarts says why once an hour, as does
   one a running turn or a screen in use holds, and a refused heap
-  restart is tried again after 1, 2, 4 s and on, up to a minute. Code
+  restart is tried again after 1, 2, 4 s and on, up to a minute, its
+  journal naming what it would end once and each retry only that it
+  asks again. Code
   only a conversation loads moves with that conversation instead
   (reload-workflow's follower). Once any of these holds, and every
   conversation has been idle or parked for two minutes, with no
