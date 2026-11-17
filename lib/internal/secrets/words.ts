@@ -13,20 +13,47 @@
 
 /**
  * A terminal's escape: a control sequence, as a colour, its reset or a
- * cleared line; a character set chosen; a cursor saved or restored; and
- * what opens and ends a terminal's command, as a title or a link, its
- * payload read as words of its own, a link's empty field with its
- * opening. A bell ends one command and, alone, shows nothing, so it
- * splits no value either.
+ * cleared line; a character set chosen; a cursor saved or restored; a
+ * string's terminator; a terminal's whole command on one line, as a
+ * title or a link, whose payload `judgedCommands` has judged already;
+ * or a bell, which alone shows nothing. None splits a value, since a
+ * terminal shows none of them.
  */
 const ESCAPE =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
-	/\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>\\]|\]\d*;;?)|\x07/g;
+	/\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>\\]|\]\d*;[^\x07\x1b\n]*(?:\x07|\x1b\\))|\x07/g;
 
 /** A terminal's escape, read where a scan of words stands at an ESC. */
 const ESCAPE_HERE =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
-	/\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>\\]|\]\d*;;?)/y;
+	/\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>\\]|\]\d*;[^\x07\x1b\n]*(?:\x07|\x1b\\))/y;
+
+/**
+ * A terminal's command on one line, as ESCAPE reads one: its opening
+ * (the command's number, and a link's empty field), its payload, and
+ * the bell or string terminator that ends it.
+ */
+const COMMAND =
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's command is what this reads.
+	/(\x1b\]\d*;;?)([^\x07\x1b\n]*)(\x07|\x1b\\)/g;
+
+/**
+ * `text` with each terminal command's payload, a title's or a link's
+ * address, given to `replace` word by word, as `replaceWords` reads
+ * words: what a terminal hides, a model still reads.
+ */
+function judgedCommands(
+	text: string,
+	replace: (word: string) => string,
+	marked: ReadonlySet<string>,
+): string {
+	if (!text.includes("\x1b]")) return text;
+	return text.replace(
+		COMMAND,
+		(_whole: string, opening: string, payload: string, end: string) =>
+			`${opening}${replaceWords(payload, replace, marked)}${end}`,
+	);
+}
 
 /** What a mark standing where a secret was opens with. */
 const MARK_OPENING = "[secret scrubbed: ";
@@ -37,11 +64,13 @@ export function scrubbedMark(kind: string): string {
 }
 
 /**
- * `text` with every escape left unended straight before a mark dropped,
- * however many in a row, each with what a terminal reads as its middle
- * (a space, a parenthesis and the like): a terminal would read it with
- * the mark's bracket as one sequence, eating part of the mark. Read by
- * one walk back from each mark, so a run of escapes costs its length.
+ * `text` with every escape or control sequence left unended straight
+ * before a mark dropped, however many in a row, with what a terminal
+ * reads as its parameters and its middle (digits, a semicolon, a space,
+ * a parenthesis and the like): a terminal would read it with the mark's
+ * bracket as one sequence, eating part of the mark. A string a command
+ * opens, as a title's, is no sequence the bracket ends, so it stays.
+ * Read by one walk back from each mark, so a run costs its length.
  */
 export function unescapedMarks(text: string): string {
 	if (!text.includes("\x1b")) return text;
@@ -52,8 +81,13 @@ export function unescapedMarks(text: string): string {
 		for (;;) {
 			let start = cut;
 			while (start > 0 && MIDDLE.test(piece.charAt(start - 1))) start--;
-			if (start === 0 || piece.charAt(start - 1) !== "\x1b") break;
-			cut = start - 1;
+			if (start > 0 && piece.charAt(start - 1) === "\x1b") {
+				cut = start - 1;
+				continue;
+			}
+			while (start > 0 && PARAMETER.test(piece.charAt(start - 1))) start--;
+			if (start < 2 || piece.slice(start - 2, start) !== "\x1b[") break;
+			cut = start - 2;
 		}
 		pieces[at] = piece.slice(0, cut);
 	}
@@ -62,6 +96,9 @@ export function unescapedMarks(text: string): string {
 
 /** What a terminal reads between an escape and the end of its sequence. */
 const MIDDLE = /[ -/]/;
+
+/** What a terminal reads as a control sequence's parameters. */
+const PARAMETER = /[0-?]/;
 
 /** The shortest value taken as a credential's, as CREDENTIAL_VALUE has it. */
 const SHORTEST_SECRET = 16;
@@ -101,10 +138,11 @@ const SHOUTED = /^(?=[^_]*_)(?=[^A-Z]*[A-Z])[A-Z0-9_]+$/;
  * What follows a value's padding rather than a name's equals: nothing, a
  * second equals, a space, what ends a list, a statement or a query's
  * field, a backslash, an escape or a bell, or a quote that closes there.
+ * An empty quoted value, `=""`, is a name's.
  */
 const PADDING_END =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape ends a value.
-	/^(?:$|[=\s,;:&|\\)\]}\x1b\x07]|['"](?:$|[\s,;:&|\\)\]}\x1b\x07'"]))/;
+	/^(?:$|[=\s,;:&|\\)\]}\x1b\x07]|['"](?:$|[\s,;:&|\\)\]}\x1b\x07]))/;
 
 /**
  * Whether `word`, ending at `at`, is a variable's name: it reads as one,
@@ -126,20 +164,12 @@ function namesAt(text: string, word: string, at: number): boolean {
 /** What joins a path or an address to what follows it in one word. */
 const JOINER = /[\][:,;|()]/;
 
-/** An address's host, as the piece before its port's colon reads. */
-const HOST = /^\/\/[A-Za-z0-9.-]+$/;
-
-/** A port, as an address's colon parts it from the path after it. */
-const PORT = /^\d{1,5}(?=\/)/;
-
-/** The pieces a joiner parts, a port after an address's host set aside. */
-function joined(piece: string): string[] {
-	return piece
-		.split(JOINER)
-		.map((part, at, parts) =>
-			at > 0 && HOST.test(parts[at - 1] ?? "") ? part.replace(PORT, "") : part,
-		);
-}
+/**
+ * An address's port before its path, after its host (a name, or a
+ * bracketed IPv6 address) and any user before an at sign.
+ */
+const ADDRESS_PORT =
+	/(:\/\/(?:[^/@\s]*@)?(?:[\w.-]+|\[[\dA-Fa-f:.]+\])):\d{1,5}(?=\/)/g;
 
 /**
  * `text` with each word anywhere in it given to `replace`, read in one
@@ -153,10 +183,11 @@ function joined(piece: string): string[] {
  * name, before its equals, is kept (`namesAt`).
  */
 export function replaceWords(
-	text: string,
+	printed: string,
 	replace: (word: string) => string,
 	marked: ReadonlySet<string>,
 ): string {
+	const text = judgedCommands(printed, replace, marked);
 	let out = "";
 	let word = -1;
 	const end = (at: number) => {
@@ -203,15 +234,17 @@ export function replaceWords(
 /**
  * A value or a word judged by what a terminal shows of it, its escapes
  * aside, and by each piece they or a joiner (a bracket, a colon, a
- * comma, a semicolon, a bar, a parenthesis) part, the port after an
- * address's host aside: put out of sight as `kind` when either could be
- * a credential,
+ * comma, a semicolon, a bar, a parenthesis) part, an address's port
+ * aside: put out of sight as `kind` when either could be a credential,
  * so a path or an address joined to a token exempts nothing, the escapes
  * that open and close it kept; undefined when neither could. The escapes
  * are found by one walk over them.
  */
 export function hidden(word: string, kind: string): string | undefined {
-	const pieces = word.split(ESCAPE).flatMap(joined);
+	const pieces = word
+		.replace(ADDRESS_PORT, "$1")
+		.split(ESCAPE)
+		.flatMap((piece) => piece.split(JOINER));
 	const could =
 		looksLikeSecret(word.replace(ESCAPE, "")) ||
 		pieces.some((piece) => looksLikeSecret(piece));
