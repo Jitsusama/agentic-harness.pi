@@ -17,7 +17,9 @@
  * next host's reap spares it and the conversation takes it up as it
  * resumes, saying its end under the same job id. On 17 November systemd
  * killed a host whose stop outran 60 s, and the next host ended four
- * suites and proofs whose commands still ran.
+ * suites and proofs whose commands still ran. The kill lands well inside
+ * the command's 45 s, and the end said must be its own, after them:
+ * without the record, the next host's reap ends it as it starts.
  *
  * Runs on the host's pi, as support/host-pi.ts finds it, skipped saying
  * why without one.
@@ -46,8 +48,17 @@ import { type Seal, seal } from "./support/seal.ts";
 
 const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
 
-/** How long the carried command runs, as CARRYING times it, and room past it. */
-const CARRIED_MS = 45_000 + ROUND_TRIP_MS;
+/** How long the carried command runs, as CARRYING times it. */
+const RUNS_MS = 45_000;
+
+/** How long the carried command runs, and room past it. */
+const CARRIED_MS = RUNS_MS + ROUND_TRIP_MS;
+
+/**
+ * How long E32 waits on the record before its kill: short, so the kill
+ * lands while the command runs, which a wait of a round trip outlasts.
+ */
+const RECORD_MS = 5_000;
 
 let sealed: Seal;
 let hosts: HostProcess[] = [];
@@ -181,22 +192,38 @@ it(
 	async ({ skip }) => {
 		await onHostPi(skip, said, async (pi) => {
 			const first = await start(pi);
+			// The command starts after this, so it can't end of itself before
+			// RUNS_MS from here.
+			const opened = Date.now();
 			const { file, held, shell } = await carrying(first);
 			// The record follows the call's start; without one, as before this
 			// change, the kill goes ahead and the case says what was lost.
 			await untilAnswered(
 				"the conversation records its background command",
 				async () => kept().some((name) => name.endsWith(".job")),
-				ROUND_TRIP_MS,
+				RECORD_MS,
 			).catch(() => undefined);
 
 			await first.kill();
+			const killedAfter = Date.now() - opened;
+			if (!alive(shell) || killedAfter >= RUNS_MS - 15_000)
+				throw new Error(
+					`the kill came ${killedAfter} ms in, with the command running: ${alive(shell)}; it must land well inside the command's ${RUNS_MS} ms to prove anything`,
+				);
 			const second = await start(pi);
 			await untilAnswered(
 				"the next host resumes the conversation",
 				async () => (await second.list()).length === 1,
 				ROUND_TRIP_MS,
 			);
+			// The next host's engine reaps what a dead host's tools left before
+			// it resumes anything, so a command its record spared runs on here,
+			// unless it was already about to end of itself.
+			if (Date.now() - opened < RUNS_MS - 2_000)
+				expect(
+					alive(shell),
+					`the next host's start spared the command; ${said()}`,
+				).toBe(true);
 			await untilAnswered(
 				"the command's end is said after the kill, under its job id",
 				async () => {
@@ -215,6 +242,11 @@ it(
 					].join("\n"),
 				);
 			});
+			const endedAfter = Date.now() - opened;
+			expect(
+				endedAfter >= RUNS_MS,
+				`the end said is the command's own, its timeout's, not a stop's: said ${endedAfter} ms in`,
+			).toBe(true);
 			await untilAnswered(
 				"nothing the shell kept of the command is left once its end is said",
 				async () => kept().length === 0,

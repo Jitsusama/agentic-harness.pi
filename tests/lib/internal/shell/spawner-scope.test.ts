@@ -126,7 +126,7 @@ describe("whether a host's calls are kept", () => {
 		const setting = linuxHost({
 			env: { PI_SPAWNER: "off", XDG_RUNTIME_DIR: "/run/user/1000" },
 		});
-		expect(spawnersScoped(setting)).toBe(false);
+		expect(spawnersScoped(setting), "turned off, so unscoped").toBe(false);
 	});
 
 	it("isn't so where pi-spawner isn't in the system's profile", () => {
@@ -134,7 +134,7 @@ describe("whether a host's calls are kept", () => {
 			find: (program) =>
 				program === "systemd-run" ? `${SYSTEM}/systemd-run` : undefined,
 		});
-		expect(spawnersScoped(setting)).toBe(false);
+		expect(spawnersScoped(setting), "no spawner to scope").toBe(false);
 	});
 });
 

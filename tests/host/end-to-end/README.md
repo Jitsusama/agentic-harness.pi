@@ -328,7 +328,9 @@ E32, in the same file too, kills the host outright while the command
 runs, as systemd killed one whose stop outran 60 s on 17 November, so
 nothing is carried through the log. The conversation's record of the
 command spares it from the next host's reap, and the conversation,
-resumed, says the command's end under the same job id.
+resumed, says the command's end under the same job id. The kill lands
+well inside the command's 45 s, and the end must come after them, so
+a reap at the next host's start fails the case.
 
 steer-wake.test.ts is E25: a conversation its host holds parked wakes
 as the person's talk lands in its steer inbox, as Super+S leaves one,
