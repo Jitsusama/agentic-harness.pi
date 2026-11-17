@@ -104,7 +104,8 @@ it does:
   memory while it waits: an idle pi held 469 MB whatever its log.
   It exits with code 75 for its holder, which starts it again for
   a message that gives it a turn or a key typed in its window.
-  On unless the switch turns it off, and only for held sessions.
+  On unless the switch or `PI_PARK` turns it off, and only for
+  held sessions.
 
   `one-writer-workflow` keeps a conversation's log to one writer:
   a plain pi started on a conversation a host holds, open in a live

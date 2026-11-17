@@ -55,18 +55,21 @@ what makes parking safe, so that is what it waits on.
 
 - **The switch,** at
   `~/.local/state/pi/agentic-harness.pi/park-workflow/switch` (under
-  `XDG_STATE_HOME`), read every minute. With no line `off`, it parks
-  every session after half an hour idle, and a plain pi whose process is
-  over a day old after ten minutes, since its wake starts a fresh
-  process (one over a day old held 481 MiB on 15 November, against
-  267 MiB for one under an hour). A line holding a session's id
-  parks that one after two minutes, to prove parking on one session,
-  even where the switch says `off`. A line `off` keeps every other
-  session awake. A line `on` says what is already so.
-- **`PI_PARK=on`,** read at start, parks a session whatever a line
-  `off` says.
+  `XDG_STATE_HOME`), read every minute. Missing, empty or with a line
+  `on`, it parks every session after half an hour idle, and a plain pi
+  whose process is over a day old after ten minutes, since its wake
+  starts a fresh process (one over a day old held 481 MiB on 15
+  November, against 267 MiB for one under an hour). A line holding a
+  session's id parks that one after two minutes, to prove parking on
+  one session, even where the switch says `off`. A line `off` keeps
+  every other session awake, as does a switch of nothing but ids,
+  which is a trial of those alone, or one there that can't be read.
+  Each line counts by its first word, in any case, so `off until
+  Monday` is off.
 
-`PI_PARK=off` keeps a session out, whatever the switch says. A
+`PI_PARK` set to `off`, `0`, `false` or `no`, in any case, keeps a
+session out, whatever the switch says; nothing in it overrides a
+switch saying `off`. A
 session parks only when a holder keeps it and has said where it
 watches for the wake (`MYCELIUM_WAKE`), since a pi with nobody to
 start it again has simply ended. It also has to wake into itself: a

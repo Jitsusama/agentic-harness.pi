@@ -7,6 +7,7 @@
  */
 
 import {
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -838,6 +839,17 @@ describe("starting again on a fresh log", () => {
 		restarting(holder(), ["-e", "./x.ts"]);
 		expect(asked()).toMatchObject({ why: "starting again would drop -e" });
 		expect(shutdowns).toBe(0);
+	});
+
+	// Parking on by default arms these restarts on every held machine.
+	it("starts again on a machine with no switch, and stays where one can't be read", () => {
+		rmSync(parkSwitch(folder));
+		const bare = restarting();
+		expect(asked()).toMatchObject({ restarting: true });
+		bare.stop();
+		mkdirSync(parkSwitch(folder));
+		restarting();
+		expect(asked()).toMatchObject({ why: "parking is off" });
 	});
 
 	it("answers only for its own session", () => {

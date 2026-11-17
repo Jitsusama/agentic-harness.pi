@@ -17,11 +17,11 @@ import {
 	holderCommand,
 	holderRecord,
 	isRestartAsk,
+	keptAwake,
 	OLD_PARK_AFTER_MS,
 	OLD_PI_MS,
 	opensOnlyItself,
 	PARK_ASK,
-	PARK_ENV,
 	PARKED_EXIT,
 	PARKING,
 	type ParkAsk,
@@ -452,7 +452,7 @@ export function watch(
 	// moment came with none running. PI_PARK=off keeps it awake still.
 	const dueAfterMs = (): number | undefined => {
 		const usual = parkAfterMs(session, options.env, options.switchPath);
-		if (env[PARK_ENV] === "off") return usual;
+		if (keptAwake(env)) return usual;
 		if (parkingHost()) {
 			return hosted()?.draining?.(session) === true ? 0 : usual;
 		}

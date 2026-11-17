@@ -67,9 +67,8 @@ import { carriedEnvironment } from "./carried-environment.ts";
 import { type Holding, whatHolds } from "./free.ts";
 
 /**
- * The variable that parks a session whatever a switch's `off` says
- * (`on`), or keeps it awake whatever the switch says (`off`), read at
- * start.
+ * The variable that keeps a session awake whatever the switch says
+ * (`off`, `0`, `false` or `no`, in any case), read at start.
  */
 export const PARK_ENV = "PI_PARK";
 
@@ -397,27 +396,43 @@ export function parkSwitch(folder: string = parkFolder()): string {
 
 /**
  * How long this session waits idle before it parks, or nothing while
- * parking is off for it. `PI_PARK=off` keeps it off whatever the switch
- * says. A line of the switch holding this session's id parks it after
- * {@link NAMED_PARK_AFTER_MS}, to prove parking on one session. Every
- * other session parks after {@link PARK_AFTER_MS}, unless the switch
- * holds a line `off` and `PI_PARK` is not `on`. Read whenever it is
- * asked, so the switch turns running sessions on and off.
+ * parking is off for it. `PI_PARK` saying off keeps it off whatever the
+ * switch says. A line of the switch holding this session's id parks it
+ * after {@link NAMED_PARK_AFTER_MS}, to prove parking on one session.
+ * Every other session parks after {@link PARK_AFTER_MS} where there is no
+ * switch, or it is empty or says `on`; a switch saying `off`, or naming
+ * only ids, keeps them awake. Read whenever it is asked, so the switch
+ * turns running sessions on and off.
  */
 export function parkAfterMs(
 	session: string,
 	env: NodeJS.ProcessEnv = process.env,
 	switchPath: string = parkSwitch(),
 ): number | undefined {
-	if (env[PARK_ENV] === "off") return undefined;
+	if (keptAwake(env)) return undefined;
 	const lines = switchLines(switchPath);
 	if (session !== "" && lines.includes(session)) return NAMED_PARK_AFTER_MS;
-	const off = lines.some((line) => line.toLowerCase() === SWITCH_OFF);
-	return env[PARK_ENV] === "on" || !off ? PARK_AFTER_MS : undefined;
+	const said = lines.map((line) => line.split(/\s/)[0]?.toLowerCase());
+	if (said.includes(SWITCH_OFF)) return undefined;
+	return lines.length === 0 || said.includes(SWITCH_ON)
+		? PARK_AFTER_MS
+		: undefined;
 }
 
-/** The switch's line that keeps every session it doesn't name awake. */
+/**
+ * The switch's lines that keep every session it doesn't name awake, and
+ * that park them all; a switch of only ids is a trial of those alone.
+ */
 const SWITCH_OFF = "off";
+const SWITCH_ON = "on";
+
+/** What `PI_PARK` may say, in any case, to keep a session awake. */
+const ENV_OFF: ReadonlySet<string> = new Set(["off", "0", "false", "no"]);
+
+/** Whether `PI_PARK` keeps this session awake whatever else is said. */
+export function keptAwake(env: NodeJS.ProcessEnv = process.env): boolean {
+	return ENV_OFF.has((env[PARK_ENV] ?? "").trim().toLowerCase());
+}
 
 function switchLines(path: string): string[] {
 	try {

@@ -147,6 +147,28 @@ describe("a walk of World's objects", () => {
 		expect(nextTurn(jobs, plenty, NOW)?.id).toBe("two");
 	});
 
+	it("holds a quick push to the one walk on a Mac too, and lets other work past", () => {
+		const long = startedAgo(RAMP_MS + 60_000);
+		const jobs = [
+			job("fetch", { kind: "world-walk", what: "git fetch", started: long }),
+			job("push", {
+				kind: "world-walk",
+				what: "git push",
+				walk: "push",
+				quick: true,
+				cappable: true,
+				since: startedAgo(9_000),
+			}),
+			job("build", { since: startedAgo(8_000) }),
+		];
+		const plenty = { ...ROOMY, availableGib: 100 };
+
+		expect(nextTurn(jobs, plenty, NOW, MAC_RULES)?.id).toBe("build");
+		expect(waitReasons(jobs, plenty, NOW, MAC_RULES).get("push")).toBe("walks");
+		// Elsewhere a quick push passes, as it always has.
+		expect(nextTurn(jobs, plenty, NOW)?.id).toBe("push");
+	});
+
 	it("waits on memory like any job when its 6 GiB isn't free", () => {
 		const jobs = [job("walk", { kind: "world-walk", what: "git fetch" })];
 		const tight = { ...ROOMY, availableGib: 5 };

@@ -54,40 +54,54 @@ describe("whether a session parks, and after how long", () => {
 		// so 45 sessions idled awake at up to 480 MiB each while its swap
 		// filled. A holder that names a wake is all parking needs.
 		expect(parkAfterMs("s-1", {}, parkSwitch(folder))).toBe(PARK_AFTER_MS);
-		expect(parkAfterMs("s-1", {}, switchSays("s-2"))).toBe(PARK_AFTER_MS);
+		expect(parkAfterMs("s-1", {}, switchSays(""))).toBe(PARK_AFTER_MS);
 	});
 
-	it("parks none but those it names where the switch says off", () => {
-		const path = switchSays("off", "s-1");
+	it("parks every session after half an hour where the switch says on, and those it names soon", () => {
+		const path = switchSays("on", "s-1");
+		expect(parkAfterMs("s-1", {}, path)).toBe(NAMED_PARK_AFTER_MS);
+		expect(parkAfterMs("s-2", {}, path)).toBe(PARK_AFTER_MS);
+		expect(parkAfterMs("s-2", {}, switchSays("ON"))).toBe(PARK_AFTER_MS);
+	});
+
+	it("parks only the sessions a switch of nothing but ids names, as a trial", () => {
+		const path = switchSays("s-1");
 		expect(parkAfterMs("s-1", {}, path)).toBe(NAMED_PARK_AFTER_MS);
 		expect(parkAfterMs("s-2", {}, path)).toBeUndefined();
-		expect(parkAfterMs("s-2", { PI_PARK: "on" }, path)).toBe(PARK_AFTER_MS);
-		expect(parkAfterMs("s-2", {}, switchSays("Off"))).toBeUndefined();
+		// A line it can't read as on or off is no leave to park everyone.
+		expect(parkAfterMs("s-2", {}, switchSays("disabled"))).toBeUndefined();
 	});
 
-	it("parks none but those it names where the switch is there but can't be read", () => {
+	it("parks none but those it names where the switch says off, by its first word in any case", () => {
+		const path = switchSays("on", "off", "s-1");
+		expect(parkAfterMs("s-1", {}, path)).toBe(NAMED_PARK_AFTER_MS);
+		expect(parkAfterMs("s-2", {}, path)).toBeUndefined();
+		expect(parkAfterMs("s-2", {}, switchSays("Off"))).toBeUndefined();
+		expect(
+			parkAfterMs("s-2", {}, switchSays("off # until Monday")),
+		).toBeUndefined();
+	});
+
+	it("keeps the machine's off over a session's PI_PARK=on", () => {
+		expect(
+			parkAfterMs("s-2", { PI_PARK: "on" }, switchSays("off")),
+		).toBeUndefined();
+	});
+
+	it("parks none where the switch is there but can't be read", () => {
 		// A folder where the file should be reads as EISDIR: it may have
 		// said off, so it is taken to.
 		const path = join(folder, "unreadable");
 		mkdirSync(path);
 		expect(parkAfterMs("s-1", {}, path)).toBeUndefined();
+		expect(parkAfterMs("s-1", { PI_PARK: "on" }, path)).toBeUndefined();
 	});
 
-	it("parks every session after half an hour once the switch or the environment says on", () => {
-		expect(parkAfterMs("s-1", {}, switchSays("on"))).toBe(PARK_AFTER_MS);
-		expect(parkAfterMs("s-1", { PI_PARK: "on" }, parkSwitch(folder))).toBe(
-			PARK_AFTER_MS,
-		);
-	});
-
-	it("parks the session the switch names soon", () => {
-		const path = switchSays("s-1");
-		expect(parkAfterMs("s-1", {}, path)).toBe(NAMED_PARK_AFTER_MS);
-	});
-
-	it("never parks where the environment keeps it out", () => {
+	it("never parks where the environment keeps it out, however it says so", () => {
 		const path = switchSays("on", "s-1");
-		expect(parkAfterMs("s-1", { PI_PARK: "off" }, path)).toBeUndefined();
+		for (const off of ["off", "OFF", "0", "false", "no", " off "]) {
+			expect(parkAfterMs("s-1", { PI_PARK: off }, path), off).toBeUndefined();
+		}
 	});
 });
 
