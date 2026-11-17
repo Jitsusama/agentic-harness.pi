@@ -5,7 +5,8 @@
  * 30 October that first walk took 17.2 s at CPU pressure 76%, over
  * 772 quests, paid by every start and by 40 sessions at once after
  * each install. These count reads at the filesystem boundary, as
- * discovery-reads.test.ts does, across a memo cleared between walks.
+ * discovery/discovery-reads.test.ts does, across a memo cleared
+ * between walks.
  */
 
 import * as fs from "node:fs";

@@ -1,7 +1,7 @@
 # Quest Library Tests
 
-The tests of `lib/internal/quest`, in the same folders as the library,
-each test beside the name of the module it tests:
+The tests of `lib/internal/quest`, each in the folder of the module it
+tests, as the library groups them:
 
 - `documents/`: a quest file's format: front matter, the document
   reads, parsed files and body edits.
@@ -17,6 +17,7 @@ each test beside the name of the module it tests:
   restart, a boot's end or another machine's.
 - `support/`: helpers the discovery tests share.
 
-`discovery-seed.test.ts` stays at the top, beside the module it tests,
-which stays at the top of the library. The library's `creation/` has no
-tests of its own here yet.
+`discovery-seed.test.ts` stays at the top, as the module it tests stays
+at the top of the library. The tests of `creation/`, of `io.ts` and of
+some of `fields/` (ranking, orchestration) are in `tests/lib/quest/`,
+so `creation/` has no folder here.

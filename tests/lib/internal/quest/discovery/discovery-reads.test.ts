@@ -5,7 +5,8 @@
  * of megabytes of markdown, and quest verbs run it again on most calls.
  * These count reads at the filesystem boundary: a cold walk reads each
  * file once, and a warm one only re-reads what has changed. The seed a
- * walk leaves for the next process is in discovery-seed.test.ts.
+ * walk leaves for the next process is in ../discovery-seed.test.ts,
+ * one folder up.
  */
 
 import * as fs from "node:fs";
