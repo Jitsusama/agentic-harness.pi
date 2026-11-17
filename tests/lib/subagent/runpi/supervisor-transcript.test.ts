@@ -208,10 +208,14 @@ describe("how a reviewer's run ended", () => {
 		const { said } = reading();
 		const asked = `{"message":{"role":"user","content":[{"type":"text","text":"${"x".repeat(50)}`;
 
-		expect(said.skipped(`{"type":"message_start",${asked.slice(1)}`)).toBe(
-			false,
-		);
-		expect(said.skipped(`{"type":"message_end",${asked.slice(1)}`)).toBe(false);
+		expect(
+			said.skipped(`{"type":"message_start",${asked.slice(1)}`),
+			"the prompt's echo as a message starts loses nothing",
+		).toBe(false);
+		expect(
+			said.skipped(`{"type":"message_end",${asked.slice(1)}`),
+			"the prompt's echo as a message ends loses nothing",
+		).toBe(false);
 		expect(
 			said.skipped(
 				`{"type":"message_end","message":{"role":"assistant","content":[${"x".repeat(50)}`,

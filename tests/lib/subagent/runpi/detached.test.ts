@@ -195,6 +195,7 @@ describe("starting a reviewer that outlives the session", () => {
 				`  process.stdout.write(JSON.stringify({type:"message_end",message:{role:"assistant",content:[{type:"text",text:"what I had, from " + at("--session")}]}})+"\\n");`,
 				"} else {",
 				'  writeFileSync(at("--session-dir") + "/s.jsonl", "{}\\n");',
+				// A reviewer still working when its soft deadline stops it.
 				"  await new Promise((r) => setTimeout(r, 60000));",
 				"}",
 			].join("\n"),
