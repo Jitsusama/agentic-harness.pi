@@ -12,14 +12,15 @@
  * While the host holds a conversation, running or parked, it holds its log
  * open (held-logs.ts).
  *
- * Long because a conversation's steps (register, build, begin, end, park,
- * resume) meet here in the order each relies on, every one of them
- * handing its own work to a module of its own beside this one.
+ * This file holds a conversation's steps in the order each relies on
+ * (register, begin, end, release) and the engine's answers to the
+ * service. How pi builds, replaces and loses a session is in
+ * conversation-build.ts; what its requests keep past a park, in
+ * kept-requests.ts; what a stop keeps, a close ends and a restart would
+ * end, in stopping.ts.
  */
-import { existsSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { keepingRequests } from "../../extensions/compaction-workflow/kept-request.ts";
-import { warmingSwitchedOn } from "../../extensions/compaction-workflow/warm.ts";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import {
 	HOST_RESTARTING_EVENT,
 	type HostRestarting,
@@ -27,25 +28,15 @@ import {
 import {
 	type LaunchHints,
 	SESSION_STAMP_EVENT,
-	type SessionEnvironment,
 	type SessionStamp,
-	withSession,
 } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
-import { callIsOn } from "../../lib/internal/calls.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
-import { noteFirstPrompt } from "../../lib/internal/session/first-prompt-slot.ts";
 import {
 	clearParked,
 	readParked,
 	WAKE_ENV,
 } from "../../lib/internal/session/park.ts";
-import { carriedCalls } from "../../lib/internal/shell/kept.ts";
-import {
-	pendingWarmsDir,
-	warmingCarryDir,
-} from "../../lib/internal/warming-carry.ts";
-import { findJobHost } from "../../lib/jobs/host.ts";
 import type {
 	AdoptRequest,
 	ConversationEvents,
@@ -53,131 +44,45 @@ import type {
 	Prepared,
 	ResumePhase,
 } from "../service/backend.ts";
-import { conversationAuthContext } from "./auth-context.ts";
-import { type CarriedShells, carriedShells } from "./carried-shells.ts";
-import { holdMessagesThroughCarriedTurns } from "./carried-turn-messages.ts";
-import type {
-	ConversationTraits,
-	EngineOptions,
-	HostEngine,
-	HostedView,
-} from "./contract.ts";
+import { carriedShells } from "./carried-shells.ts";
+import type { ConversationTraits, EngineOptions, HostEngine } from "./contract.ts";
+import { conversationBuilds, type Live } from "./conversation-build.ts";
 import {
 	HARNESS_SETTINGS_VARIABLE,
 	type HarnessRequest,
 	harnessSettings,
 } from "./harness-settings.ts";
-import { bindHeadless } from "./headless.ts";
-import { isHeavy } from "./heavy.ts";
 import { heldLogs } from "./held-logs.ts";
 import { loadHostPi } from "./host-pi.ts";
-import type { HostedAgent } from "./hosted-agent.ts";
-import {
-	type HostedConversation,
-	openHostedConversation,
-} from "./hosted-conversation.ts";
-import {
-	type KeptProviders,
-	keptProviders,
-	readKept,
-	registerKept,
-	writeKept,
-} from "./kept-providers.ts";
-import { leftRunning } from "./left-running.ts";
-import { parkedWarming, warmThrough } from "./parked-warming.ts";
+import { KEY_VARIABLES, keptRequests } from "./kept-requests.ts";
 import { parking } from "./parking.ts";
 import { piLibrary } from "./pi-library.ts";
 import {
-	type AgentSessionRuntime,
-	type EventBus,
-	type ModelRuntime,
-	type PiSessions,
 	piBuiltInExtensions,
 	piSessions,
-	type RuntimeResult,
-	type RuntimeTarget,
 	type SessionManager,
-	type StartupDiagnostic,
-	startupDiagnostics,
 } from "./pi-session.ts";
-import type { AssistantMessage } from "./pi-types.ts";
-import { projectTrust, type StartupQuestion } from "./project-trust.ts";
+import { projectTrust } from "./project-trust.ts";
 import {
 	type QuietCollection,
 	type QuietReading,
 	quietCollection,
 	runningTools,
 } from "./quiet-collection.ts";
-import { holdReplacements } from "./replacement.ts";
-import {
-	adoptable,
-	folder,
-	hintsFor,
-	namesCommand,
-	requireModel,
-} from "./requests.ts";
-import { loaderOptions } from "./resources.ts";
+import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
-import { sessionEnvironment } from "./session-host.ts";
+import {
+	backgroundIn,
+	heavyIn,
+	restartEnds,
+	stopKeeping,
+} from "./stopping.ts";
 import {
 	hostedSubagentInstall,
 	pinSubagentInstall,
 	pinSubagentKey,
 } from "./subagent-install.ts";
-import {
-	callsLeftRunning,
-	conversationMarker,
-	ownerMark,
-	reapLeftBehind,
-	reapToolChildren,
-} from "./tool-children.ts";
-
-/** The variables the work provider reads its gateway key from, set from the key on each request. */
-export const KEY_VARIABLES = ["SHOPIFY_PROXY_KEY", "PI_PROXY_API_KEY"] as const;
-
-/** An answer the gateway gave a key it would not take. */
-const REFUSED_KEY = /\b401\b/;
-
-/** The durable store's file inside a conversation's folder. */
-const STORE_FILE = "durable.sqlite";
-/** What its extensions registered of its providers, kept beside its store as it parks. */
-const PROVIDERS_FILE = "providers.json";
-
-/** One conversation the engine registered. */
-interface Live {
-	readonly traits: ConversationTraits;
-	readonly launch: Readonly<Record<string, string>>;
-	readonly bus: EventBus;
-	/** pi's runtime, while it runs this conversation; another it became takes it on. */
-	runtime?: AgentSessionRuntime;
-	conversation?: HostedConversation;
-	ending?: SessionStamp["how"];
-	unsubscribe?: () => void;
-	/** pi disposed the session itself, replacing it. */
-	disposed?: boolean;
-	/** Its screen was asked about its folder, so the screen holds something of it however its build ends. */
-	questioned?: boolean;
-	/** Said once its screen first asks the person something before its session exists. */
-	asked?: () => void;
-	/** Its close has begun, so a build still under way stops short of a session. */
-	closing?: boolean;
-	/** It asked to park, so its close keeps its screen's terminal for the wake. */
-	parking?: boolean;
-	/**
-	 * Its close hands it on, to pi's replacement in its seat or to another
-	 * holder, so what its ended calls left is kept, as a stop keeps it.
-	 */
-	handsOn?: boolean;
-}
-
-/**
- * One pi runtime and the conversation it runs: the current one, and the
- * one it is becoming while pi builds it.
- */
-interface Seat {
-	current: Live;
-	next?: Live;
-}
+import { conversationMarker, ownerMark } from "./tool-children.ts";
 
 /** A conversation prepare named, waiting for its start, with the launch derived for it. */
 interface Preparing {
@@ -202,19 +107,8 @@ export async function createEngine(
 	const report = options.report ?? (() => {});
 	// Before the service resumes or admits anything: what this host's dead predecessors' tools left running ends first, held or not.
 	const owner = ownerMark();
-	// What parks kept of what ended calls left running is spared by every reap.
-	const left = leftRunning({ stateDir: options.stateDir, report });
-	// Conversations the service is releasing to another holder, whose close keeps what parks kept.
-	const handedOn = new Set<string>();
-	const reaped = await reapLeftBehind(
-		host.key,
-		undefined,
-		left.spared(carriedCalls()),
-	);
-	if (reaped.groups.length > 0 || reaped.pids.length > 0)
-		report(
-			`Ended what an earlier host's tools left running: groups ${reaped.groups.join(", ") || "none"}, processes ${reaped.pids.join(", ") || "none"}`,
-		);
+	const stopping = stopKeeping({ stateDir: options.stateDir, report });
+	await stopping.reapEarlier(host.key);
 	const prepared = new Map<string, Preparing>();
 	const live = new Map<string, Live>();
 	const logs = heldLogs(report);
@@ -229,38 +123,8 @@ export async function createEngine(
 	// What an earlier restart kept and no conversation here took up is stopped once due.
 	shells.watch((sessionId) => live.has(sessionId));
 	let watched: ConversationEvents | undefined;
-	// Each conversation's agent folder, where its model runtime reads auth and models.
-	const agentDirs = new Map<string, string>();
-	// Each conversation's environment, kept past its park: its warms go once the host has let it go.
-	const environments = new Map<string, SessionEnvironment>();
-	// What each conversation's extensions registered of its providers, kept past its park for its warms.
-	const providers = new Map<string, KeptProviders>();
-	const providersFile = (sessionId: string) =>
-		join(options.stateDir, sessionId, PROVIDERS_FILE);
-	const warming = parkedWarming({
-		carries: warmingCarryDir(),
-		pending: pendingWarmsDir(),
-		send: async (carry, signal) => {
-			const agentDir = agentDirs.get(carry.sessionId);
-			if (!agentDir)
-				return { ok: false, reason: "its agent folder is unknown" };
-			const runtime = await sessions.ModelRuntime.create({
-				authPath: join(agentDir, "auth.json"),
-				modelsPath: join(agentDir, "models.json"),
-				authContext: conversationAuthContext(() => requestEnv(carry.sessionId)),
-			});
-			const kept = providers.get(carry.sessionId);
-			if (kept) registerKept(runtime, kept);
-			return warmThrough(runtime, carry, signal);
-		},
-		enabled: async () => keepingRequests() && (await warmingSwitchedOn()),
-		callOn: () => callIsOn({ missing: report }),
-		held: (sessionId) =>
-			report(
-				`Parked warm of ${sessionId} held for a call until its entry expired`,
-			),
-		report,
-	});
+	const requests = keptRequests({ engine: options, sessions, report });
+	const { warming } = requests;
 	const parked = parking({
 		stateDir: options.stateDir,
 		stop: (sessionId, why) => host.stop(sessionId, why),
@@ -282,6 +146,19 @@ export async function createEngine(
 		options.collectWhenQuiet === false
 			? { stirred() {}, parked() {}, viewed() {}, stop() {} }
 			: quietCollection({ reading: quietReading, report });
+	const { build, view, failedAfterStart } = conversationBuilds({
+		parts: { pi, sessions, builtIns, trust, library },
+		options,
+		report,
+		logs,
+		requests,
+		stopping,
+		watched: () => watched,
+		held,
+		fileHeld,
+		register,
+		heard,
+	});
 
 	/** What a pause to collect would cost the conversations now. */
 	function quietReading(): QuietReading {
@@ -312,393 +189,6 @@ export async function createEngine(
 			host.list().some((conversation) => conversation.file === file) ||
 			[...prepared.values()].some(({ traits }) => traits.file === file)
 		);
-	}
-
-	/** The conversation's environment as one request sends it, the current key included. */
-	async function requestEnv(
-		sessionId: string,
-	): Promise<Readonly<Record<string, string>>> {
-		// The runtime's own tools, as code in the host reads them, under
-		// what the conversation names for itself.
-		const values: Record<string, string> = { ...host.hostReads() };
-		for (const [name, value] of Object.entries(
-			environmentOf(sessionId).snapshot(),
-		)) {
-			if (value !== undefined) values[name] = value;
-		}
-		if (options.key) {
-			const key = await options.key.current();
-			for (const name of KEY_VARIABLES) values[name] = key;
-		}
-		return values;
-	}
-
-	/** A conversation's environment: the host's while it holds it, else the one it parked with. */
-	function environmentOf(sessionId: string): SessionEnvironment {
-		if (host.holds(sessionId) !== undefined) return host.env(sessionId);
-		return environments.get(sessionId) ?? host.env(sessionId);
-	}
-
-	/** Whether a refused request is worth sending again, having asked for a fresh key. */
-	async function renewed(error: AssistantMessage): Promise<boolean> {
-		const key = options.key;
-		if (!key || key.inherited || !REFUSED_KEY.test(error.errorMessage ?? ""))
-			return false;
-		key.refused();
-		return true;
-	}
-
-	function view(sessionId: string, record: Live): HostedView {
-		const runtime = record.runtime;
-		if (!runtime) throw new Error(`Conversation is not built: ${sessionId}`);
-		return {
-			sessionId,
-			runtime,
-			close: (why) => host.close(sessionId, why),
-		};
-	}
-
-	function agentOf(record: Live): HostedAgent {
-		const agent = record.conversation?.agent;
-		if (!agent)
-			throw new Error(
-				"pi built the conversation's session without the host's agent",
-			);
-		return agent;
-	}
-
-	/**
-	 * pi's runtime factory for one seat: the conversation it was started for,
-	 * then each it becomes, held under its new id before pi builds it.
-	 */
-	function factory(
-		seat: Seat,
-		request: OpenRequest | AdoptRequest | undefined,
-	): (target: RuntimeTarget) => Promise<RuntimeResult> {
-		return async (target) => {
-			const { current } = seat;
-			if (target.sessionManager.getSessionId() === current.traits.sessionId)
-				return await session(current, target, target.sessionManager, {
-					starting: true,
-					...(request ? { request } : {}),
-				});
-			const next = await becoming(current, target);
-			seat.next = next;
-			return await host.run(next.traits.sessionId, () =>
-				session(next, target, keptFile(sessions, target.sessionManager), {
-					starting: false,
-				}),
-			);
-		};
-	}
-
-	/**
-	 * Hold the conversation a seat's current one is becoming: the service
-	 * first, then the host, with the same launch, folder kind and quest, and
-	 * its settings derived afresh for a new or forked conversation or as a
-	 * resumed one.
-	 */
-	async function becoming(
-		previous: Live,
-		target: RuntimeTarget,
-	): Promise<Live> {
-		const manager = target.sessionManager;
-		const sessionId = manager.getSessionId();
-		const named = manager.getSessionFile();
-		if (!named) throw new Error("pi named no file for the conversation");
-		const file = resolve(named);
-		if (held(sessionId, file))
-			throw new Error(`Conversation already held: ${sessionId}`);
-		const { attended, quest } = previous.traits;
-		const traits: ConversationTraits = {
-			sessionId,
-			file,
-			cwd: target.cwd,
-			attended,
-			...(quest ? { quest } : {}),
-		};
-		const { launch } = previous;
-		await watched?.became(previous.traits.sessionId, {
-			sessionId,
-			file,
-			cwd: target.cwd,
-			...(Object.keys(launch).length > 0 ? { launch } : {}),
-		});
-		return register(
-			traits,
-			launch,
-			resumes(target) ? { op: "adopt" } : { op: "open" },
-			quest ? { questId: quest } : {},
-		);
-	}
-
-	/**
-	 * Build pi's session for a registered conversation, on its own services,
-	 * agent and store, its folder trusted as pi's CLI would trust it.
-	 */
-	async function session(
-		record: Live,
-		target: RuntimeTarget,
-		sessionManager: SessionManager,
-		building: {
-			/** The conversation's own start, rather than one it became. */
-			readonly starting: boolean;
-			readonly request?: OpenRequest | AdoptRequest;
-		},
-	): Promise<RuntimeResult> {
-		const { sessionId } = record.traits;
-		const { request } = building;
-		// Written by now: keptFile writes the log of one held before its first message.
-		logs.hold(sessionId, record.traits.file);
-		const env = () => requestEnv(sessionId);
-		agentDirs.set(sessionId, target.agentDir);
-		environments.set(sessionId, host.env(sessionId));
-		const modelRuntime = await sessions.ModelRuntime.create({
-			authPath: join(target.agentDir, "auth.json"),
-			modelsPath: join(target.agentDir, "models.json"),
-			authContext: conversationAuthContext(env),
-		});
-		const trustSaid: StartupDiagnostic[] = [];
-		const ask = building.starting ? trustQuestion(record) : undefined;
-		const trusted = trust.services(target.cwd, target.agentDir, {
-			...(ask ? { ask } : {}),
-			...(target.projectTrustContext
-				? { context: target.projectTrustContext }
-				: {}),
-			warn: (message) => trustSaid.push({ type: "warning", message }),
-		});
-		const services = await sessions.createAgentSessionServices({
-			cwd: target.cwd,
-			agentDir: target.agentDir,
-			modelRuntime,
-			settingsManager: trusted.settingsManager,
-			...(trusted.resourceLoaderReloadOptions
-				? { resourceLoaderReloadOptions: trusted.resourceLoaderReloadOptions }
-				: {}),
-			// pi's own built-ins, as its CLI passes them, so the conversation
-			// has the tools a plain pi on the same settings has.
-			resourceLoaderOptions: loaderOptions(
-				record.bus,
-				builtIns,
-				options.resources,
-			),
-		});
-		// What the CLI says as it starts: the screen shows it all, and the
-		// journal, read when no screen is, keeps the errors and warnings.
-		// Closed while its screen asked the person: nothing more is built for it.
-		if (record.closing)
-			throw new Error(`Conversation ${sessionId} closed before it was built`);
-		const said = [...trustSaid, ...startupDiagnostics(services)];
-		for (const { type, message } of said)
-			if (type !== "info") report(`Conversation ${sessionId}: ${message}`);
-		const conversation = await openHostedConversation({
-			modules: pi.modules,
-			library,
-			storePath: join(options.stateDir, sessionId, STORE_FILE),
-			env,
-			renewed,
-			within: (work) => withSession(sessionId, work),
-			report,
-		});
-		record.conversation = conversation;
-		const opening = request?.op === "open" ? request : undefined;
-		const model = opening?.model
-			? requireModel(services, opening.model)
-			: undefined;
-		const created = await sessions.createAgentSession({
-			cwd: target.cwd,
-			agentDir: target.agentDir,
-			modelRuntime: services.modelRuntime,
-			settingsManager: services.settingsManager,
-			resourceLoader: services.resourceLoader,
-			sessionManager,
-			...(target.sessionStartEvent
-				? { sessionStartEvent: target.sessionStartEvent }
-				: {}),
-			...(model ? { model } : {}),
-			...(opening?.thinkingLevel
-				? { thinkingLevel: opening.thinkingLevel }
-				: {}),
-			createAgent: conversation.createAgent,
-		});
-		// A turn durable carries on is no run of pi's session, which would write an extension's message mid-round.
-		// The hold ends with the session's dispose, writing what it held, so nothing here keeps its undo.
-		holdMessagesThroughCarriedTurns(created.session, agentOf(record), report);
-		// Words the agent queues past the session show as pending, where pi has the seam; the host says at start when it lacks it.
-		// pi settles only runs it began, so the agent tells the session's extensions when one of its own settles.
-		agentOf(record).joinSession(created.session);
-		return { ...created, services, diagnostics: said };
-	}
-
-	/**
-	 * How a conversation's start asks its person whether to trust its folder:
-	 * through its screen, only when it is attended and the screen can ask,
-	 * saying it asked so its start can answer while the person decides.
-	 */
-	function trustQuestion(record: Live): StartupQuestion | undefined {
-		const screens = options.screens;
-		const askProjectTrust = screens?.askProjectTrust;
-		if (!record.traits.attended || !screens || !askProjectTrust) return;
-		const { sessionId, cwd } = record.traits;
-		return (title, labels) => {
-			record.questioned = true;
-			record.asked?.();
-			return askProjectTrust.call(screens, sessionId, cwd, title, labels);
-		};
-	}
-
-	/**
-	 * Settle a replacement pi finished: the conversation it became takes the
-	 * runtime on, its screen and state follow it, what it had in flight
-	 * carries on, and the one it was ends, its session gone with pi's
-	 * teardown.
-	 */
-	async function replaced(
-		seat: Seat,
-		runtime: AgentSessionRuntime,
-		previousId: string,
-	): Promise<void> {
-		const { current: previous, next } = seat;
-		if (!next || previous.traits.sessionId !== previousId) {
-			report(
-				`pi replaced ${previousId} without the host holding what it became`,
-			);
-			return;
-		}
-		seat.current = next;
-		seat.next = undefined;
-		// Plain pi keeps what the conversation it replaces left running.
-		previous.handsOn = true;
-		previous.runtime = undefined;
-		previous.disposed = true;
-		previous.unsubscribe?.();
-		previous.unsubscribe = undefined;
-		next.runtime = runtime;
-		const { sessionId } = next.traits;
-		try {
-			await host.run(sessionId, async () => {
-				next.unsubscribe = runtime.session.subscribe((event) =>
-					heard(sessionId, event.type),
-				);
-				await options.screens?.rebound(view(sessionId, next), previousId);
-				const recovery = await agentOf(next).recover();
-				recovery.settled.catch(report);
-			});
-		} catch (error) {
-			report(error);
-		} finally {
-			await host.close(previousId, "replaced").catch(report);
-		}
-	}
-
-	/**
-	 * Settle a replacement pi failed after disposing the session: the
-	 * conversation it was becoming, if held yet, and the one it was both end.
-	 */
-	async function lost(seat: Seat, previousId: string): Promise<void> {
-		const { current: previous, next } = seat;
-		seat.next = undefined;
-		previous.disposed = true;
-		if (next)
-			await host
-				.close(next.traits.sessionId, "pi failed to build it")
-				.catch(report);
-		await host.close(previousId, "pi failed to replace it").catch(report);
-	}
-
-	/** Build a registered conversation, under its id, and carry on what it had in flight. */
-	async function build(
-		record: Live,
-		manager: SessionManager,
-		request: OpenRequest | AdoptRequest | undefined,
-		mark?: (phase: ResumePhase) => void,
-		turn?: TakeTurn,
-	): Promise<void> {
-		const { sessionId, cwd } = record.traits;
-		// What an earlier host's tools left running for it ends before this start reports them cut off.
-		await reapToolChildren(sessionId, undefined, left.spared(carriedCalls()));
-		mark?.("reap");
-		const first = request?.op === "open" ? request.first : undefined;
-		noteFirstPrompt(first);
-		const sessionManager =
-			request?.op === "open" ? keptFile(sessions, manager) : manager;
-		const seat: Seat = { current: record };
-		const runtime = await sessions.createAgentSessionRuntime(
-			factory(seat, request),
-			{ cwd, agentDir: sessions.getAgentDir(), sessionManager },
-		);
-		mark?.("runtime");
-		record.runtime = runtime;
-		// Before a screen takes the runtime on, so its own rebinding runs as the conversation it binds.
-		holdReplacements(runtime, {
-			refuse: (file) => {
-				if (fileHeld(file))
-					throw new Error(`That session is open in the host already: ${file}`);
-			},
-			replaced: (previousId) => replaced(seat, runtime, previousId),
-			lost: (previousId) => lost(seat, previousId),
-		});
-		const agent = agentOf(record);
-		record.unsubscribe = runtime.session.subscribe((event) =>
-			heard(sessionId, event.type),
-		);
-		if (options.screens)
-			await options.screens.opened(view(sessionId, record), {
-				asking: () => record.asked?.(),
-			});
-		else {
-			runtime.setRebindSession(() => bindHeadless(runtime, host, report));
-			await bindHeadless(runtime, host, report);
-		}
-		mark?.("screen");
-		const recovery = await agent.recover(turn);
-		mark?.("recovery");
-		if (first === undefined) {
-			recovery.settled.catch(report);
-			return;
-		}
-		await recovery.settled;
-		await promptFirst(record, agent, first);
-	}
-
-	/** Send the first words; resolve once durable holds them, or pi took them as a command. */
-	async function promptFirst(
-		record: Live,
-		agent: HostedAgent,
-		first: string,
-	): Promise<void> {
-		const session = view(record.traits.sessionId, record).runtime.session;
-		const admitted = agent.whenAdmitted();
-		// Once the race is decided, a later rejection says only what the race already said, or concerns a later prompt.
-		admitted.catch(() => undefined);
-		let handled = () => {};
-		const taken = new Promise<void>((done) => {
-			handled = done;
-		});
-		const prompting = session.prompt(first, {
-			source: "rpc",
-			preflightResult: (disposition) => {
-				if (disposition === "handled") handled();
-			},
-		});
-		// pi runs an extension command inside prompt and calls it handled only
-		// once its handler returns, which may wait on a person at a panel; the
-		// command was taken the moment it started, which prompt has done by now.
-		if (namesCommand(session, first)) handled();
-		await Promise.race([admitted, taken, prompting]);
-		prompting.catch((error: unknown) => failedAfterStart(record, error));
-	}
-
-	/** Something failed once its conversation's start had answered, so no open fails with it: report it, and show it on the screen if it has one. */
-	function failedAfterStart(record: Live, error: unknown): void {
-		report(error);
-		if (record.closing || !record.runtime) return;
-		const message = error instanceof Error ? error.message : String(error);
-		try {
-			options.screens?.failed?.(record.traits.sessionId, message);
-		} catch (showing) {
-			report(showing);
-		}
 	}
 
 	/** Register a conversation, then build it under its id; one that fails once registered stays held, parked. */
@@ -804,48 +294,13 @@ export async function createEngine(
 		// such as its agent, stays in memory while the reap below reads every
 		// process's environment.
 		await release(sessionId, record, why);
-		// Any stop short of a close for good, a park, a host's stop, a release
-		// or pi's replacement, keeps what its ended calls left running, as
-		// plain pi does; a close for good ends what its parks kept too.
-		if (handedOn.delete(sessionId)) record.handsOn = true;
-		if (record.ending === "closed" && !record.handsOn) endKept(sessionId);
-		else await keepLeftRunning(sessionId, record.parking ? "park" : "stop");
-		// The signal kills a tool's own group; a descendant that left it ends here.
-		await reapToolChildren(sessionId, undefined, left.spared(carriedCalls()));
+		await stopping.afterRelease(sessionId, record);
 		const events = watched;
 		if (record.ending === "closed" && events)
 			// Not awaited: the service's answer may close this very conversation, whose close waits on this.
 			Promise.resolve()
 				.then(() => events.ended(sessionId, why))
 				.catch(report);
-	}
-
-	/** Spare no longer what a conversation closed for good kept, saying it in the journal; true when it kept any. */
-	function endKept(sessionId: string): boolean {
-		const ended = left.closed(sessionId);
-		if (ended > 0)
-			report(
-				`Ending at ${sessionId}'s close what ${ended} ended command${ended === 1 ? "" : "s"} left`,
-			);
-		return ended > 0;
-	}
-
-	/** Note what a stopped conversation's ended calls left running, saying it in the journal. */
-	async function keepLeftRunning(
-		sessionId: string,
-		stop: "park" | "stop",
-	): Promise<void> {
-		try {
-			const marks = await callsLeftRunning(sessionId);
-			if (marks.size === 0) return;
-			left.note(sessionId, marks);
-			report(
-				`Kept running through ${sessionId}'s ${stop} what ${marks.size} ended command${marks.size === 1 ? "" : "s"} left`,
-			);
-		} catch (error) {
-			// The stop goes on, and its reap ends them as before.
-			report(error);
-		}
 	}
 
 	/** Let go of a conversation's screen, session and store, and take it off the table. */
@@ -867,7 +322,7 @@ export async function createEngine(
 		else if (!record.disposed) await record.runtime?.session.abort();
 		record.unsubscribe?.();
 		if (record.parking && record.runtime && !record.disposed)
-			keepProviders(sessionId, record.runtime.services.modelRuntime);
+			requests.keepProviders(sessionId, record.runtime.services.modelRuntime);
 		if (!record.disposed) await record.runtime?.dispose();
 		// Closing signals a running tool and writes no outcome, so the next start reports it cut off.
 		try {
@@ -888,18 +343,6 @@ export async function createEngine(
 			// What it held is garbage now: a park lets most of it go, and may collect sooner.
 			if (record.parking) quiet.parked();
 			else quiet.stirred();
-		}
-	}
-
-	/** Keep what a parking conversation's extensions registered, for its warms here and in the next host. */
-	function keepProviders(sessionId: string, runtime: ModelRuntime): void {
-		try {
-			const kept = keptProviders(runtime);
-			providers.set(sessionId, kept);
-			writeKept(providersFile(sessionId), kept);
-		} catch (error) {
-			// Its park goes on: only its warms go without, failing as they say.
-			report(error);
 		}
 	}
 
@@ -1097,8 +540,6 @@ export async function createEngine(
 		// Building it only to park again a minute later held a start 7 to 13 s
 		// a conversation on 13 November. A park waits until it is idle with
 		// nothing outstanding, so nothing runs until something asks for it.
-		// Its cache is kept warm as its park left it, on the folder and the
-		// environment its start would give it, since no start comes to set them.
 		restsParked(entry) {
 			const { sessionId } = entry;
 			if (host.holds(sessionId) !== undefined) return false;
@@ -1106,47 +547,21 @@ export async function createEngine(
 				return false;
 			parked.rests(sessionId);
 			logs.hold(sessionId, resolve(entry.file));
-			agentDirs.set(sessionId, sessions.getAgentDir());
-			const kept = readKept(providersFile(sessionId));
-			if (kept) providers.set(sessionId, kept);
-			environments.set(
-				sessionId,
-				sessionEnvironment(
-					{ ...options.env, ...(entry.launch ?? {}) },
-					sessionId,
-				),
-			);
-			warming.start(sessionId);
+			requests.restore(entry);
 			return true;
 		},
 
 		parkSettled: (sessionId) => parked.settled(sessionId),
 
 		handsOn(sessionId) {
-			handedOn.add(sessionId);
+			stopping.handsOn(sessionId);
 		},
 
 		async dropped(sessionId, why) {
-			warming.stop(sessionId);
+			requests.forget(sessionId);
 			logs.release(sessionId);
-			agentDirs.delete(sessionId);
-			environments.delete(sessionId);
-			providers.delete(sessionId);
-			rmSync(providersFile(sessionId), { force: true });
 			parked.closed(sessionId);
-			// Closed for good while parked, what its parks kept ends with it,
-			// as a running one's close ends it; released, it is kept.
-			if (!handedOn.delete(sessionId) && endKept(sessionId))
-				try {
-					await reapToolChildren(
-						sessionId,
-						undefined,
-						left.spared(carriedCalls()),
-					);
-				} catch (error) {
-					// The close goes on; what the reap missed runs out the day it was kept for.
-					report(error);
-				}
+			await stopping.dropped(sessionId);
 			await options.screens?.closed(sessionId, why);
 		},
 
@@ -1157,97 +572,4 @@ export async function createEngine(
 			await host.run(sessionId, () => session.abort());
 		},
 	};
-}
-
-/**
- * The session manager over a kept file. pi writes a session's file only
- * once it holds a message, and pi opening a file that isn't there names a
- * new conversation, so a conversation held before its first message would
- * come back from a restart as another. What pi holds of it so far (its
- * header, and a fork's branch) is written at start, as pi would write it,
- * and the file opened as pi opens any other. A file already written is
- * pi's to keep, as it is.
- */
-function keptFile(
-	sessions: PiSessions,
-	manager: SessionManager,
-): SessionManager {
-	const file = manager.getSessionFile();
-	if (!file) throw new Error("pi named no file for the conversation");
-	if (existsSync(file)) return manager;
-	const entries = [manager.getHeader(), ...manager.getEntries()];
-	writeFileSync(
-		file,
-		entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
-		{ flag: "wx" },
-	);
-	return sessions.SessionManager.open(file);
-}
-
-/**
- * How much background work a conversation holds, as its job host counts
- * it; none while pi doesn't run it.
- */
-function backgroundIn(record: Live): number {
-	if (!record.runtime) return 0;
-	// job-workflow answers on the conversation's own bus; one from before
-	// it could count says nothing, so it counts as holding work.
-	const jobs = findJobHost(record.bus);
-	return jobs ? (jobs.pending?.() ?? 1) : 0;
-}
-
-/**
- * What a host restart would end of a conversation's background work,
- * one line each, as its job host names it: every running job but a bash
- * call the restart can carry (fleets, codemode, review rounds, a call
- * that can't be kept), since only a call's shell is kept through the
- * host's stop. Where the host can keep none, bash calls too. Results
- * not yet said are carried in the conversation's log, so none holds it.
- * A job host from before `holds` says only how many it holds.
- */
-function restartEnds(
-	record: Live,
-	shells: CarriedShells,
-	draining = false,
-): string[] {
-	if (!record.runtime) return [];
-	const jobs = findJobHost(record.bus);
-	if (!jobs) return [];
-	if (!jobs.holds) {
-		const pending = jobs.pending?.() ?? 1;
-		return Array.from({ length: pending }, () => "a job");
-	}
-	const carriable = shells.keeps
-		? (work: { kind: string }) => work.kind === "shell"
-		: () => false;
-	const held = jobs.holds(carriable);
-	// A host draining holds its restart for a heavy run too, carried or not:
-	// a stop that can't carry it, by hand or past systemd's limit, ends it.
-	const heavy = draining
-		? jobs
-				.holds(() => false)
-				.filter(
-					(job) => isHeavy(job.label) && !held.some(({ id }) => id === job.id),
-				)
-		: [];
-	return [...held, ...heavy].map(
-		(job) => `${job.id} ${job.kind}: ${job.label}`,
-	);
-}
-
-/** The heavy runs one conversation has going, carried or not, a line each. */
-function heavyIn(record: Live): string[] {
-	if (!record.runtime) return [];
-	const jobs = findJobHost(record.bus);
-	if (!jobs?.holds) return [];
-	return jobs
-		.holds(() => false)
-		.filter((job) => isHeavy(job.label))
-		.map((job) => `${job.id} ${job.kind}: ${job.label}`);
-}
-
-/** Whether pi builds a session it resumed, rather than a new or forked one. */
-function resumes(target: RuntimeTarget): boolean {
-	const start = target.sessionStartEvent;
-	return start !== undefined && Reflect.get(start, "reason") === "resume";
 }

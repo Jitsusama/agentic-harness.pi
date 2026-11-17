@@ -7,7 +7,7 @@ export type {
 	HostEngine,
 	HostedView,
 } from "./contract.ts";
-export { createEngine, KEY_VARIABLES } from "./engine.ts";
+export { createEngine } from "./engine.ts";
 export {
 	HARNESS_SETTINGS_VARIABLE,
 	type HarnessEngine,
@@ -26,6 +26,7 @@ export {
 	lackingSeams,
 	loadHostPi,
 } from "./host-pi.ts";
+export { KEY_VARIABLES } from "./kept-requests.ts";
 export type { StartupDiagnostic } from "./pi-session.ts";
 export { HOST_READS } from "./process-env.ts";
 export type { ConversationResources } from "./resources.ts";
