@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { withSession } from "../../../../lib/core/session/index.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
@@ -61,11 +62,10 @@ function settle(path: string): void {
 it("reads the tree as it stands at each action, not the host's last walk", async () => {
 	const questsRoot = join(tmpRoot, "quests");
 	const state = createQuestState({ questsRoot });
-	const ctx = fakeCtx(tmpRoot);
-	const created = await handle(state, fakePi(), ctx, {
-		action: "create",
-		title: "Alpha",
-	});
+	const ctx = fakeCtx(tmpRoot, "a");
+	const created = await withSession("a", () =>
+		handle(state, fakePi(), ctx, { action: "create", title: "Alpha" }),
+	);
 	if (!created.ok) throw new Error(created.guidance);
 	const id = state.questId ?? "";
 	const readmePath = join(state.questDir ?? "", "README.md");
@@ -75,7 +75,9 @@ it("reads the tree as it stands at each action, not the host's last walk", async
 	const text = readFileSync(readmePath, "utf8");
 	writeFileSync(readmePath, text.replace(/^status: \w+$/m, "status: paused"));
 	settle(readmePath);
-	await handle(state, fakePi(), ctx, { action: "list" });
+	await withSession("a", () =>
+		handle(state, fakePi(), ctx, { action: "list" }),
+	);
 
 	expect(
 		discoverQuests(questsRoot).index.quests.get(id)?.doc.frontMatter.status,
