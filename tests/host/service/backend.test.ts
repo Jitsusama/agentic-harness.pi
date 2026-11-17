@@ -735,7 +735,9 @@ describe("hostBackend", () => {
 		});
 		await backend.execute({ v: 1, id: "d", op: "drain", on: true });
 		expect(said, "one line, naming the run").toEqual([
-			expect.stringMatching(/heavy runs: c1: job-2 shell: nix build pi-host: forged$/),
+			expect.stringMatching(
+				/heavy runs: c1: job-2 shell: nix build pi-host: forged$/,
+			),
 		]);
 		expect(said.join(""), "no control character left").not.toMatch(/\p{Cc}/u);
 	});

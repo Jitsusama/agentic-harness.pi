@@ -117,7 +117,15 @@ input pipeline or screen. No unit or running host is installed yet.
   V8's full collections ends, since the used heap between them counts
   garbage the next collection frees. It is the lower of the last two,
   so a turn's passing data, live in one collection, isn't taken for a
-  climb.
+  climb, and it counts the collections, since the reading moves only
+  at one.
+- heap-mark.ts: the lowest the heap tiers weigh growth from. A park
+  keeps the mark it parked under and its wake puts the mark back, so
+  heap a wake refills isn't growth; a close lets it go. After a wake
+  the mark doesn't fall until V8 has collected in full twice past ten
+  minutes on, so a reading from before the wake can't stand for room.
+- one-line.ts: a label a model wrote, made one journal line, so a line
+  break, NUL or escape in a job's label can't forge a host's line.
 - restart.ts and what-starts.ts: the host restarting itself. A host
   systemd runs as its unit's main process looks every minute, from
   five minutes after it starts, whether it would start differently:
@@ -134,10 +142,11 @@ input pipeline or screen. No unit or running host is installed yet.
   20:44). Both weigh the heap V8 kept after its full collections
   (live-heap.ts). The 70% tier acts only once the heap has grown 15%
   of the limit from the lowest any look has read since the host's
-  first, not counting what a park freed, since a wake fills it again,
-  so a host its resumed conversations fill doesn't restart at every
-  first look or every wake; the 80% tier once it has grown 5%, so a host that
-  starts that full restarts only as it climbs, and a refused heap
+  first, not counting what a park freed, since a wake fills it again
+  (heap-mark.ts), so a host its resumed conversations fill doesn't
+  restart at every first look or every wake; the 80% tier once it has
+  grown 5%, so a host that starts that full restarts only as it
+  climbs, and a refused heap
   restart is tried again after 1, 2, 4 s and on, up to a minute. Code
   only a conversation loads moves with that conversation instead
   (reload-workflow's follower). Once any of these holds, and every

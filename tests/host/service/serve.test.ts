@@ -260,6 +260,12 @@ describe("serveHost", () => {
 				[gone, "parked"],
 			]);
 			expect(second.stillUnresumed(), "still held, not running").toBe(1);
+			// What the heap tiers tell a wake by: held, not run, as a park leaves one.
+			expect(second.parked(), "on the roster, not run").toEqual([gone]);
+			expect(
+				second.held().map(({ id }) => id),
+				"what it runs",
+			).toEqual([kept]);
 			const closed = await controlRequest(second.path, {
 				v: 1,
 				id: "c",
@@ -269,6 +275,7 @@ describe("serveHost", () => {
 			});
 			if (!closed.ok) throw new Error(closed.error.message);
 			expect(second.stillUnresumed(), "once it is closed").toBe(0);
+			expect(second.parked(), "a close leaves the roster").toEqual([]);
 			expect(second.unresumed, "what the start found").toHaveLength(1);
 		} finally {
 			await second.stop();

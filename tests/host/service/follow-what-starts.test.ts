@@ -74,6 +74,7 @@ describe("followWhatStarts", () => {
 		const timers = manualTimers();
 		const serving = {
 			held: () => [{ state: "idle" as const, since: long }],
+			parked: () => [],
 			restartComing: vi.fn(),
 			stopping: () => false,
 		};
@@ -125,6 +126,7 @@ describe("followWhatStarts", () => {
 				held: () => [
 					{ state: "idle" as const, since: new Date().toISOString() },
 				],
+				parked: () => [],
 				restartComing: vi.fn(),
 				stopping: () => false,
 			},
@@ -175,6 +177,7 @@ describe("followWhatStarts", () => {
 		await followWhatStarts({
 			serving: {
 				held: () => held,
+				parked: () => [],
 				restartComing: vi.fn(),
 				stopping: () => false,
 			},
@@ -201,6 +204,52 @@ describe("followWhatStarts", () => {
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
 		return String(report.mock.calls[0]?.[0]);
 	}
+
+	// A park takes a conversation out of what the serving host runs and
+	// leaves it on its roster, which is how the heap tiers tell a wake.
+	it("restarts for no heap a wake refills, as the serving host lists its parks", async () => {
+		const { systemctl, calls } = systemd();
+		const timers = manualTimers();
+		let used = 3100 * MB;
+		let parked = false;
+		await followWhatStarts({
+			serving: {
+				held: () =>
+					parked
+						? []
+						: ["a", "b"].map((id) => ({
+								id,
+								state: "idle" as const,
+								since: long,
+							})),
+				parked: () => (parked ? ["a", "b"] : []),
+				restartComing: vi.fn(),
+				stopping: () => false,
+			},
+			background: () => 1,
+			resting: () => true,
+			report: vi.fn(),
+			root: join(install, "versions", "one"),
+			systemctl,
+			cgroupFile: cgroup,
+			pid: 7,
+			heap: () => ({ usedBytes: used, limitBytes: 4144 * MB }),
+			timing: { after: timers.after },
+		});
+		for (let cycle = 0; cycle < 3; cycle++) {
+			await timers.fire();
+			parked = true;
+			used = 1650 * MB;
+			await timers.fire();
+			parked = false;
+			used = 3100 * MB;
+		}
+		for (let look = 0; look < 3; look++) await timers.fire();
+		expect(
+			calls.filter((call) => call.includes("restart")),
+			"no restart asked of systemd",
+		).toEqual([]);
+	});
 
 	it("says in its journal how full its heap was and what a heap restart ended", async () => {
 		const busy: Held = { state: "busy", since: lately };
@@ -230,6 +279,7 @@ describe("followWhatStarts", () => {
 		const stop = await followWhatStarts({
 			serving: {
 				held: () => [{ state: "idle" as const, since: long }],
+				parked: () => [],
 				restartComing: vi.fn(),
 				stopping: () => false,
 			},

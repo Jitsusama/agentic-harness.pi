@@ -61,6 +61,12 @@ export interface ServingHost {
 	/** Each conversation the host runs, by id, with its state and when it last changed. */
 	held(): readonly Pick<ConversationIdentity, "id" | "state" | "since">[];
 	/**
+	 * Each conversation its roster holds that it doesn't run, by id: parked,
+	 * not yet resumed, or stranded by a failed resume. A park takes a
+	 * conversation out of `held` and leaves it here.
+	 */
+	parked(): readonly string[];
+	/**
 	 * Say whether a restart of the host is coming. While it is, stopping
 	 * tells every attached viewer the host is restarting before it closes
 	 * the socket, so a viewer hears it only once systemd has the restart
@@ -185,6 +191,13 @@ export async function serveHost(options: {
 				).length;
 			},
 			held: () => running.list(),
+			parked: () => {
+				const live = new Set(running.list().map(({ id }) => id));
+				return roster
+					.entries()
+					.map(({ sessionId }) => sessionId)
+					.filter((sessionId) => !live.has(sessionId));
+			},
 			restartComing: (coming) => {
 				restarting = coming;
 			},

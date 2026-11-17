@@ -56,19 +56,24 @@ function watchFullCollections(onFull: () => void): () => void {
 /**
  * The lower of the heap after V8's last two full collections, read as
  * each one ends; after only one, that one; before any, the heap as it
- * stands. `watch` and `read` are V8's by default; tests give their own.
+ * stands. It counts the full collections too, since the reading moves
+ * only at one. `watch` and `read` are V8's by default; tests give their
+ * own.
  */
 export function heapAfterFullCollections(
 	watch: (onFull: () => void) => () => void = watchFullCollections,
 	read: () => HeapUse = heapNow,
-): { read(): HeapUse; stop(): void } {
+): { read(): HeapUse; collections(): number; stop(): void } {
 	let last: HeapUse | undefined;
 	let before: HeapUse | undefined;
+	let collections = 0;
 	const stop = watch(() => {
 		before = last;
 		last = read();
+		collections++;
 	});
 	return {
+		collections: () => collections,
 		read: () => {
 			if (last === undefined) return read();
 			if (before === undefined || last.usedBytes <= before.usedBytes)

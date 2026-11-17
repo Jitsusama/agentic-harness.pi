@@ -55,10 +55,9 @@
  * has grown 15% of the limit from the lowest any look has read since the
  * host's first, so a host whose resumed conversations alone fill most of
  * it doesn't restart at every first look, ending their background work
- * each time and freeing nothing. The lowest falls only at a look with
- * no more conversations parked than when it was read, since a park's
- * freed heap comes back with a wake: a closed conversation or a turn's
- * freed output re-arms the tiers, a park doesn't. The 80% tier waits
+ * each time and freeing nothing. A park's freed heap doesn't count
+ * toward that lowest, since a wake fills it again (heap-mark.ts); a
+ * close or a turn's freed output does. The 80% tier waits
  * until it has grown 5%, so a host that starts that full restarts only
  * once it climbs, not at every start; a host whose first look reads
  * past 65% leaves its heap to that tier until it falls, and says so
@@ -77,7 +76,9 @@ import { realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
+import { heapMark } from "./heap-mark.ts";
 import { type HeapUse, heapAfterFullCollections } from "./live-heap.ts";
+import { oneLine } from "./one-line.ts";
 import type { SessionIdentity } from "./protocol.ts";
 import { hostRoot } from "./rollout.ts";
 import type { ServingHost } from "./serve.ts";
@@ -164,6 +165,8 @@ const BYTES_PER_MB = 1024 * 1024;
 
 /** A conversation as the host lists it, for whether it is settled. */
 export interface Held {
+	/** Its session id, which the heap tiers tell a wake by. */
+	readonly id?: string;
 	readonly state: "busy" | "idle" | "parked";
 	/** When it last changed state, as an ISO time. */
 	readonly since: string;
@@ -189,8 +192,12 @@ export type RestartRule =
 export interface RestartFacts {
 	/** Why the host would start differently now, or nothing when it wouldn't. */
 	differs(): Promise<string | undefined>;
-	/** What the host holds now. */
+	/** What the host runs now. */
 	held(): readonly Held[];
+	/** The conversations its roster holds that it doesn't run, parked, by id; none when missing. */
+	parked?(): readonly string[];
+	/** How many full collections V8 has run; one a look when missing, as a test's readings are each fresh. */
+	heapCollections?(): number;
 	/** How much background work the conversations hold, which a restart would end. */
 	background(): number;
 	/** What `background` counts, a line each, for the journal. */
@@ -264,14 +271,10 @@ export function restartWhenSettled(
 	let differingSince: number | undefined;
 	// When background work holding a restart past the ceiling was last named.
 	let heldSaidAt: number | undefined;
-	// The lowest share a look has read since the first, with no more
-	// conversations parked than at the look before that set it, which the
-	// heap tiers weigh growth from: a host its resumed conversations fill
-	// never falls from its first look, and a park's freed heap a wake
-	// fills again isn't counted as room.
-	let lowestShare: number | undefined;
-	// How many conversations were parked at the look that read the lowest.
-	let lowestParked = 0;
+	// What the heap tiers weigh growth from: a host its resumed
+	// conversations fill never falls from its first look.
+	const mark = heapMark();
+	let looks = 0;
 	// Restarts refused in a row under heap pressure, which back the next try off.
 	let refusals = 0;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
@@ -329,7 +332,7 @@ export function restartWhenSettled(
 		heldSaidAt = now;
 		const holding = facts.holding?.() ?? [];
 		facts.report(
-			`Restart held past the ceiling by background work: ${holding.length > 0 ? oneLine(holding) : "unnamed"}`,
+			`Restart held past the ceiling by background work: ${holding.length > 0 ? joined(holding) : "unnamed"}`,
 		);
 	}
 
@@ -363,7 +366,7 @@ export function restartWhenSettled(
 
 	// Whether the heap has grown by `by` of V8's limit from its lowest since the first look.
 	function grown(share: number, by: number): boolean {
-		return share - (lowestShare ?? share) >= by;
+		return share - (mark.lowest() ?? share) >= by;
 	}
 
 	// Past 80%, grown 5% from its lowest, the heap restarts the host at once.
@@ -386,19 +389,15 @@ export function restartWhenSettled(
 	// Keep the lowest share seen, and say once when the first leaves only the urgent tier.
 	function weighLowest(): void {
 		const share = heapShare();
-		const parked = facts
-			.held()
-			.filter(({ state }) => state === "parked").length;
-		if (lowestShare !== undefined) {
-			if (share < lowestShare && parked <= lowestParked) {
-				lowestShare = share;
-				lowestParked = parked;
-			}
-			return;
-		}
-		lowestShare = share;
-		lowestParked = parked;
-		if (share + HEAP_GROWN_SHARE > HEAP_URGENT_SHARE)
+		looks++;
+		const first = mark.weigh({
+			share,
+			parked: facts.parked?.() ?? [],
+			running: facts.held().flatMap(({ id }) => (id === undefined ? [] : [id])),
+			collections: facts.heapCollections?.() ?? looks,
+			now: facts.now(),
+		});
+		if (first && share + HEAP_GROWN_SHARE > HEAP_URGENT_SHARE)
 			facts.report(
 				`Its heap already held ${Math.round(share * 100)}% of what V8 allows at its first look, so until it falls only the urgent tier restarts it for its heap, once past ${Math.round(HEAP_URGENT_SHARE * 100)}% and grown ${Math.round(HEAP_URGENT_GROWN_SHARE * 100)}% from its lowest`,
 			);
@@ -453,9 +452,14 @@ type Next = "restarting" | "look" | "gap";
 
 /** What a running host gives the restart loop, and where to look. */
 export interface Following {
-	readonly serving: Pick<ServingHost, "restartComing" | "stopping"> & {
+	readonly serving: Pick<
+		ServingHost,
+		"restartComing" | "stopping" | "parked"
+	> & {
 		/** Each conversation the host runs, by its state and when that last changed. */
-		held(): readonly Pick<SessionIdentity, "state" | "since">[];
+		held(): readonly (Pick<SessionIdentity, "state" | "since"> & {
+			readonly id?: string;
+		})[];
 	};
 	/** How much background work the conversations hold (the engine's). */
 	background(): number;
@@ -526,7 +530,7 @@ export async function followWhatStarts(
 
 	// The heap after V8's last full collection, unless a test gives its own.
 	const live = options.heap
-		? { read: options.heap, stop: () => undefined }
+		? { read: options.heap, collections: undefined, stop: () => undefined }
 		: heapAfterFullCollections(options.watchHeap);
 	const heap = live.read;
 	function heapPastShare(): string | undefined {
@@ -542,6 +546,8 @@ export async function followWhatStarts(
 			differs: async () =>
 				(await installMoved()) ?? (await unitChanged()) ?? heapPastShare(),
 			held: () => options.serving.held(),
+			parked: () => options.serving.parked(),
+			...(live.collections ? { heapCollections: live.collections } : {}),
 			background: options.background,
 			...(options.holding ? { holding: options.holding } : {}),
 			resting: options.resting,
@@ -560,7 +566,7 @@ export async function followWhatStarts(
 						? (options.holding?.() ?? [])
 						: [];
 				options.report(
-					`Restarting ${restartedUnder(under, settledMs)}${ending.length > 0 ? ` (${oneLine(ending)})` : ""}, as ${reason}`,
+					`Restarting ${restartedUnder(under, settledMs)}${ending.length > 0 ? ` (${joined(ending)})` : ""}, as ${reason}`,
 				);
 				await systemctl(["--no-block", "restart", unit]);
 			},
@@ -582,15 +588,9 @@ function counted(count: number, thing: string): string {
 
 const MINUTE_MS = 60_000;
 
-/**
- * Background work's labels on one line: a model writes some, and a line
- * break in one, a NUL among them for journald, would read in the journal
- * as a line of the host's own.
- */
-function oneLine(holding: readonly string[]): string {
-	return holding
-		.map((line) => line.replace(/[\s\p{Cc}]+/gu, " ").trim())
-		.join("; ");
+/** Background work's labels, on one journal line (one-line.ts). */
+function joined(holding: readonly string[]): string {
+	return holding.map(oneLine).join("; ");
 }
 
 /** The journal's words for the rule a restart came under. */

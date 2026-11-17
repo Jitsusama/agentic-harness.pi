@@ -530,16 +530,19 @@ describe("restartWhenSettled", () => {
 			host.wake("a", "b");
 		}
 		for (let look = 0; look < 3; look++) await host.look(0.75);
-		expect(host.restarts(), "nothing restarted for what a wake refills").toEqual(
-			[],
-		);
+		expect(
+			host.restarts(),
+			"nothing restarted for what a wake refills",
+		).toEqual([]);
 	});
 
 	// The reading is what V8 kept at its last full collections, and an idle
 	// host may not collect for a long while after a wake.
 	it("lets no reading from before a wake lower the mark, however long V8 waits to collect", async () => {
 		let collections = 0;
-		const host = asleep(growingHeap(0.75), { heapCollections: () => collections });
+		const host = asleep(growingHeap(0.75), {
+			heapCollections: () => collections,
+		});
 		host.wake("a", "b");
 		await host.look(0.75);
 		host.park("a", "b");
@@ -549,9 +552,10 @@ describe("restartWhenSettled", () => {
 		for (let look = 0; look < 30; look++) await host.look(0.4);
 		collections += 2;
 		for (let look = 0; look < 3; look++) await host.look(0.75);
-		expect(host.restarts(), "nothing restarted for what the wake refilled").toEqual(
-			[],
-		);
+		expect(
+			host.restarts(),
+			"nothing restarted for what the wake refilled",
+		).toEqual([]);
 	});
 
 	it("weighs no growth from waking what was parked at its first look", async () => {
@@ -562,9 +566,10 @@ describe("restartWhenSettled", () => {
 		// V8's reading follows the refill only as it collects, so it climbs.
 		for (const share of [0.45, 0.6, 0.75]) await host.look(share);
 		for (let look = 0; look < 40; look++) await host.look(0.75);
-		expect(host.restarts(), "nothing restarted for what the wake refilled").toEqual(
-			[],
-		);
+		expect(
+			host.restarts(),
+			"nothing restarted for what the wake refilled",
+		).toEqual([]);
 	});
 
 	it("weighs no growth from a park after a parked conversation closed", async () => {
@@ -578,9 +583,10 @@ describe("restartWhenSettled", () => {
 		await host.look(0.5);
 		host.wake("b");
 		for (let look = 0; look < 3; look++) await host.look(0.72);
-		expect(host.restarts(), "nothing restarted for what the wake refilled").toEqual(
-			[],
-		);
+		expect(
+			host.restarts(),
+			"nothing restarted for what the wake refilled",
+		).toEqual([]);
 	});
 
 	it("weighs no growth from one conversation parking as another wakes", async () => {
@@ -594,9 +600,10 @@ describe("restartWhenSettled", () => {
 		await host.look(0.4);
 		host.wake("a");
 		for (let look = 0; look < 3; look++) await host.look(0.72);
-		expect(host.restarts(), "nothing restarted for what the wakes refilled").toEqual(
-			[],
-		);
+		expect(
+			host.restarts(),
+			"nothing restarted for what the wakes refilled",
+		).toEqual([]);
 	});
 
 	it("sees a climb while conversations stay parked after a high first look", async () => {
