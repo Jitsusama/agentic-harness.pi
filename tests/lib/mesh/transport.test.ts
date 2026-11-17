@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import type { Draft } from "../../../lib/mesh/message.ts";
-import { folderTransport } from "../../../lib/mesh/transport.ts";
+import { folderTransport, readEachOff } from "../../../lib/mesh/transport.ts";
 
 let dir: string;
 
@@ -161,6 +161,62 @@ describe("the folder transport", () => {
 		try {
 			expect(await transport.listIds()).toHaveLength(600);
 			expect(held, "no entry was read synchronously").not.toHaveBeenCalled();
+		} finally {
+			held.mockRestore();
+		}
+	});
+
+	// mesh_read lists every day's messages and reads them on the thread a
+	// host answers every conversation on, so a stalled disk held them all.
+	it("lists and reads every day's messages as ids() and read() do, with the thread free", async () => {
+		const transport = folderTransport(dir);
+		const settled = [
+			transport.send(draft({ intent: "fyi", text: "one" })),
+			transport.send(draft({ intent: "fyi", text: "two" })),
+		];
+		transport.settle(Date.now() + 1000);
+		const top = transport.send(draft({ intent: "fyi", text: "three" }));
+		writeFileSync(join(dir, "2-X-1.json"), "{torn", "utf8");
+		// A link to another machine can write a settled message back at the
+		// top, beside its day's copy: it is listed once.
+		const [again] = settled;
+		writeFileSync(join(dir, `${again?.id}.json`), JSON.stringify(again));
+		const held = vi.spyOn(Dir.prototype, "readSync");
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		try {
+			const listed = await transport.listAllIds();
+
+			expect(turned, "the thread turned while the folders were read").toBe(
+				true,
+			);
+			expect(held, "no entry was read synchronously").not.toHaveBeenCalled();
+			expect(listed, "what ids() lists").toEqual(transport.ids());
+			expect(new Set(listed).size, "each id once").toBe(listed.length);
+			for (const sent of [...settled, top]) {
+				let readTurned = false;
+				setImmediate(() => {
+					readTurned = true;
+				});
+				const off = await transport.readOff(sent.id);
+				expect(readTurned, `the thread turned reading ${sent.text}`).toBe(true);
+				expect(off, `${sent.text} reads as read() reads it`).toEqual(
+					transport.read(sent.id),
+				);
+			}
+			await expect(
+				readEachOff(transport, [top.id, "2-X-1", ...listed]),
+				"read in order, a few at a time",
+			).resolves.toEqual(
+				[top.id, "2-X-1", ...listed].map((id) => transport.read(id)),
+			);
+			await expect(transport.readOff("2-X-1")).resolves.toBeUndefined();
+			await expect(
+				folderTransport(join(dir, "never")).listAllIds(),
+			).resolves.toEqual([]);
 		} finally {
 			held.mockRestore();
 		}
