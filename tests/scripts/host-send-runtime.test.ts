@@ -34,11 +34,33 @@ const BASE = "/nix/store/0base-glibc";
 const made: string[] = [];
 afterEach(() => removeAll(made));
 
-/** ssh, running what it's given in the lender's home. */
+/**
+ * ssh, running what it's given in the lender's home, and refusing, as a
+ * lender remade with a new host key is refused, unless it's told to check
+ * the host key strictly against a file naming the lender's alias with the
+ * key its store URI gives: nix-offload removes its own known-hosts file
+ * when each run ends, so a send can't lean on that.
+ */
 const SSH = `#!/usr/bin/env bash
+known= alias= strict=
 while [[ $# -gt 0 ]]; do
-  case $1 in -o|-i|-O) shift 2 ;; -*) shift ;; *) break ;; esac
+  case $1 in
+  -o)
+    case $2 in
+    UserKnownHostsFile=*) known=\${2#*=} ;;
+    HostKeyAlias=*) alias=\${2#*=} ;;
+    StrictHostKeyChecking=yes) strict=1 ;;
+    esac
+    shift 2 ;;
+  -i|-O) shift 2 ;;
+  -*) shift ;;
+  *) break ;;
+  esac
 done
+if [[ -z $strict || -z $alias ]] || ! grep -qxF "$alias $(cat "$FAKE/host-key")" "$known" 2> /dev/null; then
+  echo "Host key verification failed." >&2
+  exit 255
+fi
 echo "$1" >> "$FAKE/hosts"; shift
 if [[ $* == *"cat > "* && -e $FAKE/cut-once ]]; then
   rm "$FAKE/cut-once"
@@ -117,6 +139,7 @@ function lender(closure: string[], held: string[]) {
 	writeFileSync(join(fake, "closure"), `${closure.join("\n")}\n`);
 	writeFileSync(join(fake, "lender-store"), `${held.join("\n")}\n`);
 	writeFileSync(join(fake, "key"), "a key\n");
+	writeFileSync(join(fake, "host-key"), "ssh-ed25519 AAAAfake");
 	const hostKey = Buffer.from("ssh-ed25519 AAAAfake").toString("base64");
 	const store = join(fake, "store");
 	writeFileSync(
@@ -150,6 +173,7 @@ async function answer(
 		XDG_RUNTIME_DIR: on.fake,
 		NIX_OFFLOAD_STORES: on.store,
 		HOST_SEND_PIECE_BYTES: "1000",
+		HOST_SEND_PAUSE: "0",
 		FAKE: on.fake,
 		...more,
 	};
@@ -196,6 +220,20 @@ describe("host-send-runtime.sh", () => {
 		expect(copied).not.toContain(BASE);
 		expect(answered.said).toContain(`nix-offload-more holds ${RUNTIME}`);
 		expect(existsSync(join(on.fake, "lender", "pi-host-send"))).toBe(false);
+	});
+
+	it("checks the lender's host key from its store URI, with no known-hosts file of nix-offload's left", async () => {
+		const on = lender([BASE, RUNTIME], [BASE]);
+
+		const answered = await answer(on, SENDER, [RUNTIME]);
+		const remade = lender([BASE, RUNTIME], [BASE]);
+		writeFileSync(join(remade.fake, "host-key"), "ssh-ed25519 AAAAremade");
+		const refused = await answer(remade, SENDER, [RUNTIME]);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(held(on)).toContain(RUNTIME);
+		expect(refused.code, refused.said).toBe(1);
+		expect(held(remade)).not.toContain(RUNTIME);
 	});
 
 	it("sends a piece again when its copy was cut short", async () => {
