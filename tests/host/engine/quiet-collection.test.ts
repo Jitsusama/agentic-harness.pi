@@ -14,6 +14,7 @@ import {
 	CEILING_MS,
 	lastResortCollect,
 	PACE_WINDOW,
+	processCode,
 	processHeap,
 	pssBytes,
 	type QuietReading,
@@ -69,12 +70,13 @@ describe("the host's collection once quiet", () => {
 			collect,
 			weigh: () => weighs.shift(),
 			heap: () => heaps.shift(),
+			code: () => ({ compiled: 18 * MB, bytecode: 6 * MB, source: 25 * MB }),
 			report: (one) => said.push(one),
 		});
 		return { collect, said, quiet };
 	}
 
-	it("collects once a turn has settled, saying the pause, the Pss, heap and memory beside it before and after, and each space it keeps", () => {
+	it("collects once a turn has settled, saying the pause, the Pss, heap and memory beside it before and after, each space it keeps, and the code and script source it holds", () => {
 		const { collect, said, quiet } = counted();
 		quiet.stirred();
 		vi.advanceTimersByTime(SETTLE_MS - 1);
@@ -83,7 +85,7 @@ describe("the host's collection once quiet", () => {
 		expect(collect).toHaveBeenCalledTimes(1);
 		expect(said).toEqual([
 			expect.stringMatching(
-				/^Collected while quiet in \d+ ms, Pss 812 MB to 214 MB, heap 700 of 760 MB to 150 of 200 MB \(old 100 of 120 MB, large object 30 of 40 MB, code 20 of 40 MB\), outside it 60 MB to 40 MB, of which array buffers 9 MB to 5 MB, with 0 conversations waiting on the model$/,
+				/^Collected while quiet in \d+ ms, Pss 812 MB to 214 MB, heap 700 of 760 MB to 150 of 200 MB \(old 100 of 120 MB, large object 30 of 40 MB, code 20 of 40 MB\), outside it 60 MB to 40 MB, of which array buffers 9 MB to 5 MB, code and metadata 18 MB, bytecode 6 MB, external script source 25 MB, read in \d+ ms, with 0 conversations waiting on the model$/,
 			),
 		]);
 	});
@@ -216,9 +218,10 @@ describe("the host's collection once quiet", () => {
 			collect: () => {},
 			weigh: () => undefined,
 			heap: () => undefined,
+			code: () => undefined,
 			report: (one) => said.push(one),
 			clock: (() => {
-				const reads = [0, 1240];
+				const reads = [0, 1240, 1240];
 				return () => reads.shift() ?? 0;
 			})(),
 		});
@@ -229,15 +232,41 @@ describe("the host's collection once quiet", () => {
 		]);
 	});
 
+	it("counts reading the code in the pause the loop held for", () => {
+		const said: string[] = [];
+		let now = 0;
+		const quiet = quietCollection({
+			reading: () => ({ tools: 0, jobs: 0, waiting: 0 }),
+			collect: () => {
+				now += 400;
+			},
+			weigh: () => undefined,
+			heap: () => undefined,
+			// V8 walks the heap to count its code, which can take longer.
+			code: () => {
+				now += 700;
+				return { compiled: MB, bytecode: MB, source: MB };
+			},
+			report: (one) => said.push(one),
+			clock: () => now,
+		});
+		quiet.stirred();
+		vi.advanceTimersByTime(SETTLE_MS);
+		expect(said[0]).toMatch(
+			/^Collected while quiet in 1100 ms, .*, read in 700 ms, .*; the loop held 1\.1 s for it$/,
+		);
+	});
+
 	/**
 	 * A host whose heap uses `used()` and whose collections each take the
 	 * next of `pauses` ms, collecting each time something stirs once spaced.
 	 */
 	function paced(used: () => number, pauses: number[]) {
 		const collect = vi.fn();
+		const code = vi.fn(() => ({ compiled: MB, bytecode: MB, source: MB }));
 		const said: string[] = [];
 		let now = 0;
-		let started = true;
+		let reads = 0;
 		const quiet = quietCollection({
 			reading: () => ({ tools: 0, jobs: 0, waiting: 1 }),
 			collect,
@@ -249,11 +278,13 @@ describe("the host's collection once quiet", () => {
 				arrayBuffers: 0,
 				spaces: [],
 			}),
+			code,
 			report: (one) => said.push(one),
-			// Each collection reads the clock twice, before and after.
+			// Each collection reads the clock three times: before it, after
+			// it, and after reading the code, which takes none here.
 			clock: () => {
-				started = !started;
-				if (started) now += pauses.shift() ?? 0;
+				reads += 1;
+				if (reads % 3 === 2) now += pauses.shift() ?? 0;
 				return now;
 			},
 		});
@@ -261,17 +292,21 @@ describe("the host's collection once quiet", () => {
 			quiet.stirred();
 			vi.advanceTimersByTime(SPACING_MS);
 		};
-		return { collect, said, next };
+		return { collect, code, said, next };
 	}
 
 	it("leaves uncollected a heap whose pause would hold the loop over a second, saying why, and collects once it has fallen", () => {
 		let used = 800 * MB;
-		const { collect, said, next } = paced(() => used, [600, 450]);
+		const { collect, code, said, next } = paced(() => used, [600, 450]);
 		next();
 		expect(collect).toHaveBeenCalledTimes(1);
 		used = 1600 * MB;
 		next();
 		expect(collect).toHaveBeenCalledTimes(1);
+		expect(
+			code,
+			"its code, which takes a walk of the heap, read only once collected",
+		).toHaveBeenCalledTimes(1);
 		expect(said[1]).toBe(
 			"Left uncollected while quiet: the heap uses 1600 MB, which at 768 ms a GB, the slowest of the last 1 collections, would hold the loop about 1.2 s, past the 1 s a pause may take; with 1 conversations waiting on the model",
 		);
@@ -406,5 +441,12 @@ describe("V8's last-resort collection", () => {
 		expect(heap.total).toBeGreaterThanOrEqual(heap.used);
 		expect(heap.external).toBeGreaterThanOrEqual(heap.arrayBuffers);
 		expect(heap.spaces.map((space) => space.name)).toContain("old_space");
+	});
+
+	it("reads the code this process holds, each part of it", () => {
+		const code = processCode();
+		expect(code.compiled, "this file's compiled code").toBeGreaterThan(0);
+		expect(code.bytecode, "this file's bytecode").toBeGreaterThan(0);
+		expect(code.source, "node's built-in modules' source").toBeGreaterThan(0);
 	});
 });

@@ -33,7 +33,11 @@
  * One runs again once the heap has fallen within it.
  */
 import { readFileSync } from "node:fs";
-import { getHeapSpaceStatistics, setFlagsFromString } from "node:v8";
+import {
+	getHeapCodeStatistics,
+	getHeapSpaceStatistics,
+	setFlagsFromString,
+} from "node:v8";
 import { runInNewContext } from "node:vm";
 
 /** How long after a viewer's last key or resize the host may pause. */
@@ -106,6 +110,11 @@ export function quietCollection(options: {
 	 * nothing said where it answers nothing.
 	 */
 	readonly heap?: () => Heap | undefined;
+	/**
+	 * The code V8 holds, read once after each collection; the process's
+	 * own by default, and nothing said where it answers nothing.
+	 */
+	readonly code?: () => HeapCode | undefined;
 	readonly report?: (said: string) => void;
 	/** What times the pause, in ms; performance.now by default. */
 	readonly clock?: () => number;
@@ -119,6 +128,7 @@ export function quietCollection(options: {
 	}
 	const weigh = options.weigh ?? pssBytes;
 	const heap = options.heap ?? processHeap;
+	const code = options.code ?? processCode;
 	const clock = options.clock ?? (() => performance.now());
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let stopped = false;
@@ -205,7 +215,17 @@ export function quietCollection(options: {
 			);
 			return;
 		}
-		const took = Math.round(clock() - started);
+		// The code is counted by a walk of the heap, so it is read inside the
+		// pause's time, where the pace that spares a large heap counts it,
+		// and its own part is timed too.
+		const codeFrom = clock();
+		const heldCode = code();
+		const ended = clock();
+		const codeRead = heldCode && {
+			...heldCode,
+			took: Math.round(ended - codeFrom),
+		};
+		const took = Math.round(ended - started);
 		if (heapBefore !== undefined && heapBefore.used > 0) {
 			paces.push(took / heapBefore.used);
 			if (paces.length > PACE_WINDOW) paces.shift();
@@ -213,7 +233,7 @@ export function quietCollection(options: {
 		const after = weigh();
 		const heaps = { before: heapBefore, after: heap() };
 		options.report?.(
-			collectedLine(took, { before, after }, heaps, reading, working),
+			collectedLine(took, { before, after }, heaps, codeRead, reading, working),
 		);
 	};
 	return {
@@ -289,6 +309,23 @@ export interface Heap {
 	readonly spaces: readonly HeapSpace[];
 }
 
+/**
+ * The code V8 holds, in bytes: compiled code and its metadata, bytecode
+ * and its metadata, and the source of scripts kept as external strings.
+ * V8 counts only those there, which in node are its own built-in
+ * modules, not the source a module loader reads from disk, so it moves
+ * only as built-ins are loaded. Bytecode that grows beside compiled code
+ * says new source is being compiled; compiled code growing alone says
+ * optimisation. The live host's code space grew from 5 to 147 MB by 17
+ * November, and a soak of reloads and resumes grew it by none of that,
+ * so this says which of the two it was.
+ */
+export interface HeapCode {
+	readonly compiled: number;
+	readonly bytecode: number;
+	readonly source: number;
+}
+
 /** This process's V8 heap, read from counters V8 keeps, with no pause. */
 export function processHeap(): Heap {
 	const { heapUsed, heapTotal, external, arrayBuffers } = process.memoryUsage();
@@ -303,6 +340,29 @@ export function processHeap(): Heap {
 			size: space.space_size,
 		})),
 	};
+}
+
+/**
+ * The code this process's V8 holds. V8 counts it by walking the objects
+ * of its code and old spaces, a pause that grows with the heap, so it is
+ * read only after a collection the host already chose to pause for.
+ */
+export function processCode(): HeapCode {
+	const code = getHeapCodeStatistics();
+	return {
+		compiled: code.code_and_metadata_size,
+		bytecode: code.bytecode_and_metadata_size,
+		source: code.external_script_source_size,
+	};
+}
+
+/**
+ * The code held and how long reading it took, as `code and metadata 18
+ * MB, bytecode 6 MB, external script source 25 MB, read in 40 ms`.
+ */
+function codeSaid(code: HeapCode & { readonly took: number }): string {
+	const megabytes = (bytes: number) => `${Math.round(bytes / MB)} MB`;
+	return `code and metadata ${megabytes(code.compiled)}, bytecode ${megabytes(code.bytecode)}, external script source ${megabytes(code.source)}, read in ${code.took} ms`;
 }
 
 /** Each space of at least a megabyte, as `old 100 of 120 MB`. */
@@ -321,6 +381,7 @@ function collectedLine(
 	took: number,
 	pssAround: { readonly before?: number; readonly after?: number },
 	heapAround: { readonly before?: Heap; readonly after?: Heap },
+	code: (HeapCode & { readonly took: number }) | undefined,
 	reading: QuietReading,
 	working: boolean,
 ): string {
@@ -336,7 +397,8 @@ function collectedLine(
 		heapAround.before && heapAround.after
 			? `, heap ${held(heapAround.before)} to ${held(heapAround.after)} (${spacesSaid(heapAround.after.spaces)}), outside it ${megabytes(heapAround.before.external)} to ${megabytes(heapAround.after.external)}, of which array buffers ${megabytes(heapAround.before.arrayBuffers)} to ${megabytes(heapAround.after.arrayBuffers)}`
 			: "";
-	const quiet = `Collected while quiet in ${took} ms, ${pss}${heap}, with ${reading.waiting} conversations waiting on the model`;
+	const coded = code ? `, ${codeSaid(code)}` : "";
+	const quiet = `Collected while quiet in ${took} ms, ${pss}${heap}${coded}, with ${reading.waiting} conversations waiting on the model`;
 	const line = working
 		? `${quiet}, and ${reading.tools} tool calls and ${reading.jobs} jobs running, due for ${CEILING_MS / MS_PER_MINUTE} minutes`
 		: quiet;
