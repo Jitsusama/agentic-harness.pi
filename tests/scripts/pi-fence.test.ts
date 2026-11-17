@@ -13,11 +13,13 @@
  * failing as an unfenced session would.
  */
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
 	cpSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -30,6 +32,7 @@ import { KEEPING_STUB } from "../../lib/internal/shell/kept.ts";
 
 const HARNESS = join(import.meta.dirname, "..", "..");
 const SCRIPT = join(HARNESS, "scripts", "pi-fence.ts");
+const STAND_IN = join(import.meta.dirname, "fence-child-stand-in.ts");
 const BOOT = "b0075eed-0000-4000-8000-000000000000";
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const MACHINE = "mnt:[4026531841]";
@@ -259,4 +262,89 @@ describe("pi-fence with no packages", () => {
 		expect(ran.code, ran.err).toBe(126);
 		expect(ran.err).toMatch(/^pi-fence: the census couldn't load: .*yaml/u);
 	});
+});
+
+/** pi-fence's child, run as pi-fence runs it, with no terminal. */
+function child(text: string): {
+	readonly pid: number;
+	readonly ended: Promise<number | null>;
+} {
+	const ran = spawn(
+		process.execPath,
+		["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", STAND_IN, text],
+		{
+			cwd: root,
+			env: { PATH: process.env.PATH, HOME: root },
+			stdio: ["ignore", "pipe", "pipe"],
+		},
+	);
+	const ended = new Promise<number | null>((done) =>
+		ran.on("exit", (code) => done(code)),
+	);
+	// A signal to pid 0 would reach the test's own process group.
+	if (ran.pid === undefined) throw new Error("the stand-in didn't start");
+	return { pid: ran.pid, ended };
+}
+
+/** Whether process `pid` is still there. */
+function there(pid: number): boolean {
+	if (pid <= 1) return false;
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		// ESRCH: gone.
+		return false;
+	}
+}
+
+/** Waits up to `ms` for `ready`, checking every 50 ms. */
+async function waitFor(ready: () => boolean, ms: number): Promise<boolean> {
+	for (const until = Date.now() + ms; Date.now() < until; ) {
+		if (ready()) return true;
+		await new Promise((next) => setTimeout(next, 50));
+	}
+	return ready();
+}
+
+describe("pi-fence's child", () => {
+	const left: number[] = [];
+	afterEach(() => {
+		for (const pid of left.splice(0)) {
+			if (pid > 1 && there(pid)) process.kill(pid, "SIGKILL");
+		}
+	});
+
+	it("ends with the command's own status", async () => {
+		expect(await child("exit 7").ended).toBe(7);
+	});
+
+	// On 17 November a timed-out run on the Mac left its sandboxed command
+	// running: the signal ended pi-fence alone (ISXEG8, slice 2).
+	it.each([
+		["SIGTERM", 15],
+		["SIGHUP", 1],
+		["SIGALRM", 14],
+		["SIGINT", 2],
+	] as const)(
+		"ends what its command started when told %s",
+		async (signal, number) => {
+			const pidFile = join(root, "sleeper.pid");
+			const ran = child(`sleep 300 & echo $! > '${pidFile}'; wait`);
+			// Read once written whole: an empty file reads as pid 0, and a
+			// signal to 0 is a signal to the test's own process group.
+			const sleeperPid = () =>
+				existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : 0;
+			const started = await waitFor(() => sleeperPid() > 1, 10_000);
+			expect(started, "the command started its sleeper").toBe(true);
+			const sleeper = sleeperPid();
+			left.push(sleeper);
+
+			process.kill(ran.pid, signal);
+
+			expect(await ran.ended).toBe(128 + number);
+			const gone = await waitFor(() => !there(sleeper), 5000);
+			expect(gone, `the sleeper ${sleeper} ended with pi-fence`).toBe(true);
+		},
+	);
 });
