@@ -163,6 +163,34 @@ describe("a hosted tool round", () => {
 		expect(everything).toContain("[secret scrubbed: OP_SESSION_ab12]");
 	});
 
+	it("scrubs a streamed line setting a secret-looking value before five arrive, whatever the command", async () => {
+		// A viewer on another machine sees each update, which no count waits for.
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const streamed: AgentTool = {
+			name: "bash",
+			async execute(_id, _args, _signal, onUpdate) {
+				onUpdate({
+					content: [{ type: "text", text: `loading\nPROXY_CRED=${value}` }],
+				});
+				return { content: [{ type: "text", text: "done" }] };
+			},
+		};
+		const round = conversation(
+			"call-partial",
+			value,
+			{ command: "./show-config" },
+			streamed,
+		);
+		await round.round.run(round.callId, undefined);
+		const updates = JSON.stringify(
+			shown(round.events, "tool_execution_update"),
+		);
+		expect(updates, "no streamed update holds the value").not.toContain(
+			value,
+		);
+		expect(updates).toContain("[secret scrubbed: PROXY_CRED]");
+	});
+
 	it("scrubs a printed environment's saved output file, with no extension loaded", async () => {
 		const value = `z9${randomBytes(19).toString("hex")}`;
 		const file = path.join(

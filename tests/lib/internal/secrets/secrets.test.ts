@@ -14,6 +14,7 @@ import {
 	readsAsDump,
 	scrubOptionsOf,
 	scrubSecrets,
+	scrubToolPartial,
 	scrubToolResult,
 } from "../../../../lib/internal/secrets/secrets.ts";
 
@@ -441,5 +442,48 @@ describe("an output that reads as a printing of the environment", () => {
 		expect(text).not.toContain(access);
 		expect(text).toContain(commit);
 		expect(text).toContain(path);
+	});
+});
+
+describe("a stream's partial answer, which its settled answer replaces", () => {
+	const partialOf = (text: string) => ({
+		content: [{ type: "text", text }],
+		details: { tail: text },
+	});
+
+	it("has a line setting a secret-looking value scrubbed before five arrive", () => {
+		const value = fresh();
+		const printed = `loading\nPROXY_CRED=${value}`;
+		const scrubbed = scrubToolPartial(partialOf(printed), {
+			command: "./show-config",
+		});
+		expect(JSON.stringify(scrubbed)).not.toContain(value);
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "loading\nPROXY_CRED=[secret scrubbed: PROXY_CRED]",
+		});
+	});
+
+	it("keeps a line whose value looks like no secret, and every other line", () => {
+		const printed = "VERSION=1.2.3\nHOME=/home/a\nwrote a1b2c3d4e5f6a7b8c9d0e1";
+		expect(
+			scrubToolPartial(partialOf(printed), { command: "./show-config" }),
+		).toBeUndefined();
+	});
+
+	it("leaves a settled answer judged by its count", () => {
+		const value = fresh();
+		const printed = `loading\nPROXY_CRED=${value}`;
+		expect(
+			scrubToolResult(partialOf(printed), { command: "./show-config" }),
+		).toBeUndefined();
+	});
+
+	it("is read as a dump's whole when its command prints the environment", () => {
+		const value = fresh();
+		const scrubbed = scrubToolPartial(partialOf(`starting ${value}`), {
+			command: "printenv",
+		});
+		expect(JSON.stringify(scrubbed)).not.toContain(value);
 	});
 });
