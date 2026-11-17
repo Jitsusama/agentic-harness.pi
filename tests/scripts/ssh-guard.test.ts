@@ -157,6 +157,17 @@ describe("the ssh guard refuses a command run on a realm machine", () => {
 		refused("scp ./a 'joel@[::1]:/x'", "optimus");
 	});
 
+	it("knows a realm machine reached through a forward on the loopback", () => {
+		const settings = join(place, "forwarded");
+		writeFileSync(settings, "Host equilibrius\n  HostName localhost\n");
+		refused(`ssh -F ${settings} -p 2222 equilibrius uname`);
+	});
+
+	it("reads ssh's destination whole, an IPv6 address too", () => {
+		refused("ssh -p 22 ::1 uname", "optimus");
+		refused("ssh 2001:db8:0:0:0:0:0:49 uname");
+	});
+
 	it("still refuses when a caller says it is the guard's own lookup", () => {
 		refused("PI_SSH_GUARD_LOOKUP=1 ssh equilibrius uname");
 	});
@@ -195,14 +206,31 @@ describe("the ssh guard passes everything else to the real program", () => {
 	it("passes a local VM or container, on the loopback at another port", () => {
 		passed("ssh -p 2222 localhost uname");
 		passed("scp -P 2222 ./a localhost:/x");
+		passed("scp ./a scp://localhost:2222/x");
+		passed("ssh ssh://joel@localhost:2222 uname");
+		passed("rsync -a -e 'ssh -p 2222' ./a localhost:/x");
+		passed("rsync -a --rsh='ssh -p 2222' ./a localhost:/x");
+		refused("rsync -a -e 'ssh -p 22' ./a localhost:/x", "optimus");
 	});
 
-	it("reaches the real ssh from a ProxyCommand's ssh, which the real ssh started", () => {
-		const ran = run(
-			`PI_SSH_GUARD_THROUGH=${join(real, "ssh")} ssh -W other-host:22 jump`,
+	it("reaches the same ssh from a ProxyCommand's ssh, which that ssh started", () => {
+		// A program, as a real ssh is: no `#!` line, which bash runs anyway.
+		// Asked to, it runs `ssh` by name, as a ProxyCommand does.
+		const program = join(place, "program");
+		mkdirSync(program);
+		writeFileSync(
+			join(program, "ssh"),
+			'[ "$2" = proxy ] && exec ssh -W other-host:22 jump\necho "PROGRAM ssh $*" >&2\n',
 		);
+		chmodSync(join(program, "ssh"), 0o755);
+		const ran = run("ssh jump proxy", MACHINES, [
+			SSH_GUARD_BIN,
+			program,
+			real,
+			tools,
+		]);
 		expect(ran.status, ran.err).toBe(0);
-		expect(ran.err.trim()).toBe("REAL ssh [-W][other-host:22][jump]");
+		expect(ran.err.trim()).toBe("PROGRAM ssh -W other-host:22 jump");
 	});
 
 	it("ends a wrapper that only ever calls ssh by name, running nothing", () => {
@@ -216,7 +244,7 @@ describe("the ssh guard passes everything else to the real program", () => {
 			tools,
 		]);
 		expect(ran.status, ran.err).toBe(127);
-		expect(ran.err).toContain("keeps coming back to the guard");
+		expect(ran.err).toContain("no ssh on PATH after the guard's own");
 	});
 
 	it("answers ssh -G with the settings themselves", () => {

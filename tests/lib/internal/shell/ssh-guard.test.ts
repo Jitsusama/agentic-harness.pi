@@ -83,6 +83,17 @@ describe("reading the guard", () => {
 		}
 	});
 
+	it("throws on a refuse that is neither true nor false, so it is said", async () => {
+		const typo: SshGuardSources = {
+			section: async () => ({ refuse: "true" }),
+			machines: async () => NAMED,
+			here: "optimus",
+		};
+		await expect(readSshGuard(ON, typo)).rejects.toThrow(
+			'its "refuse" is "true", which is neither true nor false',
+		);
+	});
+
 	it("throws when the config can't be read, so a watch keeps the guard", async () => {
 		const unread: SshGuardSources = {
 			section: async () => {
@@ -208,6 +219,52 @@ describe("watching the guard", () => {
 			watch.stop();
 			await vi.advanceTimersByTimeAsync(120_000);
 			expect(reads.length).toBe(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps one timer however often it is started", async () => {
+		vi.useFakeTimers();
+		try {
+			let reads = 0;
+			const watch = watchSshGuard(async () => {
+				reads += 1;
+				return ON;
+			}, 60_000);
+			watch.start();
+			watch.start();
+			watch.start();
+			expect(reads, "each start reads once").toBe(3);
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(reads, "one timer's read a minute on").toBe(4);
+			watch.stop();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("says nothing of a read that fails after a later one landed", async () => {
+		vi.useFakeTimers();
+		try {
+			const said: string[] = [];
+			const reads: [(guard: SshGuard) => void, (error: Error) => void][] = [];
+			const watch = watchSshGuard(
+				() =>
+					new Promise<SshGuard>((resolve, reject) =>
+						reads.push([resolve, reject]),
+					),
+				60_000,
+				(why) => said.push(why),
+			);
+			watch.start();
+			await vi.advanceTimersByTimeAsync(60_000);
+			reads[1]?.[0](ON);
+			await vi.advanceTimersByTimeAsync(0);
+			reads[0]?.[1](new Error("slow"));
+			await vi.advanceTimersByTimeAsync(0);
+			expect(said, "nothing said").toEqual([]);
+			watch.stop();
 		} finally {
 			vi.useRealTimers();
 		}

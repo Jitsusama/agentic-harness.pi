@@ -2,8 +2,8 @@
 # A stand-in for ssh, scp, sftp or rsync in the ssh guard's tests, by the
 # name it is linked as. It says on stderr that it ran, each argument in
 # brackets, and answers `ssh -G` as a person's settings might: `eq` is an
-# alias for equilibrius.lan, equilibrius and `eqip` connect to its
-# address, a `-P` tag must be one it knows, a `-F` file's `HostName` line
+# alias for equilibrius.lan, equilibrius, `eqip` and one IPv6 address
+# connect to its address, a `-P` tag must be one it knows, a `-F` file's `HostName` line
 # wins, and `-p` sets the port.
 name=${0##*/}
 if [ "$name" = ssh ] && [ "$1" = -G ]; then
@@ -44,7 +44,7 @@ if [ "$name" = ssh ] && [ "$1" = -G ]; then
 	host=${named:-$1}
 	case "$host" in
 	eq) host=equilibrius.lan ;;
-	eqip | equilibrius) host=192.168.4.49 ;;
+	eqip | equilibrius | 2001:db8:0:0:0:0:0:49) host=192.168.4.49 ;;
 	esac
 	echo "hostname $host"
 	echo "port $port"

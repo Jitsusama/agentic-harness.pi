@@ -21,34 +21,39 @@ fi
 export PI_SSH_GUARD_DEPTH=$depth
 
 # The real program: the first on PATH that is no guard's stand-in and
-# no program this call already passed through, so a wrapper that calls
-# `ssh` by name, or a second guard folder, reaches the next one. Where
-# every one was passed through, as for the `ssh` a ProxyCommand runs
-# under the real ssh, the last on PATH is taken, which is the real one.
+# no wrapper this call already passed through, so a wrapper that calls
+# `ssh` by name, or a second guard folder, reaches the next one. Only a
+# script is marked as passed: the real ssh is a program, so the `ssh` a
+# ProxyCommand runs under it reaches that same ssh again.
 passed=":${PI_SSH_GUARD_THROUGH:-}:"
+script() {
+	local head=""
+	IFS= read -r -n 2 head <"$1" 2>/dev/null
+	[ "$head" = "#!" ]
+}
 found() {
-	local dir first="" last=""
+	local dir
 	local IFS=:
 	for dir in $PATH; do
 		[ -n "$dir" ] || continue
 		[ "$dir" = "$bin" ] && continue
 		[ -f "$dir/../guard.bash" ] && [ -d "$dir/../bin" ] && continue
 		[ -x "$dir/$1" ] && [ ! -d "$dir/$1" ] || continue
-		last=$dir/$1
 		case "$passed" in *":$dir/$1:"*) continue ;; esac
-		[ -n "$first" ] || first=$dir/$1
+		printf '%s\n' "$dir/$1"
+		return 0
 	done
-	[ -n "$first" ] || first=$last
-	[ -n "$first" ] || return 1
-	printf '%s\n' "$first"
+	return 1
 }
 real=$(found "$program") || {
 	echo "ssh-guard: no $program on PATH after the guard's own" >&2
 	exit 127
 }
 pass() {
-	PI_SSH_GUARD_THROUGH="${PI_SSH_GUARD_THROUGH:+$PI_SSH_GUARD_THROUGH:}$real"
-	export PI_SSH_GUARD_THROUGH
+	if script "$real"; then
+		PI_SSH_GUARD_THROUGH="${PI_SSH_GUARD_THROUGH:+$PI_SSH_GUARD_THROUGH:}$real"
+		export PI_SSH_GUARD_THROUGH
+	fi
 	exec "$real" "${asked[@]}"
 }
 
@@ -110,11 +115,6 @@ machine_of() {
 	shift
 	read -r name port <<<"$(lookup "$@" "$host")"
 	[ -n "$name" ] || name=$host
-	if [ -n "$here" ] && { loopback "$name" || loopback "$host"; }; then
-		[ "${port:-22}" = 22 ] || return 1
-		printf '%s' "$here"
-		return 0
-	fi
 	for want in $machines; do
 		names=$(names_of "$want")
 		while read -r known; do
@@ -125,7 +125,24 @@ machine_of() {
 			fi
 		done <<<"$names"
 	done
+	if [ -n "$here" ] && { loopback "$name" || loopback "$host"; }; then
+		[ "${port:-22}" = 22 ] || return 1
+		printf '%s' "$here"
+		return 0
+	fi
 	return 1
+}
+
+# The port a URI names, as `-p` for the lookup, or nothing.
+uri_port() {
+	local rest
+	case "$1" in scp://* | sftp://* | ssh://*) ;; *) return 0 ;; esac
+	rest=${1#*://}
+	rest=${rest%%/*}
+	rest=${rest##*@}
+	case "$rest" in \[*\]:*) rest=${rest##*]:} ;; *:*) rest=${rest##*:} ;; *) return 0 ;; esac
+	case "$rest" in "" | *[!0-9]*) return 0 ;; esac
+	printf '%s\n%s\n' -p "$rest"
 }
 
 refuse() {
@@ -149,7 +166,7 @@ remote_of() {
 		rest=${1#*://}
 		rest=${rest%%/*}
 		host=${rest%:*}
-		case "$rest" in \[*) host=${rest%%]*}] ;; esac
+		case "$rest" in \[* | *@\[*) host=${rest%%]*}] ;; esac
 		printf '%s' "$host"
 		return 0
 		;;
@@ -230,8 +247,14 @@ case "$program" in
 ssh)
 	options "BbcDEeFIiJLlmOoPpQRSWw" "${asked[@]}"
 	[ ${#operands[@]} -gt 0 ] || pass
-	host=$(remote_of "${operands[0]}") || host=${operands[0]}
-	machine=$(machine_of "$host" "${settings[@]}") || pass
+	# ssh's destination is a host, or a URI; never an scp `host:path`,
+	# which would cut an IPv6 address at its first colon.
+	case "${operands[0]}" in
+	ssh://*) host=$(remote_of "${operands[0]}") ;;
+	*) host=${operands[0]} ;;
+	esac
+	extra=($(uri_port "${operands[0]}"))
+	machine=$(machine_of "$host" "${settings[@]}" "${extra[@]}") || pass
 	# Asking ssh about its settings, or only forwarding, runs nothing there.
 	case "$flags" in *G*) pass ;; esac
 	if [ ${#operands[@]} -eq 1 ]; then
@@ -243,24 +266,48 @@ sftp)
 	options "BbcDFiJloPRSsX" "${asked[@]}"
 	[ ${#operands[@]} -gt 0 ] || pass
 	host=$(remote_of "${operands[0]}") || host=${operands[0]}
-	machine=$(machine_of "$host" "${settings[@]}") || pass
+	extra=($(uri_port "${operands[0]}"))
+	machine=$(machine_of "$host" "${settings[@]}" "${extra[@]}") || pass
 	refuse "$machine"
 	;;
 scp)
 	options "cDFiJloPSX" "${asked[@]}"
 	for word in "${operands[@]}"; do
 		host=$(remote_of "$word") || continue
-		machine=$(machine_of "$host" "${settings[@]}") && refuse "$machine"
+		extra=($(uri_port "$word"))
+		machine=$(machine_of "$host" "${settings[@]}" "${extra[@]}") && refuse "$machine"
 	done
 	pass
 	;;
 rsync)
+	# The ssh rsync runs (-e, --rsh) hands its own options to the lookup.
+	rsh=""
+	next=""
+	for word in "${asked[@]}"; do
+		if [ -n "$next" ]; then
+			rsh=$word
+			next=""
+			continue
+		fi
+		case "$word" in
+		-e | --rsh) next=1 ;;
+		--rsh=*) rsh=${word#--rsh=} ;;
+		-e?*) rsh=${word#-e} ;;
+		esac
+	done
+	if [ -n "$rsh" ]; then
+		read -r -a words <<<"$rsh"
+		program=ssh options "BbcDEeFIiJLlmOoPpQRSWw" "${words[@]:1}"
+	fi
 	for word in "${asked[@]}"; do
 		host=$(remote_of "$word") || continue
-		machine=$(machine_of "$host") && refuse "$machine"
+		extra=($(uri_port "$word"))
+		machine=$(machine_of "$host" "${settings[@]}" "${extra[@]}") && refuse "$machine"
 	done
 	pass
 	;;
 esac
 pass
+
+
 

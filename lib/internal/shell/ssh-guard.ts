@@ -120,7 +120,16 @@ export async function readSshGuard(
 	before: SshGuard = SSH_GUARD_OFF,
 	sources: SshGuardSources = sourcesOf(process.env),
 ): Promise<SshGuard> {
-	if (!refusesBySetting(await sources.section())) return SSH_GUARD_OFF;
+	const section = await sources.section();
+	if (
+		isRecord(section) &&
+		typeof section.refuse !== "boolean" &&
+		"refuse" in section
+	)
+		throw new Error(
+			`its "refuse" is ${JSON.stringify(section.refuse)}, which is neither true nor false`,
+		);
+	if (!refusesBySetting(section)) return SSH_GUARD_OFF;
 	const answer = await sources.machines();
 	const read = machinesFrom(answer);
 	const named = read.length > 0 ? read : before.machines;
@@ -165,8 +174,9 @@ export function watchSshGuard(
 				failing = false;
 			},
 			(error: unknown) => {
-				// Kept as last read: the next minute's read tries again.
-				if (failing) return;
+				// Kept as last read: the next minute's read tries again. One
+				// that fails after a later read landed says nothing of now.
+				if (mine < landed || failing) return;
 				failing = true;
 				said(
 					`The ssh guard's setting can't be read, so it stays ${guard.refuse ? "on" : "off"}: ${error instanceof Error ? error.message : String(error)}`,
@@ -212,3 +222,4 @@ export function guardedEnvironment(
 		...(guard.here ? { [SSH_GUARD_HERE]: guard.here } : {}),
 	};
 }
+
