@@ -301,7 +301,8 @@ function freshSession(
 		},
 		close() {
 			quiet();
-			recorder?.stop();
+			// Taken back before the jobs stop, so no reaper spares what they leave.
+			recorder?.forget();
 			jobs.close();
 			show();
 		},
@@ -318,11 +319,16 @@ function freshSession(
 						unsaid = undefined;
 						listen();
 						for (const finished of ends) say(finished);
+						// Recorded again under the session that adopted them.
+						recorder?.changed();
 						show();
 						outbox.tick();
 						return session;
 					},
-					stop: () => jobs.close(),
+					stop: () => {
+						recorder?.forget();
+						jobs.close();
+					},
 					handOff() {
 						const ends = unsaid ?? [];
 						unsaid = undefined;

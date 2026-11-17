@@ -7,7 +7,11 @@
  * A job's work is asked for each time the registry changes. A call
  * handed off the moment it started may not have written its shell's pid
  * yet, and has nothing to record until it has, so one not yet
- * recordable is asked again a second on, for a minute at most.
+ * recordable is asked again a second on, for a minute at most. A record
+ * names its session, so one rolled over to another is recorded again
+ * under the new one, and its pi, so no other pi takes up a call this one
+ * still holds. A session's close for good stops its calls, so it takes
+ * their records back first (`forget`): no reaper spares what it stops.
  *
  * Started again, the session takes up each recorded call still running,
  * or ended with its status, that nothing else has taken up
@@ -16,6 +20,7 @@
 
 import { isCarriedShell } from "../../lib/internal/shell/carried.ts";
 import {
+	forgetKeptJob,
 	type KeptJob,
 	keptJobsOf,
 	recordKeptJob,
@@ -26,21 +31,27 @@ import type { Carried } from "./moved.ts";
 /** How long to wait before asking a job not yet recordable again. */
 const RECORD_AGAIN_MS = 1000;
 
-/** How many times a job not yet recordable is asked, a second apart. */
-export const MOST_ASKS = 60;
+/** How long a job not yet recordable is asked for, from its first ask. */
+export const RECORD_FOR_MS = 60_000;
 
 /** What records a session's jobs. */
 export interface JobRecorder {
 	/** The registry changed: record what is running and not yet recorded. */
 	changed(): void;
-	/** Stop asking again. */
+	/** Stop asking again; a later change records again. */
 	stop(): void;
+	/** Stop for good, taking back every record this recorder wrote. */
+	forget(): void;
 }
 
 /** How a recorder writes and waits, for tests to stand in for. */
 interface RecorderOptions {
 	readonly write?: (job: KeptJob) => void;
+	readonly forget?: (keep: string) => void;
 	readonly later?: (ms: number, run: () => void) => () => void;
+	readonly now?: () => number;
+	/** The pi holding the jobs, by its pid; this process by default. */
+	readonly owner?: number;
 }
 
 /**
@@ -83,20 +94,26 @@ export function recordJobs(
 	options: RecorderOptions = {},
 ): JobRecorder {
 	const write = options.write ?? recordKeptJob;
+	const forget = options.forget ?? forgetKeptJob;
 	const later = options.later ?? laterOnce;
-	const recorded = new Set<string>();
-	const asked = new Map<string, number>();
+	const now = options.now ?? Date.now;
+	const owner = options.owner ?? process.pid;
+	// Each job's kept path, by its session and id, once recorded there.
+	const recorded = new Map<string, string>();
+	const firstAsked = new Map<string, number>();
 	let cancel: (() => void) | undefined;
+	let forgotten = false;
 
 	const record = () => {
 		cancel = undefined;
 		const id = session();
 		const held = jobs();
-		if (id === undefined || held === undefined) return;
+		if (forgotten || id === undefined || held === undefined) return;
 		let waiting = false;
 		for (const job of held.list()) {
 			if (job.state !== "running" || !job.spec.carry) continue;
-			if (recorded.has(job.id)) continue;
+			const key = `${id}\n${job.id}`;
+			if (recorded.has(key)) continue;
 			const work = job.spec.carry.what();
 			if (isCarriedShell(work)) {
 				const { kind, label, toolCallId } = job.spec;
@@ -106,16 +123,17 @@ export function recordJobs(
 					kind,
 					label,
 					...(toolCallId !== undefined ? { toolCallId } : {}),
+					owner,
 					work,
 				});
-				recorded.add(job.id);
+				recorded.set(key, work.keep);
 				continue;
 			}
 			// Work of another kind is never a call's to record.
 			if (work !== undefined) continue;
-			const asks = (asked.get(job.id) ?? 0) + 1;
-			asked.set(job.id, asks);
-			if (asks < MOST_ASKS) waiting = true;
+			const first = firstAsked.get(job.id) ?? now();
+			firstAsked.set(job.id, first);
+			if (now() - first < RECORD_FOR_MS) waiting = true;
 		}
 		if (waiting) cancel = later(RECORD_AGAIN_MS, record);
 	};
@@ -128,6 +146,13 @@ export function recordJobs(
 		stop() {
 			cancel?.();
 			cancel = undefined;
+		},
+		forget() {
+			forgotten = true;
+			cancel?.();
+			cancel = undefined;
+			for (const keep of new Set(recorded.values())) forget(keep);
+			recorded.clear();
 		},
 	};
 }

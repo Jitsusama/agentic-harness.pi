@@ -9,18 +9,31 @@
  * host was killed, so none of its conversations wrote what it carried,
  * and the next host ended four suites and proofs whose commands still
  * ran. So a call handed to a job writes `<path>.job` as it goes: its
- * session, its job and what taking it up needs. Every reaper spares a
- * call whose record stands and whose shell has written no exit status
- * (`carriedCalls`, kept.ts), and the session, started again, takes up
- * each of its calls still running, or ended with its status, under the
- * job's own id. The record goes with the call's other files, once its
- * end is said or it is stopped.
+ * session, its job, the pi that holds it and what taking it up needs.
+ *
+ * Every reaper spares a call whose record stands while its shell runs,
+ * within its time limit and a day of its start (`carriedCalls`,
+ * kept.ts). The session, started again, takes up each of its calls
+ * still running, or ended with its status, under the job's own id, but
+ * never one whose pi still runs, which holds it yet. A call no session
+ * takes up is stopped by its host's look at strays once its time limit
+ * or a day has passed (host/engine/carried-shells.ts). The record goes
+ * with the call's other files, once its end is said or it is stopped,
+ * and a session's close for good takes its records back first, so no
+ * reaper spares what the close stops.
  */
 
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { writeWhole } from "../write-whole.ts";
 import { alive, type CarriedShell, isCarriedShell } from "./carried.ts";
-import { endOf, JOB_SUFFIX, keptFolder, removeKept } from "./kept.ts";
+import {
+	endOf,
+	JOB_SUFFIX,
+	keptFolder,
+	processThere,
+	removeKept,
+} from "./kept.ts";
 
 /** One background bash call, as its session takes it up again. */
 export interface KeptJob {
@@ -30,16 +43,21 @@ export interface KeptJob {
 	readonly kind: string;
 	readonly label: string;
 	readonly toolCallId?: string;
+	/** The pi that holds it, by its pid; one that runs still holds it. */
+	readonly owner?: number;
 	readonly work: CarriedShell;
 }
 
 /** Only the owner reads or writes it, as every kept file. */
 const FILE_MODE = 0o600;
 
-/** Write the record of a call handed to a job, replacing one there. */
+/**
+ * Write the record of a call handed to a job, replacing one there, whole
+ * so a reader never takes up half of one.
+ */
 export function recordKeptJob(job: KeptJob): void {
 	try {
-		writeFileSync(`${job.work.keep}${JOB_SUFFIX}`, JSON.stringify(job), {
+		writeWhole(`${job.work.keep}${JOB_SUFFIX}`, JSON.stringify(job), {
 			mode: FILE_MODE,
 		});
 	} catch {
@@ -47,19 +65,23 @@ export function recordKeptJob(job: KeptJob): void {
 	}
 }
 
+/** Take back the record of the call kept at `keep`, leaving it unspared. */
+export function forgetKeptJob(keep: string): void {
+	rmSync(`${keep}${JOB_SUFFIX}`, { force: true });
+}
+
 /** Whether a record read back is one this code wrote. */
 function isKeptJob(value: unknown): value is KeptJob {
 	if (typeof value !== "object" || value === null) return false;
-	const { session, id, kind, label, toolCallId, work } = value as Record<
-		string,
-		unknown
-	>;
+	const { session, id, kind, label, toolCallId, owner, work } =
+		value as Record<string, unknown>;
 	return (
 		typeof session === "string" &&
 		typeof id === "string" &&
 		typeof kind === "string" &&
 		typeof label === "string" &&
 		(toolCallId === undefined || typeof toolCallId === "string") &&
+		(owner === undefined || typeof owner === "number") &&
 		isCarriedShell(work)
 	);
 }
@@ -70,22 +92,18 @@ function recordAt(file: string): KeptJob | undefined {
 		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
 		return isKeptJob(parsed) ? parsed : undefined;
 	} catch {
-		// Removed as its call ended, or cut short as it was written.
+		// Removed as its call ended.
 		return undefined;
 	}
 }
 
-/**
- * The calls `session` handed to jobs that it can take up: each still
- * running, or ended with its exit status written. A call whose shell is
- * gone with no status was stopped, or killed outright with no way to
- * say how it ended, so its files go rather than wait for a sweep.
- */
-export function keptJobsOf(
-	session: string,
-	folder: string = keptFolder(),
-	there: (pid: number, mark: string) => boolean = alive,
-): KeptJob[] {
+/** Whether the pi that recorded `job` has gone, so nothing holds it. */
+function unheld(job: KeptJob, there: (pid: number) => boolean): boolean {
+	return job.owner === undefined || !there(job.owner);
+}
+
+/** Every record in `folder` that reads back, by the call's kept path. */
+function recordsIn(folder: string): KeptJob[] {
 	let names: string[];
 	try {
 		names = readdirSync(folder);
@@ -97,10 +115,43 @@ export function keptJobsOf(
 	for (const name of names) {
 		if (!name.endsWith(JOB_SUFFIX)) continue;
 		const job = recordAt(join(folder, name));
-		if (job === undefined || job.session !== session) continue;
+		if (job !== undefined) found.push(job);
+	}
+	return found;
+}
+
+/**
+ * The calls `session` handed to jobs that it can take up: each still
+ * running, or ended with its exit status written, whose pi has gone. A
+ * call whose shell is gone with no status was stopped, or killed
+ * outright with no way to say how it ended, so its files go rather than
+ * wait for a sweep.
+ */
+export function keptJobsOf(
+	session: string,
+	folder: string = keptFolder(),
+	there: (pid: number, mark: string) => boolean = alive,
+	owner: (pid: number) => boolean = processThere,
+): KeptJob[] {
+	const found: KeptJob[] = [];
+	for (const job of recordsIn(folder)) {
+		if (job.session !== session || !unheld(job, owner)) continue;
 		const { keep, pid, mark } = job.work;
 		if (endOf(keep) !== undefined || there(pid, mark)) found.push(job);
 		else removeKept(keep);
 	}
 	return found;
+}
+
+/**
+ * The recorded calls whose pi has gone and whose end is not yet said:
+ * the ones a host looks at to stop, once nobody takes them up in time.
+ */
+export function strayKeptJobs(
+	folder: string = keptFolder(),
+	owner: (pid: number) => boolean = processThere,
+): KeptJob[] {
+	return recordsIn(folder).filter(
+		(job) => unheld(job, owner) && endOf(job.work.keep) === undefined,
+	);
 }

@@ -232,6 +232,10 @@ describe("serveHost", () => {
 			"carries nothing at a plain stop, where the engine can't keep them",
 			false,
 		],
+		[
+			"carries nothing at a plain stop, where the engine can't say it keeps them",
+			undefined,
+		],
 	])("%s", async (_case, carries) => {
 		const told: string[] = [];
 		let kept = 0;
@@ -250,7 +254,7 @@ describe("serveHost", () => {
 							close: () => {},
 							restarting: () => told.push(prepared.sessionId),
 						}),
-					carries: () => carries,
+					...(carries !== undefined ? { carries: () => carries } : {}),
 					keepCarried: async () => {
 						kept += 1;
 					},

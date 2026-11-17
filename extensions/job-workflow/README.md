@@ -291,12 +291,17 @@ mesh-workflow claims a heavy command's lease again until its end.
   outran 60 s, and the next host ended four suites and proofs whose
   commands still ran. So each running bash job is also written beside
   its call's kept files as it starts (recorded.ts,
-  `lib/internal/shell/kept-jobs.ts`). Every reaper spares a recorded
-  call until its shell writes an exit status, and the conversation,
-  started again, takes up each one still running or ended with its
-  status, under its own id. One whose shell is gone with no status was
-  stopped or killed with it, and its files go unsaid; the cut-off
-  notice names only the jobs no take-up brought back.
+  `lib/internal/shell/kept-jobs.ts`), naming its session and its pi.
+  Every reaper spares a recorded call while its shell runs, within its
+  time limit and a day of its start, and the conversation, started
+  again, takes up each one still running or ended with its status,
+  under its own id, unless the pi that recorded it still runs. One
+  whose shell is gone with no status was stopped or killed with it, and
+  its files go unsaid; the cut-off notice names only the jobs no
+  take-up brought back. A close for good takes a session's records
+  back before it stops its jobs, and a call no conversation takes up
+  is stopped by its host's look at strays once its time limit or a day
+  has passed, saying so in the journal.
 
 ## When the Machine Ends a Session
 
@@ -344,9 +349,13 @@ rather than the machine.
 ## Limits
 
 - **Commands end with a host that can't keep them.** Off Linux, or
-  without systemd-run and a user manager, a host's pi-spawners run in
-  its own cgroup, said once in its journal, and its stop ends what they
-  run.
+  without systemd-run in the system's profile and a user manager, a
+  host's pi-spawners run in its own cgroup, said once in its journal,
+  and its stop ends what they run. A scope that fails to start is said
+  the same way, and the host's spawners after it run unscoped.
+- **A host's stop no longer ends what it keeps.** To end every command
+  a host's spawners run, stop their scopes:
+  `systemctl --user stop 'pi-spawner-*.scope'`.
 - **Nothing else outlives the session.** A new session, a resume of
   another log, a fork and a quit that isn't a move stop every job, with the reason
   `session`, and drop whatever was waiting, since a result belongs to

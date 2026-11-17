@@ -13,6 +13,7 @@ import {
 import type { ProcessTable } from "../../../host/engine/tool-children.ts";
 import { HOST_RESTARTING_EVENT } from "../../../lib/core/session/host.ts";
 import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";
+import type { KeptJob } from "../../../lib/internal/shell/kept-jobs.ts";
 import { JOBS_CARRIED, type JobsCarried } from "../../../lib/jobs/host.ts";
 
 const OWN = "/user.slice/user@1000.service/agents.slice/pi-host.service";
@@ -101,6 +102,7 @@ describe("carried shells", () => {
 			jobs: "jobs.slice/jobs.service",
 			ownCgroup: () => OWN_CGROUP,
 			scoped: false,
+			recorded: () => [],
 			table: table({}),
 			move: async (procs, pid) => {
 				moved.push([procs, pid]);
@@ -127,6 +129,10 @@ describe("carried shells", () => {
 	});
 
 	it("keeps calls with no jobs cgroup where its spawners run in scopes of their own", async () => {
+		expect(
+			make({ jobs: "", scoped: false }).keeps,
+			"the same host without scopes keeps nothing",
+		).toBe(false);
 		const shells = make({ jobs: "", scoped: true });
 		expect(shells.keeps, "a host whose spawners have scopes keeps calls").toBe(
 			true,
@@ -253,6 +259,56 @@ describe("carried shells", () => {
 			look();
 			expect(stopped).toHaveLength(1);
 			expect(said).toEqual([expect.stringMatching(/its time limit passed/)]);
+		});
+
+		describe("a call recorded as it ran, whose pi has gone", () => {
+			const stray = (work: CarriedShell, session = "s1"): KeptJob => ({
+				session,
+				id: "j1",
+				kind: "bash",
+				label: "make test",
+				work,
+			});
+
+			it("is left until a day from its start", () => {
+				const work = shell("m1", { startedAt: now });
+				const look = watched(() => false, { recorded: () => [stray(work)] });
+				now += STRAY_FOR_MS - 1;
+				look();
+				expect(stopped).toEqual([]);
+			});
+
+			it("is stopped a day from its start, saying so", () => {
+				const work = shell("m1", { startedAt: now });
+				const look = watched(() => false, { recorded: () => [stray(work)] });
+				now += STRAY_FOR_MS;
+				look();
+				expect(stopped).toEqual([work]);
+				expect(said).toEqual([
+					expect.stringMatching(/make test.*j1 of s1.*recorded.*a day passed/),
+				]);
+			});
+
+			it("is stopped sooner once its time limit passes", () => {
+				const work = shell("m1", { startedAt: now, deadline: now + 60_000 });
+				const look = watched(() => false, { recorded: () => [stray(work)] });
+				now += 60_000;
+				look();
+				expect(stopped).toEqual([work]);
+				expect(said).toEqual([expect.stringMatching(/its time limit passed/)]);
+			});
+
+			it("is left to a conversation here that holds it, or once it ended", () => {
+				const held = shell("m1", { startedAt: 0 });
+				const ended = shell("m2", { startedAt: 0 });
+				const look = watched((session) => session === "s1", {
+					recorded: () => [stray(held), stray(ended, "s2")],
+					running: (work) => work.mark !== "m2",
+				});
+				now += STRAY_FOR_MS;
+				look();
+				expect(stopped).toEqual([]);
+			});
 		});
 
 		it("lets go of a call a conversation here holds, or that ended", () => {

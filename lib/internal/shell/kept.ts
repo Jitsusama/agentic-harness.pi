@@ -24,8 +24,9 @@
  * (host/engine/tool-children.ts) spares it: its shell still carries the
  * marks of the host that started it, which no longer answers for it.
  * A call handed to a job is spared the same way by its `<path>.job`
- * record (kept-jobs.ts) until its shell writes how it ended, so the
- * session can take it up again however its pi or host ended.
+ * record (kept-jobs.ts) while its shell runs with no status written,
+ * within its time limit and a day of its start, so the session can take
+ * it up again however its pi or host ended.
  */
 
 import { spawn } from "node:child_process";
@@ -202,12 +203,22 @@ export interface CarriedCalls {
 }
 
 /**
- * The calls in `folder` handed to another process, or to a job its
- * session takes up again, until its shell writes how it ended. A call's
+ * How long a recorded call is spared after it started, at most: as long
+ * as a host lets a call it carried run on with nobody holding it.
+ */
+export const RECORD_SPARED_FOR_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The calls in `folder` handed to another process, until its shell
+ * writes how it ended, or to a job its session takes up again, while
+ * its shell runs, within its time limit and a day of its start. A call's
  * mark reaches what it started in a group of its own, as `timeout` and
  * `setsid` make; its shell's group covers a call run without one.
  */
-export function carriedCalls(folder: string = keptFolder()): CarriedCalls {
+export function carriedCalls(
+	folder: string = keptFolder(),
+	now: number = Date.now(),
+): CarriedCalls {
 	const marks = new Set<string>();
 	const groups = new Set<number>();
 	let names: string[];
@@ -222,10 +233,10 @@ export function carriedCalls(folder: string = keptFolder()): CarriedCalls {
 			const path = join(folder, name.slice(0, -JOB_SUFFIX.length));
 			// Once its status is written nothing of it runs to spare.
 			if (endOf(path) !== undefined) continue;
-			const pid = pidOf(path);
-			if (pid !== undefined) groups.add(pid);
-			const mark = recordedMark(`${path}${JOB_SUFFIX}`);
-			if (mark !== "") marks.add(mark);
+			const spared = recordedSpare(`${path}${JOB_SUFFIX}`);
+			if (spared === undefined || !sparedAt(spared, now)) continue;
+			groups.add(spared.pid);
+			if (spared.mark !== "") marks.add(spared.mark);
 			continue;
 		}
 		if (!name.endsWith(CARRIED)) continue;
@@ -238,21 +249,62 @@ export function carriedCalls(folder: string = keptFolder()): CarriedCalls {
 	return { marks, groups };
 }
 
-/** The call's mark a job's record names, or nothing when it names none. */
-function recordedMark(file: string): string {
+/** What a job's record says of its call, as a reaper spares it. */
+interface RecordedSpare {
+	readonly pid: number;
+	readonly mark: string;
+	readonly startedAt: number;
+	readonly deadline?: number;
+}
+
+/** What a job's record says of its call, or nothing when it says none. */
+function recordedSpare(file: string): RecordedSpare | undefined {
 	let record: unknown;
 	try {
 		record = JSON.parse(textOf(file));
 	} catch {
-		// Gone, or cut short as it was written: its shell's group still says.
-		return "";
+		// Gone as its call ended: nothing of it runs to spare.
+		return undefined;
 	}
 	if (typeof record !== "object" || record === null || !("work" in record))
-		return "";
+		return undefined;
 	const { work } = record;
-	if (typeof work !== "object" || work === null || !("mark" in work))
-		return "";
-	return typeof work.mark === "string" ? work.mark : "";
+	if (typeof work !== "object" || work === null) return undefined;
+	if (!("pid" in work) || typeof work.pid !== "number") return undefined;
+	if (!("startedAt" in work) || typeof work.startedAt !== "number")
+		return undefined;
+	const mark = "mark" in work && typeof work.mark === "string" ? work.mark : "";
+	const deadline =
+		"deadline" in work && typeof work.deadline === "number"
+			? work.deadline
+			: undefined;
+	return {
+		pid: work.pid,
+		mark,
+		startedAt: work.startedAt,
+		...(deadline !== undefined ? { deadline } : {}),
+	};
+}
+
+/**
+ * Whether a recorded call is spared `now`: its shell, which leads its
+ * group, still there, within its time limit and a day of its start.
+ */
+function sparedAt(spared: RecordedSpare, now: number): boolean {
+	if (spared.deadline !== undefined && now >= spared.deadline) return false;
+	if (now >= spared.startedAt + RECORD_SPARED_FOR_MS) return false;
+	return processThere(spared.pid);
+}
+
+/** Whether the process `pid` runs, someone else's or not. */
+export function processThere(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		// EPERM: there, though not ours to signal; anything else, gone.
+		return error instanceof Error && "code" in error && error.code === "EPERM";
+	}
 }
 
 /** What a kept file holds, or nothing once it is gone. */

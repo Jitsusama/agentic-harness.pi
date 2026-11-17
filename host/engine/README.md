@@ -341,8 +341,10 @@ holds the restart as every other job does. A host killed before its
 stop finishes carries nothing this way; each conversation recorded its
 running bash calls beside their kept files as they started
 (`lib/internal/shell/kept-jobs.ts`), so the next host's reap spares a
-call whose shell has written no status, and the conversation takes it
-up as it resumes. `background` counts only
+call whose shell still runs, within its time limit and a day, and the
+conversation takes it up as it resumes; one nobody takes up is stopped
+on the look at strays once its time limit or a day has passed.
+`background` counts only
 what a restart would end, and `holding` names it, for the journal
 line a restart held past its ceiling writes once an hour.
 

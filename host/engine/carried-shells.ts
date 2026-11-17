@@ -32,7 +32,10 @@
  * this host runs has taken up, is let go. A crash or a kill -9 carries
  * nothing through here; what its conversations recorded of each call as
  * it ran (lib/internal/shell/kept-jobs.ts) spares the call from the next
- * host's reaper, and the conversation takes it up as it resumes.
+ * host's reaper, and the conversation takes it up as it resumes. A
+ * recorded call whose pi has gone and that no conversation here holds
+ * is stopped on the same look, once its time limit or a day from its
+ * start has passed.
  */
 
 import { readFileSync } from "node:fs";
@@ -49,15 +52,26 @@ import {
 	isCarriedShell,
 	stopCarried,
 } from "../../lib/internal/shell/carried.ts";
-import { endOf } from "../../lib/internal/shell/kept.ts";
+import {
+	endOf,
+	processThere,
+	RECORD_SPARED_FOR_MS,
+} from "../../lib/internal/shell/kept.ts";
+import {
+	type KeptJob,
+	strayKeptJobs,
+} from "../../lib/internal/shell/kept-jobs.ts";
 import { CALL_VARIABLE } from "../../lib/internal/shell/reap.ts";
 import { spawnersScoped } from "../../lib/internal/shell/spawner-scope.ts";
 import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { isJobsCarried, JOBS_CARRIED } from "../../lib/jobs/host.ts";
 import { linuxProcessTable, type ProcessTable } from "./tool-children.ts";
 
-/** How long a carried call nobody took up may run on before it is stopped. */
-export const STRAY_FOR_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long a carried call nobody took up may run on before it is
+ * stopped: as long as a recorded one is spared.
+ */
+export const STRAY_FOR_MS = RECORD_SPARED_FOR_MS;
 
 /** How often the host looks at what an earlier restart kept. */
 export const STRAY_LOOK_MS = 10 * 60 * 1000;
@@ -115,9 +129,14 @@ export interface CarriedShellsOptions {
 	readonly ownCgroup?: () => string;
 	/**
 	 * Whether the host's spawners run in scopes of their own; asked of the
-	 * machine by default.
+	 * machine each time by default, since a scope can fail to start.
 	 */
 	readonly scoped?: boolean;
+	/**
+	 * The recorded calls whose pi has gone; read from the kept folder by
+	 * default.
+	 */
+	readonly recorded?: () => readonly KeptJob[];
 	readonly table?: ProcessTable;
 	/** Writes a pid into a cgroup.procs file. */
 	readonly move?: (procs: string, pid: number) => Promise<void>;
@@ -134,13 +153,7 @@ export interface CarriedShellsOptions {
 /** Whether the shell of a carried call is still there, as itself. */
 function running(work: CarriedShell): boolean {
 	if (endOf(work.keep) !== undefined) return false;
-	try {
-		process.kill(work.pid, 0);
-	} catch (error) {
-		// EPERM: there, and somebody else's, which a carried shell never is.
-		if (!(error instanceof Error && "code" in error && error.code === "EPERM"))
-			return false;
-	}
+	if (!processThere(work.pid)) return false;
 	return carriesMark(work.pid, work.mark);
 }
 
@@ -186,6 +199,7 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 		((path: string, pid: number) => writeFile(path, `${pid}\n`));
 	const isRunning = options.running ?? running;
 	const stop = options.stop ?? stopCarried;
+	const recorded = options.recorded ?? (() => strayKeptJobs());
 	const carried: KeptCall[] = [];
 
 	// One look over the table for every call, since the stop it runs in
@@ -223,7 +237,28 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 		}
 	}
 
+	/** Stop each recorded call due, whose pi has gone and nobody holds. */
+	function lookRecorded(holds: (session: string) => boolean): void {
+		for (const job of recorded()) {
+			if (!isRunning(job.work) || holds(job.session)) continue;
+			const due = Math.min(
+				job.work.deadline ?? Number.POSITIVE_INFINITY,
+				job.work.startedAt + RECORD_SPARED_FOR_MS,
+			);
+			if (now() < due) continue;
+			stop(job.work);
+			const why =
+				job.work.deadline !== undefined && job.work.deadline <= due
+					? "its time limit passed"
+					: "a day passed";
+			options.say(
+				`Stopped \`${job.label}\` (${job.id} of ${job.session}), recorded as it ran: its conversation never took it up and ${why}`,
+			);
+		}
+	}
+
 	function look(holds: (session: string) => boolean): void {
+		lookRecorded(holds);
 		const kept = readKept(file);
 		if (kept.length === 0) return;
 		const left = kept.filter((call) => {
@@ -247,7 +282,9 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	}
 
 	return {
-		keeps: procs !== undefined || (options.scoped ?? spawnersScoped()),
+		get keeps() {
+			return procs !== undefined || (options.scoped ?? spawnersScoped());
+		},
 		heard(bus) {
 			let restarting = false;
 			const told = bus.on(HOST_RESTARTING_EVENT, (data) => {

@@ -1,35 +1,48 @@
 /**
  * Where a host's pi-spawner runs: a scope of its own where a host on
- * Linux can make one, and where it always has otherwise, saying why
- * once.
+ * Linux can make one with the system's own systemd-run, and where it
+ * always has otherwise, saying why once; and a scope that fails to
+ * start leaves every spawner after it unscoped.
  */
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
 	inSpawnerScope,
-	type ScopeSetting,
+	resetScopeForTests,
 	sayUnscoped,
+	scopeFailed,
+	type ScopeSetting,
+	settingHere,
 	spawnerStart,
 	spawnersScoped,
 } from "../../../../lib/internal/shell/spawner-scope.ts";
 
-/** A Linux host with systemd-run on its PATH and a user manager answering. */
+const SYSTEM = "/run/current-system/sw/bin";
+
+/** A Linux host with systemd-run in its profile and a user manager. */
 function linuxHost(overrides: Partial<ScopeSetting> = {}): ScopeSetting {
-	const files = new Set(["/usr/bin/systemd-run", "/run/user/1000/bus"]);
+	const files = new Set(["/run/user/1000/bus"]);
+	const programs = new Map([
+		["systemd-run", `${SYSTEM}/systemd-run`],
+		["pi-spawner", `${SYSTEM}/pi-spawner`],
+	]);
 	return {
 		platform: "linux",
 		hosted: true,
-		env: { PATH: "/bin:/usr/bin", XDG_RUNTIME_DIR: "/run/user/1000" },
+		env: { XDG_RUNTIME_DIR: "/run/user/1000" },
 		exists: (path) => files.has(path),
+		find: (program) => programs.get(program),
 		name: "4242-1a2b3c4d",
 		...overrides,
 	};
 }
 
+beforeEach(() => resetScopeForTests());
+
 describe("starting a host's spawner", () => {
 	it("runs it in a scope of its own, named apart, the program last", () => {
 		expect(spawnerStart("/nix/bin/pi-spawner", linuxHost())).toEqual({
-			command: "/usr/bin/systemd-run",
+			command: `${SYSTEM}/systemd-run`,
 			args: [
 				"--user",
 				"--scope",
@@ -43,6 +56,26 @@ describe("starting a host's spawner", () => {
 		expect(spawnersScoped(linuxHost()), "a host's calls are kept").toBe(true);
 	});
 
+	it("reaches the user manager by its private socket too", () => {
+		const setting = linuxHost({
+			exists: (path) => path === "/run/user/1000/systemd/private",
+		});
+		expect(spawnerStart("/bin/pi-spawner", setting).unscoped).toBeUndefined();
+	});
+
+	it("never takes systemd-run from the PATH", () => {
+		const setting = linuxHost({
+			env: { PATH: "/home/me/.direnv/bin", XDG_RUNTIME_DIR: "/run/user/1000" },
+			find: (program) =>
+				program === "pi-spawner" ? `${SYSTEM}/pi-spawner` : undefined,
+		});
+		expect(spawnerStart("/bin/pi-spawner", setting)).toEqual({
+			command: "/bin/pi-spawner",
+			args: [],
+			unscoped: "systemd-run isn't in the system's profile",
+		});
+	});
+
 	it.each([
 		[
 			"off Linux",
@@ -51,13 +84,23 @@ describe("starting a host's spawner", () => {
 		],
 		[
 			"without systemd-run",
-			{ env: { PATH: "/bin", XDG_RUNTIME_DIR: "/run/user/1000" } },
-			"systemd-run isn't on the PATH",
+			{ find: () => undefined },
+			"systemd-run isn't in the system's profile",
 		],
 		[
 			"with no user manager",
-			{ env: { PATH: "/usr/bin" } },
+			{ env: {} },
 			"no systemd user manager answers",
+		],
+		[
+			"with no manager's socket in its runtime folder",
+			{ exists: () => false },
+			"no systemd user manager answers",
+		],
+		[
+			"once a scope failed to start",
+			{ failed: "a scoped pi-spawner ended with 1" },
+			"a scoped pi-spawner ended with 1",
 		],
 	])("runs it where it always has %s, saying why", (_case, overrides, why) => {
 		const setting = linuxHost(overrides);
@@ -76,13 +119,50 @@ describe("starting a host's spawner", () => {
 			spawnerStart("/bin/pi-spawner", linuxHost({ hosted: false })),
 		).toEqual({ command: "/bin/pi-spawner", args: [] });
 	});
+});
 
-	it("says once why a host's spawners run in its own cgroup", () => {
+describe("whether a host's calls are kept", () => {
+	it("isn't so where pi-spawner is turned off", () => {
+		const setting = linuxHost({
+			env: { PI_SPAWNER: "off", XDG_RUNTIME_DIR: "/run/user/1000" },
+		});
+		expect(spawnersScoped(setting)).toBe(false);
+	});
+
+	it("isn't so where pi-spawner isn't in the system's profile", () => {
+		const setting = linuxHost({
+			find: (program) =>
+				program === "systemd-run" ? `${SYSTEM}/systemd-run` : undefined,
+		});
+		expect(spawnersScoped(setting)).toBe(false);
+	});
+});
+
+describe("a scope that fails to start", () => {
+	it("is said once, with the first line systemd-run said", () => {
 		const lines: string[] = [];
-		sayUnscoped("systemd-run isn't on the PATH", (line) => lines.push(line));
-		sayUnscoped("systemd-run isn't on the PATH", (line) => lines.push(line));
+		scopeFailed(1, "Failed to start transient scope unit.\nmore\n", (line) =>
+			lines.push(line),
+		);
+		scopeFailed(1, "again", (line) => lines.push(line));
 		expect(lines).toEqual([
-			"pi-spawner runs in the host's own cgroup, since systemd-run isn't on the PATH: a background command ends when its host stops.\n",
+			"pi-spawner runs in the host's own cgroup, since a scoped pi-spawner ended with 1 (Failed to start transient scope unit.): a background command ends when its host stops.\n",
+		]);
+	});
+
+	it("leaves every spawner after it in this process unscoped", () => {
+		scopeFailed(1, "", () => {});
+		expect(settingHere(true).failed).toBe("a scoped pi-spawner ended with 1");
+	});
+});
+
+describe("saying a host's spawners run unscoped", () => {
+	it("says it once a process", () => {
+		const lines: string[] = [];
+		sayUnscoped("this machine has no systemd", (line) => lines.push(line));
+		sayUnscoped("this machine has no systemd", (line) => lines.push(line));
+		expect(lines).toEqual([
+			"pi-spawner runs in the host's own cgroup, since this machine has no systemd: a background command ends when its host stops.\n",
 		]);
 	});
 });
