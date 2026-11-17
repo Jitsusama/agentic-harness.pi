@@ -50,12 +50,17 @@ const QUEST_IO = new URL(
 
 /** Bumps the quest's counter, under its lock, as many times as it is told. */
 const WRITER = `
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-const [io, run, quest, times] = process.argv.slice(2);
+const [io, run, quest, times, name, other] = process.argv.slice(2);
 const { atomicWriteFile, useRunFolderForTests, withQuestLock } = await import(io);
 useRunFolderForTests(run);
 const counter = join(quest, "counter");
+// Starts only once the other writer is ready too: a fenced one takes
+// longer to start, and two writers that never overlap prove nothing.
+writeFileSync(join(quest, "..", "ready-" + name), "");
+const deadline = Date.now() + 20000;
+while (!existsSync(join(quest, "..", "ready-" + other)) && Date.now() < deadline) {}
 try {
 	for (let bump = 0; bump < Number(times); bump++) {
 		withQuestLock(quest, () => {
@@ -73,7 +78,7 @@ try {
 `;
 
 /** How many times each writer bumps the counter. */
-const BUMPS = 150;
+const BUMPS = 300;
 
 let base = "";
 let home = "";
@@ -218,6 +223,8 @@ describe.skipIf(bwrap === undefined)(
 				run,
 				quest,
 				String(BUMPS),
+				inFence ? "inside" : "outside",
+				inFence ? "outside" : "inside",
 			];
 			const [program, ...args] = inFence
 				? [bwrap ?? "bwrap", ...fenced(node)]
@@ -267,6 +274,8 @@ describe.skipIf(bwrap === undefined)(
 
 		it("refuses a fenced writer the quest where the folder wasn't let through", async () => {
 			linkTheFolder();
+			// Alone, so it needn't wait for a writer outside.
+			writeFileSync(join(quest, "..", "ready-outside"), "");
 			const inside = await writer(true);
 			expect(inside.code).toBe(2);
 			expect(inside.said).toMatch(/fence/);
