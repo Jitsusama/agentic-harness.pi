@@ -15,7 +15,7 @@
  * whose process has ended is gone, however recently it wrote.
  */
 
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile as readFileOff } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -47,7 +47,12 @@ import {
 	readRefusedWake,
 	refusedWakePath,
 } from "../internal/session/refused-wake.ts";
-import { writeWhole } from "../internal/write-whole.ts";
+import {
+	asWaiting,
+	overWaiting,
+	type WholeWritesOptions,
+	wholeWrites,
+} from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";
 import { loadedQuest, type QuestRecords, questAddress } from "./address.ts";
@@ -66,7 +71,7 @@ import {
 } from "./scope.ts";
 import { isStepDetail, type StepDetail } from "./step.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
-import { removeQuietly, removeStaged } from "./transport.ts";
+import { removeStaged } from "./transport.ts";
 import { isUsage, type SessionUsage } from "./usage.ts";
 import { type Want, wantFrom } from "./want.ts";
 
@@ -345,10 +350,12 @@ export interface Presences {
 	 * (internal/session/refused-wake.ts); none for a peer not parked.
 	 */
 	refusal(presence: Presence): RefusedWake | undefined;
-	/** Let go of a peer's presence, once it has ended. */
+	/** Let go of a peer's presence, once it has ended, now. */
 	forget(session: string): void;
 	/** Let go of what nothing has touched since this time. */
 	expire(before: number): void;
+	/** Write now every publish a host still has on its way, as one ends. */
+	settle(): void;
 }
 
 /**
@@ -515,8 +522,11 @@ function questChain(
 	return chain;
 }
 
-/** The presence kept in this folder, one file per peer. */
-export function createPresences(dir: string): Presences {
+/** The presence in this folder, a file a peer, written off a host's thread. */
+export function createPresences(
+	dir: string,
+	options: Pick<WholeWritesOptions, "failed"> = {},
+): Presences {
 	const file = (session: string) =>
 		join(dir, `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`);
 	// Each file's parse, kept while the file is the one it was read from:
@@ -530,12 +540,15 @@ export function createPresences(dir: string): Presences {
 	const direct = folderRead(dir, PRESENCE_FILES);
 	const folder = (): FolderMirror<Presence> =>
 		hosted() === undefined ? direct : mirrored(dir);
+	const writes = wholeWrites({ ...options, offThread: () => !!hosted() });
 	// A parked peer's refused wake, by the file it is kept in, read the
 	// same way, so a listing costs a stat for each parked peer.
 	const refusals = new Map<string, Stamped<RefusedWake>>();
 	// The presences read, with the refusals of peers no longer parked let go.
 	const presentOf = (listed: Mirrored<Presence>): Presence[] => {
-		const present = [...listed.values()].filter(
+		// A listing read before a publish landed holds the file as it was.
+		const over = overWaiting(writes, dir, listed, parsed);
+		const present = [...over.values()].filter(
 			(one): one is Presence => one !== undefined,
 		);
 		// Each park names a wake of its own, so only the parked keep theirs.
@@ -550,12 +563,14 @@ export function createPresences(dir: string): Presences {
 		return present;
 	};
 	return {
-		of: (session) => folder().file(file(session)),
+		// Only forget takes one away, on the thread, so what waits is a publish.
+		of: (session) =>
+			asWaiting(writes, file(session), parsed)?.value ??
+			folder().file(file(session)),
 		publish(presence) {
-			mkdirSync(dir, { recursive: true });
 			const text = JSON.stringify(presence);
-			writeWhole(file(presence.session), text);
-			folder().put(file(presence.session), presenceFrom(JSON.parse(text)));
+			writes.ask(file(presence.session), text);
+			folder().put(file(presence.session), parsed(text));
 		},
 		all: () => presentOf(folder().files()),
 		listed: async () => presentOf(await folder().refresh()),
@@ -566,12 +581,18 @@ export function createPresences(dir: string): Presences {
 			);
 		},
 		forget(session) {
-			removeQuietly(file(session));
-			folder().drop(file(session));
+			const path = file(session);
+			try {
+				writes.now(path, null);
+			} catch {
+				// Left for the next sweep, as removeQuietly leaves it.
+			}
+			folder().drop(path);
 		},
 		// A presence is current while its peer is, so only what a publish
 		// staged and never renamed is old here; ended peers are forgotten.
 		expire: (before) => removeStaged(dir, before),
+		settle: () => writes.settle(),
 	};
 }
 
@@ -584,6 +605,9 @@ const PRESENCE_FILES: MirroredFiles<Presence> = {
 
 /** Presence's mirror of each folder, one for each copy of this module. */
 const mirrored = folderMirrors(PRESENCE_FILES);
+
+/** A presence as its file's text says it, or nothing. */
+const parsed = (text: string) => presenceFrom(JSON.parse(text));
 
 function read(path: string): Presence | undefined {
 	try {

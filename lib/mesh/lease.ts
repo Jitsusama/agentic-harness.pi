@@ -40,16 +40,22 @@
  * leases as that peer's.
  */
 
-import { readdirSync, readFileSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { hosted } from "../core/session/host.ts";
+import {
+	asWaiting,
+	overWaiting,
+	type WholeWritesOptions,
+	wholeWrites,
+} from "../internal/write-whole.ts";
 import { checkoutOf, repositoryName } from "./scope.ts";
 import {
 	removeQuietly,
 	removeStaged,
 	senderOf,
 	touchedAt,
-	writeAtomically,
 } from "./transport.ts";
 
 /** What a lease claims. */
@@ -353,20 +359,30 @@ export interface Board {
 	 * as an ended peer leaves them.
 	 */
 	expire(now: number): void;
+	/** Write now every hold a host still has on its way, as one ends. */
+	settle(): void;
 }
 
-/** The board kept in this folder. */
-export function createBoard(dir: string): Board {
+/**
+ * The board kept in this folder. A host, whose conversations share one
+ * thread, writes off it (`failed` is told once when a write can't land),
+ * answering with its own holds meanwhile.
+ */
+export function createBoard(
+	dir: string,
+	options: Pick<WholeWritesOptions, "failed"> = {},
+): Board {
 	const file = (session: string) =>
-		`${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`;
+		join(dir, `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`);
+	const writes = wholeWrites({ ...options, offThread: () => !!hosted() });
 	return {
-		of: (session) => readHolding(join(dir, file(session))),
+		of(session) {
+			const waiting = asWaiting(writes, file(session), parsedHolding);
+			return waiting ? waiting.value : readHolding(file(session));
+		},
 		hold(holding) {
-			if (holding.leases.length === 0) {
-				rmSync(join(dir, file(holding.session)), { force: true });
-				return;
-			}
-			writeAtomically(dir, file(holding.session), JSON.stringify(holding));
+			const empty = holding.leases.length === 0;
+			writes.ask(file(holding.session), empty ? null : JSON.stringify(holding));
 		},
 		all() {
 			let files: string[] = [];
@@ -375,11 +391,15 @@ export function createBoard(dir: string): Board {
 					(name) => name.endsWith(".json") && !name.startsWith("."),
 				);
 			} catch {
-				return [];
+				// No board yet: only what this writer has on its way.
 			}
-			return files
-				.map((name) => readHolding(join(dir, name)))
-				.filter((one): one is Holding => one !== undefined);
+			const read = new Map(
+				files.map((name) => [join(dir, name), readHolding(join(dir, name))]),
+			);
+			// A hold on its way reads as asked, over the file as it was.
+			return [...overWaiting(writes, dir, read, parsedHolding).values()].filter(
+				(one): one is Holding => one !== undefined,
+			);
 		},
 		expire(now) {
 			let files: string[] = [];
@@ -398,13 +418,18 @@ export function createBoard(dir: string): Board {
 					holding !== undefined &&
 					!holding.leases.some((lease) => isCurrent(lease, now));
 				// Its peer may have taken a lease since it was read: only the
-				// file as judged is taken away.
-				if (lapsed && touchedAt(path) === touched) removeQuietly(path);
+				// file as judged is taken away, and none this writer has on its way.
+				const mine = writes.waiting(path) !== undefined;
+				if (lapsed && !mine && touchedAt(path) === touched) removeQuietly(path);
 			}
 			removeStaged(dir, now - HEAVY_MS);
 		},
+		settle: () => writes.settle(),
 	};
 }
+
+/** A holding as its file's text says it, or nothing. */
+const parsedHolding = (text: string) => holdingFrom(JSON.parse(text));
 
 function readHolding(path: string): Holding | undefined {
 	try {

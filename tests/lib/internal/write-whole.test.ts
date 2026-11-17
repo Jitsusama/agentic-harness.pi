@@ -100,18 +100,20 @@ describe("a peer's whole writes", () => {
 		writes.ask(file, "one");
 		writes.ask(file, "two");
 		writes.ask(file, "three");
-		expect(held.calls.map(({ wanted }) => wanted), "one out at once").toEqual([
-			"one",
-		]);
+		expect(
+			held.calls.map(({ wanted }) => wanted),
+			"one out at once",
+		).toEqual(["one"]);
 		expect(writes.waiting(file), "the latest asked waits").toBe("three");
 
 		held.calls[0]?.go();
 		await vi.waitFor(() => {
 			expect(held.calls.length, "the next sent once it landed").toBe(2);
 		});
-		expect(held.calls[1]?.wanted, "the latest, the one between passed over").toBe(
-			"three",
-		);
+		expect(
+			held.calls[1]?.wanted,
+			"the latest, the one between passed over",
+		).toBe("three");
 		held.calls[1]?.go();
 		await vi.waitFor(() => {
 			expect(writes.waiting(file), "nothing waits once it landed").toBe(
