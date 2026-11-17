@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import {
 	mkdtempSync,
 	renameSync,
@@ -12,10 +11,24 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	createWhereabouts,
+	createGate,
+	createWhereabouts as createHostWhereabouts,
 	type Disk,
 	reposOf,
+	type Whereabouts,
+	type WhereaboutsOptions,
 } from "../../../extensions/pineapple-workflow/whereabouts.ts";
+
+/**
+ * Whereabouts with a bound on the disk of their own, so a case that
+ * stalls its disk holds no other case's turns.
+ */
+function createWhereabouts(
+	cuts: string,
+	options: WhereaboutsOptions = {},
+): Whereabouts {
+	return createHostWhereabouts(cuts, { gate: createGate(), ...options });
+}
 
 /** A folder of work records, empty. */
 function cutsFolder(): string {
@@ -65,44 +78,49 @@ function stalled(): Error {
 
 /** The real disk, watched: what it was asked, and what it is told to do. */
 function watchedDisk() {
-	const seen = { listings: 0, reads: [] as string[], mostStamped: 0 };
+	const seen = { listings: 0, reads: [] as string[], mostRead: 0 };
 	const hidden = new Set<string>();
 	const failing = new Set<string>();
 	const unstamped = new Set<string>();
+	const notPlain = new Set<string>();
 	const how = { hanging: false, listingFails: false, listingTakes: 0 };
-	let stamping = 0;
+	let reading = 0;
 	const disk: Partial<Disk> = {
 		async list(dir) {
 			seen.listings += 1;
 			if (how.hanging) return new Promise<string[]>(() => undefined);
 			if (how.listingFails) throw stalled();
 			if (how.listingTakes > 0) {
+				// A disk as slow as the case needs, past the patience it sets.
 				await new Promise((done) => setTimeout(done, how.listingTakes));
 			}
 			return (await readdir(dir)).filter((name) => !hidden.has(name));
 		},
 		async stamp(path) {
-			stamping += 1;
-			seen.mostStamped = Math.max(seen.mostStamped, stamping);
-			try {
-				if (unstamped.has(basename(path))) throw stalled();
-				const now = await stat(path);
-				return {
-					stamp: `${now.ino}:${now.mtimeMs}:${now.ctimeMs}:${now.size}`,
-					changed: now.mtimeMs,
-					plain: now.isFile(),
-				};
-			} finally {
-				stamping -= 1;
-			}
+			if (unstamped.has(basename(path))) throw stalled();
+			const now = await stat(path);
+			return {
+				stamp: `${now.ino}:${now.mtimeMs}:${now.ctimeMs}:${now.size}`,
+				changed: now.mtimeMs,
+				plain: now.isFile() && !notPlain.has(basename(path)),
+			};
 		},
 		async read(path) {
 			seen.reads.push(basename(path));
-			if (failing.has(basename(path))) throw stalled();
-			return readFile(path, "utf8");
+			reading += 1;
+			seen.mostRead = Math.max(seen.mostRead, reading);
+			try {
+				if (failing.has(basename(path))) throw stalled();
+				// Long enough that reads let run together overlap, so the
+				// count of them at once sees every one.
+				await new Promise((done) => setTimeout(done, 5));
+				return await readFile(path, "utf8");
+			} finally {
+				reading -= 1;
+			}
 		},
 	};
-	return { disk, seen, hidden, failing, unstamped, how };
+	return { disk, seen, hidden, failing, unstamped, notPlain, how };
 }
 
 describe("createWhereabouts", () => {
@@ -111,6 +129,8 @@ describe("createWhereabouts", () => {
 		record(cuts, "mine.json", { path: "/trees/mine", sessions: ["s1", "s2"] });
 		record(cuts, "theirs.json", { path: "/trees/theirs", sessions: ["s3"] });
 		record(cuts, "half.json", "{");
+		record(cuts, "pathless.json", { path: 5, sessions: ["s1"] });
+		record(cuts, "lone.json", { path: "/trees/lone", sessions: "s1" });
 		writeFileSync(
 			join(cuts, "mine.json.1.ab.tmp"),
 			JSON.stringify({ path: "/trees/staging", sessions: ["s1"] }),
@@ -233,12 +253,13 @@ describe("createWhereabouts", () => {
 	it("doesn't read a record that isn't a plain file", async () => {
 		const cuts = cutsFolder();
 		record(cuts, "mine.json", mine("s1"));
-		// Reading a pipe waits on a writer that never comes.
-		execFileSync("mkfifo", [join(cuts, "pipe.json")]);
-		expect(await createWhereabouts(cuts).dirsOf("s1", "/work")).toEqual([
-			"/work",
-			"/trees/mine",
-		]);
+		// As a pipe would stand, whose reading waits on a writer for good.
+		record(cuts, "pipe.json", { path: "/trees/pipe", sessions: ["s1"] });
+		const watched = watchedDisk();
+		watched.notPlain.add("pipe.json");
+		const where = createWhereabouts(cuts, { disk: watched.disk });
+		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
+		expect(watched.seen.reads).toEqual(["mine.json"]);
 	});
 
 	it("keeps what it knew of a record the disk fails to read, and reads it again", async () => {
@@ -262,17 +283,24 @@ describe("createWhereabouts", () => {
 		expect(watched.seen.reads).toEqual(["mine.json", "mine.json", "mine.json"]);
 	});
 
-	it("keeps what it knew of a record the disk fails to stamp", async () => {
+	it("keeps what it knew of a record the disk fails to stamp, and looks again", async () => {
 		const cuts = cutsFolder();
 		record(cuts, "mine.json", mine("s1"));
 		const watched = watchedDisk();
+		const later = statSync(cuts).mtimeMs + 60_000;
 		const where = createWhereabouts(cuts, {
 			disk: watched.disk,
-			...fresh(cuts),
+			now: () => later,
 		});
 		await where.dirsOf("s1", "/work");
+		ticked(cuts);
 		watched.unstamped.add("mine.json");
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
+		// Written in place, which leaves the folder as it was: only a pass
+		// that distrusts the failed one sees it.
+		watched.unstamped.clear();
+		writeFileSync(join(cuts, "mine.json"), JSON.stringify(mine("s2")));
+		expect(await where.dirsOf("s2", "/work")).toEqual(["/work", "/trees/mine"]);
 	});
 
 	it("keeps what it knew when the disk fails to list, and lists again", async () => {
@@ -291,6 +319,21 @@ describe("createWhereabouts", () => {
 		watched.how.listingFails = false;
 		await where.dirsOf("s1", "/work");
 		expect(watched.seen.listings).toBe(3);
+	});
+
+	it("waits for a pass however long it takes until one is whole", async () => {
+		const cuts = cutsFolder();
+		record(cuts, "mine.json", mine("s1"));
+		const watched = watchedDisk();
+		watched.how.listingFails = true;
+		const where = createWhereabouts(cuts, {
+			disk: watched.disk,
+			patienceMs: 10,
+		});
+		expect(await where.dirsOf("s1", "/work")).toEqual(["/work"]);
+		watched.how.listingFails = false;
+		watched.how.listingTakes = 100;
+		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
 	});
 
 	it("waits for its first pass however long it takes", async () => {
@@ -374,7 +417,26 @@ describe("createWhereabouts", () => {
 		);
 		expect(dirs).toHaveLength(many + 1);
 		expect(dirs).toContain(`/trees/t${many - 1}`);
-		expect(watched.seen.mostStamped).toBe(2);
+		expect(watched.seen.mostRead).toBe(2);
+	});
+
+	it("reads two at a time over every conversation on the host", async () => {
+		const cuts = cutsFolder();
+		for (let one = 0; one < 20; one += 1) {
+			record(cuts, `t${one}.json`, {
+				path: `/trees/t${one}`,
+				sessions: ["s1"],
+			});
+		}
+		const watched = watchedDisk();
+		// The host's own bound, as each conversation takes it.
+		const first = createHostWhereabouts(cuts, { disk: watched.disk });
+		const second = createHostWhereabouts(cuts, { disk: watched.disk });
+		await Promise.all([
+			first.dirsOf("s1", "/work"),
+			second.dirsOf("s1", "/work"),
+		]);
+		expect(watched.seen.mostRead).toBe(2);
 	});
 });
 

@@ -15,20 +15,73 @@
  * whose reading is synchronous, on purpose: its callers need an answer at
  * once, and this one needs never to hold the loop.
  *
- * Each conversation keeps its own, so the bounds here hold per
- * conversation: a host with several conversations under a repository stop
- * reads the folder once for each.
+ * Each conversation keeps what it read, so a host with several
+ * conversations under a repository stop reads the folder once for each;
+ * the bound on the disk calls under way is the host's, shared by them all.
  */
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
- * How many records are read at once. Node's file work runs on four
- * threads every conversation on the host shares, so a stalled disk holds
- * only two of them here.
+ * How many disk calls whereabouts make at once, over every conversation
+ * on the host. Node's file work runs on four threads the whole host
+ * shares, DNS lookups among it, so a stalled disk holds only two of them
+ * here.
  */
 const AT_ONCE = 2;
+
+/**
+ * Where the host's bound is kept: on the process, so every conversation,
+ * and every reload of this module, takes its turns from the same one.
+ */
+const HOST_GATE = Symbol.for("agentic-harness.pineapple.whereabouts.gate");
+
+/** Turns at the disk: how many are free, and who waits for one. */
+export interface Gate {
+	free: number;
+	readonly waiting: (() => void)[];
+}
+
+/** A bound of its own, as a case takes so that no other case shares it. */
+export function createGate(size = AT_ONCE): Gate {
+	return { free: size, waiting: [] };
+}
+
+/** The host's bound, made by whichever conversation asks first. */
+function hostGate(): Gate {
+	const found: unknown = Reflect.get(globalThis, HOST_GATE);
+	if (isGate(found)) return found;
+	const made = createGate();
+	Reflect.set(globalThis, HOST_GATE, made);
+	return made;
+}
+
+/** Whether `value` is a gate, as an earlier load of this module made it. */
+function isGate(value: unknown): value is Gate {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"free" in value &&
+		typeof value.free === "number" &&
+		"waiting" in value &&
+		Array.isArray(value.waiting)
+	);
+}
+
+/** `work`, run in a turn at the disk, waiting for one when none is free. */
+async function inTurn<T>(gate: Gate, work: () => Promise<T>): Promise<T> {
+	if (gate.free > 0) gate.free -= 1;
+	else await new Promise<void>((taken) => gate.waiting.push(taken));
+	try {
+		return await work();
+	} finally {
+		// The turn passes straight to whoever waits, or goes back free.
+		const next = gate.waiting.shift();
+		if (next === undefined) gate.free += 1;
+		else next();
+	}
+}
 
 /**
  * How long ago a folder must have last changed for its stamp to be
@@ -96,6 +149,7 @@ export interface Whereabouts {
 /** What whereabouts may be given in place of the disk and the clock. */
 export interface WhereaboutsOptions {
 	readonly disk?: Partial<Disk>;
+	readonly gate?: Gate;
 	readonly now?: () => number;
 	readonly patienceMs?: number;
 }
@@ -105,13 +159,19 @@ export function createWhereabouts(
 	cuts: string,
 	options: WhereaboutsOptions = {},
 ): Whereabouts {
-	const disk: Disk = { ...NODE_DISK, ...options.disk };
+	const given: Disk = { ...NODE_DISK, ...options.disk };
+	const gate = options.gate ?? hostGate();
+	const disk: Disk = {
+		list: (dir) => inTurn(gate, () => given.list(dir)),
+		stamp: (path) => inTurn(gate, () => given.stamp(path)),
+		read: (path) => inTurn(gate, () => given.read(path)),
+	};
 	const now = options.now ?? Date.now;
 	const patience = options.patienceMs ?? PATIENCE_MS;
 	const kept = new Map<string, Kept>();
 	/** The folder as it stood before the last listing that can be trusted. */
 	let listedAt: string | undefined;
-	/** Whether a pass has ended, so what is kept is the disk's answer. */
+	/** Whether a whole pass has ended, so what is kept is the disk's answer. */
 	let known = false;
 	/** The pass under way, which a second asker waits on rather than repeats. */
 	let pass:
@@ -190,9 +250,10 @@ export function createWhereabouts(
 	 * One pass: nothing when the folder is settled and unchanged since a
 	 * whole listing, since every record is renamed into place, which
 	 * changes the folder. It is stamped before the listing, so a change
-	 * during one is seen by the next.
+	 * during one is seen by the next. True when the disk said all it was
+	 * asked.
 	 */
-	async function look(): Promise<void> {
+	async function look(): Promise<boolean> {
 		const stamped = now();
 		let folder: Stamped | undefined;
 		try {
@@ -201,21 +262,29 @@ export function createWhereabouts(
 			// No folder, or a disk that didn't say: the listing tells which.
 			folder = undefined;
 		}
-		if (folder !== undefined && folder.stamp === listedAt) return;
+		if (folder !== undefined && folder.stamp === listedAt) return true;
 		const whole = await relist();
 		const settled =
 			folder !== undefined && stamped - folder.changed >= SETTLED_MS;
 		listedAt = whole && settled ? folder?.stamp : undefined;
+		return whole;
 	}
 
 	/** The pass under way, or a new one. */
 	function current(): NonNullable<typeof pass> {
 		if (pass !== undefined) return pass;
 		const started = {
-			done: look().finally(() => {
-				known = true;
-				pass = undefined;
-			}),
+			done: look().then(
+				(whole) => {
+					known ||= whole;
+					pass = undefined;
+				},
+				() => {
+					// Every disk error is answered inside the pass; this is only
+					// so that a pass can never stay under way for good.
+					pass = undefined;
+				},
+			),
 			until: now() + patience,
 		};
 		pass = started;
@@ -226,9 +295,12 @@ export function createWhereabouts(
 		async dirsOf(session, cwd) {
 			const under = current();
 			if (!known) {
-				// Nothing read yet would answer the session's folder alone and
-				// miss every tree it holds: a stop counted late beats one
-				// missed, so the first pass is waited for, however long.
+				// Nothing read whole yet would answer the session's folder alone
+				// and miss every tree it holds: a stop counted late beats one
+				// missed, so each pass is waited for, however long, until one
+				// is whole. Parking asks only before and after a run nobody
+				// typed, so a stalled disk holds the agents under a stop,
+				// never Joel.
 				await under.done;
 			} else {
 				// One patience a pass, not one an asker, so a stuck pass holds
