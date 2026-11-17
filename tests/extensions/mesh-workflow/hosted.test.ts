@@ -277,6 +277,11 @@ it("keeps a parked conversation's presence, so cadence counts it alive and a que
 		wake,
 	});
 	b.emit(PARKING, { session: "bravo-BBBBBBBB", addresses: [], wake });
+	const file = join(paths.mesh, "presence", "bravo-BBBBBBBB.json");
+	expect(
+		JSON.parse(readFileSync(file, "utf8")).state,
+		"on disk as it parks, where a sender in another process reads it",
+	).toBe("parked");
 	await b.close();
 
 	const presences = createPresences(join(paths.mesh, "presence"));
@@ -312,6 +317,28 @@ it("keeps a parked conversation's presence, so cadence counts it alive and a que
 		),
 	);
 	expect(JSON.parse(readFileSync(wake, "utf8")).session).toBe("bravo-BBBBBBBB");
+});
+
+it("releases a closing conversation's leases on disk before it goes", async () => {
+	const { open } = await inHost();
+	const a = await peer("alpha-AAAAAAAA");
+	const b = await peer("bravo-BBBBBBBB");
+	const leases = join(paths.mesh, "leases", "bravo-BBBBBBBB.json");
+	await a.call("mesh_send", {
+		to: "BBBBBBBB",
+		intent: "question",
+		text: "Are you ready?",
+	});
+	await vi.waitFor(() =>
+		expect(existsSync(leases), "B answers for the question it heard").toBe(
+			true,
+		),
+	);
+
+	await b.close();
+	open.delete("bravo-BBBBBBBB");
+
+	expect(existsSync(leases), "released on the host's thread").toBe(false);
 });
 
 it("keeps reload presence and heavy-call carry separate for two conversations", async () => {

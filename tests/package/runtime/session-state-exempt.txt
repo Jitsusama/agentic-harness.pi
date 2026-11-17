@@ -109,6 +109,7 @@ lib/internal/shell/kept-jobs.ts:pid 1 Names the file a call's job record is writ
 lib/internal/shell/spawner-scope.ts:pid 1 Names a spawner's systemd scope by pid and a random tail, so no two spawners, of one conversation or of a host's many, share a scope name (IFYKOH for OSPHT4, 2026-11-17).
 lib/internal/stray/guard.ts:global 1 Guards the process's own console, which every conversation in a host writes through (2QZBX9 with 85PKB2, 2026-11-10).
 lib/internal/sandbox/tree-git.ts:cwd 1 Checks the folder git itself runs in when a call names none, which is the process's own; the work and review tools name theirs with -C (85PKB2, 2026-11-11).
+lib/internal/write-whole.ts:global 1 One queue of whole writes per file for the process, shared by every copy of the module, so a runtime a reload replaced can't land a write after its successor's to the same session's file; each file is one session's presence or leases, so conversations never write each other's (2QZBX9 for 85PKB2, 2026-11-17).
 lib/internal/write-whole.ts:pid 1 Names a whole write's temporary file by pid and random bytes, so two conversations in a host never share one (2QZBX9 with 85PKB2, 2026-11-10).
 lib/slack/auth/browser-extract.ts:pid 1 Re-raises a terminating signal at the process after cleaning up the browser it started (2QZBX9 with 85PKB2, 2026-11-10).
 lib/subagent/child-env.ts:global 1 Keeps what the process pins for every subagent it starts, the host's gateway key, which is one per process and pinned by the engine from outside any conversation (5KBYD7, 2026-11-12).

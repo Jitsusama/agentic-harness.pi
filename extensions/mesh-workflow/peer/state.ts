@@ -28,6 +28,7 @@ import {
 import type { SessionEvent } from "../../../lib/internal/session/events.ts";
 import type { Landing } from "../../../lib/internal/session/landings.ts";
 import { writeMoveNote } from "../../../lib/internal/session/move.ts";
+import { sayWriteFailed } from "../../../lib/internal/write-whole.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import type { Crossings } from "../../../lib/mesh/crossing.ts";
 import { createDamper } from "../../../lib/mesh/damping.ts";
@@ -76,10 +77,14 @@ export function createState(
 	lookAgainMs: number,
 ): MeshState {
 	const transport: Transport = folderTransport(join(paths.mesh, "messages"));
-	const presences = createPresences(join(paths.mesh, "presence"));
+	// A host writes presence and leases off its thread; one that can't
+	// land is said once in the session's log and the host's journal, and
+	// written again.
+	const failed = sayWriteFailed((type, data) => pi.appendEntry(type, data));
+	const presences = createPresences(join(paths.mesh, "presence"), { failed });
 	const glances = createGlances();
 	const damper = createDamper();
-	const board = createBoard(join(paths.mesh, "leases"));
+	const board = createBoard(join(paths.mesh, "leases"), { failed });
 	const crossings: Crossings = {
 		others: () =>
 			everyRealmsDir("state", "mesh-workflow")

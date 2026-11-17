@@ -692,6 +692,8 @@ export function localPeer(at: Surroundings): Peer {
 			parked = true;
 			wakeFile = wake;
 			publish();
+			// A sender finds it parked by this, so it lands before the park.
+			at.presences.settle();
 		},
 		end() {
 			// A parked session is still there to wake, so it hasn't ended.

@@ -235,6 +235,10 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 		// presence (wakeParked), as it finds a plain pi that parked.
 		if (hosted() && m.peer && !reloading(event) && !isParked(m.peer.session))
 			m.presences.forget(m.peer.session);
+		// What a host still had on its way lands before the session goes:
+		// its presence marked ended and its leases released (85PKB2).
+		m.presences.settle();
+		m.board.settle();
 		m.peer = undefined;
 		m.hideWants?.();
 		m.hideWants = undefined;
