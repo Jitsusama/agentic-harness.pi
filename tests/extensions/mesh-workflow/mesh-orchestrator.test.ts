@@ -18,6 +18,8 @@ import {
 	fixture,
 	fromElsewhere,
 	onQuest,
+	peer,
+	send,
 	session,
 	startSession,
 } from "./support/mesh.ts";
@@ -264,6 +266,59 @@ describe("an orchestrator", () => {
 		emit(SESSION_ON_NO_MODEL, { when: "before a turn" });
 
 		expect(transport.ids()).toEqual([]);
+	});
+
+	// The miss of 16 November at 22:26: the person said "I want it
+	// posted", and the review cell was told to post no approval or block,
+	// which he never asked (unasked-limits.ts).
+	it("refuses a pivot or question narrowing a verdict the person didn't limit, until it says whose limit it is", async () => {
+		leading();
+		const { tools } = await startSession();
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		const unasked =
+			"Post it in Joel's name. Post no approval or block that Joel didn't ask for: a comment review.";
+
+		for (const intent of ["pivot", "question"]) {
+			expect(await send(tools, "85PKB2", intent, unasked), intent).toContain(
+				"Not sent: this limits a verdict the person didn't ask to limit (\"Post no approval or block that Joel didn't ask for: a comment review.\")",
+			);
+		}
+		expect(transport.ids()).toEqual([]);
+
+		await send(
+			tools,
+			"85PKB2",
+			"pivot",
+			"Post it in Joel's name, approving or blocking as it deserves.",
+		);
+		await send(
+			tools,
+			"85PKB2",
+			"pivot",
+			'Post no approval: Joel said "a comment only on this one".',
+		);
+		await send(tools, "85PKB2", "fyi", unasked);
+		expect(transport.ids()).toHaveLength(3);
+	});
+
+	it("lets a led session's question limit a verdict, which is no orchestrator's order", async () => {
+		onQuest();
+		writeFileSync(
+			join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		peer("session-o", ["5GV2AH"], []);
+		const { tools } = await startSession();
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+
+		await send(
+			tools,
+			"orchestrator",
+			"question",
+			"Shall I post no approval, only a comment?",
+		);
+
+		expect(transport.ids()).toHaveLength(1);
 	});
 
 	it("tells nobody of an ending when no orchestrator is above the quest", async () => {

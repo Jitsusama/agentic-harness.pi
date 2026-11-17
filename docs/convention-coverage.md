@@ -55,6 +55,18 @@ package declares `pi.sessionStateKeyed` only while nothing waits, which
 the same test holds, since a host shares a declaring package's modules
 across every folder.
 
+## Orchestrator Send Gates
+
+These rules hold what an orchestrator puts to its sessions and to the
+person, and no skill states them: they came from misses the person
+found.
+
+| Rule | Status | Gate |
+| --- | --- | --- |
+| A question for the person's hands counts his acts against the fewest | 🟢 | `extensions/mesh-workflow/joels-hands.ts`, on a question to the orchestrator |
+| A limit on a verdict in his name (approve, block, request changes, comment-only) cites its source: his words quoted, a message id, a named rule or an owner's ruling | 🟢 | `lib/mesh/unasked-limits.ts`, on an orchestrator's pivot or question and on every spawn note |
+| Any other limit an orchestrator adds cites its source | 🚫 | Replayed over a day of one orchestrator's messages and every spawn note, 287 in all, such a rule refused 52, nearly all sound: hardware and network safety, owners' fences, descriptions |
+
 ## Open Gaps
 
 One closed by measurement rather than by a new gate. The tool path's

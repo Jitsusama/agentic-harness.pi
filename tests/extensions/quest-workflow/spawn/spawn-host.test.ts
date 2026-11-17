@@ -196,6 +196,26 @@ describe("spawn into a host", () => {
 		expect(first.message).toContain("home-background host opened session");
 	});
 
+	// A spawn note is the spawner's order to the new session, read as a
+	// pivot is (lib/mesh/unasked-limits.ts).
+	it("opens nothing for a note narrowing a verdict the person didn't limit", async () => {
+		await serveHost("home", "background");
+		const { state, id } = await questNamed("Alpha");
+
+		const refused = await handle(state, fakePi(), fakeCtx("spawner"), {
+			action: "spawn",
+			id,
+			host: "background",
+			note: "Review Jon's PR in Joel's name. Post no approval or block: a comment review.",
+		});
+
+		expect(refused.ok).toBe(false);
+		expect(said(refused)).toContain(
+			'this limits a verdict the person didn\'t ask to limit ("Post no approval or block: a comment review.")',
+		);
+		expect(received).toEqual([]);
+	});
+
 	it("hands a fresh session the first stage's token, listed, so it starts fenced", async () => {
 		// The host's conversation has no id until it starts, so the token in
 		// its environment is all its listing can go by.
