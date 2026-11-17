@@ -24,12 +24,26 @@ import {
  * A git of its own: no person's config, so nothing signs or hooks, and
  * none of the git variables of whatever launched the run (a hook's
  * GIT_DIR, a walk's GIT_CONFIG_COUNT or GIT_CONFIG_PARAMETERS), which
- * steered every case on a lender (2QZBX9, 17 November). Read per call,
- * so a case can set the launcher's variables and see them dropped.
+ * steered every case on a lender (2QZBX9, 17 November); none of the
+ * hook's own PI_PUSH_ variables; and none of what makes bash read a
+ * file before its line runs. Read per call, so a case can set the
+ * launcher's variables and see them dropped.
  */
+const LAUNCHERS = /^(GIT_|PI_PUSH_)/;
+const BASH_STARTUP = new Set([
+	"BASH_ENV",
+	"ENV",
+	"SHELLOPTS",
+	"BASHOPTS",
+	"SSH_CLIENT",
+	"SSH_CONNECTION",
+	"SSH2_CLIENT",
+]);
 const gitEnv = (): NodeJS.ProcessEnv => ({
 	...Object.fromEntries(
-		Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
+		Object.entries(process.env).filter(
+			([name]) => !LAUNCHERS.test(name) && !BASH_STARTUP.has(name),
+		),
 	),
 	HOME: root,
 	XDG_CONFIG_HOME: join(root, "config"),
@@ -126,10 +140,16 @@ afterEach(() => {
 });
 
 describe("a push of one existing branch", () => {
-	it("is steered by none of the git variables of whatever launched the run", () => {
+	it("keeps its git and bash from the variables of whatever launched the run", () => {
 		vi.stubEnv("GIT_DIR", join(root, "elsewhere.git"));
 		vi.stubEnv("GIT_CONFIG_PARAMETERS", "'core.hooksPath'='/nonexistent'");
-		vi.stubEnv("GIT_CONFIG_GLOBAL", join(root, "person.gitconfig"));
+		vi.stubEnv("GIT_CONFIG_COUNT", "1");
+		vi.stubEnv("GIT_CONFIG_KEY_0", "core.hooksPath");
+		vi.stubEnv("GIT_CONFIG_VALUE_0", "/nonexistent");
+		vi.stubEnv("PI_PUSH_SKIPS_STALE_CUTOFF", "1");
+		const startup = join(root, "startup.sh");
+		writeFileSync(startup, 'echo startup >> "$MARK"\n');
+		vi.stubEnv("BASH_ENV", startup);
 		try {
 			commit("notes.txt", "plain\n");
 			const push = pushing("git push -q origin main");
