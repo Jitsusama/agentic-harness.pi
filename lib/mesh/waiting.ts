@@ -40,6 +40,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { isRecord } from "../internal/record.ts";
 import { questAddress } from "./address.ts";
 
 /** The version of a quest's file this writes. */
@@ -331,18 +332,21 @@ export function waitingOf(folder: string, quest: string): WaitingItem[] {
 /**
  * What a quest has waiting now, as {@link waitingOf}, read off the
  * thread: a host's settle clock reads it each minute for every
- * conversation that raised something.
+ * conversation that raised something. Only no file means nothing
+ * waits; it throws on one it can't read or parse, since a clock told
+ * nothing waits would tell its session the person had settled it all.
  */
 export async function waitingOff(
 	folder: string,
 	quest: string,
 ): Promise<WaitingItem[]> {
-	try {
-		return itemsOf(await readFile(waitingFile(folder, quest), "utf8"));
-	} catch {
-		// No file, or one being replaced: nothing waits.
-		return [];
-	}
+	const text = await readFile(waitingFile(folder, quest), "utf8").catch(
+		(error: unknown) => {
+			if (isRecord(error) && error.code === "ENOENT") return undefined;
+			throw error;
+		},
+	);
+	return text === undefined ? [] : itemsOf(text);
 }
 
 /** The items a quest's file's text holds; it throws on a torn one. */
