@@ -27,8 +27,8 @@ import { pathToFileURL } from "node:url";
 import type {
 	EngineKey,
 	EngineScreens,
-	HostedView,
 	HostEngine,
+	HostedView,
 } from "../../../../host/engine/contract.ts";
 import { createEngine } from "../../../../host/engine/engine.ts";
 import { SessionHost } from "../../../../host/engine/session-host.ts";
@@ -834,8 +834,9 @@ const scenarios: Record<string, Scenario> = {
 				.catch((error: unknown) => {
 					refused = error instanceof Error ? error.message : String(error);
 				});
-			await until(`the conversation it was is let go (${refused})`, () =>
-				host.holds(first) === undefined,
+			await until(
+				`the conversation it was is let go (${refused})`,
+				() => host.holds(first) === undefined,
 			);
 			return {
 				firstId: first,
@@ -852,8 +853,9 @@ const scenarios: Record<string, Scenario> = {
 			const first = await open(engine, { first: "hi" });
 			await idle(engine, first);
 			await host.run(first, () => prompt(engine, first, "/probe-new"));
-			await until("the conversation it was is let go", () =>
-				host.holds(first) === undefined,
+			await until(
+				"the conversation it was is let go",
+				() => host.holds(first) === undefined,
 			);
 			const seen = { firstId: first, rebounds };
 			for (const conversation of host.list()) await host.stop(conversation.id);

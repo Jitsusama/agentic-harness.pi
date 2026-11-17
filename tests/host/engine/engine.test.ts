@@ -571,9 +571,10 @@ describe("the host's engine", () => {
 		"sends what only the host's process holds, unless the conversation names its own",
 		async () => {
 			const read = await step(hostFolder(), "host-read");
-			expect(read.keysSeen, "the host's read, the conversation naming none").toEqual(
-				["the-host-read"],
-			);
+			expect(
+				read.keysSeen,
+				"the host's read, the conversation naming none",
+			).toEqual(["the-host-read"]);
 			const own = await step(hostFolder(), "own-read");
 			expect(own.keysSeen, "the conversation's own, over the host's").toEqual([
 				"its-own-read",
