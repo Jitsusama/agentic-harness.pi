@@ -147,4 +147,15 @@ describe("carried work", () => {
 		).toBe(false);
 		expect(isCarriedShell({ kind: "subagent" }), "another kind").toBe(false);
 	});
+
+	it("says whether it prints the environment only by a yes or a no", () => {
+		expect(
+			isCarriedShell({ ...carried(), dumps: true }),
+			"one that prints it",
+		).toBe(true);
+		expect(
+			isCarriedShell({ ...carried(), dumps: "yes" }),
+			"one that says it otherwise",
+		).toBe(false);
+	});
 });

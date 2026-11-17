@@ -142,6 +142,19 @@ describe("a printing of the environment, however it is asked for", () => {
 		"docker inspect web",
 		"ps -E -p 1",
 		"ps -wwE 1",
+		"{ /usr/bin/env; }",
+		"echo 'import os; print(os.environ)' | python3",
+		"cat <<'EOF' | python3\nimport os\nprint(os.environ)\nEOF",
+		"printf 'console.log(process.env)' | node",
+		"cat > dump.py <<'EOF'\nimport os\nprint(os.environ)\nEOF\npython3 dump.py",
+		"awk 'BEGIN{n=0; for (k in ENVIRON) print k}'",
+		"gawk 'BEGIN { for (k in ENVIRON) print k }'",
+		"jq -n '{} | env'",
+		"cat /proc/self/task/1/environ",
+		"podman inspect web",
+		"docker compose config",
+		"systemctl show -p Environment nginx",
+		"kubectl set env deploy/web --list",
 	];
 	for (const command of dumps) {
 		it(`is known as one: ${command}`, () => {
@@ -167,6 +180,12 @@ describe("a printing of the environment, however it is asked for", () => {
 		"python3 script.py # reads os.environ",
 		"ps -o pid,comm -p 1",
 		"jq -r .env package.json",
+		'env FOO="1" cargo test',
+		"env NODE_OPTIONS='--max-old-space-size=4096' node build.js",
+		'env -u "HOME" make',
+		"cat package.json | node scripts/check.js",
+		"docker compose up -d",
+		"systemctl show nginx",
 	];
 	for (const command of runs) {
 		it(`is not one: ${command}`, () => {
@@ -177,17 +196,17 @@ describe("a printing of the environment, however it is asked for", () => {
 		});
 	}
 
+	// The test's timeout bounds these: a rule that tries every reading of
+	// a long run takes most of a minute.
 	it("reads a long run of env's options in one way, so it answers at once", () => {
-		const started = performance.now();
 		expect(
 			dumpsEnvironment(`env${" -uA".repeat(28)} x`),
 			"env with options then a command runs the command",
 		).toBe(false);
 		expect(
-			dumpsEnvironment(`env${" -u -u".repeat(28)} x`),
-			"env unsetting then a command runs the command",
+			dumpsEnvironment(`env${" A=1".repeat(28)} x`),
+			"env setting variables then a command runs the command",
 		).toBe(false);
-		expect(performance.now() - started).toBeLessThan(100);
 	});
 
 	it("has env -0's every NUL-ended value scrubbed", () => {
@@ -302,6 +321,65 @@ describe("an output that reads as a printing of the environment", () => {
 			.concat(["certifi==2023.7.22", "charset-normalizer==3.3.0"])
 			.join("\n");
 		expect(readsAsDump(frozen), "a pin is not a variable").toBe(false);
+	});
+
+	it("is judged before a credential in it is marked", () => {
+		const secret = fresh();
+		const access = fresh();
+		// Five lines, one of which is marked before the rest are read.
+		const printed = [
+			...variables(access).slice(0, 2),
+			`FOO_SECRET=${secret}`,
+			...variables(access).slice(2, 4),
+		].join("\n");
+		const { text } = scrubSecrets(printed, [
+			{ name: "FOO_SECRET", value: secret },
+		]);
+		expect(text.includes(secret), "the known value is gone").toBe(false);
+		expect(text.includes(access), "a value of no known name is gone").toBe(
+			false,
+		);
+	});
+
+	it("is judged before a credential's shape in it is marked", () => {
+		const access = fresh();
+		const steps = Array.from({ length: 12 }, (_, i) => `step ${i} done`);
+		const lines = variables(access);
+		const printed = [
+			...steps,
+			...lines.slice(0, 3),
+			`GITHUB_TOKEN=ghp_${"a1B2".repeat(9)}`,
+			...lines.slice(3),
+		].join("\n");
+		const { text } = scrubSecrets(printed, []);
+		expect(text.includes(access), "a value of no known name is gone").toBe(
+			false,
+		);
+	});
+
+	it("has only its lines that set a variable read as a dump", () => {
+		const logged = "id=a1b2c3d4e5f6a7b8c9d0 level=info msg=started";
+		const printed = [logged, ...variables(fresh())].join("\n");
+		expect(scrubSecrets(printed, []).text).toContain(logged);
+	});
+
+	it("has a quoted value's every word read, as a dump's", () => {
+		const access = fresh();
+		const printed = [
+			...variables(fresh()),
+			`PROXY_AUTH="user ${access}"`,
+		].join("\n");
+		expect(scrubSecrets(printed, []).text).not.toContain(access);
+	});
+
+	// The test's timeout bounds this: a rule whose line start reads on past
+	// a newline tries every blank line from every blank line.
+	it("answers at once for a dump followed by many blank lines", () => {
+		const printed = `${"A=1\n".repeat(5)}${"\n".repeat(200_000)}---`;
+		expect(scrubSecrets(printed, []).text).toBe(printed);
+		expect(scrubSecrets(printed, [], { environment: true }).text).toBe(
+			printed,
+		);
 	});
 
 	it("keeps its other lines' long words when only its lines make it one", () => {

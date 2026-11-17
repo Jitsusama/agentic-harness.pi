@@ -515,6 +515,7 @@ describe("a moved command's printing of the environment", () => {
 			).toBe(false);
 		}
 		expect(outcome?.summary).toContain("withheld");
+		expect(outcome?.summary, "the failure's kind").toContain("(RangeError)");
 	});
 
 	it("is scrubbed when it exits non-zero: printenv; exit 1", async () => {
@@ -541,6 +542,13 @@ describe("a moved command's printing of the environment", () => {
 		);
 		expectScrubbed((await ended())?.summary ?? "", values);
 		expectScrubbed(readFileSync(file, "utf8"), values);
+	});
+
+	it("is not read into a command that prints no environment", async () => {
+		const commit = "commit 3f9c2a7be41d08e5c6a1f2b3d4e5f60718293a4b";
+		const { running, ended } = await moved("make", { background: true });
+		running.end(said(commit));
+		expect((await ended())?.summary).toContain(commit);
 	});
 
 	it("has the output pi saved scrubbed, as named in its answer", async () => {
@@ -606,6 +614,28 @@ describe("a command's job", () => {
 
 		expect(specs[0]?.toolCallId).toBe("call-3");
 	});
+
+	for (const [command, dumps] of [
+		["cd /srv/app\nprintenv", true],
+		["cd /srv/app\nmake", false],
+	] as const) {
+		it(`carries whether its command prints the environment: ${dumps}`, async () => {
+			const { bus, specs } = recordingHost();
+			await runOrHandOff({
+				command,
+				session: SESSION,
+				background: true,
+				nested: false,
+				signal: undefined,
+				onUpdate: undefined,
+				bus,
+				run: controllable().run,
+				carryOf: () => ({ what: () => ({ kind: "shell" }), handed() {} }),
+			});
+			// Its label is its first line alone, which says nothing of it.
+			expect(specs[0]?.carry?.what()?.dumps === true, command).toBe(dumps);
+		});
+	}
 });
 
 describe("what decides whether a command moves", () => {

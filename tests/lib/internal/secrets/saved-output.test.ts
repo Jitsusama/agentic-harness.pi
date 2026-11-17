@@ -3,7 +3,8 @@
  * the call's input says: a printing of the environment has every value
  * scrubbed, the same file named twice is scrubbed once, and a staging
  * file already at its name is never written through. A file named only
- * in its text is read from pi's own trailer, the last one alone.
+ * in its text is read from pi's own trailer, the last one alone, and
+ * only in a failed call's answer, the one that loses its details.
  */
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
@@ -74,8 +75,33 @@ describe("a tool's saved output", () => {
 	it("scrubs the file pi's trailer names in an error's words", () => {
 		fs.writeFileSync(file, `key ${KEY}\n`);
 		const text = `key\n\n[Showing lines 1-1 of 1. Full output: ${file}]`;
-		scrubSavedOutput({ content: [{ type: "text", text }] }, {}, folder);
+		scrubSavedOutput(
+			{ isError: true, content: [{ type: "text", text }] },
+			{},
+			folder,
+		);
 		expect(fs.readFileSync(file, "utf8")).not.toContain(KEY);
+	});
+
+	it("rewrites no file a trailer names in an answer that didn't fail", () => {
+		// Output that quotes a trailer reads the same as pi's own.
+		fs.writeFileSync(file, `key ${KEY}\n`);
+		const text = `[Showing lines 1-1 of 1. Full output: ${file}]`;
+		scrubSavedOutput({ content: [{ type: "text", text }] }, {}, folder);
+		expect(fs.readFileSync(file, "utf8")).toContain(KEY);
+	});
+
+	it("scrubs the file a trailer names in a folder with a space", () => {
+		const spaced = fs.mkdtempSync(path.join(folder, "saved output-"));
+		const inside = path.join(spaced, "pi-bash-0123456789abcdef.log");
+		fs.writeFileSync(inside, `key ${KEY}\n`);
+		const text = `[Showing lines 1-1 of 1. Full output: ${inside}]`;
+		scrubSavedOutput(
+			{ isError: true, content: [{ type: "text", text }] },
+			{},
+			spaced,
+		);
+		expect(fs.readFileSync(inside, "utf8")).not.toContain(KEY);
 	});
 
 	it("rewrites only the last trailer's file, the one pi wrote", () => {
@@ -84,7 +110,11 @@ describe("a tool's saved output", () => {
 		fs.writeFileSync(file, `key ${KEY}\n`);
 		const quoted = `[Showing lines 1-1 of 1. Full output: ${older}]`;
 		const text = `${quoted}\n\n[Showing lines 1-2 of 2. Full output: ${file}]`;
-		scrubSavedOutput({ content: [{ type: "text", text }] }, {}, folder);
+		scrubSavedOutput(
+			{ isError: true, content: [{ type: "text", text }] },
+			{},
+			folder,
+		);
 		expect(fs.readFileSync(file, "utf8")).not.toContain(KEY);
 		expect(fs.readFileSync(older, "utf8")).toContain(KEY);
 	});
@@ -92,7 +122,11 @@ describe("a tool's saved output", () => {
 	it("rewrites no file named in text outside pi's trailer", () => {
 		fs.writeFileSync(file, `key ${KEY}\n`);
 		const text = `notes say Full output: ${file} was kept`;
-		scrubSavedOutput({ content: [{ type: "text", text }] }, {}, folder);
+		scrubSavedOutput(
+			{ isError: true, content: [{ type: "text", text }] },
+			{},
+			folder,
+		);
 		expect(fs.readFileSync(file, "utf8")).toContain(KEY);
 	});
 
@@ -100,7 +134,11 @@ describe("a tool's saved output", () => {
 		const mine = path.join(folder, "notes.log");
 		fs.writeFileSync(mine, `key ${KEY}\n`);
 		const text = `[Showing lines 1-1 of 1. Full output: ${mine}]`;
-		scrubSavedOutput({ content: [{ type: "text", text }] }, {}, folder);
+		scrubSavedOutput(
+			{ isError: true, content: [{ type: "text", text }] },
+			{},
+			folder,
+		);
 		expect(fs.readFileSync(mine, "utf8")).toContain(KEY);
 	});
 
