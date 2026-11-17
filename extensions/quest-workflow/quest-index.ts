@@ -26,10 +26,11 @@
  * Each still names the sessions it last attached and the orchestrator
  * above it, as an open quest's record does, since a session it held can
  * outlive it and the node proves who may end that hold by them (KP0L6A,
- * 17 November). A session an open quest also names is left out, since
- * that quest's orchestrator now answers for it. They are many more than
- * the open ones and change mostly as a quest ends or reopens, or as one
- * above them does, so a quest action rewrites only the short list
+ * 17 November). Only a session whose last quest it was is named: one
+ * that moved on answers to where it went, open or ended. They are many
+ * more than the open ones and change mostly as a quest ends or reopens,
+ * or as one above them does, so a quest action rewrites only the short
+ * list
  * of open ones, and the realm's node, which serves both, reads the long
  * one again only when it changed.
  */
@@ -328,11 +329,7 @@ export function endedQuestsIn(
 	home?: string,
 ): EndedQuestEntry[] {
 	const read = (id: string) => index.quests.get(id)?.doc.frontMatter;
-	const heldOpen = new Set(
-		[...index.quests.values()]
-			.filter((entry) => isOpen(entry.doc.frontMatter.status))
-			.flatMap((entry) => entry.doc.frontMatter.sessions.map(({ id }) => id)),
-	);
+	const lastHeld = lastHolders(index);
 	return [...index.quests.entries()]
 		.filter(([, entry]) => !isOpen(entry.doc.frontMatter.status))
 		.sort(([a], [b]) => a.localeCompare(b))
@@ -365,11 +362,28 @@ export function endedQuestsIn(
 				...(by ? { orchestrator: questAddress(by) } : {}),
 				sessions: fm.sessions
 					.map((session) => session.id)
-					.filter((session) => !heldOpen.has(session)),
+					.filter((session) => lastHeld.get(session) === id),
 				start,
 				updated: fm.updated,
 			};
 		});
+}
+
+/**
+ * Each session's quest as it stands: the one it attached to last, by
+ * when each README says it started there, whichever way it moved and
+ * whether that quest is open or ended. A session that never says when
+ * counts as the oldest.
+ */
+function lastHolders(index: QuestIndex): Map<string, string> {
+	const last = new Map<string, { quest: string; at: string }>();
+	for (const [quest, entry] of index.quests)
+		for (const session of entry.doc.frontMatter.sessions) {
+			const at = session.started ?? "";
+			const was = last.get(session.id);
+			if (was === undefined || at > was.at) last.set(session.id, { quest, at });
+		}
+	return new Map([...last].map(([session, { quest }]) => [session, quest]));
 }
 
 /** The later of two ISO times, as ISO; either may be missing or unreadable. */

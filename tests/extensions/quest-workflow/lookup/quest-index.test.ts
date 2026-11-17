@@ -344,8 +344,9 @@ describe("the quests the desktop lists", () => {
 				"status: active\norchestrator: true",
 				"# Bootstrap optimus",
 			);
-			// Between them, a quest that orchestrates nothing, and holds a
-			// session that moved on from the ended one.
+			// Between them, a quest that orchestrates nothing. A session moved
+			// on to it from the ended one, and another came from it to the
+			// ended one: each answers to the quest it reached last.
 			quest(
 				MIDDLE,
 				[
@@ -355,6 +356,10 @@ describe("the quests the desktop lists", () => {
 					"  - id: s-moved",
 					`    cwd: ${elsewhere}`,
 					"    started: 2026-01-01T02:30:00Z",
+					"    status: detached",
+					"  - id: s-back",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:10:00Z",
 					"    status: detached",
 				].join("\n"),
 				"# Between",
@@ -374,6 +379,10 @@ describe("the quests the desktop lists", () => {
 					`    cwd: ${elsewhere}`,
 					"    started: 2026-01-01T01:00:00Z",
 					"    status: detached",
+					"  - id: s-back",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T01:30:00Z",
+					"    status: detached",
 					"  - id: s-last",
 					`    cwd: ${newer}`,
 					"    started: 2026-01-01T02:00:00Z",
@@ -381,7 +390,20 @@ describe("the quests the desktop lists", () => {
 				].join("\n"),
 				"# Old\n\n## 📜 Summary\n\nIt was done.",
 			);
-			quest(CHILD, "kind: sidequest\nstatus: retired", "# A child");
+			// Another ended quest the first session left: it names it no more.
+			quest(
+				CHILD,
+				[
+					"kind: sidequest",
+					"status: retired",
+					"sessions:",
+					"  - id: s-first",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:05:00Z",
+					"    status: detached",
+				].join("\n"),
+				"# A child",
+			);
 			const { index } = discoverQuests(root);
 
 			expect(endedQuestsIn(index, root, "/home/someone")).toEqual([
@@ -393,7 +415,7 @@ describe("the quests the desktop lists", () => {
 					"quest.kind": "sidequest",
 					status: "retired",
 					sessions: [],
-					start: "/home/someone",
+					start: elsewhere,
 					updated: "2026-01-01T03:00:00Z",
 				},
 				{
@@ -411,7 +433,7 @@ describe("the quests the desktop lists", () => {
 					// orchestrator above, not the parent, and none of the sessions
 					// an open quest now answers for.
 					orchestrator: "MISSON",
-					sessions: ["s-first", "s-last"],
+					sessions: ["s-first", "s-back", "s-last"],
 					start: newer,
 					updated: "2026-01-01T03:00:00Z",
 				},
