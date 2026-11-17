@@ -50,13 +50,13 @@ if ("census" in asked) {
 	// Loaded only here: the census reaches packages, and core runs the
 	// fence's run path with no node_modules (tests/scripts/pi-fence.test.ts).
 	// A census that can't load is refused, never read as an unfenced session.
-	const loaded = await import("../lib/internal/fence/fence-census-here.ts").catch(
-		(error: unknown) => {
-			const why = error instanceof Error ? error.message : String(error);
-			process.stderr.write(`pi-fence: the census couldn't load: ${why}\n`);
-			return process.exit(REFUSED);
-		},
-	);
+	const loaded = await import(
+		"../lib/internal/fence/fence-census-here.ts"
+	).catch((error: unknown) => {
+		const why = error instanceof Error ? error.message : String(error);
+		process.stderr.write(`pi-fence: the census couldn't load: ${why}\n`);
+		return process.exit(REFUSED);
+	});
 	process.exit(
 		loaded.censusHere(asked.census, (text) => process.stdout.write(text)),
 	);
