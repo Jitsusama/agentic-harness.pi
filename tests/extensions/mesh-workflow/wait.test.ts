@@ -129,7 +129,16 @@ describe("what this session raised, read off the thread", () => {
 
 		await expect(watch.settledOff(), "read again next tick").rejects.toThrow();
 		expect(watch.watching(), "still watching").toBe(true);
-		addWaiting(folder, item("router-look"));
+		// Written whole again, as its next write leaves it.
+		writeFileSync(
+			waitingFile(folder, QUEST),
+			JSON.stringify({
+				v: 2,
+				updated: "t",
+				quest: QUEST,
+				items: [item("eero-login")],
+			}),
+		);
 		expect(await watch.settledOff(), "and read then").toEqual([]);
 	});
 
