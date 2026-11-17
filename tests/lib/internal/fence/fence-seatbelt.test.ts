@@ -41,6 +41,65 @@ function fileRules(args: readonly string[]): string[] {
 }
 
 describe("the fence's mounts as a profile", () => {
+	it("keeps a mount laid before its folder's hide hidden, as bubblewrap would", () => {
+		const rules = profileRules([
+			"--ro-bind",
+			"/Users/j/.ssh/config",
+			"/Users/j/.ssh/config",
+			"--tmpfs",
+			"/Users/j/.ssh",
+		]);
+		const ssh = rules.lastIndexOf(
+			'(deny file-read* file-write* (subpath "/Users/j/.ssh"))',
+		);
+		const config = rules.lastIndexOf(
+			'(allow file-read* (subpath "/Users/j/.ssh/config"))',
+		);
+
+		expect(config, "not let back after the hide").toBeLessThan(ssh);
+	});
+
+	it("leaves a writable folder inside a read-only one writable after the hides", () => {
+		const rules = profileRules([
+			"--ro-bind",
+			"/Users/j",
+			"/Users/j",
+			"--tmpfs",
+			"/Users/j/.ssh",
+			"--bind",
+			"/Users/j/work",
+			"/Users/j/work",
+		]);
+		const work = rules.lastIndexOf(
+			'(allow file-read* file-write* (subpath "/Users/j/work"))',
+		);
+		const home = rules.lastIndexOf('(deny file-write* (subpath "/Users/j"))');
+
+		expect(work, "the folder's grant is last").toBeGreaterThan(home);
+	});
+
+	it("grants a tree in a hidden folder again after every hide", () => {
+		const { profile } = seatbeltProfile(
+			["--bind", "/Users/j/t", "/Users/j/t"],
+			{
+				sockets: [],
+				real: same,
+				home: "/Users/j",
+				regranted: ["/Users/j/.local/state/pi/trees/t"],
+			},
+		);
+		const lines = profile.split("\n");
+		const state = lines.lastIndexOf(
+			'(deny file-read* file-write* (subpath "/Users/j/.local/state/pi"))',
+		);
+		const tree = lines.lastIndexOf(
+			'(allow file-read* file-write* (subpath "/Users/j/.local/state/pi/trees/t"))',
+		);
+
+		expect(state, "pi's state is hidden").toBeGreaterThan(-1);
+		expect(tree, "the tree comes after").toBeGreaterThan(state);
+	});
+
 	it("lays every hide again after the last grant, with what it lets back read-only", () => {
 		const rules = profileRules([
 			"--tmpfs",

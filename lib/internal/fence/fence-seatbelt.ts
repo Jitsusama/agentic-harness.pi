@@ -81,6 +81,11 @@ export const MAC_HIDDEN = [
 	"Library/Messages",
 	".config/gh",
 	".config/op",
+	// Every realm's messages, steers and sessions, which a run's output
+	// would carry to whoever asked it (ISXEG8, 16 November).
+	".local/state/pi",
+	".pi/agent",
+	".local/state/mycelium",
 ] as const;
 
 /**
@@ -149,6 +154,8 @@ export interface SeatbeltReach {
 	readonly folder?: string;
 	/** A path as the kernel names it, past its links (`/tmp` is `/private/tmp`). */
 	readonly real?: (path: string) => string;
+	/** Folders granted again after every hide: a broker's tree inside pi's state. */
+	readonly regranted?: readonly string[];
 }
 
 /** bubblewrap's options that say nothing of files on a Mac, with how many values each takes. */
@@ -185,8 +192,8 @@ export function seatbeltProfile(
 	// Each hide's rule, and each read-only path with its rules, to lay
 	// again once the mounts are done.
 	const hides: string[] = [];
-	const hiddenFolders: string[] = [];
-	const readOnly: { to: string; rules: string[] }[] = [];
+	const hiddenFolders: { to: string; at: number }[] = [];
+	const readOnly: { to: string; rules: string[]; at: number }[] = [];
 	for (let at = 0; at < args.length; ) {
 		const option = args[at] ?? "";
 		const values = (count: number): string[] => {
@@ -223,17 +230,17 @@ export function seatbeltProfile(
 						`(allow file-read* (subpath ${path(to)}))`,
 						`(deny file-write* (subpath ${path(to)}))`,
 					];
+					readOnly.push({ to, rules, at: mounts.length });
 					mounts.push(...rules);
-					readOnly.push({ to, rules });
 				}
 				break;
 			}
 			case "--tmpfs": {
 				const [to = ""] = values(1);
 				const hide = `(deny file-read* file-write* (subpath ${path(to)}))`;
+				hiddenFolders.push({ to, at: mounts.length });
 				mounts.push(hide);
 				hides.push(hide);
-				hiddenFolders.push(to);
 				break;
 			}
 			case "--remount-ro": {
@@ -255,8 +262,14 @@ export function seatbeltProfile(
 	const within = (entry: string, folder: string | undefined) =>
 		folder !== undefined &&
 		(entry === folder || entry.startsWith(`${folder}/`));
+	// Only what was let back after its folder was hidden, as bubblewrap
+	// would have it: a mount laid before the hide stays hidden.
 	const keptInHidden = readOnly
-		.filter(({ to }) => hiddenFolders.some((folder) => within(to, folder)))
+		.filter((kept) =>
+			hiddenFolders.some(
+				(hidden) => kept.at > hidden.at && within(kept.to, hidden.to),
+			),
+		)
 		.flatMap(({ rules }) => rules);
 	const programs = [
 		...(home ? MAC_READ_ONLY.map((kept) => join(home, kept)) : []),
@@ -293,6 +306,9 @@ export function seatbeltProfile(
 		...hides,
 		...keptInHidden,
 		...hidden,
+		...(reach.regranted ?? []).map(
+			(folder) => `(allow file-read* file-write* (subpath ${path(folder)}))`,
+		),
 		...[...new Set(programs)],
 		// What cfprefsd writes for a command, past every file rule:
 		// `defaults write com.apple.Terminal` would set a startup command.

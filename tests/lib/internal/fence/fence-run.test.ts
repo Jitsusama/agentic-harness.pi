@@ -46,6 +46,21 @@ describe("reading how pi-fence was asked", () => {
 		});
 	});
 
+	it("takes --shared-tree as a flag alone, wherever it stands", () => {
+		for (const options of [
+			["--shared-tree", "--kind", "fence", "--folder", "/f"],
+			["--kind", "fence", "--shared-tree", "--folder", "/f"],
+			["--kind", "fence", "--folder", "/f", "--shared-tree"],
+		]) {
+			expect(fenceRunAsked([...options, "--", "true"], "/w")).toEqual({
+				kind: "fence",
+				folder: "/f",
+				words: ["true"],
+				shared: true,
+			});
+		}
+	});
+
 	it("keeps every word after -- as the command's, flags included", () => {
 		const asked = fenceRunAsked(
 			["--kind", "fence", "--folder", "/f", "--", "bash", "-lc", "ls --all"],
@@ -183,13 +198,38 @@ describe("refusing to run where the fence can't hold", () => {
 		expect(homed).toHaveProperty("refused");
 	});
 
-	for (const [what, inside] of [
-		["ssh's folder, so no key is read", ".ssh"],
-		["gpg's keys", ".gnupg/private-keys-v1.d"],
-		["a folder in ~/.config, so git's settings and hooks stay", ".config/git"],
-		["pi's own state", ".local/state/pi/agentic-harness.pi"],
-	]) {
-		for (const platform of ["linux", "darwin"] as const) {
+	const onEither = (folder: string, platform: "linux" | "darwin") =>
+		fenceRunText(
+			{ kind: "fence", folder, words: ["true"] },
+			{
+				env: {},
+				home,
+				sandbox: LAID,
+				platform,
+				sandboxExec: "/usr/bin/sandbox-exec",
+				treesRoot: join(base, "trees"),
+			},
+		);
+
+	for (const [what, inside, platforms] of [
+		["ssh's folder, so no key is read", ".ssh", ["linux", "darwin"]],
+		["gpg's keys", ".gnupg/private-keys-v1.d", ["linux", "darwin"]],
+		[
+			"a folder in ~/.config, so git's settings and hooks stay",
+			".config/git",
+			["linux", "darwin"],
+		],
+		[
+			"pi's own state",
+			".local/state/pi/agentic-harness.pi",
+			["linux", "darwin"],
+		],
+		["a keyring the fence hides", ".local/share/keyrings", ["linux", "darwin"]],
+		["ssh's folder spelled in other case", ".SSH", ["darwin"]],
+		["the Mac's mail", "Library/Mail", ["darwin"]],
+		["mycelium's state", ".local/state/mycelium/work", ["darwin"]],
+	] as const) {
+		for (const platform of platforms) {
 			it(`refuses a folder inside ${what}, on ${platform}`, () => {
 				const made = fenceRunText(
 					{ kind: "fence", folder: join(home, inside), words: ["true"] },
@@ -209,33 +249,91 @@ describe("refusing to run where the fence can't hold", () => {
 		}
 	}
 
-	it("runs in a tree the work broker cut, though pi's state holds it", () => {
-		const trees = join(home, ".local/state/pi/agentic-harness.pi/work/trees");
-		const tree = join(trees, "worktree-one");
-		mkdirSync(tree, { recursive: true });
-		const made = fenceRunText(
-			{ kind: "fence", folder: tree, words: ["true"] },
-			{
-				env: { PATH: "/usr/bin" },
-				home,
-				platform: "darwin",
-				sandboxExec: "/usr/bin/sandbox-exec",
-				treesRoot: trees,
-			},
+	it("refuses a folder that holds a path the fence keeps read-only", () => {
+		const made = onEither(join(home, ".local"), "linux");
+		expect(JSON.stringify(made), "names what it holds").toContain(
+			`holds ${join(home, ".local")}`,
 		);
-		expect(made, JSON.stringify(made)).toHaveProperty("text");
 	});
 
-	it("refuses strict on a Mac, naming the fence it runs", () => {
-		const made = fenceRunText(asking(join(base, "plain")), {
-			env: {},
-			home,
-			platform: "darwin",
-			sandboxExec: "/usr/bin/sandbox-exec",
-		});
-		expect(JSON.stringify(made), "names --kind fence").toContain(
-			"--kind fence",
+	it("refuses a folder inside a closed path reached through a link", () => {
+		mkdirSync(join(base, "dotfiles", "config", "git"), { recursive: true });
+		symlinkSync(join(base, "dotfiles", "config"), join(home, ".config"));
+		try {
+			const made = onEither(join(base, "dotfiles", "config", "git"), "linux");
+			expect(JSON.stringify(made), "names the link's own path").toContain(
+				"hides or keeps read-only",
+			);
+		} finally {
+			rmSync(join(home, ".config"));
+		}
+	});
+
+	it("runs beside a closed path that only shares its name's start", () => {
+		for (const neighbour of [".ssh-old", ".local/state/pipx"]) {
+			mkdirSync(join(home, neighbour), { recursive: true });
+			const made = onEither(join(home, neighbour), "linux");
+			expect(made, `${neighbour}: ${JSON.stringify(made)}`).toHaveProperty(
+				"text",
+			);
+		}
+	});
+
+	it("refuses a folder that climbs out of the trees by name", () => {
+		const trees = join(home, ".local/state/pi/agentic-harness.pi/work/trees");
+		const made = fenceRunText(
+			{ kind: "fence", folder: `${trees}/../../../b`, words: ["true"] },
+			{ env: {}, home, sandbox: LAID, platform: "linux", treesRoot: trees },
 		);
+		expect(JSON.stringify(made), "isn't spared as a tree").toContain(
+			"hides or keeps read-only",
+		);
+	});
+
+	describe("a tree the work broker cut, in pi's state", () => {
+		const within = (tree: string) =>
+			join(home, ".local/state/pi/agentic-harness.pi/work/trees", tree);
+		const inTree = (
+			tree: string,
+			held: readonly string[],
+			shared?: boolean,
+		) => {
+			mkdirSync(tree, { recursive: true });
+			return fenceRunText(
+				{
+					kind: "fence",
+					folder: tree,
+					words: ["true"],
+					...(shared ? { shared } : {}),
+				},
+				{
+					env: { PATH: "/usr/bin" },
+					home,
+					platform: "darwin",
+					sandboxExec: "/usr/bin/sandbox-exec",
+					treesRoot: within(""),
+					heldTrees: held,
+				},
+			);
+		};
+
+		it("runs for the session holding it", () => {
+			const tree = within("worktree-one");
+			const made = inTree(join(tree, "src"), [tree]);
+			expect(made, JSON.stringify(made)).toHaveProperty("text");
+		});
+
+		it("refuses another session's or quest's tree", () => {
+			const made = inTree(within("worktree-two"), [within("worktree-one")]);
+			expect(JSON.stringify(made), "says whose it is").toContain(
+				"a work tree its asker doesn't hold",
+			);
+		});
+
+		it("runs one the caller says was shared to its asker", () => {
+			const made = inTree(within("worktree-three"), [], true);
+			expect(made, JSON.stringify(made)).toHaveProperty("text");
+		});
 	});
 });
 
@@ -289,6 +387,31 @@ describe("Linux's strict fence, for npm's and Docker's logins", () => {
 		}
 	});
 });
+
+/** A file rule in a sandbox-exec profile: what it does, to which operations, on which path. */
+const RULE =
+	/^\((allow|deny) ((?:[a-z-]+\* )+)\((subpath|literal) "([^"]*)"\)\)$/;
+
+/**
+ * The rule that decides `op` on `target` in the profile a Mac's fenced
+ * command runs under, as sandbox-exec reads it: the last that matches.
+ * None means the profile's `(allow default)`.
+ */
+function deciding(
+	text: string,
+	target: string,
+	op: "file-read*" | "file-write*",
+): string | undefined {
+	const lines = (text.split("\nexec ")[1] ?? "").split("\n");
+	const matching = lines.filter((line) => {
+		const [, , ops = "", kind, path = ""] = RULE.exec(line) ?? [];
+		if (!ops.split(" ").includes(op)) return false;
+		return kind === "literal"
+			? target === path
+			: target === path || target.startsWith(`${path}/`);
+	});
+	return matching[matching.length - 1];
+}
 
 describe("the fence on a Mac", () => {
 	let home: string;
@@ -360,7 +483,7 @@ describe("the fence on a Mac", () => {
 		);
 	});
 
-	it("leaves caches be where ~/.cache isn't there, and execs the command", () => {
+	it("leaves caches be where strict keeps them read-only, or ~/.cache isn't there, and execs the command", () => {
 		const within = (words: string) => words.replaceAll("'", "'\\''");
 		const bare = realpathSync(mkdtempSync(join(tmpdir(), "fm-bare-")));
 		mkdirSync(join(bare, "work"));
@@ -379,6 +502,7 @@ describe("the fence on a Mac", () => {
 			rmSync(bare, { recursive: true, force: true });
 		}
 
+		expect(onMac("strict")).not.toContain("XDG_CACHE_HOME");
 		expect(onMac("fence")).toContain(within("; exec 'echo' "));
 	});
 
@@ -496,22 +620,75 @@ describe("the fence on a Mac", () => {
 		}
 	});
 
-	it("lays ~/.ssh's hide again after every grant, so none reopens it", () => {
-		// The profile the command runs under, after the one tried on true.
-		const lines = (onMac("fence").split("\nexec ")[1] ?? "").split("\n");
-		const hidden = lines.lastIndexOf(
-			`(deny file-read* file-write* (subpath "${join(home, ".ssh")}"))`,
-		);
-		const granted = lines.reduce(
-			(last, line, at) =>
-				line.startsWith("(allow file-read* file-write* (subpath") ? at : last,
-			-1,
-		);
+	it("reads no ssh key, whatever kind and grants", () => {
+		for (const kind of ["fence", "strict"] as const) {
+			expect(
+				deciding(onMac(kind), join(home, ".ssh", "id_ed25519"), "file-read*"),
+				kind,
+			).toMatch(/^\(deny /);
+		}
+	});
 
-		expect(granted, "the folder is granted").toBeGreaterThan(-1);
-		expect(hidden, "~/.ssh is hidden after the last grant").toBeGreaterThan(
-			granted,
+	it("writes only its folder when strict, so nothing it plants runs later", () => {
+		const text = onMac("strict");
+		for (const planted of [
+			".lldbinit",
+			".zsh_history",
+			".local/state/mycelium/x",
+		]) {
+			expect(
+				deciding(text, join(home, planted), "file-write*"),
+				planted,
+			).toMatch(/^\(deny /);
+		}
+		expect(deciding(text, join(folder, "out"), "file-write*")).toMatch(
+			/^\(allow /,
 		);
+	});
+
+	it("reads nothing of pi's or mycelium's state, so no realm's messages reach the asker", () => {
+		for (const kind of ["fence", "strict"] as const) {
+			for (const state of [
+				".pi/agent/sessions/one/session.jsonl",
+				".local/state/pi/agentic-harness.pi/mesh/messages/m.json",
+				".local/state/mycelium/work.json",
+			]) {
+				expect(
+					deciding(onMac(kind), join(home, state), "file-read*"),
+					`${kind} ${state}`,
+				).toMatch(/^\(deny /);
+			}
+		}
+	});
+
+	it("reads and writes a tree the work broker cut, though pi's state is hidden", () => {
+		const trees = join(home, ".local/state/pi/agentic-harness.pi/work/trees");
+		const tree = join(trees, "worktree-one");
+		mkdirSync(tree, { recursive: true });
+		for (const kind of ["fence", "strict"] as const) {
+			const made = fenceRunText(
+				{ kind, folder: tree, words: ["true"] },
+				{
+					env: {},
+					home,
+					platform: "darwin",
+					sandboxExec: "/usr/bin/sandbox-exec",
+					treesRoot: trees,
+					heldTrees: [tree],
+				},
+			);
+			if (!("text" in made)) throw new Error(JSON.stringify(made));
+			for (const op of ["file-read*", "file-write*"] as const) {
+				expect(
+					deciding(made.text, join(tree, "file"), op),
+					`${kind} ${op}`,
+				).toMatch(/^\(allow /);
+			}
+			expect(
+				deciding(made.text, join(home, ".local/state/pi/x"), "file-read*"),
+				`${kind}: pi's state beside it`,
+			).toMatch(/^\(deny /);
+		}
 	});
 });
 
