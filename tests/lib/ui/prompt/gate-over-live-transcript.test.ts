@@ -24,9 +24,9 @@ import {
 } from "@earendil-works/pi-tui";
 import xterm from "@xterm/headless";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { showSinglePrompt } from "../../../lib/ui/prompt-single.ts";
-import { wordWrap } from "../../../lib/ui/text-layout.ts";
-import { plainTheme } from "./fake-theme.ts";
+import { showSinglePrompt } from "../../../../lib/ui/prompt/prompt-single.ts";
+import { wordWrap } from "../../../../lib/ui/text-layout.ts";
+import { plainTheme } from "../fake-theme.ts";
 
 const COLUMNS = 170;
 const ROWS = 45;

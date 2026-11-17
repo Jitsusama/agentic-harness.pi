@@ -19,8 +19,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
 import subagentWorkflow from "../../extensions/subagent-workflow/index.ts";
 import type { RunPi } from "../../lib/subagent/subagent.ts";
-import { GATE_ARM_MS } from "../../lib/ui/gate-dock.ts";
-import { showSinglePrompt } from "../../lib/ui/prompt-single.ts";
+import { GATE_ARM_MS } from "../../lib/ui/gate/gate-dock.ts";
+import { showSinglePrompt } from "../../lib/ui/prompt/prompt-single.ts";
 import { bootPi, type PiSession, sleep, strip, waitFor } from "./pi-session.ts";
 
 vi.mock("../../lib/subagent/runpi/supervisor.ts", () => ({

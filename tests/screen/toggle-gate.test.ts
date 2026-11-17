@@ -21,8 +21,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
-import { GATE_ARM_MS } from "../../lib/ui/gate-dock.ts";
-import { promptToggleList } from "../../lib/ui/prompt-toggle-list.ts";
+import { GATE_ARM_MS } from "../../lib/ui/gate/gate-dock.ts";
+import { promptToggleList } from "../../lib/ui/prompt/prompt-toggle-list.ts";
 import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
 
 const TITLE = "MARK-toggle Configure the thing";

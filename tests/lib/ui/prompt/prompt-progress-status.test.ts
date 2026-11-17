@@ -13,8 +13,8 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { showTabbedPrompt } from "../../../lib/ui/prompt-tabbed.ts";
-import type { TabbedPromptConfig } from "../../../lib/ui/types.ts";
+import { showTabbedPrompt } from "../../../../lib/ui/prompt/prompt-tabbed.ts";
+import type { TabbedPromptConfig } from "../../../../lib/ui/types.ts";
 
 /** A ctx that records status writes and answers `custom` however told to. */
 function context(custom: () => Promise<unknown>) {

@@ -27,12 +27,12 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { showSinglePrompt } from "../../../lib/ui/prompt-single.ts";
-import { showTabbedPrompt } from "../../../lib/ui/prompt-tabbed.ts";
+import { showSinglePrompt } from "../../../../lib/ui/prompt/prompt-single.ts";
+import { showTabbedPrompt } from "../../../../lib/ui/prompt/prompt-tabbed.ts";
 import type {
 	SinglePromptConfig,
 	TabbedPromptConfig,
-} from "../../../lib/ui/types.ts";
+} from "../../../../lib/ui/types.ts";
 
 /** Options pi was handed, and an immediate cancel so nothing blocks. */
 function context() {

@@ -29,12 +29,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Component, OverlayHandle, TUI } from "@earendil-works/pi-tui";
 import { drawsToTerminal } from "./dock.ts";
-import { dockGate, type GateFactory } from "./gate-dock.ts";
-import { runGate } from "./gate-queue.ts";
+import { dockGate, type GateFactory } from "./gate/gate-dock.ts";
+import { runGate } from "./gate/gate-queue.ts";
 import { OVERLAID } from "./overlay.ts";
-import { repaintOnHeightChange } from "./panel-height.ts";
-import { trackPanel } from "./panel-registry.ts";
-import { onPanelScreen, type PanelScreen } from "./panel-screen.ts";
+import { repaintOnHeightChange } from "./panel/panel-height.ts";
+import { trackPanel } from "./panel/panel-registry.ts";
+import { onPanelScreen, type PanelScreen } from "./panel/panel-screen.ts";
 
 /** A disposable panel, as pi's factories return one. */
 type Panel = Component & { dispose?(): void };
@@ -95,7 +95,7 @@ export interface GateMountOptions<T> extends MountOptions<T> {
 
 /**
  * Mount a gate: a panel waiting on a decision, docked above the editor
- * where pi draws to a terminal (see `gate-dock.ts`), an overlay where it
+ * where pi draws to a terminal (see `gate/gate-dock.ts`), an overlay where it
  * does not. It waits its turn, closes and fails closed exactly as
  * `mountPanel` does.
  */

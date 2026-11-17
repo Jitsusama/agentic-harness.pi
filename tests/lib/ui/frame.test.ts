@@ -12,9 +12,9 @@
 
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { renderFooter } from "../../../lib/ui/panel-layout.ts";
-import { showSinglePrompt } from "../../../lib/ui/prompt-single.ts";
-import { showTabbedPrompt } from "../../../lib/ui/prompt-tabbed.ts";
+import { renderFooter } from "../../../lib/ui/panel/panel-layout.ts";
+import { showSinglePrompt } from "../../../lib/ui/prompt/prompt-single.ts";
+import { showTabbedPrompt } from "../../../lib/ui/prompt/prompt-tabbed.ts";
 import { renderScrollRegion } from "../../../lib/ui/scroll-region.ts";
 import type {
 	SinglePromptConfig,

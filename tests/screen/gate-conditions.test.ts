@@ -17,12 +17,15 @@ import type {
 import { Type } from "@sinclair/typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
-import { GATE_ARM_MS, GATE_TYPING_IDLE_MS } from "../../lib/ui/gate-dock.ts";
+import {
+	GATE_ARM_MS,
+	GATE_TYPING_IDLE_MS,
+} from "../../lib/ui/gate/gate-dock.ts";
 import {
 	getPanelHeightFraction,
 	setPanelHeightMode,
-} from "../../lib/ui/panel-height.ts";
-import { showSinglePrompt } from "../../lib/ui/prompt-single.ts";
+} from "../../lib/ui/panel/panel-height.ts";
+import { showSinglePrompt } from "../../lib/ui/prompt/prompt-single.ts";
 import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
 
 const TITLE = "MARK-title Approve the thing?";

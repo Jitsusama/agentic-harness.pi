@@ -18,8 +18,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { overlaysLeft } from "../../../lib/ui/mount.ts";
+import { closeEveryPanel } from "../../../lib/ui/panel/panel-registry.ts";
 import { promptSingle } from "../../../lib/ui/panel.ts";
-import { closeEveryPanel } from "../../../lib/ui/panel-registry.ts";
 import type { SinglePromptConfig } from "../../../lib/ui/types.ts";
 import { Lines, type PiScreen, pinStdout, piScreen } from "./pi-screen.ts";
 
@@ -158,7 +158,7 @@ describe("the registry shared between copies", () => {
 		g[REGISTRY_KEY] = theirs;
 		try {
 			vi.resetModules();
-			const copy = await import("../../../lib/ui/panel-registry.ts");
+			const copy = await import("../../../lib/ui/panel/panel-registry.ts");
 			const stop = vi.fn();
 			copy.trackPanel(stop);
 			expect(g[REGISTRY_KEY]).toBe(theirs);

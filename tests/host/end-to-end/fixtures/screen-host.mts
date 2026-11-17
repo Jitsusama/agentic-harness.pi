@@ -470,7 +470,7 @@ export default function (pi) {
 	writeFileSync(
 		join(agentDir, "extensions", "gate.ts"),
 		`import { appendFileSync } from "node:fs";
-import { showSinglePrompt } from ${JSON.stringify(join(harness, "lib/ui/prompt-single.ts"))};
+import { showSinglePrompt } from ${JSON.stringify(join(harness, "lib/ui/prompt/prompt-single.ts"))};
 export default function (pi) {
 	pi.registerCommand("gate", {
 		description: "Raise one of the harness's gates and keep its answer",
@@ -498,7 +498,7 @@ export default function (pi) {
 	writeFileSync(
 		join(agentDir, "extensions", "tabs.ts"),
 		`import { appendFileSync } from "node:fs";
-import { showTabbedPrompt } from ${JSON.stringify(join(harness, "lib/ui/prompt-tabbed.ts"))};
+import { showTabbedPrompt } from ${JSON.stringify(join(harness, "lib/ui/prompt/prompt-tabbed.ts"))};
 export default function (pi) {
 	pi.registerCommand("tabs", {
 		description: "Raise one of the harness's tabbed gates and keep its answer",

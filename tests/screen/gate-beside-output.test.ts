@@ -15,7 +15,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
-import { showSinglePrompt } from "../../lib/ui/prompt-single.ts";
+import { showSinglePrompt } from "../../lib/ui/prompt/prompt-single.ts";
 import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
 
 vi.setConfig({ testTimeout: 30_000 });

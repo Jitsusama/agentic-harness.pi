@@ -13,7 +13,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { frameTitle } from "../../ui/frame.ts";
-import { holdScreen } from "../../ui/gate-queue.ts";
+import { holdScreen } from "../../ui/gate/gate-queue.ts";
 import { promptSingle, viewWhile } from "../../ui/panel.ts";
 import type { ViewConfig } from "../../ui/types.ts";
 import { SlackClient } from "../api/client.ts";

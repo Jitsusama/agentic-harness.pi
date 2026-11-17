@@ -5,16 +5,16 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { withSession } from "../../../lib/core/session/index.ts";
-import { runGate } from "../../../lib/ui/gate-queue.ts";
+import { withSession } from "../../../../lib/core/session/index.ts";
+import { runGate } from "../../../../lib/ui/gate/gate-queue.ts";
 import {
 	DOCK_NAME,
 	gatesDocked,
 	gatesWaiting,
 	QUEUE_NAME,
-} from "../../../lib/ui/screen-gates.ts";
-import { keepOnScreen, screenValue } from "../../../lib/ui/screen-slot.ts";
-import { installTestHost } from "../../support/session-host.ts";
+} from "../../../../lib/ui/gate/screen-gates.ts";
+import { keepOnScreen, screenValue } from "../../../../lib/ui/screen-slot.ts";
+import { installTestHost } from "../../../support/session-host.ts";
 
 let host: ReturnType<typeof installTestHost> | undefined;
 

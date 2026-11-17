@@ -5,9 +5,9 @@
  *   - prompt(): interactive decisions (single or tabbed)
  *   - view(): read-only display
  *
- * Delegates to prompt-single.ts and prompt-tabbed.ts for the
- * interactive implementations. Shared layout helpers live in
- * panel-layout.ts.
+ * Delegates to prompt/prompt-single.ts and prompt/prompt-tabbed.ts
+ * for the interactive implementations. Shared layout helpers live in
+ * panel/panel-layout.ts.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -22,9 +22,9 @@ import {
 import { chord, frameRule, frameTitle } from "./frame.ts";
 import { mountPanel, type PanelFactory } from "./mount.ts";
 import { optionValue } from "./option-list.ts";
-import { elsewhereVerdict, showSinglePrompt } from "./prompt-single.ts";
-import { showTabbedPrompt } from "./prompt-tabbed.ts";
-import { showWorkspacePrompt } from "./prompt-workspace.ts";
+import { elsewhereVerdict, showSinglePrompt } from "./prompt/prompt-single.ts";
+import { showTabbedPrompt } from "./prompt/prompt-tabbed.ts";
+import { showWorkspacePrompt } from "./prompt/prompt-workspace.ts";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,

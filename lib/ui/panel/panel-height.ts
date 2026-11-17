@@ -14,8 +14,8 @@
  * without this the new size waited for whatever drew next.
  */
 
-import { keepOnScreen, screenShared, screenValue } from "./screen-slot.ts";
-import type { PanelHeightMode } from "./types.ts";
+import { keepOnScreen, screenShared, screenValue } from "../screen-slot.ts";
+import type { PanelHeightMode } from "../types.ts";
 
 /** Panel height fraction when minimized. */
 const HEIGHT_FRACTION_MINIMIZED = 0.25;

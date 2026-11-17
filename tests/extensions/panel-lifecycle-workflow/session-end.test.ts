@@ -9,7 +9,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../../extensions/panel-lifecycle-workflow/index.ts";
-import { closeEveryPanel, trackPanel } from "../../../lib/ui/panel-registry.ts";
+import {
+	closeEveryPanel,
+	trackPanel,
+} from "../../../lib/ui/panel/panel-registry.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 

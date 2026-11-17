@@ -17,12 +17,15 @@ import {
 	replacing,
 	watchKeys,
 } from "../../../lib/ui/dock.ts";
-import { runGate } from "../../../lib/ui/gate-queue.ts";
+import { runGate } from "../../../lib/ui/gate/gate-queue.ts";
 import {
 	getPanelHeightMode,
 	setPanelHeightMode,
-} from "../../../lib/ui/panel-height.ts";
-import { closeEveryPanel, trackPanel } from "../../../lib/ui/panel-registry.ts";
+} from "../../../lib/ui/panel/panel-height.ts";
+import {
+	closeEveryPanel,
+	trackPanel,
+} from "../../../lib/ui/panel/panel-registry.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
 let host: ReturnType<typeof installTestHost> | undefined;

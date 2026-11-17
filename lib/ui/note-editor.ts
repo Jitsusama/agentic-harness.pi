@@ -16,8 +16,8 @@ import {
 	type EditorTheme,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { dockedFooter } from "./panel-layout.ts";
-import { panelRoom } from "./panel-room.ts";
+import { dockedFooter } from "./panel/panel-layout.ts";
+import { panelRoom } from "./panel/panel-room.ts";
 
 /** Configuration for the annotation editor overlay. */
 interface NoteEditorConfig {

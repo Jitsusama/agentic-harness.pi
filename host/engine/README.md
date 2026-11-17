@@ -47,7 +47,7 @@ level; otherwise the host's sources stand. The engine passes the
 version of the pi it loaded, since nothing under host/ imports a pi
 package except for its types: the host runs pi from its own pinned
 install, and the harness's production install carries none
-(tests/package/host-imports-no-pi.test.ts holds it).
+(`tests/package/shipping/host-imports-no-pi.test.ts` holds it).
 
 Run dispatches through withSession. Environment snapshots are independent
 copies and PI_SESSION_ID is set to the conversation id. Launch hints are
@@ -147,7 +147,7 @@ afterToolCall still sees the raw result, and a result with nothing to
 hide passes as the same object. pi-types.ts
 and durable-types.ts declare the narrow shapes the engine uses of pi's
 JavaScript, and pi-library.ts picks pi's functions from the loaded
-install. tests/host/engine/hosted-agent.test.ts holds the agent to pi's
+install. `tests/host/engine/hosted-agent.test.ts` holds the agent to pi's
 own: ten scripted scenarios give pi's listeners identical events, and a
 SIGKILL mid-tool resumes without a second run of the tool.
 
@@ -208,10 +208,10 @@ waits for the park to settle, and a close then waits too, closing it as
 a parked one. It watches the wake file until a resume has begun, so a
 wake that fails leaves it to the next. A wake through the file that is
 refused is kept beside it as `wake.refused`, with the message that asked
-and why (lib/internal/session/refused-wake.ts), so the mesh can say why
+and why (`lib/internal/session/refused-wake.ts`), so the mesh can say why
 it sleeps on; the conversation's next start or its close clears it.
 While it rests, parking.ts also watches the steer inbox of each address
-its park marker names (lib/mesh/parked.ts), and wakes it the same
+its park marker names (`lib/mesh/parked.ts`), and wakes it the same
 way as soon as a talk, close, carry, move, fill or answer lands, rather
 than at the mesh's once-a-minute pass, which stays as the backstop. A
 host starting leaves parked what its last process parked this boot,
@@ -221,7 +221,7 @@ did, and a wake written while the host was down wakes it once the host
 listens. Any other it resumes clearing the marker, so the conversation
 counts idle from its log and parks again at its first look. While a conversation is parked, parked-warming.ts keeps its
 cache entry warm from the carry its session's warming wrote as it
-parked (lib/internal/warming-carry.ts): on the session's schedule, at
+parked (`lib/internal/warming-carry.ts`): on the session's schedule, at
 most four warms in all, through pi's model runtime with the
 conversation's key, each kept for the session's next start to record.
 A warm's runtime loads no extensions, so kept-providers.ts keeps what
@@ -267,15 +267,15 @@ slowest pace of the last four, would hold the loop past a second is
 left uncollected and said, until the heap falls within it. The `host` section of the package's config
 file turns it off with `collectWhenQuiet: false` (service/settings.ts). Given
 screens, the engine hands each built conversation to them; without, it
-binds extensions with no interface, as pi's RPC mode does. tests/host/engine/engine.test.ts runs a
-host's life a start at a time.
+binds extensions with no interface, as pi's RPC mode does.
+`tests/host/engine/engine.test.ts` runs a host's life a start at a time.
 
 A conversation's environment is the realm's, then its launch, then what
 the engine derives each start. The launch is what conversationEnv says
 when it opens or is adopted; prepare returns it, the service's roster
 holds it, and a resume replays it as held. The service's says the
 request's `env`: the fence and spawner variables of the session it
-continues (lib/internal/session/carried-environment.ts), so a fenced
+continues (`lib/internal/session/carried-environment.ts`), so a fenced
 session that moves into a host runs its commands fenced there too. Each start the engine sets
 SHOPIFY_HARNESS_SETTINGS (harness-settings.ts) from the host's value,
 the conversation's traits and the loaded pi's version, and the

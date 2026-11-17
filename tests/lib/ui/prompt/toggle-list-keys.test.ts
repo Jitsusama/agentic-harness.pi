@@ -11,12 +11,12 @@
 
 import { setKittyProtocolActive } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { closeEveryPanel } from "../../../lib/ui/panel-registry.ts";
+import { closeEveryPanel } from "../../../../lib/ui/panel/panel-registry.ts";
 import {
 	promptToggleList,
 	type ToggleListConfig,
-} from "../../../lib/ui/prompt-toggle-list.ts";
-import { type PiScreen, pinStdout, piScreen } from "./pi-screen.ts";
+} from "../../../../lib/ui/prompt/prompt-toggle-list.ts";
+import { type PiScreen, pinStdout, piScreen } from "../pi-screen.ts";
 
 const COLUMNS = 120;
 const ROWS = 30;

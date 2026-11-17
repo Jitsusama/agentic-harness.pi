@@ -6,4 +6,3 @@
 extensions
 lib/internal
 lib/internal/quest
-lib/ui

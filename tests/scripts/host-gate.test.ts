@@ -282,7 +282,7 @@ describe("host-gate.sh", () => {
 
 	it("lets a change to the host merge once the keeper kept test:host passing at it", async () => {
 		const on = await harness();
-		const sha = await change(on, "lib/ui/panel-screen.ts");
+		const sha = await change(on, "lib/ui/panel/panel-screen.ts");
 		kept(on, sha, ["/nix/store/0000-coreutils/bin/true"]);
 		kept(on, sha, testHost(on));
 

@@ -15,9 +15,9 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { getPanelHeightFraction } from "./panel-height.ts";
-import { panelRoom } from "./panel-room.ts";
-import { screenRows } from "./panel-screen.ts";
+import { getPanelHeightFraction } from "./panel/panel-height.ts";
+import { panelRoom } from "./panel/panel-room.ts";
+import { screenRows } from "./panel/panel-screen.ts";
 import { GLYPH } from "./types.ts";
 
 /**

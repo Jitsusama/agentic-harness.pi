@@ -14,8 +14,8 @@ import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { withSession } from "../../../lib/core/session/index.ts";
 import { dock } from "../../../lib/ui/dock.ts";
+import { setPanelHeightMode } from "../../../lib/ui/panel/panel-height.ts";
 import { view } from "../../../lib/ui/panel.ts";
-import { setPanelHeightMode } from "../../../lib/ui/panel-height.ts";
 import { installTestHost } from "../../support/session-host.ts";
 import { type PiScreen, pinStdout, piScreen } from "./pi-screen.ts";
 

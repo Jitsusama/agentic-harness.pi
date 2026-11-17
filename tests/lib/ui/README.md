@@ -5,6 +5,10 @@ pieces they draw with, each against a fake pi screen
 (`pi-screen.ts`) and theme (`fake-theme.ts`) rather than a
 terminal.
 
-Many entries because they mirror `lib/ui`, which is past 40 itself
-and waits in `tests/package/code/long-files-waiting.txt`; splitting the
-tests before the library would leave them mirroring nothing.
+The tests of the gate and prompt modules sit in `gate/` and
+`prompt/`, as those modules do in `lib/ui`. A test sits by what it
+imports, not its name: `gate-close` and `gate-session-end` test how
+`mount.ts` and `panel.ts` close a gate, and `prompt-wants` tests the
+prompts `panel.ts` offers, so they stay here. The panel family's one
+test, `panel-footer`, stays here too, since a folder of one would
+say less than its name does.

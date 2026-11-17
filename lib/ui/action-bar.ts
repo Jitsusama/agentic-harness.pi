@@ -2,7 +2,7 @@
  * ActionBar input handling: Shift+key annotations and
  * Shift+Escape redirect.
  *
- * Rendering is handled by renderFooter in panel-layout.ts.
+ * Rendering is handled by renderFooter in panel/panel-layout.ts.
  * This module handles only the input side: detecting action
  * keys and their Shift variants.
  */

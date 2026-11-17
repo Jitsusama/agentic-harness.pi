@@ -24,7 +24,7 @@ import {
 	ViewerTerminal,
 } from "../../lib/core/viewer/terminal.ts";
 import { isRecord } from "../../lib/internal/record.ts";
-import { gatesDocked, gatesWaiting } from "../../lib/ui/screen-gates.ts";
+import { gatesDocked, gatesWaiting } from "../../lib/ui/gate/screen-gates.ts";
 import type { StartupDiagnostic } from "../engine/index.ts";
 import type { ViewerBridge } from "../service/server.ts";
 import { terminalBridge } from "../service/viewer.ts";

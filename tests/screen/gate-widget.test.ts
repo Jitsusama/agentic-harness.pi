@@ -22,9 +22,12 @@ import { Type } from "@sinclair/typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
 import { dock } from "../../lib/ui/dock.ts";
-import { GATE_ARM_MS, GATE_TYPING_IDLE_MS } from "../../lib/ui/gate-dock.ts";
-import { showSinglePrompt } from "../../lib/ui/prompt-single.ts";
-import { showTabbedPrompt } from "../../lib/ui/prompt-tabbed.ts";
+import {
+	GATE_ARM_MS,
+	GATE_TYPING_IDLE_MS,
+} from "../../lib/ui/gate/gate-dock.ts";
+import { showSinglePrompt } from "../../lib/ui/prompt/prompt-single.ts";
+import { showTabbedPrompt } from "../../lib/ui/prompt/prompt-tabbed.ts";
 import { bootPi, type PiSession, sleep, strip, waitFor } from "./pi-session.ts";
 
 const TITLE = "MARK-title Approve the thing?";

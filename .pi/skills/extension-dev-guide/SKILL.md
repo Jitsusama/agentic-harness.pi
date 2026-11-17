@@ -151,7 +151,7 @@ internal code.
 
 Internal files not in the barrel (`redirect.ts`,
 `tab-completion.ts`, `navigable-list.ts` input handler,
-`text-layout.ts`, `panel-height.ts`) can be imported
+`text-layout.ts`, `panel/panel-height.ts`) can be imported
 directly by extensions in this package when needed.
 
 ## Gotchas

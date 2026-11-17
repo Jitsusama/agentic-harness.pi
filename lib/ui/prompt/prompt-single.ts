@@ -16,17 +16,17 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
-import { frameRule, frameTitle } from "./frame.ts";
-import { mountGate } from "./mount.ts";
-import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
+import { type ActionBarResult, handleActionInput } from "../action-bar.ts";
+import { frameRule, frameTitle } from "../frame.ts";
+import { mountGate } from "../mount.ts";
+import { buildNoteEditorTheme, renderNoteEditor } from "../note-editor.ts";
 import {
 	handleOptionInput,
 	optionValue,
 	renderOptionList,
-} from "./option-list.ts";
-import { OUTCOME_GLYPH } from "./outcome-glyphs.ts";
-import { computeChromeLines, renderFooter } from "./panel-layout.ts";
+} from "../option-list.ts";
+import { OUTCOME_GLYPH } from "../outcome-glyphs.ts";
+import { computeChromeLines, renderFooter } from "../panel/panel-layout.ts";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -35,8 +35,8 @@ import {
 	renderScrollRegion,
 	SCROLLBAR_GUTTER,
 	type ScrollState,
-} from "./scroll-region.ts";
-import type { PromptResult, SinglePromptConfig } from "./types.ts";
+} from "../scroll-region.ts";
+import type { PromptResult, SinglePromptConfig } from "../types.ts";
 
 /** What the note editor is being used for in a single prompt. */
 type EditorContext = {

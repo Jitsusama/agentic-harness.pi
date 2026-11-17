@@ -5,7 +5,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { frameTitle } from "../../ui/frame.ts";
-import { holdScreen } from "../../ui/gate-queue.ts";
+import { holdScreen } from "../../ui/gate/gate-queue.ts";
 import { promptSingle } from "../../ui/panel.ts";
 import {
 	getOAuthApp,

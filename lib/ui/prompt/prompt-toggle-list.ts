@@ -1,22 +1,22 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
-import { chord, frameRule, frameTitle } from "./frame.ts";
-import type { GateFactory } from "./gate-dock.ts";
-import { mountGate } from "./mount.ts";
+import { chord, frameRule, frameTitle } from "../frame.ts";
+import type { GateFactory } from "../gate/gate-dock.ts";
+import { mountGate } from "../mount.ts";
 import {
 	type NavigableSection,
 	renderNavigableSections,
-} from "./navigable-list.ts";
-import { OUTCOME_GLYPH } from "./outcome-glyphs.ts";
-import { computeChromeLines, dockedFooter } from "./panel-layout.ts";
-import { panelRoom } from "./panel-room.ts";
+} from "../navigable-list.ts";
+import { OUTCOME_GLYPH } from "../outcome-glyphs.ts";
+import { computeChromeLines, dockedFooter } from "../panel/panel-layout.ts";
+import { panelRoom } from "../panel/panel-room.ts";
 import {
 	contentBudget,
 	renderScrollRegion,
 	SCROLLBAR_GUTTER,
 	type ScrollState,
-} from "./scroll-region.ts";
-import { isSubmitKey, submitKeyLabel } from "./submit-key.ts";
+} from "../scroll-region.ts";
+import { isSubmitKey, submitKeyLabel } from "../submit-key.ts";
 
 /** One toggleable row: a labelled setting that cycles through a fixed set of options. */
 export interface ToggleRow {
@@ -130,7 +130,7 @@ export function selectedValues(model: ToggleListModel): Record<string, string> {
  * the config's initial values otherwise, as headless callers get them too.
  *
  * It is a question waiting on its person, so in a terminal it docks above
- * the editor as a gate does (see `gate-dock.ts`) rather than covering the
+ * the editor as a gate does (see `../gate/gate-dock.ts`) rather than covering the
  * transcript, and settles into it as a record saying how many rows changed.
  */
 export async function promptToggleList(
