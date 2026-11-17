@@ -335,7 +335,7 @@ export async function runOrHandOff<T>(
 					jobId: job.id,
 					afterMs: steered ? now() - startedAt : delay,
 					steered,
-					output: shownSoFar(latest, call.input),
+					...shownSoFar(latest, call.input),
 					silentForMs: now() - lastOutputAt,
 				}),
 			},
@@ -363,20 +363,26 @@ function scrubbed<T>(
  * five arrive, and a line still being written however short. Nothing
  * replaces the answer that quotes it, so it is never said as it stands,
  * and a mark it makes that the settled scrub wouldn't stays; the job's
- * end says the output as settled. When the scrub can't read it, it is
- * said to be withheld.
+ * end says the output as settled. When the scrub can't read it, nothing
+ * of it is quoted, and the answer says why in its own words.
  */
-function shownSoFar(output: string, input: unknown): string {
+function shownSoFar(
+	output: string,
+	input: unknown,
+): { output: string; withheld?: string } {
 	try {
 		const found = scrubToolPartial(
 			{ content: [{ type: "text", text: output }] },
 			input,
 		);
 		const part = found?.content?.[0];
-		return part === undefined ? output : part.text;
+		return { output: part === undefined ? output : part.text };
 	} catch (failure) {
 		const kind = failure instanceof Error ? failure.name : typeof failure;
-		return `Its output so far was withheld, since it could not be scrubbed (${kind}).`;
+		return {
+			output: "",
+			withheld: `What it has shown so far is withheld, since it could not be scrubbed (${kind}).`,
+		};
 	}
 }
 
@@ -402,6 +408,7 @@ function handOffText<T>(
 		afterMs: number;
 		steered: boolean;
 		output: string;
+		withheld?: string;
 		silentForMs: number;
 	},
 ): string {
@@ -417,7 +424,9 @@ function handOffText<T>(
 		"Carry on with work that does not depend on it. Until then, do not run it again, and do not run anything that needs its result or changes what it is working on.",
 		call.stopping(handed.jobId),
 	];
-	if (handed.output.trim() !== "") {
+	if (handed.withheld !== undefined) {
+		lines.push(handed.withheld);
+	} else if (handed.output.trim() !== "") {
 		lines.push(
 			`Last output, ${spoken(handed.silentForMs)} ago:`,
 			lastLines(handed.output, HAND_OFF_LINES),

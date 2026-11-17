@@ -206,13 +206,13 @@ const WHOLE_ENVIRONMENT: readonly RegExp[] = [
  * A line of output that sets one variable and nothing more, as a dump
  * prints each, its value quoted or as env prints it, spaces and all: not
  * a log line of several pairs, nor a pin like `a==1`. A terminal's
- * control sequences opening it, a colour or a cleared line, are read
- * past, as a terminal shows the line without them; DUMPED_VARIABLE and
- * OPEN_VALUE read them alike.
+ * escapes opening it, a colour, a cleared line or a character set, are
+ * read past, as a terminal shows the line without them. Each rule below
+ * reads an escape as ESCAPE does, written out in it.
  */
 const ASSIGNED_LINE =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's control sequence is read past.
-	/^[ \t]*(?:\x1b\[[0-9;:?]*[ -/]*[@-~][ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=(?!=)(?:'[^']*'[ \t]*$|"[^"]*"[ \t]*$|(?![^\n\r\0]*\s[A-Za-z_][A-Za-z0-9_]*=))/;
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
+	/^[ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=(?!=)(?:'[^']*'[ \t]*$|"[^"]*"[ \t]*$|(?![^\n\r\0]*\s[A-Za-z_][A-Za-z0-9_]*=))/;
 
 /** The fewest such lines that make an output a dump, whatever printed it. */
 const FEWEST_DUMPED_LINES = 5;
@@ -223,10 +223,11 @@ const FEWEST_DUMPED_LINES = 5;
  * half its lines that hold anything, or five such lines in a row. A line
  * ends at a newline or at a NUL, as `env -0` ends each. Each stretch a
  * carriage return ends, as a progress line redrawn over, is read on its
- * own for setting a variable, while the line it sits in counts once
- * towards the whole, so a meter redrawn between a dump's lines doesn't
- * thin it out. A command no rule knows, as a script or a program of the
- * agent's own, still prints a dump this way.
+ * own for setting a variable, five in a row making a dump; towards the
+ * half, a line counts once, and as setting one when any stretch of it
+ * does, so a meter redrawn between a dump's lines doesn't thin it out
+ * and one redrawn line alone makes none. A command no rule knows, as a
+ * script or a program of the agent's own, still prints a dump this way.
  */
 export function readsAsDump(text: string): boolean {
 	if (!text.includes("=")) return false;
@@ -234,6 +235,7 @@ export function readsAsDump(text: string): boolean {
 	let assigned = 0;
 	let run = 0;
 	let filled = false;
+	let sets = false;
 	let start = 0;
 	for (let at = 0; at <= text.length; at++) {
 		const code = at < text.length ? text.charCodeAt(at) : NEWLINE;
@@ -243,7 +245,7 @@ export function readsAsDump(text: string): boolean {
 		if (stretch.trim() !== "") {
 			filled = true;
 			if (ASSIGNED_LINE.test(stretch)) {
-				assigned++;
+				sets = true;
 				run++;
 				if (run >= FEWEST_DUMPED_LINES) return true;
 			} else {
@@ -252,7 +254,9 @@ export function readsAsDump(text: string): boolean {
 		}
 		if (code !== RETURN && filled) {
 			lines++;
+			if (sets) assigned++;
 			filled = false;
+			sets = false;
 		}
 	}
 	return assigned >= FEWEST_DUMPED_LINES && assigned * 2 >= lines;
@@ -263,22 +267,50 @@ const RETURN = 13;
 const NUL = 0;
 
 /**
+ * A terminal's escape: a control sequence, as a colour, its reset or a
+ * cleared line; a character set chosen; a cursor saved or restored.
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
+const ESCAPE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])/g;
+
+/** The escapes a text opens with, and those it ends with. */
+const OPENING_ESCAPES =
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
+	/^(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>]))*/;
+const CLOSING_ESCAPES =
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
+	/(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>]))*$/;
+
+/**
  * A variable's line in a dump: its name, what sits between, its value,
- * which a control sequence after it, as a colour's reset, ends.
+ * escapes within it included, as a highlight splits a value.
  */
 const DUMPED_VARIABLE =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's control sequence is read past.
-	/^([ \t]*(?:\x1b\[[0-9;:?]*[ -/]*[@-~][ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)([^\s'"\x1b]+)/gm;
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
+	/^([ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)((?:[^\s'"\x1b]|\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>]))+)/gm;
 
 /**
  * A mark already standing where a secret was, kept as it is, or a word
- * long enough to be a credential anywhere in a line, the rest of a value
- * a mark cut short included, a variable's name before its value aside. A
- * terminal's control sequence, as a colour and its reset, bounds a word.
+ * that may be a credential anywhere in a line, escapes within it
+ * included, the rest of a value a mark cut short too, a variable's name
+ * before its value aside. A word holds no `]`, so one starts only after
+ * a break and is read once.
  */
 const DUMPED_WORD =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's control sequence bounds a word.
-	/\[secret scrubbed: [^\]]*\]|(?<=^|[\s'"=\]]|\x1b\[[0-9;:?]*[ -/]*[@-~])[^\s'"=\x1b]{16,}(?![^\s'"\x1b])(?!\s*=)/g;
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read within a word.
+	/\[secret scrubbed: [^\]]*\]|(?<![^\s'"=\]])(?:[^\s'"=\]\x1b]|\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>]))+(?![^\s'"\]])(?!\s*=)/g;
+
+/**
+ * A value or a word judged by what a terminal shows of it, its escapes
+ * aside: put out of sight as `kind` when it could be a credential, the
+ * escapes that open and close it kept, or undefined when it couldn't.
+ */
+function hidden(word: string, kind: string): string | undefined {
+	if (!looksLikeSecret(word.replace(ESCAPE, ""))) return undefined;
+	const opening = OPENING_ESCAPES.exec(word)?.[0] ?? "";
+	const closing = CLOSING_ESCAPES.exec(word.slice(opening.length))?.[0] ?? "";
+	return `${opening}${scrubbedMark(kind)}${closing}`;
+}
 
 /**
  * The dump with every value that could be a credential put out of sight,
@@ -291,11 +323,11 @@ const DUMPED_WORD =
 function scrubDump(text: string, kinds: string[]): string {
 	return eachEntry(text, (entry) =>
 		scrubAssigned(entry, kinds).replace(DUMPED_WORD, (word: string) => {
-			if (word.startsWith("[secret scrubbed: ") || !looksLikeSecret(word)) {
-				return word;
-			}
+			if (word.startsWith("[secret scrubbed: ")) return word;
+			const mark = hidden(word, ENVIRONMENT_VALUE);
+			if (mark === undefined) return word;
 			kinds.push(ENVIRONMENT_VALUE);
-			return scrubbedMark(ENVIRONMENT_VALUE);
+			return mark;
 		}),
 	);
 }
@@ -319,16 +351,21 @@ const EACH_LINE = /[^\n\r\0]+/g;
  * A partial with its last line, still being written, put out of sight
  * from where it sets a variable, however short the value so far: the rest
  * of a credential has yet to arrive to make it look like one, and the
- * settled answer replaces the partial.
+ * settled answer replaces the partial. A dump's line is read however it
+ * sets its value apart, as DUMPED_VARIABLE reads it.
  */
-function scrubOpenLine(text: string, kinds: string[]): string {
+function scrubOpenLine(
+	text: string,
+	kinds: string[],
+	dump: boolean,
+): string {
 	const start =
 		Math.max(
 			text.lastIndexOf("\n"),
 			text.lastIndexOf("\r"),
 			text.lastIndexOf("\0"),
 		) + 1;
-	const open = OPEN_VALUE.exec(text.slice(start));
+	const open = (dump ? OPEN_DUMPED_VALUE : OPEN_VALUE).exec(text.slice(start));
 	if (!open) return text;
 	const [, before = "", name = "", value = ""] = open;
 	if (ONLY_MARKS.test(value)) return text;
@@ -338,13 +375,17 @@ function scrubOpenLine(text: string, kinds: string[]): string {
 
 /**
  * A line setting one variable, as ASSIGNED_LINE reads one, up to its
- * value, and the value so far: quoted, to the line's end, or bare, with
- * no space but within a mark, so a pin, a spaced `=` or a log line of
- * several pairs is no variable's.
+ * value, and the value so far, to the line's end: a pin, a spaced `=` or
+ * a log line of several pairs is no variable's.
  */
 const OPEN_VALUE =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's control sequence is read past.
-	/^([ \t]*(?:\x1b\[[0-9;:?]*[ -/]*[@-~][ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=(?!=)['"]?)((?<=['"])[^\n]+|(?:\[secret scrubbed: [^\]\n]*\]|[^\s'"])(?:\[secret scrubbed: [^\]\n]*\]|\S)*)$/;
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
+	/^([ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=(?!=)['"]?)((?<=['"])[^\n]+|(?![^\n]*\s[A-Za-z_][A-Za-z0-9_]*=)[^\s'"][^\n]*)$/;
+
+/** A dump's line setting a variable, as DUMPED_VARIABLE reads one. */
+const OPEN_DUMPED_VALUE =
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
+	/^([ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)(\S[^\n]*)$/;
 
 /** A value that is marks alone, already out of sight. */
 const ONLY_MARKS = /^(?:\[secret scrubbed: [^\]\n]*\][ \t'"]*)+$/;
@@ -354,9 +395,10 @@ function scrubAssigned(text: string, kinds: string[]): string {
 	return text.replace(
 		DUMPED_VARIABLE,
 		(whole: string, before: string, name: string, value: string) => {
-			if (!looksLikeSecret(value)) return whole;
+			const mark = hidden(value, name);
+			if (mark === undefined) return whole;
 			kinds.push(name);
-			return `${before}${scrubbedMark(name)}`;
+			return `${before}${mark}`;
 		},
 	);
 }
@@ -583,7 +625,9 @@ export function scrubSecrets(
 	}
 	if (options.environment) scrubbed = scrubDump(scrubbed, kinds);
 	else if (dumped) scrubbed = scrubDumpedLines(scrubbed, kinds);
-	if (options.partial === true) scrubbed = scrubOpenLine(scrubbed, kinds);
+	if (options.partial === true) {
+		scrubbed = scrubOpenLine(scrubbed, kinds, options.environment === true);
+	}
 	return { text: scrubbed, kinds };
 }
 

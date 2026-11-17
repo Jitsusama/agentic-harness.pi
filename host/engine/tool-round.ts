@@ -348,10 +348,12 @@ export class ToolRound {
 					let partial: AgentToolResult;
 					try {
 						partial = scrubbedPartial(partialResult, prepared.args, known);
+						withheld = false;
 					} catch (failure) {
 						// An update the scrub can't read is never shown, nor thrown
-						// into the tool's own output handler: viewers are told once
-						// why, so a scrub that fails each time is seen to.
+						// into the tool's own output handler: viewers are told why
+						// once for each run of them, since a readable update
+						// replaces the notice.
 						if (withheld) return;
 						withheld = true;
 						partial = withheldPartial(failure);
