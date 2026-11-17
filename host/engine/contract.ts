@@ -164,9 +164,15 @@ export interface HostEngine extends ConversationEngine {
 	/** What `background` counts, a line each, for a restart held long to name. */
 	holding(): readonly string[];
 	/**
-	 * As a restart stops the host, once every conversation has parked:
-	 * keep the bash calls they carried alive through the stop, out of the
-	 * host's cgroup, and write them down for the next host.
+	 * Whether a stop can keep the bash calls its conversations carry
+	 * alive for the next host: a jobs cgroup to move them into, or
+	 * spawners in scopes of their own (carried-shells.ts).
+	 */
+	carries(): boolean;
+	/**
+	 * As a stop that carries ends the host, once every conversation has
+	 * parked: keep the bash calls they carried alive through the stop, out
+	 * of the host's cgroup, and write them down for the next host.
 	 */
 	keepCarried(): Promise<void>;
 }

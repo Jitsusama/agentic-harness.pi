@@ -12,9 +12,11 @@
  * move to a host hands it the jobs that can be carried, still running,
  * through the session's log (moved.ts); any other end of the session
  * stops them, and writes the results it hadn't said there for its next
- * start to say. A line the person types during a run is said on the bus
- * for calls that can move, and pi's working line says what it waits on
- * (typed-line.ts).
+ * start to say. A bash job is also recorded beside its call as it runs
+ * (recorded.ts), so a kill that writes nothing, as of a host systemd
+ * gave up waiting on, leaves the next start a call to take up. A line
+ * the person types during a run is said on the bus for calls that can
+ * move, and pi's working line says what it waits on (typed-line.ts).
  */
 
 import type {
@@ -42,6 +44,7 @@ import {
 	cutOffIn,
 	type EndWatch,
 	endedRecord,
+	leftDead,
 	resumeText,
 	type SignalSource,
 	watchSignals,
@@ -59,6 +62,7 @@ import {
 	type TakingUp,
 	takeUp,
 } from "./moved.ts";
+import { recordedCarry } from "./recorded.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
 import { type TypedLine, typedLine } from "./typed-line.ts";
@@ -152,7 +156,8 @@ function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
 	const branch = branchOf(ctx);
 	if (branch === undefined) return;
 	// Only a host carries a parked run on; plain pi takes nothing up.
-	const cut = cutOffIn(branch, hosted() !== undefined);
+	const held = new Set(session.jobs.list().map((job) => job.id));
+	const cut = leftDead(cutOffIn(branch, hosted() !== undefined), held);
 	if (cut === undefined) return;
 	session.outbox.post({
 		jobId: "cut-off",
@@ -266,24 +271,29 @@ function carry(
 
 /**
  * Take up the jobs a move carried into this session, if any wait, and
- * those an earlier take-up left unsaid, which a first look says.
+ * those an earlier take-up left unsaid, which a first look says; then
+ * the bash calls it recorded that are still running or ended, which a
+ * kill carried nothing of.
  */
 function takeUpIfCarried(
 	pi: ExtensionAPI,
 	session: JobSession,
 	ctx: ExtensionContext,
 ): void {
-	let branch: readonly unknown[];
+	// A context with no session manager has no history and no records.
+	const id = sessionIdOf(ctx);
+	if (id === undefined) return;
+	let branch: readonly unknown[] = [];
 	try {
 		branch = ctx.sessionManager.getBranch();
 	} catch {
-		// No history to read: nothing was carried into it.
-		return;
+		// No history to read: nothing was carried into it, though its
+		// records may still stand.
 	}
 	const into: TakingUp = {
 		jobs: session.jobs,
 		outbox: session.outbox,
-		session: sessionKeyOf(ctx),
+		session: id,
 		append: (type, data) => pi.appendEntry(type, data),
 		offer: (work) => offerCarried(pi.events, work),
 		taken: (job) => sayTakenUp(pi.events, job),
@@ -292,6 +302,10 @@ function takeUpIfCarried(
 	if (stranded) takeUp(stranded, into);
 	const carried = carriedIn(branch);
 	if (carried) takeUp(carried, into);
+	const held = new Set(session.jobs.list().map((job) => job.id));
+	const recorded = recordedCarry(id, held, Date.now());
+	// The log says nothing of these: no move wrote them, so none is taken.
+	if (recorded) takeUp(recorded, { ...into, append: () => {} });
 }
 
 /** The session's key for its crash writer, or one for the process when it can't say. */

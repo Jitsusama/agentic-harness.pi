@@ -113,9 +113,12 @@ may import from here, and any of it may change without notice.
   last one (`state.ts`).
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know, and its commands started by pi-spawner, so
-  pi never forks itself to start one; what a bash call keeps of
+  pi never forks itself to start one, a host's in a systemd scope of
+  its own where it can (`spawner-scope.ts`); what a bash call keeps of
   itself on disk, so a move can carry it to a host, which watches it
-  there and says its end in the words its own pi would have; and the
+  there and says its end in the words its own pi would have, and the
+  record of each one a session hands to a job, so the session takes it
+  up again after a kill that carried nothing (`kept-jobs.ts`); and the
   reaper that kills what a call left, by its mark; and the shell
   habits the standing rules forbid (output cut with tail, long
   sleeps, git stash), as `shell-habit-interceptor` catches them

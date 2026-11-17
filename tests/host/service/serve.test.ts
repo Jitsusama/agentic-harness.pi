@@ -223,6 +223,57 @@ describe("serveHost", () => {
 		).toBe(coming);
 	});
 
+	it.each([
+		[
+			"carries every conversation's calls at any stop, where the engine keeps them",
+			true,
+		],
+		[
+			"carries nothing at a plain stop, where the engine can't keep them",
+			false,
+		],
+		[
+			"carries nothing at a plain stop, where the engine can't say it keeps them",
+			undefined,
+		],
+	])("%s", async (_case, carries) => {
+		const told: string[] = [];
+		let kept = 0;
+		const served = await serveHost({
+			...places(),
+			engine: async (h) => {
+				const plain = engine(h);
+				return {
+					...plain,
+					start: async (prepared) =>
+						h.register({
+							id: prepared.sessionId,
+							file: prepared.file,
+							cwd: prepared.cwd,
+							env: {},
+							close: () => {},
+							restarting: () => told.push(prepared.sessionId),
+						}),
+					...(carries !== undefined ? { carries: () => carries } : {}),
+					keepCarried: async () => {
+						kept += 1;
+					},
+				};
+			},
+		});
+		const reply = await opened(served.path, "a");
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+
+		await served.stop();
+		expect(told, "the conversations told to carry their calls").toEqual(
+			carries ? [sessionId] : [],
+		);
+		expect(kept, "how often the engine kept what they carried").toBe(
+			carries ? 1 : 0,
+		);
+	});
+
 	it("keeps every hold across stop and resumes them at the next start", async () => {
 		const first = await serveHost({
 			...places(),

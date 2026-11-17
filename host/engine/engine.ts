@@ -429,6 +429,8 @@ export async function createEngine(
 			return heavy;
 		},
 
+		carries: () => shells.keeps,
+
 		async keepCarried() {
 			try {
 				const moved = await shells.keep();
