@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
+import type { WrapUpRequest } from "../../../lib/subagent/run-contract.ts";
 import type { StartedPi } from "../../../lib/subagent/runpi/supervisor.ts";
 import { startReviewer } from "../../../lib/subagent/subagent.ts";
 
@@ -17,15 +18,18 @@ function noteStart() {
 		reviewerId?: string;
 		persistSession?: boolean;
 		wrapUpReserveMs?: number;
+		wrapUp?: WrapUpRequest;
 	}[] = [];
 	const startPi = async (options: {
 		args: readonly string[];
 		reviewerId?: string;
 		persistSession?: boolean;
 		wrapUpReserveMs?: number;
+		wrapUp?: WrapUpRequest;
 	}): Promise<StartedPi> => {
 		calls.push({
 			args: options.args,
+			...(options.wrapUp === undefined ? {} : { wrapUp: options.wrapUp }),
 			...(options.reviewerId ? { reviewerId: options.reviewerId } : {}),
 			...(options.persistSession === undefined
 				? {}
@@ -119,14 +123,14 @@ describe("starting one reviewer nobody will wait for", () => {
 		expect(said).toContain("xhigh");
 	});
 
-	it("persists the session and reserves nothing for a wrap-up", async () => {
-		// The two decisions this path documents most heavily and pinned
-		// nowhere. A detached reviewer cannot be resumed by the parent
-		// that started it, so the session on disk is the only thing that
-		// makes a later resume possible at all. And a reserve buys time
-		// for a wrap-up nobody will dispatch, so taking one spends review
-		// time on nothing: note the configured value being dropped here
-		// rather than passed on.
+	it("persists the session and has its supervisor ask for a wrap-up", async () => {
+		// A detached reviewer cannot be resumed by the parent that
+		// started it, so the session on disk is what any follow-up reads.
+		// It reserved nothing for a wrap-up once, since only a waiting
+		// parent sent one, and three rounds on a megabyte brief ran to
+		// the wall having written nothing down: 24 reviewers, 45 minutes
+		// each, no findings. The supervisor now asks, so the reserve is
+		// taken, and the wrap-up is spelled out for it in full.
 		const stateDir = await tempStateDir();
 		const noted = noteStart();
 
@@ -140,8 +144,45 @@ describe("starting one reviewer nobody will wait for", () => {
 			wrapUpReserveMs: 60_000,
 		});
 
-		expect(noted.calls[0]).toMatchObject({ persistSession: true });
-		expect(noted.calls[0]?.wrapUpReserveMs).toBeUndefined();
+		expect(noted.calls[0]).toMatchObject({
+			persistSession: true,
+			wrapUpReserveMs: 60_000,
+			wrapUp: {
+				reviewerId: "hawk+wrapup",
+				timeoutMs: 60_000,
+				idleTimeoutMs: 60_000,
+			},
+		});
+		const asked = noted.calls[0]?.wrapUp?.args ?? [];
+		expect(asked, "it resumes the session it was stopped in").toContain(
+			"--session",
+		);
+		expect(asked.join(" ")).toContain("ran out of time");
+	});
+
+	it("keeps the default reserve when none is named, and still asks when it is off", async () => {
+		// As the waiting path does: switched off, the reviewer runs to its
+		// wall, and a reviewer the wall stopped is still asked.
+		const stateDir = await tempStateDir();
+		const noted = noteStart();
+		const start = (more: { wrapUpReserveMs?: number }) =>
+			startReviewer({
+				reviewer: { id: "hawk" },
+				prompt: "read it",
+				cwd: stateDir,
+				runId: "run",
+				stateDir,
+				startPi: noted.startPi,
+				...more,
+			});
+
+		await start({});
+		await start({ wrapUpReserveMs: 0 });
+
+		expect(noted.calls[0]?.wrapUpReserveMs).toBe(5 * 60 * 1000);
+		expect(noted.calls[0]?.wrapUp?.timeoutMs).toBe(5 * 60 * 1000);
+		expect(noted.calls[1]?.wrapUpReserveMs).toBeUndefined();
+		expect(noted.calls[1]?.wrapUp?.timeoutMs).toBe(5 * 60 * 1000);
 	});
 
 	it("hands the reviewer the packs it was given", async () => {

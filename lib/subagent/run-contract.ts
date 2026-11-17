@@ -198,6 +198,18 @@ export interface RunPiResult {
 /** One pi `--mode json` stream event. */
 export type RunPiStreamEvent = Record<string, unknown>;
 
+/**
+ * A wrap-up spelled out for a supervisor to start on its own: pi's
+ * arguments, holding `--session` for the supervisor to fill with the
+ * session the stopped run left, the id it runs under, and its clocks.
+ */
+export interface WrapUpRequest {
+	readonly reviewerId: string;
+	readonly args: readonly string[];
+	readonly timeoutMs: number;
+	readonly idleTimeoutMs: number;
+}
+
 /** Injectable subprocess runner. */
 export type RunPi = (opts: {
 	readonly args: string[];
@@ -222,6 +234,12 @@ export type RunPi = (opts: {
 	 * deadline so the rest can be spent asking for what it has.
 	 */
 	readonly wrapUpReserveMs?: number;
+	/**
+	 * What to ask a run a clock stopped, when nobody is waiting to ask
+	 * it: the supervisor starts this itself, on the session the run left.
+	 * Only the runner that walks away reads it; a waiting caller asks.
+	 */
+	readonly wrapUp?: WrapUpRequest;
 	/**
 	 * Whether this run should persist its pi session so a
 	 * later resume can reopen it. Defaults to false: a run is

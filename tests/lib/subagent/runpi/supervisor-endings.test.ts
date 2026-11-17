@@ -248,6 +248,33 @@ describe("a child that exits 0 partway through its run", () => {
 		},
 	);
 
+	// The prompt comes back as the user's message, and a council's brief
+	// is over the cap: nothing read is lost, so nothing is said of it.
+	it("says nothing of a skipped line that only echoed the prompt", async () => {
+		const asked = (type: string) =>
+			JSON.stringify({
+				type,
+				message: {
+					role: "user",
+					content: [{ type: "text", text: "x".repeat(4096) }],
+				},
+			});
+		const { result, persisted } = await supervise(
+			[
+				asked("message_start"),
+				asked("message_end"),
+				said("the answer"),
+				AGENT_END,
+				AGENT_SETTLED,
+			],
+			{ maxLineBytes: 1024 },
+		);
+
+		expect(result.warnings?.join(" ") ?? "").not.toContain("exceeded");
+		expect(result.finalAssistantText).toBe("the answer");
+		expect(persisted.state).toBe("complete");
+	});
+
 	// A tool result can be over the cap too, and a skipped end is not a
 	// tool still running once the run itself has said it finished.
 	it("is complete when the run ended even though a tool end was unread", async () => {
