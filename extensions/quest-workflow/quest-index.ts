@@ -26,8 +26,10 @@
  * Each still names the sessions it last attached and the orchestrator
  * above it, as an open quest's record does, since a session it held can
  * outlive it and the node proves who may end that hold by them (KP0L6A,
- * 17 November). They are many more than the open ones and change only as a
- * quest ends or reopens, so a quest action rewrites only the short list
+ * 17 November). A session an open quest also names is left out, since
+ * that quest's orchestrator now answers for it. They are many more than
+ * the open ones and change mostly as a quest ends or reopens, or as one
+ * above them does, so a quest action rewrites only the short list
  * of open ones, and the realm's node, which serves both, reads the long
  * one again only when it changed.
  */
@@ -326,6 +328,11 @@ export function endedQuestsIn(
 	home?: string,
 ): EndedQuestEntry[] {
 	const read = (id: string) => index.quests.get(id)?.doc.frontMatter;
+	const heldOpen = new Set(
+		[...index.quests.values()]
+			.filter((entry) => isOpen(entry.doc.frontMatter.status))
+			.flatMap((entry) => entry.doc.frontMatter.sessions.map(({ id }) => id)),
+	);
 	return [...index.quests.entries()]
 		.filter(([, entry]) => !isOpen(entry.doc.frontMatter.status))
 		.sort(([a], [b]) => a.localeCompare(b))
@@ -356,7 +363,9 @@ export function endedQuestsIn(
 				status: fm.status,
 				...(fm.parent ? { parent: fm.parent } : {}),
 				...(by ? { orchestrator: questAddress(by) } : {}),
-				sessions: fm.sessions.map((session) => session.id),
+				sessions: fm.sessions
+					.map((session) => session.id)
+					.filter((session) => !heldOpen.has(session)),
 				start,
 				updated: fm.updated,
 			};

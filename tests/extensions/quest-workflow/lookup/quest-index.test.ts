@@ -31,6 +31,7 @@ import { installTestHost } from "../../../support/session-host.ts";
 const MISSION = "QEST-20260101-MISSON";
 const CHILD = "QEST-20260101-CHILDQ";
 const OLD = "QEST-20260101-OLDONE";
+const MIDDLE = "QEST-20260101-MIDDLE";
 
 let root: string;
 let elsewhere: string;
@@ -343,13 +344,32 @@ describe("the quests the desktop lists", () => {
 				"status: active\norchestrator: true",
 				"# Bootstrap optimus",
 			);
+			// Between them, a quest that orchestrates nothing, and holds a
+			// session that moved on from the ended one.
+			quest(
+				MIDDLE,
+				[
+					"status: active",
+					`parent: ${MISSION}`,
+					"sessions:",
+					"  - id: s-moved",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T02:30:00Z",
+					"    status: detached",
+				].join("\n"),
+				"# Between",
+			);
 			quest(
 				OLD,
 				[
 					"status: concluded",
 					"short: Old",
-					`parent: ${MISSION}`,
+					`parent: ${MIDDLE}`,
 					"sessions:",
+					"  - id: s-moved",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:30:00Z",
+					"    status: detached",
 					"  - id: s-first",
 					`    cwd: ${elsewhere}`,
 					"    started: 2026-01-01T01:00:00Z",
@@ -385,9 +405,11 @@ describe("the quests the desktop lists", () => {
 					kind: "quest",
 					"quest.kind": "quest",
 					status: "concluded",
-					parent: MISSION,
+					parent: MIDDLE,
 					// What the node proves a held session's orchestrator by, as
-					// an open quest's record says it (KP0L6A, 17 November).
+					// an open quest's record says it (KP0L6A, 17 November): the
+					// orchestrator above, not the parent, and none of the sessions
+					// an open quest now answers for.
 					orchestrator: "MISSON",
 					sessions: ["s-first", "s-last"],
 					start: newer,
@@ -396,6 +418,7 @@ describe("the quests the desktop lists", () => {
 			]);
 			expect(questsIn(index, nothingKnown, root).map((one) => one.id)).toEqual([
 				MISSION,
+				MIDDLE,
 			]);
 		} finally {
 			rmSync(newer, { recursive: true, force: true });
