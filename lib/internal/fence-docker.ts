@@ -61,6 +61,10 @@ export function dockerHoldsCredentials(
 	// Headers sent to every registry can carry a login of their own.
 	const headers = field(said, "HttpHeaders");
 	if (isRecord(headers) && Object.keys(headers).length > 0) return true;
+	// A proxy's address can carry a name and password of its own.
+	const proxies = field(said, "proxies");
+	if (proxies !== undefined && /:\/\/[^/@\s]+@/.test(JSON.stringify(proxies)))
+		return true;
 	const auths = field(said, "auths");
 	return Object.values(isRecord(auths) ? auths : {}).some(
 		(login) =>

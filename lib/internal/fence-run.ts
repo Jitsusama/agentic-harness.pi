@@ -27,7 +27,7 @@
  * runs unfenced because the fence couldn't be laid.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fenceArgs } from "./fence.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
@@ -269,7 +269,8 @@ function macFenceText(
 	}
 	const { home } = place;
 	// The Mac has no runtime folder, so the copy of npm's settings goes
-	// in the person's own temporary folder, which is theirs alone.
+	// in the person's own temporary folder, which commands there write
+	// too, so pi's folder in it is kept from them below.
 	const npmrc = fenceNpmrc(home, place.env.TMPDIR);
 	const copy = npmrc === "/dev/null" ? undefined : npmrc;
 	const mounts = fenceArgs({
@@ -298,8 +299,8 @@ function macFenceText(
 		text: seatbeltText(
 			[
 				...macSettings(home, copy, ask.kind !== STRICT),
-				// exec, so the command is pi-fence's own process, as on Linux,
-				// and a signal to pi-fence reaches it.
+				// exec, so the command takes the sandbox's shell's place rather
+				// than running as its child.
 				`exec ${ask.words.map(quoted).join(" ")}`,
 			].join("; "),
 			profile,
@@ -326,7 +327,7 @@ function macSettings(
 	// Only where the fence lets commands write ~/.cache, and never over
 	// the person's own choice of where a cache goes.
 	const caches =
-		cachesWritten && existsSync(cache)
+		cachesWritten && existsSync(cache) && lstatSync(cache).isDirectory()
 			? [
 					["XDG_CACHE_HOME", cache],
 					["GOCACHE", join(cache, "go-build")],

@@ -213,6 +213,19 @@ describe("Linux's strict fence, for npm's and Docker's logins", () => {
 			expect(made.text).toContain(
 				`'--ro-bind' '/dev/null' '${join(home, ".docker", "config.json")}'`,
 			);
+
+			// Settings naming no login stay, so a fenced docker still pulls.
+			writeFileSync(
+				join(home, ".docker", "config.json"),
+				JSON.stringify({ credHelpers: { "gcr.io": "gcloud" } }),
+			);
+			const kept = fenceRunText(
+				{ kind: "strict", folder: work, words: ["true"] },
+				{ env: { XDG_RUNTIME_DIR: runtime }, home, sandbox: LAID },
+			);
+			expect(JSON.stringify(kept)).not.toContain(
+				`'/dev/null' '${join(home, ".docker", "config.json")}'`,
+			);
 		} finally {
 			rmSync(own, { recursive: true, force: true });
 		}
@@ -289,8 +302,24 @@ describe("the fence on a Mac", () => {
 		);
 	});
 
-	it("leaves caches be where strict keeps them read-only, and execs the command", () => {
+	it("leaves caches be where strict keeps them read-only, or ~/.cache isn't there, and execs the command", () => {
 		const within = (words: string) => words.replaceAll("'", "'\\''");
+		const bare = realpathSync(mkdtempSync(join(tmpdir(), "fm-bare-")));
+		mkdirSync(join(bare, "work"));
+		try {
+			const made = fenceRunText(
+				{ kind: "fence", folder: join(bare, "work"), words: ["true"] },
+				{
+					env: {},
+					home: bare,
+					platform: "darwin",
+					sandboxExec: "/usr/bin/sandbox-exec",
+				},
+			);
+			expect(JSON.stringify(made)).not.toContain("XDG_CACHE_HOME");
+		} finally {
+			rmSync(bare, { recursive: true, force: true });
+		}
 
 		expect(onMac("strict")).not.toContain("XDG_CACHE_HOME");
 		expect(onMac("fence")).toContain(within("; exec 'echo' "));

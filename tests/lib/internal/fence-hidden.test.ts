@@ -113,6 +113,21 @@ describe("Docker's settings, emptied when they hold a credential", () => {
 		expect(holds({ HttpHeaders: {} }), "no headers").toBe(false);
 	});
 
+	it("holds to a proxy's address carrying a login, but not to a plain one", () => {
+		const login = {
+			proxies: {
+				default: {
+					httpProxy: "http://someone:not-a-password@proxy.example:3128",
+				},
+			},
+		};
+		const plain = {
+			proxies: { default: { httpProxy: "http://proxy.example:3128" } },
+		};
+		expect(holds(login), "a proxy's login").toBe(true);
+		expect(holds(plain), "a plain proxy").toBe(false);
+	});
+
 	it("holds to settings that aren't an object", () => {
 		expect(holds(["not", "settings"]), "a list").toBe(true);
 		expect(holds("settings"), "a string").toBe(true);
@@ -148,8 +163,10 @@ describe("Docker's settings, emptied when they hold a credential", () => {
 		expect(unparsed, "unparseable settings").toBe(true);
 		expect(none, "no settings").toBe(false);
 	});
+});
 
-	it("hides the private keys gpg keeps, beside the rest", () => {
+describe("the key files the fence hides beside the rest", () => {
+	it("names gpg's secret keys, Docker's older logins and its TLS keys", () => {
 		for (const key of [
 			".gnupg/private-keys-v1.d/",
 			".gnupg/secring.gpg",
