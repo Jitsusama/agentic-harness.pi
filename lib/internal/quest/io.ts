@@ -21,8 +21,23 @@
  * Neither the temp file nor the lock is made in the quest
  * folder itself: the shell watches the folders of quests
  * with something waiting on Joel, and each file made and
- * removed there woke it (6b, 31 October). Both live in
- * the folder's `.writing`, which its watch doesn't reach.
+ * removed there woke it (6b, 31 October). The temp file
+ * lives in the folder's `.writing`, which its watch
+ * doesn't reach.
+ *
+ * The lock lives in the login's runtime folder, which is
+ * tmpfs: on 16 and 17 November the hosts' loops held about
+ * 77 s creating and removing it in `.writing`, waiting on
+ * btrfs's tree lock while the disk was busy, and nothing
+ * made on tmpfs waits on the disk. Every writer on the
+ * machine must pick the same lock, so the folder is found
+ * without `XDG_RUNTIME_DIR`, which a pi from cron or ssh
+ * lacks: `/run/user/<uid>`, when it holds the session bus.
+ * The fence gives a command a private runtime folder of
+ * its own, never with the bus, so a pi inside it, and a
+ * machine without a login runtime folder, lock in
+ * `.writing` as before; one locking in the runtime folder
+ * still waits out a lock there.
  *
  * The lock is file-creation with `O_EXCL`. A short retry
  * loop covers the normal contention case; a stale-lock
@@ -38,6 +53,7 @@ import {
 	existsSync,
 	fstatSync,
 	linkSync,
+	lstatSync,
 	mkdirSync,
 	openSync,
 	readFileSync,
@@ -58,6 +74,38 @@ const STALE_LOCK_MS = 30_000;
 
 /** The lock's name in the quest folder's `.writing`. */
 const LOCK_NAME = "quest.lock";
+
+/** Where in the login's runtime folder each quest's lock is made. */
+const RUNTIME_LOCKS = join("agentic-harness.pi", "quest-locks");
+
+/**
+ * The session bus's socket, which only the machine's own runtime folder
+ * holds: the fence never lets it through (`NEVER_THROUGH`).
+ */
+const SESSION_BUS = "bus";
+
+/** Where tests have the runtime folder looked for, when they say. */
+let runFolderForTests: string | undefined;
+
+/**
+ * The folder quest locks are made in on this machine, or undefined to
+ * make each in its quest's `.writing`. Looked for on every lock, since
+ * one stat on tmpfs is cheap and a process started before the login's
+ * folder was made must not keep `.writing` once it is there.
+ */
+function runtimeLocks(): string | undefined {
+	const run =
+		runFolderForTests ??
+		(process.getuid ? `/run/user/${process.getuid()}` : undefined);
+	if (run === undefined) return undefined;
+	try {
+		if (!lstatSync(join(run, SESSION_BUS)).isSocket()) return undefined;
+	} catch {
+		// No session bus: inside the fence, or no login folder here.
+		return undefined;
+	}
+	return join(run, RUNTIME_LOCKS);
+}
 
 /**
  * Where the lock was made, in the quest folder itself, by sessions on
@@ -280,18 +328,31 @@ function releaseLock(
 
 /**
  * Run `fn` under an advisory lock on the given quest dir.
- * Acquires `<questDir>/.writing/quest.lock`, waits out any
- * older session's `<questDir>/.quest.lock`, runs fn,
- * releases. Steals locks older than `STALE_LOCK_MS` whose
- * owner is no longer alive.
+ * Acquires the quest's lock in the login's runtime folder,
+ * keyed by the quest folder's device and inode, or where
+ * there is none `<questDir>/.writing/quest.lock`. Waits out
+ * the lock in `.writing` that a writer inside the fence or
+ * on older code holds, and any older session's
+ * `<questDir>/.quest.lock`, runs fn, releases. Steals locks
+ * older than `STALE_LOCK_MS` whose owner is no longer alive.
  */
 export function withQuestLock<T>(questDir: string, fn: () => T): T {
-	if (!existsSync(questDir)) {
+	let folder: ReturnType<typeof statSync>;
+	try {
+		folder = statSync(questDir);
+	} catch {
+		// Gone, or never made: said as the caller's error below.
 		throw new Error(`Quest directory ${questDir} does not exist.`);
 	}
-	const writing = join(questDir, WRITING);
-	mkdirSync(writing, { recursive: true });
-	const lockPath = join(writing, LOCK_NAME);
+	const inWriting = join(questDir, WRITING, LOCK_NAME);
+	const runtime = runtimeLocks();
+	const lockPath = runtime
+		? join(runtime, `${folder.dev}-${folder.ino}.lock`)
+		: inWriting;
+	mkdirSync(runtime ?? join(questDir, WRITING), {
+		recursive: true,
+		mode: 0o700,
+	});
 	// Probe once before the loop so we don't wait the full
 	// retry budget on a clearly-stale lock.
 	if (existsSync(lockPath)) {
@@ -304,6 +365,7 @@ export function withQuestLock<T>(questDir: string, fn: () => T): T {
 	}
 	const held = acquireLock(lockPath);
 	try {
+		if (runtime) awaitLegacyRelease(inWriting);
 		awaitLegacyRelease(join(questDir, LEGACY_LOCK_NAME));
 		return fn();
 	} finally {
@@ -317,7 +379,7 @@ export function withQuestLock<T>(questDir: string, fn: () => T): T {
  * `/run/user/<uid>`, or there again given undefined, for tests.
  */
 export function useRunFolderForTests(folder: string | undefined): void {
-	void folder;
+	runFolderForTests = folder;
 }
 
 /** Fallback when we have a path but no enclosing quest dir. */
