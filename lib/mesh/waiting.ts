@@ -37,8 +37,10 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { isRecord } from "../internal/record.ts";
 import { questAddress } from "./address.ts";
 
 /** The version of a quest's file this writes. */
@@ -162,19 +164,35 @@ export function verdictsFile(folder: string): string {
 
 /** The daemon's verdicts, by `<quest>:<id>`, or none while it has none. */
 export function verdictsIn(path: string): Map<string, Verdict> {
-	const found = new Map<string, Verdict>();
 	try {
-		const read: unknown = JSON.parse(readFileSync(path, "utf8"));
-		const items =
-			typeof read === "object" && read !== null && "items" in read
-				? read.items
-				: undefined;
-		if (typeof items !== "object" || items === null) return found;
-		for (const [key, value] of Object.entries(items)) {
-			if (isVerdict(value)) found.set(key, value);
-		}
+		return verdictsOf(readFileSync(path, "utf8"));
 	} catch {
 		// No daemon, or a file being replaced: no verdicts yet.
+		return new Map();
+	}
+}
+
+/** The daemon's verdicts, as {@link verdictsIn}, read off the thread. */
+export async function verdictsOff(path: string): Promise<Map<string, Verdict>> {
+	try {
+		return verdictsOf(await readFile(path, "utf8"));
+	} catch {
+		// No daemon, or a file being replaced: no verdicts yet.
+		return new Map();
+	}
+}
+
+/** The verdicts a file's text holds; it throws on a torn one. */
+function verdictsOf(text: string): Map<string, Verdict> {
+	const found = new Map<string, Verdict>();
+	const read: unknown = JSON.parse(text);
+	const items =
+		typeof read === "object" && read !== null && "items" in read
+			? read.items
+			: undefined;
+	if (typeof items !== "object" || items === null) return found;
+	for (const [key, value] of Object.entries(items)) {
+		if (isVerdict(value)) found.set(key, value);
 	}
 	return found;
 }
@@ -189,7 +207,21 @@ export function applyVerdicts(
 	verdicts: ReadonlyMap<string, Verdict>,
 	now = new Date(),
 ): { items: WaitingItem[]; changed: boolean } {
-	const held = waitingOf(folder, quest);
+	const found = withVerdicts(quest, waitingOf(folder, quest), verdicts);
+	if (found.changed) write(folder, quest, found.items, now);
+	return found;
+}
+
+/**
+ * What `held` would be with the daemon's verdicts applied, and whether
+ * they change it, writing nothing: what is done goes, what is ready is
+ * marked so.
+ */
+export function withVerdicts(
+	quest: string,
+	held: readonly WaitingItem[],
+	verdicts: ReadonlyMap<string, Verdict>,
+): { items: WaitingItem[]; changed: boolean } {
 	let changed = false;
 	const items = held.flatMap((one): WaitingItem[] => {
 		const verdict = verdicts.get(`${quest}:${one.id}`);
@@ -206,7 +238,6 @@ export function applyVerdicts(
 		}
 		return [one];
 	});
-	if (changed) write(folder, quest, items, now);
 	return { items, changed };
 }
 
@@ -291,20 +322,46 @@ export function waitingFile(folder: string, quest: string): string {
 /** What a quest has waiting now, oldest first. */
 export function waitingOf(folder: string, quest: string): WaitingItem[] {
 	try {
-		const read: unknown = JSON.parse(
-			readFileSync(waitingFile(folder, quest), "utf8"),
-		);
-		const items = (read as { items?: unknown } | null)?.items;
-		return Array.isArray(items)
-			? items.filter(isWaitingItem).map((one) => ({
-					...one,
-					doneWhen: one.doneWhen ?? BY_PERSON,
-				}))
-			: [];
+		return itemsOf(readFileSync(waitingFile(folder, quest), "utf8"));
 	} catch {
 		// No file, or one being replaced: nothing waits.
 		return [];
 	}
+}
+
+/**
+ * What a quest has waiting now, as {@link waitingOf}, read off the
+ * thread: a host's settle clock reads it each minute for every
+ * conversation that raised something. Only no file means nothing
+ * waits; it throws on one it can't read or parse, since a clock told
+ * nothing waits would tell its session the person had settled it all.
+ */
+export async function waitingOff(
+	folder: string,
+	quest: string,
+): Promise<WaitingItem[]> {
+	const text = await readFile(waitingFile(folder, quest), "utf8").catch(
+		(error: unknown) => {
+			if (isRecord(error) && error.code === "ENOENT") return undefined;
+			throw error;
+		},
+	);
+	return text === undefined ? [] : itemsOf(text);
+}
+
+/** The items a quest's file's text holds; it throws on a torn one. */
+function itemsOf(text: string): WaitingItem[] {
+	const read: unknown = JSON.parse(text);
+	const items =
+		typeof read === "object" && read !== null && "items" in read
+			? read.items
+			: undefined;
+	return Array.isArray(items)
+		? items.filter(isWaitingItem).map((one) => ({
+				...one,
+				doneWhen: one.doneWhen ?? BY_PERSON,
+			}))
+		: [];
 }
 
 /**

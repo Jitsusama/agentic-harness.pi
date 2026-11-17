@@ -493,13 +493,23 @@ export function createHearing(m: MeshState, f: Handing) {
 	const lookAround = async () => {
 		const everyone = await m.presences.listed();
 		await countLive(everyone);
-		m.peer?.refresh(everyone);
-		identity();
-		// This session's inboxes never hold back another peer's wake.
+		// Neither step, nor this session's inboxes, holds back another
+		// peer's wake: a full disk fails the one each minute.
+		apart(() => m.peer?.refresh(everyone));
+		apart(identity);
 		await m.steering?.look().catch(takenAtNextLook);
 		// A parked peer told to close or carry is started again to do it.
 		if (m.paths.steer !== undefined) {
 			await wakeSteered(everyone, m.paths.steer, isParked, askWake);
+		}
+	};
+
+	/** A step of the minute's look, run whatever the steps before it did. */
+	const apart = (step: () => void) => {
+		try {
+			step();
+		} catch {
+			// Tried again at the next minute's look.
 		}
 	};
 

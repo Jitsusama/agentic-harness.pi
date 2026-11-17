@@ -1,11 +1,13 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	expiredText,
 	keepLooks,
 } from "../../../extensions/mesh-workflow/looks-clock.ts";
+import { keepLooksFor } from "../../../extensions/mesh-workflow/peer/looks.ts";
 import { looksIn, pointAt, SHOWING_LASTS_MS } from "../../../lib/mesh/looks.ts";
 
 let dir: string;
@@ -65,5 +67,31 @@ describe("the looks clock", () => {
 
 		expect(expiredText([]), "nothing to say").toBeUndefined();
 		expect(expiredText([look])).toContain('"The narrow bar"');
+	});
+
+	it("changes nothing for a session that went while its tick read", async () => {
+		const owner = { session: "S1", quest: "Q1" };
+		pointAt(dir, { ...shows, kind: "file", target: "/notes.md" }, owner, t0);
+		const told: unknown[] = [];
+		const pi: Pick<ExtensionAPI, "exec" | "sendMessage"> = {
+			exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
+			sendMessage: (message) => {
+				told.push(message);
+			},
+		};
+		const ended = () => false;
+		let standing = true;
+
+		const reading = keepLooksFor(pi, dir, owner, ended, () => standing);
+		standing = false;
+		await reading;
+		expect(looksIn(dir)[0]?.state, "left for its next session").toBe("waiting");
+		expect(told, "nobody to tell").toEqual([]);
+
+		await keepLooksFor(pi, dir, owner, ended, () => true);
+		expect(looksIn(dir)[0]?.state, "expired by a session there").toBe(
+			"expired",
+		);
+		expect(told, "and told").toHaveLength(1);
 	});
 });

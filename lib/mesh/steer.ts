@@ -506,7 +506,9 @@ function claim(inbox: string, name: string, taker: string): string | undefined {
 
 /**
  * The steer taken to `taking`, which read `raw`, added to `taken` and
- * let go, or set aside as bad when it is not a steer.
+ * let go, or set aside as bad when it is not a steer. A claim that can't
+ * be let go or set aside costs only itself: what it read is still
+ * delivered or said to be bad, and the steers around it still are.
  */
 function settle(
 	inbox: string,
@@ -518,9 +520,18 @@ function settle(
 	const steer = steerFrom(raw, name);
 	if (steer) {
 		taken.steers.push(steer);
-		unlinkSync(taking);
+		leave(() => unlinkSync(taking));
 	} else {
-		renameSync(taking, `${join(inbox, name)}${BAD}`);
 		taken.bad.push(name);
+		leave(() => renameSync(taking, `${join(inbox, name)}${BAD}`));
+	}
+}
+
+/** Let a claimed file go, or set it aside, as `step` does, if the disk allows. */
+function leave(step: () => void): void {
+	try {
+		step();
+	} catch {
+		// Left under its claim name, which no look reads again.
 	}
 }

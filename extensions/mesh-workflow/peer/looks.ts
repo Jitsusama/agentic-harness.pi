@@ -150,15 +150,19 @@ export function tellLooksExpired(
  * step reads it again, at once, only when it has something to write,
  * so it never writes over what another session changed meanwhile.
  * Whether a look's quest ended is still read on the thread: a stat of
- * its README each tick, kept parsed while it stands.
+ * its README each tick, kept parsed while it stands. A tick whose
+ * session went while it read, as `stands` says, changes nothing, since
+ * the looks it would expire could no longer be told to the agent.
  */
 export async function keepLooksFor(
 	pi: Pick<ExtensionAPI, "exec" | "sendMessage">,
 	dir: string,
 	owner: Pointer,
 	ended: (quest: string) => boolean,
+	stands: () => boolean,
 ): Promise<void> {
 	const looks = await looksListed(dir);
+	if (!stands()) return;
 	const due = looksDue(looks, (look) => heldBy(look, owner), ended);
 	if (due.ended) endLooksOfQuests(dir, ended);
 	// What ended quests left is read again rather than asked about.
