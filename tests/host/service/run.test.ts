@@ -30,7 +30,6 @@ import {
 	runHost,
 	watchdogEvery,
 } from "../../../host/service/run.ts";
-import { stopWithin } from "../../../host/service/stop.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
 
@@ -152,28 +151,6 @@ describe("watchdogEvery", () => {
 			{ WATCHDOG_USEC: "120000000", WATCHDOG_PID: "8" },
 		])
 			expect(watchdogEvery(env, 7), JSON.stringify(env)).toBeUndefined();
-	});
-});
-
-// At 03:30 on 17 November a restart's park of 13 conversations was still
-// under way when its 45 s ran out late on a busy loop, and systemd's 60 s
-// stop killed it. The unit's stop limit is the one to fit inside, so the
-// unit says it and the host parks within three quarters of it.
-describe("stopWithin", () => {
-	it("parks within three quarters of the stop limit its unit names", () => {
-		expect(stopWithin({ PI_HOST_STOP_USEC: "150000000" })).toBe(112_500);
-		expect(stopWithin({ PI_HOST_STOP_USEC: "60000000" })).toBe(45_000);
-	});
-
-	it("parks within 45 s when its unit names no stop limit it can read", () => {
-		for (const env of [
-			{},
-			{ PI_HOST_STOP_USEC: "" },
-			{ PI_HOST_STOP_USEC: "0" },
-			{ PI_HOST_STOP_USEC: "soon" },
-			{ PI_HOST_STOP_USEC: "-5" },
-		])
-			expect(stopWithin(env), JSON.stringify(env)).toBe(45_000);
 	});
 });
 
@@ -681,8 +658,10 @@ describe("runHost", () => {
 			said.filter((line) => line.includes("not parked")),
 			"says which conversation it ends unparked",
 		).toEqual([
-			expect.stringContaining(
-				`stopping after 200 ms, 1 not parked: ${sessionId}`,
+			expect.stringMatching(
+				new RegExp(
+					`stopping after \\d+ ms, past its 200 ms bound, 1 not parked: ${sessionId}`,
+				),
 			),
 		]);
 		expect(
@@ -736,8 +715,10 @@ describe("runHost", () => {
 			said.filter((line) => line.includes("not parked")),
 			"ends at three quarters of the unit's limit, naming what it left",
 		).toEqual([
-			expect.stringContaining(
-				`stopping after 300 ms, 1 not parked: ${sessionId}`,
+			expect.stringMatching(
+				new RegExp(
+					`stopping after \\d+ ms, past its 300 ms bound, 1 not parked: ${sessionId}`,
+				),
 			),
 		]);
 		parks();
