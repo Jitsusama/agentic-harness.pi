@@ -335,10 +335,14 @@ describe("the quests the desktop lists", () => {
 		expect(unnamed).not.toHaveProperty("swarm");
 	});
 
-	it("leave the ended ones to their own list, by id, each starting in its newest session's folder", () => {
+	it("leave the ended ones to their own list, by id, each starting in its newest session's folder and naming who held it", () => {
 		const newer = mkdtempSync(join(tmpdir(), "quest-index-newer-"));
 		try {
-			quest(MISSION, "status: active", "# Bootstrap optimus");
+			quest(
+				MISSION,
+				"status: active\norchestrator: true",
+				"# Bootstrap optimus",
+			);
 			quest(
 				OLD,
 				[
@@ -368,6 +372,7 @@ describe("the quests the desktop lists", () => {
 					kind: "sidequest",
 					"quest.kind": "sidequest",
 					status: "retired",
+					sessions: [],
 					start: "/home/someone",
 					updated: "2026-01-01T03:00:00Z",
 				},
@@ -381,6 +386,10 @@ describe("the quests the desktop lists", () => {
 					"quest.kind": "quest",
 					status: "concluded",
 					parent: MISSION,
+					// What the node proves a held session's orchestrator by, as
+					// an open quest's record says it (KP0L6A, 17 November).
+					orchestrator: "MISSON",
+					sessions: ["s-first", "s-last"],
 					start: newer,
 					updated: "2026-01-01T03:00:00Z",
 				},

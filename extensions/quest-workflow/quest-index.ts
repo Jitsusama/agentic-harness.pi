@@ -22,8 +22,11 @@
  *
  * The concluded and retired quests, which the launcher finds as it is
  * typed in, are kept apart in `ended.json`, with less of each: no
- * documents, sessions or session to reopen, which an ended quest has no
- * more of. They are many more than the open ones and change only as a
+ * documents or session to reopen, which an ended quest has no more of.
+ * Each still names the sessions it last attached and the orchestrator
+ * above it, as an open quest's record does, since a session it held can
+ * outlive it and the node proves who may end that hold by them (KP0L6A,
+ * 17 November). They are many more than the open ones and change only as a
  * quest ends or reopens, so a quest action rewrites only the short list
  * of open ones, and the realm's node, which serves both, reads the long
  * one again only when it changed.
@@ -143,6 +146,10 @@ export interface EndedQuestEntry {
 	readonly "quest.kind": string;
 	readonly status: string;
 	readonly parent?: string;
+	/** The address of the orchestrator it answered to, when one was above it. */
+	readonly orchestrator?: string;
+	/** The sessions it last attached, by id, running or not. */
+	readonly sessions: readonly string[];
 	/** The folder a new session for it opens in. */
 	readonly start: string;
 	readonly updated: string;
@@ -337,6 +344,7 @@ export function endedQuestsIn(
 				})),
 				ancestors: ancestorTreesOf(fm.parent ?? undefined, read),
 			}).cwd;
+			const by = orchestrationOf(id, read).by;
 			return {
 				id,
 				address: questAddress(id),
@@ -347,6 +355,8 @@ export function endedQuestsIn(
 				"quest.kind": fm.kind,
 				status: fm.status,
 				...(fm.parent ? { parent: fm.parent } : {}),
+				...(by ? { orchestrator: questAddress(by) } : {}),
+				sessions: fm.sessions.map((session) => session.id),
 				start,
 				updated: fm.updated,
 			};
