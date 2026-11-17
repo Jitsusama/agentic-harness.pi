@@ -69,7 +69,7 @@ import {
 	snapshot,
 	takeStoppedFromOutside,
 } from "../../lib/internal/away/state.ts";
-import type { Notice } from "../../lib/internal/notify.ts";
+import type { Notice } from "../../lib/internal/away/notify.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import {
 	askWakers,

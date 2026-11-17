@@ -25,7 +25,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FENCE_RUN_HELP } from "../../lib/internal/fence-run.ts";
+import { FENCE_RUN_HELP } from "../../lib/internal/fence/fence-run.ts";
 import { KEEPING_STUB } from "../../lib/internal/shell/kept.ts";
 
 const HARNESS = join(import.meta.dirname, "..", "..");

@@ -17,7 +17,7 @@
  * quietly, since nothing is broken; it only rests early.
  */
 
-import type { Notice } from "../../lib/internal/notify.ts";
+import type { Notice } from "../../lib/internal/away/notify.ts";
 import { count } from "../../lib/ui/count.ts";
 import { endingOf } from "./keep-going.ts";
 

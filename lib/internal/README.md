@@ -8,7 +8,8 @@ may import from here, and any of it may change without notice.
 
 - **`away/`**: whether the person is away from the machine, shared
   by every session on it and read by the gates without importing
-  `away-workflow`.
+  `away-workflow`, and reaching the person there through a desktop
+  notification (`notify.ts`).
 - **`carry/`**: carrying a quest's work to another of the person's
   machines: a session's trees, as bundles and patches, its file, its
   fence and its quest's remembered facts put in the quest's handover
@@ -25,15 +26,19 @@ may import from here, and any of it may change without notice.
 - **`cost-meter/`**: what the status line says about money and
   context, shared by the extension that knows the figures and the
   widget that lays them out.
-- **`gate/`**: the session-backed store of violation signatures the
-  prose, section and Slack gates have already blocked.
+- **`errors/`**: telling one failure from another: a failed model
+  call a later try could get past, and pi's stale-context error.
+- **`fence/`**: the agent fence: its mounts, the copies it binds
+  over files, its doors, the routes a refused command is told, its
+  Mac profile, its census and its pre-flight checks.
 - **`github/`**: splice-based attribution for `gh pr` and
   `gh issue` commands, re-exported from core.
 - **`guardian/`**: what the public `guardian/` contract leaves out:
   `guards.ts`, the catalogue every guard here is declared from; the
   last-outcome registry `/guards` reads; the commit hook and
-  trailer; and the entity review the commit, PR and issue guardians
-  share.
+  trailer; the entity review the commit, PR and issue guardians
+  share; and the session-backed store of violation signatures the
+  prose, section and Slack gates have already blocked.
 - **`install/`**: whether the installed dependencies and checkout
   are the ones on disk, and which builds the install skipped, for
   `install-check-workflow` and `pnpm load-check`, read once for
@@ -41,6 +46,9 @@ may import from here, and any of it may change without notice.
 - **`links/`**: what a click on pi's fullscreen lands on: the
   places plain text names, where each opens, and the one wrap of
   pi-tui's press that lets `link-click-widget` open them.
+- **`logs/`**: session logs read back: every log a span holds, pi's
+  entries as plain turns, and searching a session's own log so what
+  a compaction dropped stays within reach.
 - **`people/`**: the built-in handle types (Slack, GitHub, email),
   the resolvers and where people are stored.
 - **`pineapple/`**: Joel's safe word at the tool call: the stops
@@ -52,8 +60,6 @@ may import from here, and any of it may change without notice.
   may run, by memory, VM limits and who is waiting on it.
 - **`quest/`**: everything behind the quest tool: discovery, the
   documents' fields and edits, sessions and trees.
-- **`recall/`**: searching a session's own log, so what a compaction
-  dropped stays within reach.
 - **`refs/`**: the built-in reference types: GitHub issues, pull
   requests and repos, Slack messages and threads.
 - **`registry/`**: pluggable registries kept on `globalThis` under a
@@ -62,6 +68,10 @@ may import from here, and any of it may change without notice.
 - **`reload/`**: following the install, reloading a session onto
   a worktree, and telling which extension links moved since the
   process started, which only a new process loads afresh.
+- **`sandbox/`**: what both sandboxes build on beside `sandbox.ts`:
+  the shell text, which tree a fenced command stands in, the check
+  pi's own file tools are held to, and the brokers' hour-long cloud
+  and GitHub tokens for the strict sandbox.
 - **`session/`**: rolling a session over into a fresh log that
   keeps only what the model still sees, on the model it ran on, and
   reading a log's header to tell a log that carries a session on
@@ -86,7 +96,8 @@ may import from here, and any of it may change without notice.
   pi never forks itself to start one; what a bash call keeps of
   itself on disk, so a move can carry it to a host, which watches it
   there and says its end in the words its own pi would have; and the
-  reaper that kills what a call left, by its mark.
+  reaper that kills what a call left, by its mark; and the shell
+  habits the standing rules forbid (`shell-habits.ts`).
 - **`stray/`**: catching writes that would land behind pi's screen.
 - **`verbs/`**: the verbs server the launcher keeps a connection to:
   each verb as its markdown file says it, the prompt it builds over a
@@ -114,138 +125,25 @@ may import from here, and any of it may change without notice.
 - **`claude-plan.ts`**: where a Claude plan's five-hour and weekly
   allowances stand, read from what the Claude Code provider says
   after each turn, for spend-workflow's budget item.
-- **`fence.ts`**: the agent fence, as bubblewrap's and landrun's
-  arguments: each command's own processes and devices, no desktop,
-  and the settings, startup files and git's code read-only; what it
-  never lets through, the one SSH agent it lets in (core's proxy),
-  the private keys it empties, and where it keeps pi's own file tools
-  from.
-- **`fence-command.ts`**: the shell text that runs a command in the
-  fence, with every variable exported but those naming the desktop,
-  its doors to Nix, SSH's agent and GitHub, and the fence's own
-  `wl-copy` and `wl-paste` ahead on the path.
-- **`fence-github.ts`**: the GitHub door (core's
-  `modules/pi/github-door`) as the fence uses it: the session's own
-  folder bound in read-only, gh and git sent through the door's relay
-  with a placeholder token and the session's trust bundle, and the
-  door's control socket kept out.
-- **`fence-disk.ts`**: the disk as the fence reads it, what a path
-  is and what a folder holds, which a test hands in a disk of its own
-  for.
-- **`fence-docker.ts`**: whether Docker's settings hold a login
-  or name the keychain's helper, and are then emptied inside.
-- **`fence-hidden.ts`**: what the fence keeps from every command,
-  read from `data/fence-hidden.json`, which core's secret asks read
-  too.
-- **`fence-gpu.ts`**: the GPU's render nodes, bound into every
-  fence's /dev, and never a card node.
-- **`fence-git-root.ts`**: a worktree's shared git folder, read-only
-  inside, and watched from pi's process as a second guard that removes
-  any name planted that sends git outside elsewhere, and stops the
-  session that could have planted it.
-- **`fence-git-route.ts`**: the route a fenced git command is told
-  when the read-only shared git folder fails it (a branch or tag
-  delete, `git pack-refs`, pruning a packed ref), a tree it doesn't
-  hold, signing or World's Delta credential, each one counted.
-- **`fence-route.ts`**: the route a fenced command is told when the
-  fence refused it something not git's: a pass kept, or a write
-  outside what the session holds, each one counted.
-- **`fence-direnv.ts`**: direnv inside the fence, which trusts the
-  work trees and quests' scratch folders through settings of its own,
-  never the person's allow list, and the route a refused `.envrc`
-  is told.
-- **`fence-broker-trees.ts`**: the work tool's trees read-only
-  inside but the session's own, their `.git` files aside, since git
-  outside runs in every one.
-- **`fence-worktrees.ts`**: which worktrees a fenced session writes,
-  the one it stands in and each other it holds, so git and pi's file
-  tools work in a held tree from a command started elsewhere.
-- **`fence-clipboard.ts`**: the fence's own `wl-copy` and
-  `wl-paste`, first on a fenced command's path, which ask core's
-  clipboard door outside rather than a display.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
   tool, sandbox and session but never what was asked for.
-- **`fence-lifted.ts`**: the fence lifted from every session but a
-  fleet's subagents until it relands, since the default from 13
-  November stayed in each running pi's own environment.
 - **`fence-stage.ts`**: which pis the fence takes by default in its
   first stage (subagents, fresh `quest spawn` sessions and those listed
   by hand, under pi's state, `scripts/fence-stage.ts`), and how
   `PI_SANDBOX` reads: `off` runs a session as it is, and an empty or
   unknown value reads as the fence, saying so once.
-- **`fence-run.ts`**: one command in the fence for a caller outside
-  pi, such as the mycelium node's `runs` prefix: the agent fence, or
-  the strict profile inside the fence's bubblewrap root, refusing a
-  folder whose writes would reach what runs outside
-  (`scripts/pi-fence.ts`). On a Mac it runs the command under
-  sandbox-exec instead.
-- **`fence-seatbelt.ts`**: the fence on a Mac: the same mounts as
-  a sandbox-exec profile, rule for rule, mach services allowed only
-  by name, its own processes, the sockets and ports it is given, and
-  the Mac's own secrets hidden.
-- **`fence-census.ts`**: every live session on the machine, judged
-  by what its commands' processes show rather than what its presence
-  claims: proven fenced (NoNewPrivs, mounts of its own, and nothing
-  the fence hides in sight), claimed by its environment while it runs
-  nothing and seen fenced in the last day, or unfenced
-  (`pi-fence census`).
-- **`fence-census-here.ts`**: the census run on this machine, over
-  every realm's presences and what earlier censuses saw, loaded by
-  `pi-fence` only when the census is asked for, so its run path needs
-  no package.
-- **`fence-preflight.ts`**: how the fence's pre-flight runs a check,
-  fenced as a session's command or outside, and turns verdicts into a
-  report and an exit status (`scripts/fence-preflight.ts`).
-- **`fence-preflight-checks.ts`**: the checks themselves: what the
-  person and agents must still be able to do with the fence on, and
-  what must stay refused.
-- **`fence-preflight-desktop.ts`**: the checks of the person's
-  desktop: a fenced copy and paste with his selection kept, and a
-  fenced window opening behind, each leaving his focus where it was.
-
-- **`fence-preflight-git.ts`**: the checks of git in a fenced
-  worktree: its everyday work still goes, and git outside never sees a
-  name planted in the shared git folder.
-- **`fence-home.ts`**: what in the home folder runs code as the
-  person later, which the fence keeps read-only: settings, startup
-  files and programs' entries whose settings name a command, with
-  the caches within them bound back and the programs given a home of
-  their own in the sandbox's cache.
-- **`fence-seed.ts`**: those own homes seeded from what the person's
-  programs already downloaded (cargo's crates, index and git clones),
-  copied one way by reflink, again at most every ten minutes.
-- **`fence-copy.ts`**: where the fence keeps the copies it binds over
-  files inside, pi's folder in the runtime folder, written when they
-  change.
-- **`fence-npmrc.ts`**: the copy of `~/.npmrc` the fence binds over it,
-  every line but its registry tokens'.
-- **`fence-ssh.ts`**: the copy of the system's SSH settings the fence
-  binds over them, each included file written in, since ssh inside
-  refuses root's files as nobody's.
 - **`file-reads.ts`**: what each file in a folder said when the
   process last read it, asked again only once the file changes, so a
   ledger asked at every conversation's start reads only what moved.
 - **`folder-mirror.ts`**: a folder's files and their parses, kept for a
   host's synchronous readers and read again off the thread each second
   while asked, so a stalled disk holds none of its conversations.
-- **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
-  gcloud-broker mints for its agents' account, asked for in the
-  background every few minutes for the strict sandbox.
-- **`github-broker.ts`**: the hour-long GitHub tokens the machine's
-  github-broker gives the strict sandbox, asked for every few minutes.
 - **`machine.ts`**: this machine's name as its realm's other
   machines say it, its hostname's short form, and what may be one.
-- **`model-failure.ts`**: whether a failed model call is one a
-  later try could get past, by pi's own judgement, and the wait
-  before each try, for `model-retry-workflow` and the compaction
-  summary.
 - **`nearest.ts`**: the known word nearest one typed wrongly, by
   edit distance, which a command or tool says back when it doesn't
   know a word: the quest tool's actions, pi-verbs' commands.
-- **`notify.ts`**: reaching the person at the machine through a
-  desktop notification. It decides how; the mesh decides when.
-  `PI_NOTIFY=off` silences it.
 - **`offload-exemption.ts`**: the fence's one exemption, a
   `nix-offload there` call let out to run as the person: what may go
   out, and the environment and git it is given there, through
@@ -267,23 +165,10 @@ may import from here, and any of it may change without notice.
   its work used, from the kernel's counters.
 - **`sandbox.ts`**: which sandbox a session asked for and the shell
   text that runs each command in it: the strict profile as landrun's
-  rules, and the agent fence from `fence.ts`.
-- **`sandbox-shell.ts`**: the shell text both sandboxes build on: a
-  word quoted for the shell, and the variable a command travels in.
-- **`sandbox-trees.ts`**: which tree a fenced command stands in, and
-  the git folder a call outside the fence is held to there.
-- **`sandbox-files.ts`**: the check `sandbox-file-interceptor` holds
-  pi's own file tools to, under either sandbox.
+  rules, and the agent fence from `fence/fence.ts`.
 - **`secrets.ts`**: the shapes a credential takes in a tool's output,
   and how one is replaced by a mark naming its kind, for the answers,
   the saved output and the stored results that hold them.
-- **`session-logs.ts`**: every session log a span holds, those still
-  on the machine and those only on Drive, read back through
-  session-backup's index one at a time and removed once read, for
-  the sensors that mine the logs.
-- **`shell-habits.ts`**: the shell habits the standing rules
-  forbid (output cut with tail, long sleeps, git stash), as
-  `shell-habit-interceptor` catches them.
 - **`single-flight.ts`**: one flight per key, which later callers
   join; work that coalesces, running once more after the run going
   for every call that came during it; and `loadOnce`, through which
@@ -293,8 +178,6 @@ may import from here, and any of it may change without notice.
 - **`spend-watch-budgets.ts`**: where every budget stands, its
   allowances in their own units, and the total across all AI spend,
   asked of `spend-watch budgets --json`, for the footer and `/budget`.
-- **`stale.ts`**: telling pi's stale-context error, after a reload
-  or session switch, from any other.
 - **`stamped-read.ts`**: a file's parse kept while its inode, mtime
   and size say it is the same file, read on the thread or off it, for
   the mesh's presence listings.
@@ -303,8 +186,6 @@ may import from here, and any of it may change without notice.
 - **`system-program.ts`**: finding a program that runs outside the
   sandbox (bwrap, landrun, nix-offload, env, pi-spawner) only in the
   system's own profile, through steps root alone can change.
-- **`transcript.ts`**: pi's session entries as the plain turns the
-  governance distiller reads.
 - **`tree-git.ts`**: where pi may run git outside the sandbox, and
   with which git folder: a tree only as its own files agree, and in a
   sandboxed session only in repositories the fence guards.

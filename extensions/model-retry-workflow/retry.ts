@@ -14,8 +14,8 @@ import {
 	failureLine,
 	MOST_TRIES,
 	waitBefore,
-} from "../../lib/internal/model-failure.ts";
-import { whileCurrent } from "../../lib/internal/stale.ts";
+} from "../../lib/internal/errors/model-failure.ts";
+import { whileCurrent } from "../../lib/internal/errors/stale.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
 import { footerMark } from "../../lib/ui/footer-mark.ts";
 

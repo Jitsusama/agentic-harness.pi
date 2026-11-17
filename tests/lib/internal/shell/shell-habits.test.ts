@@ -1,0 +1,314 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
+import { OFF } from "../../../../lib/internal/fence-stage.ts";
+import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox.ts";
+import {
+	mixedTurnRefusal,
+	shellEditRefusal,
+	sleepRefusal,
+	spinningPauseRefusal,
+	stashRefusal,
+	trackedShellEdits,
+	withoutOutputCut,
+} from "../../../../lib/internal/shell/shell-habits.ts";
+import {
+	stripHeredocBodies,
+	stripShellData,
+} from "../../../../lib/shell/index.ts";
+import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
+
+/** The command as the interceptor reads it. */
+const stripped = (command: string) =>
+	stripShellData(stripHeredocBodies(command));
+
+const uncut = (command: string) => withoutOutputCut(command, stripped(command));
+
+describe("a build's output cut with tail or head", () => {
+	it("is dropped from a test run", () => {
+		expect(uncut("pnpm exec vitest run tests/lib 2>&1 | tail -20")).toBe(
+			"pnpm exec vitest run tests/lib 2>&1",
+		);
+	});
+
+	it("is dropped from a build, by either spelling of the count", () => {
+		expect(uncut("cd core && cargo build --release | head -n 40")).toBe(
+			"cd core && cargo build --release",
+		);
+		expect(uncut("nix build .#checks.x86_64-linux.formatting | tail -3")).toBe(
+			"nix build .#checks.x86_64-linux.formatting",
+		);
+	});
+
+	it("is kept on anything but a build or a test run", () => {
+		expect(uncut("git log --oneline | head -5")).toBeUndefined();
+		expect(uncut("ls ~/.local/state | tail -2")).toBeUndefined();
+	});
+
+	it("is kept where the pipe is not the command's last", () => {
+		expect(uncut("pnpm test | tail -3; echo done")).toBeUndefined();
+	});
+
+	it("is kept where the pipe is inside quoted text", () => {
+		expect(uncut('echo "run pnpm test | tail -3"')).toBeUndefined();
+	});
+});
+
+describe("git stash", () => {
+	it("is refused when it saves work, in any spelling", () => {
+		for (const command of [
+			"git stash",
+			"git stash push -m wip",
+			"git stash -u",
+			"cd repo && git -C ../other stash save",
+		]) {
+			expect(stashRefusal(stripped(command)), command).toContain(
+				"work's branch action",
+			);
+		}
+	});
+
+	it("goes ahead when it reads or restores a stash", () => {
+		for (const command of [
+			"git stash list",
+			"git stash show -p",
+			"git stash pop",
+			"git stash apply stash@{1}",
+		]) {
+			expect(stashRefusal(stripped(command)), command).toBeUndefined();
+		}
+	});
+
+	it("is not read in a message that only mentions it", () => {
+		expect(
+			stashRefusal(stripped('git commit -m "never git stash here"')),
+		).toBeUndefined();
+	});
+});
+
+describe("sleep", () => {
+	it("is refused at ten seconds or more, in any unit", () => {
+		expect(sleepRefusal(stripped("sleep 30; cat log"))).toContain("30 s");
+		expect(sleepRefusal(stripped("make && sleep 2m"))).toContain("120 s");
+		expect(sleepRefusal(stripped("while true; do sleep 10; done"))).toContain(
+			"10 s",
+		);
+	});
+
+	it("goes ahead between short polls", () => {
+		expect(
+			sleepRefusal(
+				stripped(
+					"for i in $(seq 1 10); do [ -e done ] && break; sleep 5; done",
+				),
+			),
+		).toBeUndefined();
+	});
+
+	it("is not read inside a heredoc or a string", () => {
+		expect(
+			sleepRefusal(stripped("cat <<'EOF' > x.sh\nsleep 60\nEOF")),
+		).toBeUndefined();
+		expect(sleepRefusal(stripped('echo "sleep 60"'))).toBeUndefined();
+	});
+});
+
+describe("a pause that spins a core", () => {
+	it("is refused when read waits on /dev/zero or /dev/urandom", () => {
+		expect(
+			spinningPauseRefusal(
+				stripped(
+					"until gh pr view 3 | grep -q MERGED; do read -t 120 < /dev/zero; done",
+				),
+			),
+		).toContain("/dev/zero");
+		expect(
+			spinningPauseRefusal(stripped("read -r -t 30 _ </dev/urandom || true")),
+		).toContain("/dev/urandom");
+	});
+
+	it("is refused when yes runs into /dev/null", () => {
+		expect(
+			spinningPauseRefusal(stripped("timeout 60 yes > /dev/null; make")),
+		).toContain("yes");
+	});
+
+	it("names the pause that rests", () => {
+		expect(spinningPauseRefusal(stripped("read -t 5 < /dev/zero"))).toContain(
+			"background: true",
+		);
+	});
+
+	it("goes ahead for reads and yes that do real work", () => {
+		for (const command of [
+			"head -c 1M /dev/zero > disk.img",
+			"dd if=/dev/urandom of=key bs=32 count=1",
+			"yes | pnpm install",
+			"read -r line < input.txt",
+			'echo "read -t 9 < /dev/zero"',
+		]) {
+			expect(
+				spinningPauseRefusal(stripped(command)),
+				`${command} was refused`,
+			).toBeUndefined();
+		}
+	});
+});
+
+describe("a tracked file rewritten from the shell", () => {
+	let repo: string;
+	const home = "/home/nobody";
+	const edits = (command: string, cwd = "/") =>
+		trackedShellEdits(command, { cwd, home });
+
+	beforeAll(async () => {
+		repo = await freshRepo("shell-edit");
+		writeFileSync(join(repo, "a.test.ts"), "it();\n");
+		await git(repo, "add", "a.test.ts");
+		await git(repo, "commit", "-q", "-m", "a test");
+	});
+	afterAll(() => disposeRepo(repo));
+	// The fixture is a temp repo, not a tree the work tool cut, so a
+	// fenced session's git would refuse to read it.
+	beforeEach(() => vi.stubEnv(SANDBOX_VARIABLE, OFF));
+	afterEach(() => vi.unstubAllEnvs());
+
+	it("is found by each way the shell rewrites a file", async () => {
+		const file = join(repo, "a.test.ts");
+		for (const command of [
+			`cat >> ${file} <<'EOF'\nit();\nEOF`,
+			`echo x > ${file}`,
+			`printf x | tee -a ${file}`,
+			`sed -i 's/a/b/' ${file}`,
+			`perl -pi -e 's/a/b/' ${file}`,
+		]) {
+			expect(await edits(command), command).toEqual([file]);
+		}
+	});
+
+	it("is placed where the command changes directory to", async () => {
+		expect(
+			await edits(`cd ${repo} && cat >> a.test.ts <<'EOF'\nx\nEOF`),
+		).toEqual([join(repo, "a.test.ts")]);
+	});
+
+	// Asked before every bash call, and a git started with execFileSync
+	// held a host's every conversation while it answered: 13 November's
+	// guard test found one asked of a log in no repo.
+	it("leaves the loop free while it asks", async () => {
+		let turned = false;
+		setImmediate(() => {
+			turned = true;
+		});
+
+		const found = await edits(`echo x > ${join(repo, "a.test.ts")}`);
+
+		expect(found).toEqual([join(repo, "a.test.ts")]);
+		expect(turned, "the loop turned while git answered").toBe(true);
+	});
+
+	it("leaves alone a new file, scratch, and a mere read", async () => {
+		for (const command of [
+			`cat > ${join(repo, "zz-debug.test.ts")} <<'EOF'\nx\nEOF`,
+			`cd ${repo} && pnpm test > /tmp/run.log 2>&1`,
+			`grep -n it ${join(repo, "a.test.ts")} > /dev/null`,
+			`echo "> ${join(repo, "a.test.ts")}"`,
+		]) {
+			expect(await edits(command), command).toEqual([]);
+		}
+	});
+
+	// 4 to 8 November: 15 of the 38 overrides whose command was found
+	// were a touch, to make cargo rebuild what it had cached.
+	it("leaves alone a touch, which changes when a file changed and not what it holds", async () => {
+		for (const command of [
+			`touch ${join(repo, "a.test.ts")}`,
+			`cd ${repo} && touch *.ts && pnpm test > /tmp/run.log 2>&1`,
+		]) {
+			expect(await edits(command), command).toEqual([]);
+		}
+	});
+
+	it("still finds a rewrite of a file the same command touches", async () => {
+		const file = join(repo, "a.test.ts");
+		expect(await edits(`touch ${file} && echo x > ${file}`)).toEqual([file]);
+	});
+
+	it("names each file and the tools to use instead", () => {
+		const reason = shellEditRefusal(["/r/a.ts", "/r/b.ts"]);
+		expect(reason).toContain("`/r/a.ts`, `/r/b.ts`");
+		expect(reason).toContain("Use the edit tool");
+	});
+});
+
+describe("a VM run chained after other heavy work", () => {
+	// 28 October: 32 of 41 VM-test jobs held their VM slot through a build
+	// or changed-checks run before the VM, 9.6 of 10.6 slot hours.
+	it("refuses changed-checks then subtests, printing the split with the VM last", () => {
+		const reason = mixedTurnRefusal(
+			"nix develop -c run-subtests vm-desktop-launcher-answers warmth > $L/s.log 2>&1 && nix develop -c changed-checks --no-vm > $L/cc.log 2>&1",
+		);
+
+		expect(reason).toBeDefined();
+		expect(reason).toContain("own call");
+		const listed = (reason ?? "")
+			.split("\n")
+			.filter((line) => /^\d\./.test(line));
+		expect(listed).toEqual([
+			"1. `nix develop -c changed-checks --no-vm > $L/cc.log 2>&1` (a build)",
+			"2. `nix develop -c run-subtests vm-desktop-launcher-answers warmth > $L/s.log 2>&1` (a VM test)",
+		]);
+	});
+
+	it("refuses a lint build then a VM check's build", () => {
+		expect(
+			mixedTurnRefusal(
+				"nix build .#checks.x86_64-linux.formatting\nnix build .#checks.x86_64-linux.vm-desktop-works",
+			),
+		).toContain("(a VM check)");
+	});
+
+	it("refuses building a test's driver and then running it", () => {
+		expect(
+			mixedTurnRefusal(
+				"nix build .#checks.x86_64-linux.vm-desktop-works.driver && ./result/bin/nixos-test-driver",
+			),
+		).toBeDefined();
+	});
+
+	it("lets through builds alone, VMs alone, and one build naming VM checks among others", () => {
+		expect(
+			mixedTurnRefusal(
+				"cd ~/src/core.nix && changed-checks --no-vm > $L/cc.log 2>&1",
+			),
+		).toBeUndefined();
+		expect(
+			mixedTurnRefusal(
+				"run-subtests vm-desktop-launcher-answers warmth; run-subtests vm-desktop-starts-clean",
+			),
+		).toBeUndefined();
+		expect(
+			mixedTurnRefusal(
+				"nix build --keep-going .#checks.x86_64-linux.formatting .#checks.x86_64-linux.vm-desktop-works",
+			),
+		).toBeUndefined();
+		expect(mixedTurnRefusal("git status && ls")).toBeUndefined();
+	});
+
+	it("reads a heredoc's words as words, not steps", () => {
+		expect(
+			mixedTurnRefusal(
+				"git commit -F - <<'EOF'\nfix: run-subtests after changed-checks\nEOF\nchanged-checks --no-vm",
+			),
+		).toBeUndefined();
+	});
+});

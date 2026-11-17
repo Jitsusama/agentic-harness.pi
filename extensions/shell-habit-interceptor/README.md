@@ -45,4 +45,4 @@ Each guard redirects: the agent hears what to do instead, and sending
 the same command again goes ahead. Each reads the command with heredoc
 bodies and quoted text stripped, so a script or a message that only
 mentions one of these is left alone. The detectors are in
-[`lib/internal/shell-habits.ts`](../../lib/internal/shell-habits.ts).
+[`lib/internal/shell/shell-habits.ts`](../../lib/internal/shell/shell-habits.ts).

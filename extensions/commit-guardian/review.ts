@@ -25,7 +25,7 @@ import {
 	type CommandGuardian,
 	type GuardianResult,
 } from "../../lib/guardian/types.ts";
-import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
+import { sessionGateDeps } from "../../lib/internal/guardian/session-deps.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { currentVerificationFailure } from "../../lib/internal/verification/signal.ts";
 import { promptSingle } from "../../lib/ui/panel.ts";

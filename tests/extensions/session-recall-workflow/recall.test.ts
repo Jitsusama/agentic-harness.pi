@@ -14,7 +14,7 @@ import {
 	SUMMARY_CONTRIBUTIONS,
 } from "../../../lib/compaction/index.ts";
 import { sessionResultDir } from "../../../lib/core/result/index.ts";
-import { PAGE_HITS } from "../../../lib/internal/recall/session.ts";
+import { PAGE_HITS } from "../../../lib/internal/logs/recall.ts";
 import { resultSession } from "../../support/result-session.ts";
 
 const ctx = resultSession();

@@ -18,7 +18,7 @@ import {
 	type NotifyDeps,
 	notify,
 	withdrawNotice,
-} from "../../lib/internal/notify.ts";
+} from "../../lib/internal/away/notify.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 
 /** What a notice is about: one of each kind is up at a time. */

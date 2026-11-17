@@ -10,7 +10,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { lastReply } from "../../lib/internal/model-failure.ts";
+import { lastReply } from "../../lib/internal/errors/model-failure.ts";
 import { isSubagent } from "../../lib/mesh/hand.ts";
 import { createRetrier } from "./retry.ts";
 

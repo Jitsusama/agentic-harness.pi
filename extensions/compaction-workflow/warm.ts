@@ -93,7 +93,7 @@ import {
 import { processGlobal } from "../../lib/internal/process-global.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { scrubSecrets } from "../../lib/internal/secrets.ts";
-import { isStaleContext } from "../../lib/internal/stale.ts";
+import { isStaleContext } from "../../lib/internal/errors/stale.ts";
 import {
 	pendingWarmsDir,
 	sweepPendingWarms,

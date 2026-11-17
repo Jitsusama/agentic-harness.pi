@@ -22,7 +22,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { quoted } from "./sandbox-shell.ts";
+import { quoted } from "./sandbox/sandbox-shell.ts";
 import { systemProgram } from "./system-program.ts";
 
 /** The identifier every refusal's line carries in the system's log. */

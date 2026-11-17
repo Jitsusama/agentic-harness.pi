@@ -54,10 +54,10 @@
  * reaches now, not what the person later runs from what it wrote.
  *
  * pi's own file tools run in pi's process, outside Landlock, so
- * `sandbox-files.ts` holds them to the same paths for the
+ * `sandbox/sandbox-files.ts` holds them to the same paths for the
  * `sandbox-file-interceptor` extension, less `/proc` and the devices.
  *
- * `PI_SANDBOX=fence` asks for the agent fence instead (`fence.ts`):
+ * `PI_SANDBOX=fence` asks for the agent fence instead (`fence/fence.ts`):
  * every session's commands kept off the person's desktop, with the
  * work, the network and the environment as they were.
  */
@@ -73,31 +73,31 @@ import {
 	fenceRules,
 	guardsGitFolder,
 	nixDoor,
-} from "./fence.ts";
-import { fenceShims } from "./fence-clipboard.ts";
-import { fencedCommand } from "./fence-command.ts";
-import { DIRENV_VARIABLE, fencedDirenv } from "./fence-direnv.ts";
-import { dockerHoldsCredentials } from "./fence-docker.ts";
+} from "./fence/fence.ts";
+import { fenceShims } from "./fence/fence-clipboard.ts";
+import { fencedCommand } from "./fence/fence-command.ts";
+import { DIRENV_VARIABLE, fencedDirenv } from "./fence/fence-direnv.ts";
+import { dockerHoldsCredentials } from "./fence/fence-docker.ts";
 import {
 	afterCheck,
 	guardedFolders,
 	guardedIn,
 	plantStopped,
-} from "./fence-git-root.ts";
-import { githubDoorFolder } from "./fence-github.ts";
-import { foldersMadeFirst, OWN_HOMES } from "./fence-home.ts";
+} from "./fence/fence-git-root.ts";
+import { githubDoorFolder } from "./fence/fence-github.ts";
+import { foldersMadeFirst, OWN_HOMES } from "./fence/fence-home.ts";
 import { recordedInShell } from "./fence-log.ts";
-import { fenceNpmrc } from "./fence-npmrc.ts";
-import { seedOwnHomes } from "./fence-seed.ts";
-import { fenceSshConfig } from "./fence-ssh.ts";
+import { fenceNpmrc } from "./fence/fence-npmrc.ts";
+import { seedOwnHomes } from "./fence/fence-seed.ts";
+import { fenceSshConfig } from "./fence/fence-ssh.ts";
 import { askedSandbox, inFirstStage } from "./fence-stage.ts";
 import {
 	type CloudGrant,
 	type CloudGrantSource,
 	cloudGrants,
 	namesTheCloud,
-} from "./gcloud-broker.ts";
-import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
+} from "./sandbox/gcloud-broker.ts";
+import { brokerTokens, type GitHubTokenSource } from "./sandbox/github-broker.ts";
 import {
 	inStore,
 	type Offload,
@@ -106,8 +106,8 @@ import {
 	offloadKeptIn,
 } from "./offload-exemption.ts";
 import { questWorkspacesRoot } from "./quest/workspace-root.ts";
-import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
-import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
+import { quoted, SANDBOXED_COMMAND } from "./sandbox/sandbox-shell.ts";
+import { folderGit, heldTree, sessionWorktrees } from "./sandbox/sandbox-trees.ts";
 import { withSecretNote } from "./secret-ask.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";

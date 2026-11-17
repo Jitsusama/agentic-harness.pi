@@ -64,4 +64,4 @@ compaction workflow, which is the same reading the result store took:
 | `index.ts` | Tool registration, bounding and the summary note |
 | `status.ts` | Recall's section of `/compaction-status` |
 
-The search itself is pure and lives in `lib/internal/recall/`.
+The search itself is pure and lives in `lib/internal/logs/recall.ts`.

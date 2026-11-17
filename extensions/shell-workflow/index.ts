@@ -35,21 +35,21 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
-import { jobsBroker } from "../../lib/internal/fence.ts";
-import { routedDirenv } from "../../lib/internal/fence-direnv.ts";
+import { jobsBroker } from "../../lib/internal/fence/fence.ts";
+import { routedDirenv } from "../../lib/internal/fence/fence-direnv.ts";
 import {
 	routedDelta,
 	routedPackedRefs,
 	routedSigning,
 	routedUnheldTree,
-} from "../../lib/internal/fence-git-route.ts";
-import { liftFence } from "../../lib/internal/fence-lifted.ts";
+} from "../../lib/internal/fence/fence-git-route.ts";
+import { liftFence } from "../../lib/internal/fence/fence-lifted.ts";
 import {
 	codeOf,
 	recordRefusal,
 	recordUnlisted,
 } from "../../lib/internal/fence-log.ts";
-import { routedKeep, routedReadOnly } from "../../lib/internal/fence-route.ts";
+import { routedKeep, routedReadOnly } from "../../lib/internal/fence/fence-route.ts";
 import { settleStage } from "../../lib/internal/fence-stage.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";

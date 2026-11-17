@@ -52,7 +52,7 @@ import {
 } from "../../lib/core/observability/recorder.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
-import { entriesToTurns } from "../../lib/internal/transcript.ts";
+import { entriesToTurns } from "../../lib/internal/logs/transcript.ts";
 import { asText, renderToolCall } from "../../lib/ui/tool-call.ts";
 
 /**

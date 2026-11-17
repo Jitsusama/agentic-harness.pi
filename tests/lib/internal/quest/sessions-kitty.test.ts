@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fenceArgs } from "../../../../lib/internal/fence.ts";
+import { fenceArgs } from "../../../../lib/internal/fence/fence.ts";
 import {
 	openInSessionsKitty,
 	SESSIONS_SOCKET,

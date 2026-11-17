@@ -73,7 +73,7 @@ import {
 	type FetchLog,
 	readAway,
 	sessionLogs,
-} from "../lib/internal/session-logs.ts";
+} from "../lib/internal/logs/session-logs.ts";
 import { isoWeek } from "./convention-recurrence.ts";
 
 /** What kind of thing went wrong. */

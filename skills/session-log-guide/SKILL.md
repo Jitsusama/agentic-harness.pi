@@ -55,7 +55,7 @@ session-backup fetch NAME --to "$TMPDIR/log.jsonl"
 
 Delete each copy once it's read; copies don't outlive the
 work. `session-backup status` says how many logs still have no
-row. In TypeScript, `lib/internal/session-logs.ts` does all
+row. In TypeScript, `lib/internal/logs/session-logs.ts` does all
 of this for a span.
 
 ## Extraction Approach

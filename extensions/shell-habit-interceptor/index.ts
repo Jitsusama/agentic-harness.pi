@@ -2,7 +2,7 @@
  * Shell Habit Interceptor Extension
  *
  * Three habits the standing rules forbid and the prompt did not stop,
- * caught as the command runs (lib/internal/shell-habits.ts says how
+ * caught as the command runs (lib/internal/shell/shell-habits.ts says how
  * often each was seen).
  *
  * A trailing `| tail -N` or `| head -N` on a build or a test run is
@@ -37,7 +37,7 @@ import {
 	stashRefusal,
 	trackedShellEdits,
 	withoutOutputCut,
-} from "../../lib/internal/shell-habits.ts";
+} from "../../lib/internal/shell/shell-habits.ts";
 import { stripHeredocBodies, stripShellData } from "../../lib/shell/index.ts";
 
 export default function shellHabitInterceptor(pi: ExtensionAPI) {

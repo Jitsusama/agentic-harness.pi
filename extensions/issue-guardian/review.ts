@@ -17,7 +17,7 @@ import type {
 	CommandGuardian,
 	GuardianResult,
 } from "../../lib/guardian/types.ts";
-import { sessionGateDeps } from "../../lib/internal/gate/session-deps.ts";
+import { sessionGateDeps } from "../../lib/internal/guardian/session-deps.ts";
 import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	type EntityReviewConfig,

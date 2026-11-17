@@ -32,7 +32,7 @@ import {
 	backupIndexPath,
 	readAway,
 	sessionLogs,
-} from "../lib/internal/session-logs.ts";
+} from "../lib/internal/logs/session-logs.ts";
 
 /** The recurring convention-correction categories. */
 export type ConventionCategory =
