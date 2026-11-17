@@ -315,19 +315,21 @@ describe("what a printing of the environment keeps", () => {
 			"\x1b]8;;file://mbp/Users/joel/my%20notes.txt\x07my notes.txt\x1b]8;;\x07\n",
 			"\x1b]8;;file://mbp/Users/joel/r%C3%A9sum%C3%A9s.pdf\x07résumés.pdf\x1b]8;;\x07\n",
 			"\x1b]8;;file://mbp/Users/joel/notes.md\x07notes\x1b]8;;\x07\n",
+			"\x1b]8;;file:///repo/src/main.c\x07main.c:42\x1b]8;;\x07\n",
+			`\x1b]8;;https://github.com/o/r/commit/${"abc1234d".repeat(5)}\x07abc1234\x1b]8;;\x07\n`,
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBeUndefined();
 		}
 	});
 
 	// A link's text exempts its address's name only when it is that whole
-	// name, decoded, or the name without its extension, so the address
-	// shows nothing the text doesn't: a link whose text shortens the name
-	// otherwise is put out of sight, the trade this makes for failing
-	// closed.
+	// name, decoded, the name without its extension, or a commit's short
+	// id, so the address shows nothing the text doesn't: a link whose text
+	// shortens the name otherwise is put out of sight, the trade this makes
+	// for failing closed.
 	it("is put out of sight as a link whose text shortens its name", () => {
 		for (const printed of [
-			`\x1b]8;;https://github.com/o/r/commit/${"a1b2c3d4".repeat(5)}\x07a1b2c3d\x1b]8;;\x07\n`,
+			`\x1b]8;;https://github.com/o/r/commit/${"abc1234d".repeat(5)}\x07abc12\x1b]8;;\x07\n`,
 			"\x1b]8;;file:///repo/src/main.c#L42\x07main.c:42\x1b]8;;\x07\n",
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBe(
