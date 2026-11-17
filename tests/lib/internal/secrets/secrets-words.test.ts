@@ -143,6 +143,7 @@ describe("a bare value in a printing of the environment", () => {
 			`\x1b]8;;https://h/${one}\x07${other}\x1b]8;;\x07\n`,
 			`\x1b]1337;CurrentDir=/Users/joel\x07\x1b]0;${one}\x07${other}\n`,
 			`\x1b]8;;https://h/${value.slice(0, 15)}\x07${value.charAt(0)}\x1b]8;;\x07\n`,
+			`\x1b]8;;https://h/${value.slice(0, 15)}\x07${value.slice(0, 14)}\x1b]8;;\x07\n`,
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBe(
 				`${VALUE_MARK}\n`,
@@ -314,7 +315,9 @@ describe("what a printing of the environment keeps", () => {
 			"/srv/app\x1b]0;x\x07/data/v2/reports_2024\n",
 			"\x1b]8;;file://mbp/Users/joel/my%20notes.txt\x07my notes.txt\x1b]8;;\x07\n",
 			"\x1b]8;;file://mbp/Users/joel/r%C3%A9sum%C3%A9s.pdf\x07résumés.pdf\x1b]8;;\x07\n",
-			"\x1b]8;;file://mbp/Users/joel/notes.md\x07notes\x1b]8;;\x07\n",
+			"\x1b]8;;file://mbp/Users/joel/report2024.md\x07report2024\x1b]8;;\x07\n",
+			"\x1b]8;;file://mbp/Users/joel/notes%2C%20v2.txt\x07notes, v2.txt\x1b]8;;\x07\n",
+			"\x1b]8;;file://mbp/Users/joel/notes%282%29.txt\x07notes(2).txt\x1b]8;;\x07\n",
 			"\x1b]8;;file:///repo/src/main.c\x07main.c:42\x1b]8;;\x07\n",
 			`\x1b]8;;https://github.com/o/r/commit/${"abc1234d".repeat(5)}\x07abc1234\x1b]8;;\x07\n`,
 		]) {
