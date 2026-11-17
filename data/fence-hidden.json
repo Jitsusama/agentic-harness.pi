@@ -18,7 +18,8 @@
 		".docker/contexts/tls/",
 		".local/share/keyrings/",
 		".local/state/gnome-keyring/login.cred",
-		".local/state/eero/session.cred"
+		".local/state/eero/session.cred",
+		".local/state/aquifer-cell/"
 	],
 	"sshKept": [
 		"^(config|known_hosts(\\.old)?|google_compute_known_hosts(\\.old)?|.*\\.pub)$"

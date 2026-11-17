@@ -650,6 +650,25 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		).toBe(false);
 	});
 
+	it("empties the Aquifer cells' state whole, where each basin's provider login lies, for commands and pi's file tools alike", () => {
+		const cells = `${home}/.local/state/aquifer-cell`;
+		const login = `${cells}/basin-1/aquifer/credentials/basin-1.json`;
+		const given = fenceArgs(
+			{ home, runtimeDir: "/run/user/1000" },
+			diskOf([login]),
+		);
+		const at = given.indexOf(cells);
+
+		expect(
+			given.slice(at - 1, at + 3),
+			"the folder, empty and read-only",
+		).toEqual(["--tmpfs", cells, "--remount-ro", cells]);
+		expect(
+			fenceRefusesRead(login, { home, runtimeDir: "/run/user/1000" }),
+			"pi's read tool is refused the login",
+		).toBe(true);
+	});
+
 	it("empties the person's own cloud login, a folder of them whole, since fenced gcloud reads its own", () => {
 		const gcloud = `${home}/.config/gcloud`;
 		const legacy = `${gcloud}/legacy_credentials`;
