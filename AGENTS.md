@@ -58,7 +58,11 @@ are consumed by extensions via direct file imports.
 
 ## Extension Categories
 
-Every extension's directory name ends in the contract it keeps.
+Every extension's directory name ends in the contract it keeps,
+but for `advisor`, `convention-context` and `correction-capture`.
+Each sits straight under `extensions/`, grouped by that suffix
+rather than by folder, since pi finds extensions only one folder
+down; `extensions/README.md` says why.
 [`docs/extensions.md`](./docs/extensions.md) says what each
 category commits to and why each workflow and integration exists.
 
