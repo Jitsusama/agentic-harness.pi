@@ -7,6 +7,7 @@
  * would otherwise reach viewers and the store in full, whether or not
  * the conversation loads the secret-scrub extension.
  */
+import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type {
 	AgentEvent,
@@ -25,12 +26,13 @@ const library = {
 		call.arguments,
 } as never;
 
-function answer(callId: string): AssistantMessage {
+function answer(
+	callId: string,
+	args: Record<string, unknown> = { n: 1 },
+): AssistantMessage {
 	return {
 		role: "assistant",
-		content: [
-			{ type: "toolCall", id: callId, name: "bash", arguments: { n: 1 } },
-		],
+		content: [{ type: "toolCall", id: callId, name: "bash", arguments: args }],
 		stopReason: "toolUse",
 		api: "test",
 		provider: "test",
@@ -59,7 +61,11 @@ function bash(printed: string): AgentTool {
 }
 
 /** One conversation's round, with what it showed pi and what its hook saw. */
-function conversation(callId: string, printed: string) {
+function conversation(
+	callId: string,
+	printed: string,
+	args?: Record<string, unknown>,
+) {
 	const events: AgentEvent[] = [];
 	const seenByHook: AgentToolResult[] = [];
 	const round = new ToolRound(
@@ -76,7 +82,7 @@ function conversation(callId: string, printed: string) {
 				events.push(event);
 			},
 		},
-		answer(callId),
+		answer(callId, args),
 		{ messages: [], tools: [bash(printed)] },
 		undefined,
 	);
@@ -125,6 +131,34 @@ describe("a hosted tool round", () => {
 			JSON.stringify(a.seenByHook),
 			"afterToolCall sees the raw result, as on pi",
 		).toContain(KEY);
+	});
+
+	it("scrubs a printed environment's value of no known shape, with no extension loaded", async () => {
+		// Made as the test runs, so no shape and no known secret holds it.
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const dump = conversation("call-env", `OP_SESSION_ab12=${value}`, {
+			command: "printenv",
+		});
+		const outcome = await dump.round.run(dump.callId, undefined);
+		const everything = JSON.stringify({
+			updates: shown(dump.events, "tool_execution_update"),
+			end: shown(dump.events, "tool_execution_end"),
+			message: dump.round.messages.get(dump.callId),
+			outcome,
+		});
+		expect(everything, "no streamed or durable record holds it").not.toContain(
+			value,
+		);
+		expect(everything).toContain("[secret scrubbed: OP_SESSION_ab12]");
+	});
+
+	it("reads the same value as ordinary output when the command prints no environment", async () => {
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const cat = conversation("call-cat", `OP_SESSION_ab12=${value}`, {
+			command: "cat notes.txt",
+		});
+		const outcome = await cat.round.run(cat.callId, undefined);
+		expect(outcome.result).toBe(cat.seenByHook[0]);
 	});
 
 	it("hands on a result with nothing to hide as the very same object", async () => {
