@@ -38,6 +38,7 @@ import { senderIdentity } from "../../../lib/mesh/message.ts";
 import { createAwaiting, createOwing } from "../../../lib/mesh/owed.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { createReadFront } from "../../../lib/mesh/reading.ts";
+import { heedingNoReceptor } from "../../../lib/mesh/receptor.ts";
 import {
 	SWEEP_EVERY_MS,
 	SWEPT_STAMP,
@@ -45,10 +46,7 @@ import {
 } from "../../../lib/mesh/retention.ts";
 import { inboxOf } from "../../../lib/mesh/steer.ts";
 import { toldIn } from "../../../lib/mesh/told.ts";
-import {
-	folderTransport,
-	type Transport,
-} from "../../../lib/mesh/transport.ts";
+import { folderTransport } from "../../../lib/mesh/transport.ts";
 import type { Want, WantKind } from "../../../lib/mesh/want.ts";
 import type { Settling } from "../acts.ts";
 import { carryThisSession } from "../carrying.ts";
@@ -76,7 +74,11 @@ export function createState(
 	waitCheckMs: number,
 	lookAgainMs: number,
 ): MeshState {
-	const transport: Transport = folderTransport(join(paths.mesh, "messages"));
+	// Everything here reads a receptor's name as nothing, but delivery and
+	// mesh_read, which ask the node to vouch for it (lib/mesh/receptor.ts).
+	const { transport, asWritten } = heedingNoReceptor(
+		folderTransport(join(paths.mesh, "messages")),
+	);
 	// A host writes presence and leases off its thread; one that can't
 	// land is said once in the session's log and the host's journal, and
 	// written again.
@@ -335,6 +337,7 @@ export function createState(
 		waitCheckMs,
 		lookAgainMs,
 		transport,
+		asWritten,
 		presences,
 		glances,
 		damper,

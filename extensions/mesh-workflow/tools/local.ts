@@ -50,6 +50,11 @@ export interface Local {
 	 * receptor's name (lib/mesh/receptor.ts). Without it, none is vouched.
 	 */
 	readonly served?: Served;
+	/**
+	 * One message as it lies, a receptor's name and all, for a reader that
+	 * vouches for what it shows. Without it, `transport` reads it.
+	 */
+	readonly asWritten?: (id: string) => Message | undefined;
 	/** Hand a message to the node to send into another realm. */
 	readonly cross?: (crossing: Crossing) => Promise<CrossAnswer>;
 	/** Note a message this peer sent, so it is never handed back to it. */

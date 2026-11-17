@@ -59,9 +59,12 @@ export async function read(
 	}
 	const from = before === undefined ? ids.length : ids.indexOf(before);
 	const found: Message[] = [];
+	// As written, a receptor's name and all, since what is found is vouched
+	// for below.
+	const readOne = at.asWritten ?? ((id: string) => at.transport.read(id));
 	for (let index = from - 1; index >= 0; index--) {
 		if (found.length >= wanted) break;
-		const message = await at.transport.readOff(ids[index] as string);
+		const message = await readOne(ids[index] as string);
 		if (
 			message &&
 			(sentBy(message, { addresses: at.peer.addresses, ...senderIdentity() }) ||
@@ -107,9 +110,11 @@ export async function read(
 	const text =
 		latest.length > 0
 			? `${shown.join("\n")}${rest}${unvouched}`
-			: before === undefined
-				? "Nothing on the mesh yet."
-				: "Nothing this peer hears came before that.";
+			: dropped > 0
+				? unvouched.trimStart()
+				: before === undefined
+					? "Nothing on the mesh yet."
+					: "Nothing this peer hears came before that.";
 	return answer(`This peer is ${at.peer.addresses.join(" or ")}.\n${text}`);
 }
 

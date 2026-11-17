@@ -242,7 +242,10 @@ export interface MeshState {
 	unhearKeys: (() => void) | undefined;
 	// The host this conversation runs in, by key, read where hosted() knows.
 	hostKey: string | undefined;
+	// Reads a message under a receptor's name as nothing.
 	readonly transport: Transport;
+	// Reads one as it lies, for the readers that ask the node to vouch.
+	readonly asWritten: (id: string) => Message | undefined;
 	readonly presences: ReturnType<typeof createPresences>;
 	readonly glances: ReturnType<typeof createGlances>;
 	readonly damper: ReturnType<typeof createDamper>;

@@ -35,7 +35,11 @@ import { nodeSocket, servedAt } from "../../../lib/mesh/node.ts";
 import { ASK_AGAIN_MS } from "../../../lib/mesh/owed.ts";
 import { wakeSteered } from "../../../lib/mesh/parked.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
-import { unvouched, vouchedOnly } from "../../../lib/mesh/receptor.ts";
+import {
+	readsAsReceptor,
+	unvouched,
+	vouchedOnly,
+} from "../../../lib/mesh/receptor.ts";
 import type { Judge } from "../../../lib/mesh/routing.ts";
 import { isStopped } from "../../../lib/mesh/stop.ts";
 import {
@@ -199,23 +203,26 @@ export function createHearing(m: MeshState, f: Handing) {
 	 */
 	const route = async (arrived: readonly Message[], starting = false) => {
 		if (arrived.length === 0 || !m.ctx || !m.peer) return;
-		// Only the node speaks as a receptor, but anything the account writes
-		// lands in the folder, so one under a receptor's name is shown only
-		// when the node serves it, and dropped, said in the log, otherwise.
-		const messages = await vouchedOnly(
-			arrived,
-			(ids) => servedAt(nodeSocket(m.env), ids),
-			(message) =>
-				m.pi.appendEntry(UNVOUCHED, {
-					id: message.id,
-					from: message.from,
-					why: unvouched(message.from, message.id),
-				}),
-		);
-		if (messages.length === 0 || !m.ctx || !m.peer) return;
 		// The peer this was routed for: a session that ends while it is
 		// judged leaves the rest undone (see session_shutdown).
 		const routedFor = m.peer;
+		// Only the node speaks as a receptor, but anything the account writes
+		// lands in the folder, so one under a receptor's name is shown only
+		// when the node serves it as written, and dropped, said in the log,
+		// otherwise. Nothing else waits on the node, so it keeps its order.
+		const messages = arrived.some((one) => readsAsReceptor(one.from))
+			? await vouchedOnly(
+					arrived,
+					(ids) => servedAt(nodeSocket(m.env), ids),
+					(message, why) =>
+						m.pi.appendEntry(UNVOUCHED, {
+							id: message.id,
+							from: message.from,
+							why: unvouched(message.from, message.id, why),
+						}),
+				)
+			: arrived;
+		if (messages.length === 0 || !m.ctx || m.peer !== routedFor) return;
 		m.peer.refresh();
 		identity();
 		// What it changes now tells its business from another's best.
@@ -378,10 +385,14 @@ export function createHearing(m: MeshState, f: Handing) {
 		if (m.caughtUpFrom !== undefined && dayBefore(id, m.caughtUpFrom)) {
 			return undefined;
 		}
-		const message = m.transport.read(id);
+		// As it lies, since route asks the node to vouch for one under a
+		// receptor's name; until then it ends no hold and answers nothing.
+		const written = m.asWritten(id);
 		// A file caught half written reads as nothing: the next look takes
 		// it again rather than counting it seen and losing it for good.
-		if (!message) m.seen.delete(id);
+		if (!written) m.seen.delete(id);
+		const message =
+			written && !readsAsReceptor(written.from) ? written : undefined;
 		// A hold this peer waits on can end in a message to a group it does
 		// not hear, so ends are looked for before what reaches it.
 		const end = message ? m.leasing.ended(message) : undefined;
@@ -395,7 +406,7 @@ export function createHearing(m: MeshState, f: Handing) {
 			m.answered.add(message.re);
 			m.awaiting.answered(message.re, () => addressesOf(message.from));
 		}
-		if (!message || !reaches(message, m.peer.listener, senderIdentity().pid)) {
+		if (!written || !reaches(written, m.peer.listener, senderIdentity().pid)) {
 			return undefined;
 		}
 		// An old copy written back at the top, as a link to another machine
@@ -405,6 +416,8 @@ export function createHearing(m: MeshState, f: Handing) {
 		if (m.caughtUpFrom !== undefined && id <= m.caughtUpFrom) return undefined;
 		// The marker passes it only once it is handed over (see reading.ts).
 		m.front.taken(id);
+		// One under a receptor's name brings nobody into a group either.
+		if (!message) return written;
 		// Brought into a group by another peer: it joins without being
 		// asked, as Joel wants agents to organise themselves, and the note
 		// it gets says how to leave.

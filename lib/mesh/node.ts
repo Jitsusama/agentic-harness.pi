@@ -29,6 +29,10 @@ import {
 	type PlaceAnswer,
 	placedFrom,
 } from "./placement.ts";
+import type { Said } from "./receptor.ts";
+
+/** What a `message` kind's record key opens with, before the id. */
+const MESSAGE_KEY = "message:";
 
 /** What a node says of a session it holds. */
 export type Held = "busy" | "idle" | "ended" | "unreachable";
@@ -512,30 +516,34 @@ export function listAt(
 }
 
 /**
- * Which of the messages `ids` the node serving `socket` serves, as its
- * `message` kind's records: what it took, which for a receptor's name is
- * only what it said itself (Jitsusama/mycelium #267). Nothing when no
- * node answers, so a caller vouching for a message vouches for none.
+ * What the node serving `socket` serves of the messages `ids`, by id, as
+ * its `message` kind's records: what it took, which for a receptor's
+ * name is only what it said itself (Jitsusama/mycelium #267). Nothing
+ * when no node answers, so a caller vouching for a message vouches for
+ * none.
  */
 export async function servedAt(
 	socket: string | undefined,
 	ids: readonly string[],
 	patience: number = NODE_PATIENCE_MS,
-): Promise<ReadonlySet<string> | undefined> {
-	if (ids.length === 0) return new Set();
+): Promise<ReadonlyMap<string, Said> | undefined> {
+	if (ids.length === 0) return new Map();
 	const line = await askDaemon(
 		socket,
-		{ ask: "get", keys: ids.map((id) => `message:${id}`) },
+		{ ask: "get", keys: ids.map((id) => `${MESSAGE_KEY}${id}`) },
 		patience,
 	);
 	return line === undefined ? undefined : servedFrom(line);
 }
 
 /**
- * The message ids a node's `get` answer holds, or nothing for an answer
- * that lists no records, such as a refusal.
+ * The messages a node's `get` answer holds, by id, each with its sender
+ * and text, or nothing for an answer that lists no records, such as a
+ * refusal. A record missing either is left out, as no message.
  */
-export function servedFrom(line: string): ReadonlySet<string> | undefined {
+export function servedFrom(
+	line: string,
+): ReadonlyMap<string, Said> | undefined {
 	let answer: unknown;
 	try {
 		answer = JSON.parse(line);
@@ -544,12 +552,19 @@ export function servedFrom(line: string): ReadonlySet<string> | undefined {
 		return undefined;
 	}
 	if (!isRecord(answer) || !Array.isArray(answer.records)) return undefined;
-	return new Set(
-		answer.records.flatMap((record: unknown) =>
+	return new Map(
+		answer.records.flatMap((record: unknown): [string, Said][] =>
 			isRecord(record) &&
 			typeof record.key === "string" &&
-			record.key.startsWith("message:")
-				? [record.key.slice("message:".length)]
+			record.key.startsWith(MESSAGE_KEY) &&
+			typeof record.from === "string" &&
+			typeof record.text === "string"
+				? [
+						[
+							record.key.slice(MESSAGE_KEY.length),
+							{ from: record.from, text: record.text },
+						],
+					]
 				: [],
 		),
 	);
