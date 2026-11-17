@@ -34,7 +34,7 @@ may import from here, and any of it may change without notice.
   over files, its doors, the routes a refused command is told, its
   Mac profile, its census and its pre-flight checks.
 - **`files/`**: reading files once and keeping their parse until
-  they change, and an extension's state kept across sessions.
+  they change.
 - **`github/`**: splice-based attribution for `gh pr` and
   `gh issue` commands, re-exported from core.
 - **`guardian/`**: what the public `guardian/` contract leaves out:
@@ -102,7 +102,9 @@ may import from here, and any of it may change without notice.
   through, since pi rebuilds the whole context after each listener;
   and, for a park under niri, which of a parked pi's windows may
   close (`park-window.ts`) and the calls to niri, kitty and the
-  launcher that close them (`park-desktop.ts`).
+  launcher that close them (`park-desktop.ts`); and an extension's
+  state, kept as entries in the session's log and restored from the
+  last one (`state.ts`).
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know, and its commands started by pi-spawner, so
   pi never forks itself to start one; what a bash call keeps of

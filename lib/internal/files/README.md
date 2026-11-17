@@ -1,8 +1,7 @@
 # Files
 
 Reading files once and keeping their parse until they change, so a
-reader asked often reads only what moved, and an extension's state
-kept across sessions.
+reader asked often reads only what moved.
 
 ## Files
 
@@ -15,5 +14,3 @@ kept across sessions.
 - **`stamped-read.ts`**: a file's parse kept while its inode, mtime
   and size say it is the same file, read on the thread or off it, for
   the mesh's presence listings.
-- **`state.ts`**: persisting an extension's state across sessions
-  and restoring it.

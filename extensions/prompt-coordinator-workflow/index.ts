@@ -32,7 +32,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getLastEntry } from "../../lib/internal/files/state.ts";
+import { getLastEntry } from "../../lib/internal/session/state.ts";
 import {
 	createFrozenResidentPrompt,
 	type FrozenResidentPrompt,
