@@ -267,10 +267,14 @@ export async function runOrHandOff<T>(
 			let result: AgentToolResult<T>;
 			try {
 				result = scrubbed(settled, call.input);
-			} catch {
+			} catch (failure) {
 				// A result the scrub cannot read is never said as it stands.
 				job.finish({
-					summary: withheldSummary(call.label, `ended after ${took}`),
+					summary: withheldSummary(
+						call.label,
+						`ended after ${took}`,
+						failure,
+					),
 					failed: true,
 				});
 				return;
@@ -299,14 +303,18 @@ export async function runOrHandOff<T>(
 				const words = error instanceof Error ? error.message : String(error);
 				said = saidBy(
 					scrubbed(
-						{ content: [{ type: "text", text: words }], details: undefined },
+						{
+							content: [{ type: "text", text: words }],
+							details: undefined,
+							isError: true,
+						},
 						call.input,
 					),
 				);
-			} catch {
+			} catch (failure) {
 				// An error the scrub cannot read is never said as it stands.
 				job.finish({
-					summary: withheldSummary(call.label, status),
+					summary: withheldSummary(call.label, status, failure),
 					failed: true,
 				});
 				return;
@@ -348,9 +356,18 @@ function scrubbed<T>(
 	return found === undefined ? result : { ...result, ...found };
 }
 
-/** A moved call's end said without its output, which could not be scrubbed. */
-function withheldSummary(label: string, status: string): string {
-	return `\`${label}\` ${status}. Its output was withheld, since it could not be scrubbed.`;
+/**
+ * A moved call's end said without its output, which could not be
+ * scrubbed, naming the failure's kind so a scrub that fails every time
+ * shows why; never its message, which may quote the output.
+ */
+export function withheldSummary(
+	label: string,
+	status: string,
+	failure: unknown,
+): string {
+	const kind = failure instanceof Error ? failure.name : typeof failure;
+	return `\`${label}\` ${status}. Its output was withheld, since it could not be scrubbed (${kind}).`;
 }
 
 /** What the call answers once the work has moved to a job. */

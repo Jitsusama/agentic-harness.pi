@@ -50,7 +50,7 @@ const DURABLE_OUTPUT_FILE =
  * How pi's text names the file it saved, in the trailer it ends a cut
  * output with: `[Showing lines 1-2000 of 9000. Full output: <path>]`.
  */
-const NAMED_IN_TEXT = /\[Showing [^\]\n]*Full output: ([^\s\]]+)\]/g;
+const NAMED_IN_TEXT = /\[Showing [^\]\n]*Full output: ([^\]\n]+)\]/g;
 
 /** The folder pi-durable makes for each spill with `mkdtemp("tmp-")`. */
 const DURABLE_OUTPUT_FOLDER = /^tmp-[A-Za-z0-9]{6}$/;
@@ -64,8 +64,8 @@ const MOST_BYTES = 64 * 1024 * 1024;
 
 /**
  * Scrubs the files a tool's answer says its whole output was saved to,
- * pi's in the details or pi-durable's in the structured answer, or either
- * named in its text, read as the call's input says (a printing of the
+ * pi's in the details or pi-durable's in the structured answer, or, when
+ * the call failed, either named in its text, read as the call's input says (a printing of the
  * environment as one), and says which kinds it found. Call it once the
  * call has settled, never for a streamed update, since the file may
  * still be written.
@@ -80,8 +80,10 @@ export function scrubSavedOutput(
 		...[answer.details, answer.structuredContent].map((naming) =>
 			savedOutputFile(naming, folder),
 		),
-		...(answer.content ?? []).flatMap((part) =>
-			savedOutputFilesIn(part, folder),
+		// Only a failure loses the details, so only a failure's text is read:
+		// any other answer's text may quote a trailer it never wrote.
+		...(answer.isError === true ? (answer.content ?? []) : []).flatMap(
+			(part) => savedOutputFilesIn(part, folder),
 		),
 	]);
 	const kinds: string[] = [];

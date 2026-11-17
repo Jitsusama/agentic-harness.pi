@@ -124,30 +124,54 @@ export function dumpsEnvironment(command: string): boolean {
 }
 
 /**
- * The commands that print the environment, as `dumpsEnvironment` says.
- * Each option form in env's rule starts differently from the others, so
- * a long run of options is read one way, never tried every way.
+ * A value in a command: quoted whole, or a run of what ends no word. Each
+ * use takes it whole, through a lookahead and a backreference, so it is
+ * never cut short at a quote to end the command early, nor tried at
+ * every length.
  */
+const COMMAND_VALUE = String.raw`(?:'[^']*'|"[^"]*"|[^\s;&|)<>'"\`#}])*`;
+
+/**
+ * env on its own: by any path, then only options and assignments, then
+ * the command's end. Each option form starts differently from the
+ * others, so a long run of options is read one way.
+ */
+const ENV_ALONE = new RegExp(
+	String.raw`(?:^|[\s;&|('"\`{])(?:[^\s;&|('"\`{]*\/)?env` +
+		String.raw`(?:\s+(?:-[uCS]\s*(?=[^\s-])(?=(${COMMAND_VALUE}))\1` +
+		String.raw`|-(?![uCS])[0-9A-Za-z-]+(?:=(?=(${COMMAND_VALUE}))\2)?` +
+		String.raw`|[A-Za-z_][A-Za-z0-9_]*=(?=(${COMMAND_VALUE}))\3))*` +
+		String.raw`\s*(?:$|[\n|;&)<>#'"\`}]|\d+>)`,
+);
+
+/** The commands that print the environment, as `dumpsEnvironment` says. */
 const ENVIRONMENT_DUMPS: readonly RegExp[] = [
-	/(?:^|[\s;&|('"`{])(?:[^\s;&|('"`]*\/)?env(?:\s+(?:-[uCS](?:\s+|(?=[^\s-]))[^\s;&|)<>-][^\s;&|)<>]*|-(?![uCS])[0-9A-Za-z-]+(?:=[^\s;&|)<>]*)?|[A-Za-z_][A-Za-z0-9_]*=[^\s;&|)<>]*))*\s*(?:$|[\n|;&)<>#'"`}]|\d+>)/,
-	/(?:^|[\s;&|('"`{])(?:[^\s;&|('"`]*\/)?printenv\b/,
+	ENV_ALONE,
+	/(?:^|[\s;&|('"`{])(?:[^\s;&|('"`{]*\/)?printenv\b/,
 	/(?:^|[\s;&|('"`{])(?:export|declare|typeset)\s+-[A-Za-z]*[px]/,
 	/(?:^|[\n;&|('"`{]|\b(?:command|builtin|then|do|else|time|exec)\s|-c\s+|\bssh\s+(?:\S+\s+)*?)\s*(?:export|declare|typeset|set)\s*(?:$|[\n|;&)<>#'"`}]|\d+>)/,
 	/\bshow-environment\b/,
 	/\blaunchctl\s+(?:print|getenv|export|procinfo)\b/,
-	/\/proc\/[^\s/]+\/environ\b/,
+	/\/proc\/\S*\/environ\b/,
 	/(?:^|[\s;&|('"`])ps\s+(?:-\S*e\S*\s+-\S*w|\S*e\S*w|\S*w\S*e)/,
 	// macOS's ps prints the environment with -E.
 	/(?:^|[\s;&|('"`])ps\s+(?:[^\s|;&]+\s+)*-[A-Za-z]*E/,
-	/\bawk\b[^|;&]*\bENVIRON\b/,
-	/\bjq\b[^|;&]*(?:\$ENV\b|(?<![.\w$])env\b(?!\.))/,
-	/\bdocker\s+(?:container\s+)?inspect\b/,
+	// A program's own `;` and `|` sit inside its quotes, so these read on.
+	/\b[gnm]?awk\b[^\n]*\bENVIRON\b/,
+	/\bjq\b[^\n]*(?:\$ENV\b|(?<![.\w$])env\b(?!\.))/,
+	/\b(?:docker|podman)\s+(?:(?:container|image)\s+)?inspect\b/,
+	/\bdocker(?:\s+|-)compose\b[^\n]*\bconfig\b/,
+	/\bsystemctl\b[^\n]*\bshow\b[^\n]*\bEnvironment\b/,
+	/\bkubectl\b[^\n]*\bset\s+env\b[^\n]*--list\b/,
 	/\bheroku\s+config\b(?!:(?:set|unset|add|remove))/,
 ];
 
-/** An interpreter run on code the command itself holds. */
+/**
+ * An interpreter run on code the command itself holds: given it as an
+ * argument, piped to it, or written in a heredoc, whatever then runs it.
+ */
 const INLINE_SCRIPT =
-	/(?:^|[\s;&|('"`/])(?:python[\d.]*|node(?:js)?|deno|bun|ruby|perl|php|irb)\s+(?:[^|;&\s]+\s+)*?(?:-[A-Za-z]*[ecprE]\b|--(?:eval|print)\b|eval\b|-(?=\s|$)|<<)/;
+	/(?:^|[\s;&|('"`/])(?:python[\d.]*|node(?:js)?|deno|bun|ruby|perl|php|irb)(?:\s+(?:[^|;&\s]+\s+)*?(?:-[A-Za-z]*[ecprE]\b|--(?:eval|print)\b|eval\b|-(?=\s|$))|(?<=\|\s*(?:\S*\/)?[\w.]+)\s*(?:$|[\n;&|)]))|<</;
 
 /** An inline script's whole environment, as against one variable by name. */
 const WHOLE_ENVIRONMENT: readonly RegExp[] = [
@@ -214,7 +238,7 @@ const NUL = 0;
 
 /** A variable's line in a dump: its name, what sits between, its value. */
 const DUMPED_VARIABLE =
-	/^(\s*(?:export\s+|declare\s+-[-A-Za-z]+\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:=>|=)\s*['"]?)([^\s'"]+)/gm;
+	/^([ \t]*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)([^\s'"]+)/gm;
 
 /**
  * A mark already standing where a secret was, kept as it is, or a word
@@ -245,13 +269,18 @@ function scrubDump(text: string, kinds: string[]): string {
 }
 
 /**
- * An output read as a dump only by its lines, with each variable's value
- * that could be a credential put out of sight and every other word left
- * as it is, since nothing says the rest is the environment.
+ * An output read as a dump only by its lines, with each line that sets
+ * one variable read as a dump and every other line left as it is, since
+ * nothing says the rest is the environment.
  */
 function scrubDumpedLines(text: string, kinds: string[]): string {
-	return eachEntry(text, (entry) => scrubAssigned(entry, kinds));
+	return text.replace(EACH_LINE, (line: string) =>
+		ASSIGNED_LINE.test(line) ? scrubDump(line, kinds) : line,
+	);
 }
+
+/** Each line of an output, ended by a newline or by env -0's NUL. */
+const EACH_LINE = /[^\n\0]+/g;
 
 /** The text with each variable's value that could be a credential scrubbed. */
 function scrubAssigned(text: string, kinds: string[]): string {
@@ -297,6 +326,8 @@ export function scrubOptionsOf(input: unknown): ScrubOptions {
 
 /** The parts of a tool's answer that carry what it printed. */
 export interface ToolAnswer<Part, Details, Structured> {
+	/** The call failed, as one that throws is answered with its words. */
+	readonly isError?: boolean;
 	readonly content?: readonly Part[];
 	readonly details?: Details;
 	readonly structuredContent?: Structured;
@@ -420,6 +451,8 @@ export function scrubSecrets(
 	options: ScrubOptions = {},
 ): { text: string; kinds: string[] } {
 	const kinds: string[] = [];
+	// Read before any value is marked: a mark is no value a line sets.
+	const dumped = !options.environment && readsAsDump(text);
 	let scrubbed = text;
 	for (const { name, value } of known) {
 		if (!scrubbed.includes(value)) continue;
@@ -437,9 +470,7 @@ export function scrubSecrets(
 		});
 	}
 	if (options.environment) scrubbed = scrubDump(scrubbed, kinds);
-	else if (readsAsDump(scrubbed)) {
-		scrubbed = scrubDumpedLines(scrubbed, kinds);
-	}
+	else if (dumped) scrubbed = scrubDumpedLines(scrubbed, kinds);
 	return { text: scrubbed, kinds };
 }
 

@@ -38,7 +38,7 @@
  */
 
 import {
-	scrubOptionsOf,
+	dumpsEnvironment,
 	scrubSecrets,
 } from "../../lib/internal/secrets/secrets.ts";
 import {
@@ -58,6 +58,7 @@ import {
 	finishedSummary,
 	keepInTemp,
 	spoken,
+	withheldSummary,
 } from "../../lib/jobs/hand-off.ts";
 import {
 	JOBS_CARRIED,
@@ -368,7 +369,17 @@ function takeUpShell(
 	watching = (into.watch ?? watchCarried)(work, adopted.signal);
 	watching.ended.then((end) => {
 		ended = true;
-		const outcome = outcomeOf(job, work, end, into.session, now());
+		let outcome: JobOutcome | undefined;
+		try {
+			outcome = outcomeOf(job, work, end, into.session, now());
+		} catch (failure) {
+			// An end the scrub cannot read is never said as it stands.
+			const took = spoken(now() - work.startedAt);
+			outcome = {
+				summary: withheldSummary(job.label, `ended after ${took}`, failure),
+				failed: true,
+			};
+		}
 		if (outcome === undefined) {
 			if (end.how === "stopped") removeKept(work.keep);
 			return;
@@ -386,10 +397,12 @@ function outcomeOf(
 	at: number,
 ): JobOutcome | undefined {
 	const took = spoken(at - work.startedAt);
-	// Only the command's label is carried, its first line, so its output
-	// is read as a dump when that line prints the environment or when its
-	// own lines read as one; a credential is found by its value or shape.
-	const options = scrubOptionsOf({ command: job.label });
+	// The command doesn't travel, so its output is read as a dump when the
+	// process that started it said it prints one, when its label does, or
+	// when its own lines read as one; a credential by its value or shape.
+	const options = {
+		environment: work.dumps === true || dumpsEnvironment(job.label),
+	};
 	const say = (status: string, output: string) =>
 		finishedSummary(
 			job.label,

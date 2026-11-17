@@ -311,8 +311,12 @@ export class ToolRound {
 		const settled = await this.afterCall(preparation, executed);
 		// The file the tool saved is found by its own answer, which a hook
 		// that throws or replaces the details would otherwise lose.
-		if (settled.result !== executed.result)
-			scrubSavedOutput(executed.result, preparation.args);
+		if (settled.result !== executed.result) {
+			scrubSavedOutput(
+				{ ...executed.result, isError: executed.isError },
+				preparation.args,
+			);
+		}
 		return this.end(settled, preparation.args);
 	}
 
@@ -423,7 +427,7 @@ export class ToolRound {
 		settled: CallOutcome,
 		args: unknown = settled.toolCall.arguments,
 	): Promise<CallOutcome> {
-		scrubSavedOutput(settled.result, args);
+		scrubSavedOutput({ ...settled.result, isError: settled.isError }, args);
 		const result = scrubbedResult(settled.result, args);
 		const outcome =
 			result === settled.result ? settled : { ...settled, result };
