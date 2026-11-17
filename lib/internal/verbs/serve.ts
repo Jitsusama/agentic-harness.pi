@@ -24,7 +24,11 @@ import { createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { runtimeDir } from "../paths.ts";
 import { isRecord } from "../record.ts";
-import { type KnownSecret, knownSecrets, scrubSecrets } from "../secrets/secrets.ts";
+import {
+	type KnownSecret,
+	knownSecrets,
+	scrubSecrets,
+} from "../secrets/secrets.ts";
 import { OUTCOMES, recordUse, type UseOutcome } from "./uses.ts";
 import { fillVerb, readVerbs, type Verb, verbRecord } from "./verb.ts";
 

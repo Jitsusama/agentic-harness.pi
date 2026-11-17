@@ -86,15 +86,6 @@ import {
 } from "../../lib/internal/cache/cache-warming.ts";
 import { CALL_LOOK_MS, callIsOn } from "../../lib/internal/cache/calls.ts";
 import {
-	getSection,
-	loadPackageConfig,
-	type SectionParse,
-} from "../../lib/internal/config/loader.ts";
-import { isStaleContext } from "../../lib/internal/errors/stale.ts";
-import { processGlobal } from "../../lib/internal/process-global.ts";
-import { isRecord } from "../../lib/internal/record.ts";
-import { scrubSecrets } from "../../lib/internal/secrets/secrets.ts";
-import {
 	pendingWarmsDir,
 	sweepPendingWarms,
 	takePendingWarms,
@@ -103,6 +94,15 @@ import {
 	warmingCarryDir,
 	writeWarmingCarry,
 } from "../../lib/internal/cache/warming-carry.ts";
+import {
+	getSection,
+	loadPackageConfig,
+	type SectionParse,
+} from "../../lib/internal/config/loader.ts";
+import { isStaleContext } from "../../lib/internal/errors/stale.ts";
+import { processGlobal } from "../../lib/internal/process-global.ts";
+import { isRecord } from "../../lib/internal/record.ts";
+import { scrubSecrets } from "../../lib/internal/secrets/secrets.ts";
 import { keepingRequests, sweepKeptRequests } from "./kept-request.ts";
 
 /** A warm, with its usage and cost, for the spend ledger to count. */
