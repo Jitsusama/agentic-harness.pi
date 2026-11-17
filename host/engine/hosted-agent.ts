@@ -682,9 +682,8 @@ export class HostedAgent {
 
 	/** Open a run for what durable does on its own; it ends once durable is idle. */
 	private carryOn(): void {
-		this.runWithLifecycle(async () => {}).catch(() => {
-			// The run's failure is shown to pi as its end, and pi settles it as its own.
-		});
+		// A failure is shown to pi as the run's end, and pi settles it as its own.
+		this.runWithLifecycle(async () => {}).catch(() => undefined);
 	}
 
 	private currentRun(): Run {
@@ -835,8 +834,7 @@ export class HostedAgent {
 		const run = this.active?.run;
 		if (run && !run.opened) {
 			run.opened = true;
-			// What pi prepared for the run goes out with its next request, after
-			// any tool result that request owes (pi-runs.ts).
+			// Pi's prepared messages go in the next request, after any owed tool result (pi-runs.ts).
 			run.placed.push(...(await this.piRuns.opening()));
 			if (event.type !== "agent_start") {
 				// A recovering run shows pi the run and the turn it carries on before its first event.
