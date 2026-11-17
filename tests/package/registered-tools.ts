@@ -35,10 +35,14 @@ export function filesUnder(dir: string, ending: string): string[] {
 /**
  * Actions a tool keeps in a sibling module rather than inline.
  *
- * Only the tool's own directory is read, so one tool's verbs cannot vouch for another's.
+ * Only the tool's own extension is read, so one extension's verbs cannot vouch for
+ * another's. The extension rather than the tool file's folder, since an extension may
+ * register its tool from a subfolder, as quest's `wiring/` does, beside the list it keeps
+ * at its root.
  */
 function sharedActionLists(toolFile: string): string[] {
-	const dir = toolFile.slice(0, toolFile.lastIndexOf("/"));
+	const [extension] = toolFile.slice(EXTENSIONS.length + 1).split("/");
+	const dir = join(EXTENSIONS, extension ?? "");
 	const found: string[] = [];
 	for (const sibling of filesUnder(dir, "actions.ts")) {
 		const source = readFileSync(sibling, "utf8");

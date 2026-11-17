@@ -65,6 +65,7 @@ function engine(overrides: Partial<ConversationEngine> = {}) {
 		abort: vi.fn(async () => {}),
 		backgroundOf: () => 0,
 		dropped: vi.fn(async () => {}),
+		handsOn: vi.fn(),
 		...overrides,
 	};
 	return fake;
@@ -144,7 +145,30 @@ describe("waking a parked conversation", () => {
 			sessionId,
 			"released, asked by the cutover over the control socket",
 		);
+		expect(
+			fake.handsOn,
+			"a release hands it on, so what its calls left is kept",
+		).toHaveBeenCalledExactlyOnceWith(sessionId);
 		expect(host.holds(sessionId), "it stays closed").toBeUndefined();
+	});
+
+	it("hands nothing on when one is closed for good, parked or running", async () => {
+		const fake = engine();
+		const backend = backendWith(fake);
+		const sleeping = await parked(backend);
+		const { sessionId: running } = parseOpenResult(await backend.execute(open));
+
+		for (const [id, sessionId] of [
+			["c1", sleeping],
+			["c2", running],
+		] as const)
+			await backend.execute({ v: 1, id, op: "close", sessionId, by: "Joel" });
+
+		expect(
+			fake.handsOn,
+			"a close ends what its calls left",
+		).not.toHaveBeenCalled();
+		expect(host.holds(running), "it closed").toBeUndefined();
 	});
 
 	it("closes one released while it parks as a parked one, saying the end before telling its screen", async () => {

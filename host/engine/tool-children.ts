@@ -171,17 +171,30 @@ export function reapLeftBehind(
  * The marks of the bash calls whose processes still carry the
  * conversation's marker: what its calls left running, once none runs.
  * What an extension started carries no call's mark, so it is left out.
+ * So is a call carried to the next host, which still runs, and the call
+ * named in the environment the conversation's commands start from (the
+ * conversation's own, read through process.env inside its scope), as a
+ * host started inside a bash call hands its own on: every child carries
+ * that mark, whichever call started it.
  */
 export async function callsLeftRunning(
 	sessionId: string,
 	table: ProcessTable = linuxProcessTable(),
+	carried: CarriedCalls = carriedCalls(),
 ): Promise<Set<string>> {
+	const inherited = process.env[CALL_VARIABLE];
 	const marks = new Set<string>();
 	for (const environ of (
 		await markedWhere(conversationSought(sessionId), table)
 	).values()) {
 		const mark = environ[CALL_VARIABLE];
-		if (mark !== undefined && mark !== "") marks.add(mark);
+		if (
+			mark !== undefined &&
+			mark !== "" &&
+			mark !== inherited &&
+			!carried.marks.has(mark)
+		)
+			marks.add(mark);
 	}
 	return marks;
 }

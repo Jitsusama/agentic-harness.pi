@@ -17,10 +17,10 @@
 # files it runs only those, which the gate doesn't count.
 # shellcheck shell=bash
 
-# Seconds the lender may take: a few files, or the whole suite (about 20
-# minutes).
+# Seconds the lender may take: a few files, or the whole suite (about 55
+# minutes, over 70 on a slow lender).
 HOST_TEST_SOME_SECONDS=2400
-HOST_TEST_ALL_SECONDS=4200
+HOST_TEST_ALL_SECONDS=6000
 # A word with no meaning to a shell, as the fence's exemption takes them
 # (PLAIN_WORD in lib/internal/offload-exemption.ts). One is also written
 # the same in JSON, which host_test_ran counts on.

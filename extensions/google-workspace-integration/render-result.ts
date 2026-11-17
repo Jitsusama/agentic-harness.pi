@@ -102,7 +102,7 @@ function resultText(
 		textContent.includes("cancelled") ||
 		textContent.includes("canceled")
 	) {
-		return theme.fg("dim", textContent.split("\n")[0]);
+		return theme.fg("dim", textContent.split("\n")[0] ?? "");
 	}
 
 	// Gmail list results
@@ -120,7 +120,7 @@ function resultText(
 		textContent.startsWith("✓ Email sent") ||
 		textContent.startsWith("✓ Draft created")
 	) {
-		return theme.fg("success", textContent.split("\n")[0]);
+		return theme.fg("success", textContent.split("\n")[0] ?? "");
 	}
 
 	// Email operations
@@ -153,7 +153,7 @@ function resultText(
 		textContent.startsWith("✓ Event deleted") ||
 		textContent.startsWith("✓ Response sent")
 	) {
-		return theme.fg("success", textContent.split("\n")[0]);
+		return theme.fg("success", textContent.split("\n")[0] ?? "");
 	}
 
 	// Drive file list results
@@ -174,7 +174,7 @@ function resultText(
 
 	// Generic success
 	if (textContent.startsWith("✓")) {
-		return theme.fg("success", textContent.split("\n")[0]);
+		return theme.fg("success", textContent.split("\n")[0] ?? "");
 	}
 
 	// Fallback

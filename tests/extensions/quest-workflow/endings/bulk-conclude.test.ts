@@ -9,9 +9,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { QUEST_PARAMETERS } from "../../../../extensions/quest-workflow/index.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { QUEST_PARAMETERS } from "../../../../extensions/quest-workflow/wiring/parameters.ts";
 import { defaultWorkspaceRoot } from "../../../../extensions/quest-workflow/workspace.ts";
 import { harnessLogPath } from "../../../../lib/internal/quest/harness-log.ts";
 import { mutateQuestFrontMatter } from "../../../../lib/internal/quest/mutate.ts";

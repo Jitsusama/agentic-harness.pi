@@ -168,7 +168,7 @@ const FINISHED = new Set(["concluded", "retired"]);
 function inFinishedQuest(gitDir: string): boolean {
 	const within = relative(questWorkspacesRoot(), gitDir);
 	if (within.startsWith("..") || isAbsolute(within)) return false;
-	const id = within.split(sep)[0];
+	const id = within.split(sep)[0] ?? "";
 	// Scratch folders are the machine's, and their quest may be any realm's.
 	for (const dir of everyRealmsDir("data", "quest-workflow")) {
 		const { index } = discoverQuests(join(dir, "quests"));

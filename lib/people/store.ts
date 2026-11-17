@@ -67,8 +67,9 @@ export interface PeopleStore {
 }
 
 function deriveId(names: string[] | undefined): string | undefined {
-	if (!names || names.length === 0) return undefined;
-	return names[0]
+	const first = names?.[0];
+	if (first === undefined) return undefined;
+	return first
 		.toLowerCase()
 		.trim()
 		.replace(/\s+/g, "-")

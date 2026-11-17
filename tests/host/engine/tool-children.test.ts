@@ -220,6 +220,39 @@ describe("reaping a conversation's tool children", () => {
 		expect(table.killed, "naming them kills nothing").toEqual([]);
 	});
 
+	it("leaves out a call still carried to the next host, and the call the host itself runs in", async () => {
+		vi.stubEnv(CALL_VARIABLE, "host-call");
+		try {
+			const table = fakeTable({
+				1: { group: 1, env: {} },
+				10: {
+					group: 10,
+					env: { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "ended" },
+				},
+				11: {
+					group: 11,
+					env: { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "carried" },
+				},
+				12: {
+					group: 12,
+					env: {
+						...conversationMarker("a", HOST),
+						[CALL_VARIABLE]: "host-call",
+					},
+				},
+			});
+			const carried = {
+				marks: new Set(["carried"]),
+				groups: new Set<number>(),
+			};
+			expect([...(await callsLeftRunning("a", table, carried))]).toEqual([
+				"ended",
+			]);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it("spares by its call's mark what a park kept, killing the rest of the conversation's", async () => {
 		const table = fakeTable({
 			1: { group: 1, env: {} },

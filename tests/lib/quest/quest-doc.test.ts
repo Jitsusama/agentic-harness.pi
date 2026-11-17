@@ -8,6 +8,7 @@ import {
 	extractTitle,
 	milestoneProgress,
 	parseQuestDoc,
+	shownReadme,
 } from "../../../lib/internal/quest/quest-doc.ts";
 import {
 	clearRefTypes,
@@ -195,6 +196,34 @@ describe("checkboxProgress", () => {
 	it("omits currentItem when every checkbox is checked", () => {
 		const body = ["## Work", "- [x] One", "- [x] Two"].join("\n");
 		expect(checkboxProgress(body)).toEqual({ total: 2, done: 2 });
+	});
+});
+
+describe("shownReadme", () => {
+	it("says the heading and the summary's opening a peer shows", () => {
+		const shown = shownReadme(SAMPLE_README);
+
+		expect(shown?.frontMatter.status).toBe("active");
+		expect(shown?.title).toBe("Investigate the LFS lock 401");
+		expect(shown?.worksOn).toBe(
+			"Investigate the LFS lock 401: Ahmad reported a 401 on LFS lock acquisition. We need to trace the auth path and find where the credential is dropped. More prose continues here.",
+		);
+	});
+
+	it("cuts a long summary at 240 characters", () => {
+		const long = SAMPLE_README.replace(
+			"More prose continues here.",
+			"word ".repeat(100),
+		);
+		const worksOn = shownReadme(long)?.worksOn ?? "";
+		const opening = worksOn.slice("Investigate the LFS lock 401: ".length);
+
+		expect(opening).toHaveLength(240 + "...".length);
+		expect(opening.endsWith("..."), opening).toBe(true);
+	});
+
+	it("says nothing of a README with no front matter", () => {
+		expect(shownReadme("# Just a heading\n")).toBeUndefined();
 	});
 });
 

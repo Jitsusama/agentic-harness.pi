@@ -24,6 +24,12 @@ describe("detectProseViolations", () => {
 		expect(colour?.suggestion).toBe("colour");
 	});
 
+	it("keeps a leading capital on the Canadian suggestion", () => {
+		const violations = detectProseViolations("Color matters here.");
+		const colour = violations.find((v) => v.kind === "spelling");
+		expect(colour?.suggestion).toBe("Colour");
+	});
+
 	it("flags the common American forms the old list missed", () => {
 		const text =
 			"The defense used gray fiber, a traveler canceled the catalog, and we modeled and labeled a liter of offense.";

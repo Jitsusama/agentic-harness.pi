@@ -1,9 +1,10 @@
 /**
  * What parks kept running: a note is spared by every later reap for a
  * day, beside what is carried, and goes after; a second host reading
- * the same folder spares it too; and an unreadable file keeps nothing.
+ * the same folder spares it too; a close ends what its conversation's
+ * parks kept; and an unreadable file keeps nothing.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -49,9 +50,41 @@ describe("what parks kept running", () => {
 		left.note("a", ["old"]);
 		at += STRAY_FOR_MS / 2;
 		left.note("b", ["newer"]);
-		left.note("a", ["old-again"]);
+		left.note("a", ["old"]);
 		at += STRAY_FOR_MS / 2;
-		expect([...left.spared(NONE).marks].sort()).toEqual(["newer", "old-again"]);
+		expect([...left.spared(NONE).marks].sort()).toEqual(["newer", "old"]);
+		const notes = JSON.parse(readFileSync(join(stateDir, LEFT_FILE), "utf8"));
+		expect(notes, "one note a mark, the newer").toEqual([
+			{ session: "b", mark: "newer", at: at - STRAY_FOR_MS / 2 },
+			{ session: "a", mark: "old", at: at - STRAY_FOR_MS / 2 },
+		]);
+	});
+
+	it("spares a note no longer once its day is out", () => {
+		const left = kept();
+		left.note("a", ["expires"]);
+		at += STRAY_FOR_MS / 2;
+		left.note("b", ["newer"]);
+		at += STRAY_FOR_MS / 2;
+		expect(
+			[...left.spared(NONE).marks],
+			"the note not made again went after its day",
+		).toEqual(["newer"]);
+	});
+
+	it("spares no longer what a closed conversation's parks kept, keeping every other's", () => {
+		kept().note("a", ["call-1", "call-2"]);
+		kept().note("b", ["call-3"]);
+		expect(kept().closed("a"), "both its calls' notes went").toBe(2);
+		expect([...kept().spared(NONE).marks]).toEqual(["call-3"]);
+		expect(kept().closed("b")).toBe(1);
+		expect(kept().spared(NONE)).toBe(NONE);
+		kept().note("c", ["call-4"]);
+		expect(kept().closed("never-parked"), "it kept nothing").toBe(0);
+		expect([...kept().spared(NONE).marks], "nor did another's go").toEqual([
+			"call-4",
+		]);
+		expect(reported).toEqual([]);
 	});
 
 	it("spares only what is carried when nothing was noted or the file is unreadable", () => {

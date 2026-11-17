@@ -83,7 +83,7 @@ const SETTERS: Record<string, readonly string[]> = {
 	"extensions/job-workflow/lifecycle.ts": ["jobs"],
 	"extensions/mesh-workflow/peer/handing.ts": ["quiet"],
 	"extensions/model-retry-workflow/retry.ts": ["retrying"],
-	"extensions/quest-workflow/index.ts": [],
+	"extensions/quest-workflow/wiring/scoreboard.ts": [],
 	"extensions/reload-workflow/lifecycle.ts": ["swapped"],
 	"extensions/spend-workflow/budget-item.ts": ["budget"],
 	"extensions/verification-workflow/index.ts": ["failed"],

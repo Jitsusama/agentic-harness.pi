@@ -213,7 +213,7 @@ function blankOut(text: string, pattern: RegExp): string {
 /** Preserve the original's leading-capital shape on a suggestion. */
 function matchCase(found: string, suggestion: string): string {
 	if (found[0] && found[0] === found[0].toUpperCase()) {
-		return suggestion[0].toUpperCase() + suggestion.slice(1);
+		return suggestion.charAt(0).toUpperCase() + suggestion.slice(1);
 	}
 	return suggestion;
 }

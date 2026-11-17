@@ -190,9 +190,26 @@ companion skill.
     never answered, its post-mortem.
   - `runpi/supervisor-detached.ts`: the runner that starts
     a supervisor and walks away.
-- `runpi/supervisor.mjs`: the supervisor process itself,
-  and the four `.mjs` it shares with the parent. They stay
-  `.mjs` because node spawns this directly, and node
+- `runpi/supervisor.mjs`: the supervisor process itself:
+  it spawns pi, watches its clocks, cancel files and
+  parent, stops it, and writes its lease, progress and
+  result. Five parts beside it hold the rest, none with
+  module state (the transcript holds one run's state in
+  the object the supervisor makes for it):
+  - `runpi/supervisor-transcript.mjs`: what the reviewer
+    said, spent and verified, read off pi's event stream.
+  - `runpi/supervisor-reads.mjs`: what it wrote beside
+    the stream: its journal, verify_output's envelope and
+    its session file.
+  - `runpi/supervisor-stops.mjs`: what a stop is told as,
+    its state, exit code and warning.
+  - `runpi/supervisor-files.mjs`: logs rotated past their
+    cap, and records replaced whole.
+  - `runpi/supervisor-text.mjs`: text cut to the bytes or
+    the glance it is kept at.
+
+  With the four `.mjs` it shares with the parent, they
+  stay `.mjs` because node spawns this directly, and node
   refuses to strip types under `node_modules`, which is
   where a consumer install puts them. Measured: converting
   them raises

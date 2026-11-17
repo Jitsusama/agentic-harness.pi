@@ -597,6 +597,67 @@ const scenarios: Record<string, Scenario> = {
 		},
 	},
 	/**
+	 * The same command, then the host stops the conversation for its
+	 * restart while it was never parked, as a drain finds one busy.
+	 */
+	"leave-and-stop": {
+		responses: () => [
+			compat.fauxAssistantMessage(
+				[
+					compat.fauxToolCall(
+						"bash",
+						{
+							command: [
+								`PI_BASH_CALL=ended-call sleep 300 >/dev/null 2>&1 & echo $! > ${children}`,
+								`sleep 301 >/dev/null 2>&1 & echo $! >> ${children}`,
+							].join("\n"),
+						},
+						{ id: "call-1" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+			say("left them"),
+		],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "leave them" });
+			await idle(engine, id);
+			await host.stop(id, "host restarting", true);
+			return { held: host.holds(id) ?? "let go" };
+		},
+	},
+	/** The next host closes for good the conversation the last one parked, as the service closes one held but not running. */
+	"close-parked": {
+		responses: () => [],
+		run: async (engine) => {
+			await engine.dropped?.(readEntry().sessionId, "closed, asked by a test");
+			return {};
+		},
+	},
+	/** The next host releases the conversation the last one parked, as the service hands one on to plain pi. */
+	"release-parked": {
+		responses: () => [],
+		run: async (engine) => {
+			const { sessionId } = readEntry();
+			engine.handsOn?.(sessionId);
+			await engine.dropped?.(sessionId, "released, asked by a test");
+			return {};
+		},
+	},
+	/** The next host resumes the conversation the last one parked, then closes it for good. */
+	"resume-and-close": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const entry = readEntry();
+			await engine.resume(entry);
+			await idle(engine, entry.sessionId);
+			// What the resume's reap left, before the close.
+			const resumed = leftRunning().filter(alive);
+			await host.close(entry.sessionId, "closed, asked by a test");
+			return { resumed };
+		},
+	},
+	/**
 	 * Open on the harness and have the probe note every tool the
 	 * conversation has, for the test to hold against a plain pi's.
 	 */

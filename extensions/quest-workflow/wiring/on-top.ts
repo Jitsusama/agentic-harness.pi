@@ -38,11 +38,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "../../lib/internal/record.ts";
+import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	registerStandingContext,
 	type StandingContextWording,
-} from "../../lib/prompt/index.ts";
+} from "../../../lib/prompt/index.ts";
 
 const LABEL = "[On top]";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QUEST_PARAMETERS } from "../../../../extensions/quest-workflow/index.ts";
+import { QUEST_PARAMETERS } from "../../../../extensions/quest-workflow/wiring/parameters.ts";
 
 /**
  * The most characters the quest tool's parameters may declare. Every

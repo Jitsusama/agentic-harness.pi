@@ -136,7 +136,8 @@ export async function runInvestigation(
 		{ provider: request.provider, model: request.model },
 		(p, m) => registry.find(p, m),
 	);
-	if (candidates.length === 0) {
+	const [first] = candidates;
+	if (first === undefined) {
 		return {
 			ok: false,
 			text: "",
@@ -148,7 +149,7 @@ export async function runInvestigation(
 	}
 
 	const reasons: string[] = [];
-	let last = failure(candidates[0], request.messages, "");
+	let last = failure(first, request.messages, "");
 	for (const model of candidates) {
 		// A cancelled caller wants no more models tried on its behalf.
 		if (reasons.length > 0 && request.signal?.aborted) break;

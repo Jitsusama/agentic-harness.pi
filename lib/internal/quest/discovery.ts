@@ -35,30 +35,41 @@
  * Free-form subdirectories under a quest (`runs/`,
  * `tools/`, `workloads/`, etc.) are not walked. They're
  * surfaced only via the quest's own body references.
+ *
+ * What the walk reads, and the memo that spares it reading
+ * an unchanged file twice, are in `discovery-reads.ts`; the
+ * seed that carries the memo to the next process is in
+ * `discovery-seed.ts`.
  */
 
-import { createHash } from "node:crypto";
-import {
-	type Dirent,
-	mkdirSync,
-	readdirSync,
-	readFileSync,
-	realpathSync,
-	renameSync,
-	statSync,
-	unlinkSync,
-	writeFileSync,
-} from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, extname, join, sep } from "node:path";
-import { fileURLToPath } from "node:url";
-import { deserialize, serialize } from "node:v8";
+import { realpathSync } from "node:fs";
+import { extname, join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.ts";
 import { cacheDir } from "../paths.ts";
 import {
+	CANONICAL_DOCUMENT_DIRS,
+	discoverySignature,
+	forgetMemo,
+	forgetUnparsed,
+	kept,
+	kindEntries,
+	memo,
+	newPass,
+	type Pass,
+	parsedOnce,
+	readEntries,
+} from "./discovery-reads.ts";
+import {
+	codeKey,
+	leaveSeed,
+	SEED_AFTER_PARSES,
+	SEED_FOLDER,
+	type SeedOptions,
+	takeSeed,
+} from "./discovery-seed.ts";
+import {
 	explainDocumentFrontMatter,
 	parseDocumentFrontMatter,
-	splitFrontMatter,
 } from "./frontmatter.ts";
 import { isId, prefixOf } from "./id.ts";
 import { questWritesMade } from "./io.ts";
@@ -132,32 +143,6 @@ export interface DiscoveryResult {
 	errors: DiscoveryError[];
 }
 
-/**
- * What one discovery call has read from disk. The signature pass fills
- * it on the way to a cache miss and the walk reuses it, so a cold call
- * reads each file and lists each directory once rather than twice.
- */
-interface Pass {
-	bytes: Map<string, Buffer>;
-	listings: Map<string, Dirent[] | undefined>;
-	/** Each file's content hash, as the signature pass found it. */
-	hashes: Map<string, string>;
-	/** Every file the walk parsed or reused, so the memo keeps no others. */
-	parsed: Set<string>;
-	/** How many files the walk had to parse, reusing no record. */
-	parses: number;
-}
-
-function newPass(): Pass {
-	return {
-		bytes: new Map(),
-		listings: new Map(),
-		hashes: new Map(),
-		parsed: new Set(),
-		parses: 0,
-	};
-}
-
 function safeRealpath(path: string): string | undefined {
 	try {
 		return realpathSync(path);
@@ -166,41 +151,6 @@ function safeRealpath(path: string): string | undefined {
 		// will surface the read error separately.
 		return undefined;
 	}
-}
-
-const CANONICAL_DOCUMENT_DIRS = [
-	"plans",
-	"research",
-	"briefs",
-	"reports",
-] as const;
-
-function readEntries(path: string, pass: Pass): Dirent[] | undefined {
-	if (pass.listings.has(path)) return pass.listings.get(path);
-	let entries: Dirent[] | undefined;
-	try {
-		entries = readdirSync(path, { withFileTypes: true });
-	} catch {
-		entries = undefined;
-	}
-	pass.listings.set(path, entries);
-	return entries;
-}
-
-/**
- * A quest's kind subdirectory listing, or undefined when the quest has
- * none. Most quests have one or two of the four, so asking the quest's
- * own listing first spares a failed readdir for each one missing.
- */
-function kindEntries(
-	questDir: string,
-	subdir: string,
-	pass: Pass,
-): Dirent[] | undefined {
-	const present = readEntries(questDir, pass)?.some(
-		(e) => e.name === subdir && (e.isDirectory() || e.isSymbolicLink()),
-	);
-	return present ? readEntries(join(questDir, subdir), pass) : undefined;
 }
 
 function parseDocumentFile(text: string): QuestDocumentDoc | undefined {
@@ -214,129 +164,6 @@ function parseDocumentFile(text: string): QuestDocumentDoc | undefined {
 }
 
 /**
- * A parsed record as the index keeps it: its front matter and title
- * copied out of the file's text, and its body read from the file each
- * time it is asked for.
- *
- * Holding every body kept 45 million characters of quest prose in
- * every pi process, 73 MB of a 73 MB index, and a title or field that
- * V8 had cut out of a file's text kept the whole text alive besides.
- * Only lookups, `find`, `links` and `show` read bodies, never a
- * per-turn path, and reading all 733 READMEs' bodies takes 11 ms, so
- * the index keeps what every call asks for (20 MB, from 73) and leaves
- * prose on disk.
- * A body read later can be newer than the front matter beside it,
- * which the next walk's signature catches.
- *
- * Callers name D: TypeScript 5, which consumers still check this
- * with, can't infer it through Pick and widens it to the union.
- */
-function kept<D extends QuestDoc | QuestDocumentDoc>(
-	doc: Pick<D, "frontMatter" | "title">,
-	path: string,
-): D {
-	const copied = structuredClone({
-		frontMatter: doc.frontMatter,
-		title: doc.title,
-	});
-	const lean = { frontMatter: copied.frontMatter, title: copied.title };
-	Object.defineProperty(lean, "body", {
-		enumerable: true,
-		get: () => {
-			try {
-				// Both parsers take the body as the split leaves it, so the
-				// front matter need not be parsed again to find it.
-				return splitFrontMatter(readFileSync(path, "utf8"))?.body ?? "";
-			} catch {
-				// Gone since the walk: the next walk drops the record too.
-				return "";
-			}
-		},
-	});
-	return lean as D;
-}
-
-/**
- * Walk `questsRoot` and build the index. Read errors are
- * collected into `errors`; they do not stop discovery.
- *
- * Safety against pathological trees:
- *
- * - We use `withFileTypes` so the directory check comes
- *   from the entry, never from a `stat` call that would
- *   follow symlinks.
- * - We refuse symlinks outright: a real quest tree is
- *   plain directories. This keeps the walk from leaving
- *   `questsRoot` via someone's stray symlink.
- * - We track real paths we have entered and skip any we
- *   already visited so a hard-link cycle terminates.
- * - We cap recursion depth at `MAX_WALK_DEPTH` and surface
- *   the truncation as an error rather than spinning.
- */
-interface CacheSlot {
-	signature: string;
-	result: DiscoveryResult;
-}
-
-/** A file's content hash, and the stat it was taken under. */
-interface Stamp {
-	stat: string;
-	hash: string;
-}
-
-/** What discovery remembers between calls, for the whole process. */
-interface Memo {
-	cache: Map<string, CacheSlot>;
-	stamps: Map<string, Stamp>;
-	readmes: Map<string, Parsed<QuestDoc>>;
-	documents: Map<string, Parsed<QuestDocumentDoc>>;
-	/** The roots this memo has taken a seed for, so each is read once. */
-	seeded: Set<string>;
-}
-
-/**
- * Where the memo lives: on `globalThis`, never in this module's scope.
- *
- * pi loads each extension through its own module graph and never
- * unloads one, so every extension that imports this file has a copy of
- * it, and every reload adds another set. Kept in module scope, each
- * copy built its own index of every quest and document (72 MB here),
- * and a copy from before a reload kept its index for the life of the
- * process: seven of them, 505 MB, in one session after a night of
- * merges. One slot means one index however many copies there are, and
- * a copy that no longer runs holds nothing.
- */
-const MEMO = Symbol.for("agentic-harness.quest-discovery");
-
-type GlobalMemo = Record<symbol, Memo | undefined>;
-
-/** The process's memo, made on first use. Read afresh on every call. */
-function memo(): Memo {
-	const global = globalThis as GlobalMemo;
-	let found = global[MEMO];
-	if (!found) {
-		found = {
-			cache: new Map(),
-			stamps: new Map(),
-			readmes: new Map(),
-			documents: new Map(),
-			seeded: new Set(),
-		};
-		global[MEMO] = found;
-	}
-	return found;
-}
-
-/**
- * How long a file must have sat unwritten before its stat is trusted to
- * stand for its content. A filesystem with coarse timestamps can give
- * two writes inside one tick the same mtime, and a same-size rewrite
- * would then keep its stat; this is git's racy-index rule. Two seconds
- * covers the coarsest clock in use.
- */
-const SETTLED_NS = 2_000_000_000n;
-
-/**
  * Drop the discovery memo. Tests call this between runs; write
  * paths do not need it because the signature catches their
  * changes on the next read. A reload must call it, since the
@@ -344,7 +171,7 @@ const SETTLED_NS = 2_000_000_000n;
  * an index differently, and must not be handed the old one.
  */
 export function clearDiscoveryCache(): void {
-	delete (globalThis as GlobalMemo)[MEMO];
+	forgetMemo();
 	held?.clear();
 }
 
@@ -384,13 +211,13 @@ export function withDiscoveryHeld<T>(fn: () => T): T {
 
 /**
  * Walk `questsRoot` and build the index, memoized per root. The
- * walk re-parses every README and document, which is the costly
- * part; this caches the result behind a cheap mtime-and-size
- * signature so repeated read verbs in a session do not re-parse
- * an unchanged tree. The signature recomputes on every call (a
- * directory traversal plus stats, no file reads), so any change
- * to a README, a document, or the set of quests invalidates the
- * cache on the next read.
+ * walk parses READMEs and documents, which is the costly part;
+ * this caches the result behind the tree's content signature
+ * (`discoverySignature`) so repeated read verbs in a session do
+ * not re-parse an unchanged tree. The signature recomputes on
+ * every call, a listing per folder and a stat per settled file,
+ * so any change to a README, a document, or the set of quests
+ * invalidates the cache on the next read.
  */
 export function discoverQuests(
 	questsRoot: string,
@@ -425,371 +252,6 @@ function discoverQuestsSigned(
 	return result;
 }
 
-/** Where discovery keeps what it learned, for the next process. */
-export interface SeedOptions {
-	/** The folder seeds are kept in, or null to keep none. */
-	readonly dir?: string | null;
-	/** How many files a walk must parse before its seed is written. */
-	readonly after?: number;
-	/** The version of the code a seed is kept for: by default, this code's own hash. */
-	readonly code?: string;
-}
-
-/**
- * What one process learned of a quest tree, left for the next: each
- * file's content hash under the stat it was taken at, and each README's
- * and document's front matter and title under the hash it was parsed
- * from.
- *
- * A process's memo starts empty, and so does one a reload clears, so
- * its first walk read and parsed every file: 17.2 s at CPU pressure 76%
- * on 30 October, over 772 quests and 1,517 documents, paid by every
- * start and by each of 40 sessions at once after every install. Taken
- * from a seed, a file is read only when its stat no longer matches, and
- * parsed only when its hash doesn't, the checks the memo already makes.
- * The seed carries the hash of the code that parsed it, so a change to
- * the parsing never meets a record shaped by the old one.
- */
-interface Seed {
-	readonly v: typeof SEED_VERSION;
-	readonly code: string;
-	readonly root: string;
-	readonly stamps: [path: string, stat: string, hash: string][];
-	readonly records: Record<"readmes" | "documents", SeedRecord[]>;
-}
-
-/** A parsed file as a seed keeps it. */
-type SeedRecord = [
-	path: string,
-	hash: string,
-	frontMatter: unknown,
-	title: string | undefined,
-];
-
-const SEED_VERSION = 1;
-
-/** The cache folder seeds go in. */
-const SEED_FOLDER = "quest-discovery";
-
-/**
- * How many files a walk must have parsed before it leaves a seed. After
- * one journal line every session reparses one README, and writing the
- * seed for that would rewrite megabytes forty times over; a seed a few
- * files behind costs its reader a few parses.
- */
-const SEED_AFTER_PARSES = 50;
-
-/**
- * How long another version's seed is kept after it was last left. A
- * version still running leaves its seed again after any walk that
- * parses much, so one left alone this long belongs to code nothing
- * runs, and costs megabytes of disk for nothing.
- */
-const SEED_KEPT_MS = 24 * 60 * 60 * 1000;
-
-/** The start of every seed file's name for `questsRoot`. */
-function seedStem(questsRoot: string): string {
-	return createHash("sha1").update(questsRoot).digest("hex").slice(0, 16);
-}
-
-/**
- * The seed for `questsRoot` as `code` reads it. Each version of the
- * code keeps its own, because sessions on several installs run at once
- * and each rejects a seed another version left.
- */
-function seedFile(questsRoot: string, dir: string, code: string): string {
-	return join(dir, `${seedStem(questsRoot)}-${code.slice(0, 12)}.v8`);
-}
-
-/** Remove the seeds for `questsRoot` that no version has left for a day. */
-function clearStaleSeeds(questsRoot: string, dir: string, kept: string): void {
-	const stem = seedStem(questsRoot);
-	const before = Date.now() - SEED_KEPT_MS;
-	let names: string[];
-	try {
-		names = readdirSync(dir);
-	} catch {
-		// No folder to list: there is nothing in it to clear.
-		return;
-	}
-	for (const name of names) {
-		const path = join(dir, name);
-		if (!name.startsWith(stem) || path === kept) continue;
-		try {
-			if (statSync(path).mtimeMs < before) unlinkSync(path);
-		} catch {
-			// Gone already, or another process is clearing it: either way the
-			// next seed left tries again.
-		}
-	}
-}
-
-function isSeedRecord(value: unknown): value is SeedRecord {
-	return (
-		Array.isArray(value) &&
-		typeof value[0] === "string" &&
-		typeof value[1] === "string" &&
-		typeof value[2] === "object" &&
-		value[2] !== null &&
-		(value[3] === undefined || typeof value[3] === "string")
-	);
-}
-
-function isSeed(value: unknown): value is Seed {
-	if (typeof value !== "object" || value === null) return false;
-	const seed = value as Partial<Seed>;
-	return (
-		seed.v === SEED_VERSION &&
-		typeof seed.code === "string" &&
-		typeof seed.root === "string" &&
-		Array.isArray(seed.stamps) &&
-		seed.stamps.every(
-			(s) => Array.isArray(s) && s.every((part) => typeof part === "string"),
-		) &&
-		Array.isArray(seed.records?.readmes) &&
-		seed.records.readmes.every(isSeedRecord) &&
-		Array.isArray(seed.records?.documents) &&
-		seed.records.documents.every(isSeedRecord)
-	);
-}
-
-/** Fill a fresh memo for `questsRoot` from its seed, once per memo. */
-function takeSeed(questsRoot: string, dir: string, code: string): void {
-	const m = memo();
-	if (m.seeded.has(questsRoot)) return;
-	m.seeded.add(questsRoot);
-	let seed: unknown;
-	try {
-		seed = deserialize(readFileSync(seedFile(questsRoot, dir, code)));
-	} catch {
-		// No seed yet, or one cut short: the walk reads everything, as it
-		// did before seeds, and leaves one.
-		return;
-	}
-	if (!isSeed(seed) || seed.code !== code || seed.root !== questsRoot) {
-		return;
-	}
-	for (const [path, stat, hash] of seed.stamps) {
-		if (!m.stamps.has(path)) m.stamps.set(path, { stat, hash });
-	}
-	for (const [path, hash, frontMatter, title] of seed.records.readmes) {
-		if (m.readmes.has(path)) continue;
-		const doc = kept<QuestDoc>(
-			{ frontMatter: frontMatter as QuestDoc["frontMatter"], title },
-			path,
-		);
-		m.readmes.set(path, { hash, doc });
-	}
-	for (const [path, hash, frontMatter, title] of seed.records.documents) {
-		if (m.documents.has(path)) continue;
-		const doc = kept<QuestDocumentDoc>(
-			{ frontMatter: frontMatter as QuestDocumentDoc["frontMatter"], title },
-			path,
-		);
-		m.documents.set(path, { hash, doc });
-	}
-}
-
-/** Write what the memo holds of `questsRoot` as its seed. */
-function leaveSeed(questsRoot: string, dir: string, code: string): void {
-	const m = memo();
-	const under = (path: string) => path.startsWith(questsRoot + sep);
-	const records = <D extends QuestDoc | QuestDocumentDoc>(
-		table: Map<string, Parsed<D>>,
-	): SeedRecord[] =>
-		[...table]
-			.filter(([path]) => under(path))
-			.map(([path, { hash, doc }]) => [path, hash, doc.frontMatter, doc.title]);
-	const seed: Seed = {
-		v: SEED_VERSION,
-		code,
-		root: questsRoot,
-		stamps: [...m.stamps]
-			.filter(([path]) => under(path))
-			.map(([path, { stat, hash }]) => [path, stat, hash]),
-		records: {
-			readmes: records(m.readmes),
-			documents: records(m.documents),
-		},
-	};
-	const file = seedFile(questsRoot, dir, code);
-	const draft = `${file}.${process.pid}.tmp`;
-	try {
-		mkdirSync(dir, { recursive: true });
-		writeFileSync(draft, serialize(seed));
-		renameSync(draft, file);
-	} catch {
-		// A seed that can't be written leaves the next process to walk
-		// everything, which is all it costs.
-		return;
-	}
-	clearStaleSeeds(questsRoot, dir, file);
-}
-
-let code: string | undefined;
-
-/**
- * A hash of the code that shapes a parsed record: every module beside
- * this one and the version of the YAML parser they use.
- */
-function codeKey(): string {
-	if (code) return code;
-	const hash = createHash("sha1");
-	const here = dirname(fileURLToPath(import.meta.url));
-	const names = readdirSync(here, { recursive: true, encoding: "utf8" })
-		.filter((name) => name.endsWith(".ts"))
-		.sort();
-	for (const name of names) {
-		hash.update(name);
-		hash.update(readFileSync(join(here, name)));
-	}
-	try {
-		const yaml: unknown = createRequire(import.meta.url)("yaml/package.json");
-		hash.update(JSON.stringify(yaml));
-	} catch {
-		// No version to read: the sources alone still key the seed.
-	}
-	code = hash.digest("hex");
-	return code;
-}
-
-/**
- * A content-sensitive fingerprint of the quest tree. For each
- * quest it hashes the README and every document file, so an edit
- * that keeps the byte size identical (a status flip, a same-length
- * reparent, a date-only stamp) still moves the signature. It also
- * folds in the directory listings of the root and each quest dir,
- * so the layout-drift conditions that drive the discovery `errors`
- * (a stray non-quest entry, a misplaced document at a quest root,
- * a nested quest) move it too. A file whose stat still matches the
- * one its hash was taken under keeps that hash without being read,
- * provided it had settled before the hash was taken, so a warm read
- * of an unchanged tree costs a stat per file rather than its bytes.
- * Whatever it reads lands in `pass` for the walk to reuse.
- */
-function discoverySignature(questsRoot: string, pass: Pass): string {
-	const parts: string[] = [];
-	const stampContent = (path: string): void => {
-		try {
-			parts.push(`${path}:${contentHash(path, pass)}`);
-		} catch {
-			// Missing or unreadable file contributes nothing; its
-			// absence is itself a change from a signature that had it.
-		}
-	};
-	const layout = (entries: Dirent[]): string =>
-		entries
-			.map((e) => `${e.name}/${e.isDirectory() ? "d" : "f"}`)
-			.sort()
-			.join(",");
-	const rootEntries = readEntries(questsRoot, pass);
-	if (!rootEntries) return "absent";
-	parts.push(`root:${layout(rootEntries)}`);
-	for (const entry of rootEntries) {
-		if (!entry.isDirectory()) continue;
-		if (!isId(entry.name) || prefixOf(entry.name) !== "QEST") continue;
-		const questDir = join(questsRoot, entry.name);
-		const questEntries = readEntries(questDir, pass);
-		if (questEntries) parts.push(`${entry.name}:${layout(questEntries)}`);
-		stampContent(join(questDir, "README.md"));
-		for (const subdir of CANONICAL_DOCUMENT_DIRS) {
-			const scanDir = join(questDir, subdir);
-			const docEntries = kindEntries(questDir, subdir, pass);
-			if (!docEntries) continue;
-			for (const doc of docEntries) {
-				if (doc.isFile()) stampContent(join(scanDir, doc.name));
-			}
-		}
-	}
-	return parts.sort().join("|");
-}
-
-/** A file's content hash, from its stamp when the stat still vouches. */
-function contentHash(path: string, pass: Pass): string {
-	const st = statSync(path, { bigint: true });
-	const stat = `${st.size}:${st.mtimeNs}:${st.ctimeNs}:${st.ino}`;
-	const { stamps } = memo();
-	const known = stamps.get(path);
-	if (known && known.stat === stat) {
-		pass.hashes.set(path, known.hash);
-		return known.hash;
-	}
-	const bytes = readFileSync(path);
-	pass.bytes.set(path, bytes);
-	const hash = hashOf(bytes);
-	pass.hashes.set(path, hash);
-	const age = BigInt(Date.now()) * 1_000_000n - st.mtimeNs;
-	if (age > SETTLED_NS) stamps.set(path, { stat, hash });
-	else stamps.delete(path);
-	return hash;
-}
-
-function hashOf(bytes: Buffer): string {
-	return createHash("sha1").update(bytes).digest("hex");
-}
-
-/** A file's kept record, and the hash of the text it was parsed from. */
-interface Parsed<D> {
-	readonly hash: string;
-	readonly doc: D;
-}
-
-/** A file's record, or its text when that would not parse. */
-type Reading<D> = { doc: D } | { text: string };
-
-/**
- * A file's kept record, parsed only when its content is new.
- *
- * Any change anywhere in the tree misses the index, and the walk that
- * follows used to reparse every README and document: about 900 ms over
- * 753 quests, paid by each session on its next call after any other
- * session wrote a journal line. A record whose file's hash is the one
- * it was parsed from is reused, so a rebuild reparses only what
- * changed. A miss hashes the bytes it parses rather than trusting the
- * signature's hash, which a stat may have vouched for. A file that will
- * not parse is not kept, so its error is raised on every walk.
- */
-function parsedOnce<D>(
-	path: string,
-	pass: Pass,
-	table: Map<string, Parsed<D>>,
-	parse: (text: string) => D | undefined,
-): Reading<D> | undefined {
-	const known = table.get(path);
-	if (known && known.hash === pass.hashes.get(path)) {
-		pass.parsed.add(path);
-		return { doc: known.doc };
-	}
-	let bytes = pass.bytes.get(path);
-	if (!bytes) {
-		try {
-			bytes = readFileSync(path);
-		} catch {
-			// Gone or unreadable since the signature pass: the caller
-			// treats it as missing, and the next signature differs.
-			return undefined;
-		}
-	}
-	const text = bytes.toString("utf8");
-	if (!text) return undefined;
-	pass.parses += 1;
-	const doc = parse(text);
-	if (!doc) return { text };
-	table.set(path, { hash: hashOf(bytes), doc });
-	pass.parsed.add(path);
-	return { doc };
-}
-
-/** Drop every kept record the last walk neither parsed nor reused. */
-function forgetUnparsed(pass: Pass): void {
-	const { readmes, documents } = memo();
-	for (const table of [readmes, documents]) {
-		for (const path of table.keys()) {
-			if (!pass.parsed.has(path)) table.delete(path);
-		}
-	}
-}
-
 function discoverQuestsUncached(
 	questsRoot: string,
 	pass: Pass,
@@ -799,6 +261,23 @@ function discoverQuestsUncached(
 	return result;
 }
 
+/**
+ * Walk `questsRoot` and build the index. Read errors are
+ * collected into `errors`; they do not stop discovery.
+ *
+ * Safety against pathological trees:
+ *
+ * - We use `withFileTypes` so the directory check comes
+ *   from the entry, never from a `stat` call that would
+ *   follow symlinks.
+ * - We refuse symlinks outright: a real quest tree is
+ *   plain directories. This keeps the walk from leaving
+ *   `questsRoot` via someone's stray symlink.
+ * - We track real paths we have entered and skip any we
+ *   already visited so a hard-link cycle terminates.
+ * - We cap recursion depth at `MAX_WALK_DEPTH` and surface
+ *   the truncation as an error rather than spinning.
+ */
 function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 	const { readmes, documents: documentRecords } = memo();
 	const quests = new Map<string, QuestEntry>();
