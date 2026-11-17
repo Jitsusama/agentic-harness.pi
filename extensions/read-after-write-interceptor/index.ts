@@ -51,12 +51,21 @@ const MOST_WAIT_MS = 5 * 60_000;
 /** What a read says of a file that is not there. */
 const MISSING = /ENOENT/;
 
-/** Where a tool's path points, as pi's file tools read it. */
+/**
+ * Where a tool's path points, as pi's file tools read it; undefined for
+ * an address none can read, as a `file://` one naming a host, which pi's
+ * tool then fails on too.
+ */
 function fileOf(input: unknown, cwd: string): string | undefined {
 	if (typeof input !== "object" || input === null) return undefined;
 	const { path } = input as { path?: unknown };
 	if (typeof path !== "string") return undefined;
-	return toolPath(path, cwd);
+	try {
+		return toolPath(path, cwd);
+	} catch {
+		// An address no tool can read is no file a writer and a read share.
+		return undefined;
+	}
 }
 
 /** A call that may write a file, from its announcement to its result. */

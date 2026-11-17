@@ -45,7 +45,8 @@
  * in a hosted conversation that loads no extension.
  */
 
-import { readFileSync, statSync } from "node:fs";
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
 import {
 	type ExtensionAPI,
 	isToolCallEventType,
@@ -68,15 +69,22 @@ const MOST_HELD_BYTES = 16 * 1024 * 1024;
 /**
  * What a file holds now, or nothing when it can't be read, as a new one.
  * A pipe or a device would block pi or never end, and a huge file stall
- * it, so each is read as holding nothing, which refuses any mark rather
- * than waiting.
+ * it, so each is read as holding nothing: a write's mark is then refused,
+ * and an edit's judged on its texts alone. The file is opened once and
+ * without waiting, and that same opening judged and read, so a pipe put
+ * in its place between the two can't block pi either.
  */
-function heldNow(path: string, cwd: string): string {
+async function heldNow(path: string, cwd: string): Promise<string> {
 	try {
 		const file = toolPath(path, cwd);
-		const found = statSync(file);
-		if (!found.isFile() || found.size > MOST_HELD_BYTES) return "";
-		return readFileSync(file, "utf8");
+		const opened = await open(file, constants.O_RDONLY | constants.O_NONBLOCK);
+		try {
+			const found = await opened.stat();
+			if (!found.isFile() || found.size > MOST_HELD_BYTES) return "";
+			return await opened.readFile("utf8");
+		} finally {
+			await opened.close();
+		}
 	} catch {
 		// A file not there, or not readable, holds no mark to keep.
 		return "";
@@ -111,13 +119,13 @@ export default function secretScrubInterceptor(pi: ExtensionAPI) {
 				return undefined;
 			}
 			added = marksAdded(
-				typeof path === "string" ? heldNow(path, ctx.cwd) : "",
+				typeof path === "string" ? await heldNow(path, ctx.cwd) : "",
 				content,
 			);
 		} else if (isToolCallEventType("edit", event)) {
 			const { path } = event.input;
 			added = marksEditAdds(
-				typeof path === "string" ? heldNow(path, ctx.cwd) : "",
+				typeof path === "string" ? await heldNow(path, ctx.cwd) : "",
 				replacementsOf(event.input),
 			);
 		}
