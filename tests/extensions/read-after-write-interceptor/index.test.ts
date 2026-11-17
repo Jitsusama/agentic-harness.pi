@@ -143,6 +143,20 @@ describe("a read in another folder", () => {
 	});
 });
 
+describe("a write to an address no tool can read", () => {
+	it("is let start, and holds back no read", async () => {
+		const args = { path: "file://host/a.ts" };
+		const started = on.get("tool_execution_start")?.(
+			{ type: "tool_execution_start", toolCallId: "w", toolName: "write", args },
+			ctx,
+		);
+		await expect(started).resolves.toBeUndefined();
+		await start("read", "read");
+
+		expect(await result("read", "read", "one")).toBeUndefined();
+	});
+});
+
 describe("a read with no write beside it", () => {
 	it("is left alone", async () => {
 		await start("read", "read");

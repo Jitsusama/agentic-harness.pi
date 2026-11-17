@@ -9,12 +9,17 @@
 
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import secretScrubInterceptor from "../../../extensions/secret-scrub-interceptor/index.ts";
+import {
+	listGuards,
+	restoreSessionModes,
+	setSessionMode,
+} from "../../../lib/guardian/policy.ts";
 import { scrubbedMark } from "../../../lib/internal/secrets/secrets.ts";
 
 const mark = scrubbedMark;
@@ -58,6 +63,31 @@ describe("a write or an edit holding a scrub's mark", () => {
 		const { reason } = answer as { reason: string };
 		expect(reason).toContain(env);
 		expect(reason).toContain("credential");
+	});
+
+	it("is declared as a safety guard that blocks unless a person sets it off", async () => {
+		const guard = listGuards().find(
+			(found) => found.declaration.name === "secret-marks",
+		);
+		expect(guard?.declaration.class).toBe("safety");
+		expect(guard?.mode).toBe("block");
+		const input = { path: "new.env", content: `T=${mark("T")}\n` };
+		try {
+			setSessionMode("secret-marks", "off");
+			expect(await call("write", input)).toBeUndefined();
+		} finally {
+			restoreSessionModes({});
+		}
+		expect(await call("write", input)).toMatchObject({ block: true });
+	});
+
+	it("is refused as a write keeping a mark of a file too big to read", async () => {
+		const env = mark("environment value");
+		const big = join(dir, "big.log");
+		writeFileSync(big, `A=${env}\n`);
+		truncateSync(big, 17 * 1024 * 1024);
+		const answer = await call("write", { path: "big.log", content: `A=${env}\n` });
+		expect(answer).toMatchObject({ block: true });
 	});
 
 	it("is refused at once as a write over a pipe, which is never read", async () => {

@@ -129,6 +129,49 @@ describe("the marks an edit adds to the file it edits", () => {
 		const edits = [{ oldText: "MISSING", newText: `X=${env}` }];
 		expect(marksEditAdds("A=1\n", edits)).toEqual([env]);
 	});
+
+	it("name a mark texts that can't be placed make run together", () => {
+		const edits = [
+			{ oldText: "MISSING", newText: `[secret ${"scrubbed"}: TO` },
+			{ oldText: "ABSENT", newText: "KEN]" },
+		];
+		expect(marksEditAdds("A=1\n", edits)).toEqual([mark("TOKEN")]);
+	});
+
+	it("name a mark made beside an old text a file holding escapes matches as written", () => {
+		const edits = [
+			{ oldText: "A", newText: `[secret ${"scrubbed"}: TOKEN` },
+			{ oldText: "B", newText: "]" },
+			{ oldText: "x\\u0020y", newText: "x\\u0020y;" },
+		];
+		expect(marksEditAdds("AB\nx\\u0020y\n", edits)).toEqual([mark("TOKEN")]);
+	});
+
+	it("name a mark made on a file whose lines a carriage return ends", () => {
+		const edits = [
+			{ oldText: "A", newText: `[secret ${"scrubbed"}: TOKEN` },
+			{ oldText: "B", newText: "]" },
+			{ oldText: "x\ny", newText: "x\nz" },
+		];
+		expect(marksEditAdds("AB\r\nx\r\ny\r\n", edits)).toEqual([mark("TOKEN")]);
+	});
+
+	it("name a mark made beside an old text pi matches only loosely", () => {
+		const edits = [
+			{ oldText: "A", newText: `[secret ${"scrubbed"}: TOKEN` },
+			{ oldText: "B", newText: "]" },
+			{ oldText: 'say "hi"', newText: 'say "bye"' },
+		];
+		expect(marksEditAdds("AB\nsay \u201chi\u201d  \n", edits)).toEqual([
+			mark("TOKEN"),
+		]);
+	});
+
+	it("are none for escapes a file holding escapes keeps as text", () => {
+		const spelled = "\\u005bsecret scrubbed: TOKEN\\u005d";
+		const edits = [{ oldText: '"\\u2192"', newText: `"${spelled}"` }];
+		expect(marksEditAdds('{"arrow": "\\u2192"}\n', edits)).toEqual([]);
+	});
 });
 
 describe("why a write holding a mark is refused", () => {
