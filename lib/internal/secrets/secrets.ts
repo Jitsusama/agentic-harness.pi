@@ -172,6 +172,19 @@ export interface ScrubOptions {
 	readonly environment?: boolean;
 }
 
+/** How a call's answer is read, from the call's input. Not yet read. */
+export function scrubOptionsOf(_input: unknown): ScrubOptions {
+	return { environment: false };
+}
+
+/** A tool's answer scrubbed whole. Not yet scrubbed. */
+export function scrubToolResult(
+	_answer: unknown,
+	_input: unknown,
+): Record<string, unknown> | undefined {
+	return undefined;
+}
+
 /** The words that stand where a secret was, naming what it was. */
 export function scrubbedMark(kind: string): string {
 	return `[secret scrubbed: ${kind}]`;
