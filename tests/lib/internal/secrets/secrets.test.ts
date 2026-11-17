@@ -447,6 +447,11 @@ describe("an output that reads as a printing of the environment", () => {
 
 	// The test's timeout bounds this: a rule whose line start reads on past
 	// a newline tries every blank line from every blank line.
+	it("is none for one line redrawn five times over", () => {
+		const printed = `${"progress=10%\r".repeat(5)}done\n`;
+		expect(readsAsDump(printed), "one redrawn line is no dump").toBe(false);
+	});
+
 	it("answers at once for a dump followed by many blank lines", () => {
 		const printed = `${"A=1\n".repeat(5)}${"\n".repeat(200_000)}---`;
 		expect(scrubSecrets(printed, []).text).toBe(printed);
@@ -648,6 +653,68 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 		expect(scrubbed?.content?.[0]).toEqual({
 			type: "text",
 			text: "\x1b[32m[secret scrubbed: environment value]\x1b[0m\nready",
+		});
+	});
+
+	it("has a bare value put out of sight when an escape it can't read, or one cut short, follows it", () => {
+		const value = fresh();
+		const scrubbed = scrubToolPartial(
+			partialOf(`\x1b[32m${value}\x1b[0`),
+			{ command: "launchctl getenv PROXY_CRED" },
+		);
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "\x1b[32m[secret scrubbed: environment value]\x1b[0",
+		});
+		const linked = `${value}\x1b]8;;\x1b\\ ready`;
+		expect(scrubSecrets(linked, [], { environment: true }).text).toBe(
+			"[secret scrubbed: environment value]\x1b]8;;\x1b\\ ready",
+		);
+	});
+
+	it("has a bare value holding a bracket put out of sight whole", () => {
+		const value = `${fresh().slice(0, 8)}]${fresh().slice(0, 12)}`;
+		const scrubbed = scrubToolPartial(partialOf(`${value}\nready`), {
+			command: "launchctl getenv PROXY_CRED",
+		});
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "[secret scrubbed: environment value]\nready",
+		});
+	});
+
+	it("has a credential put out of sight when only escapes join it to an address", () => {
+		const value = fresh();
+		const printed = `https://api.example.com\x1b[0m\x1b[33m${value}\nready`;
+		const scrubbed = scrubToolPartial(partialOf(printed), {
+			command: "printenv",
+		});
+		expect(scrubbed).toBeDefined();
+		expect(JSON.stringify(scrubbed)).not.toContain(value);
+	});
+
+	// The test's timeout bounds this: escapes a word may hold, ending in a
+	// break, would let a word start again inside each one.
+	it("answers at once for a long line of escapes that end in a break", () => {
+		for (const escape of ["\x1b=", "\x1b[]", "\x1b['m"]) {
+			const printed = `A=${escape.repeat(25_000)}x=\n`;
+			expect(
+				scrubToolPartial(partialOf(printed), { command: "./x" }),
+				JSON.stringify(escape),
+			).toBeUndefined();
+		}
+	});
+
+	// The test's timeout bounds this: the escapes closing a value, looked
+	// for from every escape in a run of them, cost the run's square.
+	it("answers at once for a value holding a long run of escapes", () => {
+		const value = `x${"\x1b[m".repeat(60_000)}abcdef1234567890`;
+		const scrubbed = scrubToolPartial(partialOf(`A=${value}\n`), {
+			command: "./x",
+		});
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "A=[secret scrubbed: A]\n",
 		});
 	});
 

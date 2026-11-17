@@ -266,7 +266,11 @@ describe("a hosted tool round", () => {
 		await round.round.run(round.callId, undefined);
 		const updates = shown(round.events, "tool_execution_update");
 		expect(updates).toHaveLength(3);
-		expect(JSON.stringify(updates[2])).toContain("withheld");
+		const notice = "could not be scrubbed (RangeError)";
+		expect(JSON.stringify(updates[0])).toContain(notice);
+		expect(JSON.stringify(updates[1])).toContain('"working"');
+		expect(JSON.stringify(updates[1])).not.toContain("withheld");
+		expect(JSON.stringify(updates[2])).toContain(notice);
 	});
 
 	it("scrubs a printed environment's saved output file, with no extension loaded", async () => {
