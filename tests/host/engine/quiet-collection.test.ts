@@ -14,6 +14,7 @@ import {
 	CEILING_MS,
 	lastResortCollect,
 	PACE_WINDOW,
+	processCode,
 	processHeap,
 	pssBytes,
 	type QuietReading,
@@ -46,7 +47,6 @@ describe("the host's collection once quiet", () => {
 				total: 760 * MB,
 				external: 60 * MB,
 				arrayBuffers: 9 * MB,
-				code: { compiled: 19 * MB, bytecode: 7 * MB, source: 24 * MB },
 				spaces: [
 					{ name: "old_space", used: 600 * MB, size: 640 * MB },
 					{ name: "new_space", used: MB / 2, size: MB / 2 },
@@ -57,7 +57,6 @@ describe("the host's collection once quiet", () => {
 				total: 200 * MB,
 				external: 40 * MB,
 				arrayBuffers: 5 * MB,
-				code: { compiled: 18 * MB, bytecode: 6 * MB, source: 25 * MB },
 				spaces: [
 					{ name: "old_space", used: 100 * MB, size: 120 * MB },
 					{ name: "large_object_space", used: 30 * MB, size: 40 * MB },
@@ -71,6 +70,7 @@ describe("the host's collection once quiet", () => {
 			collect,
 			weigh: () => weighs.shift(),
 			heap: () => heaps.shift(),
+			code: () => ({ compiled: 18 * MB, bytecode: 6 * MB, source: 25 * MB }),
 			report: (one) => said.push(one),
 		});
 		return { collect, said, quiet };
@@ -85,7 +85,7 @@ describe("the host's collection once quiet", () => {
 		expect(collect).toHaveBeenCalledTimes(1);
 		expect(said).toEqual([
 			expect.stringMatching(
-				/^Collected while quiet in \d+ ms, Pss 812 MB to 214 MB, heap 700 of 760 MB to 150 of 200 MB \(old 100 of 120 MB, large object 30 of 40 MB, code 20 of 40 MB; code and metadata 18 MB, bytecode 6 MB, script source 25 MB\), outside it 60 MB to 40 MB, of which array buffers 9 MB to 5 MB, with 0 conversations waiting on the model$/,
+				/^Collected while quiet in \d+ ms, Pss 812 MB to 214 MB, heap 700 of 760 MB to 150 of 200 MB \(old 100 of 120 MB, large object 30 of 40 MB, code 20 of 40 MB\), outside it 60 MB to 40 MB, of which array buffers 9 MB to 5 MB, code and metadata 18 MB, bytecode 6 MB, script source 25 MB, read in \d+ ms, with 0 conversations waiting on the model$/,
 			),
 		]);
 	});
@@ -218,6 +218,7 @@ describe("the host's collection once quiet", () => {
 			collect: () => {},
 			weigh: () => undefined,
 			heap: () => undefined,
+			code: () => undefined,
 			report: (one) => said.push(one),
 			clock: (() => {
 				const reads = [0, 1240];
@@ -237,6 +238,7 @@ describe("the host's collection once quiet", () => {
 	 */
 	function paced(used: () => number, pauses: number[]) {
 		const collect = vi.fn();
+		const code = vi.fn(() => ({ compiled: MB, bytecode: MB, source: MB }));
 		const said: string[] = [];
 		let now = 0;
 		let started = true;
@@ -249,9 +251,9 @@ describe("the host's collection once quiet", () => {
 				total: used(),
 				external: 0,
 				arrayBuffers: 0,
-				code: { compiled: 0, bytecode: 0, source: 0 },
 				spaces: [],
 			}),
+			code,
 			report: (one) => said.push(one),
 			// Each collection reads the clock twice, before and after.
 			clock: () => {
@@ -264,17 +266,21 @@ describe("the host's collection once quiet", () => {
 			quiet.stirred();
 			vi.advanceTimersByTime(SPACING_MS);
 		};
-		return { collect, said, next };
+		return { collect, code, said, next };
 	}
 
 	it("leaves uncollected a heap whose pause would hold the loop over a second, saying why, and collects once it has fallen", () => {
 		let used = 800 * MB;
-		const { collect, said, next } = paced(() => used, [600, 450]);
+		const { collect, code, said, next } = paced(() => used, [600, 450]);
 		next();
 		expect(collect).toHaveBeenCalledTimes(1);
 		used = 1600 * MB;
 		next();
 		expect(collect).toHaveBeenCalledTimes(1);
+		expect(
+			code,
+			"its code, which takes a walk of the heap, read only once collected",
+		).toHaveBeenCalledTimes(1);
 		expect(said[1]).toBe(
 			"Left uncollected while quiet: the heap uses 1600 MB, which at 768 ms a GB, the slowest of the last 1 collections, would hold the loop about 1.2 s, past the 1 s a pause may take; with 1 conversations waiting on the model",
 		);
@@ -409,7 +415,12 @@ describe("V8's last-resort collection", () => {
 		expect(heap.total).toBeGreaterThanOrEqual(heap.used);
 		expect(heap.external).toBeGreaterThanOrEqual(heap.arrayBuffers);
 		expect(heap.spaces.map((space) => space.name)).toContain("old_space");
-		expect(heap.code.compiled, "this file's own code").toBeGreaterThan(0);
-		expect(heap.code.source, "this file's own source").toBeGreaterThan(0);
+	});
+
+	it("reads the code this process holds, each part of it", () => {
+		const code = processCode();
+		expect(code.compiled, "this file's compiled code").toBeGreaterThan(0);
+		expect(code.bytecode, "this file's bytecode").toBeGreaterThan(0);
+		expect(code.source, "this file's own source").toBeGreaterThan(0);
 	});
 });
