@@ -45,14 +45,13 @@ function isFullCollection(entry: PerformanceEntry): boolean {
 }
 
 /**
- * Calls `onFull` with how many of V8's full collections Node delivered
- * at once, which may be several back to back near the limit; answers the
- * function that stops.
+ * Calls `onFull` once for each delivery holding any of V8's full
+ * collections, which may hold several back to back near the limit or in
+ * a last-resort collection; answers the function that stops.
  */
-function watchFullCollections(onFull: (count: number) => void): () => void {
+function watchFullCollections(onFull: () => void): () => void {
 	const observer = new PerformanceObserver((list) => {
-		const count = list.getEntries().filter(isFullCollection).length;
-		if (count > 0) onFull(count);
+		if (list.getEntries().some(isFullCollection)) onFull();
 	});
 	observer.observe({ entryTypes: ["gc"] });
 	return () => observer.disconnect();
@@ -62,24 +61,25 @@ function watchFullCollections(onFull: (count: number) => void): () => void {
  * The lower of the heap after V8's last two full collections, read as
  * Node delivers them; after only one, that one; before any, the heap as
  * it stands. Several delivered at once give one reading, the heap after
- * the last. It counts every full collection too, since the reading moves
- * only at one. `watch` and `read` are V8's by default; tests give their
+ * the last. It counts its readings too, since a reader waiting for the
+ * reading to catch up with a change waits for two fresh ones, not two
+ * collections. `watch` and `read` are V8's by default; tests give their
  * own.
  */
 export function heapAfterFullCollections(
-	watch: (onFull: (count: number) => void) => () => void = watchFullCollections,
+	watch: (onFull: () => void) => () => void = watchFullCollections,
 	read: () => HeapUse = heapNow,
-): { read(): HeapUse; collections(): number; stop(): void } {
+): { read(): HeapUse; readings(): number; stop(): void } {
 	let last: HeapUse | undefined;
 	let before: HeapUse | undefined;
-	let collections = 0;
-	const stop = watch((count) => {
+	let readings = 0;
+	const stop = watch(() => {
 		before = last;
 		last = read();
-		collections += count;
+		readings++;
 	});
 	return {
-		collections: () => collections,
+		readings: () => readings,
 		read: () => {
 			if (last === undefined) return read();
 			if (before === undefined || last.usedBytes <= before.usedBytes)

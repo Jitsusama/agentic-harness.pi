@@ -62,16 +62,22 @@
  * the first look never lifts, so a host that starts that full restarts
  * only once it climbs, not at every start; a host whose first look reads
  * past 65% leaves its heap to that tier until it falls, and says so
- * once. A heap past 70% that neither tier restarts says why once an
- * hour, with what each tier weighs growth from. Each look weighs one
+ * once. Since the floor stays put, a refill of one parked before the
+ * marks were set restarts the host too once past 80% and 5% over it,
+ * and the journal says a wake was loading: that near the limit, a
+ * restart is the safer end. A heap past 70% that neither tier restarts
+ * says why once an hour, with what each tier weighs growth from, and
+ * one the gap tier would restart for but a running turn or a screen in
+ * use holds says what holds it, once an hour too. Each look weighs one
  * reading and decides by it alone. A refused restart near the limit is
  * tried again after 1 s, then twice as late each time, up to a minute,
  * and a look that finds a turn running doesn't start that over.
  * Neither tier can act before the first look, five minutes after the
- * host starts, nor until V8 has collected in full twice after it, nor in
- * the two minutes a queued restart is given before it counts as
- * dropped; the gap tier can't either while a wake of one parked before
- * the first look loads, ten minutes and two full collections from it.
+ * host starts, nor until V8's full collections have given two fresh
+ * readings after it, nor in the two minutes a queued restart is given
+ * before it counts as dropped; the gap tier can't either while a wake of
+ * one parked before then loads, ten minutes and two fresh readings from
+ * it.
  *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
@@ -194,6 +200,8 @@ export type RestartRule =
 			readonly share: number;
 			readonly turns: number;
 			readonly jobs: number;
+			/** While a wake of one parked before the marks were set loads, so a refill may be in it. */
+			readonly loading?: true;
 	  };
 
 /** What the restart loop asks of the host and the machine; tests give their own. */
@@ -204,8 +212,8 @@ export interface RestartFacts {
 	held(): readonly Held[];
 	/** The conversations its roster holds that it doesn't run, parked, by id; none when missing. */
 	parked?(): readonly string[];
-	/** How many full collections V8 has run; each reading counts as fresh when missing, as a test's are. */
-	heapCollections?(): number;
+	/** How many readings V8's full collections have given; each counts as fresh when missing, as a test's do. */
+	heapReadings?(): number;
 	/** How much background work the conversations hold, which a restart would end. */
 	background(): number;
 	/** What `background` counts, a line each, for the journal. */
@@ -286,6 +294,8 @@ export function restartWhenSettled(
 	let share = 0;
 	// When a heap past 70% that no tier restarts was last explained.
 	let heapSaidAt: number | undefined;
+	// When a heap the gap tier would restart for, held by a turn or a screen, was last explained.
+	let pressedSaidAt: number | undefined;
 	// Restarts refused in a row under heap pressure, which back the next try off.
 	let refusals = 0;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
@@ -353,21 +363,49 @@ export function restartWhenSettled(
 		const background = facts.background();
 		const held = facts.held();
 		const turns = held.filter(({ state }) => state === "busy").length;
-		if (heapUrgent()) return { rule: "heap", share, turns, jobs: background };
+		if (heapUrgent()) return heapRule(turns, background);
 		const pressed = heapPressed();
 		if (background > 0 && !pressed) {
 			sayHeld();
 			return undefined;
 		}
-		if (!facts.resting()) return undefined;
+		const resting = facts.resting();
+		if (pressed && (turns > 0 || !resting)) {
+			sayPressedHeld(turns, resting);
+			return undefined;
+		}
+		if (!resting) return undefined;
 		if (background === 0 && settled(held, facts.now(), settledMs))
 			return { rule: "settled" };
-		if (pressed)
-			return turns > 0
-				? undefined
-				: { rule: "heap", share, turns: 0, jobs: background };
+		if (pressed) return heapRule(0, background);
 		if (!pastCeiling() || turns > 0) return undefined;
 		return { rule: "ceiling", waitedMs: facts.now() - (differingSince ?? 0) };
+	}
+
+	// A heap restart's rule, saying when a refill may be in what it weighed.
+	function heapRule(turns: number, jobs: number): RestartRule {
+		return {
+			rule: "heap",
+			share,
+			turns,
+			jobs,
+			...(mark.held() === "rising" ? { loading: true as const } : {}),
+		};
+	}
+
+	// Say, at most once every HELD_SAY_MS, what holds a heap the gap tier would restart for.
+	function sayPressedHeld(turns: number, resting: boolean): void {
+		const now = facts.now();
+		if (pressedSaidAt !== undefined && now - pressedSaidAt < HELD_SAY_MS)
+			return;
+		pressedSaidAt = now;
+		const holders = [
+			...(turns > 0 ? [counted(turns, "running turn")] : []),
+			...(resting ? [] : ["a screen in use"]),
+		];
+		facts.report(
+			`Its heap holds ${Math.round(share * 100)}% of what V8 allows, past what the gap tier restarts for, held by ${holders.join(" and ")}`,
+		);
 	}
 
 	// Whether the heap has grown by `by` of V8's limit from `from`.
@@ -395,7 +433,7 @@ export function restartWhenSettled(
 	// Read and weigh this look's share, and say when the first leaves only the urgent tier.
 	function weighLowest(): void {
 		share = facts.heapShare?.() ?? 0;
-		const collections = facts.heapCollections?.();
+		const readings = facts.heapReadings?.();
 		const first = mark.weigh({
 			share,
 			parked: facts.parked?.() ?? [],
@@ -406,14 +444,14 @@ export function restartWhenSettled(
 						? []
 						: [begun === undefined ? { id } : { id, begun }],
 				),
-			...(collections === undefined ? {} : { collections }),
+			...(readings === undefined ? {} : { readings }),
 			now: facts.now(),
 		});
 		if (first && share + HEAP_GROWN_SHARE > HEAP_URGENT_SHARE) {
 			// It says why no tier acts, so the hourly line waits as if it had.
 			heapSaidAt = facts.now();
 			facts.report(
-				`Its heap already held ${Math.round(share * 100)}% of what V8 allows at its first look, so until it falls only the urgent tier restarts it for its heap, once past ${Math.round(HEAP_URGENT_SHARE * 100)}% and grown ${Math.round(HEAP_URGENT_GROWN_SHARE * 100)}% from its lowest`,
+				`Its heap held ${Math.round(share * 100)}% of what V8 allows once V8 had caught up after its first look, so until it falls only the urgent tier restarts it for its heap, once past ${Math.round(HEAP_URGENT_SHARE * 100)}% and grown ${Math.round(HEAP_URGENT_GROWN_SHARE * 100)}% from its floor`,
 			);
 		} else sayHeapHeld();
 	}
@@ -565,7 +603,7 @@ export async function followWhatStarts(
 	// own reading, and its own collector with it when it counts them.
 	const live =
 		options.heap && !options.watchHeap
-			? { read: options.heap, collections: undefined, stop: () => undefined }
+			? { read: options.heap, readings: undefined, stop: () => undefined }
 			: heapAfterFullCollections(options.watchHeap, options.heap);
 	const heap = live.read;
 	function heapPastShare(): string | undefined {
@@ -582,7 +620,7 @@ export async function followWhatStarts(
 				(await installMoved()) ?? (await unitChanged()) ?? heapPastShare(),
 			held: () => options.serving.held(),
 			parked: () => options.serving.parked(),
-			...(live.collections ? { heapCollections: live.collections } : {}),
+			...(live.readings ? { heapReadings: live.readings } : {}),
 			background: options.background,
 			...(options.holding ? { holding: options.holding } : {}),
 			resting: options.resting,
@@ -636,7 +674,10 @@ function restartedUnder(under: RestartRule, settledMs: number): string {
 			...(under.turns > 0 ? [counted(under.turns, "running turn")] : []),
 			...(under.jobs > 0 ? [counted(under.jobs, "background job")] : []),
 		];
-		return `with its heap at ${Math.round(under.share * 100)}% of what V8 allows, ending ${ended.length > 0 ? ended.join(" and ") : "nothing that was running"}`;
+		const loading = under.loading
+			? ", while a conversation parked before its first look loaded again"
+			: "";
+		return `with its heap at ${Math.round(under.share * 100)}% of what V8 allows${loading}, ending ${ended.length > 0 ? ended.join(" and ") : "nothing that was running"}`;
 	}
 	const waited = Math.round(under.waitedMs / MINUTE_MS);
 	const settle = Math.round(settledMs / MINUTE_MS);

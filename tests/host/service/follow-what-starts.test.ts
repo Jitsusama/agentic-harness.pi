@@ -261,10 +261,10 @@ describe("followWhatStarts", () => {
 		const { systemctl, calls } = systemd();
 		const timers = manualTimers();
 		let used = 3100 * MB;
-		let collected: ((count: number) => void) | undefined;
+		let collected: (() => void) | undefined;
 		const collect = (mb: number) => {
 			used = mb * MB;
-			collected?.(1);
+			collected?.();
 		};
 		let parked = false;
 		let begun = 1;

@@ -50,11 +50,11 @@ function exposedGc(): (options: object) => void {
 // A heap the test sets, and full collections it says happened.
 function fakeV8(usedMb: number) {
 	let used = usedMb * MB;
-	let collected: ((count: number) => void) | undefined;
+	let collected: (() => void) | undefined;
 	let watching = false;
 	return {
 		read: () => ({ usedBytes: used, limitBytes: 4144 * MB }),
-		watch: (onFull: (count: number) => void) => {
+		watch: (onFull: () => void) => {
 			collected = onFull;
 			watching = true;
 			return () => {
@@ -64,10 +64,10 @@ function fakeV8(usedMb: number) {
 		allocate: (mb: number) => {
 			used = mb * MB;
 		},
-		// One delivery of `count` full collections, which Node may batch.
-		collect: (toMb: number, count = 1) => {
+		// One delivery, of one full collection or several Node batched.
+		collect: (toMb: number) => {
 			used = toMb * MB;
-			collected?.(count);
+			collected?.();
 		},
 		watching: () => watching,
 	};
@@ -76,13 +76,13 @@ function fakeV8(usedMb: number) {
 describe("heapAfterFullCollections", () => {
 	// The reading moves only as V8 collects in full, so a reader asking
 	// whether it has caught up with a change counts them.
-	it("counts V8's full collections since it began watching", () => {
+	it("counts the readings V8's full collections give since it began watching", () => {
 		const v8 = fakeV8(900);
 		const heap = heapAfterFullCollections(v8.watch, v8.read);
-		expect(heap.collections(), "none yet").toBe(0);
+		expect(heap.readings(), "none yet").toBe(0);
 		v8.collect(1200);
 		v8.collect(1300);
-		expect(heap.collections(), "two").toBe(2);
+		expect(heap.readings(), "two").toBe(2);
 	});
 
 	// Node can hand an observer several collections at once, as V8 runs
@@ -92,8 +92,9 @@ describe("heapAfterFullCollections", () => {
 	it("counts one reading for several full collections delivered at once", () => {
 		const v8 = fakeV8(900);
 		const heap = heapAfterFullCollections(v8.watch, v8.read);
-		v8.collect(1200, 3);
-		expect(heap.collections(), "three in one delivery, read once").toBe(1);
+		// Three collections Node delivered at once.
+		v8.collect(1200);
+		expect(heap.readings(), "three in one delivery, read once").toBe(1);
 	});
 
 	it("reads the heap as it stands before V8 has collected in full", () => {
@@ -144,7 +145,7 @@ describe("heapAfterFullCollections", () => {
 			read.mock.calls.length,
 			"not after a minor collection, only V8's own full ones",
 		).toBe(seen.majors());
-		expect(heap.collections(), "one reading for each delivery").toBe(
+		expect(heap.readings(), "one reading for each delivery").toBe(
 			read.mock.calls.length,
 		);
 

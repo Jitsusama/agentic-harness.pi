@@ -6,9 +6,10 @@
  *
  * The reading moves only as V8 collects in full, and is the lower of its
  * last two, so one taken before a change can stand for a long while
- * after it. Until V8 has collected twice after the host's first look,
- * the marks follow the reading, since the collections before may have
- * run before its resumed conversations had loaded.
+ * after it. Until two fresh readings have come after the host's first
+ * look, the marks follow the reading, since the collections before may
+ * have run before its resumed conversations had loaded; several
+ * collections Node delivers at once give one reading.
  *
  * A parked conversation leaves what the host runs and stays on its
  * roster. When one parks, the marks it parked under are kept, and its
@@ -19,18 +20,19 @@
  * After any wake the marks don't fall until V8 has collected in full
  * twice once the wake's conversations have had time to load.
  *
- * One parked before the first look parked under no mark, so its wake
- * lets the gap tier's mark rise with the readings for that same while.
- * The urgent tier's floor never rises so, since wakes can follow each
- * other all day, and a climb beside them would otherwise run into V8's
- * limit unseen.
+ * One parked, or begun again, before the marks were set did so under
+ * no mark, so its wake lets the gap tier's mark rise with the readings
+ * for that same while, the reading that ends the while included. The
+ * urgent tier's floor never rises so, since wakes can follow each other
+ * all day, and a climb beside them would otherwise run into V8's limit
+ * unseen.
  */
 
-/** How long after a wake its conversations are given to load before collections count. */
+/** How long after a wake its conversations are given to load before readings count. */
 export const HEAP_SETTLE_MS = 10 * 60_000;
 
-/** The full collections a reading needs to have caught up, being the lower of the last two. */
-const COLLECTIONS_CAUGHT_UP = 2;
+/** The fresh readings a reading needs to have caught up, being the lower of the last two. */
+const READINGS_CAUGHT_UP = 2;
 
 /** A conversation the host runs, as one look sees it. */
 export interface RunningLook {
@@ -46,8 +48,8 @@ export interface HeapLook {
 	/** The conversations on the roster that aren't running, by id. */
 	readonly parked: readonly string[];
 	readonly running: readonly RunningLook[];
-	/** How many full collections V8 has run, or nothing when each reading is fresh, as a test's are. */
-	readonly collections?: number;
+	/** How many readings V8's full collections have given, or nothing when each is fresh, as a test's are. */
+	readonly readings?: number;
 	/** Epoch milliseconds. */
 	readonly now: number;
 }
@@ -61,32 +63,32 @@ interface Marks {
 	readonly floor: number;
 }
 
-/** Since a wake: until when its conversations load, and the collections counted after. */
+/** Since a wake: until when its conversations load, and the readings counted after. */
 interface Loading {
 	readonly loadedAt: number;
-	collectionsThen: number | undefined;
+	readingsThen: number | undefined;
 }
 
 /** Whether the readings have caught up since `loading` began. */
 function loaded(loading: Loading, look: HeapLook): boolean {
 	if (look.now < loading.loadedAt) return false;
-	if (look.collections === undefined) return true;
-	loading.collectionsThen ??= look.collections;
-	return look.collections >= loading.collectionsThen + COLLECTIONS_CAUGHT_UP;
+	if (look.readings === undefined) return true;
+	loading.readingsThen ??= look.readings;
+	return look.readings >= loading.readingsThen + READINGS_CAUGHT_UP;
 }
 
 /** Marks that weigh each look and answer what each tier weighs growth from, or nothing before. */
 export function heapMark(): {
 	/** Weigh one look; answers whether it set the marks for the first time. */
 	weigh(look: HeapLook): boolean;
-	/** What the gap tier weighs growth from. */
+	/** What the gap tier weighs growth from, or nothing until the marks are set. */
 	lowest(): number | undefined;
-	/** What the urgent tier weighs growth from, which no wake lifts past a mark it held. */
+	/** What the urgent tier weighs growth from, which no wake lifts past a mark it held, or nothing until set. */
 	floor(): number | undefined;
 	held(): MarkHeld;
 } {
 	let marks: Marks | undefined;
-	let firstCollections: number | undefined;
+	let firstReadings: number | undefined;
 	let set = false;
 	// Each parked conversation's marks when its park was first seen.
 	const parkedUnder = new Map<string, Marks | undefined>();
@@ -96,7 +98,7 @@ export function heapMark(): {
 	let rising: Loading | undefined;
 
 	function since(look: HeapLook): Loading {
-		return { loadedAt: look.now + HEAP_SETTLE_MS, collectionsThen: undefined };
+		return { loadedAt: look.now + HEAP_SETTLE_MS, readingsThen: undefined };
 	}
 
 	function restore(under: Marks): void {
@@ -125,35 +127,38 @@ export function heapMark(): {
 		for (const { id, begun: at } of look.running) {
 			if (at === undefined) continue;
 			const then = begunAt.get(id);
-			if (then !== undefined && then !== at) woke = true;
+			if (then !== undefined && then !== at) {
+				woke = true;
+				if (!set) unmarked = true;
+			}
 			begun.set(id, at);
 		}
 		begunAt = begun;
+		// Marks not yet set are no marks to put back.
 		for (const id of parked)
-			if (!parkedUnder.has(id)) parkedUnder.set(id, marks);
+			if (!parkedUnder.has(id)) parkedUnder.set(id, set ? marks : undefined);
 		return { woke, unmarked };
 	}
 
 	return {
-		lowest: () => marks?.lowest,
-		floor: () => marks?.floor,
+		lowest: () => (set ? marks?.lowest : undefined),
+		floor: () => (set ? marks?.floor : undefined),
 		held: () => (rising ? "rising" : settling ? "settling" : undefined),
 		weigh(look) {
 			const { woke, unmarked } = wakes(look);
 			if (woke) settling = since(look);
 			if (unmarked) rising = since(look);
-			firstCollections ??= look.collections ?? 0;
-			const caughtUp =
-				look.collections === undefined ||
-				look.collections >= firstCollections + COLLECTIONS_CAUGHT_UP;
+			firstReadings ??= look.readings ?? 0;
 			if (!set) {
 				marks = { lowest: look.share, floor: look.share };
-				set = caughtUp;
+				set =
+					look.readings === undefined ||
+					look.readings >= firstReadings + READINGS_CAUGHT_UP;
 				return set;
 			}
-			if (rising && loaded(rising, look)) rising = undefined;
-			if (settling && loaded(settling, look)) settling = undefined;
 			if (marks === undefined) return false;
+			// Weighed before a window ends, since the reading that ends it is
+			// the first to have caught up with the wake.
 			if (rising)
 				marks = {
 					lowest: Math.max(marks.lowest, look.share),
@@ -164,6 +169,8 @@ export function heapMark(): {
 					lowest: Math.min(marks.lowest, look.share),
 					floor: Math.min(marks.floor, look.share),
 				};
+			if (rising && loaded(rising, look)) rising = undefined;
+			if (settling && loaded(settling, look)) settling = undefined;
 			return false;
 		},
 	};

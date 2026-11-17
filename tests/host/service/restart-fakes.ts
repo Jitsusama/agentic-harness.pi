@@ -1,6 +1,10 @@
 /** The clock, timers and facts a host's restart tests set by hand. */
 import { vi } from "vitest";
-import type { RestartFacts } from "../../../host/service/restart.ts";
+import {
+	LOOK_MS,
+	type RestartFacts,
+	restartWhenSettled,
+} from "../../../host/service/restart.ts";
 
 /** The moment every restart test runs at. */
 export const NOW = Date.parse("2026-11-10T20:00:00Z");
@@ -61,4 +65,85 @@ export function facts(overrides: Partial<RestartFacts> = {}) {
 		...overrides,
 	};
 	return { facts: base, said };
+}
+
+/** A heap that reads `first` at the host's first look, and grows when told. */
+export function growingHeap(first: number) {
+	let share = first;
+	return {
+		heapShare: () => share,
+		growTo: (next: number) => {
+			share = next;
+		},
+	};
+}
+
+/** Collects each heap restart `given` asks for into `said`, with what it was under. */
+export function restartsSaid(given: RestartFacts, said: string[]): void {
+	given.restart = async (why, under) => {
+		said.push(`restart under ${JSON.stringify(under)}: ${why}`);
+	};
+}
+
+// Its resumed conversations park and free their heap, and what fills it
+// again would otherwise climb to where a park failed before acting.
+// Its parked conversations come back when woken, so the heap a park
+// frees isn't room, and counting it so would restart at every wake.
+// A parked conversation leaves what the host runs and stays on its
+// roster, so the fakes list it by parked() and leave it out of held().
+// Each wake begins it anew, as the session host numbers it.
+export function asleep(
+	heap: ReturnType<typeof growingHeap>,
+	more: Partial<RestartFacts> = {},
+) {
+	const awake = new Map<string, number>();
+	const parked = new Set<string>();
+	let begun = 0;
+	let clock = NOW;
+	const { facts: given, said } = facts({
+		differs: async () => "its heap is past half",
+		held: () =>
+			[...awake].map(([id, at]) => ({
+				id,
+				begun: at,
+				state: "idle" as const,
+				since: lately,
+			})),
+		parked: () => [...parked],
+		background: () => 1,
+		heapShare: heap.heapShare,
+		now: () => clock,
+		...more,
+	});
+	restartsSaid(given, said);
+	const timers = manualTimers();
+	restartWhenSettled(given, { after: timers.after });
+	return {
+		wake(...ids: string[]) {
+			for (const id of ids) {
+				parked.delete(id);
+				awake.set(id, ++begun);
+			}
+		},
+		park(...ids: string[]) {
+			for (const id of ids) {
+				awake.delete(id);
+				parked.add(id);
+			}
+		},
+		close(...ids: string[]) {
+			for (const id of ids) {
+				awake.delete(id);
+				parked.delete(id);
+			}
+		},
+		// A look a minute on, at the share given.
+		async look(share: number) {
+			heap.growTo(share);
+			clock += LOOK_MS;
+			await timers.fire();
+		},
+		restarts: () => said.filter((line) => line.startsWith("restart")),
+		reports: () => said.filter((line) => line.startsWith("report:")),
+	};
 }

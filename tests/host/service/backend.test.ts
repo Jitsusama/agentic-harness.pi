@@ -325,7 +325,7 @@ describe("hostBackend", () => {
 			cleanup,
 			"a running one closes naming its caller, kept to one line",
 		).toHaveBeenCalledWith(
-			"closed, asked by the launcher  over the control socket",
+			"closed, asked by the launcher over the control socket",
 		);
 		const address = stranded.replace(/-/g, "").slice(-8).toUpperCase();
 		expect(

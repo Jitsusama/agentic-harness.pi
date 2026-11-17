@@ -153,7 +153,7 @@ function endedLine(sessionId: string, why: string): string {
 function askedBy(by: string | undefined): string {
 	return by === undefined
 		? "a control request that didn't say who sent it"
-		: `${by.replace(/\p{Cc}/gu, " ")} over the control socket`;
+		: `${oneLine(by)} over the control socket`;
 }
 
 /** A held conversation the engine could not resume, and why. */
