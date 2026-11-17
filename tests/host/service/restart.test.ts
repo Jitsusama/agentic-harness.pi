@@ -92,7 +92,10 @@ describe("restartWhenSettled", () => {
 			"expect false",
 			"report: Error: refused",
 		]);
-		expect(timers.pending()).toHaveLength(1);
+		expect(
+			timers.pending().map(({ ms }) => ms),
+			"a look's wait, with no heap pressing",
+		).toEqual([LOOK_MS]);
 	});
 
 	it.each([
@@ -446,11 +449,71 @@ describe("restartWhenSettled", () => {
 			said.filter((line) => !line.startsWith("report:")),
 			"nothing restarted, grown only 14%",
 		).toEqual([]);
+		expect(
+			said.filter((line) => line.startsWith("report:")),
+			"nothing said of a first look at 60%, which leaves the gap tier room",
+		).toEqual([]);
 
 		heap.growTo(0.76);
 		await timers.fire(() => said.some((line) => line.startsWith("restart")));
 		expect(said.filter((line) => line.startsWith("restart"))).toEqual([
 			'restart under {"rule":"heap","share":0.76,"turns":0,"jobs":1}: its heap holds 76% of what V8 allows',
+		]);
+	});
+
+	// Its resumed conversations park and free their heap, and what fills it
+	// again would otherwise climb to where a park failed before acting.
+	it("weighs growth from the lowest its heap fell to since its first look", async () => {
+		const timers = manualTimers();
+		const heap = growingHeap(0.84);
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is past half",
+			held: () => [{ state: "idle", since: lately }],
+			background: () => 1,
+			heapShare: heap.heapShare,
+		});
+		restartsSaid(given, said);
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		heap.growTo(0.3);
+		await timers.fire();
+		heap.growTo(0.71);
+		await timers.fire(() => said.some((line) => line.startsWith("restart")));
+		expect(said.filter((line) => line.startsWith("restart"))).toEqual([
+			'restart under {"rule":"heap","share":0.71,"turns":0,"jobs":1}: its heap holds 71% of what V8 allows',
+		]);
+	});
+
+	// Conversations taking turns would otherwise put each refusal back to
+	// a second, and systemctl would be spawned at every gap for hours.
+	it("under the gap tier, keeps backing off a lasting refusal across looks that find a turn running", async () => {
+		const timers = manualTimers();
+		const heap = growingHeap(0.3);
+		let state: Held["state"] = "idle";
+		const { facts: given } = facts({
+			differs: async () => "its heap is past half",
+			held: () => [{ state, since: lately }],
+			background: () => 1,
+			heapShare: heap.heapShare,
+		});
+		given.restart = async () => {
+			throw new Error("systemctl timed out");
+		};
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		heap.growTo(0.75);
+		const waits: number[] = [];
+		for (let refused = 0; refused < 3; refused++) {
+			state = "idle";
+			await timers.fire();
+			waits.push(timers.pending()[0]?.ms ?? 0);
+			state = "busy";
+			await timers.fire();
+		}
+		expect(waits, "each wait after a refusal").toEqual([
+			GAP_LOOK_MS,
+			2 * GAP_LOOK_MS,
+			4 * GAP_LOOK_MS,
 		]);
 	});
 
@@ -500,7 +563,7 @@ describe("restartWhenSettled", () => {
 		heap.growTo(0.9);
 		for (let look = 0; look < 5; look++) await timers.fire();
 		expect(said, "nothing restarted, and said once").toEqual([
-			"report: Its heap already held 86% of what V8 allows at its first look, so only the urgent tier restarts it for its heap, once past 80% and grown 5% from there",
+			"report: Its heap already held 86% of what V8 allows at its first look, so until it falls only the urgent tier restarts it for its heap, once past 80% and grown 5% from its lowest",
 		]);
 
 		heap.growTo(0.92);
@@ -601,7 +664,10 @@ describe("restartWhenSettled", () => {
 		restartWhenSettled(given, { after: timers.after });
 		await timers.fire();
 		expect(said).toEqual(["report: Error: unreadable"]);
-		expect(timers.pending()).toHaveLength(1);
+		expect(
+			timers.pending().map(({ ms }) => ms),
+			"a look's wait, with no heap pressing",
+		).toEqual([LOOK_MS]);
 	});
 
 	it("looks no more once stopped", async () => {

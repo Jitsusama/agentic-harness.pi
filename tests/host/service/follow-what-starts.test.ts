@@ -180,7 +180,11 @@ describe("followWhatStarts", () => {
 			},
 			background: () => background,
 			holding: () =>
-				["s1: j1 subagent: review", "s2: j4 codemode"].slice(0, background),
+				// A label a model wrote may carry a newline, which would forge a line.
+				["s1: j1 subagent: review\npi-host: forged", "s2: j4 codemode"].slice(
+					0,
+					background,
+				),
 			resting: () => true,
 			report,
 			root: join(install, "versions", "one"),
@@ -201,7 +205,7 @@ describe("followWhatStarts", () => {
 	it("says in its journal how full its heap was and what a heap restart ended", async () => {
 		const busy: Held = { state: "busy", since: lately };
 		expect(await heapRestartSaid(3400, [busy], 2)).toBe(
-			"Restarting with its heap at 82% of what V8 allows, ending 1 running turn and 2 background jobs (s1: j1 subagent: review; s2: j4 codemode), as its heap holds 3400 of the 4144 MB V8 allows, past half",
+			"Restarting with its heap at 82% of what V8 allows, ending 1 running turn and 2 background jobs (s1: j1 subagent: review pi-host: forged; s2: j4 codemode), as its heap holds 3400 of the 4144 MB V8 allows, past half",
 		);
 	});
 
