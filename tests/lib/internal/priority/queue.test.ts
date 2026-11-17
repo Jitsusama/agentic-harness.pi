@@ -53,6 +53,30 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("npm test")).toBeUndefined();
 	});
 
+	it("reads a whole project's type check, and the pnpm scripts that run one, as a build", () => {
+		// 16 November, 23:4x: two `pnpm typecheck` runs of about 1.1 GB each
+		// took no turn on equilibrius at load 155 to 264 (VRZKID).
+		expect(kindOf("tsc")).toBe("build");
+		expect(kindOf("tsc --noEmit")).toBe("build");
+		expect(kindOf("tsc -p tsconfig.json")).toBe("build");
+		expect(kindOf("pnpm exec tsc --noEmit > $TMPDIR/t.log 2>&1")).toBe(
+			"build",
+		);
+		expect(kindOf("npx tsc -b")).toBe("build");
+		expect(kindOf("cd $T && timeout 600 pnpm typecheck; echo $?")).toBe(
+			"build",
+		);
+		expect(kindOf("pnpm run typecheck")).toBe("build");
+		expect(kindOf("pnpm typecheck:strict")).toBe("build");
+		// Asking its version or help compiles nothing; nor does looking at it.
+		expect(kindOf("tsc --version")).toBeUndefined();
+		expect(kindOf("pnpm exec tsc -v")).toBeUndefined();
+		expect(kindOf("npx tsc --help")).toBeUndefined();
+		expect(kindOf("grep tsc package.json")).toBeUndefined();
+		expect(kindOf("code tsconfig.json")).toBeUndefined();
+		expect(kindOf("pnpm typechecker-notes")).toBeUndefined();
+	});
+
 	it("reads a deploy's stamp as one, by its suite or by npm's test in Acceluary", () => {
 		// 7 November: train 8's stamp took 13 minutes beside ten builds,
 		// against 3 to 5 with few, and its owner ruled it goes first.
