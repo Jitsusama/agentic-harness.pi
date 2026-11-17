@@ -17,20 +17,25 @@
  *
  * On a Mac, both are a sandbox-exec profile read from the same mounts
  * (`fence-seatbelt.ts`): strict also keeps the home folder read-only
- * but for the folder, and a Mac without sandbox-exec refuses.
+ * but for the folder, and a Mac without sandbox-exec refuses. Neither
+ * reads pi's state, pi's agent folder or mycelium's, which hold every
+ * realm's messages and sessions (ISXEG8, 16 November).
  *
  * The folder is where the command runs and what it may write, the
  * working directory when none is named. One that is the home folder,
  * holds it, or holds its repository's git folder is refused, since its
- * writes would reach what runs outside later. A machine without
+ * writes would reach what runs outside later. So is one inside a path
+ * the fence hides or keeps read-only, but the work broker's trees: the
+ * folder is granted to the command, which would reopen what the fence
+ * closed there; so is one that holds such a path. A machine without
  * bubblewrap or landrun in the system's own profile refuses too: nothing
  * runs unfenced because the fence couldn't be laid.
  */
 
-import { existsSync, lstatSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { quoted } from "../sandbox/sandbox-shell.ts";
-import { sessionWorktrees } from "../sandbox/sandbox-trees.ts";
+import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
 import {
 	SANDBOX_VARIABLE,
 	type Sandbox,
@@ -43,10 +48,14 @@ import {
 	wrapFor,
 } from "../sandbox.ts";
 import { real, worktreeRepository } from "../tree-git.ts";
+import { cutTreeDir, treeRecordDir } from "../work-records.ts";
 import { fenceArgs } from "./fence.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
+import { FENCE_HIDDEN } from "./fence-hidden.ts";
+import { readOnlyPaths } from "./fence-home.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
 import {
+	MAC_HIDDEN,
 	SANDBOX_EXEC,
 	seatbeltProfile,
 	seatbeltText,
@@ -65,17 +74,25 @@ export interface FenceRunAsk {
 	readonly folder: string;
 	/** The program and its arguments, as given after `--`. */
 	readonly words: readonly string[];
+	/**
+	 * The caller's word that the asker holds the work broker's tree the
+	 * folder lies in: the mycelium node's, for a quest's tree shared to
+	 * whoever asked it. A fenced command saying it gains nothing, since a
+	 * fence inside a fence only narrows.
+	 */
+	readonly shared?: boolean;
 }
 
 /** How pi-fence is asked, said when it was asked wrongly. */
 export const FENCE_RUN_USAGE =
-	"usage: pi-fence --kind fence|strict [--folder DIR] -- PROGRAM [ARGUMENT...], or pi-fence census [--proc DIR]";
+	"usage: pi-fence --kind fence|strict [--folder DIR] [--shared-tree] -- PROGRAM [ARGUMENT...], or pi-fence census [--proc DIR]";
 
 /** What `pi-fence --help` says, each line within 60 columns. */
 export const FENCE_RUN_HELP = `pi-fence runs one command in pi's own agent fence.
 
 Usage:
-  pi-fence --kind KIND [--folder DIR] -- PROGRAM [ARG...]
+  pi-fence --kind KIND [--folder DIR] [--shared-tree]
+           -- PROGRAM [ARG...]
   pi-fence census [--proc DIR]
 
 Kinds:
@@ -88,6 +105,9 @@ only the folder.
 Options:
   --folder DIR   where it runs and may write, the working
                  directory unless named
+  --shared-tree  the folder lies in a work tree the asker
+                 was shared; otherwise a work tree runs
+                 only for the session holding it
   --help         say this
 
 It exits with the command's status, 126 when it refuses
@@ -127,8 +147,15 @@ export function fenceRunAsked(
 	const options = args.slice(0, split);
 	let kind: string | undefined;
 	let folder: string | undefined;
+	let shared = false;
 	for (let at = 0; at < options.length; at += 2) {
 		const [name, value] = [options[at], options[at + 1]];
+		if (name === "--shared-tree") {
+			shared = true;
+			// A flag alone, so the next option starts one word on.
+			at -= 1;
+			continue;
+		}
 		if (value === undefined) {
 			return { wrong: `${name} needs a value. ${FENCE_RUN_USAGE}` };
 		}
@@ -142,7 +169,12 @@ export function fenceRunAsked(
 			wrong: `--kind ${kind ?? "is missing"}: it is fence or strict. ${FENCE_RUN_USAGE}`,
 		};
 	}
-	return { kind: known, folder: folder ?? cwd, words };
+	return {
+		kind: known,
+		folder: folder ?? cwd,
+		words,
+		...(shared ? { shared } : {}),
+	};
 }
 
 /** The /proc a census was asked to read, or what is wrong with asking. */
@@ -167,6 +199,12 @@ export interface FenceRunPlace {
 	readonly platform?: NodeJS.Platform;
 	/** On a Mac, sandbox-exec, or nothing where it isn't there. */
 	readonly sandboxExec?: string | undefined;
+	/** Where the work broker cuts trees, its own unless given. */
+	readonly treesRoot?: string;
+	/** The trees the asking session holds, by the broker's records unless given. */
+	readonly heldTrees?: readonly string[];
+	/** Where the work broker records who holds each tree, its own unless given. */
+	readonly treeRecords?: string;
 }
 
 /** The Nix daemon's socket on a Mac, which a fenced command builds through. */
@@ -182,17 +220,41 @@ export function fenceRunText(
 ):
 	| { readonly folder: string; readonly text: string }
 	| { readonly refused: string } {
-	const folder = real(ask.folder);
+	const mac = (place.platform ?? process.platform) === "darwin";
+	// On a Mac, as the volume spells it, so a name in other case or
+	// folded otherwise is the folder it opens and no neighbour.
+	const folder = mac ? onDisk(real(ask.folder)) : real(ask.folder);
 	const { home } = place;
 	const env: NodeJS.ProcessEnv = {
 		...place.env,
 		[SANDBOX_VARIABLE]: "fence",
 	};
-	const unfenced = unfencedFolder(folder, home, `pi-fence --kind ${ask.kind}`);
+	const asker = `pi-fence --kind ${ask.kind}`;
+	// Every path the held match compares spelled one way, the folder's,
+	// so a home spelled otherwise than its volume neither refuses its
+	// own trees nor loses a tree's .git to a root spelled apart.
+	const spelling = (path: string) =>
+		mac ? onDisk(real(resolve(path))) : real(resolve(path));
+	const treesRoot = spelling(place.treesRoot ?? cutTreeDir());
+	const unfenced = unfencedFolder(folder, home, asker);
 	if (unfenced) return { refused: unfenced };
-	if ((place.platform ?? process.platform) === "darwin") {
-		return macFenceText(ask, folder, place);
-	}
+	const away = fencedAway(folder, home, asker, {
+		treesRoot,
+		held: () =>
+			ask.shared === true
+				? "shared"
+				: place.heldTrees
+					? { trees: place.heldTrees }
+					: heldBy(
+							place.env.PI_SESSION_ID,
+							treesRoot,
+							place.treeRecords ?? treeRecordDir(),
+						),
+		spelling,
+		mac,
+	});
+	if ("refused" in away) return away;
+	if (mac) return macFenceText(ask, folder, place, treesRoot, away.tree);
 	const sandbox = place.sandbox ?? sandboxFor(env);
 	if (sandbox.kind !== "fence") {
 		return {
@@ -228,7 +290,7 @@ export function fenceRunText(
 	const root = fenceArgs({
 		home,
 		runtimeDir,
-		...sessionWorktrees(folder, undefined),
+		...sessionWorktrees(folder, undefined, treesRoot),
 		npmrc: fenceNpmrc(home, runtimeDir),
 		docker: dockerHoldsCredentials(home),
 	});
@@ -244,15 +306,132 @@ export function fenceRunText(
 }
 
 /**
+ * Why a run can't have `folder`: it lies inside, or holds, a path the
+ * fence hides or keeps read-only, where granting the command its folder
+ * would reopen what the fence closed (its keys in ~/.ssh, git's settings
+ * and hooks in ~/.config, pi's state under a grant of ~/.local). A tree
+ * the work broker cut, in pi's own state, is spared for the one holding
+ * it alone, since the fence grants it to whoever works in it: a session
+ * by the broker's records, or an asker the caller says it was shared to;
+ * anyone else's is refused (ISXEG8, 16 November). Each path is matched as
+ * written and where its links lead, from the home as named and as it
+ * really is, so a link can't walk round it. On a Mac the Mac's own
+ * hides count too, and the match ignores case, as its volume does.
+ */
+function fencedAway(
+	folder: string,
+	home: string,
+	asker: string,
+	where: {
+		readonly treesRoot: string;
+		/**
+		 * The trees the asker holds, or "shared" for the one the caller says
+		 * it was shared, asked only of a folder in the trees.
+		 */
+		readonly held: () => Held | "shared";
+		/** A path as the folder is spelled, for the held match. */
+		readonly spelling: (path: string) => string;
+		readonly mac: boolean;
+	},
+): { readonly refused: string } | { readonly tree?: string } {
+	const spelled = (path: string) => (where.mac ? path.toLowerCase() : path);
+	const named = resolve(folder);
+	const at = spelled(named);
+	const resolved = (path: string) => spelled(real(resolve(path)));
+	const trees = resolved(where.treesRoot);
+	if (within(at, trees) && at !== trees) {
+		// The tree is the trees root's child the folder lies in.
+		const below = named.slice(trees.length + 1).split("/")[0] ?? "";
+		const tree = named.slice(0, trees.length + 1 + below.length);
+		const held = where.held();
+		if (held === "shared") return { tree };
+		// Only the tree itself, spelled exactly, so a record naming more,
+		// or a neighbour named in other case, never widens it.
+		if (held.trees.some((each) => where.spelling(each) === tree)) {
+			return { tree };
+		}
+		const why = held.why ? ` (${held.why})` : "";
+		return {
+			refused: `${asker} won't run in ${folder}, a work tree its asker doesn't hold${why}, so no command runs. Start it in a tree your session holds, or, from the mycelium node, one shared to the asker, said with --shared-tree.`,
+		};
+	}
+	const closedFrom = (from: string) => [
+		...FENCE_HIDDEN.home
+			.filter((entry) => entry.endsWith("/"))
+			.map((entry) => join(from, entry.slice(0, -1))),
+		...readOnlyPaths(from),
+		...(where.mac ? MAC_HIDDEN.map((entry) => join(from, entry)) : []),
+	];
+	const closed = [...new Set([home, real(home)])]
+		.flatMap(closedFrom)
+		.flatMap((path) => [path, real(path)])
+		.find((path) => within(at, spelled(path)) || within(spelled(path), at));
+	if (!closed) return {};
+	if (within(at, spelled(closed))) {
+		return {
+			refused: `${asker} won't run in ${folder}, which lies in ${closed}, a path the fence hides or keeps read-only, so no command runs. Start it in the folder it works on, or in a tree the work tool cuts.`,
+		};
+	}
+	return {
+		refused: `${asker} won't run in ${folder}, which holds ${closed}, a path the fence hides or keeps read-only, so no command runs. Start it in a folder within, beside none of them, or in a tree the work tool cuts.`,
+	};
+}
+
+/** The trees an asker holds, and why it holds none where that isn't plain. */
+interface Held {
+	readonly trees: readonly string[];
+	readonly why?: string;
+}
+
+/**
+ * The trees the work broker's records give `session`; none when no
+ * session is named or the records can't be read, as inside a fence that
+ * keeps them, so its tree is refused saying why rather than crashing.
+ */
+function heldBy(
+	session: string | undefined,
+	treesRoot: string,
+	records: string,
+): Held {
+	if (!session) return { trees: [], why: "no PI_SESSION_ID names its session" };
+	try {
+		return { trees: brokerTrees(session, treesRoot, records).held };
+	} catch (error) {
+		// Unread records hold nothing, so the tree is refused, never run.
+		const said = error instanceof Error ? error.message : String(error);
+		return {
+			trees: [],
+			why: `the work broker's records at ${records} couldn't be read: ${said}`,
+		};
+	}
+}
+
+/** `path` as its volume spells it, or as given where it isn't there. */
+function onDisk(path: string): string {
+	try {
+		return realpathSync.native(path);
+	} catch {
+		// Not there yet: nothing on disk to spell it otherwise.
+		return path;
+	}
+}
+
+/** Whether `path` is `holder` or lies in it. */
+function within(path: string, holder: string): boolean {
+	return path === holder || path.startsWith(`${holder}/`);
+}
+
+/**
  * The shell text that runs `ask` in the Mac's fence: the fence's own
  * mounts for `folder` as a sandbox-exec profile, reaching the Nix
- * daemon, and for strict the home folder read-only but the folder. A
- * Mac without sandbox-exec refuses, so nothing runs unfenced.
+ * daemon. A Mac without sandbox-exec refuses, so nothing runs unfenced.
  */
 function macFenceText(
 	ask: FenceRunAsk,
 	folder: string,
 	place: FenceRunPlace,
+	treesRoot: string,
+	tree: string | undefined,
 ):
 	| { readonly folder: string; readonly text: string }
 	| { readonly refused: string } {
@@ -273,26 +452,34 @@ function macFenceText(
 	// too, so pi's folder in it is kept from them below.
 	const npmrc = fenceNpmrc(home, place.env.TMPDIR);
 	const copy = npmrc === "/dev/null" ? undefined : npmrc;
+	// A broker's tree is laid from its root, whichever folder in it the
+	// run starts in, so its .git stays read-only as the fence keeps it.
 	const mounts = fenceArgs({
 		home,
 		runtimeDir: undefined,
-		...sessionWorktrees(folder, undefined),
+		...sessionWorktrees(tree ?? folder, undefined, treesRoot),
 		...(npmrc ? { npmrc } : {}),
 		docker: dockerHoldsCredentials(home),
 	});
-	// Writes only, last: a read-only mount of the home folder here would
-	// let back what the fence's mounts hid in it.
-	const strict =
-		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
 	// The copy sits in the person's temporary folder, which commands
 	// write: its folder is kept from writes, so none can change what the
 	// next run reads, or put a link there for the next copy to follow.
 	const kept = copy ? ["--ro-bind", dirname(copy), dirname(copy)] : [];
+	// Writes only, last: a read-only mount of the home folder here would
+	// let back what the fence's mounts hid in it.
+	const strict =
+		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
 	const { profile } = seatbeltProfile([...mounts, ...strict, ...kept], {
 		sockets: [MAC_NIX_DAEMON],
 		home,
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
 		folder,
+		// A tree the work broker cut lies in pi's state, which the profile
+		// hides last of all, so the asker's is granted again after: read
+		// whole, and written where the kind writes.
+		...(tree
+			? { regranted: [{ tree, writes: ask.kind === STRICT ? folder : tree }] }
+			: {}),
 	});
 	return {
 		folder,

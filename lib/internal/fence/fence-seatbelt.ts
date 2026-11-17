@@ -81,6 +81,11 @@ export const MAC_HIDDEN = [
 	"Library/Messages",
 	".config/gh",
 	".config/op",
+	// Every realm's messages, steers and sessions, which a run's output
+	// would carry to whoever asked it (ISXEG8, 16 November).
+	".local/state/pi",
+	".pi/agent",
+	".local/state/mycelium",
 ] as const;
 
 /**
@@ -149,6 +154,20 @@ export interface SeatbeltReach {
 	readonly folder?: string;
 	/** A path as the kernel names it, past its links (`/tmp` is `/private/tmp`). */
 	readonly real?: (path: string) => string;
+	/**
+	 * Trees granted again after every hide, a broker's tree inside pi's
+	 * state: each read whole, written only where its kind writes (the whole
+	 * tree for fence, the folder for strict), with the fence's own rules
+	 * inside it laid again after, and the folders above it named, so a
+	 * program can find its way down.
+	 */
+	readonly regranted?: readonly Regrant[];
+}
+
+/** A tree granted again after every hide, and the folder in it a command writes. */
+export interface Regrant {
+	readonly tree: string;
+	readonly writes: string;
 }
 
 /** bubblewrap's options that say nothing of files on a Mac, with how many values each takes. */
@@ -168,6 +187,11 @@ const UNSAID: Readonly<Record<string, number>> = {
  * processes, `reach`'s sockets and ports, then each mount as a rule in
  * its order and the Mac's secrets last. A mount it can't say refuses
  * the whole, rather than leaving a path open.
+ *
+ * Every hide is laid again after the last mount, with what a hidden
+ * folder lets back read-only (ssh's settings and known hosts), so no
+ * grant can reopen one: the last rule wins, and a writable folder laid
+ * after the hides once read ~/.ssh's keys (04TNWT, 16 November).
  */
 export function seatbeltProfile(
 	args: readonly string[],
@@ -177,6 +201,18 @@ export function seatbeltProfile(
 	const path = (raw: string) => quotedPath(real(raw));
 	const mounts: string[] = [];
 	const stoodIn: StoodIn[] = [];
+	// Each hide's rule, and each read-only path with its rules, to lay
+	// again once the mounts are done.
+	const hides: string[] = [];
+	// Every rule that closes something, with its path, to lay again inside
+	// a folder granted after it.
+	const closing: { to: string; rule: string }[] = [];
+	const close = (to: string, rule: string) => {
+		mounts.push(rule);
+		closing.push({ to, rule });
+	};
+	const hiddenFolders: { to: string; at: number }[] = [];
+	const readOnly: { to: string; rules: string[]; at: number }[] = [];
 	for (let at = 0; at < args.length; ) {
 		const option = args[at] ?? "";
 		const values = (count: number): string[] => {
@@ -201,29 +237,35 @@ export function seatbeltProfile(
 				const [from = "", to = ""] = values(2);
 				const writable = option === "--bind";
 				if (from === "/" && to === "/") break;
-				if (from === "/dev/null") {
-					mounts.push(`(deny file-read* file-write* (literal ${path(to)}))`);
-				} else if (from !== to) {
-					stoodIn.push({ copy: from, over: to });
-					mounts.push(`(deny file-read* file-write* (literal ${path(to)}))`);
+				if (from === "/dev/null" || from !== to) {
+					if (from !== "/dev/null") stoodIn.push({ copy: from, over: to });
+					const hide = `(deny file-read* file-write* (literal ${path(to)}))`;
+					close(to, hide);
+					hides.push(hide);
 				} else if (writable) {
 					mounts.push(`(allow file-read* file-write* (subpath ${path(to)}))`);
 				} else {
-					mounts.push(
+					const rules = [
 						`(allow file-read* (subpath ${path(to)}))`,
 						`(deny file-write* (subpath ${path(to)}))`,
-					);
+					];
+					readOnly.push({ to, rules, at: mounts.length });
+					mounts.push(rules[0] ?? "");
+					close(to, rules[1] ?? "");
 				}
 				break;
 			}
 			case "--tmpfs": {
 				const [to = ""] = values(1);
-				mounts.push(`(deny file-read* file-write* (subpath ${path(to)}))`);
+				const hide = `(deny file-read* file-write* (subpath ${path(to)}))`;
+				hiddenFolders.push({ to, at: mounts.length });
+				close(to, hide);
+				hides.push(hide);
 				break;
 			}
 			case "--remount-ro": {
 				const [to = ""] = values(1);
-				mounts.push(`(deny file-write* (subpath ${path(to)}))`);
+				close(to, `(deny file-write* (subpath ${path(to)}))`);
 				break;
 			}
 			default:
@@ -240,13 +282,25 @@ export function seatbeltProfile(
 	const within = (entry: string, folder: string | undefined) =>
 		folder !== undefined &&
 		(entry === folder || entry.startsWith(`${folder}/`));
-	const programs = [
+	// Only what was let back after its folder was hidden, as bubblewrap
+	// would have it: a mount laid before the hide stays hidden.
+	const keptInHidden = readOnly
+		.filter((kept) =>
+			hiddenFolders.some(
+				(hidden) => kept.at > hidden.at && within(kept.to, hidden.to),
+			),
+		)
+		.flatMap(({ rules }) => rules);
+	const programFolders = [
 		...(home ? MAC_READ_ONLY.map((kept) => join(home, kept)) : []),
 		...MAC_PROGRAMS,
 		...(reach.path ?? []).filter(
 			(entry) => entry.startsWith("/") && !within(entry, reach.folder),
 		),
-	].map((kept) => `(deny file-write* (subpath ${path(kept)}))`);
+	];
+	const programs = programFolders.map(
+		(kept) => `(deny file-write* (subpath ${path(kept)}))`,
+	);
 	const profile = [
 		"(version 1)",
 		"(allow default)",
@@ -271,13 +325,67 @@ export function seatbeltProfile(
 		// No quote mark, so the shell quotes the profile in one piece.
 		";; Mounts, in the order bubblewrap takes them, last wins.",
 		...mounts,
+		";; Every hide again, so no mount laid after it reopens one.",
+		...hides,
+		...keptInHidden,
 		...hidden,
+		...(reach.regranted ?? []).flatMap(({ tree, writes }) => [
+			...wayDown(tree, home).map(
+				(folder) => `(allow file-read-metadata (literal ${path(folder)}))`,
+			),
+			`(allow file-read* (subpath ${path(tree)}))`,
+			`(allow file-write* (subpath ${path(writes)}))`,
+			...closing
+				.filter(({ to }) => within(to, tree) && to !== tree)
+				.map(({ rule }) => rule),
+		]),
+		// A rule names a path, not what lies there, so a folder holding a
+		// closed one moved aside would carry it out from under its rule:
+		// none of them may be renamed or removed.
+		...[
+			...new Set(
+				[
+					...closing.map(({ to }) => to),
+					...(home ? MAC_HIDDEN.map((secret) => join(home, secret)) : []),
+					// Nor one holding a program, swapped for a folder planting one.
+					...programFolders,
+				].flatMap((to) => above(to, home)),
+			),
+		]
+			// As named too, so a folder that is a link can't be removed and
+			// one planted in its place.
+			.flatMap((folder) => [...new Set([quotedPath(folder), path(folder)])])
+			.map((folder) => `(deny file-write-unlink (literal ${folder}))`),
 		...[...new Set(programs)],
 		// What cfprefsd writes for a command, past every file rule:
 		// `defaults write com.apple.Terminal` would set a startup command.
 		"(deny user-preference-write)",
 	].join("\n");
 	return { profile, stoodIn };
+}
+
+/**
+ * The folders between `home` and `tree`, nearest the home first: those
+ * that, moved, would take it along; none for a tree outside the home.
+ */
+function above(tree: string, home: string | undefined): string[] {
+	if (!home || !tree.startsWith(`${home}/`)) return [];
+	return between(home, tree);
+}
+
+/**
+ * The folders a program steps through finding its way down to a held
+ * tree: from the home, or from the root for a tree whose real path left
+ * the home through a linked folder on the way.
+ */
+function wayDown(tree: string, home: string | undefined): string[] {
+	return between(home && tree.startsWith(`${home}/`) ? home : "/", tree);
+}
+
+/** The folders strictly between `from` and `to`, nearest `from` first. */
+function between(from: string, to: string): string[] {
+	const steps = to.slice(from.length).split("/").filter(Boolean).slice(0, -1);
+	return steps.map((_, at) => join(from, ...steps.slice(0, at + 1)));
 }
 
 /** The status pi-fence exits with when it refuses, as a shell's for a command it can't run. */
