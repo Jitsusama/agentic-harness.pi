@@ -31,34 +31,46 @@ const STOP_WITHIN_MS = 45_000;
  */
 const STOP_SHARE = 3 / 4;
 
+/**
+ * The longest a Node timer waits: past it setTimeout fires at once, so a
+ * limit of systemd's infinity would end a stop with nothing parked.
+ */
+const LONGEST_TIMER_MS = 2 ** 31 - 1;
+
 /** The file, in a host's own state folder, naming what its stop left unparked. */
 const UNPARKED = "not-parked.json";
 
 /**
  * How long, in ms, a stop may park before the host ends: three quarters of
  * the stop limit its unit names in PI_HOST_STOP_USEC, so the host ends and
- * says what it left before systemd kills it, else STOP_WITHIN_MS.
+ * says what it left before systemd kills it, else STOP_WITHIN_MS. It is
+ * whole milliseconds, and never longer than a timer can wait.
  */
 export function stopWithin(env: NodeJS.ProcessEnv): number {
 	const limit = Number(env.PI_HOST_STOP_USEC);
 	if (!env.PI_HOST_STOP_USEC || !Number.isFinite(limit) || limit <= 0)
 		return STOP_WITHIN_MS;
-	return (limit / MICROSECONDS_PER_MS) * STOP_SHARE;
+	return Math.min(
+		Math.floor((limit / MICROSECONDS_PER_MS) * STOP_SHARE),
+		LONGEST_TIMER_MS,
+	);
 }
 
 /**
- * Settle as `work` does, or once `ms` have passed, telling `late` so; a
- * failure of `work` past then is the stop's own and is let go.
+ * Settle as `work` does, or once `ms` have passed, telling `late` how long
+ * that really took, since a busy loop comes to its bound late; a failure
+ * of `work` past then is the stop's own and is let go.
  */
 export function endWithin(
 	work: Promise<void>,
 	ms: number,
-	late: (ms: number) => void,
+	late: (waited: number) => void,
 ): Promise<void> {
+	const began = performance.now();
 	let timer: NodeJS.Timeout | undefined;
 	const bound = new Promise<void>((resolve) => {
 		timer = setTimeout(() => {
-			late(ms);
+			late(Math.round(performance.now() - began));
 			resolve();
 		}, ms);
 		timer.unref();
@@ -69,15 +81,17 @@ export function endWithin(
 }
 
 /**
- * Say that a stop ends after `ms` with the conversations still `held`
- * unparked, by id, so the next host's resume of each can be laid beside it.
+ * Say that a stop bound to `bound` ms ends after `waited` with the
+ * conversations still `held` unparked, by id, so a late loop shows and the
+ * next host's resume of each can be laid beside it.
  */
 export function unparkedLine(
-	ms: number,
+	bound: number,
+	waited: number,
 	held: readonly { readonly id: string }[],
 ): string {
 	const ids = held.map(({ id }) => id).join(", ");
-	return `stopping after ${ms} ms, ${held.length} not parked: ${ids}`;
+	return `stopping after ${waited} ms, past its ${bound} ms bound, ${held.length} not parked: ${ids}`;
 }
 
 /** The conversations a stop ended with unparked, and when. */

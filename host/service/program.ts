@@ -44,7 +44,8 @@ export const EXIT_MISCONFIGURED = 78;
  * Variables the host process needs and no conversation should see:
  * systemd's notify, watchdog and socket hand-over, which a tool's child
  * would otherwise answer for the host, and the host's own pi install,
- * which would point an ordinary pi a tool starts at the patched one.
+ * which would point an ordinary pi a tool starts at the patched one, and
+ * the unit's stop limit, which a pi-host a tool starts would take as its own.
  * The runtime's own tools and the viewers' terminal (HOST_READS) are
  * kept from them too: code in the host still reads them, but a newer pi
  * a command starts runs its own tools, as its PATH finds them, and
@@ -59,6 +60,7 @@ const HOST_ONLY = [
 	"LISTEN_FDNAMES",
 	"PI_PACKAGE_DIR",
 	"PI_HOST_PROOF",
+	"PI_HOST_STOP_USEC",
 ] as const;
 
 /**

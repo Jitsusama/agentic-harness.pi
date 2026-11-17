@@ -318,15 +318,12 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		const parked = tell(stoppingStatus(serving.held().length))
 			.catch(report)
 			.then(() => serving.stop());
-		stopping = endWithin(
-			parked,
-			options.stopWithin ?? stopWithin(options.env),
-			(ms) => {
-				const held = serving.held();
-				say(unparkedLine(ms, held));
-				unparked.write(held.map(({ id }) => id));
-			},
-		).finally(unwatch);
+		const bound = options.stopWithin ?? stopWithin(options.env);
+		stopping = endWithin(parked, bound, (waited) => {
+			const held = serving.held();
+			say(unparkedLine(bound, waited, held));
+			unparked.write(held.map(({ id }) => id));
+		}).finally(unwatch);
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {
