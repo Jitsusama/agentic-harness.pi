@@ -27,8 +27,11 @@
  * runs unfenced because the fence couldn't be laid.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fenceArgs } from "./fence.ts";
+import { dockerHoldsCredentials } from "./fence-docker.ts";
+import { fenceNpmrc } from "./fence-npmrc.ts";
 import {
 	SANDBOX_EXEC,
 	seatbeltProfile,
@@ -226,6 +229,8 @@ export function fenceRunText(
 		home,
 		runtimeDir,
 		...sessionWorktrees(folder, undefined),
+		npmrc: fenceNpmrc(home, runtimeDir),
+		docker: dockerHoldsCredentials(home),
 	});
 	return {
 		folder,
@@ -263,16 +268,27 @@ function macFenceText(
 		};
 	}
 	const { home } = place;
+	// The Mac has no runtime folder, so the copy of npm's settings goes
+	// in the person's own temporary folder, which commands there write
+	// too, so pi's folder in it is kept from them below.
+	const npmrc = fenceNpmrc(home, place.env.TMPDIR);
+	const copy = npmrc === "/dev/null" ? undefined : npmrc;
 	const mounts = fenceArgs({
 		home,
 		runtimeDir: undefined,
 		...sessionWorktrees(folder, undefined),
+		...(npmrc ? { npmrc } : {}),
+		docker: dockerHoldsCredentials(home),
 	});
 	// Writes only, last: a read-only mount of the home folder here would
 	// let back what the fence's mounts hid in it.
 	const strict =
 		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
-	const { profile } = seatbeltProfile([...mounts, ...strict], {
+	// The copy sits in the person's temporary folder, which commands
+	// write: its folder is kept from writes, so none can change what the
+	// next run reads, or put a link there for the next copy to follow.
+	const kept = copy ? ["--ro-bind", dirname(copy), dirname(copy)] : [];
+	const { profile } = seatbeltProfile([...mounts, ...strict, ...kept], {
 		sockets: [MAC_NIX_DAEMON],
 		home,
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
@@ -280,6 +296,49 @@ function macFenceText(
 	});
 	return {
 		folder,
-		text: seatbeltText(ask.words.map(quoted).join(" "), profile, sandboxExec),
+		text: seatbeltText(
+			[
+				...macSettings(home, copy, ask.kind !== STRICT),
+				// exec, so the command takes the sandbox's shell's place rather
+				// than running as its child.
+				`exec ${ask.words.map(quoted).join(" ")}`,
+			].join("; "),
+			profile,
+			sandboxExec,
+		),
 	};
+}
+
+/**
+ * What a command in the Mac's fence is pointed at before it runs. Caches
+ * go to `~/.cache`, which the fence lets commands write, rather than
+ * `~/Library/Caches`, which it keeps read-only beside the rest of
+ * `~/Library`: go, pip and every program honouring XDG's settings would
+ * otherwise fail to cache. npm reads its settings from the copy without
+ * their tokens, since a Mac's fence can hide a file but not bind another
+ * over it (ISXEG8, 16 November).
+ */
+function macSettings(
+	home: string,
+	npmCopy: string | undefined,
+	cachesWritten: boolean,
+): string[] {
+	const cache = join(home, ".cache");
+	// Only where the fence lets commands write ~/.cache, and never over
+	// the person's own choice of where a cache goes.
+	const caches =
+		cachesWritten && existsSync(cache) && lstatSync(cache).isDirectory()
+			? [
+					["XDG_CACHE_HOME", cache],
+					["GOCACHE", join(cache, "go-build")],
+					["PIP_CACHE_DIR", join(cache, "pip")],
+				].map(
+					([name, path]) =>
+						`[ -n "\${${name}:-}" ] || export ${name}=${quoted(path ?? "")}`,
+				)
+			: [];
+	return [
+		...caches,
+		...(npmCopy ? [`export NPM_CONFIG_USERCONFIG=${quoted(npmCopy)}`] : []),
+	];
 }

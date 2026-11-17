@@ -5,7 +5,15 @@
  * through the file it stands in for.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 /** pi's folder in the runtime folder, for the fence's copies. */
@@ -24,16 +32,28 @@ export function fenceCopy(
 ): string | undefined {
 	if (!runtimeDir) return undefined;
 	const path = join(runtimeDir, FOLDER, name);
-	if (current(path) === text) return path;
+	let staging: string | undefined;
 	try {
 		// Only pi's own folder is made, never the runtime folder: node's
 		// recursive mkdir spins for good where a parent exists but refuses
 		// a child with ENOENT, as /proc does, which hung every wrap.
 		if (!existsSync(dirname(path))) mkdirSync(dirname(path), { mode: 0o700 });
-		writeFileSync(path, text, { mode: 0o600 });
+		// A Mac's copies sit in a folder commands can write around: a link
+		// where pi's folder should be is refused, and a link where the copy
+		// should be is replaced, even when what it leads to already reads
+		// right, by a copy written beside its place and renamed over it.
+		if (!lstatSync(dirname(path)).isDirectory()) return undefined;
+		const linked = existsSync(path) && lstatSync(path).isSymbolicLink();
+		if (!linked && current(path) === text) return path;
+		staging = `${path}.${randomUUID()}`;
+		writeFileSync(staging, text, { mode: 0o600, flag: "wx" });
+		renameSync(staging, path);
+		staging = undefined;
 		return path;
 	} catch {
 		// No copy to bind: the caller binds nothing, and says what that leaves.
 		return undefined;
+	} finally {
+		if (staging) rmSync(staging, { force: true });
 	}
 }

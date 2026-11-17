@@ -4,10 +4,21 @@
  * token to hold back.
  */
 
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { fenceCopy } from "../../../lib/internal/fence-copy.ts";
 import {
 	fenceNpmrc,
 	withoutNpmTokens,
@@ -26,6 +37,50 @@ const SETTINGS = [
 	"registry=https://someone:not-a-password@npm.example/",
 	"@other:registry=https://npm.example/with@sign/",
 ].join("\n");
+
+describe("a copy the fence binds, where commands could reach its folder", () => {
+	const read = (path: string) => {
+		try {
+			return readFileSync(path, "utf8");
+		} catch {
+			// Not there yet, so nothing current.
+			return undefined;
+		}
+	};
+
+	it("replaces a link in its place even when what it leads to reads right", () => {
+		const runtime = mkdtempSync(join(tmpdir(), "fc-"));
+		try {
+			const victim = join(runtime, "victim");
+			writeFileSync(victim, "the copy\n");
+			mkdirSync(join(runtime, "pi-fence"));
+			symlinkSync(victim, join(runtime, "pi-fence", "npmrc"));
+
+			const made = fenceCopy(runtime, "npmrc", "the copy\n", read);
+			const replaced = lstatSync(join(runtime, "pi-fence", "npmrc"));
+
+			expect(made).toBe(join(runtime, "pi-fence", "npmrc"));
+			expect(replaced.isSymbolicLink(), "the link is replaced").toBe(false);
+		} finally {
+			rmSync(runtime, { recursive: true, force: true });
+		}
+	});
+
+	it("leaves nothing beside its place when it can't be put there", () => {
+		const runtime = mkdtempSync(join(tmpdir(), "fc-"));
+		try {
+			// A folder where the copy goes takes no rename over it.
+			mkdirSync(join(runtime, "pi-fence", "npmrc"), { recursive: true });
+
+			const made = fenceCopy(runtime, "npmrc", "the copy\n", read);
+
+			expect(made).toBeUndefined();
+			expect(readdirSync(join(runtime, "pi-fence"))).toEqual(["npmrc"]);
+		} finally {
+			rmSync(runtime, { recursive: true, force: true });
+		}
+	});
+});
 
 describe("npm's settings without their tokens", () => {
 	it("replaces each token's line with one naming its setting, and keeps every other line", () => {

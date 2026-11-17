@@ -73,6 +73,7 @@ import {
 	inBuildersFolder,
 } from "./fence-builders.ts";
 import { DISK, type Disk } from "./fence-disk.ts";
+import { DOCKER_CONFIG, dockerArgs } from "./fence-docker.ts";
 import { githubDoorArgs } from "./fence-github.ts";
 import { renderNodeArgs } from "./fence-gpu.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
@@ -221,6 +222,8 @@ export interface FencePlace extends Worktrees {
 	 * (`fence-npmrc.ts`), or `/dev/null` where no copy could be made.
 	 */
 	readonly npmrc?: string;
+	/** Whether Docker's settings hold a credential, emptied (`fence-docker.ts`). */
+	readonly docker?: boolean;
 	/**
 	 * The fence's own direnv settings, in pi's folder in the runtime
 	 * folder, bound read-only where they are (`fence-direnv.ts`).
@@ -372,6 +375,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...scratchArgs(place, disk),
 		...hiddenArgs(place.home, disk),
 		...npmrcArgs(place, disk),
+		...(place.docker ? dockerArgs(place.home, disk) : []),
 		...(exists(CGROUPS) ? ["--ro-bind", CGROUPS, CGROUPS] : []),
 	];
 }
@@ -401,7 +405,11 @@ function refusedIn(
 	home: string,
 	disk: Disk,
 ): { path: string; folder: boolean }[] {
-	const kept = [...hiddenIn(home), { path: join(home, NPMRC), folder: false }];
+	const kept = [
+		...hiddenIn(home),
+		{ path: join(home, NPMRC), folder: false },
+		{ path: join(home, DOCKER_CONFIG), folder: false },
+	];
 	return kept.flatMap((entry) => {
 		const real =
 			disk.kind(entry.path) === "link" ? disk.real?.(entry.path) : undefined;
