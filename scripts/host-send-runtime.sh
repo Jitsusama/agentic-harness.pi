@@ -121,12 +121,14 @@ find "$sends" -mindepth 1 -maxdepth 1 ! -name .lock -mtime +7 -exec rm -rf {} +
 # this script holding its lock and its caller's output. A connection lost
 # for a minute is given up on, so a stalled uplink is tried again on a
 # fresh one, and one still running at the deadline is cut off, read as a
-# lost connection the next run takes up.
+# lost connection the next run takes up. The cut-off keeps ssh in this
+# script's process group, so an interrupt or a kill of the group stops it
+# rather than leaving it holding the lock.
 # shellcheck disable=SC2029 # the command is built here to run there
 on() {
   local code=0
   if command -v timeout > /dev/null; then
-    timeout "$((DEADLINE > SECONDS ? DEADLINE - SECONDS : 1))" ssh "${ssh_words[@]}" "$@" || code=$?
+    timeout --foreground "$((DEADLINE > SECONDS ? DEADLINE - SECONDS : 1))" ssh "${ssh_words[@]}" "$@" || code=$?
   else
     ssh "${ssh_words[@]}" "$@" || code=$?
   fi
@@ -188,12 +190,17 @@ send_to() {
   key=$(setting ssh-key "$settings")
   host_key=$(setting base64-ssh-public-host-key "$settings")
   alias=${host##*@}
-  ssh_words=(-o BatchMode=yes -o ConnectTimeout=30
+  # Nothing of this account's goes along: no agent, display or forwarding,
+  # and no command run here, whatever its ssh config says.
+  ssh_words=(-a -x -o BatchMode=yes -o ConnectTimeout=30
     -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o Compression=no
-    -o ControlMaster=no -o ControlPath=none)
-  if [[ -n $key ]]; then
-    ssh_words+=(-o IdentitiesOnly=yes -o IdentityAgent=none -i "$key")
+    -o ControlMaster=no -o ControlPath=none -o ClearAllForwardings=yes
+    -o PermitLocalCommand=no -o IdentitiesOnly=yes -o IdentityAgent=none)
+  if [[ -z $key ]]; then
+    say "the store URI for $alias gives no key to sign in with"
+    return 1
   fi
+  ssh_words+=(-i "$key")
   if [[ -z $host_key ]]; then
     say "the store URI for $alias gives no host key to check it by"
     return 1
@@ -329,7 +336,10 @@ send_to() {
     touch "$refused"
     return 1
   elif [[ $code != 0 ]]; then
+    # Only the pieces stay, which is all the next run needs, so the
+    # lender's disk has room for nix-offload's own copy.
     say "$alias's nix couldn't take the cache in (exit $code); the pieces are kept for the next run"
+    remote "rm -rf $there/send.tar $there/cache $there/import.err" > /dev/null || true
     return 1
   fi
   say "$alias holds $*"

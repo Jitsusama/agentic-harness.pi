@@ -114,6 +114,15 @@ function sentFrom(on: Lender, from = ME): string[] {
 	return existsSync(dir) ? readdirSync(dir) : [];
 }
 
+/** The one folder of kept pieces on the lender under this machine's name. */
+function onlySent(on: Lender): string {
+	const [sum, ...more] = sentFrom(on);
+	if (sum === undefined || more.length > 0) {
+		throw new Error(`expected one kept send, found ${sentFrom(on).length}`);
+	}
+	return sum;
+}
+
 /** What `script` answers given `words`, with the lender's stand-ins. */
 async function answer(
 	on: Lender,
@@ -224,7 +233,7 @@ describe("host-send-runtime.sh", { timeout: 60_000 }, () => {
 		const on = lender([BASE, RUNTIME], [BASE]);
 		writeFileSync(join(on.fake, "allowed"), "2");
 		await answer(on, SENDER, [RUNTIME], { HOST_SEND_TRIES: "1" });
-		const [sum] = sentFrom(on);
+		const sum = onlySent(on);
 		writeFileSync(
 			join(on.fake, "lender", "pi-host-send", ME, sum, "pieces", "p.aaaa"),
 			"x".repeat(1000),
@@ -314,9 +323,12 @@ describe("host-send-runtime.sh", { timeout: 60_000 }, () => {
 
 		const failed = await answer(on, SENDER, [RUNTIME]);
 		const uploaded = logged(on, "uploads").length;
+		const sum = onlySent(on);
+		const left = readdirSync(join(on.fake, "lender", "pi-host-send", ME, sum));
 		const after = await answer(on, SENDER, [RUNTIME]);
 
 		expect(failed.code, failed.said).toBe(1);
+		expect(left).toEqual(["pieces"]);
 		expect(failed.said).toContain("cannot connect to socket");
 		expect(failed.said).toContain("the pieces are kept for the next run");
 		expect(after.code, after.said).toBe(0);
