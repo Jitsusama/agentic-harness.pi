@@ -104,14 +104,16 @@ export const NEED = "need";
  * What `to` says with the word `need` taken out, and whether it was
  * there: the cell it names is found by what the need is about
  * (lib/mesh/need-route.ts), so a session asks for help without knowing
- * which session that is, and without asking a leader to know.
+ * which session that is, and without asking a leader to know. Only the
+ * bare word is read so, in any case, so a group called `#need` is still
+ * reached as one.
  */
 export function needNamed(written: string): {
 	readonly to: string;
 	readonly asked: boolean;
 } {
 	const parts = written.split(",").map((one) => one.trim());
-	const word = (one: string) => one.replace(/^[#@]/, "").toLowerCase() === NEED;
+	const word = (one: string) => one.toLowerCase() === NEED;
 	if (!parts.some(word)) return { to: written, asked: false };
 	const to = parts.filter((one) => one !== "" && !word(one)).join(", ");
 	return { to, asked: true };

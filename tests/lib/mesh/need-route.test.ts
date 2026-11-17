@@ -16,8 +16,10 @@ import {
 	hubsFrom,
 	keepNeed,
 	MOST_HOPS,
+	MOST_WORDS,
 	type NeedAsked,
 	needAt,
+	needId,
 	needsFile,
 	routeNeed,
 	type TieGraph,
@@ -307,6 +309,34 @@ describe("routing a need", () => {
 		expect(found).toMatchObject({ path: ["B"], fit: "B" });
 	});
 
+	it("keeps, of a text's words, only those some cell works on, so a token never lands in the file", () => {
+		const found = routeNeed(
+			{
+				...asked("A"),
+				words: wordsOf(`the carry broke on ghp_${"x9".repeat(20)}`),
+				fromText: true,
+			},
+			{
+				foragers: cells({ A: [], B: ["carry"] }),
+				ties: ties(["A", "B", 1]),
+				hubs: [],
+			},
+		);
+
+		expect(found).toMatchObject({ words: ["carry"], fit: "B" });
+	});
+
+	it(`keeps at most ${MOST_WORDS} words, none past 32 characters, however it was said`, () => {
+		const many = Array.from({ length: 14 }, (_, at) => `word${at}`);
+		const found = routeNeed(asked("A", "q".repeat(33), ...many), {
+			foragers: cells({ A: [] }),
+			ties: ties(),
+			hubs: [],
+		});
+
+		expect(found.words).toEqual(many.slice(0, MOST_WORDS));
+	});
+
 	it("writes the judge's line: the need, its asker and words, and the realm's size", () => {
 		const found = routeNeed(asked("A", "carry"), {
 			foragers: cells({ A: [], B: ["carry"] }),
@@ -323,6 +353,16 @@ describe("routing a need", () => {
 			at: AT,
 			cells: 2,
 		});
+	});
+});
+
+describe("a need's id", () => {
+	it("is its asker's, and never the same twice in one moment", () => {
+		const one = needId("A", AT);
+		const two = needId("A", AT);
+
+		expect(one.startsWith("A/")).toBe(true);
+		expect(two).not.toBe(one);
 	});
 });
 

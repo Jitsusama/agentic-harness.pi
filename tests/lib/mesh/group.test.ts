@@ -13,15 +13,16 @@ import {
 } from "../../../lib/mesh/group.ts";
 
 describe("a need in `to`", () => {
-	it("is taken out, and said, however it is typed", () => {
+	it("is taken out, and said, as the bare word in any case", () => {
 		expect(needNamed("need, #harness")).toEqual({
 			to: "#harness",
 			asked: true,
 		});
-		expect(needNamed("@Need")).toEqual({ to: "", asked: true });
+		expect(needNamed(" Need ")).toEqual({ to: "", asked: true });
 	});
 
-	it("leaves a `to` that does not name it as written", () => {
+	it("leaves a group called #need reachable, and a `to` that does not name it as written", () => {
+		expect(needNamed("#need")).toEqual({ to: "#need", asked: false });
 		expect(needNamed("#needs, 85PKB2")).toEqual({
 			to: "#needs, 85PKB2",
 			asked: false,

@@ -87,6 +87,7 @@ describe("sending to a need", () => {
 
 		expect(said).toContain("Sent as 7M6JKG");
 		expect(said).toContain("went to 5HJZ8Z");
+		expect(said).toContain("a yes, ruling or grant still comes only from");
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 		const [id] = transport.ids();
 		expect(id && transport.read(id)).toMatchObject({
@@ -124,6 +125,30 @@ describe("sending to a need", () => {
 		expect(said).toContain("counted as lost, never sent to an orchestrator");
 		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
 		expect(transport.ids()).toEqual([]);
+	});
+
+	it("keeps only the text's words a cell works on when about is left out", async () => {
+		peer("session-c", ["5HJZ8Z"], []);
+		const env = await node(
+			[asker, { key: "cell:5HJZ8Z", title: "Carry a Session" }],
+			[{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() }],
+		);
+		const { tools } = await startSession(env);
+
+		await sending(tools, {
+			to: "need",
+			intent: "fyi",
+			text: `The carry failed with ghp_${"Ab3".repeat(14)} in its log.`,
+		});
+
+		const [day] = readdirSync(join(fixture.paths.mesh, "needs"));
+		const file = readFileSync(
+			join(fixture.paths.mesh, "needs", day ?? ""),
+			"utf8",
+		);
+		expect(JSON.parse(file)).toMatchObject({ words: ["carry"] });
+		expect(file).not.toContain("ghp");
+		expect(file.toLowerCase()).not.toContain("ab3ab3");
 	});
 
 	it("is refused when no node answers", async () => {

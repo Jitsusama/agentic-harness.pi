@@ -16,15 +16,24 @@
  * Each need is kept as one line in the day's file, in the shape the
  * scale run's judge reads (`judge.py needs`): who asked, its words,
  * every cell it passed after the asker with the fit last, and the
- * realm's size. Its id is the asker's address and a stamp of its own,
- * so two cells never mint the same one and it never changes as it goes.
+ * realm's size. Its id is the asker's address, a stamp and a count of
+ * its own, so no two needs share one and it never changes as it goes.
+ * Only words some cell works on are kept when they were read from a
+ * message's text, at most `MOST_WORDS` of them, so a token pasted into
+ * the text never lands in the file. The files go with the week the
+ * mesh keeps its messages (retention.ts).
  *
  * The path is the chain the fit was found along, read from the node's
- * own ties and hubs, never from what a cell says. Only the fit is
- * written to: the cells on the way are not asked in turn, since the
- * node already holds what each would answer.
+ * own ties and hubs. Only the fit is written to: the cells on the way
+ * are not asked in turn, since the node already holds what each would
+ * answer. A fit is chosen by the words of its own title and repository,
+ * which the cell sets, so a cell can draw needs by what its title says.
+ * That routes a message and grants nothing: a need finds who works on
+ * something, and a yes, a ruling or a grant still comes only from the
+ * owner named by address.
  */
 
+import { readdirSync, rmSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord } from "../internal/record.ts";
@@ -60,6 +69,11 @@ export interface NeedAsked {
 	readonly words: readonly string[];
 	/** When it was asked, in milliseconds. */
 	readonly at: number;
+	/**
+	 * Whether its words were read from the message's text rather than
+	 * said as what it is about, so only those a cell works on are kept.
+	 */
+	readonly fromText?: boolean;
 }
 
 /** A need with where it went, as the scale run's judge reads it. */
@@ -88,6 +102,21 @@ export interface Reach {
 
 /** The most ties a need passes along before it counts as lost. */
 export const MOST_HOPS = 3;
+
+/** The most words a need is routed and kept by. */
+export const MOST_WORDS = 12;
+
+/** The longest word a need keeps: longer is a token, not a word of work. */
+const LONGEST_WORD = 32;
+
+/** Needs minted in this process, so two in one moment differ. */
+let minted = 0;
+
+/** A new need's id: its asker's address, then a stamp and count of its own. */
+export function needId(asker: string, at: number): string {
+	minted += 1;
+	return `${asker}/${at.toString(36)}.${minted.toString(36)}`;
+}
 
 /** How long the node has to list a kind: a realm's every cell or tie. */
 const LIST_PATIENCE_MS = 2000;
@@ -205,7 +234,8 @@ export function hubsFrom(line: string): Hub[] {
  * path, when none is within `MOST_HOPS`. A cell that works on it but has
  * ended is never taken, and is named in `ended`.
  */
-export function routeNeed(asked: NeedAsked, reach: Reach): NeedRecord {
+export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
+	const asked = { ...said, words: keptWords(said, reach.foragers) };
 	const passed = new Set<string>();
 	const record = (path: readonly string[], fit: string | null): NeedRecord => ({
 		need: asked.need,
@@ -288,6 +318,18 @@ export function routeNeed(asked: NeedAsked, reach: Reach): NeedRecord {
 	return record([], null);
 }
 
+/**
+ * The words a need is routed and kept by: none past `LONGEST_WORD`, at
+ * most `MOST_WORDS`, and, read from a text, only those a cell works on.
+ */
+function keptWords(asked: NeedAsked, foragers: readonly Forager[]): string[] {
+	const held = new Set(foragers.flatMap((cell) => cell.words));
+	return asked.words
+		.filter((word) => word.length <= LONGEST_WORD)
+		.filter((word) => !asked.fromText || held.has(word))
+		.slice(0, MOST_WORDS);
+}
+
 /** The hubs whose subject is `word` or ends in it, narrowest first. */
 function hubsFor(word: string, hubs: readonly Hub[]): Hub[] {
 	const depth = (hub: Hub) => hub.subject.split(":").length;
@@ -312,6 +354,31 @@ function chainTo(
 	}
 	return chain;
 }
+
+/**
+ * Lets go of the needs files in `dir` whose whole UTC day ended before
+ * `before`, leaving anything else in the folder.
+ */
+export function forgetNeeds(dir: string, before: number): void {
+	const folder = join(dir, "needs");
+	let files: string[];
+	try {
+		files = readdirSync(folder);
+	} catch {
+		// No needs kept yet: nothing to let go of.
+		return;
+	}
+	for (const file of files) {
+		const day = /^(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(file)?.[1];
+		if (day === undefined) continue;
+		if (Date.parse(`${day}T00:00:00Z`) + DAY_MS <= before) {
+			rmSync(join(folder, file), { force: true });
+		}
+	}
+}
+
+/** A UTC day, which a needs file holds. */
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The day's needs file in `dir`, by the UTC day of `at`. */
 export function needsFile(dir: string, at: number): string {

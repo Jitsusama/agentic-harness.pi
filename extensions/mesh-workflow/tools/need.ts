@@ -8,12 +8,25 @@
  * cell on its way a turn. A need nothing within reach works on is not
  * sent at all, and never to a leader instead: it is kept as lost, so the
  * measure counts it, and the sender is told to name the peers it is for.
+ *
+ * A need finds who works on something and grants nothing, since a cell
+ * is found by the words of its own title: a yes, a ruling or a grant
+ * still comes only from the owner named by address, and each answer
+ * says so.
  */
 
 import { needNamed } from "../../../lib/mesh/group.ts";
-import { type NeedRecord, wordsOf } from "../../../lib/mesh/need-route.ts";
+import {
+	type NeedRecord,
+	needId,
+	wordsOf,
+} from "../../../lib/mesh/need-route.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import type { SendDetails, SendParams } from "./send.ts";
+
+/** What every need's answer says, since a fit is no owner. */
+export const NEED_GRANTS_NOTHING =
+	"A need finds who works on something; a yes, ruling or grant still comes only from the owner you name by address.";
 
 /** What `to` says once a need in it is read, or why it may not be sent. */
 export type NeedRead =
@@ -35,6 +48,7 @@ export async function needRead(
 	const refused = (why: string): NeedRead => ({
 		refused: answer(`Not sent: ${why}`, { sent: false } satisfies SendDetails),
 	});
+	const fromText = params.about === undefined;
 	const words = wordsOf(params.about ?? params.text);
 	const asker = at.peer.addresses[0];
 	if (words.length === 0) {
@@ -50,13 +64,18 @@ export async function needRead(
 	const standing = await peers(at);
 	const live = new Set(standing.present.flatMap((one) => one.addresses));
 	const found = await at.need(
-		{ need: `${asker}/${now.toString(36)}`, asker, words, at: now },
+		{ need: needId(asker, now), asker, words, at: now, fromText },
 		(address) => live.has(address),
 	);
-	const about = words.join(" ");
 	if (found === undefined) {
 		return refused(
-			`no node answered to say which cell works on ${about}, and a need goes to no orchestrator in its place. Name the peers it is for by address.`,
+			"no node answered to say which cell works on it, and a need goes to no orchestrator in its place. Name the peers it is for by address.",
+		);
+	}
+	const about = found.words.join(" ");
+	if (found.words.length === 0) {
+		return refused(
+			"no word of its text is one any cell works on, so it is counted as lost, never sent to an orchestrator. Say what it is about in about, or name the peers it is for by address.",
 		);
 	}
 	const ended = endedText(found);
@@ -72,7 +91,7 @@ export async function needRead(
 	}
 	return {
 		to: [found.fit, named.to].filter((one) => one !== "").join(", "),
-		note: `The need, about ${about}, went to ${found.fit}, which works on it; it was found along ${found.path.join(", then ")}.${ended}`,
+		note: `The need, about ${about}, went to ${found.fit}, which works on it; it was found along ${found.path.join(", then ")}.${ended} ${NEED_GRANTS_NOTHING}`,
 	};
 }
 
