@@ -13,7 +13,7 @@
  * loads the secret-scrub extension. pi's afterToolCall still sees the raw
  * result, as on pi, and a result with nothing to hide passes untouched.
  */
-import { scrubDeep, scrubSecrets } from "../../lib/internal/secrets/secrets.ts";
+import { scrubToolResult } from "../../lib/internal/secrets/secrets.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import type {
 	AgentContext,
@@ -22,7 +22,6 @@ import type {
 	AgentTool,
 	AgentToolResult,
 	AssistantMessage,
-	ContentBlock,
 	ToolCall,
 	ToolResultMessage,
 } from "./pi-types.ts";
@@ -333,7 +332,7 @@ export class ToolRound {
 							toolCallId: toolCall.id,
 							toolName: toolCall.name,
 							args: toolCall.arguments,
-							partialResult: scrubbedResult(partialResult),
+							partialResult: scrubbedResult(partialResult, toolCall),
 						}),
 					);
 				},
@@ -410,7 +409,7 @@ export class ToolRound {
 	}
 
 	private async end(settled: CallOutcome): Promise<CallOutcome> {
-		const result = scrubbedResult(settled.result);
+		const result = scrubbedResult(settled.result, settled.toolCall);
 		const outcome =
 			result === settled.result ? settled : { ...settled, result };
 		const { toolCall } = outcome;
@@ -437,31 +436,17 @@ export function truncatedCallText(name: string): string {
 }
 
 /**
- * A result with every credential in its text, details and structured
- * answer replaced by words saying what kind it was; the same object when
- * it held none. A picture is handed on as it is, as the interceptor does.
+ * A result scrubbed as the secret-scrub extension scrubs it, read by the
+ * call's own arguments, so a command printing the environment has every
+ * value that could be a credential put out of sight whether or not the
+ * conversation loads the extension; the same object when it held none.
  */
-function scrubbedResult(result: AgentToolResult): AgentToolResult {
-	let found = false;
-	const content = result.content?.map((part): ContentBlock => {
-		if (part.type !== "text" || typeof part.text !== "string") return part;
-		const { text, kinds } = scrubSecrets(part.text);
-		if (kinds.length === 0) return part;
-		found = true;
-		return { ...part, text };
-	});
-	const details = scrubDeep(result.details);
-	const structured = scrubDeep(result.structuredContent);
-	if (!found && details.kinds.length === 0 && structured.kinds.length === 0)
-		return result;
-	return {
-		...result,
-		...(content === undefined ? {} : { content }),
-		...(details.kinds.length === 0 ? {} : { details: details.value }),
-		...(structured.kinds.length === 0
-			? {}
-			: { structuredContent: structured.value }),
-	};
+function scrubbedResult(
+	result: AgentToolResult,
+	toolCall: ToolCall,
+): AgentToolResult {
+	const scrubbed = scrubToolResult(result, toolCall.arguments);
+	return scrubbed === undefined ? result : { ...result, ...scrubbed };
 }
 
 function prepareArguments(tool: AgentTool, toolCall: ToolCall): ToolCall {

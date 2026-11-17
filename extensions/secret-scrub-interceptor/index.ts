@@ -3,9 +3,8 @@
  *
  * Puts every credential a tool's answer holds out of sight before the
  * model reads it or pi writes it to the session's log, leaving words that
- * say what kind it was (see `lib/internal/secrets/secrets.ts` for the
- * shapes, and for the session's own secret variables, put out of sight
- * by value).
+ * say what kind it was (see `lib/internal/secrets/secrets.ts` for the shapes, and
+ * for the session's own secret variables, put out of sight by value).
  *
  * An agent's tools print what they find, and some of what they find is a
  * credential: a token in a shell's history, a key in a file read, a
@@ -32,54 +31,17 @@
  * context and log.
  */
 
-import type {
-	ExtensionAPI,
-	ToolResultEvent,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	dumpsEnvironment,
-	type KnownSecret,
-	knownSecrets,
-	type ScrubOptions,
-	scrubDeep,
-	scrubSecrets,
+	scrubOptionsOf,
+	scrubToolResult,
 } from "../../lib/internal/secrets/secrets.ts";
 import { savedOutputFile, scrubOutputFile } from "./output-file.ts";
-
-type Content = ToolResultEvent["content"];
-
-/** The answer's parts with each text scrubbed, and whether any changed. */
-function scrubContent(
-	content: Content,
-	known: readonly KnownSecret[],
-	options: ScrubOptions,
-): {
-	content: Content;
-	changed: boolean;
-} {
-	let changed = false;
-	const scrubbed = content.map((part) => {
-		if (part.type !== "text") return part;
-		const { text, kinds } = scrubSecrets(part.text, known, options);
-		if (kinds.length === 0) return part;
-		changed = true;
-		return { ...part, text };
-	});
-	return { content: scrubbed, changed };
-}
-
-/** Whether the answer is a shell command's that prints the environment. */
-function printsEnvironment(event: ToolResultEvent): boolean {
-	const input: unknown = event.input;
-	if (typeof input !== "object" || input === null) return false;
-	const command: unknown = Reflect.get(input, "command");
-	return typeof command === "string" && dumpsEnvironment(command);
-}
 
 /** Wires the scrub onto every tool's answer. */
 export default function secretScrubInterceptor(pi: ExtensionAPI) {
 	pi.on("tool_result", async (event) => {
-		const options = { environment: printsEnvironment(event) };
+		const options = scrubOptionsOf(event.input);
 		// Before anything else, and whatever the answer holds: a credential
 		// can sit in the part of the output the answer left out.
 		// pi names it in the details, pi-durable in the structured answer.
@@ -89,21 +51,6 @@ export default function secretScrubInterceptor(pi: ExtensionAPI) {
 			),
 		);
 		for (const file of saved) if (file) scrubOutputFile(file, options);
-		const known = knownSecrets();
-		const content = scrubContent(event.content, known, options);
-		const details = scrubDeep(event.details, known, options);
-		const structured = scrubDeep(event.structuredContent, known, options);
-		if (
-			!content.changed &&
-			details.kinds.length === 0 &&
-			structured.kinds.length === 0
-		) {
-			return undefined;
-		}
-		return {
-			content: content.content,
-			details: details.value,
-			structuredContent: structured.value,
-		};
+		return scrubToolResult(event, event.input);
 	});
 }

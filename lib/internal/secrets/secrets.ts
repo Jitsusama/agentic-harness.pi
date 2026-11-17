@@ -172,17 +172,80 @@ export interface ScrubOptions {
 	readonly environment?: boolean;
 }
 
-/** How a call's answer is read, from the call's input. Not yet read. */
-export function scrubOptionsOf(_input: unknown): ScrubOptions {
-	return { environment: false };
+/**
+ * How a call's answer is read, from the call's input: as a printing of the
+ * environment when the input is a shell command that prints it, and as
+ * ordinary output otherwise, whatever the input is.
+ */
+export function scrubOptionsOf(input: unknown): ScrubOptions {
+	if (typeof input !== "object" || input === null) {
+		return { environment: false };
+	}
+	const command: unknown = Reflect.get(input, "command");
+	return {
+		environment: typeof command === "string" && dumpsEnvironment(command),
+	};
 }
 
-/** A tool's answer scrubbed whole. Not yet scrubbed. */
-export function scrubToolResult(
-	_answer: unknown,
-	_input: unknown,
-): Record<string, unknown> | undefined {
-	return undefined;
+/** The parts of a tool's answer that carry what it printed. */
+export interface ToolAnswer<Part, Details, Structured> {
+	readonly content?: readonly Part[];
+	readonly details?: Details;
+	readonly structuredContent?: Structured;
+}
+
+/** What `scrubToolResult` answers with: the answer's fields, scrubbed. */
+export interface ScrubbedAnswer<Part, Details, Structured> {
+	content?: Part[];
+	details?: Details;
+	structuredContent?: Structured;
+}
+
+/**
+ * A tool's answer with every credential in its text, details and
+ * structured answer put out of sight, read as the call's input says (see
+ * `scrubOptionsOf`): only the fields the answer has, or undefined when it
+ * held nothing to hide. A picture is handed on as it is. The secret-scrub
+ * extension and a host's tool round both answer with it, so a hosted
+ * conversation is scrubbed alike whether or not it loads the extension.
+ */
+export function scrubToolResult<
+	Part extends { readonly type: string },
+	Details,
+	Structured,
+>(
+	answer: ToolAnswer<Part, Details, Structured>,
+	input: unknown,
+	known: readonly KnownSecret[] = knownSecrets(),
+): ScrubbedAnswer<Part, Details, Structured> | undefined {
+	const options = scrubOptionsOf(input);
+	let found = false;
+	const content = answer.content?.map((part): Part => {
+		if (!isTextPart(part)) return part;
+		const { text, kinds } = scrubSecrets(part.text, known, options);
+		if (kinds.length === 0) return part;
+		found = true;
+		return { ...part, text };
+	});
+	const details = scrubDeep(answer.details, known, options);
+	const structured = scrubDeep(answer.structuredContent, known, options);
+	if (!found && details.kinds.length === 0 && structured.kinds.length === 0) {
+		return undefined;
+	}
+	return {
+		...("content" in answer ? { content } : {}),
+		...("details" in answer ? { details: details.value } : {}),
+		...("structuredContent" in answer
+			? { structuredContent: structured.value }
+			: {}),
+	};
+}
+
+/** Whether a part of an answer is text, which is all that is scrubbed. */
+function isTextPart<Part extends { readonly type: string }>(
+	part: Part,
+): part is Part & { readonly text: string } {
+	return part.type === "text" && typeof Reflect.get(part, "text") === "string";
 }
 
 /** The words that stand where a secret was, naming what it was. */
