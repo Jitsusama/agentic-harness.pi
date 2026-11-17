@@ -51,6 +51,11 @@ export function plan(title = "A Plan", id = "PLAN-20260604-BBB222"): string {
 /** Write a file and date it well before now, as a settled file would be. */
 export function writeSettled(path: string, text: string): void {
 	writeFileSync(path, text);
+	settle(path);
+}
+
+/** Date a file or folder well before now, as a settled one would be. */
+export function settle(path: string): void {
 	const past = new Date(Date.now() - 60_000);
 	utimesSync(path, past, past);
 }
@@ -71,5 +76,7 @@ export function settledTree(): SettledTree {
 	const planPath = join(dir, "plans", "PLAN-20260604-BBB222.md");
 	writeSettled(readmePath, readme("active"));
 	writeSettled(planPath, plan());
+	settle(dir);
+	settle(root);
 	return { root, readmePath, planPath };
 }

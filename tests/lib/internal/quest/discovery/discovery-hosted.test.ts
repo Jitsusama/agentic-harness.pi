@@ -5,8 +5,9 @@
  * over 1,437 quests on 17 November, and on a host each one holds every
  * conversation while the disk answers. So a host answers a known tree
  * from its last signed walk and signs it again off the thread, while
- * this process's own writes, a quest made or removed, and an ask that
- * must be fresh still sign at once. Plain pi signs every ask, as before.
+ * this process's own writes, a quest made, removed or given its README,
+ * and an ask after a minute unasked still sign at once. Plain pi signs
+ * every ask, as before.
  */
 
 import * as fs from "node:fs";
@@ -17,7 +18,6 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 	discoverQuestsAfresh,
-	discoverQuestsFresh,
 	discoverySettled,
 	signQuestsNow,
 } from "../../../../../lib/internal/quest/discovery/discovery.ts";
@@ -26,6 +26,7 @@ import { installTestHost } from "../../../../support/session-host.ts";
 import {
 	ID,
 	readme,
+	settle,
 	settledTree,
 	writeSettled,
 } from "../support/discovery-tree.ts";
@@ -36,12 +37,14 @@ vi.mock("node:fs", async (importOriginal) => {
 		...actual,
 		readFileSync: vi.fn(actual.readFileSync),
 		readdirSync: vi.fn(actual.readdirSync),
+		realpathSync: vi.fn(actual.realpathSync),
 		statSync: vi.fn(actual.statSync),
 	};
 });
 
 const reads = vi.mocked(fs.readFileSync);
 const listings = vi.mocked(fs.readdirSync);
+const reals = vi.mocked(fs.realpathSync);
 const stats = vi.mocked(fs.statSync);
 
 const OTHER = "QEST-20260604-CCC333";
@@ -58,17 +61,20 @@ function questIds(): string[] {
 	return [...discoverQuests(root).index.quests.keys()];
 }
 
-function syncCalls(): number {
-	return (
-		reads.mock.calls.length +
-		listings.mock.calls.length +
-		stats.mock.calls.length
-	);
+/** The calls that held the thread, but a stat of each folder in `but`. */
+function syncCalls(but: readonly string[] = []): unknown[] {
+	return [
+		...reads.mock.calls,
+		...listings.mock.calls,
+		...reals.mock.calls,
+		...stats.mock.calls.filter(([path]) => !but.includes(String(path))),
+	];
 }
 
 function clearCalls(): void {
 	reads.mockClear();
 	listings.mockClear();
+	reals.mockClear();
 	stats.mockClear();
 }
 
@@ -118,20 +124,43 @@ describe("discovery on a host", () => {
 		expect(statusNow()).toBe("active");
 		writeSettled(readmePath, readme("paused"));
 		expect(statusNow()).toBe("active");
-		later(61_000);
+		later(6_000);
 		expect(statusNow()).toBe("active");
 		await discoverySettled(root);
 		expect(statusNow()).toBe("paused");
 	});
 
-	it("signs off the thread with no call that holds it", async () => {
+	it("signs off the thread with no call that holds it, nested quests and README-less folders too", async () => {
+		const nested = join(root, ID, OTHER);
+		mkdirSync(nested);
+		settle(nested);
+		const bare = join(root, "QEST-20260604-DDD444");
+		mkdirSync(bare);
+		settle(bare);
+		settle(join(root, ID));
+		settle(root);
 		discoverQuests(root);
 		writeSettled(readmePath, readme("paused"));
-		later(61_000);
+		later(6_000);
 		discoverQuests(root);
 		clearCalls();
 		await discoverySettled(root);
-		expect(syncCalls()).toBe(0);
+		expect(syncCalls([bare])).toEqual([]);
+		expect(statusNow()).toBe("paused");
+	});
+
+	it("starts no second signing within a few seconds of the last", async () => {
+		discoverQuests(root);
+		writeSettled(readmePath, readme("paused"));
+		discoverQuests(root);
+		await discoverySettled(root);
+		expect(statusNow()).toBe("active");
+	});
+
+	it("signs on the thread at an ask after a minute unasked", () => {
+		discoverQuests(root);
+		writeSettled(readmePath, readme("paused"));
+		later(61_000);
 		expect(statusNow()).toBe("paused");
 	});
 
@@ -146,7 +175,7 @@ describe("discovery on a host", () => {
 
 	it("starts one signing at a time for a root", async () => {
 		discoverQuests(root);
-		later(61_000);
+		later(6_000);
 		discoverQuests(root);
 		const under = discoverySettled(root);
 		discoverQuests(root);
@@ -168,6 +197,9 @@ describe("discovery on a host", () => {
 
 	it("finds a quest whose README came after its folder at once", () => {
 		mkdirSync(join(root, OTHER));
+		settle(join(root, OTHER));
+		settle(root);
+		expect(questIds()).not.toContain(OTHER);
 		expect(questIds()).not.toContain(OTHER);
 		writeSettled(
 			join(root, OTHER, "README.md"),
@@ -183,20 +215,13 @@ describe("discovery on a host", () => {
 		expect(questIds()).not.toContain(OTHER);
 	});
 
-	it("keeps no signing made across this process's own write", async () => {
+	it("shows this process's write made while a signing ran", async () => {
 		discoverQuests(root);
-		later(61_000);
+		later(6_000);
 		discoverQuests(root);
 		atomicWriteFile(readmePath, readme("paused"));
 		await discoverySettled(root);
 		expect(statusNow()).toBe("paused");
-	});
-
-	it("signs at once when asked for the tree as it stands", () => {
-		discoverQuests(root);
-		writeSettled(readmePath, readme("paused"));
-		const fresh = discoverQuestsFresh(root);
-		expect(fresh.index.quests.get(ID)?.doc.frontMatter.status).toBe("paused");
 	});
 
 	it("answers the asks after a signing now as the tree stood then", () => {

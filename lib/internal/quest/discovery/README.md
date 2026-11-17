@@ -8,7 +8,8 @@ one folder up, beside the modules its hash covers.
 
 On a host, where every conversation shares one thread, a known tree is
 answered from its last signed walk and signed again off the thread
-(`off-thread.ts`) once that walk is a few seconds old. This process's own
-writes, a quest made or removed, and the quest tool's actions still sign
-at once; `discoverQuestsFresh` signs at once for any other answer a
-decision rests on.
+(`off-thread.ts`) once that walk is a few seconds old. Quest writes made
+through the workflow in this process, a quest made, removed or given its
+README, a session's start, the quest tool's actions, and an ask after a
+minute unasked still sign at once. An edit made through pi's write and
+edit tools, or by another process, shows by the next signing.

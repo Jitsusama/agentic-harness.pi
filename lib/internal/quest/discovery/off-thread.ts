@@ -8,14 +8,16 @@
 
 import { type BigIntStats, type Dirent, statSync } from "node:fs";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { isId, prefixOf } from "../creation/id.ts";
 import {
 	CANONICAL_DOCUMENT_DIRS,
 	hashRead,
+	MAX_WALK_DEPTH,
 	newPass,
 	type Pass,
 	recordFor,
+	settled,
 	vouchedHash,
 } from "./discovery-reads.ts";
 
@@ -27,37 +29,40 @@ import {
 const AT_ONCE = 4;
 
 /**
- * The quests root's stat, as a host compares it to see a quest made or
+ * A folder's stat, as a host compares it to see an entry made or
  * removed since it last signed: one stat of one folder, where a listing
- * would take the filesystem's directory lock.
+ * would take the filesystem's directory lock. Undefined for a folder
+ * changed too lately for its stat to vouch, since two changes inside one
+ * tick of a coarse clock can leave the same stat, and for one that isn't
+ * there; neither ever matches, so the ask signs at once.
  */
-export function rootStampOf(questsRoot: string): string {
+export function folderStampOf(path: string): string | undefined {
 	try {
-		return stampOf(statSync(questsRoot, { bigint: true }));
+		return stampOf(statSync(path, { bigint: true }));
 	} catch {
-		// No root: a root made later stamps differently.
-		return "absent";
+		// No folder: one made later is seen, since nothing matches this.
+		return undefined;
 	}
 }
 
-/** The quests root's stat, read off the thread. */
-async function rootStampOffThread(questsRoot: string): Promise<string> {
+/** A folder's stat, read off the thread; undefined as `folderStampOf`. */
+async function folderStampOffThread(path: string): Promise<string | undefined> {
 	try {
-		return stampOf(await stat(questsRoot, { bigint: true }));
+		return stampOf(await stat(path, { bigint: true }));
 	} catch {
-		// No root: a root made later stamps differently.
-		return "absent";
+		// No folder: one made later is seen, since nothing matches this.
+		return undefined;
 	}
 }
 
-function stampOf(st: BigIntStats): string {
-	return `${st.mtimeNs}:${st.ctimeNs}:${st.ino}`;
+function stampOf(st: BigIntStats): string | undefined {
+	return settled(st) ? `${st.mtimeNs}:${st.ctimeNs}:${st.ino}` : undefined;
 }
 
 /** What one signing off the thread read, and the root's stat before it. */
 export interface ReadOffThread {
 	readonly pass: Pass;
-	readonly rootStamp: string;
+	readonly rootStamp: string | undefined;
 }
 
 /**
@@ -69,7 +74,7 @@ export async function readTreeOffThread(
 	questsRoot: string,
 ): Promise<ReadOffThread> {
 	const pass = newPass();
-	const rootStamp = await rootStampOffThread(questsRoot);
+	const rootStamp = await folderStampOffThread(questsRoot);
 	const rootEntries = await listed(questsRoot, pass);
 	if (!rootEntries) return { pass, rootStamp };
 	const folders = rootEntries.filter(
@@ -80,11 +85,12 @@ export async function readTreeOffThread(
 	);
 	await resolved(questsRoot, pass);
 	await inTurn(folders, (e) => resolved(join(questsRoot, e.name), pass));
-	await inTurn(quests, (e) => listed(join(questsRoot, e.name), pass));
+	const questDirs = quests.map((e) => join(questsRoot, e.name));
+	await inTurn(questDirs, (dir) => listed(dir, pass));
+	await nestedListed(questDirs, pass);
 	const files: string[] = [];
 	const kinds: string[] = [];
-	for (const quest of quests) {
-		const questDir = join(questsRoot, quest.name);
+	for (const questDir of questDirs) {
 		files.push(join(questDir, "README.md"));
 		const entries = pass.listings.get(questDir) ?? [];
 		for (const kind of CANONICAL_DOCUMENT_DIRS) {
@@ -102,6 +108,30 @@ export async function readTreeOffThread(
 	}
 	await inTurn(files, (path) => hashed(path, pass));
 	return { pass, rootStamp };
+}
+
+/**
+ * The listings of quest folders nested inside quests, which the walk
+ * reports as layout errors: each level's nested folders, to the walk's
+ * own depth.
+ */
+async function nestedListed(questDirs: string[], pass: Pass): Promise<void> {
+	let level = questDirs;
+	for (let depth = 1; depth <= MAX_WALK_DEPTH && level.length > 0; depth++) {
+		const nested = level.flatMap((dir) =>
+			(pass.listings.get(dir) ?? [])
+				.filter(
+					(e) =>
+						e.isDirectory() &&
+						!e.isSymbolicLink() &&
+						isId(e.name) &&
+						prefixOf(e.name) === "QEST",
+				)
+				.map((e) => join(dir, e.name)),
+		);
+		await inTurn(nested, (dir) => listed(dir, pass));
+		level = nested;
+	}
 }
 
 /** A folder's listing into the pass, undefined when it has none. */
@@ -129,8 +159,8 @@ async function resolved(path: string, pass: Pass): Promise<void> {
 
 /**
  * A file's hash into the pass: its stamp's when the stat still vouches
- * and its parsed record is the one kept, else its bytes', which the walk
- * then parses without reading it again.
+ * and, for a file the walk parses, its parsed record is the one kept;
+ * else its bytes', which the walk then parses without reading it again.
  */
 async function hashed(path: string, pass: Pass): Promise<void> {
 	try {
@@ -138,7 +168,7 @@ async function hashed(path: string, pass: Pass): Promise<void> {
 		const vouched = vouchedHash(path, st);
 		if (
 			vouched !== undefined &&
-			(!parseable(path) || recordFor(path, vouched))
+			(!parsedByTheWalk(path) || recordFor(path, vouched))
 		) {
 			pass.hashes.set(path, vouched);
 			return;
@@ -150,9 +180,17 @@ async function hashed(path: string, pass: Pass): Promise<void> {
 	}
 }
 
-/** Whether the walk parses a file, so needs its bytes when no record is kept. */
-function parseable(path: string): boolean {
-	return path.endsWith(".md");
+/**
+ * Whether the walk parses a file: a quest's README, or a markdown file
+ * named as a document. Any other file in a kind folder is only hashed,
+ * so its stamp is enough.
+ */
+function parsedByTheWalk(path: string): boolean {
+	const name = basename(path);
+	if (name === "README.md") return true;
+	if (!name.endsWith(".md")) return false;
+	const base = name.slice(0, -3);
+	return isId(base) && prefixOf(base) !== "QEST";
 }
 
 /** Run `each` over `items`, `AT_ONCE` at a time. */

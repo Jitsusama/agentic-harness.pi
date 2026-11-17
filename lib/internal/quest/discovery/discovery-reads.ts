@@ -56,6 +56,14 @@ export function newPass(): Pass {
 	};
 }
 
+/**
+ * Maximum directory depth the walk follows. A quest tree
+ * with depth past this is almost certainly a symlink loop
+ * or accidental nesting; we stop and log an error rather
+ * than wedge every quest action.
+ */
+export const MAX_WALK_DEPTH = 16;
+
 /** The kind subdirectories a quest's documents live in. */
 export const CANONICAL_DOCUMENT_DIRS = [
 	"plans",
@@ -139,16 +147,17 @@ export function kept<D extends QuestDoc | QuestDocumentDoc>(
 /**
  * A root's last walk, and the signature of the tree it walked, with
  * what a host needs to answer from it without signing again: when the
- * signing began, the writes this process had made by then, the root's
- * stat, and whether every quest folder it saw had a README.
+ * signing began, the writes this process had made by then, and the
+ * settled stats of the root and of each quest folder it found with no
+ * README, undefined for one changed too lately to vouch.
  */
 export interface CacheSlot {
 	signature: string;
 	result: DiscoveryResult;
 	signedAt: number;
 	writes: number;
-	rootStamp: string;
-	complete: boolean;
+	rootStamp: string | undefined;
+	pending: ReadonlyMap<string, string | undefined>;
 }
 
 /** A file's content hash, and the stat it was taken under. */
@@ -195,6 +204,9 @@ type GlobalMemo = Record<symbol, Memo | undefined>;
 export function memo(): Memo {
 	const global = globalThis as GlobalMemo;
 	let found = global[MEMO];
+	// A conversation still on code from before signings off the thread
+	// may have made the memo; it is shared, so the newer code fills in.
+	if (found && !found.signing) found.signing = new Map();
 	if (!found) {
 		found = {
 			cache: new Map(),
@@ -316,10 +328,14 @@ export function hashRead(
 	pass.bytes.set(path, bytes);
 	const hash = hashOf(bytes);
 	pass.hashes.set(path, hash);
-	const age = BigInt(Date.now()) * 1_000_000n - st.mtimeNs;
-	if (age > SETTLED_NS) stamps.set(path, { stat: statKey(st), hash });
+	if (settled(st)) stamps.set(path, { stat: statKey(st), hash });
 	else stamps.delete(path);
 	return hash;
+}
+
+/** Whether a stat is old enough to stand for what it describes. */
+export function settled(st: BigIntStats): boolean {
+	return BigInt(Date.now()) * 1_000_000n - st.mtimeNs > SETTLED_NS;
 }
 
 /** Whether a parsed record is kept for this file under this hash. */
@@ -358,6 +374,9 @@ export function parsedOnce<D>(
 		pass.parsed.add(path);
 		return { doc: known.doc };
 	}
+	// Found missing off the thread: read it again here and it holds the
+	// thread for a file that isn't there.
+	if (pass.absent.has(path)) return undefined;
 	let bytes = pass.bytes.get(path);
 	if (!bytes) {
 		try {
