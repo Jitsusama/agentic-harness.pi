@@ -411,7 +411,10 @@ describe("restartWhenSettled", () => {
 			await timers.fire();
 		}
 
-		expect(said, "it restarted once, under the heap rule").toEqual([
+		expect(
+			said.filter((line) => line.startsWith("restart")),
+			"it restarted once, under the heap rule",
+		).toEqual([
 			"restart under heap",
 		]);
 		expect(

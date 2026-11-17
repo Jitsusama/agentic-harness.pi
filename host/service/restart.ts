@@ -44,11 +44,17 @@
  * running out ends it all. On 16 November the background host's heap
  * passed half before 09:12, and review rounds and shell jobs held its
  * restart every hour until V8 ran out at 20:44, with every conversation
- * mid-way and every job lost. So past three quarters of the limit a
- * restart takes the first moment no conversation has a turn running,
- * background work or not, without waiting the ceiling; past 85% it
- * restarts at once, turns and screens in use and all, while a park still
- * has room to finish.
+ * mid-way and every job lost. So past 70% of the limit a restart takes
+ * the first moment no conversation has a turn running and every screen
+ * is at rest, background work or not, without waiting the ceiling, and
+ * looks for that moment every second; past 80% it restarts at once,
+ * turns and screens in use and all, while a park still has room to
+ * finish, since the park that failed did so at about 87%. Both tiers
+ * weigh the heap V8 kept after its last full collection (live-heap.ts),
+ * not garbage it has yet to sweep, and act only once the heap has grown
+ * 15% of the limit since the host's first look: a host whose resumed
+ * conversations alone fill it would otherwise restart at every first
+ * look, end their work each time, and free nothing.
  *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
@@ -57,9 +63,9 @@
 
 import { realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { getHeapStatistics } from "node:v8";
 import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
+import { type HeapUse, heapAfterFullCollections } from "./live-heap.ts";
 import type { SessionIdentity } from "./protocol.ts";
 import { hostRoot } from "./rollout.ts";
 import type { ServingHost } from "./serve.ts";
@@ -121,24 +127,15 @@ export const HELD_SAY_MS = 60 * 60_000;
 const HEAP_RESTART_SHARE = 0.5;
 
 /** The share of V8's heap limit past which background work no longer holds a restart. */
-const HEAP_UNHELD_SHARE = 0.75;
+const HEAP_UNHELD_SHARE = 0.7;
 
 /** The share past which nothing holds it: not a turn running, not a screen in use. */
-const HEAP_URGENT_SHARE = 0.85;
+const HEAP_URGENT_SHARE = 0.8;
+
+/** How much of V8's limit the heap must have grown since the first look before either share counts. */
+const HEAP_GROWN_SHARE = 0.15;
 
 const BYTES_PER_MB = 1024 * 1024;
-
-/** How much heap the host uses, against the most V8 allows it. */
-interface HeapUse {
-	readonly usedBytes: number;
-	readonly limitBytes: number;
-}
-
-/** This process's heap, as V8 counts it. */
-function ownHeap(): HeapUse {
-	const { used_heap_size, heap_size_limit } = getHeapStatistics();
-	return { usedBytes: used_heap_size, limitBytes: heap_size_limit };
-}
 
 /** A conversation as the host lists it, for whether it is settled. */
 export interface Held {
@@ -148,13 +145,20 @@ export interface Held {
 }
 
 /**
- * The rule a restart came under: every conversation settled, or past the
- * ceiling, at a moment none had a turn running, after waiting this long.
+ * The rule a restart came under: every conversation settled; past the
+ * ceiling, at a moment none had a turn running, after waiting this long;
+ * or its heap, at this share of V8's limit, ending this many running
+ * turns and background jobs.
  */
 export type RestartRule =
 	| { readonly rule: "settled" }
 	| { readonly rule: "ceiling"; readonly waitedMs: number }
-	| { readonly rule: "heap"; readonly endsTurns: boolean };
+	| {
+			readonly rule: "heap";
+			readonly share: number;
+			readonly turns: number;
+			readonly jobs: number;
+	  };
 
 /** What the restart loop asks of the host and the machine; tests give their own. */
 export interface RestartFacts {
@@ -235,6 +239,8 @@ export function restartWhenSettled(
 	let differingSince: number | undefined;
 	// When background work holding a restart past the ceiling was last named.
 	let heldSaidAt: number | undefined;
+	// The heap's share at the first look, which the heap tiers weigh growth from.
+	let firstShare: number | undefined;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
 
 	async function look(): Promise<void> {
@@ -285,20 +291,25 @@ export function restartWhenSettled(
 	// The rule a restart may come under now, or nothing while it may not.
 	function mayRestart(): RestartRule | undefined {
 		if (facts.stopping()) return undefined;
-		if (heapShare() > HEAP_URGENT_SHARE) return { rule: "heap", endsTurns: true };
+		const share = heapShare();
 		const background = facts.background();
-		if (background > 0 && !heapPressed()) {
+		const held = facts.held();
+		const turns = held.filter(({ state }) => state === "busy").length;
+		if (grown(share) && share > HEAP_URGENT_SHARE)
+			return { rule: "heap", share, turns, jobs: background };
+		const pressed = heapPressed();
+		if (background > 0 && !pressed) {
 			sayHeld();
 			return undefined;
 		}
 		if (!facts.resting()) return undefined;
-		const held = facts.held();
-		const running = held.some(({ state }) => state === "busy");
 		if (background === 0 && settled(held, facts.now(), settledMs))
 			return { rule: "settled" };
-		if (heapPressed())
-			return running ? undefined : { rule: "heap", endsTurns: false };
-		if (!pastCeiling() || running) return undefined;
+		if (pressed)
+			return turns > 0
+				? undefined
+				: { rule: "heap", share, turns: 0, jobs: background };
+		if (!pastCeiling() || turns > 0) return undefined;
 		return { rule: "ceiling", waitedMs: facts.now() - (differingSince ?? 0) };
 	}
 
@@ -306,14 +317,22 @@ export function restartWhenSettled(
 		return facts.heapShare?.() ?? 0;
 	}
 
-	// Past three quarters, the heap restarts the host at the first gap.
+	// Whether the heap has grown enough since the first look for its tiers to act.
+	function grown(share: number): boolean {
+		return share - (firstShare ?? share) >= HEAP_GROWN_SHARE;
+	}
+
+	// Past 70%, grown since the first look, the heap restarts the host at the first gap.
 	function heapPressed(): boolean {
-		return heapShare() > HEAP_UNHELD_SHARE;
+		const share = heapShare();
+		return grown(share) && share > HEAP_UNHELD_SHARE;
 	}
 
 	async function consider(): Promise<Next> {
-		// Past the ceiling, a look with no gap asks nothing more.
-		if (pastCeiling() && mayRestart() === undefined) return "gap";
+		firstShare ??= heapShare();
+		// Past the ceiling or pressed by the heap, a look with no gap asks nothing more.
+		if ((pastCeiling() || heapPressed()) && mayRestart() === undefined)
+			return "gap";
 		const why = await facts.differs();
 		if (stopped) return "look";
 		if (why === undefined) {
@@ -416,7 +435,11 @@ export async function followWhatStarts(
 		return `systemd has a new ${unit}, such as one naming a new pi`;
 	}
 
-	const heap = options.heap ?? ownHeap;
+	// The heap after V8's last full collection, unless a test gives its own.
+	const live = options.heap
+		? { read: options.heap, stop: () => undefined }
+		: heapAfterFullCollections();
+	const heap = live.read;
 	function heapPastShare(): string | undefined {
 		const { usedBytes, limitBytes } = heap();
 		if (usedBytes <= limitBytes * HEAP_RESTART_SHARE) return undefined;
@@ -425,7 +448,7 @@ export async function followWhatStarts(
 	}
 
 	const settledMs = options.timing?.settledMs ?? SETTLED_MS;
-	return restartWhenSettled(
+	const stopLooking = restartWhenSettled(
 		{
 			differs: async () =>
 				(await installMoved()) ?? (await unitChanged()) ?? heapPastShare(),
@@ -450,6 +473,15 @@ export async function followWhatStarts(
 		},
 		options.timing,
 	);
+	return () => {
+		stopLooking();
+		live.stop();
+	};
+}
+
+/** `count` of `thing`, plural past one: "1 running turn", "2 background jobs". */
+function counted(count: number, thing: string): string {
+	return `${count} ${thing}${count === 1 ? "" : "s"}`;
 }
 
 const MINUTE_MS = 60_000;
@@ -457,10 +489,13 @@ const MINUTE_MS = 60_000;
 /** The journal's words for the rule a restart came under. */
 function restartedUnder(under: RestartRule, settledMs: number): string {
 	if (under.rule === "settled") return "once every conversation settled";
-	if (under.rule === "heap")
-		return under.endsTurns
-			? "before its heap runs out, ending what turns and background work were running"
-			: "before its heap runs out, ending what background work was running";
+	if (under.rule === "heap") {
+		const ended = [
+			...(under.turns > 0 ? [counted(under.turns, "running turn")] : []),
+			...(under.jobs > 0 ? [counted(under.jobs, "background job")] : []),
+		];
+		return `with its heap at ${Math.round(under.share * 100)}% of what V8 allows, ending ${ended.length > 0 ? ended.join(" and ") : "nothing that was running"}`;
+	}
 	const waited = Math.round(under.waitedMs / MINUTE_MS);
 	const settle = Math.round(settledMs / MINUTE_MS);
 	return `at a moment no conversation had a turn or a job, having waited ${waited} min for every one to settle ${settle} min at once`;

@@ -113,6 +113,9 @@ input pipeline or screen. No unit or running host is installed yet.
   turns off the engine's quiet collection (engine/quiet-collection.ts),
   which is on by default. A section or file it can't read is said in
   the journal and leaves the defaults, rather than refusing the start.
+- live-heap.ts: the heap a host weighs itself by, read as each of
+  V8's full collections ends, since the used heap between them counts
+  garbage the next collection frees.
 - restart.ts and what-starts.ts: the host restarting itself. A host
   systemd runs as its unit's main process looks every minute, from
   five minutes after it starts, whether it would start differently:
@@ -121,11 +124,14 @@ input pipeline or screen. No unit or running host is installed yet.
   runtime imports, with package.json and pnpm-lock.yaml), or systemd
   has read a new unit file, as a switch naming a new pi writes, or
   its heap holds more than half of what V8 allows, so a stop still
-  parks quickly rather than running into the limit. Past three
-  quarters of the limit, background work no longer holds the restart
-  and it takes the first moment no conversation has a turn running;
-  past 85% it restarts at once, since running out ends every turn
-  and job anyway (16 November, 20:44). Code
+  parks quickly rather than running into the limit. Past 70% of the
+  limit, background work no longer holds the restart, and it looks
+  every second for the first moment no conversation has a turn
+  running and every screen is at rest; past 80% it restarts at once,
+  since running out ends every turn and job anyway (16 November,
+  20:44). Both weigh the heap V8 kept after its last full collection
+  (live-heap.ts), and act only once it has grown 15% of the limit
+  since the host's first look. Code
   only a conversation loads moves with that conversation instead
   (reload-workflow's follower). Once any of these holds, and every
   conversation has been idle or parked for two minutes, with no
