@@ -312,6 +312,14 @@ export function withQuestLock<T>(questDir: string, fn: () => T): T {
 	}
 }
 
+/**
+ * Look for the login's runtime folder at `folder` rather than
+ * `/run/user/<uid>`, or there again given undefined, for tests.
+ */
+export function useRunFolderForTests(folder: string | undefined): void {
+	void folder;
+}
+
 /** Fallback when we have a path but no enclosing quest dir. */
 export function atomicWriteUnderLock(
 	questDir: string,
