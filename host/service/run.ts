@@ -44,7 +44,7 @@ import { isRecord } from "../../lib/internal/record.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostRealm } from "./address.ts";
 import type { ConversationEngine, ResumePhase } from "./backend.ts";
-import { watchHolds } from "./hold-watch.ts";
+import { type BeatOptions, watchHolds } from "./hold-watch.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
 import type { ViewerBridge } from "./server.ts";
 
@@ -141,9 +141,10 @@ export interface HostRunOptions {
 	alive?: (env: NodeJS.ProcessEnv, within: number) => Promise<void>;
 	/**
 	 * Watches what holds the loop, when systemd's watchdog watches it,
-	 * answering how to stop; a thread beside the loop by default.
+	 * beating for a loop asleep in the disk as `beat` says, and answering
+	 * how to stop; a thread beside the loop by default.
 	 */
-	holds?: () => () => void;
+	holds?: (beat: BeatOptions) => () => void;
 	/**
 	 * Says the start still moves and where it is, given the step in words;
 	 * systemd's notify by default, extending the start timeout.
@@ -302,10 +303,10 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const unwatchHolds =
 		every === undefined
 			? undefined
-			: (
-					options.holds ??
-					(() => watchHolds({ beat: { every, env: options.env } }))
-				)();
+			: (options.holds ?? ((beat) => watchHolds({ beat })))({
+					every,
+					env: options.env,
+				});
 	const unwatch = () => {
 		unwatchBeats?.();
 		unwatchHolds?.();

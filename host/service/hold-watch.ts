@@ -80,11 +80,14 @@ const X64_CALLS: Readonly<Record<number, Given>> = {
 	0: ["read", "fd", 0],
 	1: ["write", "fd", 0],
 	2: ["open", "path", 0],
+	3: ["close", "fd", 0],
 	4: ["stat", "path", 0],
+	5: ["fstat", "fd", 0],
 	6: ["lstat", "path", 0],
 	7: ["poll", "none", 0],
 	17: ["pread64", "fd", 0],
 	18: ["pwrite64", "fd", 0],
+	20: ["writev", "fd", 0],
 	21: ["access", "path", 0],
 	35: ["nanosleep", "none", 0],
 	42: ["connect", "socket", 1],
@@ -93,6 +96,7 @@ const X64_CALLS: Readonly<Record<number, Given>> = {
 	61: ["wait4", "none", 0],
 	74: ["fsync", "fd", 0],
 	75: ["fdatasync", "fd", 0],
+	77: ["ftruncate", "fd", 0],
 	82: ["rename", "path", 1],
 	83: ["mkdir", "path", 0],
 	84: ["rmdir", "path", 0],
@@ -115,7 +119,9 @@ const X64_CALLS: Readonly<Record<number, Given>> = {
 	266: ["symlinkat", "path", 2],
 	267: ["readlinkat", "path", 1],
 	269: ["faccessat", "path", 1],
+	280: ["utimensat", "path", 1],
 	281: ["epoll_pwait", "none", 0],
+	285: ["fallocate", "fd", 0],
 	316: ["renameat2", "path", 3],
 	332: ["statx", "path", 1],
 	439: ["faccessat2", "path", 1],
@@ -130,17 +136,23 @@ const ARM64_CALLS: Readonly<Record<number, Given>> = {
 	36: ["symlinkat", "path", 2],
 	37: ["linkat", "path", 3],
 	38: ["renameat", "path", 3],
+	46: ["ftruncate", "fd", 0],
+	47: ["fallocate", "fd", 0],
 	48: ["faccessat", "path", 1],
 	56: ["openat", "path", 1],
+	57: ["close", "fd", 0],
 	61: ["getdents64", "fd", 0],
 	63: ["read", "fd", 0],
 	64: ["write", "fd", 0],
+	66: ["writev", "fd", 0],
 	67: ["pread64", "fd", 0],
 	68: ["pwrite64", "fd", 0],
 	78: ["readlinkat", "path", 1],
 	79: ["newfstatat", "path", 1],
+	80: ["fstat", "fd", 0],
 	82: ["fsync", "fd", 0],
 	83: ["fdatasync", "fd", 0],
+	88: ["utimensat", "path", 1],
 	98: ["futex", "none", 0],
 	101: ["nanosleep", "none", 0],
 	115: ["clock_nanosleep", "none", 0],
@@ -218,7 +230,7 @@ interface Watched {
  */
 const PROGRAM = `
 const { workerData } = require("node:worker_threads");
-const { spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const { openSync, readFileSync, readSync, readlinkSync, writeSync } = require("node:fs");
 const { ticks, fd, every, after, still, pid, clock, home, calls, proc, beat } = workerData;
 const count = new Int32Array(ticks);
@@ -250,7 +262,12 @@ const swapMb = () => {
 	const kb = /^VmSwap:\\s+(\\d+)/m.exec(read(proc + "/status") ?? "")?.[1];
 	return kb === undefined ? undefined : Math.round(Number(kb) / 1024);
 };
-const shortened = (path) => {
+// A path read from the process's memory may hold anything a file's name
+// can, so a control character is written as its code: a name with a
+// newline must not start a journal line of its own.
+const plain = (text) => text.replace(/[\\x00-\\x1f\\x7f]/g, (one) => "\\\\x" + one.charCodeAt(0).toString(16).padStart(2, "0"));
+const shortened = (raw) => {
+	const path = plain(raw);
 	const shown = home && path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;
 	return shown.length > LONGEST ? shown.slice(0, LONGEST) + "..." : shown;
 };
@@ -285,7 +302,7 @@ const socketAt = (address) => {
 	const family = bytes.readUInt16LE(0);
 	if (family !== AF_UNIX) return "a socket of family " + family;
 	const path = bytes.subarray(2);
-	if (path[0] === 0) return "@" + path.subarray(1).toString("utf8").split("\\0")[0];
+	if (path[0] === 0) return "@" + plain(path.subarray(1).toString("utf8").split("\\0")[0]);
 	const end = path.indexOf(0);
 	return shortened(path.subarray(0, end < 0 ? path.length : end).toString("utf8"));
 };
@@ -351,10 +368,15 @@ const described = (hold, held, over) => {
 };
 // Beat systemd's watchdog for a loop asleep in the disk, as the header
 // of hold-watch.ts says: at most once a beat, journalled, until the cap.
+// Its CPU is counted from the last look that saw the loop move, so a
+// hold's first look already knows how much of it ran; with no reading
+// to count from, it can't be judged, and isn't beaten.
 const QUARTER = 4;
 const beatFor = (hold, now, held) => {
-	if (!beat || hold.last === undefined || hold.capped) return;
-	const ran = hold.from ? (hold.last.cpu - hold.from.cpu) * 1000 : 0;
+	if (!beat || hold.last === undefined || hold.capped || hold.beating) return;
+	const base = hold.moving ?? hold.from;
+	if (base === undefined) return;
+	const ran = (hold.last.cpu - base.cpu) * 1000;
 	if (ran * QUARTER > held) return;
 	if (held > beat.cap) {
 		hold.capped = true;
@@ -363,18 +385,33 @@ const beatFor = (hold, now, held) => {
 	}
 	if (now - hold.beat < beat.every) return;
 	hold.beat = now;
+	hold.beating = true;
+	const what = "the watchdog for the loop, held " + seconds(held) + " s in " + hold.last.said;
+	let settled = false;
+	// Said once the beat is known sent or not; one that fails leaves the
+	// watchdog to judge, as before.
+	const done = (failed) => {
+		if (settled) return;
+		settled = true;
+		hold.beating = false;
+		say(failed === undefined ? "beat " + what : "couldn't beat " + what + ": " + failed);
+	};
 	try {
-		// A child of this thread stays in the host's own cgroup, as systemd
+		// Spawned, never waited on, so a child stuck on the same disk can't
+		// silence this thread's lines, and none is sent while one is out. A
+		// child of this thread stays in the host's own cgroup, as systemd
 		// needs to credit the beat: the placement that moves children into
 		// jobs patches only the main thread's spawn.
-		spawnSync(beat.command[0], beat.command.slice(1), { env: beat.env, stdio: "ignore", timeout: beat.every });
-	} catch {
-		// A beat that can't be sent leaves the watchdog to judge, as before.
+		const child = spawn(beat.command[0], beat.command.slice(1), { env: beat.env, stdio: "ignore", timeout: beat.every });
+		child.once("error", (error) => done(error.message));
+		child.once("exit", (code, signal) => done(code === 0 ? undefined : signal ? "it ended on " + signal : "it ended with " + code));
+	} catch (error) {
+		done(error instanceof Error ? error.message : String(error));
 	}
-	say("beat the watchdog for the loop, held " + seconds(held) + " s in " + hold.last.said);
 };
 let last = Atomics.load(count, 0);
 let moved = performance.now();
+let moving;
 let hold;
 setInterval(() => {
 	const now = performance.now();
@@ -384,11 +421,13 @@ setInterval(() => {
 		last = tick;
 		moved = now;
 		hold = undefined;
+		// The thread's CPU as the loop last moved, read only for a beat.
+		if (beat) moving = thread();
 		return;
 	}
 	if (now - moved < after) return;
 	if (!hold) {
-		hold = { from: thread(), swap: swapMb(), seen: new Map(), calls: new Map(), told: now, beat: -Infinity, capped: false, last: undefined };
+		hold = { from: thread(), moving, swap: swapMb(), seen: new Map(), calls: new Map(), told: now, beat: -Infinity, beating: false, capped: false, last: undefined };
 		seen(hold);
 		say(described(hold, now - moved, false));
 		beatFor(hold, now, now - moved);
