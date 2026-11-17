@@ -177,7 +177,9 @@ describe("the board on a host", () => {
 		// Once it can land it does, and nothing is left trying.
 		rmSync(dir);
 		board.settle();
-		expect(existsSync(join(dir, "one.json"))).toBe(true);
+		expect(existsSync(join(dir, "one.json")), "landed at the settle").toBe(
+			true,
+		);
 	});
 
 	it("answers with what is on its way before its folder is made", () => {

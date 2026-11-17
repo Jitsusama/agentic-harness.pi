@@ -427,7 +427,9 @@ describe("presences on a host", () => {
 
 		held.go(0);
 		await vi.waitFor(() => {
-			expect(existsSync(join(root, "s-1.json"))).toBe(true);
+			expect(existsSync(join(root, "s-1.json")), "landed once let go").toBe(
+				true,
+			);
 		});
 	});
 
