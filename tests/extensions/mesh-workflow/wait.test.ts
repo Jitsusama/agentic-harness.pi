@@ -8,6 +8,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	createWaits,
+	type WaitsOn,
+} from "../../../extensions/mesh-workflow/peer/waits.ts";
+import {
+	type SettleWatch,
 	type Waiting,
 	watchSettling,
 } from "../../../extensions/mesh-workflow/wait.ts";
@@ -142,6 +147,28 @@ describe("what this session raised, read off the thread", () => {
 		expect(await watch.settledOff(), "and read then").toEqual([]);
 	});
 
+	it("writes a verdict under the quest's lock, and says nothing settled when it can't read it back", async () => {
+		addWaiting(folder, item("eero-login"));
+		addWaiting(folder, item("router-look"));
+		const locked: string[] = [];
+		const watch = watchSettling({
+			...waitingOn(),
+			locked: (quest, apply) => {
+				const done = apply();
+				locked.push(quest);
+				// Torn just as it is read back.
+				writeFileSync(waitingFile(folder, QUEST), '{"v": 2, "items": [');
+				return done;
+			},
+		});
+		await watch.settledOff();
+		found({ "eero-login": "done" });
+
+		await expect(watch.settledOff(), "read again next tick").rejects.toThrow();
+		expect(locked, "written under the lock").toEqual([QUEST]);
+		expect(watch.watching(), "still watching").toBe(true);
+	});
+
 	it("answers nothing to a look while another still reads", async () => {
 		addWaiting(folder, item("eero-login"));
 		const watch = watchSettling(waitingOn());
@@ -151,5 +178,59 @@ describe("what this session raised, read off the thread", () => {
 		const first = watch.settledOff();
 		expect(await watch.settledOff(), "passed over").toEqual([]);
 		expect(idsOf(await first), "told once").toEqual(["eero-login"]);
+	});
+});
+
+describe("the settle clock", () => {
+	const sent: string[] = [];
+	const on = (settledOff: (m: WaitsOn) => Promise<WaitingItem[]>) => {
+		const watch: SettleWatch = {
+			heard: () => undefined,
+			settled: () => [],
+			settledOff: () => settledOff(m),
+			watching: () => true,
+		};
+		const m: WaitsOn = {
+			settleWatch: watch,
+			waitClock: undefined,
+			settleClock: undefined,
+			turnAsked: false,
+			// Never ticks by itself: each test ticks it.
+			waitCheckMs: 3_600_000,
+			pi: { sendMessage: (message) => void sent.push(String(message.content)) },
+			ctx: { isIdle: () => true },
+			pausing: { paused: false },
+			leasing: { lapsed: async () => [] },
+			own: undefined,
+			resumes: undefined,
+		};
+		return { m, waits: createWaits(m) };
+	};
+	beforeEach(() => {
+		sent.length = 0;
+	});
+
+	it("tells the session what settled", async () => {
+		const { m, waits } = on(async () => [item("eero-login")]);
+		waits.watchSettled();
+		await waits.tellSettled();
+		clearInterval(m.settleClock);
+
+		expect(sent.length, "one note").toBe(1);
+		expect(sent[0], "naming it").toContain("eero-login");
+	});
+
+	it("tells nothing to a session that went while it read", async () => {
+		const { m, waits } = on(async (state) => {
+			// What session_shutdown does with the clock.
+			clearInterval(state.settleClock);
+			state.settleClock = undefined;
+			return [item("eero-login")];
+		});
+		waits.watchSettled();
+		await waits.tellSettled();
+		clearInterval(m.settleClock);
+
+		expect(sent, "the ended session told nothing").toEqual([]);
 	});
 });
