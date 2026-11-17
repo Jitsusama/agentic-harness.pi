@@ -32,7 +32,7 @@
  *   window behind what the person sees, never focused.
  * - **No startup files:** the settings and startup files that run code
  *   as the person later (`READ_ONLY`) are read-only, from this command
- *   and from pi's own file tools (`sandbox/sandbox-files.ts`).
+ *   and from pi's own file tools (`../sandbox/sandbox-files.ts`).
  * - **No repositories of its making:** `~/src` and `~/world`, where the
  *   repositories pi runs git in outside the fence live, are read-only
  *   but for the session's own tree and what a commit writes in each git

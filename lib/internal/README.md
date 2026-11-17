@@ -9,7 +9,8 @@ may import from here, and any of it may change without notice.
 - **`away/`**: whether the person is away from the machine, shared
   by every session on it and read by the gates without importing
   `away-workflow`, and reaching the person there through a desktop
-  notification (`notify.ts`).
+  notification (`notify.ts`), which decides how while the mesh
+  decides when; `PI_NOTIFY=off` silences it.
 - **`carry/`**: carrying a quest's work to another of the person's
   machines: a session's trees, as bundles and patches, its file, its
   fence and its quest's remembered facts put in the quest's handover
@@ -97,7 +98,9 @@ may import from here, and any of it may change without notice.
   itself on disk, so a move can carry it to a host, which watches it
   there and says its end in the words its own pi would have; and the
   reaper that kills what a call left, by its mark; and the shell
-  habits the standing rules forbid (`shell-habits.ts`).
+  habits the standing rules forbid (output cut with tail, long
+  sleeps, git stash), as `shell-habit-interceptor` catches them
+  (`shell-habits.ts`).
 - **`stray/`**: catching writes that would land behind pi's screen.
 - **`verbs/`**: the verbs server the launcher keeps a connection to:
   each verb as its markdown file says it, the prompt it builds over a
