@@ -34,7 +34,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { sessionsDir, stateDir } from "../../lib/internal/paths.ts";
 import {
-	discoverQuests,
+	discoverQuestsAfresh,
 	type QuestIndex,
 } from "../../lib/internal/quest/discovery/discovery.ts";
 import { extractSectionParagraph } from "../../lib/internal/quest/documents/quest-doc.ts";
@@ -180,7 +180,9 @@ export function keepDesktopListsCurrent(questsRoot: string): Promise<void> {
 		do {
 			again = false;
 			try {
-				const { index } = discoverQuests(questsRoot);
+				// Signed after the change that asked for it, off the thread on
+				// a host, so no list is written from a walk older than it.
+				const { index } = await discoverQuestsAfresh(questsRoot);
 				try {
 					writeOrchestrators(orchestratorsIn(index));
 				} catch {

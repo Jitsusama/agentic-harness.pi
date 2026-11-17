@@ -10,7 +10,13 @@
  */
 
 import { createHash } from "node:crypto";
-import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+	type BigIntStats,
+	type Dirent,
+	readdirSync,
+	readFileSync,
+	statSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../../quest/types.ts";
 import { isId, prefixOf } from "../creation/id.ts";
@@ -27,6 +33,10 @@ export interface Pass {
 	listings: Map<string, Dirent[] | undefined>;
 	/** Each file's content hash, as the signature pass found it. */
 	hashes: Map<string, string>;
+	/** Files a signing off the thread found missing or unreadable. */
+	absent: Set<string>;
+	/** Each folder's real path, as a signing off the thread resolved it. */
+	reals: Map<string, string | undefined>;
 	/** Every file the walk parsed or reused, so the memo keeps no others. */
 	parsed: Set<string>;
 	/** How many files the walk had to parse, reusing no record. */
@@ -39,6 +49,8 @@ export function newPass(): Pass {
 		bytes: new Map(),
 		listings: new Map(),
 		hashes: new Map(),
+		absent: new Set(),
+		reals: new Map(),
 		parsed: new Set(),
 		parses: 0,
 	};
@@ -124,10 +136,19 @@ export function kept<D extends QuestDoc | QuestDocumentDoc>(
 	return lean as D;
 }
 
-/** A root's last walk, and the signature of the tree it walked. */
-interface CacheSlot {
+/**
+ * A root's last walk, and the signature of the tree it walked, with
+ * what a host needs to answer from it without signing again: when the
+ * signing began, the writes this process had made by then, the root's
+ * stat, and whether every quest folder it saw had a README.
+ */
+export interface CacheSlot {
 	signature: string;
 	result: DiscoveryResult;
+	signedAt: number;
+	writes: number;
+	rootStamp: string;
+	complete: boolean;
 }
 
 /** A file's content hash, and the stat it was taken under. */
@@ -150,6 +171,8 @@ interface Memo {
 	documents: Map<string, Parsed<QuestDocumentDoc>>;
 	/** The roots this memo has taken a seed for, so each is read once. */
 	seeded: Set<string>;
+	/** Each root's signing under way off the thread, at most one. */
+	signing: Map<string, Promise<void>>;
 }
 
 /**
@@ -179,6 +202,7 @@ export function memo(): Memo {
 			readmes: new Map(),
 			documents: new Map(),
 			seeded: new Set(),
+			signing: new Map(),
 		};
 		global[MEMO] = found;
 	}
@@ -250,24 +274,58 @@ export function discoverySignature(questsRoot: string, pass: Pass): string {
 	return parts.sort().join("|");
 }
 
-/** A file's content hash, from its stamp when the stat still vouches. */
+/**
+ * A file's content hash: as a signing off the thread found it, else
+ * from its stamp when the stat still vouches, else from its bytes.
+ */
 function contentHash(path: string, pass: Pass): string {
+	const found = pass.hashes.get(path);
+	if (found !== undefined) return found;
+	if (pass.absent.has(path)) throw new Error(`${path} is absent`);
 	const st = statSync(path, { bigint: true });
-	const stat = `${st.size}:${st.mtimeNs}:${st.ctimeNs}:${st.ino}`;
-	const { stamps } = memo();
-	const known = stamps.get(path);
-	if (known && known.stat === stat) {
-		pass.hashes.set(path, known.hash);
-		return known.hash;
+	const vouched = vouchedHash(path, st);
+	if (vouched !== undefined) {
+		pass.hashes.set(path, vouched);
+		return vouched;
 	}
-	const bytes = readFileSync(path);
+	return hashRead(path, st, readFileSync(path), pass);
+}
+
+/** A file's stat as a stamp keeps it. */
+function statKey(st: BigIntStats): string {
+	return `${st.size}:${st.mtimeNs}:${st.ctimeNs}:${st.ino}`;
+}
+
+/** The hash a file's stamp vouches for under this stat, if it does. */
+export function vouchedHash(path: string, st: BigIntStats): string | undefined {
+	const known = memo().stamps.get(path);
+	return known && known.stat === statKey(st) ? known.hash : undefined;
+}
+
+/**
+ * Hash a file's bytes, read under `st`, into the pass, and stamp it
+ * once it has settled so the next signing need not read it.
+ */
+export function hashRead(
+	path: string,
+	st: BigIntStats,
+	bytes: Buffer,
+	pass: Pass,
+): string {
+	const { stamps } = memo();
 	pass.bytes.set(path, bytes);
 	const hash = hashOf(bytes);
 	pass.hashes.set(path, hash);
 	const age = BigInt(Date.now()) * 1_000_000n - st.mtimeNs;
-	if (age > SETTLED_NS) stamps.set(path, { stat, hash });
+	if (age > SETTLED_NS) stamps.set(path, { stat: statKey(st), hash });
 	else stamps.delete(path);
 	return hash;
+}
+
+/** Whether a parsed record is kept for this file under this hash. */
+export function recordFor(path: string, hash: string): boolean {
+	const { readmes, documents } = memo();
+	return (readmes.get(path) ?? documents.get(path))?.hash === hash;
 }
 
 function hashOf(bytes: Buffer): string {

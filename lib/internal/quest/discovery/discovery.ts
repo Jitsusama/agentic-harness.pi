@@ -39,11 +39,13 @@
  * What the walk reads, and the memo that spares it reading
  * an unchanged file twice, are in `discovery-reads.ts`; the
  * seed that carries the memo to the next process is in
- * `../discovery-seed.ts`, one folder up.
+ * `../discovery-seed.ts`, one folder up. On a host, a known
+ * tree is signed again off the thread, by `off-thread.ts`.
  */
 
 import { realpathSync } from "node:fs";
 import { extname, join } from "node:path";
+import { hosted } from "../../../core/session/host.ts";
 import type { QuestDoc, QuestDocumentDoc } from "../../../quest/types.ts";
 import { cacheDir } from "../../paths.ts";
 import { isId, prefixOf } from "../creation/id.ts";
@@ -63,6 +65,7 @@ import { extractTitle, parseQuestDoc } from "../documents/quest-doc.ts";
 import { questWritesMade } from "../io.ts";
 import {
 	CANONICAL_DOCUMENT_DIRS,
+	type CacheSlot,
 	discoverySignature,
 	forgetMemo,
 	forgetUnparsed,
@@ -74,6 +77,7 @@ import {
 	parsedOnce,
 	readEntries,
 } from "./discovery-reads.ts";
+import { readTreeOffThread, rootStampOf } from "./off-thread.ts";
 
 /**
  * Maximum directory depth the walk follows. A quest tree
@@ -143,7 +147,8 @@ export interface DiscoveryResult {
 	errors: DiscoveryError[];
 }
 
-function safeRealpath(path: string): string | undefined {
+function safeRealpath(path: string, pass: Pass): string | undefined {
+	if (pass.reals.has(path)) return pass.reals.get(path);
 	try {
 		return realpathSync(path);
 	} catch {
@@ -225,10 +230,134 @@ export function discoverQuests(
 ): DiscoveryResult {
 	const kept = held?.get(questsRoot);
 	if (kept && kept.writes === questWritesMade()) return kept.result;
-	const result = discoverQuestsSigned(questsRoot, seed);
+	const result = hosted()
+		? discoverQuestsHosted(questsRoot, seed)
+		: discoverQuestsSigned(questsRoot, seed);
 	// Counted after the walk, whose seed for the next process isn't a quest.
 	held?.set(questsRoot, { writes: questWritesMade(), result });
 	return result;
+}
+
+/**
+ * Walk `questsRoot` as it stands now, signing it on the thread even on
+ * a host: for an answer a decision rests on, such as who orchestrates a
+ * quest, or a list written for the desktop.
+ */
+export function discoverQuestsFresh(
+	questsRoot: string,
+	seed: SeedOptions = {},
+): DiscoveryResult {
+	return discoverQuestsSigned(questsRoot, seed);
+}
+
+/**
+ * On a host, sign the tree now, so the asks that follow in the next few
+ * seconds answer as it stands: the quest tool does it before each
+ * action, whose reads decide what it writes. Plain pi signs every ask
+ * already, so this does nothing there.
+ */
+export function signQuestsNow(questsRoot: string): void {
+	if (hosted()) discoverQuestsSigned(questsRoot, {});
+}
+
+/**
+ * Walk `questsRoot` as it stands now, signed off the thread on a host
+ * and waited for, for work that can wait: the desktop's lists, written
+ * only from a walk signed after the change that asked for them. A
+ * signing this process's own write overtook is made again on the
+ * thread. Plain pi signs it on the thread, as it signs every ask.
+ */
+export async function discoverQuestsAfresh(
+	questsRoot: string,
+): Promise<DiscoveryResult> {
+	if (!hosted()) return discoverQuestsSigned(questsRoot, {});
+	const asked = Date.now();
+	const writes = questWritesMade();
+	await discoverySettled(questsRoot);
+	await signOffThread(questsRoot);
+	const slot = memo().cache.get(questsRoot);
+	const current = slot && slot.signedAt >= asked && slot.writes === writes;
+	return current && writes === questWritesMade()
+		? slot.result
+		: discoverQuestsSigned(questsRoot, {});
+}
+
+/**
+ * How long a host answers a known tree from its last signing before an
+ * ask starts signing it again off the thread. Another process's change
+ * to a quest shows within about this long of the next ask; a change
+ * this process made, and a quest made or removed, show at once.
+ */
+const SIGN_AGAIN_AFTER_MS = 5_000;
+
+/**
+ * A host's discovery, which shares one thread with every conversation:
+ * a known tree is answered from its last signed walk, and signed again
+ * off the thread once that is a few seconds old. It signs on the thread
+ * as plain pi does when it knows nothing yet, when this process wrote a
+ * quest since, when the root's stat says a quest was made or removed,
+ * or when the last walk found a quest folder with no README yet.
+ */
+function discoverQuestsHosted(
+	questsRoot: string,
+	seed: SeedOptions,
+): DiscoveryResult {
+	const slot = memo().cache.get(questsRoot);
+	if (
+		!slot?.complete ||
+		slot.writes !== questWritesMade() ||
+		slot.rootStamp !== rootStampOf(questsRoot)
+	) {
+		return discoverQuestsSigned(questsRoot, seed);
+	}
+	if (Date.now() - slot.signedAt > SIGN_AGAIN_AFTER_MS) {
+		void signOffThread(questsRoot);
+	}
+	return slot.result;
+}
+
+/**
+ * Resolves once the signing of `questsRoot` under way off the thread,
+ * if any, has ended; at once when none is.
+ */
+export function discoverySettled(questsRoot: string): Promise<void> {
+	return memo().signing.get(questsRoot) ?? Promise.resolve();
+}
+
+/**
+ * Sign `questsRoot` off the thread, one signing a root at a time, and
+ * keep what it found unless this process wrote a quest meanwhile or the
+ * memo was let go. An unchanged tree keeps its walk; a changed one is
+ * walked again on the thread, from memory.
+ */
+function signOffThread(questsRoot: string): Promise<void> {
+	const m = memo();
+	const under = m.signing.get(questsRoot);
+	if (under) return under;
+	const signedAt = Date.now();
+	const writes = questWritesMade();
+	const signing = (async () => {
+		const { pass, rootStamp } = await readTreeOffThread(questsRoot);
+		if (memo() !== m || questWritesMade() !== writes) return;
+		const signature = discoverySignature(questsRoot, pass);
+		const cached = m.cache.get(questsRoot);
+		const result =
+			cached && cached.signature === signature
+				? cached.result
+				: discoverQuestsUncached(questsRoot, pass);
+		m.cache.set(
+			questsRoot,
+			slotOf(signature, result, { signedAt, writes, rootStamp }),
+		);
+	})()
+		.catch(() => {
+			// The last walk stands, and the next ask past its age signs again.
+		})
+		.finally(() => {
+			if (m.signing.get(questsRoot) === signing) m.signing.delete(questsRoot);
+		});
+	m.signing.set(questsRoot, signing);
+	return signing;
 }
 
 /** discoverQuests's walk, behind the tree's signature. */
@@ -237,20 +366,59 @@ function discoverQuestsSigned(
 	seed: SeedOptions,
 ): DiscoveryResult {
 	const pass = newPass();
+	const signedAt = Date.now();
+	const writes = questWritesMade();
+	const rootStamp = rootStampOf(questsRoot);
 	const seeds = seed.dir === undefined ? cacheDir(SEED_FOLDER) : seed.dir;
 	const code = seeds ? (seed.code ?? codeKey()) : "";
 	if (seeds) takeSeed(questsRoot, seeds, code);
 	const signature = discoverySignature(questsRoot, pass);
 	const { cache } = memo();
 	const cached = cache.get(questsRoot);
-	if (cached && cached.signature === signature) return cached.result;
+	const stamps = { signedAt, writes, rootStamp };
+	if (cached && cached.signature === signature) {
+		cache.set(questsRoot, slotOf(signature, cached.result, stamps));
+		return cached.result;
+	}
 	const result = discoverQuestsUncached(questsRoot, pass);
-	cache.set(questsRoot, { signature, result });
+	cache.set(questsRoot, slotOf(signature, result, stamps));
 	if (seeds && pass.parses >= (seed.after ?? SEED_AFTER_PARSES)) {
 		leaveSeed(questsRoot, seeds, code);
 	}
 	return result;
 }
+
+/** What a signing knew as it began: when, the writes by then, the root's stat. */
+interface SignedUnder {
+	readonly signedAt: number;
+	readonly writes: number;
+	readonly rootStamp: string;
+}
+
+/** A cache slot for a walk signed under `under`. */
+function slotOf(
+	signature: string,
+	result: DiscoveryResult,
+	under: SignedUnder,
+): CacheSlot {
+	return {
+		signature,
+		result,
+		...under,
+		complete: !result.errors.some(unready),
+	};
+}
+
+/**
+ * Whether an error is a quest folder whose README isn't there yet: one
+ * being made, whose README lands inside its folder without touching
+ * the root's stat, so a host can't answer from that walk.
+ */
+function unready(error: DiscoveryError): boolean {
+	return error.message === README_MISSING;
+}
+
+const README_MISSING = "README.md missing";
 
 function discoverQuestsUncached(
 	questsRoot: string,
@@ -371,7 +539,7 @@ function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 			return parsed ? kept<QuestDoc>(parsed, readmePath) : undefined;
 		});
 		if (!reading) {
-			errors.push({ path: readmePath, message: "README.md missing" });
+			errors.push({ path: readmePath, message: README_MISSING });
 			return;
 		}
 		if (!("doc" in reading)) {
@@ -408,7 +576,7 @@ function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 		return { index: { quests, children }, errors };
 	}
 
-	const rootReal = safeRealpath(questsRoot);
+	const rootReal = safeRealpath(questsRoot, pass);
 	if (rootReal) visited.add(rootReal);
 
 	for (const entry of rootEntries) {
@@ -419,7 +587,7 @@ function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 			continue;
 		}
 		const full = join(questsRoot, name);
-		const real = safeRealpath(full);
+		const real = safeRealpath(full, pass);
 		if (real) {
 			if (visited.has(real)) continue;
 			visited.add(real);
