@@ -168,6 +168,11 @@ const UNSAID: Readonly<Record<string, number>> = {
  * processes, `reach`'s sockets and ports, then each mount as a rule in
  * its order and the Mac's secrets last. A mount it can't say refuses
  * the whole, rather than leaving a path open.
+ *
+ * Every hide is laid again after the last mount, with what a hidden
+ * folder lets back read-only (ssh's settings and known hosts), so no
+ * grant can reopen one: the last rule wins, and a writable folder laid
+ * after the hides once read ~/.ssh's keys (04TNWT, 16 November).
  */
 export function seatbeltProfile(
 	args: readonly string[],
@@ -177,6 +182,11 @@ export function seatbeltProfile(
 	const path = (raw: string) => quotedPath(real(raw));
 	const mounts: string[] = [];
 	const stoodIn: StoodIn[] = [];
+	// Each hide's rule, and each read-only path with its rules, to lay
+	// again once the mounts are done.
+	const hides: string[] = [];
+	const hiddenFolders: string[] = [];
+	const readOnly: { to: string; rules: string[] }[] = [];
 	for (let at = 0; at < args.length; ) {
 		const option = args[at] ?? "";
 		const values = (count: number): string[] => {
@@ -201,24 +211,29 @@ export function seatbeltProfile(
 				const [from = "", to = ""] = values(2);
 				const writable = option === "--bind";
 				if (from === "/" && to === "/") break;
-				if (from === "/dev/null") {
-					mounts.push(`(deny file-read* file-write* (literal ${path(to)}))`);
-				} else if (from !== to) {
-					stoodIn.push({ copy: from, over: to });
-					mounts.push(`(deny file-read* file-write* (literal ${path(to)}))`);
+				if (from === "/dev/null" || from !== to) {
+					if (from !== "/dev/null") stoodIn.push({ copy: from, over: to });
+					const hide = `(deny file-read* file-write* (literal ${path(to)}))`;
+					mounts.push(hide);
+					hides.push(hide);
 				} else if (writable) {
 					mounts.push(`(allow file-read* file-write* (subpath ${path(to)}))`);
 				} else {
-					mounts.push(
+					const rules = [
 						`(allow file-read* (subpath ${path(to)}))`,
 						`(deny file-write* (subpath ${path(to)}))`,
-					);
+					];
+					mounts.push(...rules);
+					readOnly.push({ to, rules });
 				}
 				break;
 			}
 			case "--tmpfs": {
 				const [to = ""] = values(1);
-				mounts.push(`(deny file-read* file-write* (subpath ${path(to)}))`);
+				const hide = `(deny file-read* file-write* (subpath ${path(to)}))`;
+				mounts.push(hide);
+				hides.push(hide);
+				hiddenFolders.push(to);
 				break;
 			}
 			case "--remount-ro": {
@@ -240,6 +255,9 @@ export function seatbeltProfile(
 	const within = (entry: string, folder: string | undefined) =>
 		folder !== undefined &&
 		(entry === folder || entry.startsWith(`${folder}/`));
+	const keptInHidden = readOnly
+		.filter(({ to }) => hiddenFolders.some((folder) => within(to, folder)))
+		.flatMap(({ rules }) => rules);
 	const programs = [
 		...(home ? MAC_READ_ONLY.map((kept) => join(home, kept)) : []),
 		...MAC_PROGRAMS,
@@ -271,6 +289,9 @@ export function seatbeltProfile(
 		// No quote mark, so the shell quotes the profile in one piece.
 		";; Mounts, in the order bubblewrap takes them, last wins.",
 		...mounts,
+		";; Every hide again, so no mount laid after it reopens one.",
+		...hides,
+		...keptInHidden,
 		...hidden,
 		...[...new Set(programs)],
 		// What cfprefsd writes for a command, past every file rule:

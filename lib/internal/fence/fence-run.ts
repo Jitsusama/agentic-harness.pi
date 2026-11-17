@@ -15,14 +15,20 @@
  *   kernel's Landlock that let a connect through still finds nothing
  *   there.
  *
- * On a Mac, both are a sandbox-exec profile read from the same mounts
- * (`fence-seatbelt.ts`): strict also keeps the home folder read-only
- * but for the folder, and a Mac without sandbox-exec refuses.
+ * On a Mac, fence is a sandbox-exec profile read from the same mounts
+ * (`fence-seatbelt.ts`), and a Mac without sandbox-exec refuses. Strict
+ * is refused there: its profile reads the whole home folder but what it
+ * hides, so it can't keep strict's promise to read only what it lists,
+ * and a caller sending strict work to it would get the weaker fence
+ * (ISXEG8, 16 November).
  *
  * The folder is where the command runs and what it may write, the
  * working directory when none is named. One that is the home folder,
  * holds it, or holds its repository's git folder is refused, since its
- * writes would reach what runs outside later. A machine without
+ * writes would reach what runs outside later. So is one inside a path
+ * the fence hides or keeps read-only, but the work broker's trees: the
+ * folder is granted to the command, which would reopen what the fence
+ * closed there. A machine without
  * bubblewrap or landrun in the system's own profile refuses too: nothing
  * runs unfenced because the fence couldn't be laid.
  */
@@ -43,8 +49,11 @@ import {
 	wrapFor,
 } from "../sandbox.ts";
 import { real, worktreeRepository } from "../tree-git.ts";
+import { cutTreeDir } from "../work-records.ts";
 import { fenceArgs } from "./fence.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
+import { FENCE_HIDDEN } from "./fence-hidden.ts";
+import { readOnlyPaths } from "./fence-home.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";
 import {
 	SANDBOX_EXEC,
@@ -82,8 +91,8 @@ Kinds:
   fence    the agent fence a pi session lays
   strict   the strict Landlock profile inside its root
 
-On a Mac both run under sandbox-exec, and strict writes
-only the folder.
+On a Mac fence runs under sandbox-exec, and strict is
+refused.
 
 Options:
   --folder DIR   where it runs and may write, the working
@@ -167,6 +176,8 @@ export interface FenceRunPlace {
 	readonly platform?: NodeJS.Platform;
 	/** On a Mac, sandbox-exec, or nothing where it isn't there. */
 	readonly sandboxExec?: string | undefined;
+	/** Where the work broker cuts trees, its own unless given. */
+	readonly treesRoot?: string;
 }
 
 /** The Nix daemon's socket on a Mac, which a fenced command builds through. */
@@ -188,9 +199,13 @@ export function fenceRunText(
 		...place.env,
 		[SANDBOX_VARIABLE]: "fence",
 	};
-	const unfenced = unfencedFolder(folder, home, `pi-fence --kind ${ask.kind}`);
+	const asker = `pi-fence --kind ${ask.kind}`;
+	const unfenced =
+		unfencedFolder(folder, home, asker) ??
+		fencedAway(folder, home, asker, place.treesRoot ?? cutTreeDir());
 	if (unfenced) return { refused: unfenced };
 	if ((place.platform ?? process.platform) === "darwin") {
+		if (ask.kind === STRICT) return { refused: MAC_NOT_STRICT };
 		return macFenceText(ask, folder, place);
 	}
 	const sandbox = place.sandbox ?? sandboxFor(env);
@@ -243,11 +258,39 @@ export function fenceRunText(
 	};
 }
 
+/** Why a Mac refuses strict, naming what it runs instead. */
+const MAC_NOT_STRICT =
+	"pi-fence --kind strict won't run on a Mac: its fence reads the whole home folder but what it hides, so it can't read only what strict lists. Ask for --kind fence.";
+
+/**
+ * Why a run can't have `folder`: it lies inside a path the fence hides
+ * or keeps read-only, where granting the command its folder would reopen
+ * what the fence closed (its keys in ~/.ssh, git's settings and hooks in
+ * ~/.config). The work broker's trees, in pi's own state, are spared,
+ * since the fence binds each writable for whoever works in it.
+ */
+function fencedAway(
+	folder: string,
+	home: string,
+	asker: string,
+	treesRoot: string,
+): string | undefined {
+	const inside = (path: string) =>
+		folder === path || folder.startsWith(`${path}/`);
+	if (inside(real(treesRoot)) && folder !== real(treesRoot)) return undefined;
+	const hidden = FENCE_HIDDEN.home
+		.filter((entry) => entry.endsWith("/"))
+		.map((entry) => join(home, entry.slice(0, -1)));
+	const closed = [...hidden, ...readOnlyPaths(home)].find(inside);
+	return closed
+		? `${asker} won't run in ${folder}, which lies in ${closed}, a path the fence hides or keeps read-only, so no command runs. Start it in the folder it works on, or in a tree the work tool cuts.`
+		: undefined;
+}
+
 /**
  * The shell text that runs `ask` in the Mac's fence: the fence's own
  * mounts for `folder` as a sandbox-exec profile, reaching the Nix
- * daemon, and for strict the home folder read-only but the folder. A
- * Mac without sandbox-exec refuses, so nothing runs unfenced.
+ * daemon. A Mac without sandbox-exec refuses, so nothing runs unfenced.
  */
 function macFenceText(
 	ask: FenceRunAsk,
@@ -280,15 +323,11 @@ function macFenceText(
 		...(npmrc ? { npmrc } : {}),
 		docker: dockerHoldsCredentials(home),
 	});
-	// Writes only, last: a read-only mount of the home folder here would
-	// let back what the fence's mounts hid in it.
-	const strict =
-		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
 	// The copy sits in the person's temporary folder, which commands
 	// write: its folder is kept from writes, so none can change what the
 	// next run reads, or put a link there for the next copy to follow.
 	const kept = copy ? ["--ro-bind", dirname(copy), dirname(copy)] : [];
-	const { profile } = seatbeltProfile([...mounts, ...strict, ...kept], {
+	const { profile } = seatbeltProfile([...mounts, ...kept], {
 		sockets: [MAC_NIX_DAEMON],
 		home,
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
@@ -298,7 +337,7 @@ function macFenceText(
 		folder,
 		text: seatbeltText(
 			[
-				...macSettings(home, copy, ask.kind !== STRICT),
+				...macSettings(home, copy),
 				// exec, so the command takes the sandbox's shell's place rather
 				// than running as its child.
 				`exec ${ask.words.map(quoted).join(" ")}`,
@@ -318,16 +357,12 @@ function macFenceText(
  * their tokens, since a Mac's fence can hide a file but not bind another
  * over it (ISXEG8, 16 November).
  */
-function macSettings(
-	home: string,
-	npmCopy: string | undefined,
-	cachesWritten: boolean,
-): string[] {
+function macSettings(home: string, npmCopy: string | undefined): string[] {
 	const cache = join(home, ".cache");
 	// Only where the fence lets commands write ~/.cache, and never over
 	// the person's own choice of where a cache goes.
 	const caches =
-		cachesWritten && existsSync(cache) && lstatSync(cache).isDirectory()
+		existsSync(cache) && lstatSync(cache).isDirectory()
 			? [
 					["XDG_CACHE_HOME", cache],
 					["GOCACHE", join(cache, "go-build")],

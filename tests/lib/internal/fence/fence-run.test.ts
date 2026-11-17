@@ -160,12 +160,15 @@ describe("refusing to run where the fence can't hold", () => {
 	});
 
 	it("refuses on a Mac without sandbox-exec, and the home folder there too", () => {
-		const bare = fenceRunText(asking(join(base, "plain")), {
-			env: {},
-			home,
-			platform: "darwin",
-			sandboxExec: undefined,
-		});
+		const bare = fenceRunText(
+			{ ...asking(join(base, "plain")), kind: "fence" },
+			{
+				env: {},
+				home,
+				platform: "darwin",
+				sandboxExec: undefined,
+			},
+		);
 		const homed = fenceRunText(asking(home), {
 			env: {},
 			home,
@@ -178,6 +181,61 @@ describe("refusing to run where the fence can't hold", () => {
 		);
 		expect(bare).toHaveProperty("refused");
 		expect(homed).toHaveProperty("refused");
+	});
+
+	for (const [what, inside] of [
+		["ssh's folder, so no key is read", ".ssh"],
+		["gpg's keys", ".gnupg/private-keys-v1.d"],
+		["a folder in ~/.config, so git's settings and hooks stay", ".config/git"],
+		["pi's own state", ".local/state/pi/agentic-harness.pi"],
+	]) {
+		for (const platform of ["linux", "darwin"] as const) {
+			it(`refuses a folder inside ${what}, on ${platform}`, () => {
+				const made = fenceRunText(
+					{ kind: "fence", folder: join(home, inside), words: ["true"] },
+					{
+						env: {},
+						home,
+						sandbox: LAID,
+						platform,
+						sandboxExec: "/usr/bin/sandbox-exec",
+						treesRoot: join(base, "trees"),
+					},
+				);
+				expect(JSON.stringify(made), "names the path").toContain(
+					"hides or keeps read-only",
+				);
+			});
+		}
+	}
+
+	it("runs in a tree the work broker cut, though pi's state holds it", () => {
+		const trees = join(home, ".local/state/pi/agentic-harness.pi/work/trees");
+		const tree = join(trees, "worktree-one");
+		mkdirSync(tree, { recursive: true });
+		const made = fenceRunText(
+			{ kind: "fence", folder: tree, words: ["true"] },
+			{
+				env: { PATH: "/usr/bin" },
+				home,
+				platform: "darwin",
+				sandboxExec: "/usr/bin/sandbox-exec",
+				treesRoot: trees,
+			},
+		);
+		expect(made, JSON.stringify(made)).toHaveProperty("text");
+	});
+
+	it("refuses strict on a Mac, naming the fence it runs", () => {
+		const made = fenceRunText(asking(join(base, "plain")), {
+			env: {},
+			home,
+			platform: "darwin",
+			sandboxExec: "/usr/bin/sandbox-exec",
+		});
+		expect(JSON.stringify(made), "names --kind fence").toContain(
+			"--kind fence",
+		);
 	});
 });
 
@@ -302,7 +360,7 @@ describe("the fence on a Mac", () => {
 		);
 	});
 
-	it("leaves caches be where strict keeps them read-only, or ~/.cache isn't there, and execs the command", () => {
+	it("leaves caches be where ~/.cache isn't there, and execs the command", () => {
 		const within = (words: string) => words.replaceAll("'", "'\\''");
 		const bare = realpathSync(mkdtempSync(join(tmpdir(), "fm-bare-")));
 		mkdirSync(join(bare, "work"));
@@ -321,7 +379,6 @@ describe("the fence on a Mac", () => {
 			rmSync(bare, { recursive: true, force: true });
 		}
 
-		expect(onMac("strict")).not.toContain("XDG_CACHE_HOME");
 		expect(onMac("fence")).toContain(within("; exec 'echo' "));
 	});
 
@@ -439,27 +496,20 @@ describe("the fence on a Mac", () => {
 		}
 	});
 
-	it("writes only the folder when strict, without letting back what is hidden", () => {
+	it("lays ~/.ssh's hide again after every grant, so none reopens it", () => {
 		// The profile the command runs under, after the one tried on true.
-		const lines = (onMac("strict").split("\nexec ")[1] ?? "").split("\n");
-		const hidden = lines.indexOf(
+		const lines = (onMac("fence").split("\nexec ")[1] ?? "").split("\n");
+		const hidden = lines.lastIndexOf(
 			`(deny file-read* file-write* (subpath "${join(home, ".ssh")}"))`,
 		);
-		const kept = lines.lastIndexOf(`(deny file-write* (subpath "${home}"))`);
-
-		expect(hidden, "~/.ssh is hidden").toBeGreaterThan(-1);
-		expect(kept, "home is kept from writes after it").toBeGreaterThan(hidden);
-		expect(lines.slice(kept + 1)).toContain(
-			`(allow file-read* file-write* (subpath "${folder}"))`,
+		const granted = lines.findLastIndex((line) =>
+			line.startsWith("(allow file-read* file-write* (subpath"),
 		);
-		expect(
-			lines
-				.slice(hidden + 1)
-				.some((line) =>
-					line.startsWith(`(allow file-read* (subpath "${home}"))`),
-				),
-			"nothing lets home's reads back after the hiding",
-		).toBe(false);
+
+		expect(granted, "the folder is granted").toBeGreaterThan(-1);
+		expect(hidden, "~/.ssh is hidden after the last grant").toBeGreaterThan(
+			granted,
+		);
 	});
 });
 

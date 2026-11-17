@@ -14,8 +14,8 @@ import {
 
 const same = (path: string) => path;
 
-/** The profile's lines between its fixed opening and its fixed close, the mounts' own. */
-function fileRules(args: readonly string[]): string[] {
+/** The profile's lines between its fixed opening and its fixed close. */
+function profileRules(args: readonly string[]): string[] {
 	const { profile } = seatbeltProfile(args, { sockets: [], real: same });
 	const lines = profile.split("\n");
 	const close = MAC_PROGRAMS.length + 1;
@@ -26,7 +26,48 @@ function fileRules(args: readonly string[]): string[] {
 	);
 }
 
+/** The mounts' own rules, before the hides are laid again. */
+function fileRules(args: readonly string[]): string[] {
+	const rules = profileRules(args);
+	const again = rules.indexOf(
+		";; Every hide again, so no mount laid after it reopens one.",
+	);
+	return [
+		...rules.slice(0, again),
+		...rules
+			.slice(again + 1)
+			.filter((rule) => !rules.slice(0, again).includes(rule)),
+	];
+}
+
 describe("the fence's mounts as a profile", () => {
+	it("lays every hide again after the last grant, with what it lets back read-only", () => {
+		const rules = profileRules([
+			"--tmpfs",
+			"/Users/j/.ssh",
+			"--ro-bind",
+			"/Users/j/.ssh/config",
+			"/Users/j/.ssh/config",
+			"--ro-bind",
+			"/dev/null",
+			"/Users/j/.npmrc",
+			"--bind",
+			"/Users/j",
+			"/Users/j",
+		]);
+		const at = (rule: string) => rules.lastIndexOf(rule);
+		const granted = at('(allow file-read* file-write* (subpath "/Users/j"))');
+		const ssh = at('(deny file-read* file-write* (subpath "/Users/j/.ssh"))');
+		const npmrc = at(
+			'(deny file-read* file-write* (literal "/Users/j/.npmrc"))',
+		);
+		const config = at('(allow file-read* (subpath "/Users/j/.ssh/config"))');
+
+		expect(ssh, "~/.ssh hidden after the grant").toBeGreaterThan(granted);
+		expect(npmrc, "~/.npmrc hidden after the grant").toBeGreaterThan(granted);
+		expect(config, "ssh's settings readable after").toBeGreaterThan(ssh);
+	});
+
 	it("keeps a read-only mount from writes and a writable one open, in their order", () => {
 		expect(
 			fileRules([
