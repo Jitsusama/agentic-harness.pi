@@ -11,6 +11,12 @@
  * Node says a collection happened only after it, on the loop, so the
  * reading taken then also counts what was allocated in between: a
  * little, and on the high side.
+ *
+ * A turn's passing data can be live as one collection runs, and nothing
+ * sweeps it until the next, which may not come for a long while once the
+ * heap stops growing. So the reading is the lower of the last two full
+ * collections: a spike shows in only one, while a heap really climbing
+ * toward the limit makes V8 collect in full again and again.
  */
 
 import { constants, PerformanceObserver } from "node:perf_hooks";
@@ -48,17 +54,27 @@ function watchFullCollections(onFull: () => void): () => void {
 }
 
 /**
- * The heap after V8's last full collection, read as each one ends, or
- * as it stands until one has. `watch` and `read` are V8's by default;
- * tests give their own.
+ * The lower of the heap after V8's last two full collections, read as
+ * each one ends; after only one, that one; before any, the heap as it
+ * stands. `watch` and `read` are V8's by default; tests give their own.
  */
 export function heapAfterFullCollections(
 	watch: (onFull: () => void) => () => void = watchFullCollections,
 	read: () => HeapUse = heapNow,
 ): { read(): HeapUse; stop(): void } {
-	let kept: HeapUse | undefined;
+	let last: HeapUse | undefined;
+	let before: HeapUse | undefined;
 	const stop = watch(() => {
-		kept = read();
+		before = last;
+		last = read();
 	});
-	return { read: () => kept ?? read(), stop };
+	return {
+		read: () => {
+			if (last === undefined) return read();
+			if (before === undefined || last.usedBytes <= before.usedBytes)
+				return last;
+			return before;
+		},
+		stop,
+	};
 }

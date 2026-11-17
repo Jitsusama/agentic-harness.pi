@@ -115,7 +115,9 @@ input pipeline or screen. No unit or running host is installed yet.
   the journal and leaves the defaults, rather than refusing the start.
 - live-heap.ts: the heap a host weighs itself by, read as each of
   V8's full collections ends, since the used heap between them counts
-  garbage the next collection frees.
+  garbage the next collection frees. It is the lower of the last two,
+  so a turn's passing data, live in one collection, isn't taken for a
+  climb.
 - restart.ts and what-starts.ts: the host restarting itself. A host
   systemd runs as its unit's main process looks every minute, from
   five minutes after it starts, whether it would start differently:
@@ -129,9 +131,11 @@ input pipeline or screen. No unit or running host is installed yet.
   every second for the first moment no conversation has a turn
   running and every screen is at rest; past 80% it restarts at once,
   since running out ends every turn and job anyway (16 November,
-  20:44). Both weigh the heap V8 kept after its last full collection
-  (live-heap.ts), and act only once it has grown 15% of the limit
-  since the host's first look. Code
+  20:44). Both weigh the heap V8 kept after its full collections
+  (live-heap.ts). The 70% tier acts only once the heap has grown 15%
+  of the limit since the host's first look, counted at most 65%, so a
+  host its resumed conversations fill doesn't restart at every first
+  look; the 80% tier asks no growth. Code
   only a conversation loads moves with that conversation instead
   (reload-workflow's follower). Once any of these holds, and every
   conversation has been idle or parked for two minutes, with no

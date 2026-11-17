@@ -43,12 +43,16 @@ by hand and a fake systemctl over an install in a private folder: once
 the install changes the host's own code, systemd has a new unit or the
 heap passes half its limit, and only with every conversation settled,
 no background work held and every screen at rest; past 70% of its
-heap limit, grown 15% since its first look, at the first gap whatever
-background work runs, and past 80% at once, journalling what it ended;
+heap limit, grown 15% since a first look counted at most 65%, at the
+first gap whatever background work runs, and past 80% at once whatever
+it first read, journalling what it ended, with a refused restart tried
+again within a second;
 never outside a unit or as a process that isn't the unit's main one;
 and a restart systemd refused leaves no viewer told.
-live-heap.test.ts checks that the heap a host weighs is what V8 kept
-after its last full collection, through a fake collector.
+live-heap.test.ts checks that the heap a host weighs is the lower of
+what V8 kept after its last two full collections, through a fake
+collector, and that V8's own collector reads it after a full
+collection only, and never once stopped.
 what-starts.test.ts checks the import walk and fingerprint over a
 private tree, reading the unit from a cgroup file, and the unit's
 files read only once systemd has reloaded them.
