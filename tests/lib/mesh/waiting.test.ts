@@ -317,8 +317,6 @@ describe("the desktop's verdicts", () => {
 			withVerdicts(QUEST, held, found("done")),
 			"done takes the item away",
 		).toEqual({ items: [item()], changed: true });
-		const file = waitingFile(folder, QUEST);
-		expect(existsSync(file), `${file} is never written`).toBe(false);
 	});
 
 	it("are none while the daemon has written none", () => {

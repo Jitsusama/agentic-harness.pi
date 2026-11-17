@@ -134,20 +134,17 @@ describe("what this session raised, read off the thread", () => {
 
 		await expect(watch.settledOff(), "read again next tick").rejects.toThrow();
 		expect(watch.watching(), "still watching").toBe(true);
-		// Written whole again, as its next write leaves it.
+		// Written whole again, the person having cleared it meanwhile.
 		writeFileSync(
 			waitingFile(folder, QUEST),
-			JSON.stringify({
-				v: 2,
-				updated: "t",
-				quest: QUEST,
-				items: [item("eero-login")],
-			}),
+			JSON.stringify({ v: 2, updated: "t", quest: QUEST, items: [] }),
 		);
-		expect(await watch.settledOff(), "and read then").toEqual([]);
+		expect(idsOf(await watch.settledOff()), "told once it reads again").toEqual(
+			["eero-login"],
+		);
 	});
 
-	it("writes a verdict under the quest's lock, and says nothing settled when it can't read it back", async () => {
+	it("tells what its verdict write settles, once, whatever the file reads after", async () => {
 		addWaiting(folder, item("eero-login"));
 		addWaiting(folder, item("router-look"));
 		const locked: string[] = [];
@@ -156,7 +153,7 @@ describe("what this session raised, read off the thread", () => {
 			locked: (quest, apply) => {
 				const done = apply();
 				locked.push(quest);
-				// Torn just as it is read back.
+				// Torn just after the write, as another writer might leave it.
 				writeFileSync(waitingFile(folder, QUEST), '{"v": 2, "items": [');
 				return done;
 			},
@@ -164,9 +161,17 @@ describe("what this session raised, read off the thread", () => {
 		await watch.settledOff();
 		found({ "eero-login": "done" });
 
-		await expect(watch.settledOff(), "read again next tick").rejects.toThrow();
+		expect(idsOf(await watch.settledOff()), "what the verdict settled").toEqual(
+			["eero-login"],
+		);
 		expect(locked, "written under the lock").toEqual([QUEST]);
-		expect(watch.watching(), "still watching").toBe(true);
+		await expect(
+			watch.settledOff(),
+			"torn, read again next tick",
+		).rejects.toThrow();
+		addWaiting(folder, item("router-look"));
+		expect(await watch.settledOff(), "never told twice").toEqual([]);
+		expect(watch.watching(), "still watching what waits").toBe(true);
 	});
 
 	it("answers nothing to a look while another still reads", async () => {
@@ -232,5 +237,18 @@ describe("the settle clock", () => {
 		clearInterval(m.settleClock);
 
 		expect(sent, "the ended session told nothing").toEqual([]);
+	});
+
+	it("keeps ticking past a read that fails", async () => {
+		const { m, waits } = on(async () => {
+			throw new SyntaxError("torn");
+		});
+		waits.watchSettled();
+		const clock = m.settleClock;
+		await waits.tellSettled();
+
+		expect(sent, "nothing told").toEqual([]);
+		expect(m.settleClock, "the clock still runs").toBe(clock);
+		clearInterval(m.settleClock);
 	});
 });
