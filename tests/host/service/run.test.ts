@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionHost } from "../../../host/engine/index.ts";
 import type { ConversationEngine } from "../../../host/service/backend.ts";
 import { controlRequest } from "../../../host/service/client.ts";
+import type { BeatOptions } from "../../../host/service/hold-watch.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
 import {
 	describeStep,
@@ -449,6 +450,7 @@ describe("runHost's watchdog", () => {
 	it("watches what holds its loop while systemd watches it, and stops with it", async () => {
 		const serve = async (extra: NodeJS.ProcessEnv) => {
 			const watches = { started: 0, stopped: 0 };
+			const beats: BeatOptions[] = [];
 			const signals = new EventEmitter();
 			const run = await runHost({
 				argv: ["background"],
@@ -458,7 +460,8 @@ describe("runHost's watchdog", () => {
 				ready: async () => {},
 				status: async () => {},
 				alive: async () => {},
-				holds: () => {
+				holds: (beat) => {
+					beats.push(beat);
 					watches.started += 1;
 					return () => {
 						watches.stopped += 1;
@@ -471,9 +474,17 @@ describe("runHost's watchdog", () => {
 			const running = { ...watches };
 			signals.emit("SIGTERM");
 			await run.stopped;
-			return { running, stopped: watches };
+			return { running, stopped: watches, beats };
 		};
 		const watched = await serve(WATCHED);
+		expect(
+			watched.beats.map((beat) => beat.every),
+			"beats for a loop in the disk as often as the loop beats",
+		).toEqual([TIMEOUT_MS / 4]);
+		expect(
+			watched.beats[0]?.env.WATCHDOG_USEC,
+			"in the environment naming systemd's socket",
+		).toBe(WATCHED.WATCHDOG_USEC);
 		expect(watched.running, "watched once while serving").toEqual({
 			started: 1,
 			stopped: 0,
