@@ -169,8 +169,12 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	const sandbox = sandboxFor();
 	let bash: AgentBash | undefined;
 	// Whether ssh to the person's own machines is refused, read each
-	// minute from the package config (lib/internal/shell/ssh-guard.ts).
-	const sshGuard = watchSshGuard();
+	// minute from the package config (lib/internal/shell/ssh-guard.ts). A
+	// setting that can't be read is said where the person sees it.
+	let tell = (why: string) => {
+		process.stderr.write(`${why}\n`);
+	};
+	const sshGuard = watchSshGuard(undefined, undefined, (why) => tell(why));
 	// A bash given up closes its pi-spawner once its commands end, so a
 	// reload or a new session leaves none running behind it.
 	const retireBash = () => {
@@ -196,6 +200,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		retireBash();
 		bashFor(ctx);
+		if (ctx.hasUI) tell = (why) => ctx.ui.notify(why, "warning");
 		sshGuard.start();
 		if (!noted && sandbox.kind === "fence" && sandbox.note) {
 			noted = true;

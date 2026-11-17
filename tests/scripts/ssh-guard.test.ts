@@ -48,7 +48,7 @@ beforeAll(() => {
 	real = standIns(join(place, "real"), ["ssh", "scp", "sftp", "rsync"]);
 	tools = join(place, "tools");
 	mkdirSync(tools);
-	for (const name of ["bash", "env", "echo", "cat", "tr"]) {
+	for (const name of ["bash", "env", "echo", "cat", "tr", "sed"]) {
 		const found = spawnSync(BASH, ["-c", `type -P ${name}`], {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
@@ -142,6 +142,25 @@ describe("the ssh guard refuses a command run on a realm machine", () => {
 		refused("ssh localhost uname", "optimus");
 	});
 
+	it("reads the call's own settings wherever they are written", () => {
+		refused("ssh other-host -o HostName=equilibrius uname");
+		refused("ssh -P work eq uname");
+		const settings = join(place, "settings");
+		writeFileSync(settings, "Host anything\n  HostName equilibrius\n");
+		refused(`ssh -F ${settings} anything uname`);
+	});
+
+	it("knows this machine by each spelling of its loopback on ssh's port", () => {
+		refused("ssh 127.1 uname", "optimus");
+		refused("ssh -p 22 localhost uname", "optimus");
+		refused("scp '[::1]:/x' .", "optimus");
+		refused("scp ./a 'joel@[::1]:/x'", "optimus");
+	});
+
+	it("still refuses when a caller says it is the guard's own lookup", () => {
+		refused("PI_SSH_GUARD_LOOKUP=1 ssh equilibrius uname");
+	});
+
 	it("refuses a script fed to a realm machine's login shell", () => {
 		refused("echo 'touch x' | ssh equilibrius");
 	});
@@ -171,6 +190,33 @@ describe("the ssh guard passes everything else to the real program", () => {
 		passed("rsync -a ./src/ ./dst/");
 		passed("rsync -a ./src/ equilibrius::module/");
 		passed("sftp other-host");
+	});
+
+	it("passes a local VM or container, on the loopback at another port", () => {
+		passed("ssh -p 2222 localhost uname");
+		passed("scp -P 2222 ./a localhost:/x");
+	});
+
+	it("reaches the real ssh from a ProxyCommand's ssh, which the real ssh started", () => {
+		const ran = run(
+			`PI_SSH_GUARD_THROUGH=${join(real, "ssh")} ssh -W other-host:22 jump`,
+		);
+		expect(ran.status, ran.err).toBe(0);
+		expect(ran.err.trim()).toBe("REAL ssh [-W][other-host:22][jump]");
+	});
+
+	it("ends a wrapper that only ever calls ssh by name, running nothing", () => {
+		const only = join(place, "only-wrapper");
+		mkdirSync(only);
+		writeFileSync(join(only, "ssh"), '#!/usr/bin/env bash\nexec ssh "$@"\n');
+		chmodSync(join(only, "ssh"), 0o755);
+		const ran = run("ssh other-host uname", MACHINES, [
+			SSH_GUARD_BIN,
+			only,
+			tools,
+		]);
+		expect(ran.status, ran.err).toBe(127);
+		expect(ran.err).toContain("keeps coming back to the guard");
 	});
 
 	it("answers ssh -G with the settings themselves", () => {

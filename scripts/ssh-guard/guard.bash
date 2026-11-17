@@ -11,25 +11,36 @@ program=$2
 shift 2
 asked=("$@")
 
+# Each pass through the guard is counted, so a wrapper that only ever
+# calls `ssh` by name ends here rather than coming back forever.
+depth=$((${PI_SSH_GUARD_DEPTH:-0} + 1))
+if [ "$depth" -gt 16 ]; then
+	echo "ssh-guard: $program keeps coming back to the guard; nothing ran" >&2
+	exit 127
+fi
+export PI_SSH_GUARD_DEPTH=$depth
+
 # The real program: the first on PATH that is no guard's stand-in and
 # no program this call already passed through, so a wrapper that calls
-# `ssh` by name, or a second guard folder, reaches the next one rather
-# than coming back here forever.
+# `ssh` by name, or a second guard folder, reaches the next one. Where
+# every one was passed through, as for the `ssh` a ProxyCommand runs
+# under the real ssh, the last on PATH is taken, which is the real one.
 passed=":${PI_SSH_GUARD_THROUGH:-}:"
 found() {
-	local dir
+	local dir first="" last=""
 	local IFS=:
 	for dir in $PATH; do
 		[ -n "$dir" ] || continue
 		[ "$dir" = "$bin" ] && continue
 		[ -f "$dir/../guard.bash" ] && [ -d "$dir/../bin" ] && continue
+		[ -x "$dir/$1" ] && [ ! -d "$dir/$1" ] || continue
+		last=$dir/$1
 		case "$passed" in *":$dir/$1:"*) continue ;; esac
-		if [ -x "$dir/$1" ] && [ ! -d "$dir/$1" ]; then
-			printf '%s\n' "$dir/$1"
-			return 0
-		fi
+		[ -n "$first" ] || first=$dir/$1
 	done
-	return 1
+	[ -n "$first" ] || first=$last
+	[ -n "$first" ] || return 1
+	printf '%s\n' "$first"
 }
 real=$(found "$program") || {
 	echo "ssh-guard: no $program on PATH after the guard's own" >&2
@@ -42,7 +53,7 @@ pass() {
 }
 
 # The guard's own `ssh -G` lookup, through a wrapper, only reads settings.
-[ -n "${PI_SSH_GUARD_LOOKUP:-}" ] && pass
+[ -n "${PI_SSH_GUARD_LOOKUP:-}" ] && [ "${asked[0]:-}" = -G ] && pass
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 machines=$(lower "${PI_SSH_GUARD_MACHINES:-}")
@@ -50,35 +61,60 @@ machines=$(lower "${PI_SSH_GUARD_MACHINES:-}")
 ssh_real=$(found ssh) || ssh_real=""
 
 # What ssh's settings make of a host, given the options the call passed
-# (-F, -o HostName=, -p, -J): the name it connects to, lower-cased.
-connects_to() {
+# (-F, -o HostName=, -p, -P, -J): the name it connects to, lower-cased,
+# and its port.
+lookup() {
 	[ -n "$ssh_real" ] || return 1
-	PI_SSH_GUARD_LOOKUP=1 "$ssh_real" -G "$@" 2>/dev/null </dev/null | while read -r key value; do
-		[ "$key" = hostname ] && { lower "$value"; break; }
-	done
+	PI_SSH_GUARD_LOOKUP=1 "$ssh_real" -G "$@" 2>/dev/null </dev/null | {
+		name="" port=""
+		while read -r key value; do
+			case "$key" in
+			hostname) name=$(lower "$value") ;;
+			port) port=$value ;;
+			esac
+		done
+		[ -n "$name" ] && printf '%s %s' "$name" "$port"
+	}
+}
+connects_to() {
+	local name port
+	read -r name port <<<"$(lookup "$@")"
+	printf '%s' "$name"
 }
 
-# Every name a realm machine goes by: its own, on the local network, as
-# this machine its loopback, and what the person's ssh settings connect
-# to for it, which may be an address.
+# This machine's loopback, in each spelling that reaches it.
+loopback() {
+	case "$1" in localhost | 127.* | ::1 | 0 | 0.0.0.0) return 0 ;; esac
+	return 1
+}
+
+# Every name a realm machine goes by: its own, on the local network, and
+# what the person's ssh settings connect to for it, which may be an
+# address.
 here=$(lower "${PI_SSH_GUARD_HERE:-}")
 names_of() {
 	local machine=$1
 	printf '%s\n%s.local\n%s.lan\n' "$machine" "$machine" "$machine"
-	[ "$machine" = "$here" ] && printf 'localhost\n127.0.0.1\n::1\n'
 	connects_to "$machine"
 	echo
 }
 
-# The realm machine a host is, judged by the name ssh connects to.
+# The realm machine a host is, judged by the name ssh connects to. The
+# loopback is this machine only on ssh's own port: on another it is a
+# local VM or container, which is not the person's.
 machine_of() {
-	local host want name known names
+	local host want name port known names
 	host=$(lower "${1##*@}")
 	host=${host#[}
 	host=${host%%]*}
 	shift
-	name=$(connects_to "$@" "$host") || name=""
+	read -r name port <<<"$(lookup "$@" "$host")"
 	[ -n "$name" ] || name=$host
+	if [ -n "$here" ] && { loopback "$name" || loopback "$host"; }; then
+		[ "${port:-22}" = 22 ] || return 1
+		printf '%s' "$here"
+		return 0
+	fi
 	for want in $machines; do
 		names=$(names_of "$want")
 		while read -r known; do
@@ -118,12 +154,12 @@ remote_of() {
 		return 0
 		;;
 	/* | ./* | ../* | -* | rsync://*) return 1 ;;
-	*::*) return 1 ;;
-	\[*\]:*)
+	\[*\]:* | *@\[*\]:*)
 		host=${1%%]*}
-		printf '%s' "${host#[}"
+		printf '%s' "${host#*[}"
 		return 0
 		;;
+	*::*) return 1 ;;
 	*:*)
 		host=${1%%:*}
 		case "$host" in */* | "") return 1 ;; esac
@@ -166,8 +202,9 @@ options() {
 						value=""
 					fi
 					case "$letter" in
-					F | o | J) settings+=("-$letter" "$value") ;;
-					p | P) settings+=(-p "$value") ;;
+					F | o | J | p) settings+=("-$letter" "$value") ;;
+					# ssh's -P names a tag; scp's and sftp's is the port.
+					P) [ "$program" = ssh ] && settings+=(-P "$value") || settings+=(-p "$value") ;;
 					esac
 					rest=""
 					;;
@@ -226,3 +263,4 @@ rsync)
 	;;
 esac
 pass
+

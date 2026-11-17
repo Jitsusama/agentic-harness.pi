@@ -65,6 +65,24 @@ describe("reading the guard", () => {
 		]);
 	});
 
+	it("keeps the machines read before when the node answers naming none", async () => {
+		for (const answer of [
+			JSON.stringify({ Err: "busy" }),
+			JSON.stringify({ Ok: { Other: [] } }),
+			"not json",
+		]) {
+			const erring: SshGuardSources = {
+				section: async () => ({ refuse: true }),
+				machines: async () => answer,
+				here: "optimus",
+			};
+			expect((await readSshGuard(ON, erring)).machines, answer).toEqual([
+				"optimus",
+				"equilibrius",
+			]);
+		}
+	});
+
 	it("throws when the config can't be read, so a watch keeps the guard", async () => {
 		const unread: SshGuardSources = {
 			section: async () => {
@@ -113,6 +131,14 @@ describe("a command's environment under the guard", () => {
 		expect(guarded.HOME).toBe("/h");
 		expect(guardedEnvironment({}, ON).PATH).toBe(SSH_GUARD_BIN);
 	});
+
+	it("is left as it was under the strict sandbox, which could run no stand-in", () => {
+		const env = { PATH: "/bin" };
+		expect(guardedEnvironment(env, ON, "strict")).toBe(env);
+		expect(guardedEnvironment(env, ON, "fence").PATH).toBe(
+			`${SSH_GUARD_BIN}:/bin`,
+		);
+	});
 });
 
 describe("watching the guard", () => {
@@ -129,6 +155,37 @@ describe("watching the guard", () => {
 		await next.catch(() => undefined);
 		await Promise.resolve();
 		expect(watch.current()).toBe(ON);
+		watch.stop();
+	});
+
+	it("says a setting it can't read once, until a read lands again", async () => {
+		const said: string[] = [];
+		let next: Promise<SshGuard> = Promise.reject(new Error("bad JSON"));
+		const watch = watchSshGuard(
+			() => next,
+			60_000,
+			(why) => said.push(why),
+		);
+		const settle = async () => {
+			await next.catch(() => undefined);
+			await Promise.resolve();
+		};
+		watch.start();
+		await settle();
+		watch.start();
+		await settle();
+		expect(said, "said once").toEqual([
+			"The ssh guard's setting can't be read, so it stays off: bad JSON",
+		]);
+		next = Promise.resolve(ON);
+		watch.start();
+		await settle();
+		next = Promise.reject(new Error("bad again"));
+		watch.start();
+		await settle();
+		expect(said[1], "said again after a read landed").toBe(
+			"The ssh guard's setting can't be read, so it stays on: bad again",
+		);
 		watch.stop();
 	});
 

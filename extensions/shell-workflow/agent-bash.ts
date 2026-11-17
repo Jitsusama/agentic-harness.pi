@@ -112,7 +112,7 @@ export function agentBash(
 			const plain = withoutInteraction(fromConversation(context, session));
 			const offered = {
 				...plain,
-				env: guardedEnvironment(plain.env, sshGuard()),
+				env: guardedEnvironment(plain.env, sshGuard(), sandbox.kind),
 			};
 			const wrap = wrapFor(sandbox, offered, homedir());
 			return offCommandLine({

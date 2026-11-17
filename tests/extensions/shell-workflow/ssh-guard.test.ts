@@ -51,6 +51,37 @@ describe("the agent's bash under the ssh guard", () => {
 		);
 	});
 
+	it("reads the guard anew for each command, so turning it on reaches a running session", async () => {
+		let guard: SshGuard = SSH_GUARD_OFF;
+		const bash = agentBash(
+			tmpdir(),
+			{},
+			{ kind: "none" },
+			undefined,
+			{},
+			() => guard,
+		);
+		const said = async () => {
+			const result = await bash.execute(
+				"t",
+				{ command: PRINT },
+				undefined,
+				undefined,
+				undefined as never,
+			);
+			return result.content[0]?.type === "text" ? result.content[0].text : "";
+		};
+		try {
+			expect(await said()).not.toContain(SSH_GUARD_BIN);
+			guard = { refuse: true, machines: ["optimus"], here: "optimus" };
+			expect(await said()).toBe(
+				`${SSH_GUARD_BIN}|optimus|${SSH_GUARD_BIN}/ssh`,
+			);
+		} finally {
+			bash.retire();
+		}
+	});
+
 	it("leaves the command's environment as it was while off", async () => {
 		const said = await run(SSH_GUARD_OFF, PRINT);
 		expect(said.startsWith(`${SSH_GUARD_BIN}|`), said).toBe(false);

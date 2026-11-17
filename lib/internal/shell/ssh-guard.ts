@@ -15,11 +15,14 @@
  *
  * It is a setting, off unless the package config's `ssh-guard` section
  * says `"refuse": true`, read again each minute, so turning it off again
- * takes one edit and no restart. Off, nothing is put on PATH. It routes
- * agents rather than confining them: ssh named by its full path, or git
- * over ssh (`GIT_SSH`, `core.sshCommand`), passes it, and the agent can
- * edit the setting. The fence for every session is the bound (ISXEG8
- * and WCJQSG, 17 November).
+ * takes one edit and no restart. Off, nothing is put on PATH. Plain git
+ * runs `ssh` by name, so a git remote on a realm machine is refused like
+ * any other command there. It routes agents rather than confining them:
+ * ssh named by its full path, as `GIT_SSH` or `core.sshCommand` may name
+ * it, passes, and the agent can edit the setting. The strict sandbox
+ * gets no stand-ins, since landrun runs only what it lists and keeps the
+ * ssh agent's socket out. The fence for every session is the bound
+ * (ISXEG8 and WCJQSG, 17 November).
  */
 
 import { delimiter } from "node:path";
@@ -109,8 +112,9 @@ function sourcesOf(env: NodeJS.ProcessEnv): SshGuardSources {
 /**
  * The guard as the config and the node say it now, after `before`. A
  * config that can't be read throws, so the guard stays as it stood. A
- * node that doesn't answer keeps the machines read before, and this
- * machine is always one of the person's. Off, no node is asked.
+ * node that doesn't answer, or answers naming no machine, keeps the
+ * machines read before, and this machine is always one of the person's.
+ * Off, no node is asked.
  */
 export async function readSshGuard(
 	before: SshGuard = SSH_GUARD_OFF,
@@ -118,7 +122,8 @@ export async function readSshGuard(
 ): Promise<SshGuard> {
 	if (!refusesBySetting(await sources.section())) return SSH_GUARD_OFF;
 	const answer = await sources.machines();
-	const named = answer === undefined ? before.machines : machinesFrom(answer);
+	const read = machinesFrom(answer);
+	const named = read.length > 0 ? read : before.machines;
 	const machines = new Set([...named, sources.here]);
 	return { refuse: true, machines: [...machines], here: sources.here };
 }
@@ -135,17 +140,21 @@ export interface SshGuardWatch {
 
 /**
  * Watch the guard, read by `read`. A read that fails keeps what was
- * last read, so a config being rewritten leaves the guard as it stood.
+ * last read, so a config being rewritten leaves the guard as it stood,
+ * and is said by `said` once until a read lands again, so a typo in the
+ * setting isn't left unseen.
  */
 export function watchSshGuard(
 	read: (before: SshGuard) => Promise<SshGuard> = readSshGuard,
 	everyMs: number = SSH_GUARD_EVERY_MS,
+	said: (why: string) => void = () => {},
 ): SshGuardWatch {
 	let guard = SSH_GUARD_OFF;
 	let timer: ReturnType<typeof setInterval> | undefined;
 	// Each read is counted, so one that lands after a later one is dropped.
 	let asked = 0;
 	let landed = 0;
+	let failing = false;
 	const again = () => {
 		const mine = ++asked;
 		read(guard).then(
@@ -153,9 +162,15 @@ export function watchSshGuard(
 				if (mine < landed) return;
 				landed = mine;
 				guard = read;
+				failing = false;
 			},
-			() => {
+			(error: unknown) => {
 				// Kept as last read: the next minute's read tries again.
+				if (failing) return;
+				failing = true;
+				said(
+					`The ssh guard's setting can't be read, so it stays ${guard.refuse ? "on" : "off"}: ${error instanceof Error ? error.message : String(error)}`,
+				);
 			},
 		);
 	};
@@ -176,13 +191,16 @@ export function watchSshGuard(
 
 /**
  * A command's environment with the stand-ins first on its `PATH` and the
- * machines they refuse, while the guard refuses; as it was otherwise.
+ * machines they refuse, while the guard refuses; as it was otherwise, and
+ * under the strict sandbox (`under`), which could run no stand-in.
  */
 export function guardedEnvironment(
 	env: NodeJS.ProcessEnv,
 	guard: SshGuard,
+	under = "none",
 ): NodeJS.ProcessEnv {
 	if (!guard.refuse || guard.machines.length === 0) return env;
+	if (under === "strict") return env;
 	const path = env.PATH ?? "";
 	const rest = path
 		.split(delimiter)
