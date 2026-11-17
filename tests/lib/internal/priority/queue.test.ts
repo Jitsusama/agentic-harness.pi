@@ -80,6 +80,27 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("pnpm -r typecheck")).toBe("build");
 		expect(kindOf("npm run typecheck")).toBe("build");
 		expect(kindOf("yarn typecheck")).toBe("build");
+		expect(kindOf("bun run typecheck")).toBe("build");
+		expect(kindOf("npm run-script typecheck")).toBe("build");
+		expect(kindOf("npm --prefix web run typecheck")).toBe("build");
+		expect(kindOf("npm run -w web typecheck")).toBe("build");
+		expect(kindOf("pnpm run -r typecheck")).toBe("build");
+		expect(kindOf("pnpm --filter=web typecheck")).toBe("build");
+		expect(kindOf("yarn workspace web typecheck")).toBe("build");
+		expect(kindOf("pnpm typecheck:app:strict")).toBe("build");
+		expect(kindOf("pnpm type-check")).toBe("build");
+		// By path, each checker, and TypeScript's own entry run by node.
+		expect(kindOf("./node_modules/.bin/tsgo --noEmit")).toBe("build");
+		expect(kindOf("node_modules/.bin/vue-tsc --noEmit")).toBe("build");
+		expect(kindOf("node node_modules/typescript/lib/tsc.js -p .")).toBe(
+			"build",
+		);
+		// Under -b, -v is --verbose: a whole build, said aloud.
+		expect(kindOf("tsc -b -v")).toBe("build");
+		// What the exclusions read stays in tsc's own command: a pipe's
+		// reader and the next step have flags of their own.
+		expect(kindOf("tsc -p . 2>&1 | grep -v warning")).toBe("build");
+		expect(kindOf("tsc -p . && node x.mjs --help")).toBe("build");
 		// Asking its version or help, or writing a config, compiles nothing;
 		// a watch never ends, so would hold a turn for good.
 		expect(kindOf("pnpm exec tsc --version")).toBeUndefined();
@@ -91,6 +112,15 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("tsc -b --clean")).toBeUndefined();
 		expect(kindOf("tsc -p . --watch")).toBeUndefined();
 		expect(kindOf("pnpm exec tsc -w")).toBeUndefined();
+		expect(kindOf("tsc --all")).toBeUndefined();
+		expect(kindOf("pnpm typecheck --watch")).toBeUndefined();
+		expect(kindOf("pnpm typecheck -w")).toBeUndefined();
+		expect(kindOf("pnpm typecheck:watch")).toBeUndefined();
+		// A file or folder named tsc is no checker, whatever works on it.
+		expect(kindOf("cp src/tsc.ts out/")).toBeUndefined();
+		expect(kindOf("rm -rf dist/tsc")).toBeUndefined();
+		expect(kindOf("mv packages/tsc packages/old")).toBeUndefined();
+		expect(kindOf("cp -r out dist/tsc/")).toBeUndefined();
 		expect(kindOf("ls node_modules/typescript/lib/tsc.js")).toBeUndefined();
 		expect(kindOf("cat tsconfig.json")).toBeUndefined();
 		expect(kindOf("grep tsc package.json")).toBeUndefined();
