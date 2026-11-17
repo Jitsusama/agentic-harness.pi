@@ -351,7 +351,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 			const path = join(place.runtimeDir, name);
 			if (exists(path)) args.push("--ro-bind", path, path);
 		}
-		args.push(...questLockArgs(place.runtimeDir));
+		args.push(...questLockArgs(place.runtimeDir, disk));
 		args.push(...githubDoorArgs(place.githubDoor));
 		// Read-only: written from outside, unfenced, so nothing inside may
 		// put a link in its place for that write to follow.

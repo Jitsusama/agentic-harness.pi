@@ -4,7 +4,13 @@
  * and a test hands in a disk of its own.
  */
 
-import { lstatSync, readdirSync, realpathSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+import { join } from "node:path";
+import {
+	holdsSessionBus,
+	lockFolder,
+	QUEST_LOCKS,
+} from "../quest/lock-folder.ts";
 
 /** What the fence needs to know of the disk: what a path is, and what a folder holds. */
 export interface Disk {
@@ -12,6 +18,14 @@ export interface Disk {
 	entries(folder: string): readonly string[];
 	/** Where a path ends once its links are followed, if it ends anywhere. */
 	real?(path: string): string | undefined;
+	/**
+	 * The quest lock folder in a login's runtime folder, made if it isn't
+	 * there, and whether it may be bound: undefined where the runtime
+	 * folder holds no session bus, and so no writer outside locks there.
+	 */
+	questLocks?(
+		runtimeDir: string,
+	): { readonly folder: string; readonly ours: boolean } | undefined;
 }
 
 /** The disk as it is. */
@@ -41,5 +55,15 @@ export const DISK: Disk = {
 			// A link to nothing: there is no file to bind over.
 			return undefined;
 		}
+	},
+	questLocks(runtimeDir) {
+		if (!holdsSessionBus(runtimeDir)) return undefined;
+		const folder = join(runtimeDir, QUEST_LOCKS);
+		try {
+			mkdirSync(folder, { recursive: true, mode: 0o700 });
+		} catch {
+			// Something else stands there: judged, and refused, below.
+		}
+		return { folder, ours: lockFolder(folder) === "ours" };
 	},
 };

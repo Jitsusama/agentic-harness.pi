@@ -110,6 +110,10 @@ refusal leaves in the system's log, and its one exemption.
   change.
 - **`fence-npmrc.ts`**: the copy of `~/.npmrc` the fence binds over it,
   every line but its registry tokens'.
+- **`fence-quest-locks.ts`**: the quest lock folder bound back writable
+  into the emptied runtime folder, only where it is a folder of the
+  person's alone, so a fenced writer and one outside take one lock; an
+  empty file in its place otherwise, so a fenced writer writes no quest.
 - **`fence-ssh.ts`**: the copy of the system's SSH settings the fence
   binds over them, each included file written in, since ssh inside
   refuses root's files as nobody's.
