@@ -133,6 +133,9 @@ describe("a bare value in a printing of the environment", () => {
 			`/x/${one.slice(0, 4)}\x1b[31m${one.slice(4)}\x1b]0;${other}\x07\n`,
 			`/opt/bin/${one}\x1b]0;${other}/x\x07\n`,
 			`/x/${one}\x1b]0;${other.slice(0, 4)}\x07\x1b]0;${other.slice(4)}\x07\n`,
+			`\x1b]0;/x/${one}\x07${other}\n`,
+			`\x1b]8;;https://h/${one}\x07${other}\x1b]8;;\x07\n`,
+			`\x1b]1337;CurrentDir=/Users/joel\x07\x1b]0;${one}\x07${other}\n`,
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBe(
 				`${VALUE_MARK}\n`,
@@ -184,6 +187,15 @@ describe("a bare value in a printing of the environment", () => {
 	it("is put out of sight as an address's query, the address kept", () => {
 		expect(shown(`API=https://h/cb?token=${fresh()}\n`)).toBe(
 			`API=https://h/cb?token=${VALUE_MARK}\n`,
+		);
+	});
+
+	it("is put out of sight behind a path or an address, an equals after it", () => {
+		expect(shown(`API=https://h/cb?token=${fresh()}=x\n`)).toBe(
+			"API=[secret scrubbed: API]\n",
+		);
+		expect(shown(`X=/opt/a=${fresh()}=v\n`)).toBe(
+			"X=[secret scrubbed: X]\n",
 		);
 	});
 
@@ -374,6 +386,8 @@ describe("a long printing of the environment", () => {
 			["ab\x1b]0;cd\x07".repeat(50_000), false],
 			[`/${"a1\x1b]0;b2\x07".repeat(50_000)}`, false],
 			["a\x1b]0;1\x07".repeat(50_000), true],
+			["\x1b]0;a\x07".repeat(50_000), false],
+			[`/${"\x1b]0;a1\x07".repeat(50_000)}`, true],
 			[`\x1b[${"1;".repeat(100_000)}${github}`, true],
 		];
 		for (const [printed, hides] of printings) {
