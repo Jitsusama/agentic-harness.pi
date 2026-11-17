@@ -331,10 +331,16 @@ rather than the machine.
   it is never read as cut off.
 - A log from before this ran can't tell a signal's abort from Escape,
   so it gets no turn.
-- A session killed outright while idle and waiting on a job is missed:
-  its log ends where a finished run's would. One that an uncaught
-  error ends is not: on 11 November five lanes waiting on jobs died so
-  and sat idle for two hours before this.
+- A session killed outright while idle and waiting on a job leaves a
+  log that ends where a finished run's would, so every running job, of
+  any kind, is also noted by session with the pi holding it
+  (running.ts). Started again after that pi has gone, the session is
+  told of each noted job nothing took up as that job's own result,
+  which starts its turn, and the note goes. On 17 November at 00:07
+  five hosted conversations came back waiting on jobs that died with
+  their host, and sat three and a half hours before this. One that an
+  uncaught error ends leaves a record: on 11 November five lanes
+  waiting on jobs died so and sat idle for two hours before that.
 - In a host no conversation hears an uncaught error: the host listens
   for the process itself.
 - Closing a terminal mid-run sends SIGHUP, so that session too is given

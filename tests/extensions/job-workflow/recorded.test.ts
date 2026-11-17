@@ -4,7 +4,8 @@
  * recorded again under a session it rolls over to, and taken back at a
  * close for good; taken up again as a carry of what the session doesn't
  * already hold; and a cut-off notice that calls no job dead the session
- * took up again.
+ * took up again. Every running job, of any kind, is noted by session,
+ * moved with a rollover and taken back as nothing runs or at a close.
  */
 
 import { describe, expect, it } from "vitest";
@@ -15,6 +16,7 @@ import {
 	recordedCarry,
 	recordJobs,
 } from "../../../extensions/job-workflow/recorded.ts";
+import type { RunningNote } from "../../../extensions/job-workflow/running.ts";
 import type { CarriedShell } from "../../../lib/internal/shell/carried.ts";
 import type { KeptJob } from "../../../lib/internal/shell/kept-jobs.ts";
 import type { CarriedWork } from "../../../lib/jobs/host.ts";
@@ -63,6 +65,7 @@ function recorder(
 	written: KeptJob[],
 	at: { session: string; now: number } = { session: "s1", now: 0 },
 	forgotten: string[] = [],
+	notes: Map<string, RunningNote> = new Map(),
 ) {
 	const again: (() => void)[] = [];
 	const recording = recordJobs(
@@ -79,6 +82,8 @@ function recorder(
 			},
 			now: () => at.now,
 			owner: OWNER,
+			note: (session, note) => notes.set(session, note),
+			unnote: (session) => notes.delete(session),
 		},
 	);
 	return { recording, again };
@@ -180,6 +185,73 @@ describe("recording a session's jobs", () => {
 		recording.changed();
 		expect(forgotten, "its record taken back").toEqual(["/kept/m1"]);
 		expect(written, "written once, before the close").toHaveLength(1);
+	});
+});
+
+describe("noting a session's running jobs", () => {
+	it("notes every running job, of any kind, under its pi", () => {
+		const notes = new Map<string, RunningNote>();
+		const entries = [
+			job("j1", () => shell("m1")),
+			job("j2", () => undefined, "fleet"),
+		];
+		const { recording } = recorder(entries, [], undefined, [], notes);
+		recording.changed();
+		expect(notes.get("s1"), "both jobs, under this pi").toEqual({
+			owner: OWNER,
+			jobs: [
+				{ id: "j1", label: "run j1" },
+				{ id: "j2", label: "run j2" },
+			],
+		});
+	});
+
+	it("leaves the note its last pi left, and takes its own back once nothing runs", () => {
+		const notes = new Map<string, RunningNote>([
+			["s1", { owner: 1, jobs: [{ id: "j9", label: "left" }] }],
+		]);
+		const entries: JobEntry[] = [];
+		const { recording } = recorder(entries, [], undefined, [], notes);
+		recording.changed();
+		expect(notes.has("s1"), "a note its last pi left waits to be read").toBe(
+			true,
+		);
+
+		entries.push(job("j1", () => shell("m1")));
+		recording.changed();
+		entries.length = 0;
+		recording.changed();
+		expect(notes.has("s1"), "nothing runs, so nothing is noted").toBe(false);
+	});
+
+	it("moves its note to the session it rolled over to", () => {
+		const notes = new Map<string, RunningNote>();
+		const at = { session: "s1", now: 0 };
+		const { recording } = recorder(
+			[job("j1", () => shell("m1"))],
+			[],
+			at,
+			[],
+			notes,
+		);
+		recording.changed();
+		at.session = "s2";
+		recording.changed();
+		expect([...notes.keys()], "only the session it is now").toEqual(["s2"]);
+	});
+
+	it("takes its note back at a close for good", () => {
+		const notes = new Map<string, RunningNote>();
+		const { recording } = recorder(
+			[job("j1", () => shell("m1"))],
+			[],
+			undefined,
+			[],
+			notes,
+		);
+		recording.changed();
+		recording.forget();
+		expect(notes.size, "a close stops what was noted").toBe(0);
 	});
 });
 

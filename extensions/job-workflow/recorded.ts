@@ -16,6 +16,10 @@
  * Started again, the session takes up each recorded call still running,
  * or ended with its status, that nothing else has taken up
  * (`recordedCarry`), as a move's would be (moved.ts).
+ *
+ * Every running job, of any kind, is also noted by session (running.ts),
+ * so a session killed while it waited on jobs nothing can take up, a
+ * fleet or a review round, is told they ended with it.
  */
 
 import { isCarriedShell } from "../../lib/internal/shell/carried.ts";
@@ -27,6 +31,11 @@ import {
 } from "../../lib/internal/shell/kept-jobs.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Carried } from "./moved.ts";
+import {
+	forgetRunning,
+	noteRunning,
+	type RunningNote,
+} from "./running.ts";
 
 /** How long to wait before asking a job not yet recordable again. */
 const RECORD_AGAIN_MS = 1000;
@@ -52,6 +61,10 @@ interface RecorderOptions {
 	readonly now?: () => number;
 	/** The pi holding the jobs, by its pid; this process by default. */
 	readonly owner?: number;
+	/** Note a session's running jobs, of every kind (running.ts). */
+	readonly note?: (session: string, note: RunningNote) => void;
+	/** Take a session's note back. */
+	readonly unnote?: (session: string) => void;
 }
 
 /**
@@ -85,8 +98,9 @@ function laterOnce(ms: number, run: () => void): () => void {
 }
 
 /**
- * Record the running bash jobs of `jobs()` for `session`, each once. A
- * session with no id can't be found again, so nothing is recorded.
+ * Record the running bash jobs of `jobs()` for `session`, each once, and
+ * note every running job of any kind. A session with no id can't be
+ * found again, so nothing is recorded.
  */
 export function recordJobs(
 	jobs: () => Pick<Jobs, "list"> | undefined,
@@ -98,17 +112,46 @@ export function recordJobs(
 	const later = options.later ?? laterOnce;
 	const now = options.now ?? Date.now;
 	const owner = options.owner ?? process.pid;
+	const note = options.note ?? noteRunning;
+	const unnote = options.unnote ?? forgetRunning;
 	// Each job's kept path, by its session and id, once recorded there.
 	const recorded = new Map<string, string>();
 	const firstAsked = new Map<string, number>();
 	let cancel: (() => void) | undefined;
 	let forgotten = false;
+	// The note this recorder wrote last, by session, and what it said.
+	let noted: { session: string; said: string } | undefined;
+
+	// Only a note this recorder wrote is taken back: a session that comes
+	// back reads the one its last pi left before its jobs change.
+	const noteNow = (id: string, running: RunningNote["jobs"]) => {
+		if (noted !== undefined && noted.session !== id) {
+			unnote(noted.session);
+			noted = undefined;
+		}
+		if (running.length === 0) {
+			if (noted !== undefined) unnote(id);
+			noted = undefined;
+			return;
+		}
+		const said = JSON.stringify(running);
+		if (noted?.said === said) return;
+		note(id, { owner, jobs: running });
+		noted = { session: id, said };
+	};
 
 	const record = () => {
 		cancel = undefined;
 		const id = session();
 		const held = jobs();
 		if (forgotten || id === undefined || held === undefined) return;
+		noteNow(
+			id,
+			held
+				.list()
+				.filter((job) => job.state === "running")
+				.map((job) => ({ id: job.id, label: job.spec.label })),
+		);
 		let waiting = false;
 		for (const job of held.list()) {
 			if (job.state !== "running" || !job.spec.carry) continue;
@@ -153,6 +196,8 @@ export function recordJobs(
 			cancel = undefined;
 			for (const keep of new Set(recorded.values())) forget(keep);
 			recorded.clear();
+			if (noted !== undefined) unnote(noted.session);
+			noted = undefined;
 		},
 	};
 }
