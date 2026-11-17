@@ -4,36 +4,336 @@
  *
  * Only a stop on a repository or a name asks, so a session pays for the
  * git lookups only while one stands.
+ *
+ * The work tool's records number in the thousands, and parking asks every
+ * minute on the loop every hosted conversation shares. Reading them all
+ * there, synchronously, was the background host's second biggest disk
+ * wait on 16 November, and a filesystem stall in calls like these held the
+ * loop past the host's watchdog. So the records are read off the loop, one
+ * pass at a time, and only the ones that changed are read again. This is a
+ * second reader of those records beside `lib/internal/work-records.ts`,
+ * whose reading is synchronous, on purpose: its callers need an answer at
+ * once, and this one needs never to hold the loop.
+ *
+ * Each conversation keeps what it read, so a host with several
+ * conversations under a repository stop reads the folder once for each;
+ * the bound on the disk calls under way is the host's, shared by them all.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { constants } from "node:fs";
+import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { processGlobal } from "../../lib/internal/process-global.ts";
 
-/** The folders a session works in: its own, then each tree cut for it. */
-export function dirsOf(session: string, cwd: string, cuts: string): string[] {
-	const dirs = [cwd];
-	let names: string[];
+/**
+ * How many disk calls whereabouts make at once, over every conversation
+ * on the host. Node's file work runs on four threads the whole host
+ * shares, DNS lookups among it, so a stalled disk holds only two of them
+ * here.
+ */
+const AT_ONCE = 2;
+
+/** Turns at the disk: how many are free, and who waits for one. */
+export interface Gate {
+	free: number;
+	readonly waiting: (() => void)[];
+}
+
+/** A bound of its own, as a case takes so that no other case shares it. */
+export function createGate(size = AT_ONCE): Gate {
+	return { free: size, waiting: [] };
+}
+
+/**
+ * The host's bound, kept on the process, so every conversation, and
+ * every reload of this module, takes its turns from the same one.
+ */
+function hostGate(): Gate {
+	return processGlobal("agentic-harness.pineapple.whereabouts.gate", () =>
+		createGate(),
+	);
+}
+
+/** `work`, run in a turn at the disk, waiting for one when none is free. */
+async function inTurn<T>(gate: Gate, work: () => Promise<T>): Promise<T> {
+	if (gate.free > 0) gate.free -= 1;
+	else await new Promise<void>((taken) => gate.waiting.push(taken));
 	try {
-		names = readdirSync(cuts);
-	} catch {
-		// No work records: the session works in its own folder alone.
-		return dirs;
+		return await work();
+	} finally {
+		// The turn passes straight to whoever waits, or goes back free.
+		const next = gate.waiting.shift();
+		if (next === undefined) gate.free += 1;
+		else next();
 	}
-	for (const name of names) {
-		if (!name.endsWith(".json")) continue;
+}
+
+/**
+ * How long ago a folder must have last changed for its stamp to be
+ * trusted. A file's times move in the kernel's ticks, so a rename in the
+ * same tick as the stamp, after the listing, leaves the stamp as it was.
+ */
+const SETTLED_MS = 1_000;
+
+/**
+ * How long a session waits on a pass, once one has ended, before answering
+ * from what the last one read, so a stalled disk holds no turn for long;
+ * the pass carries on behind.
+ */
+const PATIENCE_MS = 10_000;
+
+/** A file as a stamp tells it apart: what it is, and when it last changed. */
+export interface Stamped {
+	readonly stamp: string;
+	readonly changed: number;
+}
+
+/** What whereabouts read the disk with, so a case can stand in for it. */
+export interface Disk {
+	list(dir: string): Promise<string[]>;
+	stamp(path: string): Promise<Stamped>;
+	/** A plain file's text, or nothing for anything else, such as a pipe. */
+	read(path: string): Promise<string | undefined>;
+}
+
+/** The disk as Node reads it, off the loop. */
+const NODE_DISK: Disk = {
+	list: (dir) => readdir(dir),
+	async stamp(path) {
+		const now = await stat(path);
+		// A record is renamed into place, so a rewrite is a new file; the
+		// change time is there because nothing can set it back.
+		return {
+			stamp: `${now.ino}:${now.mtimeMs}:${now.ctimeMs}:${now.size}`,
+			changed: now.mtimeMs,
+		};
+	},
+	async read(path) {
+		// Opened without waiting and judged as opened, so a pipe put in a
+		// record's place between its stamp and its read holds no thread.
+		const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
 		try {
-			const record = JSON.parse(readFileSync(join(cuts, name), "utf8")) as {
-				path?: unknown;
-				sessions?: unknown;
-			} | null;
-			const holds =
-				Array.isArray(record?.sessions) && record.sessions.includes(session);
-			if (holds && typeof record?.path === "string") dirs.push(record.path);
-		} catch {
-			// Half written or gone: that tree is left out this time.
+			if (!(await file.stat()).isFile()) return undefined;
+			return await file.readFile("utf8");
+		} finally {
+			await file.close();
 		}
+	},
+};
+
+/** A tree a record names, and who holds it. */
+interface Tree {
+	readonly path: string;
+	readonly sessions: readonly string[];
+}
+
+/** A record as last read: the file it was, and the tree it names. */
+interface Kept {
+	readonly stamp: string;
+	readonly tree: Tree | undefined;
+}
+
+/** The work tool's records of the trees it cut, read as they change. */
+export interface Whereabouts {
+	/** The folders a session works in: its own, then each tree cut for it. */
+	dirsOf(session: string, cwd: string): Promise<string[]>;
+}
+
+/** What whereabouts may be given in place of the disk and the clock. */
+export interface WhereaboutsOptions {
+	readonly disk?: Partial<Disk>;
+	readonly gate?: Gate;
+	readonly now?: () => number;
+	readonly patienceMs?: number;
+}
+
+/** Whereabouts over the records in `cuts`, keeping what each last said. */
+export function createWhereabouts(
+	cuts: string,
+	options: WhereaboutsOptions = {},
+): Whereabouts {
+	const given: Disk = { ...NODE_DISK, ...options.disk };
+	const gate = options.gate ?? hostGate();
+	const disk: Disk = {
+		list: (dir) => inTurn(gate, () => given.list(dir)),
+		stamp: (path) => inTurn(gate, () => given.stamp(path)),
+		read: (path) => inTurn(gate, () => given.read(path)),
+	};
+	const now = options.now ?? Date.now;
+	const patience = options.patienceMs ?? PATIENCE_MS;
+	const kept = new Map<string, Kept>();
+	/** The folder as it stood before the last listing that can be trusted. */
+	let listedAt: string | undefined;
+	/** Whether a whole pass has ended, so what is kept is the disk's answer. */
+	let known = false;
+	/** The pass under way, which a second asker waits on rather than repeats. */
+	let pass:
+		| { readonly done: Promise<void>; readonly until: number }
+		| undefined;
+
+	/**
+	 * One record, read again only when its file is not the one kept. True
+	 * when what is kept is what the disk says, false when the disk didn't
+	 * say, and what was kept before is kept rather than forgotten: a held
+	 * tree forgotten is a stop that misses the session standing in it.
+	 */
+	async function refresh(name: string): Promise<boolean> {
+		const path = join(cuts, name);
+		let stamped: Stamped;
+		try {
+			stamped = await disk.stamp(path);
+		} catch (error) {
+			if (!gone(error)) return false;
+			kept.delete(name);
+			return true;
+		}
+		if (kept.get(name)?.stamp === stamped.stamp) return true;
+		let text: string | undefined;
+		try {
+			text = await disk.read(path);
+		} catch (error) {
+			if (!gone(error)) return false;
+			// Gone between its stamp and its read: no longer a record.
+			kept.delete(name);
+			return true;
+		}
+		let tree: Tree | undefined;
+		try {
+			// Not a plain file, so not one the work tool wrote.
+			tree = text === undefined ? undefined : treeOf(JSON.parse(text));
+		} catch {
+			// Broken as written, since a record is renamed into place whole:
+			// it names no tree until it is written again.
+			tree = undefined;
+		}
+		kept.set(name, { stamp: stamped.stamp, tree });
+		return true;
 	}
-	return [...new Set(dirs)];
+
+	/** Look at every record again; true when the disk said all it was asked. */
+	async function relist(): Promise<boolean> {
+		let listed: string[];
+		try {
+			listed = (await disk.list(cuts)).filter((name) => name.endsWith(".json"));
+		} catch (error) {
+			if (!gone(error)) return false;
+			// No work records: the session works in its own folder alone.
+			kept.clear();
+			return true;
+		}
+		// A listing taken while a record is renamed over itself can miss it
+		// on btrfs, so a record kept but not listed is looked at too, and
+		// stays while its file does.
+		// The gate bounds how many are read at once.
+		const names = [...new Set([...listed, ...kept.keys()])];
+		const told = await Promise.all(names.map(refresh));
+		return told.every(Boolean);
+	}
+
+	/**
+	 * One pass: nothing when the folder is settled and unchanged since a
+	 * whole listing, since every record is renamed into place, which
+	 * changes the folder. It is stamped before the listing, so a change
+	 * during one is seen by the next. True when the disk said all it was
+	 * asked.
+	 */
+	async function look(): Promise<boolean> {
+		const stamped = now();
+		let folder: Stamped | undefined;
+		try {
+			folder = await disk.stamp(cuts);
+		} catch {
+			// No folder, or a disk that didn't say: the listing tells which.
+			folder = undefined;
+		}
+		if (folder !== undefined && folder.stamp === listedAt) return true;
+		const whole = await relist();
+		const settled =
+			folder !== undefined && stamped - folder.changed >= SETTLED_MS;
+		listedAt = whole && settled ? folder?.stamp : undefined;
+		return whole;
+	}
+
+	/** The pass under way, or a new one. */
+	function current(): NonNullable<typeof pass> {
+		if (pass !== undefined) return pass;
+		const started = {
+			done: look().then(
+				(whole) => {
+					known ||= whole;
+					pass = undefined;
+				},
+				() => {
+					// Every disk error is answered inside the pass; this is only
+					// so that a pass can never stay under way for good.
+					pass = undefined;
+				},
+			),
+			until: now() + patience,
+		};
+		pass = started;
+		return started;
+	}
+
+	return {
+		async dirsOf(session, cwd) {
+			const under = current();
+			if (!known) {
+				// Answering before the disk has said all it was asked once would
+				// answer with what little was read and miss the trees held: a
+				// stop counted late beats one missed, so until a pass is whole,
+				// each ask waits for its pass, however long. A disk that fails
+				// rather than stalls ends the pass at once, and its answer is
+				// what it could read. A stall holds the pass, and the turns at
+				// the disk it took, until the disk answers, so a conversation
+				// begun or reloaded meanwhile waits too; parking asks only
+				// around runs nobody typed, so that holds the agents under a
+				// stop, never Joel. Only a call that never ends would hold them
+				// for good, and a pipe, the one such file, is never waited on.
+				await under.done;
+			} else {
+				// One patience a pass, not one an asker, so a stuck pass holds
+				// each later turn no longer than what is left of it.
+				await within(under.done, under.until - now());
+			}
+			const dirs = [cwd];
+			for (const { tree } of kept.values()) {
+				if (tree?.sessions.includes(session)) dirs.push(tree.path);
+			}
+			return [...new Set(dirs)];
+		},
+	};
+}
+
+/** `work`, waited for at most `ms`, then let run on behind. */
+async function within(work: Promise<void>, ms: number): Promise<void> {
+	if (ms <= 0) return;
+	let waiting: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<void>((resolve) => {
+		waiting = setTimeout(resolve, ms);
+	});
+	try {
+		await Promise.race([work, late]);
+	} finally {
+		clearTimeout(waiting);
+	}
+}
+
+/** Whether nothing is there, as against a disk that failed to say. */
+function gone(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+/** The tree a record names, and who holds it, when it names one. */
+function treeOf(record: unknown): Tree | undefined {
+	if (typeof record !== "object" || record === null) return undefined;
+	if (!("path" in record && "sessions" in record)) return undefined;
+	const { path, sessions } = record;
+	if (typeof path !== "string" || !Array.isArray(sessions)) return undefined;
+	return {
+		path,
+		sessions: sessions.filter((one): one is string => typeof one === "string"),
+	};
 }
 
 /** The repositories of `dirs`, as `owner/name`, asked of each one's origin. */
