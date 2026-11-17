@@ -100,6 +100,7 @@ describe("carried shells", () => {
 			stateDir,
 			jobs: "jobs.slice/jobs.service",
 			ownCgroup: () => OWN_CGROUP,
+			scoped: false,
 			table: table({}),
 			move: async (procs, pid) => {
 				moved.push([procs, pid]);
@@ -123,6 +124,23 @@ describe("carried shells", () => {
 			"a host with no jobs cgroup keeps nothing",
 		).toBe(false);
 		expect(make().keeps, "a host with a jobs cgroup keeps calls").toBe(true);
+	});
+
+	it("keeps calls with no jobs cgroup where its spawners run in scopes of their own", async () => {
+		const shells = make({ jobs: "", scoped: true });
+		expect(shells.keeps, "a host whose spawners have scopes keeps calls").toBe(
+			true,
+		);
+		const events = bus();
+		shells.heard(events);
+		events.emit(HOST_RESTARTING_EVENT, { session: "s1" });
+		events.emit(JOBS_CARRIED, carriedOn("s1", shell("m1")));
+		expect(await shells.keep(), "nothing to move out of the unit").toEqual([]);
+		expect(moved, "no cgroup to move into").toEqual([]);
+		expect(
+			kept().map((call) => call.job),
+			"written down for the next host",
+		).toEqual(["j1"]);
 	});
 
 	it("moves only the processes in its own cgroup that carry the call's mark", async () => {

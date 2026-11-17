@@ -11,11 +11,14 @@
  * at two host restarts on 13 November). Everything a call started stays
  * in one of the two unless it is moved, so `setsid`, `nohup`, the jobs
  * sorter's scopes and `jobs-broker run`'s still die with the call. A
- * cgroup that can't be read is never a reason to spare.
+ * host's pi-spawner runs in a scope of its own (spawner-scope.ts), which
+ * counts as where work runs too. A cgroup that can't be read is never a
+ * reason to spare.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { inSpawnerScope } from "./spawner-scope.ts";
 
 /** The variable each command's environment carries its mark in. */
 export const CALL_VARIABLE = "PI_BASH_CALL";
@@ -40,8 +43,9 @@ export function unifiedCgroup(text: string): string | undefined {
 /**
  * Whether a marked process was moved out on purpose: its cgroup is
  * outside the reaper's (`own`) and outside the slice holding `jobs`,
- * under the user manager above the reaper. Without a `jobs` or a user
- * manager, only the reaper's own cgroup counts as where work runs.
+ * under the user manager above the reaper, and outside every
+ * pi-spawner's scope. Without a `jobs` or a user manager, only the
+ * reaper's own cgroup and the spawners' scopes count as where work runs.
  */
 export function movedOut(
 	cgroup: string | undefined,
@@ -49,7 +53,7 @@ export function movedOut(
 	jobs: string | undefined,
 ): boolean {
 	if (cgroup === undefined || own === undefined) return false;
-	if (within(cgroup, own)) return false;
+	if (within(cgroup, own) || inSpawnerScope(cgroup)) return false;
 	const slice = workSlice(own, jobs);
 	return slice === undefined || !within(cgroup, slice);
 }

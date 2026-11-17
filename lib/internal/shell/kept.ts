@@ -23,6 +23,9 @@
  * end is said, so a host that reaps what its conversations started
  * (host/engine/tool-children.ts) spares it: its shell still carries the
  * marks of the host that started it, which no longer answers for it.
+ * A call handed to a job is spared the same way by its `<path>.job`
+ * record (kept-jobs.ts) until its shell writes how it ended, so the
+ * session can take it up again however its pi or host ended.
  */
 
 import { spawn } from "node:child_process";
@@ -89,7 +92,10 @@ const FILE_MODE = 0o600;
 const FOLDER_MODE = 0o700;
 
 /** The files a kept call writes, by the suffix each adds to its path. */
-const SUFFIXES = [".out", ".old", ".end", ".pid", ".carried"] as const;
+const SUFFIXES = [".out", ".old", ".end", ".pid", ".carried", ".job"] as const;
+
+/** The suffix of a call's record as a session's job (kept-jobs.ts). */
+export const JOB_SUFFIX = ".job";
 
 /** The suffix marking a call handed to another process. */
 const CARRIED = ".carried";
@@ -196,9 +202,10 @@ export interface CarriedCalls {
 }
 
 /**
- * The calls in `folder` handed to another process. A call's mark reaches
- * what it started in a group of its own, as `timeout` and `setsid` make;
- * its shell's group covers a call run without one.
+ * The calls in `folder` handed to another process, or to a job its
+ * session takes up again, until its shell writes how it ended. A call's
+ * mark reaches what it started in a group of its own, as `timeout` and
+ * `setsid` make; its shell's group covers a call run without one.
  */
 export function carriedCalls(folder: string = keptFolder()): CarriedCalls {
 	const marks = new Set<string>();
@@ -211,6 +218,16 @@ export function carriedCalls(folder: string = keptFolder()): CarriedCalls {
 		return { marks, groups };
 	}
 	for (const name of names) {
+		if (name.endsWith(JOB_SUFFIX)) {
+			const path = join(folder, name.slice(0, -JOB_SUFFIX.length));
+			// Once its status is written nothing of it runs to spare.
+			if (endOf(path) !== undefined) continue;
+			const pid = pidOf(path);
+			if (pid !== undefined) groups.add(pid);
+			const mark = recordedMark(`${path}${JOB_SUFFIX}`);
+			if (mark !== "") marks.add(mark);
+			continue;
+		}
 		if (!name.endsWith(CARRIED)) continue;
 		const path = join(folder, name.slice(0, -CARRIED.length));
 		const pid = pidOf(path);
@@ -219,6 +236,23 @@ export function carriedCalls(folder: string = keptFolder()): CarriedCalls {
 		if (mark !== "") marks.add(mark);
 	}
 	return { marks, groups };
+}
+
+/** The call's mark a job's record names, or nothing when it names none. */
+function recordedMark(file: string): string {
+	let record: unknown;
+	try {
+		record = JSON.parse(textOf(file));
+	} catch {
+		// Gone, or cut short as it was written: its shell's group still says.
+		return "";
+	}
+	if (typeof record !== "object" || record === null || !("work" in record))
+		return "";
+	const { work } = record;
+	if (typeof work !== "object" || work === null || !("mark" in work))
+		return "";
+	return typeof work.mark === "string" ? work.mark : "";
 }
 
 /** What a kept file holds, or nothing once it is gone. */

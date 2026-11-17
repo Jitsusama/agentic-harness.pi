@@ -275,8 +275,9 @@ export class SessionHost implements Host {
 
 	/**
 	 * Stop for host restart without recording a deliberate conversation
-	 * quit. `restarting` when the stop is a restart the host asked for, so
-	 * the conversation may carry its work to the next host.
+	 * quit. `restarting` when the stop is a restart the host asked for, or
+	 * any stop whose engine can keep bash calls alive, so the conversation
+	 * may carry its work to the next host.
 	 */
 	stop(id: string, why = "host stopped", restarting = false): Promise<void> {
 		return this.finish(id, why, "signalled", restarting);

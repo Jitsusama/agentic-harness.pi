@@ -273,7 +273,8 @@ A shared host restarting itself onto new code waited out every
 background job, and on 13 November neither work host restarted for
 hours, since each always had a command running. Now the host tells
 each conversation on its bus (`agentic-harness:host-restarting`) just
-before it stamps the stop signalled, and job-workflow carries what it
+before it stamps the stop signalled, at its own restart and at any
+other stop where it can keep bash calls, and job-workflow carries what it
 can as a move does, recording only the rest as cut off. It says on the
 bus what went (`jobs:carried:v1`), so the host can keep each bash
 call's shell alive through its stop (see
@@ -282,11 +283,20 @@ takes them up as a move's. Taking one up says `jobs:taken-up:v1`, so
 mesh-workflow claims a heavy command's lease again until its end.
 
 - **Carried:** bash calls, where the host has a jobs cgroup to keep
-  them in. `holds(carriable)` names every other running job, which
-  still holds the restart: fleets, codemode, review rounds.
-- **Lost:** a crash or a `kill -9` of the host carries nothing; the
-  conversation comes back cut off, and the next host ends what was
-  left as before.
+  them in, or runs its pi-spawners in scopes of their own.
+  `holds(carriable)` names every other running job, which still holds
+  the restart: fleets, codemode, review rounds.
+- **Recorded:** a crash or a `kill -9` of the host carries nothing
+  through the log. On 17 November systemd killed a host whose stop
+  outran 60 s, and the next host ended four suites and proofs whose
+  commands still ran. So each running bash job is also written beside
+  its call's kept files as it starts (recorded.ts,
+  `lib/internal/shell/kept-jobs.ts`). Every reaper spares a recorded
+  call until its shell writes an exit status, and the conversation,
+  started again, takes up each one still running or ended with its
+  status, under its own id. One whose shell is gone with no status was
+  stopped or killed with it, and its files go unsaid; the cut-off
+  notice names only the jobs no take-up brought back.
 
 ## When the Machine Ends a Session
 
@@ -333,6 +343,10 @@ rather than the machine.
 
 ## Limits
 
+- **Commands end with a host that can't keep them.** Off Linux, or
+  without systemd-run and a user manager, a host's pi-spawners run in
+  its own cgroup, said once in its journal, and its stop ends what they
+  run.
 - **Nothing else outlives the session.** A new session, a resume of
   another log, a fork and a quit that isn't a move stop every job, with the reason
   `session`, and drop whatever was waiting, since a result belongs to

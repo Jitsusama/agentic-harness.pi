@@ -203,9 +203,13 @@ export async function serveHost(options: {
 					// the rest rather than left running in a host disposed under it.
 					await backend.settled();
 					// A restart's parks carry each conversation's bash calls, which
-					// are then kept out of the host's stop for the next host.
-					await park(running, restarting);
-					if (restarting) await engine.keepCarried?.();
+					// are then kept out of the host's stop for the next host. Any
+					// other stop carries them too where the engine can keep them:
+					// on 17 November an outside stop ended four suites whose
+					// commands could have run on.
+					const carrying = restarting || (engine.carries?.() ?? false);
+					await park(running, restarting, carrying);
+					if (carrying) await engine.keepCarried?.();
 					running.dispose();
 					await roster.close();
 				})();
@@ -229,14 +233,18 @@ export async function serveHost(options: {
 	}
 }
 
-/** Park every conversation `host` holds, telling each the host restarts when it does. */
-async function park(host: SessionHost, restarting = false): Promise<void> {
+/**
+ * Park every conversation `host` holds, telling each the host restarts
+ * when it does, and to carry its bash calls when the stop carries them.
+ */
+async function park(
+	host: SessionHost,
+	restarting = false,
+	carrying = restarting,
+): Promise<void> {
+	const why = restarting ? "host restarting" : "host stopped";
 	const results = await Promise.allSettled(
-		host
-			.list()
-			.map(({ id }) =>
-				restarting ? host.stop(id, "host restarting", true) : host.stop(id),
-			),
+		host.list().map(({ id }) => host.stop(id, why, carrying)),
 	);
 	const failed = results.find((result) => result.status === "rejected");
 	if (failed?.status === "rejected") throw failed.reason;

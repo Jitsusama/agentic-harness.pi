@@ -57,7 +57,9 @@ import {
 	type BashOperations,
 	getShellConfig,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../core/session/host.ts";
 import { systemProgram } from "../sandbox/system-program.ts";
+import { sayUnscoped, settingHere, spawnerStart } from "./spawner-scope.ts";
 import { spawnerWanted } from "./spawner-variable.ts";
 
 /** The program's name, as core.nix puts it on the PATH. */
@@ -497,10 +499,14 @@ function killGroup(pid: number): void {
 /**
  * Start pi-spawner in a session of its own, so the terminal's signals
  * never reach it, and without holding pi open at its exit, when the end
- * of its input tells it to kill every command it still runs.
+ * of its input tells it to kill every command it still runs. A host's
+ * runs in a systemd scope of its own where it can, so what it starts
+ * outlives the host's stop (spawner-scope.ts).
  */
 function startProgram(program: string, quest?: string): Started {
-	const child = spawn(program, [], {
+	const start = spawnerStart(program, settingHere(hosted() !== undefined));
+	if (start.unscoped !== undefined) sayUnscoped(start.unscoped);
+	const child = spawn(start.command, [...start.args], {
 		stdio: ["pipe", "pipe", "ignore"],
 		detached: true,
 		env: quest ? { ...process.env, [QUEST_VARIABLE]: quest } : process.env,

@@ -101,8 +101,10 @@ export function isSessionStamp(value: unknown): value is SessionStamp {
 /**
  * A host emits this on a conversation's bus, within withSession, just
  * before it stamps the conversation `signalled` for a restart it asked
- * for itself: the next host resumes the conversation, so what can outlive
- * the stop may be carried to it, as a move carries it. A separate event
+ * for itself, or for any stop where its engine can keep bash calls alive
+ * (host/engine/carried-shells.ts): the next host resumes the
+ * conversation, so what can outlive the stop may be carried to it, as a
+ * move carries it. A separate event
  * rather than a third stamp, since a reader of stamps takes any other
  * than `signalled` for the conversation's own quit, and one that never
  * hears this stops its work as at any other stop.
