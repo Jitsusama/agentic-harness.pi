@@ -33,7 +33,7 @@ import {
 	statSync,
 	watch,
 } from "node:fs";
-import { opendir } from "node:fs/promises";
+import { opendir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { processGlobal } from "../internal/process/process-global.ts";
 import { clearWriting, writeWhole } from "../internal/write-whole.ts";
@@ -63,8 +63,15 @@ export interface Transport {
 	 * time, for a reader that looks again on a clock and can wait.
 	 */
 	listIds(): Promise<string[]>;
+	/**
+	 * Every id, as {@link ids} answers, read a little at a time, for a
+	 * reader on a host's thread, which every conversation it holds waits on.
+	 */
+	listAllIds(): Promise<string[]>;
 	/** One message, or nothing when it will not read. */
 	read(id: string): Message | undefined;
+	/** One message, as {@link read} answers, read off the thread. */
+	readOff(id: string): Promise<Message | undefined>;
 	/** The last id handed to a peer under any of these addresses. */
 	lastRead(addresses: readonly string[]): string | undefined;
 	/** Note that a peer under this address has been handed this id. */
@@ -202,11 +209,97 @@ function idsFrom(dir: string, first: string): string[] {
 	].sort();
 }
 
+/** What one folder holds, as listed off the thread. */
+interface Listed {
+	/** Its message ids, unsorted. */
+	readonly ids: string[];
+	/** Its day folders, unsorted. */
+	readonly days: string[];
+}
+
+/**
+ * The message ids and day folders in one folder, read a little at a
+ * time; none when it won't list, and what was read of it when it goes
+ * while listed.
+ */
+async function listedIn(dir: string): Promise<Listed> {
+	const listed: Listed = { ids: [], days: [] };
+	let folder: Dir;
+	try {
+		folder = await opendir(dir, { bufferSize: LISTING_BATCH });
+	} catch {
+		// A folder not made yet holds no messages, as ids() answers.
+		return listed;
+	}
+	try {
+		for (;;) {
+			for (let read = 0; read < LISTING_BATCH; read++) {
+				// Off the thread: a batch read at once waits on the disk with
+				// every conversation the host holds.
+				const entry = await folder.read();
+				if (entry === null) return listed;
+				if (isMessageFile(entry.name)) listed.ids.push(idOf(entry.name));
+				else if (isDay(entry.name)) listed.days.push(entry.name);
+			}
+			await yieldThread();
+		}
+	} catch {
+		// A folder taken away while listed answers what was read of it.
+		return listed;
+	} finally {
+		await folder.close().catch(() => {
+			// Closed already, or gone: nothing is left open either way.
+		});
+	}
+}
+
+/** Every day's ids and the top's, once each, oldest first, off the thread. */
+async function allListedIn(dir: string): Promise<string[]> {
+	const top = await listedIn(dir);
+	const found = new Set(top.ids);
+	// One day at a time, so a week of folders never opens all at once.
+	for (const day of top.days) {
+		for (const id of (await listedIn(join(dir, day))).ids) found.add(id);
+	}
+	return [...found].sort();
+}
+
+/** How many messages a reader of many reads at once off the thread. */
+const READING_AT_ONCE = 32;
+
+/**
+ * The messages these ids name, in their order, read off the thread a
+ * few at a time. A week's are thousands of files: opened all at once
+ * they would fill the thread pool every conversation in a host shares,
+ * and past the open-file limit each would read as no message.
+ */
+export async function readEachOff(
+	transport: Pick<Transport, "readOff">,
+	ids: readonly string[],
+): Promise<(Message | undefined)[]> {
+	const read: (Message | undefined)[] = [];
+	for (let from = 0; from < ids.length; from += READING_AT_ONCE) {
+		const batch = ids.slice(from, from + READING_AT_ONCE);
+		read.push(...(await Promise.all(batch.map((id) => transport.readOff(id)))));
+	}
+	return read;
+}
+
 /** A message read from a file, or nothing when it will not read. */
 function readMessage(path: string): Message | undefined {
 	try {
 		return messageFrom(JSON.parse(readFileSync(path, "utf8")));
 	} catch {
+		return undefined;
+	}
+}
+
+/** A message read from a file off the thread, as {@link readMessage}. */
+async function readMessageOff(path: string): Promise<Message | undefined> {
+	try {
+		return messageFrom(JSON.parse(await readFile(path, "utf8")));
+	} catch {
+		// Gone, torn or not a message: as readMessage, nothing to read.
 		return undefined;
 	}
 }
@@ -237,35 +330,8 @@ export function folderTransport(dir: string): Transport {
 		// later one. An id with no time to read lists every day.
 		idsFromDayOf: (id) => idsFrom(dir, dayOf(id) ?? ""),
 		recentIds: () => idsIn(dir).sort(),
-		async listIds() {
-			const found: string[] = [];
-			let folder: Dir;
-			try {
-				folder = await opendir(dir, { bufferSize: LISTING_BATCH });
-			} catch {
-				// A folder not made yet holds no messages, as ids() answers.
-				return [];
-			}
-			try {
-				for (;;) {
-					for (let read = 0; read < LISTING_BATCH; read++) {
-						// Off the thread: a batch read at once waits on the disk
-						// with every conversation the host holds.
-						const entry = await folder.read();
-						if (entry === null) return found.sort();
-						if (isMessageFile(entry.name)) found.push(idOf(entry.name));
-					}
-					await yieldThread();
-				}
-			} catch {
-				// A folder taken away while listed answers what was read of it.
-				return found.sort();
-			} finally {
-				await folder.close().catch(() => {
-					// Closed already, or gone: nothing is left open either way.
-				});
-			}
-		},
+		listIds: async () => (await listedIn(dir)).ids.sort(),
+		listAllIds: () => allListedIn(dir),
 		read(id) {
 			const day = dayOf(id);
 			return (
@@ -273,6 +339,15 @@ export function folderTransport(dir: string): Transport {
 				(day === undefined
 					? undefined
 					: readMessage(join(dir, day, `${id}.json`)))
+			);
+		},
+		async readOff(id) {
+			const day = dayOf(id);
+			return (
+				(await readMessageOff(join(dir, `${id}.json`))) ??
+				(day === undefined
+					? undefined
+					: await readMessageOff(join(dir, day, `${id}.json`)))
 			);
 		},
 		lastRead,

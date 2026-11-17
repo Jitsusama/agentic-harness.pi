@@ -15,6 +15,7 @@ import {
 } from "../../../lib/mesh/message.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import { idNamed, mayReplace, sentBy } from "../../../lib/mesh/thread.ts";
+import { readEachOff } from "../../../lib/mesh/transport.ts";
 import {
 	UNANSWERED_WITHIN_MS,
 	unanswered,
@@ -46,8 +47,9 @@ export async function read(
 		Math.max(1, Math.floor(params.count ?? 15)),
 	);
 	// Newest first, reading only until enough are found: what is shown,
-	// not the mesh's whole week.
-	const ids = at.transport.ids();
+	// not the mesh's whole week. Off the thread, since in a host every
+	// conversation waits on it while the disk answers.
+	const ids = await at.transport.listAllIds();
 	const before = params.before ? idNamed(params.before, ids) : undefined;
 	if (params.before && before === undefined) {
 		return answer(
@@ -58,7 +60,7 @@ export async function read(
 	const latest: Message[] = [];
 	for (let index = from - 1; index >= 0; index--) {
 		if (latest.length >= wanted) break;
-		const message = at.transport.read(ids[index] as string);
+		const message = await at.transport.readOff(ids[index] as string);
 		if (
 			message &&
 			(sentBy(message, { addresses: at.peer.addresses, ...senderIdentity() }) ||
@@ -70,7 +72,7 @@ export async function read(
 	const present = (await peers(at)).present;
 	const receipt = receipts(at, present);
 	const withdrawn = withdrawals(latest);
-	const state = questionStates(at, latest, ids, present, withdrawn);
+	const state = await questionStates(at, latest, ids, present, withdrawn);
 	const shown = withinBudget(
 		latest.map((message) =>
 			[
@@ -122,11 +124,12 @@ function withinBudget(rendered: readonly string[]): string[] {
 async function openText(at: Local, now = Date.now()): Promise<string> {
 	const since = now - UNANSWERED_WITHIN_MS;
 	// Ids start with the time they were sent, so older ones go unread.
-	const messages = at.transport
-		.ids()
-		.filter((id) => !(Number.parseInt(id, 10) < since))
-		.map((id) => at.transport.read(id))
-		.filter((one): one is Message => one !== undefined);
+	const recent = (await at.transport.listAllIds()).filter(
+		(id) => !(Number.parseInt(id, 10) < since),
+	);
+	const messages = (await readEachOff(at.transport, recent)).filter(
+		(one): one is Message => one !== undefined,
+	);
 	const everyone = at.presences.all();
 	const aliases = (address: string): readonly string[] =>
 		everyone.find((one) => one.addresses.includes(address))?.addresses ?? [
@@ -188,13 +191,13 @@ const OPEN_CHARS = 100;
  * answered like a question, by each session once it has changed course,
  * and also names those it reached that have not, so one ignored shows.
  */
-function questionStates(
+async function questionStates(
 	at: Local,
 	shown: readonly Message[],
 	ids: readonly string[],
 	present: readonly Presence[],
 	withdrawn: ReadonlyMap<string, string>,
-): Map<string, string> {
+): Promise<Map<string, string>> {
 	const self = { addresses: at.peer.addresses, ...senderIdentity() };
 	const asked = shown.filter(
 		(message) =>
@@ -207,9 +210,11 @@ function questionStates(
 	if (first === undefined) return states;
 	// Only what came after the oldest question can answer one.
 	const answers = new Map<string, Message[]>();
-	for (const id of ids) {
-		if (id <= first) continue;
-		const one = at.transport.read(id);
+	const later = await readEachOff(
+		at.transport,
+		ids.filter((id) => id > first),
+	);
+	for (const one of later) {
 		if (one?.re === undefined || sentBy(one, self)) continue;
 		answers.set(one.re, [...(answers.get(one.re) ?? []), one]);
 	}

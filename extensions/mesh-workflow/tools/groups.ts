@@ -44,7 +44,7 @@ export async function join(
 		? `Already in ${group} by this peer's work.`
 		: `In ${group}.`;
 	const invited = groupsNamed(params.invite ?? "");
-	const lately = joinedNow ? saidLately(at, group) : "";
+	const lately = joinedNow ? await saidLately(at, group) : "";
 	if (invited.length === 0) {
 		return answer(
 			`${said} ${standsText(at.peer)} ${membersText(standing, at.peer, group)} ${LISTED_IN_GROUPS}${lately}`,
@@ -105,14 +105,16 @@ const LATELY_CHARS = 240;
 
 /**
  * What was said in a group lately, oldest first, so a peer joining it
- * starts from where its talk stands rather than from silence.
+ * starts from where its talk stands rather than from silence. Read off
+ * the thread: a quiet group's ten can be a week back, and in a host
+ * every conversation waits on the thread while the disk answers.
  */
-function saidLately(at: Local, group: string): string {
-	const ids = at.transport.ids();
+async function saidLately(at: Local, group: string): Promise<string> {
+	const ids = await at.transport.listAllIds();
 	const latest: string[] = [];
 	for (let index = ids.length - 1; index >= 0; index--) {
 		if (latest.length >= LATELY) break;
-		const message = at.transport.read(ids[index] as string);
+		const message = await at.transport.readOff(ids[index] as string);
 		if (!message?.to.includes(group)) continue;
 		const whole = line(message).replace(/\s+/g, " ");
 		latest.unshift(

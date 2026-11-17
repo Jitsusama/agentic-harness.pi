@@ -10,7 +10,6 @@ import {
 	type Look,
 	type LookResolution,
 	looksDue,
-	looksIn,
 	looksListed,
 	type Pointer,
 	resolveLooks,
@@ -51,7 +50,9 @@ export async function askAboutLooks(
 	listed?: readonly Look[],
 ): Promise<void> {
 	try {
-		const looks = listed ?? looksIn(dir);
+		// Read again off the thread: a host runs every conversation's
+		// clock on one, and only a step about to write reads at once.
+		const looks = listed ?? (await looksListed(dir));
 		const now = Date.now();
 		const asked = askable(looks);
 		const elsewhere = askableElsewhere(looks, Math.floor(now / ASK_EVERY_MS));
