@@ -491,38 +491,40 @@ function readyOf(names: string[]): string[] {
 }
 
 /**
- * `steers` in the order they were written: by the time each says, or
- * else its name's, which a writer opens with the millisecond it wrote
- * it, the name breaking a tie. By name alone, two written in one
- * millisecond went in their random hex's order, so a stop and a talk
- * given together reached pausing either way round.
+ * `steers`, listed by name, in the order they were written, as far as
+ * one take can tell: by the millisecond each name opens with, which its
+ * writer put it on disk at by this machine's clock, then by the time the
+ * steer says, then by name, as the sort keeps it. By name alone, two put
+ * there in one millisecond went in their random hex's order, so a stop
+ * and a talk given together reached pausing either way round. The name
+ * leads because an `at` may come from another machine's clock, as the
+ * node brings steers; it decides only a tie.
  */
 function inWrittenOrder(steers: readonly Steer[]): Steer[] {
 	return steers
-		.map((steer) => ({ steer, at: writtenAt(steer) }))
-		.sort((a, b) => a.at - b.at || byName(a.steer.file, b.steer.file))
+		.map((steer) => ({ steer, ...writtenAt(steer) }))
+		.sort((a, b) => a.put - b.put || a.said - b.said)
 		.map(({ steer }) => steer);
 }
 
 /**
- * When a steer was written, in milliseconds: the time it says, else the
- * one its name opens with, else after every other.
+ * When a steer was put on disk and when it says it was written, in ms;
+ * one that can't be read takes the other, and neither goes after all.
  */
-function writtenAt(steer: Steer): number {
-	const said = steer.at === undefined ? Number.NaN : Date.parse(steer.at);
-	if (!Number.isNaN(said)) return said;
+function writtenAt(steer: Steer): { put: number; said: number } {
 	const named = NAMED_AT.exec(steer.file)?.[0];
-	return named === undefined ? Number.POSITIVE_INFINITY : Number(named);
+	const put = named === undefined ? Number.NaN : Number(named);
+	const said = steer.at === undefined ? Number.NaN : Date.parse(steer.at);
+	const either = Number.isNaN(put) ? said : put;
+	const known = Number.isNaN(either) ? Number.POSITIVE_INFINITY : either;
+	return {
+		put: Number.isNaN(put) ? known : put,
+		said: Number.isNaN(said) ? known : said,
+	};
 }
 
 /** The millisecond a steer's file name opens with. */
 const NAMED_AT = /^\d+/;
-
-/** Two file names in sorted order, as `readyOf` lists them. */
-function byName(a: string, b: string): number {
-	if (a === b) return 0;
-	return a < b ? -1 : 1;
-}
 
 /**
  * The steer `name` taken off its inbox for `taker`, answering where it

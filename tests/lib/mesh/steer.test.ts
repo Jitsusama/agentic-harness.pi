@@ -597,4 +597,97 @@ describe("steers written in one instant", () => {
 			"a second on",
 		]);
 	});
+
+	// A steer's time may come from another machine's clock, as the node
+	// brings them, so it decides only between steers put there together.
+	it("goes by when each was put there, whatever earlier time one says", () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		put(
+			inbox,
+			"1794891600000-ffffffff.json",
+			JSON.stringify({ text: "put first", at: talkAt }),
+		);
+		put(
+			inbox,
+			"1794891601000-00000000.json",
+			JSON.stringify({ text: "put a second on", at: stopAt }),
+		);
+
+		const taken = takeSteers(inbox, "1");
+
+		expect(taken.steers.map((steer) => steer.text)).toEqual([
+			"put first",
+			"put a second on",
+		]);
+	});
+
+	it("reads a time that can't be read as its name's", () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		put(
+			inbox,
+			"1794891600000-00000000.json",
+			JSON.stringify({ text: "no readable time", at: "not a time" }),
+		);
+		put(
+			inbox,
+			"1794891600000-ffffffff.json",
+			JSON.stringify({
+				text: "a second before",
+				at: "2026-11-17T04:59:59.000Z",
+			}),
+		);
+
+		const taken = takeSteers(inbox, "1");
+
+		expect(taken.steers.map((steer) => steer.text)).toEqual([
+			"a second before",
+			"no readable time",
+		]);
+	});
+
+	it("orders a name with no time by the time its steer says, else last", () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		put(
+			inbox,
+			"1794891601000-00000000.json",
+			JSON.stringify({ text: "named a second on" }),
+		);
+		put(inbox, "late.json", JSON.stringify({ text: "no time anywhere" }));
+		put(inbox, "steer.json", JSON.stringify({ text: "says", at: stopAt }));
+
+		const taken = takeSteers(inbox, "1");
+
+		expect(taken.steers.map((steer) => steer.text)).toEqual([
+			"says",
+			"named a second on",
+			"no time anywhere",
+		]);
+	});
+
+	// Nothing then tells the two apart, so the order is at least the
+	// same on every read.
+	it("keeps name order for two put together that say the same time", () => {
+		const inbox = inboxOf(root, "P9R1KI");
+		mkdirSync(inbox, { recursive: true });
+		put(
+			inbox,
+			"1794891600000-ffffffff.json",
+			JSON.stringify({ text: "later name", at: stopAt }),
+		);
+		put(
+			inbox,
+			"1794891600000-00000000.json",
+			JSON.stringify({ text: "earlier name", at: stopAt }),
+		);
+
+		const taken = takeSteers(inbox, "1");
+
+		expect(taken.steers.map((steer) => steer.text)).toEqual([
+			"earlier name",
+			"later name",
+		]);
+	});
 });
