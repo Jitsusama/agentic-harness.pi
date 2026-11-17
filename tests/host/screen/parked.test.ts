@@ -4,12 +4,11 @@
  * screen it wakes into, in order, none of it lost.
  */
 import { describe, expect, it, vi } from "vitest";
-import {
-	type HostedMode,
-	type HostedModeOptions,
-	hostScreens,
-	PARKED_LINE,
-} from "../../../host/screen/screens.ts";
+import type {
+	HostedMode,
+	HostedModeOptions,
+} from "../../../host/screen/hosted-mode.ts";
+import { hostScreens, PARKED_LINE } from "../../../host/screen/screens.ts";
 
 /** pi's hosted screen as a park reaches it: it starts reading keys, and its shutdown stops them. */
 class ReadingMode implements HostedMode {

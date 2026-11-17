@@ -4,12 +4,11 @@
  * the host's other conversations carry on.
  */
 import { describe, expect, it, vi } from "vitest";
-import {
-	type HostedMode,
-	type HostedModeOptions,
-	type HostedView,
-	hostScreens,
-} from "../../../host/screen/screens.ts";
+import type {
+	HostedMode,
+	HostedModeOptions,
+} from "../../../host/screen/hosted-mode.ts";
+import { type HostedView, hostScreens } from "../../../host/screen/screens.ts";
 import { ambientSession } from "../../../lib/core/session/index.ts";
 
 /** pi's hosted screen as far as a fault reaches it. */

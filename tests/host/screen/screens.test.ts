@@ -1,26 +1,22 @@
 /** Persistent screens: one per conversation, quitting closes only its own, viewers come and go. */
 import { describe, expect, it, vi } from "vitest";
 import type { EngineScreens } from "../../../host/engine/index.ts";
-import {
-	type HostedMode,
-	type HostedModeOptions,
-	type HostedView,
-	hostedModeOf,
-	hostScreens,
-} from "../../../host/screen/screens.ts";
+import type {
+	HostedMode,
+	HostedModeOptions,
+} from "../../../host/screen/hosted-mode.ts";
+import { type HostedView, hostScreens } from "../../../host/screen/screens.ts";
 import type { StartupAsker } from "../../../host/screen/startup-ask.ts";
 import {
 	ambientSession,
 	withSession,
 } from "../../../lib/core/session/index.ts";
-import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
+import type { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
 import { DOCK_NAME } from "../../../lib/ui/gate/screen-gates.ts";
 import { keepOnScreen } from "../../../lib/ui/screen-slot.ts";
 
 /** A stand-in for pi's hosted InteractiveMode: it starts, then runs until it quits. */
 class FakeMode implements HostedMode {
-	static readonly hostedLifecycleVersion = 1;
-	static readonly hostedQuit = true;
 	readonly ui = { requestRender: vi.fn() };
 	/** Set to hold startup until a test lets it finish, or fail it. */
 	static startup: Promise<void> = Promise.resolve();
@@ -507,43 +503,6 @@ describe("the host's pi screen", () => {
 		const screens: EngineScreens = host().screens;
 		expect(screens.opened, "the screens answer the engine's opened").toBeTypeOf(
 			"function",
-		);
-	});
-
-	it("builds pi's hosted screen over the conversation's runtime", () => {
-		const runtime = {};
-		const create = hostedModeOf(FakeMode);
-		const hosted = {
-			onExit: async () => undefined,
-			editText: async () => ({ status: "failed", message: "none" }) as const,
-			suspend: () => false,
-			quit: async () => true,
-		};
-		const terminal = new ViewerTerminal("a", () => {});
-		const mode = create(runtime, {
-			terminal,
-			hosted,
-			startupDiagnostics: [],
-		});
-		expect(mode).toBeInstanceOf(FakeMode);
-		expect(mode instanceof FakeMode && mode.runtime).toBe(runtime);
-	});
-
-	it("refuses a pi whose screen would own the host's process", () => {
-		class Ordinary {}
-		expect(() => hostedModeOf(Ordinary)).toThrow(
-			"pi's InteractiveMode lacks the hosted lifecycle (pi-host-interactive-lifecycle.patch)",
-		);
-		expect(() => hostedModeOf(undefined)).toThrow("lacks the hosted lifecycle");
-	});
-
-	it("refuses a pi whose screen would quit without asking the host", () => {
-		// A class with the lifecycle's version and no hosted quit.
-		const Unasking = Object.assign(() => undefined, {
-			hostedLifecycleVersion: 1,
-		});
-		expect(() => hostedModeOf(Unasking)).toThrow(
-			"pi's InteractiveMode lacks the hosted quit, which asks the host before a screen quits (pi-host-interactive-lifecycle.patch)",
 		);
 	});
 });
