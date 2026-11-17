@@ -25,7 +25,12 @@ import type { ConversationEngine } from "../../../host/service/backend.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import type { BeatOptions } from "../../../host/service/hold-watch.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
-import { hostKind, runHost, watchdogEvery } from "../../../host/service/run.ts";
+import {
+	hostKind,
+	runHost,
+	stopWithin,
+	watchdogEvery,
+} from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
 
@@ -147,6 +152,28 @@ describe("watchdogEvery", () => {
 			{ WATCHDOG_USEC: "120000000", WATCHDOG_PID: "8" },
 		])
 			expect(watchdogEvery(env, 7), JSON.stringify(env)).toBeUndefined();
+	});
+});
+
+// At 03:30 on 17 November a restart's park of 13 conversations was still
+// under way when its 45 s ran out late on a busy loop, and systemd's 60 s
+// stop killed it. The unit's stop limit is the one to fit inside, so the
+// unit says it and the host parks within three quarters of it.
+describe("stopWithin", () => {
+	it("parks within three quarters of the stop limit its unit names", () => {
+		expect(stopWithin({ PI_HOST_STOP_USEC: "150000000" })).toBe(112_500);
+		expect(stopWithin({ PI_HOST_STOP_USEC: "60000000" })).toBe(45_000);
+	});
+
+	it("parks within 45 s when its unit names no stop limit it can read", () => {
+		for (const env of [
+			{},
+			{ PI_HOST_STOP_USEC: "" },
+			{ PI_HOST_STOP_USEC: "0" },
+			{ PI_HOST_STOP_USEC: "soon" },
+			{ PI_HOST_STOP_USEC: "-5" },
+		])
+			expect(stopWithin(env), JSON.stringify(env)).toBe(45_000);
 	});
 });
 
@@ -664,6 +691,55 @@ describe("runHost", () => {
 		).toBe("held");
 		// The process would end here; the case lets the park end instead, so
 		// the host it installed is gone before the next case starts one.
+		parks();
+		await run.serving.stop();
+	});
+
+	it("ends a stop a park holds within three quarters of its unit's stop limit", async () => {
+		const signals = new EventEmitter();
+		const said: string[] = [];
+		let parks = () => {};
+		const run = await runHost({
+			argv: ["background"],
+			// A unit stopping within 400 ms, as systemd's 150 s is to its 112.5 s.
+			env: { ...env(), PI_HOST_STOP_USEC: "400000" },
+			engine: async (host) => ({
+				...(await engine(host)),
+				start: async ({ sessionId, file, cwd }) => {
+					const close = () =>
+						new Promise<void>((parked) => {
+							parks = parked;
+						});
+					host.register({ id: sessionId, file, cwd, env: {}, close });
+				},
+			}),
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+		});
+		const reply = await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+
+		signals.emit("SIGTERM");
+		await run.stopped;
+		expect(
+			said.filter((line) => line.includes("not parked")),
+			"ends at three quarters of the unit's limit, naming what it left",
+		).toEqual([
+			expect.stringContaining(
+				`stopping after 300 ms, 1 not parked: ${sessionId}`,
+			),
+		]);
 		parks();
 		await run.serving.stop();
 	});
