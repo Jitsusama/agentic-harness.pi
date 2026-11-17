@@ -223,10 +223,11 @@ const FEWEST_DUMPED_LINES = 5;
  * half its lines that hold anything, or five such lines in a row. A line
  * ends at a newline or at a NUL, as `env -0` ends each. Each stretch a
  * carriage return ends, as a progress line redrawn over, is read on its
- * own for setting a variable, five in a row making a dump; towards the
- * half, a line counts once, and as setting one when any stretch of it
- * does, so a meter redrawn between a dump's lines doesn't thin it out
- * and one redrawn line alone makes none. A command no rule knows, as a
+ * own for setting a variable, five in a row making a dump, but one
+ * setting the name the stretch before it set is that line redrawn and
+ * adds none; towards the half, a line counts once, and as setting one
+ * when any stretch of it does, so a meter redrawn between a dump's lines
+ * doesn't thin it out and one redrawn line alone makes none. A command no rule knows, as a
  * script or a program of the agent's own, still prints a dump this way.
  */
 export function readsAsDump(text: string): boolean {
@@ -234,6 +235,7 @@ export function readsAsDump(text: string): boolean {
 	let lines = 0;
 	let assigned = 0;
 	let run = 0;
+	let named: string | undefined;
 	let filled = false;
 	let sets = false;
 	let start = 0;
@@ -246,10 +248,13 @@ export function readsAsDump(text: string): boolean {
 			filled = true;
 			if (ASSIGNED_LINE.test(stretch)) {
 				sets = true;
-				run++;
+				const name = SET_NAME.exec(stretch)?.[0];
+				if (name !== named) run++;
+				named = name;
 				if (run >= FEWEST_DUMPED_LINES) return true;
 			} else {
 				run = 0;
+				named = undefined;
 			}
 		}
 		if (code !== RETURN && filled) {
@@ -262,6 +267,9 @@ export function readsAsDump(text: string): boolean {
 	return assigned >= FEWEST_DUMPED_LINES && assigned * 2 >= lines;
 }
 
+/** The name a line setting a variable sets. */
+const SET_NAME = /[A-Za-z_][A-Za-z0-9_]*(?==)/;
+
 const NEWLINE = 10;
 const RETURN = 13;
 const NUL = 0;
@@ -273,13 +281,10 @@ const NUL = 0;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
 const ESCAPE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])/g;
 
-/** The escapes a text opens with, and those it ends with. */
-const OPENING_ESCAPES =
+/** A terminal's escape, read where a scan of words stands. */
+const ESCAPE_HERE =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
-	/^(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>]))*/;
-const CLOSING_ESCAPES =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
-	/(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>]))*$/;
+	/\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])/y;
 
 /**
  * A variable's line in a dump: its name, what sits between, its value,
@@ -289,27 +294,101 @@ const DUMPED_VARIABLE =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
 	/^([ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)((?:[^\s'"\x1b]|\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>]))+)/gm;
 
+/** What a mark standing where a secret was opens with. */
+const MARK_OPENING = "[secret scrubbed: ";
+
+/** What ends a word: a space, a quote or an equals. */
+const WORD_BREAK = /[\s'"=]/;
+
+/** Whether an equals follows `at`, past any space, as one follows a name. */
+function namesAt(text: string, at: number): boolean {
+	let next = at;
+	while (next < text.length && /\s/.test(text.charAt(next))) next++;
+	return text.charAt(next) === "=";
+}
+
 /**
- * A mark already standing where a secret was, kept as it is, or a word
- * that may be a credential anywhere in a line, escapes within it
- * included, the rest of a value a mark cut short too, a variable's name
- * before its value aside. A word holds no `]`, so one starts only after
- * a break and is read once.
+ * `text` with each word anywhere in it given to `replace`, read in one
+ * pass, so hostile output costs no more than its length. A word runs
+ * between breaks (a space, a quote, an equals), and a terminal's escape
+ * within it is part of it, so a colour splits no value; an escape this
+ * can't read, a cut one among them, ends it. A mark already standing
+ * where a secret was is kept and ends a word, so the rest of a value it
+ * cut short is read on its own. A variable's name, before its equals,
+ * is kept.
  */
-const DUMPED_WORD =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read within a word.
-	/\[secret scrubbed: [^\]]*\]|(?<![^\s'"=\]])(?:[^\s'"=\]\x1b]|\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>]))+(?![^\s'"\]])(?!\s*=)/g;
+function replaceWords(
+	text: string,
+	replace: (word: string) => string,
+): string {
+	let out = "";
+	let word = -1;
+	let unclosed = false;
+	const end = (at: number) => {
+		if (word < 0) return;
+		const found = text.slice(word, at);
+		out += namesAt(text, at) ? found : replace(found);
+		word = -1;
+	};
+	let at = 0;
+	while (at < text.length) {
+		const char = text.charAt(at);
+		if (char === "[" && !unclosed && text.startsWith(MARK_OPENING, at)) {
+			const close = text.indexOf("]", at + MARK_OPENING.length);
+			if (close < 0) {
+				unclosed = true;
+			} else {
+				end(at);
+				out += text.slice(at, close + 1);
+				at = close + 1;
+				continue;
+			}
+		}
+		if (char === "\x1b") {
+			ESCAPE_HERE.lastIndex = at;
+			const escape = ESCAPE_HERE.exec(text);
+			if (escape) {
+				if (word < 0) word = at;
+				at += escape[0].length;
+				continue;
+			}
+		}
+		if (char === "\x1b" || WORD_BREAK.test(char)) {
+			end(at);
+			out += char;
+		} else if (word < 0) {
+			word = at;
+		}
+		at++;
+	}
+	end(text.length);
+	return out;
+}
 
 /**
  * A value or a word judged by what a terminal shows of it, its escapes
- * aside: put out of sight as `kind` when it could be a credential, the
- * escapes that open and close it kept, or undefined when it couldn't.
+ * aside, and by each piece they part: put out of sight as `kind` when
+ * either could be a credential, so an address an escape joins to a token
+ * exempts nothing, the escapes that open and close it kept; undefined
+ * when neither could. The escapes are found by one walk over them.
  */
 function hidden(word: string, kind: string): string | undefined {
-	if (!looksLikeSecret(word.replace(ESCAPE, ""))) return undefined;
-	const opening = OPENING_ESCAPES.exec(word)?.[0] ?? "";
-	const closing = CLOSING_ESCAPES.exec(word.slice(opening.length))?.[0] ?? "";
-	return `${opening}${scrubbedMark(kind)}${closing}`;
+	const pieces = word.split(ESCAPE);
+	const could =
+		looksLikeSecret(pieces.join("")) ||
+		pieces.some((piece) => looksLikeSecret(piece));
+	if (!could) return undefined;
+	let opening = 0;
+	let runStart = 0;
+	let runEnd = -1;
+	for (const escape of word.matchAll(ESCAPE)) {
+		if (escape.index === opening) opening += escape[0].length;
+		if (escape.index !== runEnd) runStart = escape.index;
+		runEnd = escape.index + escape[0].length;
+	}
+	const closing =
+		runEnd === word.length ? Math.max(runStart, opening) : word.length;
+	return `${word.slice(0, opening)}${scrubbedMark(kind)}${word.slice(closing)}`;
 }
 
 /**
@@ -322,8 +401,7 @@ function hidden(word: string, kind: string): string | undefined {
  */
 function scrubDump(text: string, kinds: string[]): string {
 	return eachEntry(text, (entry) =>
-		scrubAssigned(entry, kinds).replace(DUMPED_WORD, (word: string) => {
-			if (word.startsWith("[secret scrubbed: ")) return word;
+		replaceWords(scrubAssigned(entry, kinds), (word: string) => {
 			const mark = hidden(word, ENVIRONMENT_VALUE);
 			if (mark === undefined) return word;
 			kinds.push(ENVIRONMENT_VALUE);
