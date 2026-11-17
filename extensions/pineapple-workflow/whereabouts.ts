@@ -20,7 +20,8 @@
  * the bound on the disk calls under way is the host's, shared by them all.
  */
 
-import { readdir, readFile, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
@@ -101,15 +102,14 @@ const PATIENCE_MS = 10_000;
 export interface Stamped {
 	readonly stamp: string;
 	readonly changed: number;
-	/** Whether it is a plain file, which alone is read: a pipe never ends. */
-	readonly plain: boolean;
 }
 
 /** What whereabouts read the disk with, so a case can stand in for it. */
 export interface Disk {
 	list(dir: string): Promise<string[]>;
 	stamp(path: string): Promise<Stamped>;
-	read(path: string): Promise<string>;
+	/** A plain file's text, or nothing for anything else, such as a pipe. */
+	read(path: string): Promise<string | undefined>;
 }
 
 /** The disk as Node reads it, off the loop. */
@@ -122,10 +122,19 @@ const NODE_DISK: Disk = {
 		return {
 			stamp: `${now.ino}:${now.mtimeMs}:${now.ctimeMs}:${now.size}`,
 			changed: now.mtimeMs,
-			plain: now.isFile(),
 		};
 	},
-	read: (path) => readFile(path, "utf8"),
+	async read(path) {
+		// Opened without waiting and judged as opened, so a pipe put in a
+		// record's place between its stamp and its read holds no thread.
+		const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+		try {
+			if (!(await file.stat()).isFile()) return undefined;
+			return await file.readFile("utf8");
+		} finally {
+			await file.close();
+		}
+	},
 };
 
 /** A tree a record names, and who holds it. */
@@ -195,12 +204,7 @@ export function createWhereabouts(
 			return true;
 		}
 		if (kept.get(name)?.stamp === stamped.stamp) return true;
-		if (!stamped.plain) {
-			// Not a file the work tool writes, and reading a pipe never ends.
-			kept.set(name, { stamp: stamped.stamp, tree: undefined });
-			return true;
-		}
-		let text: string;
+		let text: string | undefined;
 		try {
 			text = await disk.read(path);
 		} catch (error) {
@@ -211,7 +215,8 @@ export function createWhereabouts(
 		}
 		let tree: Tree | undefined;
 		try {
-			tree = treeOf(JSON.parse(text));
+			// Not a plain file, so not one the work tool wrote.
+			tree = text === undefined ? undefined : treeOf(JSON.parse(text));
 		} catch {
 			// Broken as written, since a record is renamed into place whole:
 			// it names no tree until it is written again.
@@ -235,15 +240,10 @@ export function createWhereabouts(
 		// A listing taken while a record is renamed over itself can miss it
 		// on btrfs, so a record kept but not listed is looked at too, and
 		// stays while its file does.
+		// The gate bounds how many are read at once.
 		const names = [...new Set([...listed, ...kept.keys()])];
-		let whole = true;
-		for (let from = 0; from < names.length; from += AT_ONCE) {
-			const told = await Promise.all(
-				names.slice(from, from + AT_ONCE).map(refresh),
-			);
-			whole &&= told.every(Boolean);
-		}
-		return whole;
+		const told = await Promise.all(names.map(refresh));
+		return told.every(Boolean);
 	}
 
 	/**
@@ -295,12 +295,17 @@ export function createWhereabouts(
 		async dirsOf(session, cwd) {
 			const under = current();
 			if (!known) {
-				// Nothing read whole yet would answer the session's folder alone
-				// and miss every tree it holds: a stop counted late beats one
-				// missed, so each pass is waited for, however long, until one
-				// is whole. Parking asks only before and after a run nobody
-				// typed, so a stalled disk holds the agents under a stop,
-				// never Joel.
+				// Answering before the disk has said all it was asked once would
+				// answer with what little was read and miss the trees held: a
+				// stop counted late beats one missed, so until a pass is whole,
+				// each ask waits for its pass, however long. A disk that fails
+				// rather than stalls ends the pass at once, and its answer is
+				// what it could read. A stall holds the pass, and the turns at
+				// the disk it took, until the disk answers, so a conversation
+				// begun or reloaded meanwhile waits too; parking asks only
+				// around runs nobody typed, so that holds the agents under a
+				// stop, never Joel. Only a call that never ends would hold them
+				// for good, and a pipe, the one such file, is never waited on.
 				await under.done;
 			} else {
 				// One patience a pass, not one an asker, so a stuck pass holds

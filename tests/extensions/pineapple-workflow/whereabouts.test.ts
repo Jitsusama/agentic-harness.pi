@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
 	mkdtempSync,
 	renameSync,
@@ -78,13 +79,23 @@ function stalled(): Error {
 
 /** The real disk, watched: what it was asked, and what it is told to do. */
 function watchedDisk() {
-	const seen = { listings: 0, reads: [] as string[], mostRead: 0 };
+	const seen = { listings: 0, reads: [] as string[], mostAtOnce: 0 };
 	const hidden = new Set<string>();
 	const failing = new Set<string>();
 	const unstamped = new Set<string>();
 	const notPlain = new Set<string>();
 	const how = { hanging: false, listingFails: false, listingTakes: 0 };
-	let reading = 0;
+	let calling = 0;
+	/** `work`, counted among the calls under way while it runs. */
+	async function counted<T>(work: () => Promise<T>): Promise<T> {
+		calling += 1;
+		seen.mostAtOnce = Math.max(seen.mostAtOnce, calling);
+		try {
+			return await work();
+		} finally {
+			calling -= 1;
+		}
+	}
 	const disk: Partial<Disk> = {
 		async list(dir) {
 			seen.listings += 1;
@@ -96,29 +107,25 @@ function watchedDisk() {
 			}
 			return (await readdir(dir)).filter((name) => !hidden.has(name));
 		},
-		async stamp(path) {
-			if (unstamped.has(basename(path))) throw stalled();
-			const now = await stat(path);
-			return {
-				stamp: `${now.ino}:${now.mtimeMs}:${now.ctimeMs}:${now.size}`,
-				changed: now.mtimeMs,
-				plain: now.isFile() && !notPlain.has(basename(path)),
-			};
-		},
-		async read(path) {
-			seen.reads.push(basename(path));
-			reading += 1;
-			seen.mostRead = Math.max(seen.mostRead, reading);
-			try {
+		stamp: (path) =>
+			counted(async () => {
+				if (unstamped.has(basename(path))) throw stalled();
+				const now = await stat(path);
+				return {
+					stamp: `${now.ino}:${now.mtimeMs}:${now.ctimeMs}:${now.size}`,
+					changed: now.mtimeMs,
+				};
+			}),
+		read: (path) =>
+			counted(async () => {
+				seen.reads.push(basename(path));
 				if (failing.has(basename(path))) throw stalled();
 				// Long enough that reads let run together overlap, so the
-				// count of them at once sees every one.
+				// count of calls at once sees every one.
 				await new Promise((done) => setTimeout(done, 5));
+				if (notPlain.has(basename(path))) return undefined;
 				return await readFile(path, "utf8");
-			} finally {
-				reading -= 1;
-			}
-		},
+			}),
 	};
 	return { disk, seen, hidden, failing, unstamped, notPlain, how };
 }
@@ -259,7 +266,19 @@ describe("createWhereabouts", () => {
 		watched.notPlain.add("pipe.json");
 		const where = createWhereabouts(cuts, { disk: watched.disk });
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
-		expect(watched.seen.reads).toEqual(["mine.json"]);
+	});
+
+	it("never waits on a pipe in a record's place", {
+		timeout: 2_000,
+	}, async () => {
+		const cuts = cutsFolder();
+		record(cuts, "mine.json", mine("s1"));
+		// A pipe with no writer, whose reading would wait for good.
+		execFileSync("mkfifo", [join(cuts, "pipe.json")]);
+		expect(await createWhereabouts(cuts).dirsOf("s1", "/work")).toEqual([
+			"/work",
+			"/trees/mine",
+		]);
 	});
 
 	it("keeps what it knew of a record the disk fails to read, and reads it again", async () => {
@@ -299,7 +318,12 @@ describe("createWhereabouts", () => {
 		// Written in place, which leaves the folder as it was: only a pass
 		// that distrusts the failed one sees it.
 		watched.unstamped.clear();
-		writeFileSync(join(cuts, "mine.json"), JSON.stringify(mine("s2")));
+		// A new size, so the record's own stamp moves however coarse its
+		// times are.
+		writeFileSync(
+			join(cuts, "mine.json"),
+			JSON.stringify({ path: "/trees/mine", sessions: ["s2", "s3"] }),
+		);
 		expect(await where.dirsOf("s2", "/work")).toEqual(["/work", "/trees/mine"]);
 	});
 
@@ -417,7 +441,7 @@ describe("createWhereabouts", () => {
 		);
 		expect(dirs).toHaveLength(many + 1);
 		expect(dirs).toContain(`/trees/t${many - 1}`);
-		expect(watched.seen.mostRead).toBe(2);
+		expect(watched.seen.mostAtOnce).toBe(2);
 	});
 
 	it("reads two at a time over every conversation on the host", async () => {
@@ -436,7 +460,7 @@ describe("createWhereabouts", () => {
 			first.dirsOf("s1", "/work"),
 			second.dirsOf("s1", "/work"),
 		]);
-		expect(watched.seen.mostRead).toBe(2);
+		expect(watched.seen.mostAtOnce).toBe(2);
 	});
 });
 
