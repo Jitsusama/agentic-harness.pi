@@ -1,5 +1,5 @@
 /**
- * pi-fence's run on a Mac (lib/internal/fence-run.ts): the
+ * pi-fence's run on a Mac (lib/internal/fence/fence-run.ts): the
  * sandbox-exec profile a fenced command runs under, read as sandbox-exec
  * reads it, the last matching rule deciding. It tries itself first, hides
  * ssh's keys and pi's and mycelium's state whatever is granted, writes
@@ -24,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	type FenceRunAsk,
 	fenceRunText,
-} from "../../../lib/internal/fence-run.ts";
+} from "../../../../lib/internal/fence/fence-run.ts";
 
 /** A file rule in a sandbox-exec profile: what it does, to which operations, on which path. */
 const RULE =
