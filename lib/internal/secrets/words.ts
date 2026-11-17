@@ -219,9 +219,9 @@ interface Segment {
  * slash before the run and to its first after, so a path or an address
  * just before it exempts nothing. A run is read whole, and, when text
  * follows it, cut at its last slash too, so a path opening it exempts
- * nothing either, unless the text repeats or shortens the name the run
- * ends with (`repeats`), as a link's text does its address's. One pass
- * over the word.
+ * nothing either, unless the text shows the name the run ends with
+ * (`repeats`), as a link's text shows its address's. One pass over the
+ * word.
  */
 function runsAcross(word: string): boolean {
 	if (!word.includes("\x1b]")) return false;
@@ -344,9 +344,14 @@ export function replaceWords(
 }
 
 /**
- * Whether a link's `text` repeats the `name` its address ends with, or
- * shortens it, as a commit's short id or a file's name without its line
- * does, the name read as written and with its percent escapes decoded.
+ * Whether a link's `text` is the `name` its address ends with, as
+ * written or decoded, or that name without an extension holding no
+ * escape (`stemOf`), or, for an all-hex name, a
+ * commit's short id of `SHORT_ID` characters or more, so the address
+ * shows nothing the text doesn't beyond a commit's id. The text reaches
+ * here cut at its first break, joiner or slash, so a name holding one is
+ * matched by its first piece, cut the same way; a line after a name is a
+ * piece of its own. Any other shortening of it is none.
  */
 function repeats(text: string, name: string): boolean {
 	let plain = name;
@@ -355,10 +360,29 @@ function repeats(text: string, name: string): boolean {
 	} catch {
 		// A percent that escapes nothing: the name is read as written.
 	}
-	return [name, plain].some(
-		(each) => text.startsWith(each) || each.startsWith(text),
+	const [piece = ""] = plain.split(PIECE_BREAK);
+	const [first = ""] = piece.split("/");
+	return (
+		[name, plain].some((each) => text === each || text === stemOf(each)) ||
+		text === first ||
+		(text.length >= SHORT_ID && HEX.test(plain) && plain.startsWith(text))
 	);
 }
+
+/**
+ * A file's `name` without its extension, or none when it has none or
+ * its extension holds an escape, which could hide a later dot.
+ */
+function stemOf(name: string): string | undefined {
+	const dot = name.lastIndexOf(".");
+	return dot > 0 && !name.includes("%", dot) ? name.slice(0, dot) : undefined;
+}
+
+/** The fewest characters a commit's short id shows, as git prints one. */
+const SHORT_ID = 7;
+
+/** A name written in hex digits alone, as a commit's id is. */
+const HEX = /^[\dA-Fa-f]+$/;
 
 /**
  * Whether a value, its escapes aside, holds what could be a credential
