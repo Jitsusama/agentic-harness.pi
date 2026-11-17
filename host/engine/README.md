@@ -162,12 +162,12 @@ the key has been renewed (renewing-stream.ts), since pi retries no 401.
 createEngine (engine.ts) is the service's engine, made from and answering
 what contract.ts declares. engine.ts holds a conversation's steps in the
 order each relies on (register, begin, end, release) and its answers to
-the service; how pi builds, replaces and loses a conversation's session
-is conversation-build.ts, what its requests need and keep past a park
-(its environment, key, agent folder and providers) is kept-requests.ts,
-and what a stop keeps, a close ends and a restart would end is
-stopping.ts. resources.ts turns the resources pi's flags
-would choose into pi's loader options, and requests.ts reads what an open
+the service. How pi builds, replaces and loses a conversation's session
+is conversation-build.ts. What its requests need (its environment, on
+the host's key) and keep past a park (its agent folder and providers) is
+kept-requests.ts. What a stop keeps, a close ends and a restart would
+end is stopping.ts. resources.ts turns the resources pi's flags would
+choose into pi's loader options, and requests.ts reads what an open
 or adopt names. It loads the host's pi
 (host-pi.ts refuses one lacking any host patch), pins that pi as the
 install every conversation's subagents run (subagent-install.ts), since

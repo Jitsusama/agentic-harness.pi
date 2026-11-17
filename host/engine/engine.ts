@@ -45,7 +45,11 @@ import type {
 	ResumePhase,
 } from "../service/backend.ts";
 import { carriedShells } from "./carried-shells.ts";
-import type { ConversationTraits, EngineOptions, HostEngine } from "./contract.ts";
+import type {
+	ConversationTraits,
+	EngineOptions,
+	HostEngine,
+} from "./contract.ts";
 import { conversationBuilds, type Live } from "./conversation-build.ts";
 import {
 	HARNESS_SETTINGS_VARIABLE,
@@ -71,12 +75,7 @@ import {
 } from "./quiet-collection.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
-import {
-	backgroundIn,
-	heavyIn,
-	restartEnds,
-	stopKeeping,
-} from "./stopping.ts";
+import { backgroundIn, heavyIn, restartEnds, stopKeeping } from "./stopping.ts";
 import {
 	hostedSubagentInstall,
 	pinSubagentInstall,
@@ -558,8 +557,9 @@ export async function createEngine(
 		},
 
 		async dropped(sessionId, why) {
-			requests.forget(sessionId);
+			warming.stop(sessionId);
 			logs.release(sessionId);
+			requests.forget(sessionId);
 			parked.closed(sessionId);
 			await stopping.dropped(sessionId);
 			await options.screens?.closed(sessionId, why);

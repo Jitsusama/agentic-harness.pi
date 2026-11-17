@@ -58,7 +58,7 @@ export interface KeptRequests {
 	keepProviders(sessionId: string, runtime: ModelRuntime): void;
 	/** Take up what a conversation resting parked from an earlier host kept, and warm it. */
 	restore(entry: RosterEntry): void;
-	/** Stop warming a conversation and let go of all it kept. */
+	/** Let go of all a conversation's requests kept, once its warms have stopped. */
 	forget(sessionId: string): void;
 }
 
@@ -174,7 +174,6 @@ export function keptRequests(options: {
 		},
 
 		forget(sessionId) {
-			warming.stop(sessionId);
 			agentDirs.delete(sessionId);
 			environments.delete(sessionId);
 			providers.delete(sessionId);
