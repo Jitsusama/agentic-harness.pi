@@ -2,9 +2,18 @@
  * The service's durable roster for one realm-kind host, behind one lock.
  *
  * Holds are written before the engine registers a conversation and only
- * dropped after a deliberate close or release commits, so a crash at any
- * point leaves a conversation held rather than lost. Stopping the host
+ * dropped after a deliberate close or release commits, or by a start that
+ * finds the session file gone, so a crash at any point leaves a
+ * conversation held rather than lost. Stopping the host
  * leaves every hold in place for the next start to resume.
+ *
+ * A start whose lock is held by a host still running, or one it cannot
+ * judge, looks again every second for up to a minute, since a restart
+ * can start the next host while the last still parks what it ran. It
+ * never ends the last host itself: one still stopping has parks to
+ * write, and systemd's stop timeout owns that kill. Past the minute it
+ * refuses, naming the holder and how long it waited, and the unit's
+ * restart policy tries again.
  */
 import { randomBytes } from "node:crypto";
 import {
@@ -18,6 +27,7 @@ import {
 	unlink,
 } from "node:fs/promises";
 import { resolve } from "node:path";
+import { setTimeout as pauseFor } from "node:timers/promises";
 import { isOwner } from "../../lib/core/process/index.ts";
 import {
 	ENV_NAME,
@@ -38,6 +48,25 @@ import { writeWhole } from "../../lib/internal/write-whole.ts";
 
 const DIRECTORY_MODE = 0o700;
 const FILE_MODE = 0o600;
+
+/** How long, in ms, a start waits on a lock's holder to finish stopping. */
+export const ROSTER_WAIT_MS = 60_000;
+
+/** How often, in ms, a waiting start looks at the lock's holder again. */
+const ROSTER_LOOK_MS = 1_000;
+
+/**
+ * How a start waits on a lock another host holds: `within` ms in all,
+ * `pause` between looks and `now` to tell the time, each settable for
+ * tests. `waiting` hears once that a wait has begun, so whoever waits on
+ * the start knows it still moves.
+ */
+export interface RosterWait {
+	readonly waiting?: (holder: TickedOwner) => Promise<void>;
+	readonly within?: number;
+	readonly pause?: (ms: number) => Promise<void>;
+	readonly now?: () => number;
+}
 
 // Name parts that say a variable carries a credential, which never goes to
 // disk: keys come from the host per request.
@@ -83,6 +112,7 @@ export async function openRoster(options: {
 	dir?: string;
 	owner?: TickedOwner;
 	standing?: (owner: TickedOwner) => Promise<Standing>;
+	wait?: RosterWait;
 }): Promise<HostRoster> {
 	const dir = options.dir ?? rosterDir();
 	const path = rosterPath(options.key, dir);
@@ -91,7 +121,7 @@ export async function openRoster(options: {
 	await privateDirectory(dir);
 	const lock = `${path}.lock`;
 	const mine = JSON.stringify({ key: options.key, owner });
-	await acquire(lock, mine, options.standing ?? tickedStanding);
+	await acquire(lock, mine, options.standing ?? tickedStanding, options.wait);
 	let sessions: RosterEntry[];
 	try {
 		sessions = [...(await existing(path, options.key))];
@@ -238,18 +268,53 @@ async function acquire(
 	lock: string,
 	mine: string,
 	standing: (owner: TickedOwner) => Promise<Standing>,
+	wait: RosterWait = {},
 ): Promise<void> {
-	if (await create(lock, mine)) return;
-	const seen = await readLock(lock);
-	const holder = lockOwner(seen);
-	if (!holder) throw new Error(`Roster lock is unreadable; inspect ${lock}`);
-	const verdict = await standing(holder);
-	if (verdict !== "gone")
-		throw new Error(
-			verdict === "running"
-				? "Another host holds this roster"
-				: "Cannot tell whether the roster's last host still runs",
-		);
+	const within = wait.within ?? ROSTER_WAIT_MS;
+	const pause = wait.pause ?? ((ms: number) => pauseFor(ms));
+	const now = wait.now ?? Date.now;
+	const began = now();
+	let told = false;
+	for (;;) {
+		if (await create(lock, mine)) return;
+		const seen = await readLock(lock);
+		const waited = now() - began;
+		// Released between the two, as a last host does as it stops: try
+		// again, within the wait, rather than call it unreadable.
+		if (seen === undefined && waited < within) {
+			await pause(Math.min(ROSTER_LOOK_MS, within - waited));
+			continue;
+		}
+		const holder = lockOwner(seen);
+		if (!holder) throw new Error(`Roster lock is unreadable; inspect ${lock}`);
+		const verdict = await standing(holder);
+		if (verdict === "gone") return takeOver(lock, mine, seen);
+		if (waited >= within) throw refusal(verdict, holder, waited);
+		if (!told) await wait.waiting?.(holder);
+		told = true;
+		await pause(Math.min(ROSTER_LOOK_MS, within - waited));
+	}
+}
+
+function refusal(
+	verdict: Exclude<Standing, "gone">,
+	holder: TickedOwner,
+	waited: number,
+): Error {
+	const after = `after waiting ${Math.round(waited / 1000)} s`;
+	const pid = `pid ${holder.pid}`;
+	return new Error(
+		verdict === "running"
+			? `Another host holds this roster: ${pid} still runs ${after}`
+			: `Cannot tell whether the roster's last host, ${pid}, still runs ${after}`,
+	);
+}
+
+async function takeOver(
+	lock: string,
+	mine: string,
+	seen: string | undefined,
+): Promise<void> {
 	// Move the dead holder's lock aside rather than unlinking it, then
 	// confirm it was the one judged dead: a contender that took over in
 	// between gets its lock put back, and this start refuses.

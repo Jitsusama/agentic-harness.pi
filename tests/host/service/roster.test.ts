@@ -3,7 +3,10 @@ import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openRoster } from "../../../host/service/roster.ts";
+import {
+	openRoster,
+	ROSTER_WAIT_MS,
+} from "../../../host/service/roster.ts";
 import {
 	heldSessionStatus,
 	rosterPath,
@@ -39,6 +42,21 @@ function entry(sessionId: string, file = `/sessions/${sessionId}.jsonl`) {
 
 function judged(verdict: Standing) {
 	return async () => verdict;
+}
+
+/** A clock that moves only as the start pauses, so a minute takes none. */
+function clock(onPause: () => Promise<void> = async () => {}) {
+	const at = { now: 0 };
+	return {
+		at,
+		wait: {
+			now: () => at.now,
+			pause: async (ms: number) => {
+				at.now += ms;
+				await onPause();
+			},
+		},
+	};
 }
 
 describe("openRoster", () => {
@@ -96,16 +114,80 @@ describe("openRoster", () => {
 		await recovered.close();
 	});
 
-	it("refuses while the lock's holder runs or cannot be judged", async () => {
+	it("refuses while the lock's holder runs or cannot be judged, a minute on and no later", async () => {
 		const live = await openRoster({ key: KEY, dir, owner: first });
-		for (const verdict of ["running", "unknown"] as const)
+		const said = {
+			running:
+				"Another host holds this roster: pid 101 still runs after waiting 60 s",
+			unknown:
+				"Cannot tell whether the roster's last host, pid 101, still runs after waiting 60 s",
+		};
+		for (const verdict of ["running", "unknown"] as const) {
+			const { at, wait } = clock();
 			await expect(
-				openRoster({ key: KEY, dir, owner: second, standing: judged(verdict) }),
-			).rejects.toThrow();
+				openRoster({
+					key: KEY,
+					dir,
+					owner: second,
+					standing: judged(verdict),
+					wait,
+				}),
+			).rejects.toThrow(said[verdict]);
+			expect(at.now, `waited the minute on a holder ${verdict}`).toBe(
+				ROSTER_WAIT_MS,
+			);
+		}
 		await live.hold(entry(A));
 		expect(live.entries()).toHaveLength(1);
 		await live.close();
 	});
+
+	it("takes over from a last host that ends within the minute", async () => {
+		const stopping = await openRoster({ key: KEY, dir, owner: first });
+		await stopping.hold(entry(A));
+		let looks = 0;
+		const told: number[] = [];
+		const { at, wait } = clock();
+		const next = await openRoster({
+			key: KEY,
+			dir,
+			owner: second,
+			standing: async () => {
+				looks += 1;
+				return looks < 5 ? "running" : "gone";
+			},
+			wait: {
+				...wait,
+				waiting: async ({ pid }) => {
+					told.push(pid);
+				},
+			},
+		});
+		expect(at.now, "four looks a second apart").toBe(4_000);
+		expect(told, "told once that it waits, and on whom").toEqual([101]);
+		expect(next.entries().map((held) => held.sessionId)).toEqual([A]);
+		expect(
+			JSON.parse(await readFile(`${rosterPath(KEY, dir)}.lock`, "utf8")),
+		).toMatchObject({ owner: second });
+		await next.close();
+	});
+
+	it("takes the lock a last host lets go of as it stops", async () => {
+		const stopping = await openRoster({ key: KEY, dir, owner: first });
+		await stopping.hold(entry(A));
+		const { at, wait } = clock(() => stopping.close());
+		const next = await openRoster({
+			key: KEY,
+			dir,
+			owner: second,
+			standing: judged("running"),
+			wait,
+		});
+		expect(at.now, "one look, then the lock was free").toBe(1_000);
+		expect(next.entries().map((held) => held.sessionId)).toEqual([A]);
+		await next.close();
+	});
+
 
 	it("refuses a malformed lock instead of taking it", async () => {
 		await openRoster({ key: KEY, dir, owner: first }).then((r) => r.close());

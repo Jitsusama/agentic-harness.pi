@@ -37,15 +37,20 @@ import {
 } from "./backend.ts";
 import type { ControlBackend } from "./dispatch.ts";
 import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
-import { openRoster } from "./roster.ts";
+import { openRoster, type RosterWait } from "./roster.ts";
 import { listenControl, type ViewerBridge } from "./server.ts";
 
 /**
- * A step a starting host has reached: building its engine, then each held
- * conversation it resumes. A host is ready only after the last, so these
- * are how whoever waits on it knows a slow start still moves.
+ * A step a starting host has reached: waiting on a last host that still
+ * holds the roster's lock, only when one does, then building its engine,
+ * then each held conversation it resumes. A host is ready only after the
+ * last, so these are how whoever waits on it knows a slow start still
+ * moves.
  */
-export type StartStep = { readonly step: "engine" } | Resuming;
+export type StartStep =
+	| { readonly step: "roster"; readonly holder: number }
+	| { readonly step: "engine" }
+	| Resuming;
 
 /** A running host, until stop. */
 export interface ServingHost {
@@ -94,6 +99,8 @@ export async function serveHost(options: {
 	registryDir?: string;
 	owner?: TickedOwner;
 	standing?: (owner: TickedOwner) => Promise<Standing>;
+	/** How long and how a start waits on a lock another host holds. */
+	rosterWait?: RosterWait;
 	/** Where dropped stale-context rejections are written. */
 	rejectionLog?: string;
 	/**
@@ -120,6 +127,11 @@ export async function serveHost(options: {
 		dir: options.rosterDir,
 		owner,
 		standing: options.standing,
+		wait: {
+			waiting: async ({ pid }) =>
+				options.starting?.({ step: "roster", holder: pid }),
+			...options.rosterWait,
+		},
 	});
 	let host: SessionHost | undefined;
 	let listener: Awaited<ReturnType<typeof listenControl>> | undefined;

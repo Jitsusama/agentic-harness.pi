@@ -182,6 +182,7 @@ export interface HostRunOptions {
 		| "rejectionLog"
 		| "owner"
 		| "standing"
+		| "rosterWait"
 		| "rollout"
 	>;
 }
@@ -470,6 +471,8 @@ export function phaseTimes(
 
 /** A start step in words, as the journal and systemd's status show it. */
 export function describeStep(step: StartStep): string {
+	if (step.step === "roster")
+		return `waiting on the last host, pid ${step.holder}, to let go of the roster`;
 	return step.step === "engine"
 		? "building the engine"
 		: `resuming ${step.number} of ${step.of}: ${step.sessionId}`;

@@ -110,8 +110,13 @@ describe("serveHost", () => {
 			engine: async (h) => engine(h),
 		});
 		try {
+			// A start waits a minute on a host still running; none here.
 			await expect(
-				serveHost({ ...places(), engine: async (h) => engine(h) }),
+				serveHost({
+					...places(),
+					rosterWait: { within: 0 },
+					engine: async (h) => engine(h),
+				}),
 			).rejects.toThrow("Another host holds this roster");
 			expect((await listed(first.path)).host).toEqual(first.identity);
 		} finally {

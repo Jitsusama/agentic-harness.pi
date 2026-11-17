@@ -140,7 +140,10 @@ describe("hostKind", () => {
 });
 
 describe("describeStep", () => {
-	it("names the engine, and which conversation of how many", () => {
+	it("names the last host waited on, the engine, and which conversation of how many", () => {
+		expect(describeStep({ step: "roster", holder: 41 })).toBe(
+			"waiting on the last host, pid 41, to let go of the roster",
+		);
 		expect(describeStep({ step: "engine" })).toBe("building the engine");
 		expect(
 			describeStep({ step: "resume", number: 2, of: 5, sessionId: "s" }),

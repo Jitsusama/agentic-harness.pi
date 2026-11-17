@@ -165,10 +165,14 @@ input pipeline or screen. No unit or running host is installed yet.
   in the journal, and the host starts without it.
 - roster.ts: the durable realm-kind roster behind one lock per key.
   Holds are written before registration and dropped only after a close
-  or release commits, or once a conversation ended itself; replace swaps
-  one hold for another in one write. Stop and kill -9 keep them. A live
-  or unjudgeable lock holder, a malformed lock or an unreadable roster
-  refuses start. A dead holder's lock is moved aside and checked, never
+  or release commits, once a conversation ended itself, or at a start
+  that finds its session file gone; replace swaps one hold for another
+  in one write. Stop and kill -9 keep them. A start waits up to a
+  minute on a live or unjudgeable lock holder, looking each second,
+  since a restart can start it while the last host still parks; past
+  that it refuses, naming the holder's pid and the wait, and never ends
+  the holder itself. A malformed lock or an unreadable roster refuses
+  start at once. A dead holder's lock is moved aside and checked, never
   just unlinked.
   Each hold keeps the launch environment the engine derived at open,
   such as an experiment arm, for resume to replay; one naming a
