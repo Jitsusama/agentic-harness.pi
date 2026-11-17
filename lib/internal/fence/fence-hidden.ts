@@ -15,9 +15,12 @@
  * (`../sandbox/gcloud-broker.ts`); and the login keyring with what
  * systemd sealed for the person (its password, eero's session), which
  * Landlock already keeps from systemd's credential service, so no copy
- * leaves for an offline guess either (IDEGAT, 13 November). A path
- * ending in `/` is a folder, emptied whole. In `~/.ssh` only what names
- * hosts and keys is kept: public keys, settings and known hosts.
+ * leaves for an offline guess either (IDEGAT, 13 November); and the
+ * Aquifer cells' state, where each basin's provider login lies, which
+ * only the mycelium node's provider reads, outside every fence (ISXEG8
+ * and S99IA2, 17 November). A path ending in `/` is a folder, emptied
+ * whole, and no fenced run may start inside it. In `~/.ssh` only what
+ * names hosts and keys is kept: public keys, settings and known hosts.
  */
 
 import { readFileSync } from "node:fs";
