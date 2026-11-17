@@ -5,10 +5,11 @@
  * Each is run from pi's own process, never through a shell command,
  * since the agent fence keeps niri's socket, the shell's ipc and the
  * sessions kitty's remote control from every command an agent runs
- * (`NEVER_THROUGH` in fence.ts). Each is given a few seconds, and one
- * that fails or doesn't answer in time leaves the window open, as
- * parking always left it. They run only as a plain pi parks, idle by
- * then, so waiting on them holds up nothing Joel is doing there.
+ * (`NEVER_THROUGH` in `../fence/fence.ts`). Each is given a few
+ * seconds, and one that fails or doesn't answer in time leaves the
+ * window open, as parking always left it. They run only as a plain pi
+ * parks, idle by then, so waiting on them holds up nothing Joel is
+ * doing there.
  *
  * The launcher is asked to keep the window's place asleep
  * (`qs ipc call sessions keepPlaceAsleep <session>`) before it closes,
