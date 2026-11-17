@@ -370,7 +370,7 @@ export interface Board {
  */
 export function createBoard(
 	dir: string,
-	options: Pick<WholeWritesOptions, "failed"> = {},
+	options: Pick<WholeWritesOptions, "failed" | "write"> = {},
 ): Board {
 	const file = (session: string) =>
 		join(dir, `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`);

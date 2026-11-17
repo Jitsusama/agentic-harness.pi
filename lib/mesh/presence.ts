@@ -525,7 +525,7 @@ function questChain(
 /** The presence in this folder, a file a peer, written off a host's thread. */
 export function createPresences(
 	dir: string,
-	options: Pick<WholeWritesOptions, "failed"> = {},
+	options: Pick<WholeWritesOptions, "failed" | "write"> = {},
 ): Presences {
 	const file = (session: string) =>
 		join(dir, `${session.replace(/[^A-Za-z0-9-]/g, "_")}.json`);

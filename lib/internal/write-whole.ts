@@ -35,6 +35,7 @@ import {
 	writeFile as writeFileOff,
 } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { processGlobal } from "./process/process-global.ts";
 
 /** The subfolder a file is written in before it is renamed into place. */
 export const WRITING = ".writing";
@@ -75,7 +76,12 @@ export function writeWhole(
 		else writeFileSync(staged, content, { mode: options.mode });
 		renameSync(staged, file);
 	} catch (error) {
-		rmSync(staged, { force: true });
+		try {
+			rmSync(staged, { force: true });
+		} catch {
+			// The write's own error is the one to say; a staged file left is
+			// cleared by clearWriting.
+		}
 		throw error;
 	}
 }
@@ -93,7 +99,12 @@ export async function writeWholeOff(
 		else await writeFileOff(staged, content, { mode: options.mode });
 		await renameOff(staged, file);
 	} catch (error) {
-		await rmOff(staged, { force: true });
+		try {
+			await rmOff(staged, { force: true });
+		} catch {
+			// The write's own error is the one to say; a staged file left is
+			// cleared by clearWriting.
+		}
 		throw error;
 	}
 }
@@ -116,16 +127,19 @@ async function writeDurablyOff(
 export type Wanted = string | null;
 
 /**
- * One writer's files, each written whole off the thread in the order it
+ * A writer's files, each written whole off the thread in the order
  * asked: a file's next write starts only once the one before it landed,
  * and asks made while one is out are written as the latest of them.
+ * The order is the process's, whichever writer asks, so a runtime a
+ * reload replaced can't land its write after its successor's.
  */
 export interface WholeWrites {
 	/** Have `file` become `wanted`, off the thread, after every earlier ask. */
 	ask(file: string, wanted: Wanted): void;
 	/**
 	 * Have `file` become `wanted` now, on the thread, as a writer that is
-	 * ending must; a write still out is written over once it lands.
+	 * ending must; a write still out is written over once it lands, and
+	 * one that throws is written again off the thread.
 	 */
 	now(file: string, wanted: Wanted): void;
 	/** What `file` is asked to become and isn't yet on disk; none when nothing waits. */
@@ -157,14 +171,21 @@ export interface WholeWritesOptions {
 /** The session log's entry for a write off the thread that couldn't land. */
 export const WRITE_FAILED_ENTRY = "write-failed";
 
-/** A failed write as the session log keeps it: the file, and why. */
-export function writeFailure(
-	file: string,
-	error: unknown,
-): { readonly file: string; readonly error: string } {
-	return {
-		file,
-		error: error instanceof Error ? error.message : String(error),
+/**
+ * How to say a write off the thread that couldn't land: an entry in the
+ * session's log, through `append`, and a line on standard error, which
+ * is a host's journal, so someone reads it. Only a host writes off its
+ * thread, so a plain pi's window never shows the line.
+ */
+export function sayWriteFailed(
+	append: (type: string, data: unknown) => void,
+): (file: string, error: unknown) => void {
+	return (file, error) => {
+		const said = error instanceof Error ? error.message : String(error);
+		append(WRITE_FAILED_ENTRY, { file, error: said });
+		process.stderr.write(
+			`couldn't write ${file} off the thread, so it is written again: ${said}\n`,
+		);
 	};
 }
 
@@ -172,7 +193,10 @@ export function writeFailure(
 const RETRY_FIRST_MS = 5000;
 const RETRY_MOST_MS = 60_000;
 
-/** One file's writes: what is wanted, how many asks, and which last landed. */
+/**
+ * One file's writes: what is wanted, how many asks, which last landed,
+ * and how the writer that asked last has it written and said.
+ */
 interface FileWrites {
 	wanted: Wanted;
 	/** Asks made, counting up; `landed` reaching it means nothing waits. */
@@ -183,54 +207,101 @@ interface FileWrites {
 	failing: boolean;
 	delay: number;
 	retry?: ReturnType<typeof setTimeout>;
+	first: number;
+	most: number;
+	write: (file: string, wanted: Wanted) => Promise<void>;
+	failed?: (file: string, error: unknown) => void;
 }
 
-/** A writer's files, written whole off the thread in the order it asks. */
+// Every file's writes, for the whole process and every copy of this
+// module: a reload loads a fresh copy, and its runtime writes the same
+// session's files while the one it replaced may have a write out. The
+// key names the shape; a change to FileWrites takes a new one.
+const files = processGlobal(
+	"agentic-harness.internal/write-whole/files.v1",
+	() => new Map<string, FileWrites>(),
+);
+
+const waits = (one: FileWrites) => one.landed !== one.asked;
+
+/** A file with nothing waiting, out or to try again is let go. */
+function letGo(file: string, one: FileWrites): void {
+	if (!waits(one) && !one.out && one.retry === undefined) files.delete(file);
+}
+
+/** Say a file's write failed, once until one of its writes lands. */
+function sayFailed(file: string, one: FileWrites, error: unknown): void {
+	if (one.failing) return;
+	one.failing = true;
+	try {
+		one.failed?.(file, error);
+	} catch {
+		// Saying it failed is best effort; the write is tried again anyway.
+	}
+}
+
+/** Write a failed file again after its spell, which doubles to its most. */
+function later(file: string, one: FileWrites): void {
+	if (one.out || one.retry !== undefined) return;
+	one.retry = setTimeout(() => {
+		one.retry = undefined;
+		void drain(file, one);
+	}, one.delay);
+	one.retry.unref?.();
+	one.delay = Math.min(one.delay * 2, one.most);
+}
+
+/** Write a file's latest ask off the thread until nothing waits. */
+async function drain(file: string, one: FileWrites): Promise<void> {
+	if (one.out) return;
+	one.out = true;
+	let failure: { error: unknown } | undefined;
+	try {
+		while (waits(one)) {
+			const asked = one.asked;
+			await one.write(file, one.wanted);
+			// What landed is this ask's: a write made on the thread since is
+			// written over, so it is written again as the latest.
+			one.landed = asked;
+			one.failing = false;
+			one.delay = one.first;
+		}
+	} catch (error) {
+		failure = { error };
+	} finally {
+		one.out = false;
+	}
+	// A write that failed after the thread landed its file fails nothing.
+	if (failure && waits(one)) {
+		sayFailed(file, one, failure.error);
+		later(file, one);
+	}
+	letGo(file, one);
+}
+
+/** Write a file's latest ask on the thread, written again later if it throws. */
+function onThread(file: string, one: FileWrites): void {
+	try {
+		writeOn(file, one.wanted);
+	} catch (error) {
+		later(file, one);
+		throw error;
+	}
+	one.landed = one.asked;
+	one.failing = false;
+	one.delay = one.first;
+	clearTimeout(one.retry);
+	one.retry = undefined;
+	letGo(file, one);
+}
+
+/** A writer's files, written whole off the thread in the order asked. */
 export function wholeWrites(options: WholeWritesOptions = {}): WholeWrites {
 	const first = options.retry?.first ?? RETRY_FIRST_MS;
 	const most = options.retry?.most ?? RETRY_MOST_MS;
 	const write = options.write ?? writeOff;
-	const files = new Map<string, FileWrites>();
-	const waits = (one: FileWrites) => one.landed !== one.asked;
-	// A file with nothing waiting, out or to try again is let go.
-	const letGo = (file: string, one: FileWrites) => {
-		if (!waits(one) && !one.out && one.retry === undefined) files.delete(file);
-	};
-	const failed = (file: string, one: FileWrites, error: unknown) => {
-		if (one.failing) return;
-		one.failing = true;
-		try {
-			options.failed?.(file, error);
-		} catch {
-			// Saying it failed is best effort; the write is tried again anyway.
-		}
-	};
-	const drain = async (file: string, one: FileWrites): Promise<void> => {
-		if (one.out) return;
-		one.out = true;
-		try {
-			while (waits(one)) {
-				const asked = one.asked;
-				await write(file, one.wanted);
-				// What landed is this ask's: a write made on the thread since is
-				// written over, so it is written again as the latest.
-				one.landed = asked;
-				one.failing = false;
-				one.delay = first;
-			}
-		} catch (error) {
-			failed(file, one, error);
-			one.retry = setTimeout(() => {
-				one.retry = undefined;
-				void drain(file, one);
-			}, one.delay);
-			one.retry.unref?.();
-			one.delay = Math.min(one.delay * 2, most);
-		} finally {
-			one.out = false;
-			letGo(file, one);
-		}
-	};
+	// What this writer asked, so it settles only its own.
+	const mine = new Set<string>();
 	const asking = (file: string, wanted: Wanted): FileWrites => {
 		const one = files.get(file) ?? {
 			wanted,
@@ -239,19 +310,17 @@ export function wholeWrites(options: WholeWritesOptions = {}): WholeWrites {
 			out: false,
 			failing: false,
 			delay: first,
+			first,
+			most,
+			write,
 		};
 		one.wanted = wanted;
 		one.asked += 1;
+		// The writer that asked last writes it, and is told if it fails.
+		Object.assign(one, { first, most, write, failed: options.failed });
 		files.set(file, one);
+		mine.add(file);
 		return one;
-	};
-	const onThread = (file: string, one: FileWrites) => {
-		writeOn(file, one.wanted);
-		one.landed = one.asked;
-		one.failing = false;
-		clearTimeout(one.retry);
-		one.retry = undefined;
-		letGo(file, one);
 	};
 	return {
 		ask(file, wanted) {
@@ -275,13 +344,16 @@ export function wholeWrites(options: WholeWritesOptions = {}): WholeWrites {
 			return waiting;
 		},
 		settle() {
-			for (const [file, one] of [...files]) {
-				if (!waits(one)) continue;
+			for (const file of [...mine]) {
+				const one = files.get(file);
+				if (!one) mine.delete(file);
+				if (!one || !waits(one)) continue;
 				try {
 					onThread(file, one);
 				} catch (error) {
-					// Every other file still settles; this one is said and kept.
-					failed(file, one, error);
+					// Every other file still settles; this one is said, and
+					// written again off the thread.
+					sayFailed(file, one, error);
 				}
 			}
 		},
