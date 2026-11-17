@@ -3,19 +3,79 @@
  * nothing changes; on, the stand-ins lead PATH and name the machines.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	guardedEnvironment,
 	machinesFrom,
+	readSshGuard,
 	refusesBySetting,
 	SSH_GUARD_BIN,
+	SSH_GUARD_HERE,
 	SSH_GUARD_MACHINES,
 	SSH_GUARD_OFF,
 	type SshGuard,
+	type SshGuardSources,
 	watchSshGuard,
 } from "../../../../lib/internal/shell/ssh-guard.ts";
 
-const ON: SshGuard = { refuse: true, machines: ["optimus", "equilibrius"] };
+const ON: SshGuard = {
+	refuse: true,
+	machines: ["optimus", "equilibrius"],
+	here: "optimus",
+};
+
+const NAMED = JSON.stringify({
+	Ok: { Machines: [{ name: "optimus" }, { name: "equilibrius" }] },
+});
+
+/** Sources saying `section`, the node answering `answer`, asked how often. */
+function sources(section: unknown, answer: string | undefined) {
+	const asked = { node: 0 };
+	const said: SshGuardSources = {
+		section: async () => section,
+		machines: async () => {
+			asked.node += 1;
+			return answer;
+		},
+		here: "optimus",
+	};
+	return { said, asked };
+}
+
+describe("reading the guard", () => {
+	it("is off without asking the node while the setting is off", async () => {
+		const { said, asked } = sources(undefined, NAMED);
+		expect(await readSshGuard(ON, said)).toBe(SSH_GUARD_OFF);
+		expect(asked.node).toBe(0);
+	});
+
+	it("names the node's machines and this one while on", async () => {
+		const { said } = sources({ refuse: true }, NAMED);
+		expect(await readSshGuard(SSH_GUARD_OFF, said)).toEqual(ON);
+	});
+
+	it("keeps the machines read before when the node doesn't answer, and this one always", async () => {
+		const { said } = sources({ refuse: true }, undefined);
+		expect((await readSshGuard(ON, said)).machines).toEqual([
+			"optimus",
+			"equilibrius",
+		]);
+		expect((await readSshGuard(SSH_GUARD_OFF, said)).machines).toEqual([
+			"optimus",
+		]);
+	});
+
+	it("throws when the config can't be read, so a watch keeps the guard", async () => {
+		const unread: SshGuardSources = {
+			section: async () => {
+				throw new Error("half written");
+			},
+			machines: async () => NAMED,
+			here: "optimus",
+		};
+		await expect(readSshGuard(ON, unread)).rejects.toThrow("half written");
+	});
+});
 
 describe("the ssh guard's setting", () => {
 	it("refuses only when its section says refuse: true", () => {
@@ -49,6 +109,7 @@ describe("a command's environment under the guard", () => {
 		const guarded = guardedEnvironment(env, ON);
 		expect(guarded.PATH).toBe(`${SSH_GUARD_BIN}:/usr/bin:/bin`);
 		expect(guarded[SSH_GUARD_MACHINES]).toBe("optimus equilibrius");
+		expect(guarded[SSH_GUARD_HERE]).toBe("optimus");
 		expect(guarded.HOME).toBe("/h");
 		expect(guardedEnvironment({}, ON).PATH).toBe(SSH_GUARD_BIN);
 	});
@@ -69,5 +130,29 @@ describe("watching the guard", () => {
 		await Promise.resolve();
 		expect(watch.current()).toBe(ON);
 		watch.stop();
+	});
+
+	it("reads again each minute until stopped, dropping a read that lands late", async () => {
+		vi.useFakeTimers();
+		try {
+			const reads: ((guard: SshGuard) => void)[] = [];
+			const watch = watchSshGuard(
+				() => new Promise<SshGuard>((resolve) => reads.push(resolve)),
+				60_000,
+			);
+			watch.start();
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(reads.length).toBe(2);
+			reads[1]?.(ON);
+			await vi.advanceTimersByTimeAsync(0);
+			reads[0]?.(SSH_GUARD_OFF);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(watch.current()).toBe(ON);
+			watch.stop();
+			await vi.advanceTimersByTimeAsync(120_000);
+			expect(reads.length).toBe(2);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

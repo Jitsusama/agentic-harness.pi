@@ -15,17 +15,18 @@
  *
  * It is a setting, off unless the package config's `ssh-guard` section
  * says `"refuse": true`, read again each minute, so turning it off again
- * takes one edit and no restart. Off, nothing is put on PATH. It is a
- * guard against a mistake, not a wall: a command can name the real ssh
- * by its path, which the fence for everyone will close (ISXEG8 and
- * WCJQSG, 17 November).
+ * takes one edit and no restart. Off, nothing is put on PATH. It routes
+ * agents rather than confining them: ssh named by its full path, or git
+ * over ssh (`GIT_SSH`, `core.sshCommand`), passes it, and the agent can
+ * edit the setting. The fence for every session is the bound (ISXEG8
+ * and WCJQSG, 17 November).
  */
 
 import { delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 import { askAt, nodeSocket } from "../../mesh/node.ts";
 import { loadPackageConfig } from "../config/loader.ts";
-import { thisMachine } from "../machine.ts";
+import { isMachineName, thisMachine } from "../machine.ts";
 import { isRecord } from "../record.ts";
 
 /** The folder of stand-ins for ssh, scp, sftp and rsync. */
@@ -39,6 +40,9 @@ export const SSH_GUARD_SECTION = "ssh-guard";
 /** The variable the stand-ins read the realm's machines from, space apart. */
 export const SSH_GUARD_MACHINES = "PI_SSH_GUARD_MACHINES";
 
+/** The variable naming this machine, which `localhost` reaches too. */
+export const SSH_GUARD_HERE = "PI_SSH_GUARD_HERE";
+
 /** How long the node may take to name the realm's machines. */
 const MACHINES_PATIENCE_MS = 2000;
 
@@ -49,6 +53,8 @@ export const SSH_GUARD_EVERY_MS = 60_000;
 export interface SshGuard {
 	readonly refuse: boolean;
 	readonly machines: readonly string[];
+	/** This machine, among them, which `localhost` reaches too. */
+	readonly here?: string;
 }
 
 /** The guard as it starts, and as a config naming nothing leaves it. */
@@ -73,28 +79,48 @@ export function machinesFrom(line: string | undefined): string[] {
 		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Machines : undefined;
 	if (!Array.isArray(machines)) return [];
 	return machines.flatMap((one) =>
-		isRecord(one) && typeof one.name === "string" && /^[\w.-]+$/.test(one.name)
-			? [one.name]
-			: [],
+		isRecord(one) && isMachineName(one.name) ? [one.name] : [],
 	);
 }
 
+/** Where the guard reads its setting and the realm's machines. */
+export interface SshGuardSources {
+	/** The package config's `ssh-guard` section; throws when unreadable. */
+	readonly section: () => Promise<unknown>;
+	/** The node's answer to `Machines`, or nothing when none answers. */
+	readonly machines: () => Promise<string | undefined>;
+	/** This machine's name. */
+	readonly here: string;
+}
+
+/** The config file and this machine's node. */
+function sourcesOf(env: NodeJS.ProcessEnv): SshGuardSources {
+	return {
+		section: async () => {
+			const loaded = await loadPackageConfig();
+			if (!loaded.ok) throw new Error(loaded.error);
+			return loaded.config.sections[SSH_GUARD_SECTION];
+		},
+		machines: () => askAt(nodeSocket(env), "Machines", MACHINES_PATIENCE_MS),
+		here: thisMachine(env),
+	};
+}
+
 /**
- * The guard as the config and the node say it now. With no node
- * answering, this machine is still one of the person's, so it is named.
+ * The guard as the config and the node say it now, after `before`. A
+ * config that can't be read throws, so the guard stays as it stood. A
+ * node that doesn't answer keeps the machines read before, and this
+ * machine is always one of the person's. Off, no node is asked.
  */
 export async function readSshGuard(
-	env: NodeJS.ProcessEnv = process.env,
+	before: SshGuard = SSH_GUARD_OFF,
+	sources: SshGuardSources = sourcesOf(process.env),
 ): Promise<SshGuard> {
-	const loaded = await loadPackageConfig();
-	const refuse =
-		loaded.ok && refusesBySetting(loaded.config.sections[SSH_GUARD_SECTION]);
-	if (!refuse) return SSH_GUARD_OFF;
-	const named = machinesFrom(
-		await askAt(nodeSocket(env), "Machines", MACHINES_PATIENCE_MS),
-	);
-	const machines = new Set([...named, thisMachine(env)]);
-	return { refuse, machines: [...machines] };
+	if (!refusesBySetting(await sources.section())) return SSH_GUARD_OFF;
+	const answer = await sources.machines();
+	const named = answer === undefined ? before.machines : machinesFrom(answer);
+	const machines = new Set([...named, sources.here]);
+	return { refuse: true, machines: [...machines], here: sources.here };
 }
 
 /** The guard as last read, kept current while watched. */
@@ -112,14 +138,20 @@ export interface SshGuardWatch {
  * last read, so a config being rewritten leaves the guard as it stood.
  */
 export function watchSshGuard(
-	read: () => Promise<SshGuard> = readSshGuard,
+	read: (before: SshGuard) => Promise<SshGuard> = readSshGuard,
 	everyMs: number = SSH_GUARD_EVERY_MS,
 ): SshGuardWatch {
 	let guard = SSH_GUARD_OFF;
 	let timer: ReturnType<typeof setInterval> | undefined;
+	// Each read is counted, so one that lands after a later one is dropped.
+	let asked = 0;
+	let landed = 0;
 	const again = () => {
-		read().then(
+		const mine = ++asked;
+		read(guard).then(
 			(read) => {
+				if (mine < landed) return;
+				landed = mine;
 				guard = read;
 			},
 			() => {
@@ -159,5 +191,6 @@ export function guardedEnvironment(
 		...env,
 		PATH: [SSH_GUARD_BIN, ...rest].join(delimiter),
 		[SSH_GUARD_MACHINES]: guard.machines.join(" "),
+		...(guard.here ? { [SSH_GUARD_HERE]: guard.here } : {}),
 	};
 }

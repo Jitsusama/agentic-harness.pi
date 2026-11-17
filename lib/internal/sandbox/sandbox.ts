@@ -192,6 +192,7 @@ const KEPT = [
 	"GIT_SSL_CAINFO",
 	"CARGO_BUILD_JOBS",
 	"PI_SANDBOX",
+	"PI_SSH_GUARD_*",
 	"*_HOME",
 	"*PATH",
 	"*_DIR",

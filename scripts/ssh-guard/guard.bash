@@ -11,15 +11,19 @@ program=$2
 shift 2
 asked=("$@")
 
-# The real program: the first on PATH that isn't a stand-in.
-bin_real=$(cd "$bin" 2>/dev/null && pwd -P)
+# The real program: the first on PATH that is no guard's stand-in and
+# no program this call already passed through, so a wrapper that calls
+# `ssh` by name, or a second guard folder, reaches the next one rather
+# than coming back here forever.
+passed=":${PI_SSH_GUARD_THROUGH:-}:"
 found() {
 	local dir
 	local IFS=:
 	for dir in $PATH; do
 		[ -n "$dir" ] || continue
 		[ "$dir" = "$bin" ] && continue
-		[ "$dir" = "$bin_real" ] && continue
+		[ -f "$dir/../guard.bash" ] && [ -d "$dir/../bin" ] && continue
+		case "$passed" in *":$dir/$1:"*) continue ;; esac
 		if [ -x "$dir/$1" ] && [ ! -d "$dir/$1" ]; then
 			printf '%s\n' "$dir/$1"
 			return 0
@@ -31,76 +35,112 @@ real=$(found "$program") || {
 	echo "ssh-guard: no $program on PATH after the guard's own" >&2
 	exit 127
 }
-pass() { exec "$real" "${asked[@]}"; }
-
-machines=$(printf '%s' "${PI_SSH_GUARD_MACHINES:-}" | tr '[:upper:]' '[:lower:]')
-[ -n "$machines" ] || pass
-
-# A host's first label, lower-cased, without its login, brackets or port.
-label() {
-	local host=${1##*@}
-	host=${host#[}
-	host=${host%%]*}
-	host=${host%%:*}
-	printf '%s' "${host%%.*}" | tr '[:upper:]' '[:lower:]'
+pass() {
+	PI_SSH_GUARD_THROUGH="${PI_SSH_GUARD_THROUGH:+$PI_SSH_GUARD_THROUGH:}$real"
+	export PI_SSH_GUARD_THROUGH
+	exec "$real" "${asked[@]}"
 }
 
-# The realm machine `host` names, by its own name or by the hostname
-# ssh's settings give it, or nothing.
-machine_of() {
-	local name want ssh_real
-	name=$(label "$1")
-	for want in $machines; do
-		[ "$name" = "$want" ] && { printf '%s' "$want"; return 0; }
+# The guard's own `ssh -G` lookup, through a wrapper, only reads settings.
+[ -n "${PI_SSH_GUARD_LOOKUP:-}" ] && pass
+
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+machines=$(lower "${PI_SSH_GUARD_MACHINES:-}")
+[ -n "$machines" ] || pass
+ssh_real=$(found ssh) || ssh_real=""
+
+# What ssh's settings make of a host, given the options the call passed
+# (-F, -o HostName=, -p, -J): the name it connects to, lower-cased.
+connects_to() {
+	[ -n "$ssh_real" ] || return 1
+	PI_SSH_GUARD_LOOKUP=1 "$ssh_real" -G "$@" 2>/dev/null </dev/null | while read -r key value; do
+		[ "$key" = hostname ] && { lower "$value"; break; }
 	done
-	ssh_real=$(found ssh) || return 1
-	name=$("$ssh_real" -G "$1" 2>/dev/null | while read -r key value; do
-		[ "$key" = hostname ] && { printf '%s' "$value"; break; }
-	done)
-	[ -n "$name" ] || return 1
-	name=$(label "$name")
+}
+
+# Every name a realm machine goes by: its own, on the local network, as
+# this machine its loopback, and what the person's ssh settings connect
+# to for it, which may be an address.
+here=$(lower "${PI_SSH_GUARD_HERE:-}")
+names_of() {
+	local machine=$1
+	printf '%s\n%s.local\n%s.lan\n' "$machine" "$machine" "$machine"
+	[ "$machine" = "$here" ] && printf 'localhost\n127.0.0.1\n::1\n'
+	connects_to "$machine"
+	echo
+}
+
+# The realm machine a host is, judged by the name ssh connects to.
+machine_of() {
+	local host want name known names
+	host=$(lower "${1##*@}")
+	host=${host#[}
+	host=${host%%]*}
+	shift
+	name=$(connects_to "$@" "$host") || name=""
+	[ -n "$name" ] || name=$host
 	for want in $machines; do
-		[ "$name" = "$want" ] && { printf '%s' "$want"; return 0; }
+		names=$(names_of "$want")
+		while read -r known; do
+			[ -n "$known" ] || continue
+			if [ "$name" = "$known" ] || [ "$host" = "$known" ]; then
+				printf '%s' "$want"
+				return 0
+			fi
+		done <<<"$names"
 	done
 	return 1
 }
 
 refuse() {
+	local route="mycelium run --need machine=$1 -- <command>"
 	cat >&2 <<-SAID
 		ssh-guard: refused: this $program reaches $1, one of the person's own
 		machines, past the fence its node lays there. Ask the node to run it:
-		  mycelium run --need machine=$1 -- <command>
-		(The harness's ssh guard, its package config's "ssh-guard" setting.)
+		  $route
+		A copy has no route through the node yet: say what you need to your
+		orchestrator. (The harness's ssh guard, its package config's
+		"ssh-guard" setting.)
 	SAID
 	exit 126
 }
 
-# The host a copy's argument names, as scp and rsync write one, or nothing.
+# The host a copy's argument names, as scp, sftp and rsync write one.
 remote_of() {
+	local rest host
 	case "$1" in
-	scp://* | sftp://*)
-		local rest=${1#*://}
-		printf '%s' "${rest%%/*}"
+	scp://* | sftp://* | ssh://*)
+		rest=${1#*://}
+		rest=${rest%%/*}
+		host=${rest%:*}
+		case "$rest" in \[*) host=${rest%%]*}] ;; esac
+		printf '%s' "$host"
 		return 0
 		;;
-	/* | ./* | ../* | -*) return 1 ;;
+	/* | ./* | ../* | -* | rsync://*) return 1 ;;
 	*::*) return 1 ;;
+	\[*\]:*)
+		host=${1%%]*}
+		printf '%s' "${host#[}"
+		return 0
+		;;
 	*:*)
-		local host=${1%%:*}
-		case "$host" in */*) return 1 ;; esac
-		[ -n "$host" ] && printf '%s' "$host"
+		host=${1%%:*}
+		case "$host" in */* | "") return 1 ;; esac
+		printf '%s' "$host"
 		return 0
 		;;
 	esac
 	return 1
 }
 
-# Walk options as getopt would, given those that take a value; leaves
-# the rest in `operands` and the flags seen in `flags`.
+# The options ssh, scp and sftp hand ssh's settings: -F, -o, -J, -p/-P.
+settings=()
+# The operands after options, and the option letters seen.
 operands=()
 flags=""
 options() {
-	local valued=$1 word rest letter
+	local valued=$1 word rest letter value
 	shift
 	while [ $# -gt 0 ]; do
 		word=$1
@@ -117,7 +157,18 @@ options() {
 				rest=${rest:1}
 				flags="$flags$letter"
 				case "$valued" in *"$letter"*)
-					[ -z "$rest" ] && [ $# -gt 0 ] && shift
+					if [ -n "$rest" ]; then
+						value=$rest
+					elif [ $# -gt 0 ]; then
+						value=$1
+						shift
+					else
+						value=""
+					fi
+					case "$letter" in
+					F | o | J) settings+=("-$letter" "$value") ;;
+					p | P) settings+=(-p "$value") ;;
+					esac
 					rest=""
 					;;
 				esac
@@ -125,10 +176,14 @@ options() {
 			;;
 		*)
 			operands+=("$word")
-			[ "$program" = ssh ] || [ "$program" = sftp ] && {
+			# ssh reads options after its host too, then the command.
+			if [ "$program" = ssh ] && [ ${#operands[@]} -eq 1 ]; then
+				continue
+			fi
+			if [ "$program" = ssh ] || [ "$program" = sftp ]; then
 				operands+=("$@")
 				return
-			}
+			fi
 			;;
 		esac
 	done
@@ -138,7 +193,8 @@ case "$program" in
 ssh)
 	options "BbcDEeFIiJLlmOoPpQRSWw" "${asked[@]}"
 	[ ${#operands[@]} -gt 0 ] || pass
-	machine=$(machine_of "${operands[0]}") || pass
+	host=$(remote_of "${operands[0]}") || host=${operands[0]}
+	machine=$(machine_of "$host" "${settings[@]}") || pass
 	# Asking ssh about its settings, or only forwarding, runs nothing there.
 	case "$flags" in *G*) pass ;; esac
 	if [ ${#operands[@]} -eq 1 ]; then
@@ -150,10 +206,18 @@ sftp)
 	options "BbcDFiJloPRSsX" "${asked[@]}"
 	[ ${#operands[@]} -gt 0 ] || pass
 	host=$(remote_of "${operands[0]}") || host=${operands[0]}
-	machine=$(machine_of "$host") || pass
+	machine=$(machine_of "$host" "${settings[@]}") || pass
 	refuse "$machine"
 	;;
-scp | rsync)
+scp)
+	options "cDFiJloPSX" "${asked[@]}"
+	for word in "${operands[@]}"; do
+		host=$(remote_of "$word") || continue
+		machine=$(machine_of "$host" "${settings[@]}") && refuse "$machine"
+	done
+	pass
+	;;
+rsync)
 	for word in "${asked[@]}"; do
 		host=$(remote_of "$word") || continue
 		machine=$(machine_of "$host") && refuse "$machine"
