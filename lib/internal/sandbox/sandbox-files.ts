@@ -19,9 +19,9 @@ import {
 	relative,
 	resolve,
 } from "node:path";
-import { fileURLToPath } from "node:url";
 import { FENCE, fenceRefusesRead, fenceRefusesWrite } from "../fence/fence.ts";
 import { askedSandbox } from "../fence/fence-stage.ts";
+import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
 import {
 	type FileUse,
@@ -51,9 +51,6 @@ const FILE_TOOLS: ReadonlyMap<
 	["write", { use: "write", searches: false }],
 ]);
 
-/** Unicode spaces pi reads as plain ones in a path a tool is given. */
-const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
-
 /**
  * Every file a tool may open for `path`, as pi resolves it: spaces made
  * plain, a leading `@` dropped, `~` and `file://` expanded, against the
@@ -61,12 +58,7 @@ const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
  * (a screenshot's narrow space, decomposed accents, a curly apostrophe).
  */
 export function toolPaths(path: string, cwd: string, home: string): string[] {
-	let given = path.replace(UNICODE_SPACES, " ");
-	if (given.startsWith("@")) given = given.slice(1);
-	if (given === "~") given = home;
-	else if (given.startsWith("~/")) given = join(home, given.slice(2));
-	if (given.startsWith("file://")) given = fileURLToPath(given);
-	const first = isAbsolute(given) ? resolve(given) : resolve(cwd, given);
+	const first = toolPath(path, cwd, home);
 	const decomposed = first.normalize("NFD");
 	const curly = (text: string) => text.replaceAll("'", "\u2019");
 	return [

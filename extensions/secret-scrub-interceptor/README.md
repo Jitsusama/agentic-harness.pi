@@ -86,6 +86,25 @@ A file read through a scrubbed span can't be edited through that span,
 since the mark in the agent's copy doesn't match what the file holds.
 The mark says why, so the agent edits around it or asks the person.
 
+Nor can the agent's copy be written back through pi's file tools. A
+`write` or an `edit` that would leave the file holding a mark more
+often than it does is refused before it runs, naming the mark and why:
+in the file, the mark would replace the credential it stands for, as a
+`.env` read and written back whole would lose every one
+(`lib/internal/secrets/marks.ts`). An edit is judged on the whole file
+it leaves, replayed as pi applies it (line endings and loose matches
+included), both as sent and as the escape interceptor reads it. A file
+over 16 MB, a pipe or a device is read as holding no mark, so a write
+keeping one of its marks is refused too. Marks are counted, since a file quoting a mark may also hold
+a credential shown as the same one: a mark the file already holds, as
+this scrub's own tests quote one, is kept or moved freely, but another
+copy is refused, so a new test builds one from pieces. The refusal is
+the `secret-marks` guard, which blocks by default and which a person
+can set off. It reads only `write` and `edit`, so a shell command that
+writes a mark isn't seen, and it holds only where this extension
+loads: a host scrubs a hosted conversation that loads no extension,
+but nothing there refuses its writes.
+
 Silent, like every interceptor: the mark tells the agent a secret was
 there, so it knows not to ask for it again. An agent that needs a
 credential passes it by reference (a file, a variable, a helper) rather
