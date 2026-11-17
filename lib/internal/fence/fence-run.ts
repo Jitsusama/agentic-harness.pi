@@ -227,19 +227,19 @@ export function fenceRunText(
 	const asker = `pi-fence --kind ${ask.kind}`;
 	const mac = (place.platform ?? process.platform) === "darwin";
 	const treesRoot = place.treesRoot ?? cutTreeDir();
-	const unfenced =
-		unfencedFolder(folder, home, asker) ??
-		fencedAway(folder, home, asker, {
-			treesRoot,
-			held:
-				ask.shared === true
-					? [folder]
-					: (place.heldTrees ??
-						brokerTrees(place.env.PI_SESSION_ID, treesRoot).held),
-			mac,
-		});
+	const unfenced = unfencedFolder(folder, home, asker);
 	if (unfenced) return { refused: unfenced };
-	if (mac) return macFenceText(ask, folder, place);
+	const away = fencedAway(folder, home, asker, {
+		treesRoot,
+		held:
+			ask.shared === true
+				? "shared"
+				: (place.heldTrees ??
+					brokerTrees(place.env.PI_SESSION_ID, treesRoot).held),
+		mac,
+	});
+	if ("refused" in away) return away;
+	if (mac) return macFenceText(ask, folder, place, away.tree);
 	const sandbox = place.sandbox ?? sandboxFor(env);
 	if (sandbox.kind !== "fence") {
 		return {
@@ -309,19 +309,26 @@ function fencedAway(
 	asker: string,
 	where: {
 		readonly treesRoot: string;
-		readonly held: readonly string[];
+		/** The trees the asker holds, or "shared" for the one the caller says it was shared. */
+		readonly held: readonly string[] | "shared";
 		readonly mac: boolean;
 	},
-): string | undefined {
+): { readonly refused: string } | { readonly tree?: string } {
 	const spelled = (path: string) => (where.mac ? path.toLowerCase() : path);
-	const at = spelled(resolve(folder));
+	const named = resolve(folder);
+	const at = spelled(named);
 	const resolved = (path: string) => spelled(real(resolve(path)));
 	const trees = resolved(where.treesRoot);
 	if (within(at, trees) && at !== trees) {
-		if (where.held.some((tree) => within(at, resolved(tree)))) {
-			return undefined;
-		}
-		return `${asker} won't run in ${folder}, a work tree its asker doesn't hold, so no command runs. Start it in a tree your session holds, or, from the mycelium node, one shared to the asker, said with --shared-tree.`;
+		// The tree is the trees root's child the folder lies in.
+		const below = named.slice(trees.length + 1).split("/")[0] ?? "";
+		const tree = named.slice(0, trees.length + 1 + below.length);
+		if (where.held === "shared") return { tree };
+		const held = where.held.find((each) => within(at, resolved(each)));
+		if (held !== undefined) return { tree: real(resolve(held)) };
+		return {
+			refused: `${asker} won't run in ${folder}, a work tree its asker doesn't hold, so no command runs. Start it in a tree your session holds, or, from the mycelium node, one shared to the asker, said with --shared-tree.`,
+		};
 	}
 	const closedFrom = (from: string) => [
 		...FENCE_HIDDEN.home
@@ -334,9 +341,15 @@ function fencedAway(
 		.flatMap(closedFrom)
 		.flatMap((path) => [path, real(path)])
 		.find((path) => within(at, spelled(path)) || within(spelled(path), at));
-	if (!closed) return undefined;
-	const how = within(at, spelled(closed)) ? "lies in" : "holds";
-	return `${asker} won't run in ${folder}, which ${how} ${closed}, a path the fence hides or keeps read-only, so no command runs. Start it in the folder it works on, or in a tree the work tool cuts.`;
+	if (!closed) return {};
+	if (within(at, spelled(closed))) {
+		return {
+			refused: `${asker} won't run in ${folder}, which lies in ${closed}, a path the fence hides or keeps read-only, so no command runs. Start it in the folder it works on, or in a tree the work tool cuts.`,
+		};
+	}
+	return {
+		refused: `${asker} won't run in ${folder}, which holds ${closed}, a path the fence hides or keeps read-only, so no command runs. Start it in a folder within, beside none of them, or in a tree the work tool cuts.`,
+	};
 }
 
 /** Whether `path` is `holder` or lies in it. */
@@ -353,6 +366,7 @@ function macFenceText(
 	ask: FenceRunAsk,
 	folder: string,
 	place: FenceRunPlace,
+	tree: string | undefined,
 ):
 	| { readonly folder: string; readonly text: string }
 	| { readonly refused: string } {
@@ -373,10 +387,12 @@ function macFenceText(
 	// too, so pi's folder in it is kept from them below.
 	const npmrc = fenceNpmrc(home, place.env.TMPDIR);
 	const copy = npmrc === "/dev/null" ? undefined : npmrc;
+	// A broker's tree is laid from its root, whichever folder in it the
+	// run starts in, so its .git stays read-only as the fence keeps it.
 	const mounts = fenceArgs({
 		home,
 		runtimeDir: undefined,
-		...sessionWorktrees(folder, undefined),
+		...sessionWorktrees(tree ?? folder, undefined),
 		...(npmrc ? { npmrc } : {}),
 		docker: dockerHoldsCredentials(home),
 	});
@@ -388,17 +404,14 @@ function macFenceText(
 	// let back what the fence's mounts hid in it.
 	const strict =
 		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
-	// A tree the work broker cut lies in pi's state, which the profile
-	// hides last of all, so it is granted again after.
-	const hidden = MAC_HIDDEN.map((entry) => join(home, entry));
 	const { profile } = seatbeltProfile([...mounts, ...strict, ...kept], {
 		sockets: [MAC_NIX_DAEMON],
 		home,
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
 		folder,
-		...(hidden.some((path) => within(folder, path))
-			? { regranted: [folder] }
-			: {}),
+		// A tree the work broker cut lies in pi's state, which the profile
+		// hides last of all, so the asker's is granted again after.
+		...(tree ? { regranted: [tree] } : {}),
 	});
 	return {
 		folder,

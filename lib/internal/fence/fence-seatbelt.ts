@@ -154,7 +154,11 @@ export interface SeatbeltReach {
 	readonly folder?: string;
 	/** A path as the kernel names it, past its links (`/tmp` is `/private/tmp`). */
 	readonly real?: (path: string) => string;
-	/** Folders granted again after every hide: a broker's tree inside pi's state. */
+	/**
+	 * Folders granted again after every hide, a broker's tree inside pi's
+	 * state, with the fence's own rules inside each laid again after, and
+	 * the folders above each named, so a program can find its way down.
+	 */
 	readonly regranted?: readonly string[];
 }
 
@@ -192,6 +196,13 @@ export function seatbeltProfile(
 	// Each hide's rule, and each read-only path with its rules, to lay
 	// again once the mounts are done.
 	const hides: string[] = [];
+	// Every rule that closes something, with its path, to lay again inside
+	// a folder granted after it.
+	const closing: { to: string; rule: string }[] = [];
+	const close = (to: string, rule: string) => {
+		mounts.push(rule);
+		closing.push({ to, rule });
+	};
 	const hiddenFolders: { to: string; at: number }[] = [];
 	const readOnly: { to: string; rules: string[]; at: number }[] = [];
 	for (let at = 0; at < args.length; ) {
@@ -221,7 +232,7 @@ export function seatbeltProfile(
 				if (from === "/dev/null" || from !== to) {
 					if (from !== "/dev/null") stoodIn.push({ copy: from, over: to });
 					const hide = `(deny file-read* file-write* (literal ${path(to)}))`;
-					mounts.push(hide);
+					close(to, hide);
 					hides.push(hide);
 				} else if (writable) {
 					mounts.push(`(allow file-read* file-write* (subpath ${path(to)}))`);
@@ -231,7 +242,8 @@ export function seatbeltProfile(
 						`(deny file-write* (subpath ${path(to)}))`,
 					];
 					readOnly.push({ to, rules, at: mounts.length });
-					mounts.push(...rules);
+					mounts.push(rules[0] ?? "");
+					close(to, rules[1] ?? "");
 				}
 				break;
 			}
@@ -239,13 +251,13 @@ export function seatbeltProfile(
 				const [to = ""] = values(1);
 				const hide = `(deny file-read* file-write* (subpath ${path(to)}))`;
 				hiddenFolders.push({ to, at: mounts.length });
-				mounts.push(hide);
+				close(to, hide);
 				hides.push(hide);
 				break;
 			}
 			case "--remount-ro": {
 				const [to = ""] = values(1);
-				mounts.push(`(deny file-write* (subpath ${path(to)}))`);
+				close(to, `(deny file-write* (subpath ${path(to)}))`);
 				break;
 			}
 			default:
@@ -306,15 +318,35 @@ export function seatbeltProfile(
 		...hides,
 		...keptInHidden,
 		...hidden,
-		...(reach.regranted ?? []).map(
-			(folder) => `(allow file-read* file-write* (subpath ${path(folder)}))`,
-		),
+		...(reach.regranted ?? []).flatMap((tree) => [
+			...above(tree, home).map(
+				(folder) => `(allow file-read-metadata (literal ${path(folder)}))`,
+			),
+			`(allow file-read* file-write* (subpath ${path(tree)}))`,
+			...closing
+				.filter(({ to }) => within(to, tree) && to !== tree)
+				.map(({ rule }) => rule),
+		]),
 		...[...new Set(programs)],
 		// What cfprefsd writes for a command, past every file rule:
 		// `defaults write com.apple.Terminal` would set a startup command.
 		"(deny user-preference-write)",
 	].join("\n");
 	return { profile, stoodIn };
+}
+
+/**
+ * The folders between `home` and `tree`, nearest the home first, whose
+ * metadata a program reads finding its way down to the tree; none for a
+ * tree outside the home.
+ */
+function above(tree: string, home: string | undefined): string[] {
+	if (!home || !tree.startsWith(`${home}/`)) return [];
+	const steps = tree
+		.slice(home.length + 1)
+		.split("/")
+		.slice(0, -1);
+	return steps.map((_, at) => join(home, ...steps.slice(0, at + 1)));
 }
 
 /** The status pi-fence exits with when it refuses, as a shell's for a command it can't run. */
