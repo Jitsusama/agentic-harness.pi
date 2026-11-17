@@ -580,6 +580,18 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 		).toBeUndefined();
 	});
 
+	it("has a bare value a colour wraps put out of sight in a dump", () => {
+		const value = fresh();
+		const scrubbed = scrubToolPartial(
+			partialOf(`\x1b[32m${value}\x1b[0m\nready`),
+			{ command: "launchctl getenv PROXY_CRED" },
+		);
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "\x1b[32m[secret scrubbed: environment value]\x1b[0m\nready",
+		});
+	});
+
 	it("is read as a dump's whole when its command prints the environment", () => {
 		const value = fresh();
 		const scrubbed = scrubToolPartial(partialOf(`starting ${value}`), {

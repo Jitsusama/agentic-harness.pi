@@ -337,6 +337,7 @@ export class ToolRound {
 		const { toolCall } = prepared;
 		// Read once for the call, rather than from the environment each update.
 		const known = knownSecrets();
+		let withheld = false;
 		try {
 			const result = await prepared.tool.execute(
 				toolCall.id,
@@ -347,10 +348,13 @@ export class ToolRound {
 					let partial: AgentToolResult;
 					try {
 						partial = scrubbedPartial(partialResult, prepared.args, known);
-					} catch {
+					} catch (failure) {
 						// An update the scrub can't read is never shown, nor thrown
-						// into the tool's own output handler; the settled answer comes.
-						return;
+						// into the tool's own output handler: viewers are told once
+						// why, so a scrub that fails each time is seen to.
+						if (withheld) return;
+						withheld = true;
+						partial = withheldPartial(failure);
 					}
 					updates.push(
 						this.agent.emit({
@@ -482,6 +486,18 @@ function scrubbedResult(
 ): AgentToolResult {
 	const scrubbed = scrubToolResult(result, args);
 	return scrubbed === undefined ? result : { ...result, ...scrubbed };
+}
+
+/**
+ * The update said in place of those the scrub can't read: why they are
+ * withheld, naming the failure's kind, never its words, which may quote
+ * the output.
+ */
+function withheldPartial(failure: unknown): AgentToolResult {
+	const kind = failure instanceof Error ? failure.name : typeof failure;
+	return errorResult(
+		`Output so far withheld, since it could not be scrubbed (${kind}).`,
+	);
 }
 
 /**

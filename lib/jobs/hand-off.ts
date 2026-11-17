@@ -361,8 +361,10 @@ function scrubbed<T>(
  * What a moved call showed before it moved, scrubbed as a stream's update
  * is, since it is one: a dump's first lines are put out of sight before
  * five arrive, and a line still being written however short. Nothing
- * replaces the answer that quotes it, so it is never said as it stands;
- * nothing is said when the scrub can't read it.
+ * replaces the answer that quotes it, so it is never said as it stands,
+ * and a mark it makes that the settled scrub wouldn't stays; the job's
+ * end says the output as settled. When the scrub can't read it, it is
+ * said to be withheld.
  */
 function shownSoFar(output: string, input: unknown): string {
 	try {
@@ -372,9 +374,9 @@ function shownSoFar(output: string, input: unknown): string {
 		);
 		const part = found?.content?.[0];
 		return part === undefined ? output : part.text;
-	} catch {
-		// Withheld rather than said raw; the job's end says the rest.
-		return "";
+	} catch (failure) {
+		const kind = failure instanceof Error ? failure.name : typeof failure;
+		return `Its output so far was withheld, since it could not be scrubbed (${kind}).`;
 	}
 }
 
