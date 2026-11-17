@@ -99,13 +99,16 @@ describe("the envelope verify_output wrote", () => {
 });
 
 describe("the session pi minted", () => {
-	it("is the newest session file in the folder", async () => {
-		writeFileSync(join(dir, "1_old.jsonl"), "");
-		writeFileSync(join(dir, "2_new.jsonl"), "");
+	it("is the session file written last, whatever its name", async () => {
+		writeFileSync(join(dir, "1_resumed.jsonl"), "");
+		writeFileSync(join(dir, "2_first.jsonl"), "");
 		writeFileSync(join(dir, "notes.txt"), "");
-		utimesSync(join(dir, "1_old.jsonl"), 1, 1);
+		utimesSync(join(dir, "2_first.jsonl"), 1, 1);
 
-		expect(await discoverSessionPath(dir)).toBe(`${dir}/2_new.jsonl`);
+		expect(
+			await discoverSessionPath(dir),
+			"the newest by time, though its name sorts first",
+		).toBe(`${dir}/1_resumed.jsonl`);
 	});
 
 	it("is nothing when pi wrote none, or there is no folder", async () => {

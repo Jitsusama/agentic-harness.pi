@@ -194,7 +194,8 @@ companion skill.
   it spawns pi, watches its clocks, cancel files and
   parent, stops it, and writes its lease, progress and
   result. Five parts beside it hold the rest, none with
-  state of its own:
+  module state (the transcript holds one run's state in
+  the object the supervisor makes for it):
   - `runpi/supervisor-transcript.mjs`: what the reviewer
     said, spent and verified, read off pi's event stream.
   - `runpi/supervisor-reads.mjs`: what it wrote beside

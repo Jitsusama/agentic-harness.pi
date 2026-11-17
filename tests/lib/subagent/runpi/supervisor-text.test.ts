@@ -24,6 +24,9 @@ describe("cutting text", () => {
 		expect(tail("abc", 3)).toBe("abc");
 		expect(tail("aéé", 3), "one é is two bytes").toBe("é");
 		expect(tail("abcdef", 2)).toBe("ef");
+		expect(tail("abc", 2), "all but the first character fits").toBe("bc");
+		expect(tail("a😀", 4), "an emoji is four bytes").toBe("😀");
+		expect(tail("é😀", 5), "never half an é").toBe("😀");
 	});
 
 	it("marks a stream line cut to a glance", () => {

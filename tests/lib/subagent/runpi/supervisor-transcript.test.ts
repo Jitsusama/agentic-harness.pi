@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { UNFINISHED } from "../../../../lib/subagent/reviewer-error.ts";
 import {
 	summarizeActivity,
 	transcript,
@@ -77,7 +78,7 @@ describe("a reviewer's answer", () => {
 		said.read(finished("second", { stopReason: "stop" }));
 		said.read({ type: "agent_end" });
 
-		expect(said.finalText()).toBe("second");
+		expect(said.answer().text).toBe("second");
 		expect(said.sessionIds).toEqual(["s-1"]);
 		expect(said.error("complete"), "it ended cleanly").toBeUndefined();
 	});
@@ -87,19 +88,48 @@ describe("a reviewer's answer", () => {
 		said.read(finished("done"));
 		said.read(partial("still writ"));
 
-		expect(said.finalText()).toBe("done\n\nstill writ");
+		expect(said.answer().text).toBe("done\n\nstill writ");
+	});
+
+	it("counts a turn once when its partials end in its finished message", () => {
+		const { said } = reading();
+		said.read(partial("draf", { usage: turnUsage(5, 0.05) }));
+		said.read(finished("draft", { usage: turnUsage(6, 0.06) }));
+		said.read({ type: "agent_end" });
+
+		expect(said.answer().text, "the partial is not said twice").toBe("draft");
+		const spent = said.usage();
+		expect(spent?.tokens.input, "the partial is not billed beside it").toBe(6);
+		expect(spent?.cost.total).toBeCloseTo(0.06);
 	});
 
 	it("is cut to its byte cap on a character's edge, saying so", () => {
 		const { said, warnings } = reading(5);
 		said.read(finished("ééé"));
 
-		expect(said.finalText(), "two whole characters, not two and a half").toBe(
+		expect(said.answer().text, "two whole characters, not two and a half").toBe(
 			"éé",
 		);
 		expect(warnings).toEqual([
 			"Reviewer assistant text exceeded 5 bytes; truncated",
 		]);
+	});
+
+	it("steps back over every byte of a longer character the cap cuts into", () => {
+		const { said } = reading(5);
+		said.read(finished("a😀😀"));
+
+		expect(said.answer().text, "one byte and one emoji, no split one").toBe(
+			"a😀",
+		);
+	});
+
+	it("reads the same however often it is asked", () => {
+		const { said } = reading(10);
+		for (const event of verifyCall("v1", { long: "x".repeat(20) }, true))
+			said.read(event);
+
+		expect(said.answer()).toEqual(said.answer());
 	});
 });
 
@@ -130,6 +160,15 @@ describe("how a reviewer's run ended", () => {
 			stopReason: "error",
 			message: "overloaded",
 		});
+		expect(said.error("timeout"), "a turn's error outranks a stop").toEqual({
+			stopReason: "error",
+			message: "overloaded",
+		});
+		said.read({ type: "agent_end" });
+		expect(said.error("complete"), "and the run's end").toEqual({
+			stopReason: "error",
+			message: "overloaded",
+		});
 	});
 
 	it("unfinished when it exited cleanly before its run ended, naming the tools still running", () => {
@@ -141,7 +180,7 @@ describe("how a reviewer's run ended", () => {
 		});
 
 		expect(said.error("complete")).toEqual({
-			stopReason: "unfinished",
+			stopReason: UNFINISHED,
 			message:
 				"pi exited with code 0 while web_read was still running, before its run ended; whatever it was working towards was never said.",
 		});
@@ -162,8 +201,9 @@ describe("what verify_output accepted", () => {
 		for (const event of verifyCall("v1", '{"findings":[]}', true))
 			said.read(event);
 
-		expect(said.finalText()).toBe(JSON.stringify({ findings: [] }, null, 2));
-		expect(said.verification()).toEqual({
+		const answer = said.answer();
+		expect(answer.text).toBe(JSON.stringify({ findings: [] }, null, 2));
+		expect(answer.verification).toEqual({
 			called: true,
 			ok: true,
 			stage: "council",
@@ -178,8 +218,12 @@ describe("what verify_output accepted", () => {
 		said.read(finished("my answer"));
 		for (const event of verifyCall("v1", "{}", false)) said.read(event);
 
-		expect(said.finalText()).toBe("my answer");
-		expect(said.verification()).toMatchObject({ ok: false, message: "rejected" });
+		const answer = said.answer();
+		expect(answer.text).toBe("my answer");
+		expect(answer.verification).toMatchObject({
+			ok: false,
+			message: "rejected",
+		});
 	});
 
 	it("is refused when its output is past the cap, saying so", () => {
@@ -187,8 +231,9 @@ describe("what verify_output accepted", () => {
 		for (const event of verifyCall("v1", { long: "x".repeat(20) }, true))
 			said.read(event);
 
-		expect(said.finalText()).toBe("");
-		expect(said.verification()).toMatchObject({ ok: false });
+		const answer = said.answer();
+		expect(answer.text).toBe("");
+		expect(answer.verification).toMatchObject({ ok: false });
 		expect(warnings).toEqual([
 			"Reviewer verified output exceeded 10 bytes; ignored",
 		]);
@@ -206,8 +251,9 @@ describe("what verify_output accepted", () => {
 		said.adopt(written);
 		said.adopt(undefined);
 
-		expect(said.finalText(), "the parent reads it from the result").toBe("");
-		expect(said.verification()).toEqual(written);
+		const answer = said.answer();
+		expect(answer.text, "the parent reads it from the result").toBe("");
+		expect(answer.verification).toEqual(written);
 	});
 });
 

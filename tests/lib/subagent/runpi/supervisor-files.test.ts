@@ -54,7 +54,30 @@ describe("a stream log", () => {
 		await appendRotating(path, Buffer.from("cd"), limits);
 
 		expect(readFileSync(path, "utf8")).toBe("abcd");
-		expect(await exists(`${path}.1.gz`)).toBe(false);
+		expect(await exists(`${path}.1.gz`), "nothing was rotated").toBe(false);
+	});
+
+	it("fills to its cap exactly before it rotates", async () => {
+		const path = join(dir, "stderr.log");
+		const limits = { maxBytes: 4, maxRotations: 3 };
+		await appendRotating(path, Buffer.from("ab"), limits);
+		await appendRotating(path, Buffer.from("cd"), limits);
+
+		expect(readFileSync(path, "utf8")).toBe("abcd");
+		expect(await exists(`${path}.1.gz`), "a full log is not rotated").toBe(
+			false,
+		);
+	});
+
+	it("takes a first chunk past its cap whole, with nothing to rotate", async () => {
+		const path = join(dir, "stderr.log");
+		const limits = { maxBytes: 2, maxRotations: 3 };
+		await appendRotating(path, Buffer.from("abcdef"), limits);
+
+		expect(readFileSync(path, "utf8")).toBe("abcdef");
+		expect(await exists(`${path}.1.gz`), "an empty log is not rotated").toBe(
+			false,
+		);
 	});
 });
 
@@ -68,9 +91,12 @@ describe("a record", () => {
 		expect(readdirSync(join(dir, "run"))).toEqual(["lease.json"]);
 	});
 
-	it("is there once written, a folder too", async () => {
+	it("answers whether anything, a folder too, is at a path", async () => {
 		mkdirSync(join(dir, "folder"));
-		expect(await exists(join(dir, "folder"))).toBe(true);
-		expect(await exists(join(dir, "missing"))).toBe(false);
+		expect(await exists(join(dir, "folder")), "a folder is there").toBe(true);
+		expect(
+			await exists(join(dir, "missing")),
+			"nothing is at a path never written",
+		).toBe(false);
 	});
 });
