@@ -220,6 +220,30 @@ describe("work a call left behind", () => {
 		expect(await after).toBe(older.signal);
 	});
 
+	it("reads none for a fired signal an older copy left with no call", async () => {
+		// What an older copy leaves a session's context holding lasts past a
+		// reload onto this one; read as its own, every git the work tool ran
+		// failed as aborted before it started until the session restarted
+		// (FEH1HE, 17 November).
+		const first: unknown = Reflect.get(
+			globalThis,
+			Symbol.for("agentic-harness.core/exec/call-signal"),
+		);
+		if (!(first instanceof AsyncLocalStorage))
+			throw new Error("the first store was never made");
+		const older = new AbortController();
+		older.abort();
+		const outer = new AbortController();
+
+		const alone = first.run(older.signal, () => callSignal());
+		const inside = await withCallSignal(outer.signal, async () =>
+			first.run(older.signal, () => callSignal()),
+		);
+
+		expect(alone, "left outside any call").toBeUndefined();
+		expect(inside, "left inside a call still running").toBe(outer.signal);
+	});
+
 	it("rejects as the call did, with the promise it hands back", async () => {
 		const failed = withCallSignal(undefined, async () => {
 			throw new Error("the call failed");
