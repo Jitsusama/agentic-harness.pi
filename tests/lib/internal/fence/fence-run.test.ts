@@ -502,8 +502,10 @@ describe("the fence on a Mac", () => {
 		const hidden = lines.lastIndexOf(
 			`(deny file-read* file-write* (subpath "${join(home, ".ssh")}"))`,
 		);
-		const granted = lines.findLastIndex((line) =>
-			line.startsWith("(allow file-read* file-write* (subpath"),
+		const granted = lines.reduce(
+			(last, line, at) =>
+				line.startsWith("(allow file-read* file-write* (subpath") ? at : last,
+			-1,
 		);
 
 		expect(granted, "the folder is granted").toBeGreaterThan(-1);
