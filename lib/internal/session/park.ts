@@ -419,9 +419,10 @@ export function parkAfterMs(
 	if (session !== "" && first.includes(session)) return NAMED_PARK_AFTER_MS;
 	const said = first.map((word) => word.toLowerCase());
 	if (said.includes(SWITCH_OFF)) return undefined;
-	return said.includes(SWITCH_ON) || envSays(env) !== ""
-		? PARK_AFTER_MS
-		: undefined;
+	// PI_PARK's on opts a session into a trial; an empty switch may be one
+	// caught being written, so it opts nobody in.
+	const optedIn = envSays(env) !== "" && lines.length > 0;
+	return said.includes(SWITCH_ON) || optedIn ? PARK_AFTER_MS : undefined;
 }
 
 /**

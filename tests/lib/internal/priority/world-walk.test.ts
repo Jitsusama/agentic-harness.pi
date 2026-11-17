@@ -7,6 +7,7 @@ import {
 	needsGibOf,
 	needsGibOfCommand,
 	nextTurn,
+	QUICK_OUTRUN_MS,
 	RAMP_MS,
 	skipsWorldPushHooks,
 	WALKS_AT_ONCE,
@@ -162,7 +163,7 @@ describe("a walk of World's objects", () => {
 
 		it("waits for another quick push, and lets other work past", () => {
 			const jobs = [
-				push("first", { started: long }),
+				push("first", { started: startedAgo(30_000) }),
 				push("second", { since: startedAgo(9_000) }),
 				job("build", { since: startedAgo(8_000) }),
 			];
@@ -173,6 +174,15 @@ describe("a walk of World's objects", () => {
 			);
 			// Elsewhere quick pushes pass each other, as they always have.
 			expect(nextTurn(jobs, plenty, NOW)?.id).toBe("second");
+		});
+
+		it("stops waiting for one that has run past its quick time", () => {
+			const jobs = [
+				push("hung", { started: startedAgo(QUICK_OUTRUN_MS + 1_000) }),
+				push("next", { since: startedAgo(9_000) }),
+			];
+
+			expect(nextTurn(jobs, plenty, NOW, MAC_RULES)?.id).toBe("next");
 		});
 
 		it("passes a fetch that may run for minutes", () => {
@@ -186,7 +196,7 @@ describe("a walk of World's objects", () => {
 
 		it("keeps to the usual rule where a machine's rules name the usual count", () => {
 			const jobs = [
-				push("first", { started: long }),
+				push("first", { started: startedAgo(30_000) }),
 				push("second", { since: startedAgo(9_000) }),
 			];
 			const usual = { ...MAC_RULES, walksAtOnce: WALKS_AT_ONCE };

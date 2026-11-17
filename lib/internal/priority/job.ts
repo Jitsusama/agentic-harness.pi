@@ -196,7 +196,9 @@ export function isVm(job: Pick<Job, "kind">): boolean {
  * reads its own cap, which a shell an older harness started can't, or a
  * push of World marked quick, which it is when it leaves out its LFS
  * scan (see needs.ts's `PUSH_GIB`). A quick push still counts as a walk
- * while it runs, but waits for no other walk to end.
+ * while it runs, but waits for no other walk to end, except on a machine
+ * holding walks below the usual count, where it waits for another quick
+ * push (next-turn.ts).
  */
 export function isQuick(job: Job): boolean {
 	if (job.quick !== true || job.cappable !== true) return false;

@@ -82,11 +82,13 @@ describe("whether a session parks, and after how long", () => {
 			);
 		}
 		expect(parkAfterMs("s-2", {}, trial)).toBeUndefined();
+		expect(parkAfterMs("s-2", { PI_PARK: "" }, trial)).toBeUndefined();
 	});
 
 	it("parks none where the switch is there and empty, as one caught being written", () => {
 		expect(parkAfterMs("s-2", {}, switchSays())).toBeUndefined();
 		expect(parkAfterMs("s-2", {}, switchSays("", "  "))).toBeUndefined();
+		expect(parkAfterMs("s-2", { PI_PARK: "on" }, switchSays())).toBeUndefined();
 	});
 
 	it("parks none but those it names where the switch says off, by its first word in any case", () => {
