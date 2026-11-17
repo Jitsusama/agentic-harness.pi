@@ -29,7 +29,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { systemProgram } from "../system-program.ts";
+import { systemProgram } from "../sandbox/system-program.ts";
 import { spawnerWanted } from "./spawner-variable.ts";
 
 /** What every pi-spawner scope's name starts with (reap.ts reads it). */
