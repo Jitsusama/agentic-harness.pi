@@ -83,6 +83,7 @@ describe("heapAfterFullCollections", () => {
 		const read = vi.fn(() => ({ usedBytes: MB, limitBytes: 4144 * MB }));
 		const heap = heapAfterFullCollections(undefined, read);
 		gc({ type: "minor", execution: "sync" });
+		// A real pause: nothing arrives to wait on when no reading is due.
 		await pause(DELIVERED_MS);
 		expect(read, "not after a minor collection").not.toHaveBeenCalled();
 
@@ -92,6 +93,7 @@ describe("heapAfterFullCollections", () => {
 		heap.stop();
 		read.mockClear();
 		gc({ type: "major", execution: "sync" });
+		// A real pause: a stopped watcher sends nothing to wait on.
 		await pause(DELIVERED_MS);
 		expect(read, "stopped").not.toHaveBeenCalled();
 	});
@@ -99,8 +101,8 @@ describe("heapAfterFullCollections", () => {
 	it("stops watching once stopped", () => {
 		const v8 = fakeV8(900);
 		const heap = heapAfterFullCollections(v8.watch, v8.read);
-		expect(v8.watching()).toBe(true);
+		expect(v8.watching(), "watching once made").toBe(true);
 		heap.stop();
-		expect(v8.watching()).toBe(false);
+		expect(v8.watching(), "not watching once stopped").toBe(false);
 	});
 });

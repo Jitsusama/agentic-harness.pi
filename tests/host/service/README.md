@@ -39,16 +39,17 @@ terminal it names and the theme it starts. Its run against the real patched pi i
 test here, since that pi is built outside this package;
 tests/scripts/pi-host.test.ts checks the exit status a unit reads.
 restart.test.ts checks when a host restarts itself, with timers fired
-by hand and a fake systemctl over an install in a private folder: once
-the install changes the host's own code, systemd has a new unit or the
-heap passes half its limit, and only with every conversation settled,
+by hand through restart-fakes.ts: only with every conversation settled,
 no background work held and every screen at rest; past 70% of its
 heap limit, grown 15% since a first look counted at most 65%, at the
 first gap whatever background work runs, and past 80% at once whatever
 it first read, journalling what it ended, with a refused restart tried
-again within a second;
-never outside a unit or as a process that isn't the unit's main one;
-and a restart systemd refused leaves no viewer told.
+again within a second; and a restart systemd refused leaves no viewer
+told. follow-what-starts.test.ts checks what it follows, with a fake
+systemctl over an install in a private folder: a restart once the
+install changes the host's own code, systemd has a new unit or the
+heap passes half its limit, what it journals, and nothing followed
+outside a unit or as a process that isn't the unit's main one.
 live-heap.test.ts checks that the heap a host weighs is the lower of
 what V8 kept after its last two full collections, through a fake
 collector, and that V8's own collector reads it after a full
