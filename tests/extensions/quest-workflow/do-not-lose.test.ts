@@ -41,7 +41,7 @@ const DO_NOT_LOSE: Capability[] = [
 		name: "Single hierarchical model, documents under quests",
 		guards: [
 			"tests/lib/quest/discovery-toc-mentions.test.ts",
-			"tests/lib/internal/quest/discovery-cache.test.ts",
+			"tests/lib/internal/quest/discovery/discovery-cache.test.ts",
 		],
 	},
 	{
@@ -65,8 +65,8 @@ const DO_NOT_LOSE: Capability[] = [
 	{
 		name: "Structural edits with dry-run and a reversible journal",
 		guards: [
-			"tests/lib/internal/quest/structural.test.ts",
-			"tests/lib/internal/quest/structural-journal.test.ts",
+			"tests/lib/internal/quest/fields/structural.test.ts",
+			"tests/lib/internal/quest/fields/structural-journal.test.ts",
 			"tests/extensions/quest-workflow/verbs/reparent.test.ts",
 		],
 	},

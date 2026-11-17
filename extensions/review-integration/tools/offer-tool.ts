@@ -8,7 +8,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { loadOnce } from "../../../lib/internal/single-flight.ts";
+import { loadOnce } from "../../../lib/internal/process/single-flight.ts";
 import { sectionParameters, stackSections } from "./sections.ts";
 import type { Answer } from "./shared.ts";
 import { renderAnswer, renderInvocation } from "./view.ts";

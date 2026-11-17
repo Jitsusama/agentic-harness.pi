@@ -26,7 +26,10 @@ import {
 	unattended,
 } from "../../lib/internal/away/unattended.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
-import { loadOnce, singleFlight } from "../../lib/internal/single-flight.ts";
+import {
+	loadOnce,
+	singleFlight,
+} from "../../lib/internal/process/single-flight.ts";
 import { renderGoogleCall } from "./render-call.ts";
 import { renderGoogleResult } from "./render-result.ts";
 

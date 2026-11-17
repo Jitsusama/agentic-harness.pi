@@ -41,8 +41,8 @@ import {
 	measureEach,
 	type Size,
 	sum,
-} from "../../../lib/internal/quest/footprint.ts";
-import { gitTreeRootOf } from "../../../lib/internal/quest/git-signals.ts";
+} from "../../../lib/internal/quest/workspace/footprint.ts";
+import { gitTreeRootOf } from "../../../lib/internal/quest/workspace/git-signals.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { treeBroker } from "../broker.ts";

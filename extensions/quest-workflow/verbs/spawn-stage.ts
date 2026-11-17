@@ -8,12 +8,15 @@
  * and a line in the system's log saying so (fence-log.ts).
  */
 
-import { codeOf, recordUnlisted } from "../../../lib/internal/fence-log.ts";
+import {
+	codeOf,
+	recordUnlisted,
+} from "../../../lib/internal/fence/fence-log.ts";
 import {
 	listForStage,
 	listSpawnForStage,
 	spawnsJoin,
-} from "../../../lib/internal/fence-stage.ts";
+} from "../../../lib/internal/fence/fence-stage.ts";
 import { resumedBy } from "./spawn-launcher.ts";
 
 /** What a spawn is, as far as the stage goes. */

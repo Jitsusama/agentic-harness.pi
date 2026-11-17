@@ -22,8 +22,8 @@
  */
 
 import type { TickedOwner } from "../internal/process-ticks.ts";
-import { type Doing, readDoing } from "../internal/quest/doing.ts";
-import type { Orchestration } from "../internal/quest/orchestration.ts";
+import type { Orchestration } from "../internal/quest/fields/orchestration.ts";
+import { type Doing, readDoing } from "../internal/quest/sessions/doing.ts";
 import { recentEvents, type SessionEvent } from "../internal/session/events.ts";
 import {
 	type Landing,

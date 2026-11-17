@@ -41,7 +41,7 @@ import {
 	watch,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { recordRefusal, systemLogger } from "../fence-log.ts";
+import { recordRefusal, systemLogger } from "./fence-log.ts";
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
 
 /** Names git never makes in a repository's git folder, which redirect it. */

@@ -9,8 +9,8 @@
  * run. The quest's Journey says when it changed.
  */
 
-import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
+import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import type { QuestState } from "../state.ts";
 import { goesFirst, keepQuestWeights, QUEUE_FIRST } from "../weights.ts";
 import { addressOf } from "./address.ts";

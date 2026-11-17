@@ -16,7 +16,7 @@ import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import {
 	FIRST_WORDS_VARIABLE,
 	firstWordsDir,
-} from "../../../../lib/internal/quest/first-words.ts";
+} from "../../../../lib/internal/quest/sessions/first-words.ts";
 import { questAddress } from "../../../../lib/mesh/address.ts";
 import {
 	clearTerminalDrivers,

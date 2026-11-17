@@ -17,15 +17,18 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { QuestFrontMatter } from "../../quest/types.ts";
-import { localProcessDeps, probeProcess } from "../quest/process-liveness.ts";
-import { parseQuestDoc } from "../quest/quest-doc.ts";
-import { indexSessionFiles } from "../quest/session-liveness.ts";
+import { parseQuestDoc } from "../quest/documents/quest-doc.ts";
+import {
+	localProcessDeps,
+	probeProcess,
+} from "../quest/sessions/process-liveness.ts";
+import { indexSessionFiles } from "../quest/sessions/session-liveness.ts";
 import {
 	parseSessionRecord,
 	type SessionRecord,
 	wasLost,
-} from "../quest/session-registry.ts";
-import { treesHere } from "../quest/tree-place.ts";
+} from "../quest/sessions/session-registry.ts";
+import { treesHere } from "../quest/workspace/tree-place.ts";
 import { type RecordedTree, recordedTrees } from "../work-records.ts";
 import { continuedSessions, neverRan } from "./session-logs.ts";
 

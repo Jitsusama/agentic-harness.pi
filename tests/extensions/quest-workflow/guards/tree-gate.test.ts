@@ -18,8 +18,8 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../../lib/core/tree/index.ts";
-import { ensureQuestScratchDir } from "../../../../lib/internal/quest/scratch.ts";
-import { addTreeToQuest } from "../../../../lib/internal/quest/trees.ts";
+import { ensureQuestScratchDir } from "../../../../lib/internal/quest/workspace/scratch.ts";
+import { addTreeToQuest } from "../../../../lib/internal/quest/workspace/trees.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { freshRepo } from "../../../support/git-fixture.ts";
 import { createEnvGuard, fakeCtx } from "../_helpers.ts";

@@ -42,7 +42,7 @@ import {
 	recordContribution,
 	SUMMARY_CONTRIBUTIONS,
 } from "../compaction/contributions.ts";
-import { getLastEntry } from "../internal/state.ts";
+import { getLastEntry } from "../internal/session/state.ts";
 
 /**
  * What the model has been told. `frozen` is the text in the system

@@ -1,7 +1,7 @@
 /**
  * Write the launcher's restore file with no pi running, as a user
  * service does when the account's session starts: which sessions the
- * last boot's end took away (lib/internal/quest/restore-file.ts).
+ * last boot's end took away (lib/internal/quest/reopening/restore-file.ts).
  *
  * Each pi rewrites the file as it starts, but until one does, the file
  * would still describe an older boot, and the launcher would offer that

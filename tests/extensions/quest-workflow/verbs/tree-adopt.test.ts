@@ -16,8 +16,8 @@ import {
 	clearTreeProviders,
 	registerBuiltinTreeProviders,
 } from "../../../../lib/core/tree/index.ts";
-import { parseQuestFrontMatter } from "../../../../lib/internal/quest/frontmatter.ts";
-import { addTreeToQuest } from "../../../../lib/internal/quest/trees.ts";
+import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
+import { addTreeToQuest } from "../../../../lib/internal/quest/workspace/trees.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { freshRepo } from "../../../support/git-fixture.ts";
 import { createEnvGuard } from "../_helpers.ts";

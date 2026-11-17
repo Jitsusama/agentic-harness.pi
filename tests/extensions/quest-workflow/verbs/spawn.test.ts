@@ -10,7 +10,7 @@ import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import {
 	joinSpawns,
 	listedForStage,
-} from "../../../../lib/internal/fence-stage.ts";
+} from "../../../../lib/internal/fence/fence-stage.ts";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,

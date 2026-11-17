@@ -5,10 +5,10 @@
  * Money is one cost of a quest; the disk it fills is another, and the
  * one that stops every quest at once when it runs out. The measuring
  * and the rules for what is reclaimable are in
- * `lib/internal/quest/footprint.ts`; this reads the quests and says it.
+ * `lib/internal/quest/workspace/footprint.ts`; this reads the quests and says it.
  */
 
-import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
 import {
 	formatSize,
 	type Holdings,
@@ -21,7 +21,7 @@ import {
 	type QuestOnDisk,
 	reclaimableOf,
 	sum,
-} from "../../lib/internal/quest/footprint.ts";
+} from "../../lib/internal/quest/workspace/footprint.ts";
 
 /** Every quest under `questsRoot`, as its footprint needs it. */
 export function questsOnDisk(questsRoot: string): QuestOnDisk[] {

@@ -13,25 +13,25 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../../lib/core/session/host.ts";
+import { sessionRealmName } from "../../../lib/internal/machine/realm.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
-} from "../../../lib/internal/quest/alias-index.ts";
-import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
+} from "../../../lib/internal/quest/creation/alias-index.ts";
 import { nowYmd } from "../../../lib/internal/quest/dates.ts";
 import {
 	discoverQuests,
 	siblingRanks,
-} from "../../../lib/internal/quest/discovery.ts";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
+} from "../../../lib/internal/quest/discovery/discovery.ts";
+import { questIdForCwd } from "../../../lib/internal/quest/discovery/resolve-cwd.ts";
+import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
+import { sweepJourney } from "../../../lib/internal/quest/documents/journey-sweep.ts";
+import { nextRank } from "../../../lib/internal/quest/fields/ranking.ts";
+import { recordStructuralOp } from "../../../lib/internal/quest/fields/structural-journal.ts";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
-import { sweepJourney } from "../../../lib/internal/quest/journey-sweep.ts";
-import { nextRank } from "../../../lib/internal/quest/ranking.ts";
-import { questIdForCwd } from "../../../lib/internal/quest/resolve-cwd.ts";
-import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.ts";
+import { formatRelativeAge } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
-import { recordStructuralOp } from "../../../lib/internal/quest/structural-journal.ts";
-import { sessionRealmName } from "../../../lib/internal/realm.ts";
 import {
 	fetchUrlHints,
 	mintId,

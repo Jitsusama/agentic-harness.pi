@@ -27,12 +27,17 @@ may import from here, and any of it may change without notice.
   forking: the shell it forks once for its clipboard reads, and what
   a paste reads and puts in the editor, in pi's own order.
 - **`config/`**: the loader for the package's one configuration
-  file.
+  file, and which project a checkout is, for settings keyed by
+  project.
 - **`errors/`**: telling one failure from another: a failed model
   call a later try could get past, and pi's stale-context error.
 - **`fence/`**: the agent fence: its mounts, the copies it binds
   over files, its doors, the routes a refused command is told, its
-  Mac profile, its census and its pre-flight checks.
+  Mac profile, its census and its pre-flight checks; which pis it
+  takes, the line each refusal leaves in the system's log, and its
+  one exemption, a `nix-offload there` call.
+- **`files/`**: reading files once and keeping their parse until
+  they change.
 - **`github/`**: splice-based attribution for `gh pr` and
   `gh issue` commands, re-exported from core.
 - **`guardian/`**: what the public `guardian/` contract leaves out:
@@ -51,6 +56,8 @@ may import from here, and any of it may change without notice.
 - **`logs/`**: session logs read back: every log a span holds, pi's
   entries as plain turns, and searching a session's own log so what
   a compaction dropped stays within reach.
+- **`machine/`**: this machine: its name as its realm's other
+  machines say it, the realm a session lives in, and when it booted.
 - **`people/`**: the built-in handle types (Slack, GitHub, email),
   the resolvers and where people are stored.
 - **`pineapple/`**: Joel's safe word at the tool call: the stops
@@ -60,8 +67,12 @@ may import from here, and any of it may change without notice.
   `pineapple-workflow`.
 - **`priority/`**: the machine queue: when a session's heavy work
   may run, by memory, VM limits and who is waiting on it.
+- **`process/`**: one process's shared state and how its callers
+  take turns: singletons across module instances, a FIFO mutex and
+  one flight per key.
 - **`quest/`**: everything behind the quest tool: discovery, the
-  documents' fields and edits, sessions and trees.
+  documents' fields and edits, sessions and trees, in folders by what
+  changes together, its own note naming each.
 - **`refs/`**: the built-in reference types: GitHub issues, pull
   requests and repos, Slack messages and threads.
 - **`registry/`**: pluggable registries kept on `globalThis` under a
@@ -70,10 +81,12 @@ may import from here, and any of it may change without notice.
 - **`reload/`**: following the install, reloading a session onto
   a worktree, and telling which extension links moved since the
   process started, which only a new process loads afresh.
-- **`sandbox/`**: what both sandboxes build on beside `sandbox.ts`:
-  the shell text, which tree a fenced command stands in, the check
-  pi's own file tools are held to, and the brokers' hour-long cloud
-  and GitHub tokens for the strict sandbox.
+- **`sandbox/`**: which sandbox a session asked for and what both
+  sandboxes build on: the shell text, which tree a fenced command
+  stands in and where pi may run git outside it, the programs that
+  run outside it, running git and gh with nobody at the keyboard,
+  the check pi's own file tools are held to, and the brokers'
+  hour-long cloud and GitHub tokens for the strict sandbox.
 - **`secrets/`**: credentials kept from what the model and the disk
   see: the shapes one takes in a tool's output and the mark that
   replaces it, and an agent's ask for one work secret.
@@ -95,7 +108,9 @@ may import from here, and any of it may change without notice.
   through, since pi rebuilds the whole context after each listener;
   and, for a park under niri, which of a parked pi's windows may
   close (`park-window.ts`) and the calls to niri, kitty and the
-  launcher that close them (`park-desktop.ts`).
+  launcher that close them (`park-desktop.ts`); and an extension's
+  state, kept as entries in the session's log and restored from the
+  last one (`state.ts`).
 - **`shell/`**: what the agent's shell runs with, offered by the
   extensions that know, and its commands started by pi-spawner, so
   pi never forks itself to start one; what a bash call keeps of
@@ -119,68 +134,20 @@ may import from here, and any of it may change without notice.
 
 ## Files
 
-- **`async-mutex.ts`**: a FIFO mutex for critical sections within
-  one process.
 - **`automated.ts`**: the turns the harness starts itself, through
   pi's prompt path.
-- **`booted.ts`**: when the machine booted, which bounds what is
-  still under way.
-- **`fence-log.ts`**: the line each sandbox refusal in pi's own
-  process leaves in the system's log under `pi-fence`, naming the
-  tool, sandbox and session but never what was asked for.
-- **`fence-stage.ts`**: which pis the fence takes by default in its
-  first stage (subagents, fresh `quest spawn` sessions and those listed
-  by hand, under pi's state, `scripts/fence-stage.ts`), and how
-  `PI_SANDBOX` reads: `off` runs a session as it is, and an empty or
-  unknown value reads as the fence, saying so once.
-- **`file-reads.ts`**: what each file in a folder said when the
-  process last read it, asked again only once the file changes, so a
-  ledger asked at every conversation's start reads only what moved.
-- **`folder-mirror.ts`**: a folder's files and their parses, kept for a
-  host's synchronous readers and read again off the thread each second
-  while asked, so a stalled disk holds none of its conversations.
-- **`machine.ts`**: this machine's name as its realm's other
-  machines say it, its hostname's short form, and what may be one.
 - **`nearest.ts`**: the known word nearest one typed wrongly, by
   edit distance, which a command or tool says back when it doesn't
   know a word: the quest tool's actions, pi-verbs' commands.
-- **`offload-exemption.ts`**: the fence's one exemption, a
-  `nix-offload there` call let out to run as the person: what may go
-  out, and the environment and git it is given there, through
-  `nix-offload outside` where it has one.
 - **`paths.ts`**: the package's configuration, data, state and cache
   paths, by the XDG base directories.
-- **`process-global.ts`**: singletons shared across an extension's
-  module instances.
 - **`process-ticks.ts`**: a process's start in the kernel's ticks
   since boot, which no suspend or clock change moves, and the one
   judgement of whether a recorded process (a mesh presence, a
   fleet's owner) still runs.
-- **`project.ts`**: which project a checkout is, for settings keyed
-  by project.
 - **`record.ts`**: whether a parsed value is an object whose keys
   can be read by name; one copy for the whole package, `lib/core`
   included.
-- **`sandbox.ts`**: which sandbox a session asked for and the shell
-  text that runs each command in it: the strict profile as landrun's
-  rules, and the agent fence from `fence/fence.ts`.
-- **`single-flight.ts`**: one flight per key, which later callers
-  join; work that coalesces, running once more after the run going
-  for every call that came during it; and `loadOnce`, through which
-  every lazy import loads its module once.
-- **`stamped-read.ts`**: a file's parse kept while its inode, mtime
-  and size say it is the same file, read on the thread or off it, for
-  the mesh's presence listings.
-- **`state.ts`**: persisting an extension's state across sessions
-  and restoring it.
-- **`system-program.ts`**: finding a program that runs outside the
-  sandbox (bwrap, landrun, nix-offload, env, pi-spawner) only in the
-  system's own profile, through steps root alone can change.
-- **`tree-git.ts`**: where pi may run git outside the sandbox, and
-  with which git folder: a tree only as its own files agree, and in a
-  sandboxed session only in repositories the fence guards.
-- **`unattended-exec.ts`**: running git and gh with nobody at the
-  keyboard.
 - **`void-owner.ts`**: who owns a line Joel says into the void, read
   from what he attached (a pi session, a pull request, a page, a
   window) and from the quests that claim it, for

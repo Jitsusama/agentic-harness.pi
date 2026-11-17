@@ -46,7 +46,7 @@ import type {
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { hosted, sessionEnv } from "../../lib/core/session/index.ts";
-import { formatSize } from "../../lib/internal/quest/footprint.ts";
+import { formatSize } from "../../lib/internal/quest/workspace/footprint.ts";
 import { reloadSlot } from "../../lib/internal/reload/slot.ts";
 import {
 	authOf,

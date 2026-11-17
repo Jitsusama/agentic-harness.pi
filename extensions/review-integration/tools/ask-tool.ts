@@ -13,7 +13,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
-import { loadOnce } from "../../../lib/internal/single-flight.ts";
+import { loadOnce } from "../../../lib/internal/process/single-flight.ts";
 import { takesUpCarried } from "../../../lib/jobs/take-up.ts";
 import { THINKING_LEVELS } from "../../../lib/thinking/index.ts";
 import { ROUND_WORK, type RoundReading, takeUpRound } from "../round-job.ts";

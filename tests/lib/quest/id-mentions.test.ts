@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findIdsWithRelation } from "../../../lib/internal/quest/id.ts";
+import { findIdsWithRelation } from "../../../lib/internal/quest/creation/id.ts";
 
 describe("findIdsWithRelation", () => {
 	it("marks a bare id as a reference", () => {

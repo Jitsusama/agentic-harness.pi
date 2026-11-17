@@ -18,13 +18,13 @@
  */
 
 import { basename, dirname, join } from "node:path";
+import { sessionRealmName } from "../lib/internal/machine/realm.ts";
 import { everyRealmsDir } from "../lib/internal/paths.ts";
 import {
 	discoverQuests,
 	type QuestIndex,
-} from "../lib/internal/quest/discovery.ts";
-import { mutateQuestFrontMatter } from "../lib/internal/quest/mutate.ts";
-import { sessionRealmName } from "../lib/internal/realm.ts";
+} from "../lib/internal/quest/discovery/discovery.ts";
+import { mutateQuestFrontMatter } from "../lib/internal/quest/fields/mutate.ts";
 
 /** One realm's quest folder. */
 export interface RealmRoot {

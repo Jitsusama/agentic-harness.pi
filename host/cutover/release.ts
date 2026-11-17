@@ -6,7 +6,7 @@
  * and woken if it is parked, as a cutover wakes the ones it moves, so it
  * ends itself the moment nothing holds it and its host drops it,
  * leaving a move note that restore.json offers back
- * (lib/internal/quest/restore-file.ts), whatever the boot, until a plain
+ * (lib/internal/quest/reopening/restore-file.ts), whatever the boot, until a plain
  * pi starts it again from the same file. The release refreshes that
  * file the look each one leaves, so the launcher's Sessions to Reopen
  * shows it, and writes to each one's quest journal what only the host

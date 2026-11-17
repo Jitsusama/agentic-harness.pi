@@ -15,7 +15,7 @@
  * the process's rather than any one conversation's.
  */
 
-import { processGlobal } from "../process-global.ts";
+import { processGlobal } from "../process/process-global.ts";
 
 type Teller = () => ReadonlySet<string>;
 

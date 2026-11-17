@@ -6,12 +6,12 @@
  */
 
 import { sessionsDir } from "../../../lib/internal/paths.ts";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	deriveLiveness,
 	indexSessionFiles,
-} from "../../../lib/internal/quest/session-liveness.ts";
-import { authoritativeQuestFromLog } from "../../../lib/internal/quest/session-ownership.ts";
+} from "../../../lib/internal/quest/sessions/session-liveness.ts";
+import { authoritativeQuestFromLog } from "../../../lib/internal/quest/sessions/session-ownership.ts";
 import { buildSessionSnapshot } from "../liveness.ts";
 import type { QuestState } from "../state.ts";
 

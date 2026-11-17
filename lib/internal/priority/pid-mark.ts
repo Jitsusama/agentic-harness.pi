@@ -14,7 +14,7 @@
  */
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { processGlobal } from "../process-global.ts";
+import { processGlobal } from "../process/process-global.ts";
 
 /** Whose hold keeps the file: any follower's, or every follower's. */
 export type Quorum = "any" | "every";

@@ -30,8 +30,8 @@
  * machine: the quest store and its records, the mesh, and the steer
  * inboxes. A session in a realm other than its machine's home realm
  * finds theirs under `<xdg-root>/pi/agentic-harness.pi/realms/<name>/`
- * (see realm.ts); everything else is the machine's, whichever realm
- * asks.
+ * (see machine/realm.ts); everything else is the machine's, whichever
+ * realm asks.
  *
  * None of these helpers create the directory. Callers are
  * responsible for `mkdir -p` when they first write.
@@ -40,7 +40,7 @@ import { execFileSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-import { realmSegments } from "./realm.ts";
+import { realmSegments } from "./machine/realm.ts";
 
 /** Brand string used to scope paths to this pi package. */
 const PACKAGE_DIR = "agentic-harness.pi";

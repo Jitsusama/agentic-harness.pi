@@ -14,7 +14,7 @@ import {
 	registerBudgetProvider,
 } from "../../../../lib/budget/provider.ts";
 import { BUDGET_SETTLED } from "../../../../lib/budget/record.ts";
-import { parseQuestFrontMatter } from "../../../../lib/internal/quest/frontmatter.ts";
+import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "../_helpers.ts";
 

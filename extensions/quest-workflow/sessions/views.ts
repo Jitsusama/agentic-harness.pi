@@ -7,22 +7,22 @@
 
 import { statSync } from "node:fs";
 import { sessionsDir } from "../../../lib/internal/paths.ts";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	type SessionSummary,
 	summariseSessions,
-} from "../../../lib/internal/quest/reopen.ts";
+} from "../../../lib/internal/quest/reopening/reopen.ts";
 import {
 	activityFromIndex,
 	deriveLiveness,
 	indexSessionFiles,
 	type SessionLiveness,
-} from "../../../lib/internal/quest/session-liveness.ts";
+} from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	lastOpenAt,
 	type SessionRecord,
 	wasLost,
-} from "../../../lib/internal/quest/session-registry.ts";
+} from "../../../lib/internal/quest/sessions/session-registry.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 import { buildSessionSnapshot } from "../liveness.ts";
 import type { QuestState } from "../state.ts";

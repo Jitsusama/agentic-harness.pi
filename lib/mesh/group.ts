@@ -73,7 +73,7 @@ export function groupsNamed(written: string): string[] {
 /**
  * What `to` says once the word `orchestrator` in it is read as the
  * address of the orchestrator above the sender's quest, from its own
- * presence (see internal/quest/orchestration.ts), so a session asks its
+ * presence (see internal/quest/fields/orchestration.ts), so a session asks its
  * orchestrator without knowing which session that is. With none above
  * it, the word is dropped and `missing` says so.
  */

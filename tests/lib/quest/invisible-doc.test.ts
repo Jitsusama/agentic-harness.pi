@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { explainDocumentFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
+import { explainDocumentFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
 
 /** A document whose stage is not one, which is the live case. */
 const VERIFIED = [

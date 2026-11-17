@@ -14,8 +14,8 @@
 
 import { type FSWatcher, watch } from "node:fs";
 import { withSession } from "../../lib/core/session/index.ts";
+import { coalescing } from "../../lib/internal/process/single-flight.ts";
 import { answerWant } from "../../lib/internal/session/wants.ts";
-import { coalescing } from "../../lib/internal/single-flight.ts";
 import { answerLook, type Look, looksIn } from "../../lib/mesh/looks.ts";
 import {
 	FROM_MACHINE,

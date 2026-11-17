@@ -14,7 +14,7 @@ import {
 	watchFirstTurn,
 } from "../../../../extensions/quest-workflow/first-turn-watch.ts";
 import { withSession } from "../../../../lib/core/session/index.ts";
-import type { FirstTurn } from "../../../../lib/internal/quest/first-words.ts";
+import type { FirstTurn } from "../../../../lib/internal/quest/sessions/first-words.ts";
 import { installTestHost } from "../../../support/session-host.ts";
 
 let said: { text: string; options: unknown }[];

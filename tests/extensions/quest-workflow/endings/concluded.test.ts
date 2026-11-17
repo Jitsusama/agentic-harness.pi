@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
-import { QUEST_CONCLUDED } from "../../../../lib/internal/quest/concluded.ts";
+import { QUEST_CONCLUDED } from "../../../../lib/internal/quest/fields/concluded.ts";
 import {
 	addWaiting,
 	waitingFile,

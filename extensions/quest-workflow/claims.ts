@@ -24,12 +24,12 @@ import {
 	WORK_TREES_SWEPT,
 } from "../../lib/core/work/events.ts";
 import { everyRealmsDir } from "../../lib/internal/paths.ts";
-import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 import {
 	removeTreeFromQuest,
 	setPendingPrune,
-} from "../../lib/internal/quest/trees.ts";
+} from "../../lib/internal/quest/workspace/trees.ts";
 
 /**
  * Answer the working layer's question about held trees.

@@ -17,7 +17,7 @@
  * the writers every session in the process registered.
  */
 
-import { processGlobal } from "../process-global.ts";
+import { processGlobal } from "../process/process-global.ts";
 
 /** One uncaught error, as a dying pi records it. */
 export interface Crash {

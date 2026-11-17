@@ -22,7 +22,7 @@ import {
 	closeRecord,
 	markSignalled,
 	openRecord,
-} from "../../../../lib/internal/quest/session-registry.ts";
+} from "../../../../lib/internal/quest/sessions/session-registry.ts";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,

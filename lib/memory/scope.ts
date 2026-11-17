@@ -5,7 +5,7 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getLastEntry } from "../internal/state.ts";
+import { getLastEntry } from "../internal/session/state.ts";
 import type { Scope } from "./types.ts";
 
 /** The canonical string key for a scope. */

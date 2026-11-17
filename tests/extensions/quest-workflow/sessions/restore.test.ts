@@ -14,7 +14,7 @@ import {
 	closeRecord,
 	openRecord,
 	reopenRecord,
-} from "../../../../lib/internal/quest/session-registry.ts";
+} from "../../../../lib/internal/quest/sessions/session-registry.ts";
 import {
 	clearTerminalDrivers,
 	registerBuiltinTerminalDrivers,

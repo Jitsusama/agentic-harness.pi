@@ -20,7 +20,7 @@ import {
 	scratchLeftElsewhere,
 	scratchRemoved,
 } from "../../../../extensions/quest-workflow/verbs/scratch-removal.ts";
-import type { Measure } from "../../../../lib/internal/quest/footprint.ts";
+import type { Measure } from "../../../../lib/internal/quest/workspace/footprint.ts";
 import type { QuestSession } from "../../../../lib/quest/types.ts";
 
 const ID = "QEST-20261001-AAAAAA";

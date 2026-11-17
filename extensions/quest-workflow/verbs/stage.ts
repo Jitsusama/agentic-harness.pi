@@ -6,7 +6,7 @@
  */
 
 import { nowYmd } from "../../../lib/internal/quest/dates.ts";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import {
 	type DocumentFrontMatter,
 	type DocumentKind,

@@ -11,11 +11,11 @@ import { hosted } from "../../../lib/core/session/host.ts";
 import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { endConversation } from "../../../lib/core/session/owner.ts";
 import { stoppingFromOutside } from "../../../lib/internal/away/state.ts";
-import { machineBooted } from "../../../lib/internal/booted.ts";
+import { machineBooted } from "../../../lib/internal/machine/booted.ts";
 import { everyRealmsDir } from "../../../lib/internal/paths.ts";
 import { withQuestLock } from "../../../lib/internal/quest/io.ts";
 import { createReloadHold } from "../../../lib/internal/reload/hold.ts";
-import { sandboxName } from "../../../lib/internal/sandbox.ts";
+import { sandboxName } from "../../../lib/internal/sandbox/sandbox.ts";
 import { carriedEnvironment } from "../../../lib/internal/session/carried-environment.ts";
 import {
 	forgetUntrusted,

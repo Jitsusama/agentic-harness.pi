@@ -52,11 +52,16 @@ before it reloads, and says so on the screen; a second closes that
 conversation alone, keeping its log. Only the first two are reported.
 A closed screen still contains what its leftover timers throw.
 
-`hostedModeOf` takes the InteractiveMode class the host's pi exports and
-refuses one without core.nix's `pi-host-interactive-lifecycle.patch`,
-whose screens would own the host's process exit and signals, or one
-from before that patch's hosted quit (`InteractiveMode.hostedQuit`),
-whose screens would quit without asking.
+`screens.ts` holds what a host does with its screens; `hosted-mode.ts`
+holds pi's InteractiveMode as a host drives it, which changes when pi
+does. There `hostedModeOf` takes the InteractiveMode class the host's pi
+exports and refuses one without core.nix's
+`pi-host-interactive-lifecycle.patch`, whose screens would own the
+host's process exit and signals, or one from before that patch's hosted
+quit (`InteractiveMode.hostedQuit`), whose screens would quit without
+asking; `screens.ts` passes it on to the host's program. Beside it sit
+the reads of pi's private parts that a screen's repaint, rest, quit,
+fault and stop go through.
 
 A question pi asks before a conversation's screen exists, whether to
 trust its project folder, comes through `askProjectTrust` when the host

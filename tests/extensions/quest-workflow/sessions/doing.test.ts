@@ -12,7 +12,7 @@ import {
 	forgetDoing,
 	keepDoingSaid,
 	readDoing,
-} from "../../../../lib/internal/quest/doing.ts";
+} from "../../../../lib/internal/quest/sessions/doing.ts";
 
 let dir: string;
 const session = "sess-doing";

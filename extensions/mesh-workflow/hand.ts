@@ -21,7 +21,7 @@ import {
 	sessionCwd,
 	sessionEnv,
 } from "../../lib/core/session/index.ts";
-import { machineBooted } from "../../lib/internal/booted.ts";
+import { machineBooted } from "../../lib/internal/machine/booted.ts";
 import { kindOf, whatOf } from "../../lib/internal/priority/queue.ts";
 import { whereItRuns } from "../../lib/internal/priority/send.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";

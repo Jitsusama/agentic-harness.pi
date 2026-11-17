@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
-import { thisMachine } from "../../lib/internal/machine.ts";
+import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import { inboxOf, takeSteers } from "../../lib/mesh/steer.ts";
 import {

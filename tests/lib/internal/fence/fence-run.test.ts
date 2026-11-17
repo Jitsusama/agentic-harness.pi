@@ -45,7 +45,7 @@ import {
 	fenceRunAsked,
 	fenceRunText,
 } from "../../../../lib/internal/fence/fence-run.ts";
-import { sandboxFor } from "../../../../lib/internal/sandbox.ts";
+import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 
 describe("reading how pi-fence was asked", () => {
 	it("takes the working directory when no folder is named", () => {

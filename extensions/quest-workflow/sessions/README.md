@@ -1,7 +1,7 @@
 # Sessions
 
 The quest workflow's live wiring for sessions, over the pure store in
-`lib/internal/quest/session-registry.ts`. A running session's own
+`lib/internal/quest/sessions/session-registry.ts`. A running session's own
 record over its life (opened, re-dated, handed over, ended) is
 `../session-registry.ts`; what reads, repairs and reopens the records
 of every session is here.

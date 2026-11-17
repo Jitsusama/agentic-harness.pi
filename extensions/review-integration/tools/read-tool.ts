@@ -7,7 +7,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
-import { loadOnce } from "../../../lib/internal/single-flight.ts";
+import { loadOnce } from "../../../lib/internal/process/single-flight.ts";
 import type { Answer } from "./shared.ts";
 import { renderAnswer, renderInvocation } from "./view.ts";
 

@@ -24,7 +24,7 @@ import {
 	getAgentDir,
 	loadProjectContextFiles,
 } from "@earendil-works/pi-coding-agent";
-import { processGlobal } from "../process-global.ts";
+import { processGlobal } from "../process/process-global.ts";
 
 /** A context file as pi loads one: where it is and what it says. */
 export interface ContextFile {

@@ -44,7 +44,7 @@ const OWNED_SURFACES = [
 	"extensions/work-integration/render.ts",
 	// A quest's kind and status, which the board and the table of
 	// contents both draw.
-	"lib/internal/quest/quest-marks.ts",
+	"lib/internal/quest/discovery/quest-marks.ts",
 	// The footer's marks, for every extension that says something on the
 	// one line they all share.
 	"lib/ui/footer-mark.ts",

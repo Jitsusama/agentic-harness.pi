@@ -17,13 +17,13 @@ import {
 	type QuestDocumentEntry,
 	type QuestEntry,
 	type QuestIndex,
-} from "../../lib/internal/quest/discovery.ts";
-import { recentJourney } from "../../lib/internal/quest/journey.ts";
-import type { SessionSummary } from "../../lib/internal/quest/reopen.ts";
+} from "../../lib/internal/quest/discovery/discovery.ts";
+import { recentJourney } from "../../lib/internal/quest/documents/journey.ts";
+import type { SessionSummary } from "../../lib/internal/quest/reopening/reopen.ts";
 import {
 	indexSessionFiles,
 	questLastActivity,
-} from "../../lib/internal/quest/session-liveness.ts";
+} from "../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	getResolutionFallback,
 	resolveIdentity,

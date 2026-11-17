@@ -14,8 +14,8 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ownerRepoFromRemote } from "../../core/review/providers/github/claims.ts";
-import { gitRules } from "../sandbox.ts";
-import { gitRun } from "../tree-git.ts";
+import { gitRules } from "../sandbox/sandbox.ts";
+import { gitRun } from "../sandbox/tree-git.ts";
 import type { Place } from "./places.ts";
 
 /** A GitHub repo, by its owner and name. */

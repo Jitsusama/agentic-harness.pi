@@ -26,7 +26,7 @@ import {
 } from "../../lib/internal/config/loader.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
-import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/url-fetchers.ts";
+import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/creation/url-fetchers.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 import { registerBuiltinHandleTypes } from "../../lib/people/register.ts";
 import { registerBuiltinPersonResolvers } from "../../lib/people/resolve.ts";

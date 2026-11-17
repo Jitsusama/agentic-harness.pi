@@ -3,7 +3,7 @@ import { isAbsolute, join } from "node:path";
 
 const MAX_SOCKET_PATH_BYTES = 103;
 const MAX_REALM_LENGTH = 64;
-// The same rule lib/internal/realm.ts holds a realm name to.
+// The same rule lib/internal/machine/realm.ts holds a realm name to.
 const REALM_NAME = /^[a-z0-9-]+$/;
 
 /** A host's kind: an attended screen or background work. */

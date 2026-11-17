@@ -6,9 +6,9 @@
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
-import { parseDocumentFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
+import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
+import { parseDocumentFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { refuseSealingDryRun } from "../dry-run.ts";
 import { focusDocument, writeDocumentStage } from "../lifecycle.ts";

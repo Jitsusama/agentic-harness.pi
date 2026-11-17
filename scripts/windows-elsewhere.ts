@@ -1,7 +1,7 @@
 /**
  * Note which windows here are joined to a session another machine
  * holds, then rewrite the launcher's restore file, as a user timer does
- * each minute (lib/internal/quest/windows-elsewhere.ts). A boot that
+ * each minute (lib/internal/quest/reopening/windows-elsewhere.ts). A boot that
  * ends takes the windows with it but not the sessions, which run on, so
  * the next boot reads this note to offer the windows back.
  *
@@ -19,15 +19,15 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { refreshRestoreFile } from "../extensions/quest-workflow/sessions/restore.ts";
 import { dataDir, stateDir } from "../lib/internal/paths.ts";
-import { currentBootToken } from "../lib/internal/quest/process-liveness.ts";
-import { sessionsKittyDoor } from "../lib/internal/quest/sessions-kitty.ts";
+import { sessionsKittyDoor } from "../lib/internal/quest/reopening/sessions-kitty.ts";
 import {
 	nextNote,
 	readWindowsNote,
 	windowsElsewhere,
 	windowsNotePath,
 	writeWindowsNote,
-} from "../lib/internal/quest/windows-elsewhere.ts";
+} from "../lib/internal/quest/reopening/windows-elsewhere.ts";
+import { currentBootToken } from "../lib/internal/quest/sessions/process-liveness.ts";
 
 /** How long one kitty or the node may take to answer. */
 const ASK_MS = 5000;

@@ -34,8 +34,8 @@ import {
 	watchForWorkLayer,
 } from "../../../../extensions/review-integration/work.ts";
 import { runCouncil, startCouncil } from "../../../../lib/core/review/index.ts";
-import { OFF } from "../../../../lib/internal/fence-stage.ts";
-import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox.ts";
+import { OFF } from "../../../../lib/internal/fence/fence-stage.ts";
+import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox/sandbox.ts";
 import { freshRepo } from "../../../support/git-fixture.ts";
 import { askSource } from "./ask-source.ts";
 

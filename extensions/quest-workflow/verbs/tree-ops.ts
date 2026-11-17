@@ -14,26 +14,26 @@ import {
 	resolveTreeProvider,
 } from "../../../lib/core/tree/index.ts";
 import { stateDir } from "../../../lib/internal/paths.ts";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
+import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import {
 	canonicalPath,
 	gitTreeRootOf,
 	hasNoCommits,
 	isMainWorkingTree,
 	isWithin,
-} from "../../../lib/internal/quest/git-signals.ts";
-import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
+} from "../../../lib/internal/quest/workspace/git-signals.ts";
 import {
 	treePlace,
 	treesHere,
-} from "../../../lib/internal/quest/tree-place.ts";
+} from "../../../lib/internal/quest/workspace/tree-place.ts";
 import {
 	addTreeToQuest,
 	listTreesOnQuest,
 	removeTreeFromQuest,
 	setPendingPrune,
-} from "../../../lib/internal/quest/trees.ts";
+} from "../../../lib/internal/quest/workspace/trees.ts";
 import { repoRulesNote } from "../../../lib/internal/session/repo-rules.ts";
 import type { QuestSession, QuestTree } from "../../../lib/quest/index.ts";
 import { count, noun } from "../../../lib/ui/count.ts";

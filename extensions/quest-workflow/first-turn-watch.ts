@@ -4,7 +4,7 @@
  * On 11-03 a session spawned for CF3ZG0 sat 44 minutes without a turn
  * and its quest stood still overnight, since nothing noticed
  * (QEST-20261104-ECNIS5). One look a spawn, at the records its first
- * words leave (lib/internal/quest/first-words.ts); a session that took
+ * words leave (lib/internal/quest/sessions/first-words.ts); a session that took
  * its turn is never mentioned.
  *
  * A start can outlast the minute: on 11-04 at 17:05 a spawn's pi took
@@ -44,7 +44,7 @@ import { automatedText } from "../../lib/internal/automated.ts";
 import {
 	type FirstTurn,
 	firstTurnOf,
-} from "../../lib/internal/quest/first-words.ts";
+} from "../../lib/internal/quest/sessions/first-words.ts";
 
 /** How long a spawned session has to start its first turn. */
 export const FIRST_TURN_WATCH_MS = 60_000;

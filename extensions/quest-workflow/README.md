@@ -73,7 +73,7 @@ shipped and tested.
   desktop can offer one that has no session.
 - **What a session is doing**: after each quest action, each
   write to the focused plan and each start, it says (through
-  `lib/internal/quest/doing.ts`)
+  `lib/internal/quest/sessions/doing.ts`)
   the focused plan's next item and the quest's newest Journey
   line in `doing/<session>.json` under the state folder,
   rewritten only when either changes, removed with no focused

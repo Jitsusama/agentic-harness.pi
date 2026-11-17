@@ -12,6 +12,13 @@ a queued message, a draft out in a viewer's editor, or parts it can't
 read. The real InteractiveMode's hosted paths are proved by
 core.nix's `pi-hosted-screen-stays-in-its-session` check.
 
+hosted-mode.test.ts builds a screen from a stand-in for pi's patched
+InteractiveMode class, and refuses a class with another lifecycle
+version or without a hosted quit that is true. It reads stand-ins for
+pi's private parts as a host does: a conversation it can't read counts
+as working, a compacting one is not at rest, and a screen with no
+shutdown can't be stopped.
+
 startup-ask.test.ts draws a startup question with pi-tui's own
 main-screen TUI over a ViewerTerminal, with a stand-in for pi's
 selector, and answers it by a pick, a dismissal or a cancel.

@@ -12,7 +12,7 @@ import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
-} from "../../../../lib/internal/quest/frontmatter.ts";
+} from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
 

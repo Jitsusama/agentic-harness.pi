@@ -37,7 +37,7 @@ export interface QuestRecords {
 	readonly sessions: string;
 	/** One folder per quest, each with a README. */
 	readonly quests: string;
-	/** What each session says it is doing (lib/internal/quest/doing.ts). */
+	/** What each session says it is doing (lib/internal/quest/sessions/doing.ts). */
 	readonly doing?: string;
 	/** The work broker's records of the trees it cut (internal/work-records.ts). */
 	readonly trees?: string;

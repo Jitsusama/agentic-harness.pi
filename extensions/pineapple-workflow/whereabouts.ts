@@ -23,7 +23,7 @@
 import { constants } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { processGlobal } from "../../lib/internal/process-global.ts";
+import { processGlobal } from "../../lib/internal/process/process-global.ts";
 
 /**
  * How many disk calls whereabouts make at once, over every conversation

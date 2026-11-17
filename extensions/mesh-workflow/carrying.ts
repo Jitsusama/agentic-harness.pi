@@ -19,9 +19,9 @@ import { carryAway } from "../../lib/internal/carry/carry-away.ts";
 import { fenceKindOf } from "../../lib/internal/carry/fence.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
 import { type CarriedNote, notesOf } from "../../lib/internal/carry/notes.ts";
-import { thisMachine } from "../../lib/internal/machine.ts";
-import { questLoadedIn } from "../../lib/internal/quest/loaded.ts";
-import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
+import { thisMachine } from "../../lib/internal/machine/machine.ts";
+import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
+import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
 import { treesHeldBy } from "../../lib/internal/work-records.ts";
 import { memoryDbPath, openMemoryStore } from "../../lib/memory/index.ts";
 

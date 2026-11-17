@@ -5,11 +5,11 @@
  * it.
  */
 
-import { discoverQuests } from "../../internal/quest/discovery.ts";
+import { discoverQuests } from "../../internal/quest/discovery/discovery.ts";
 import {
 	currentInstanceId,
 	currentProcessIdentity,
-} from "../../internal/quest/process-liveness.ts";
+} from "../../internal/quest/sessions/process-liveness.ts";
 import type { QuestSession } from "../../quest/index.ts";
 import { identifyCurrentTerminal } from "../../terminal/index.ts";
 import { hosted } from "../session/host.ts";

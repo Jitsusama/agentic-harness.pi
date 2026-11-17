@@ -28,7 +28,7 @@ import {
 	sessionSlot,
 	withSession,
 } from "../../../lib/core/session/index.ts";
-import { processGlobal } from "../../../lib/internal/process-global.ts";
+import { processGlobal } from "../../../lib/internal/process/process-global.ts";
 import {
 	askedOnceWithTicks,
 	processKey,

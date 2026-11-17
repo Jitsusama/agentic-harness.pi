@@ -14,12 +14,12 @@ import {
 	duMeasure,
 	formatSize,
 	type Measure,
-} from "../../../lib/internal/quest/footprint.ts";
+} from "../../../lib/internal/quest/workspace/footprint.ts";
 import {
 	machinesHoldingScratch,
 	scratchElsewhereSaid,
 	sharedScratchMachines,
-} from "../../../lib/internal/quest/scratch-elsewhere.ts";
+} from "../../../lib/internal/quest/workspace/scratch-elsewhere.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 import { dropTempLink } from "../scratch.ts";
 import { defaultWorkspaceRoot, workspaceDirOf } from "../workspace.ts";

@@ -11,10 +11,10 @@ import {
 	createQuestState,
 	type QuestState,
 } from "../../../../lib/core/quest/state.ts";
-import { discoverQuests } from "../../../../lib/internal/quest/discovery.ts";
-import { mintId } from "../../../../lib/internal/quest/id.ts";
+import { mintId } from "../../../../lib/internal/quest/creation/id.ts";
+import { scaffoldQuestReadme } from "../../../../lib/internal/quest/creation/scaffold.ts";
+import { discoverQuests } from "../../../../lib/internal/quest/discovery/discovery.ts";
 import { atomicWriteFile } from "../../../../lib/internal/quest/io.ts";
-import { scaffoldQuestReadme } from "../../../../lib/internal/quest/scaffold.ts";
 import {
 	type DocumentFrontMatter,
 	parseDocumentFrontMatter,

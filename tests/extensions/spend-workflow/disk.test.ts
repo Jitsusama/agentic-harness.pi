@@ -12,12 +12,12 @@ import {
 	formatHoldings,
 	measureQuests,
 } from "../../../extensions/spend-workflow/disk.ts";
-import { clearDiscoveryCache } from "../../../lib/internal/quest/discovery.ts";
+import { clearDiscoveryCache } from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	formatSize,
 	type Holdings,
 	type Size,
-} from "../../../lib/internal/quest/footprint.ts";
+} from "../../../lib/internal/quest/workspace/footprint.ts";
 
 let root: string;
 

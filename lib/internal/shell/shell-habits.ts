@@ -27,7 +27,7 @@ import {
 	resolveBashWrites,
 } from "../../core/internal/quest/bash-write.ts";
 import { heavySteps, isVm, KIND_SAID } from "../priority/queue.ts";
-import { isTracked } from "../quest/git-signals.ts";
+import { isTracked } from "../quest/workspace/git-signals.ts";
 
 /**
  * The programs whose output is a build's or a test run's: what the

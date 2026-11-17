@@ -33,12 +33,12 @@ import {
 	setSignalStampSession,
 } from "../../../../extensions/quest-workflow/sessions/signal-stamp.ts";
 import { rosterDir, rosterPath } from "../../../../lib/core/session/roster.ts";
-import { currentProcessIdentity } from "../../../../lib/internal/quest/process-liveness.ts";
+import { currentProcessIdentity } from "../../../../lib/internal/quest/sessions/process-liveness.ts";
 import {
 	closeRecord,
 	markSignalled,
 	openRecord,
-} from "../../../../lib/internal/quest/session-registry.ts";
+} from "../../../../lib/internal/quest/sessions/session-registry.ts";
 import { quietFor, until } from "../../../support/until.ts";
 
 let stateHome: string;

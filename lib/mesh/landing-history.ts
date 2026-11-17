@@ -19,7 +19,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { withFileLock } from "../core/internal/file-lock.ts";
-import { thisMachine } from "../internal/machine.ts";
+import { thisMachine } from "../internal/machine/machine.ts";
 import type { Landing } from "../internal/session/landings.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 

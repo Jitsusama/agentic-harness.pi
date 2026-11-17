@@ -25,7 +25,7 @@ import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import type { FenceKind } from "../../mesh/presence.ts";
-import { placeTakenOver } from "../quest/carried.ts";
+import { placeTakenOver } from "../quest/reopening/carried.ts";
 import {
 	doneFileOf,
 	type HandedTree,

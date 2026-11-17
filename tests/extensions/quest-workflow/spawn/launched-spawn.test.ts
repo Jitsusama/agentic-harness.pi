@@ -20,7 +20,7 @@ import {
 	OPEN_PATIENCE_MS,
 } from "../../../../extensions/quest-workflow/verbs/spawn-host.ts";
 import type { ControlRequest } from "../../../../host/service/protocol.ts";
-import { leaveFirstWords } from "../../../../lib/internal/quest/first-words.ts";
+import { leaveFirstWords } from "../../../../lib/internal/quest/sessions/first-words.ts";
 
 const QUEST = "QEST-20261112-ABCDEF";
 const WORDS = "Carry on with QEST-20261112-ABCDEF.";

@@ -123,7 +123,7 @@ export function tag(notesRoot: string, params: NoteToolParams): NoteResult {
 	});
 }
 
-/** Is `candidate` inside `ancestor`'s subtree? Mirrors quest's own cycle guard (`internal/quest/structural.ts`). */
+/** Is `candidate` inside `ancestor`'s subtree? Mirrors quest's own cycle guard (`internal/quest/fields/structural.ts`). */
 function isDescendant(
 	index: NoteIndex,
 	candidate: string,

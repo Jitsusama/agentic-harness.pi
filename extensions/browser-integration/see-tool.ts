@@ -9,7 +9,7 @@ import {
 	MAX_OUTLINE_BUDGET_BYTES,
 	OUTLINE_BUDGET_BYTES,
 } from "../../lib/core/web/a11y/budget.ts";
-import { loadOnce } from "../../lib/internal/single-flight.ts";
+import { loadOnce } from "../../lib/internal/process/single-flight.ts";
 import { BROWSER_EXPOSURE } from "./exposure.ts";
 import { renderBrowserCall, renderBrowserResult } from "./render.ts";
 import type { Sessions } from "./sessions.ts";

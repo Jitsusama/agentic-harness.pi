@@ -47,7 +47,12 @@ import { GUARDS } from "../../lib/internal/guardian/guards.ts";
 import {
 	documentRead,
 	documentReadReason,
-} from "../../lib/internal/quest/document-reads.ts";
+} from "../../lib/internal/quest/documents/document-reads.ts";
+import {
+	applyEdits,
+	ownedFieldChanges,
+	type QuestFileKind,
+} from "../../lib/internal/quest/fields/owned-fields.ts";
 import {
 	canonicalPath,
 	isGitignored,
@@ -55,14 +60,9 @@ import {
 	isWithin,
 	trackedTreeRoot,
 	treeRootOf,
-} from "../../lib/internal/quest/git-signals.ts";
-import {
-	applyEdits,
-	ownedFieldChanges,
-	type QuestFileKind,
-} from "../../lib/internal/quest/owned-fields.ts";
-import { treesHere } from "../../lib/internal/quest/tree-place.ts";
-import { listTreesOnQuest } from "../../lib/internal/quest/trees.ts";
+} from "../../lib/internal/quest/workspace/git-signals.ts";
+import { treesHere } from "../../lib/internal/quest/workspace/tree-place.ts";
+import { listTreesOnQuest } from "../../lib/internal/quest/workspace/trees.ts";
 import { readOutsideWrites } from "./outside-writes.ts";
 import type { QuestState } from "./state.ts";
 import { defaultWorkspaceRoot, workspaceDirOf } from "./workspace.ts";

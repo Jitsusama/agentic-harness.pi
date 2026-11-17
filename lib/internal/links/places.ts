@@ -8,7 +8,7 @@
  * a URL that ends a sentence does not carry its full stop.
  */
 
-import { findIdSpans } from "../quest/id.ts";
+import { findIdSpans } from "../quest/creation/id.ts";
 
 /** What kind of place a stretch of text names. */
 export type PlaceKind =

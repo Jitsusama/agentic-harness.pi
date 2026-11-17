@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
 	orchestrationOf,
 	windowWorkspaceOf,
-} from "../../../lib/internal/quest/orchestration.ts";
+} from "../../../lib/internal/quest/fields/orchestration.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
 
 function quest(

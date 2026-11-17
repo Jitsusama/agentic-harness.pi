@@ -8,7 +8,7 @@ import {
 import {
 	formatRelativeAge,
 	type SessionView,
-} from "../../../../lib/internal/quest/session-liveness.ts";
+} from "../../../../lib/internal/quest/sessions/session-liveness.ts";
 
 function view(
 	id: string,

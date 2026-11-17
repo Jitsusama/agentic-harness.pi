@@ -14,7 +14,7 @@
 
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import type { QuestState } from "../state.ts";
 import { subdirForDocumentId } from "./queries.ts";
 

@@ -34,8 +34,6 @@
 
 import { existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { quoted } from "../sandbox/sandbox-shell.ts";
-import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
 import {
 	SANDBOX_VARIABLE,
 	type Sandbox,
@@ -46,8 +44,10 @@ import {
 	strictRules,
 	unfencedFolder,
 	wrapFor,
-} from "../sandbox.ts";
-import { real, worktreeRepository } from "../tree-git.ts";
+} from "../sandbox/sandbox.ts";
+import { quoted } from "../sandbox/sandbox-shell.ts";
+import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
+import { real, worktreeRepository } from "../sandbox/tree-git.ts";
 import { cutTreeDir, treeRecordDir } from "../work-records.ts";
 import { fenceArgs } from "./fence.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
