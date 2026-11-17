@@ -23,14 +23,21 @@ import {
 	readFile,
 	rename,
 	rm,
+	stat,
 	writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
 import { stateDir } from "../internal/paths.ts";
+import {
+	askedOnceWithTicks,
+	type TickFacts,
+	tickFacts,
+} from "../internal/process-ticks.ts";
 import { isRecord } from "../internal/record.ts";
 import { ReviewerArtifactsStore } from "./artifacts.ts";
 import { safeSegment } from "./errno.ts";
 import { WRAP_UP_SUFFIX } from "./follow-up.ts";
+import { HEARTBEAT_STALE_MS, supervisorStanding } from "./lease.ts";
 
 /** What kind of run: a fleet, or a kind of review round. */
 export type RunKind =
@@ -131,21 +138,30 @@ export function runRecordsDir(): string {
 	return join(stateDir("mesh-workflow"), "runs");
 }
 
-/** A run's record, read from what its members' supervisors keep. */
+/**
+ * A run's record, read from what its members' supervisors keep. Given
+ * the machine's facts, a member whose supervisor has gone is said as
+ * lost, since no result will come from it; without them none is.
+ */
 export async function runRecord(
 	asked: RunAsked,
 	members: readonly MemberAsked[],
 	now: Date,
+	facts?: TickFacts,
 ): Promise<RunRecord> {
 	const store = new ReviewerArtifactsStore(asked.artifacts);
+	const gone = async (id: string): Promise<boolean> =>
+		facts !== undefined &&
+		(await supervisorLost(store, asked.runId, id, facts, now));
 	const read = await Promise.all(
-		members.map((member) =>
-			memberOf(
+		members.map((member) => {
+			const wrapUp = `${member.id}${WRAP_UP_SUFFIX}`;
+			return memberOf(
 				member,
-				store.paths(asked.runId, member.id),
-				store.paths(asked.runId, `${member.id}${WRAP_UP_SUFFIX}`),
-			),
-		),
+				{ ...store.paths(asked.runId, member.id), gone: () => gone(member.id) },
+				{ ...store.paths(asked.runId, wrapUp), gone: () => gone(wrapUp) },
+			);
+		}),
 	);
 	const state = stateOf(read);
 	const ended =
@@ -192,10 +208,16 @@ export interface RunWatch {
 export function watchRun(
 	asked: RunAsked,
 	members: readonly MemberAsked[],
-	options: { dir?: string; everyMs?: number; now?: () => Date } = {},
+	options: {
+		dir?: string;
+		everyMs?: number;
+		now?: () => Date;
+		facts?: TickFacts;
+	} = {},
 ): RunWatch {
 	const dir = options.dir ?? runRecordsDir();
 	const now = options.now ?? (() => new Date());
+	const machine = options.facts ?? tickFacts;
 	const known = new Map(members.map((one) => [one.id, one]));
 	let said = "";
 	let ended = false;
@@ -204,7 +226,14 @@ export function watchRun(
 	const look = () => {
 		looking = looking.then(async () => {
 			try {
-				const record = await runRecord(asked, [...known.values()], now());
+				const record = await runRecord(
+					asked,
+					[...known.values()],
+					now(),
+					// Each process asked about once a look, however many
+					// members name it: on a Mac each is a ps.
+					askedOnceWithTicks(machine),
+				);
 				const final = ended ? unstartedFailed(record, now()) : record;
 				// Written when what it says moves, not when it was looked at.
 				const { at: _looked, ...saying } = final;
@@ -305,11 +334,62 @@ function lastSaid(body: unknown): number | undefined {
 	return Number.isFinite(at) ? at : undefined;
 }
 
+/**
+ * Whether a member's supervisor has gone for good, judged only on a lease
+ * that says it went on: its standing reads gone, its heartbeat, which it
+ * beats every second, has been quiet past HEARTBEAT_STALE_MS, the lease is
+ * not an earlier attempt's (its request, rewritten for each, is newer),
+ * and no result has come since. A watch ends on a lost member, so each
+ * guard is there to keep a live one from being called lost once.
+ */
+async function supervisorLost(
+	store: ReviewerArtifactsStore,
+	runId: string,
+	id: string,
+	facts: TickFacts,
+	now: Date,
+): Promise<boolean> {
+	const paths = store.paths(runId, id);
+	const [lease, leaseMade, requestMade] = await Promise.all([
+		readJson(paths.leasePath),
+		modifiedAt(paths.leasePath),
+		modifiedAt(paths.requestPath),
+	]);
+	if (leaseMade === undefined) return false;
+	if (requestMade !== undefined && requestMade > leaseMade) return false;
+	const beat = Date.parse(stringIn(lease, "updatedAt") ?? "");
+	if (!Number.isFinite(beat) || now.getTime() - beat <= HEARTBEAT_STALE_MS) {
+		return false;
+	}
+	const standing = await supervisorStanding(
+		store,
+		runId,
+		id,
+		facts,
+		now.getTime(),
+	);
+	if (standing.kind !== "gone") return false;
+	// It may have written its result and gone between the two reads.
+	return (await readJson(paths.resultPath)) === undefined;
+}
+
+/** When a file was last written, or undefined when it can't be read. */
+async function modifiedAt(path: string): Promise<number | undefined> {
+	try {
+		return (await stat(path)).mtimeMs;
+	} catch {
+		// Not there, or not readable: nothing it could say.
+		return undefined;
+	}
+}
+
 /** The files a member's supervisor keeps, as a record reads them. */
 interface MemberPaths {
 	requestPath: string;
 	leasePath: string;
 	resultPath: string;
+	/** Whether the supervisor its lease names has gone. */
+	gone(): Promise<boolean>;
 }
 
 /**
@@ -348,7 +428,21 @@ async function memberOf(
 		// Started once its request is written, which its parent does
 		// before spawning the supervisor that writes its lease.
 		const started = request !== undefined || lease !== undefined;
-		return { ...base, state: started ? "running" : "queued" };
+		if (!started) return { ...base, state: "queued" };
+		// Killed before it wrote its result, as a host's restart kills
+		// one: nothing more will come, so it ended at its last heartbeat,
+		// which supervisorLost has read as a date. One killed before its
+		// first lease is not asked about: a fleet's member waiting its
+		// turn has none either, and would be said failed.
+		if (lease !== undefined && (await paths.gone())) {
+			const last = stringIn(lease, "updatedAt") ?? "";
+			return {
+				...base,
+				state: "supervisor-lost",
+				ended: new Date(last).toISOString(),
+			};
+		}
+		return { ...base, state: "running" };
 	}
 	if (await askedStill(wrapUp)) return { ...base, state: "running" };
 	// What its calls took, as the supervisor counted them in its result.
@@ -368,8 +462,8 @@ async function memberOf(
 
 /**
  * Whether a wrap-up was asked for and has not said how it ended: its
- * request or lease is there, and neither its result nor its lease says
- * it is over.
+ * request or lease is there, neither its result nor its lease says it
+ * is over, and the supervisor its lease names has not gone.
  */
 async function askedStill(paths: MemberPaths): Promise<boolean> {
 	const [request, lease, result] = await Promise.all([
@@ -380,7 +474,8 @@ async function askedStill(paths: MemberPaths): Promise<boolean> {
 	if (result !== undefined) return false;
 	const leased = stringIn(lease, "state");
 	if (leased !== undefined && !GOING_ON.has(leased)) return false;
-	return request !== undefined || lease !== undefined;
+	if (lease !== undefined) return !(await paths.gone());
+	return request !== undefined;
 }
 
 /** A supervisor's token counts, in gen_ai's names. */

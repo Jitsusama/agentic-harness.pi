@@ -8,11 +8,13 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TickFacts } from "../../../lib/internal/process-ticks.ts";
 import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
 import {
 	KEPT_MS,
@@ -83,6 +85,38 @@ function answered(member: string, runId = "fleet-a"): void {
 		},
 		runId,
 	);
+}
+
+const SUPERVISOR_PID = 4242;
+const SUPERVISED_AT = Date.parse("2026-11-07T04:00:01.000Z");
+
+/**
+ * A machine on which the supervisor runs, has gone, or has gone and left
+ * its pid to a process started since.
+ */
+function machine(supervisor: "running" | "gone" | "reused"): TickFacts {
+	return {
+		alive: (pid) => supervisor !== "gone" && pid === SUPERVISOR_PID,
+		startedAt: async () =>
+			supervisor === "reused" ? SUPERVISED_AT + 3_600_000 : SUPERVISED_AT,
+	};
+}
+
+/** Make a member's lease older than its request, as a retry's is. */
+function leaseBeforeRequest(member: string): void {
+	const paths = new ReviewerArtifactsStore(artifacts).paths("fleet-a", member);
+	const earlier = new Date(Date.now() - 60_000);
+	utimesSync(paths.leasePath, earlier, earlier);
+}
+
+/** A lease its supervisor wrote while it went on, last at `beat`. */
+function leased(member: string, beat = "2026-11-07T04:04:00.000Z"): void {
+	keep(member, "lease", {
+		state: "running",
+		supervisorPid: SUPERVISOR_PID,
+		supervisorStartedAt: SUPERVISED_AT,
+		updatedAt: beat,
+	});
 }
 
 /** The one run a record file holds, as the node reads it. */
@@ -221,6 +255,129 @@ describe("a run's record", () => {
 			ended: "2026-11-07T04:05:00.000Z",
 		});
 	});
+
+	// A supervisor killed before it writes its result, as a host's restart
+	// kills one, left its run said as running for ever.
+	it("says a member whose supervisor has gone as lost, ended at its last word", async () => {
+		keep("gone", "request", { args: [] });
+		leased("gone");
+
+		const record = await runRecord(
+			asked(),
+			[{ id: "gone" }],
+			new Date("2026-11-07T04:30:00.000Z"),
+			machine("gone"),
+		);
+
+		expect(record.members[0]).toMatchObject({
+			state: "supervisor-lost",
+			ended: "2026-11-07T04:04:00.000Z",
+		});
+		expect(record).toMatchObject({
+			state: "failed",
+			ended: "2026-11-07T04:04:00.000Z",
+		});
+	});
+
+	it("says a member lost whose supervisor's pid another process now wears", async () => {
+		leased("gone");
+
+		const record = await runRecord(
+			asked(),
+			[{ id: "gone" }],
+			new Date("2026-11-07T04:30:00.000Z"),
+			machine("reused"),
+		);
+
+		expect(record.members[0]).toMatchObject({ state: "supervisor-lost" });
+	});
+
+	// Its supervisor beats every second, so a quiet minute is the least
+	// that says it has stopped, and a result may be on its way meanwhile.
+	it("goes on saying a member running whose gone supervisor beat under a minute ago", async () => {
+		leased("just", "2026-11-07T04:29:30.000Z");
+
+		const record = await runRecord(
+			asked(),
+			[{ id: "just" }],
+			new Date("2026-11-07T04:30:00.000Z"),
+			machine("gone"),
+		);
+
+		expect(record.members[0]).toMatchObject({ state: "running" });
+	});
+
+	// A retry writes a new request under the same member, and until its
+	// supervisor writes a lease the one there is the killed attempt's.
+	it("goes on saying a member running whose lease is an earlier attempt's", async () => {
+		leased("again");
+		leaseBeforeRequest("again");
+		keep("again", "request", { args: [] });
+
+		const record = await runRecord(
+			asked(),
+			[{ id: "again" }],
+			new Date("2026-11-07T04:30:00.000Z"),
+			machine("gone"),
+		);
+
+		expect(record.members[0]).toMatchObject({ state: "running" });
+	});
+
+	it("goes on while a stopped member's wrap-up supervisor runs", async () => {
+		keep("slow", "result", {
+			state: "soft-deadline",
+			completedAt: "2026-11-07T04:05:00.000Z",
+		});
+		keep("slow+wrapup", "request", { args: [] });
+		leased("slow+wrapup");
+
+		const record = await runRecord(
+			asked(),
+			[{ id: "slow" }],
+			new Date("2026-11-07T04:30:00.000Z"),
+			machine("running"),
+		);
+
+		expect(record.members[0]).toMatchObject({ state: "running" });
+		expect(record.state, "the round waits on the wrap-up").toBe("running");
+	});
+
+	it("goes on saying a member running while its supervisor runs", async () => {
+		leased("going");
+
+		const record = await runRecord(
+			asked(),
+			[{ id: "going" }],
+			new Date("2026-11-07T04:30:00.000Z"),
+			machine("running"),
+		);
+
+		expect(record.members[0]).toMatchObject({ state: "running" });
+		expect(record.state).toBe("running");
+	});
+
+	it("says how a stopped member ended once its wrap-up's supervisor has gone", async () => {
+		keep("slow", "result", {
+			state: "soft-deadline",
+			completedAt: "2026-11-07T04:05:00.000Z",
+		});
+		keep("slow+wrapup", "request", { args: [] });
+		leased("slow+wrapup");
+
+		const record = await runRecord(
+			asked(),
+			[{ id: "slow" }],
+			new Date("2026-11-07T04:30:00.000Z"),
+			machine("gone"),
+		);
+
+		expect(record.members[0]).toMatchObject({
+			state: "soft-deadline",
+			ended: "2026-11-07T04:05:00.000Z",
+		});
+		expect(record.state, "the round ends as its member did").toBe("done");
+	});
 });
 
 describe("watching a run", () => {
@@ -267,6 +424,45 @@ describe("watching a run", () => {
 		await vi.waitFor(() =>
 			expect(recordIn("fleet.fleet-a.json")).toMatchObject({ state: "done" }),
 		);
+	});
+
+	it("says how a run ended once a member's supervisor has gone", async () => {
+		leased("detached");
+		const watch = watchRun(asked(), [{ id: "detached" }], {
+			dir: records,
+			everyMs: 10,
+			now: during,
+			facts: machine("gone"),
+		});
+
+		await watch.end();
+
+		expect(recordIn("fleet.fleet-a.json")).toMatchObject({
+			state: "failed",
+			members: [expect.objectContaining({ state: "supervisor-lost" })],
+		});
+	});
+
+	it("asks the machine itself when it is given no facts", async () => {
+		// A pid past any machine's limit, so none wears it.
+		keep("detached", "lease", {
+			state: "running",
+			supervisorPid: 2_147_483_000,
+			supervisorStartedAt: SUPERVISED_AT,
+			updatedAt: "2026-11-07T04:04:00.000Z",
+		});
+		const watch = watchRun(asked(), [{ id: "detached" }], {
+			dir: records,
+			everyMs: 10,
+			now: during,
+		});
+
+		await watch.end();
+
+		expect(recordIn("fleet.fleet-a.json")).toMatchObject({
+			state: "failed",
+			members: [expect.objectContaining({ state: "supervisor-lost" })],
+		});
 	});
 
 	it("takes in a member asked after it began", async () => {
