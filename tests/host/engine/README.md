@@ -2,9 +2,11 @@
 
 Conversation ownership and isolation through the engine's public entry.
 Fake cleanup callbacks stand in for pi runner disposal; no provider or live
-host is started by these tests. tool-round-scrub.test.ts drives two
+host is started by these tests. tool-round-scrub.test.ts drives
 conversations' tool rounds directly, holding that a printed credential
-is scrubbed from each streamed update and from the committed result.
+is scrubbed from each streamed update, the committed result and the
+saved output file, and that a printed environment is scrubbed as a
+dump by the arguments the call ran with, with no extension loaded.
 parked-warming.test.ts warms a parked conversation's carry on fake
 timers with a scripted send, over real files. kept-providers.test.ts
 keeps what a conversation's extensions registered of its providers and

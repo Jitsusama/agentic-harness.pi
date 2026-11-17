@@ -12,6 +12,9 @@
  * A shared host's bash is pi-durable's, which spills to a file of its own
  * in a private folder it makes in the temporary folder, and names it in
  * the structured answer rather than the details. Both are recognised.
+ *
+ * The secret-scrub extension and a host's tool round both scrub it, so a
+ * hosted conversation that loads no extension leaves no raw spill either.
  */
 
 import {
@@ -24,11 +27,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
-import { isRecord } from "../../lib/internal/record.ts";
+import { isRecord } from "../record.ts";
 import {
 	type ScrubOptions,
+	scrubOptionsOf,
 	scrubSecrets,
-} from "../../lib/internal/secrets/secrets.ts";
+	type ToolAnswer,
+} from "./secrets.ts";
 
 /** How pi names the files it saves output to: `pi-bash-<hex>.log` and its kin. */
 const PI_OUTPUT_FILE = /^pi-[a-z]+-[0-9a-f]+\.log$/;
@@ -46,6 +51,34 @@ const DURABLE_OUTPUT_FOLDER = /^tmp-[A-Za-z0-9]{6}$/;
  * output is left as it is rather than holding the answer back.
  */
 const MOST_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Scrubs the files a tool's answer says its whole output was saved to,
+ * pi's in the details or pi-durable's in the structured answer, read as
+ * the call's input says (a printing of the environment as one), and says
+ * which kinds it found. Call it once the call has settled, never for a
+ * streamed update, since the file may still be written.
+ */
+export function scrubSavedOutput(
+	answer: Pick<
+		ToolAnswer<unknown, unknown, unknown>,
+		"details" | "structuredContent"
+	>,
+	input: unknown,
+	folder: string = tmpdir(),
+): readonly string[] {
+	const options = scrubOptionsOf(input);
+	const files = new Set(
+		[answer.details, answer.structuredContent].map((naming) =>
+			savedOutputFile(naming, folder),
+		),
+	);
+	const kinds: string[] = [];
+	for (const file of files) {
+		if (file) kinds.push(...scrubOutputFile(file, options));
+	}
+	return kinds;
+}
 
 /**
  * The output file a tool's details or structured answer name, when it is
@@ -94,7 +127,10 @@ export function scrubOutputFile(
 		if (kinds.length === 0) return [];
 		const staged = `${file}.scrubbing`;
 		try {
-			writeFileSync(staged, text, { mode: 0o600 });
+			// Made afresh, never through a file or link already at that name
+			// in the shared temporary folder.
+			rmSync(staged, { force: true });
+			writeFileSync(staged, text, { mode: 0o600, flag: "wx" });
 			chmodSync(staged, mode & 0o777);
 			renameSync(staged, file);
 		} catch (error) {

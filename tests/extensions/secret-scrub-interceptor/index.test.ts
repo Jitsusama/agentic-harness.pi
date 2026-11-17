@@ -13,7 +13,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import secretScrubInterceptor from "../../../extensions/secret-scrub-interceptor/index.ts";
-import { savedOutputFile } from "../../../extensions/secret-scrub-interceptor/output-file.ts";
+import { savedOutputFile } from "../../../lib/internal/secrets/saved-output.ts";
 import {
 	dumpsEnvironment,
 	knownSecrets,
@@ -407,6 +407,23 @@ describe("a tool's answer", () => {
 		expect(JSON.stringify(result)).not.toContain(value);
 	});
 
+	it("from a command printing the environment has its details and structured answer scrubbed too", async () => {
+		const value = mixed(60);
+		const line = `OP_SESSION_ab12=${value}`;
+		const mark = "OP_SESSION_ab12=[secret scrubbed: OP_SESSION_ab12]";
+		const result = await answer({
+			input: { command: "printenv" },
+			content: [{ type: "text", text: line }],
+			details: { tail: line },
+			structuredContent: { output: line, exitCode: 0 },
+		});
+		expect(result).toEqual({
+			content: [{ type: "text", text: mark }],
+			details: { tail: mark },
+			structuredContent: { output: mark, exitCode: 0 },
+		});
+	});
+
 	it("is handed on untouched when it holds no secret", async () => {
 		const result = await answer({
 			content: [{ type: "text", text: "all clean" }],
@@ -465,6 +482,22 @@ describe("a tool's answer", () => {
 				"early [secret scrubbed: AWS access key]\nlate\n",
 			);
 			expect(fs.statSync(file).mode & 0o777).toBe(0o644);
+		});
+
+		it("has the file of a command printing the environment scrubbed as a dump", async () => {
+			const value = mixed(60);
+			const file = saved(
+				`pi-bash-${randomBytes(8).toString("hex")}.log`,
+				`OP_SESSION_ab12=${value}\nHOME=/home/x\n`,
+			);
+			await answer({
+				input: { command: "env" },
+				content: [{ type: "text", text: "HOME=/home/x" }],
+				details: { fullOutputPath: file },
+			});
+			expect(fs.readFileSync(file, "utf8")).toBe(
+				"OP_SESSION_ab12=[secret scrubbed: OP_SESSION_ab12]\nHOME=/home/x\n",
+			);
 		});
 
 		it("leaves a file pi didn't name alone", async () => {
