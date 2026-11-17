@@ -231,15 +231,14 @@ export function fenceRunText(
 	if (unfenced) return { refused: unfenced };
 	const away = fencedAway(folder, home, asker, {
 		treesRoot,
-		held:
+		held: () =>
 			ask.shared === true
 				? "shared"
-				: (place.heldTrees ??
-					brokerTrees(place.env.PI_SESSION_ID, treesRoot).held),
+				: (place.heldTrees ?? heldBy(place.env.PI_SESSION_ID, treesRoot)),
 		mac,
 	});
 	if ("refused" in away) return away;
-	if (mac) return macFenceText(ask, folder, place, away.tree);
+	if (mac) return macFenceText(ask, folder, place, treesRoot, away.tree);
 	const sandbox = place.sandbox ?? sandboxFor(env);
 	if (sandbox.kind !== "fence") {
 		return {
@@ -275,7 +274,7 @@ export function fenceRunText(
 	const root = fenceArgs({
 		home,
 		runtimeDir,
-		...sessionWorktrees(folder, undefined),
+		...sessionWorktrees(folder, undefined, treesRoot),
 		npmrc: fenceNpmrc(home, runtimeDir),
 		docker: dockerHoldsCredentials(home),
 	});
@@ -309,8 +308,11 @@ function fencedAway(
 	asker: string,
 	where: {
 		readonly treesRoot: string;
-		/** The trees the asker holds, or "shared" for the one the caller says it was shared. */
-		readonly held: readonly string[] | "shared";
+		/**
+		 * The trees the asker holds, or "shared" for the one the caller says
+		 * it was shared, asked only of a folder in the trees.
+		 */
+		readonly held: () => readonly string[] | "shared";
 		readonly mac: boolean;
 	},
 ): { readonly refused: string } | { readonly tree?: string } {
@@ -323,9 +325,12 @@ function fencedAway(
 		// The tree is the trees root's child the folder lies in.
 		const below = named.slice(trees.length + 1).split("/")[0] ?? "";
 		const tree = named.slice(0, trees.length + 1 + below.length);
-		if (where.held === "shared") return { tree };
-		const held = where.held.find((each) => within(at, resolved(each)));
-		if (held !== undefined) return { tree: real(resolve(held)) };
+		const held = where.held();
+		if (held === "shared") return { tree };
+		// Only the tree itself, so a record naming more never widens it.
+		if (held.some((each) => resolved(each) === spelled(tree))) {
+			return { tree };
+		}
 		return {
 			refused: `${asker} won't run in ${folder}, a work tree its asker doesn't hold, so no command runs. Start it in a tree your session holds, or, from the mycelium node, one shared to the asker, said with --shared-tree.`,
 		};
@@ -352,6 +357,23 @@ function fencedAway(
 	};
 }
 
+/**
+ * The trees the work broker's records give `session`; none when they
+ * can't be read, as inside a fence that keeps them, so its tree is
+ * refused with a reason rather than a crash.
+ */
+function heldBy(
+	session: string | undefined,
+	treesRoot: string,
+): readonly string[] {
+	try {
+		return brokerTrees(session, treesRoot).held;
+	} catch {
+		// Unread records hold nothing, so the tree is refused, never run.
+		return [];
+	}
+}
+
 /** Whether `path` is `holder` or lies in it. */
 function within(path: string, holder: string): boolean {
 	return path === holder || path.startsWith(`${holder}/`);
@@ -366,6 +388,7 @@ function macFenceText(
 	ask: FenceRunAsk,
 	folder: string,
 	place: FenceRunPlace,
+	treesRoot: string,
 	tree: string | undefined,
 ):
 	| { readonly folder: string; readonly text: string }
@@ -392,7 +415,7 @@ function macFenceText(
 	const mounts = fenceArgs({
 		home,
 		runtimeDir: undefined,
-		...sessionWorktrees(tree ?? folder, undefined),
+		...sessionWorktrees(tree ?? folder, undefined, treesRoot),
 		...(npmrc ? { npmrc } : {}),
 		docker: dockerHoldsCredentials(home),
 	});
@@ -410,8 +433,11 @@ function macFenceText(
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
 		folder,
 		// A tree the work broker cut lies in pi's state, which the profile
-		// hides last of all, so the asker's is granted again after.
-		...(tree ? { regranted: [tree] } : {}),
+		// hides last of all, so the asker's is granted again after: read
+		// whole, and written where the kind writes.
+		...(tree
+			? { regranted: [{ tree, writes: ask.kind === STRICT ? folder : tree }] }
+			: {}),
 	});
 	return {
 		folder,

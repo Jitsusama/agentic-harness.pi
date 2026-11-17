@@ -38,15 +38,15 @@ const RULE =
 function deciding(
 	text: string,
 	target: string,
-	op: "file-read*" | "file-write*" | "file-read-metadata",
+	op: "file-read*" | "file-write*" | "file-read-metadata" | "file-write-unlink",
 ): string | undefined {
 	const lines = (text.split("\nexec ")[1] ?? "").split("\n");
 	const matching = lines.filter((line) => {
 		const [, , ops = "", kind, path = ""] = RULE.exec(line) ?? [];
-		const named = ops.split(" ");
-		// file-read* names every read, its metadata's included.
-		const reads = op === "file-read-metadata" && named.includes("file-read*");
-		if (!(named.includes(op) || reads)) return false;
+		// file-read* names every read, file-read-metadata included.
+		const names = (each: string) =>
+			each === op || (each.endsWith("*") && op.startsWith(each.slice(0, -1)));
+		if (!ops.trim().split(" ").some(names)) return false;
 		return kind === "literal"
 			? target === path
 			: target === path || target.startsWith(`${path}/`);
@@ -329,14 +329,30 @@ describe("the fence on a Mac", () => {
 			if (!("text" in made)) throw new Error(JSON.stringify(made));
 			for (const op of ["file-read*", "file-write*"] as const) {
 				expect(
-					deciding(made.text, join(tree, "file"), op),
+					deciding(made.text, join(tree, "src", "file"), op),
 					`${kind} ${op}`,
 				).toMatch(/^\(allow /);
 			}
 			expect(
-				deciding(made.text, join(tree, "README.md"), "file-write*"),
-				`${kind}: the whole tree, not just its subfolder`,
+				deciding(made.text, join(tree, "README.md"), "file-read*"),
+				`${kind}: reads the whole tree, not just its subfolder`,
 			).toMatch(/^\(allow /);
+			expect(
+				deciding(made.text, join(tree, "README.md"), "file-write*"),
+				kind === "fence"
+					? "fence writes the whole tree, as on Linux"
+					: "strict writes only its folder, not the tree's root",
+			).toMatch(kind === "fence" ? /^\(allow / : /^\(deny /);
+			for (const above of [
+				join(home, ".local"),
+				join(home, ".local/state"),
+				join(home, ".pi"),
+			]) {
+				expect(
+					deciding(made.text, above, "file-write-unlink"),
+					`${kind}: ${above} can't be moved aside, taking what's hidden in it`,
+				).toMatch(/^\(deny /);
+			}
 			expect(
 				deciding(made.text, join(tree, ".git"), "file-write*"),
 				`${kind}: the tree's .git stays read-only`,

@@ -326,13 +326,22 @@ describe("refusing to run where the fence can't hold", () => {
 			);
 		});
 
+		it("spares no tree for a record naming more than one", () => {
+			const made = inTree(within("worktree-two"), [within("")]);
+			expect(JSON.stringify(made), "the trees root isn't a tree").toContain(
+				"a work tree its asker doesn't hold",
+			);
+		});
+
 		it("lets --shared-tree open neither a closed path nor the trees root", () => {
 			for (const folder of [join(home, ".ssh"), within("")]) {
 				const made = fenceRunText(
 					{ kind: "fence", folder, words: ["true"], shared: true },
 					{ env: {}, home, sandbox: LAID, treesRoot: within("") },
 				);
-				expect(made, folder).toHaveProperty("refused");
+				expect(JSON.stringify(made), folder).toMatch(
+					/a path the fence hides or keeps read-only/,
+				);
 			}
 		});
 

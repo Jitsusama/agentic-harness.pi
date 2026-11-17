@@ -85,7 +85,12 @@ describe("the fence's mounts as a profile", () => {
 				sockets: [],
 				real: same,
 				home: "/Users/j",
-				regranted: ["/Users/j/.local/state/pi/trees/t"],
+				regranted: [
+					{
+						tree: "/Users/j/.local/state/pi/trees/t",
+						writes: "/Users/j/.local/state/pi/trees/t",
+					},
+				],
 			},
 		);
 		const lines = profile.split("\n");
@@ -93,7 +98,7 @@ describe("the fence's mounts as a profile", () => {
 			'(deny file-read* file-write* (subpath "/Users/j/.local/state/pi"))',
 		);
 		const tree = lines.lastIndexOf(
-			'(allow file-read* file-write* (subpath "/Users/j/.local/state/pi/trees/t"))',
+			'(allow file-write* (subpath "/Users/j/.local/state/pi/trees/t"))',
 		);
 
 		expect(state, "pi's state is hidden").toBeGreaterThan(-1);

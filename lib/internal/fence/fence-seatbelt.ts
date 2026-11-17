@@ -155,11 +155,19 @@ export interface SeatbeltReach {
 	/** A path as the kernel names it, past its links (`/tmp` is `/private/tmp`). */
 	readonly real?: (path: string) => string;
 	/**
-	 * Folders granted again after every hide, a broker's tree inside pi's
-	 * state, with the fence's own rules inside each laid again after, and
-	 * the folders above each named, so a program can find its way down.
+	 * Trees granted again after every hide, a broker's tree inside pi's
+	 * state: each read whole, written only where its kind writes (the whole
+	 * tree for fence, the folder for strict), with the fence's own rules
+	 * inside it laid again after, and the folders above it named, so a
+	 * program can find its way down.
 	 */
-	readonly regranted?: readonly string[];
+	readonly regranted?: readonly Regrant[];
+}
+
+/** A tree granted again after every hide, and the folder in it a command writes. */
+export interface Regrant {
+	readonly tree: string;
+	readonly writes: string;
 }
 
 /** bubblewrap's options that say nothing of files on a Mac, with how many values each takes. */
@@ -318,15 +326,27 @@ export function seatbeltProfile(
 		...hides,
 		...keptInHidden,
 		...hidden,
-		...(reach.regranted ?? []).flatMap((tree) => [
+		...(reach.regranted ?? []).flatMap(({ tree, writes }) => [
 			...above(tree, home).map(
 				(folder) => `(allow file-read-metadata (literal ${path(folder)}))`,
 			),
-			`(allow file-read* file-write* (subpath ${path(tree)}))`,
+			`(allow file-read* (subpath ${path(tree)}))`,
+			`(allow file-write* (subpath ${path(writes)}))`,
 			...closing
 				.filter(({ to }) => within(to, tree) && to !== tree)
 				.map(({ rule }) => rule),
 		]),
+		// A rule names a path, not what lies there, so a folder holding a
+		// closed one moved aside would carry it out from under its rule:
+		// none of them may be renamed or removed.
+		...[
+			...new Set(
+				[
+					...closing.map(({ to }) => to),
+					...(home ? MAC_HIDDEN.map((secret) => join(home, secret)) : []),
+				].flatMap((to) => above(to, home)),
+			),
+		].map((folder) => `(deny file-write-unlink (literal ${path(folder)}))`),
 		...[...new Set(programs)],
 		// What cfprefsd writes for a command, past every file rule:
 		// `defaults write com.apple.Terminal` would set a startup command.
@@ -336,9 +356,9 @@ export function seatbeltProfile(
 }
 
 /**
- * The folders between `home` and `tree`, nearest the home first, whose
- * metadata a program reads finding its way down to the tree; none for a
- * tree outside the home.
+ * The folders between `home` and `tree`, nearest the home first: those
+ * a program steps through finding its way down to the tree, and those
+ * that, moved, would take it along; none for a tree outside the home.
  */
 function above(tree: string, home: string | undefined): string[] {
 	if (!home || !tree.startsWith(`${home}/`)) return [];
