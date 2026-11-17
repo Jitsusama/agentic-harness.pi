@@ -6,7 +6,7 @@
  * cache again: 80 such wakes on 11 November, about $110.
  *
  * As it parks, the session writes its warming's carry to disk
- * (lib/internal/warming-carry.ts). The host takes the schedule on from
+ * (lib/internal/cache/warming-carry.ts). The host takes the schedule on from
  * there, as the session would have kept it: a warm 54 minutes after the
  * entry was last refreshed, then 54 minutes after each warm, at most
  * four in all counting the session's own, each sending the last
@@ -43,14 +43,14 @@ import {
 	warmDeadline,
 	warmingDelayMs,
 	warmingPayload,
-} from "../../lib/internal/cache-warming.ts";
-import { CALL_LOOK_MS } from "../../lib/internal/calls.ts";
+} from "../../lib/internal/cache/cache-warming.ts";
+import { CALL_LOOK_MS } from "../../lib/internal/cache/calls.ts";
 import {
 	addPendingWarm,
 	readWarmingCarry,
 	type WarmingCarry,
 	writeWarmingCarry,
-} from "../../lib/internal/warming-carry.ts";
+} from "../../lib/internal/cache/warming-carry.ts";
 import type { ModelRuntime } from "./pi-session.ts";
 
 /** A failed warm is tried once more after this, if its deadline allows. */

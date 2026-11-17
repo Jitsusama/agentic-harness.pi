@@ -25,14 +25,14 @@ import {
 	PLAN_PROVIDER,
 	type PlanUse,
 	type PlanWindow,
-} from "../../lib/internal/claude-plan.ts";
+} from "../../lib/internal/spend/claude-plan.ts";
 import type {
 	Allowance,
 	Amount,
 	BudgetStanding,
 	Budgets,
-} from "../../lib/internal/spend-watch-budgets.ts";
-import { claimantOf } from "../../lib/internal/spend-watch-budgets.ts";
+} from "../../lib/internal/spend/spend-watch-budgets.ts";
+import { claimantOf } from "../../lib/internal/spend/spend-watch-budgets.ts";
 
 /** The name a plan's budget goes by when spend-watch doesn't say one. */
 const PLAN_NAME = "claude";

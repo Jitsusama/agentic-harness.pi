@@ -23,14 +23,14 @@ import type {
 	ThemeColor,
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
+import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
+import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import {
 	type ContextGauge,
 	contextGauge,
 	marginalText,
 	sessionText,
-} from "../../lib/internal/cost-meter/index.ts";
-import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
-import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
+} from "../../lib/internal/spend/cost-meter/index.ts";
 import {
 	getPanelHeightGlyph,
 	getPanelHeightMode,

@@ -11,7 +11,7 @@ import {
 	formatVerifierOutcomes,
 } from "../../../extensions/spend-workflow/report.ts";
 import type { RepeatedCall } from "../../../lib/core/observability/index.ts";
-import type { Bill } from "../../../lib/internal/spend-watch.ts";
+import type { Bill } from "../../../lib/internal/spend/spend-watch.ts";
 
 describe("formatBill", () => {
 	const bill: Bill = {

@@ -11,7 +11,7 @@ import {
 } from "../../../extensions/spend-workflow/budget-item.ts";
 import { BUDGET_SETTLED } from "../../../lib/budget/record.ts";
 import type { Exec } from "../../../lib/core/exec/index.ts";
-import { RATE_LIMIT } from "../../../lib/internal/claude-plan.ts";
+import { RATE_LIMIT } from "../../../lib/internal/spend/claude-plan.ts";
 import { FOOTER_GLYPH } from "../../../lib/ui/footer-mark.ts";
 
 type Handler = (event: unknown, ctx?: unknown) => unknown;

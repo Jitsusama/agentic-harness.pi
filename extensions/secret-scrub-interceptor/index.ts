@@ -3,8 +3,9 @@
  *
  * Puts every credential a tool's answer holds out of sight before the
  * model reads it or pi writes it to the session's log, leaving words that
- * say what kind it was (see `lib/internal/secrets.ts` for the shapes, and
- * for the session's own secret variables, put out of sight by value).
+ * say what kind it was (see `lib/internal/secrets/secrets.ts` for the
+ * shapes, and for the session's own secret variables, put out of sight
+ * by value).
  *
  * An agent's tools print what they find, and some of what they find is a
  * credential: a token in a shell's history, a key in a file read, a
@@ -42,7 +43,7 @@ import {
 	type ScrubOptions,
 	scrubDeep,
 	scrubSecrets,
-} from "../../lib/internal/secrets.ts";
+} from "../../lib/internal/secrets/secrets.ts";
 import { savedOutputFile, scrubOutputFile } from "./output-file.ts";
 
 type Content = ToolResultEvent["content"];

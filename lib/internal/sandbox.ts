@@ -109,7 +109,7 @@ import {
 	heldTree,
 	sessionWorktrees,
 } from "./sandbox/sandbox-trees.ts";
-import { withSecretNote } from "./secret-ask.ts";
+import { withSecretNote } from "./secrets/secret-ask.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";
 import { cutTreeDir } from "./work-records.ts";

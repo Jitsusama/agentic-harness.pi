@@ -10,7 +10,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { isRecord } from "./record.ts";
+import { isRecord } from "../record.ts";
 
 /** The program that says whether a call is on. */
 const CALL_PROGRAM = "a-call-is-on";

@@ -7,7 +7,7 @@ import type {
 	RepeatedCall,
 	VerifierOutcome,
 } from "../../lib/core/observability/index.ts";
-import type { Bill } from "../../lib/internal/spend-watch.ts";
+import type { Bill } from "../../lib/internal/spend/spend-watch.ts";
 import type { FanOutSummary, FanOutView } from "./fanout.ts";
 
 /** What indexing a corpus of session logs did. */

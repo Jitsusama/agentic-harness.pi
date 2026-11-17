@@ -11,8 +11,8 @@
  * spend-watch, and the footer then says the budget's name alone.
  */
 
-import type { Exec } from "../core/exec/index.ts";
-import { isRecord } from "./record.ts";
+import type { Exec } from "../../core/exec/index.ts";
+import { isRecord } from "../record.ts";
 import { SPEND_WATCH } from "./spend-watch.ts";
 
 /** A sum of money, and how spend-watch writes it, e.g. "$1,232". */

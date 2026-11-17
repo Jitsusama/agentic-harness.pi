@@ -12,7 +12,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import secretScrubInterceptor from "../../../extensions/secret-scrub-interceptor/index.ts";
 import { installHost } from "../../../lib/core/session/index.ts";
-import { scrubSecrets } from "../../../lib/internal/secrets.ts";
+import { scrubSecrets } from "../../../lib/internal/secrets/secrets.ts";
 import { extensionRunner } from "../../support/extension-runner.ts";
 
 // Built from pieces so the repository never holds a key-shaped string.

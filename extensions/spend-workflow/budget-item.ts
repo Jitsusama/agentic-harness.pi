@@ -22,16 +22,16 @@ import {
 } from "../../lib/budget/record.ts";
 import type { Exec } from "../../lib/core/exec/index.ts";
 import { sessionEnv } from "../../lib/core/session/index.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import {
 	lastPlanUse,
 	type PlanUse,
 	planUseOf,
-} from "../../lib/internal/claude-plan.ts";
-import { isRecord } from "../../lib/internal/record.ts";
+} from "../../lib/internal/spend/claude-plan.ts";
 import {
 	askBudgets,
 	type Budgets,
-} from "../../lib/internal/spend-watch-budgets.ts";
+} from "../../lib/internal/spend/spend-watch-budgets.ts";
 import { footerMark, footerShare } from "../../lib/ui/footer-mark.ts";
 import { view } from "../../lib/ui/panel.ts";
 import {

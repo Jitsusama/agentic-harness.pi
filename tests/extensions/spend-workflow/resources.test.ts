@@ -31,7 +31,7 @@ import {
 	openLedgerReader,
 	openTurnStore,
 } from "../../../lib/core/observability/index.ts";
-import type { Counters } from "../../../lib/internal/resources.ts";
+import type { Counters } from "../../../lib/internal/spend/resources.ts";
 
 let scratch: string;
 

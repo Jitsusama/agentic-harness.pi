@@ -7,7 +7,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { callIsOn } from "../../../lib/internal/calls.ts";
+import { callIsOn } from "../../../../lib/internal/cache/calls.ts";
 
 let dir: string;
 

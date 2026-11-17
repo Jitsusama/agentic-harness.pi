@@ -619,6 +619,6 @@ provider contract in `lib/compaction/provider.ts` and the chain's order
 in `lib/compaction/chain.ts`, the
 back-off in `lib/compaction/failure.ts`, and the summary's instruction,
 splice and reading in `lib/compaction/summary.ts`; cache prices under
-the retention in force come from `lib/internal/cache-prices.ts`, and
+the retention in force come from `lib/internal/cache/cache-prices.ts`, and
 warming's rules (when, what may be replayed, the safety stop) from
-`lib/internal/cache-warming.ts`.
+`lib/internal/cache/cache-warming.ts`.

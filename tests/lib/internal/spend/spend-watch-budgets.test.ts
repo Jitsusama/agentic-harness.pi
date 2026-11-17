@@ -3,12 +3,12 @@
  * no answer at all wherever spend-watch can't give one.
  */
 import { describe, expect, it } from "vitest";
-import type { Exec } from "../../../lib/core/exec/index.ts";
+import type { Exec } from "../../../../lib/core/exec/index.ts";
 import {
 	askBudgets,
 	budgetsFrom,
 	claimantOf,
-} from "../../../lib/internal/spend-watch-budgets.ts";
+} from "../../../../lib/internal/spend/spend-watch-budgets.ts";
 
 /** spend-watch's answer as the contract writes it, 7 Nov 2026. */
 const ANSWER = {

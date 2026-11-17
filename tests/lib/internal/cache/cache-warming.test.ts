@@ -6,7 +6,7 @@ import {
 	warmDeadline,
 	warmingDelayMs,
 	warmingPayload,
-} from "../../../lib/internal/cache-warming.ts";
+} from "../../../../lib/internal/cache/cache-warming.ts";
 
 const HOUR = 60 * 60_000;
 const MINUTE = 60_000;

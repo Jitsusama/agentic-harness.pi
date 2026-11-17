@@ -17,7 +17,7 @@
  * disk at all.
  *
  * Idle warming keeps what it would carry across a restart by the same
- * rules, in a folder of its own (`lib/internal/warming-carry.ts`), and
+ * rules, in a folder of its own (`lib/internal/cache/warming-carry.ts`), and
  * sweeps it with `sweepKeptRequests`.
  */
 

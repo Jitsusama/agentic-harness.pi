@@ -28,24 +28,26 @@ import type {
 	EngineKey,
 	EngineScreens,
 	HostEngine,
+	HostedView,
 } from "../../../../host/engine/contract.ts";
 import { createEngine } from "../../../../host/engine/engine.ts";
+import { bindHeadless } from "../../../../host/engine/headless.ts";
 import { SessionHost } from "../../../../host/engine/session-host.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 import {
 	LONG_CACHE_LIFETIME_MS,
 	warmingDelayMs,
-} from "../../../../lib/internal/cache-warming.ts";
-import {
-	WAKE_ENV,
-	writeParked,
-} from "../../../../lib/internal/session/park.ts";
+} from "../../../../lib/internal/cache/cache-warming.ts";
 import {
 	pendingWarmsDir,
 	takePendingWarms,
 	warmingCarryDir,
 	writeWarmingCarry,
-} from "../../../../lib/internal/warming-carry.ts";
+} from "../../../../lib/internal/cache/warming-carry.ts";
+import {
+	WAKE_ENV,
+	writeParked,
+} from "../../../../lib/internal/session/park.ts";
 import { watchSpawns } from "../../../support/spawns.ts";
 
 /** What the fixture uses of pi-ai's scripted provider. */
@@ -213,6 +215,57 @@ function askingScreens(): EngineScreens {
 	};
 }
 
+/** The host the step runs, for screens that look at it as the engine calls them. */
+let runningHost: SessionHost | undefined;
+/**
+ * Each rebind the rebinding screens were asked for, and whether the host
+ * still held the conversation it replaced with its close not yet begun:
+ * a close parks a conversation as it starts.
+ */
+const rebounds: {
+	sessionId: string;
+	previousId: string;
+	previousOpen: boolean;
+}[] = [];
+
+/**
+ * Screens that bind each session as the engine binds one with no screen,
+ * so an extension's command can ask pi for a new session, and note each
+ * rebind pi's replacement asks for, binding the new session too. Bound
+ * with no command actions, pi's newSession does nothing and says so.
+ */
+function rebindingScreens(): EngineScreens {
+	const bind = (view: HostedView) => {
+		if (!runningHost) throw new Error("A screen bound before its host ran");
+		return bindHeadless(view.runtime, runningHost, (error) =>
+			reported.push(String(error)),
+		);
+	};
+	return {
+		opened: (view) => bind(view),
+		rebound: async (view, previousId) => {
+			const previous = runningHost?.holds(previousId);
+			rebounds.push({
+				sessionId: view.sessionId,
+				previousId,
+				previousOpen: previous !== undefined && previous !== "parked",
+			});
+			await bind(view);
+		},
+		closed: () => {},
+	};
+}
+
+/** The engine's durable store for each conversation, under its own folder of the state folder. */
+const STORE_FILE = "durable.sqlite";
+/** Which conversation's store the step leaves unopenable: the one an open names, or the one a replacement becomes. */
+let refusedStore: "opened" | "next" | undefined;
+
+/** Leave a conversation's store unopenable, a folder where its file goes, so its build fails once the host holds it. */
+function refuseStore(sessionId: string): void {
+	mkdirSync(join(folder, "state", sessionId, STORE_FILE), { recursive: true });
+}
+
 /** A project folder holding an extension of its own, which pi loads only where the folder is trusted. */
 function project(name: string): string {
 	const dir = join(projects, name);
@@ -327,6 +380,12 @@ interface Scenario {
 	harness?: true;
 	/** The screens the engine hands conversations to; none binds them with no interface. */
 	screens?: () => EngineScreens;
+	/** What each conversation's launch names for itself, beside what the engine derives. */
+	launch?: Readonly<Record<string, string>>;
+	/** The variable the scripted provider's key is read from; the gateway key's unless named. */
+	keyVariable?: string;
+	/** What the host's own process holds beyond the sealed environment it runs in. */
+	hostEnv?: Readonly<Record<string, string>>;
 	run: (
 		engine: HostEngine,
 		host: SessionHost,
@@ -342,6 +401,17 @@ const key: EngineKey = {
 		keyIndex++;
 	},
 };
+
+/** Open with first words, answer them, then close, for what the provider was sent. */
+async function answerOnce(
+	engine: HostEngine,
+	host: SessionHost,
+): Promise<Record<string, unknown>> {
+	const id = await open(engine, { first: "hi" });
+	await idle(engine, id);
+	await host.close(id);
+	return {};
+}
 
 const scenarios: Record<string, Scenario> = {
 	/** Open with first words, answer them, then close. */
@@ -626,6 +696,34 @@ const scenarios: Record<string, Scenario> = {
 			return { held: host.holds(id) ?? "let go" };
 		},
 	},
+	/** Leave commands running, then close the conversation the service releases while it runs, as it hands one on to plain pi. */
+	"leave-and-release": {
+		responses: () => [
+			compat.fauxAssistantMessage(
+				[
+					compat.fauxToolCall(
+						"bash",
+						{
+							command: [
+								`PI_BASH_CALL=ended-call sleep 300 >/dev/null 2>&1 & echo $! > ${children}`,
+								`sleep 301 >/dev/null 2>&1 & echo $! >> ${children}`,
+							].join("\n"),
+						},
+						{ id: "call-1" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+			say("left them"),
+		],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "leave them" });
+			await idle(engine, id);
+			engine.handsOn?.(id);
+			await host.close(id, "released, asked by a test");
+			return { held: host.holds(id) ?? "let go" };
+		},
+	},
 	/** The next host closes for good the conversation the last one parked, as the service closes one held but not running. */
 	"close-parked": {
 		responses: () => [],
@@ -752,6 +850,122 @@ const scenarios: Record<string, Scenario> = {
 			};
 			await host.stop(next);
 			return seen;
+		},
+	},
+	/** Start a new conversation from an extension's command whose store can't open, so pi fails past its teardown. */
+	"replace-lost": {
+		responses: () => [say("hello there")],
+		run: async (engine, host) => {
+			const first = await open(engine, { first: "hi" });
+			await idle(engine, first);
+			refusedStore = "next";
+			// pi's runner says the failed command to the binding, so the probe
+			// notes what it was refused; a prompt that fails anyway is kept, so a
+			// wait that gives up shows why.
+			let refused = "";
+			await host
+				.run(first, () => prompt(engine, first, "/probe-new"))
+				.catch((error: unknown) => {
+					refused = error instanceof Error ? error.message : String(error);
+				});
+			await until(
+				`the conversation it was is let go (${refused})`,
+				() => host.holds(first) === undefined,
+			);
+			return {
+				firstId: first,
+				refused,
+				held: host.list().map((conversation) => conversation.id),
+			};
+		},
+	},
+	/** Start a new conversation from an extension's command at a screen that rebinds, then stop. */
+	"replace-rebound": {
+		responses: () => [say("hello there")],
+		screens: rebindingScreens,
+		run: async (engine, host) => {
+			const first = await open(engine, { first: "hi" });
+			await idle(engine, first);
+			await host.run(first, () => prompt(engine, first, "/probe-new"));
+			await until(
+				"the conversation it was is let go",
+				() => host.holds(first) === undefined,
+			);
+			const seen = { firstId: first, rebounds };
+			for (const conversation of host.list()) await host.stop(conversation.id);
+			return seen;
+		},
+	},
+	/** Open on a store that can't open, so the build fails once the host holds it. */
+	"start-fails": {
+		responses: () => [],
+		run: async (engine, host) => {
+			refusedStore = "opened";
+			let refused = "";
+			try {
+				await open(engine, {});
+			} catch (error) {
+				refused = error instanceof Error ? error.message : String(error);
+			}
+			const id = readEntry().sessionId;
+			const state = host.holds(id) ?? "gone";
+			// The host disposes only once it holds nothing.
+			await host.close(id);
+			return { refused, state };
+		},
+	},
+	/** A conversation's launch names a gateway key of its own, and the host has another. */
+	"own-key": {
+		responses: () => [say("hello there")],
+		launch: { SHOPIFY_PROXY_KEY: "its-own-key" },
+		run: answerOnce,
+	},
+	/** The same for the proxy's key, the provider reading it. */
+	"own-proxy-key": {
+		responses: () => [say("hello there")],
+		keyVariable: "PI_PROXY_API_KEY",
+		launch: { PI_PROXY_API_KEY: "its-own-key" },
+		run: answerOnce,
+	},
+	/** The provider's key is read from a variable only the host's process holds. */
+	"host-read": {
+		responses: () => [say("hello there")],
+		keyVariable: "PI_HYPERLINKS",
+		hostEnv: { PI_HYPERLINKS: "the-host-read" },
+		run: answerOnce,
+	},
+	/** The same, with the conversation's launch naming the variable for itself. */
+	"own-read": {
+		responses: () => [say("hello there")],
+		keyVariable: "PI_HYPERLINKS",
+		hostEnv: { PI_HYPERLINKS: "the-host-read" },
+		launch: { PI_HYPERLINKS: "its-own-read" },
+		run: answerOnce,
+	},
+	/** A heavy run and a light one handed to the job host, read as a restart's hold and as a drain's answer. */
+	"heavy-held": {
+		responses: () => [],
+		harness: true,
+		run: async (engine, host) => {
+			const id = await open(engine, {});
+			await idle(engine, id);
+			await host.run(id, () =>
+				prompt(engine, id, "/probe-job nix-offload there --changed"),
+			);
+			await idle(engine, id);
+			// A light run beside it, which a drain doesn't name.
+			await host.run(id, () => prompt(engine, id, "/probe-job"));
+			await idle(engine, id);
+			const holding = engine.holding();
+			// No await between the drain and its lift, so nothing parks for it.
+			const drained = engine.drain?.(true);
+			const holdingDrained = engine.holding();
+			engine.drain?.(false);
+			await host.close(id);
+			return {
+				firstId: id,
+				heavyHeld: { holding, drained, holdingDrained },
+			};
 		},
 	},
 	/** Ask one conversation to resume the file another holds, then talk on in the first. */
@@ -1014,7 +1228,12 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		...(scenario.api ? { api: scenario.api } : {}),
 	});
 	faux.setResponses(scenario.responses());
-	writeAgentFolder(faux.api, scenario.harness ? [HARNESS] : []);
+	writeAgentFolder(
+		faux.api,
+		scenario.harness ? [HARNESS] : [],
+		scenario.keyVariable,
+	);
+	Object.assign(process.env, scenario.hostEnv);
 	// pi counts any .agents/skills above a folder but HOME's as a project's own, and this folder may sit under a
 	// home holding one, so the work folder is trusted as its person would have trusted it.
 	writeFileSync(
@@ -1028,6 +1247,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		owner: { pid: process.pid, startedAt: Date.now() },
 		registryDir: join(folder, "registry"),
 	});
+	runningHost = host;
 	const engine = await createEngine({
 		packageDir,
 		stateDir: join(folder, "state"),
@@ -1036,7 +1256,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		key,
 		conversationEnv: (_traits, request) => {
 			derived.push(request.op);
-			return { [OPENED_AS]: request.op };
+			return { [OPENED_AS]: request.op, ...scenario.launch };
 		},
 		resources: { extensions: [flaggedExtension] },
 		...(scenario.screens ? { screens: scenario.screens() } : {}),
@@ -1045,6 +1265,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 	// As the service's roster does: the conversation a held one became replaces it, in one write.
 	engine.watch({
 		became: async (previousId, next) => {
+			if (refusedStore === "next") refuseStore(next.sessionId);
 			became.push({
 				previousId,
 				sessionId: next.sessionId,
@@ -1119,6 +1340,7 @@ async function open(
 		...words,
 	};
 	const prepared = await engine.prepare(request);
+	if (refusedStore === "opened") refuseStore(prepared.sessionId);
 	openedIn.push(prepared.cwd);
 	const entry: RosterEntry = {
 		sessionId: prepared.sessionId,
@@ -1222,11 +1444,15 @@ function linkedCopy(dir: string, word: string): void {
  * variable, in models.json or registered by an extension of its own,
  * settings, and the probe.
  */
-function writeAgentFolder(api: string, packages: readonly string[]): void {
+function writeAgentFolder(
+	api: string,
+	packages: readonly string[],
+	keyVariable = "SHOPIFY_PROXY_KEY",
+): void {
 	const provider = {
 		baseUrl: "http://faux.invalid",
 		api,
-		apiKey: "$SHOPIFY_PROXY_KEY",
+		apiKey: `$${keyVariable}`,
 		models: [
 			{
 				id: MODEL,

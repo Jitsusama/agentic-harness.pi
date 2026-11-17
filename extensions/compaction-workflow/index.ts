@@ -106,7 +106,7 @@ import {
 	droppableRent,
 	idleCompactionPays,
 } from "../../lib/compaction/trigger.ts";
-import { cachePrices } from "../../lib/internal/cache-prices.ts";
+import { cachePrices } from "../../lib/internal/cache/cache-prices.ts";
 import { whileCurrent } from "../../lib/internal/errors/stale.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";

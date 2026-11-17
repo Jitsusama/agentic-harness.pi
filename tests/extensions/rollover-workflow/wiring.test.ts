@@ -25,10 +25,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // spend-workflow's footer asks spend-watch where the budgets stand; this
 // test is about the log it rolls to, so the machine's spend-watch isn't run.
-vi.mock("../../../lib/internal/spend-watch-budgets.ts", async (original) => ({
-	...(await original<object>()),
-	askBudgets: async () => undefined,
-}));
+vi.mock(
+	"../../../lib/internal/spend/spend-watch-budgets.ts",
+	async (original) => ({
+		...(await original<object>()),
+		askBudgets: async () => undefined,
+	}),
+);
 
 import rolloverWorkflow, {
 	COMMAND,

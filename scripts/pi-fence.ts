@@ -1,7 +1,8 @@
 /**
  * pi-fence: runs one command in pi's fence for a caller outside pi, such
  * as the mycelium node starting an agent's `mycelium run` through its
- * declared `runs` prefix (lib/internal/fence/fence-run.ts says the whole of it):
+ * declared `runs` prefix (lib/internal/fence/fence-run.ts says the whole
+ * of it):
  *
  *   node scripts/pi-fence.ts --kind fence|strict [--folder DIR] -- PROGRAM [ARGUMENT...]
  *   node scripts/pi-fence.ts census [--proc DIR]

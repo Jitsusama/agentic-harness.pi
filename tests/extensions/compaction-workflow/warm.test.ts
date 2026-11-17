@@ -28,14 +28,14 @@ vi.mock("../../../lib/internal/config/loader.ts", async (original) => ({
 
 /** Whether a call is on, as a-call-is-on would say, which each test may set. */
 let callOn = false;
-vi.mock("../../../lib/internal/calls.ts", async (original) => ({
+vi.mock("../../../lib/internal/cache/calls.ts", async (original) => ({
 	...(await original<object>()),
 	callIsOn: async () => callOn,
 }));
 
 const { readTurns } = await import("../../../lib/ledger/index.ts");
 const { addPendingWarm, pendingWarmsDir } = await import(
-	"../../../lib/internal/warming-carry.ts"
+	"../../../lib/internal/cache/warming-carry.ts"
 );
 const { default: compactionWorkflow } = await import(
 	"../../../extensions/compaction-workflow/index.ts"

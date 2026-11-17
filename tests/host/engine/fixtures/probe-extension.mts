@@ -117,7 +117,17 @@ export default function probeExtension(pi: ProbeApi): void {
 	pi.registerCommand("probe-new", {
 		description: "Start a new conversation in place of this one",
 		handler: async (_args, context) => {
-			await context.newSession();
+			// pi's runner says a command's error to the binding, not to the prompt,
+			// so the probe notes what the replacement it asked for refused.
+			try {
+				await context.newSession();
+			} catch (error) {
+				note({
+					event: "new-refused",
+					error: error instanceof Error ? error.message : String(error),
+				});
+				throw error;
+			}
 		},
 	});
 
@@ -144,16 +154,18 @@ export default function probeExtension(pi: ProbeApi): void {
 		note({ event: "stamp", how: stamp.how }),
 	);
 	// Background work as a producer hands it off, to the job host on this
-	// conversation's bus (job-workflow, where the harness loads), left running.
+	// conversation's bus (job-workflow, where the harness loads), left running,
+	// labelled with what follows the command, as a shell job names its command.
 	pi.registerCommand("probe-job", {
 		description: "Start background work that runs until the session ends",
-		handler: async () => {
+		handler: async (args) => {
+			const label = args.trim() || "held";
 			let started = false;
 			pi.events.emit("jobs:ask:v1", (host: unknown) => {
 				if (started || typeof host !== "object" || host === null) return;
 				const start: unknown = Reflect.get(host, "start");
 				if (typeof start !== "function") return;
-				Reflect.apply(start, host, [{ kind: "probe", label: "held" }]);
+				Reflect.apply(start, host, [{ kind: "probe", label }]);
 				started = true;
 			});
 			note({ event: "job", started: String(started) });

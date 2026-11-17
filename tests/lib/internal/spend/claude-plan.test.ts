@@ -9,7 +9,7 @@ import {
 	planUseFrom,
 	planUseOf,
 	RATE_LIMIT,
-} from "../../../lib/internal/claude-plan.ts";
+} from "../../../../lib/internal/spend/claude-plan.ts";
 
 /** As the provider wrote it on optimus, 2026-10-25. */
 function said(over: Record<string, unknown> = {}, windows?: unknown) {

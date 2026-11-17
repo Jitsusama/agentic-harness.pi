@@ -37,7 +37,7 @@ import {
 	putAsk,
 	type SecretAnswer,
 	takeAsk,
-} from "../../lib/internal/secret-ask.ts";
+} from "../../lib/internal/secrets/secret-ask.ts";
 import { endsWithItsPrompts, runOrHandOff } from "../../lib/jobs/hand-off.ts";
 import { questAddress, sessionAddress } from "../../lib/mesh/address.ts";
 import { waitForAnswer } from "./wait.ts";

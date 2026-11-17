@@ -59,7 +59,6 @@ import {
 import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
 import { hosted } from "../../lib/core/session/index.ts";
-import { medianOf } from "../../lib/internal/cost-meter/index.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { processGlobal } from "../../lib/internal/process-global.ts";
 import { duMeasure } from "../../lib/internal/quest/footprint.ts";
@@ -71,12 +70,13 @@ import {
 	recordIndex,
 } from "../../lib/internal/session/rollover.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
+import { medianOf } from "../../lib/internal/spend/cost-meter/index.ts";
 import {
 	askBill,
 	BILL_PERIODS,
 	type BillPeriod,
 	isBillCut,
-} from "../../lib/internal/spend-watch.ts";
+} from "../../lib/internal/spend/spend-watch.ts";
 import { LEDGER_SCOPE } from "../../lib/ledger/index.ts";
 import { formatAudit } from "./audit.ts";
 import { gatherAudit } from "./audit-input.ts";

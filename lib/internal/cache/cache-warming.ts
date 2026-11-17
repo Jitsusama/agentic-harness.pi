@@ -23,7 +23,7 @@
  * the one Anthropic was asked for rather than a guess from settings.
  */
 
-import { isRecord } from "./record.ts";
+import { isRecord } from "../record.ts";
 
 /** A cache entry asked for with `ttl: "1h"` lives this long. */
 export const LONG_CACHE_LIFETIME_MS = 60 * 60_000;

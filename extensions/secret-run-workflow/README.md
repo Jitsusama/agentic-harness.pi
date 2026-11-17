@@ -16,11 +16,11 @@ hears only how it ended.
 ## How It Works
 
 The tool writes an ask into `$XDG_RUNTIME_DIR/secret-asks/`, in the shape
-core's secret-asks daemon reads (`lib/internal/secret-ask.ts`). The daemon
-draws it as a line in the launcher's Asks; Joel's key there says yes or
-no. On a yes the daemon reads the item and runs the command with it, then
-writes an answer beside the ask, which the tool reads for its state, exit
-code, why and masked output alone.
+core's secret-asks daemon reads (`lib/internal/secrets/secret-ask.ts`).
+The daemon draws it as a line in the launcher's Asks; Joel's key there
+says yes or no. On a yes the daemon reads the item and runs the command
+with it, then writes an answer beside the ask, which the tool reads for
+its state, exit code, why and masked output alone.
 
 The wait is handed off after a minute, as a long command is
 (`lib/jobs/hand-off.ts`), so the session keeps hearing Joel and the mesh.

@@ -160,8 +160,14 @@ the key has been renewed (renewing-stream.ts), since pi retries no 401.
 ## The Engine
 
 createEngine (engine.ts) is the service's engine, made from and answering
-what contract.ts declares; resources.ts turns the resources pi's flags
-would choose into pi's loader options, and requests.ts reads what an open
+what contract.ts declares. engine.ts holds a conversation's steps in the
+order each relies on (register, begin, end, release) and its answers to
+the service. How pi builds, replaces and loses a conversation's session
+is conversation-build.ts. What its requests need (its environment, on
+the host's key) and keep past a park (its agent folder and providers) is
+kept-requests.ts. What a stop keeps, a close ends and a restart would
+end is stopping.ts. resources.ts turns the resources pi's flags would
+choose into pi's loader options, and requests.ts reads what an open
 or adopt names. It loads the host's pi
 (host-pi.ts refuses one lacking any host patch), pins that pi as the
 install every conversation's subagents run (subagent-install.ts), since
@@ -220,8 +226,8 @@ plain pi's marker still naming this host's wake file
 did, and a wake written while the host was down wakes it once the host
 listens. Any other it resumes clearing the marker, so the conversation
 counts idle from its log and parks again at its first look. While a conversation is parked, parked-warming.ts keeps its
-cache entry warm from the carry its session's warming wrote as it
-parked (`lib/internal/warming-carry.ts`): on the session's schedule, at
+cache entry warm, on what kept-requests.ts kept of it, from the carry its session's warming wrote as it
+parked (`lib/internal/cache/warming-carry.ts`): on the session's schedule, at
 most four warms in all, through pi's model runtime with the
 conversation's key, each kept for the session's next start to record.
 A warm's runtime loads no extensions, so kept-providers.ts keeps what
@@ -299,7 +305,7 @@ every process carrying that mark, whatever group it moved to as
 A park, or any stop of the host's (for a restart or for good), keeps
 what the conversation's ended commands left running, as plain pi
 does while its session idles, such as a build started with `&`
-(left-running.ts). By then any call still running was signalled and
+(stopping.ts, noting it through left-running.ts). By then any call still running was signalled and
 ended what it left, or is carried to the next host and left out, so
 the stop notes the `PI_BASH_CALL` mark of each process still carrying
 the conversation's marker, but for the mark its whole environment
@@ -331,7 +337,7 @@ what a restart would end, and `holding` names it, for the journal
 line a restart held past its ceiling writes once an hour.
 
 A conversation can become another, by pi's /new, /fork, /resume or
-import (replacement.ts). pi disposes the old session before it builds
+import (replacement.ts, settled in conversation-build.ts). pi disposes the old session before it builds
 the next, so a resume or import of a file the host holds is refused
 first, while nothing is torn down. The next is held under its own id
 before pi builds it: the service hears `became` and holds it in the old

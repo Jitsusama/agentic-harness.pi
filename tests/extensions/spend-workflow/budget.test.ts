@@ -16,7 +16,7 @@ import type {
 	Allowance,
 	BudgetStanding,
 	Budgets,
-} from "../../../lib/internal/spend-watch-budgets.ts";
+} from "../../../lib/internal/spend/spend-watch-budgets.ts";
 
 const RESETS = Date.parse("2026-11-07T21:30:00Z");
 const clock = (at: number) => new Date(at).toISOString().slice(11, 16);

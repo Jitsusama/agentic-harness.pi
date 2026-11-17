@@ -55,7 +55,7 @@ import {
 	type SessionContext,
 	sessionCell,
 } from "../../lib/core/session/index.ts";
-import { cachePrices } from "../../lib/internal/cache-prices.ts";
+import { cachePrices } from "../../lib/internal/cache/cache-prices.ts";
 import { isTransientFailure } from "../../lib/internal/errors/model-failure.ts";
 import { summaryCeiling } from "./ceiling.ts";
 import {

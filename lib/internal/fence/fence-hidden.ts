@@ -12,12 +12,12 @@
  * command needs (Google's, Slack's and Vault's, and Tuple's sign-in); the
  * person's own cloud login, which fenced gcloud never reads, since it is
  * pointed at a settings folder of its own with the broker's hour token
- * (`../sandbox/gcloud-broker.ts`); and the login keyring with what systemd sealed
- * for the person (its password, eero's session), which Landlock already
- * keeps from systemd's credential service, so no copy leaves for an
- * offline guess either (IDEGAT, 13 November). A path ending in `/` is a
- * folder, emptied whole. In `~/.ssh` only what names hosts and keys is
- * kept: public keys, settings and known hosts.
+ * (`../sandbox/gcloud-broker.ts`); and the login keyring with what
+ * systemd sealed for the person (its password, eero's session), which
+ * Landlock already keeps from systemd's credential service, so no copy
+ * leaves for an offline guess either (IDEGAT, 13 November). A path
+ * ending in `/` is a folder, emptied whole. In `~/.ssh` only what names
+ * hosts and keys is kept: public keys, settings and known hosts.
  */
 
 import { readFileSync } from "node:fs";

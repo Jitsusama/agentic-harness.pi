@@ -18,7 +18,7 @@ import {
 	dumpsEnvironment,
 	knownSecrets,
 	scrubSecrets,
-} from "../../../lib/internal/secrets.ts";
+} from "../../../lib/internal/secrets/secrets.ts";
 
 const mixed = (length: number) =>
 	"a1B2c3D4e5".repeat(Math.ceil(length / 10)).slice(0, length);
