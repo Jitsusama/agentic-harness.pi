@@ -54,6 +54,10 @@ function statusNow(): string | undefined {
 	return discoverQuests(root).index.quests.get(ID)?.doc.frontMatter.status;
 }
 
+function questIds(): string[] {
+	return [...discoverQuests(root).index.quests.keys()];
+}
+
 function syncCalls(): number {
 	return (
 		reads.mock.calls.length +
@@ -159,24 +163,24 @@ describe("discovery on a host", () => {
 	it("finds a quest made elsewhere at once, by its id", () => {
 		discoverQuests(root);
 		otherQuest();
-		expect(discoverQuests(root).index.quests.has(OTHER)).toBe(true);
+		expect(questIds()).toContain(OTHER);
 	});
 
 	it("finds a quest whose README came after its folder at once", () => {
 		mkdirSync(join(root, OTHER));
-		expect(discoverQuests(root).index.quests.has(OTHER)).toBe(false);
+		expect(questIds()).not.toContain(OTHER);
 		writeSettled(
 			join(root, OTHER, "README.md"),
 			readme("active").replaceAll(ID, OTHER),
 		);
-		expect(discoverQuests(root).index.quests.has(OTHER)).toBe(true);
+		expect(questIds()).toContain(OTHER);
 	});
 
 	it("drops a quest removed elsewhere at once", () => {
 		otherQuest();
 		discoverQuests(root);
 		rmSync(join(root, OTHER), { recursive: true });
-		expect(discoverQuests(root).index.quests.has(OTHER)).toBe(false);
+		expect(questIds()).not.toContain(OTHER);
 	});
 
 	it("keeps no signing made across this process's own write", async () => {
