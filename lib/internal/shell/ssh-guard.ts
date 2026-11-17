@@ -222,4 +222,3 @@ export function guardedEnvironment(
 		...(guard.here ? { [SSH_GUARD_HERE]: guard.here } : {}),
 	};
 }
-

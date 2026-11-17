@@ -308,6 +308,3 @@ rsync)
 	;;
 esac
 pass
-
-
-
