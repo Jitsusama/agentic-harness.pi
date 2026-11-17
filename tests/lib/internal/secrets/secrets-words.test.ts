@@ -330,10 +330,11 @@ describe("what a printing of the environment keeps", () => {
 	});
 
 	// A link's text exempts its address's name only when it is that whole
-	// name, as written or decoded, the name without its extension, its
-	// first piece, or a commit's short id, so the address shows nothing
-	// the text doesn't: a link whose text shortens the name otherwise is
-	// put out of sight, the trade this makes for failing closed.
+	// name, as written or decoded, the name without an extension holding
+	// no escape, its first piece, or a commit's short id, so the address
+	// shows nothing the text doesn't: a link whose text shortens the name
+	// otherwise is put out of sight, the trade this makes for failing
+	// closed.
 	it("is put out of sight as a link whose text shortens its name", () => {
 		for (const printed of [
 			`\x1b]8;;https://github.com/o/r/commit/${"abc1234d".repeat(5)}\x07abc12\x1b]8;;\x07\n`,

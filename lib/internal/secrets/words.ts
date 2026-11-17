@@ -345,8 +345,8 @@ export function replaceWords(
 
 /**
  * Whether a link's `text` is the `name` its address ends with, as
- * written or decoded, or that name without its extension, or, for an
- * all-hex name, a
+ * written or decoded, or that name without an extension holding no
+ * escape (`stemOf`), or, for an all-hex name, a
  * commit's short id of `SHORT_ID` characters or more, so the address
  * shows nothing the text doesn't beyond a commit's id. The text reaches
  * here cut at its first break, joiner or slash, so a name holding one is
