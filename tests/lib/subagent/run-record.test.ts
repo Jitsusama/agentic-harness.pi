@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TickFacts } from "../../../lib/internal/process-ticks.ts";
 import { ReviewerArtifactsStore } from "../../../lib/subagent/artifacts.ts";
 import {
 	KEPT_MS,
@@ -83,6 +84,27 @@ function answered(member: string, runId = "fleet-a"): void {
 		},
 		runId,
 	);
+}
+
+const SUPERVISOR_PID = 4242;
+const SUPERVISED_AT = Date.parse("2026-11-07T04:00:01.000Z");
+
+/** A machine on which the supervisor runs, or has gone. */
+function machine(supervisor: "running" | "gone"): TickFacts {
+	return {
+		alive: (pid) => supervisor === "running" && pid === SUPERVISOR_PID,
+		startedAt: async () => SUPERVISED_AT,
+	};
+}
+
+/** A lease its supervisor wrote while it went on, last at `beat`. */
+function leased(member: string, beat = "2026-11-07T04:04:00.000Z"): void {
+	keep(member, "lease", {
+		state: "running",
+		supervisorPid: SUPERVISOR_PID,
+		supervisorStartedAt: SUPERVISED_AT,
+		updatedAt: beat,
+	});
 }
 
 /** The one run a record file holds, as the node reads it. */
@@ -221,6 +243,65 @@ describe("a run's record", () => {
 			ended: "2026-11-07T04:05:00.000Z",
 		});
 	});
+
+	// A supervisor killed before it writes its result, as a host's restart
+	// kills one, left its run said as running for ever.
+	it("says a member whose supervisor has gone as lost, ended at its last word", async () => {
+		keep("gone", "request", { args: [] });
+		leased("gone");
+
+		const record = await runRecord(
+			asked(),
+			[{ id: "gone" }],
+			new Date("2026-11-07T04:30:00.000Z"),
+			machine("gone"),
+		);
+
+		expect(record.members[0]).toMatchObject({
+			state: "supervisor-lost",
+			ended: "2026-11-07T04:04:00.000Z",
+		});
+		expect(record).toMatchObject({
+			state: "failed",
+			ended: "2026-11-07T04:04:00.000Z",
+		});
+	});
+
+	it("goes on saying a member running while its supervisor runs", async () => {
+		leased("going");
+
+		const record = await runRecord(
+			asked(),
+			[{ id: "going" }],
+			new Date("2026-11-07T04:30:00.000Z"),
+			machine("running"),
+		);
+
+		expect(record.members[0]).toMatchObject({ state: "running" });
+		expect(record.state).toBe("running");
+	});
+
+	it("says how a stopped member ended once its wrap-up's supervisor has gone", async () => {
+		keep("slow", "result", {
+			state: "soft-deadline",
+			completedAt: "2026-11-07T04:05:00.000Z",
+		});
+		keep("slow+wrapup", "request", { args: [] });
+		leased("slow+wrapup");
+
+		const record = await runRecord(
+			asked(),
+			[{ id: "slow" }],
+			new Date("2026-11-07T04:30:00.000Z"),
+			machine("gone"),
+		);
+
+		expect(record.members[0]).toMatchObject({
+			state: "soft-deadline",
+			ended: "2026-11-07T04:05:00.000Z",
+		});
+		expect(record.state).not.toBe("running");
+	});
 });
 
 describe("watching a run", () => {
@@ -267,6 +348,23 @@ describe("watching a run", () => {
 		await vi.waitFor(() =>
 			expect(recordIn("fleet.fleet-a.json")).toMatchObject({ state: "done" }),
 		);
+	});
+
+	it("says how a run ended once a member's supervisor has gone", async () => {
+		leased("detached");
+		const watch = watchRun(asked(), [{ id: "detached" }], {
+			dir: records,
+			everyMs: 10,
+			now: during,
+			facts: machine("gone"),
+		});
+
+		await watch.end();
+
+		expect(recordIn("fleet.fleet-a.json")).toMatchObject({
+			state: "failed",
+			members: [expect.objectContaining({ state: "supervisor-lost" })],
+		});
 	});
 
 	it("takes in a member asked after it began", async () => {

@@ -27,6 +27,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { stateDir } from "../internal/paths.ts";
+import type { TickFacts } from "../internal/process-ticks.ts";
 import { isRecord } from "../internal/record.ts";
 import { ReviewerArtifactsStore } from "./artifacts.ts";
 import { safeSegment } from "./errno.ts";
@@ -136,6 +137,7 @@ export async function runRecord(
 	asked: RunAsked,
 	members: readonly MemberAsked[],
 	now: Date,
+	_facts?: TickFacts,
 ): Promise<RunRecord> {
 	const store = new ReviewerArtifactsStore(asked.artifacts);
 	const read = await Promise.all(
@@ -192,7 +194,12 @@ export interface RunWatch {
 export function watchRun(
 	asked: RunAsked,
 	members: readonly MemberAsked[],
-	options: { dir?: string; everyMs?: number; now?: () => Date } = {},
+	options: {
+		dir?: string;
+		everyMs?: number;
+		now?: () => Date;
+		facts?: TickFacts;
+	} = {},
 ): RunWatch {
 	const dir = options.dir ?? runRecordsDir();
 	const now = options.now ?? (() => new Date());
