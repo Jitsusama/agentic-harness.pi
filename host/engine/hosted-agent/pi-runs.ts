@@ -173,7 +173,16 @@ export class PiRuns {
 				// pi reports what failed in preparing or settling its run to its own listeners; the host's work goes on either way.
 			});
 		this.open = { end, settled };
-		// A run pi failed to prepare hands nothing over, and the work goes on.
-		return Promise.race([prepared, settled.then(() => [])]);
+		// A run pi failed to prepare, or took too long over, hands nothing over,
+		// and the work goes on; one prepared late ends with it as any other.
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const overdue = new Promise<readonly AgentMessage[]>((done) => {
+			timer = setTimeout(() => done([]), PREPARING_MS);
+		});
+		try {
+			return await Promise.race([prepared, settled.then(() => []), overdue]);
+		} finally {
+			clearTimeout(timer);
+		}
 	}
 }
