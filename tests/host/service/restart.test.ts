@@ -471,7 +471,10 @@ describe("restartWhenSettled", () => {
 	// frees isn't room, and counting it so would restart at every wake.
 	// A parked conversation leaves what the host runs and stays on its
 	// roster, so the fakes list it by parked() and leave it out of held().
-	function asleep(heap: ReturnType<typeof growingHeap>) {
+	function asleep(
+		heap: ReturnType<typeof growingHeap>,
+		more: Partial<RestartFacts> = {},
+	) {
 		const awake = new Set<string>();
 		const parked = new Set<string>();
 		let clock = NOW;
@@ -483,6 +486,7 @@ describe("restartWhenSettled", () => {
 			background: () => 1,
 			heapShare: heap.heapShare,
 			now: () => clock,
+			...more,
 		});
 		restartsSaid(given, said);
 		const timers = manualTimers();
@@ -527,6 +531,25 @@ describe("restartWhenSettled", () => {
 		}
 		for (let look = 0; look < 3; look++) await host.look(0.75);
 		expect(host.restarts(), "nothing restarted for what a wake refills").toEqual(
+			[],
+		);
+	});
+
+	// The reading is what V8 kept at its last full collections, and an idle
+	// host may not collect for a long while after a wake.
+	it("lets no reading from before a wake lower the mark, however long V8 waits to collect", async () => {
+		let collections = 0;
+		const host = asleep(growingHeap(0.75), { heapCollections: () => collections });
+		host.wake("a", "b");
+		await host.look(0.75);
+		host.park("a", "b");
+		collections += 2;
+		await host.look(0.4);
+		host.wake("a", "b");
+		for (let look = 0; look < 30; look++) await host.look(0.4);
+		collections += 2;
+		for (let look = 0; look < 3; look++) await host.look(0.75);
+		expect(host.restarts(), "nothing restarted for what the wake refilled").toEqual(
 			[],
 		);
 	});

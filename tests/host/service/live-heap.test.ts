@@ -64,6 +64,17 @@ function fakeV8(usedMb: number) {
 }
 
 describe("heapAfterFullCollections", () => {
+	// The reading moves only as V8 collects in full, so a reader asking
+	// whether it has caught up with a change counts them.
+	it("counts V8's full collections since it began watching", () => {
+		const v8 = fakeV8(900);
+		const heap = heapAfterFullCollections(v8.watch, v8.read);
+		expect(heap.collections(), "none yet").toBe(0);
+		v8.collect(1200);
+		v8.collect(1300);
+		expect(heap.collections(), "two").toBe(2);
+	});
+
 	it("reads the heap as it stands before V8 has collected in full", () => {
 		const v8 = fakeV8(900);
 		const heap = heapAfterFullCollections(v8.watch, v8.read);
