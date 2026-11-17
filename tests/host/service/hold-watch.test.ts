@@ -328,8 +328,15 @@ describe("watchHolds", () => {
 		it.runIf(NUMBERED && ON_LINUX)(
 			"counts its CPU from as the loop last moved, not from the thread's start",
 			async () => {
-				// A host up for hours has used far more CPU than any hold.
-				stop = watching(procSaying({ ...IN_THE_DISK, cpu: 3600 }));
+				// The CPU it ran while the loop turned, after the thread started,
+				// is no part of the hold.
+				const proc = procSaying(IN_THE_DISK);
+				stop = watching(proc);
+				await started();
+				const ran = sayingLater(proc, { ...IN_THE_DISK, cpu: 3600 }, 0);
+				await vi.waitFor(() => {
+					expect(existsSync(ran), "its CPU said while it turned").toBe(true);
+				});
 				await started();
 				await heldFor(1500);
 				expect(
@@ -368,6 +375,7 @@ describe("watchHolds", () => {
 				const back = sayingLater(proc, IN_THE_DISK, 1, "back");
 				const lines = await heldFor(2500);
 				expect(lines, "seen running partway").toMatch(/seen .*R \d+/);
+				expect(existsSync(back), "back in the disk within the hold").toBe(true);
 				const returned = msOf(readFileSync(back, "utf8").trim());
 				expect(
 					beaten()
@@ -405,6 +413,56 @@ describe("watchHolds", () => {
 			},
 		);
 
+		it.runIf(NUMBERED && ON_LINUX)(
+			"says it can't beat any more once its shell is gone",
+			async () => {
+				// The beat ends the shell that runs it.
+				stop = watching(
+					procSaying(IN_THE_DISK),
+					beat(60_000, ["sh", "-c", "kill -9 $PPID"]),
+				);
+				await started();
+				const lines = await heldFor(1500);
+				expect(lines, "the beat out failed").toMatch(
+					/couldn't beat the watchdog for the loop, held \d+\.\d s in openat \S+: its shell ended on SIGKILL/,
+				);
+				expect(lines, "and every one after").toContain(
+					"can't beat the watchdog for the loop any more: its shell ended on SIGKILL",
+				);
+			},
+		);
+
+		it.runIf(NUMBERED && ON_LINUX)(
+			"ends its shell when the watch stops",
+			async () => {
+				const shells = join(dir, "shells");
+				stop = watching(
+					procSaying(IN_THE_DISK),
+					beat(60_000, ["sh", "-c", `echo $PPID >> '${shells}'`]),
+				);
+				await started();
+				await heldFor(1000);
+				const shell = readFileSync(shells, "utf8").split("\n")[0] ?? "";
+				stop();
+				stop = undefined;
+				// Gone, or ended and left for the host's own end to reap.
+				const state = () => {
+					try {
+						const stat = readFileSync(`/proc/${shell}/stat`, "utf8");
+						return stat.slice(
+							stat.lastIndexOf(")") + 2,
+							stat.lastIndexOf(")") + 3,
+						);
+					} catch {
+						return "gone";
+					}
+				};
+				await vi.waitFor(() => {
+					expect(["Z", "gone"], "its shell ended").toContain(state());
+				});
+			},
+		);
+
 		it.runIf(NUMBERED)(
 			"never beats for a loop waiting off the disk",
 			async () => {
@@ -413,7 +471,8 @@ describe("watchHolds", () => {
 					procSaying({ state: "S", wchan: "futex_wait_queue", call: "futex" }),
 				);
 				await started();
-				await heldFor(1500);
+				const lines = await heldFor(1500);
+				expect(lines, "the wait named").toContain("waiting in futex");
 				expect(
 					beaten(),
 					"a wait off the disk is the watchdog's to kill",
@@ -523,12 +582,12 @@ describe("watchHolds", () => {
 			"writes a control character in a path as its code",
 			async () => {
 				const proc = procSaying(IN_THE_DISK);
-				writeFileSync(join(proc, "mem"), "/home/one/a\nb\u202ec.json\0");
+				writeFileSync(join(proc, "mem"), "/home/one/a\nb\u202ec\u200bd.json\0");
 				stop = watching(proc);
 				await started();
 				const lines = await heldFor(1500);
 				expect(lines, "the newline and direction mark as codes").toContain(
-					"in openat /home/one/a\\x0ab\\u202ec.json",
+					"in openat /home/one/a\\x0ab\\u202ec\\u200bd.json",
 				);
 			},
 		);

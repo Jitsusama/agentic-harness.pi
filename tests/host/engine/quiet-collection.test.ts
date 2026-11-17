@@ -85,7 +85,7 @@ describe("the host's collection once quiet", () => {
 		expect(collect).toHaveBeenCalledTimes(1);
 		expect(said).toEqual([
 			expect.stringMatching(
-				/^Collected while quiet in \d+ ms, Pss 812 MB to 214 MB, heap 700 of 760 MB to 150 of 200 MB \(old 100 of 120 MB, large object 30 of 40 MB, code 20 of 40 MB\), outside it 60 MB to 40 MB, of which array buffers 9 MB to 5 MB, code and metadata 18 MB, bytecode 6 MB, script source 25 MB, read in \d+ ms, with 0 conversations waiting on the model$/,
+				/^Collected while quiet in \d+ ms, Pss 812 MB to 214 MB, heap 700 of 760 MB to 150 of 200 MB \(old 100 of 120 MB, large object 30 of 40 MB, code 20 of 40 MB\), outside it 60 MB to 40 MB, of which array buffers 9 MB to 5 MB, code and metadata 18 MB, bytecode 6 MB, external script source 25 MB, read in \d+ ms, with 0 conversations waiting on the model$/,
 			),
 		]);
 	});
@@ -221,7 +221,7 @@ describe("the host's collection once quiet", () => {
 			code: () => undefined,
 			report: (one) => said.push(one),
 			clock: (() => {
-				const reads = [0, 1240];
+				const reads = [0, 1240, 1240];
 				return () => reads.shift() ?? 0;
 			})(),
 		});
@@ -253,7 +253,7 @@ describe("the host's collection once quiet", () => {
 		quiet.stirred();
 		vi.advanceTimersByTime(SETTLE_MS);
 		expect(said[0]).toMatch(
-			/^Collected while quiet in 1100 ms, .*; the loop held 1\.1 s for it$/,
+			/^Collected while quiet in 1100 ms, .*, read in 700 ms, .*; the loop held 1\.1 s for it$/,
 		);
 	});
 
@@ -266,7 +266,7 @@ describe("the host's collection once quiet", () => {
 		const code = vi.fn(() => ({ compiled: MB, bytecode: MB, source: MB }));
 		const said: string[] = [];
 		let now = 0;
-		let started = true;
+		let reads = 0;
 		const quiet = quietCollection({
 			reading: () => ({ tools: 0, jobs: 0, waiting: 1 }),
 			collect,
@@ -280,10 +280,11 @@ describe("the host's collection once quiet", () => {
 			}),
 			code,
 			report: (one) => said.push(one),
-			// Each collection reads the clock twice, before and after.
+			// Each collection reads the clock three times: before it, after
+			// it, and after reading the code, which takes none here.
 			clock: () => {
-				started = !started;
-				if (started) now += pauses.shift() ?? 0;
+				reads += 1;
+				if (reads % 3 === 2) now += pauses.shift() ?? 0;
 				return now;
 			},
 		});
@@ -446,6 +447,6 @@ describe("V8's last-resort collection", () => {
 		const code = processCode();
 		expect(code.compiled, "this file's compiled code").toBeGreaterThan(0);
 		expect(code.bytecode, "this file's bytecode").toBeGreaterThan(0);
-		expect(code.source, "this file's own source").toBeGreaterThan(0);
+		expect(code.source, "node's built-in modules' source").toBeGreaterThan(0);
 	});
 });
