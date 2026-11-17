@@ -152,6 +152,25 @@ export function leastGibOfCommand(command: string): number {
 }
 
 /**
+ * A type check: tsc by its name or its path, vue-tsc and tsgo, over a
+ * project or files, each holding a gigabyte and a core for minutes. Two
+ * took no turn on equilibrius at load 155 to 264 on 16 November
+ * (VRZKID). Left out are the runs that compile nothing, asking its
+ * version or help or writing a config, and a watch, which never ends
+ * and would hold a turn for good.
+ */
+const TYPE_CHECK =
+	/(?:(?<![\w.-])(?:\S*\/)?(?:vue-)?tsc|(?<![\w./-])tsgo)(?![\w./-])(?![^\n]*\s(?:-v|--version|-h|--help|--all|--init|--showConfig|--clean|-w|--watch)(?![\w-]))/;
+
+/**
+ * A package script named typecheck, or typecheck:<anything>, run by pnpm,
+ * yarn or bun, or npm's run, with any flags before it, as `pnpm -C dir`,
+ * `pnpm --filter x` and `pnpm -r` are.
+ */
+const TYPE_CHECK_SCRIPT =
+	/\b(?:(?:pnpm|yarn|bun)(?:\s+--?[\w-]+(?:[=\s][^\s-]\S*)?)*\s+(?:run\s+)?|npm(?:\s+--?[\w-]+(?:[=\s][^\s-]\S*)?)*\s+run(?:-script)?\s+)typecheck(?::[\w-]+)?(?![\w:-])/;
+
+/**
  * The one map from a command to its kind, first match winning. A VM
  * test is a VM or a test driver run here; building a test's driver is a
  * build; a VM check is a Nix build or check of something named for a
@@ -205,11 +224,8 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 				// test is left alone: Acceluary's deploy waits on its, which is
 				// timed work rather than bulk (N3Q98W).
 				/(?<![\w./-])vitest(?![\w.-])|\bpnpm\s+(?:run\s+)?(?:check|test(?::[\w-]+)?)(?![\w:-])/,
-				// A whole project's type check holds a gigabyte and a core for
-				// minutes: two took no turn on equilibrius at load 155 to 264 on
-				// 16 November (VRZKID). Asking tsc its version or help compiles
-				// nothing.
-				/(?<![\w./-])tsc(?![\w.-])(?!\s+(?:--version|-v|--help|-h)(?![\w-]))|\bpnpm\s+(?:run\s+)?typecheck(?::[\w-]+)?(?![\w:-])/,
+				TYPE_CHECK,
+				TYPE_CHECK_SCRIPT,
 			]
 				.map((pattern) => pattern.source)
 				.join("|"),

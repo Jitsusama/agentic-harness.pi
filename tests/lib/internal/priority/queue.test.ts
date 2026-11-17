@@ -61,15 +61,38 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("tsc -p tsconfig.json")).toBe("build");
 		expect(kindOf("pnpm exec tsc --noEmit > $TMPDIR/t.log 2>&1")).toBe("build");
 		expect(kindOf("npx tsc -b")).toBe("build");
+		expect(kindOf("tsc src/one.ts --noEmit")).toBe("build");
+		// By its path, and the checkers built on it.
+		expect(kindOf("./node_modules/.bin/tsc -p .")).toBe("build");
+		expect(kindOf("node node_modules/typescript/bin/tsc --noEmit")).toBe(
+			"build",
+		);
+		expect(kindOf("pnpm exec vue-tsc --noEmit")).toBe("build");
+		expect(kindOf("npx tsgo --noEmit")).toBe("build");
 		expect(kindOf("cd $T && timeout 600 pnpm typecheck; echo $?")).toBe(
 			"build",
 		);
 		expect(kindOf("pnpm run typecheck")).toBe("build");
 		expect(kindOf("pnpm typecheck:strict")).toBe("build");
-		// Asking its version or help compiles nothing; nor does looking at it.
-		expect(kindOf("tsc --version")).toBeUndefined();
+		// With pnpm's flags before the script, and the other runners.
+		expect(kindOf("pnpm -C packages/a typecheck")).toBe("build");
+		expect(kindOf("pnpm --filter web typecheck")).toBe("build");
+		expect(kindOf("pnpm -r typecheck")).toBe("build");
+		expect(kindOf("npm run typecheck")).toBe("build");
+		expect(kindOf("yarn typecheck")).toBe("build");
+		// Asking its version or help, or writing a config, compiles nothing;
+		// a watch never ends, so would hold a turn for good.
+		expect(kindOf("pnpm exec tsc --version")).toBeUndefined();
 		expect(kindOf("pnpm exec tsc -v")).toBeUndefined();
+		expect(kindOf("npx tsc -h")).toBeUndefined();
 		expect(kindOf("npx tsc --help")).toBeUndefined();
+		expect(kindOf("tsc --init")).toBeUndefined();
+		expect(kindOf("tsc -p . --showConfig")).toBeUndefined();
+		expect(kindOf("tsc -b --clean")).toBeUndefined();
+		expect(kindOf("tsc -p . --watch")).toBeUndefined();
+		expect(kindOf("pnpm exec tsc -w")).toBeUndefined();
+		expect(kindOf("ls node_modules/typescript/lib/tsc.js")).toBeUndefined();
+		expect(kindOf("cat tsconfig.json")).toBeUndefined();
 		expect(kindOf("grep tsc package.json")).toBeUndefined();
 		expect(kindOf("code tsconfig.json")).toBeUndefined();
 		expect(kindOf("pnpm typechecker-notes")).toBeUndefined();
