@@ -14,11 +14,8 @@ import {
 	callSignal,
 	withCallSignal,
 } from "../../../lib/core/exec/call-signal.ts";
-import {
-	EXIT_ABORTED,
-	type ExecResult,
-	spawnExec,
-} from "../../../lib/core/exec/spawn.ts";
+import type { ExecResult } from "../../../lib/core/exec/exec.ts";
+import { EXIT_ABORTED, spawnExec } from "../../../lib/core/exec/spawn.ts";
 
 /** What a run settled as within a short wait, or that it had not. */
 async function within<T>(

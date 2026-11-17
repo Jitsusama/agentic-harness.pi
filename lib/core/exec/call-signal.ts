@@ -46,14 +46,14 @@ interface Holder {
 
 /** The store, made by whichever copy of this module asked first. */
 function store(): AsyncLocalStorage<AbortSignal | undefined> {
-	const holder: Holder = globalThis;
+	const holder = globalThis as Holder;
 	holder[STORE_KEY] ??= new AsyncLocalStorage();
 	return holder[STORE_KEY];
 }
 
 /** The calls' store, made by whichever copy of this module asked first. */
 function calls(): AsyncLocalStorage<Call> {
-	const holder: Holder = globalThis;
+	const holder = globalThis as Holder;
 	holder[CALL_KEY] ??= new AsyncLocalStorage();
 	return holder[CALL_KEY];
 }
