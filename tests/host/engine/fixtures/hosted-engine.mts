@@ -27,6 +27,7 @@ import { pathToFileURL } from "node:url";
 import type {
 	EngineKey,
 	EngineScreens,
+	HostedView,
 	HostEngine,
 } from "../../../../host/engine/contract.ts";
 import { createEngine } from "../../../../host/engine/engine.ts";
@@ -213,6 +214,48 @@ function askingScreens(): EngineScreens {
 	};
 }
 
+/** The host the step runs, for screens that look at it as the engine calls them. */
+let runningHost: SessionHost | undefined;
+/** Each rebind the rebinding screens were asked for, and whether the host still held the conversation it replaced. */
+const rebounds: {
+	sessionId: string;
+	previousId: string;
+	previousHeld: boolean;
+}[] = [];
+
+/**
+ * Screens that bind a UI doing nothing, as a hosted screen binds one, and
+ * note each rebind pi's replacement asks for, binding the new session too.
+ */
+function rebindingScreens(): EngineScreens {
+	const bind = (view: HostedView) =>
+		view.runtime.session.bindExtensions({
+			uiContext: new Proxy({}, { get: () => () => undefined }),
+		});
+	return {
+		opened: (view) => bind(view),
+		rebound: async (view, previousId) => {
+			rebounds.push({
+				sessionId: view.sessionId,
+				previousId,
+				previousHeld: runningHost?.holds(previousId) !== undefined,
+			});
+			await bind(view);
+		},
+		closed: () => {},
+	};
+}
+
+/** The engine's durable store for each conversation, under its own folder of the state folder. */
+const STORE_FILE = "durable.sqlite";
+/** Which conversation's store the step leaves unopenable: the one an open names, or the one a replacement becomes. */
+let refusedStore: "opened" | "next" | undefined;
+
+/** Leave a conversation's store unopenable, a folder where its file goes, so its build fails once the host holds it. */
+function refuseStore(sessionId: string): void {
+	mkdirSync(join(folder, "state", sessionId, STORE_FILE), { recursive: true });
+}
+
 /** A project folder holding an extension of its own, which pi loads only where the folder is trusted. */
 function project(name: string): string {
 	const dir = join(projects, name);
@@ -327,6 +370,12 @@ interface Scenario {
 	harness?: true;
 	/** The screens the engine hands conversations to; none binds them with no interface. */
 	screens?: () => EngineScreens;
+	/** What each conversation's launch names for itself, beside what the engine derives. */
+	launch?: Readonly<Record<string, string>>;
+	/** The variable the scripted provider's key is read from; the gateway key's unless named. */
+	keyVariable?: string;
+	/** What the host's own process holds beyond the sealed environment it runs in. */
+	hostEnv?: Readonly<Record<string, string>>;
 	run: (
 		engine: HostEngine,
 		host: SessionHost,
@@ -342,6 +391,17 @@ const key: EngineKey = {
 		keyIndex++;
 	},
 };
+
+/** Open with first words, answer them, then close, for what the provider was sent. */
+async function answerOnce(
+	engine: HostEngine,
+	host: SessionHost,
+): Promise<Record<string, unknown>> {
+	const id = await open(engine, { first: "hi" });
+	await idle(engine, id);
+	await host.close(id);
+	return {};
+}
 
 const scenarios: Record<string, Scenario> = {
 	/** Open with first words, answer them, then close. */
@@ -754,6 +814,101 @@ const scenarios: Record<string, Scenario> = {
 			return seen;
 		},
 	},
+	/** Start a new conversation from an extension's command whose store can't open, so pi fails past its teardown. */
+	"replace-lost": {
+		responses: () => [say("hello there")],
+		run: async (engine, host) => {
+			const first = await open(engine, { first: "hi" });
+			await idle(engine, first);
+			refusedStore = "next";
+			// pi's failed replacement fails the command, which the step expects.
+			await host
+				.run(first, () => prompt(engine, first, "/probe-new"))
+				.catch(() => undefined);
+			await until("the conversation it was is let go", () =>
+				host.holds(first) === undefined,
+			);
+			return {
+				firstId: first,
+				held: host.list().map((conversation) => conversation.id),
+			};
+		},
+	},
+	/** Start a new conversation from an extension's command at a screen that rebinds, then stop. */
+	"replace-rebound": {
+		responses: () => [say("hello there")],
+		screens: rebindingScreens,
+		run: async (engine, host) => {
+			const first = await open(engine, { first: "hi" });
+			await idle(engine, first);
+			await host.run(first, () => prompt(engine, first, "/probe-new"));
+			await until("the conversation it was is let go", () =>
+				host.holds(first) === undefined,
+			);
+			const seen = { firstId: first, rebounds };
+			for (const conversation of host.list()) await host.stop(conversation.id);
+			return seen;
+		},
+	},
+	/** Open on a store that can't open, so the build fails once the host holds it. */
+	"start-fails": {
+		responses: () => [],
+		run: async (engine, host) => {
+			refusedStore = "opened";
+			let refused = "";
+			try {
+				await open(engine, {});
+			} catch (error) {
+				refused = error instanceof Error ? error.message : String(error);
+			}
+			const id = readEntry().sessionId;
+			return { refused, state: host.holds(id) ?? "gone" };
+		},
+	},
+	/** A conversation's launch names a gateway key of its own, and the host has another. */
+	"own-key": {
+		responses: () => [say("hello there")],
+		launch: { SHOPIFY_PROXY_KEY: "its-own-key" },
+		run: answerOnce,
+	},
+	/** The provider's key is read from a variable only the host's process holds. */
+	"host-read": {
+		responses: () => [say("hello there")],
+		keyVariable: "PI_HYPERLINKS",
+		hostEnv: { PI_HYPERLINKS: "the-host-read" },
+		run: answerOnce,
+	},
+	/** The same, with the conversation's launch naming the variable for itself. */
+	"own-read": {
+		responses: () => [say("hello there")],
+		keyVariable: "PI_HYPERLINKS",
+		hostEnv: { PI_HYPERLINKS: "the-host-read" },
+		launch: { PI_HYPERLINKS: "its-own-read" },
+		run: answerOnce,
+	},
+	/** A heavy run handed to the job host, read as a restart's hold and as a drain's answer. */
+	"heavy-held": {
+		responses: () => [],
+		harness: true,
+		run: async (engine, host) => {
+			const id = await open(engine, {});
+			await idle(engine, id);
+			await host.run(id, () =>
+				prompt(engine, id, "/probe-job nix-offload there --changed"),
+			);
+			await idle(engine, id);
+			const holding = engine.holding();
+			// No await between the drain and its lift, so nothing parks for it.
+			const drained = engine.drain?.(true);
+			const holdingDrained = engine.holding();
+			engine.drain?.(false);
+			await host.close(id);
+			return {
+				firstId: id,
+				heavyHeld: { holding, drained, holdingDrained },
+			};
+		},
+	},
 	/** Ask one conversation to resume the file another holds, then talk on in the first. */
 	"replace-held": {
 		responses: () => [say("hello there"), say("still here")],
@@ -1014,7 +1169,12 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		...(scenario.api ? { api: scenario.api } : {}),
 	});
 	faux.setResponses(scenario.responses());
-	writeAgentFolder(faux.api, scenario.harness ? [HARNESS] : []);
+	writeAgentFolder(
+		faux.api,
+		scenario.harness ? [HARNESS] : [],
+		scenario.keyVariable,
+	);
+	Object.assign(process.env, scenario.hostEnv);
 	// pi counts any .agents/skills above a folder but HOME's as a project's own, and this folder may sit under a
 	// home holding one, so the work folder is trusted as its person would have trusted it.
 	writeFileSync(
@@ -1028,6 +1188,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		owner: { pid: process.pid, startedAt: Date.now() },
 		registryDir: join(folder, "registry"),
 	});
+	runningHost = host;
 	const engine = await createEngine({
 		packageDir,
 		stateDir: join(folder, "state"),
@@ -1036,7 +1197,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 		key,
 		conversationEnv: (_traits, request) => {
 			derived.push(request.op);
-			return { [OPENED_AS]: request.op };
+			return { [OPENED_AS]: request.op, ...scenario.launch };
 		},
 		resources: { extensions: [flaggedExtension] },
 		...(scenario.screens ? { screens: scenario.screens() } : {}),
@@ -1045,6 +1206,7 @@ async function runHost(scenario: Scenario | undefined): Promise<void> {
 	// As the service's roster does: the conversation a held one became replaces it, in one write.
 	engine.watch({
 		became: async (previousId, next) => {
+			if (refusedStore === "next") refuseStore(next.sessionId);
 			became.push({
 				previousId,
 				sessionId: next.sessionId,
@@ -1119,6 +1281,7 @@ async function open(
 		...words,
 	};
 	const prepared = await engine.prepare(request);
+	if (refusedStore === "opened") refuseStore(prepared.sessionId);
 	openedIn.push(prepared.cwd);
 	const entry: RosterEntry = {
 		sessionId: prepared.sessionId,
@@ -1222,11 +1385,15 @@ function linkedCopy(dir: string, word: string): void {
  * variable, in models.json or registered by an extension of its own,
  * settings, and the probe.
  */
-function writeAgentFolder(api: string, packages: readonly string[]): void {
+function writeAgentFolder(
+	api: string,
+	packages: readonly string[],
+	keyVariable = "SHOPIFY_PROXY_KEY",
+): void {
 	const provider = {
 		baseUrl: "http://faux.invalid",
 		api,
-		apiKey: "$SHOPIFY_PROXY_KEY",
+		apiKey: `$${keyVariable}`,
 		models: [
 			{
 				id: MODEL,

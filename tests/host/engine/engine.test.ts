@@ -82,6 +82,18 @@ interface Seen {
 		readonly own: number;
 		readonly unheld: number;
 	};
+	/** What a restart would wait on of a heavy run, before and while the host drains, and what the drain said goes. */
+	readonly heavyHeld?: {
+		readonly holding: readonly string[];
+		readonly drained: readonly string[];
+		readonly holdingDrained: readonly string[];
+	};
+	/** Each rebind a screen was asked for, and whether the host still held the conversation replaced. */
+	readonly rebounds?: readonly {
+		readonly sessionId: string;
+		readonly previousId: string;
+		readonly previousHeld: boolean;
+	}[];
 	/** Which conversation each probe load and event ran as, beside the one pi named. */
 	readonly as: readonly {
 		readonly at: string;
@@ -536,6 +548,95 @@ describe("the host's engine", () => {
 				"user: hi",
 				"assistant: hello again",
 			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"sends the host's gateway key over one a conversation's launch names for itself",
+		async () => {
+			const seen = await step(hostFolder(), "own-key");
+			expect(seen.keysSeen, "the key the provider was sent").toEqual([
+				"first-key",
+			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"sends what only the host's process holds, unless the conversation names its own",
+		async () => {
+			const read = await step(hostFolder(), "host-read");
+			expect(read.keysSeen, "the host's read, the conversation naming none").toEqual(
+				["the-host-read"],
+			);
+			const own = await step(hostFolder(), "own-read");
+			expect(own.keysSeen, "the conversation's own, over the host's").toEqual([
+				"its-own-read",
+			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"ends both conversations when pi fails to build the one an extension's command replaces another with, the new one first",
+		async () => {
+			const seen = await step(hostFolder(), "replace-lost");
+			const first = seen.firstId ?? "";
+			const next = seen.became[0]?.sessionId ?? "";
+			expect(next, "pi named the conversation it was becoming").not.toBe("");
+			expect(
+				seen.ended,
+				"the one it was becoming ends, then the one it was",
+			).toEqual([
+				{ sessionId: next, why: "pi failed to build it" },
+				{ sessionId: first, why: "pi failed to replace it" },
+			]);
+			expect(seen.held, "the host holds neither").toEqual([]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"rebinds the screen to the conversation an extension's command becomes before the one it was ends",
+		async () => {
+			const seen = await step(hostFolder(), "replace-rebound");
+			const next = seen.became[0]?.sessionId ?? "";
+			expect(
+				seen.rebounds,
+				"one rebind, onto the new conversation, while the host still holds the old",
+			).toEqual([
+				{ sessionId: next, previousId: seen.firstId, previousHeld: true },
+			]);
+			expect(seen.ended, "the conversation it was ends as replaced").toEqual([
+				{ sessionId: seen.firstId, why: "replaced" },
+			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"keeps a conversation whose build fails once the host holds it, parked",
+		async () => {
+			const seen = await step(hostFolder(), "start-fails");
+			expect(seen.refused, "the open fails, saying why").not.toBe("");
+			expect(seen.state, "the host still holds it, parked").toBe("parked");
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"names a conversation's heavy run as what a restart waits on, and as what a drain says goes",
+		async () => {
+			const seen = await step(hostFolder(), "heavy-held");
+			const line = expect.stringMatching(
+				new RegExp(`^${seen.firstId}: \\S+ probe: nix-offload there --changed$`),
+			);
+			expect(seen.heavyHeld, "the run, a line each time it is asked").toEqual({
+				holding: [line],
+				drained: [line],
+				holdingDrained: [line],
+			});
 		},
 		HOST_LIFE_MS,
 	);
