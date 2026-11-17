@@ -27,14 +27,13 @@
  * Reads with no writer beside them pay one map lookup.
  */
 
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
 import {
 	createReadTool,
 	type ExtensionAPI,
 	isReadToolResult,
 } from "@earendil-works/pi-coding-agent";
 import { sessionCwd } from "../../lib/core/session/index.ts";
+import { toolPath } from "../../lib/internal/files/tool-path.ts";
 
 /** The tools that write a file, which pi queues per file. */
 const WRITERS = new Set(["edit", "write"]);
@@ -57,10 +56,7 @@ function fileOf(input: unknown, cwd: string): string | undefined {
 	if (typeof input !== "object" || input === null) return undefined;
 	const { path } = input as { path?: unknown };
 	if (typeof path !== "string") return undefined;
-	const bare = path.startsWith("@") ? path.slice(1) : path;
-	if (bare === "~") return homedir();
-	if (bare.startsWith("~/")) return join(homedir(), bare.slice(2));
-	return resolve(cwd, bare);
+	return toolPath(path, cwd);
 }
 
 /** A call that may write a file, from its announcement to its result. */

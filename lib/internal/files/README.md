@@ -1,7 +1,8 @@
 # Files
 
 Reading files once and keeping their parse until they change, so a
-reader asked often reads only what moved.
+reader asked often reads only what moved; and where a file tool's path
+points.
 
 ## Files
 
@@ -14,3 +15,5 @@ reader asked often reads only what moved.
 - **`stamped-read.ts`**: a file's parse kept while its inode, mtime
   and size say it is the same file, read on the thread or off it, for
   the mesh's presence listings.
+- **`tool-path.ts`**: the file a read, write or edit names, as pi's
+  file tools read its path, for the interceptors that look first.

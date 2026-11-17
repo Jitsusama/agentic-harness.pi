@@ -17,26 +17,17 @@
  */
 
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
 import {
 	type ExtensionAPI,
 	isEditToolResult,
 	isToolCallEventType,
 } from "@earendil-works/pi-coding-agent";
+import { toolPath } from "../../lib/internal/files/tool-path.ts";
 import { hasEscapes, type Replacement, readEscapes } from "./escapes.ts";
 import { missedEditHint } from "./missed.ts";
 
 /** pi's words for an old text it could not find, and which edit it was. */
 const MISSED = /Could not find (?:the exact text|edits\[(\d+)\])/;
-
-/** Where an edit's path points, as pi's edit tool reads it. */
-function editedPath(path: string, cwd: string): string {
-	const bare = path.startsWith("@") ? path.slice(1) : path;
-	if (bare === "~") return homedir();
-	if (bare.startsWith("~/")) return join(homedir(), bare.slice(2));
-	return resolve(cwd, bare);
-}
 
 /** The edit's replacements, when it has the shape pi's edit tool takes. */
 function replacementsOf(input: unknown): Replacement[] | undefined {
@@ -60,7 +51,7 @@ export default function editEscapeInterceptor(pi: ExtensionAPI) {
 		if (!edits?.some((edit) => hasEscapes(edit.oldText))) return;
 		let content: string;
 		try {
-			content = readFileSync(editedPath(event.input.path, ctx.cwd), "utf8");
+			content = readFileSync(toolPath(event.input.path, ctx.cwd), "utf8");
 		} catch {
 			return;
 		}
@@ -82,7 +73,7 @@ export default function editEscapeInterceptor(pi: ExtensionAPI) {
 		if (!edit || typeof path !== "string") return undefined;
 		let content: string;
 		try {
-			content = readFileSync(editedPath(path, ctx.cwd), "utf8");
+			content = readFileSync(toolPath(path, ctx.cwd), "utf8");
 		} catch {
 			return undefined;
 		}
