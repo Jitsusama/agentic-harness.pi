@@ -29,12 +29,21 @@
  *
  * The pause itself is kept by the peer, in presence as `paused`, so it
  * outlasts a reload and the desktop shows it.
+ *
+ * A Stop or a Pause written before the run in progress began, or before
+ * the session last started, is dropped, saying so. A session that parks
+ * takes its inbox only as it starts again, so a Stop pressed on a row
+ * still showing it under way was read on the next wake and ended the
+ * run a key the person typed had begun (KP0L6A, 17 November). A steer
+ * that gives no time it can be read by is acted on as written now.
  */
 
 import type { SteerAct } from "../../lib/mesh/steer.ts";
 
 /** What pausing needs from its session. */
 export interface PausingHost {
+	/** The time now, in ms since the epoch, as Date.now gives it. */
+	readonly now: () => number;
 	/** Whether the session is between runs. */
 	readonly idle: () => boolean;
 	/** End the run in progress. */
@@ -62,9 +71,9 @@ export interface Pausing {
 	readonly paused: boolean;
 	/**
 	 * The person did this from outside the window, in a steer `from`
-	 * wrote, as the steer names its writer.
+	 * wrote, as the steer names its writer, at the ISO time `at` it says.
 	 */
-	act(act: Exclude<SteerAct, "carry">, from?: string): void;
+	act(act: Exclude<SteerAct, "carry">, from?: string, at?: string): void;
 	/**
 	 * The person carried it to the machine `to` from outside the window,
 	 * in a steer `from` wrote: settles once it has carried and closed, or
@@ -87,14 +96,28 @@ function steeredBy(from: string | undefined): string {
 	return `from outside its window, steered by ${from === undefined || from === "" ? "a writer that didn't sign it" : from}`;
 }
 
+/** The acts a steer written before what they would end no longer means. */
+const ENDS_A_RUN: readonly SteerAct[] = ["stop", "pause"];
+
 /** Pausing, as its peer last left it. */
 export function createPausing(host: PausingHost): Pausing {
 	let carrying = false;
+	// When the latest run began, or the session started, if none has since.
+	let since = host.now();
+	let sinceWhat = "this session started";
 	return {
 		get paused() {
 			return host.paused();
 		},
-		act(act, from) {
+		act(act, from, at) {
+			const written = at === undefined ? Number.NaN : Date.parse(at);
+			if (ENDS_A_RUN.includes(act) && written < since) {
+				const what = act === "stop" ? "A Stop" : "A Pause";
+				host.tell(
+					`${what} ${steeredBy(from)}, written at ${at}, was dropped: it came before ${sinceWhat}.`,
+				);
+				return;
+			}
 			if (act === "close") {
 				if (!host.idle()) host.abort();
 				host.tell("Closed from outside this window.");
@@ -143,6 +166,8 @@ export function createPausing(host: PausingHost): Pausing {
 			host.close(`a carry to ${to} ${steeredBy(from)}`);
 		},
 		started() {
+			since = host.now();
+			sinceWhat = "this session's latest run began";
 			if (host.paused() || carrying) host.abort();
 		},
 		turnEnded() {

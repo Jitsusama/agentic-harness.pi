@@ -179,6 +179,7 @@ export function createState(
 	});
 	// Pause, Resume, Stop, Close and Carry from outside the window (pausing.ts).
 	const pausing = createPausing({
+		now: Date.now,
 		idle: () => m.ctx?.isIdle?.() ?? true,
 		abort: () => {
 			// Stopped from outside, not by the person: away mode stays on.
