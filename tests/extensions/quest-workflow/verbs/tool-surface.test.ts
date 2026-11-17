@@ -1,5 +1,5 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { type ExtensionAPI, initTheme } from "@earendil-works/pi-coding-agent";
+import { beforeAll, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { QUEST_PARAMETERS } from "../../../../extensions/quest-workflow/wiring/parameters.ts";
 import { registerQuestTool } from "../../../../extensions/quest-workflow/wiring/tool.ts";
@@ -47,6 +47,11 @@ function text(drawn: Drawn): string {
 }
 
 describe("the quest tool", () => {
+	// A collapsed answer ends in pi's expand hint, which reads the theme.
+	beforeAll(() => {
+		initTheme();
+	});
+
 	it("is named quest and takes the quest parameters", () => {
 		const tool = registered();
 
