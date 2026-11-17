@@ -25,17 +25,7 @@ import type { ConversationEngine } from "../../../host/service/backend.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import type { BeatOptions } from "../../../host/service/hold-watch.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
-import {
-	describeStep,
-	droppedNames,
-	hostKind,
-	phaseTimes,
-	readyCount,
-	readyStatus,
-	runHost,
-	stoppingStatus,
-	watchdogEvery,
-} from "../../../host/service/run.ts";
+import { hostKind, runHost, watchdogEvery } from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
 
@@ -137,53 +127,6 @@ describe("hostKind", () => {
 			expect(() => hostKind(argv)).toThrow(
 				"Usage: pi-host attended|background",
 			);
-	});
-});
-
-describe("describeStep", () => {
-	it("names the last host waited on, the engine, and which conversation of how many", () => {
-		expect(describeStep({ step: "roster", holder: 41 })).toBe(
-			"waiting on the last host, pid 41, to let go of the roster",
-		);
-		expect(describeStep({ step: "engine" })).toBe("building the engine");
-		expect(
-			describeStep({ step: "resume", number: 2, of: 5, sessionId: "s" }),
-		).toBe("resuming 2 of 5: s");
-	});
-});
-
-describe("readyStatus", () => {
-	it("says how many it loaded, left parked and dropped, and any held but not resumed", () => {
-		const none = { loaded: 0, parked: 0, dropped: 0, unresumed: 0 };
-		expect(readyStatus(none)).toBe("ready: loaded 0, parked 0, dropped 0");
-		const some = { loaded: 3, parked: 2, dropped: 32, unresumed: 1 };
-		expect(readyStatus(some)).toBe(
-			"ready: loaded 3, parked 2, dropped 32, 1 held but not resumed",
-		);
-		expect(stoppingStatus(2)).toBe("stopping, parking 2 conversations");
-	});
-
-	it("counts a resume that failed once it registered as not resumed, never as parked", () => {
-		const since = "2026-11-17T05:07:00.000Z";
-		const count = readyCount({
-			held: () => [
-				{ id: "awake", state: "idle", since },
-				{ id: "asleep", state: "parked", since },
-				{ id: "failed", state: "parked", since },
-			],
-			unresumed: [{ sessionId: "failed", reason: new Error("no") }],
-			dropped: ["gone"],
-			resting: () => 2,
-			stillUnresumed: () => 1,
-		});
-		expect(count).toEqual({ loaded: 1, parked: 3, dropped: 1, unresumed: 1 });
-	});
-
-	it("names the holds a start dropped, for the journal, and nothing when none", () => {
-		expect(droppedNames([])).toBe("");
-		expect(droppedNames(["a", "b"])).toBe(
-			" (dropped, their session files gone: a, b)",
-		);
 	});
 });
 
@@ -947,21 +890,6 @@ describe("runHost", () => {
 			second.emit("SIGTERM");
 			await run.stopped;
 		}
-	});
-
-	it("puts each phase's time in words, and what followed the last", () => {
-		expect(
-			phaseTimes(
-				1_000,
-				[
-					{ phase: "ask", at: 1_000 },
-					{ phase: "gate", at: 1_100 },
-					{ phase: "recovery", at: 3_600 },
-				],
-				65_000,
-			),
-		).toBe(" (ask 0.0 s, gate 0.1 s, recovery 2.5 s, rest 61.4 s)");
-		expect(phaseTimes(1_000, [], 2_000), "none marked").toBe("");
 	});
 
 	// The background host on 13 November: resumes took 80 to 135 s each,

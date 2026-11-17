@@ -82,6 +82,10 @@ input pipeline or screen. No unit or running host is installed yet.
   instead, and the host's core with systemd-coredump. A beat that late
   pings at once, even with the last ping's end still unread, so a hold
   the loop recovers from never costs the host its next beat.
+- status.ts: what run.ts says of the host in words: each start step,
+  each resume's phase times, the ready count and the journal's names
+  of dropped holds, and the stopping status. The words change for the
+  people reading them, apart from when the host says them.
 - hold-watch.ts: what holds the loop, said from a worker thread while
   systemd watches the host. The loop ticks a shared counter each
   second; once it stands still 5 s, the thread reads the main thread's
