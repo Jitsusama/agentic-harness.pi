@@ -125,19 +125,26 @@ export class Recovery {
 			side.durable.resume();
 			resumed();
 		});
-		await Promise.race([started, settled]);
-		return {
-			settled: settled
-				.then(async () => {
-					await this.askAgainIfCutOff(before);
-					await release();
-				})
-				.finally(async () => {
-					await release();
-					this.answered = undefined;
-					giveBack();
-				}),
-		};
+		// Chained before the race, so a run that fails before it starts still lets pi's run go.
+		const over = settled
+			.then(async () => {
+				await this.askAgainIfCutOff(before);
+				await release();
+			})
+			.finally(async () => {
+				await release();
+				this.answered = undefined;
+				giveBack();
+			});
+		try {
+			await Promise.race([started, settled]);
+		} catch (error) {
+			over.catch(() => {
+				// The same failure, thrown to this recovery's caller just below.
+			});
+			throw error;
+		}
+		return { settled: over };
 	}
 
 	/**
