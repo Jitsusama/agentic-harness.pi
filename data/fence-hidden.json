@@ -12,6 +12,10 @@
 		".config/gcloud/legacy_credentials/",
 		".gsutil/credstore2",
 		".gnupg/private-keys-v1.d/",
+		".gnupg/secring.gpg",
+		".dockercfg",
+		".docker/key.pem",
+		".docker/contexts/tls/",
 		".local/share/keyrings/",
 		".local/state/gnome-keyring/login.cred",
 		".local/state/eero/session.cred"

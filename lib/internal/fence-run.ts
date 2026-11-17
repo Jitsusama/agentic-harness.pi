@@ -28,10 +28,10 @@
  */
 
 import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fenceArgs } from "./fence.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
-import { fenceNpmrc, NPMRC } from "./fence-npmrc.ts";
+import { fenceNpmrc } from "./fence-npmrc.ts";
 import {
 	SANDBOX_EXEC,
 	seatbeltProfile,
@@ -271,6 +271,7 @@ function macFenceText(
 	// The Mac has no runtime folder, so the copy of npm's settings goes
 	// in the person's own temporary folder, which is theirs alone.
 	const npmrc = fenceNpmrc(home, place.env.TMPDIR);
+	const copy = npmrc === "/dev/null" ? undefined : npmrc;
 	const mounts = fenceArgs({
 		home,
 		runtimeDir: undefined,
@@ -282,7 +283,11 @@ function macFenceText(
 	// let back what the fence's mounts hid in it.
 	const strict =
 		ask.kind === STRICT ? ["--remount-ro", home, "--bind", folder, folder] : [];
-	const { profile, stoodIn } = seatbeltProfile([...mounts, ...strict], {
+	// The copy sits in the person's temporary folder, which commands
+	// write: its folder is kept from writes, so none can change what the
+	// next run reads, or put a link there for the next copy to follow.
+	const kept = copy ? ["--ro-bind", dirname(copy), dirname(copy)] : [];
+	const { profile } = seatbeltProfile([...mounts, ...strict, ...kept], {
 		sockets: [MAC_NIX_DAEMON],
 		home,
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
@@ -291,9 +296,12 @@ function macFenceText(
 	return {
 		folder,
 		text: seatbeltText(
-			[...macSettings(home, stoodIn), ask.words.map(quoted).join(" ")].join(
-				"; ",
-			),
+			[
+				...macSettings(home, copy, ask.kind !== STRICT),
+				// exec, so the command is pi-fence's own process, as on Linux,
+				// and a signal to pi-fence reaches it.
+				`exec ${ask.words.map(quoted).join(" ")}`,
+			].join("; "),
 			profile,
 			sandboxExec,
 		),
@@ -311,14 +319,25 @@ function macFenceText(
  */
 function macSettings(
 	home: string,
-	stoodIn: readonly { readonly copy: string; readonly over: string }[],
+	npmCopy: string | undefined,
+	cachesWritten: boolean,
 ): string[] {
 	const cache = join(home, ".cache");
-	const npm = stoodIn.find(({ over }) => over === join(home, NPMRC));
+	// Only where the fence lets commands write ~/.cache, and never over
+	// the person's own choice of where a cache goes.
+	const caches =
+		cachesWritten && existsSync(cache)
+			? [
+					["XDG_CACHE_HOME", cache],
+					["GOCACHE", join(cache, "go-build")],
+					["PIP_CACHE_DIR", join(cache, "pip")],
+				].map(
+					([name, path]) =>
+						`[ -n "\${${name}:-}" ] || export ${name}=${quoted(path ?? "")}`,
+				)
+			: [];
 	return [
-		`export XDG_CACHE_HOME=${quoted(cache)}`,
-		`export GOCACHE=${quoted(join(cache, "go-build"))}`,
-		`export PIP_CACHE_DIR=${quoted(join(cache, "pip"))}`,
-		...(npm ? [`export NPM_CONFIG_USERCONFIG=${quoted(npm.copy)}`] : []),
+		...caches,
+		...(npmCopy ? [`export NPM_CONFIG_USERCONFIG=${quoted(npmCopy)}`] : []),
 	];
 }

@@ -5,7 +5,14 @@
  * through the file it stands in for.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 /** pi's folder in the runtime folder, for the fence's copies. */
@@ -30,7 +37,14 @@ export function fenceCopy(
 		// recursive mkdir spins for good where a parent exists but refuses
 		// a child with ENOENT, as /proc does, which hung every wrap.
 		if (!existsSync(dirname(path))) mkdirSync(dirname(path), { mode: 0o700 });
-		writeFileSync(path, text, { mode: 0o600 });
+		// A Mac's copies sit in a folder commands can write around: a link
+		// where pi's folder should be is refused, and the copy is written
+		// beside its place and renamed over it, which replaces a link
+		// there rather than writing through it.
+		if (!lstatSync(dirname(path)).isDirectory()) return undefined;
+		const staging = `${path}.${randomUUID()}`;
+		writeFileSync(staging, text, { mode: 0o600, flag: "wx" });
+		renameSync(staging, path);
 		return path;
 	} catch {
 		// No copy to bind: the caller binds nothing, and says what that leaves.

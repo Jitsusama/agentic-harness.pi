@@ -56,14 +56,26 @@ export function dockerHoldsCredentials(
 		return true;
 	}
 	if (!isRecord(said)) return true;
-	if (typeof said.credsStore === "string" && said.credsStore !== "")
-		return true;
-	const auths = isRecord(said.auths) ? Object.values(said.auths) : [];
-	return auths.some(
+	const store = field(said, "credsStore");
+	if (typeof store === "string" && store !== "") return true;
+	// Headers sent to every registry can carry a login of their own.
+	const headers = field(said, "HttpHeaders");
+	if (isRecord(headers) && Object.keys(headers).length > 0) return true;
+	const auths = field(said, "auths");
+	return Object.values(isRecord(auths) ? auths : {}).some(
 		(login) =>
 			isRecord(login) &&
-			LOGIN_FIELDS.some(
-				(field) => typeof login[field] === "string" && login[field] !== "",
-			),
+			LOGIN_FIELDS.some((name) => {
+				const value = field(login, name);
+				return typeof value === "string" && value !== "";
+			}),
 	);
+}
+
+/** A setting by name in any case, as Docker's own reader matches it. */
+function field(settings: Record<string, unknown>, name: string): unknown {
+	const wanted = name.toLowerCase();
+	return Object.entries(settings).find(
+		([key]) => key.toLowerCase() === wanted,
+	)?.[1];
 }
