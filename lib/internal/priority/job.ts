@@ -236,8 +236,8 @@ export interface Rules {
 	/** How many VMs run at once, when not bounds.ts's `MOST_VMS`. */
 	readonly mostVms?: number;
 	/**
-	 * How many walks of World's git objects run at once, when not
-	 * needs.ts's `WALKS_AT_ONCE`.
+	 * How many walks of World's git objects run at once, when fewer than
+	 * needs.ts's `WALKS_AT_ONCE`; it only lowers that count, never raises it.
 	 */
 	readonly walksAtOnce?: number;
 }
@@ -248,7 +248,9 @@ export type Pressed = "memory" | "cpu";
 export const RULES: Rules = { buildsWaitForVmChecks: true };
 
 /**
- * A Mac's rules: one walk of World at a time. A Mac has no floors to
+ * A Mac's rules: one walk of World at a time, though one that has run
+ * past `JOINS_FOR_MS` no longer holds the next back, so a walk that hung
+ * can't hold the Mac's pushes for good. A Mac has no floors to
  * keep the person's programs their memory, and its kernel calls pages it
  * compressed or swapped gone, so its room reads roomy while each walk's
  * packs push the rest to swap. On 16 November equilibrius, at 48 GiB

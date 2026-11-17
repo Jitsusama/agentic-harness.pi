@@ -199,6 +199,15 @@ describe("parking a session", () => {
 		expect(exits).toEqual([]);
 	});
 
+	it("blames PI_PARK, not the switch, when PI_PARK keeps it awake", () => {
+		rmSync(parkSwitch(folder));
+		mkdirSync(parkSwitch(folder));
+		const watched = watching(session(), { ...holder(), PI_PARK: "off" });
+		clock = PARK_AFTER_MS * 2;
+		expect(watched.look()).toBe("PI_PARK keeps it awake");
+		expect(exits).toEqual([]);
+	});
+
 	it("names its holder the command that opens its log, to wake with", () => {
 		const watched = watching();
 		clock = NAMED_PARK_AFTER_MS;
@@ -1093,7 +1102,9 @@ describe("why a session stays awake", () => {
 					MYCELIUM_WAKE: join(folder, "conversation.wake"),
 					PI_PARK: said,
 				});
-				expect(watched.look(), `PI_PARK=${said}`).toBe("parking is off");
+				expect(watched.look(), `PI_PARK=${said}`).toBe(
+					"PI_PARK keeps it awake",
+				);
 				watched.stop();
 			}
 			expect(asked).toEqual([]);

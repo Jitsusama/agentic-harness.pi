@@ -478,12 +478,15 @@ export function watch(
 		(options.exitWith ?? exitWith)(PARKED_EXIT);
 		void ctx.shutdown();
 	};
-	// Why parking is off for it: a switch that can't be read keeps it
-	// awake as one saying off does, but asks for a different fix.
-	const offBecause = (): string =>
-		switchUnreadable(options.switchPath)
+	// Why parking is off for it: PI_PARK wins over any switch, and a
+	// switch that can't be read keeps it awake as one saying off does,
+	// but each asks for a different fix.
+	const offBecause = (): string => {
+		if (keptAwake(env)) return "PI_PARK keeps it awake";
+		return switchUnreadable(options.switchPath)
 			? "the park switch can't be read"
 			: "parking is off";
+	};
 	const decide = (): string | undefined => {
 		if (parked) return "parking already";
 		// A watch begun before a host was installed still never ends it.
