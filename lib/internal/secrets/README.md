@@ -19,3 +19,6 @@ scrubber, the stored results and the secret-run tool.
   and how one is replaced by a mark naming its kind, for the answers,
   the saved output and the stored results that hold them; and one
   scrub of a tool's whole answer, read by the call's input.
+- **`words.ts`**: the words of a printing of the environment, each
+  judged on its own (which is a variable's name, which could be a
+  credential), and the mark that stands where one was.
