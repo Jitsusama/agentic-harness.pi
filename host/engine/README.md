@@ -47,7 +47,7 @@ level; otherwise the host's sources stand. The engine passes the
 version of the pi it loaded, since nothing under host/ imports a pi
 package except for its types: the host runs pi from its own pinned
 install, and the harness's production install carries none
-(tests/package/host-imports-no-pi.test.ts holds it).
+(`tests/package/shipping/host-imports-no-pi.test.ts` holds it).
 
 Run dispatches through withSession. Environment snapshots are independent
 copies and PI_SESSION_ID is set to the conversation id. Launch hints are

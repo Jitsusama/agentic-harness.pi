@@ -148,17 +148,17 @@ A reaper deletes only on unheld.
 
 ## Migration Gate
 
-tests/package/session-state-is-keyed.test.ts detects direct process.pid,
-process.cwd(), processGlobal(), Symbol.for(), globalThis member access
-and process.env writes in extensions. It parses syntax, ignoring
+`tests/package/runtime/session-state-is-keyed.test.ts` detects direct
+process.pid, process.cwd(), processGlobal(), Symbol.for(), globalThis
+member access and process.env writes in extensions. It parses syntax, ignoring
 comments and strings; it is not alias/data-flow analysis.
 
-Today's sites wait in tests/package/session-state-waiting.txt, by
-extension file and kind. Lower the count in the same change that
+Today's sites wait in `tests/package/runtime/session-state-waiting.txt`,
+by extension file and kind. Lower the count in the same change that
 migrates a site, removing zero entries. New shortcuts fail. A genuine
 process-wide service needs a reviewed exemption rather than a session
-slot: its owner moves it to tests/package/session-state-exempt.txt as
-`path:kind count reason`, and a line without a reason, or a count the
+slot: its owner moves it to
+`tests/package/runtime/session-state-exempt.txt` as `path:kind count reason`, and a line without a reason, or a count the
 file outgrows, fails.
 
 The waiting list is empty, so package.json declares
