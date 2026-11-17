@@ -193,7 +193,7 @@ companion skill.
 - `runpi/supervisor.mjs`: the supervisor process itself:
   it spawns pi, watches its clocks, cancel files and
   parent, stops it, and writes its lease, progress and
-  result. Five parts beside it hold the rest, none with
+  result. Six parts beside it hold the rest, none with
   module state (the transcript holds one run's state in
   the object the supervisor makes for it):
   - `runpi/supervisor-transcript.mjs`: what the reviewer
@@ -207,6 +207,10 @@ companion skill.
     cap, and records replaced whole.
   - `runpi/supervisor-text.mjs`: text cut to the bytes or
     the glance it is kept at.
+  - `runpi/supervisor-wrap-up.mjs`: the wrap-up a reviewer
+    nobody waits for is owed when a clock stops it, handed
+    to a supervisor of its own before the result is
+    written.
 
   With the four `.mjs` it shares with the parent, they
   stay `.mjs` because node spawns this directly, and node

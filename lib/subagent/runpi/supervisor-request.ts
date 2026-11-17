@@ -16,6 +16,7 @@ import { offeredShellEnvironment } from "../../internal/shell/environment.ts";
 import { ReviewerArtifactsStore, type ReviewerRunPaths } from "../artifacts.ts";
 import { pinnedChildEnvironment } from "../child-env.ts";
 import type { PiInstall } from "../install.ts";
+import type { WrapUpRequest } from "../run-contract.ts";
 import type { RunPi } from "../subagent.ts";
 
 /** Subset of `child_process.spawn`'s signature we depend on. */
@@ -223,6 +224,17 @@ export async function told(
 			],
 			cwd: options.cwd,
 			...(orphaned ? { orphaned } : {}),
+			// Only for a run nobody waits for: a waiting caller sends its
+			// own, and a supervisor sending one as well would ask twice.
+			...(orphaned && options.wrapUp !== undefined
+				? {
+						wrapUp: {
+							...options.wrapUp,
+							args: [config.piInstall.entry, ...options.wrapUp.args],
+							paths: store.paths(runId, options.wrapUp.reviewerId),
+						},
+					}
+				: {}),
 		},
 		{
 			...(options.timeoutMs !== undefined
@@ -282,6 +294,8 @@ async function buildRequest(
 		readonly cwd: string;
 		/** Nobody is waiting, so the parent's death means nothing. */
 		readonly orphaned?: boolean;
+		/** What its supervisor asks it, should a clock stop it. */
+		readonly wrapUp?: WrapUpRequest & { readonly paths: ReviewerRunPaths };
 	},
 	overrides: {
 		readonly timeoutMs?: number;
