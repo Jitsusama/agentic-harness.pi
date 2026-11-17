@@ -60,8 +60,8 @@ exports and refuses one without core.nix's
 host's process exit and signals, or one from before that patch's hosted
 quit (`InteractiveMode.hostedQuit`), whose screens would quit without
 asking; `screens.ts` passes it on to the host's program. Beside it sit
-the reads of pi's private parts that a screen's repaint, rest, reload
-and stop go through.
+the reads of pi's private parts that a screen's repaint, rest, quit,
+fault and stop go through.
 
 A question pi asks before a conversation's screen exists, whether to
 trust its project folder, comes through `askProjectTrust` when the host

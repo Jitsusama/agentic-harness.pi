@@ -178,8 +178,9 @@ export function dropExtensionScreen(mode: HostedMode): boolean {
 }
 
 /**
- * End a screen whose conversation the launcher or a host stop closed, the
- * way pi's own quit does, which in a hosted screen exits only the screen.
+ * End a screen whose conversation the launcher or a host stop closed, or
+ * that parked while idle, the way pi's own quit does, which in a hosted
+ * screen exits only the screen.
  */
 export async function stopScreen(mode: HostedMode): Promise<void> {
 	if ("shutdown" in mode && typeof mode.shutdown === "function") {
