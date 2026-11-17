@@ -9,7 +9,6 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
-	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,6 +21,7 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 } from "../../../../lib/internal/quest/discovery/discovery.ts";
+import { settle } from "../../../lib/internal/quest/support/discovery-tree.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { installTestHost } from "../../../support/session-host.ts";
 import { createEnvGuard, fakeCtx } from "../_helpers.ts";
@@ -54,11 +54,6 @@ function settleAll(path: string): void {
 	settle(path);
 }
 
-function settle(path: string): void {
-	const past = new Date(Date.now() - 60_000);
-	utimesSync(path, past, past);
-}
-
 it("reads the tree as it stands at each action, not the host's last walk", async () => {
 	const questsRoot = join(tmpRoot, "quests");
 	const state = createQuestState({ questsRoot });
@@ -73,13 +68,18 @@ it("reads the tree as it stands at each action, not the host's last walk", async
 	expect([...discoverQuests(questsRoot).index.quests.keys()]).toContain(id);
 
 	const text = readFileSync(readmePath, "utf8");
-	writeFileSync(readmePath, text.replace(/^status: \w+$/m, "status: paused"));
+	writeFileSync(
+		readmePath,
+		text.replace(/^priority: \w+$/m, "priority: queued"),
+	);
 	settle(readmePath);
-	await withSession("a", () =>
+	const listed = await withSession("a", () =>
 		handle(state, fakePi(), ctx, { action: "list" }),
 	);
 
-	expect(
-		discoverQuests(questsRoot).index.quests.get(id)?.doc.frontMatter.status,
-	).toBe("paused");
+	if (!listed.ok) throw new Error(listed.guidance);
+	const { listing } = listed.details as {
+		listing: { rows: { id: string; priority: string }[] };
+	};
+	expect(listing.rows.find((row) => row.id === id)?.priority).toBe("queued");
 });

@@ -37,6 +37,11 @@ export interface Pass {
 	absent: Set<string>;
 	/** Each folder's real path, as a signing off the thread resolved it. */
 	reals: Map<string, string | undefined>;
+	/**
+	 * Each quest folder's stamp with its README's, taken off the thread
+	 * before the folder was listed, for a folder the walk finds unready.
+	 */
+	pending: Map<string, string | undefined>;
 	/** Every file the walk parsed or reused, so the memo keeps no others. */
 	parsed: Set<string>;
 	/** How many files the walk had to parse, reusing no record. */
@@ -51,6 +56,7 @@ export function newPass(): Pass {
 		hashes: new Map(),
 		absent: new Set(),
 		reals: new Map(),
+		pending: new Map(),
 		parsed: new Set(),
 		parses: 0,
 	};
@@ -181,8 +187,14 @@ interface Memo {
 	/** The roots this memo has taken a seed for, so each is read once. */
 	seeded: Set<string>;
 	/** Each root's signing under way off the thread, at most one. */
-	signing: Map<string, Promise<void>>;
+	signing: Map<string, Promise<SigningEnd | undefined>>;
 }
+
+/**
+ * How a signing off the thread ended: its walk kept, dropped for a
+ * newer one, failed, or given up on. Undefined from code that says none.
+ */
+export type SigningEnd = "kept" | "dropped" | "failed" | "gave up";
 
 /**
  * Where the memo lives: on `globalThis`, never in this module's scope.

@@ -7,7 +7,6 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
-	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,6 +25,7 @@ import {
 	discoverQuests,
 } from "../../../../lib/internal/quest/discovery/discovery.ts";
 import type { LivenessSnapshot } from "../../../../lib/internal/quest/sessions/session-liveness.ts";
+import { settle } from "../../../lib/internal/quest/support/discovery-tree.ts";
 import { installTestHost } from "../../../support/session-host.ts";
 
 const MISSION = "QEST-20260101-MISSON";
@@ -429,10 +429,6 @@ describe("the quests the desktop lists", () => {
 		const before = process.env.XDG_STATE_HOME;
 		process.env.XDG_STATE_HOME = state;
 		const host = installTestHost();
-		const settle = (path: string) => {
-			const past = new Date(Date.now() - 60_000);
-			utimesSync(path, past, past);
-		};
 		try {
 			quest(OLD, "status: active", "# Old");
 			for (const path of [join(root, OLD, "README.md"), join(root, OLD), root])

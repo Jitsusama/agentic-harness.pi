@@ -77,8 +77,13 @@ import {
 	type Pass,
 	parsedOnce,
 	readEntries,
+	type SigningEnd,
 } from "./discovery-reads.ts";
-import { folderStampOf, readTreeOffThread } from "./off-thread.ts";
+import {
+	folderStampOf,
+	pendingStampOf,
+	readTreeOffThread,
+} from "./off-thread.ts";
 
 /** A single quest entry in the index. */
 export interface QuestEntry {
@@ -245,23 +250,36 @@ export function signQuestsNow(questsRoot: string): void {
  * Walk `questsRoot` as it stands now, signed off the thread on a host
  * and waited for, for work that can wait: the desktop's lists, written
  * only from a walk signed after the change that asked for them. A
- * signing this process's own write overtook is made again on the
- * thread. Plain pi signs it on the thread, as it signs every ask.
+ * signing this process's own write overtook is made again off the
+ * thread, and after `AFRESH_TRIES` on it. One that gives up on the disk
+ * throws, since signing it on the thread would hold every conversation
+ * on that same disk. Plain pi signs it on the thread, as every ask.
  */
 export async function discoverQuestsAfresh(
 	questsRoot: string,
 ): Promise<DiscoveryResult> {
 	if (!hosted()) return discoverQuestsSigned(questsRoot, {});
-	const asked = Date.now();
-	const writes = questWritesMade();
-	await discoverySettled(questsRoot);
-	await signOffThread(questsRoot);
-	const slot = memo().cache.get(questsRoot);
-	const current = slot && slot.signedAt >= asked && slot.writes === writes;
-	return current && writes === questWritesMade()
-		? slot.result
-		: discoverQuestsSigned(questsRoot, {});
+	for (let tries = 0; tries < AFRESH_TRIES; tries++) {
+		const asked = Date.now();
+		const writes = questWritesMade();
+		await discoverySettled(questsRoot);
+		const ended = await signOffThread(questsRoot);
+		if (ended === "gave up") throw new Error(SIGNING_GAVE_UP);
+		const slot = memo().cache.get(questsRoot);
+		const current =
+			slot &&
+			slot.signedAt >= asked &&
+			slot.writes === writes &&
+			writes === questWritesMade();
+		if (current) return slot.result;
+	}
+	return discoverQuestsSigned(questsRoot, {});
 }
+
+/** How often `discoverQuestsAfresh` signs off the thread before on it. */
+const AFRESH_TRIES = 3;
+
+const SIGNING_GAVE_UP = "the quest tree didn't answer a signing in time";
 
 /**
  * How long a host answers a known tree from its last signing before an
@@ -315,24 +333,25 @@ function discoverQuestsHosted(
  */
 function stands(questsRoot: string, slot: CacheSlot): boolean {
 	if (slot.writes !== questWritesMade()) return false;
-	if (Date.now() - slot.signedAt > STALE_AFTER_MS) return false;
-	if (!sameStamp(slot.rootStamp, questsRoot)) return false;
+	// A clock stepped back gives a negative age, which no limit bounds.
+	const age = Date.now() - slot.signedAt;
+	if (age < 0 || age > STALE_AFTER_MS) return false;
+	const root = slot.rootStamp;
+	if (root === undefined || root !== folderStampOf(questsRoot)) return false;
 	for (const [dir, stamp] of slot.pending) {
-		if (!sameStamp(stamp, dir)) return false;
+		if (stamp === undefined || stamp !== pendingStampOf(dir)) return false;
 	}
 	return true;
-}
-
-function sameStamp(stamp: string | undefined, dir: string): boolean {
-	return stamp !== undefined && stamp === folderStampOf(dir);
 }
 
 /**
  * Resolves once the signing of `questsRoot` under way off the thread,
  * if any, has ended; at once when none is.
  */
-export function discoverySettled(questsRoot: string): Promise<void> {
-	return memo().signing.get(questsRoot) ?? Promise.resolve();
+export function discoverySettled(
+	questsRoot: string,
+): Promise<SigningEnd | undefined> {
+	return memo().signing.get(questsRoot) ?? Promise.resolve(undefined);
 }
 
 /**
@@ -343,17 +362,17 @@ export function discoverySettled(questsRoot: string): Promise<void> {
  * thread, from memory. One that runs past `SIGNING_GIVES_UP_MS` is no
  * longer waited on.
  */
-function signOffThread(questsRoot: string): Promise<void> {
+function signOffThread(questsRoot: string): Promise<SigningEnd | undefined> {
 	const m = memo();
 	const under = m.signing.get(questsRoot);
 	if (under) return under;
 	const signedAt = Date.now();
 	const writes = questWritesMade();
-	const work = (async () => {
+	const work = (async (): Promise<SigningEnd> => {
 		const { pass, rootStamp } = await readTreeOffThread(questsRoot);
-		if (memo() !== m || questWritesMade() !== writes) return;
+		if (memo() !== m || questWritesMade() !== writes) return "dropped";
 		const cached = m.cache.get(questsRoot);
-		if (cached && cached.signedAt > signedAt) return;
+		if (cached && cached.signedAt > signedAt) return "dropped";
 		const signature = discoverySignature(questsRoot, pass);
 		const result =
 			cached && cached.signature === signature
@@ -361,15 +380,23 @@ function signOffThread(questsRoot: string): Promise<void> {
 				: discoverQuestsUncached(questsRoot, pass);
 		m.cache.set(
 			questsRoot,
-			slotOf(signature, result, { signedAt, writes, rootStamp }),
+			slotOf(signature, result, { signedAt, writes, rootStamp }, pass),
 		);
-	})().catch(() => {
+		return "kept";
+	})().catch((error: unknown): SigningEnd => {
 		// The last walk stands, and the next ask past its age signs again.
+		sayOnHost(`signing ${questsRoot} off the thread failed: ${error}`);
+		return "failed";
 	});
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	const givenUp = new Promise<void>((resolve) => {
+	const givenUp = new Promise<SigningEnd>((resolve) => {
 		// Not a wait for something to happen: a ceiling on a disk that hangs.
-		timer = setTimeout(resolve, SIGNING_GIVES_UP_MS);
+		timer = setTimeout(() => {
+			sayOnHost(
+				`signing ${questsRoot} gave up after ${SIGNING_GIVES_UP_MS} ms`,
+			);
+			resolve("gave up");
+		}, SIGNING_GIVES_UP_MS);
 		timer.unref();
 	});
 	const signing = Promise.race([work, givenUp]).finally(() => {
@@ -378,6 +405,14 @@ function signOffThread(questsRoot: string): Promise<void> {
 	});
 	m.signing.set(questsRoot, signing);
 	return signing;
+}
+
+/**
+ * Say a signing's trouble where a host keeps what it says: its stderr,
+ * which is its journal. Only a host signs off the thread.
+ */
+function sayOnHost(line: string): void {
+	process.stderr.write(`[quest-workflow] discovery: ${line}\n`);
 }
 
 /** discoverQuests's walk, behind the tree's signature. */
@@ -416,20 +451,24 @@ interface SignedUnder {
 }
 
 /**
- * A cache slot for a walk signed under `under`, with the stat of each
- * quest folder it found with no README: one being made, whose README
- * lands inside its folder without touching the root's stat.
+ * A cache slot for a walk signed under `under`, with the stamp of each
+ * quest folder it found with no README (`pendingStampOf`): one being
+ * made, whose README lands inside its folder without touching the
+ * root's stat. Off the thread, `pass` holds each taken before the read.
  */
 function slotOf(
 	signature: string,
 	result: DiscoveryResult,
 	under: SignedUnder,
+	pass?: Pass,
 ): CacheSlot {
 	const pending = new Map<string, string | undefined>();
 	for (const error of result.errors) {
 		if (error.message !== README_MISSING) continue;
 		const dir = dirname(error.path);
-		pending.set(dir, folderStampOf(dir));
+		// Off the thread, the stamp taken before the folder was read.
+		const before = pass?.pending.has(dir);
+		pending.set(dir, before ? pass?.pending.get(dir) : pendingStampOf(dir));
 	}
 	return { signature, result, ...under, pending };
 }

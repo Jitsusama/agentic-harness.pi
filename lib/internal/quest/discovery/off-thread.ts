@@ -59,6 +59,49 @@ function stampOf(st: BigIntStats): string | undefined {
 	return settled(st) ? `${st.mtimeNs}:${st.ctimeNs}:${st.ino}` : undefined;
 }
 
+/**
+ * The stamp a quest folder the walk found unready is held to: its own
+ * stat, for a README made inside it, and its README's, for one there
+ * but empty or unparsed and filled in place. Undefined as
+ * `folderStampOf` when either changed too lately to vouch.
+ */
+export function pendingStampOf(dir: string): string | undefined {
+	const folder = folderStampOf(dir);
+	if (folder === undefined) return undefined;
+	let readme: BigIntStats | undefined;
+	try {
+		readme = statSync(join(dir, "README.md"), { bigint: true });
+	} catch {
+		// No README: the folder's own stat moves when one is made.
+		readme = undefined;
+	}
+	return joined(folder, readme);
+}
+
+/** `pendingStampOf`, read off the thread. */
+async function pendingStampOffThread(dir: string): Promise<string | undefined> {
+	const folder = await folderStampOffThread(dir);
+	if (folder === undefined) return undefined;
+	let readme: BigIntStats | undefined;
+	try {
+		readme = await stat(join(dir, "README.md"), { bigint: true });
+	} catch {
+		// No README: the folder's own stat moves when one is made.
+		readme = undefined;
+	}
+	return joined(folder, readme);
+}
+
+/** A folder's stamp with its README's, "none" for a README not there. */
+function joined(
+	folder: string,
+	readme: BigIntStats | undefined,
+): string | undefined {
+	if (!readme) return `${folder}|none`;
+	const stamp = stampOf(readme);
+	return stamp === undefined ? undefined : `${folder}|${stamp}`;
+}
+
 /** What one signing off the thread read, and the root's stat before it. */
 export interface ReadOffThread {
 	readonly pass: Pass;
@@ -86,7 +129,12 @@ export async function readTreeOffThread(
 	await resolved(questsRoot, pass);
 	await inTurn(folders, (e) => resolved(join(questsRoot, e.name), pass));
 	const questDirs = quests.map((e) => join(questsRoot, e.name));
-	await inTurn(questDirs, (dir) => listed(dir, pass));
+	// Stamped before it is listed, so a README made while this reads
+	// leaves a stamp that no longer matches.
+	await inTurn(questDirs, async (dir) => {
+		pass.pending.set(dir, await pendingStampOffThread(dir));
+		await listed(dir, pass);
+	});
 	await nestedListed(questDirs, pass);
 	const files: string[] = [];
 	const kinds: string[] = [];
@@ -165,6 +213,11 @@ async function resolved(path: string, pass: Pass): Promise<void> {
 async function hashed(path: string, pass: Pass): Promise<void> {
 	try {
 		const st = await stat(path, { bigint: true });
+		// A FIFO or device would hold one of libuv's threads for good.
+		if (!st.isFile()) {
+			pass.absent.add(path);
+			return;
+		}
 		const vouched = vouchedHash(path, st);
 		if (
 			vouched !== undefined &&

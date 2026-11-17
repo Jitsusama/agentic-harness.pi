@@ -11,7 +11,7 @@
  */
 
 import * as fs from "node:fs";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -41,6 +41,51 @@ vi.mock("node:fs", async (importOriginal) => {
 		statSync: vi.fn(actual.statSync),
 	};
 });
+
+/**
+ * A seam in the signing off the thread: `onRead` hears when its reads
+ * are done, and `gate` holds what they found back until it opens, as a
+ * slow or hung disk would.
+ */
+const signing = vi.hoisted(() => ({
+	onRead: undefined as (() => void) | undefined,
+	gate: undefined as Promise<void> | undefined,
+}));
+
+vi.mock(
+	"../../../../../lib/internal/quest/discovery/off-thread.ts",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("../../../../../lib/internal/quest/discovery/off-thread.ts")
+			>();
+		return {
+			...actual,
+			readTreeOffThread: async (questsRoot: string) => {
+				const read = await actual.readTreeOffThread(questsRoot);
+				signing.onRead?.();
+				if (signing.gate) await signing.gate;
+				return read;
+			},
+		};
+	},
+);
+
+/** Hold every signing's findings until the returned call opens them. */
+function holdSignings(): () => void {
+	let open = (): void => undefined;
+	signing.gate = new Promise<void>((resolve) => {
+		open = resolve;
+	});
+	return open;
+}
+
+/** Resolves once the next signing off the thread has read the tree. */
+function nextRead(): Promise<void> {
+	return new Promise<void>((resolve) => {
+		signing.onRead = resolve;
+	});
+}
 
 const reads = vi.mocked(fs.readFileSync);
 const listings = vi.mocked(fs.readdirSync);
@@ -99,7 +144,14 @@ beforeEach(() => {
 	clearCalls();
 });
 
+let openSignings: (() => void) | undefined;
+
 afterEach(() => {
+	openSignings?.();
+	openSignings = undefined;
+	signing.gate = undefined;
+	signing.onRead = undefined;
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 	host?.dispose();
 	host = undefined;
@@ -164,13 +216,51 @@ describe("discovery on a host", () => {
 		expect(statusNow()).toBe("paused");
 	});
 
-	it("signs again a few seconds on, well inside a minute", async () => {
+	it("starts no signing four seconds on", async () => {
 		discoverQuests(root);
 		writeSettled(readmePath, readme("paused"));
-		later(6_000);
+		later(4_000);
 		discoverQuests(root);
 		await discoverySettled(root);
+		expect(statusNow()).toBe("active");
+	});
+
+	it("answers no walk of a root changed too lately for its stat to vouch", () => {
+		const now = new Date();
+		utimesSync(root, now, now);
+		discoverQuests(root);
+		clearCalls();
+		discoverQuests(root);
+		expect(listings.mock.calls.length).toBeGreaterThan(0);
+	});
+
+	it("drops a signing begun before one on the thread that answered since", async () => {
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		later(6_000);
+		discoverQuests(root);
+		await read;
+		writeSettled(readmePath, readme("paused"));
+		later(1_000);
+		signQuestsNow(root);
+		openSignings();
+		await discoverySettled(root);
 		expect(statusNow()).toBe("paused");
+	});
+
+	it("gives up on a signing whose disk never answers, and starts another", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		discoverQuests(root);
+		openSignings = holdSignings();
+		later(6_000);
+		discoverQuests(root);
+		const hung = discoverySettled(root);
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(await hung).toBe("gave up");
+		later(6_000);
+		discoverQuests(root);
+		expect(discoverySettled(root)).not.toBe(hung);
 	});
 
 	it("starts one signing at a time for a root", async () => {
@@ -205,6 +295,18 @@ describe("discovery on a host", () => {
 			join(root, OTHER, "README.md"),
 			readme("active").replaceAll(ID, OTHER),
 		);
+		expect(questIds()).toContain(OTHER);
+	});
+
+	it("finds a quest whose empty README was filled in place at once", () => {
+		const empty = join(root, OTHER, "README.md");
+		mkdirSync(join(root, OTHER));
+		writeSettled(empty, "");
+		settle(join(root, OTHER));
+		settle(root);
+		expect(questIds()).not.toContain(OTHER);
+		expect(questIds()).not.toContain(OTHER);
+		writeSettled(empty, readme("active").replaceAll(ID, OTHER));
 		expect(questIds()).toContain(OTHER);
 	});
 
