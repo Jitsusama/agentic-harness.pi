@@ -67,13 +67,14 @@ describe("a bare value in a printing of the environment", () => {
 		expect(text).not.toContain(value);
 	});
 
-	it("is put out of sight as the text of a terminal's link", () => {
+	// A command kept beside a credential could hold the rest of it, so the
+	// link goes out of sight with it: the trade this makes for failing
+	// closed.
+	it("is put out of sight with the link whose text it is", () => {
 		const value = fresh();
 		const link = `\x1b]8;;https://example.com\x07${value}\x1b]8;;\x07`;
 		const text = shown(`${link}\n`, "launchctl getenv X");
-		expect(text).toBe(
-			`\x1b]8;;https://example.com\x07${VALUE_MARK}\x1b]8;;\x07\n`,
-		);
+		expect(text).toBe(`${VALUE_MARK}\n`);
 	});
 
 	it("is put out of sight within a terminal's command", () => {
@@ -122,6 +123,24 @@ describe("a bare value in a printing of the environment", () => {
 			`${one}\x1b]0;${other}\x07\n`,
 			`\x1b]0;${one}\x07${other}\n`,
 			`\x1b]0;${one}\x07\x1b]0;${other}\x07\n`,
+			`/x\x1b]0;${one}\x07${other}\n`,
+			`/opt/bin:${one}\x1b]0;${other}\x07\n`,
+			`https://h${one}\x1b]0;${other}\x07\n`,
+			`\x1b]8;;https://h\x07${one}\x1b]0;${other}\x07\n`,
+			`\x1b]0;${one}\x07\x1b]8;;https://h\x07${other}\n`,
+		]) {
+			expect(shown(printed, "launchctl getenv X"), printed).toBe(
+				`${VALUE_MARK}\n`,
+			);
+		}
+	});
+
+	it("is put out of sight whole when its long half is in the open", () => {
+		const value = fresh();
+		const [short, long] = [value.slice(0, 12), value.slice(12)];
+		for (const printed of [
+			`\x1b]0;${short}\x07${long}\n`,
+			`${long}\x1b]0;${short}\x07\n`,
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBe(
 				`${VALUE_MARK}\n`,
@@ -138,10 +157,15 @@ describe("a bare value in a printing of the environment", () => {
 				"API=[secret scrubbed: API]\n",
 			);
 		}
-		const password = fresh();
-		const text = shown(`API=postgres://app:${password}@db:5432/app\n`);
-		expect(text).toBeDefined();
-		expect(text).not.toContain(password);
+	});
+
+	it("holds an address's user that is an email or a coloured word", () => {
+		for (const printed of [
+			"GIT_URL=https://joel.gerber%40example.com@git.example.com/org/r.git\n",
+			"GIT_URL=https://\x1b[01;31m\x1b[Kgit\x1b[m\x1b[K@github.com/org/repo\n",
+		]) {
+			expect(shown(printed), printed).toBeUndefined();
+		}
 	});
 
 	it("is put out of sight behind a port no address's host leads", () => {
@@ -243,6 +267,16 @@ describe("what a printing of the environment keeps", () => {
 		expect(shown(printed, "launchctl getenv X")).toBe(`${VALUE_MARK}\n`);
 	});
 
+	// Two commands' payloads side by side are read as one run, as a split
+	// credential's would be: a shell's marks that run together into a long
+	// mixed word are put out of sight, the trade this makes for failing
+	// closed.
+	it("is put out of sight as shell marks that run together", () => {
+		const printed =
+			"\x1b]1337;RemoteHost=joel@mbp2.local\x07\x1b]1337;CurrentDir=/Users/joel\x07\n";
+		expect(shown(printed, "launchctl getenv X")).toBe(`${VALUE_MARK}\n`);
+	});
+
 	// A value in capitals with an underscore, as no base64 or hex value is
 	// written, reads as a name before any equals: the trade that keeps an
 	// empty variable's name, or one opening a list, readable.
@@ -295,6 +329,7 @@ describe("a long printing of the environment", () => {
 		const out = shown(lines.join(""))?.split("\n") ?? [];
 		const wrong = marks.findIndex((mark, at) => `${out[at]}\n` !== mark);
 		expect(wrong, `line ${wrong}: ${out[wrong]}`).toBe(-1);
+		expect(out.length, "no line past the last mark").toBe(marks.length + 1);
 	});
 
 	it("answers at once for commands, addresses and sequences left open", () => {
@@ -309,6 +344,10 @@ describe("a long printing of the environment", () => {
 		for (const [printed, hides] of printings) {
 			const text = shown(`${printed}\n`, "launchctl getenv X");
 			expect(text !== undefined, printed.slice(0, 12)).toBe(hides);
+			if (!hides) continue;
+			expect(text, printed.slice(0, 12)).not.toContain("a1a1a1a1");
+			expect(text, printed.slice(0, 12)).not.toContain(github);
+			expect(text, printed.slice(0, 12)).not.toContain("1;[secret");
 		}
 	});
 
