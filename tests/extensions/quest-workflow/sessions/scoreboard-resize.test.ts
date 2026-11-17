@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { updateScoreboard } from "../../../../extensions/quest-workflow/index.ts";
+import { updateScoreboard } from "../../../../extensions/quest-workflow/wiring/scoreboard.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { at } from "../../../support/at.ts";
 

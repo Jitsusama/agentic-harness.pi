@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
 	onTopReader,
 	readsOf,
-} from "../../../../extensions/quest-workflow/on-top.ts";
+} from "../../../../extensions/quest-workflow/wiring/on-top.ts";
 
 /** 09:12 in Toronto on Saturday 14 November 2026. */
 const SATURDAY = Date.parse("2026-11-14T14:12:00.000Z");

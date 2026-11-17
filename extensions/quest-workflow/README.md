@@ -536,7 +536,7 @@ while it waits its turn leaves without running.
   a compaction resets it so a changed state is said again.
 - What's on top: a few quests the person put first, why in
   their words, and until when, read from
-  `$XDG_STATE_HOME/mission/top.json` (`on-top.ts`). Nothing
+  `$XDG_STATE_HOME/mission/top.json` (`wiring/on-top.ts`). Nothing
   here writes it yet: the orchestrator writes it by hand until a
   `quest top` action lands, as `{"quests": [{"id", "title"}],
   "why", "until": "YYYY-MM-DD" or null, "at", "by"}`, and every

@@ -4,7 +4,6 @@
 # The test fails on one that's split, says why or is gone, so the list
 # only shrinks.
 extensions
-extensions/quest-workflow/index.ts
 lib/internal
 lib/internal/quest
 lib/subagent/runpi/supervisor.mjs
