@@ -216,11 +216,15 @@ function askingScreens(): EngineScreens {
 
 /** The host the step runs, for screens that look at it as the engine calls them. */
 let runningHost: SessionHost | undefined;
-/** Each rebind the rebinding screens were asked for, and whether the host still held the conversation it replaced. */
+/**
+ * Each rebind the rebinding screens were asked for, and whether the host
+ * still held the conversation it replaced with its close not yet begun:
+ * a close parks a conversation as it starts.
+ */
 const rebounds: {
 	sessionId: string;
 	previousId: string;
-	previousHeld: boolean;
+	previousOpen: boolean;
 }[] = [];
 
 /**
@@ -235,10 +239,11 @@ function rebindingScreens(): EngineScreens {
 	return {
 		opened: (view) => bind(view),
 		rebound: async (view, previousId) => {
+			const previous = runningHost?.holds(previousId);
 			rebounds.push({
 				sessionId: view.sessionId,
 				previousId,
-				previousHeld: runningHost?.holds(previousId) !== undefined,
+				previousOpen: previous !== undefined && previous !== "parked",
 			});
 			await bind(view);
 		},
@@ -821,15 +826,20 @@ const scenarios: Record<string, Scenario> = {
 			const first = await open(engine, { first: "hi" });
 			await idle(engine, first);
 			refusedStore = "next";
-			// pi's failed replacement fails the command, which the step expects.
+			// pi's failed replacement fails the command; what it said is kept,
+			// so a wait that gives up shows why.
+			let refused = "";
 			await host
 				.run(first, () => prompt(engine, first, "/probe-new"))
-				.catch(() => undefined);
-			await until("the conversation it was is let go", () =>
+				.catch((error: unknown) => {
+					refused = error instanceof Error ? error.message : String(error);
+				});
+			await until(`the conversation it was is let go (${refused})`, () =>
 				host.holds(first) === undefined,
 			);
 			return {
 				firstId: first,
+				refused,
 				held: host.list().map((conversation) => conversation.id),
 			};
 		},
@@ -862,13 +872,23 @@ const scenarios: Record<string, Scenario> = {
 				refused = error instanceof Error ? error.message : String(error);
 			}
 			const id = readEntry().sessionId;
-			return { refused, state: host.holds(id) ?? "gone" };
+			const state = host.holds(id) ?? "gone";
+			// The host disposes only once it holds nothing.
+			await host.close(id);
+			return { refused, state };
 		},
 	},
 	/** A conversation's launch names a gateway key of its own, and the host has another. */
 	"own-key": {
 		responses: () => [say("hello there")],
 		launch: { SHOPIFY_PROXY_KEY: "its-own-key" },
+		run: answerOnce,
+	},
+	/** The same for the proxy's key, the provider reading it. */
+	"own-proxy-key": {
+		responses: () => [say("hello there")],
+		keyVariable: "PI_PROXY_API_KEY",
+		launch: { PI_PROXY_API_KEY: "its-own-key" },
 		run: answerOnce,
 	},
 	/** The provider's key is read from a variable only the host's process holds. */
@@ -886,7 +906,7 @@ const scenarios: Record<string, Scenario> = {
 		launch: { PI_HYPERLINKS: "its-own-read" },
 		run: answerOnce,
 	},
-	/** A heavy run handed to the job host, read as a restart's hold and as a drain's answer. */
+	/** A heavy run and a light one handed to the job host, read as a restart's hold and as a drain's answer. */
 	"heavy-held": {
 		responses: () => [],
 		harness: true,
@@ -896,6 +916,9 @@ const scenarios: Record<string, Scenario> = {
 			await host.run(id, () =>
 				prompt(engine, id, "/probe-job nix-offload there --changed"),
 			);
+			await idle(engine, id);
+			// A light run beside it, which a drain doesn't name.
+			await host.run(id, () => prompt(engine, id, "/probe-job"));
 			await idle(engine, id);
 			const holding = engine.holding();
 			// No await between the drain and its lift, so nothing parks for it.

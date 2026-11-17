@@ -88,11 +88,11 @@ interface Seen {
 		readonly drained: readonly string[];
 		readonly holdingDrained: readonly string[];
 	};
-	/** Each rebind a screen was asked for, and whether the host still held the conversation replaced. */
+	/** Each rebind a screen was asked for, and whether the host still held the conversation replaced, its close not begun. */
 	readonly rebounds?: readonly {
 		readonly sessionId: string;
 		readonly previousId: string;
-		readonly previousHeld: boolean;
+		readonly previousOpen: boolean;
 	}[];
 	/** Which conversation each probe load and event ran as, beside the one pi named. */
 	readonly as: readonly {
@@ -553,10 +553,14 @@ describe("the host's engine", () => {
 	);
 
 	it(
-		"sends the host's gateway key over one a conversation's launch names for itself",
+		"sends the host's key, under both names it goes by, over one a conversation's launch names for itself",
 		async () => {
-			const seen = await step(hostFolder(), "own-key");
-			expect(seen.keysSeen, "the key the provider was sent").toEqual([
+			const gateway = await step(hostFolder(), "own-key");
+			expect(gateway.keysSeen, "the gateway key the provider was sent").toEqual(
+				["first-key"],
+			);
+			const proxy = await step(hostFolder(), "own-proxy-key");
+			expect(proxy.keysSeen, "the proxy key the provider was sent").toEqual([
 				"first-key",
 			]);
 		},
@@ -584,6 +588,7 @@ describe("the host's engine", () => {
 			const seen = await step(hostFolder(), "replace-lost");
 			const first = seen.firstId ?? "";
 			const next = seen.became[0]?.sessionId ?? "";
+			expect(seen.refused, "the command fails, saying why").not.toBe("");
 			expect(next, "pi named the conversation it was becoming").not.toBe("");
 			expect(
 				seen.ended,
@@ -604,9 +609,9 @@ describe("the host's engine", () => {
 			const next = seen.became[0]?.sessionId ?? "";
 			expect(
 				seen.rebounds,
-				"one rebind, onto the new conversation, while the host still holds the old",
+				"one rebind, onto the new conversation, before the old one's close begins",
 			).toEqual([
-				{ sessionId: next, previousId: seen.firstId, previousHeld: true },
+				{ sessionId: next, previousId: seen.firstId, previousOpen: true },
 			]);
 			expect(seen.ended, "the conversation it was ends as replaced").toEqual([
 				{ sessionId: seen.firstId, why: "replaced" },
@@ -626,17 +631,29 @@ describe("the host's engine", () => {
 	);
 
 	it(
-		"names a conversation's heavy run as what a restart waits on, and as what a drain says goes",
+		"names only a conversation's heavy run as what a drain says goes, and each run it holds as what a restart waits on",
 		async () => {
 			const seen = await step(hostFolder(), "heavy-held");
-			const line = expect.stringMatching(
-				new RegExp(`^${seen.firstId}: \\S+ probe: nix-offload there --changed$`),
-			);
-			expect(seen.heavyHeld, "the run, a line each time it is asked").toEqual({
-				holding: [line],
-				drained: [line],
-				holdingDrained: [line],
-			});
+			const run = (label: string) =>
+				expect.stringMatching(
+					new RegExp(`^${seen.firstId}: \\S+ probe: ${label}$`),
+				);
+			const heavy = run("nix-offload there --changed");
+			const light = run("held");
+			const asked = seen.heavyHeld;
+			expect(
+				asked?.drained,
+				"what the drain says goes: the heavy run alone",
+			).toEqual([heavy]);
+			for (const [held, when] of [
+				[asked?.holding, "before the drain"],
+				[asked?.holdingDrained, "while draining"],
+			] as const) {
+				expect(held, `what a restart waits on ${when}`).toHaveLength(2);
+				expect(held, `what a restart waits on ${when}`).toEqual(
+					expect.arrayContaining([heavy, light]),
+				);
+			}
 		},
 		HOST_LIFE_MS,
 	);
