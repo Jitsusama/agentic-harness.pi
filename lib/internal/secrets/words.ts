@@ -219,9 +219,9 @@ interface Segment {
  * slash before the run and to its first after, so a path or an address
  * just before it exempts nothing. A run is read whole, and, when text
  * follows it, cut at its last slash too, so a path opening it exempts
- * nothing either, unless the text repeats or shortens the name the run
- * ends with (`repeats`), as a link's text does its address's. One pass
- * over the word.
+ * nothing either, unless the text is the name the run ends with
+ * (`repeats`), as a link's text is its address's. One pass over the
+ * word.
  */
 function runsAcross(word: string): boolean {
 	if (!word.includes("\x1b]")) return false;
@@ -344,9 +344,10 @@ export function replaceWords(
 }
 
 /**
- * Whether a link's `text` repeats the `name` its address ends with, or
- * shortens it, as a commit's short id or a file's name without its line
- * does, the name read as written and with its percent escapes decoded.
+ * Whether a link's `text` is the `name` its address ends with, decoded,
+ * or that name without its extension, so the address shows nothing the
+ * text doesn't. A name holding a break is shown a word at a time, so its
+ * first word stands for it. Any other shortening of it is none.
  */
 function repeats(text: string, name: string): boolean {
 	let plain = name;
@@ -355,8 +356,12 @@ function repeats(text: string, name: string): boolean {
 	} catch {
 		// A percent that escapes nothing: the name is read as written.
 	}
-	return [name, plain].some(
-		(each) => text.startsWith(each) || each.startsWith(text),
+	const dot = plain.lastIndexOf(".");
+	const [word = ""] = plain.split(WORD_BREAK);
+	return (
+		text === plain ||
+		(dot > 0 && text === plain.slice(0, dot)) ||
+		(word !== plain && text === word)
 	);
 }
 
