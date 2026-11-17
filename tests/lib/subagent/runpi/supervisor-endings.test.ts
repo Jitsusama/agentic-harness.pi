@@ -225,6 +225,8 @@ describe("a child that exits 0 partway through its run", () => {
 	// agent_end carries every message of the run, so on a long one it is
 	// the line most likely to be over the cap and skipped. Small enough to
 	// arrive whole, or large enough to span pipe chunks: two skip paths.
+	// Its kind is all that is read of it, so skipping it is not a loss
+	// worth a warning.
 	it.each([
 		["arrives whole", 4096],
 		["spans chunks", 256 * 1024],
@@ -242,7 +244,9 @@ describe("a child that exits 0 partway through its run", () => {
 				},
 			);
 
-			expect(result.warnings?.join(" ")).toContain("exceeded 1024 bytes");
+			expect(result.warnings?.join(" ") ?? "").not.toContain(
+				"exceeded 1024 bytes",
+			);
 			expect(result.error).toBeUndefined();
 			expect(persisted.state).toBe("complete");
 		},
