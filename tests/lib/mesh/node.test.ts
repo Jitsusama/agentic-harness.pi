@@ -301,26 +301,40 @@ describe("asking the node where work a spawn starts goes", () => {
 			);
 		});
 
-		const answer = await placeToStartAt(socket, []);
+		const answer = await placeToStartAt(socket, [
+			{ kind: "reach", value: "home" },
+		]);
 
 		expect(asked).toEqual([
-			{ PlaceToStart: { needs: [] } },
-			{ Place: { needs: [] } },
+			{ PlaceToStart: { needs: [{ reach: "home" }] } },
+			{ Place: { needs: [{ reach: "home" }] } },
 		]);
 		expect(answer).toEqual({ ok: true, machine: "optimus" });
 	});
 
 	it("says why a node refuses, asking nothing more", async () => {
-		const asked: unknown[] = [];
-		const socket = await serving((line) => {
-			asked.push(JSON.parse(line));
-			return JSON.stringify({ Err: "the asker can't be told" });
-		});
+		for (const refusal of [
+			"the asker can't be told",
+			// Another request it doesn't know is not this one.
+			"not a request: unknown variant `Need`, expected one of `Place`",
+			// Words of the asker's own echoed back are not the node's own.
+			"no machine takes it: unknown variant `PlaceToStart`",
+		]) {
+			const asked: unknown[] = [];
+			const socket = await serving((line) => {
+				asked.push(JSON.parse(line));
+				return JSON.stringify({ Err: refusal });
+			});
 
-		const answer = await placeToStartAt(socket, []);
+			const answer = await placeToStartAt(socket, []);
 
-		expect(asked).toHaveLength(1);
-		expect(answer).toEqual({ ok: false, reason: "the asker can't be told" });
+			expect(asked, refusal).toHaveLength(1);
+			expect(answer).toEqual({ ok: false, reason: refusal });
+			await new Promise((closed) => servers.pop()?.close(closed));
+		}
+	});
+
+	it("says why when no realm is named", async () => {
 		expect(await placeToStartAt(undefined, [])).toMatchObject({ ok: false });
 	});
 });

@@ -442,6 +442,7 @@ export async function spawn(
 		resumes: Boolean(resumable && "id" in resumable),
 		...(target.kind ? { host: target.kind } : {}),
 		...(params.command ? { command: params.command } : {}),
+		...(params.dryRun ? { dryRun: true } : {}),
 	});
 	const resume =
 		machine === undefined || isThisMachine(machine) ? resumable : undefined;

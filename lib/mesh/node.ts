@@ -103,10 +103,13 @@ export async function placeToStartAt(
 	patience: number = PLACE_PATIENCE_MS,
 ): Promise<PlaceAnswer> {
 	const answer = await placeAsking("PlaceToStart", socket, needs, patience);
-	return !answer.ok && answer.reason.includes("unknown variant `PlaceToStart`")
+	return !answer.ok && answer.reason.startsWith(UNKNOWN_PLACE_TO_START)
 		? placeAt(socket, needs, patience)
 		: answer;
 }
+
+/** How a node too old to know an ask to start says it can't read one. */
+const UNKNOWN_PLACE_TO_START = "not a request: unknown variant `PlaceToStart`";
 
 async function placeAsking(
 	request: "Place" | "PlaceToStart",
