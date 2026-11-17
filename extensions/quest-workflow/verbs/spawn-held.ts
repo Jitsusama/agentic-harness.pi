@@ -38,6 +38,7 @@ import {
 	type NodeStarted,
 	nodeSocket,
 	placeAt,
+	placeToStartAt,
 	type StartAnswer,
 	startAt,
 } from "../../../lib/mesh/node.ts";
@@ -103,7 +104,19 @@ const askTheNode: StartOnNode = (start) => startAt(nodeSocket(), start);
 /** How spawn asks a node where work goes; the machine's node by default. */
 export type PlaceOnNode = (needs: readonly Need[]) => Promise<PlaceAnswer>;
 
+/**
+ * Where, counting nothing: work placed with needs starts through the
+ * node's own start wherever it goes, which counts it there.
+ */
 const askWhere: PlaceOnNode = (needs) => placeAt(nodeSocket(), needs);
+
+/**
+ * Where, for a spawn that starts here itself when the node answers this
+ * machine: the node counts that answer as a start, so the next spawn of
+ * a burst weighs it rather than being told the same machine before the
+ * session shows.
+ */
+const askToStart: PlaceOnNode = (needs) => placeToStartAt(nodeSocket(), needs);
 
 /** How a spawn shares its quest with the machines this one links with. */
 export type ShareQuest = (
@@ -135,6 +148,8 @@ export interface StaysAsked {
 	readonly host?: string;
 	/** A command the call named, of the caller's own. */
 	readonly command?: string;
+	/** Only a plan is asked for, so nothing starts to be counted. */
+	readonly dryRun?: boolean;
 }
 
 /**
@@ -149,7 +164,7 @@ export async function machineByDefault(
 	machine: string | undefined,
 	needs: readonly Need[],
 	asked: StaysAsked,
-	place: PlaceOnNode = askWhere,
+	place: PlaceOnNode = asked.dryRun ? askWhere : askToStart,
 	name: string = hostname(),
 ): Promise<string | undefined> {
 	if (machine !== undefined || needs.length > 0) return machine;

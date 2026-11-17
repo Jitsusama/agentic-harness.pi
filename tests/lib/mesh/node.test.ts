@@ -13,6 +13,7 @@ import {
 	heldWindowFrom,
 	nodeSocket,
 	placeAt,
+	placeToStartAt,
 	sessionsAt,
 	sessionsFrom,
 	startAt,
@@ -261,6 +262,80 @@ describe("asking the node where work goes", () => {
 			reason: `no mycelium node answered at ${none}`,
 		});
 		expect(await placeAt(undefined, [])).toMatchObject({ ok: false });
+	});
+});
+
+describe("asking the node where work a spawn starts goes", () => {
+	it("asks for a place it counts as a start here", async () => {
+		const asked: unknown[] = [];
+		const socket = await serving((line) => {
+			asked.push(JSON.parse(line));
+			return JSON.stringify({
+				Ok: { Placement: { placed: { machine: "optimus", passed: [] } } },
+			});
+		});
+
+		const answer = await placeToStartAt(socket, [
+			{ kind: "reach", value: "home" },
+		]);
+
+		expect(asked).toEqual([{ PlaceToStart: { needs: [{ reach: "home" }] } }]);
+		expect(answer).toEqual({ ok: true, machine: "optimus" });
+	});
+
+	it("asks a node that doesn't know that request where, as before", async () => {
+		const asked: unknown[] = [];
+		const socket = await serving((line) => {
+			const ask = JSON.parse(line);
+			asked.push(ask);
+			return JSON.stringify(
+				"PlaceToStart" in ask
+					? {
+							Err: "not a request: unknown variant `PlaceToStart`, expected one of `Sessions`, `Place`",
+						}
+					: {
+							Ok: {
+								Placement: { placed: { machine: "optimus", passed: [] } },
+							},
+						},
+			);
+		});
+
+		const answer = await placeToStartAt(socket, [
+			{ kind: "reach", value: "home" },
+		]);
+
+		expect(asked).toEqual([
+			{ PlaceToStart: { needs: [{ reach: "home" }] } },
+			{ Place: { needs: [{ reach: "home" }] } },
+		]);
+		expect(answer).toEqual({ ok: true, machine: "optimus" });
+	});
+
+	it("says why a node refuses, asking nothing more", async () => {
+		for (const refusal of [
+			"the asker can't be told",
+			// Another request it doesn't know is not this one.
+			"not a request: unknown variant `Need`, expected one of `Place`",
+			// Words of the asker's own echoed back are not the node's own.
+			"no machine takes it: unknown variant `PlaceToStart`",
+		]) {
+			const asked: unknown[] = [];
+			const socket = await serving((line) => {
+				asked.push(JSON.parse(line));
+				return JSON.stringify({ Err: refusal });
+			});
+
+			const answer = await placeToStartAt(socket, []);
+
+			expect(asked, refusal).toHaveLength(1);
+			expect(answer).toEqual({ ok: false, reason: refusal });
+			await new Promise((closed) => servers.pop()?.close(closed));
+		}
+	});
+
+	it("says why when no realm is named", async () => {
+		expect(await placeToStartAt(undefined, [])).toMatchObject({ ok: false });
 	});
 });
 

@@ -6,11 +6,15 @@
  * words in the start itself, and opens no window on his screen unless
  * the call asks for one (WM4KSZ [a124c9cb]).
  */
-import { hostname } from "node:os";
-import { describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:net";
+import { hostname, tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	heldWords,
 	machineByDefault,
+	machineFor,
 	type PlaceOnNode,
 	type ShareQuest,
 	type StartOnNode,
@@ -119,6 +123,68 @@ describe("the machine a spawn starts on by default", () => {
 		}
 		expect(asks, "one ask a spawn, none remembered").toBe(10);
 		expect(chosen.slice(0, 3)).toEqual(["equilibrius", undefined, "penelope"]);
+	});
+});
+
+describe("what spawn asks the machine's node", () => {
+	let folder: string;
+	let server: Server | undefined;
+
+	beforeEach(() => {
+		folder = mkdtempSync(join(tmpdir(), "spawn-asks-"));
+		vi.stubEnv("XDG_RUNTIME_DIR", folder);
+		vi.stubEnv("MYCELIUM_REALM", "work");
+	});
+
+	afterEach(async () => {
+		vi.unstubAllEnvs();
+		await new Promise((closed) => (server ? server.close(closed) : closed(0)));
+		server = undefined;
+		rmSync(folder, { recursive: true, force: true });
+	});
+
+	/** The realm's node, placing everything here, keeping what it was asked. */
+	async function nodeHere(): Promise<unknown[]> {
+		const asked: unknown[] = [];
+		mkdirSync(join(folder, "mycelium"));
+		server = createServer((client) => {
+			client.setEncoding("utf8");
+			client.on("data", (line: string) => {
+				asked.push(JSON.parse(line.trim()));
+				client.write(
+					`${JSON.stringify({ Ok: { Placement: { placed: { machine: "optimus", passed: [] } } } })}\n`,
+				);
+			});
+		});
+		const listening = server;
+		await new Promise<void>((done) =>
+			listening.listen(join(folder, "mycelium", "work.sock"), done),
+		);
+		return asked;
+	}
+
+	it("asks for a place to start when it would start here itself", async () => {
+		const asked = await nodeHere();
+		await machineByDefault(undefined, [], plain, undefined, "optimus");
+		expect(asked).toEqual([{ PlaceToStart: { needs: [] } }]);
+	});
+
+	it("asks only where for a plan, which starts nothing", async () => {
+		const asked = await nodeHere();
+		await machineByDefault(
+			undefined,
+			[],
+			{ ...plain, dryRun: true },
+			undefined,
+			"optimus",
+		);
+		expect(asked).toEqual([{ Place: { needs: [] } }]);
+	});
+
+	it("asks only where for work with needs, whose start the node counts", async () => {
+		const asked = await nodeHere();
+		await machineFor(undefined, ["reach=home"]);
+		expect(asked).toEqual([{ Place: { needs: [{ reach: "home" }] } }]);
 	});
 });
 
