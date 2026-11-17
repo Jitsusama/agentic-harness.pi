@@ -214,15 +214,15 @@ describe("what a log says was carried", () => {
 
 describe("taking up", () => {
 	/** Take up one carried call `j3`, with a result `j2` not yet said. */
-	function tookUp() {
+	function tookUp(label = "sleep 45", dumps?: boolean) {
 		const { jobs, said } = registry();
-		const work = shellWork();
+		const work = { ...shellWork(), ...(dumps ? { dumps } : {}) };
 		const watch = handWatch();
 		const appended: [string, unknown][] = [];
 		takeUp(
 			{
 				at: 5000,
-				jobs: [{ id: "j3", kind: "shell", label: "sleep 45", work }],
+				jobs: [{ id: "j3", kind: "shell", label, work }],
 				results: [
 					{ jobId: "j2", label: "echo hi", text: "`echo hi` exited 0." },
 				],
@@ -273,6 +273,54 @@ describe("taking up", () => {
 		expect(said.at(-1)?.text).toBe(
 			"Failed. `sleep 45` was lost after 45 seconds: its shell is gone and wrote no exit status.\none\ntwo",
 		);
+	});
+
+	it("says a carried call's printing of the environment scrubbed, read by its lines", async () => {
+		const { said, watch } = tookUp();
+		const access = `z9${"0a1b2c3d4e".repeat(4)}`;
+		const printed = [
+			"HOME=/home/someone",
+			"SHELL=/bin/zsh",
+			`PROXY_ACCESS=${access}`,
+			"LANG=en_CA.UTF-8",
+			"TERM=xterm-256color",
+		].join("\n");
+		watch.end({ how: "exited", code: 0, output: `${printed}\n` });
+		await settled();
+		const text = said.at(-1)?.text ?? "";
+		expect(text.includes(access), "the value is not said").toBe(false);
+		expect(text).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
+	});
+
+	it("says a carried call's printing of the environment scrubbed, read by its label", async () => {
+		const { said, watch } = tookUp("printenv");
+		const access = `z9${"5f6e7d8c9b".repeat(4)}`;
+		const printed = ["HOME=/home/someone", `PROXY_ACCESS=${access}`].join("\n");
+		watch.end({ how: "exited", code: 0, output: `${printed}\n` });
+		await settled();
+		const text = said.at(-1)?.text ?? "";
+		expect(text.includes(access), "the value is not said").toBe(false);
+		expect(text).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
+	});
+
+	it("says a carried call's printing of the environment scrubbed, as its process said it prints one", async () => {
+		// The label is the command's first line, cut short; the work says.
+		const { said, watch } = tookUp("cd /srv/app ...", true);
+		const access = `z9${"1a2b3c4d5e".repeat(4)}`;
+		const printed = ["HOME=/home/someone", `PROXY_ACCESS=${access}`].join("\n");
+		watch.end({ how: "exited", code: 0, output: `${printed}\n` });
+		await settled();
+		const text = said.at(-1)?.text ?? "";
+		expect(text.includes(access), "the value is not said").toBe(false);
+		expect(text).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
+	});
+
+	it("says a carried call's output as it stands when nothing says it is the environment", async () => {
+		const { said, watch } = tookUp();
+		const commit = "commit 3f9c2a7be41d08e5c6a1f2b3d4e5f60718293a4b";
+		watch.end({ how: "exited", code: 0, output: `${commit}\n` });
+		await settled();
+		expect(said.at(-1)?.text).toContain(commit);
 	});
 
 	it("can carry a call on again while it runs", () => {

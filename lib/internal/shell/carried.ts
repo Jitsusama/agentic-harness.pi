@@ -33,12 +33,17 @@ export interface CarriedShell extends CarriedWork {
 	readonly startedAt: number;
 	/** When its time limit runs out, if it had one. */
 	readonly deadline?: number;
+	/**
+	 * Its command prints the environment, as the process that started it
+	 * read it, so its end is read as a dump wherever it is said.
+	 */
+	readonly dumps?: boolean;
 }
 
 /** Whether carried work is a bash call this code can take up. */
 export function isCarriedShell(work: unknown): work is CarriedShell {
 	if (typeof work !== "object" || work === null) return false;
-	const { kind, keep, pid, mark, startedAt, deadline } = work as Record<
+	const { kind, keep, pid, mark, startedAt, deadline, dumps } = work as Record<
 		string,
 		unknown
 	>;
@@ -48,7 +53,8 @@ export function isCarriedShell(work: unknown): work is CarriedShell {
 		typeof pid === "number" &&
 		typeof mark === "string" &&
 		typeof startedAt === "number" &&
-		(deadline === undefined || typeof deadline === "number")
+		(deadline === undefined || typeof deadline === "number") &&
+		(dumps === undefined || typeof dumps === "boolean")
 	);
 }
 

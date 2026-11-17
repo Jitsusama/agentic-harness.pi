@@ -24,8 +24,9 @@ import type {
 	AgentToolUpdateCallback,
 	EventBus,
 } from "@earendil-works/pi-coding-agent";
+import { dumpsEnvironment } from "../../lib/internal/secrets/secrets.ts";
 import { runOrHandOff as handOff } from "../../lib/jobs/hand-off.ts";
-import type { JobCarry } from "../../lib/jobs/index.ts";
+import type { CarriedWork, JobCarry } from "../../lib/jobs/index.ts";
 
 /** Longest label a job is given, from the command's first line. */
 const LABEL_CHARS = 60;
@@ -68,6 +69,23 @@ export function labelOf(command: string): string {
 	return `${line.slice(0, LABEL_CHARS - 3)}...`;
 }
 
+/**
+ * A carry whose work says its command prints the environment, since
+ * only the label travels and a label cut to its first line can lose it.
+ */
+function dumpCarried(carry: JobCarry | undefined): JobCarry | undefined {
+	if (!carry) return undefined;
+	return {
+		what() {
+			const work = carry.what();
+			if (!work) return undefined;
+			const dumping: CarriedWork = { ...work, dumps: true };
+			return dumping;
+		},
+		handed: () => carry.handed(),
+	};
+}
+
 /** Whether the command holds its output back until it ends. */
 function holdsOutputBack(command: string): boolean {
 	return /\|\s*(tail|head)\b/.test(command);
@@ -80,9 +98,18 @@ function holdsOutputBack(command: string): boolean {
 export async function runOrHandOff<T>(
 	call: Call<T>,
 ): Promise<AgentToolResult<T | undefined>> {
-	const { command, ...rest } = call;
+	const { command, carryOf, ...rest } = call;
+	const dumps = dumpsEnvironment(command);
 	return await handOff({
 		...rest,
+		...(carryOf
+			? {
+					carryOf: (signal: AbortSignal) =>
+						dumps ? dumpCarried(carryOf(signal)) : carryOf(signal),
+				}
+			: {}),
+		// Its end is read as the command started, a printed environment as one.
+		input: { command },
 		kind: "shell",
 		label: labelOf(command),
 		noun: "background command",

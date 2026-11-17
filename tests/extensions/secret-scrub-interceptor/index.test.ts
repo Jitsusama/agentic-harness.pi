@@ -500,6 +500,30 @@ describe("a tool's answer", () => {
 			);
 		});
 
+		it("has the file a failed dump names only in its error's words scrubbed, by any path", async () => {
+			const value = mixed(60);
+			const file = saved(
+				`pi-bash-${randomBytes(8).toString("hex")}.log`,
+				`OP_SESSION_ab12=${value}\nHOME=/home/x\n`,
+			);
+			// A command that times out throws, and pi answers with its words.
+			const result = await answer({
+				input: { command: "/usr/bin/printenv; exit 1" },
+				isError: true,
+				content: [
+					{
+						type: "text",
+						text: `OP_SESSION_ab12=${value}\nHOME=/home/x\n\n[Showing lines 1-2 of 2. Full output: ${file}]\n\nCommand timed out after 5 seconds`,
+					},
+				],
+				details: {},
+			});
+			expect(fs.readFileSync(file, "utf8")).toBe(
+				"OP_SESSION_ab12=[secret scrubbed: OP_SESSION_ab12]\nHOME=/home/x\n",
+			);
+			expect(JSON.stringify(result)).not.toContain(value);
+		});
+
 		it("leaves a file pi didn't name alone", async () => {
 			const token = `gh${"p"}_${mixed(36)}`;
 			const file = saved(`notes-${randomBytes(8).toString("hex")}.log`, token);

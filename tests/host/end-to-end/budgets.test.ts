@@ -42,7 +42,7 @@ const HOST_PROCESS = {
 	PI_TRUE_COLOR: "1",
 	PI_HYPERLINKS: "1",
 } as const;
-/** What `account` prints, by name. */
+/** What `account` prints, by name, each as `NAME: value`. */
 const PRINTED = [
 	"PI_BUDGET",
 	"E3_KEY",
@@ -51,7 +51,7 @@ const PRINTED = [
 	"PI_PACKAGE_DIR",
 	...Object.keys(HOST_PROCESS),
 ];
-const ACCOUNTED = new RegExp(`^(${PRINTED.join("|")})=(.*)$`);
+const ACCOUNTED = new RegExp(`^(${PRINTED.join("|")}): (.*)$`);
 
 let sealed: Seal;
 let host: HostProcess | undefined;

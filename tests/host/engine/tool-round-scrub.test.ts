@@ -163,6 +163,119 @@ describe("a hosted tool round", () => {
 		expect(everything).toContain("[secret scrubbed: OP_SESSION_ab12]");
 	});
 
+	it("scrubs a streamed line setting a secret-looking value before five arrive, whatever the command", async () => {
+		// A viewer on another machine sees each update, which no count waits
+		// for; the settled answer is still judged by the count, as before.
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const printed = `loading\nPROXY_CRED=${value}\n`;
+		const streamed: AgentTool = {
+			name: "bash",
+			async execute(_id, _args, _signal, onUpdate) {
+				onUpdate({ content: [{ type: "text", text: printed }] });
+				return { content: [{ type: "text", text: printed }] };
+			},
+		};
+		const round = conversation(
+			"call-partial",
+			value,
+			{ command: "./show-config" },
+			streamed,
+		);
+		await round.round.run(round.callId, undefined);
+		const updates = JSON.stringify(
+			shown(round.events, "tool_execution_update"),
+		);
+		expect(updates, "no streamed update holds the value").not.toContain(value);
+		expect(updates).toContain("[secret scrubbed: PROXY_CRED]");
+		// A lone line no rule knows is said as the settled answer has it, as
+		// security ruled: the update scrubs it only because a dump's first
+		// lines stream before there are five to count.
+		expect(
+			JSON.stringify({
+				end: shown(round.events, "tool_execution_end"),
+				message: round.round.messages.get(round.callId),
+			}),
+			"the settled answer is judged by the count, not as an update",
+		).toContain(value);
+	});
+
+	it("hands on a streamed update with nothing to hide as the very same object", async () => {
+		const update: AgentToolResult = {
+			content: [{ type: "text", text: "PORT=8080\nready" }],
+		};
+		const quiet: AgentTool = {
+			name: "bash",
+			async execute(_id, _args, _signal, onUpdate) {
+				onUpdate(update);
+				return { content: [{ type: "text", text: "done" }] };
+			},
+		};
+		const round = conversation("call-quiet", "", { command: "./serve" }, quiet);
+		await round.round.run(round.callId, undefined);
+		expect(shown(round.events, "tool_execution_update")[0]).toBe(update);
+	});
+
+	it("says once that it withheld the streamed updates the scrub cannot read, and still settles", async () => {
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const details: Record<string, unknown> = {};
+		details.self = details;
+		const looped: AgentTool = {
+			name: "bash",
+			async execute(_id, _args, _signal, onUpdate) {
+				const update: AgentToolResult = {
+					content: [{ type: "text", text: value }],
+					details,
+				};
+				onUpdate(update);
+				onUpdate(update);
+				return { content: [{ type: "text", text: "done" }] };
+			},
+		};
+		const round = conversation("call-loop", "", { command: "./x" }, looped);
+		const outcome = await round.round.run(round.callId, undefined);
+		const updates = shown(round.events, "tool_execution_update");
+		expect(updates).toHaveLength(1);
+		expect(JSON.stringify(updates)).toContain("withheld");
+		expect(JSON.stringify(updates)).toContain("RangeError");
+		expect(JSON.stringify(updates)).not.toContain(value);
+		expect(outcome.result.content).toEqual([{ type: "text", text: "done" }]);
+	});
+
+	it("says again that it withholds an update once a readable one has replaced the notice", async () => {
+		const details: Record<string, unknown> = {};
+		details.self = details;
+		const unreadable: AgentToolResult = {
+			content: [{ type: "text", text: "x" }],
+			details,
+		};
+		const readable: AgentToolResult = {
+			content: [{ type: "text", text: "working" }],
+		};
+		const flickering: AgentTool = {
+			name: "bash",
+			async execute(_id, _args, _signal, onUpdate) {
+				onUpdate(unreadable);
+				onUpdate(readable);
+				onUpdate(unreadable);
+				return { content: [{ type: "text", text: "done" }] };
+			},
+		};
+		const round = conversation(
+			"call-flicker",
+			"",
+			{ command: "./x" },
+			flickering,
+		);
+		await round.round.run(round.callId, undefined);
+		const updates = shown(round.events, "tool_execution_update");
+		expect(updates).toHaveLength(3);
+		const notice = "could not be scrubbed (RangeError)";
+		expect(JSON.stringify(updates[0])).toContain(notice);
+		expect(JSON.stringify(updates[1])).toContain('"working"');
+		expect(JSON.stringify(updates[1])).not.toContain("withheld");
+		expect(JSON.stringify(updates[2])).toContain(notice);
+	});
+
 	it("scrubs a printed environment's saved output file, with no extension loaded", async () => {
 		const value = `z9${randomBytes(19).toString("hex")}`;
 		const file = path.join(
@@ -192,6 +305,77 @@ describe("a hosted tool round", () => {
 			expect(fs.readFileSync(file, "utf8")).toBe(
 				"OP_SESSION_ab12=[secret scrubbed: OP_SESSION_ab12]\nHOME=/h\n",
 			);
+		} finally {
+			fs.rmSync(file, { force: true });
+		}
+	});
+
+	it("scrubs the saved output a failed dump names only in its error's words, with no extension loaded", async () => {
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const file = path.join(
+			os.tmpdir(),
+			`pi-bash-${randomBytes(8).toString("hex")}.log`,
+		);
+		const throwing: AgentTool = {
+			name: "bash",
+			async execute() {
+				fs.writeFileSync(file, `OP_SESSION_ab12=${value}\nHOME=/h\n`, {
+					mode: 0o600,
+				});
+				// As pi's bash throws when a command times out or is stopped.
+				throw new Error(
+					`OP_SESSION_ab12=${value}\nHOME=/h\n\n[Showing lines 1-2 of 2. Full output: ${file}]\n\nCommand terminated without an exit code`,
+				);
+			},
+		};
+		try {
+			const dump = conversation(
+				"call-failed",
+				"",
+				{ command: "/usr/bin/printenv; exit 1" },
+				throwing,
+			);
+			const outcome = await dump.round.run(dump.callId, undefined);
+			expect(fs.readFileSync(file, "utf8")).toBe(
+				"OP_SESSION_ab12=[secret scrubbed: OP_SESSION_ab12]\nHOME=/h\n",
+			);
+			expect(JSON.stringify(outcome.result)).not.toContain(value);
+		} finally {
+			fs.rmSync(file, { force: true });
+		}
+	});
+
+	it("rewrites no file a trailer names in the words of a call that didn't fail", async () => {
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const file = path.join(
+			os.tmpdir(),
+			`pi-bash-${randomBytes(8).toString("hex")}.log`,
+		);
+		fs.writeFileSync(file, `OP_SESSION_ab12=${value}\n`, { mode: 0o600 });
+		// Output may quote a trailer, as a log of an earlier call holds one.
+		const quoting: AgentTool = {
+			name: "bash",
+			async execute() {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `[Showing lines 1-1 of 1. Full output: ${file}]`,
+						},
+					],
+					details: {},
+				};
+			},
+		};
+		try {
+			const quoted = conversation(
+				"call-quoting",
+				"",
+				{ command: "printenv" },
+				quoting,
+			);
+			await quoted.round.run(quoted.callId, undefined);
+			expect(fs.readFileSync(file, "utf8")).toContain(value);
 		} finally {
 			fs.rmSync(file, { force: true });
 		}

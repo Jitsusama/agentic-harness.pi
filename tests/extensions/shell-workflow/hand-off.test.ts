@@ -3,9 +3,11 @@
  * and a short one is left exactly as it was.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import type { JsonObject } from "@earendil-works/pi-ai";
 import {
 	type AgentToolResult,
 	type AgentToolUpdateCallback,
@@ -388,6 +390,237 @@ describe("a command still running when the time comes", () => {
 	});
 });
 
+describe("a moved command's printing of the environment", () => {
+	/** Made as the test runs, so the repository holds no credential's shape. */
+	const fresh = () => `z9${randomBytes(19).toString("hex")}`;
+
+	/**
+	 * Too short to read as a dump by its lines, so only the command says it
+	 * is one: FOO_SECRET's name gives it away, PROXY_ACCESS's doesn't.
+	 */
+	function dump() {
+		const secret = fresh();
+		const access = fresh();
+		return {
+			text: [
+				"HOME=/home/someone",
+				`FOO_SECRET=${secret}`,
+				`PROXY_ACCESS=${access}`,
+			].join("\n"),
+			values: [secret, access],
+		};
+	}
+
+	/** A file named as pi names a command's saved output, removed after. */
+	function savedOutput(text: string): string {
+		const file = join(
+			tmpdir(),
+			`pi-bash-${randomBytes(8).toString("hex")}.log`,
+		);
+		writeFileSync(file, text, { mode: 0o600 });
+		disposers.push(() => rmSync(file, { force: true }));
+		return file;
+	}
+
+	function expectScrubbed(said: string, values: readonly string[]) {
+		for (const value of values) {
+			expect(said.includes(value), "no value of the dump is said").toBe(false);
+		}
+		expect(said).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
+	}
+
+	async function moved(
+		command: string,
+		step: { background?: boolean; session?: string } = {},
+	) {
+		const host = recordingHost();
+		const running = controllable();
+		await runOrHandOff({
+			command,
+			session: step.session ?? SESSION,
+			nested: false,
+			signal: undefined,
+			onUpdate: undefined,
+			bus: host.bus,
+			run: running.run,
+			...(step.background ? { background: true } : { afterMs: 10 }),
+		});
+		const ended = async () => {
+			await until(
+				`${command} to end`,
+				() => host.outcomes.length > 0,
+				ENDS_WITHIN_MS,
+			);
+			return host.outcomes[0];
+		};
+		return { running, ended };
+	}
+
+	it("is scrubbed when it moved after the minute: sleep 61; printenv", async () => {
+		const { text, values } = dump();
+		const { running, ended } = await moved("sleep 61; printenv");
+		running.end(said(text));
+		expectScrubbed((await ended())?.summary ?? "", values);
+	});
+
+	for (const hosted of [false, true]) {
+		it(`is scrubbed when run in the background ${hosted ? "on a host" : "in plain pi"}, the whole output it keeps too: printenv`, async () => {
+			const temp = mkdtempSync(join(tmpdir(), "moved-dump-"));
+			disposers.push(() => rmSync(temp, { recursive: true, force: true }));
+			if (hosted) {
+				const installed = installTestHost();
+				disposers.push(installed.dispose);
+				sessionEnv("a").set("TMPDIR", temp);
+			}
+			const { text, values } = dump();
+			const filler = Array.from(
+				{ length: FINISHED_LINES + 10 },
+				(_, i) => `line ${i}`,
+			);
+			const { running, ended } = await moved("printenv", {
+				background: true,
+				session: hosted ? "a" : SESSION,
+			});
+			running.end(said([text, ...filler].join("\n")));
+			const summary = (await ended())?.summary ?? "";
+			const kept = /Full output: (\S+\.log)/.exec(summary)?.[1] ?? "";
+			if (!hosted) disposers.push(() => rmSync(kept, { force: true }));
+			if (hosted) {
+				expect(dirname(kept), "kept in the conversation's TMPDIR").toBe(temp);
+			}
+			const whole = readFileSync(kept, "utf8");
+			for (const value of values) {
+				expect(whole.includes(value), "no value is kept").toBe(false);
+			}
+			expect(whole).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
+		});
+	}
+
+	it("withholds its output when the scrub cannot read the answer", async () => {
+		const { text, values } = dump();
+		const { running, ended } = await moved("printenv", { background: true });
+		const structuredContent: JsonObject = { output: text, exit_code: 0 };
+		structuredContent.self = structuredContent;
+		running.end({ ...said(text), structuredContent });
+		const outcome = await ended();
+		// How it ended holds nothing to hide, so a command that worked says so.
+		expect(outcome?.failed, "it exited 0").not.toBe(true);
+		expect(outcome?.summary).toContain("exited 0");
+		for (const value of values) {
+			expect(outcome?.summary.includes(value), "no value is said raw").toBe(
+				false,
+			);
+		}
+		expect(outcome?.summary).toContain("withheld");
+		expect(outcome?.summary, "the failure's kind").toContain("(RangeError)");
+	});
+
+	it("is scrubbed when it exits non-zero: printenv; exit 1", async () => {
+		const { text, values } = dump();
+		const { running, ended } = await moved("printenv; exit 1", {
+			background: true,
+		});
+		running.end(said(text, 1));
+		const outcome = await ended();
+		expect(outcome).toMatchObject({ failed: true });
+		expectScrubbed(outcome?.summary ?? "", values);
+	});
+
+	it("is scrubbed when it throws, the saved output its words name too", async () => {
+		const { text, values } = dump();
+		const file = savedOutput(text);
+		const { running, ended } = await moved("printenv; exit 1", {
+			background: true,
+		});
+		running.fail(
+			new Error(
+				`${text}\n\n[Showing lines 1-3 of 3. Full output: ${file}]\n\nCommand timed out after 5 seconds`,
+			),
+		);
+		expectScrubbed((await ended())?.summary ?? "", values);
+		expectScrubbed(readFileSync(file, "utf8"), values);
+	});
+
+	it("has what it showed so far scrubbed as a stream's when it moves, before five lines arrive", async () => {
+		// Its answer quotes a partial, and nothing later replaces that answer.
+		const value = fresh();
+		const cut = fresh().slice(0, 10);
+		const { bus } = recordingHost();
+		const command = controllable();
+		const running = runOrHandOff({
+			command: "./show-config",
+			session: SESSION,
+			nested: false,
+			signal: undefined,
+			onUpdate: undefined,
+			bus,
+			run: command.run,
+			afterMs: 20,
+		});
+		command.print(`loading\nPROXY_CRED=${value}\nPROXY_PIN=${cut}`);
+		const result = await running;
+		const text = JSON.stringify(result.content);
+
+		expect(text, "the answer holds no value it showed").not.toContain(value);
+		expect(text, "nor the start of one still printing").not.toContain(cut);
+		expect(text).toContain("[secret scrubbed: PROXY_CRED]");
+		expect(text).toContain("loading");
+		command.end(said("done"));
+	});
+
+	it("is not read into a command that prints no environment", async () => {
+		const commit = "commit 3f9c2a7be41d08e5c6a1f2b3d4e5f60718293a4b";
+		const { running, ended } = await moved("make", { background: true });
+		running.end(said(commit));
+		expect((await ended())?.summary).toContain(commit);
+	});
+
+	it("has the output pi saved scrubbed, as named in its answer", async () => {
+		const { text, values } = dump();
+		const file = savedOutput(text);
+		const { running, ended } = await moved("printenv", { background: true });
+		running.end({
+			...said("done"),
+			structuredContent: { output: "done", fullOutputPath: file },
+		});
+		await ended();
+		expectScrubbed(readFileSync(file, "utf8"), values);
+	});
+
+	it("keeps a long one's whole output scrubbed", async () => {
+		const { text, values } = dump();
+		const kept: string[] = [];
+		const host = recordingHost();
+		const running = controllable();
+		await runOrHandOff({
+			command: "printenv",
+			session: SESSION,
+			background: true,
+			nested: false,
+			signal: undefined,
+			onUpdate: undefined,
+			bus: host.bus,
+			run: running.run,
+			keep: (_name, whole) => {
+				kept.push(whole);
+				return "/tmp/kept.log";
+			},
+		});
+		const filler = Array.from(
+			{ length: FINISHED_LINES + 10 },
+			(_, i) => `line ${i}`,
+		);
+		running.end(said([text, ...filler].join("\n")));
+		await until(
+			"the long dump to end",
+			() => host.outcomes.length > 0,
+			ENDS_WITHIN_MS,
+		);
+		expect(kept).toHaveLength(1);
+		expectScrubbed(kept[0] ?? "", values);
+	});
+});
+
 describe("a command's job", () => {
 	it("names the call it carries on for", async () => {
 		const { bus, specs } = recordingHost();
@@ -405,6 +638,28 @@ describe("a command's job", () => {
 
 		expect(specs[0]?.toolCallId).toBe("call-3");
 	});
+
+	for (const [command, dumps] of [
+		["cd /srv/app\nprintenv", true],
+		["cd /srv/app\nmake", false],
+	] as const) {
+		it(`carries whether its command prints the environment: ${dumps}`, async () => {
+			const { bus, specs } = recordingHost();
+			await runOrHandOff({
+				command,
+				session: SESSION,
+				background: true,
+				nested: false,
+				signal: undefined,
+				onUpdate: undefined,
+				bus,
+				run: controllable().run,
+				carryOf: () => ({ what: () => ({ kind: "shell" }), handed() {} }),
+			});
+			// Its label is its first line alone, which says nothing of it.
+			expect(specs[0]?.carry?.what()?.dumps === true, command).toBe(dumps);
+		});
+	}
 });
 
 describe("what decides whether a command moves", () => {

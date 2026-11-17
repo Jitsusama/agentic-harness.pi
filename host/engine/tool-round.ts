@@ -8,13 +8,19 @@
  * parity scenarios compare.
  *
  * One step is the host's own: every credential a tool prints is put out
- * of sight, in each streamed update before any viewer sees it and in the
- * final result before durable commits it, whether or not the conversation
+ * of sight, in each streamed update before any viewer sees it (each line
+ * setting a secret-looking value, however few) and in the final result
+ * before durable commits it, whether or not the conversation
  * loads the secret-scrub extension. pi's afterToolCall still sees the raw
  * result, as on pi, and a result with nothing to hide passes untouched.
  */
 import { scrubSavedOutput } from "../../lib/internal/secrets/saved-output.ts";
-import { scrubToolResult } from "../../lib/internal/secrets/secrets.ts";
+import {
+	type KnownSecret,
+	knownSecrets,
+	scrubToolPartial,
+	scrubToolResult,
+} from "../../lib/internal/secrets/secrets.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import type {
 	AgentContext,
@@ -311,8 +317,12 @@ export class ToolRound {
 		const settled = await this.afterCall(preparation, executed);
 		// The file the tool saved is found by its own answer, which a hook
 		// that throws or replaces the details would otherwise lose.
-		if (settled.result !== executed.result)
-			scrubSavedOutput(executed.result, preparation.args);
+		if (settled.result !== executed.result) {
+			scrubSavedOutput(
+				{ ...executed.result, isError: executed.isError },
+				preparation.args,
+			);
+		}
 		return this.end(settled, preparation.args);
 	}
 
@@ -325,6 +335,9 @@ export class ToolRound {
 		const startedAt = performance.now();
 		const elapsed = () => Math.round(performance.now() - startedAt);
 		const { toolCall } = prepared;
+		// Read once for the call, rather than from the environment each update.
+		const known = knownSecrets();
+		let withheld = false;
 		try {
 			const result = await prepared.tool.execute(
 				toolCall.id,
@@ -332,13 +345,26 @@ export class ToolRound {
 				signal,
 				(partialResult) => {
 					if (!accepting) return;
+					let partial: AgentToolResult;
+					try {
+						partial = scrubbedPartial(partialResult, prepared.args, known);
+						withheld = false;
+					} catch (failure) {
+						// An update the scrub can't read is never shown, nor thrown
+						// into the tool's own output handler: viewers are told why
+						// once for each run of them, since a readable update
+						// replaces the notice.
+						if (withheld) return;
+						withheld = true;
+						partial = withheldPartial(failure);
+					}
 					updates.push(
 						this.agent.emit({
 							type: "tool_execution_update",
 							toolCallId: toolCall.id,
 							toolName: toolCall.name,
 							args: toolCall.arguments,
-							partialResult: scrubbedResult(partialResult, prepared.args),
+							partialResult: partial,
 						}),
 					);
 				},
@@ -423,7 +449,7 @@ export class ToolRound {
 		settled: CallOutcome,
 		args: unknown = settled.toolCall.arguments,
 	): Promise<CallOutcome> {
-		scrubSavedOutput(settled.result, args);
+		scrubSavedOutput({ ...settled.result, isError: settled.isError }, args);
 		const result = scrubbedResult(settled.result, args);
 		const outcome =
 			result === settled.result ? settled : { ...settled, result };
@@ -462,6 +488,33 @@ function scrubbedResult(
 ): AgentToolResult {
 	const scrubbed = scrubToolResult(result, args);
 	return scrubbed === undefined ? result : { ...result, ...scrubbed };
+}
+
+/**
+ * The update said in place of those the scrub can't read: why they are
+ * withheld, naming the failure's kind, never its words, which may quote
+ * the output.
+ */
+function withheldPartial(failure: unknown): AgentToolResult {
+	const kind = failure instanceof Error ? failure.name : typeof failure;
+	return errorResult(
+		`Output so far withheld, since it could not be scrubbed (${kind}).`,
+	);
+}
+
+/**
+ * A streamed update scrubbed as a result is, with each line setting a
+ * variable to what could be a credential scrubbed however few there are:
+ * a viewer, perhaps on another machine, sees it before a dump's lines are
+ * enough to count. The same object when it held none.
+ */
+function scrubbedPartial(
+	partial: AgentToolResult,
+	args: unknown,
+	known: readonly KnownSecret[],
+): AgentToolResult {
+	const scrubbed = scrubToolPartial(partial, args, known);
+	return scrubbed === undefined ? partial : { ...partial, ...scrubbed };
 }
 
 function prepareArguments(tool: AgentTool, toolCall: ToolCall): ToolCall {

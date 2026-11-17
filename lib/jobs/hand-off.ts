@@ -19,6 +19,11 @@
  * A line the person types during the run moves the call a moment later
  * rather than at the minute (steer.ts), since pi reads the line only
  * once every call of the turn has ended.
+ *
+ * A moved call's end reaches the session as a message, never as the
+ * call's answer, so neither the secret-scrub extension nor a host's tool
+ * round sees it. It is scrubbed here as they would have scrubbed the
+ * answer, read by the call's input, before anything says or keeps it.
  */
 
 import { writeFileSync } from "node:fs";
@@ -30,6 +35,11 @@ import type {
 	EventBus,
 } from "@earendil-works/pi-coding-agent";
 import { sessionEnv } from "../core/session/index.ts";
+import { scrubSavedOutput } from "../internal/secrets/saved-output.ts";
+import {
+	scrubToolPartial,
+	scrubToolResult,
+} from "../internal/secrets/secrets.ts";
 import { count, verb } from "../ui/count.ts";
 import { firstText } from "../ui/tool-result.ts";
 import { findJobHost, type JobCarry } from "./host.ts";
@@ -80,6 +90,11 @@ export interface HandOff<T> {
 	readonly filePrefix: string;
 	/** The call being run, named on its job if it is handed off. */
 	readonly toolCallId?: string;
+	/**
+	 * The call's input, as it started, by which its end is scrubbed once
+	 * moved: a command printing the environment is read as one.
+	 */
+	readonly input?: unknown;
 	/** True to hand off at once; false or unset, after a while. */
 	readonly background?: boolean;
 	/** True when it must answer for itself: never handed off, even when asked. */
@@ -250,13 +265,26 @@ export async function runOrHandOff<T>(
 	// runs in one process, and the file outlives them all.
 	const fileName = `${call.session}-${startedAt}-${job.id}`;
 	running.then(
-		(result) => {
+		(settled) => {
 			const took = spoken(now() - startedAt);
-			const code = exitCodeOf(result);
+			// How it ended holds no output, so it is said even when the
+			// output can't be, lest a command that worked read as one to rerun.
+			const code = exitCodeOf(settled);
 			const status =
 				code === undefined
-					? `${result.isError ? "failed" : "finished"} after ${took}`
+					? `${settled.isError ? "failed" : "finished"} after ${took}`
 					: `exited ${code} after ${took}`;
+			let result: AgentToolResult<T>;
+			try {
+				result = scrubbed(settled, call.input);
+			} catch (failure) {
+				// A result the scrub cannot read is never said as it stands.
+				job.finish({
+					summary: withheldSummary(call.label, status, failure),
+					...(settled.isError ? { failed: true } : {}),
+				});
+				return;
+			}
 			job.finish({
 				summary: finishedSummary(
 					call.label,
@@ -269,15 +297,31 @@ export async function runOrHandOff<T>(
 			});
 		},
 		(error: unknown) => {
-			const said = error instanceof Error ? error.message : String(error);
+			// A command that throws says its output in its error's words.
+			const status = `stopped after ${spoken(now() - startedAt)}`;
+			let said: string;
+			try {
+				const words = error instanceof Error ? error.message : String(error);
+				said = saidBy(
+					scrubbed(
+						{
+							content: [{ type: "text", text: words }],
+							details: undefined,
+							isError: true,
+						},
+						call.input,
+					),
+				);
+			} catch (failure) {
+				// An error the scrub cannot read is never said as it stands.
+				job.finish({
+					summary: withheldSummary(call.label, status, failure),
+					failed: true,
+				});
+				return;
+			}
 			job.finish({
-				summary: finishedSummary(
-					call.label,
-					`stopped after ${spoken(now() - startedAt)}`,
-					said,
-					fileName,
-					keep,
-				),
+				summary: finishedSummary(call.label, status, said, fileName, keep),
 				failed: true,
 			});
 		},
@@ -291,13 +335,69 @@ export async function runOrHandOff<T>(
 					jobId: job.id,
 					afterMs: steered ? now() - startedAt : delay,
 					steered,
-					output: latest,
+					...shownSoFar(latest, call.input),
 					silentForMs: now() - lastOutputAt,
 				}),
 			},
 		],
 		details: undefined,
 	};
+}
+
+/**
+ * A moved call's result with its saved output and its fields scrubbed,
+ * read by the call's input; the same object when it held nothing to hide.
+ */
+function scrubbed<T>(
+	result: AgentToolResult<T>,
+	input: unknown,
+): AgentToolResult<T> {
+	scrubSavedOutput(result, input);
+	const found = scrubToolResult(result, input);
+	return found === undefined ? result : { ...result, ...found };
+}
+
+/**
+ * What a moved call showed before it moved, scrubbed as a stream's update
+ * is, since it is one: a dump's first lines are put out of sight before
+ * five arrive, and a line still being written however short. Nothing
+ * replaces the answer that quotes it, so it is never said as it stands,
+ * and a mark it makes that the settled scrub wouldn't stays; the job's
+ * end says the output as settled. When the scrub can't read it, nothing
+ * of it is quoted, and the answer says why in its own words.
+ */
+function shownSoFar(
+	output: string,
+	input: unknown,
+): { output: string; withheld?: string } {
+	try {
+		const found = scrubToolPartial(
+			{ content: [{ type: "text", text: output }] },
+			input,
+		);
+		const part = found?.content?.[0];
+		return { output: part === undefined ? output : part.text };
+	} catch (failure) {
+		const kind = failure instanceof Error ? failure.name : typeof failure;
+		return {
+			output: "",
+			withheld: `What it has shown so far is withheld, since it could not be scrubbed (${kind}).`,
+		};
+	}
+}
+
+/**
+ * A moved call's end said without its output, which could not be
+ * scrubbed, naming the failure's kind so a scrub that fails every time
+ * shows why; never its message, which may quote the output.
+ */
+export function withheldSummary(
+	label: string,
+	status: string,
+	failure: unknown,
+): string {
+	const kind = failure instanceof Error ? failure.name : typeof failure;
+	return `\`${label}\` ${status}. Its output was withheld, since it could not be scrubbed (${kind}).`;
 }
 
 /** What the call answers once the work has moved to a job. */
@@ -308,6 +408,7 @@ function handOffText<T>(
 		afterMs: number;
 		steered: boolean;
 		output: string;
+		withheld?: string;
 		silentForMs: number;
 	},
 ): string {
@@ -323,7 +424,9 @@ function handOffText<T>(
 		"Carry on with work that does not depend on it. Until then, do not run it again, and do not run anything that needs its result or changes what it is working on.",
 		call.stopping(handed.jobId),
 	];
-	if (handed.output.trim() !== "") {
+	if (handed.withheld !== undefined) {
+		lines.push(handed.withheld);
+	} else if (handed.output.trim() !== "") {
 		lines.push(
 			`Last output, ${spoken(handed.silentForMs)} ago:`,
 			lastLines(handed.output, HAND_OFF_LINES),

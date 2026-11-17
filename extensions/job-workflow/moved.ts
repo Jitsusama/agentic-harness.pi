@@ -38,6 +38,10 @@
  */
 
 import {
+	dumpsEnvironment,
+	scrubSecrets,
+} from "../../lib/internal/secrets/secrets.ts";
+import {
 	isMoveTarget,
 	type MoveTarget,
 	readMoveNote,
@@ -54,6 +58,7 @@ import {
 	finishedSummary,
 	keepInTemp,
 	spoken,
+	withheldSummary,
 } from "../../lib/jobs/hand-off.ts";
 import {
 	JOBS_CARRIED,
@@ -382,14 +387,28 @@ function outcomeOf(
 	at: number,
 ): JobOutcome | undefined {
 	const took = spoken(at - work.startedAt);
-	const say = (status: string, output: string) =>
-		finishedSummary(
+	// The command doesn't travel, so its output is read as a dump when the
+	// process that started it said it prints one, when its label does, or
+	// when its own lines read as one; a credential by its value or shape.
+	const options = {
+		environment: work.dumps === true || dumpsEnvironment(job.label),
+	};
+	const say = (status: string, output: string) => {
+		let said: string;
+		try {
+			said = scrubSecrets(output, undefined, options).text;
+		} catch (failure) {
+			// An output the scrub cannot read is never said as it stands.
+			return withheldSummary(job.label, status, failure);
+		}
+		return finishedSummary(
 			job.label,
 			status,
-			output,
+			said,
 			`${session}-${work.startedAt}-${job.id}`,
 			keepInTemp(session, "pi-bash"),
 		);
+	};
 	switch (end.how) {
 		case "exited":
 			return {
