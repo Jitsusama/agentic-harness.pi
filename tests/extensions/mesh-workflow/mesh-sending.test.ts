@@ -440,6 +440,50 @@ describe("sending", () => {
 		expect(transport.ids()).toHaveLength(2);
 	});
 
+	// WCJQSG's miss of 16 November at 19:24: Joel was asked for an act
+	// he had already done at 19:18, since nothing read the record first.
+	it("refuses a question asking the orchestrator for an act its record says is done", async () => {
+		onQuest();
+		writeFileSync(
+			join(fixture.paths.quests, "QEST-20261021-5GV2AH", "README.md"),
+			"---\nid: QEST-20261021-5GV2AH\nkind: quest\nparent: null\nstatus: active\npriority: active\nrank: 1\nstarted: 2026-10-21\nupdated: 2026-10-21\norchestrator: true\n---\n# QEST-20261021-5GV2AH\n",
+		);
+		peer("session-o", ["5GV2AH"], []);
+		const merged = new Date(Date.now() - 60_000).toISOString();
+		const asked: string[][] = [];
+		fixture.exec = async (command, args) => {
+			asked.push([command, ...args]);
+			const open = args.some((arg) => arg.includes("number: 8"));
+			const pull = open
+				? { reviews: { nodes: [] } }
+				: { mergedAt: merged, reviews: { nodes: [] } };
+			return {
+				code: 0,
+				stdout: JSON.stringify({
+					data: {
+						viewer: { login: "joel" },
+						repository: { pullRequest: pull },
+					},
+				}),
+				stderr: "",
+			};
+		};
+		const { tools } = await startSession();
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		const asking = (number: number) =>
+			`Can you ask Joel to merge https://github.com/acme/widgets/pull/${number}? His acts: 1; the fewest: 1.`;
+
+		expect(await send(tools, "orchestrator", "question", asking(7))).toContain(
+			"Not sent: already done at",
+		);
+		expect(transport.ids()).toEqual([]);
+		expect(asked[0]?.slice(0, 3)).toEqual(["gh", "api", "graphql"]);
+
+		await send(tools, "orchestrator", "question", asking(8));
+		await send(tools, "orchestrator", "fyi", asking(7));
+		expect(transport.ids()).toHaveLength(2);
+	});
+
 	it("refuses a pivot from a session that heads no orchestration", async () => {
 		onQuest();
 		peer("session-q", ["5GV2AH"], ["#quest/5gv2ah/7m6jkg", "#harness"]);

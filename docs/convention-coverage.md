@@ -65,6 +65,8 @@ found.
 | --- | --- | --- |
 | A question for the person's hands counts his acts against the fewest | 🟢 | `extensions/mesh-workflow/joels-hands.ts`, on a question to the orchestrator |
 | A limit on a verdict in his name (approve, block, request changes, comment-only) cites its source: his words quoted just after his name, a message id, a standing rule on something, a document or skill by name, or an owner's ruling by address | 🟢 | `lib/orchestration/unasked-limits.ts`, on an orchestrator's pivot or question and on every spawn note |
+| A question for an act of his (post, review, approve, merge) is not sent once the record it names (a pull request, a Slack link or `#channel`) says it is done | 🟢 | `lib/orchestration/done-acts.ts`, on a question to the orchestrator; a record unread within five seconds lets it through |
+| A question for an act of his names the place it would be done | 🚫 | Replayed over the mesh store's 432 questions to an orchestrator, such a rule refused 30, every one sound |
 | Any other limit an orchestrator adds cites its source | 🚫 | Replayed over a day of one orchestrator's messages and every spawn note, 287 in all, such a rule refused 52, nearly all sound: hardware and network safety, owners' fences, descriptions |
 
 ## Open Gaps
