@@ -126,10 +126,12 @@ export function createSteerer(m: MeshState) {
 				if (one.act === "resume" || !one.act) m.moving.cancel();
 				// Resume with words is a talk; any other act is only the act.
 				if (one.act && !(one.act === "resume" && one.text)) {
-					m.pausing.act(one.act, one.from);
+					// Its time, so a Stop written before the run it would end is dropped.
+					m.pausing.act(one.act, one.from, one.at);
 					return;
 				}
-				m.pausing.talked();
+				// Its time, so a Pause written after it isn't taken as ended by it.
+				m.pausing.talked(one.at);
 				const idle = m.ctx?.isIdle?.() ?? true;
 				// Words that wait for the run to end are read as it ends, idle.
 				const said = steerText(one, {
