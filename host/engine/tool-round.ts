@@ -308,10 +308,12 @@ export class ToolRound {
 			});
 		}
 		const executed = await this.execute(preparation, signal);
-		return this.end(
-			await this.afterCall(preparation, executed),
-			preparation.args,
-		);
+		const settled = await this.afterCall(preparation, executed);
+		// The file the tool saved is found by its own answer, which a hook
+		// that throws or replaces the details would otherwise lose.
+		if (settled.result !== executed.result)
+			scrubSavedOutput(executed.result, preparation.args);
+		return this.end(settled, preparation.args);
 	}
 
 	private async execute(

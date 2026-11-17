@@ -127,7 +127,10 @@ export function scrubOutputFile(
 		if (kinds.length === 0) return [];
 		const staged = `${file}.scrubbing`;
 		try {
-			writeFileSync(staged, text, { mode: 0o600 });
+			// Made afresh, never through a file or link already at that name
+			// in the shared temporary folder.
+			rmSync(staged, { force: true });
+			writeFileSync(staged, text, { mode: 0o600, flag: "wx" });
 			chmodSync(staged, mode & 0o777);
 			renameSync(staged, file);
 		} catch (error) {
