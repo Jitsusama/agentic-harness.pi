@@ -351,7 +351,11 @@ export function seatbeltProfile(
 					...programFolders,
 				].flatMap((to) => above(to, home)),
 			),
-		].map((folder) => `(deny file-write-unlink (literal ${path(folder)}))`),
+		]
+			// As named too, so a folder that is a link can't be removed and
+			// one planted in its place.
+			.flatMap((folder) => [...new Set([quotedPath(folder), path(folder)])])
+			.map((folder) => `(deny file-write-unlink (literal ${folder}))`),
 		...[...new Set(programs)],
 		// What cfprefsd writes for a command, past every file rule:
 		// `defaults write com.apple.Terminal` would set a startup command.

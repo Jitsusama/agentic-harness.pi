@@ -317,6 +317,8 @@ describe("the fence on a Mac", () => {
 		// A hidden folder the fence's own list names, and a program's folder.
 		mkdirSync(join(home, ".local/share/keyrings"), { recursive: true });
 		mkdirSync(join(home, ".bun/bin"), { recursive: true });
+		// pi's agent folder, as a Mac has it, so ~/.pi is bound writable.
+		mkdirSync(join(home, ".pi/agent/sessions"), { recursive: true });
 		for (const kind of ["fence", "strict"] as const) {
 			const made = fenceRunText(
 				{ kind, folder: join(tree, "src"), words: ["true"] },
@@ -346,17 +348,21 @@ describe("the fence on a Mac", () => {
 					? "fence writes the whole tree, as on Linux"
 					: "strict writes only its folder, not the tree's root",
 			).toMatch(kind === "fence" ? /^\(allow / : /^\(deny /);
-			for (const above of [
-				join(home, ".local"),
-				join(home, ".local/state"),
-				join(home, ".pi"),
-				join(home, ".local/share"),
-				join(home, ".bun"),
-			]) {
+			// Strict keeps the whole home from writes, so only fence's
+			// writable home needs the rule, and shows it.
+			for (const above of kind === "fence"
+				? [
+						join(home, ".local"),
+						join(home, ".local/state"),
+						join(home, ".pi"),
+						join(home, ".local/share"),
+						join(home, ".bun"),
+					]
+				: []) {
 				expect(
 					deciding(made.text, above, "file-write-unlink"),
 					`${kind}: ${above} can't be moved aside, taking what's hidden in it`,
-				).toMatch(/^\(deny /);
+				).toMatch(/^\(deny file-write-unlink /);
 			}
 			expect(
 				deciding(made.text, join(tree, ".git"), "file-write*"),

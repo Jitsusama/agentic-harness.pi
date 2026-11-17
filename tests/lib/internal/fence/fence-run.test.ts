@@ -293,6 +293,7 @@ describe("refusing to run where the fence can't hold", () => {
 			tree: string,
 			held: readonly string[],
 			shared?: boolean,
+			platform: NodeJS.Platform = "darwin",
 		) => {
 			mkdirSync(tree, { recursive: true });
 			return fenceRunText(
@@ -305,8 +306,10 @@ describe("refusing to run where the fence can't hold", () => {
 				{
 					env: { PATH: "/usr/bin" },
 					home,
-					platform: "darwin",
-					sandboxExec: "/usr/bin/sandbox-exec",
+					platform,
+					...(platform === "darwin"
+						? { sandboxExec: "/usr/bin/sandbox-exec" }
+						: { sandbox: LAID }),
 					treesRoot: within(""),
 					heldTrees: held,
 				},
@@ -317,6 +320,19 @@ describe("refusing to run where the fence can't hold", () => {
 			const tree = within("worktree-one");
 			const made = inTree(join(tree, "src"), [tree]);
 			expect(made, JSON.stringify(made)).toHaveProperty("text");
+		});
+
+		it("spares the same on Linux: the holder's and a shared one, no other", () => {
+			const one = within("worktree-one");
+			const held = inTree(one, [one], false, "linux");
+			const other = inTree(within("worktree-two"), [one], false, "linux");
+			const shared = inTree(within("worktree-three"), [], true, "linux");
+
+			expect(held, JSON.stringify(held)).toHaveProperty("text");
+			expect(JSON.stringify(other), "another's").toContain(
+				"a work tree its asker doesn't hold",
+			);
+			expect(shared, JSON.stringify(shared)).toHaveProperty("text");
 		});
 
 		it("refuses another session's or quest's tree", () => {
@@ -383,7 +399,14 @@ describe("refusing to run where the fence can't hold", () => {
 				writeFileSync(records, "not a folder");
 				const made = inRecorded("s1", records);
 				expect(JSON.stringify(made), "unread records hold nothing").toContain(
-					"a work tree its asker doesn't hold",
+					`a work tree its asker doesn't hold (the work broker's records at ${records} couldn't be read`,
+				);
+			});
+
+			it("says no session was named, when none was", () => {
+				const made = inRecorded("", recorded());
+				expect(JSON.stringify(made), "names the cause").toContain(
+					"(no PI_SESSION_ID names its session)",
 				);
 			});
 		});

@@ -78,6 +78,22 @@ describe("the fence's mounts as a profile", () => {
 		expect(work, "the folder's grant is last").toBeGreaterThan(home);
 	});
 
+	it("keeps a folder above a closed one from removal by its own name and its link's", () => {
+		const linked = (path: string) =>
+			path.replace("/Users/j/.local/state", "/Volumes/d/state");
+		const { profile } = seatbeltProfile(
+			["--tmpfs", "/Users/j/.local/state/pi"],
+			{ sockets: [], real: linked, home: "/Users/j" },
+		);
+		const lines = profile.split("\n");
+
+		for (const named of ["/Users/j/.local/state", "/Volumes/d/state"]) {
+			expect(lines, named).toContain(
+				`(deny file-write-unlink (literal "${named}"))`,
+			);
+		}
+	});
+
 	it("grants a tree in a hidden folder again after every hide", () => {
 		const { profile } = seatbeltProfile(
 			["--bind", "/Users/j/t", "/Users/j/t"],

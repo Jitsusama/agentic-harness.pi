@@ -48,7 +48,7 @@ import {
 	wrapFor,
 } from "../sandbox.ts";
 import { real, worktreeRepository } from "../tree-git.ts";
-import { cutTreeDir } from "../work-records.ts";
+import { cutTreeDir, treeRecordDir } from "../work-records.ts";
 import { fenceArgs } from "./fence.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
 import { FENCE_HIDDEN } from "./fence-hidden.ts";
@@ -230,7 +230,12 @@ export function fenceRunText(
 		[SANDBOX_VARIABLE]: "fence",
 	};
 	const asker = `pi-fence --kind ${ask.kind}`;
-	const treesRoot = place.treesRoot ?? cutTreeDir();
+	// Every path the held match compares spelled one way, the folder's,
+	// so a home spelled otherwise than its volume neither refuses its
+	// own trees nor loses a tree's .git to a root spelled apart.
+	const spelling = (path: string) =>
+		mac ? onDisk(real(resolve(path))) : real(resolve(path));
+	const treesRoot = spelling(place.treesRoot ?? cutTreeDir());
 	const unfenced = unfencedFolder(folder, home, asker);
 	if (unfenced) return { refused: unfenced };
 	const away = fencedAway(folder, home, asker, {
@@ -238,8 +243,14 @@ export function fenceRunText(
 		held: () =>
 			ask.shared === true
 				? "shared"
-				: (place.heldTrees ??
-					heldBy(place.env.PI_SESSION_ID, treesRoot, place.treeRecords)),
+				: place.heldTrees
+					? { trees: place.heldTrees }
+					: heldBy(
+							place.env.PI_SESSION_ID,
+							treesRoot,
+							place.treeRecords ?? treeRecordDir(),
+						),
+		spelling,
 		mac,
 	});
 	if ("refused" in away) return away;
@@ -317,7 +328,9 @@ function fencedAway(
 		 * The trees the asker holds, or "shared" for the one the caller says
 		 * it was shared, asked only of a folder in the trees.
 		 */
-		readonly held: () => readonly string[] | "shared";
+		readonly held: () => Held | "shared";
+		/** A path as the folder is spelled, for the held match. */
+		readonly spelling: (path: string) => string;
 		readonly mac: boolean;
 	},
 ): { readonly refused: string } | { readonly tree?: string } {
@@ -334,11 +347,12 @@ function fencedAway(
 		if (held === "shared") return { tree };
 		// Only the tree itself, spelled exactly, so a record naming more,
 		// or a neighbour named in other case, never widens it.
-		if (held.some((each) => real(resolve(each)) === tree)) {
+		if (held.trees.some((each) => where.spelling(each) === tree)) {
 			return { tree };
 		}
+		const why = held.why ? ` (${held.why})` : "";
 		return {
-			refused: `${asker} won't run in ${folder}, a work tree its asker doesn't hold, so no command runs. Start it in a tree your session holds, or, from the mycelium node, one shared to the asker, said with --shared-tree.`,
+			refused: `${asker} won't run in ${folder}, a work tree its asker doesn't hold${why}, so no command runs. Start it in a tree your session holds, or, from the mycelium node, one shared to the asker, said with --shared-tree.`,
 		};
 	}
 	const closedFrom = (from: string) => [
@@ -363,23 +377,32 @@ function fencedAway(
 	};
 }
 
+/** The trees an asker holds, and why it holds none where that isn't plain. */
+interface Held {
+	readonly trees: readonly string[];
+	readonly why?: string;
+}
+
 /**
- * The trees the work broker's records give `session`; none when they
- * can't be read, as inside a fence that keeps them, so its tree is
- * refused with a reason rather than a crash.
+ * The trees the work broker's records give `session`; none when no
+ * session is named or the records can't be read, as inside a fence that
+ * keeps them, so its tree is refused saying why rather than crashing.
  */
 function heldBy(
 	session: string | undefined,
 	treesRoot: string,
-	records: string | undefined,
-): readonly string[] {
+	records: string,
+): Held {
+	if (!session) return { trees: [], why: "no PI_SESSION_ID names its session" };
 	try {
-		return records === undefined
-			? brokerTrees(session, treesRoot).held
-			: brokerTrees(session, treesRoot, records).held;
-	} catch {
+		return { trees: brokerTrees(session, treesRoot, records).held };
+	} catch (error) {
 		// Unread records hold nothing, so the tree is refused, never run.
-		return [];
+		const said = error instanceof Error ? error.message : String(error);
+		return {
+			trees: [],
+			why: `the work broker's records at ${records} couldn't be read: ${said}`,
+		};
 	}
 }
 
