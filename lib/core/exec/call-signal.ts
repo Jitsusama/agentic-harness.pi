@@ -123,6 +123,9 @@ export function callSignal(): AbortSignal | undefined {
 	// one still live stands, and a fired one is read as its call's end,
 	// since what an older copy left in a session's context outlives a
 	// reload onto this one and stopped every command until a restart.
+	// The cost: an older copy's call still running loses Escape for the
+	// commands begun after it fires, taken since no package but this one
+	// wraps calls and its older copies leave once a session reloads.
 	if (call?.signal !== signal && !signal?.aborted) return signal;
 	while (call?.ended) call = call.outer;
 	return call?.signal;
