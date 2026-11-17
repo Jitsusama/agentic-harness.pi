@@ -86,6 +86,14 @@ A file read through a scrubbed span can't be edited through that span,
 since the mark in the agent's copy doesn't match what the file holds.
 The mark says why, so the agent edits around it or asks the person.
 
+Nor can the agent's copy be written back. A `write` or an `edit` that
+would add a mark the file doesn't already hold is refused before it
+runs, naming the mark and why: in the file, the mark would replace the
+credential it stands for, as a `.env` read and written back whole would
+lose every one (`lib/internal/secrets/marks.ts`). A mark the file
+already holds, as this scrub's own tests and notes quote one, is
+written as freely as any other words; a new file holds none.
+
 Silent, like every interceptor: the mark tells the agent a secret was
 there, so it knows not to ask for it again. An agent that needs a
 credential passes it by reference (a file, a variable, a helper) rather
