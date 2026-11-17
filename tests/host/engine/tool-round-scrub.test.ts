@@ -189,6 +189,9 @@ describe("a hosted tool round", () => {
 			value,
 		);
 		expect(updates).toContain("[secret scrubbed: PROXY_CRED]");
+		// A lone line no rule knows is said as the settled answer has it, as
+		// security ruled: the update scrubs it only because a dump's first
+		// lines stream before there are five to count.
 		expect(
 			JSON.stringify({
 				end: shown(round.events, "tool_execution_end"),
@@ -214,19 +217,29 @@ describe("a hosted tool round", () => {
 		expect(shown(round.events, "tool_execution_update")[0]).toBe(update);
 	});
 
-	it("shows no streamed update the scrub cannot read, and still settles", async () => {
+	it("says once that it withheld the streamed updates the scrub cannot read, and still settles", async () => {
+		const value = `z9${randomBytes(19).toString("hex")}`;
 		const details: Record<string, unknown> = {};
 		details.self = details;
 		const looped: AgentTool = {
 			name: "bash",
 			async execute(_id, _args, _signal, onUpdate) {
-				onUpdate({ content: [{ type: "text", text: "x" }], details });
+				const update: AgentToolResult = {
+					content: [{ type: "text", text: value }],
+					details,
+				};
+				onUpdate(update);
+				onUpdate(update);
 				return { content: [{ type: "text", text: "done" }] };
 			},
 		};
 		const round = conversation("call-loop", "", { command: "./x" }, looped);
 		const outcome = await round.round.run(round.callId, undefined);
-		expect(shown(round.events, "tool_execution_update")).toEqual([]);
+		const updates = shown(round.events, "tool_execution_update");
+		expect(updates).toHaveLength(1);
+		expect(JSON.stringify(updates)).toContain("withheld");
+		expect(JSON.stringify(updates)).toContain("RangeError");
+		expect(JSON.stringify(updates)).not.toContain(value);
 		expect(outcome.result.content).toEqual([{ type: "text", text: "done" }]);
 	});
 

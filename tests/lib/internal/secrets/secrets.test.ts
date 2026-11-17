@@ -422,14 +422,28 @@ describe("an output that reads as a printing of the environment", () => {
 		expect(scrubSecrets(printed, []).text).not.toContain(access);
 	});
 
-	// The test's timeout bounds this: a rule whose line start reads on past
-	// a newline tries every blank line from every blank line.
 	it("is one with lines a carriage return ends", () => {
 		const access = fresh();
 		const { text } = scrubSecrets(variables(access).join("\r"), []);
 		expect(text).not.toContain(access);
 	});
 
+	it("is one still when a progress line redrawn between its lines counts once", () => {
+		const values = Array.from({ length: 5 }, fresh);
+		const printed = values
+			.map((value, at) => `NAME_${at}=${value}\n  10%\r  50%\r 100%\n`)
+			.join("");
+		const { text } = scrubSecrets(printed, []);
+		for (const value of values) expect(text).not.toContain(value);
+	});
+
+	it("answers at once for a long run of carriage returns", () => {
+		const printed = `${"A=1\rready\r".repeat(100_000)}---`;
+		expect(scrubSecrets(printed, []).text).toBe(printed);
+	});
+
+	// The test's timeout bounds this: a rule whose line start reads on past
+	// a newline tries every blank line from every blank line.
 	it("answers at once for a dump followed by many blank lines", () => {
 		const printed = `${"A=1\n".repeat(5)}${"\n".repeat(200_000)}---`;
 		expect(scrubSecrets(printed, []).text).toBe(printed);
@@ -459,14 +473,14 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 
 	it("has a line setting a secret-looking value scrubbed before five arrive", () => {
 		const value = fresh();
-		const printed = `loading\nPROXY_CRED=${value}`;
+		const printed = `loading\nPROXY_CRED=${value}\n`;
 		const scrubbed = scrubToolPartial(partialOf(printed), {
 			command: "./show-config",
 		});
 		expect(JSON.stringify(scrubbed)).not.toContain(value);
 		expect(scrubbed?.content?.[0]).toEqual({
 			type: "text",
-			text: "loading\nPROXY_CRED=[secret scrubbed: PROXY_CRED]",
+			text: "loading\nPROXY_CRED=[secret scrubbed: PROXY_CRED]\n",
 		});
 	});
 
@@ -503,6 +517,34 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 		}
 	});
 
+	it("keeps a line still being written that sets no one variable", () => {
+		for (const open of [
+			"requests==2.31.0",
+			"    total = compute(x)",
+			"key => value",
+			"level=info msg=listening",
+		]) {
+			expect(
+				scrubToolPartial(partialOf(`building\n${open}`), { command: "./x" }),
+				open,
+			).toBeUndefined();
+		}
+	});
+
+	it("has a line still being written put out of sight past a mark it holds", () => {
+		const known = fresh();
+		const cut = fresh().slice(0, 8);
+		const scrubbed = scrubToolPartial(
+			partialOf(`loading\nCREDENTIALS=${known}:${cut}`),
+			{ command: "./show-config" },
+			[{ name: "FOO_SECRET", value: known }],
+		);
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "loading\nCREDENTIALS=[secret scrubbed: CREDENTIALS]",
+		});
+	});
+
 	it("keeps a short value on a line that has ended", () => {
 		const printed = "PORT=8080\nready";
 		expect(
@@ -512,18 +554,30 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 
 	it("reads a line a carriage return ends, or a colour opens, as one setting a variable", () => {
 		const value = fresh();
-		for (const printed of [
-			`downloading 40%\rPROXY_CRED=${value}\n`,
-			`\x1b[32mPROXY_CRED=${value}\x1b[0m\n`,
+		const mark = "[secret scrubbed: PROXY_CRED]";
+		for (const [before, after] of [
+			["downloading 40%\r", ""],
+			["\x1b[32m", "\x1b[0m"],
+			["downloading 40%\r\x1b[K", ""],
+			["\x1b[2K\r\x1b[?25l", ""],
+			["\x1b[01;31m\x1b[K", "\x1b[m\x1b[K"],
 		]) {
-			const scrubbed = scrubToolPartial(partialOf(printed), {
-				command: "./show-config",
-			});
-			expect(scrubbed, JSON.stringify(printed)).toBeDefined();
-			expect(JSON.stringify(scrubbed), JSON.stringify(printed)).not.toContain(
-				value,
+			const scrubbed = scrubToolPartial(
+				partialOf(`${before}PROXY_CRED=${value}${after}\n`),
+				{ command: "./show-config" },
 			);
+			expect(scrubbed?.content?.[0], JSON.stringify(before)).toEqual({
+				type: "text",
+				text: `${before}PROXY_CRED=${mark}${after}\n`,
+			});
 		}
+	});
+
+	it("keeps a colour's reset, and a value only the reset made look like a secret", () => {
+		const printed = "\x1b[32mEDITOR_THEME=solarizeddarkmode\x1b[0m\nready";
+		expect(
+			scrubToolPartial(partialOf(printed), { command: "./show-config" }),
+		).toBeUndefined();
 	});
 
 	it("is read as a dump's whole when its command prints the environment", () => {
