@@ -37,10 +37,7 @@ const message = (role: string, extra: Record<string, unknown> = {}) => ({
 });
 
 /** A log whose turn ended as it waited on its jobs: it reads as idle. */
-const WAITING = [
-	message("user"),
-	message("assistant", { stopReason: "stop" }),
-];
+const WAITING = [message("user"), message("assistant", { stopReason: "stop" })];
 /** A log that stops on a tool call: killed mid-run. */
 const MID_RUN = [
 	message("user"),
@@ -79,9 +76,7 @@ describe("a session back from a kill", () => {
 		const again = jobRuntime(createEventBus(), SESSION, WAITING);
 		await again.fire("session_start", { reason: "resume" });
 
-		expect(again.said, "the note went with the first telling").toHaveLength(
-			0,
-		);
+		expect(again.said, "the note went with the first telling").toHaveLength(0);
 	});
 
 	it("is told nothing while the pi that noted the jobs still runs", async () => {
@@ -185,9 +180,7 @@ describe("judging the pi a note names", () => {
 
 	it("judges by the pid alone when the start can't be read", () => {
 		noteRunning(SESSION, noted);
-		expect(
-			takeEndedNote(SESSION, undefined, runs(undefined)),
-		).toBeUndefined();
+		expect(takeEndedNote(SESSION, undefined, runs(undefined))).toBeUndefined();
 	});
 
 	it("never takes a pid of 0 or less for a pi", () => {
