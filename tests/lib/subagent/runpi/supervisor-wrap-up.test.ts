@@ -60,7 +60,7 @@ describe("when a stopped reviewer is owed a wrap-up", () => {
 	it.each(["complete", "cancelled", "error"])(
 		"asks nothing when no clock stopped it: %s",
 		(state) => {
-			expect(wrapUpOwed(stoppedRun(), state, false)).toBe(false);
+			expect(wrapUpOwed(stoppedRun(), state, false), "owed").toBe(false);
 			expect(
 				wrapUpRequest(stoppedRun(), state, SESSION, false),
 			).toBeUndefined();
@@ -68,7 +68,7 @@ describe("when a stopped reviewer is owed a wrap-up", () => {
 	);
 
 	it("asks nothing of one that had already handed in a verified answer", () => {
-		expect(wrapUpOwed(stoppedRun(), "timeout", true)).toBe(false);
+		expect(wrapUpOwed(stoppedRun(), "timeout", true), "owed").toBe(false);
 		expect(
 			wrapUpRequest(stoppedRun(), "timeout", SESSION, true),
 		).toBeUndefined();
@@ -77,13 +77,13 @@ describe("when a stopped reviewer is owed a wrap-up", () => {
 	it("asks nothing when its starter spelled out no wrap-up", () => {
 		const { wrapUp: _none, ...waited } = stoppedRun();
 
-		expect(wrapUpOwed(waited, "timeout", false)).toBe(false);
+		expect(wrapUpOwed(waited, "timeout", false), "owed").toBe(false);
 	});
 
 	it("is owed but cannot be asked without a session to resume", () => {
 		// The supervisor warns on this one rather than losing the
 		// reviewer's answer without a word.
-		expect(wrapUpOwed(stoppedRun(), "timeout", false)).toBe(true);
+		expect(wrapUpOwed(stoppedRun(), "timeout", false), "owed").toBe(true);
 		expect(
 			wrapUpRequest(stoppedRun(), "timeout", undefined, false),
 		).toBeUndefined();
@@ -92,7 +92,7 @@ describe("when a stopped reviewer is owed a wrap-up", () => {
 	it("is owed but cannot be asked without a session to resume it with", () => {
 		const run = stoppedRun(["pi.js", "say"]);
 
-		expect(wrapUpOwed(run, "timeout", false)).toBe(true);
+		expect(wrapUpOwed(run, "timeout", false), "owed").toBe(true);
 		expect(wrapUpRequest(run, "timeout", SESSION, false)).toBeUndefined();
 	});
 });
