@@ -4,7 +4,10 @@ import { setTimeout as pause } from "node:timers/promises";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
-import { heapAfterFullCollections } from "../../../host/service/live-heap.ts";
+import {
+	fullCollectionsIn,
+	heapAfterFullCollections,
+} from "../../../host/service/live-heap.ts";
 
 const MB = 1024 * 1024;
 
@@ -89,12 +92,26 @@ describe("heapAfterFullCollections", () => {
 	// them back to back near its limit and in a last-resort collection,
 	// but they give one reading, and a reader waiting for two fresh ones
 	// would otherwise weigh one from before what it waits on.
-	it("counts one reading for several full collections delivered at once", () => {
-		const v8 = fakeV8(900);
-		const heap = heapAfterFullCollections(v8.watch, v8.read);
-		// Three collections Node delivered at once.
-		v8.collect(1200);
-		expect(heap.readings(), "three in one delivery, read once").toBe(1);
+	it("reads once for a delivery holding several full collections", () => {
+		const onFull = vi.fn();
+		const entry = (kind: number) =>
+			performance.mark("gc", { detail: { kind } });
+		const deliver = fullCollectionsIn(onFull);
+		deliver({
+			getEntries: () => [
+				entry(constants.NODE_PERFORMANCE_GC_MAJOR),
+				entry(constants.NODE_PERFORMANCE_GC_MINOR),
+				entry(constants.NODE_PERFORMANCE_GC_MAJOR),
+			],
+		});
+		expect(
+			onFull,
+			"two full collections in one delivery, read once",
+		).toHaveBeenCalledTimes(1);
+		deliver({
+			getEntries: () => [entry(constants.NODE_PERFORMANCE_GC_MINOR)],
+		});
+		expect(onFull, "nothing for a minor one alone").toHaveBeenCalledTimes(1);
 	});
 
 	it("reads the heap as it stands before V8 has collected in full", () => {
@@ -145,9 +162,6 @@ describe("heapAfterFullCollections", () => {
 			read.mock.calls.length,
 			"not after a minor collection, only V8's own full ones",
 		).toBe(seen.majors());
-		expect(heap.readings(), "one reading for each delivery").toBe(
-			read.mock.calls.length,
-		);
 
 		// Cleared, so only this collection can answer the wait.
 		read.mockClear();

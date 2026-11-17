@@ -345,6 +345,103 @@ describe("followWhatStarts", () => {
 		);
 	});
 
+	// A heap restart beside a refill the marks couldn't weigh says so, so
+	// one reading the journal after an out-of-memory end knows why.
+	it("says in its journal when a heap restart came as one parked before the marks were set loaded again", async () => {
+		const { systemctl, calls } = systemd();
+		const timers = manualTimers();
+		const report = vi.fn();
+		let used = 3000 * MB;
+		let parked = true;
+		await followWhatStarts({
+			serving: {
+				held: () =>
+					parked
+						? []
+						: [{ id: "a", begun: 1, state: "idle" as const, since: long }],
+				parked: () => (parked ? ["a"] : []),
+				restartComing: vi.fn(),
+				stopping: () => false,
+			},
+			background: () => 0,
+			// A screen in use, so only the urgent tier restarts it.
+			resting: () => false,
+			report,
+			root: join(install, "versions", "one"),
+			systemctl,
+			cgroupFile: cgroup,
+			pid: 7,
+			heap: () => ({ usedBytes: used, limitBytes: 4144 * MB }),
+			timing: { after: timers.after },
+		});
+		await timers.fire();
+		parked = false;
+		used = 3570 * MB;
+		await timers.fire(() => calls.at(-1)?.[1] === "restart");
+		expect(
+			report.mock.calls
+				.map(([line]) => String(line))
+				.filter((line) => line.startsWith("Restarting")),
+		).toEqual([
+			"Restarting with its heap at 86% of what V8 allows, while a conversation parked or begun before V8's readings caught up loaded again, ending nothing that was running, as its heap holds 3570 of the 4144 MB V8 allows, past half",
+		]);
+	});
+
+	// systemd refusing for good, the unit masked, would otherwise repeat
+	// every label at each retry, as if each restart had happened.
+	it("names what a refused heap restart would end once, and only asks again after", async () => {
+		const { systemctl: plain, calls } = systemd();
+		const systemctl: Systemctl = async (args) => {
+			if (args.includes("restart")) {
+				calls.push([...args]);
+				throw new Error("Unit is masked");
+			}
+			return plain(args);
+		};
+		const timers = manualTimers();
+		const report = vi.fn();
+		let used = 1000 * MB;
+		await followWhatStarts({
+			serving: {
+				held: () => [{ state: "busy" as const, since: lately }],
+				parked: () => [],
+				restartComing: vi.fn(),
+				stopping: () => false,
+			},
+			background: () => 1,
+			holding: () => ["s1: j1 subagent: review"],
+			resting: () => true,
+			report,
+			root: join(install, "versions", "one"),
+			systemctl,
+			cgroupFile: cgroup,
+			pid: 7,
+			heap: () => ({ usedBytes: used, limitBytes: 4144 * MB }),
+			timing: { after: timers.after },
+		});
+		await timers.fire();
+		used = 3400 * MB;
+		for (let refused = 0; refused < 3; refused++) await timers.fire();
+		const said = report.mock.calls.map(([line]) => String(line));
+		expect(
+			calls.filter((call) => call.includes("restart")),
+			"asked three times",
+		).toHaveLength(3);
+		expect(
+			said.filter((line) => line.startsWith("Restarting")),
+			"named once",
+		).toEqual([
+			"Restarting with its heap at 82% of what V8 allows, ending 1 running turn and 1 background job (s1: j1 subagent: review), as its heap holds 3400 of the 4144 MB V8 allows, past half",
+		]);
+		expect(
+			said.filter((line) => line.startsWith("Asking systemd again")),
+			"then only asked again",
+		).toEqual([
+			"Asking systemd again to restart with its heap at 82% of what V8 allows, as it refused the last",
+			"Asking systemd again to restart with its heap at 82% of what V8 allows, as it refused the last",
+		]);
+	});
+
 	it("stops watching V8's collections once it stops following", async () => {
 		const { systemctl } = systemd();
 		const timers = manualTimers();

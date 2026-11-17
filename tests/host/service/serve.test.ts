@@ -282,6 +282,44 @@ describe("serveHost", () => {
 		}
 	});
 
+	// The heap tiers tell a wake by this, and restart-fakes.ts's asleep
+	// stands in for it, so the roster's own shape is pinned here.
+	it("lists a parked conversation as parked and not held, and its wake as begun anew", async () => {
+		let sessionHost: SessionHost | undefined;
+		let events: ConversationEvents | undefined;
+		const serving = await serveHost({
+			...places(),
+			engine: async (h) => {
+				sessionHost = h;
+				return {
+					...engine(h),
+					watch: (given) => {
+						events = given;
+					},
+				};
+			},
+		});
+		try {
+			const reply = await opened(serving.path, "a");
+			if (!reply.ok) throw new Error(reply.error.message);
+			const { sessionId } = parseOpenResult(reply.result);
+			const before = serving.held().find(({ id }) => id === sessionId)?.begun;
+			expect(before, "numbered as it began").toBeDefined();
+			await sessionHost?.stop(sessionId, "parked while idle");
+			expect(serving.parked(), "parked, on the roster").toEqual([sessionId]);
+			expect(serving.held(), "not run").toEqual([]);
+
+			await events?.wake?.(sessionId);
+			expect(serving.parked(), "woken").toEqual([]);
+			expect(
+				serving.held().find(({ id }) => id === sessionId)?.begun,
+				"begun anew",
+			).toBeGreaterThan(before ?? Number.POSITIVE_INFINITY);
+		} finally {
+			await serving.stop();
+		}
+	});
+
 	it("lets a wake under way finish before a stop parks, so it stays held and stops with the rest", async () => {
 		let sessionHost: SessionHost | undefined;
 		let events: ConversationEvents | undefined;

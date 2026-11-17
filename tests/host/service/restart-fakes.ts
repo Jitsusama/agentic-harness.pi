@@ -85,13 +85,14 @@ export function restartsSaid(given: RestartFacts, said: string[]): void {
 	};
 }
 
-// Its resumed conversations park and free their heap, and what fills it
-// again would otherwise climb to where a park failed before acting.
-// Its parked conversations come back when woken, so the heap a park
-// frees isn't room, and counting it so would restart at every wake.
-// A parked conversation leaves what the host runs and stays on its
-// roster, so the fakes list it by parked() and leave it out of held().
-// Each wake begins it anew, as the session host numbers it.
+/**
+ * A host restarting for `heap`, whose conversations park, wake and
+ * close as a case says, with one background job held and a look a
+ * minute; answers those steps, the looks, and the restarts and reports
+ * it said. As the serving host's roster does, a parked conversation is
+ * listed by parked() and left out of held(), and each wake begins it
+ * anew, as the session host numbers it (serve.test.ts pins both).
+ */
 export function asleep(
 	heap: ReturnType<typeof growingHeap>,
 	more: Partial<RestartFacts> = {},

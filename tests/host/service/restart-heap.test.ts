@@ -133,11 +133,14 @@ describe("restartWhenSettled, for its heap", () => {
 		).toEqual(["idle", "idle"]);
 	});
 
-	it("up to 80% of its heap limit, still never restarts mid-turn or with a screen in use", async () => {
-		for (const overrides of [
-			{ held: () => [{ state: "busy" as const, since: lately }] },
-			{ resting: () => false },
-		]) {
+	it("up to 80% of its heap limit, still never restarts mid-turn or with a screen in use, saying what holds it", async () => {
+		for (const [holder, overrides] of [
+			[
+				"1 running turn",
+				{ held: () => [{ state: "busy" as const, since: lately }] },
+			],
+			["a screen in use", { resting: () => false }],
+		] as const) {
 			const timers = manualTimers();
 			const heap = growingHeap(0.3);
 			const { facts: given, said } = facts({
@@ -154,6 +157,12 @@ describe("restartWhenSettled, for its heap", () => {
 				said.filter((line) => !line.startsWith("report:")),
 				"nothing restarted",
 			).toEqual([]);
+			expect(
+				said.filter((line) => line.includes("held by")),
+				"what holds it, said once",
+			).toEqual([
+				`report: Its heap holds 80% of what V8 allows, past what the gap tier restarts for, held by ${holder}`,
+			]);
 		}
 	});
 

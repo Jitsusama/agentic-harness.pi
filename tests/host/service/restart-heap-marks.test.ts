@@ -28,6 +28,9 @@ describe("restartWhenSettled, for what its heap has grown from", () => {
 		});
 		host.wake("a", "b");
 		await host.look(0.75);
+		// Caught up, so they park under marks their wake puts back.
+		readings += 2;
+		await host.look(0.75);
 		host.park("a", "b");
 		readings += 2;
 		await host.look(0.4);
@@ -348,6 +351,10 @@ describe("restartWhenSettled, for what its heap has grown from", () => {
 		expect(host.restarts(), "a heap restart at the gap").toEqual([
 			expect.stringMatching(/"rule":"heap".*: its heap holds 80% /),
 		]);
+		expect(
+			host.restarts().join(),
+			"a marked wake loads nothing the marks missed",
+		).not.toContain('"loading"');
 	});
 
 	// A look asks what would start, which may outlast a collection that
@@ -390,6 +397,25 @@ describe("restartWhenSettled, for what its heap has grown from", () => {
 		expect(heapSaid(), "again once the hour is up").toEqual([
 			first,
 			"report: Its heap holds 77% of what V8 allows, too little grown for a heap restart: the gap tier weighs growth from 77% and the urgent one from 40%",
+		]);
+	});
+
+	// The background host's conversations park and wake all day, and were
+	// each wake to hold the marks up afresh, room a close freed would never
+	// count, and the urgent tier would wait past where a park failed.
+	it("lets the marks fall between wakes that keep coming", async () => {
+		const host = asleep(growingHeap(0.84));
+		host.wake("a", "b", "c");
+		await host.look(0.84);
+		host.close("b");
+		for (let look = 0; look < 40; look++) {
+			if (look % 5 === 0) host.park("c");
+			if (look % 5 === 1) host.wake("c");
+			await host.look(look < 20 ? 0.3 : 0.72);
+			if (host.restarts().length > 0) break;
+		}
+		expect(host.restarts(), "a heap restart at the gap").toEqual([
+			expect.stringMatching(/"rule":"heap".*: its heap holds 72% /),
 		]);
 	});
 
