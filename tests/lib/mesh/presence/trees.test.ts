@@ -8,9 +8,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { localPeer } from "../../../lib/mesh/peer.ts";
-import { createPresences } from "../../../lib/mesh/presence.ts";
-import { repositoryName } from "../../../lib/mesh/scope.ts";
+import { localPeer } from "../../../../lib/mesh/peer.ts";
+import { createPresences } from "../../../../lib/mesh/presence.ts";
+import { repositoryName } from "../../../../lib/mesh/scope.ts";
 
 let root: string;
 const session = "01a1e0aa-0000-7000-8000-000000000262";
