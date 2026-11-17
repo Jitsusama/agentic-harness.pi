@@ -4,7 +4,7 @@
  * process is gone is swept at the next start.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
 	existsSync,
@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	addRootWithNixStore,
+	heldNote,
 	holdInstall,
 	startOf,
 	storePathsOf,
@@ -52,9 +53,11 @@ describe("storePathsOf", () => {
 });
 
 describe("holdInstall", () => {
-	it("roots each store path under a name for the process and its start", async () => {
+	it("roots each store path under a name for the process and its start, sweeping the gone first", async () => {
+		mkdirSync(folder, { recursive: true });
+		writeFileSync(join(folder, "7-100-0"), "");
 		const added: [string, string][] = [];
-		const links = await holdInstall(
+		const held = await holdInstall(
 			[`${NODE}/bin/node`, `${PI}/cli.js`],
 			folder,
 			{ pid: 41, started: "900" },
@@ -63,7 +66,15 @@ describe("holdInstall", () => {
 			},
 			() => undefined,
 		);
-		expect(links).toEqual([join(folder, "41-900-0"), join(folder, "41-900-1")]);
+		expect(held).toEqual({
+			links: [join(folder, "41-900-0"), join(folder, "41-900-1")],
+			missed: [],
+		});
+		expect(heldNote(held)).toBeUndefined();
+		expect(
+			existsSync(join(folder, "7-100-0")),
+			"a gone pi's root is swept",
+		).toBe(false);
 		expect(added).toEqual([
 			[join(folder, "41-900-0"), NODE],
 			[join(folder, "41-900-1"), PI],
@@ -71,7 +82,7 @@ describe("holdInstall", () => {
 	});
 
 	it("roots nothing, and makes no folder, for an install outside the store", async () => {
-		const links = await holdInstall(
+		const held = await holdInstall(
 			["/usr/local/bin/node", "/opt/pi/cli.js"],
 			folder,
 			{ pid: 41, started: "900" },
@@ -79,23 +90,26 @@ describe("holdInstall", () => {
 				throw new Error("asked to root a path outside the store");
 			},
 		);
-		expect(links).toEqual([]);
+		expect(held).toEqual({ links: [], missed: [] });
 		expect(existsSync(folder), "no folder for nothing held").toBe(false);
 	});
 
-	it("names the store path it couldn't root", async () => {
-		await expect(
-			holdInstall(
-				[`${PI}/cli.js`],
-				folder,
-				{ pid: 41, started: "900" },
-				async () => {
-					throw new Error("the daemon said no");
-				},
-				() => undefined,
-			),
-		).rejects.toThrow(
-			`${PI} can't be kept from collection: the daemon said no`,
+	it("names a store path it couldn't root, and still roots the rest", async () => {
+		const held = await holdInstall(
+			[`${NODE}/bin/node`, `${PI}/cli.js`],
+			folder,
+			{ pid: 41, started: "900" },
+			async (_link, storePath) => {
+				if (storePath === NODE) throw new Error("the daemon said no");
+			},
+			() => undefined,
+		);
+		expect(held).toEqual({
+			links: [join(folder, "41-900-1")],
+			missed: [`${NODE}: the daemon said no`],
+		});
+		expect(heldNote(held)).toContain(
+			`subagents and councils would fail until it restarts: ${NODE}: the daemon said no`,
 		);
 	});
 });
@@ -114,6 +128,23 @@ describe("sweepHeld", () => {
 		expect(readdirSync(folder).sort()).toEqual(["10-500-0", "10-500-1"]);
 	});
 
+	it("leaves alone any name it didn't write, such as a link nix-store is still making", () => {
+		mkdirSync(folder, { recursive: true });
+		for (const name of ["12-700-0.tmp-3-1", "notes", "12-700"])
+			writeFileSync(join(folder, name), "");
+		expect(sweepHeld(folder, () => undefined)).toEqual([]);
+		expect(readdirSync(folder).sort()).toEqual([
+			"12-700",
+			"12-700-0.tmp-3-1",
+			"notes",
+		]);
+	});
+
+	it("reads a process that isn't there as gone", () => {
+		const child = spawnSync("true");
+		expect(startOf(child.pid ?? 0)).toBeUndefined();
+	});
+
 	it("reads this process's own start as live", () => {
 		const started = startOf(process.pid);
 		expect(started, "this process has a start").toBeDefined();
@@ -130,18 +161,25 @@ describe.skipIf(!nixStore)("a collection after a switch", () => {
 		// A store path nothing roots, as an old install is after a switch.
 		const source = join(folder, "..", `pi-held-${randomUUID()}`);
 		writeFileSync(source, randomUUID());
-		const storePath = execFileSync("nix-store", ["--add", source], {
+		const added = spawnSync("nix-store", ["--add", source], {
 			encoding: "utf8",
-		}).trim();
+		});
+		// A store this user can't add to can't show a collection either.
+		if (added.status !== 0) return;
+		const storePath = added.stdout.trim();
 		const collect = () =>
 			spawnSync("nix-store", ["--delete", storePath], { encoding: "utf8" });
 		try {
-			const [link] = await holdInstall(
+			const {
+				links: [link],
+				missed,
+			} = await holdInstall(
 				[storePath],
 				folder,
 				{ pid: process.pid, started: startOf(process.pid) ?? "0" },
 				addRootWithNixStore,
 			);
+			expect(missed).toEqual([]);
 			const held = collect();
 			expect(held.status, held.stderr).not.toBe(0);
 			expect(existsSync(storePath), "a held install survives").toBe(true);

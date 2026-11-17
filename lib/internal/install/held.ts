@@ -21,6 +21,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { getParentPiInstall } from "../../subagent/install.ts";
 import { processGlobal } from "../process/process-global.ts";
+import { systemFolders, systemProgram } from "../sandbox/system-program.ts";
 
 /** A store path's own folder: `/nix/store/<hash>-<name>`. */
 const STORE_PATH = /^\/nix\/store\/[0-9a-z]{32}-[^/]+/;
@@ -76,9 +77,14 @@ function rootName(owner: HeldProcess, index: number): string {
 	return `${owner.pid}-${owner.started}-${index}`;
 }
 
+/** A root's name as `rootName` writes it, and nothing else. */
+const ROOT_NAME = /^(\d+)-(\d+)-\d+$/;
+
 /**
  * Remove the roots in `folder` whose process is gone or is another
- * started since, by `startOf`. Returns the names removed.
+ * started since, by `startOf`. Only names this module writes are read,
+ * so a link nix-store is still making is left alone, and a root that
+ * can't be removed is left for a later sweep. Returns the names removed.
  */
 export function sweepHeld(
 	folder: string,
@@ -92,22 +98,49 @@ export function sweepHeld(
 		return [];
 	}
 	return names.filter((name) => {
-		const [pid, started] = name.split("-");
-		const live = start(Number(pid));
-		if (live !== undefined && live === started) return false;
-		rmSync(join(folder, name), { force: true });
-		return true;
+		const parts = ROOT_NAME.exec(name);
+		if (!parts) return false;
+		const live = start(Number(parts[1]));
+		if (live !== undefined && live === parts[2]) return false;
+		try {
+			rmSync(join(folder, name), { force: true });
+			return true;
+		} catch {
+			// Left for the next start's sweep: it only keeps an old install.
+			return false;
+		}
 	});
 }
 
 /** Adds one indirect root at `link` naming `storePath`. */
 export type AddRoot = (link: string, storePath: string) => Promise<void>;
 
+/**
+ * The system's own `nix-store`, never one found on PATH, which a fenced
+ * command could plant (system-program.ts): from the system's profiles,
+ * or the Nix installer's default profile on a Mac.
+ */
+function nixStore(): string | undefined {
+	const folders = [...systemFolders(), "/nix/var/nix/profiles/default/bin"];
+	// Run by the link it was found at, not the program it resolves to:
+	// nix-store is the one `nix` program, which reads what it is from the
+	// name it was run by.
+	const folder = folders.find(
+		(one) => systemProgram("nix-store", [one]) !== undefined,
+	);
+	return folder === undefined ? undefined : join(folder, "nix-store");
+}
+
 /** `nix-store` adding an indirect root, refused after ten seconds. */
 export const addRootWithNixStore: AddRoot = (link, storePath) =>
 	new Promise((resolve, reject) => {
+		const program = nixStore();
+		if (program === undefined) {
+			reject(new Error("the system has no nix-store of its own"));
+			return;
+		}
 		execFile(
-			"nix-store",
+			program,
 			["--add-root", link, "--realise", storePath],
 			{ timeout: ADD_ROOT_MS },
 			(error, _stdout, stderr) =>
@@ -115,10 +148,16 @@ export const addRootWithNixStore: AddRoot = (link, storePath) =>
 		);
 	});
 
+/** What a hold rooted, and why each path it couldn't root wasn't. */
+export interface Held {
+	readonly links: readonly string[];
+	readonly missed: readonly string[];
+}
+
 /**
  * Root each store path among `paths` in `folder` for `owner`, after
- * sweeping the roots of processes that are gone. Resolves to the links
- * made; a path whose root can't be added rejects, naming it.
+ * sweeping the roots of processes that are gone. Each path is tried on
+ * its own, so one refused still leaves the others rooted.
  */
 export async function holdInstall(
 	paths: readonly string[],
@@ -126,35 +165,44 @@ export async function holdInstall(
 	owner: HeldProcess,
 	add: AddRoot = addRootWithNixStore,
 	start: (pid: number) => string | undefined = startOf,
-): Promise<string[]> {
+): Promise<Held> {
 	const storePaths = storePathsOf(paths);
-	if (storePaths.length === 0) return [];
+	if (storePaths.length === 0) return { links: [], missed: [] };
 	sweepHeld(folder, start);
-	mkdirSync(folder, { recursive: true, mode: 0o700 });
+	try {
+		mkdirSync(folder, { recursive: true, mode: 0o700 });
+	} catch (error) {
+		const why = error instanceof Error ? error.message : String(error);
+		return { links: [], missed: storePaths.map((path) => `${path}: ${why}`) };
+	}
 	const links: string[] = [];
+	const missed: string[] = [];
 	for (const [index, storePath] of storePaths.entries()) {
 		const link = join(folder, rootName(owner, index));
 		try {
 			await add(link, storePath);
+			links.push(link);
 		} catch (error) {
 			const why = error instanceof Error ? error.message : String(error);
-			throw new Error(`${storePath} can't be kept from collection: ${why}`);
+			missed.push(`${storePath}: ${why}`);
 		}
-		links.push(link);
 	}
-	return links;
+	return { links, missed };
+}
+
+/** What to tell the person of a hold that missed, or nothing. */
+export function heldNote(held: Held): string | undefined {
+	if (held.missed.length === 0) return undefined;
+	return `A system switch may collect the pi this session runs, so its subagents and councils would fail until it restarts: ${held.missed.join("; ")}`;
 }
 
 /**
  * Hold this process's pi install in `folder`, once however many
  * extension instances or reloads ask: the install taken at start (a
  * host's own, pinned before its conversations load), rooted for this
- * process. A root that can't be added is said through `say`, once.
+ * process. Every caller gets the one hold, to say what it missed.
  */
-export function holdRunningInstall(
-	folder: string,
-	say: (why: string) => void,
-): Promise<string[]> {
+export function holdRunningInstall(folder: string): Promise<Held> {
 	return processGlobal("pi.install.held", () => {
 		const started = startOf(process.pid) ?? "0";
 		let paths: string[];
@@ -162,20 +210,11 @@ export function holdRunningInstall(
 			const install = getParentPiInstall();
 			paths = [install.node, install.entry, install.packageDir ?? ""];
 		} catch (error) {
-			// A process with no install of pi's to read runs nothing of it
-			// from the store to hold.
-			say(
-				`pi's install can't be read, so nothing keeps it from collection: ${String(error)}`,
-			);
-			return Promise.resolve([]);
+			return Promise.resolve({
+				links: [],
+				missed: [`pi's install can't be read: ${String(error)}`],
+			});
 		}
-		return holdInstall(paths, folder, { pid: process.pid, started }).catch(
-			(error: unknown) => {
-				say(
-					`A switch may collect the pi this session runs: ${error instanceof Error ? error.message : String(error)}`,
-				);
-				return [];
-			},
-		);
+		return holdInstall(paths, folder, { pid: process.pid, started });
 	});
 }
