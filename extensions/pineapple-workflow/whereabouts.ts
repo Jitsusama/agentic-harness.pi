@@ -23,6 +23,7 @@
 import { constants } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { processGlobal } from "../../lib/internal/process-global.ts";
 
 /**
  * How many disk calls whereabouts make at once, over every conversation
@@ -31,12 +32,6 @@ import { join } from "node:path";
  * here.
  */
 const AT_ONCE = 2;
-
-/**
- * Where the host's bound is kept: on the process, so every conversation,
- * and every reload of this module, takes its turns from the same one.
- */
-const HOST_GATE = Symbol.for("agentic-harness.pineapple.whereabouts.gate");
 
 /** Turns at the disk: how many are free, and who waits for one. */
 export interface Gate {
@@ -49,24 +44,13 @@ export function createGate(size = AT_ONCE): Gate {
 	return { free: size, waiting: [] };
 }
 
-/** The host's bound, made by whichever conversation asks first. */
+/**
+ * The host's bound, kept on the process, so every conversation, and
+ * every reload of this module, takes its turns from the same one.
+ */
 function hostGate(): Gate {
-	const found: unknown = Reflect.get(globalThis, HOST_GATE);
-	if (isGate(found)) return found;
-	const made = createGate();
-	Reflect.set(globalThis, HOST_GATE, made);
-	return made;
-}
-
-/** Whether `value` is a gate, as an earlier load of this module made it. */
-function isGate(value: unknown): value is Gate {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"free" in value &&
-		typeof value.free === "number" &&
-		"waiting" in value &&
-		Array.isArray(value.waiting)
+	return processGlobal("agentic-harness.pineapple.whereabouts.gate", () =>
+		createGate(),
 	);
 }
 

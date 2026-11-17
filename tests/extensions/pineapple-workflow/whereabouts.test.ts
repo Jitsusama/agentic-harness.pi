@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+	mkdirSync,
 	mkdtempSync,
 	renameSync,
 	rmSync,
@@ -83,7 +84,6 @@ function watchedDisk() {
 	const hidden = new Set<string>();
 	const failing = new Set<string>();
 	const unstamped = new Set<string>();
-	const notPlain = new Set<string>();
 	const how = { hanging: false, listingFails: false, listingTakes: 0 };
 	let calling = 0;
 	/** `work`, counted among the calls under way while it runs. */
@@ -97,16 +97,17 @@ function watchedDisk() {
 		}
 	}
 	const disk: Partial<Disk> = {
-		async list(dir) {
-			seen.listings += 1;
-			if (how.hanging) return new Promise<string[]>(() => undefined);
-			if (how.listingFails) throw stalled();
-			if (how.listingTakes > 0) {
-				// A disk as slow as the case needs, past the patience it sets.
-				await new Promise((done) => setTimeout(done, how.listingTakes));
-			}
-			return (await readdir(dir)).filter((name) => !hidden.has(name));
-		},
+		list: (dir) =>
+			counted(async () => {
+				seen.listings += 1;
+				if (how.hanging) return new Promise<string[]>(() => undefined);
+				if (how.listingFails) throw stalled();
+				if (how.listingTakes > 0) {
+					// A disk as slow as the case needs, past the patience it sets.
+					await new Promise((done) => setTimeout(done, how.listingTakes));
+				}
+				return (await readdir(dir)).filter((name) => !hidden.has(name));
+			}),
 		stamp: (path) =>
 			counted(async () => {
 				if (unstamped.has(basename(path))) throw stalled();
@@ -123,11 +124,10 @@ function watchedDisk() {
 				// Long enough that reads let run together overlap, so the
 				// count of calls at once sees every one.
 				await new Promise((done) => setTimeout(done, 5));
-				if (notPlain.has(basename(path))) return undefined;
 				return await readFile(path, "utf8");
 			}),
 	};
-	return { disk, seen, hidden, failing, unstamped, notPlain, how };
+	return { disk, seen, hidden, failing, unstamped, how };
 }
 
 describe("createWhereabouts", () => {
@@ -257,15 +257,20 @@ describe("createWhereabouts", () => {
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work"]);
 	});
 
-	it("doesn't read a record that isn't a plain file", async () => {
+	it("takes a folder in a record's place as naming no tree", async () => {
 		const cuts = cutsFolder();
 		record(cuts, "mine.json", mine("s1"));
-		// As a pipe would stand, whose reading waits on a writer for good.
-		record(cuts, "pipe.json", { path: "/trees/pipe", sessions: ["s1"] });
+		// Not a plain file, so read as one it would fail the pass for good.
+		mkdirSync(join(cuts, "folder.json"));
 		const watched = watchedDisk();
-		watched.notPlain.add("pipe.json");
-		const where = createWhereabouts(cuts, { disk: watched.disk });
+		const where = createWhereabouts(cuts, {
+			disk: { list: watched.disk.list },
+			now: sinceChanged(cuts, 1_000),
+		});
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
+		// A whole pass, so the settled folder isn't listed again.
+		await where.dirsOf("s1", "/work");
+		expect(watched.seen.listings).toBe(1);
 	});
 
 	it("never waits on a pipe in a record's place", {
