@@ -168,9 +168,10 @@ describe("a recorded job", () => {
 	it("goes with its call's files when its shell is gone with no status", () => {
 		const where = folder();
 		recorded(where, "s1", "j1", 4242);
-		expect(keptJobsOf("s1", where, () => false), "none to take up").toEqual(
-			[],
-		);
+		expect(
+			keptJobsOf("s1", where, () => false),
+			"none to take up",
+		).toEqual([]);
 		expect(listed(where), "its files removed").toEqual([]);
 	});
 

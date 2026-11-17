@@ -83,8 +83,10 @@ export function forgetKeptJob(keep: string): void {
 /** Whether a record read back is one this code wrote. */
 function isKeptJob(value: unknown): value is KeptJob {
 	if (typeof value !== "object" || value === null) return false;
-	const { session, id, kind, label, toolCallId, owner, work } =
-		value as Record<string, unknown>;
+	const { session, id, kind, label, toolCallId, owner, work } = value as Record<
+		string,
+		unknown
+	>;
 	return (
 		typeof session === "string" &&
 		typeof id === "string" &&

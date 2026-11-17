@@ -9,9 +9,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	inSpawnerScope,
 	resetScopeForTests,
+	type ScopeSetting,
 	sayUnscoped,
 	scopeFailed,
-	type ScopeSetting,
 	settingHere,
 	spawnerStart,
 	spawnersScoped,
@@ -87,11 +87,7 @@ describe("starting a host's spawner", () => {
 			{ find: () => undefined },
 			"systemd-run isn't in the system's profile",
 		],
-		[
-			"with no user manager",
-			{ env: {} },
-			"no systemd user manager answers",
-		],
+		["with no user manager", { env: {} }, "no systemd user manager answers"],
 		[
 			"with no manager's socket in its runtime folder",
 			{ exists: () => false },
@@ -109,9 +105,7 @@ describe("starting a host's spawner", () => {
 			args: [],
 			unscoped: why,
 		});
-		expect(spawnersScoped(setting), "nothing keeps a host's calls").toBe(
-			false,
-		);
+		expect(spawnersScoped(setting), "nothing keeps a host's calls").toBe(false);
 	});
 
 	it("runs plain pi's where it always has, with nothing to say", () => {

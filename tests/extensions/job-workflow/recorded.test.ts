@@ -230,9 +230,11 @@ describe("a cut-off once its jobs are taken up", () => {
 	});
 
 	it("still says a run was cut, when one was", () => {
-		expect(
-			leftDead({ ...cut, running: true }, new Set(["j1", "j2"])),
-		).toEqual({ at: 1, running: true, jobs: [] });
+		expect(leftDead({ ...cut, running: true }, new Set(["j1", "j2"]))).toEqual({
+			at: 1,
+			running: true,
+			jobs: [],
+		});
 	});
 
 	it("says nothing of a run its host carried on, once its jobs live on", () => {
