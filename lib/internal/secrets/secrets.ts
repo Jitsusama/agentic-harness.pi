@@ -279,15 +279,17 @@ const NUL = 0;
 
 /**
  * A terminal's escape: a control sequence, as a colour, its reset or a
- * cleared line; a character set chosen; a cursor saved or restored.
+ * cleared line; a command to the terminal, as a link's address, ended by
+ * a bell or a string's end; a character set chosen; a cursor saved or
+ * restored.
  */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
-const ESCAPE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])/g;
+const ESCAPE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|[78=>])/g;
 
 /** A terminal's escape, read where a scan of words stands. */
 const ESCAPE_HERE =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
-	/\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])/y;
+	/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][0-9A-Za-z]|[78=>])/y;
 
 /**
  * A variable's line in a dump: its name, what sits between, its value,
@@ -311,18 +313,30 @@ const WORD_BREAK = /[\s'"=]/;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /**
+ * What follows a value's padding rather than a name's equals: nothing, a
+ * second equals, a space, what ends a list or a statement, an escape, or
+ * a quote that closes there.
+ */
+const PADDING_END =
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape ends a value.
+	/^(?:$|[=\s,;)\]}\x1b]|(['"])(?:$|[\s,;)\]}\x1b]|\1))/;
+
+/**
  * Whether `word`, ending at `at`, is a variable's name: it reads as one,
- * and an equals follows, past any space, with a value straight after.
- * A value's padding, as base64 ends in, is no name's equals.
+ * and an equals follows on its line, past any space or tab, with a value
+ * straight after. A value's padding, as base64 ends in, is no name's
+ * equals.
  */
 function namesAt(text: string, word: string, at: number): boolean {
 	let next = at;
-	while (next < text.length && /\s/.test(text.charAt(next))) next++;
+	while (text.charAt(next) === " " || text.charAt(next) === "\t") next++;
 	if (text.charAt(next) !== "=") return false;
-	const after = text.charAt(next + 1);
-	if (after === "" || after === "=" || /\s/.test(after)) return false;
+	if (PADDING_END.test(text.slice(next + 1, next + 3))) return false;
 	return NAME.test(word.replace(ESCAPE, ""));
 }
+
+/** What joins a path or an address to what follows it in one word. */
+const JOINER = /[\][:,;|()]/;
 
 /**
  * `text` with each word anywhere in it given to `replace`, read in one
@@ -331,7 +345,8 @@ function namesAt(text: string, word: string, at: number): boolean {
  * within it is part of it, so a colour splits no value; an escape this
  * can't read, a cut one among them, ends it. A mark already standing
  * where a secret was is kept and ends a word, so the rest of a value it
- * cut short is read on its own. A variable's name, before its equals,
+ * cut short is read on its own; words shaped as one around what could
+ * be a credential, past its 18-character opening, are no mark. A variable's name, before its equals,
  * is kept (`namesAt`).
  */
 function replaceWords(text: string, replace: (word: string) => string): string {
@@ -340,7 +355,12 @@ function replaceWords(text: string, replace: (word: string) => string): string {
 	const end = (at: number) => {
 		if (word < 0) return;
 		const found = text.slice(word, at);
-		out += namesAt(text, found, at) ? found : replace(found);
+		const kept = namesAt(text, found, at) ? found : replace(found);
+		// A mark straight after a bare escape would be read as its sequence.
+		if (kept !== found && kept.startsWith("[") && out.endsWith("\x1b")) {
+			out += " ";
+		}
+		out += kept;
 		word = -1;
 	};
 	let at = 0;
@@ -349,7 +369,7 @@ function replaceWords(text: string, replace: (word: string) => string): string {
 		if (char === "[") {
 			MARK_HERE.lastIndex = at;
 			const mark = MARK_HERE.exec(text);
-			if (mark) {
+			if (mark && !looksLikeSecret(mark[0].slice(18, -1))) {
 				end(at);
 				out += mark[0];
 				at += mark[0].length;
@@ -379,13 +399,14 @@ function replaceWords(text: string, replace: (word: string) => string): string {
 
 /**
  * A value or a word judged by what a terminal shows of it, its escapes
- * aside, and by each piece they or a bracket part: put out of sight as
- * `kind` when either could be a credential, so a path or an address an
- * escape or a bracket joins to a token exempts nothing, the escapes that open and close it kept; undefined
+ * aside, and by each piece they or a joiner (a bracket, a colon, a
+ * comma, a semicolon, a bar) part: put out of sight as `kind` when either
+ * could be a credential, so a path or an address joined to a token
+ * exempts nothing, the escapes that open and close it kept; undefined
  * when neither could. The escapes are found by one walk over them.
  */
 function hidden(word: string, kind: string): string | undefined {
-	const pieces = word.split(ESCAPE).flatMap((piece) => piece.split("]"));
+	const pieces = word.split(ESCAPE).flatMap((piece) => piece.split(JOINER));
 	const could =
 		looksLikeSecret(word.replace(ESCAPE, "")) ||
 		pieces.some((piece) => looksLikeSecret(piece));
