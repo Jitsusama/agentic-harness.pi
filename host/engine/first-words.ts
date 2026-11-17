@@ -17,5 +17,11 @@ export interface FirstWords {
 
 /** Settles once the first words are held or taken, or rejects as pi's prompt does. */
 export function firstWordsHeld(words: FirstWords): Promise<void> {
-	return Promise.race([words.admitted, words.taken, words.prompting]);
+	// pi answers at once for words it only queued behind a run under way, or
+	// put off while a run settled: durable holds those only once a run takes
+	// them. A run pi started for them was admitted before it answers.
+	const answered = words.prompting.then(() =>
+		words.started() ? undefined : words.admitted,
+	);
+	return Promise.race([words.admitted, words.taken, answered]);
 }
