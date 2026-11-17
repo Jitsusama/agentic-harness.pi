@@ -302,6 +302,68 @@ describe("restartWhenSettled", () => {
 		expect(said).toEqual([]);
 	});
 
+	// From 05:02 on 17 November a drain held every wake of 13 parked
+	// sessions while background work kept its restart past the ceiling.
+	it("says it waits for a gap once past the ceiling, and no longer as its restart is asked", async () => {
+		let clock = NOW;
+		let background = 1;
+		const timers = manualTimers();
+		const waits: boolean[] = [];
+		const { facts: given, said } = facts({
+			background: () => background,
+			waitsForGap: (waiting) => waits.push(waiting),
+			now: () => clock,
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(waits, "before the ceiling").toEqual([]);
+
+		clock += SETTLE_CEILING_MS;
+		await timers.fire();
+		await timers.fire();
+		expect(waits, "at each gap look past it").toEqual([true, true]);
+
+		background = 0;
+		await timers.fire();
+		expect(said, "restarted").toContain("restart: the install moved");
+		expect(waits, "no longer, as the restart is asked").toEqual([
+			true,
+			true,
+			false,
+		]);
+	});
+
+	// Wakes let through while it stops would be refused, not left for the next host.
+	it("says it waits for a gap no longer once the host begins stopping", async () => {
+		let stopping = false;
+		const timers = manualTimers();
+		const waits: boolean[] = [];
+		const { facts: given } = facts({
+			background: () => 1,
+			stopping: () => stopping,
+			waitsForGap: (waiting) => waits.push(waiting),
+		});
+		restartWhenSettled(given, { after: timers.after, ceilingMs: 0 });
+		await timers.fire();
+		stopping = true;
+		await timers.fire();
+		expect(waits).toEqual([true, false]);
+	});
+
+	it("reports a throw saying it waits for a gap, and looks again", async () => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			background: () => 1,
+			waitsForGap: () => {
+				throw new Error("unwoken");
+			},
+		});
+		restartWhenSettled(given, { after: timers.after, ceilingMs: 0 });
+		await timers.fire();
+		expect(said, "reported").toContain("report: Error: unwoken");
+		expect(timers.pending(), "the next look is set").toHaveLength(1);
+	});
+
 	it("reports a look that failed and looks again", async () => {
 		const timers = manualTimers();
 		const { facts: given, said } = facts({

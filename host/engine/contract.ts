@@ -170,6 +170,14 @@ export interface HostEngine extends ConversationEngine {
 	 */
 	carries(): boolean;
 	/**
+	 * Whether the restart a drain readies is past its ceiling, waiting for
+	 * a gap: while it is, wake each parked conversation asked for through
+	 * its file or a steer at once, the drain itself staying for the gap.
+	 * Answers how many held wakes it woke as it began, so the host journals
+	 * that once; nothing otherwise (parking.ts `letThrough`).
+	 */
+	letWakesThrough(on: boolean): number | undefined;
+	/**
 	 * As a stop that carries ends the host, once every conversation has
 	 * parked: keep the bash calls they carried alive through the stop, out
 	 * of the host's cgroup, and write them down for the next host.

@@ -215,6 +215,15 @@ export async function startHostProgram(
 		// runHost answers only once its engine is made.
 		background: () => engine?.background() ?? 0,
 		holding: () => engine?.holding() ?? [],
+		// Background work can put a gap off for hours, and a drain held every
+		// wake meanwhile: on 17 November 13 parked sessions sat on theirs.
+		waitsForGap: (waiting) => {
+			const woken = engine?.letWakesThrough(waiting);
+			if (woken !== undefined)
+				report(
+					`Restart past its ceiling: the drain lets wakes through from now, staying for a gap; ${woken} held until now woken`,
+				);
+		},
 		resting: () => screens.resting(),
 		report,
 	}).catch((error: unknown) => {

@@ -152,6 +152,12 @@ export interface RestartFacts {
 	/** Whether every screen shows only an empty editor, with nobody in one. */
 	resting(): boolean;
 	/**
+	 * Whether the restart is past its ceiling and waits for a gap, so a
+	 * drain for it holds wakes no longer: said at each look that waits
+	 * for one, and not as the restart is asked or while the host stops.
+	 */
+	waitsForGap?(waiting: boolean): void;
+	/**
 	 * Whether the host has begun stopping. Its parked conversations look
 	 * settled, but they parked mid-turn: on 13 November a stop for a throw
 	 * passed for a quiet moment, and the host asked for a restart on top.
@@ -227,6 +233,7 @@ export function restartWhenSettled(
 			facts.report(error);
 		}
 		if (stopped) return;
+		if (next === "gap") waitsForGap(!facts.stopping());
 		cancel =
 			next === "restarting"
 				? after(options.restartDueMs ?? RESTART_DUE_MS, () => void dropped())
@@ -234,6 +241,15 @@ export function restartWhenSettled(
 						next === "gap" ? (options.gapLookMs ?? GAP_LOOK_MS) : lookMs,
 						() => void look(),
 					);
+	}
+
+	// A throw here is reported, never ending the looks.
+	function waitsForGap(waiting: boolean): void {
+		try {
+			facts.waitsForGap?.(waiting);
+		} catch (error) {
+			facts.report(error);
+		}
 	}
 
 	async function dropped(): Promise<void> {
@@ -292,6 +308,7 @@ export function restartWhenSettled(
 		const under = mayRestart();
 		if (under === undefined) return pastCeiling() ? "gap" : "look";
 		// Before systemctl, since systemd may stop the host before it answers.
+		waitsForGap(false);
 		facts.expect(true);
 		try {
 			await facts.restart(why, under);
@@ -323,6 +340,8 @@ export interface Following {
 	holding?(): readonly string[];
 	/** Whether every screen is at rest (screens.ts). */
 	resting(): boolean;
+	/** Whether the restart waits for a gap past its ceiling (restartWhenSettled). */
+	waitsForGap?(waiting: boolean): void;
 	report(error: unknown): void;
 	/** The version the host runs; its own package root by default. */
 	readonly root?: string;
@@ -398,6 +417,7 @@ export async function followWhatStarts(
 			held: () => options.serving.held(),
 			background: options.background,
 			...(options.holding ? { holding: options.holding } : {}),
+			...(options.waitsForGap ? { waitsForGap: options.waitsForGap } : {}),
 			resting: options.resting,
 			stopping: () => options.serving.stopping(),
 			expect: (coming) => options.serving.restartComing(coming),

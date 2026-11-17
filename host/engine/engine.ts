@@ -421,6 +421,8 @@ export async function createEngine(
 			return held;
 		},
 
+		letWakesThrough: (on) => parked.letThrough(on),
+
 		drain(on) {
 			host.drain(on);
 			if (!on) parked.release();

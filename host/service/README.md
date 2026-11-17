@@ -221,7 +221,9 @@ restart would end that work. Drain, with `on`, readies the host for a
 restart when its conversations' turns overlap so no moment comes with none
 running: each parks as soon as its park rule holds, idle time aside; a
 wake through its file or a steer waits on disk for the lift or the next
-host, while a window opening or a viewer typing still wakes it, and that
+host, until the restart passes its settle ceiling and waits for a gap,
+when those held wake and the rest go through at once, said once in the
+journal, until the restart is asked or the host stops; a window opening or a viewer typing still wakes it, and that
 one isn't drained again; and a heavy run (a build, a check, a suite,
 `host/engine/heavy.ts`) holds the restart, carried or not. It answers the
 counts busy, idle and parked and the heavy runs going, and the journal

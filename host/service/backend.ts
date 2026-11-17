@@ -97,7 +97,8 @@ export interface ConversationEngine {
 	/**
 	 * Start or lift a drain for a restart: while it lasts each
 	 * conversation parks as soon as its park rule holds, idle time aside,
-	 * a wake through its file or a steer waits for the lift, and a heavy
+	 * a wake through its file or a steer waits for the lift (or for its
+	 * restart to pass the settle ceiling, `letWakesThrough`), and a heavy
 	 * run holds the host's restart. Answers with the heavy runs going
 	 * now, a line each. An engine that can't drain leaves it out.
 	 */
