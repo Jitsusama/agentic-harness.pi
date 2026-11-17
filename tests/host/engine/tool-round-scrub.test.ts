@@ -232,6 +232,42 @@ describe("a hosted tool round", () => {
 		}
 	});
 
+	it("rewrites no file a trailer names in the words of a call that didn't fail", async () => {
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const file = path.join(
+			os.tmpdir(),
+			`pi-bash-${randomBytes(8).toString("hex")}.log`,
+		);
+		fs.writeFileSync(file, `OP_SESSION_ab12=${value}\n`, { mode: 0o600 });
+		// Output may quote a trailer, as a log of an earlier call holds one.
+		const quoting: AgentTool = {
+			name: "bash",
+			async execute() {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `[Showing lines 1-1 of 1. Full output: ${file}]`,
+						},
+					],
+					details: {},
+				};
+			},
+		};
+		try {
+			const quoted = conversation(
+				"call-quoting",
+				"",
+				{ command: "printenv" },
+				quoting,
+			);
+			await quoted.round.run(quoted.callId, undefined);
+			expect(fs.readFileSync(file, "utf8")).toContain(value);
+		} finally {
+			fs.rmSync(file, { force: true });
+		}
+	});
+
 	it("scrubs the saved output a hook's replaced details no longer name", async () => {
 		const file = path.join(
 			os.tmpdir(),

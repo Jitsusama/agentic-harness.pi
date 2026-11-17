@@ -155,6 +155,15 @@ describe("a printing of the environment, however it is asked for", () => {
 		"docker compose config",
 		"systemctl show -p Environment nginx",
 		"kubectl set env deploy/web --list",
+		"echo 'import os; print(os.environ)' | python3 -u",
+		"echo 'import os; print(os.environ)' | python3 2>&1",
+		"echo 'import os; print(os.environ)' | sudo -E python3",
+		"printf 'console.log(process.env)' | /usr/bin/env node",
+		"env --unset HOME | sort",
+		"env -iu HOME",
+		"env -0u HOME",
+		"env -P /usr/bin",
+		"bash -lc set",
 	];
 	for (const command of dumps) {
 		it(`is known as one: ${command}`, () => {
@@ -186,6 +195,9 @@ describe("a printing of the environment, however it is asked for", () => {
 		"cat package.json | node scripts/check.js",
 		"docker compose up -d",
 		"systemctl show nginx",
+		'env "FOO=1" make',
+		"env 'NODE_OPTIONS=--max-old-space-size=4096' node build.js",
+		"env --chdir /srv make",
 	];
 	for (const command of runs) {
 		it(`is not one: ${command}`, () => {
@@ -206,6 +218,15 @@ describe("a printing of the environment, however it is asked for", () => {
 		expect(
 			dumpsEnvironment(`env${" A=1".repeat(28)} x`),
 			"env setting variables then a command runs the command",
+		).toBe(false);
+	});
+
+	// The test's timeout bounds this: a rule that reads an interpreter's
+	// words across lines tries every later line from each one it names.
+	it("answers at once for a long command naming an interpreter on each line", () => {
+		expect(
+			dumpsEnvironment("echo node x\n".repeat(20_000)),
+			"no script is run",
 		).toBe(false);
 	});
 
@@ -353,6 +374,34 @@ describe("an output that reads as a printing of the environment", () => {
 		].join("\n");
 		const { text } = scrubSecrets(printed, []);
 		expect(text.includes(access), "a value of no known name is gone").toBe(
+			false,
+		);
+	});
+
+	it("has a value's every word read as env prints it, unquoted", () => {
+		const access = fresh();
+		const printed = [
+			...variables(fresh()).slice(0, 4),
+			`PROXY_AUTH=Basic ${access}`,
+		].join("\n");
+		expect(readsAsDump(printed), "a spaced value sets one variable").toBe(
+			true,
+		);
+		expect(scrubSecrets(printed, []).text).not.toContain(access);
+	});
+
+	it("has the rest of a value read when a mark cut it short", () => {
+		const known = fresh();
+		const access = fresh();
+		const printed = [
+			...variables(fresh()),
+			`CREDENTIALS=${known}:${access}`,
+		].join("\n");
+		const { text } = scrubSecrets(printed, [
+			{ name: "FOO_SECRET", value: known },
+		]);
+		expect(text.includes(known), "the known value is gone").toBe(false);
+		expect(text.includes(access), "the rest of the value is gone").toBe(
 			false,
 		);
 	});

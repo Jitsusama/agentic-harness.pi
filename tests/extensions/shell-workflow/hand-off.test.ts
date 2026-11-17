@@ -503,11 +503,13 @@ describe("a moved command's printing of the environment", () => {
 	it("withholds its output when the scrub cannot read the answer", async () => {
 		const { text, values } = dump();
 		const { running, ended } = await moved("printenv", { background: true });
-		const structuredContent: JsonObject = { output: text };
+		const structuredContent: JsonObject = { output: text, exit_code: 0 };
 		structuredContent.self = structuredContent;
 		running.end({ ...said(text), structuredContent });
 		const outcome = await ended();
-		expect(outcome).toMatchObject({ failed: true });
+		// How it ended holds nothing to hide, so a command that worked says so.
+		expect(outcome?.failed, "it exited 0").not.toBe(true);
+		expect(outcome?.summary).toContain("exited 0");
 		for (const value of values) {
 			expect(
 				outcome?.summary.includes(value),
