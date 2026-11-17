@@ -190,6 +190,15 @@ describe("parking a session", () => {
 		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
+	it("stays awake where the switch can't be read, and says so", () => {
+		rmSync(parkSwitch(folder));
+		mkdirSync(parkSwitch(folder));
+		const watched = watching();
+		clock = PARK_AFTER_MS * 2;
+		expect(watched.look()).toBe("the park switch can't be read");
+		expect(exits).toEqual([]);
+	});
+
 	it("names its holder the command that opens its log, to wake with", () => {
 		const watched = watching();
 		clock = NAMED_PARK_AFTER_MS;
@@ -1078,11 +1087,15 @@ describe("why a session stays awake", () => {
 		host.host.park = (id) => asked.push(id);
 		host.host.draining = () => true;
 		try {
-			const watched = watching(session(), {
-				MYCELIUM_WAKE: join(folder, "conversation.wake"),
-				PI_PARK: "off",
-			});
-			expect(watched.look()).toBe("parking is off");
+			// Any PI_PARK but on keeps it awake, as it does undrained.
+			for (const said of ["off", "0", "false", "no"]) {
+				const watched = watching(session(), {
+					MYCELIUM_WAKE: join(folder, "conversation.wake"),
+					PI_PARK: said,
+				});
+				expect(watched.look(), `PI_PARK=${said}`).toBe("parking is off");
+				watched.stop();
+			}
 			expect(asked).toEqual([]);
 		} finally {
 			host.dispose();

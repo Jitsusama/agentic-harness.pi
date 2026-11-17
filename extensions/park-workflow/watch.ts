@@ -478,14 +478,21 @@ export function watch(
 		(options.exitWith ?? exitWith)(PARKED_EXIT);
 		void ctx.shutdown();
 	};
+	// Why parking is off for it: a switch that can't be read keeps it
+	// awake as one saying off does, but asks for a different fix.
+	const offBecause = (): string =>
+		switchUnreadable(options.switchPath)
+			? "the park switch can't be read"
+			: "parking is off";
 	const decide = (): string | undefined => {
 		if (parked) return "parking already";
 		// A watch begun before a host was installed still never ends it.
 		if (hosted() && !parkingHost()) return HOST_PARKS;
 		const ask: ParkAsk = { session, refusals: [] };
 		const afterMs = dueAfterMs();
+		if (afterMs === undefined) return offBecause();
 		// Others are asked only once it is due, since asking reads the board.
-		if (afterMs !== undefined && now() - last >= afterMs) {
+		if (now() - last >= afterMs) {
 			bus.emit(PARK_ASK, ask);
 		}
 		const why = whyNotPark({
@@ -557,9 +564,7 @@ export function watch(
 		if (parked) return "parking already";
 		if (hosted()) return HOST_PARKS;
 		if (parkAfterMs(session, options.env, options.switchPath) === undefined) {
-			return switchUnreadable(options.switchPath)
-				? "the park switch can't be read"
-				: "parking is off";
+			return offBecause();
 		}
 		const ask: ParkAsk = { session, refusals: [], restart: true };
 		bus.emit(PARK_ASK, ask);

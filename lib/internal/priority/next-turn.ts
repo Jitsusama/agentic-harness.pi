@@ -473,16 +473,33 @@ export function waitReasons(
  * evening of 5 November four fetches of main waited up to 75 minutes
  * behind one already running, each to fetch the same commits again
  * (80ECO2). Like a VM held to its count, it lets the jobs behind it past.
+ *
+ * Rules holding walks below {@link WALKS_AT_ONCE} count only the walks
+ * started within {@link JOINS_FOR_MS}, as a fetch of main is joined for
+ * no longer, so one walk that hangs on a Mac holds the next no longer
+ * than that; past it, the usual count holds.
  */
 function walkWaits(
 	job: Job,
-	walks: number,
+	walks: Walks,
 	fetching: boolean,
 	rules: Rules,
 ): boolean {
 	if (job.kind !== "world-walk") return false;
 	const most = rules.walksAtOnce ?? WALKS_AT_ONCE;
-	return walks >= most || (job.walk === "main-fetch" && fetching);
+	const held = most < WALKS_AT_ONCE ? walks.lately : walks.running;
+	return (
+		walks.running >= WALKS_AT_ONCE ||
+		held >= most ||
+		(job.walk === "main-fetch" && fetching)
+	);
+}
+
+/** The walks of World's objects running, and those started lately. */
+interface Walks {
+	running: number;
+	/** Started within {@link JOINS_FOR_MS}. */
+	lately: number;
 }
 
 /**
@@ -555,7 +572,7 @@ function standing(
 	settling: boolean;
 	builds: number;
 	quick: { running: number; left: number };
-	walks: number;
+	walks: Walks;
 } {
 	// An answered fetch walks nothing and holds no memory to speak of.
 	const running = jobs.filter(
@@ -581,6 +598,7 @@ function standing(
 		(rules.buildsWaitForVmChecks &&
 			(running.some((job) => job.kind === "vm-check") || room.vms > tests)) ||
 		running.some((job) => job.kind === "stamp");
+	const walking = running.filter((job) => job.kind === "world-walk");
 	const stillQuick = (job: Job) =>
 		isQuick(job) && now - Date.parse(job.started as string) < QUICK_OUTRUN_MS;
 	const quickRunning = running.filter(stillQuick).length;
@@ -610,7 +628,12 @@ function standing(
 		settling: vmSettling(running, now),
 		builds,
 		quick,
-		walks: running.filter((job) => job.kind === "world-walk").length,
+		walks: {
+			running: walking.length,
+			lately: walking.filter(
+				(job) => now - Date.parse(job.started as string) < JOINS_FOR_MS,
+			).length,
+		},
 	};
 }
 

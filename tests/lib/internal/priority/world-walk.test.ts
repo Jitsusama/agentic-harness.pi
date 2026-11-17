@@ -148,6 +148,31 @@ describe("a walk of World's objects", () => {
 		expect(nextTurn(jobs, plenty, NOW)?.id).toBe("two");
 	});
 
+	it("stops holding a Mac's walks behind one that has hung", () => {
+		const plenty = { ...ROOMY, availableGib: 100 };
+		const fetch = (started: string) =>
+			job("fetch", { kind: "world-walk", what: "git fetch", started });
+		const full = job("push", {
+			kind: "world-walk",
+			what: "git push",
+			walk: "push",
+			since: startedAgo(9_000),
+		});
+
+		const lately = [fetch(startedAgo(JOINS_FOR_MS - 60_000)), full];
+		expect(nextTurn(lately, plenty, NOW, MAC_RULES)).toBeUndefined();
+		const hung = [fetch(startedAgo(JOINS_FOR_MS + 1_000)), full];
+		expect(nextTurn(hung, plenty, NOW, MAC_RULES)?.id).toBe("push");
+		// The usual count still holds, however long its walks have run.
+		const two = [
+			fetch(startedAgo(JOINS_FOR_MS + 1_000)),
+			{ ...fetch(startedAgo(JOINS_FOR_MS + 2_000)), id: "fetch-2" },
+			full,
+		];
+		expect(nextTurn(two, plenty, NOW, MAC_RULES)).toBeUndefined();
+		expect(nextTurn(two, plenty, NOW)).toBeUndefined();
+	});
+
 	describe("a quick push on a Mac", () => {
 		const long = startedAgo(RAMP_MS + 60_000);
 		const plenty = { ...ROOMY, availableGib: 100 };
