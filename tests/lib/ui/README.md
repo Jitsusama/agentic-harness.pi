@@ -6,5 +6,5 @@ pieces they draw with, each against a fake pi screen
 terminal.
 
 Many entries because they mirror `lib/ui`, which is past 40 itself
-and waits in `tests/package/long-files-waiting.txt`; splitting the
+and waits in `tests/package/code/long-files-waiting.txt`; splitting the
 tests before the library would leave them mirroring nothing.

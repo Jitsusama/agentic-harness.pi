@@ -147,7 +147,7 @@ Answering with a path on disk is the same bargain by another road
 and is equally acceptable: `web_read` returns a bundle manifest
 and `subagent` names each fan-out result file.
 
-`tests/package/stored-results.test.ts` checks that every
+`tests/package/tools/stored-results.test.ts` checks that every
 tool-registering extension has been accounted for one way or the
 other, so a new tool cannot quietly skip the question.
 
