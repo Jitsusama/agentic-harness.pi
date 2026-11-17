@@ -9,6 +9,10 @@ scrubber, the stored results and the secret-run tool.
   secret-asks daemon reads it, and the answer it writes beside it; only
   pi asks, from outside the fence, and an ask the daemon would refuse is
   refused before it's written.
+- **`saved-output.ts`**: the file pi or pi-durable saved a long
+  command's whole output to, scrubbed as its answer is, by the
+  secret-scrub extension and by a host's tool round alike.
 - **`secrets.ts`**: the shapes a credential takes in a tool's output,
   and how one is replaced by a mark naming its kind, for the answers,
-  the saved output and the stored results that hold them.
+  the saved output and the stored results that hold them; and one
+  scrub of a tool's whole answer, read by the call's input.

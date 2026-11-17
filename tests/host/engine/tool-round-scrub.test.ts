@@ -1,6 +1,9 @@
 /**
- * Two hosted conversations' tool rounds put a printed credential out of
- * sight in every streamed update and in the result durable commits.
+ * Hosted conversations' tool rounds put a printed credential out of sight
+ * in every streamed update, in the result durable commits and in the file
+ * the whole output was saved to; and a command that prints the
+ * environment, read by the arguments it ran with, has every value that
+ * could be a credential scrubbed, as the secret-scrub extension does.
  *
  * A host streams each update to whoever watches the conversation and
  * keeps the result in its durable store, so a key a command printed
@@ -8,6 +11,9 @@
  * the conversation loads the secret-scrub extension.
  */
 import { randomBytes } from "node:crypto";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type {
 	AgentEvent,
@@ -65,6 +71,7 @@ function conversation(
 	callId: string,
 	printed: string,
 	args?: Record<string, unknown>,
+	tool: AgentTool = bash(printed),
 ) {
 	const events: AgentEvent[] = [];
 	const seenByHook: AgentToolResult[] = [];
@@ -83,7 +90,7 @@ function conversation(
 			},
 		},
 		answer(callId, args),
-		{ messages: [], tools: [bash(printed)] },
+		{ messages: [], tools: [tool] },
 		undefined,
 	);
 	return { round, events, seenByHook, callId };
@@ -150,6 +157,66 @@ describe("a hosted tool round", () => {
 			value,
 		);
 		expect(everything).toContain("[secret scrubbed: OP_SESSION_ab12]");
+	});
+
+	it("scrubs a printed environment's saved output file, with no extension loaded", async () => {
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const file = path.join(
+			os.tmpdir(),
+			`pi-bash-${randomBytes(8).toString("hex")}.log`,
+		);
+		const spilling: AgentTool = {
+			name: "bash",
+			async execute() {
+				fs.writeFileSync(file, `OP_SESSION_ab12=${value}\nHOME=/h\n`, {
+					mode: 0o600,
+				});
+				return {
+					content: [{ type: "text", text: "HOME=/h" }],
+					details: { fullOutputPath: file },
+				};
+			},
+		};
+		try {
+			const dump = conversation(
+				"call-spill",
+				"",
+				{ command: "printenv" },
+				spilling,
+			);
+			await dump.round.run(dump.callId, undefined);
+			expect(fs.readFileSync(file, "utf8")).toBe(
+				"OP_SESSION_ab12=[secret scrubbed: OP_SESSION_ab12]\nHOME=/h\n",
+			);
+		} finally {
+			fs.rmSync(file, { force: true });
+		}
+	});
+
+	it("reads a dump by the arguments the call ran with, as its preparation left them", async () => {
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const prepared: AgentTool = {
+			...bash(`OP_SESSION_ab12=${value}`),
+			// As a tool repairs an older call's arguments into the ones it runs.
+			prepareArguments: (args) => ({
+				command:
+					typeof args === "object" && args !== null
+						? Reflect.get(args, "script")
+						: undefined,
+			}),
+		};
+		const dump = conversation(
+			"call-prepared",
+			"",
+			{ script: "printenv" },
+			prepared,
+		);
+		const outcome = await dump.round.run(dump.callId, undefined);
+		const everything = JSON.stringify({
+			updates: shown(dump.events, "tool_execution_update"),
+			outcome,
+		});
+		expect(everything).not.toContain(value);
 	});
 
 	it("reads the same value as ordinary output when the command prints no environment", async () => {

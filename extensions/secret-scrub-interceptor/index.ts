@@ -20,7 +20,7 @@
  * three; a picture is handed on as it is. A result with nothing to hide
  * is handed on untouched. The file a long command's whole output was
  * saved to, by pi or by a host's pi-durable bash, is scrubbed too
- * (`output-file.ts`), and so is each payload the
+ * (`lib/internal/secrets/saved-output.ts`), and so is each payload the
  * result store keeps, as it is written (`lib/core/result/spill.ts`).
  *
  * A command that prints the environment, env, printenv or launchctl print
@@ -29,28 +29,22 @@
  * print over SSH put two of another machine's work tokens, whose names no
  * shape knew and whose values the session didn't hold, into an agent's
  * context and log.
+ *
+ * A host's tool round answers with the same scrub of the answer and its
+ * saved file (`host/engine/tool-round.ts`), so a hosted conversation that
+ * loads no extension is scrubbed the same way.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	scrubOptionsOf,
-	scrubToolResult,
-} from "../../lib/internal/secrets/secrets.ts";
-import { savedOutputFile, scrubOutputFile } from "./output-file.ts";
+import { scrubSavedOutput } from "../../lib/internal/secrets/saved-output.ts";
+import { scrubToolResult } from "../../lib/internal/secrets/secrets.ts";
 
 /** Wires the scrub onto every tool's answer. */
 export default function secretScrubInterceptor(pi: ExtensionAPI) {
 	pi.on("tool_result", async (event) => {
-		const options = scrubOptionsOf(event.input);
 		// Before anything else, and whatever the answer holds: a credential
 		// can sit in the part of the output the answer left out.
-		// pi names it in the details, pi-durable in the structured answer.
-		const saved = new Set(
-			[event.details, event.structuredContent].map((naming) =>
-				savedOutputFile(naming),
-			),
-		);
-		for (const file of saved) if (file) scrubOutputFile(file, options);
+		scrubSavedOutput(event, event.input);
 		return scrubToolResult(event, event.input);
 	});
 }

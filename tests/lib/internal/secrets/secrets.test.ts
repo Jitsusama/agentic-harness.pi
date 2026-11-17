@@ -8,13 +8,11 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import secretScrubInterceptor from "../../../extensions/secret-scrub-interceptor/index.ts";
 import {
 	scrubOptionsOf,
 	scrubToolResult,
-} from "../../../lib/internal/secrets.ts";
+} from "../../../../lib/internal/secrets/secrets.ts";
 
 const fresh = () => `z9${randomBytes(19).toString("hex")}`;
 const MARK = "[secret scrubbed: OP_SESSION_ab12]";
@@ -88,25 +86,10 @@ describe("a tool's answer scrubbed whole", () => {
 		}
 	});
 
-	it("is what the secret-scrub extension answers with", async () => {
-		let handler: ((event: unknown) => Promise<unknown>) | undefined;
-		const pi = {
-			on: (_name: string, on: (event: unknown) => Promise<unknown>) => {
-				handler = on;
-			},
-		};
-		secretScrubInterceptor(pi as unknown as ExtensionAPI);
-		const value = fresh();
-		const answer = dumpOf(value);
+	it("finds nothing more in an answer it already scrubbed, as when the extension and a host's round both scrub", () => {
 		const input = { command: "printenv" };
-		const fromExtension = await handler?.({
-			type: "tool_result",
-			toolCallId: "1",
-			toolName: "bash",
-			input,
-			isError: false,
-			...answer,
-		});
-		expect(fromExtension).toEqual(scrubToolResult(answer, input));
+		const once = scrubToolResult(dumpOf(fresh()), input);
+		expect(once).toBeDefined();
+		expect(scrubToolResult(once ?? {}, input)).toBe(undefined);
 	});
 });
