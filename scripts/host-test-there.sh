@@ -57,7 +57,8 @@ if [[ ! -s $key ]]; then
 fi
 
 # What nix-offload copies up, sent ahead in pieces to a lender lacking it,
-# since its own copy of them is all or nothing.
+# since its own copy of them is all or nothing. Only out here: inside the
+# fence the lone call above copies as nix-offload always has.
 copies=()
 for ((at = 0; at < ${#words[@]}; at++)); do
   [[ ${words[at]} == -- ]] && break

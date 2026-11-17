@@ -34,9 +34,14 @@
 # times, HOST_SEND_PAUSE seconds apart); a lender refusing gives that
 # lender up at once. The whole send gives up after HOST_SEND_SECONDS, and
 # exits 1 when a lender couldn't be sent to, which host-test-there.sh
-# notes and goes on from, its copy left to nix-offload.
+# notes and goes on from, its copy left to nix-offload. HOST_SEND_SECONDS=0
+# skips the send. A store URI without a host key is refused rather than
+# checked against the account's own known hosts.
+#
+# It can't run inside pi's agent fence, which hides the builders' key, so
+# host-test-there.sh calls it only outside, and the lone nix-offload call
+# it prints inside the fence copies as before.
 set -euo pipefail
-set -f
 
 PIECE=${HOST_SEND_PIECE_BYTES:-1048576}
 TRIES=${HOST_SEND_TRIES:-40}
@@ -51,7 +56,7 @@ say() { echo "host-send-runtime: $*" >&2; }
 # Whether `$1` is a store path, which is safe in a remote shell's words,
 # as nix names them.
 stored() {
-  [[ $1 == "$STORE_DIR"/* && ${1#"$STORE_DIR"/} =~ ^[A-Za-z0-9+._?=-]+$ ]]
+  [[ $1 == "$STORE_DIR"/* && ${1#"$STORE_DIR"/} =~ ^[A-Za-z0-9+_=-][A-Za-z0-9+._=-]*$ ]]
 }
 
 if [[ $# -eq 0 ]]; then
@@ -61,6 +66,10 @@ fi
 for path; do
   stored "$path" || { say "$path isn't a store path"; exit 64; }
 done
+if [[ $DEADLINE == 0 ]]; then
+  say "HOST_SEND_SECONDS is 0, so nix-offload copies $* itself"
+  exit 0
+fi
 
 sha() { if command -v sha256sum > /dev/null; then sha256sum; else shasum -a 256; fi | cut -d' ' -f1; }
 # A setting of a store URI's, from its `name=value&...`.
@@ -75,8 +84,15 @@ mkdir -p "$sends"
 # here and there.
 if command -v flock > /dev/null; then
   exec {lock}> "$sends/.lock"
-  flock -w "$DEADLINE" "$lock" || { say "another send held the lock for the whole deadline"; exit 1; }
+  if ! flock -n "$lock"; then
+    say "waiting for another send to end"
+    flock -w "$DEADLINE" "$lock" || { say "another send held the lock for the whole deadline"; exit 1; }
+  fi
 fi
+# The deadline counts from when this send may start.
+SECONDS=0
+# Sends kept more than a week are spent.
+find "$sends" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
 
 # ssh to the lender with `ssh_words`, its options and then its host, as
 # nix-offload reaches it. A connection lost for a minute is given up on,
@@ -137,11 +153,13 @@ send_to() {
   if [[ -n $key ]]; then
     ssh_words+=(-o IdentitiesOnly=yes -o IdentityAgent=none -i "$key")
   fi
-  if [[ -n $host_key ]]; then
-    printf '%s %s\n' "$alias" "$(base64 -d <<< "$host_key")" > "$scratch/$alias.known"
-    ssh_words+=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$scratch/$alias.known"
-      -o "HostKeyAlias=$alias")
+  if [[ -z $host_key ]]; then
+    say "the store URI for $alias gives no host key to check it by"
+    return 1
   fi
+  printf '%s %s\n' "$alias" "$(base64 -d <<< "$host_key")" > "$scratch/$alias.known"
+  ssh_words+=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$scratch/$alias.known"
+    -o "HostKeyAlias=$alias")
   ssh_words+=(-- "$host")
 
   local answer missing
@@ -163,18 +181,32 @@ send_to() {
   id=$(sha <<< "$missing" | cut -c1-16)
   work=$sends/$id
   say "$alias lacks ${#paths[@]} of the closure's paths; sending them in pieces"
-  # Sends of other closures are spent, here and there.
-  find "$sends" -mindepth 1 -maxdepth 1 -type d ! -name "$id" -exec rm -rf {} +
   if [[ ! -s $work/sha256 ]]; then
     pack || { say "couldn't make the cache to send"; rm -rf "$work"; return 1; }
   fi
+  touch "$work"
+  # What goes into the lender's shell from here is checked first, since the
+  # cache is only as safe as this account's files.
   sum=$(cut -c1-16 "$work/sha256")
+  if [[ ! $sum =~ ^[0-9a-f]{16}$ ]]; then
+    say "the kept send $work is damaged; it's removed, to be made again"
+    rm -rf "$work"
+    return 1
+  fi
   there=pi-host-send/$sum
+  local -a pieces=("$work"/pieces/p.????)
+  for piece in "${pieces[@]}"; do
+    if [[ ! -s $piece || ! ${piece##*/} =~ ^p\.[a-z]{4}$ ]]; then
+      say "the kept send $work is damaged; it's removed, to be made again"
+      rm -rf "$work"
+      return 1
+    fi
+  done
 
-  local listing piece name want got tries
+  local listing piece name want got tries code sent=0
   listing=$(remote "mkdir -p $there/pieces && find pi-host-send -mindepth 1 -maxdepth 1 ! -name $sum -exec rm -rf {} + && cd $there/pieces && for f in p.????; do [ -e \"\$f\" ] && echo \"\$f \$(wc -c < \"\$f\")\"; done; true") ||
     { say "couldn't reach $alias"; return 1; }
-  for piece in "$work"/pieces/p.????; do
+  for piece in "${pieces[@]}"; do
     name=${piece##*/}
     want=$(wc -c < "$piece" | tr -d ' ')
     got=$(size_there "$name" "$listing")
@@ -185,10 +217,19 @@ send_to() {
         say "$name wouldn't go to $alias; the next run takes it up from there"
         return 1
       fi
-      on "cat > $there/pieces/$name.part && mv $there/pieces/$name.part $there/pieces/$name" < "$piece" ||
-        sleep "$PAUSE"
-      got=$(remote "wc -c < $there/pieces/$name 2> /dev/null || echo 0" | tr -d ' ') || got=
+      code=0
+      on "cat > $there/pieces/$name.part && mv $there/pieces/$name.part $there/pieces/$name" < "$piece" || code=$?
+      if [[ $code != 0 && $code != 255 ]]; then
+        say "$alias refused $name (exit $code); its folder is removed"
+        remote "rm -rf pi-host-send" > /dev/null || true
+        return 1
+      fi
+      [[ $code == 0 ]] || sleep "$PAUSE"
+      # One try: a lost connection here is the next upload's to retry.
+      got=$(remote "wc -c < $there/pieces/$name 2> /dev/null || echo 0" "" 1 | tr -d ' ') || got=
     done
+    sent=$((sent + 1))
+    if ((sent % 10 == 0)); then say "$alias has $sent of ${#pieces[@]} pieces"; fi
   done
 
   want=$(cat "$work/sha256")
@@ -202,8 +243,18 @@ send_to() {
   fi
   # Taken in already counts, since a connection lost after the import
   # would otherwise try it again from a folder it removed.
-  remote "nix path-info ${paths[*]} > /dev/null 2>&1 || { cd $there && rm -rf cache && mkdir cache && tar xf send.tar -C cache && nix copy --from file://\$HOME/$there/cache --no-recursive ${paths[*]}; } && nix path-info $* > /dev/null && cd && rm -rf pi-host-send" > /dev/null ||
-    { say "$alias's nix wouldn't take the cache in"; return 1; }
+  code=0
+  remote "nix path-info ${paths[*]} > /dev/null 2>&1 || { cd $there && rm -rf cache && mkdir cache && tar xf send.tar -C cache && nix copy --from file://\$HOME/$there/cache --no-recursive ${paths[*]}; } && nix path-info $* > /dev/null && cd && rm -rf pi-host-send" > /dev/null || code=$?
+  if [[ $code == 255 ]]; then
+    say "lost $alias while its nix took the cache in; the next run takes it up"
+    return 1
+  elif [[ $code != 0 ]]; then
+    # Sent again it would be refused again, so nothing of it is kept.
+    say "$alias's nix wouldn't take the cache in; it's removed there and here"
+    remote "rm -rf pi-host-send" > /dev/null || true
+    rm -rf "$work"
+    return 1
+  fi
   say "$alias holds $*"
 }
 
