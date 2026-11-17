@@ -9,7 +9,10 @@ import {
 	discoverQuests,
 	type QuestEntry,
 } from "../../internal/quest/discovery/discovery.ts";
-import { type TreePlace, treePlace } from "../../internal/quest/workspace/tree-place.ts";
+import {
+	type TreePlace,
+	treePlace,
+} from "../../internal/quest/workspace/tree-place.ts";
 import type { QuestState } from "./state.ts";
 
 /** Find a quest entry by id across the quests root. */

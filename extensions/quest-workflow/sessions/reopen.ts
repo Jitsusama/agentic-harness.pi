@@ -14,14 +14,14 @@ import {
 	type Settled,
 } from "../../../lib/internal/quest/reopening/reopen-in-place.ts";
 import {
+	openInSessionsKitty,
+	sessionsKittyRuns,
+} from "../../../lib/internal/quest/reopening/sessions-kitty.ts";
+import {
 	reopenCommand,
 	type SessionRecord,
 	startedAgain,
 } from "../../../lib/internal/quest/sessions/session-registry.ts";
-import {
-	openInSessionsKitty,
-	sessionsKittyRuns,
-} from "../../../lib/internal/quest/reopening/sessions-kitty.ts";
 import { attachWords } from "../../../lib/internal/session/host-holds.ts";
 import {
 	describePlan,

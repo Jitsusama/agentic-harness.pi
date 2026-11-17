@@ -14,13 +14,13 @@ import {
 import { resolveTreeProvider } from "../../../lib/core/tree/index.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
-import { isWithin } from "../../../lib/internal/quest/workspace/git-signals.ts";
-import { reapQuestScratchDir } from "../../../lib/internal/quest/workspace/scratch.ts";
-import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import {
 	type JournalChange,
 	recordStructuralOp,
 } from "../../../lib/internal/quest/fields/structural-journal.ts";
+import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
+import { isWithin } from "../../../lib/internal/quest/workspace/git-signals.ts";
+import { reapQuestScratchDir } from "../../../lib/internal/quest/workspace/scratch.ts";
 import { treesHere } from "../../../lib/internal/quest/workspace/tree-place.ts";
 import {
 	listTreesOnQuest,

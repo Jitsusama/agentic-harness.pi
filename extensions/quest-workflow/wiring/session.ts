@@ -12,12 +12,12 @@ import {
 	discoverQuests,
 	withDiscoveryHeld,
 } from "../../../lib/internal/quest/discovery/discovery.ts";
+import { setJournalSession } from "../../../lib/internal/quest/fields/structural-journal.ts";
 import {
 	forgetDoing,
 	keepDoingSaid,
 } from "../../../lib/internal/quest/sessions/doing.ts";
 import { formatRelativeAge } from "../../../lib/internal/quest/sessions/session-liveness.ts";
-import { setJournalSession } from "../../../lib/internal/quest/fields/structural-journal.ts";
 import {
 	isParking,
 	PARK_ASK,

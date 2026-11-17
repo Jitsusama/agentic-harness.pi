@@ -44,9 +44,9 @@ import {
 	undo,
 } from "../../../lib/core/quest/verbs/structural.ts";
 import { mintId } from "../../../lib/internal/quest/creation/id.ts";
-import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
 import { scaffoldQuestReadme } from "../../../lib/internal/quest/creation/scaffold.ts";
 import { setJournalSession } from "../../../lib/internal/quest/fields/structural-journal.ts";
+import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/index.ts";
 
 let tmpRoot: string;

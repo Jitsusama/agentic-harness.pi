@@ -46,6 +46,21 @@ import { realpathSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../../quest/types.ts";
 import { cacheDir } from "../../paths.ts";
+import { isId, prefixOf } from "../creation/id.ts";
+import {
+	codeKey,
+	leaveSeed,
+	SEED_AFTER_PARSES,
+	SEED_FOLDER,
+	type SeedOptions,
+	takeSeed,
+} from "../discovery-seed.ts";
+import {
+	explainDocumentFrontMatter,
+	parseDocumentFrontMatter,
+} from "../documents/frontmatter.ts";
+import { extractTitle, parseQuestDoc } from "../documents/quest-doc.ts";
+import { questWritesMade } from "../io.ts";
 import {
 	CANONICAL_DOCUMENT_DIRS,
 	discoverySignature,
@@ -59,21 +74,6 @@ import {
 	parsedOnce,
 	readEntries,
 } from "./discovery-reads.ts";
-import {
-	codeKey,
-	leaveSeed,
-	SEED_AFTER_PARSES,
-	SEED_FOLDER,
-	type SeedOptions,
-	takeSeed,
-} from "../discovery-seed.ts";
-import {
-	explainDocumentFrontMatter,
-	parseDocumentFrontMatter,
-} from "../documents/frontmatter.ts";
-import { isId, prefixOf } from "../creation/id.ts";
-import { questWritesMade } from "../io.ts";
-import { extractTitle, parseQuestDoc } from "../documents/quest-doc.ts";
 
 /**
  * Maximum directory depth the walk follows. A quest tree

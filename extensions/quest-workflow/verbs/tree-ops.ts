@@ -16,6 +16,7 @@ import {
 import { stateDir } from "../../../lib/internal/paths.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
+import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import {
 	canonicalPath,
 	gitTreeRootOf,
@@ -23,7 +24,6 @@ import {
 	isMainWorkingTree,
 	isWithin,
 } from "../../../lib/internal/quest/workspace/git-signals.ts";
-import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import {
 	treePlace,
 	treesHere,

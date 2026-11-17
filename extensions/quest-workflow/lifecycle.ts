@@ -31,12 +31,12 @@ import {
 import { type LaunchHints, launchHints } from "../../lib/core/session/index.ts";
 import { sessionSlot } from "../../lib/core/session/slot.ts";
 import { sessionsDir } from "../../lib/internal/paths.ts";
-import { appendJourneyByPath } from "../../lib/internal/quest/documents/append-journey.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
-import { takeFirstWords } from "../../lib/internal/quest/sessions/first-words.ts";
+import { questIdForCwd } from "../../lib/internal/quest/discovery/resolve-cwd.ts";
+import { appendJourneyByPath } from "../../lib/internal/quest/documents/append-journey.ts";
 import { appendHarnessLog } from "../../lib/internal/quest/documents/harness-log.ts";
 import { mutateQuestFrontMatter } from "../../lib/internal/quest/fields/mutate.ts";
-import { questIdForCwd } from "../../lib/internal/quest/discovery/resolve-cwd.ts";
+import { takeFirstWords } from "../../lib/internal/quest/sessions/first-words.ts";
 import {
 	indexSessionFiles,
 	prunePhantomSessions,

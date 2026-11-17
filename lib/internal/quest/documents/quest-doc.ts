@@ -25,8 +25,12 @@ import type {
 	QuestFrontMatter,
 } from "../../../quest/types.ts";
 import { parseAllRefs } from "../../../refs/index.ts";
+import {
+	findIds,
+	findIdsWithRelation,
+	type IdMention,
+} from "../creation/id.ts";
 import { parseQuestFrontMatter } from "./frontmatter.ts";
-import { findIds, findIdsWithRelation, type IdMention } from "../creation/id.ts";
 import { journeyEntriesFrom } from "./journey.ts";
 
 const SECTION_HEADERS = {

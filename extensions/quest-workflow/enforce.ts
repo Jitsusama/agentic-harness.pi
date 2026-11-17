@@ -49,6 +49,11 @@ import {
 	documentReadReason,
 } from "../../lib/internal/quest/documents/document-reads.ts";
 import {
+	applyEdits,
+	ownedFieldChanges,
+	type QuestFileKind,
+} from "../../lib/internal/quest/fields/owned-fields.ts";
+import {
 	canonicalPath,
 	isGitignored,
 	isTracked,
@@ -56,11 +61,6 @@ import {
 	trackedTreeRoot,
 	treeRootOf,
 } from "../../lib/internal/quest/workspace/git-signals.ts";
-import {
-	applyEdits,
-	ownedFieldChanges,
-	type QuestFileKind,
-} from "../../lib/internal/quest/fields/owned-fields.ts";
 import { treesHere } from "../../lib/internal/quest/workspace/tree-place.ts";
 import { listTreesOnQuest } from "../../lib/internal/quest/workspace/trees.ts";
 import { readOutsideWrites } from "./outside-writes.ts";

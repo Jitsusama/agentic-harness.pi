@@ -30,14 +30,14 @@ import {
 } from "../internal/files/folder-mirror.ts";
 import { readStamped, type Stamped } from "../internal/files/stamped-read.ts";
 import { keepTicks, type TickedOwner } from "../internal/process-ticks.ts";
-import { type Doing, isDoing } from "../internal/quest/sessions/doing.ts";
+import { parsedFiles } from "../internal/quest/documents/parsed-file.ts";
+import { shownReadme } from "../internal/quest/documents/quest-doc.ts";
 import {
 	type Orchestration,
 	orchestrationOf,
 	windowWorkspaceOf,
 } from "../internal/quest/fields/orchestration.ts";
-import { parsedFiles } from "../internal/quest/documents/parsed-file.ts";
-import { shownReadme } from "../internal/quest/documents/quest-doc.ts";
+import { type Doing, isDoing } from "../internal/quest/sessions/doing.ts";
 import { isSealedStatus } from "../internal/quest/status.ts";
 import { isRecord } from "../internal/record.ts";
 import { eventsFrom, type SessionEvent } from "../internal/session/events.ts";

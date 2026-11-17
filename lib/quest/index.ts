@@ -22,14 +22,6 @@
  */
 
 export {
-	documentFrontMatterProblem,
-	parseDocumentFrontMatter,
-	parseQuestFrontMatter,
-	serializeDocumentFrontMatter,
-	serializeQuestFrontMatter,
-	splitFrontMatter,
-} from "../internal/quest/documents/frontmatter.ts";
-export {
 	dateOf,
 	findIds,
 	findIdsWithRelation,
@@ -41,6 +33,33 @@ export {
 	mintId,
 	prefixOf,
 } from "../internal/quest/creation/id.ts";
+export {
+	type DocumentScaffoldInput,
+	defaultsForKind,
+	type QuestScaffoldInput,
+	scaffoldDocument,
+	scaffoldQuestReadme,
+} from "../internal/quest/creation/scaffold.ts";
+export {
+	clearUrlFetchers,
+	fetchUrlHints,
+	getUrlFetcher,
+	listUrlFetchers,
+	registerBuiltinUrlFetchers,
+	registerUrlFetcher,
+	type SeedHints,
+	type UrlFetcher,
+	unregisterUrlFetcher,
+} from "../internal/quest/creation/url-fetchers.ts";
+export { renderToc } from "../internal/quest/discovery/toc.ts";
+export {
+	documentFrontMatterProblem,
+	parseDocumentFrontMatter,
+	parseQuestFrontMatter,
+	serializeDocumentFrontMatter,
+	serializeQuestFrontMatter,
+	splitFrontMatter,
+} from "../internal/quest/documents/frontmatter.ts";
 export {
 	checkboxProgress,
 	type ExtractedMentions,
@@ -55,25 +74,6 @@ export {
 	projectQuestForShow,
 	type QuestShowProjection,
 } from "../internal/quest/documents/quest-doc.ts";
-export {
-	type DocumentScaffoldInput,
-	defaultsForKind,
-	type QuestScaffoldInput,
-	scaffoldDocument,
-	scaffoldQuestReadme,
-} from "../internal/quest/creation/scaffold.ts";
-export { renderToc } from "../internal/quest/discovery/toc.ts";
-export {
-	clearUrlFetchers,
-	fetchUrlHints,
-	getUrlFetcher,
-	listUrlFetchers,
-	registerBuiltinUrlFetchers,
-	registerUrlFetcher,
-	type SeedHints,
-	type UrlFetcher,
-	unregisterUrlFetcher,
-} from "../internal/quest/creation/url-fetchers.ts";
 
 export type {
 	CastEntry,

@@ -48,7 +48,6 @@ import {
 } from "../../machine/realm.ts";
 import type { CarriedEnvironment } from "../../session/carried-environment.ts";
 import type { MoveNote } from "../../session/move.ts";
-import type { CarriedHome } from "./carried.ts";
 import { atomicWriteFile } from "../io.ts";
 import {
 	carriedOnElsewhere,
@@ -56,6 +55,7 @@ import {
 	lastBootSessions,
 	type SessionRecord,
 } from "../sessions/session-registry.ts";
+import type { CarriedHome } from "./carried.ts";
 import type { BootWindows } from "./windows-elsewhere.ts";
 
 /** The version of the file's shape. */

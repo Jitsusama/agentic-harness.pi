@@ -17,8 +17,11 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { QuestFrontMatter } from "../../quest/types.ts";
-import { localProcessDeps, probeProcess } from "../quest/sessions/process-liveness.ts";
 import { parseQuestDoc } from "../quest/documents/quest-doc.ts";
+import {
+	localProcessDeps,
+	probeProcess,
+} from "../quest/sessions/process-liveness.ts";
 import { indexSessionFiles } from "../quest/sessions/session-liveness.ts";
 import {
 	parseSessionRecord,

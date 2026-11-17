@@ -19,7 +19,6 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import { refreshRestoreFile } from "../extensions/quest-workflow/sessions/restore.ts";
 import { dataDir, stateDir } from "../lib/internal/paths.ts";
-import { currentBootToken } from "../lib/internal/quest/sessions/process-liveness.ts";
 import { sessionsKittyDoor } from "../lib/internal/quest/reopening/sessions-kitty.ts";
 import {
 	nextNote,
@@ -28,6 +27,7 @@ import {
 	windowsNotePath,
 	writeWindowsNote,
 } from "../lib/internal/quest/reopening/windows-elsewhere.ts";
+import { currentBootToken } from "../lib/internal/quest/sessions/process-liveness.ts";
 
 /** How long one kitty or the node may take to answer. */
 const ASK_MS = 5000;

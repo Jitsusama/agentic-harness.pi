@@ -14,9 +14,9 @@
 
 import { realpathSync } from "node:fs";
 import { sep } from "node:path";
-import type { QuestIndex } from "./discovery.ts";
 import { isSealedStatus } from "../status.ts";
 import { treePlace } from "../workspace/tree-place.ts";
+import type { QuestIndex } from "./discovery.ts";
 
 /**
  * Resolve symlinks so /var and /private/var, and bind mounts in a

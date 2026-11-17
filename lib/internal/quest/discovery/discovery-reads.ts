@@ -13,9 +13,9 @@ import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../../quest/types.ts";
-import type { DiscoveryResult } from "./discovery.ts";
-import { splitFrontMatter } from "../documents/frontmatter.ts";
 import { isId, prefixOf } from "../creation/id.ts";
+import { splitFrontMatter } from "../documents/frontmatter.ts";
+import type { DiscoveryResult } from "./discovery.ts";
 
 /**
  * What one discovery call has read from disk. The signature pass fills

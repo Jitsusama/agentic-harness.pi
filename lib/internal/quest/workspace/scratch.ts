@@ -12,9 +12,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { QuestFrontMatter } from "../../../quest/types.ts";
-import { parseQuestFrontMatter, serializeReadable } from "../documents/frontmatter.ts";
-import { isWithin } from "./git-signals.ts";
+import {
+	parseQuestFrontMatter,
+	serializeReadable,
+} from "../documents/frontmatter.ts";
 import { atomicWriteFile, withQuestLock } from "../io.ts";
+import { isWithin } from "./git-signals.ts";
 
 /** The basename prefix every managed scratch dir carries. */
 const SCRATCH_PREFIX = "pi-quest-";

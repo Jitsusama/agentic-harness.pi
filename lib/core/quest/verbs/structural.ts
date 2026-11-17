@@ -5,14 +5,13 @@
  * can be trusted and reversed.
  */
 
-import { appendJourneyByPath } from "../../../internal/quest/documents/append-journey.ts";
 import {
 	discoverQuests,
 	siblingRanks,
 } from "../../../internal/quest/discovery/discovery.ts";
+import { appendJourneyByPath } from "../../../internal/quest/documents/append-journey.ts";
 import { lensForField } from "../../../internal/quest/fields/fields.ts";
 import { nextRank } from "../../../internal/quest/fields/ranking.ts";
-import { isSealedStatus } from "../../../internal/quest/status.ts";
 import {
 	planReparent,
 	planStatusChange,
@@ -26,6 +25,7 @@ import {
 	ownNewestStructuralOp,
 	recordStructuralOp,
 } from "../../../internal/quest/fields/structural-journal.ts";
+import { isSealedStatus } from "../../../internal/quest/status.ts";
 import type { QuestFrontMatter } from "../../../quest/index.ts";
 import { count, verb } from "../../../ui/count.ts";
 import {

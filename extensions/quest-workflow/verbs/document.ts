@@ -28,11 +28,11 @@ import {
 	splitAtBody,
 	subsectionOf,
 } from "../../../lib/internal/quest/documents/body-edits.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import {
 	atomicWriteFile,
 	withQuestLock,
 } from "../../../lib/internal/quest/io.ts";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { refreshProgress, stampQuestUpdated } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";

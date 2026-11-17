@@ -13,11 +13,10 @@ import { join } from "node:path";
 import { machineBooted } from "../../../lib/internal/machine/booted.ts";
 import { thisMachine } from "../../../lib/internal/machine/machine.ts";
 import { sessionsDir, stateDir } from "../../../lib/internal/paths.ts";
-import { takeUpCarried } from "../../../lib/internal/quest/reopening/carried.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
-import { windowWorkspaceOf } from "../../../lib/internal/quest/fields/orchestration.ts";
-import { currentBootToken } from "../../../lib/internal/quest/sessions/process-liveness.ts";
 import { extractTitle } from "../../../lib/internal/quest/documents/quest-doc.ts";
+import { windowWorkspaceOf } from "../../../lib/internal/quest/fields/orchestration.ts";
+import { takeUpCarried } from "../../../lib/internal/quest/reopening/carried.ts";
 import {
 	bootEndedBefore,
 	type RestoreEntry,
@@ -26,6 +25,12 @@ import {
 	restoreFilePath,
 	writeRestoreFile,
 } from "../../../lib/internal/quest/reopening/restore-file.ts";
+import {
+	readWindowsNote,
+	windowsNotePath,
+	windowsToReopen,
+} from "../../../lib/internal/quest/reopening/windows-elsewhere.ts";
+import { currentBootToken } from "../../../lib/internal/quest/sessions/process-liveness.ts";
 import { indexSessionFiles } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	carriedOnElsewhere,
@@ -39,11 +44,6 @@ import {
 	wasLost,
 } from "../../../lib/internal/quest/sessions/session-registry.ts";
 import { isLiveStatus } from "../../../lib/internal/quest/status.ts";
-import {
-	readWindowsNote,
-	windowsNotePath,
-	windowsToReopen,
-} from "../../../lib/internal/quest/reopening/windows-elsewhere.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace/workspace-root.ts";
 import { rosterHolds } from "../../../lib/internal/session/host-holds.ts";
 import { sessionLogHeader } from "../../../lib/internal/session/log-header.ts";

@@ -16,14 +16,17 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { QuestFrontMatter } from "../../../quest/types.ts";
 import { nowYmd } from "../dates.ts";
-import { lensForField, reversibleFields } from "./fields.ts";
-import { parseQuestFrontMatter, serializeReadable } from "../documents/frontmatter.ts";
+import {
+	parseQuestFrontMatter,
+	serializeReadable,
+} from "../documents/frontmatter.ts";
 import { atomicWriteFile, withQuestLock } from "../io.ts";
+import { withHostsBackfilled } from "../workspace/tree-place.ts";
+import { lensForField, reversibleFields } from "./fields.ts";
 import {
 	type JournalChange,
 	recordStructuralOp,
 } from "./structural-journal.ts";
-import { withHostsBackfilled } from "../workspace/tree-place.ts";
 
 /** Outcome of a mutation attempt. */
 export type MutateResult =
