@@ -546,6 +546,33 @@ describe("a moved command's printing of the environment", () => {
 		expectScrubbed(readFileSync(file, "utf8"), values);
 	});
 
+	it("has what it showed so far scrubbed as a stream's when it moves, before five lines arrive", async () => {
+		// Its answer quotes a partial, and nothing later replaces that answer.
+		const value = fresh();
+		const cut = fresh().slice(0, 10);
+		const { bus } = recordingHost();
+		const command = controllable();
+		const running = runOrHandOff({
+			command: "./show-config",
+			session: SESSION,
+			nested: false,
+			signal: undefined,
+			onUpdate: undefined,
+			bus,
+			run: command.run,
+			afterMs: 20,
+		});
+		command.print(`loading\nPROXY_CRED=${value}\nPROXY_PIN=${cut}`);
+		const result = await running;
+		const text = JSON.stringify(result.content);
+
+		expect(text, "the answer holds no value it showed").not.toContain(value);
+		expect(text, "nor the start of one still printing").not.toContain(cut);
+		expect(text).toContain("[secret scrubbed: PROXY_CRED]");
+		expect(text).toContain("loading");
+		command.end(said("done"));
+	});
+
 	it("is not read into a command that prints no environment", async () => {
 		const commit = "commit 3f9c2a7be41d08e5c6a1f2b3d4e5f60718293a4b";
 		const { running, ended } = await moved("make", { background: true });

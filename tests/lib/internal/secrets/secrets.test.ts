@@ -424,6 +424,12 @@ describe("an output that reads as a printing of the environment", () => {
 
 	// The test's timeout bounds this: a rule whose line start reads on past
 	// a newline tries every blank line from every blank line.
+	it("is one with lines a carriage return ends", () => {
+		const access = fresh();
+		const { text } = scrubSecrets(variables(access).join("\r"), []);
+		expect(text).not.toContain(access);
+	});
+
 	it("answers at once for a dump followed by many blank lines", () => {
 		const printed = `${"A=1\n".repeat(5)}${"\n".repeat(200_000)}---`;
 		expect(scrubSecrets(printed, []).text).toBe(printed);
@@ -479,11 +485,53 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 		).toBeUndefined();
 	});
 
+	it("has a line still being written put out of sight however short its value", () => {
+		const mark = "[secret scrubbed: PROXY_CRED]";
+		for (const [cut, shown] of [
+			[fresh().slice(0, 10), mark],
+			["0123456789", mark],
+			['"Basic ab12', `"${mark}`],
+		]) {
+			const scrubbed = scrubToolPartial(
+				partialOf(`loading\nPROXY_CRED=${cut}`),
+				{ command: "./show-config" },
+			);
+			expect(scrubbed?.content?.[0], `${cut} is cut short`).toEqual({
+				type: "text",
+				text: `loading\nPROXY_CRED=${shown}`,
+			});
+		}
+	});
+
+	it("keeps a short value on a line that has ended", () => {
+		const printed = "PORT=8080\nready";
+		expect(
+			scrubToolPartial(partialOf(printed), { command: "./serve" }),
+		).toBeUndefined();
+	});
+
+	it("reads a line a carriage return ends, or a colour opens, as one setting a variable", () => {
+		const value = fresh();
+		for (const printed of [
+			`downloading 40%\rPROXY_CRED=${value}\n`,
+			`\x1b[32mPROXY_CRED=${value}\x1b[0m\n`,
+		]) {
+			const scrubbed = scrubToolPartial(partialOf(printed), {
+				command: "./show-config",
+			});
+			expect(scrubbed, JSON.stringify(printed)).toBeDefined();
+			expect(JSON.stringify(scrubbed), JSON.stringify(printed)).not.toContain(
+				value,
+			);
+		}
+	});
+
 	it("is read as a dump's whole when its command prints the environment", () => {
 		const value = fresh();
 		const scrubbed = scrubToolPartial(partialOf(`starting ${value}`), {
 			command: "printenv",
 		});
+		expect(scrubbed).toBeDefined();
 		expect(JSON.stringify(scrubbed)).not.toContain(value);
 	});
 });

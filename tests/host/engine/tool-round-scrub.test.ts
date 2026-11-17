@@ -164,15 +164,15 @@ describe("a hosted tool round", () => {
 	});
 
 	it("scrubs a streamed line setting a secret-looking value before five arrive, whatever the command", async () => {
-		// A viewer on another machine sees each update, which no count waits for.
+		// A viewer on another machine sees each update, which no count waits
+		// for; the settled answer is still judged by the count, as before.
 		const value = `z9${randomBytes(19).toString("hex")}`;
+		const printed = `loading\nPROXY_CRED=${value}\n`;
 		const streamed: AgentTool = {
 			name: "bash",
 			async execute(_id, _args, _signal, onUpdate) {
-				onUpdate({
-					content: [{ type: "text", text: `loading\nPROXY_CRED=${value}` }],
-				});
-				return { content: [{ type: "text", text: "done" }] };
+				onUpdate({ content: [{ type: "text", text: printed }] });
+				return { content: [{ type: "text", text: printed }] };
 			},
 		};
 		const round = conversation(
@@ -189,6 +189,45 @@ describe("a hosted tool round", () => {
 			value,
 		);
 		expect(updates).toContain("[secret scrubbed: PROXY_CRED]");
+		expect(
+			JSON.stringify({
+				end: shown(round.events, "tool_execution_end"),
+				message: round.round.messages.get(round.callId),
+			}),
+			"the settled answer is judged by the count, not as an update",
+		).toContain(value);
+	});
+
+	it("hands on a streamed update with nothing to hide as the very same object", async () => {
+		const update: AgentToolResult = {
+			content: [{ type: "text", text: "PORT=8080\nready" }],
+		};
+		const quiet: AgentTool = {
+			name: "bash",
+			async execute(_id, _args, _signal, onUpdate) {
+				onUpdate(update);
+				return { content: [{ type: "text", text: "done" }] };
+			},
+		};
+		const round = conversation("call-quiet", "", { command: "./serve" }, quiet);
+		await round.round.run(round.callId, undefined);
+		expect(shown(round.events, "tool_execution_update")[0]).toBe(update);
+	});
+
+	it("shows no streamed update the scrub cannot read, and still settles", async () => {
+		const details: Record<string, unknown> = {};
+		details.self = details;
+		const looped: AgentTool = {
+			name: "bash",
+			async execute(_id, _args, _signal, onUpdate) {
+				onUpdate({ content: [{ type: "text", text: "x" }], details });
+				return { content: [{ type: "text", text: "done" }] };
+			},
+		};
+		const round = conversation("call-loop", "", { command: "./x" }, looped);
+		const outcome = await round.round.run(round.callId, undefined);
+		expect(shown(round.events, "tool_execution_update")).toEqual([]);
+		expect(outcome.result.content).toEqual([{ type: "text", text: "done" }]);
 	});
 
 	it("scrubs a printed environment's saved output file, with no extension loaded", async () => {
