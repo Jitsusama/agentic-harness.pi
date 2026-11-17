@@ -16,9 +16,10 @@
  * A call's context outlives it: a promise it chained and never awaited,
  * or a listener it registered, runs later inside it. Once the call is
  * over its signal firing is no reason to stop their work, so a call
- * that has settled reads as none. The signal itself stays in the first
- * store, as older copies of this module read it there, and a second
- * store marks which call it belongs to and whether that has ended.
+ * that has settled reads as the call it was made inside, if that is
+ * still running, or none. The signal itself stays in the first store,
+ * as older copies of this module read it there, and a second store
+ * marks which call it belongs to and whether that has ended.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -32,6 +33,8 @@ const CALL_KEY = Symbol.for("agentic-harness.core/exec/call-signal/call");
 /** One call made through `withCallSignal`, and whether it has settled. */
 interface Call {
 	readonly signal: AbortSignal | undefined;
+	/** The call this one was made inside, whose signal stands once this one ends. */
+	readonly outer: Call | undefined;
 	ended: boolean;
 }
 
@@ -73,7 +76,7 @@ export function withCallSignal<T>(
 	signal: AbortSignal | undefined,
 	fn: () => T,
 ): T {
-	const call: Call = { signal, ended: false };
+	const call: Call = { signal, outer: calls().getStore(), ended: false };
 	const end = (): void => {
 		call.ended = true;
 	};
@@ -84,20 +87,38 @@ export function withCallSignal<T>(
 		end();
 		throw error;
 	}
+	if (result instanceof Promise) {
+		// The caller gets the promise that ends the call, rather than the
+		// call's own being handled here, so a rejection it drops is still
+		// reported as unhandled.
+		const ending: Promise<unknown> = result.then(
+			(value: unknown) => {
+				end();
+				return value;
+			},
+			(error: unknown) => {
+				end();
+				throw error;
+			},
+		);
+		// The same promise type, settling as the call's own does.
+		return ending as T;
+	}
 	if (isThenable(result)) result.then(end, end);
 	else end();
 	return result;
 }
 
 /**
- * The signal of the call this code is running for, if it has one and
- * that call has not yet settled.
+ * The signal of the call this code is running for, if it has one: the
+ * innermost call still running, once the one it ran inside has settled.
  */
 export function callSignal(): AbortSignal | undefined {
 	const signal = store().getStore();
-	const call = calls().getStore();
+	let call = calls().getStore();
 	// An older copy may have set a signal inside this call without
 	// marking a call of its own, so only the call's own signal ends.
-	if (call?.ended && call.signal === signal) return undefined;
-	return signal;
+	if (call?.signal !== signal) return signal;
+	while (call?.ended) call = call.outer;
+	return call?.signal;
 }
