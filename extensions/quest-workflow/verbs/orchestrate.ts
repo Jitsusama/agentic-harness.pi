@@ -2,16 +2,16 @@
  * Mark a quest as orchestrating, or clear the mark.
  *
  * A marked quest's session is the orchestrator of every quest below it
- * (see lib/internal/quest/orchestration.ts), so marking one quest is
+ * (see lib/internal/quest/fields/orchestration.ts), so marking one quest is
  * all the wiring an orchestration needs: the sessions on the quests
  * below join its group and name it in their presence the next time
  * they publish. The mark is a role of the quest, not of a session, so
  * it outlives reloads and a new session taking the quest over.
  */
 
-import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
-import { orchestrates } from "../../../lib/internal/quest/orchestration.ts";
+import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
+import { orchestrates } from "../../../lib/internal/quest/fields/orchestration.ts";
 import { questAddress } from "../../../lib/mesh/address.ts";
 import { orchestrationGroup } from "../../../lib/mesh/scope.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";

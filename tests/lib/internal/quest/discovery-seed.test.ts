@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
-} from "../../../../lib/internal/quest/discovery.ts";
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	ID,
 	plan,

@@ -4,7 +4,7 @@ import {
 	parseQuestFrontMatter,
 	serializeDocumentFrontMatter,
 	serializeQuestFrontMatter,
-} from "../../../lib/internal/quest/frontmatter.ts";
+} from "../../../lib/internal/quest/documents/frontmatter.ts";
 import type {
 	DocumentFrontMatter,
 	QuestFrontMatter,

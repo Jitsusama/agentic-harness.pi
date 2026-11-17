@@ -11,12 +11,12 @@ import {
 	restoreFileOf,
 	restoreFilePath,
 	writeRestoreFile,
-} from "../../../../lib/internal/quest/restore-file.ts";
+} from "../../../../lib/internal/quest/reopening/restore-file.ts";
 import {
 	closeRecord,
 	openRecord,
 	reopenRecord,
-} from "../../../../lib/internal/quest/session-registry.ts";
+} from "../../../../lib/internal/quest/sessions/session-registry.ts";
 
 /** A session's record as it stood when its pi last ran, in `boot`. */
 function ranIn(sessionId: string, boot: string, questId?: string) {

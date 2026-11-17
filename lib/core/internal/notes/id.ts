@@ -3,7 +3,7 @@
  *
  * IDs are deterministic in shape, random in suffix, the same
  * pattern quest uses for its own ids (see
- * `internal/quest/id.ts`):
+ * `internal/quest/creation/id.ts`):
  *
  *     NOTE-YYYYMMDD-XXXXXX
  *

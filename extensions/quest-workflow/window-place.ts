@@ -13,12 +13,12 @@
 
 import { join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
-import type { QuestIndex } from "../../lib/internal/quest/discovery.ts";
-import type { HandedPlace } from "../../lib/internal/quest/hand-over.ts";
+import type { QuestIndex } from "../../lib/internal/quest/discovery/discovery.ts";
+import type { HandedPlace } from "../../lib/internal/quest/reopening/hand-over.ts";
 import {
 	orchestrationOf,
 	windowWorkspaceOf,
-} from "../../lib/internal/quest/orchestration.ts";
+} from "../../lib/internal/quest/fields/orchestration.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
 import {
 	createPresences,

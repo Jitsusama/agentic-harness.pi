@@ -12,7 +12,7 @@
  * with `reparent`, a step nobody takes by leaving a field out.
  */
 
-import { orchestrationOf } from "../../../lib/internal/quest/orchestration.ts";
+import { orchestrationOf } from "../../../lib/internal/quest/fields/orchestration.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
 
 /**

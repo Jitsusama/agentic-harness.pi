@@ -30,7 +30,7 @@ import {
 	isWithin,
 	trackedTreeRoot,
 	treeRootOf,
-} from "../../../../lib/internal/quest/git-signals.ts";
+} from "../../../../lib/internal/quest/workspace/git-signals.ts";
 import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox.ts";
 
 let repo: string;

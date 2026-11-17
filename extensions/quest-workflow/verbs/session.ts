@@ -9,12 +9,12 @@ import { resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sessionEnv } from "../../../lib/core/session/index.ts";
 import { STAGE_VARIABLE } from "../../../lib/internal/fence-stage.ts";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	FIRST_WORDS_VARIABLE,
 	leaveFirstWords,
 	spawnedWords,
-} from "../../../lib/internal/quest/first-words.ts";
+} from "../../../lib/internal/quest/sessions/first-words.ts";
 import {
 	ancestorTreesOf,
 	type CwdSource,
@@ -22,20 +22,20 @@ import {
 	pickResumeSession,
 	reopenedCwd,
 	resolveSpawnCwd,
-} from "../../../lib/internal/quest/reopen.ts";
+} from "../../../lib/internal/quest/reopening/reopen.ts";
 import {
 	SESSION_MARK,
 	settleHere,
-} from "../../../lib/internal/quest/reopen-in-place.ts";
+} from "../../../lib/internal/quest/reopening/reopen-in-place.ts";
 import {
 	deriveLiveness,
 	formatRelativeAge,
 	type SessionView,
-} from "../../../lib/internal/quest/session-liveness.ts";
+} from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	openInSessionsKitty,
 	sessionsKittyRuns,
-} from "../../../lib/internal/quest/sessions-kitty.ts";
+} from "../../../lib/internal/quest/reopening/sessions-kitty.ts";
 import { hostHold } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";

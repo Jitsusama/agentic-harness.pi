@@ -13,8 +13,8 @@
 
 import { join } from "node:path";
 import { stateDir } from "../../../lib/internal/paths.ts";
-import type { QuestIndex } from "../../../lib/internal/quest/discovery.ts";
-import { orchestrates } from "../../../lib/internal/quest/orchestration.ts";
+import type { QuestIndex } from "../../../lib/internal/quest/discovery/discovery.ts";
+import { orchestrates } from "../../../lib/internal/quest/fields/orchestration.ts";
 import { questAddress } from "../../../lib/mesh/address.ts";
 import { writeWhenChanged } from "./file.ts";
 

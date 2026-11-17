@@ -9,7 +9,7 @@ import {
 } from "../../../../extensions/quest-workflow/peers.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
-import { localProcessDeps } from "../../../../lib/internal/quest/process-liveness.ts";
+import { localProcessDeps } from "../../../../lib/internal/quest/sessions/process-liveness.ts";
 import type { QuestSession } from "../../../../lib/quest/index.ts";
 import { createEnvGuard, succeeded } from "../_helpers.ts";
 

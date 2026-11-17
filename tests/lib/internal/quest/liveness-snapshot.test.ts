@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { ProcessIdentity } from "../../../../lib/internal/quest/process-liveness.ts";
+import type { ProcessIdentity } from "../../../../lib/internal/quest/sessions/process-liveness.ts";
 import {
 	buildLivenessSnapshot,
 	deriveLiveness,
 	type LivenessSnapshot,
-} from "../../../../lib/internal/quest/session-liveness.ts";
+} from "../../../../lib/internal/quest/sessions/session-liveness.ts";
 import type { QuestSession } from "../../../../lib/quest/types.ts";
 import {
 	type TerminalProbe,

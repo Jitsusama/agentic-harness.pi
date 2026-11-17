@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	documentRead,
 	documentReadReason,
-} from "../../../../lib/internal/quest/document-reads.ts";
+} from "../../../../lib/internal/quest/documents/document-reads.ts";
 
 const HOME = "/home/someone";
 const QUESTS = `${HOME}/.local/share/pi/agentic-harness.pi/quest-workflow/quests`;

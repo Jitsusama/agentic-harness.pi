@@ -22,7 +22,7 @@ import {
 	rmSync,
 } from "node:fs";
 import { join, sep } from "node:path";
-import { isId, prefixOf } from "../../../internal/quest/id.ts";
+import { isId, prefixOf } from "../../../internal/quest/creation/id.ts";
 import { conversationsIn } from "../../../internal/session/host-holds.ts";
 
 /** A quest's workspace folder and its `tmp/`. */

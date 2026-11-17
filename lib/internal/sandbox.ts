@@ -92,7 +92,7 @@ import {
 	offloadedOutside,
 	offloadKeptIn,
 } from "./offload-exemption.ts";
-import { questWorkspacesRoot } from "./quest/workspace-root.ts";
+import { questWorkspacesRoot } from "./quest/workspace/workspace-root.ts";
 import {
 	type CloudGrant,
 	type CloudGrantSource,

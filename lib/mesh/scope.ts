@@ -14,7 +14,7 @@
  * - each orchestration it is in, `#orchestration/<address>`: the one
  *   its quest answers to, and its own when its quest orchestrates, so
  *   an orchestrator nested under another hears both and the sessions
- *   under it hear only its own (see internal/quest/orchestration.ts);
+ *   under it hear only its own (see internal/quest/fields/orchestration.ts);
  * - each repository its work is in, `#repo/<name>`;
  * - the machine, `#all`.
  *

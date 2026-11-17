@@ -19,7 +19,7 @@ import {
 	type HandedSession,
 	type LauncherCall,
 	launcherTakes,
-} from "../../../lib/internal/quest/hand-over.ts";
+} from "../../../lib/internal/quest/reopening/hand-over.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import {
 	type OpenOptions,

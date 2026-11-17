@@ -7,8 +7,8 @@
 import {
 	discoverQuests,
 	type QuestEntry,
-} from "../../internal/quest/discovery.ts";
-import { mutateQuestFrontMatter } from "../../internal/quest/mutate.ts";
+} from "../../internal/quest/discovery/discovery.ts";
+import { mutateQuestFrontMatter } from "../../internal/quest/fields/mutate.ts";
 import {
 	diffRanks,
 	type RankEntry,
@@ -19,7 +19,7 @@ import {
 	renumber as rankRenumber,
 	sink as rankSink,
 	top as rankTop,
-} from "../../internal/quest/ranking.ts";
+} from "../../internal/quest/fields/ranking.ts";
 import { isSealedStatus } from "../../internal/quest/status.ts";
 import { writeQuestFrontMatter } from "./front-matter.ts";
 import type { QuestState } from "./state.ts";

@@ -14,7 +14,7 @@ import {
 import {
 	clearDiscoveryCache,
 	discoverQuests,
-} from "../../../../lib/internal/quest/discovery.ts";
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
 import type { Presence } from "../../../../lib/mesh/presence.ts";
 
 const LEAD = "QEST-20260101-LEADER";

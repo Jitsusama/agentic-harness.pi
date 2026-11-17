@@ -61,8 +61,8 @@ import { openSessionStore } from "../../lib/core/result/location.ts";
 import { hosted } from "../../lib/core/session/index.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { processGlobal } from "../../lib/internal/process/process-global.ts";
-import { duMeasure } from "../../lib/internal/quest/footprint.ts";
-import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
+import { duMeasure } from "../../lib/internal/quest/workspace/footprint.ts";
+import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
 import {
 	type Carry,
 	carriedBy,

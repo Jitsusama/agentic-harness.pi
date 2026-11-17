@@ -16,7 +16,7 @@ import {
 	everyRealmsDir,
 	stateDir,
 } from "../../../../lib/internal/paths.ts";
-import { restoreFilePath } from "../../../../lib/internal/quest/restore-file.ts";
+import { restoreFilePath } from "../../../../lib/internal/quest/reopening/restore-file.ts";
 import { nodeSocket } from "../../../../lib/mesh/node.ts";
 
 describe("a session's realm", () => {

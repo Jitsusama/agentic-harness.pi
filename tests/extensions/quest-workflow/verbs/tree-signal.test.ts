@@ -19,7 +19,7 @@ import {
 	clearTreeProviders,
 	registerTreeProvider,
 } from "../../../../lib/core/tree/index.ts";
-import { addTreeToQuest } from "../../../../lib/internal/quest/trees.ts";
+import { addTreeToQuest } from "../../../../lib/internal/quest/workspace/trees.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
 

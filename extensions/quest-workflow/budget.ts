@@ -44,7 +44,7 @@ import {
 	lastRecorded,
 } from "../../lib/budget/record.ts";
 import { sessionEnv } from "../../lib/core/session/index.ts";
-import { budgetInRecord } from "../../lib/internal/quest/budget.ts";
+import { budgetInRecord } from "../../lib/internal/quest/fields/budget.ts";
 import type { QuestState } from "./state.ts";
 
 /** What keeps the session on its quest's budget. */

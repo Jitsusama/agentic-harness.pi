@@ -31,12 +31,12 @@ import {
 } from "../../lib/core/work/sweep.ts";
 import { machineBooted } from "../../lib/internal/machine/booted.ts";
 import { everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
-import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
+import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
 import {
 	foldersOfSessionsNobodyClosed,
 	sessionsNobodyClosed,
-} from "../../lib/internal/quest/loaded.ts";
-import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
+} from "../../lib/internal/quest/sessions/loaded.ts";
+import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
 import { rosterFolders } from "../../lib/internal/session/host-holds.ts";
 import { unattendedExec } from "../../lib/internal/unattended-exec.ts";
 import { treeRecordDir } from "../../lib/internal/work-records.ts";

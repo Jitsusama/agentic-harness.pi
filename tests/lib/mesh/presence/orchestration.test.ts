@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
-} from "../../../../lib/internal/quest/frontmatter.ts";
+} from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { localPeer } from "../../../../lib/mesh/peer.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
 import { wantId } from "../../../../lib/mesh/want.ts";

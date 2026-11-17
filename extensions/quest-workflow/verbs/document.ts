@@ -15,7 +15,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
+import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
 import {
 	type EditRefused,
 	type FoundLine,
@@ -27,12 +27,12 @@ import {
 	setCheckbox,
 	splitAtBody,
 	subsectionOf,
-} from "../../../lib/internal/quest/body-edits.ts";
+} from "../../../lib/internal/quest/documents/body-edits.ts";
 import {
 	atomicWriteFile,
 	withQuestLock,
 } from "../../../lib/internal/quest/io.ts";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { refreshProgress, stampQuestUpdated } from "../lifecycle.ts";
 import type { QuestState } from "../state.ts";

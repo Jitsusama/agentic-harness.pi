@@ -49,7 +49,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { hostKey } from "../../../host/service/address.ts";
 import { sessionRealm } from "../../../lib/internal/machine/realm.ts";
-import { restoreFilePath } from "../../../lib/internal/quest/restore-file.ts";
+import { restoreFilePath } from "../../../lib/internal/quest/reopening/restore-file.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";

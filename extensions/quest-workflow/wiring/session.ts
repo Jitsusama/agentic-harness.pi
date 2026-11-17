@@ -11,13 +11,13 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 	withDiscoveryHeld,
-} from "../../../lib/internal/quest/discovery.ts";
+} from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	forgetDoing,
 	keepDoingSaid,
-} from "../../../lib/internal/quest/doing.ts";
-import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.ts";
-import { setJournalSession } from "../../../lib/internal/quest/structural-journal.ts";
+} from "../../../lib/internal/quest/sessions/doing.ts";
+import { formatRelativeAge } from "../../../lib/internal/quest/sessions/session-liveness.ts";
+import { setJournalSession } from "../../../lib/internal/quest/fields/structural-journal.ts";
 import {
 	isParking,
 	PARK_ASK,

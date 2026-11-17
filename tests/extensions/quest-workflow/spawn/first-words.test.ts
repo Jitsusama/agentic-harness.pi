@@ -10,7 +10,7 @@ import { sayFirstWords } from "../../../../extensions/quest-workflow/lifecycle.t
 import {
 	FIRST_WORDS_VARIABLE,
 	leaveFirstWords,
-} from "../../../../lib/internal/quest/first-words.ts";
+} from "../../../../lib/internal/quest/sessions/first-words.ts";
 
 let dir: string;
 let said: { text: string; options: unknown }[];

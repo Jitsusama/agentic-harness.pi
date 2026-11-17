@@ -12,7 +12,7 @@ import {
 	doingNow,
 	readDoing,
 	sayDoing,
-} from "../../../../lib/internal/quest/doing.ts";
+} from "../../../../lib/internal/quest/sessions/doing.ts";
 
 let dir: string;
 

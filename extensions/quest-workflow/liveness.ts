@@ -16,13 +16,13 @@ import { sessionsDir } from "../../lib/internal/paths.ts";
 import {
 	localProcessDeps,
 	probeProcess,
-} from "../../lib/internal/quest/process-liveness.ts";
+} from "../../lib/internal/quest/sessions/process-liveness.ts";
 import {
 	activityFromIndex,
 	buildLivenessSnapshot,
 	indexSessionFiles,
 	type LivenessSnapshot,
-} from "../../lib/internal/quest/session-liveness.ts";
+} from "../../lib/internal/quest/sessions/session-liveness.ts";
 import { rosterHolds } from "../../lib/internal/session/host-holds.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import {

@@ -5,4 +5,3 @@
 # only shrinks.
 extensions
 lib/internal
-lib/internal/quest

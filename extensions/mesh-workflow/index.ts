@@ -43,7 +43,7 @@ import { hosted, sessionEnv } from "../../lib/core/session/index.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { meshRefusal, sessionRealm } from "../../lib/internal/machine/realm.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
-import { doingFolder } from "../../lib/internal/quest/doing.ts";
+import { doingFolder } from "../../lib/internal/quest/sessions/doing.ts";
 import { carriedTrust } from "../../lib/internal/session/carried-trust.ts";
 import { treeRecordDir } from "../../lib/internal/work-records.ts";
 import { isSubagent } from "../../lib/mesh/hand.ts";

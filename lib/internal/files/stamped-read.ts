@@ -7,7 +7,7 @@
  * gone is forgotten, so what is kept never outlives what it was read
  * from. What `read` makes of an unreadable file is kept as well, so a
  * torn file is read again only once it changes. Unlike `parsedFiles`
- * (lib/internal/quest/parsed-file.ts), these files are small and their
+ * (lib/internal/quest/documents/parsed-file.ts), these files are small and their
  * caller says when to forget the rest, so the map is the caller's.
  */
 

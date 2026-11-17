@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
-import { reversibleFields } from "../../../../lib/internal/quest/fields.ts";
+import { reversibleFields } from "../../../../lib/internal/quest/fields/fields.ts";
 import {
 	clearRefTypes,
 	registerBuiltinRefTypes,

@@ -7,10 +7,10 @@
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
-} from "../../../internal/quest/alias-index.ts";
-import type { QuestIndex } from "../../../internal/quest/discovery.ts";
-import { discoverQuests } from "../../../internal/quest/discovery.ts";
-import { appendHarnessLog } from "../../../internal/quest/harness-log.ts";
+} from "../../../internal/quest/creation/alias-index.ts";
+import type { QuestIndex } from "../../../internal/quest/discovery/discovery.ts";
+import { discoverQuests } from "../../../internal/quest/discovery/discovery.ts";
+import { appendHarnessLog } from "../../../internal/quest/documents/harness-log.ts";
 import type { QuestAlias } from "../../../quest/index.ts";
 import { parseRef } from "../../../refs/index.ts";
 import { addAliasesToQuest, removeAliasesFromQuest } from "../lifecycle.ts";

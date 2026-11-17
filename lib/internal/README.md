@@ -68,7 +68,8 @@ may import from here, and any of it may change without notice.
   take turns: singletons across module instances, a FIFO mutex and
   one flight per key.
 - **`quest/`**: everything behind the quest tool: discovery, the
-  documents' fields and edits, sessions and trees.
+  documents' fields and edits, sessions and trees, in folders by what
+  changes together, its own note naming each.
 - **`refs/`**: the built-in reference types: GitHub issues, pull
   requests and repos, Slack messages and threads.
 - **`registry/`**: pluggable registries kept on `globalThis` under a

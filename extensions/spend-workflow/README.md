@@ -289,7 +289,7 @@ dependency, and it is DuckDB doing the retrospecting either way.
   current and registers `/budget`, over
   `lib/internal/spend/spend-watch-budgets.ts` and
   `lib/internal/spend/claude-plan.ts`.
-- `disk.ts`: the disk report, over `lib/internal/quest/footprint.ts`,
+- `disk.ts`: the disk report, over `lib/internal/quest/workspace/footprint.ts`,
   which measures and decides what could go.
 - `resources.ts`: the per-turn resource figures and their report, over
   `lib/internal/spend/resources.ts`, which reads the kernel's counters.

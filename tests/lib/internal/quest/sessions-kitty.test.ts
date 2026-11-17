@@ -8,7 +8,7 @@ import {
 	sessionsKittyDoor,
 	sessionsKittyRuns,
 	sessionsKittyStart,
-} from "../../../../lib/internal/quest/sessions-kitty.ts";
+} from "../../../../lib/internal/quest/reopening/sessions-kitty.ts";
 
 const SOCKET = "/run/user/1000/pi-sessions/kitty.sock";
 const BY_SOCKET: SessionsKittyDoor = { kind: "socket", path: SOCKET };

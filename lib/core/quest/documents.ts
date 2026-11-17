@@ -8,7 +8,7 @@
 import { type Dirent, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { nowYmd } from "../../internal/quest/dates.ts";
-import { explainDocumentFrontMatter } from "../../internal/quest/frontmatter.ts";
+import { explainDocumentFrontMatter } from "../../internal/quest/documents/frontmatter.ts";
 import {
 	atomicWriteFile,
 	atomicWriteUnderLock,

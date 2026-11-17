@@ -30,14 +30,14 @@ import {
 } from "../internal/files/folder-mirror.ts";
 import { readStamped, type Stamped } from "../internal/files/stamped-read.ts";
 import { keepTicks, type TickedOwner } from "../internal/process-ticks.ts";
-import { type Doing, isDoing } from "../internal/quest/doing.ts";
+import { type Doing, isDoing } from "../internal/quest/sessions/doing.ts";
 import {
 	type Orchestration,
 	orchestrationOf,
 	windowWorkspaceOf,
-} from "../internal/quest/orchestration.ts";
-import { parsedFiles } from "../internal/quest/parsed-file.ts";
-import { shownReadme } from "../internal/quest/quest-doc.ts";
+} from "../internal/quest/fields/orchestration.ts";
+import { parsedFiles } from "../internal/quest/documents/parsed-file.ts";
+import { shownReadme } from "../internal/quest/documents/quest-doc.ts";
 import { isSealedStatus } from "../internal/quest/status.ts";
 import { isRecord } from "../internal/record.ts";
 import { eventsFrom, type SessionEvent } from "../internal/session/events.ts";
@@ -197,7 +197,7 @@ export interface Presence {
 	readonly terminal?: TerminalSessionHandle;
 	/**
 	 * The address of the orchestrator its quest answers to, when one is
-	 * above it (see internal/quest/orchestration.ts). The mesh resolves
+	 * above it (see internal/quest/fields/orchestration.ts). The mesh resolves
 	 * "the orchestrator" from this alone.
 	 */
 	readonly orchestratedBy?: string;

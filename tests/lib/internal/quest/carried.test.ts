@@ -15,7 +15,7 @@ import {
 	placeTakenOver,
 	sessionFolderOf,
 	takeUpCarried,
-} from "../../../../lib/internal/quest/carried.ts";
+} from "../../../../lib/internal/quest/reopening/carried.ts";
 
 const QUEST = "QEST-20261025-85PKB2";
 const FILE = "2026-10-30T22-00-00-000Z_01a19111-sbx1.jsonl";

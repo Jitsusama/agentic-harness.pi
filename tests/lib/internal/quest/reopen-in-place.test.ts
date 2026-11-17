@@ -18,7 +18,7 @@ import {
 	type SettleHost,
 	sessionOfCommand,
 	settleBeforeReopen,
-} from "../../../../lib/internal/quest/reopen-in-place.ts";
+} from "../../../../lib/internal/quest/reopening/reopen-in-place.ts";
 
 const kitty = "unix:@kitty-1";
 

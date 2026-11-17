@@ -6,7 +6,7 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 	withDiscoveryHeld,
-} from "../../../../lib/internal/quest/discovery.ts";
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	atomicWriteFile,
 	withQuestLock,

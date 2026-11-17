@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	parseQuestFrontMatter,
 	serializeReadable,
-} from "../../../../lib/internal/quest/frontmatter.ts";
+} from "../../../../lib/internal/quest/documents/frontmatter.ts";
 
 /**
  * A quest README that the strict parser accepts, used as the starting

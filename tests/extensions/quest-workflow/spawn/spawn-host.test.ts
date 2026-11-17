@@ -22,7 +22,7 @@ import {
 	listedForStage,
 } from "../../../../lib/internal/fence-stage.ts";
 import { packageConfigPath } from "../../../../lib/internal/paths.ts";
-import { openRecord } from "../../../../lib/internal/quest/session-registry.ts";
+import { openRecord } from "../../../../lib/internal/quest/sessions/session-registry.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { installTestHost } from "../../../support/session-host.ts";
 import { createEnvGuard } from "../_helpers.ts";

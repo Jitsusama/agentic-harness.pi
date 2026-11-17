@@ -5,9 +5,9 @@
  * which locks, stamps `updated` and parses the result back.
  */
 
-import { appendJourneyByPath } from "../../internal/quest/append-journey.ts";
-import type { QuestFieldLens } from "../../internal/quest/fields.ts";
-import { mutateQuestFrontMatter } from "../../internal/quest/mutate.ts";
+import { appendJourneyByPath } from "../../internal/quest/documents/append-journey.ts";
+import type { QuestFieldLens } from "../../internal/quest/fields/fields.ts";
+import { mutateQuestFrontMatter } from "../../internal/quest/fields/mutate.ts";
 import type {
 	QuestAlias,
 	QuestFrontMatter,

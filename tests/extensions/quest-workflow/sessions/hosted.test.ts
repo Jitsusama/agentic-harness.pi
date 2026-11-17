@@ -41,11 +41,11 @@ import { tickedOwnerNow } from "../../../../lib/internal/process-ticks.ts";
 import {
 	localProcessDeps,
 	probeProcess,
-} from "../../../../lib/internal/quest/process-liveness.ts";
+} from "../../../../lib/internal/quest/sessions/process-liveness.ts";
 import {
 	journalSession,
 	setJournalSession,
-} from "../../../../lib/internal/quest/structural-journal.ts";
+} from "../../../../lib/internal/quest/fields/structural-journal.ts";
 import { PARKING } from "../../../../lib/internal/session/park.ts";
 import { parseQuestFrontMatter } from "../../../../lib/quest/index.ts";
 import { fakePi } from "../../../support/fake-pi.ts";

@@ -4,7 +4,7 @@
  * The block is YAML between two `---` fences. We use the
  * `yaml` library for both directions rather than hand-rolled
  * regex parsing, the same choice quest's own frontmatter
- * module makes (`internal/quest/frontmatter.ts`) and for the
+ * module makes (`internal/quest/documents/frontmatter.ts`) and for the
  * same reason: a title or source string containing a colon,
  * a quote, or a backslash is exactly the kind of value a
  * regex-based reader/writer round-trips incorrectly, and

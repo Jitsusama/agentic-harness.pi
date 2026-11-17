@@ -31,7 +31,7 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { OPEN_PATIENCE_MS } from "../../../extensions/quest-workflow/verbs/spawn-host.ts";
-import { leaveFirstWords } from "../../../lib/internal/quest/first-words.ts";
+import { leaveFirstWords } from "../../../lib/internal/quest/sessions/first-words.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
 import {
 	onHostPi,

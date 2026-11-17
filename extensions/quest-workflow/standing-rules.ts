@@ -19,9 +19,9 @@
 
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { parseQuestFrontMatter } from "../../lib/internal/quest/frontmatter.ts";
-import { orchestrationOf } from "../../lib/internal/quest/orchestration.ts";
-import { extractSection } from "../../lib/internal/quest/quest-doc.ts";
+import { parseQuestFrontMatter } from "../../lib/internal/quest/documents/frontmatter.ts";
+import { orchestrationOf } from "../../lib/internal/quest/fields/orchestration.ts";
+import { extractSection } from "../../lib/internal/quest/documents/quest-doc.ts";
 import type { StandingContextWording } from "../../lib/prompt/index.ts";
 import type { QuestFrontMatter } from "../../lib/quest/types.ts";
 

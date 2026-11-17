@@ -16,8 +16,8 @@ import {
 	setQuestPriorityByDir,
 	setQuestStatusByDir,
 } from "../../../lib/core/quest/lifecycle.ts";
-import { lensForField } from "../../../lib/internal/quest/fields.ts";
-import { readJourneyFile } from "../../../lib/internal/quest/journey.ts";
+import { lensForField } from "../../../lib/internal/quest/fields/fields.ts";
+import { readJourneyFile } from "../../../lib/internal/quest/documents/journey.ts";
 import {
 	LONG_AGO,
 	loadIntoState,

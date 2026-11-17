@@ -21,7 +21,7 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deserialize, serialize } from "node:v8";
 import type { QuestDoc, QuestDocumentDoc } from "../../quest/types.ts";
-import { kept, memo, type Parsed } from "./discovery-reads.ts";
+import { kept, memo, type Parsed } from "./discovery/discovery-reads.ts";
 
 /** Where discovery keeps what it learned, for the next process. */
 export interface SeedOptions {

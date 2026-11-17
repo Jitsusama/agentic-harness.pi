@@ -14,7 +14,7 @@ import {
 	readDu,
 	reclaimableOf,
 	type Size,
-} from "../../../../lib/internal/quest/footprint.ts";
+} from "../../../../lib/internal/quest/workspace/footprint.ts";
 import { at } from "../../../support/at.ts";
 
 let root: string;

@@ -31,16 +31,16 @@ import {
 import { type LaunchHints, launchHints } from "../../lib/core/session/index.ts";
 import { sessionSlot } from "../../lib/core/session/slot.ts";
 import { sessionsDir } from "../../lib/internal/paths.ts";
-import { appendJourneyByPath } from "../../lib/internal/quest/append-journey.ts";
-import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
-import { takeFirstWords } from "../../lib/internal/quest/first-words.ts";
-import { appendHarnessLog } from "../../lib/internal/quest/harness-log.ts";
-import { mutateQuestFrontMatter } from "../../lib/internal/quest/mutate.ts";
-import { questIdForCwd } from "../../lib/internal/quest/resolve-cwd.ts";
+import { appendJourneyByPath } from "../../lib/internal/quest/documents/append-journey.ts";
+import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
+import { takeFirstWords } from "../../lib/internal/quest/sessions/first-words.ts";
+import { appendHarnessLog } from "../../lib/internal/quest/documents/harness-log.ts";
+import { mutateQuestFrontMatter } from "../../lib/internal/quest/fields/mutate.ts";
+import { questIdForCwd } from "../../lib/internal/quest/discovery/resolve-cwd.ts";
 import {
 	indexSessionFiles,
 	prunePhantomSessions,
-} from "../../lib/internal/quest/session-liveness.ts";
+} from "../../lib/internal/quest/sessions/session-liveness.ts";
 import { firstPromptPending } from "../../lib/internal/session/first-prompt.ts";
 import { getLastEntry } from "../../lib/internal/session/state.ts";
 import { sessionNameFor, shortNameOf } from "./render.ts";
@@ -78,7 +78,7 @@ export {
  * Add an entry to the loaded quest's Journey and stamp it updated.
  * The harness's own rather than core's, which still writes into the
  * README: this one writes the Journey file (see
- * lib/internal/quest/journey.ts).
+ * lib/internal/quest/documents/journey.ts).
  */
 export function appendJourneyEntry(state: QuestState, prose: string): boolean {
 	if (!state.questDir) return false;
@@ -449,7 +449,7 @@ function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
 
 /**
  * Take what a spawn left a session it started to say first
- * (lib/internal/quest/first-words.ts), and answer the send that makes
+ * (lib/internal/quest/sessions/first-words.ts), and answer the send that makes
  * it a turn of its own, so it sets to work without being poked. Words
  * left for it are taken either way, so none wait for a later start; a
  * session whose own command line gave pi a first prompt is told

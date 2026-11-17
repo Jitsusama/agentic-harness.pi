@@ -12,7 +12,7 @@ import {
 	sealQuestDocuments,
 	writeDocumentStage,
 } from "../../../lib/core/quest/lifecycle.ts";
-import { mintId } from "../../../lib/internal/quest/id.ts";
+import { mintId } from "../../../lib/internal/quest/creation/id.ts";
 import { serializeDocumentFrontMatter } from "../../../lib/quest/index.ts";
 import {
 	documentOnDisk,

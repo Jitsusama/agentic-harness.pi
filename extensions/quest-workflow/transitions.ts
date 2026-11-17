@@ -20,8 +20,8 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createMutex } from "../../lib/internal/process/async-mutex.ts";
-import { sayConcluded } from "../../lib/internal/quest/concluded.ts";
-import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
+import { sayConcluded } from "../../lib/internal/quest/fields/concluded.ts";
+import { setJournalSession } from "../../lib/internal/quest/fields/structural-journal.ts";
 import { sayLanded, sayUnlanded } from "../../lib/internal/session/landings.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
 import { suggestAction } from "./actions.ts";
@@ -135,7 +135,7 @@ function targetsOf(state: QuestState, params: QuestToolParams): string[] {
 
 /**
  * Say on the bus that something was concluded or retired, so the mesh
- * can tell the session's orchestrator (lib/internal/quest/concluded.ts).
+ * can tell the session's orchestrator (lib/internal/quest/fields/concluded.ts).
  * A refusal or a dry run ended nothing, and says nothing.
  */
 function tellConcluded(

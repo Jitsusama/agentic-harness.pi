@@ -10,7 +10,7 @@ import {
 	foldersOfSessionsNobodyClosed,
 	questLoadedIn,
 	sessionsNobodyClosed,
-} from "../../../../lib/internal/quest/loaded.ts";
+} from "../../../../lib/internal/quest/sessions/loaded.ts";
 
 /** A registry directory holding the given records by session id. */
 async function registry(records: Record<string, unknown>): Promise<string> {

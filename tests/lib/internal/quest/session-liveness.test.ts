@@ -8,7 +8,7 @@ import {
 	prunePhantomSessions,
 	questLastActivity,
 	sessionActivity,
-} from "../../../../lib/internal/quest/session-liveness.ts";
+} from "../../../../lib/internal/quest/sessions/session-liveness.ts";
 import type { QuestSession } from "../../../../lib/quest/types.ts";
 
 let dir: string;

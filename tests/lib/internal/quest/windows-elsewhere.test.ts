@@ -14,7 +14,7 @@ import {
 	windowsElsewhere,
 	windowsToReopen,
 	writeWindowsNote,
-} from "../../../../lib/internal/quest/windows-elsewhere.ts";
+} from "../../../../lib/internal/quest/reopening/windows-elsewhere.ts";
 
 const MAC_ATTACH = [
 	"ssh",

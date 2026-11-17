@@ -6,11 +6,11 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 	type QuestIndex,
-} from "../../../../lib/internal/quest/discovery.ts";
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	planReparent,
 	planStatusChange,
-} from "../../../../lib/internal/quest/structural.ts";
+} from "../../../../lib/internal/quest/fields/structural.ts";
 
 let root: string;
 

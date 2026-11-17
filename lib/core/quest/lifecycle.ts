@@ -24,9 +24,9 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { appendJourneyByPath } from "../../internal/quest/append-journey.ts";
-import { mutateQuestFrontMatter } from "../../internal/quest/mutate.ts";
-import { parsedFiles } from "../../internal/quest/parsed-file.ts";
+import { appendJourneyByPath } from "../../internal/quest/documents/append-journey.ts";
+import { mutateQuestFrontMatter } from "../../internal/quest/fields/mutate.ts";
+import { parsedFiles } from "../../internal/quest/documents/parsed-file.ts";
 import {
 	checkboxProgress,
 	documentFrontMatterProblem,

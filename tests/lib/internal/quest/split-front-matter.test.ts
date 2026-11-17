@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitFrontMatter } from "../../../../lib/internal/quest/frontmatter.ts";
+import { splitFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 
 describe("splitFrontMatter", () => {
 	it("separates the block from the body", () => {

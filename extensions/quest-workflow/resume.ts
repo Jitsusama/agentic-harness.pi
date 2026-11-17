@@ -16,7 +16,7 @@ import {
 	SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { hosted, sessionEnv } from "../../lib/core/session/index.ts";
-import { deriveLiveness } from "../../lib/internal/quest/session-liveness.ts";
+import { deriveLiveness } from "../../lib/internal/quest/sessions/session-liveness.ts";
 import { heldByHost, hostHold } from "../../lib/internal/session/host-holds.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import { buildSessionSnapshot } from "./liveness.ts";

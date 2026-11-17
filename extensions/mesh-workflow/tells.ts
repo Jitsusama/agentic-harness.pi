@@ -6,11 +6,11 @@
  * An orchestrator learned a plan was done only when the session that
  * did it remembered to say so, and the summaries it kept for Joel fell
  * behind. The quest workflow says each ending on pi's bus
- * (lib/internal/quest/concluded.ts); this sends it on, one line, to the
+ * (lib/internal/quest/fields/concluded.ts); this sends it on, one line, to the
  * orchestrator's home group, as an fyi.
  */
 
-import type { ConcludedEvent } from "../../lib/internal/quest/concluded.ts";
+import type { ConcludedEvent } from "../../lib/internal/quest/fields/concluded.ts";
 import type { NoModelEvent } from "../../lib/internal/session/no-model.ts";
 import { homeOf } from "../../lib/mesh/group.ts";
 import type { Message } from "../../lib/mesh/message.ts";

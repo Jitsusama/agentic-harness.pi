@@ -7,8 +7,8 @@ import {
 	reopenedSession,
 	resolveSpawnCwd,
 	summariseSessions,
-} from "../../../../lib/internal/quest/reopen.ts";
-import type { SessionView } from "../../../../lib/internal/quest/session-liveness.ts";
+} from "../../../../lib/internal/quest/reopening/reopen.ts";
+import type { SessionView } from "../../../../lib/internal/quest/sessions/session-liveness.ts";
 import type { QuestTree } from "../../../../lib/quest/types.ts";
 
 function tree(path: string, repoRoot?: string): QuestTree {

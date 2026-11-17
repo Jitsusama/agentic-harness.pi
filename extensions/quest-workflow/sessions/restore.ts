@@ -13,11 +13,11 @@ import { join } from "node:path";
 import { machineBooted } from "../../../lib/internal/machine/booted.ts";
 import { thisMachine } from "../../../lib/internal/machine/machine.ts";
 import { sessionsDir, stateDir } from "../../../lib/internal/paths.ts";
-import { takeUpCarried } from "../../../lib/internal/quest/carried.ts";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
-import { windowWorkspaceOf } from "../../../lib/internal/quest/orchestration.ts";
-import { currentBootToken } from "../../../lib/internal/quest/process-liveness.ts";
-import { extractTitle } from "../../../lib/internal/quest/quest-doc.ts";
+import { takeUpCarried } from "../../../lib/internal/quest/reopening/carried.ts";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
+import { windowWorkspaceOf } from "../../../lib/internal/quest/fields/orchestration.ts";
+import { currentBootToken } from "../../../lib/internal/quest/sessions/process-liveness.ts";
+import { extractTitle } from "../../../lib/internal/quest/documents/quest-doc.ts";
 import {
 	bootEndedBefore,
 	type RestoreEntry,
@@ -25,8 +25,8 @@ import {
 	restoreFileOf,
 	restoreFilePath,
 	writeRestoreFile,
-} from "../../../lib/internal/quest/restore-file.ts";
-import { indexSessionFiles } from "../../../lib/internal/quest/session-liveness.ts";
+} from "../../../lib/internal/quest/reopening/restore-file.ts";
+import { indexSessionFiles } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import {
 	carriedOnElsewhere,
 	hostKeeps,
@@ -37,14 +37,14 @@ import {
 	type SessionRecord,
 	startedAgain,
 	wasLost,
-} from "../../../lib/internal/quest/session-registry.ts";
+} from "../../../lib/internal/quest/sessions/session-registry.ts";
 import { isLiveStatus } from "../../../lib/internal/quest/status.ts";
 import {
 	readWindowsNote,
 	windowsNotePath,
 	windowsToReopen,
-} from "../../../lib/internal/quest/windows-elsewhere.ts";
-import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace-root.ts";
+} from "../../../lib/internal/quest/reopening/windows-elsewhere.ts";
+import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace/workspace-root.ts";
 import { rosterHolds } from "../../../lib/internal/session/host-holds.ts";
 import { sessionLogHeader } from "../../../lib/internal/session/log-header.ts";
 import {
@@ -149,7 +149,7 @@ export function keptByHost(
 
 /**
  * Rewrite the launcher's restore file from the records as they stand,
- * probing nothing (see lib/internal/quest/restore-file.ts). A session
+ * probing nothing (see lib/internal/quest/reopening/restore-file.ts). A session
  * starting calls it, so one reopened drops out of the launcher's list
  * within moments. Best-effort: a file that can't be written leaves the
  * last one in place, which only lists a session already back.
@@ -205,7 +205,7 @@ function endedBoot(
 /**
  * The sessions other machines carried here, each placed in pi's store
  * for the folder it reopens in, less any a pi has run here since
- * (lib/internal/quest/carried.ts).
+ * (lib/internal/quest/reopening/carried.ts).
  */
 export function carriedHome(questsRoot: string): RestoreEntry[] {
 	const ranHere = new Set(loadRecords().map(({ record }) => record.sessionId));

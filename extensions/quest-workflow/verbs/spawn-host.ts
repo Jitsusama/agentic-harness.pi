@@ -32,11 +32,11 @@ import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
 import { recordUnlisted } from "../../../lib/internal/fence-log.ts";
 import { STAGE_VARIABLE } from "../../../lib/internal/fence-stage.ts";
 import { sessionsDir } from "../../../lib/internal/paths.ts";
-import { spawnedWords } from "../../../lib/internal/quest/first-words.ts";
+import { spawnedWords } from "../../../lib/internal/quest/sessions/first-words.ts";
 import {
 	type SessionView,
 	sessionActivity,
-} from "../../../lib/internal/quest/session-liveness.ts";
+} from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import type { CarriedEnvironment } from "../../../lib/internal/session/carried-environment.ts";
 import {
 	attachWords,

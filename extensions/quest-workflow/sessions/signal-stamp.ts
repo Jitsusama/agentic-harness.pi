@@ -13,7 +13,7 @@ import {
 	SESSION_STAMP_EVENT,
 } from "../../../lib/core/session/host.ts";
 import { sessionSlot } from "../../../lib/core/session/slot.ts";
-import { markSignalled } from "../../../lib/internal/quest/session-registry.ts";
+import { markSignalled } from "../../../lib/internal/quest/sessions/session-registry.ts";
 import { isParking, PARKING } from "../../../lib/internal/session/park.ts";
 import { readRecord, recordSessionEnd, saveRecord } from "./records.ts";
 

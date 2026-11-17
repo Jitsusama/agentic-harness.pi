@@ -27,7 +27,7 @@ import {
 	type JournalEntry,
 	journalSession,
 	ownNewestStructuralOp,
-} from "../../lib/internal/quest/structural-journal.ts";
+} from "../../lib/internal/quest/fields/structural-journal.ts";
 import { count } from "../../lib/ui/count.ts";
 import { QUEST_ACTIONS } from "./actions.ts";
 import {

@@ -12,21 +12,21 @@ import {
 	isRecordSound,
 } from "../../../lib/core/internal/quest/record-audit.ts";
 import { resolveTreeProvider } from "../../../lib/core/tree/index.ts";
-import { discoverQuests } from "../../../lib/internal/quest/discovery.ts";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
-import { isWithin } from "../../../lib/internal/quest/git-signals.ts";
-import { reapQuestScratchDir } from "../../../lib/internal/quest/scratch.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
+import { isWithin } from "../../../lib/internal/quest/workspace/git-signals.ts";
+import { reapQuestScratchDir } from "../../../lib/internal/quest/workspace/scratch.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import {
 	type JournalChange,
 	recordStructuralOp,
-} from "../../../lib/internal/quest/structural-journal.ts";
-import { treesHere } from "../../../lib/internal/quest/tree-place.ts";
+} from "../../../lib/internal/quest/fields/structural-journal.ts";
+import { treesHere } from "../../../lib/internal/quest/workspace/tree-place.ts";
 import {
 	listTreesOnQuest,
 	removeTreeFromQuest,
 	setPendingPrune,
-} from "../../../lib/internal/quest/trees.ts";
+} from "../../../lib/internal/quest/workspace/trees.ts";
 import { clearWaiting, waitingFolder } from "../../../lib/mesh/waiting.ts";
 import {
 	checkboxProgress,

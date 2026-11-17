@@ -8,20 +8,20 @@ import {
 	type HandedPlace,
 	type HandedSession,
 	launcherTakes,
-} from "../../../lib/internal/quest/hand-over.ts";
+} from "../../../lib/internal/quest/reopening/hand-over.ts";
 import {
 	SESSION_MARK,
 	type Settled,
-} from "../../../lib/internal/quest/reopen-in-place.ts";
+} from "../../../lib/internal/quest/reopening/reopen-in-place.ts";
 import {
 	reopenCommand,
 	type SessionRecord,
 	startedAgain,
-} from "../../../lib/internal/quest/session-registry.ts";
+} from "../../../lib/internal/quest/sessions/session-registry.ts";
 import {
 	openInSessionsKitty,
 	sessionsKittyRuns,
-} from "../../../lib/internal/quest/sessions-kitty.ts";
+} from "../../../lib/internal/quest/reopening/sessions-kitty.ts";
 import { attachWords } from "../../../lib/internal/session/host-holds.ts";
 import {
 	describePlan,

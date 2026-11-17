@@ -25,7 +25,7 @@ import {
 	localProcessDeps,
 	type ProbeProcessDeps,
 	probeProcess,
-} from "../../lib/internal/quest/process-liveness.ts";
+} from "../../lib/internal/quest/sessions/process-liveness.ts";
 import type { QuestSession } from "../../lib/quest/index.ts";
 import { findQuestEntry } from "./lifecycle.ts";
 import type { QuestState } from "./state.ts";

@@ -86,10 +86,10 @@ import {
 } from "../lib/internal/config/loader.ts";
 import { isMachineName, thisMachine } from "../lib/internal/machine/machine.ts";
 import { dataDir, sessionsDir, stateDir } from "../lib/internal/paths.ts";
-import { isId } from "../lib/internal/quest/id.ts";
-import { sessionRegistryDir } from "../lib/internal/quest/loaded.ts";
-import { parseSessionRecord } from "../lib/internal/quest/session-registry.ts";
-import { questWorkspacesRoot } from "../lib/internal/quest/workspace-root.ts";
+import { isId } from "../lib/internal/quest/creation/id.ts";
+import { sessionRegistryDir } from "../lib/internal/quest/sessions/loaded.ts";
+import { parseSessionRecord } from "../lib/internal/quest/sessions/session-registry.ts";
+import { questWorkspacesRoot } from "../lib/internal/quest/workspace/workspace-root.ts";
 import { isParked } from "../lib/internal/session/park.ts";
 import { treeRecordDir } from "../lib/internal/work-records.ts";
 import { memoryDbPath, openMemoryStore } from "../lib/memory/index.ts";

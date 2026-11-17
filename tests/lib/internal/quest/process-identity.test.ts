@@ -7,7 +7,7 @@ import {
 	currentProcessIdentity,
 	localProcessDeps,
 	probeProcess,
-} from "../../../../lib/internal/quest/process-liveness.ts";
+} from "../../../../lib/internal/quest/sessions/process-liveness.ts";
 
 // Wrap execFileSync so a test can count the ps processes a call starts:
 // each one is a synchronous spawn on pi's session start.
@@ -120,7 +120,7 @@ describe.runIf(existsSync(`/proc/${process.pid}/stat`))(
 			vi.resetModules();
 			const children = await import("node:child_process");
 			const fresh = await import(
-				"../../../../lib/internal/quest/process-liveness.ts"
+				"../../../../lib/internal/quest/sessions/process-liveness.ts"
 			);
 			const started = vi.mocked(children.execFileSync);
 			started.mockClear();

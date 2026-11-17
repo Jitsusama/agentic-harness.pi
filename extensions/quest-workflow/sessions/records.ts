@@ -20,11 +20,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFile } from "../../../lib/internal/quest/io.ts";
-import { sessionRegistryDir } from "../../../lib/internal/quest/loaded.ts";
+import { sessionRegistryDir } from "../../../lib/internal/quest/sessions/loaded.ts";
 import {
 	localProcessDeps,
 	probeProcess,
-} from "../../../lib/internal/quest/process-liveness.ts";
+} from "../../../lib/internal/quest/sessions/process-liveness.ts";
 import {
 	closeRecord,
 	openRecord,
@@ -32,7 +32,7 @@ import {
 	pruneRecords,
 	type SessionEndReason,
 	type SessionRecord,
-} from "../../../lib/internal/quest/session-registry.ts";
+} from "../../../lib/internal/quest/sessions/session-registry.ts";
 import { rosterHolds } from "../../../lib/internal/session/host-holds.ts";
 import type { QuestSession } from "../../../lib/quest/index.ts";
 

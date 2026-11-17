@@ -39,7 +39,7 @@ import {
 import {
 	discoverQuests,
 	type QuestIndex,
-} from "../../lib/internal/quest/discovery.ts";
+} from "../../lib/internal/quest/discovery/discovery.ts";
 import type { QuestFrontMatter, QuestPriority } from "../../lib/quest/types.ts";
 
 /** The file in the jobs folder that holds each quest's weight. */

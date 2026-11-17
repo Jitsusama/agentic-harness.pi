@@ -27,8 +27,8 @@ import {
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
 } from "../../../lib/core/work/index.ts";
-import { sessionRegistryDir } from "../../../lib/internal/quest/loaded.ts";
-import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace-root.ts";
+import { sessionRegistryDir } from "../../../lib/internal/quest/sessions/loaded.ts";
+import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace/workspace-root.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 import { activateWith, toolNamed } from "../support/review-extension.ts";
 

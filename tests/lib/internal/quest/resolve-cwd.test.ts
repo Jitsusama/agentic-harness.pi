@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import type {
 	QuestEntry,
 	QuestIndex,
-} from "../../../../lib/internal/quest/discovery.ts";
-import { questIdForCwd } from "../../../../lib/internal/quest/resolve-cwd.ts";
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
+import { questIdForCwd } from "../../../../lib/internal/quest/discovery/resolve-cwd.ts";
 import type {
 	QuestFrontMatter,
 	QuestTree,

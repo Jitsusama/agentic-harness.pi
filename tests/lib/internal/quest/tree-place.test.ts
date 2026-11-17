@@ -8,7 +8,7 @@ import {
 	treePlace,
 	treesHere,
 	withHostsBackfilled,
-} from "../../../../lib/internal/quest/tree-place.ts";
+} from "../../../../lib/internal/quest/workspace/tree-place.ts";
 import type { QuestTree } from "../../../../lib/quest/types.ts";
 
 const onOptimus = {

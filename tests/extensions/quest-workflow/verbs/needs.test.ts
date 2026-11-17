@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
-import { parseQuestFrontMatter } from "../../../../lib/internal/quest/frontmatter.ts";
+import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import {
 	clearTerminalDrivers,
 	registerTerminalDriver,

@@ -28,7 +28,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { type HostKind, hostKey } from "../../../host/service/address.ts";
 import type { SessionIdentity } from "../../../host/service/protocol.ts";
 import { sessionRealm } from "../../../lib/internal/machine/realm.ts";
-import { restoreFilePath } from "../../../lib/internal/quest/restore-file.ts";
+import { restoreFilePath } from "../../../lib/internal/quest/reopening/restore-file.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";

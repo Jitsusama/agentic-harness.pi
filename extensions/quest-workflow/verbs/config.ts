@@ -17,9 +17,9 @@ import {
 	loadPackageConfig,
 } from "../../../lib/internal/config/loader.ts";
 import { dataDir, packageConfigPath } from "../../../lib/internal/paths.ts";
-import { appendJourneyByPath } from "../../../lib/internal/quest/append-journey.ts";
-import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";
-import { mutateQuestFrontMatter } from "../../../lib/internal/quest/mutate.ts";
+import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
+import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
+import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
 import {
 	parseQuestWorkflowConfig,
