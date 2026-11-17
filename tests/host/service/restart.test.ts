@@ -469,36 +469,135 @@ describe("restartWhenSettled", () => {
 	// again would otherwise climb to where a park failed before acting.
 	// Its parked conversations come back when woken, so the heap a park
 	// frees isn't room, and counting it so would restart at every wake.
-	it("weighs no growth from the heap a park frees, since a wake fills it again", async () => {
-		const timers = manualTimers();
-		const heap = growingHeap(0.75);
-		let state: Held["state"] = "idle";
+	// A parked conversation leaves what the host runs and stays on its
+	// roster, so the fakes list it by parked() and leave it out of held().
+	function asleep(heap: ReturnType<typeof growingHeap>) {
+		const awake = new Set<string>();
+		const parked = new Set<string>();
+		let clock = NOW;
 		const { facts: given, said } = facts({
 			differs: async () => "its heap is past half",
-			held: () => [
-				{ state, since: lately },
-				{ state, since: lately },
-			],
+			held: () =>
+				[...awake].map((id) => ({ id, state: "idle" as const, since: lately })),
+			parked: () => [...parked],
 			background: () => 1,
 			heapShare: heap.heapShare,
+			now: () => clock,
 		});
 		restartsSaid(given, said);
+		const timers = manualTimers();
 		restartWhenSettled(given, { after: timers.after });
+		return {
+			wake(...ids: string[]) {
+				for (const id of ids) {
+					parked.delete(id);
+					awake.add(id);
+				}
+			},
+			park(...ids: string[]) {
+				for (const id of ids) {
+					awake.delete(id);
+					parked.add(id);
+				}
+			},
+			close(...ids: string[]) {
+				for (const id of ids) {
+					awake.delete(id);
+					parked.delete(id);
+				}
+			},
+			// A look a minute on, at the share given.
+			async look(share: number) {
+				heap.growTo(share);
+				clock += LOOK_MS;
+				await timers.fire();
+			},
+			restarts: () => said.filter((line) => line.startsWith("restart")),
+		};
+	}
+
+	it("weighs no growth from the heap a park frees, since a wake fills it again", async () => {
+		const host = asleep(growingHeap(0.75));
+		host.wake("a", "b");
 		for (let cycle = 0; cycle < 3; cycle++) {
-			state = "idle";
-			heap.growTo(0.75);
-			await timers.fire();
-			state = "parked";
-			heap.growTo(0.4);
-			await timers.fire();
+			await host.look(0.75);
+			host.park("a", "b");
+			await host.look(0.4);
+			host.wake("a", "b");
 		}
-		state = "idle";
-		heap.growTo(0.75);
-		for (let look = 0; look < 3; look++) await timers.fire();
-		expect(
-			said.filter((line) => line.startsWith("restart")),
-			"nothing restarted for the heap a wake fills again",
-		).toEqual([]);
+		for (let look = 0; look < 3; look++) await host.look(0.75);
+		expect(host.restarts(), "nothing restarted for what a wake refills").toEqual(
+			[],
+		);
+	});
+
+	it("weighs no growth from waking what was parked at its first look", async () => {
+		const host = asleep(growingHeap(0.4));
+		host.park("a", "b");
+		await host.look(0.4);
+		host.wake("a", "b");
+		// V8's reading follows the refill only as it collects, so it climbs.
+		for (const share of [0.45, 0.6, 0.75]) await host.look(share);
+		for (let look = 0; look < 40; look++) await host.look(0.75);
+		expect(host.restarts(), "nothing restarted for what the wake refilled").toEqual(
+			[],
+		);
+	});
+
+	it("weighs no growth from a park after a parked conversation closed", async () => {
+		const host = asleep(growingHeap(0.72));
+		host.wake("a", "b");
+		host.park("c");
+		await host.look(0.72);
+		host.close("c");
+		await host.look(0.72);
+		host.park("b");
+		await host.look(0.5);
+		host.wake("b");
+		for (let look = 0; look < 3; look++) await host.look(0.72);
+		expect(host.restarts(), "nothing restarted for what the wake refilled").toEqual(
+			[],
+		);
+	});
+
+	it("weighs no growth from one conversation parking as another wakes", async () => {
+		const host = asleep(growingHeap(0.72));
+		host.wake("a", "b");
+		await host.look(0.72);
+		host.park("b");
+		await host.look(0.65);
+		host.wake("b");
+		host.park("a");
+		await host.look(0.4);
+		host.wake("a");
+		for (let look = 0; look < 3; look++) await host.look(0.72);
+		expect(host.restarts(), "nothing restarted for what the wakes refilled").toEqual(
+			[],
+		);
+	});
+
+	it("sees a climb while conversations stay parked after a high first look", async () => {
+		const host = asleep(growingHeap(0.84));
+		host.wake("a", "b", "c");
+		await host.look(0.84);
+		host.park("a", "b");
+		await host.look(0.3);
+		await host.look(0.72);
+		expect(host.restarts(), "a heap restart at the gap").toEqual([
+			expect.stringMatching(/"rule":"heap".*: its heap holds 72% /),
+		]);
+	});
+
+	it("counts what a close frees as room", async () => {
+		const host = asleep(growingHeap(0.84));
+		host.wake("a", "b");
+		await host.look(0.84);
+		host.close("b");
+		await host.look(0.3);
+		await host.look(0.72);
+		expect(host.restarts(), "a heap restart at the gap").toEqual([
+			expect.stringMatching(/"rule":"heap".*: its heap holds 72% /),
+		]);
 	});
 
 	it("backs off a refusal from a second again once a restart is queued", async () => {

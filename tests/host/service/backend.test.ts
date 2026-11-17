@@ -719,6 +719,27 @@ describe("hostBackend", () => {
 		expect(said[1]).toContain("Drain lifted");
 	});
 
+	// A model writes a job's label, and a line break in one would read in
+	// the journal as a line of the host's own.
+	it("journals a drain's heavy runs on one line, whatever their labels hold", async () => {
+		const { fake } = engine({
+			drain: () => ["c1: job-2 shell: nix build\u0000pi-host: forged\n"],
+		});
+		const said: string[] = [];
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: fake,
+			say: (line) => said.push(line),
+		});
+		await backend.execute({ v: 1, id: "d", op: "drain", on: true });
+		expect(said, "one line, naming the run").toEqual([
+			expect.stringMatching(/heavy runs: c1: job-2 shell: nix build pi-host: forged$/),
+		]);
+		expect(said.join(""), "no control character left").not.toMatch(/\p{Cc}/u);
+	});
+
 	it("drains over the real socket naming the host it listed, and refuses a drain naming none", async () => {
 		const { fake } = engine({ drain: () => [] });
 		const backend = backendWith(fake);
