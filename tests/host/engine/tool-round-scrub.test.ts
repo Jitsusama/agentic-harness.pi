@@ -26,6 +26,9 @@ import { ToolRound } from "../../../host/engine/tool-round.ts";
 const KEY = `AKIA${"QQQQWWWWEEEERRRR"}`;
 const MARK = "[secret scrubbed: AWS access key]";
 
+// A saved output no round can find, so the shared fixture rewrites no real file.
+const NO_SUCH_FILE = "/nonexistent/pi-bash-0.log";
+
 // Only argument validation is asked of pi's library by a round.
 const library = {
 	validateToolArguments: (_tool: AgentTool, call: { arguments: unknown }) =>
@@ -59,7 +62,7 @@ function bash(printed: string): AgentTool {
 			});
 			return {
 				content: [{ type: "text", text: `early ${printed}\nmore\ndone` }],
-				details: { fullOutputPath: "/tmp/pi-bash-0.log", tail: printed },
+				details: { fullOutputPath: NO_SUCH_FILE, tail: printed },
 				structuredContent: { output: printed, exitCode: 0 },
 			};
 		},
@@ -72,6 +75,7 @@ function conversation(
 	printed: string,
 	args?: Record<string, unknown>,
 	tool: AgentTool = bash(printed),
+	change?: Partial<AgentToolResult>,
 ) {
 	const events: AgentEvent[] = [];
 	const seenByHook: AgentToolResult[] = [];
@@ -81,7 +85,7 @@ function conversation(
 			hooks: {
 				afterToolCall: async ({ result }) => {
 					seenByHook.push(result);
-					return undefined;
+					return change;
 				},
 			},
 			sequential: false,
@@ -127,7 +131,7 @@ describe("a hosted tool round", () => {
 		}
 		expect(outcomeA.result).toEqual({
 			content: [{ type: "text", text: `early ${MARK}\nmore\ndone` }],
-			details: { fullOutputPath: "/tmp/pi-bash-0.log", tail: MARK },
+			details: { fullOutputPath: NO_SUCH_FILE, tail: MARK },
 			structuredContent: { output: MARK, exitCode: 0 },
 		});
 		expect(
@@ -188,6 +192,36 @@ describe("a hosted tool round", () => {
 			expect(fs.readFileSync(file, "utf8")).toBe(
 				"OP_SESSION_ab12=[secret scrubbed: OP_SESSION_ab12]\nHOME=/h\n",
 			);
+		} finally {
+			fs.rmSync(file, { force: true });
+		}
+	});
+
+	it("scrubs the saved output a hook's replaced details no longer name", async () => {
+		const file = path.join(
+			os.tmpdir(),
+			`pi-bash-${randomBytes(8).toString("hex")}.log`,
+		);
+		const spilling: AgentTool = {
+			name: "bash",
+			async execute() {
+				fs.writeFileSync(file, `key ${KEY}\n`, { mode: 0o600 });
+				return {
+					content: [{ type: "text", text: "key" }],
+					details: { fullOutputPath: file },
+				};
+			},
+		};
+		try {
+			const hooked = conversation(
+				"call-hooked",
+				"",
+				{ command: "make" },
+				spilling,
+				{ details: { summarised: true } },
+			);
+			await hooked.round.run(hooked.callId, undefined);
+			expect(fs.readFileSync(file, "utf8")).toBe(`key ${MARK}\n`);
 		} finally {
 			fs.rmSync(file, { force: true });
 		}
