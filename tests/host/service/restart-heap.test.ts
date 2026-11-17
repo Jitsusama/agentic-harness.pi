@@ -224,8 +224,10 @@ describe("restartWhenSettled, for its heap", () => {
 		).toEqual([]);
 		expect(
 			said.filter((line) => line.startsWith("report:")),
-			"nothing said of a first look at 60%, which leaves the gap tier room",
-		).toEqual([]);
+			"nothing said of a first look at 60%, which leaves the gap tier room, only why 74% doesn't restart",
+		).toEqual([
+			"report: Its heap holds 74% of what V8 allows, too little grown for a heap restart: the gap tier weighs growth from 60% and the urgent one from 60%",
+		]);
 
 		heap.growTo(0.76);
 		await timers.fire(() => said.some((line) => line.startsWith("restart")));
@@ -441,11 +443,13 @@ describe("restartWhenSettled, for its heap", () => {
 		host.park("a", "c");
 		await host.look(0.4);
 		host.wake("a");
+		// Until the first restart, since one systemd never ran is asked again.
 		for (const share of [0.5, 0.6, 0.7, 0.8, 0.86, 0.92]) {
-			if (host.restarts().length > 0) break;
 			await host.look(share);
+			if (host.restarts().length > 0) break;
 			host.wake("c");
 			await host.look(share);
+			if (host.restarts().length > 0) break;
 			host.park("c");
 		}
 		expect(host.restarts(), "a heap restart, once past 80%").toEqual([

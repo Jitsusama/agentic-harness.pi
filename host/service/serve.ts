@@ -58,8 +58,14 @@ export interface ServingHost {
 	 * adopted, closed or released since no longer counts.
 	 */
 	stillUnresumed(): number;
-	/** Each conversation the host runs, by id, with its state and when it last changed. */
-	held(): readonly Pick<ConversationIdentity, "id" | "state" | "since">[];
+	/**
+	 * Each conversation the host runs, by id, with its state, when it last
+	 * changed, and its place in the order they began, which a wake renews.
+	 */
+	held(): readonly Pick<
+		ConversationIdentity,
+		"id" | "state" | "since" | "begun"
+	>[];
 	/**
 	 * Each conversation its roster holds that it doesn't run, by id: parked,
 	 * not yet resumed, or stranded by a failed resume. A park takes a

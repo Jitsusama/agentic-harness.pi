@@ -51,6 +51,12 @@ export interface ConversationIdentity {
 	readonly cwd: string;
 	readonly state: HostedState;
 	readonly since: string;
+	/**
+	 * Its place in the order conversations registered with this host. A
+	 * park closes a conversation and its wake registers it again, so one
+	 * that parked and woke between two reads of the list reads anew.
+	 */
+	readonly begun: number;
 }
 
 interface Conversation extends ConversationIdentity {
@@ -79,6 +85,8 @@ export class SessionHost implements Host {
 	private readonly uninstall: () => void;
 	private readonly own: NodeJS.ProcessEnv = process.env;
 	private disposed = false;
+	// How many conversations have registered, which numbers each as it does.
+	private registered = 0;
 	// While draining, the conversations woken from a park since it began,
 	// which the person asked for and which aren't drained again.
 	private wokenInDrain?: Set<string>;
@@ -142,6 +150,7 @@ export class SessionHost implements Host {
 			cwd: resolve(input.cwd),
 			state: "idle",
 			since: new Date().toISOString(),
+			begun: ++this.registered,
 			accepting: true,
 			disposed: false,
 			environment: sessionEnvironment(input.env, input.id),
@@ -171,7 +180,14 @@ export class SessionHost implements Host {
 	/** Current live identities; modifying a returned list cannot change ownership. */
 	list(): ConversationIdentity[] {
 		return [...this.conversations.values()].map(
-			({ id, file, cwd, state, since }) => ({ id, file, cwd, state, since }),
+			({ id, file, cwd, state, since, begun }) => ({
+				id,
+				file,
+				cwd,
+				state,
+				since,
+				begun,
+			}),
 		);
 	}
 

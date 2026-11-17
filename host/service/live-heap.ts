@@ -44,10 +44,15 @@ function isFullCollection(entry: PerformanceEntry): boolean {
 	return kind === constants.NODE_PERFORMANCE_GC_MAJOR;
 }
 
-/** Calls `onFull` after each of V8's full collections; answers the function that stops. */
-function watchFullCollections(onFull: () => void): () => void {
+/**
+ * Calls `onFull` with how many of V8's full collections Node delivered
+ * at once, which may be several back to back near the limit; answers the
+ * function that stops.
+ */
+function watchFullCollections(onFull: (count: number) => void): () => void {
 	const observer = new PerformanceObserver((list) => {
-		if (list.getEntries().some(isFullCollection)) onFull();
+		const count = list.getEntries().filter(isFullCollection).length;
+		if (count > 0) onFull(count);
 	});
 	observer.observe({ entryTypes: ["gc"] });
 	return () => observer.disconnect();
@@ -55,22 +60,23 @@ function watchFullCollections(onFull: () => void): () => void {
 
 /**
  * The lower of the heap after V8's last two full collections, read as
- * each one ends; after only one, that one; before any, the heap as it
- * stands. It counts the full collections too, since the reading moves
+ * Node delivers them; after only one, that one; before any, the heap as
+ * it stands. Several delivered at once give one reading, the heap after
+ * the last. It counts every full collection too, since the reading moves
  * only at one. `watch` and `read` are V8's by default; tests give their
  * own.
  */
 export function heapAfterFullCollections(
-	watch: (onFull: () => void) => () => void = watchFullCollections,
+	watch: (onFull: (count: number) => void) => () => void = watchFullCollections,
 	read: () => HeapUse = heapNow,
 ): { read(): HeapUse; collections(): number; stop(): void } {
 	let last: HeapUse | undefined;
 	let before: HeapUse | undefined;
 	let collections = 0;
-	const stop = watch(() => {
+	const stop = watch((count) => {
 		before = last;
 		last = read();
-		collections++;
+		collections += count;
 	});
 	return {
 		collections: () => collections,

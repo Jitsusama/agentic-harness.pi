@@ -40,10 +40,14 @@ test here, since that pi is built outside this package;
 tests/scripts/pi-host.test.ts checks the exit status a unit reads.
 restart.test.ts checks when a host restarts itself, with timers fired
 by hand through restart-fakes.ts: only with every conversation settled,
-no background work held and every screen at rest; past 70% of its
+no background work held and every screen at rest, or past the ceiling
+at a gap. restart-heap.test.ts checks it for its heap: past 70% of its
 heap limit, grown 15% from its lowest since its first look, a park's
-freed heap not counted however parks, wakes and closes fall and
-however long a reading stands after a wake, at the first gap whatever
+freed heap not counted however parks, wakes and closes fall, between
+looks too, and however long a reading stands after a wake or the first
+look, with the urgent tier's floor kept through wakes of what parked
+before it, one reading weighed a look, and why 70% restarts nothing
+said once an hour, at the first gap whatever
 background work runs, and past 80%, grown 5%, at once, without asking
 what would start, journalling what it ended, with a refused restart
 tried again after 1, 2, 4 s and on up to a look, across looks that find a
@@ -53,15 +57,17 @@ told. follow-what-starts.test.ts checks what it follows, with a fake
 systemctl over an install in a private folder: a restart once the
 install changes the host's own code, systemd has a new unit or the
 heap passes half its limit, no restart for heap a wake refills as the
-serving host lists its parks, what it journals, that it stops watching
+serving host lists its parks, nor for a reading from before a wake as
+V8's own count of collections reaches it, what it journals, that it stops watching
 V8's collections once it stops following, and nothing followed
 outside a unit or as a process that isn't the unit's main one.
 live-heap.test.ts checks that the heap a host weighs is the lower of
 what V8 kept after its last two full collections, through a fake
-collector, counting its collections, and that V8's own collector reads
+collector, counting each of its collections, and that V8's own collector reads
 it after a full collection only, and never once stopped.
 one-line.test.ts checks that a job's label loses each line break,
-NUL, escape and separator a model could write into it.
+NUL, escape, separator and format character a model could write into
+it.
 serve.test.ts also checks that a conversation held but not run is
 listed parked for the heap tiers, and leaves that list once closed;
 backend.test.ts that a drain journals its heavy runs on one line.

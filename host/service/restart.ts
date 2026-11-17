@@ -58,14 +58,20 @@
  * each time and freeing nothing. A park's freed heap doesn't count
  * toward that lowest, since a wake fills it again (heap-mark.ts); a
  * close or a turn's freed output does. The 80% tier waits
- * until it has grown 5%, so a host that starts that full restarts only
- * once it climbs, not at every start; a host whose first look reads
+ * until it has grown 5% from a floor that a wake of one parked before
+ * the first look never lifts, so a host that starts that full restarts
+ * only once it climbs, not at every start; a host whose first look reads
  * past 65% leaves its heap to that tier until it falls, and says so
- * once. A refused restart near the limit is tried again after 1 s,
- * then twice as late each time, up to a minute, and a look that finds
- * a turn running doesn't start that over. Neither tier can
- * act before the first look, five minutes after the host starts, nor in
- * the two minutes a queued restart is given before it counts as dropped.
+ * once. A heap past 70% that neither tier restarts says why once an
+ * hour, with what each tier weighs growth from. Each look weighs one
+ * reading and decides by it alone. A refused restart near the limit is
+ * tried again after 1 s, then twice as late each time, up to a minute,
+ * and a look that finds a turn running doesn't start that over.
+ * Neither tier can act before the first look, five minutes after the
+ * host starts, nor until V8 has collected in full twice after it, nor in
+ * the two minutes a queued restart is given before it counts as
+ * dropped; the gap tier can't either while a wake of one parked before
+ * the first look loads, ten minutes and two full collections from it.
  *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
@@ -167,6 +173,8 @@ const BYTES_PER_MB = 1024 * 1024;
 export interface Held {
 	/** Its session id, which the heap tiers tell a wake by. */
 	readonly id?: string;
+	/** Its place in the order conversations began on the host, which a wake renews. */
+	readonly begun?: number;
 	readonly state: "busy" | "idle" | "parked";
 	/** When it last changed state, as an ISO time. */
 	readonly since: string;
@@ -196,7 +204,7 @@ export interface RestartFacts {
 	held(): readonly Held[];
 	/** The conversations its roster holds that it doesn't run, parked, by id; none when missing. */
 	parked?(): readonly string[];
-	/** How many full collections V8 has run; one a look when missing, as a test's readings are each fresh. */
+	/** How many full collections V8 has run; each reading counts as fresh when missing, as a test's are. */
 	heapCollections?(): number;
 	/** How much background work the conversations hold, which a restart would end. */
 	background(): number;
@@ -274,7 +282,10 @@ export function restartWhenSettled(
 	// What the heap tiers weigh growth from: a host its resumed
 	// conversations fill never falls from its first look.
 	const mark = heapMark();
-	let looks = 0;
+	// The share the last look weighed, which all it decides goes by.
+	let share = 0;
+	// When a heap past 70% that no tier restarts was last explained.
+	let heapSaidAt: number | undefined;
 	// Restarts refused in a row under heap pressure, which back the next try off.
 	let refusals = 0;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
@@ -339,7 +350,6 @@ export function restartWhenSettled(
 	// The rule a restart may come under now, or nothing while it may not.
 	function mayRestart(): RestartRule | undefined {
 		if (facts.stopping()) return undefined;
-		const share = heapShare();
 		const background = facts.background();
 		const held = facts.held();
 		const turns = held.filter(({ state }) => state === "busy").length;
@@ -360,25 +370,21 @@ export function restartWhenSettled(
 		return { rule: "ceiling", waitedMs: facts.now() - (differingSince ?? 0) };
 	}
 
-	function heapShare(): number {
-		return facts.heapShare?.() ?? 0;
+	// Whether the heap has grown by `by` of V8's limit from `from`.
+	function grown(from: number | undefined, by: number): boolean {
+		return share - (from ?? share) >= by;
 	}
 
-	// Whether the heap has grown by `by` of V8's limit from its lowest since the first look.
-	function grown(share: number, by: number): boolean {
-		return share - (mark.lowest() ?? share) >= by;
-	}
-
-	// Past 80%, grown 5% from its lowest, the heap restarts the host at once.
+	// Past 80%, grown 5% from its floor, the heap restarts the host at once.
 	function heapUrgent(): boolean {
-		const share = heapShare();
-		return share > HEAP_URGENT_SHARE && grown(share, HEAP_URGENT_GROWN_SHARE);
+		return (
+			share > HEAP_URGENT_SHARE && grown(mark.floor(), HEAP_URGENT_GROWN_SHARE)
+		);
 	}
 
 	// Past 70%, grown 15% from its lowest, the heap restarts the host at the first gap.
 	function heapPressed(): boolean {
-		const share = heapShare();
-		return share > HEAP_UNHELD_SHARE && grown(share, HEAP_GROWN_SHARE);
+		return share > HEAP_UNHELD_SHARE && grown(mark.lowest(), HEAP_GROWN_SHARE);
 	}
 
 	// Whether either heap tier stands, so the host looks for its moment every second.
@@ -386,21 +392,47 @@ export function restartWhenSettled(
 		return heapUrgent() || heapPressed();
 	}
 
-	// Keep the lowest share seen, and say once when the first leaves only the urgent tier.
+	// Read and weigh this look's share, and say when the first leaves only the urgent tier.
 	function weighLowest(): void {
-		const share = heapShare();
-		looks++;
+		share = facts.heapShare?.() ?? 0;
+		const collections = facts.heapCollections?.();
 		const first = mark.weigh({
 			share,
 			parked: facts.parked?.() ?? [],
-			running: facts.held().flatMap(({ id }) => (id === undefined ? [] : [id])),
-			collections: facts.heapCollections?.() ?? looks,
+			running: facts
+				.held()
+				.flatMap(({ id, begun }) =>
+					id === undefined
+						? []
+						: [begun === undefined ? { id } : { id, begun }],
+				),
+			...(collections === undefined ? {} : { collections }),
 			now: facts.now(),
 		});
-		if (first && share + HEAP_GROWN_SHARE > HEAP_URGENT_SHARE)
+		if (first && share + HEAP_GROWN_SHARE > HEAP_URGENT_SHARE) {
+			// It says why no tier acts, so the hourly line waits as if it had.
+			heapSaidAt = facts.now();
 			facts.report(
 				`Its heap already held ${Math.round(share * 100)}% of what V8 allows at its first look, so until it falls only the urgent tier restarts it for its heap, once past ${Math.round(HEAP_URGENT_SHARE * 100)}% and grown ${Math.round(HEAP_URGENT_GROWN_SHARE * 100)}% from its lowest`,
 			);
+		} else sayHeapHeld();
+	}
+
+	// Say, at most once every HELD_SAY_MS, why a heap past 70% restarts nothing.
+	function sayHeapHeld(): void {
+		const lowest = mark.lowest();
+		const floor = mark.floor();
+		if (share <= HEAP_UNHELD_SHARE || heapPressing()) return;
+		if (lowest === undefined || floor === undefined) return;
+		const now = facts.now();
+		if (heapSaidAt !== undefined && now - heapSaidAt < HELD_SAY_MS) return;
+		heapSaidAt = now;
+		const percent = (of: number) => `${Math.round(of * 100)}%`;
+		const loading =
+			mark.held() === undefined ? "" : ", while a wake's conversations load";
+		facts.report(
+			`Its heap holds ${percent(share)} of what V8 allows, too little grown for a heap restart: the gap tier weighs growth from ${percent(lowest)} and the urgent one from ${percent(floor)}${loading}`,
+		);
 	}
 
 	async function consider(): Promise<Next> {
@@ -459,6 +491,7 @@ export interface Following {
 		/** Each conversation the host runs, by its state and when that last changed. */
 		held(): readonly (Pick<SessionIdentity, "state" | "since"> & {
 			readonly id?: string;
+			readonly begun?: number;
 		})[];
 	};
 	/** How much background work the conversations hold (the engine's). */
@@ -475,7 +508,7 @@ export interface Following {
 	readonly pid?: number;
 	/** How much heap the host uses; this process's by default. */
 	readonly heap?: () => HeapUse;
-	/** Watches V8's full collections, when no `heap` is given; V8's own by default. */
+	/** Watches V8's full collections; V8's own by default, unless only a `heap` is given. */
 	readonly watchHeap?: Parameters<typeof heapAfterFullCollections>[0];
 	/** Passed on to restartWhenSettled, for tests. */
 	readonly timing?: Parameters<typeof restartWhenSettled>[1];
@@ -528,10 +561,12 @@ export async function followWhatStarts(
 		return `systemd has a new ${unit}, such as one naming a new pi`;
 	}
 
-	// The heap after V8's last full collection, unless a test gives its own.
-	const live = options.heap
-		? { read: options.heap, collections: undefined, stop: () => undefined }
-		: heapAfterFullCollections(options.watchHeap);
+	// The heap after V8's last full collections, unless a test gives its
+	// own reading, and its own collector with it when it counts them.
+	const live =
+		options.heap && !options.watchHeap
+			? { read: options.heap, collections: undefined, stop: () => undefined }
+			: heapAfterFullCollections(options.watchHeap, options.heap);
 	const heap = live.read;
 	function heapPastShare(): string | undefined {
 		const { usedBytes, limitBytes } = heap();
