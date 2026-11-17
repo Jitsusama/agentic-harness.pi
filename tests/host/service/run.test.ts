@@ -25,11 +25,7 @@ import type { ConversationEngine } from "../../../host/service/backend.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import type { BeatOptions } from "../../../host/service/hold-watch.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
-import {
-	hostKind,
-	runHost,
-	watchdogEvery,
-} from "../../../host/service/run.ts";
+import { hostKind, runHost, watchdogEvery } from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
 
