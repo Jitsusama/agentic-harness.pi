@@ -31,10 +31,11 @@ import {
 	senderIdentity,
 	shortId,
 } from "../../../lib/mesh/message.ts";
-import { nodeSocket } from "../../../lib/mesh/node.ts";
+import { nodeSocket, servedAt } from "../../../lib/mesh/node.ts";
 import { ASK_AGAIN_MS } from "../../../lib/mesh/owed.ts";
 import { wakeSteered } from "../../../lib/mesh/parked.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
+import { unvouched, vouchedOnly } from "../../../lib/mesh/receptor.ts";
 import type { Judge } from "../../../lib/mesh/routing.ts";
 import { isStopped } from "../../../lib/mesh/stop.ts";
 import {
@@ -46,7 +47,7 @@ import {
 	sentBy,
 } from "../../../lib/mesh/thread.ts";
 import { dayOf } from "../../../lib/mesh/transport.ts";
-import { NOTED } from "../delivery.ts";
+import { NOTED, UNVOUCHED } from "../delivery.ts";
 import { takenAtNextLook } from "../steer.ts";
 import type { Handing } from "./handing.ts";
 import {
@@ -196,7 +197,21 @@ export function createHearing(m: MeshState, f: Handing) {
 	 * it is a catch-up: nothing takes a turn, and a long one is held to what
 	 * a peer starting can take in.
 	 */
-	const route = async (messages: readonly Message[], starting = false) => {
+	const route = async (arrived: readonly Message[], starting = false) => {
+		if (arrived.length === 0 || !m.ctx || !m.peer) return;
+		// Only the node speaks as a receptor, but anything the account writes
+		// lands in the folder, so one under a receptor's name is shown only
+		// when the node serves it, and dropped, said in the log, otherwise.
+		const messages = await vouchedOnly(
+			arrived,
+			(ids) => servedAt(nodeSocket(m.env), ids),
+			(message) =>
+				m.pi.appendEntry(UNVOUCHED, {
+					id: message.id,
+					from: message.from,
+					why: unvouched(message.from, message.id),
+				}),
+		);
 		if (messages.length === 0 || !m.ctx || !m.peer) return;
 		// The peer this was routed for: a session that ends while it is
 		// judged leaves the rest undone (see session_shutdown).

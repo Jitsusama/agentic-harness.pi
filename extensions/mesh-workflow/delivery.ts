@@ -12,6 +12,7 @@ import {
 	sender,
 	shortId,
 } from "../../lib/mesh/message.ts";
+import { RECEPTOR_SIGNAL, readsAsReceptor } from "../../lib/mesh/receptor.ts";
 import type { HoldEnd } from "./leases.ts";
 
 /** The customType of messages delivered in full. */
@@ -22,6 +23,12 @@ export const GLANCES = "mesh-glances";
 
 /** The customType of the screen entry for one glance as it arrives. */
 export const GLANCE = "mesh-glance";
+
+/**
+ * The customType of the log entry for a message under a receptor's name
+ * the node didn't vouch for, dropped unshown.
+ */
+export const UNVOUCHED = "mesh-unvouched";
 
 /**
  * The most glances one digest spells out. Past it they are counted, so
@@ -116,7 +123,10 @@ export function noted(
 		const crossed = message.fromRealm
 			? `\n\n${crossedText(message.fromRealm)}`
 			: "";
-		return `Mesh message [${shortId(message)}] (${message.intent}) from ${sender(message)} to ${message.to.join(", ")} at ${clock(message)}${thread}:\n\n${message.text}${crossed}`;
+		const signal = readsAsReceptor(message.from)
+			? `\n\n${RECEPTOR_SIGNAL}`
+			: "";
+		return `Mesh message [${shortId(message)}] (${message.intent}) from ${sender(message)} to ${message.to.join(", ")} at ${clock(message)}${thread}:\n\n${message.text}${crossed}${signal}`;
 	});
 	const asks = INTENTS.filter((intent) =>
 		messages.some((message) => message.intent === intent),

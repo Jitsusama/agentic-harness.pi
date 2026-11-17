@@ -15,6 +15,7 @@ import type { NeedAsked, NeedRecord } from "../../../lib/mesh/need-route.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presences } from "../../../lib/mesh/presence.ts";
+import type { Served } from "../../../lib/mesh/receptor.ts";
 import type { Judge } from "../../../lib/mesh/routing.ts";
 import type { Transport } from "../../../lib/mesh/transport.ts";
 import type { DoneProbes } from "../../../lib/orchestration/done-acts.ts";
@@ -44,6 +45,11 @@ export interface Local {
 		asked: NeedAsked,
 		live: (address: string) => boolean,
 	) => Promise<NeedRecord | undefined>;
+	/**
+	 * Which messages the node serves, which vouches for one under a
+	 * receptor's name (lib/mesh/receptor.ts). Without it, none is vouched.
+	 */
+	readonly served?: Served;
 	/** Hand a message to the node to send into another realm. */
 	readonly cross?: (crossing: Crossing) => Promise<CrossAnswer>;
 	/** Note a message this peer sent, so it is never handed back to it. */

@@ -511,6 +511,50 @@ export function listAt(
 	return askDaemon(socket, { ask: "list", kind, fields }, patience);
 }
 
+/**
+ * Which of the messages `ids` the node serving `socket` serves, as its
+ * `message` kind's records: what it took, which for a receptor's name is
+ * only what it said itself (Jitsusama/mycelium #267). Nothing when no
+ * node answers, so a caller vouching for a message vouches for none.
+ */
+export async function servedAt(
+	socket: string | undefined,
+	ids: readonly string[],
+	patience: number = NODE_PATIENCE_MS,
+): Promise<ReadonlySet<string> | undefined> {
+	if (ids.length === 0) return new Set();
+	const line = await askDaemon(
+		socket,
+		{ ask: "get", keys: ids.map((id) => `message:${id}`) },
+		patience,
+	);
+	return line === undefined ? undefined : servedFrom(line);
+}
+
+/**
+ * The message ids a node's `get` answer holds, or nothing for an answer
+ * that lists no records, such as a refusal.
+ */
+export function servedFrom(line: string): ReadonlySet<string> | undefined {
+	let answer: unknown;
+	try {
+		answer = JSON.parse(line);
+	} catch {
+		// Not an answer this reader knows, so nothing is served.
+		return undefined;
+	}
+	if (!isRecord(answer) || !Array.isArray(answer.records)) return undefined;
+	return new Set(
+		answer.records.flatMap((record: unknown) =>
+			isRecord(record) &&
+			typeof record.key === "string" &&
+			record.key.startsWith("message:")
+				? [record.key.slice("message:".length)]
+				: [],
+		),
+	);
+}
+
 /** Two counts, as a tie says each end's, or nothing for anything else. */
 function pair(said: unknown): [number, number] | undefined {
 	if (!Array.isArray(said) || said.length !== 2) return undefined;

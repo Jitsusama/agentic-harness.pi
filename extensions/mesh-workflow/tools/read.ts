@@ -14,6 +14,7 @@ import {
 	shortId,
 } from "../../../lib/mesh/message.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
+import { vouchedOnly } from "../../../lib/mesh/receptor.ts";
 import { idNamed, mayReplace, sentBy } from "../../../lib/mesh/thread.ts";
 import { readEachOff } from "../../../lib/mesh/transport.ts";
 import {
@@ -57,18 +58,26 @@ export async function read(
 		);
 	}
 	const from = before === undefined ? ids.length : ids.indexOf(before);
-	const latest: Message[] = [];
+	const found: Message[] = [];
 	for (let index = from - 1; index >= 0; index--) {
-		if (latest.length >= wanted) break;
+		if (found.length >= wanted) break;
 		const message = await at.transport.readOff(ids[index] as string);
 		if (
 			message &&
 			(sentBy(message, { addresses: at.peer.addresses, ...senderIdentity() }) ||
 				reaches(message, at.peer.listener, -1))
 		) {
-			latest.unshift(message);
+			found.unshift(message);
 		}
 	}
+	// One under a receptor's name is shown only when the node serves it,
+	// as when it is heard (lib/mesh/receptor.ts).
+	let dropped = 0;
+	const latest = await vouchedOnly(
+		found,
+		at.served ?? (async () => undefined),
+		() => dropped++,
+	);
 	const present = (await peers(at)).present;
 	const receipt = receipts(at, present);
 	const withdrawn = withdrawals(latest);
@@ -91,9 +100,13 @@ export async function read(
 		left > 0 && oldest
 			? `\n${capitalized(count(left, "older message"))} left out to keep this short; mesh_read with before ${shortId(oldest)} reads on.`
 			: "";
+	const unvouched =
+		dropped > 0
+			? `\n${capitalized(count(dropped, "message"))} under a receptor's name left out: the node didn't serve ${dropped === 1 ? "it" : "them"}, so it never said ${dropped === 1 ? "it" : "them"}.`
+			: "";
 	const text =
 		latest.length > 0
-			? `${shown.join("\n")}${rest}`
+			? `${shown.join("\n")}${rest}${unvouched}`
 			: before === undefined
 				? "Nothing on the mesh yet."
 				: "Nothing this peer hears came before that.";
