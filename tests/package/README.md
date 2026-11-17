@@ -14,7 +14,8 @@ They are grouped by what they hold the package to:
 - `suites/`: how the package's own tests are written.
 - `tools/`: how a tool is registered and answers.
 - `ui/`: what pi draws, its glyphs, marks, panels and rows.
-- `words/`: what the package writes, its docs, notes and prose.
+- `words/`: what the package writes, its docs, notes, refusals and
+  prose.
 
 `hosted-loads-add-no-process-listeners.test.ts` stays here, beside them:
 vitest.config.ts runs it in the process lane by this path, and a change
