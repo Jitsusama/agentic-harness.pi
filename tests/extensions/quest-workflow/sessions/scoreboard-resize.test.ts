@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { updateScoreboard } from "../../../../extensions/quest-workflow/wiring/scoreboard.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
+import { updateScoreboard } from "../../../../extensions/quest-workflow/wiring/scoreboard.ts";
 import { at } from "../../../support/at.ts";
 
 const theme = { fg: (_token: string, text: string) => text } as never;
