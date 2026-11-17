@@ -20,8 +20,8 @@ import {
 	signInFailure,
 	unattended,
 } from "../../lib/internal/away/unattended.ts";
-import { sessionGateDeps } from "../../lib/internal/guardian/session-deps.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
+import { sessionGateDeps } from "../../lib/internal/guardian/session-deps.ts";
 import { loadOnce, singleFlight } from "../../lib/internal/single-flight.ts";
 import { getLastEntry } from "../../lib/internal/state.ts";
 import { registerStandingContext } from "../../lib/prompt/index.ts";

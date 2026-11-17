@@ -33,8 +33,8 @@ import {
 	renderRulesBlock,
 	type Turn,
 } from "../../lib/core/governance/index.ts";
-import { dataDir } from "../../lib/internal/paths.ts";
 import { entriesToTurns } from "../../lib/internal/logs/transcript.ts";
+import { dataDir } from "../../lib/internal/paths.ts";
 import { registerPromptContributor } from "../../lib/prompt/index.ts";
 import { count } from "../../lib/ui/count.ts";
 import { asText, drawInto, renderToolCall } from "../../lib/ui/tool-call.ts";

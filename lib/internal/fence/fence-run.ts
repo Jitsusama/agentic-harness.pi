@@ -29,14 +29,8 @@
 
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fenceArgs } from "./fence.ts";
-import { dockerHoldsCredentials } from "./fence-docker.ts";
-import { fenceNpmrc } from "./fence-npmrc.ts";
-import {
-	SANDBOX_EXEC,
-	seatbeltProfile,
-	seatbeltText,
-} from "./fence-seatbelt.ts";
+import { quoted } from "../sandbox/sandbox-shell.ts";
+import { sessionWorktrees } from "../sandbox/sandbox-trees.ts";
 import {
 	SANDBOX_VARIABLE,
 	type Sandbox,
@@ -48,9 +42,15 @@ import {
 	unfencedFolder,
 	wrapFor,
 } from "../sandbox.ts";
-import { quoted } from "../sandbox/sandbox-shell.ts";
-import { sessionWorktrees } from "../sandbox/sandbox-trees.ts";
 import { real, worktreeRepository } from "../tree-git.ts";
+import { fenceArgs } from "./fence.ts";
+import { dockerHoldsCredentials } from "./fence-docker.ts";
+import { fenceNpmrc } from "./fence-npmrc.ts";
+import {
+	SANDBOX_EXEC,
+	seatbeltProfile,
+	seatbeltText,
+} from "./fence-seatbelt.ts";
 
 /** The fences a caller may ask for, by the names pi's sessions use. */
 export const FENCE_RUN_KINDS = ["fence", STRICT] as const;

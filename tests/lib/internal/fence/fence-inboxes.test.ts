@@ -6,7 +6,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { fenceArgs, fenceRefusesWrite } from "../../../../lib/internal/fence/fence.ts";
+import {
+	fenceArgs,
+	fenceRefusesWrite,
+} from "../../../../lib/internal/fence/fence.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
 
 /** A disk holding exactly the folders `folders` and every one above them. */

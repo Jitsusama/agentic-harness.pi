@@ -10,8 +10,8 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Disk } from "./fence-disk.ts";
 import { isRecord } from "../record.ts";
+import type { Disk } from "./fence-disk.ts";
 
 /** Docker's settings, as a path from the home folder. */
 export const DOCKER_CONFIG = ".docker/config.json";

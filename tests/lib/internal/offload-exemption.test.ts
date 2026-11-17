@@ -20,7 +20,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { gitFolders, guardsGitFolder } from "../../../lib/internal/fence/fence.ts";
+import {
+	gitFolders,
+	guardsGitFolder,
+} from "../../../lib/internal/fence/fence.ts";
 import {
 	LENT_ONLY,
 	NO_GIT_DIR,
@@ -30,7 +33,10 @@ import {
 	takesLentOnly,
 	takesOutside,
 } from "../../../lib/internal/offload-exemption.ts";
-import { folderGit, heldTree } from "../../../lib/internal/sandbox/sandbox-trees.ts";
+import {
+	folderGit,
+	heldTree,
+} from "../../../lib/internal/sandbox/sandbox-trees.ts";
 
 const OFFLOAD = {
 	program: "/nix/store/0000-nix-offload/bin/nix-offload",

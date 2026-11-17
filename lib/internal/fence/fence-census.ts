@@ -39,12 +39,12 @@ import { readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { FenceKind, Presence } from "../../mesh/presence.ts";
 import { count, verb } from "../../ui/count.ts";
-import { FENCE_HIDDEN } from "./fence-hidden.ts";
-import { liftFence } from "./fence-lifted.ts";
 import { askedSandbox, inFirstStage } from "../fence-stage.ts";
 import { ticksOfStat } from "../process-ticks.ts";
 import { SANDBOX_NAMES, STRICT } from "../sandbox.ts";
 import { KEEP_VARIABLE, KEEPING_STUB } from "../shell/kept.ts";
+import { FENCE_HIDDEN } from "./fence-hidden.ts";
+import { liftFence } from "./fence-lifted.ts";
 
 /** Where the census reads the machine from; tests give their own. */
 export interface CensusPlace {

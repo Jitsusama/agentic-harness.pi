@@ -9,7 +9,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { fenceArgs, fenceRefusesWrite } from "../../../../lib/internal/fence/fence.ts";
+import {
+	fenceArgs,
+	fenceRefusesWrite,
+} from "../../../../lib/internal/fence/fence.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
 import type { HeldWorktree } from "../../../../lib/internal/fence/fence-worktrees.ts";
 

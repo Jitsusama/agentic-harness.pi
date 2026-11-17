@@ -11,6 +11,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { treeRecordDir } from "../work-records.ts";
 import { routedPackedRefs } from "./fence-git-route.ts";
 import {
 	failed,
@@ -22,7 +23,6 @@ import {
 	tailOf,
 	type Verdict,
 } from "./fence-preflight.ts";
-import { treeRecordDir } from "../work-records.ts";
 
 /** How many times a plant is tried inside, and git asked outside. */
 const LOOKS = 50;

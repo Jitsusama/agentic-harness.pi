@@ -6,12 +6,12 @@
  * `wl-paste` ahead on its path.
  */
 
+import { quoted, SANDBOXED_COMMAND } from "../sandbox/sandbox-shell.ts";
 import {
 	type GitHubDoor,
 	openedOutside,
 	pointedInside,
 } from "./fence-github.ts";
-import { quoted, SANDBOXED_COMMAND } from "../sandbox/sandbox-shell.ts";
 
 /**
  * Variables that name the desktop, left out so a command fails at once

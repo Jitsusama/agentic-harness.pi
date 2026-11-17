@@ -24,6 +24,7 @@ import {
 	publishMachineWord,
 	readMachineWord,
 } from "../../../lib/internal/away/machine.ts";
+import type { Notice } from "../../../lib/internal/away/notify.ts";
 import {
 	hold,
 	isAway,
@@ -31,7 +32,6 @@ import {
 	setProgressSource,
 	stoppingFromOutside,
 } from "../../../lib/internal/away/state.ts";
-import type { Notice } from "../../../lib/internal/away/notify.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	leaveSession,

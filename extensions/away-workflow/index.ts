@@ -59,6 +59,7 @@ import {
 	readMachineWord,
 	watchMachineWord,
 } from "../../lib/internal/away/machine.ts";
+import type { Notice } from "../../lib/internal/away/notify.ts";
 import {
 	comeBack,
 	goAway,
@@ -69,7 +70,6 @@ import {
 	snapshot,
 	takeStoppedFromOutside,
 } from "../../lib/internal/away/state.ts";
-import type { Notice } from "../../lib/internal/away/notify.ts";
 import { sessionLeft } from "../../lib/internal/session/left.ts";
 import {
 	askWakers,

@@ -86,18 +86,11 @@ import {
 } from "./fence/fence-git-root.ts";
 import { githubDoorFolder } from "./fence/fence-github.ts";
 import { foldersMadeFirst, OWN_HOMES } from "./fence/fence-home.ts";
-import { recordedInShell } from "./fence-log.ts";
 import { fenceNpmrc } from "./fence/fence-npmrc.ts";
 import { seedOwnHomes } from "./fence/fence-seed.ts";
 import { fenceSshConfig } from "./fence/fence-ssh.ts";
+import { recordedInShell } from "./fence-log.ts";
 import { askedSandbox, inFirstStage } from "./fence-stage.ts";
-import {
-	type CloudGrant,
-	type CloudGrantSource,
-	cloudGrants,
-	namesTheCloud,
-} from "./sandbox/gcloud-broker.ts";
-import { brokerTokens, type GitHubTokenSource } from "./sandbox/github-broker.ts";
 import {
 	inStore,
 	type Offload,
@@ -106,8 +99,22 @@ import {
 	offloadKeptIn,
 } from "./offload-exemption.ts";
 import { questWorkspacesRoot } from "./quest/workspace-root.ts";
+import {
+	type CloudGrant,
+	type CloudGrantSource,
+	cloudGrants,
+	namesTheCloud,
+} from "./sandbox/gcloud-broker.ts";
+import {
+	brokerTokens,
+	type GitHubTokenSource,
+} from "./sandbox/github-broker.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox/sandbox-shell.ts";
-import { folderGit, heldTree, sessionWorktrees } from "./sandbox/sandbox-trees.ts";
+import {
+	folderGit,
+	heldTree,
+	sessionWorktrees,
+} from "./sandbox/sandbox-trees.ts";
 import { withSecretNote } from "./secret-ask.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";

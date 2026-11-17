@@ -18,6 +18,8 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox.ts";
+import { askRoute } from "../secret-ask.ts";
 import { FENCE, NEVER_THROUGH } from "./fence.ts";
 import { lenderFolders } from "./fence-builders.ts";
 import { DISK } from "./fence-disk.ts";
@@ -44,8 +46,6 @@ import {
 	xDisplayOut,
 } from "./fence-preflight-desktop.ts";
 import { everydayGit, heldTreeGit, plantLoop } from "./fence-preflight-git.ts";
-import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox.ts";
-import { askRoute } from "../secret-ask.ts";
 
 /** How long a build sent to the builders may take. */
 const BUILD_LIMIT_MS = 1_900_000;

@@ -27,12 +27,12 @@
  */
 
 import { readFileSync } from "node:fs";
-import { sessionsDir } from "../lib/internal/paths.ts";
 import {
 	backupIndexPath,
 	readAway,
 	sessionLogs,
 } from "../lib/internal/logs/session-logs.ts";
+import { sessionsDir } from "../lib/internal/paths.ts";
 
 /** The recurring convention-correction categories. */
 export type ConventionCategory =

@@ -15,7 +15,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { fenceArgs, fenceRefusesWrite } from "../../../../lib/internal/fence/fence.ts";
+import {
+	fenceArgs,
+	fenceRefusesWrite,
+} from "../../../../lib/internal/fence/fence.ts";
 import type { BrokerTrees } from "../../../../lib/internal/fence/fence-broker-trees.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
 import { brokerTrees } from "../../../../lib/internal/sandbox/sandbox-trees.ts";

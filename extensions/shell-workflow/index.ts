@@ -45,11 +45,14 @@ import {
 } from "../../lib/internal/fence/fence-git-route.ts";
 import { liftFence } from "../../lib/internal/fence/fence-lifted.ts";
 import {
+	routedKeep,
+	routedReadOnly,
+} from "../../lib/internal/fence/fence-route.ts";
+import {
 	codeOf,
 	recordRefusal,
 	recordUnlisted,
 } from "../../lib/internal/fence-log.ts";
-import { routedKeep, routedReadOnly } from "../../lib/internal/fence/fence-route.ts";
 import { settleStage } from "../../lib/internal/fence-stage.ts";
 import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
