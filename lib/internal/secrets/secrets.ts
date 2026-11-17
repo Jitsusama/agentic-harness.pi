@@ -109,37 +109,65 @@ const SHAPES: readonly SecretShape[] = [
  * own, by any path and with only options or assignments after env; a
  * shell's export, declare or set listing, bare or with its flags;
  * systemd's or launchd's environment, a process's environ, ps with its e
- * flag, or a script printing its interpreter's whole environment. A
- * command run under env, as `env FOO=1 cargo test`, prints only what it
- * prints. It errs towards a dump, since a dump read as ordinary output
- * shows every value no shape knows.
+ * flag, or a script run inline (`python3 -c`, `node -e`, a heredoc)
+ * reading its interpreter's whole environment. A command run under env,
+ * as `env FOO=1 cargo test`, prints only what it prints, and so does a
+ * search for `process.env`. It errs towards a dump, since a dump read as
+ * ordinary output shows every value no shape knows.
  */
 export function dumpsEnvironment(command: string): boolean {
-	return ENVIRONMENT_DUMPS.some((dump) => dump.test(command));
+	if (ENVIRONMENT_DUMPS.some((dump) => dump.test(command))) return true;
+	return (
+		INLINE_SCRIPT.test(command) &&
+		WHOLE_ENVIRONMENT.some((read) => read.test(command))
+	);
 }
 
-/** The commands that print the environment, as `dumpsEnvironment` says. */
+/**
+ * The commands that print the environment, as `dumpsEnvironment` says.
+ * Each option form in env's rule starts differently from the others, so
+ * a long run of options is read one way, never tried every way.
+ */
 const ENVIRONMENT_DUMPS: readonly RegExp[] = [
-	/(?:^|[\s;&|('"`])(?:[^\s;&|('"`]*\/)?env(?:\s+(?:-[uCS]\s*[^\s;&|)>]+|-[0-9A-Za-z-]+(?:=[^\s;&|)>]*)?|[A-Za-z_][A-Za-z0-9_]*=[^\s;&|)>]*))*\s*(?:$|[|;&)>'"`])/,
-	/(?:^|[\s;&|('"`])(?:[^\s;&|('"`]*\/)?printenv\b/,
-	/(?:^|[\s;&|('"`])(?:export|declare|typeset)\s+-[A-Za-z]*[px]/,
-	/(?:^|[;&|('"`]|\b(?:command|builtin|then|do|else)\s)\s*(?:export|declare|typeset|set)\s*(?:$|[|;&)>'"`])/,
+	/(?:^|[\s;&|('"`{])(?:[^\s;&|('"`]*\/)?env(?:\s+(?:-[uCS](?:\s+|(?=[^\s-]))[^\s;&|)<>-][^\s;&|)<>]*|-(?![uCS])[0-9A-Za-z-]+(?:=[^\s;&|)<>]*)?|[A-Za-z_][A-Za-z0-9_]*=[^\s;&|)<>]*))*\s*(?:$|[\n|;&)<>#'"`}]|\d+>)/,
+	/(?:^|[\s;&|('"`{])(?:[^\s;&|('"`]*\/)?printenv\b/,
+	/(?:^|[\s;&|('"`{])(?:export|declare|typeset)\s+-[A-Za-z]*[px]/,
+	/(?:^|[\n;&|('"`{]|\b(?:command|builtin|then|do|else|time|exec)\s|-c\s+|\bssh\s+(?:\S+\s+)*?)\s*(?:export|declare|typeset|set)\s*(?:$|[\n|;&)<>#'"`}]|\d+>)/,
 	/\bshow-environment\b/,
 	/\blaunchctl\s+(?:print|getenv|export|procinfo)\b/,
 	/\/proc\/[^\s/]+\/environ\b/,
 	/(?:^|[\s;&|('"`])ps\s+(?:-\S*e\S*\s+-\S*w|\S*e\S*w|\S*w\S*e)/,
-	// A script's whole environment, as against one variable read by name.
-	/\bos\.environ\b(?!\s*\[|\s*\.\s*(?:get|setdefault|pop)\b)/,
-	/\bprocess\.env\b(?!\s*\[|\s*\??\.\s*[A-Za-z_$])/,
-	/%ENV\b/,
-	/\bENV\s*\.\s*(?:to_h|to_a|to_hash|inspect|each\w*|map|select|sort\w*)\b/,
-	/\b(?:p|pp|puts|print)\s*\(?\s*ENV\b(?!\s*\[)/,
-	/\bgetenv\(\s*\)/,
+	// macOS's ps prints the environment with -E.
+	/(?:^|[\s;&|('"`])ps\s+(?:[^\s|;&]+\s+)*-[A-Za-z]*E/,
+	/\bawk\b[^|;&]*\bENVIRON\b/,
+	/\bjq\b[^|;&]*(?:\$ENV\b|(?<![.\w$])env\b(?!\.))/,
+	/\bdocker\s+(?:container\s+)?inspect\b/,
+	/\bheroku\s+config\b(?!:(?:set|unset|add|remove))/,
 ];
 
-/** A line of output that sets a variable, as a dump prints each. */
+/** An interpreter run on code the command itself holds. */
+const INLINE_SCRIPT =
+	/(?:^|[\s;&|('"`/])(?:python[\d.]*|node(?:js)?|deno|bun|ruby|perl|php|irb)\s+(?:[^|;&\s]+\s+)*?(?:-[A-Za-z]*[ecprE]\b|--(?:eval|print)\b|eval\b|-(?=\s|$)|<<)/;
+
+/** An inline script's whole environment, as against one variable by name. */
+const WHOLE_ENVIRONMENT: readonly RegExp[] = [
+	/\bos\.environb?\b(?!\s*\[|\s*\.\s*(?:get|setdefault|pop)\b)/,
+	/\bfrom\s+os\s+import\s+[^;\n]*\benviron\b/,
+	/\b(?:process|Bun)\.env\b(?!\s*\[|\s*\??\.\s*[A-Za-z_$])/,
+	/\bDeno\.env\.toObject\b/,
+	/%ENV\b/,
+	/\bENV\s*\.\s*(?:to_h|to_a|to_hash|to_s|inspect|values|each\w*|map|select|sort\w*)\b/,
+	/\b(?:p|pp|puts|print)\s*\(?\s*ENV\b(?!\s*\[)/,
+	/\bgetenv\(\s*\)/,
+	/\$_(?:ENV|SERVER)\b(?!\s*\[)/,
+];
+
+/**
+ * A line of output that sets one variable and nothing more, as a dump
+ * prints each: not a log line of several pairs, nor a pin like `a==1`.
+ */
 const ASSIGNED_LINE =
-	/^\s*(?:export\s+|declare\s+-[A-Za-z]+\s+)?[A-Za-z_][A-Za-z0-9_]*=/;
+	/^\s*(?:export\s+|declare\s+-[-A-Za-z]+\s+)?[A-Za-z_][A-Za-z0-9_]*=(?!=)(?:'[^']*'|"[^"]*"|[^\s'"]*)\s*$/;
 
 /** The fewest such lines that make an output a dump, whatever printed it. */
 const FEWEST_DUMPED_LINES = 5;
@@ -147,23 +175,46 @@ const FEWEST_DUMPED_LINES = 5;
 /**
  * Whether an output reads as a printing of the environment, whatever
  * printed it: at least five lines setting a variable, making up at least
- * half its lines that hold anything. A command no rule knows, as a script
- * or a program of the agent's own, still prints a dump this way.
+ * half its lines that hold anything, or five such lines in a row. A line
+ * ends at a newline or at a NUL, as `env -0` ends each. A command no rule
+ * knows, as a script or a program of the agent's own, still prints a dump
+ * this way.
  */
 export function readsAsDump(text: string): boolean {
+	if (!text.includes("=")) return false;
 	let lines = 0;
 	let assigned = 0;
-	for (const line of text.split("\n")) {
+	let run = 0;
+	let start = 0;
+	while (start <= text.length) {
+		let end = start;
+		while (end < text.length && !isLineEnd(text.charCodeAt(end))) end++;
+		const line = text.slice(start, end);
+		start = end + 1;
 		if (line.trim() === "") continue;
 		lines++;
-		if (ASSIGNED_LINE.test(line)) assigned++;
+		if (!ASSIGNED_LINE.test(line)) {
+			run = 0;
+			continue;
+		}
+		assigned++;
+		run++;
+		if (run >= FEWEST_DUMPED_LINES) return true;
 	}
 	return assigned >= FEWEST_DUMPED_LINES && assigned * 2 >= lines;
 }
 
+/** Whether a character ends a line of a dump: a newline, or env -0's NUL. */
+function isLineEnd(code: number): boolean {
+	return code === NEWLINE || code === NUL;
+}
+
+const NEWLINE = 10;
+const NUL = 0;
+
 /** A variable's line in a dump: its name, what sits between, its value. */
 const DUMPED_VARIABLE =
-	/^(\s*(?:export\s+|declare\s+-x\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:=>|=)\s*['"]?)([^\s'"]+)/gm;
+	/^(\s*(?:export\s+|declare\s+-[-A-Za-z]+\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:=>|=)\s*['"]?)([^\s'"]+)/gm;
 
 /**
  * A mark already standing where a secret was, kept as it is, or a word
@@ -178,10 +229,33 @@ const DUMPED_WORD =
  * whatever its variable is called: a dump holds what no shape knows, as a
  * proxy's key under a name of its maker's choosing. A variable's value is
  * named by the variable, and a bare value, as launchctl getenv prints, as
- * an environment value. Paths and addresses read as they did.
+ * an environment value. Paths and addresses read as they did. Each of
+ * `env -0`'s NUL-ended entries is read as a line of its own.
  */
 function scrubDump(text: string, kinds: string[]): string {
-	const named = text.replace(
+	return eachEntry(text, (entry) =>
+		scrubAssigned(entry, kinds).replace(DUMPED_WORD, (word: string) => {
+			if (word.startsWith("[secret scrubbed: ") || !looksLikeSecret(word)) {
+				return word;
+			}
+			kinds.push(ENVIRONMENT_VALUE);
+			return scrubbedMark(ENVIRONMENT_VALUE);
+		}),
+	);
+}
+
+/**
+ * An output read as a dump only by its lines, with each variable's value
+ * that could be a credential put out of sight and every other word left
+ * as it is, since nothing says the rest is the environment.
+ */
+function scrubDumpedLines(text: string, kinds: string[]): string {
+	return eachEntry(text, (entry) => scrubAssigned(entry, kinds));
+}
+
+/** The text with each variable's value that could be a credential scrubbed. */
+function scrubAssigned(text: string, kinds: string[]): string {
+	return text.replace(
 		DUMPED_VARIABLE,
 		(whole: string, before: string, name: string, value: string) => {
 			if (!looksLikeSecret(value)) return whole;
@@ -189,13 +263,12 @@ function scrubDump(text: string, kinds: string[]): string {
 			return `${before}${scrubbedMark(name)}`;
 		},
 	);
-	return named.replace(DUMPED_WORD, (word: string) => {
-		if (word.startsWith("[secret scrubbed: ") || !looksLikeSecret(word)) {
-			return word;
-		}
-		kinds.push(ENVIRONMENT_VALUE);
-		return scrubbedMark(ENVIRONMENT_VALUE);
-	});
+}
+
+/** The text with `scrub` applied to each of its NUL-ended entries. */
+function eachEntry(text: string, scrub: (entry: string) => string): string {
+	if (!text.includes("\0")) return scrub(text);
+	return text.split("\0").map(scrub).join("\0");
 }
 
 /** What a dump's bare value is called where it was scrubbed. */
@@ -338,7 +411,8 @@ function looksLikeSecret(value: string): boolean {
  * The text with every credential it holds put out of sight, and the kinds
  * found, in the order found; the same text, and none, when it holds none.
  * The known values are the environment's unless given. The text is read
- * as a dump when `options` says it is one or it reads as one.
+ * as a dump when `options` says it is one; one that only reads as a dump
+ * by its lines has just its variables' values read as one.
  */
 export function scrubSecrets(
 	text: string,
@@ -362,8 +436,9 @@ export function scrubSecrets(
 			return `${before}${scrubbedMark(shape.kind)}${after}`;
 		});
 	}
-	if (options.environment || readsAsDump(scrubbed)) {
-		scrubbed = scrubDump(scrubbed, kinds);
+	if (options.environment) scrubbed = scrubDump(scrubbed, kinds);
+	else if (readsAsDump(scrubbed)) {
+		scrubbed = scrubDumpedLines(scrubbed, kinds);
 	}
 	return { text: scrubbed, kinds };
 }

@@ -43,20 +43,24 @@ replaced:
   their own, by any path (`/usr/bin/env`) and with only options or
   assignments after `env`; a shell's `export`, `declare` or `set`, bare
   or with `-p` or `-x`; systemd's `show-environment`, `launchctl print`,
-  `getenv` or `export`; a process's `environ` and `ps eww`; or a script
-  printing its whole environment, as Python's `os.environ` or Node's
-  `process.env`; over SSH or not. Every value in its
-  answer long and mixed enough to be a credential is scrubbed, whatever
-  its variable is called, and the mark names the variable. On 12
-  November a `launchctl print` over SSH put two of another machine's
-  work tokens into an agent's context and log: neither name was one the
-  places knew, and the session didn't hold either value. A path or an
-  address reads as it did, and `env FOO=1 cargo test` is a command run,
-  not a dump. The rules err towards a dump.
+  `getenv` or `export`; a process's `environ`, `ps eww` or `ps -E`;
+  awk's `ENVIRON`, jq's `$ENV` and `docker inspect`; or a script run
+  inline (`python3 -c`, `node -e`, a heredoc) reading its whole
+  environment, as Python's `os.environ` or Node's `process.env`; over
+  SSH or not. A search naming `process.env` is no dump. Every value in
+  its answer long and mixed enough to be a credential is scrubbed,
+  whatever its variable is called, and the mark names the variable.
+  On 12 November a `launchctl print` over SSH put two of another
+  machine's work tokens into an agent's context and log: neither name
+  was one the places knew, and the session didn't hold either value. A
+  path or an address reads as it did, and `env FOO=1 cargo test` is a
+  command run, not a dump. The rules err towards a dump.
 - **An output that reads as a dump:** whatever printed it, an output
-  with at least five lines setting a variable, making up at least half
-  of its lines, is scrubbed the same way, so a command no rule knows
-  still has its values put out of sight.
+  with at least five lines each setting one variable, making up at
+  least half of its lines or five in a row, has each variable's value
+  scrubbed the same way, so a command no rule knows still has its
+  values put out of sight. Its other lines read as they did, and a log
+  line of several pairs or a pin like `idna==3.4` sets no variable.
 
 The places take a name and its value however a tool sets them apart:
 `NAME=value`, `NAME => value` as launchctl prints it, or `NAME: value`
@@ -77,8 +81,9 @@ The answer isn't the only copy, so two files are scrubbed too:
   file is rewritten the same way. Only a file named as pi or pi-durable
   names them, in the temporary folder or pi-durable's folder directly
   in it, is touched. A command that fails by throwing, as one that
-  times out, answers with its error's words alone, so a file named in
-  the answer's text is found and rewritten too.
+  times out, answers with its error's words alone, so the file named
+  in pi's last `[Showing … Full output: <path>]` trailer in the text
+  is rewritten too.
 - **Stored results:** a tool that answers with a handle writes its
   payload during its own run, before this scrub sees the answer, so the
   result store scrubs each payload as it writes it
@@ -88,9 +93,9 @@ A command moved to the background, after a minute or at once, says its
 end as a message rather than as its answer, so this scrub never sees
 it. The hand-off (`lib/jobs/hand-off.ts`) scrubs that end the same way,
 read by the command as it started, with its saved output, before it is
-said or kept. A command carried to another process by a move or a
-host's restart is read by what it printed, since its command doesn't
-travel with it.
+said or kept; an end it can't scrub is said with its output withheld.
+A command carried to another process by a move or a host's restart is
+read by its label, the command's first line, and by what it printed.
 
 A shared host also scrubs what a tool streams while it runs, and the
 result it commits, in its tool round (`host/engine/tool-round.ts`),

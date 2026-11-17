@@ -46,8 +46,11 @@ const PI_OUTPUT_FILE = /^pi-[a-z]+-[0-9a-f]+\.log$/;
 const DURABLE_OUTPUT_FILE =
 	/^pi-output-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.log$/;
 
-/** How pi's text names the file it saved: `Full output: <path>]`. */
-const NAMED_IN_TEXT = /Full output: ([^\s\]]+)/g;
+/**
+ * How pi's text names the file it saved, in the trailer it ends a cut
+ * output with: `[Showing lines 1-2000 of 9000. Full output: <path>]`.
+ */
+const NAMED_IN_TEXT = /\[Showing [^\]\n]*Full output: ([^\s\]]+)\]/g;
 
 /** The folder pi-durable makes for each spill with `mkdtemp("tmp-")`. */
 const DURABLE_OUTPUT_FOLDER = /^tmp-[A-Za-z0-9]{6}$/;
@@ -104,13 +107,16 @@ export function savedOutputFile(
 	return savedOutputPath(named, folder);
 }
 
-/** The saved output files a part of an answer names in its text. */
+/**
+ * The saved output file a part of an answer names in its text: only the
+ * last trailer, the one pi wrote, so an output quoting older trailers
+ * has no other file rewritten.
+ */
 function savedOutputFilesIn(part: unknown, folder: string): string[] {
 	if (!isRecord(part) || typeof part.text !== "string") return [];
-	return [...part.text.matchAll(NAMED_IN_TEXT)].flatMap(([, named]) => {
-		const file = named ? savedOutputPath(named, folder) : undefined;
-		return file ? [file] : [];
-	});
+	const named = [...part.text.matchAll(NAMED_IN_TEXT)].at(-1)?.[1];
+	const file = named ? savedOutputPath(named, folder) : undefined;
+	return file ? [file] : [];
 }
 
 /** `named`, when it is a file pi or pi-durable saved as they name them. */

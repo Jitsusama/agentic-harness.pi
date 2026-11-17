@@ -263,8 +263,18 @@ export async function runOrHandOff<T>(
 	const fileName = `${call.session}-${startedAt}-${job.id}`;
 	running.then(
 		(settled) => {
-			const result = scrubbed(settled, call.input);
 			const took = spoken(now() - startedAt);
+			let result: AgentToolResult<T>;
+			try {
+				result = scrubbed(settled, call.input);
+			} catch {
+				// A result the scrub cannot read is never said as it stands.
+				job.finish({
+					summary: withheldSummary(call.label, `ended after ${took}`),
+					failed: true,
+				});
+				return;
+			}
 			const code = exitCodeOf(result);
 			const status =
 				code === undefined
@@ -283,21 +293,26 @@ export async function runOrHandOff<T>(
 		},
 		(error: unknown) => {
 			// A command that throws says its output in its error's words.
-			const words = error instanceof Error ? error.message : String(error);
-			const said = saidBy(
-				scrubbed(
-					{ content: [{ type: "text", text: words }], details: undefined },
-					call.input,
-				),
-			);
+			const status = `stopped after ${spoken(now() - startedAt)}`;
+			let said: string;
+			try {
+				const words = error instanceof Error ? error.message : String(error);
+				said = saidBy(
+					scrubbed(
+						{ content: [{ type: "text", text: words }], details: undefined },
+						call.input,
+					),
+				);
+			} catch {
+				// An error the scrub cannot read is never said as it stands.
+				job.finish({
+					summary: withheldSummary(call.label, status),
+					failed: true,
+				});
+				return;
+			}
 			job.finish({
-				summary: finishedSummary(
-					call.label,
-					`stopped after ${spoken(now() - startedAt)}`,
-					said,
-					fileName,
-					keep,
-				),
+				summary: finishedSummary(call.label, status, said, fileName, keep),
 				failed: true,
 			});
 		},
@@ -331,6 +346,11 @@ function scrubbed<T>(
 	scrubSavedOutput(result, input);
 	const found = scrubToolResult(result, input);
 	return found === undefined ? result : { ...result, ...found };
+}
+
+/** A moved call's end said without its output, which could not be scrubbed. */
+function withheldSummary(label: string, status: string): string {
+	return `\`${label}\` ${status}. Its output was withheld, since it could not be scrubbed.`;
 }
 
 /** What the call answers once the work has moved to a job. */
