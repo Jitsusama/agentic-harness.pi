@@ -15,6 +15,12 @@
  * every tool result that request owes, so no call is parted from its
  * result. A runtime whose seam hands nothing over leaves pi to correct
  * the sections from the run's second turn, as before.
+ *
+ * A runtime with no seam at all, as a host restarted before its runtime
+ * moved runs, opens no run of pi's, so pi settles none: its extensions
+ * are told each settle here instead, as they were before the seam, or one
+ * waiting on it, as job-workflow's outbox does, waits until a person types
+ * (15 November).
  */
 
 import type { AgentMessage } from "../pi-types.ts";
@@ -32,7 +38,17 @@ export interface HostRunningSession {
 	runForHost?(
 		work: (prepared?: readonly AgentMessage[]) => Promise<void>,
 	): Promise<void>;
+	/** Read at each settle, on a runtime with no seam: a reload replaces it. */
+	readonly extensionRunner?: {
+		emit(event: {
+			readonly type: "agent_settled";
+			readonly aborted: boolean;
+		}): Promise<unknown>;
+	};
 }
+
+/** Runs `say` as the conversation's own, whoever scheduled it. */
+export type Within = (say: () => Promise<unknown>) => Promise<unknown>;
 
 /** An open run of pi's, ended by `end`, settled once `settled` resolves. */
 interface OpenRun {
@@ -48,13 +64,17 @@ interface OpenRun {
  */
 export class PiRuns {
 	private readonly parked: () => boolean;
+	private readonly within: Within;
 	private session: HostRunningSession | undefined;
 	private holds = 0;
 	private open: OpenRun | undefined;
+	/** The stop signals of runs shown pi with no seam to open them, for the settle owed. */
+	private unseamed: (AbortSignal | undefined)[] | undefined;
 
-	/** Runs whose host is stopping once `parked` says so. */
-	constructor(parked: () => boolean) {
+	/** Runs whose host is stopping once `parked` says so, each settle said `within`. */
+	constructor(parked: () => boolean, within: Within = (say) => say()) {
 		this.parked = parked;
+		this.within = within;
 	}
 
 	/** Open runs in `session` from now on. */
@@ -76,13 +96,27 @@ export class PiRuns {
 			if (this.holds > 0) return;
 			const open = this.open;
 			this.open = undefined;
+			const unseamed = this.unseamed;
+			this.unseamed = undefined;
 			// A parked host is stopping and shows pi nothing more: its run stays
 			// open, unsettled, and goes with the session, so no extension wakes to
 			// act on a conversation that is closing.
-			if (!open || this.parked()) return;
+			if (this.parked()) return;
+			if (unseamed) await this.settledWithoutSeam(unseamed);
+			if (!open) return;
 			open.end();
 			await open.settled;
 		};
+	}
+
+	/** Tell pi's extensions the runs shown settled, unless pi's own run under way settles them. */
+	private async settledWithoutSeam(
+		signals: readonly (AbortSignal | undefined)[],
+	): Promise<void> {
+		const runner = this.session?.extensionRunner;
+		if (!runner || this.session?.isStreaming) return;
+		const aborted = signals.some((signal) => signal?.aborted === true);
+		await this.within(() => runner.emit({ type: "agent_settled", aborted }));
 	}
 
 	/**
@@ -106,10 +140,15 @@ export class PiRuns {
 	 * pi's prompt reached the agent, the work is that run's, which pi
 	 * settles, and a run of the agent's after it opens its own.
 	 */
-	async opening(): Promise<readonly AgentMessage[]> {
+	async opening(signal?: AbortSignal): Promise<readonly AgentMessage[]> {
 		const session = this.session;
-		if (this.open || this.holds === 0 || !session?.runForHost) return [];
+		if (this.open || this.holds === 0 || !session) return [];
 		if (session.isStreaming) return [];
+		if (!session.runForHost) {
+			// No seam opens pi's run, so the settle it owes is said as the hold ends.
+			this.unseamed = [...(this.unseamed ?? []), signal];
+			return [];
+		}
 		let end = () => {};
 		const ended = new Promise<void>((done) => {
 			end = done;

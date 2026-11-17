@@ -131,7 +131,10 @@ export class HostedAgent {
 	private readonly recovery: Recovery;
 	/** Where words this agent queues past pi's session show as pending, once the host gives it. */
 	private pending: ShowQueued | undefined;
-	private readonly piRuns = new PiRuns(() => this.parked);
+	private readonly piRuns = new PiRuns(
+		() => this.parked,
+		(say) => this.within(say),
+	);
 
 	constructor(
 		options: AgentOptions,
@@ -323,12 +326,10 @@ export class HostedAgent {
 		if (messages.some((message) => isPersonWords({ type: "message", message })))
 			this.joelTyped = true;
 		if (this.active) {
-			// pi begins a run only while it holds none, so one under way here is
-			// durable's: the recovery carrying a turn on, or durable's own work.
-			// The words queue behind it as an early prompt's do. Refused, pi,
-			// idle by its own account, let job-workflow say its cut-off notice
-			// again at once, 335 times in one conversation, and two resumes
-			// took 72 s each (14 November).
+			// pi begins a run only while it holds none, so one under way here is durable's:
+			// the recovery's or durable's own. The words queue behind it as an early prompt's
+			// do. Refused, pi, idle by its own account, let job-workflow say its cut-off
+			// notice 335 times in one conversation; two resumes took 72 s (14 November).
 			if (await this.recovery.followCarriedOn(messages)) return;
 		} else if (!this.recovery.begun) {
 			// A prompt before the recovery, as an extension's start sends, begins
@@ -344,11 +345,10 @@ export class HostedAgent {
 
 	async continue(): Promise<void> {
 		if (this.active) {
-			// pi continues only once its own prompt has ended, so a run under way
-			// here is durable's: the ask again for a request a restart cut off,
-			// begun as the recovery that held pi's words ended. Refused, words
-			// typed while the run waited for its turn failed as the agent already
-			// processing (15 November); followed, its answer is what pi continues to.
+			// pi continues only once its own prompt has ended, so a run under way here is
+			// durable's: the ask again for a request a restart cut off, begun as the recovery
+			// holding pi's words ended. Refused, words typed while it waited failed as the
+			// agent already processing (15 November); followed, pi continues to its answer.
 			while (this.active) await this.active.promise;
 			if (
 				this.state.messages.at(-1)?.role === "assistant" &&
@@ -835,7 +835,7 @@ export class HostedAgent {
 		if (run && !run.opened) {
 			run.opened = true;
 			// Pi's prepared messages go in the next request, after any owed tool result (pi-runs.ts).
-			run.placed.push(...(await this.piRuns.opening()));
+			run.placed.push(...(await this.piRuns.opening(run.controller.signal)));
 			if (event.type !== "agent_start") {
 				// A recovering run shows pi the run and the turn it carries on before its first event.
 				await this.emit({ type: "agent_start" });
