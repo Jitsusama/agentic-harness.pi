@@ -8,5 +8,4 @@ lib/internal
 lib/internal/quest
 lib/ui
 tests/extensions/compaction-workflow/host.test.ts
-tests/lib/mesh/presence.test.ts
 tests/package
