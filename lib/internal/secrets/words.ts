@@ -80,14 +80,15 @@ export function unescapedMarks(text: string): string {
 		let cut = piece.length;
 		for (;;) {
 			let start = cut;
-			while (start > 0 && MIDDLE.test(piece.charAt(start - 1))) start--;
-			if (start > 0 && piece.charAt(start - 1) === "\x1b") {
-				cut = start - 1;
+			while (start > 0 && PARAMETER.test(piece.charAt(start - 1))) start--;
+			if (start >= 2 && piece.slice(start - 2, start) === "\x1b[") {
+				cut = start - 2;
 				continue;
 			}
-			while (start > 0 && PARAMETER.test(piece.charAt(start - 1))) start--;
-			if (start < 2 || piece.slice(start - 2, start) !== "\x1b[") break;
-			cut = start - 2;
+			start = cut;
+			while (start > 0 && MIDDLE.test(piece.charAt(start - 1))) start--;
+			if (start === 0 || piece.charAt(start - 1) !== "\x1b") break;
+			cut = start - 1;
 		}
 		pieces[at] = piece.slice(0, cut);
 	}
@@ -97,8 +98,11 @@ export function unescapedMarks(text: string): string {
 /** What a terminal reads between an escape and the end of its sequence. */
 const MIDDLE = /[ -/]/;
 
-/** What a terminal reads as a control sequence's parameters. */
-const PARAMETER = /[0-?]/;
+/**
+ * What a terminal reads within a control sequence before its end: its
+ * parameters and its middle, in any order a cut one leaves them.
+ */
+const PARAMETER = /[ -?]/;
 
 /** The shortest value taken as a credential's, as CREDENTIAL_VALUE has it. */
 const SHORTEST_SECRET = 16;
@@ -110,6 +114,7 @@ export function looksLikeSecret(value: string): boolean {
 		/\d/.test(value) &&
 		/[A-Za-z]/.test(value) &&
 		!value.startsWith("/") &&
+		!value.startsWith("~/") &&
 		!value.includes("://")
 	);
 }
@@ -137,12 +142,13 @@ const SHOUTED = /^(?=[^_]*_)(?=[^A-Z]*[A-Z])[A-Z0-9_]+$/;
 /**
  * What follows a value's padding rather than a name's equals: nothing, a
  * second equals, a space, what ends a list, a statement or a query's
- * field, a backslash, an escape or a bell, or a quote that closes there.
- * An empty quoted value, `=""`, is a name's.
+ * field, a backslash, an escape or a bell, or a quote that closes there,
+ * a doubled one among them unless it ends its line or word: an empty
+ * quoted value, `=""` alone, is a name's.
  */
 const PADDING_END =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape ends a value.
-	/^(?:$|[=\s,;:&|\\)\]}\x1b\x07]|['"](?:$|[\s,;:&|\\)\]}\x1b\x07]))/;
+	/^(?:$|[=\s,;:&|\\)\]}\x1b\x07]|['"](?:$|[\s,;:&|\\)\]}\x1b\x07]|['"](?!$|\s)))/;
 
 /**
  * Whether `word`, ending at `at`, is a variable's name: it reads as one,
@@ -157,7 +163,7 @@ function namesAt(text: string, word: string, at: number): boolean {
 	const name = word.replace(ESCAPE, "");
 	if (!NAME.test(name)) return false;
 	return (
-		SHOUTED.test(name) || !PADDING_END.test(text.slice(next + 1, next + 3))
+		SHOUTED.test(name) || !PADDING_END.test(text.slice(next + 1, next + 4))
 	);
 }
 
@@ -171,9 +177,22 @@ const JOINER = /[\][:,;|()]/;
 const ADDRESS_PORT =
 	/(:\/\/(?:[^/@\s]*@)?(?:[\w.-]+|\[[\dA-Fa-f:.]+\])):\d{1,5}(?=\/)/g;
 
+/** An address's user, and any password, before its host's at sign. */
+const USER = /:\/\/([^/@\s]*)@/g;
+
+/** What a terminal's command holds, as ESCAPE reads one whole. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's command is what this reads.
+const PAYLOAD = /^\x1b\]\d*;;?([^\x07\x1b\n]*)/;
+
+/** An escape's payload: a terminal command's, or none. */
+function payloadOf(sequence: string): string {
+	return PAYLOAD.exec(sequence)?.[1] ?? "";
+}
+
 /**
- * `text` with each word anywhere in it given to `replace`, read in one
- * pass. A word runs between breaks (a space, a quote, an equals), and a
+ * `printed` with each terminal command's payload judged first
+ * (`judgedCommands`), then each word anywhere in it given to `replace`,
+ * read in one pass. A word runs between breaks (a space, a quote, an equals), and a
  * terminal's escape within it is part of it, so a colour splits no
  * value; an escape this can't read, a cut one among them, ends it. A
  * mark already standing where a secret was is kept and ends a word, so
@@ -235,20 +254,31 @@ export function replaceWords(
  * A value or a word judged by what a terminal shows of it, its escapes
  * aside, and by each piece they or a joiner (a bracket, a colon, a
  * comma, a semicolon, a bar, a parenthesis) part, an address's port
- * aside: put out of sight as `kind` when either could be a credential,
- * so a path or an address joined to a token exempts nothing, the escapes
- * that open and close it kept; undefined when neither could. The escapes
- * are found by one walk over them.
+ * aside, and its user's: put out of sight as `kind` when any could be a
+ * credential, so a path or an address joined to a token exempts nothing,
+ * the escapes that open and close it kept; undefined when none could. A
+ * terminal command's payload is read joined to the words beside it too,
+ * so half a credential in one exempts nothing: a word only that finds is
+ * put out of sight whole, commands and all. The escapes are found by one
+ * walk over them.
  */
 export function hidden(word: string, kind: string): string | undefined {
 	const pieces = word
 		.replace(ADDRESS_PORT, "$1")
 		.split(ESCAPE)
 		.flatMap((piece) => piece.split(JOINER));
+	const users = [...word.matchAll(USER)].flatMap(([, user = ""]) =>
+		user.split(":"),
+	);
 	const could =
 		looksLikeSecret(word.replace(ESCAPE, "")) ||
-		pieces.some((piece) => looksLikeSecret(piece));
-	if (!could) return undefined;
+		[...pieces, ...users].some((piece) => looksLikeSecret(piece));
+	if (!could) {
+		const joined = word.replace(ESCAPE, payloadOf).split(WORD_BREAK);
+		return joined.some((piece) => looksLikeSecret(piece))
+			? scrubbedMark(kind)
+			: undefined;
+	}
 	let opening = 0;
 	let runStart = 0;
 	let runEnd = -1;

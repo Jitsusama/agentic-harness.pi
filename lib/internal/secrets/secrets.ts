@@ -219,8 +219,10 @@ const WHOLE_ENVIRONMENT: readonly RegExp[] = [
  * escapes opening it, a colour, a cleared line or a character set, are
  * read past, as a terminal shows the line without them. Each rule below
  * reads a control sequence, a character set and a cursor's escape as
- * `words.ts`'s ESCAPE does, written out in it; a terminal's command and
- * a bell are left to its word scan, which judges what they hold.
+ * `words.ts`'s ESCAPE does, written out in it. A terminal's command or
+ * a bell opening a line is not read past here, so such a line is a
+ * variable's only in a printing of the environment, whose word scan
+ * reads every line.
  */
 const ASSIGNED_LINE =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
