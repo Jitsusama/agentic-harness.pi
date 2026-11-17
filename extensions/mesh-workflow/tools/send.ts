@@ -274,17 +274,6 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	const crossedAnswer = crossedAnswerRefused(at, answersNamed);
 	if (crossedAnswer) return crossedAnswer;
 
-	const ended = endedOnWord(at, params.endsHold, answersNamed);
-	if (ended.hold) {
-		const refused = at.confirmEnd
-			? await at.confirmEnd(ended.hold, params.text)
-			: "nobody here can confirm it is the person's word.";
-		if (refused !== undefined) {
-			return answer(`Not sent: ${refused}`, {
-				sent: false,
-			} satisfies SendDetails);
-		}
-	}
 	const supersedes = params.supersedes
 		? messageNamed(at, params.supersedes)
 		: undefined;
@@ -298,6 +287,31 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		self,
 		ownReplaced,
 	);
+	// An orchestrator's order to its sessions, as a pivot or a question,
+	// says whose limit it puts on a verdict (lib/orchestration/unasked-limits.ts).
+	// It is read from the words alone, so before the person is asked to
+	// confirm a hold's end, which a refusal would throw away.
+	const limits =
+		at.peer.orchestrates !== undefined &&
+		(params.intent === "pivot" || intent.intent === "question")
+			? limitsRefusal(params.text)
+			: undefined;
+	if (limits !== undefined) {
+		return answer(`Not sent: ${limits}`, {
+			sent: false,
+		} satisfies SendDetails);
+	}
+	const ended = endedOnWord(at, params.endsHold, answersNamed);
+	if (ended.hold) {
+		const refused = at.confirmEnd
+			? await at.confirmEnd(ended.hold, params.text)
+			: "nobody here can confirm it is the person's word.";
+		if (refused !== undefined) {
+			return answer(`Not sent: ${refused}`, {
+				sent: false,
+			} satisfies SendDetails);
+		}
+	}
 	const target = orchestratorNamed(params.to ?? "", at.peer.orchestratedBy);
 	const named = groupsNamed(target.to);
 	// Meant for one recipient that is not there: routed by rule, it would
@@ -363,18 +377,6 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 			: undefined;
 	if (hands !== undefined) {
 		return answer(`Not sent: ${hands}`, {
-			sent: false,
-		} satisfies SendDetails);
-	}
-	// An orchestrator's order to its sessions, as a pivot or a question,
-	// says whose limit it puts on a verdict (lib/orchestration/unasked-limits.ts).
-	const limits =
-		at.peer.orchestrates !== undefined &&
-		(params.intent === "pivot" || intent.intent === "question")
-			? limitsRefusal(params.text)
-			: undefined;
-	if (limits !== undefined) {
-		return answer(`Not sent: ${limits}`, {
 			sent: false,
 		} satisfies SendDetails);
 	}

@@ -9,9 +9,9 @@
  * for no such limit, and at 22:29 asked why it was there. A filed rule
  * didn't stop the next one; this does. A sentence that limits a
  * verdict (approve, request changes, block, comment-only) goes only
- * when it cites its source: his words quoted with his name, a
- * message's id, a named standing rule, document or skill, or an
- * owner's ruling by address.
+ * when it cites its source: his words quoted just after his name, a
+ * message's id, a standing rule on something, a document or a skill by
+ * its name, or an owner's ruling by address.
  *
  * The rule was narrowed by replaying a day of one orchestrator's pivots,
  * questions and spawn notes, and every orchestrator's spawn notes, 287
@@ -34,10 +34,13 @@ const ADDRESS = String.raw`\b[0-9A-Z]{6}\b`;
  * own ahead of it hides none.
  */
 const LIMIT =
-	/(?:^|[,;:(\u2014\u2013]\s*|\s-\s+|(?<![\w'\u2019])(?!(?:is|was|are|were|has|have|had|of|in|for|there|if|when|whether|unless|that)\b)\w+\s+)(never|don['\u2019]?t|do not|not|no|nothing|none|only|at most|except|without)\b/gi;
+	/(?:^|[,;:(\u2014\u2013]\s*|\s-\s+|(?<![\w'\u2019])(?!(?:is|was|are|were|has|have|had|of|in|for|there|if|when|whether|unless|that)\b)\w+\s+)(never|don['\u2019]?t|do not|not|nothing but|no|nothing|none|only|at most|except|without|avoid|withhold)\b/gi;
+
+/** A verdict said before the limit that bounds it: "Comment review only", "Approval: none". */
+const TRAILING = /^(only|none)$/i;
 
 /** Whose approval a limit waits on, which narrows no verdict of his. */
-const WHOSE = String.raw`(?<!\b(?:joel|person|owner)['\u2019]?s\s+|\b(?:his|your|their)\s+)`;
+const WHOSE = String.raw`(?<!\b\w+['\u2019]s\s+|\b(?:his|my|our|your|their)\s+)`;
 
 /**
  * A verdict on a change, the person's to narrow. "Block" only as one
@@ -51,39 +54,46 @@ const VERDICT = new RegExp(
 		"comment[- ]only",
 		"comment review",
 		"verdicts?",
-		String.raw`blocking (review|verdict|comments?)`,
-		String.raw`block(s|ed)?(?=\s*$|\s+(that|which|it|this|the (pr|change|review)|on (it|the (pr|change)))\b)`,
+		"blocking (review|verdict|comments?)",
+		String.raw`block(s|ed)?(?=\s*$|\s+(that|which|it|this|the (pr|change|review))\b)`,
 	].join("|"),
 	"i",
 );
 
 /** A verdict word told of rather than ordered: "no blocking comments remain". */
 const TOLD_OF =
-	/\b(remains?|is|are|was|were|left|exists?|stands?|limits?|rules?)\b/i;
+	/\b(remains?|is|are|was|were|left|exists?|stands?|limits?|rules?)\b(?!\s+to\b)/i;
+
+/**
+ * A condition on a verdict, which keeps review hygiene ("never approve a
+ * PR with failing CI") rather than narrowing what he decided.
+ */
+const CONDITION = /\b(if|with|without|before|unless)\b/i;
 
 /** Publishing, which a limit may ban outright by the person's drafts rule. */
 const PUBLISHING =
-	/^(post(s|ed|ing)?|publish\w*|send|sent|merg\w*|push|comment(s|ing)? live)\b/i;
+	/^(post(s|ed|ing)?|publish\w*|send|sent|comment(s|ing)? live)\b/i;
 
-/** A review kept a draft, for the person to publish. */
+/** A review kept a draft, for the person to publish; not a draft pull request. */
 const DRAFTS =
-	/\bdrafts?\b|for (joel|him) to (publish|post|send)|(his|joel'?s) to (publish|post|send)/i;
+	/\b(as|a|in|only) drafts?\b(?! (pr|pull|change)s?\b)|\bdrafts only\b|\bdraft (it|the review|a review)\b|for (joel|him) to (publish|post|send)|(his|joel'?s) to (publish|post|send)/i;
 
 /** A draft said not to be one, which keeps nothing a draft. */
 const NOT_A_DRAFT = /\bnot a draft\b/i;
 
-/** Words quoted, which are his only when the sentence says so. */
-const QUOTE = /["\u201c]([^"\u201d]{12,})["\u201d]/;
+/** His words quoted, as the sentence says they are his just before them. */
+const HIS_QUOTE =
+	/\b(joel|he|the person)\b[^"\u201c.]{0,25}?(said|asked|wrote|:)[^"\u201c]{0,6}["\u201c][^"\u201d]{12,}["\u201d]/i;
 
-/** The person, named where his words are quoted. */
-const HIM = /\b(joel|he|his|him|the person)\b/i;
+/** Words quoted anywhere, which are mentioned there, not ordered. */
+const QUOTED = /["\u201c][^"\u201d]*["\u201d]/g;
 
 /** A message's id, as the mesh shows it. */
 const MESSAGE_ID = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{8}\b/;
 
 /** A named standing rule, document or skill. */
 const NAMED_RULE =
-	/\b(standing rules?|his (rule|gate)s?|joel['\u2019]?s (rule|gate)s?|AGENTS\.md|docs\/\S+|[a-z]+(-[a-z]+)+ skill)\b/i;
+	/\b((standing|his|joel['\u2019]?s) (standing )?(rule|gate)s? (on|of|about|for) \w+|AGENTS\.md|docs\/\S+|[a-z]+(-[a-z]+)+ skill)\b/i;
 
 /** An owner's ruling, by address. */
 const RULING = new RegExp(
@@ -102,8 +112,10 @@ function sentences(text: string): string[] {
 		.map((part) =>
 			part
 				.trim()
-				.replace(/^[\s\-*\d.)]*(\*\*)?/, "")
-				.replace(/[\s\-*]+$/, ""),
+				// Emphasis hides no limit word.
+				.replace(/\*+|(?<!\w)_+|_+(?!\w)/g, "")
+				.replace(/^[\s\-\d.)]*/, "")
+				.replace(/[\s-]+$/, ""),
 		)
 		.filter(Boolean);
 }
@@ -122,9 +134,8 @@ function covered(rest: string): string[] {
 
 /** Whether a sentence says whose word its limit is. */
 function sourced(sentence: string): boolean {
-	return (
-		(QUOTE.test(sentence) && HIM.test(sentence)) ||
-		[MESSAGE_ID, NAMED_RULE, RULING].some((source) => source.test(sentence))
+	return [HIS_QUOTE, MESSAGE_ID, NAMED_RULE, RULING].some((source) =>
+		source.test(sentence),
 	);
 }
 
@@ -132,7 +143,8 @@ function sourced(sentence: string): boolean {
 function verdictOrdered(item: string): boolean {
 	const verdict = VERDICT.exec(item);
 	if (!verdict) return false;
-	return !TOLD_OF.test(item.slice(verdict.index + verdict[0].length));
+	const after = item.slice(verdict.index + verdict[0].length);
+	return !TOLD_OF.test(after) && !CONDITION.test(after);
 }
 
 /** Whether a limit's items narrow a verdict, rather than ban publishing outright. */
@@ -143,13 +155,42 @@ function narrowed(items: string[]): boolean {
 	return !outright && items.some(verdictOrdered);
 }
 
+/** Whether a sentence asks rather than orders: a tag such as ", OK?" asks nothing. */
+function asks(sentence: string): boolean {
+	return (
+		sentence.endsWith("?") &&
+		!/,\s*(ok|okay|right|yes|yeah|alright|got it|ja)\?$/i.test(sentence)
+	);
+}
+
+/** The clause a trailing limit bounds: the words before it, back to a stop. */
+function before(sentence: string, at: number): string[] {
+	const clause =
+		sentence
+			.slice(0, at)
+			.split(/[,;.\u2014\u2013]/)
+			.pop() ?? "";
+	return [clause.replace(/:\s*$/, "").trim()].filter(Boolean);
+}
+
 /** Whether a sentence narrows a verdict with no source and no drafts rule behind it. */
 function narrowsVerdict(sentence: string): boolean {
-	if (sentence.endsWith("?") || sourced(sentence)) return false;
+	if (asks(sentence) || sourced(sentence)) return false;
 	if (DRAFTS.test(sentence) && !NOT_A_DRAFT.test(sentence)) return false;
-	return [...sentence.matchAll(LIMIT)].some((limit) =>
-		narrowed(covered(sentence.slice((limit.index ?? 0) + limit[0].length))),
-	);
+	// What is quoted is named, not ordered: "drop my 'comment review only'".
+	const said = sentence.replace(QUOTED, (quote) => " ".repeat(quote.length));
+	return [...said.matchAll(LIMIT)].some((limit) => {
+		const at = limit.index ?? 0;
+		const word = limit[1] ?? "";
+		const bounded = TRAILING.test(word)
+			? before(said, at + limit[0].length - word.length)
+			: [];
+		return (
+			narrowed(covered(said.slice(at + limit[0].length))) ||
+			// "Is blocked only by one finding" tells of it.
+			bounded.some((clause) => verdictOrdered(clause) && !TOLD_OF.test(clause))
+		);
+	});
 }
 
 /**

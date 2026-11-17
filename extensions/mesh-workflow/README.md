@@ -184,8 +184,10 @@ and can answer a question or a gate left open on screen.
   And an orchestrator's pivot or question that limits a
   verdict in the person's name (approve, block, request
   changes, comment-only) without its source: his words
-  quoted, a message id, a standing rule or document, or an
-  owner's ruling
+  quoted just after his name, a message id, a standing rule
+  on something, a document or a skill by its name, or an
+  owner's ruling by address. A question, a draft review and
+  an outright ban on posting are left alone
   ([`unasked-limits.ts`](../../lib/orchestration/unasked-limits.ts)).
   On 16 November one told a review cell to post no approval
   or block, which he had never asked.

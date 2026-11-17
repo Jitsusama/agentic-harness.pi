@@ -315,7 +315,7 @@ describe("an orchestrator", () => {
 			tools,
 			"orchestrator",
 			"question",
-			"Shall I post no approval, only a comment?",
+			"I'll post no approval or block on it, only a comment.",
 		);
 
 		expect(transport.ids()).toHaveLength(1);

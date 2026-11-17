@@ -53,6 +53,19 @@ describe("an orchestrator's limit on what is done in the person's name", () => {
 			"Post the review, not an approval or block.",
 			"Don\u2019t approve it.",
 			"Post the review live, not a draft, with no approval.",
+			// A draft pull request keeps no review a draft.
+			"Post the review on the draft PR with no approval or block.",
+			// A tag makes an order no question.
+			"Post no approval or block, OK?",
+			// Banning a merge isn't banning the review's posting.
+			"Post the comment review, but don't merge or approve.",
+			"Post **no** approval or block.",
+			"Post nothing but a comment review.",
+			"Comment review only.",
+			"Approval: none; a comment review.",
+			"Withhold approval; a comment review.",
+			"Avoid approving it; a comment review.",
+			"No approval is to be posted, only a comment.",
 		]);
 	});
 
@@ -74,6 +87,9 @@ describe("an orchestrator's limit on what is done in the person's name", () => {
 			"Post no approval or block, as Joel asked.",
 			"Post no approval or block; report to 85PKB2.",
 			"Post no approval or block, per the review skill.",
+			// His name anywhere doesn't make a quoted title his words.
+			"In Joel's name, post no approval on \"Fence a Mac Agent's Runs\".",
+			"Post no approval or block, by a standing rule.",
 		]);
 	});
 
@@ -100,6 +116,16 @@ describe("an orchestrator's limit on what is done in the person's name", () => {
 			"Don't block other sessions.",
 			"There's no comment-only limit on this one.",
 			"Why did you post no approval or block?",
+			// Waiting on someone's approval, and review hygiene, narrow
+			// nothing he decided.
+			"Don't wait for my approval.",
+			"Don't block on it; start the next task.",
+			"Never approve a PR with failing CI.",
+			"Don't approve if anything must change before it merges.",
+			"Don't merge without Jon's approval.",
+			"Don't post a verdict without reading the whole diff.",
+			// 16 November, 23:30: a state, which the replay refused once.
+			"The PR is blocked only by one outstanding finding.",
 		]);
 	});
 
@@ -115,5 +141,12 @@ describe("an orchestrator's limit on what is done in the person's name", () => {
 		const advice = refused.split('block.").')[1] ?? "";
 		expect(advice).toMatch(/quote his words/);
 		expect(advice).not.toMatch(/\b[0-9A-Z]{6}\b|"|\b[0-9a-f]{8}\b/);
+		// Copied into the limit, none of its words is a source.
+		refusesEach(
+			advice
+				.split(/[.;:]\s*/)
+				.filter(Boolean)
+				.map((part) => `Post no approval or block, ${part}.`),
+		);
 	});
 });
