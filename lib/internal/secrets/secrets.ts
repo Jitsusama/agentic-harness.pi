@@ -14,6 +14,16 @@
  * named by the variable.
  */
 
+import {
+	hidden,
+	looksLikeSecret,
+	replaceWords,
+	scrubbedMark,
+	unescapedMarks,
+} from "./words.ts";
+
+export { scrubbedMark };
+
 /** One shape: what it matches, what it is called, and what it keeps. */
 interface SecretShape {
 	readonly kind: string;
@@ -208,7 +218,11 @@ const WHOLE_ENVIRONMENT: readonly RegExp[] = [
  * a log line of several pairs, nor a pin like `a==1`. A terminal's
  * escapes opening it, a colour, a cleared line or a character set, are
  * read past, as a terminal shows the line without them. Each rule below
- * reads an escape as ESCAPE does, written out in it.
+ * reads a control sequence, a character set and a cursor's escape as
+ * `words.ts`'s ESCAPE does, written out in it. A terminal's command or
+ * a bell opening a line is not read past here, so such a line is a
+ * variable's only in a printing of the environment, whose word scan
+ * reads every line.
  */
 const ASSIGNED_LINE =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
@@ -278,18 +292,6 @@ const RETURN = 13;
 const NUL = 0;
 
 /**
- * A terminal's escape: a control sequence, as a colour, its reset or a
- * cleared line; a character set chosen; a cursor saved or restored.
- */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
-const ESCAPE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])/g;
-
-/** A terminal's escape, read where a scan of words stands. */
-const ESCAPE_HERE =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
-	/\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])/y;
-
-/**
  * A variable's line in a dump: its name, what sits between, its value,
  * escapes within it included, as a highlight splits a value.
  */
@@ -298,127 +300,26 @@ const DUMPED_VARIABLE =
 	/^([ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)((?:[^\s'"\x1b]|\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>]))+)/gm;
 
 /**
- * A mark standing where a secret was, on one line, its kind in words or
- * a variable's name, as `scrubbedMark` makes it, read where a scan of
- * words stands: words that only open one exempt nothing after them.
- */
-const MARK_HERE = /\[secret scrubbed: [A-Za-z0-9_ ]+\]/y;
-
-/** What ends a word: a space, a quote or an equals. */
-const WORD_BREAK = /[\s'"=]/;
-
-/** A variable's name, as a word before its equals must read. */
-const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/**
- * Whether `word`, ending at `at`, is a variable's name: it reads as one,
- * and an equals follows, past any space, with a value straight after.
- * A value's padding, as base64 ends in, is no name's equals.
- */
-function namesAt(text: string, word: string, at: number): boolean {
-	let next = at;
-	while (next < text.length && /\s/.test(text.charAt(next))) next++;
-	if (text.charAt(next) !== "=") return false;
-	const after = text.charAt(next + 1);
-	if (after === "" || after === "=" || /\s/.test(after)) return false;
-	return NAME.test(word.replace(ESCAPE, ""));
-}
-
-/**
- * `text` with each word anywhere in it given to `replace`, read in one
- * pass, so hostile output costs no more than its length. A word runs
- * between breaks (a space, a quote, an equals), and a terminal's escape
- * within it is part of it, so a colour splits no value; an escape this
- * can't read, a cut one among them, ends it. A mark already standing
- * where a secret was is kept and ends a word, so the rest of a value it
- * cut short is read on its own. A variable's name, before its equals,
- * is kept (`namesAt`).
- */
-function replaceWords(text: string, replace: (word: string) => string): string {
-	let out = "";
-	let word = -1;
-	const end = (at: number) => {
-		if (word < 0) return;
-		const found = text.slice(word, at);
-		out += namesAt(text, found, at) ? found : replace(found);
-		word = -1;
-	};
-	let at = 0;
-	while (at < text.length) {
-		const char = text.charAt(at);
-		if (char === "[") {
-			MARK_HERE.lastIndex = at;
-			const mark = MARK_HERE.exec(text);
-			if (mark) {
-				end(at);
-				out += mark[0];
-				at += mark[0].length;
-				continue;
-			}
-		}
-		if (char === "\x1b") {
-			ESCAPE_HERE.lastIndex = at;
-			const sequence = ESCAPE_HERE.exec(text);
-			if (sequence) {
-				if (word < 0) word = at;
-				at += sequence[0].length;
-				continue;
-			}
-		}
-		if (char === "\x1b" || WORD_BREAK.test(char)) {
-			end(at);
-			out += char;
-		} else if (word < 0) {
-			word = at;
-		}
-		at++;
-	}
-	end(text.length);
-	return out;
-}
-
-/**
- * A value or a word judged by what a terminal shows of it, its escapes
- * aside, and by each piece they or a bracket part: put out of sight as
- * `kind` when either could be a credential, so a path or an address an
- * escape or a bracket joins to a token exempts nothing, the escapes that open and close it kept; undefined
- * when neither could. The escapes are found by one walk over them.
- */
-function hidden(word: string, kind: string): string | undefined {
-	const pieces = word.split(ESCAPE).flatMap((piece) => piece.split("]"));
-	const could =
-		looksLikeSecret(word.replace(ESCAPE, "")) ||
-		pieces.some((piece) => looksLikeSecret(piece));
-	if (!could) return undefined;
-	let opening = 0;
-	let runStart = 0;
-	let runEnd = -1;
-	for (const sequence of word.matchAll(ESCAPE)) {
-		if (sequence.index === opening) opening += sequence[0].length;
-		if (sequence.index !== runEnd) runStart = sequence.index;
-		runEnd = sequence.index + sequence[0].length;
-	}
-	const closing =
-		runEnd === word.length ? Math.max(runStart, opening) : word.length;
-	return `${word.slice(0, opening)}${scrubbedMark(kind)}${word.slice(closing)}`;
-}
-
-/**
  * The dump with every value that could be a credential put out of sight,
  * whatever its variable is called: a dump holds what no shape knows, as a
  * proxy's key under a name of its maker's choosing. A variable's value is
  * named by the variable, and a bare value, as launchctl getenv prints, as
  * an environment value. Paths and addresses read as they did. Each of
- * `env -0`'s NUL-ended entries is read as a line of its own.
+ * `env -0`'s NUL-ended entries is read as a line of its own. The marks
+ * this scrub made are `marked`'s kinds, each a variable's added here.
  */
-function scrubDump(text: string, kinds: string[]): string {
+function scrubDump(text: string, kinds: string[], marked: Set<string>): string {
 	return eachEntry(text, (entry) =>
-		replaceWords(scrubAssigned(entry, kinds), (word: string) => {
-			const mark = hidden(word, ENVIRONMENT_VALUE);
-			if (mark === undefined) return word;
-			kinds.push(ENVIRONMENT_VALUE);
-			return mark;
-		}),
+		replaceWords(
+			scrubAssigned(entry, kinds, marked),
+			(word: string) => {
+				const mark = hidden(word, ENVIRONMENT_VALUE);
+				if (mark === undefined) return word;
+				kinds.push(ENVIRONMENT_VALUE);
+				return mark;
+			},
+			marked,
+		),
 	);
 }
 
@@ -427,10 +328,14 @@ function scrubDump(text: string, kinds: string[]): string {
  * one variable read as a dump and every other line left as it is, since
  * nothing says the rest is the environment.
  */
-function scrubDumpedLines(text: string, kinds: string[]): string {
+function scrubDumpedLines(
+	text: string,
+	kinds: string[],
+	marked: Set<string>,
+): string {
 	if (!text.includes("=")) return text;
 	return text.replace(EACH_LINE, (line: string) =>
-		ASSIGNED_LINE.test(line) ? scrubDump(line, kinds) : line,
+		ASSIGNED_LINE.test(line) ? scrubDump(line, kinds, marked) : line,
 	);
 }
 
@@ -477,13 +382,18 @@ const OPEN_DUMPED_VALUE =
 const ONLY_MARKS = /^(?:\[secret scrubbed: [^\]\n]*\][ \t'"]*)+$/;
 
 /** The text with each variable's value that could be a credential scrubbed. */
-function scrubAssigned(text: string, kinds: string[]): string {
+function scrubAssigned(
+	text: string,
+	kinds: string[],
+	marked: Set<string>,
+): string {
 	return text.replace(
 		DUMPED_VARIABLE,
 		(whole: string, before: string, name: string, value: string) => {
 			const mark = hidden(value, name);
 			if (mark === undefined) return whole;
 			kinds.push(name);
+			marked.add(name);
 			return `${before}${mark}`;
 		},
 	);
@@ -625,17 +535,9 @@ function isTextPart<Part extends { readonly type: string }>(
 	return part.type === "text" && typeof Reflect.get(part, "text") === "string";
 }
 
-/** The words that stand where a secret was, naming what it was. */
-export function scrubbedMark(kind: string): string {
-	return `[secret scrubbed: ${kind}]`;
-}
-
 /** A variable's name that says its value is a credential. */
 const SECRET_NAME =
 	/^(?:CLOUDSMITH_\w+|\w*(?:TOKEN|SECRET|PASSWORD|PASSWD|AUTH_HEADER)|\w*(?<!PUBLIC)_KEY)$/;
-
-/** The shortest value taken as a credential's, as CREDENTIAL_VALUE has it. */
-const SHORTEST_SECRET = 16;
 
 /** One credential known by its value, named by the variable holding it. */
 export interface KnownSecret {
@@ -663,17 +565,6 @@ export function knownSecrets(
 		}
 	}
 	return known.sort((one, other) => other.value.length - one.value.length);
-}
-
-/** Whether a value is long and mixed enough, and not a path or address. */
-function looksLikeSecret(value: string): boolean {
-	return (
-		value.length >= SHORTEST_SECRET &&
-		/\d/.test(value) &&
-		/[A-Za-z]/.test(value) &&
-		!value.startsWith("/") &&
-		!value.includes("://")
-	);
 }
 
 /**
@@ -709,11 +600,16 @@ export function scrubSecrets(
 			return `${before}${scrubbedMark(shape.kind)}${after}`;
 		});
 	}
-	if (options.environment) scrubbed = scrubDump(scrubbed, kinds);
-	else if (dumped) scrubbed = scrubDumpedLines(scrubbed, kinds);
+	// A terminal, and the word scan, read a bare escape and a mark's
+	// bracket as one sequence: dropped before the scan and after it.
+	if (kinds.length) scrubbed = unescapedMarks(scrubbed);
+	const marked = new Set(kinds);
+	if (options.environment) scrubbed = scrubDump(scrubbed, kinds, marked);
+	else if (dumped) scrubbed = scrubDumpedLines(scrubbed, kinds, marked);
 	if (options.partial === true) {
 		scrubbed = scrubOpenLine(scrubbed, kinds, options.environment === true);
 	}
+	if (kinds.length) scrubbed = unescapedMarks(scrubbed);
 	return { text: scrubbed, kinds };
 }
 

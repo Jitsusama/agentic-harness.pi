@@ -725,8 +725,10 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 		const scrubbed = scrubToolPartial(partialOf(printed), {
 			command: "printenv",
 		});
-		expect(scrubbed).toBeDefined();
-		expect(JSON.stringify(scrubbed)).not.toContain(value);
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "[secret scrubbed: environment value]\nready",
+		});
 	});
 
 	// The test's timeout bounds this: escapes a word may hold, ending in a
