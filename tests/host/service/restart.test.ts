@@ -15,6 +15,7 @@ import {
 	followWhatStarts,
 	HELD_SAY_MS,
 	type Held,
+	GAP_LOOK_MS,
 	RESTART_DUE_MS,
 	type RestartFacts,
 	restartWhenSettled,
@@ -305,37 +306,139 @@ describe("restartWhenSettled", () => {
 	// The background host on 16 November: its heap passed half its limit
 	// before 09:12, and review rounds and shell jobs held its restart every
 	// hour until V8 ran out at 20:44 and ended them all anyway.
-	it("past three quarters of its heap limit, restarts at the first gap, background work or not, before the ceiling", async () => {
+	//
+	// Each case's heap reads low at the host's first look, as a fresh
+	// host's does, and grows after.
+	function growingHeap(first: number) {
+		let share = first;
+		return {
+			heapShare: () => share,
+			growTo: (next: number) => {
+				share = next;
+			},
+		};
+	}
+
+	function restartsSaid(given: RestartFacts, said: string[]): void {
+		given.restart = async (why, under) => {
+			said.push(`restart under ${JSON.stringify(under)}: ${why}`);
+		};
+	}
+
+	it("past 70% of its heap limit, grown since its first look, restarts at the first gap, background work or not, before the ceiling", async () => {
 		const timers = manualTimers();
+		const heap = growingHeap(0.3);
 		const { facts: given, said } = facts({
 			differs: async () => "its heap is past half",
 			held: () => [{ state: "idle", since: lately }],
 			background: () => 2,
-			heapShare: () => 0.76,
+			heapShare: heap.heapShare,
 		});
-		given.restart = async (why, under) => {
-			said.push(`restart under ${JSON.stringify(under)}: ${why}`);
-		};
+		restartsSaid(given, said);
 		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(said, "held at its first look, well under the limit").toEqual([]);
+
+		heap.growTo(0.71);
 		await timers.fire(() => said.some((line) => line.startsWith("restart")));
 		expect(said).toEqual([
 			"expect true",
-			'restart under {"rule":"heap","endsTurns":false}: its heap is past half',
+			'restart under {"rule":"heap","share":0.71,"turns":0,"jobs":2}: its heap is past half',
 		]);
 	});
 
-	it("past three quarters of its heap limit, still never restarts mid-turn or with a screen in use", async () => {
+	it("past 70% of its heap limit with a turn running, looks for a gap each second and asks nothing more", async () => {
+		const timers = manualTimers();
+		const heap = growingHeap(0.3);
+		let asked = 0;
+		const { facts: given, said } = facts({
+			differs: async () => {
+				asked++;
+				return "its heap is past half";
+			},
+			held: () => [{ state: "busy", since: lately }],
+			background: () => 1,
+			heapShare: heap.heapShare,
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		heap.growTo(0.75);
+		for (let look = 0; look < 4; look++) await timers.fire();
+
+		expect(said, "nothing restarted mid-turn").toEqual([]);
+		expect(asked, "only the first look asked what it would start").toBe(1);
+		expect(
+			timers.pending().map(({ ms }) => ms),
+			"the next look is a gap look",
+		).toEqual([GAP_LOOK_MS]);
+	});
+
+	it("past 70% of its heap limit, restarts in a gap between turns long before the ceiling, background work held", async () => {
+		const TURN_MS = 90_000;
+		const GAP_MS = 5000;
+		const CYCLE_MS = 2 * (TURN_MS + GAP_MS);
+		let clock = NOW;
+		const one = (start: number): Held => {
+			const at = (((clock - NOW - start) % CYCLE_MS) + CYCLE_MS) % CYCLE_MS;
+			return at < TURN_MS
+				? { state: "busy", since: new Date(clock - at).toISOString() }
+				: {
+						state: "idle",
+						since: new Date(clock - (at - TURN_MS)).toISOString(),
+					};
+		};
+		const held = (): readonly Held[] => [one(0), one(TURN_MS + GAP_MS)];
+		const timers = manualTimers();
+		const heap = growingHeap(0.3);
+		const seen: Held[][] = [];
+		const { facts: given, said } = facts({
+			held,
+			now: () => clock,
+			background: () => 1,
+			heapShare: heap.heapShare,
+		});
+		given.restart = async (_why, under) => {
+			seen.push([...held()]);
+			said.push(`restart under ${under.rule}`);
+		};
+		restartWhenSettled(given, { after: timers.after });
+		clock += timers.pending()[0]?.ms ?? 0;
+		await timers.fire();
+		heap.growTo(0.75);
+		const grewAt = clock;
+		while (!said.some((line) => line.startsWith("restart")) && clock < NOW + SETTLE_CEILING_MS) {
+			clock += timers.pending()[0]?.ms ?? 0;
+			await timers.fire();
+		}
+
+		expect(said, "it restarted once, under the heap rule").toEqual([
+			"restart under heap",
+		]);
+		expect(
+			clock - grewAt,
+			"within one cycle of its turns",
+		).toBeLessThanOrEqual(CYCLE_MS);
+		expect(
+			seen[0]?.map(({ state }) => state),
+			"in a gap, with no conversation running",
+		).toEqual(["idle", "idle"]);
+	});
+
+	it("up to 80% of its heap limit, still never restarts mid-turn or with a screen in use", async () => {
 		for (const overrides of [
 			{ held: () => [{ state: "busy" as const, since: lately }] },
 			{ resting: () => false },
 		]) {
 			const timers = manualTimers();
+			const heap = growingHeap(0.3);
 			const { facts: given, said } = facts({
 				background: () => 1,
-				heapShare: () => 0.84,
+				heapShare: heap.heapShare,
 				...overrides,
 			});
 			restartWhenSettled(given, { after: timers.after });
+			await timers.fire();
+			heap.growTo(0.8);
 			await timers.fire();
 			await timers.fire();
 			expect(
@@ -345,40 +448,74 @@ describe("restartWhenSettled", () => {
 		}
 	});
 
-	it("past 85% of its heap limit, restarts mid-turn and with a screen in use, since running out ends it all", async () => {
+	it("past 80% of its heap limit, restarts mid-turn and with a screen in use, since running out ends it all", async () => {
 		const timers = manualTimers();
+		const heap = growingHeap(0.3);
 		const { facts: given, said } = facts({
 			differs: async () => "its heap is past half",
 			held: () => [{ state: "busy", since: lately }],
 			background: () => 1,
 			resting: () => false,
-			heapShare: () => 0.86,
+			heapShare: heap.heapShare,
 		});
-		given.restart = async (why, under) => {
-			said.push(`restart under ${JSON.stringify(under)}: ${why}`);
-		};
+		restartsSaid(given, said);
 		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		heap.growTo(0.81);
 		await timers.fire(() => said.some((line) => line.startsWith("restart")));
 		expect(said).toEqual([
 			"expect true",
-			'restart under {"rule":"heap","endsTurns":true}: its heap is past half',
+			'restart under {"rule":"heap","share":0.81,"turns":1,"jobs":1}: its heap is past half',
 		]);
 	});
 
-	it("at three quarters of its heap limit or under, background work still holds it", async () => {
+	it("at 70% of its heap limit or under, background work still holds it", async () => {
 		const timers = manualTimers();
+		const heap = growingHeap(0.3);
 		const { facts: given, said } = facts({
 			held: () => [{ state: "idle", since: lately }],
 			background: () => 1,
-			heapShare: () => 0.75,
+			heapShare: heap.heapShare,
 		});
 		restartWhenSettled(given, { after: timers.after, ceilingMs: 0 });
+		await timers.fire();
+		heap.growTo(0.7);
 		await timers.fire();
 		await timers.fire();
 		expect(
 			said.filter((line) => !line.startsWith("report:")),
 			"nothing restarted",
 		).toEqual([]);
+	});
+
+	// A host whose resumed conversations alone fill its heap would restart
+	// for it at every first look, ending their work each time, and free
+	// nothing a restart can free.
+	it("restarts for its heap only once it has grown 15% of the limit since its first look", async () => {
+		const timers = manualTimers();
+		const heap = growingHeap(0.72);
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is past half",
+			held: () => [{ state: "busy", since: lately }],
+			background: () => 1,
+			heapShare: heap.heapShare,
+		});
+		restartsSaid(given, said);
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		heap.growTo(0.86);
+		await timers.fire();
+		await timers.fire();
+		expect(
+			said.filter((line) => !line.startsWith("report:")),
+			"nothing restarted, grown only 14%",
+		).toEqual([]);
+
+		heap.growTo(0.88);
+		await timers.fire(() => said.some((line) => line.startsWith("restart")));
+		expect(said.filter((line) => line.startsWith("restart"))).toEqual([
+			'restart under {"rule":"heap","share":0.88,"turns":1,"jobs":1}: its heap is past half',
+		]);
 	});
 
 	it("asks for no restart once the host has begun stopping, however full its heap", async () => {
@@ -558,30 +695,51 @@ describe("followWhatStarts", () => {
 		);
 	});
 
-	it("says in its journal when its heap restarts it past the work it would end", async () => {
+	// A host whose heap grew from 1,000 MB at its first look to `usedMb`,
+	// holding `held` and `background` jobs: what it journals as it restarts.
+	async function heapRestartSaid(
+		usedMb: number,
+		held: readonly Held[],
+		background: number,
+	): Promise<string> {
 		const { systemctl, calls } = systemd();
 		const timers = manualTimers();
 		const report = vi.fn();
+		let used = 1000 * MB;
 		await followWhatStarts({
 			serving: {
-				held: () => [{ state: "idle" as const, since: long }],
+				held: () => held,
 				restartComing: vi.fn(),
 				stopping: () => false,
 			},
-			background: () => 1,
+			background: () => background,
 			resting: () => true,
 			report,
 			root: join(install, "versions", "one"),
 			systemctl,
 			cgroupFile: cgroup,
 			pid: 7,
-			heap: () => ({ usedBytes: 3150 * MB, limitBytes: 4144 * MB }),
-			timing: { after: timers.after, settledMs: 0 },
+			heap: () => ({ usedBytes: used, limitBytes: 4144 * MB }),
+			timing: { after: timers.after },
 		});
+		await timers.fire();
+		used = usedMb * MB;
 		await timers.fire(() => calls.at(-1)?.[1] === "restart");
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
-		expect(String(report.mock.calls[0]?.[0])).toBe(
-			"Restarting before its heap runs out, ending what background work was running, as its heap holds 3150 of the 4144 MB V8 allows, past half",
+		return String(report.mock.calls[0]?.[0]);
+	}
+
+	it("says in its journal how full its heap was and what a heap restart ended", async () => {
+		const busy: Held = { state: "busy", since: lately };
+		expect(await heapRestartSaid(3400, [busy], 2)).toBe(
+			"Restarting with its heap at 82% of what V8 allows, ending 1 running turn and 2 background jobs, as its heap holds 3400 of the 4144 MB V8 allows, past half",
+		);
+	});
+
+	it("says in its journal that a heap restart ended nothing, when nothing ran", async () => {
+		const idle: Held = { state: "idle", since: new Date().toISOString() };
+		expect(await heapRestartSaid(2984, [idle], 0)).toBe(
+			"Restarting with its heap at 72% of what V8 allows, ending nothing that was running, as its heap holds 2984 of the 4144 MB V8 allows, past half",
 		);
 	});
 
