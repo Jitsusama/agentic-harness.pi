@@ -65,6 +65,7 @@ import {
 	piBuiltInExtensions,
 	piSessions,
 	type SessionManager,
+	sessionFileGone,
 } from "./pi-session.ts";
 import { projectTrust } from "./project-trust.ts";
 import {
@@ -527,6 +528,11 @@ export async function createEngine(
 			// Only once it runs: a wake that failed leaves its wake file watched,
 			// and one refused as it began says nothing true now.
 			parked.unwatch(sessionId);
+		},
+
+		lost(entry) {
+			const running = host.holds(entry.sessionId) !== undefined;
+			return !running && sessionFileGone(entry.file);
 		},
 
 		resuming() {

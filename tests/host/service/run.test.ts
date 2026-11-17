@@ -25,15 +25,7 @@ import type { ConversationEngine } from "../../../host/service/backend.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import type { BeatOptions } from "../../../host/service/hold-watch.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
-import {
-	describeStep,
-	hostKind,
-	phaseTimes,
-	readyStatus,
-	runHost,
-	stoppingStatus,
-	watchdogEvery,
-} from "../../../host/service/run.ts";
+import { hostKind, runHost, watchdogEvery } from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
 
@@ -135,26 +127,6 @@ describe("hostKind", () => {
 			expect(() => hostKind(argv)).toThrow(
 				"Usage: pi-host attended|background",
 			);
-	});
-});
-
-describe("describeStep", () => {
-	it("names the engine, and which conversation of how many", () => {
-		expect(describeStep({ step: "engine" })).toBe("building the engine");
-		expect(
-			describeStep({ step: "resume", number: 2, of: 5, sessionId: "s" }),
-		).toBe("resuming 2 of 5: s");
-	});
-});
-
-describe("readyStatus", () => {
-	it("says how many conversations it serves, and any held but not resumed", () => {
-		expect(readyStatus(0, 0)).toBe("ready, serving no conversations");
-		expect(readyStatus(1, 0)).toBe("ready, serving 1 conversation");
-		expect(readyStatus(3, 2)).toBe(
-			"ready, serving 3 conversations, 2 held but not resumed",
-		);
-		expect(stoppingStatus(2)).toBe("stopping, parking 2 conversations");
 	});
 });
 
@@ -582,7 +554,7 @@ describe("runHost", () => {
 			if (!reply.ok) throw new Error(reply.error.message);
 			await vi.waitFor(() => {
 				expect(statuses.at(-1), "the status once one opened").toBe(
-					"ready, serving 1 conversation",
+					"ready: loaded 1, parked 0, dropped 0",
 				);
 			});
 		} finally {
@@ -593,8 +565,8 @@ describe("runHost", () => {
 		// Five checks' worth, to show none comes once the host has stopped.
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(statuses, "said only as it changed").toEqual([
-			"ready, serving no conversations",
-			"ready, serving 1 conversation",
+			"ready: loaded 0, parked 0, dropped 0",
+			"ready: loaded 1, parked 0, dropped 0",
 			"stopping, parking 1 conversation",
 		]);
 		expect(statuses.length, "nothing said once stopped").toBe(after);
@@ -860,9 +832,10 @@ describe("runHost", () => {
 			expect(said[2]).toMatch(
 				/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s \(ask \d+\.\d s, gate \d+\.\d s, rest \d+\.\d s\)$/,
 			);
-			// This engine's resume registers nothing, so the host serves none.
+			// This engine's resume registers nothing, so the host runs none and
+			// counts the one it holds parked, as its list would show it.
 			expect(said[3]).toMatch(
-				/^\d+\.\d s: ready, serving no conversations, listening on /,
+				/^\d+\.\d s: ready: loaded 0, parked 1, dropped 0, listening on /,
 			);
 		} finally {
 			second.emit("SIGTERM");
@@ -917,21 +890,6 @@ describe("runHost", () => {
 			second.emit("SIGTERM");
 			await run.stopped;
 		}
-	});
-
-	it("puts each phase's time in words, and what followed the last", () => {
-		expect(
-			phaseTimes(
-				1_000,
-				[
-					{ phase: "ask", at: 1_000 },
-					{ phase: "gate", at: 1_100 },
-					{ phase: "recovery", at: 3_600 },
-				],
-				65_000,
-			),
-		).toBe(" (ask 0.0 s, gate 0.1 s, recovery 2.5 s, rest 61.4 s)");
-		expect(phaseTimes(1_000, [], 2_000), "none marked").toBe("");
 	});
 
 	// The background host on 13 November: resumes took 80 to 135 s each,
@@ -1077,7 +1035,7 @@ describe("runHost", () => {
 			"what the host told systemd",
 		).toEqual([
 			expect.stringContaining("STATUS=building the engine"),
-			"--ready STATUS=ready, serving no conversations",
+			"--ready STATUS=ready: loaded 0, parked 0, dropped 0",
 			"STATUS=stopping, parking no conversations",
 		]);
 		const senders = notifies.map((words) => Number(words.at(0)));

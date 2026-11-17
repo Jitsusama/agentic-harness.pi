@@ -37,15 +37,20 @@ import {
 } from "./backend.ts";
 import type { ControlBackend } from "./dispatch.ts";
 import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
-import { openRoster } from "./roster.ts";
+import { openRoster, type RosterWait } from "./roster.ts";
 import { listenControl, type ViewerBridge } from "./server.ts";
 
 /**
- * A step a starting host has reached: building its engine, then each held
- * conversation it resumes. A host is ready only after the last, so these
- * are how whoever waits on it knows a slow start still moves.
+ * A step a starting host has reached: waiting on a last host that still
+ * holds the roster's lock, only when one does, then building its engine,
+ * then each held conversation it resumes. A host is ready only after the
+ * last, so these are how whoever waits on it knows a slow start still
+ * moves.
  */
-export type StartStep = { readonly step: "engine" } | Resuming;
+export type StartStep =
+	| { readonly step: "roster"; readonly holder: number }
+	| { readonly step: "engine" }
+	| Resuming;
 
 /** A running host, until stop. */
 export interface ServingHost {
@@ -53,11 +58,19 @@ export interface ServingHost {
 	readonly path: string;
 	/** Holds the engine could not resume at start, still held. */
 	readonly unresumed: readonly Unresumed[];
+	/** Holds dropped at start, by id, since their session files are gone. */
+	readonly dropped: readonly string[];
 	/**
-	 * How many of those are still held and not running now: one woken,
+	 * How many of those are still held and not running now, or left
+	 * parked by a resume that failed once it had registered: one woken,
 	 * adopted, closed or released since no longer counts.
 	 */
 	stillUnresumed(): number;
+	/**
+	 * How many it holds parked and not built, as one parked before a
+	 * restart rests: held, not running, and not among those that failed.
+	 */
+	resting(): number;
 	/** Each conversation the host runs, by id, with its state and when it last changed. */
 	held(): readonly Pick<ConversationIdentity, "id" | "state" | "since">[];
 	/**
@@ -87,6 +100,8 @@ export async function serveHost(options: {
 	registryDir?: string;
 	owner?: TickedOwner;
 	standing?: (owner: TickedOwner) => Promise<Standing>;
+	/** How long and how a start waits on a lock another host holds. */
+	rosterWait?: RosterWait;
 	/** Where dropped stale-context rejections are written. */
 	rejectionLog?: string;
 	/**
@@ -113,6 +128,11 @@ export async function serveHost(options: {
 		dir: options.rosterDir,
 		owner,
 		standing: options.standing,
+		wait: {
+			waiting: async ({ pid }) =>
+				options.starting?.({ step: "roster", holder: pid }),
+			...options.rosterWait,
+		},
 	});
 	let host: SessionHost | undefined;
 	let listener: Awaited<ReturnType<typeof listenControl>> | undefined;
@@ -161,7 +181,7 @@ export async function serveHost(options: {
 		listener = control;
 		wakes = backend.wake;
 		listening(backend.wake);
-		const { unresumed } = await resumeHeld({
+		const { unresumed, dropped } = await resumeHeld({
 			roster,
 			engine,
 			admitAnother,
@@ -177,12 +197,23 @@ export async function serveHost(options: {
 			identity,
 			path,
 			unresumed,
+			dropped,
 			stillUnresumed: () => {
-				const live = new Set(running.list().map(({ id }) => id));
+				const live = new Map(running.list().map((c) => [c.id, c.state]));
 				const held = new Set(roster.entries().map((e) => e.sessionId));
-				return unresumed.filter(
-					({ sessionId }) => held.has(sessionId) && !live.has(sessionId),
-				).length;
+				return unresumed.filter(({ sessionId }) => {
+					const state = live.get(sessionId);
+					return held.has(sessionId) && (state ?? "parked") === "parked";
+				}).length;
+			},
+			resting: () => {
+				const live = new Set(running.list().map(({ id }) => id));
+				const failed = new Set(unresumed.map(({ sessionId }) => sessionId));
+				return roster
+					.entries()
+					.filter(
+						({ sessionId }) => !live.has(sessionId) && !failed.has(sessionId),
+					).length;
 			},
 			held: () => running.list(),
 			restartComing: (coming) => {

@@ -60,10 +60,13 @@ async function opened(path: string, id: string) {
 	});
 }
 
-/** A fake engine over the real SessionHost, as H1's registers. */
+/**
+ * A fake engine over the real SessionHost, as H1's registers, which
+ * fails to resume each conversation in `refused`.
+ */
 function engine(
 	host: SessionHost,
-	missing = new Set<string>(),
+	refused = new Set<string>(),
 ): ConversationEngine {
 	const register = (c: { sessionId: string; file: string; cwd: string }) =>
 		host.register({
@@ -82,7 +85,7 @@ function engine(
 		start: async (prepared) => register(prepared),
 		discard: async () => {},
 		resume: async (entry) => {
-			if (missing.has(entry.sessionId)) throw new Error("session file is gone");
+			if (refused.has(entry.sessionId)) throw new Error("pi would not open it");
 			register(entry);
 		},
 		abort: async () => {},
@@ -110,8 +113,13 @@ describe("serveHost", () => {
 			engine: async (h) => engine(h),
 		});
 		try {
+			// A start waits a minute on a host still running; none here.
 			await expect(
-				serveHost({ ...places(), engine: async (h) => engine(h) }),
+				serveHost({
+					...places(),
+					rosterWait: { within: 0 },
+					engine: async (h) => engine(h),
+				}),
 			).rejects.toThrow("Another host holds this roster");
 			expect((await listed(first.path)).host).toEqual(first.identity);
 		} finally {
@@ -286,7 +294,7 @@ describe("serveHost", () => {
 			ids.push(parseOpenResult(reply.result).sessionId);
 		}
 		await first.stop();
-		const [kept, gone] = ids as [string, string];
+		const [kept, failed] = ids as [string, string];
 		for (const id of ids)
 			expect(await heldSessionStatus(id, { dir: join(dir, "rosters") })).toBe(
 				"held",
@@ -294,13 +302,13 @@ describe("serveHost", () => {
 
 		const second = await serveHost({
 			...places(),
-			engine: async (h) => engine(h, new Set([gone])),
+			engine: async (h) => engine(h, new Set([failed])),
 		});
 		try {
 			expect(second.unresumed.map(({ sessionId }) => sessionId)).toEqual([
-				gone,
+				failed,
 			]);
-			expect(report).toHaveBeenCalledWith(new Error("session file is gone"));
+			expect(report).toHaveBeenCalledWith(new Error("pi would not open it"));
 			expect(
 				(await listed(second.path)).sessions.map(({ sessionId, state }) => [
 					sessionId,
@@ -308,14 +316,14 @@ describe("serveHost", () => {
 				]),
 			).toEqual([
 				[kept, "idle"],
-				[gone, "parked"],
+				[failed, "parked"],
 			]);
 			expect(second.stillUnresumed(), "still held, not running").toBe(1);
 			const closed = await controlRequest(second.path, {
 				v: 1,
 				id: "c",
 				op: "close",
-				sessionId: gone,
+				sessionId: failed,
 				expectedHost: second.identity,
 			});
 			if (!closed.ok) throw new Error(closed.error.message);

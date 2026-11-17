@@ -332,6 +332,8 @@ function freshSession(
 					handOff() {
 						const ends = unsaid ?? [];
 						unsaid = undefined;
+						// The runtime taking the jobs notes them again, under its session.
+						recorder?.handOff();
 						return {
 							jobs,
 							waiting: outbox.waiting(),

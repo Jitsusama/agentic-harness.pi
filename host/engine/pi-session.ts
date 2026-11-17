@@ -4,7 +4,17 @@
  * builds a session with, and the session itself. pi's JavaScript carries
  * no types the engine can import, so the shapes are declared here, as far
  * as the engine reaches, and picked from the loaded install by name.
+ *
+ * Whether a held conversation's session file is gone for good is judged
+ * here too, which a start drops the hold for, since nothing could ever
+ * resume it. The drop can't be undone, so only a file the disk says
+ * isn't there, in a folder that is, counts as gone. A folder missing too
+ * may be a disk not yet mounted, and a file that can't be looked at (no
+ * permission, a fault) may be there after all: the hold stays, and its
+ * resume says what is wrong.
  */
+import { statSync } from "node:fs";
+import { dirname } from "node:path";
 import { isRecord } from "../../lib/internal/record.ts";
 import type { AuthContext } from "./auth-context.ts";
 import type { HostPiModules } from "./host-pi.ts";
@@ -387,4 +397,21 @@ export function piSessions(modules: HostPiModules): PiSessions {
 		throw new Error(`The host's pi coding agent lacks ${missing.join(", ")}`);
 	// Each is checked present above and is the coding agent's documented export of that name.
 	return modules.codingAgent as unknown as PiSessions;
+}
+
+/** True only when a session `file` is missing from a folder that is there. */
+export function sessionFileGone(file: string): boolean {
+	if (lookAt(file) !== "missing") return false;
+	return lookAt(dirname(file)) === "there";
+}
+
+function lookAt(path: string): "there" | "missing" | "unknown" {
+	try {
+		statSync(path);
+		return "there";
+	} catch (error) {
+		const missing =
+			error instanceof Error && "code" in error && error.code === "ENOENT";
+		return missing ? "missing" : "unknown";
+	}
 }

@@ -12,8 +12,11 @@ input pipeline or screen. No unit or running host is installed yet.
   failed stays held. Close and release drop the hold only after the
   engine's close commits, closing with a reason that names the caller
   as the request does (`by`); a close of one held but not running is
-  journalled here, since no end of the engine's says it. resumeHeld resumes each hold at start, keeping
-  one that won't resume held and listed parked for a person to close.
+  journalled here, since no end of the engine's says it. resumeHeld
+  resumes each hold at start, keeping one that won't resume held and
+  listed parked for a person to close, apart from one whose session
+  file is gone, which nothing could resume: it is dropped, and the
+  journal's ready line names it.
   The engine it drives (prepare, start, discard, resume, abort) is H1's.
   conversationEvents is what the engine, watched once before anything
   resumes, tells the service of a change made inside pi: a conversation
@@ -64,9 +67,10 @@ input pipeline or screen. No unit or running host is installed yet.
 - run.ts: a host as systemd runs it: kind from the command line, realm
   from the unit's environment, ready (systemd-notify, so the unit needs
   NotifyAccess=all) only once it listens, and parked on SIGTERM or
-  SIGINT. Its unit's status says each start step, then "ready,
-  serving N conversations" and any held but not resumed, looked at
-  every 15 s and told only when it changes. When the unit sets
+  SIGINT. Its unit's status says each start step, then "ready: loaded
+  N, parked M, dropped K" and any held but not resumed (one whose
+  resume failed counts there, never as parked), looked at every 15 s
+  and told only when it changes. When the unit sets
   WatchdogSec, a ready host pings it from its own loop four times in
   each timeout, until every conversation is parked: a loop that stops
   turning goes quiet and systemd restarts the host, while a long turn,
@@ -78,6 +82,10 @@ input pipeline or screen. No unit or running host is installed yet.
   instead, and the host's core with systemd-coredump. A beat that late
   pings at once, even with the last ping's end still unread, so a hold
   the loop recovers from never costs the host its next beat.
+- status.ts: what run.ts says of the host in words: each start step,
+  each resume's phase times, the ready count and the journal's names
+  of dropped holds, and the stopping status. The words change for the
+  people reading them, apart from when the host says them.
 - hold-watch.ts: what holds the loop, said from a worker thread while
   systemd watches the host. The loop ticks a shared counter each
   second; once it stands still 5 s, the thread reads the main thread's
@@ -162,11 +170,17 @@ input pipeline or screen. No unit or running host is installed yet.
   in the journal, and the host starts without it.
 - roster.ts: the durable realm-kind roster behind one lock per key.
   Holds are written before registration and dropped only after a close
-  or release commits, or once a conversation ended itself; replace swaps
-  one hold for another in one write. Stop and kill -9 keep them. A live
-  or unjudgeable lock holder, a malformed lock or an unreadable roster
-  refuses start. A dead holder's lock is moved aside and checked, never
-  just unlinked.
+  or release commits, once a conversation ended itself, or at a start
+  that finds its session file gone; replace swaps one hold for another
+  in one write. Stop and kill -9 keep them. A start waits up to a
+  minute on a live or unjudgeable lock holder, looking each second,
+  since a restart can start it while the last host still parks; past
+  that it refuses, naming the holder's pid and the wait, and never ends
+  the holder itself. A malformed lock or an unreadable roster refuses
+  start at once; a lock missing or empty, as one let go or not yet
+  written, is looked at again within the minute. A dead holder's lock
+  is moved aside and checked, never just unlinked, and one gone before
+  it can be moved is simply taken.
   Each hold keeps the launch environment the engine derived at open,
   such as an experiment arm, for resume to replay; one naming a
   credential is refused, since keys come from the host per request.

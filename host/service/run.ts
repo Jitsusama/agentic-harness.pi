@@ -47,6 +47,15 @@ import type { ConversationEngine, ResumePhase } from "./backend.ts";
 import { type HoldWatchOptions, watchHolds } from "./hold-watch.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
 import type { ViewerBridge } from "./server.ts";
+import {
+	describeStep,
+	droppedNames,
+	type PhaseEnd,
+	phaseTimes,
+	readyCount,
+	readyStatus,
+	stoppingStatus,
+} from "./status.ts";
 
 /** The signals that stop a host: systemd's stop, and Ctrl+C by hand. */
 const STOP_SIGNALS = ["SIGTERM", "SIGINT"] as const;
@@ -182,6 +191,7 @@ export interface HostRunOptions {
 		| "rejectionLog"
 		| "owner"
 		| "standing"
+		| "rosterWait"
 		| "rollout"
 	>;
 }
@@ -282,8 +292,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	} finally {
 		renewing?.();
 	}
-	const status = () =>
-		readyStatus(serving.held().length, serving.stillUnresumed());
+	const status = () => readyStatus(readyCount(serving));
 	const tell = (now: string) =>
 		(options.status ?? notifyStatus)(options.env, now);
 	const signals = options.signals ?? process;
@@ -368,7 +377,8 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	// Every conversation the last stop left is resumed by now, so its
 	// mark has said all it can.
 	if (lastStop) unparked.clear();
-	say(`${since()}: ${status()}, listening on ${serving.path}`);
+	const named = droppedNames(serving.dropped);
+	say(`${since()}: ${status()}${named}, listening on ${serving.path}`);
 	return { serving, stopped };
 }
 
@@ -386,55 +396,6 @@ export function watchdogEvery(
 	if (env.WATCHDOG_PID !== undefined && Number(env.WATCHDOG_PID) !== pid)
 		return undefined;
 	return timeout / MICROSECONDS_PER_MS / PINGS_PER_TIMEOUT;
-}
-
-/** A ready host's status in words, as systemd's status and the journal show it. */
-export function readyStatus(serving: number, unresumed: number): string {
-	const held = unresumed > 0 ? `, ${unresumed} held but not resumed` : "";
-	return `ready, serving ${conversations(serving)}${held}`;
-}
-
-/** A stopping host's status in words, while it parks what it runs. */
-export function stoppingStatus(parking: number): string {
-	return `stopping, parking ${conversations(parking)}`;
-}
-
-function conversations(count: number): string {
-	if (count === 0) return "no conversations";
-	return `${count} conversation${count === 1 ? "" : "s"}`;
-}
-
-/** When one phase of a resume ended. */
-export interface PhaseEnd {
-	readonly phase: ResumePhase;
-	readonly at: number;
-}
-
-/**
- * How long each phase of a resume begun at `began` took, in words, and
- * what followed the last until `ended`; nothing when none was marked.
- */
-export function phaseTimes(
-	began: number,
-	phases: readonly PhaseEnd[],
-	ended: number,
-): string {
-	if (phases.length === 0) return "";
-	let from = began;
-	const parts = phases.map(({ phase, at }) => {
-		const part = `${phase} ${((at - from) / MS_PER_SECOND).toFixed(1)} s`;
-		from = at;
-		return part;
-	});
-	parts.push(`rest ${((ended - from) / MS_PER_SECOND).toFixed(1)} s`);
-	return ` (${parts.join(", ")})`;
-}
-
-/** A start step in words, as the journal and systemd's status show it. */
-export function describeStep(step: StartStep): string {
-	return step.step === "engine"
-		? "building the engine"
-		: `resuming ${step.number} of ${step.of}: ${step.sessionId}`;
 }
 
 /**

@@ -368,6 +368,8 @@ describe("hostBackend", () => {
 			}),
 		).toEqual({
 			resumed: [b],
+			parked: [],
+			dropped: [],
 			unresumed: [{ sessionId: a, reason: unheard }],
 		});
 		expect(await heldSessionStatus(a, { dir: rosters })).toBe("held");
@@ -386,7 +388,7 @@ describe("hostBackend", () => {
 			resumed: () => order.push("let go"),
 			resume: vi.fn(async (entry) => {
 				order.push(entry.sessionId);
-				if (entry.sessionId === b) throw new Error("session file is gone");
+				if (entry.sessionId === b) throw new Error("pi would not open it");
 				register(entry);
 			}),
 		});
@@ -401,16 +403,18 @@ describe("hostBackend", () => {
 		const b = parseOpenResult(await first.execute(open)).sessionId;
 		for (const id of [a, b]) await host.stop(id);
 
-		const missing = new Error("session file is gone");
+		const refused = new Error("pi would not open it");
 		const restart = engine({
 			resume: vi.fn(async (entry) => {
-				if (entry.sessionId === b) throw missing;
+				if (entry.sessionId === b) throw refused;
 				register(entry);
 			}),
 		});
 		expect(await resumeHeld({ roster, engine: restart.fake })).toEqual({
 			resumed: [a],
-			unresumed: [{ sessionId: b, reason: missing }],
+			parked: [],
+			dropped: [],
+			unresumed: [{ sessionId: b, reason: refused }],
 		});
 		const listed = parseListResult(
 			await backendWith(restart.fake).execute({ v: 1, id: "l", op: "list" }),
@@ -436,6 +440,41 @@ describe("hostBackend", () => {
 			sessionId: b,
 		});
 		expect(await heldSessionStatus(b, { dir: rosters })).toBe("unheld");
+	});
+
+	it("drops a hold whose session file is gone at start, building nothing for it", async () => {
+		const { fake } = engine();
+		const first = backendWith(fake);
+		const a = parseOpenResult(await first.execute(open)).sessionId;
+		const b = parseOpenResult(await first.execute(open)).sessionId;
+		for (const id of [a, b]) await host.stop(id);
+
+		const restart = engine({ lost: (entry) => entry.sessionId === b });
+		const said: string[] = [];
+		expect(
+			await resumeHeld({
+				roster,
+				engine: restart.fake,
+				starting: async (step) => {
+					said.push(step.sessionId);
+				},
+			}),
+		).toEqual({
+			resumed: [a],
+			parked: [],
+			dropped: [b],
+			unresumed: [],
+		});
+		expect(said, "the dropped one is never said as resuming").toEqual([a]);
+		expect(
+			vi.mocked(restart.fake.resume).mock.calls.map(([e]) => e.sessionId),
+			"only the one with a log is built",
+		).toEqual([a]);
+		expect(
+			await heldSessionStatus(b, { dir: rosters }),
+			"no longer held, so the next start doesn't find it either",
+		).toBe("unheld");
+		expect(await heldSessionStatus(a, { dir: rosters })).toBe("held");
 	});
 
 	describe("with the rollout gate", () => {
@@ -512,7 +551,12 @@ describe("hostBackend", () => {
 			const gate = vi.fn(() => Promise.resolve());
 			expect(
 				await resumeHeld({ roster, engine: restart.fake, admitAnother: gate }),
-			).toEqual({ resumed: [a, b], unresumed: [] });
+			).toEqual({
+				resumed: [a, b],
+				parked: [resting],
+				dropped: [],
+				unresumed: [],
+			});
 			expect(
 				vi.mocked(restart.fake.resume).mock.calls.map(([e]) => e.sessionId),
 				"only those that don't rest are built",
@@ -540,10 +584,10 @@ describe("hostBackend", () => {
 			for (const id of held) await host.stop(id);
 			const [a, b, c] = held;
 
-			const gone = new Error("session file is gone");
+			const refused = new Error("pi would not open it");
 			const restart = engine({
 				resume: vi.fn(async (entry) => {
-					if (entry.sessionId === a) throw gone;
+					if (entry.sessionId === a) throw refused;
 					register(entry);
 				}),
 			});
@@ -552,8 +596,10 @@ describe("hostBackend", () => {
 				await resumeHeld({ roster, engine: restart.fake, admitAnother: gate }),
 			).toEqual({
 				resumed: [b],
+				parked: [],
+				dropped: [],
 				unresumed: [
-					{ sessionId: a, reason: gone },
+					{ sessionId: a, reason: refused },
 					{ sessionId: c, reason: stale },
 				],
 			});
@@ -833,7 +879,12 @@ describe("the order a start resumes what it held", () => {
 		go();
 		await asked;
 		expect(host.holds(c), "running once answered").toBeDefined();
-		expect(await started).toEqual({ resumed: [a, c, b], unresumed: [] });
+		expect(await started).toEqual({
+			resumed: [a, c, b],
+			parked: [],
+			dropped: [],
+			unresumed: [],
+		});
 		expect(resumes.map(([id]) => id)).toEqual([a, c, b]);
 	});
 

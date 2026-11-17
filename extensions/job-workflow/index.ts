@@ -63,6 +63,12 @@ import {
 	takeUp,
 } from "./moved.ts";
 import { recordedCarry } from "./recorded.ts";
+import {
+	endedJobs,
+	endedWithHostText,
+	type RunningNote,
+	takeEndedNote,
+} from "./running.ts";
 import { type ShownReports, shownReports } from "./shown.ts";
 import { registerJobsTool } from "./tool.ts";
 import { type TypedLine, typedLine } from "./typed-line.ts";
@@ -151,18 +157,51 @@ function sessionFileOf(ctx: ExtensionContext): string | undefined {
 	}
 }
 
-/** Give a returning session a turn when the machine cut it off. */
-function resumeIfCutOff(session: JobSession, ctx: ExtensionContext): void {
+/**
+ * What a returning session's last pi noted running, if that pi has gone
+ * (running.ts): read before this session's own jobs note again.
+ */
+function endedNoteOf(ctx: ExtensionContext): RunningNote | undefined {
+	const id = sessionIdOf(ctx);
+	return id === undefined ? undefined : takeEndedNote(id);
+}
+
+/**
+ * Give a returning session a turn when the machine cut it off, or when
+ * jobs its last pi noted running ended with it and nothing took them up.
+ */
+function resumeIfCutOff(
+	session: JobSession,
+	ctx: ExtensionContext,
+	ended?: RunningNote,
+): void {
 	const branch = branchOf(ctx);
-	if (branch === undefined) return;
 	// Only a host carries a parked run on; plain pi takes nothing up.
 	const held = new Set(session.jobs.list().map((job) => job.id));
-	const cut = leftDead(cutOffIn(branch, hosted() !== undefined), held);
-	if (cut === undefined) return;
+	const lost = endedJobs(ended, held);
+	// Never reported, so no history reserves their ids for a new job.
+	session.jobs.reserve(lost.map((job) => job.id));
+	const cut =
+		branch === undefined
+			? undefined
+			: leftDead(cutOffIn(branch, hosted() !== undefined), held);
+	if (cut === undefined) {
+		// A kill while it waited on these left a log that reads as idle:
+		// each is said as its own result, which starts the turn.
+		for (const job of lost)
+			session.outbox.post({
+				jobId: job.id,
+				label: job.label,
+				text: endedWithHostText(job),
+			});
+		return;
+	}
+	// A log that stops mid-run names no jobs; the note says which died.
+	const told = cut.jobs.length === 0 ? { ...cut, jobs: lost } : cut;
 	session.outbox.post({
 		jobId: "cut-off",
 		label: "the machine ended this session",
-		text: resumeText(cut, clockTime),
+		text: resumeText(told, clockTime),
 	});
 }
 
@@ -374,6 +413,8 @@ export default function jobWorkflow(
 		answering?.();
 		answering = answerSteerWaiting(pi.events, () => line.waiting());
 		session?.close();
+		// Read before the session opens, since its jobs note again as they change.
+		const ended = RETURNS.has(event.reason) ? endedNoteOf(ctx) : undefined;
 		session = openSession(pi, ctx, event.reason);
 		const history = [...userTexts(ctx)];
 		shown = shownReports(history);
@@ -396,7 +437,7 @@ export default function jobWorkflow(
 				);
 		if (RETURNS.has(event.reason)) {
 			takeUpIfCarried(pi, session, ctx);
-			resumeIfCutOff(session, ctx);
+			resumeIfCutOff(session, ctx, ended);
 			carriedWait = awaitCarriedRun(session, ctx, () => session);
 		}
 	});

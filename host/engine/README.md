@@ -100,6 +100,11 @@ pi's is under way, which settles as pi's run ends, nor for a run pi was
 never shown. Without it, job-workflow's outbox held a job's result from
 a carried run until a person typed.
 
+A start drops a hold whose session file is gone for good, as the
+engine's `lost` says (pi-session.ts): only a file missing from a
+folder that is there counts, so a disk not yet mounted or a file it
+can't look at keeps its hold, and its resume says what is wrong.
+
 A host coming back carries only a few cut-off runs on at once
 (resume-turns.ts, RESUMED_RUNS_AT_ONCE, 4). As a start resumes what it
 holds, each conversation whose durable store holds a run waits for a
@@ -172,7 +177,8 @@ or adopt names. It loads the host's pi
 (host-pi.ts refuses one lacking any host patch), pins that pi as the
 install every conversation's subagents run (subagent-install.ts), since
 the host's own script is no pi to launch, and builds each
-conversation with pi's own runtime (pi-session.ts declares what it uses).
+conversation with pi's own runtime (pi-session.ts declares what it uses,
+and judges whether a held conversation's session file is gone).
 A conversation is registered with SessionHost, then its extensions load,
 bound by its screen or, with none, as pi's RPC mode binds them
 (headless.ts), its session is built and its first words are sent, all
