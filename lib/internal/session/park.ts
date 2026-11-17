@@ -41,9 +41,13 @@
  * wake written before it goes, so the holder starts it again as soon as
  * it has. It writes no marker, since it is never parked for long.
  *
- * Off unless the switch, or `PI_PARK`, turns it on, and only where a
+ * On unless the switch, or `PI_PARK`, turns it off, and only where a
  * holder said where its wake file is, since a session that parks where
- * no holder will wake it is a session ended.
+ * no holder will wake it is a session ended. It was off until a switch
+ * said on, and nothing writes the switch: on 16 November equilibrius had
+ * never had one, and 45 idle sessions stayed awake while its swap
+ * filled. A holder naming a wake is the safety parking needs; the
+ * switch is for turning it off.
  *
  * A park lasts only as long as the boot it was written in. The holder
  * and its wake file go with the machine, so a marker from before the
@@ -394,10 +398,10 @@ export function parkSwitch(folder: string = parkFolder()): string {
  * How long this session waits idle before it parks, or nothing while
  * parking is off for it. `PI_PARK=off` keeps it off whatever the switch
  * says. A line of the switch holding this session's id parks it after
- * {@link NAMED_PARK_AFTER_MS}, to prove parking on one session; `on` in
- * the switch, or `PI_PARK=on`, parks every session after
- * {@link PARK_AFTER_MS}. Read whenever it is asked, so the switch turns
- * running sessions on and off.
+ * {@link NAMED_PARK_AFTER_MS}, to prove parking on one session. Every
+ * other session parks after {@link PARK_AFTER_MS}, unless the switch
+ * holds a line `off` and `PI_PARK` is not `on`. Read whenever it is
+ * asked, so the switch turns running sessions on and off.
  */
 export function parkAfterMs(
 	session: string,
@@ -407,7 +411,7 @@ export function parkAfterMs(
 	if (env[PARK_ENV] === "off") return undefined;
 	const lines = switchLines(switchPath);
 	if (session !== "" && lines.includes(session)) return NAMED_PARK_AFTER_MS;
-	return env[PARK_ENV] === "on" || lines.includes("on")
+	return env[PARK_ENV] === "on" || !lines.includes("off")
 		? PARK_AFTER_MS
 		: undefined;
 }

@@ -812,7 +812,7 @@ describe("starting again on a fresh log", () => {
 	});
 
 	it("stays while parking is off, or where its holder would start the log it left", () => {
-		rmSync(parkSwitch(folder));
+		writeFileSync(parkSwitch(folder), "off\n");
 		const off = restarting();
 		expect(asked()).toMatchObject({ why: "parking is off" });
 		off.stop();

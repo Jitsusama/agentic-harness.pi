@@ -48,8 +48,19 @@ const switchSays = (...lines: string[]) => {
 };
 
 describe("whether a session parks, and after how long", () => {
-	it("never parks with no switch and nothing in the environment", () => {
-		expect(parkAfterMs("s-1", {}, parkSwitch(folder))).toBeUndefined();
+	it("parks after half an hour on a machine whose switch was never written", () => {
+		// Equilibrius on 16 November: no switch had ever been written there,
+		// so 45 sessions idled awake at up to 480 MiB each while its swap
+		// filled. A holder that names a wake is all parking needs.
+		expect(parkAfterMs("s-1", {}, parkSwitch(folder))).toBe(PARK_AFTER_MS);
+		expect(parkAfterMs("s-1", {}, switchSays("s-2"))).toBe(PARK_AFTER_MS);
+	});
+
+	it("parks none but those it names where the switch says off", () => {
+		const path = switchSays("off", "s-1");
+		expect(parkAfterMs("s-1", {}, path)).toBe(NAMED_PARK_AFTER_MS);
+		expect(parkAfterMs("s-2", {}, path)).toBeUndefined();
+		expect(parkAfterMs("s-2", { PI_PARK: "on" }, path)).toBe(PARK_AFTER_MS);
 	});
 
 	it("parks every session after half an hour once the switch or the environment says on", () => {
@@ -59,10 +70,9 @@ describe("whether a session parks, and after how long", () => {
 		);
 	});
 
-	it("parks the session the switch names soon, and no other", () => {
+	it("parks the session the switch names soon", () => {
 		const path = switchSays("s-1");
 		expect(parkAfterMs("s-1", {}, path)).toBe(NAMED_PARK_AFTER_MS);
-		expect(parkAfterMs("s-2", {}, path)).toBeUndefined();
 	});
 
 	it("never parks where the environment keeps it out", () => {

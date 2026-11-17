@@ -45,19 +45,26 @@ person's session with no holder to wake it says so there once, as it
 starts. A note whose session has crashed stays until a reader checks
 the session's presence, so read the two together.
 
-## Turning It On
+## Turning It Off
 
-It is off until one of these turns it on:
+It is on wherever a holder keeps a session, with no switch written.
+It used to be off until a switch said on, and nothing writes the
+switch: on 16 November a Mac that had never had one kept 45 idle
+sessions awake while its swap filled. The holder naming a wake is
+what makes parking safe, so that is what it waits on.
 
 - **The switch,** at
   `~/.local/state/pi/agentic-harness.pi/park-workflow/switch` (under
-  `XDG_STATE_HOME`), read every minute. A line `on` parks every
-  session after half an hour idle, and a plain pi whose process is
+  `XDG_STATE_HOME`), read every minute. With no line `off`, it parks
+  every session after half an hour idle, and a plain pi whose process is
   over a day old after ten minutes, since its wake starts a fresh
   process (one over a day old held 481 MiB on 15 November, against
   267 MiB for one under an hour). A line holding a session's id
-  parks that one after two minutes, to prove parking on one session.
-- **`PI_PARK=on`,** read at start, as the line `on` does.
+  parks that one after two minutes, to prove parking on one session,
+  even where the switch says `off`. A line `off` keeps every other
+  session awake. A line `on` says what is already so.
+- **`PI_PARK=on`,** read at start, parks a session whatever a line
+  `off` says.
 
 `PI_PARK=off` keeps a session out, whatever the switch says. A
 session parks only when a holder keeps it and has said where it

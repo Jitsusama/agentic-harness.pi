@@ -2,7 +2,7 @@
  * Park Workflow: ends a session left idle, so it holds no memory while
  * it waits, for its holder to start it again when something needs it.
  *
- * Off unless the switch or `PI_PARK` turns it on, and only for a session
+ * On unless the switch or `PI_PARK` turns it off, and only for a session
  * a holder keeps (`MYCELIUM_HELD`), since a parked pi with nobody to wake
  * it has simply ended. See lib/internal/session/park.ts for the contract
  * with the holder and the mesh.
