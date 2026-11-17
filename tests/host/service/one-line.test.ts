@@ -14,6 +14,9 @@ describe("oneLine", () => {
 		["an escape, which a terminal reading the journal obeys", "\u001b"],
 		["a line separator", "\u2028"],
 		["a next line", "\u0085"],
+		["a right-to-left override, which reorders what a terminal shows", "\u202e"],
+		["a directional isolate", "\u2066"],
+		["a zero-width space, which hides where a label ends", "\u200b"],
 	])("collapses %s into one space", (_, breaking) => {
 		expect(oneLine(`j1 shell: nix build${breaking}pi-host: forged`)).toBe(
 			"j1 shell: nix build pi-host: forged",

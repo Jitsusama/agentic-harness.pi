@@ -8,23 +8,32 @@ import { heapAfterFullCollections } from "../../../host/service/live-heap.ts";
 
 const MB = 1024 * 1024;
 
-/** Counts the full collections V8 says it ran, as the host's watcher hears them. */
-function majorsSeen() {
-	let count = 0;
+/** The kind of collection a gc entry says it was. */
+function kindOf(entry: PerformanceEntry): unknown {
+	return Reflect.get(Object(Reflect.get(entry, "detail")), "kind");
+}
+
+/**
+ * Counts what V8 says it collected, as the host's watcher hears it:
+ * the deliveries holding a full collection, which the watcher reads at,
+ * and the minor collections delivered.
+ */
+function collectionsSeen() {
+	let majors = 0;
+	let minors = 0;
 	const observer = new PerformanceObserver((list) => {
-		if (
-			list
-				.getEntries()
-				.some(
-					(entry) =>
-						Reflect.get(Object(Reflect.get(entry, "detail")), "kind") ===
-						constants.NODE_PERFORMANCE_GC_MAJOR,
-				)
-		)
-			count++;
+		const kinds = list.getEntries().map(kindOf);
+		if (kinds.includes(constants.NODE_PERFORMANCE_GC_MAJOR)) majors++;
+		minors += kinds.filter(
+			(kind) => kind === constants.NODE_PERFORMANCE_GC_MINOR,
+		).length;
 	});
 	observer.observe({ entryTypes: ["gc"] });
-	return { count: () => count, stop: () => observer.disconnect() };
+	return {
+		majors: () => majors,
+		minors: () => minors,
+		stop: () => observer.disconnect(),
+	};
 }
 
 // Node hands an observer its gc entries after the collection, on the loop.
@@ -41,11 +50,11 @@ function exposedGc(): (options: object) => void {
 // A heap the test sets, and full collections it says happened.
 function fakeV8(usedMb: number) {
 	let used = usedMb * MB;
-	let collected: (() => void) | undefined;
+	let collected: ((count: number) => void) | undefined;
 	let watching = false;
 	return {
 		read: () => ({ usedBytes: used, limitBytes: 4144 * MB }),
-		watch: (onFull: () => void) => {
+		watch: (onFull: (count: number) => void) => {
 			collected = onFull;
 			watching = true;
 			return () => {
@@ -55,9 +64,10 @@ function fakeV8(usedMb: number) {
 		allocate: (mb: number) => {
 			used = mb * MB;
 		},
-		collect: (toMb: number) => {
+		// One delivery of `count` full collections, which Node may batch.
+		collect: (toMb: number, count = 1) => {
 			used = toMb * MB;
-			collected?.();
+			collected?.(count);
 		},
 		watching: () => watching,
 	};
@@ -73,6 +83,15 @@ describe("heapAfterFullCollections", () => {
 		v8.collect(1200);
 		v8.collect(1300);
 		expect(heap.collections(), "two").toBe(2);
+	});
+
+	// Node can hand an observer several collections at once, as V8 runs
+	// them back to back near its limit.
+	it("counts each full collection V8 reports at once", () => {
+		const v8 = fakeV8(900);
+		const heap = heapAfterFullCollections(v8.watch, v8.read);
+		v8.collect(1200, 3);
+		expect(heap.collections(), "three in one delivery").toBe(3);
 	});
 
 	it("reads the heap as it stands before V8 has collected in full", () => {
@@ -112,17 +131,17 @@ describe("heapAfterFullCollections", () => {
 	it("reads as each of V8's own full collections ends, not after a minor one, until stopped", async () => {
 		const gc = exposedGc();
 		const read = vi.fn(() => ({ usedBytes: MB, limitBytes: 4144 * MB }));
-		// V8 may run a full collection of its own in the pause, which counts.
-		const majors = majorsSeen();
+		// V8 may run a full collection of its own meanwhile, which counts.
+		const seen = collectionsSeen();
 		const heap = heapAfterFullCollections(undefined, read);
 		gc({ type: "minor", execution: "sync" });
-		// A real pause: nothing arrives to wait on when no reading is due.
-		await pause(DELIVERED_MS);
-		majors.stop();
+		// Delivered to every observer at once, so the host's has it too.
+		await vi.waitFor(() => expect(seen.minors()).toBeGreaterThan(0));
+		seen.stop();
 		expect(
 			read.mock.calls.length,
 			"not after a minor collection, only V8's own full ones",
-		).toBe(majors.count());
+		).toBe(seen.majors());
 
 		// Cleared, so only this collection can answer the wait.
 		read.mockClear();

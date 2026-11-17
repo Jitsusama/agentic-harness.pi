@@ -86,6 +86,24 @@ it("installs ownership and publishes stable ids before extension loading", () =>
 	expect(fs.statSync(host.registryPath).mode & 0o777).toBe(0o600);
 });
 
+// A park closes a conversation and its wake registers it again, which
+// the heap tiers tell apart from one that kept running by its number.
+it("numbers each conversation in the order it began, anew when it comes back", async () => {
+	const host = start();
+	host.register(registration("a"));
+	host.register(registration("b"));
+	const first = new Map(host.list().map(({ id, begun }) => [id, begun]));
+	await host.close("a");
+	host.register(registration("a"));
+	const again = new Map(host.list().map(({ id, begun }) => [id, begun]));
+
+	expect(first.get("b"), "b after a").toBeGreaterThan(first.get("a") ?? 0);
+	expect(again.get("b"), "b kept its number").toBe(first.get("b"));
+	expect(again.get("a"), "a anew, after b").toBeGreaterThan(
+		first.get("b") ?? 0,
+	);
+});
+
 it("dispatches interleaved callbacks under separate environments and slots", async () => {
 	const host = start();
 	host.register(registration("a"));

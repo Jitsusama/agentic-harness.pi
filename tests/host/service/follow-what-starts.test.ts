@@ -11,7 +11,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { followWhatStarts, type Held } from "../../../host/service/restart.ts";
+import {
+	followWhatStarts,
+	type Held,
+	LOOK_MS,
+} from "../../../host/service/restart.ts";
 import type { Systemctl } from "../../../host/service/what-starts.ts";
 import { lately, long, MB, manualTimers } from "./restart-fakes.ts";
 
@@ -245,6 +249,76 @@ describe("followWhatStarts", () => {
 			used = 3100 * MB;
 		}
 		for (let look = 0; look < 3; look++) await timers.fire();
+		expect(
+			calls.filter((call) => call.includes("restart")),
+			"no restart asked of systemd",
+		).toEqual([]);
+	});
+
+	// The reading moves only at V8's full collections, so a reading from
+	// while they were parked can stand long after a wake: the mark waits
+	// for V8's own count of them, which only the real wiring passes.
+	it("lets no reading from before a wake lower the mark, counting V8's collections", async () => {
+		const { systemctl, calls } = systemd();
+		const timers = manualTimers();
+		let used = 3100 * MB;
+		let collected: ((count: number) => void) | undefined;
+		const collect = (mb: number) => {
+			used = mb * MB;
+			collected?.(1);
+		};
+		let parked = false;
+		let begun = 1;
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			await followWhatStarts({
+				serving: {
+					held: () =>
+						parked
+							? []
+							: [{ id: "a", begun, state: "idle" as const, since: long }],
+					parked: () => (parked ? ["a"] : []),
+					restartComing: vi.fn(),
+					stopping: () => false,
+				},
+				background: () => 1,
+				resting: () => true,
+				report: vi.fn(),
+				root: join(install, "versions", "one"),
+				systemctl,
+				cgroupFile: cgroup,
+				pid: 7,
+				heap: () => ({ usedBytes: used, limitBytes: 4144 * MB }),
+				watchHeap: (onFull) => {
+					collected = onFull;
+					return () => undefined;
+				},
+				timing: { after: timers.after },
+			});
+			const look = async () => {
+				vi.setSystemTime(Date.now() + LOOK_MS);
+				await timers.fire();
+			};
+			collect(3100);
+			collect(3100);
+			await look();
+			collect(3100);
+			collect(3100);
+			await look();
+			parked = true;
+			collect(1650);
+			collect(1650);
+			await look();
+			parked = false;
+			begun++;
+			// An idle host: V8 doesn't collect for an hour after the wake.
+			for (let wait = 0; wait < 60; wait++) await look();
+			collect(3100);
+			collect(3100);
+			for (let wait = 0; wait < 3; wait++) await look();
+		} finally {
+			vi.useRealTimers();
+		}
 		expect(
 			calls.filter((call) => call.includes("restart")),
 			"no restart asked of systemd",
