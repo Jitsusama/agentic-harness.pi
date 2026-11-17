@@ -185,6 +185,11 @@ describe("watchHolds", () => {
 			return proc;
 		}
 
+		/** Wait a few of the thread's looks. */
+		const started = () =>
+			// A turn first, so the thread has started and seen the loop move.
+			new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+
 		it.runIf(process.arch === "x64")(
 			"beats for a loop asleep in a filesystem call, and says so",
 			async () => {
@@ -197,7 +202,7 @@ describe("watchHolds", () => {
 					proc,
 					beat: beat(),
 				});
-				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				await started();
 				hold(1500);
 				await vi.waitFor(() => {
 					expect(said().join("\n"), "a line once it turned").toMatch(
@@ -209,7 +214,7 @@ describe("watchHolds", () => {
 					"beats while it slept in the disk",
 				).toBeGreaterThanOrEqual(2);
 				expect(said().join("\n"), "each beat journalled").toMatch(
-					/beat the watchdog for the loop, held \d+\.\d s in openat ~\/\.local\/state\/mesh\/presence\/a\.json|beat the watchdog for the loop, held \d+\.\d s in openat \/home\/one/,
+					/beat the watchdog for the loop, held \d+\.\d s in openat \/home\/one\/\.local\/state\/mesh\/presence\/a\.json/,
 				);
 			},
 		);
@@ -222,7 +227,7 @@ describe("watchHolds", () => {
 				still: 60_000,
 				beat: beat(),
 			});
-			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+			await started();
 			hold(1500);
 			await vi.waitFor(() => {
 				expect(said().join("\n"), "a line once it turned").toMatch(
@@ -245,7 +250,7 @@ describe("watchHolds", () => {
 					proc,
 					beat: beat(),
 				});
-				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				await started();
 				hold(1500);
 				await vi.waitFor(() => {
 					expect(said().join("\n"), "a line once it turned").toMatch(
@@ -271,7 +276,7 @@ describe("watchHolds", () => {
 					proc,
 					beat: beat(700),
 				});
-				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				await started();
 				hold(2000);
 				await vi.waitFor(() => {
 					expect(said().join("\n"), "a line once it turned").toMatch(
