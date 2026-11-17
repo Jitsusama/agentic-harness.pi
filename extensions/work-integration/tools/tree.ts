@@ -18,6 +18,7 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { withCallSignal } from "../../../lib/core/exec/index.ts";
 import { sessionKeyOf } from "../../../lib/core/session/index.ts";
 import {
 	endsWithItsPrompts,
@@ -192,8 +193,14 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 		): Promise<Answer> => {
 			const args = rawArgs as WorkArgs;
 			const action = args.action ?? "trees";
+			// Git here answers to this call's signal alone. A turn begun from
+			// inside another call, as a review tool's, runs in that call's
+			// context, and its signal, fired while it still ran, refused every
+			// git as aborted before it started until the session restarted.
 			if (!WAITS_ON_GIT.has(action)) {
-				return await answerWork(pi, args, signal, ctx);
+				return await withCallSignal(signal, () =>
+					answerWork(pi, args, signal, ctx),
+				);
 			}
 			// Git and the network can take minutes here, and while a call runs
 			// it holds the turn, deaf to the person and the mesh, so one still
@@ -211,7 +218,10 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				signal,
 				onUpdate: undefined,
 				bus: pi.events,
-				run: (owned) => answerWork(pi, args, owned, ctx),
+				// Under the job's own signal, since a run handed off outlives
+				// the call, which would leave it reading the inherited one.
+				run: (owned) =>
+					withCallSignal(owned, () => answerWork(pi, args, owned, ctx)),
 			});
 		},
 		renderCall(args, theme, context) {
