@@ -1,4 +1,5 @@
 /** The heap a host weighs itself by: what V8 held after its last full collection. */
+import { constants, PerformanceObserver } from "node:perf_hooks";
 import { setTimeout as pause } from "node:timers/promises";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
@@ -6,6 +7,25 @@ import { describe, expect, it, vi } from "vitest";
 import { heapAfterFullCollections } from "../../../host/service/live-heap.ts";
 
 const MB = 1024 * 1024;
+
+/** Counts the full collections V8 says it ran, as the host's watcher hears them. */
+function majorsSeen() {
+	let count = 0;
+	const observer = new PerformanceObserver((list) => {
+		if (
+			list
+				.getEntries()
+				.some(
+					(entry) =>
+						Reflect.get(Object(Reflect.get(entry, "detail")), "kind") ===
+						constants.NODE_PERFORMANCE_GC_MAJOR,
+				)
+		)
+			count++;
+	});
+	observer.observe({ entryTypes: ["gc"] });
+	return { count: () => count, stop: () => observer.disconnect() };
+}
 
 // Node hands an observer its gc entries after the collection, on the loop.
 const DELIVERED_MS = 100;
@@ -81,11 +101,17 @@ describe("heapAfterFullCollections", () => {
 	it("reads as each of V8's own full collections ends, not after a minor one, until stopped", async () => {
 		const gc = exposedGc();
 		const read = vi.fn(() => ({ usedBytes: MB, limitBytes: 4144 * MB }));
+		// V8 may run a full collection of its own in the pause, which counts.
+		const majors = majorsSeen();
 		const heap = heapAfterFullCollections(undefined, read);
 		gc({ type: "minor", execution: "sync" });
 		// A real pause: nothing arrives to wait on when no reading is due.
 		await pause(DELIVERED_MS);
-		expect(read, "not after a minor collection").not.toHaveBeenCalled();
+		majors.stop();
+		expect(
+			read.mock.calls.length,
+			"not after a minor collection, only V8's own full ones",
+		).toBe(majors.count());
 
 		gc({ type: "major", execution: "sync" });
 		await vi.waitFor(() => expect(read).toHaveBeenCalled());

@@ -179,6 +179,8 @@ describe("followWhatStarts", () => {
 				stopping: () => false,
 			},
 			background: () => background,
+			holding: () =>
+				["s1: j1 subagent: review", "s2: j4 codemode"].slice(0, background),
 			resting: () => true,
 			report,
 			root: join(install, "versions", "one"),
@@ -199,7 +201,7 @@ describe("followWhatStarts", () => {
 	it("says in its journal how full its heap was and what a heap restart ended", async () => {
 		const busy: Held = { state: "busy", since: lately };
 		expect(await heapRestartSaid(3400, [busy], 2)).toBe(
-			"Restarting with its heap at 82% of what V8 allows, ending 1 running turn and 2 background jobs, as its heap holds 3400 of the 4144 MB V8 allows, past half",
+			"Restarting with its heap at 82% of what V8 allows, ending 1 running turn and 2 background jobs (s1: j1 subagent: review; s2: j4 codemode), as its heap holds 3400 of the 4144 MB V8 allows, past half",
 		);
 	});
 
@@ -215,6 +217,36 @@ describe("followWhatStarts", () => {
 		expect(await heapRestartSaid(2984, [idle], 0)).toBe(
 			"Restarting with its heap at 72% of what V8 allows, ending nothing that was running, as its heap holds 2984 of the 4144 MB V8 allows, past half",
 		);
+	});
+
+	it("stops watching V8's collections once it stops following", async () => {
+		const { systemctl } = systemd();
+		const timers = manualTimers();
+		let watching = false;
+		const stop = await followWhatStarts({
+			serving: {
+				held: () => [{ state: "idle" as const, since: long }],
+				restartComing: vi.fn(),
+				stopping: () => false,
+			},
+			background: () => 0,
+			resting: () => true,
+			report: vi.fn(),
+			root: join(install, "versions", "one"),
+			systemctl,
+			cgroupFile: cgroup,
+			pid: 7,
+			watchHeap: () => {
+				watching = true;
+				return () => {
+					watching = false;
+				};
+			},
+			timing: { after: timers.after },
+		});
+		expect(watching, "watching while following").toBe(true);
+		stop();
+		expect(watching, "not watching once stopped").toBe(false);
 	});
 
 	it("stays while its heap holds half of what V8 allows or less", async () => {
