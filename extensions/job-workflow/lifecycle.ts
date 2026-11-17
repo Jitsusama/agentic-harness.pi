@@ -43,6 +43,7 @@ import {
 } from "./carry.ts";
 import { createJobs, type Jobs } from "./jobs.ts";
 import { createOutbox, type Outbox, STEERED_RESULTS } from "./outbox.ts";
+import { type JobRecorder, recordJobs } from "./recorded.ts";
 
 /**
  * What a starting runtime asks on `JOBS_YIELD` with, and hears back on.
@@ -249,15 +250,26 @@ function freshSession(
 			// reload; nobody is left listening on its bus.
 		}
 	};
+	// Made once the jobs are, so a change heard before then records nothing.
+	let recorder: JobRecorder | undefined;
 	// What the jobs report to, reached through `wiring` so a later
 	// runtime's code can take them over by rewiring it (carry.ts).
 	const own: JobWiring = {
 		post: (result) => outbox.post(result),
-		changed: () => show(),
+		changed: () => {
+			show();
+			recorder?.changed();
+		},
 		retract: (jobId) => outbox.withdraw(jobId),
 		ended: (finished) => say(finished),
 	};
 	const { jobs, rewire } = jobsReportingTo(own, handed);
+	// Each running bash job is written down beside its call, so this
+	// session takes it up again after a kill that carries nothing.
+	recorder = recordJobs(
+		() => jobs,
+		() => sessionIdOf(runtime.ctx),
+	);
 
 	let withdraw: (() => void) | undefined;
 	let yielding: (() => void) | undefined;
@@ -289,11 +301,14 @@ function freshSession(
 		},
 		close() {
 			quiet();
+			// Taken back before the jobs stop, so no reaper spares what they leave.
+			recorder?.forget();
 			jobs.close();
 			show();
 		},
 		park(carryMs = CARRY_MS, forSession) {
 			quiet();
+			recorder?.stop();
 			unsaid = [];
 			parkJobs(
 				{
@@ -304,11 +319,16 @@ function freshSession(
 						unsaid = undefined;
 						listen();
 						for (const finished of ends) say(finished);
+						// Recorded again under the session that adopted them.
+						recorder?.changed();
 						show();
 						outbox.tick();
 						return session;
 					},
-					stop: () => jobs.close(),
+					stop: () => {
+						recorder?.forget();
+						jobs.close();
+					},
 					handOff() {
 						const ends = unsaid ?? [];
 						unsaid = undefined;
@@ -330,5 +350,8 @@ function freshSession(
 		for (const finished of handed.unsaid) say(finished);
 		show();
 	}
+	// Jobs handed over, from a rollover above all, are recorded under
+	// this session.
+	recorder.changed();
 	return session;
 }

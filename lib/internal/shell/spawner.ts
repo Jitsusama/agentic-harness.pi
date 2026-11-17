@@ -57,7 +57,14 @@ import {
 	type BashOperations,
 	getShellConfig,
 } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../core/session/host.ts";
 import { systemProgram } from "../sandbox/system-program.ts";
+import {
+	sayUnscoped,
+	scopeFailed,
+	settingHere,
+	spawnerStart,
+} from "./spawner-scope.ts";
 import { spawnerWanted } from "./spawner-variable.ts";
 
 /** The program's name, as core.nix puts it on the PATH. */
@@ -68,6 +75,9 @@ const KEEPS_WORD = "keeps";
 
 /** How long pi-spawner may take to say whether it keeps. */
 const KEEPS_TIMEOUT_MS = 5000;
+
+/** How much of a scoped spawner's error output is kept to say. */
+const SAID_MOST = 1024;
 
 /** How long pi waits for output past a command's exit, as pi does. */
 const EXIT_STDIO_GRACE_MS = 100;
@@ -497,16 +507,33 @@ function killGroup(pid: number): void {
 /**
  * Start pi-spawner in a session of its own, so the terminal's signals
  * never reach it, and without holding pi open at its exit, when the end
- * of its input tells it to kill every command it still runs.
+ * of its input tells it to kill every command it still runs. A host's
+ * runs in a systemd scope of its own where it can, so what it starts
+ * outlives the host's stop (spawner-scope.ts). A scoped one's error
+ * output is read, the first of it kept, so a scope that couldn't be made
+ * is said and the spawners after it run unscoped.
  */
 function startProgram(program: string, quest?: string): Started {
-	const child = spawn(program, [], {
-		stdio: ["pipe", "pipe", "ignore"],
+	const start = spawnerStart(program, settingHere(hosted() !== undefined));
+	if (start.unscoped !== undefined) sayUnscoped(start.unscoped);
+	const scoped = start.args.length > 0;
+	const child = spawn(start.command, [...start.args], {
+		stdio: ["pipe", "pipe", scoped ? "pipe" : "ignore"],
 		detached: true,
 		env: quest ? { ...process.env, [QUEST_VARIABLE]: quest } : process.env,
 	});
 	child.unref();
-	for (const stream of [child.stdin, child.stdout]) {
+	if (scoped) {
+		let said = "";
+		// Read to its end, so a spawner that says much never fills the pipe.
+		child.stderr?.on("data", (chunk: Buffer) => {
+			if (said.length < SAID_MOST) said += chunk.toString("utf8");
+		});
+		child.once("exit", (code) => {
+			if (code !== null && code !== 0) scopeFailed(code, said);
+		});
+	}
+	for (const stream of [child.stdin, child.stdout, child.stderr]) {
 		if (stream && "unref" in stream && typeof stream.unref === "function") {
 			stream.unref();
 		}

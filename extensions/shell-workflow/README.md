@@ -300,7 +300,8 @@ that ends by itself keeps what it left running. A process moved out
 on purpose is spared: one whose cgroup is outside pi's own and outside
 the slice `JOBS_CGROUP` puts work in, as `systemd-run --user --scope`
 makes. `setsid`, `nohup`, the jobs sorter's scopes and
-`jobs-broker run`'s stay in that slice, so they still die; a pi host
+`jobs-broker run`'s stay in that slice, and a host's pi-spawner scope
+counts as where work runs too, so they still die; a pi host
 restarting spares the same, by the same rule. The hand-off answer tells the agent
 to use the tool and never to kill the shell by hand, which would leave
 what the command started running. A reload does not: the

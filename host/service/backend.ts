@@ -77,9 +77,16 @@ export interface ConversationEngine {
 	 */
 	backgroundOf(sessionId: string): number;
 	/**
-	 * As a restart stops the host, once every conversation has parked:
-	 * keep the bash calls they carried alive through the stop for the
-	 * next host to take up.
+	 * Whether any stop can keep the bash calls its conversations carry
+	 * alive for the next host, so every stop carries them, not only a
+	 * restart. An engine that leaves it out carries them only through its
+	 * own restart.
+	 */
+	carries?(): boolean;
+	/**
+	 * As a stop that carries ends the host, once every conversation has
+	 * parked: keep the bash calls they carried alive through the stop for
+	 * the next host to take up.
 	 */
 	keepCarried?(): Promise<void>;
 	/**

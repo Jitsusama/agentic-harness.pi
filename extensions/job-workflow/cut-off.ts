@@ -144,6 +144,23 @@ export function cutOffIn(
 }
 
 /**
+ * What a cut-off left dead once the session took some of its jobs up
+ * again, as a call recorded beside its kept files is (recorded.ts):
+ * nothing, when no run was cut and every job lives on, or a run its
+ * host carries on was the only other loss.
+ */
+export function leftDead(
+	cut: CutOff | undefined,
+	held: ReadonlySet<string>,
+): CutOff | undefined {
+	if (cut === undefined) return undefined;
+	const jobs = cut.jobs.filter((job) => !held.has(job.id));
+	if (jobs.length === cut.jobs.length) return cut;
+	if (jobs.length === 0 && (!cut.running || cut.runCarried)) return undefined;
+	return { ...cut, jobs };
+}
+
+/**
  * The record of a run a host carried on with no job dead with it, and
  * nothing typed since: told nothing on the return, since the next host
  * takes the run up, but owed a notice if that run never shows.

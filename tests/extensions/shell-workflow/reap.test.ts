@@ -116,6 +116,30 @@ describe("reaping a call", () => {
 		expect(killed, "the one moved to a scope of its own lives").toEqual([101]);
 	});
 
+	it("kills what runs in a host's pi-spawner scope, which holds its work", () => {
+		const mark = `${CALL_VARIABLE}=one`;
+		const procRoot = procWith(
+			{ "101": [mark], "102": [mark] },
+			{
+				"100": `${USER}/app.slice/pi-host-work-background.service`,
+				"101": `${USER}/app.slice/pi-spawner-4242-1a2b3c4d.scope`,
+				"102": `${USER}/app.slice/run-u8.scope`,
+			},
+		);
+		const killed: number[] = [];
+
+		reap("one", {
+			procRoot,
+			self: 100,
+			jobs: undefined,
+			kill: (pid) => killed.push(pid),
+		});
+
+		expect(killed, "the spawner's dies; the tunnel's scope lives").toEqual([
+			101,
+		]);
+	});
+
 	it("does nothing where there is no /proc", () => {
 		const killed: number[] = [];
 

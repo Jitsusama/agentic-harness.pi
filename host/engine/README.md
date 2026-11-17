@@ -320,7 +320,8 @@ saying so in the journal. A crash or a kill -9 notes nothing, so what
 they cut ends as before.
 
 A host's own restart carries its conversations' bash calls the same
-way, to the next host (carried-shells.ts). The service stops each
+way, to the next host (carried-shells.ts), and so does any other stop
+where the engine can keep them (`carries`). The service stops each
 conversation with `restarting`, whose callback tells its bus
 (`agentic-harness:host-restarting`) before the stamp, and job-workflow
 says what it carried. Once every conversation has parked, the engine
@@ -331,8 +332,19 @@ a moved process then sits under that unit's limits and ends with its
 stop. It writes them to `carried-shells.json` in its state folder, and
 the next host stops one no conversation took up once its time limit
 passes or a day after the restart, whichever comes first, saying so
-in the journal. Without a jobs cgroup nothing is kept, and a bash call
-holds the restart as every other job does. `background` counts only
+in the journal. On Linux with systemd-run and a user manager, a host's
+pi-spawners each run in a scope of their own
+(`lib/internal/shell/spawner-scope.ts`), so its calls already sit
+outside the unit: nothing is moved, and they are kept all the same.
+Without a jobs cgroup or such a scope nothing is kept, and a bash call
+holds the restart as every other job does. A host killed before its
+stop finishes carries nothing this way; each conversation recorded its
+running bash calls beside their kept files as they started
+(`lib/internal/shell/kept-jobs.ts`), so the next host's reap spares a
+call whose shell still runs, within its time limit and a day, and the
+conversation takes it up as it resumes; one nobody takes up is stopped
+on the look at strays once its time limit or a day has passed.
+`background` counts only
 what a restart would end, and `holding` names it, for the journal
 line a restart held past its ceiling writes once an hour.
 
