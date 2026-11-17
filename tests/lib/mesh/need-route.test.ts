@@ -66,9 +66,9 @@ const ties = (...pairs: [string, string, number][]): TieGraph => {
 
 describe("the words a need or a cell's work is matched by", () => {
 	it("keeps the telling words, lowercased, once each", () => {
-		expect(wordsOf("Run a Command on Any Machine of the Realm, the realm")).toEqual(
-			["run", "command", "machine", "realm"],
-		);
+		expect(
+			wordsOf("Run a Command on Any Machine of the Realm, the realm"),
+		).toEqual(["run", "command", "machine", "realm"]);
 	});
 
 	it("reads each cell's words from its title and repository", () => {

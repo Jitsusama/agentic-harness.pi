@@ -495,6 +495,21 @@ export function tiesFrom(
 	return ties.sort((a, b) => b.strength - a.strength);
 }
 
+/**
+ * The node's list of one kind of record, with only `fields` beside the
+ * key, kind and heard it always adds, as its one answer line; nothing
+ * when no node answers within `patience`. A node that holds no such kind
+ * answers with an error, which its reader takes as none.
+ */
+export function listAt(
+	socket: string | undefined,
+	kind: string,
+	fields: readonly string[],
+	patience: number,
+): Promise<string | undefined> {
+	return askDaemon(socket, { ask: "list", kind, fields }, patience);
+}
+
 /** Two counts, as a tie says each end's, or nothing for anything else. */
 function pair(said: unknown): [number, number] | undefined {
 	if (!Array.isArray(said) || said.length !== 2) return undefined;
