@@ -80,7 +80,8 @@ export function unescapedMarks(text: string): string {
 		let cut = piece.length;
 		for (;;) {
 			let start = cut;
-			while (start > 0 && PARAMETER.test(piece.charAt(start - 1))) start--;
+			while (start > 0 && WITHIN_SEQUENCE.test(piece.charAt(start - 1)))
+				start--;
 			if (start >= 2 && piece.slice(start - 2, start) === "\x1b[") {
 				cut = start - 2;
 				continue;
@@ -100,9 +101,10 @@ const MIDDLE = /[ -/]/;
 
 /**
  * What a terminal reads within a control sequence before its end: its
- * parameters and its middle, in any order a cut one leaves them.
+ * parameters and its middle, in any order a cut one leaves them, so the
+ * walk back is looser than ESCAPE, which reads a whole one in order.
  */
-const PARAMETER = /[ -?]/;
+const WITHIN_SEQUENCE = /[ -?]/;
 
 /** The shortest value taken as a credential's, as CREDENTIAL_VALUE has it. */
 const SHORTEST_SECRET = 16;
@@ -180,6 +182,18 @@ const ADDRESS_PORT =
 /** An address's user, and any password, before its host's at sign. */
 const USER = /:\/\/([^/@\s]*)@/g;
 
+/** A character a user's address writes as a percent and two digits. */
+const PERCENT_ESCAPE = /%[\dA-Fa-f]{2}/g;
+
+/**
+ * What opens a terminal's link, whose address no terminal shows, so it
+ * joins no text: `judgedCommands` judges it alone.
+ */
+const LINK = "\x1b]8;";
+
+/** What parts a word into pieces: a break, or a joiner. */
+const PIECE_BREAK = /[\s'"=\][:,;|()]/;
+
 /** What a terminal's command holds, as ESCAPE reads one whole. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's command is what this reads.
 const PAYLOAD = /^\x1b\]\d*;;?([^\x07\x1b\n]*)/;
@@ -187,6 +201,70 @@ const PAYLOAD = /^\x1b\]\d*;;?([^\x07\x1b\n]*)/;
 /** An escape's payload: a terminal command's, or none. */
 function payloadOf(sequence: string): string {
 	return PAYLOAD.exec(sequence)?.[1] ?? "";
+}
+
+/** A run of a word's piece, from its text or from a command's payload. */
+interface Segment {
+	readonly text: string;
+	readonly payload: boolean;
+}
+
+/**
+ * Whether a credential runs across a terminal command's payload in
+ * `word`, read with each command as what it holds, in pieces a break or
+ * a joiner parts: each piece holding a payload judged whole, and each
+ * payload joined to what touches it on either side, read from the last
+ * slash before it to the first after, so a path or an address beside it
+ * exempts nothing. One pass over the word.
+ */
+function runsAcross(word: string): boolean {
+	const pieces: Segment[][] = [[]];
+	const add = (text: string, payload: boolean) => {
+		let from = 0;
+		for (let at = 0; at <= text.length; at++) {
+			const parts = at < text.length && PIECE_BREAK.test(text.charAt(at));
+			if (!parts && at < text.length) continue;
+			if (at > from)
+				pieces.at(-1)?.push({ text: text.slice(from, at), payload });
+			if (parts) pieces.push([]);
+			from = at + 1;
+		}
+	};
+	let at = 0;
+	for (const sequence of word.matchAll(ESCAPE)) {
+		add(word.slice(at, sequence.index).replace(ADDRESS_PORT, "$1"), false);
+		const [command] = sequence;
+		add(command.startsWith(LINK) ? "" : payloadOf(command), true);
+		at = sequence.index + sequence[0].length;
+	}
+	add(word.slice(at).replace(ADDRESS_PORT, "$1"), false);
+	const whole = (piece: Segment[]) =>
+		looksLikeSecret(piece.map((segment) => segment.text).join(""));
+	const joined = (piece: Segment[], from: number, to: number) => {
+		const texts = piece
+			.slice(Math.max(from, 0), to + 1)
+			.map((segment) => segment.text);
+		if (texts.length < 2) return false;
+		const first = texts[0] ?? "";
+		const last = texts.at(-1) ?? "";
+		texts[0] = first.slice(first.lastIndexOf("/") + 1);
+		const slash = last.indexOf("/");
+		texts[texts.length - 1] = slash < 0 ? last : last.slice(0, slash);
+		return looksLikeSecret(texts.join(""));
+	};
+	return pieces.some(
+		(piece) =>
+			piece.length > 1 &&
+			piece.some((segment) => segment.payload) &&
+			(whole(piece) ||
+				piece.some(
+					(segment, at) =>
+						segment.payload &&
+						(joined(piece, at - 1, at) ||
+							joined(piece, at, at + 1) ||
+							joined(piece, at - 1, at + 1)),
+				)),
+	);
 }
 
 /**
@@ -257,28 +335,25 @@ export function replaceWords(
  * aside, and its user's: put out of sight as `kind` when any could be a
  * credential, so a path or an address joined to a token exempts nothing,
  * the escapes that open and close it kept; undefined when none could. A
- * terminal command's payload is read joined to the words beside it too,
- * so half a credential in one exempts nothing: a word only that finds is
- * put out of sight whole, commands and all. The escapes are found by one
- * walk over them.
+ * credential running across a terminal command's payload (`runsAcross`)
+ * puts the word out of sight whole, commands and all, as does one that
+ * could be a credential beside a command it would keep holding a
+ * payload, so no half of it shows in a command kept. The escapes are
+ * found by one walk over them.
  */
 export function hidden(word: string, kind: string): string | undefined {
 	const pieces = word
 		.replace(ADDRESS_PORT, "$1")
 		.split(ESCAPE)
 		.flatMap((piece) => piece.split(JOINER));
-	const users = [...word.matchAll(USER)].flatMap(([, user = ""]) =>
-		user.split(":"),
+	const users = [...word.matchAll(USER)].map(([, user = ""]) =>
+		user.replace(ESCAPE, "").replace(PERCENT_ESCAPE, ""),
 	);
+	if (runsAcross(word)) return scrubbedMark(kind);
 	const could =
 		looksLikeSecret(word.replace(ESCAPE, "")) ||
 		[...pieces, ...users].some((piece) => looksLikeSecret(piece));
-	if (!could) {
-		const joined = word.replace(ESCAPE, payloadOf).split(WORD_BREAK);
-		return joined.some((piece) => looksLikeSecret(piece))
-			? scrubbedMark(kind)
-			: undefined;
-	}
+	if (!could) return undefined;
 	let opening = 0;
 	let runStart = 0;
 	let runEnd = -1;
@@ -289,5 +364,10 @@ export function hidden(word: string, kind: string): string | undefined {
 	}
 	const closing =
 		runEnd === word.length ? Math.max(runStart, opening) : word.length;
+	const kept = `${word.slice(0, opening)}${word.slice(closing)}`;
+	const holding = [...kept.matchAll(ESCAPE)].some(
+		([sequence]) => payloadOf(sequence) !== "",
+	);
+	if (holding) return scrubbedMark(kind);
 	return `${word.slice(0, opening)}${scrubbedMark(kind)}${word.slice(closing)}`;
 }
