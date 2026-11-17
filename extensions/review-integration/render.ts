@@ -70,7 +70,7 @@ const MIN_GATE_WIDTH = 24;
  * - squares belong to work, where a tree is a place
  * - triangles are review's, and they point, which is what a remark does
  *
- * `tests/package/glyphs-are-owned.test.ts` holds the line. Before this, a
+ * `tests/package/ui/glyphs-are-owned.test.ts` holds the line. Before this, a
  * filled diamond was a quest and a finding, a hollow one a sidequest and a
  * verdict, and a filled circle was a review that landed and a tree with
  * uncommitted work in it: the same mark for the best and worst news on screen.

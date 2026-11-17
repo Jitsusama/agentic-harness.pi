@@ -66,7 +66,7 @@ The panel wears the same nameplate as its neighbours: a Title
 Case phrase naming the act, no question mark, since the panel is
 already a question and its footer says so. A batch opens each
 tab by saying which of how many it is. Both are held by
-`tests/package/gate-titles-read-alike.test.ts`, which exists
+`tests/package/ui/gate-titles-read-alike.test.ts`, which exists
 because the review gates went out looking like a different
 application and no test could tell.
 

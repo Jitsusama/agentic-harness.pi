@@ -7,7 +7,7 @@ module of their own, such as `fence-agent` and `fence-sockets`, test
 the fence (`fence.ts`) one boundary at a time.
 
 Many entries because they mirror `lib/internal`, which is past 40
-itself and waits in `tests/package/long-files-waiting.txt`: every
+itself and waits in `tests/package/code/long-files-waiting.txt`: every
 loose test answers a loose module there, and every folder one of its
 folders, so moving the tests into folders of their own would leave
 them mirroring nothing until the library is split.

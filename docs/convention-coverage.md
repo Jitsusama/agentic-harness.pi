@@ -44,7 +44,7 @@ a row whose gate reports by default says so.
 ## Session Identity Gate
 
 The session seam's README defines the new host contract. The package test
-in tests/package/session-state-is-keyed.test.ts blocks new direct process
+in tests/package/runtime/session-state-is-keyed.test.ts blocks new direct process
 identity, cwd, global slots and environment writes in extensions. Existing
 sites are listed by file and kind in session-state-waiting.txt, which only
 shrinks. This is syntax coverage, not alias or data-flow analysis, and does
@@ -286,8 +286,8 @@ Command syntax for `gh` operations.
 | Title Case | Title Conventions | 🟢 | core `title/detect.ts` `detectSentenceCase` flags sentence case (lowercase major words at least two and outnumbering the capitalized ones), gated in pr-guardian and issue-guardian, including title-only edits with no body (the parser keeps a null body so the title gate still runs). A title made mostly of lowercase proper nouns can still false-positive, bounded by the gate relenting on the identical resubmission; over-capitalized minor words remain judgment. |
 | Title length ≤ 72 characters (upper bound) | Title Conventions | 🟢 | core `title/detect.ts` `MAX_TITLE_LENGTH`, gated in pr-guardian and issue-guardian; the skill text is asserted by `tests/core/title/skill-binding.test.ts` |
 | Aim for 50+ characters (lower bound) | Title Conventions | ⚪ | Guidance, not enforced. A short descriptive title ("Add Dark Mode Toggle") is fine; blocking would mark legitimate prose wrong. The skill is explicit about which bound is the wall and which is the nudge. |
-| A count is said properly, never `1 tree(s)` | n/a (shared UI) | 🟢 | `tests/package/counts-are-said-properly.test.ts` sweeps `lib/` and `extensions/` for both spellings, telling prose from a call so `push(s)` does not trip it. `lib/ui/count.ts` is the one pluralizer; review had a private copy and the other surfaces spelled `(s)` inline in forty-five places. The second spelling was added after this row was already green: banning `(s)` selects for `${n === 1 ? "" : "s"}`, and nineteen sites across ten files had reached for it while the gate reported the rule enforced. |
-| A refusal states its corrective action, not a skill to read | n/a (enforcement) | 🟢 | `tests/package/refusals-are-actionable.test.ts`, plus a twin in the private package. Checks no block message hands the reader onward and that both required command forms appear literally. |
+| A count is said properly, never `1 tree(s)` | n/a (shared UI) | 🟢 | `tests/package/words/counts-are-said-properly.test.ts` sweeps `lib/` and `extensions/` for both spellings, telling prose from a call so `push(s)` does not trip it. `lib/ui/count.ts` is the one pluralizer; review had a private copy and the other surfaces spelled `(s)` inline in forty-five places. The second spelling was added after this row was already green: banning `(s)` selects for `${n === 1 ? "" : "s"}`, and nineteen sites across ten files had reached for it while the gate reported the rule enforced. |
+| A refusal states its corrective action, not a skill to read | n/a (enforcement) | 🟢 | `tests/package/tools/refusals-are-actionable.test.ts`, plus a twin in the private package. Checks no block message hands the reader onward and that both required command forms appear literally. |
 | Metadata in separate commands (not packed into `create`) | Metadata in Separate Commands | 🟢 | core `github-cli/index.ts` `detectPackedMetadata` blocks a `create` carrying labels, assignees, reviewers, milestones or projects. Recorded as ⚪ judgment until an audit read the code: the gate had been there the whole time, and a matrix that says a rule is unenforced when it is blocks somebody's command with no warning and tells the next maintainer not to bother writing the gate they already have. |
 | Line wrapping in bodies | Line Wrapping in Bodies | ⚪ | Judgment. |
 
@@ -441,18 +441,18 @@ is followed by judgment, not by a regex.
   `repo-quality-standard` sits with them, and five of its rules
   are held by the gate: 🟢 rule 1's code files past 800 lines and
   folders past 40 entries, each saying why, past the shrink-only
-  list in `tests/package/long-files-waiting.txt`
-  (`tests/package/every-long-file-says-why.test.ts`), 🟢 rule 4's
+  list in `tests/package/code/long-files-waiting.txt`
+  (`tests/package/code/every-long-file-says-why.test.ts`), 🟢 rule 4's
   unchecked index reads, refused by `pnpm typecheck` under
   `noUncheckedIndexedAccess` in `tsconfig.json`, 🟢 rule 5's programs of more than
   five lines written as strings, past the shrink-only list in
-  `tests/package/embedded-programs.txt`
-  (`tests/package/programs-live-in-their-own-files.test.ts`),
+  `tests/package/code/embedded-programs.txt`
+  (`tests/package/code/programs-live-in-their-own-files.test.ts`),
   🟢 rule 7's fixed sleeps, each said
   why in a comment, past the shrink-only list in
-  `tests/package/uncommented-sleeps.txt`
-  (`tests/package/sleeps-say-why.test.ts`), and 🟢 rule 8's bare
-  boolean expects (`tests/package/expects-say-what-failed.test.ts`).
+  `tests/package/suites/uncommented-sleeps.txt`
+  (`tests/package/suites/sleeps-say-why.test.ts`), and 🟢 rule 8's bare
+  boolean expects (`tests/package/suites/expects-say-what-failed.test.ts`).
 - **Operational conventions**: `git-branch-convention`,
   `git-commit-convention`, `git-rebase-convention`. These govern
   when and how to perform an operation, not the shape of an
@@ -489,7 +489,7 @@ is followed by judgment, not by a regex.
   🟢 nothing pi provides at runtime is redeclared there, since a
   second copy of pi's modules is a different copy and the
   `instanceof` checks stop working.
-  Both live in `tests/package/runtime-deps.test.ts`, which reads
+  Both live in `tests/package/shipping/runtime-deps.test.ts`, which reads
   the manifest against the imports. Type-only imports are
   exempt, since they vanish before the code runs. A user hit the
   first of these as `Cannot find module 'pixelmatch'`.
@@ -519,7 +519,7 @@ is followed by judgment, not by a regex.
   🟢 a tool that can answer with a payload larger than a context
   window stores it and cites a handle, or answers with a path on
   disk, rather than inlining or truncating it.
-  `tests/package/stored-results.test.ts` requires every
+  `tests/package/tools/stored-results.test.ts` requires every
   tool-registering extension, and every tool-registering pack
   under `packs/`, to be accounted for as one of those two, or
   listed as small. The rule came from a browser action
@@ -599,7 +599,7 @@ is followed by judgment, not by a regex.
   none of the actions that read them.
 
   A confirmation panel's own title is gated too:
-  🟢 `tests/package/gate-titles-read-alike.test.ts` requires a
+  🟢 `tests/package/ui/gate-titles-read-alike.test.ts` requires a
   Title Case phrase naming the act, with no trailing question
   mark and no leading space. The panel is already a question
   and its footer says so, and it indents the title itself, so
@@ -613,7 +613,7 @@ is followed by judgment, not by a regex.
 
   The neighbouring rule, that an action-specific description
   opens by naming its actions, is
-  🟢 `tests/package/parameters-name-their-kinds.test.ts`. Its
+  🟢 `tests/package/tools/parameters-name-their-kinds.test.ts`. Its
   scope is a named list of surfaces rather than a pattern, which
   keeps it explainable and makes the omissions visible: it
   covered `review_offer` and `review_see` and not `review_say`
@@ -634,7 +634,7 @@ is followed by judgment, not by a regex.
   markdown, which it did not:
   🟢 no emdash, curly quote or Unicode ellipsis in any `.md`
   file.
-  `tests/package/prose-glyphs.test.ts`. The rule was stated
+  `tests/package/words/prose-glyphs.test.ts`. The rule was stated
   absolutely and violated 150 times across 20 files, in the repo
   that ships the detector which finds them. It is scoped to the
   three glyph rules deliberately: the detector also flags

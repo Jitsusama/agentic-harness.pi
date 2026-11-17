@@ -9,7 +9,7 @@ Imports from pi use `@earendil-works/pi-coding-agent`,
 These are provided by pi at runtime; do not add them to
 `dependencies`. They appear in three other places, each
 for its own reason, and all three are enforced by
-`tests/package/runtime-deps.test.ts`:
+`tests/package/shipping/runtime-deps.test.ts`:
 - `peerDependencies` at `"*"`, under the current
   `@earendil-works/*` names, because that is the
   relationship: pi hands these to an extension at load

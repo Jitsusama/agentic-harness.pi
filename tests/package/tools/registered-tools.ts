@@ -1,0 +1,114 @@
+/**
+ * The tools this package registers and the actions each takes, read from their source so
+ * the gates that check the surface cannot drift from it.
+ */
+
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+export const ROOT = join(import.meta.dirname, "..", "..", "..");
+
+/** Where tools are registered. */
+const EXTENSIONS = join(ROOT, "extensions");
+
+/** Every file under a directory whose name ends as given, or none if it is missing. */
+export function filesUnder(dir: string, ending: string): string[] {
+	let found: string[] = [];
+	let entries: string[];
+	try {
+		entries = readdirSync(dir);
+	} catch {
+		// A root that does not exist is not a failure: `.pi/skills` is optional.
+		return [];
+	}
+	for (const entry of entries) {
+		const path = join(dir, entry);
+		if (statSync(path).isDirectory()) {
+			found = found.concat(filesUnder(path, ending));
+		} else if (entry.endsWith(ending)) {
+			found.push(path);
+		}
+	}
+	return found;
+}
+
+/**
+ * Actions a tool keeps in a sibling module rather than inline.
+ *
+ * Only the tool's own extension is read, so one extension's verbs cannot vouch for
+ * another's. The extension rather than the tool file's folder, since an extension may
+ * register its tool from a subfolder, as quest's `wiring/` does, beside the list it keeps
+ * at its root.
+ */
+function sharedActionLists(toolFile: string): string[] {
+	const [extension] = toolFile.slice(EXTENSIONS.length + 1).split("/");
+	const dir = join(EXTENSIONS, extension ?? "");
+	const found: string[] = [];
+	for (const sibling of filesUnder(dir, "actions.ts")) {
+		const source = readFileSync(sibling, "utf8");
+		for (const [, act] of source.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
+			if (act !== undefined) found.push(act);
+		}
+		// A re-export barrel points its real action list at the module
+		// that holds it, such as core's quest actions in `lib/core`;
+		// follow the re-export or the gate reads an empty shell.
+		for (const [, from] of source.matchAll(/from "(\.\.?\/[^"]+\.ts)"/g)) {
+			if (from === undefined) continue;
+			try {
+				const held = readFileSync(join(sibling, "..", from), "utf8");
+				for (const [, act] of held.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
+					if (act !== undefined) found.push(act);
+				}
+			} catch {
+				// A missing module fails the typecheck, which names it.
+			}
+		}
+	}
+	return found;
+}
+
+/**
+ * Every tool this package registers, against the actions it accepts.
+ *
+ * Actions are gathered as every string literal in the file rather than only the ones on
+ * the action property, which is deliberately loose: a name that appears anywhere in the
+ * tool's own source is a name that tool knows about, and the question here is only
+ * whether a skill invented one.
+ *
+ * Three spellings, because the tools disagree. Some declare their actions inline as
+ * typebox literals; others give a string enum a constant list (`[...] as const`), inline
+ * or above the tool, a third of the characters a union of literals declares; quest keeps
+ * a shared list in its own module and passes it to a string enum, so that list is read
+ * too. Missing quest's spelling made every real quest verb look
+ * invented, which is the failure mode a loose gate has: it does not go quiet, it goes off
+ * constantly and gets deleted.
+ */
+export function registered(): Map<string, Set<string>> {
+	const tools = new Map<string, Set<string>>();
+	for (const file of filesUnder(EXTENSIONS, ".ts")) {
+		const source = readFileSync(file, "utf8");
+		if (!source.includes("registerTool")) continue;
+		for (const [, name] of source.matchAll(/name:\s*"([a-z][a-z0-9_]*)"/g)) {
+			if (name === undefined) continue;
+			const actions = tools.get(name) ?? new Set<string>(tools.get(name) ?? []);
+			for (const [, act] of source.matchAll(
+				/Type\.Literal\("([a-z][a-zA-Z-]*)"\)/g,
+			)) {
+				if (act !== undefined) actions.add(act);
+			}
+			// Every constant list in the file, not only its actions: review_offer's
+			// labelMode ("add", "set") counts as its verbs too. That errs towards
+			// passing, the safe side; narrowing it to one list would miss work's,
+			// which sits above the tool rather than inside it.
+			for (const [, list = ""] of source.matchAll(/\[([^\]]*)\]\s*as const/g)) {
+				for (const quoted of list.matchAll(/"([a-z][a-zA-Z-]*)"/g)) {
+					const act = quoted.at(1);
+					if (act !== undefined) actions.add(act);
+				}
+			}
+			for (const shared of sharedActionLists(file)) actions.add(shared);
+			tools.set(name, actions);
+		}
+	}
+	return tools;
+}

@@ -76,7 +76,7 @@ function ended(): void {
  * finds that module's own imports undefined: on 13 November two of
  * three review_offer calls made at once failed reading `refuseFailure`.
  * Every lazy `import()` in an extension goes through one of these, as
- * `tests/package/lazy-imports-load-once.test.ts` holds.
+ * `tests/package/shipping/lazy-imports-load-once.test.ts` holds.
  */
 export function loadOnce<M>(load: () => Promise<M>): () => Promise<M> {
 	let loading: Promise<M> | undefined;

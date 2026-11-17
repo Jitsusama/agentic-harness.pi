@@ -49,7 +49,7 @@ a rule covers.
 Every folder says what goes in it: a README.md, an entry file
 whose first line is a comment, or a bullet in its parent's
 README opening with its name and a colon, as
-`tests/package/every-folder-says-what-it-holds.test.ts` holds.
+`tests/package/words/every-folder-says-what-it-holds.test.ts` holds.
 A new folder gets its note in the change that makes it.
 
 Public library modules have barrel exports (`index.ts`) that
@@ -136,7 +136,7 @@ that taught it, is in [`docs/architecture.md`](./docs/architecture.md).
 - A tool whose answer can outgrow a context window stores it and
   cites a handle (core's `result` module), or answers with a
   path on disk; never inline everything or truncate.
-  `tests/package/stored-results.test.ts` checks each tool.
+  `tests/package/tools/stored-results.test.ts` checks each tool.
 - A helper several domains use lives in the shared library at the
   level of its concern, not in the first domain that needed it.
 - Every export in a public barrel is a long-term commitment;
@@ -227,7 +227,7 @@ rules, and where it doesn't yet.
   a Chrome rather than skipping.
 - **Sleeps:** a fixed sleep in a test says why in a comment. The
   129 that didn't on 8 November are listed in
-  `tests/package/uncommented-sleeps.txt`, which only shrinks.
+  `tests/package/suites/uncommented-sleeps.txt`, which only shrinks.
 - **Embedded programs:** SQL and GraphQL live in `.sql` and
   `.graphql` files beside the code that runs them, read in with
   `sqlFile` (`lib/core/internal/sqlite/sql-file.ts`) and
@@ -239,7 +239,7 @@ rules, and where it doesn't yet.
   browser test serves, past a few lines, is HTML in
   `tests/core/browser/pages/`, read with `pageFile`. The
   programs still written as strings are listed in
-  `tests/package/embedded-programs.txt`, which only shrinks.
+  `tests/package/code/embedded-programs.txt`, which only shrinks.
 
 ## Before Trusting a Live Run
 

@@ -1,0 +1,290 @@
+/**
+ * A tool that can answer with an unbounded payload must bound it.
+ *
+ * This is a mechanical rule, so it is checked mechanically. The
+ * defect that motivated it was not exotic: a wheel scroll returned
+ * two and a half megabytes because one code path rendered a whole
+ * accessibility tree into a response, and nothing anywhere said it
+ * could not. Every other listing in that family had been budgeted
+ * for months.
+ *
+ * What is checked is that each family known to produce large
+ * answers reaches the shared machinery at all. That is a weaker
+ * claim than "every answer is bounded", which no static check can
+ * make, and a much stronger one than nothing: a new family added
+ * without a thought for size shows up here as an absence, and a
+ * family that had it and lost it in a refactor shows up as a
+ * regression.
+ *
+ * That claim turned out to be weaker than it sounded. Reaching the
+ * machinery is not using it: the quest verbs called the seam with
+ * a details shape it could not read, and a document read cited the
+ * one array it could find rather than the body it had just cut.
+ * Both were green here, because both were, in the only sense this
+ * file could see, wired.
+ *
+ * So the scan is now half of it. The other half runs the shared
+ * seam against the details shapes the families actually produce,
+ * which is the half that would have caught them.
+ */
+
+import {
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+	boundedByDetails,
+	createResultStore,
+} from "../../../lib/core/result/index.ts";
+
+/**
+ * Extensions whose tools can answer with a payload larger than a
+ * context window, and must therefore store and cite.
+ *
+ * Each entry is a promise about behaviour, so removing one is a
+ * decision to be argued for rather than a way to make this pass.
+ *
+ * The check is per extension, not per answer: it proves the
+ * extension reaches the store, not that every path through it
+ * does. A storage read shipped for months previewing a megabyte
+ * value with no handle while this passed, because its
+ * neighbours in the same extension cited properly. Treat a pass
+ * as evidence the machinery is wired, and drive a new answer
+ * yourself to find out whether it uses it.
+ */
+const MUST_BOUND = [
+	"browser-integration",
+	"spend-workflow",
+	// Listed as small until one digest answered with 140,393 characters:
+	// its weekly trends grow with every row ever kept.
+	"observability-workflow",
+	"slack-integration",
+	"google-workspace-integration",
+	"lsp-integration",
+	"memory-integration",
+	"quest-workflow",
+	"review-integration",
+	"result-store-workflow",
+	// A single entry of a session log can hold a whole tool output.
+	"session-recall-workflow",
+	"work-integration",
+] as const;
+
+/**
+ * Families that answer with a pointer to disk instead, which is
+ * the same bargain reached by another road.
+ *
+ * `web-search-integration` writes a bundle and returns a manifest
+ * of paths; `subagent-workflow` summarizes a fan-out and names each
+ * subagent's result file. Both predate the store and neither needs
+ * a handle to be honest about size.
+ */
+const ANSWER_WITH_PATHS = [
+	"web-search-integration",
+	"subagent-workflow",
+	// pi's bash keeps the end of the output and saves the rest to a file;
+	// a handed-off command's job names that file, or one of its own.
+	"shell-workflow",
+	// pi's codemode cuts its output and saves the rest to a file; a
+	// handed-off script's job names that file, or one of its own.
+	"codemode-workflow",
+] as const;
+
+/** The shared hand-off, whose finished job names a file for long output. */
+const HAND_OFF = "lib/jobs/hand-off.ts";
+
+/** Every TypeScript source file under a directory. */
+function sourceFiles(dir: string): string[] {
+	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+		const full = join(dir, entry.name);
+		if (entry.isDirectory()) {
+			return entry.name === "node_modules" ? [] : sourceFiles(full);
+		}
+		return entry.name.endsWith(".ts") ? [full] : [];
+	});
+}
+
+/**
+ * Whether a source file imports the shared result machinery,
+ * either the local library or core's, folded into `lib/core`.
+ */
+function importsResultLibrary(source: string): boolean {
+	return source.includes("lib/result/") || source.includes("lib/core/result/");
+}
+
+/** Whether an extension reaches the shared result machinery. */
+function reachesTheStore(extension: string): boolean {
+	const dir = join("extensions", extension);
+	return sourceFiles(dir).some((file) => {
+		const source = readFileSync(file, "utf-8");
+		return (
+			importsResultLibrary(source) &&
+			/\b(citeListing|cite|boundedByDetails|queryStored)\b/.test(source)
+		);
+	});
+}
+
+describe("tools that can answer big must bound their answers", () => {
+	for (const extension of MUST_BOUND) {
+		it(`${extension} reaches the shared result store`, () => {
+			const dir = join("extensions", extension);
+			expect(statSync(dir).isDirectory(), `${dir} is a directory`).toBe(true);
+			expect(
+				reachesTheStore(extension),
+				`${extension} imports the result library and cites through it`,
+			).toBe(true);
+		});
+	}
+
+	for (const extension of ANSWER_WITH_PATHS) {
+		it(`${extension} still answers with paths on disk`, () => {
+			const dir = join("extensions", extension);
+			const sources = sourceFiles(dir).map((file) =>
+				readFileSync(file, "utf-8"),
+			);
+			// Either it cites a handle or it names a file. What it must
+			// not do is inline an unbounded payload with neither.
+			const pointsSomewhere = sources.some(
+				(source) =>
+					importsResultLibrary(source) ||
+					source.includes(HAND_OFF) ||
+					/\b(resultPath|runDir|bundle|manifest)\b/.test(source),
+			);
+			expect(
+				pointsSomewhere,
+				`${extension} imports the result library or names a path on disk`,
+			).toBe(true);
+		});
+	}
+
+	// The shapes the families put in a result's details, taken from
+	// the handlers that build them. If one of these drifts, the entry
+	// here is wrong and the seam is not; the fix is to follow the
+	// handler, not to relax the assertion.
+	const REAL_DETAIL_SHAPES: Record<string, unknown> = {
+		"slack: a message list": {
+			messages: Array.from({ length: 400 }, (_, i) => ({ ts: `${i}` })),
+		},
+		"quest: a listing under its own key": {
+			listing: {
+				rows: Array.from({ length: 400 }, (_, i) => ({ id: `Q-${i}` })),
+				total: 400,
+			},
+		},
+		"google: a document with comments": {
+			file: { name: "Design Notes" },
+			content: "the body, which is what the view renders",
+			comments: [{ id: "c1" }],
+		},
+		"google: a document with none": {
+			file: { name: "Design Notes" },
+			content: "the body, which is what the view renders",
+			comments: [],
+		},
+		"a family that carries nothing structured": undefined,
+	};
+
+	for (const [label, details] of Object.entries(REAL_DETAIL_SHAPES)) {
+		it(`bounds and cites ${label}`, () => {
+			const dir = mkdtempSync(join(tmpdir(), "gate-"));
+			try {
+				const store = createResultStore({ dir });
+				const view = Array.from(
+					{ length: 400 },
+					(_, i) => `row ${i}: a rendered line with text on it`,
+				).join("\n");
+
+				const bounded = boundedByDetails(store, {
+					text: view,
+					details,
+					narrowing: "Ask for fewer.",
+				});
+
+				expect(Buffer.byteLength(bounded, "utf-8")).toBeLessThan(
+					Buffer.byteLength(view, "utf-8"),
+				);
+				expect(bounded).toMatch(/handle result-[0-9a-f]{16}/);
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		});
+	}
+
+	it("names every extension that registers a tool", () => {
+		// The point of this one: a new tool-registering extension is
+		// either declared as needing to bound its answers, declared as
+		// answering with paths, or deliberately listed as small. Adding
+		// one without deciding fails here rather than in a bill.
+		const small = new Set([
+			"advisor",
+			"ask-workflow",
+			"away-workflow",
+			"correction-capture",
+			"mermaid-widget",
+			"verification-workflow",
+			"commit-guardian",
+			"pr-guardian",
+			"issue-guardian",
+			"history-guardian",
+			"prompt-coordinator-workflow",
+			// Two sentences: what was queued, and what to do next. A tree that
+			// fails to load lists its failures, one line per extension.
+			"reload-workflow",
+			// How an ask ended, and its command's output, which secret-asks
+			// cuts at its own cap before writing the answer.
+			"secret-run-workflow",
+			// One line sent, or the newest messages that fit in 12 KB read,
+			// with `before` to read on rather than a stored remainder.
+			"mesh-workflow",
+			// One line per job the session holds, or one line saying a stop.
+			"job-workflow",
+		]);
+		const accounted = new Set<string>([
+			...MUST_BOUND,
+			...ANSWER_WITH_PATHS,
+			...small,
+		]);
+
+		const registrars = readdirSync("extensions", { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => entry.name)
+			.filter((name) =>
+				sourceFiles(join("extensions", name)).some((file) =>
+					readFileSync(file, "utf-8").includes("registerTool("),
+				),
+			);
+
+		expect(registrars.filter((name) => !accounted.has(name))).toEqual([]);
+	});
+
+	it("names every pack that registers a tool", () => {
+		// Packs register tools too, into a subagent rather than into
+		// this session, and the same question applies: a tool that can
+		// answer with more than a context window has to say where the
+		// rest is. Scanning only `extensions` would have let a whole
+		// second home for tools grow up unasked.
+		const small = new Set([
+			// One line of acknowledgement, and the payload travels on a
+			// file the supervisor reads back rather than through the
+			// answer at all.
+			"review-journal",
+		]);
+
+		const registrars = readdirSync("packs", { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => entry.name)
+			.filter((name) =>
+				sourceFiles(join("packs", name)).some((file) =>
+					readFileSync(file, "utf-8").includes("registerTool("),
+				),
+			);
+
+		expect(registrars.filter((name) => !small.has(name))).toEqual([]);
+	});
+});
