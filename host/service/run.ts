@@ -103,12 +103,21 @@ const MS_PER_SECOND = 1000;
 
 /**
  * How long a stop may take before the host ends anyway, naming what hadn't
- * parked: inside systemd's 60 s stop timeout, so the next host starts from
- * what parked rather than from a kill. A park awaits each conversation's
- * work ending, and on 14 November one awaited a model request for more than
- * the minute, so systemd killed the host with every conversation unparked.
+ * parked, when its unit names no stop limit: inside systemd's default 60 s
+ * stop timeout, so the next host starts from what parked rather than from a
+ * kill. A park awaits each conversation's work ending, and on 14 November
+ * one awaited a model request for more than the minute, so systemd killed
+ * the host with every conversation unparked.
  */
 const STOP_WITHIN_MS = 45_000;
+
+/**
+ * The share of its unit's stop limit a stop may park for. The rest is the
+ * margin a busy loop needs to notice its own limit came and write down what
+ * it left: at 03:30 on 17 November a loop busy 35 s of the first 50 came
+ * to its 45 s too late, and systemd's 60 s killed it first.
+ */
+const STOP_SHARE = 3 / 4;
 
 /** The file, in a host's own state folder, naming what its stop left unparked. */
 const UNPARKED = "not-parked.json";
@@ -141,7 +150,7 @@ export interface HostRunOptions {
 	status?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
 	/** How often the status is looked at, in ms; STATUS_EVERY_MS by default. */
 	statusEvery?: number;
-	/** How long, in ms, a stop may park before the host ends; STOP_WITHIN_MS by default. */
+	/** How long, in ms, a stop may park before the host ends; stopWithin(env) by default. */
 	stopWithin?: number;
 	/**
 	 * Says the host's loop still turns, when systemd's watchdog watches it,
@@ -333,11 +342,15 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		const parked = tell(stoppingStatus(serving.held().length))
 			.catch(report)
 			.then(() => serving.stop());
-		stopping = endWithin(parked, options.stopWithin ?? STOP_WITHIN_MS, (ms) => {
-			const held = serving.held();
-			say(unparkedLine(ms, held));
-			unparked.write(held.map(({ id }) => id));
-		}).finally(unwatch);
+		stopping = endWithin(
+			parked,
+			options.stopWithin ?? stopWithin(options.env),
+			(ms) => {
+				const held = serving.held();
+				say(unparkedLine(ms, held));
+				unparked.write(held.map(({ id }) => id));
+			},
+		).finally(unwatch);
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {
@@ -382,11 +395,6 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	return { serving, stopped };
 }
 
-/** How long, in ms, a stop waits for conversations to park (stub). */
-export function stopWithin(_env: NodeJS.ProcessEnv): number {
-	return STOP_WITHIN_MS;
-}
-
 /**
  * How often, in ms, to tell systemd's watchdog the loop still turns, when
  * it watches this process; undefined when it doesn't.
@@ -401,6 +409,18 @@ export function watchdogEvery(
 	if (env.WATCHDOG_PID !== undefined && Number(env.WATCHDOG_PID) !== pid)
 		return undefined;
 	return timeout / MICROSECONDS_PER_MS / PINGS_PER_TIMEOUT;
+}
+
+/**
+ * How long, in ms, a stop may park before the host ends: three quarters of
+ * the stop limit its unit names in PI_HOST_STOP_USEC, so the host ends and
+ * says what it left before systemd kills it, else STOP_WITHIN_MS.
+ */
+export function stopWithin(env: NodeJS.ProcessEnv): number {
+	const limit = Number(env.PI_HOST_STOP_USEC);
+	if (!env.PI_HOST_STOP_USEC || !Number.isFinite(limit) || limit <= 0)
+		return STOP_WITHIN_MS;
+	return (limit / MICROSECONDS_PER_MS) * STOP_SHARE;
 }
 
 /**
