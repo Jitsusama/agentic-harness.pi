@@ -264,8 +264,13 @@ const swapMb = () => {
 };
 // A path read from the process's memory may hold anything a file's name
 // can, so a control character is written as its code: a name with a
-// newline must not start a journal line of its own.
-const plain = (text) => text.replace(/[\\x00-\\x1f\\x7f]/g, (one) => "\\\\x" + one.charCodeAt(0).toString(16).padStart(2, "0"));
+// newline must not start a journal line of its own, nor a direction
+// mark turn what follows it around.
+const plain = (text) =>
+	text.replace(/[\\x00-\\x1f\\x7f-\\x9f\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]/g, (one) => {
+		const code = one.charCodeAt(0);
+		return code < 0x100 ? "\\\\x" + code.toString(16).padStart(2, "0") : "\\\\u" + code.toString(16).padStart(4, "0");
+	});
 const shortened = (raw) => {
 	const path = plain(raw);
 	const shown = home && path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;
@@ -366,52 +371,84 @@ const described = (hold, held, over) => {
 	const head = over ? "the loop held " + seconds(held) + " s" : "the loop has held " + seconds(held) + " s so far";
 	return parts.length > 0 ? head + ": " + parts.join("; ") : head;
 };
+// The beats go through one shell, started with the watch while the disk
+// is well, which runs the beat's command for each line it reads and
+// answers with its exit. A spawn waits until its child has exec'd, and
+// exec reads the disk, so a beat spawned during the stall could hold
+// this thread in it. The shell is a child of this thread, so it and its
+// beats stay in the host's own cgroup, as systemd needs to credit them:
+// the placement that moves children into jobs patches only the main
+// thread's spawn. It ends when this thread does, as its input closes.
+let helper;
+let asked;
+let lastBeat = -Infinity;
+const ended = (why) => {
+	if (helper === undefined) return;
+	helper = undefined;
+	if (asked) say("couldn't beat " + asked.what + ": " + why);
+	else say("can't beat the watchdog for the loop any more: " + why);
+	asked = undefined;
+};
+const answered = (code) => {
+	if (asked === undefined) return;
+	const what = asked.what;
+	asked = undefined;
+	say(code === "0" ? "beat " + what : "couldn't beat " + what + ": it ended with " + code);
+};
+if (beat) {
+	try {
+		helper = spawn("/bin/sh", ["-c", 'while read -r _; do "$@" >/dev/null 2>&1; echo "$?"; done', "sh", ...beat.command], { env: beat.env, stdio: ["pipe", "pipe", "ignore"] });
+		let out = "";
+		helper.stdout.setEncoding("utf8");
+		helper.stdout.on("data", (chunk) => {
+			out += chunk;
+			for (let end = out.indexOf("\\n"); end >= 0; end = out.indexOf("\\n")) {
+				answered(out.slice(0, end));
+				out = out.slice(end + 1);
+			}
+		});
+		// A shell gone says so as it exits; its input's error adds nothing.
+		helper.stdin.on("error", () => {});
+		helper.once("error", (error) => ended("its shell failed: " + error.message));
+		helper.once("exit", (code, signal) => ended(signal ? "its shell ended on " + signal : "its shell ended with " + code));
+	} catch (error) {
+		ended("its shell couldn't start: " + (error instanceof Error ? error.message : String(error)));
+	}
+}
 // Beat systemd's watchdog for a loop asleep in the disk, as the header
-// of hold-watch.ts says: at most once a beat, journalled, until the cap.
-// Its CPU is counted from the last look that saw the loop move, so a
-// hold's first look already knows how much of it ran; with no reading
-// to count from, it can't be judged, and isn't beaten.
+// of hold-watch.ts says: at most once a beat, one out at a time,
+// journalled, until the cap. Its CPU is counted from the last look that
+// saw the loop move, or this thread's start, so a hold's first look
+// already knows how much of it ran.
 const QUARTER = 4;
 const beatFor = (hold, now, held) => {
-	if (!beat || hold.last === undefined || hold.capped || hold.beating) return;
-	const base = hold.moving ?? hold.from;
-	if (base === undefined) return;
-	const ran = (hold.last.cpu - base.cpu) * 1000;
+	if (helper === undefined || hold.last === undefined || hold.capped) return;
+	if (hold.moving === undefined) return;
+	const ran = (hold.last.cpu - hold.moving.cpu) * 1000;
 	if (ran * QUARTER > held) return;
 	if (held > beat.cap) {
 		hold.capped = true;
 		say("stopped beating the watchdog for the loop at its cap of " + seconds(beat.cap) + " s, held " + seconds(held) + " s in " + hold.last.said);
 		return;
 	}
-	if (now - hold.beat < beat.every) return;
-	hold.beat = now;
-	hold.beating = true;
-	const what = "the watchdog for the loop, held " + seconds(held) + " s in " + hold.last.said;
-	let settled = false;
-	// Said once the beat is known sent or not; one that fails leaves the
-	// watchdog to judge, as before.
-	const done = (failed) => {
-		if (settled) return;
-		settled = true;
-		hold.beating = false;
-		say(failed === undefined ? "beat " + what : "couldn't beat " + what + ": " + failed);
-	};
-	try {
-		// Spawned, never waited on, so a child stuck on the same disk can't
-		// silence this thread's lines, and none is sent while one is out. A
-		// child of this thread stays in the host's own cgroup, as systemd
-		// needs to credit the beat: the placement that moves children into
-		// jobs patches only the main thread's spawn.
-		const child = spawn(beat.command[0], beat.command.slice(1), { env: beat.env, stdio: "ignore", timeout: beat.every });
-		child.once("error", (error) => done(error.message));
-		child.once("exit", (code, signal) => done(code === 0 ? undefined : signal ? "it ended on " + signal : "it ended with " + code));
-	} catch (error) {
-		done(error instanceof Error ? error.message : String(error));
+	if (asked) {
+		// One out that a beat's time hasn't answered is stuck itself, said
+		// once; none goes beside it, so the watchdog judges as before.
+		if (!asked.late && now - asked.at >= beat.every) {
+			asked.late = true;
+			say("the beat of " + asked.what + " hasn't answered in " + seconds(now - asked.at) + " s, so no other is sent until it does");
+		}
+		return;
 	}
+	if (now - lastBeat < beat.every) return;
+	lastBeat = now;
+	asked = { what: "the watchdog for the loop, held " + seconds(held) + " s in " + hold.last.said, at: now, late: false };
+	helper.stdin.write("\\n");
 };
 let last = Atomics.load(count, 0);
 let moved = performance.now();
-let moving;
+// The thread's CPU as the loop last moved, read only for a beat.
+let moving = beat ? thread() : undefined;
 let hold;
 setInterval(() => {
 	const now = performance.now();
@@ -421,13 +458,12 @@ setInterval(() => {
 		last = tick;
 		moved = now;
 		hold = undefined;
-		// The thread's CPU as the loop last moved, read only for a beat.
 		if (beat) moving = thread();
 		return;
 	}
 	if (now - moved < after) return;
 	if (!hold) {
-		hold = { from: thread(), moving, swap: swapMb(), seen: new Map(), calls: new Map(), told: now, beat: -Infinity, beating: false, capped: false, last: undefined };
+		hold = { from: thread(), moving, swap: swapMb(), seen: new Map(), calls: new Map(), told: now, capped: false, last: undefined };
 		seen(hold);
 		say(described(hold, now - moved, false));
 		beatFor(hold, now, now - moved);

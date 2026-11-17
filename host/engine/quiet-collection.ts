@@ -215,6 +215,15 @@ export function quietCollection(options: {
 			);
 			return;
 		}
+		// The code is counted by a walk of the heap, so it is read inside the
+		// pause's time, where the pace that spares a large heap counts it,
+		// and its own part is timed too.
+		const codeFrom = performance.now();
+		const heldCode = code();
+		const codeRead = heldCode && {
+			...heldCode,
+			took: Math.round(performance.now() - codeFrom),
+		};
 		const took = Math.round(clock() - started);
 		if (heapBefore !== undefined && heapBefore.used > 0) {
 			paces.push(took / heapBefore.used);
@@ -222,14 +231,6 @@ export function quietCollection(options: {
 		}
 		const after = weigh();
 		const heaps = { before: heapBefore, after: heap() };
-		// Timed apart from the pause it follows, on its own clock, since it
-		// walks the heap's code as the pause doesn't.
-		const codeFrom = performance.now();
-		const heldCode = code();
-		const codeRead = heldCode && {
-			...heldCode,
-			took: Math.round(performance.now() - codeFrom),
-		};
 		options.report?.(
 			collectedLine(took, { before, after }, heaps, codeRead, reading, working),
 		);
