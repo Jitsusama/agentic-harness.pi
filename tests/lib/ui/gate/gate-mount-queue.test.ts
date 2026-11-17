@@ -16,20 +16,20 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { runGate } from "../../../lib/ui/gate-queue.ts";
+import { runGate } from "../../../../lib/ui/gate/gate-queue.ts";
 import {
 	promptSingle,
 	promptTabbed,
 	view,
 	workspace,
-} from "../../../lib/ui/panel.ts";
-import { promptToggleList } from "../../../lib/ui/prompt-toggle-list.ts";
+} from "../../../../lib/ui/panel.ts";
+import { promptToggleList } from "../../../../lib/ui/prompt/prompt-toggle-list.ts";
 import type {
 	SinglePromptConfig,
 	TabbedPromptConfig,
 	ViewConfig,
 	WorkspacePromptConfig,
-} from "../../../lib/ui/types.ts";
+} from "../../../../lib/ui/types.ts";
 
 interface Screen {
 	mounts: string[];

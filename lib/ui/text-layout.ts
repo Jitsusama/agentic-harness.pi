@@ -4,7 +4,7 @@
  */
 
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { screenColumns } from "./panel-screen.ts";
+import { screenColumns } from "./panel/panel-screen.ts";
 import { CONTENT_INDENT } from "./types.ts";
 
 export { CONTENT_INDENT };

@@ -4,6 +4,11 @@ TUI component library for Pi extensions. Provides interactive
 panels, content rendering and text layout utilities built on
 top of Pi's TUI primitives.
 
+Three families have folders of their own: `prompt/` for the
+prompts, `panel/` for what every panel shares, and `gate/` for
+the queue and dock that put one gate on a screen at a time. The
+rest sit here, and `index.ts` is the library's one public door.
+
 ## Key Entry Points
 
 ### Interactive prompts and views
@@ -44,7 +49,7 @@ top of Pi's TUI primitives.
   wizard. Nothing else mounts between its steps, and stopped
   while still waiting it answers the value you give it rather
   than throwing.
-- **`gatesDocked`** and **`gatesWaiting`** (`screen-gates.ts`):
+- **`gatesDocked`** and **`gatesWaiting`** (`gate/screen-gates.ts`):
   how many gates a screen has docked, and how many hold it or
   wait in line for it, read from the dock's and the queue's
   shared state by name without loading pi or installing either.

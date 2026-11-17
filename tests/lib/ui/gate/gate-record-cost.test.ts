@@ -11,7 +11,7 @@
 
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { settleRecord } from "../../../lib/ui/gate-record.ts";
+import { settleRecord } from "../../../../lib/ui/gate/gate-record.ts";
 
 interface Screen {
 	tui: TUI;

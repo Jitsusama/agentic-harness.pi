@@ -18,13 +18,13 @@
  */
 
 import type { Component, TUI } from "@earendil-works/pi-tui";
-import { clean } from "./dock.ts";
+import { clean } from "../dock.ts";
 import {
 	dockRows,
 	markSettling,
 	rowsAfter,
 	settleIntoChat,
-} from "./pi-layout.ts";
+} from "../pi-layout.ts";
 
 /**
  * Puts `lines`, the gate as it stood with its verdict in place, into the

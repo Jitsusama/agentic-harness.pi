@@ -17,7 +17,7 @@ import {
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Markdown, truncateToWidth } from "@earendil-works/pi-tui";
-import { screenColumns } from "./panel-screen.ts";
+import { screenColumns } from "./panel/panel-screen.ts";
 import { SCROLLBAR_GUTTER } from "./scroll-region.ts";
 
 /**

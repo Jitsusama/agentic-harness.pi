@@ -14,7 +14,7 @@ import {
 	withSession,
 } from "../../../lib/core/session/index.ts";
 import { ViewerTerminal } from "../../../lib/core/viewer/terminal.ts";
-import { DOCK_NAME } from "../../../lib/ui/screen-gates.ts";
+import { DOCK_NAME } from "../../../lib/ui/gate/screen-gates.ts";
 import { keepOnScreen } from "../../../lib/ui/screen-slot.ts";
 
 /** A stand-in for pi's hosted InteractiveMode: it starts, then runs until it quits. */

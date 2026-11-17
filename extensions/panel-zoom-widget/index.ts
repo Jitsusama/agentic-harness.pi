@@ -18,7 +18,7 @@ import { isKeyRelease, Key, matchesKey } from "@earendil-works/pi-tui";
 import {
 	getPanelHeightMode,
 	setPanelHeightMode,
-} from "../../lib/ui/panel-height.ts";
+} from "../../lib/ui/panel/panel-height.ts";
 import type { PanelHeightMode } from "../../lib/ui/types.ts";
 
 /** Toggle to a mode, returning to normal if already active. */

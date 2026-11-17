@@ -17,7 +17,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runGate } from "../../../lib/ui/gate-queue.ts";
+import { runGate } from "../../../../lib/ui/gate/gate-queue.ts";
 
 /**
  * Where every copy of `lib/ui` looks for the queue. Spelled out rather
@@ -307,9 +307,9 @@ describe("one queue for every copy of the library", () => {
 		// Two packages each bundle their own `lib/ui`, and the screen is
 		// still one screen.
 		vi.resetModules();
-		const a = await import("../../../lib/ui/gate-queue.ts");
+		const a = await import("../../../../lib/ui/gate/gate-queue.ts");
 		vi.resetModules();
-		const b = await import("../../../lib/ui/gate-queue.ts");
+		const b = await import("../../../../lib/ui/gate/gate-queue.ts");
 		expect(a.runGate).not.toBe(b.runGate);
 
 		const order: string[] = [];
@@ -343,7 +343,7 @@ describe("one queue for every copy of the library", () => {
 		};
 		try {
 			vi.resetModules();
-			const copy = await import("../../../lib/ui/gate-queue.ts");
+			const copy = await import("../../../../lib/ui/gate/gate-queue.ts");
 			expect(await copy.runGate(async () => "ran")).toBe("ran");
 			expect(calls).toEqual(["newer"]);
 			expect((g[QUEUE_KEY] as { version: number }).version).toBe(99);

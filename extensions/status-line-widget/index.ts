@@ -34,7 +34,7 @@ import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import {
 	getPanelHeightGlyph,
 	getPanelHeightMode,
-} from "../../lib/ui/panel-height.ts";
+} from "../../lib/ui/panel/panel-height.ts";
 import { Engine, type GitState } from "./git.ts";
 import { type Facts, layout, type Piece, type Role, width } from "./layout.ts";
 import { told } from "./place.ts";

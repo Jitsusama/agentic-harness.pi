@@ -7,7 +7,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { OAuth2Client } from "google-auth-library";
 import { frameTitle } from "../../ui/frame.ts";
-import { holdScreen } from "../../ui/gate-queue.ts";
+import { holdScreen } from "../../ui/gate/gate-queue.ts";
 import { promptSingle } from "../../ui/panel.ts";
 import {
 	getCredentials,

@@ -14,8 +14,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { renderFooter } from "../../../lib/ui/panel-layout.ts";
-import { withPanelRoom } from "../../../lib/ui/panel-room.ts";
+import { renderFooter } from "../../../lib/ui/panel/panel-layout.ts";
+import { withPanelRoom } from "../../../lib/ui/panel/panel-room.ts";
 import { fakeTheme } from "./fake-theme.ts";
 
 /**

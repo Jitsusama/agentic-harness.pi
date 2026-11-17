@@ -48,12 +48,12 @@ import {
 	hopLabel,
 	lastKeyAt,
 	replacing,
-} from "./dock.ts";
-import { frameRule, chord as keyed } from "./frame.ts";
+} from "../dock.ts";
+import { frameRule, chord as keyed } from "../frame.ts";
 import { settleRecord } from "./gate-record.ts";
-import { type PanelRoom, withPanelRoom } from "./panel-room.ts";
-import { onPanelScreen } from "./panel-screen.ts";
-import { focusedIn, isEditor, rowsUnderGate } from "./pi-layout.ts";
+import { type PanelRoom, withPanelRoom } from "../panel/panel-room.ts";
+import { onPanelScreen } from "../panel/panel-screen.ts";
+import { focusedIn, isEditor, rowsUnderGate } from "../pi-layout.ts";
 
 /** How long the editor must go untouched before a gate takes the keyboard. */
 export const GATE_TYPING_IDLE_MS = 500;

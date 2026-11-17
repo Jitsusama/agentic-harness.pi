@@ -41,9 +41,9 @@ function shipped(): string[] {
 
 /** The gates whose record says how they were answered. */
 const RECORDS = [
-	"lib/ui/prompt-single.ts",
-	"lib/ui/prompt-tabbed.ts",
-	"lib/ui/prompt-toggle-list.ts",
+	"lib/ui/prompt/prompt-single.ts",
+	"lib/ui/prompt/prompt-tabbed.ts",
+	"lib/ui/prompt/prompt-toggle-list.ts",
 ];
 
 describe("one mark for each ending", () => {

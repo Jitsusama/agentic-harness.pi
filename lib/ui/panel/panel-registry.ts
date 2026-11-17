@@ -24,7 +24,7 @@
  * own panels and leaves another's waiting approval up.
  */
 
-import { screenShared } from "./screen-slot.ts";
+import { screenShared } from "../screen-slot.ts";
 
 /** The name every copy looks for. The string is the contract; keep it. */
 const REGISTRY_NAME = "agentic-harness.open-panels";

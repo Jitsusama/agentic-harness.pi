@@ -27,7 +27,7 @@ import {
 	noteReplacing,
 	watchKeys,
 } from "../../lib/ui/dock.ts";
-import { closeEveryPanel } from "../../lib/ui/panel-registry.ts";
+import { closeEveryPanel } from "../../lib/ui/panel/panel-registry.ts";
 
 export default function panelLifecycle(pi: ExtensionAPI): void {
 	let unwatch: (() => void) | undefined;

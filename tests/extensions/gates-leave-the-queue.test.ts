@@ -12,7 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { confirmWrite } from "../../extensions/review-integration/gate.ts";
 import { confirmSendMessage } from "../../extensions/slack-integration/confirmation.ts";
-import { closeEveryPanel } from "../../lib/ui/panel-registry.ts";
+import { closeEveryPanel } from "../../lib/ui/panel/panel-registry.ts";
 import { type PiScreen, pinStdout, piScreen } from "../lib/ui/pi-screen.ts";
 
 const COLUMNS = 120;

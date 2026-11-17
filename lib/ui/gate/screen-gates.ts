@@ -11,8 +11,8 @@
  * from here, and installs nothing.
  */
 
-import { isRecord } from "../internal/record.ts";
-import { screenValue } from "./screen-slot.ts";
+import { isRecord } from "../../internal/record.ts";
+import { screenValue } from "../screen-slot.ts";
 
 /** The name every copy of the dock looks for. The string is the contract; keep it. */
 export const DOCK_NAME = "agentic-harness.dock";

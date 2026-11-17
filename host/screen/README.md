@@ -29,7 +29,7 @@ the new id, and refuses a different runtime.
 `resting` says whether a host may restart without anyone losing a
 thing: every screen started, pi's editor focused and empty with no
 overlay, no gate docked or waiting for the screen (read in the
-conversation's session, lib/ui/screen-gates.ts), no answer,
+conversation's session, lib/ui/gate/screen-gates.ts), no answer,
 compaction, command or queued message under way, and no viewer
 editing a draft in its own editor. It reads pi's private
 parts without trusting their type, and counts a screen it can't read

@@ -7,10 +7,10 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { chord } from "./frame.ts";
+import { chord } from "../frame.ts";
 import { panelRoom } from "./panel-room.ts";
-import { submitKeyLabel } from "./submit-key.ts";
-import type { KeyAction, ListChoice, PromptView } from "./types.ts";
+import { submitKeyLabel } from "../submit-key.ts";
+import type { KeyAction, ListChoice, PromptView } from "../types.ts";
 
 /**
  * Compute total chrome lines for the panel (borders, tabs,

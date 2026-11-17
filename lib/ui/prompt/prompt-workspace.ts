@@ -24,12 +24,12 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { handleActionInput, isShiftEscape } from "./action-bar.ts";
-import { frameRule } from "./frame.ts";
-import { mountPanel } from "./mount.ts";
-import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
-import { computeChromeLines, renderFooter } from "./panel-layout.ts";
-import { screenColumns } from "./panel-screen.ts";
+import { handleActionInput, isShiftEscape } from "../action-bar.ts";
+import { frameRule } from "../frame.ts";
+import { mountPanel } from "../mount.ts";
+import { buildNoteEditorTheme, renderNoteEditor } from "../note-editor.ts";
+import { computeChromeLines, renderFooter } from "../panel/panel-layout.ts";
+import { screenColumns } from "../panel/panel-screen.ts";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -38,9 +38,9 @@ import {
 	renderScrollRegion,
 	SCROLLBAR_GUTTER,
 	type ScrollState,
-} from "./scroll-region.ts";
-import { isSubmitKey } from "./submit-key.ts";
-import { handleTabInput, renderTabStrip } from "./tab-strip.ts";
+} from "../scroll-region.ts";
+import { isSubmitKey } from "../submit-key.ts";
+import { handleTabInput, renderTabStrip } from "../tab-strip.ts";
 import {
 	GLYPH,
 	type KeyAction,
@@ -50,7 +50,7 @@ import {
 	type WorkspacePromptConfig,
 	type WorkspaceResult,
 	type WorkspaceView,
-} from "./types.ts";
+} from "../types.ts";
 
 /** Cache key for content: "tabIndex-viewIndex". */
 function cacheKey(tab: number, view: number): string {

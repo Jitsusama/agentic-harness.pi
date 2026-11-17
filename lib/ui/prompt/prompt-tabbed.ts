@@ -18,18 +18,18 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { type ActionBarResult, handleActionInput } from "./action-bar.ts";
-import { frameRule, frameTitle } from "./frame.ts";
-import { mountGate } from "./mount.ts";
-import { buildNoteEditorTheme, renderNoteEditor } from "./note-editor.ts";
+import { type ActionBarResult, handleActionInput } from "../action-bar.ts";
+import { frameRule, frameTitle } from "../frame.ts";
+import { mountGate } from "../mount.ts";
+import { buildNoteEditorTheme, renderNoteEditor } from "../note-editor.ts";
 import {
 	handleOptionInput,
 	optionValue,
 	renderOptionList,
-} from "./option-list.ts";
-import { OUTCOME_GLYPH } from "./outcome-glyphs.ts";
-import { computeChromeLines, renderFooter } from "./panel-layout.ts";
-import { screenColumns } from "./panel-screen.ts";
+} from "../option-list.ts";
+import { OUTCOME_GLYPH } from "../outcome-glyphs.ts";
+import { computeChromeLines, renderFooter } from "../panel/panel-layout.ts";
+import { screenColumns } from "../panel/panel-screen.ts";
 import {
 	contentBudget,
 	HSCROLL_CONTENT_WIDTH,
@@ -38,9 +38,9 @@ import {
 	renderScrollRegion,
 	SCROLLBAR_GUTTER,
 	type ScrollState,
-} from "./scroll-region.ts";
-import { isSubmitKey } from "./submit-key.ts";
-import { handleTabInput, renderTabStrip } from "./tab-strip.ts";
+} from "../scroll-region.ts";
+import { isSubmitKey } from "../submit-key.ts";
+import { handleTabInput, renderTabStrip } from "../tab-strip.ts";
 import {
 	type ContentRenderer,
 	GLYPH,
@@ -51,7 +51,7 @@ import {
 	type TabbedPromptConfig,
 	type TabbedResult,
 	type TabStatus,
-} from "./types.ts";
+} from "../types.ts";
 
 /** Cache key for content: "tabIndex-viewIndex". */
 function cacheKey(tab: number, view: number): string {

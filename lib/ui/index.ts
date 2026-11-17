@@ -61,7 +61,7 @@ export {
 	type GateOptions,
 	holdScreen,
 	runGate,
-} from "./gate-queue.ts";
+} from "./gate/gate-queue.ts";
 // ── Narration ───────────────────────────────────────────────
 export {
 	NARRATION_GLYPH,
@@ -111,7 +111,7 @@ export {
 	type ToggleListModel,
 	type ToggleRow,
 	type ToggleSection,
-} from "./prompt-toggle-list.ts";
+} from "./prompt/prompt-toggle-list.ts";
 // ── Submit chord ────────────────────────────────────────────
 export { isSubmitKey, submitKeyLabel } from "./submit-key.ts";
 // ── Text layout ─────────────────────────────────────────────
