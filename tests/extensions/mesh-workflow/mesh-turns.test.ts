@@ -288,6 +288,7 @@ describe("an act", () => {
 		});
 
 		fromElsewhere({ intent: "question", text: "7M6JKG: your bug?" });
+		// Long enough for the question to be waiting, well short of its 400 ms settle.
 		await new Promise((resolve) => setTimeout(resolve, 150));
 		const carried = await fire("before_agent_start", {
 			messageType: "continue",

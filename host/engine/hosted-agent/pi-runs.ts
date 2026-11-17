@@ -47,6 +47,13 @@ export interface HostRunningSession {
 	};
 }
 
+/**
+ * How long a run waits for pi to prepare it before going on with nothing
+ * handed over: pi's before_agent_start handlers answer in milliseconds, and
+ * one that never does would hold one of the host's resume slots for good.
+ */
+export const PREPARING_MS = 30_000;
+
 /** Runs `say` as the conversation's own, whoever scheduled it. */
 export type Within = (say: () => Promise<unknown>) => Promise<unknown>;
 

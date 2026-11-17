@@ -119,12 +119,22 @@ describe("the done chime", () => {
 		expect(rung).toEqual([]);
 	});
 
-	it("stays quiet for a run a host carried on after a restart, which nobody typed", async () => {
+	it("rings for a run a host carried on only once the person typed into it", async () => {
+		// The host's carried run starts with nobody's words; words typed while it runs join it.
 		const session = loaded();
 		await session.carried();
 		passes(LOOKED_AWAY_MS);
 		await session.settled();
-		expect(rung).toEqual([]);
+		expect(rung, "nobody typed into the carried run").toEqual([]);
+
+		await session.carried();
+		await session.typed();
+		passes(LOOKED_AWAY_MS);
+		await session.settled();
+
+		expect(rung, "the person typed into it, then looked away").toEqual([
+			"Done chime is ready.",
+		]);
 	});
 
 	it("stays quiet where nobody can be at the session", async () => {

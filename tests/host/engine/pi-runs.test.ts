@@ -1,8 +1,9 @@
 /** The agent's own runs opened and settled as runs of pi's, through a session standing in for pi's runForHost. */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	type HostRunningSession,
 	PiRuns,
+	PREPARING_MS,
 } from "../../../host/engine/hosted-agent/pi-runs.ts";
 import type { AgentMessage } from "../../../host/engine/pi-types.ts";
 
@@ -70,11 +71,44 @@ describe("the agent's own runs in pi", () => {
 			runForHost: () => Promise.reject(new Error("a handler threw")),
 		});
 
+		const failingLater = new PiRuns(() => false);
+		failingLater.tell({
+			async runForHost() {
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				throw new Error("a handler threw after a while");
+			},
+		});
+
 		const fromOlder = await older.holding(() => older.opening());
 		const fromFailed = await failing.holding(() => failing.opening());
+		const fromLater = await failingLater.holding(() => failingLater.opening());
 
 		expect(fromOlder, "an older seam").toEqual([]);
 		expect(fromFailed, "a failed start").toEqual([]);
+		expect(fromLater, "a start that failed later").toEqual([]);
+	});
+
+	it("goes on without pi's preparation once it is overdue", async () => {
+		// A handler that never answers would hold one of the host's resume slots for good.
+		vi.useFakeTimers();
+		try {
+			const runs = new PiRuns(() => false);
+			runs.tell({ runForHost: () => new Promise(() => {}) });
+			const release = runs.hold();
+			let handed: readonly AgentMessage[] | undefined;
+			void runs.opening().then((messages) => {
+				handed = messages;
+			});
+
+			await vi.advanceTimersByTimeAsync(PREPARING_MS - 1);
+			expect(handed, "still preparing").toBeUndefined();
+			await vi.advanceTimersByTimeAsync(1);
+
+			expect(handed, "the run went on with nothing").toEqual([]);
+			void release();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("tells extensions a run settled on a pi with no seam, as before it", async () => {
@@ -120,14 +154,23 @@ describe("the agent's own runs in pi", () => {
 		expect(said).toEqual([]);
 	});
 
-	it("leaves a run pi began to pi", async () => {
-		const { session, said } = piSession(true);
+	it("leaves a run pi began to pi, and opens the next once pi's has ended", async () => {
+		const { session: seam, said } = piSession();
+		let streaming = true;
 		const runs = new PiRuns(() => false);
-		runs.tell(session);
+		runs.tell({
+			get isStreaming() {
+				return streaming;
+			},
+			runForHost: seam.runForHost,
+		});
 
 		await runs.holding(() => runs.opening());
+		expect(said, "inside pi's own run").toEqual([]);
+		streaming = false;
+		await runs.holding(() => runs.opening());
 
-		expect(said).toEqual([]);
+		expect(said, "once pi's run ended").toEqual(["prepared", "settled"]);
 	});
 
 	it("settles nothing once the host parks, as it shows pi nothing more", async () => {
