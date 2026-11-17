@@ -16,7 +16,6 @@
 import { execFile, spawnSync } from "node:child_process";
 import {
 	existsSync,
-	lstatSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -26,6 +25,17 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { createServer, type Server } from "node:net";
+
+/** Whether the temporary folder's volume takes a name in other case as the same. */
+function foldsCase(): boolean {
+	const probe = mkdtempSync(join(tmpdir(), "fence-case-"));
+	try {
+		return existsSync(probe.toUpperCase());
+	} finally {
+		rmSync(probe, { recursive: true, force: true });
+	}
+}
+
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -44,6 +54,21 @@ describe("reading how pi-fence was asked", () => {
 			folder: "/w",
 			words: ["true"],
 		});
+	});
+
+	it("takes --shared-tree as a flag alone, wherever it stands", () => {
+		for (const options of [
+			["--shared-tree", "--kind", "fence", "--folder", "/f"],
+			["--kind", "fence", "--shared-tree", "--folder", "/f"],
+			["--kind", "fence", "--folder", "/f", "--shared-tree"],
+		]) {
+			expect(fenceRunAsked([...options, "--", "true"], "/w")).toEqual({
+				kind: "fence",
+				folder: "/f",
+				words: ["true"],
+				shared: true,
+			});
+		}
 	});
 
 	it("keeps every word after -- as the command's, flags included", () => {
@@ -179,6 +204,250 @@ describe("refusing to run where the fence can't hold", () => {
 		expect(bare).toHaveProperty("refused");
 		expect(homed).toHaveProperty("refused");
 	});
+
+	const onEither = (folder: string, platform: "linux" | "darwin") =>
+		fenceRunText(
+			{ kind: "fence", folder, words: ["true"] },
+			{
+				env: {},
+				home,
+				sandbox: LAID,
+				platform,
+				sandboxExec: "/usr/bin/sandbox-exec",
+				treesRoot: join(base, "trees"),
+			},
+		);
+
+	for (const [what, inside, platforms] of [
+		["ssh's folder, so no key is read", ".ssh", ["linux", "darwin"]],
+		["gpg's keys", ".gnupg/private-keys-v1.d", ["linux", "darwin"]],
+		[
+			"a folder in ~/.config, so git's settings and hooks stay",
+			".config/git",
+			["linux", "darwin"],
+		],
+		[
+			"pi's own state",
+			".local/state/pi/agentic-harness.pi",
+			["linux", "darwin"],
+		],
+		["a keyring the fence hides", ".local/share/keyrings", ["linux", "darwin"]],
+		["ssh's folder spelled in other case", ".SSH", ["darwin"]],
+		["the Mac's mail", "Library/Mail", ["darwin"]],
+		["mycelium's state", ".local/state/mycelium/work", ["darwin"]],
+	] as const) {
+		for (const platform of platforms) {
+			it(`refuses a folder inside ${what}, on ${platform}`, () => {
+				const made = fenceRunText(
+					{ kind: "fence", folder: join(home, inside), words: ["true"] },
+					{
+						env: {},
+						home,
+						sandbox: LAID,
+						platform,
+						sandboxExec: "/usr/bin/sandbox-exec",
+						treesRoot: join(base, "trees"),
+					},
+				);
+				expect(JSON.stringify(made), "names the path").toContain(
+					"hides or keeps read-only",
+				);
+			});
+		}
+	}
+
+	it("refuses a folder that holds a path the fence keeps read-only", () => {
+		const made = onEither(join(home, ".local"), "linux");
+		expect(JSON.stringify(made), "names what it holds").toContain(
+			`holds ${join(home, ".local")}`,
+		);
+	});
+
+	it("refuses a folder inside a closed path reached through a link", () => {
+		mkdirSync(join(base, "dotfiles", "config", "git"), { recursive: true });
+		symlinkSync(join(base, "dotfiles", "config"), join(home, ".config"));
+		try {
+			const made = onEither(join(base, "dotfiles", "config", "git"), "linux");
+			expect(JSON.stringify(made), "names where the link leads").toContain(
+				`lies in ${join(base, "dotfiles", "config")}`,
+			);
+		} finally {
+			rmSync(join(home, ".config"));
+		}
+	});
+
+	it("runs beside a closed path that only shares its name's start", () => {
+		for (const neighbour of [".ssh-old", ".local/state/pipx"]) {
+			mkdirSync(join(home, neighbour), { recursive: true });
+			const made = onEither(join(home, neighbour), "linux");
+			expect(made, `${neighbour}: ${JSON.stringify(made)}`).toHaveProperty(
+				"text",
+			);
+		}
+	});
+
+	it("refuses a folder that climbs out of the trees by name", () => {
+		const trees = join(home, ".local/state/pi/agentic-harness.pi/work/trees");
+		const made = fenceRunText(
+			{ kind: "fence", folder: `${trees}/../../../b`, words: ["true"] },
+			{ env: {}, home, sandbox: LAID, platform: "linux", treesRoot: trees },
+		);
+		expect(JSON.stringify(made), "isn't spared as a tree").toContain(
+			"hides or keeps read-only",
+		);
+	});
+
+	describe("a tree the work broker cut, in pi's state", () => {
+		const within = (tree: string) =>
+			join(home, ".local/state/pi/agentic-harness.pi/work/trees", tree);
+		const inTree = (
+			tree: string,
+			held: readonly string[],
+			shared?: boolean,
+			platform: NodeJS.Platform = "darwin",
+		) => {
+			mkdirSync(tree, { recursive: true });
+			return fenceRunText(
+				{
+					kind: "fence",
+					folder: tree,
+					words: ["true"],
+					...(shared ? { shared } : {}),
+				},
+				{
+					env: { PATH: "/usr/bin" },
+					home,
+					platform,
+					...(platform === "darwin"
+						? { sandboxExec: "/usr/bin/sandbox-exec" }
+						: { sandbox: LAID }),
+					treesRoot: within(""),
+					heldTrees: held,
+				},
+			);
+		};
+
+		it("runs for the session holding it", () => {
+			const tree = within("worktree-one");
+			const made = inTree(join(tree, "src"), [tree]);
+			expect(made, JSON.stringify(made)).toHaveProperty("text");
+		});
+
+		it("spares the same on Linux: the holder's and a shared one, no other", () => {
+			const one = within("worktree-one");
+			const held = inTree(one, [one], false, "linux");
+			const other = inTree(within("worktree-two"), [one], false, "linux");
+			const shared = inTree(within("worktree-three"), [], true, "linux");
+
+			expect(held, JSON.stringify(held)).toHaveProperty("text");
+			expect(JSON.stringify(other), "another's").toContain(
+				"a work tree its asker doesn't hold",
+			);
+			expect(shared, JSON.stringify(shared)).toHaveProperty("text");
+		});
+
+		it("refuses another session's or quest's tree", () => {
+			const made = inTree(within("worktree-two"), [within("worktree-one")]);
+			expect(JSON.stringify(made), "says whose it is").toContain(
+				"a work tree its asker doesn't hold",
+			);
+		});
+
+		// On a volume that folds case the two names are one folder, so
+		// only a case-sensitive one can hold the neighbour.
+		it.skipIf(foldsCase())("spares no neighbour named in other case", () => {
+			const made = inTree(within("worktree-r-Feature"), [
+				within("worktree-r-feature"),
+			]);
+			expect(JSON.stringify(made), "another branch's tree").toContain(
+				"a work tree its asker doesn't hold",
+			);
+		});
+
+		describe("by the broker's records", () => {
+			const inRecorded = (session: string, records: string) => {
+				const tree = within("worktree-one");
+				mkdirSync(tree, { recursive: true });
+				return fenceRunText(
+					{ kind: "fence", folder: tree, words: ["true"] },
+					{
+						env: { PATH: "/usr/bin", PI_SESSION_ID: session },
+						home,
+						platform: "darwin",
+						sandboxExec: "/usr/bin/sandbox-exec",
+						treesRoot: within(""),
+						treeRecords: records,
+					},
+				);
+			};
+			const recorded = () => {
+				const records = join(home, "records");
+				mkdirSync(records, { recursive: true });
+				writeFileSync(
+					join(records, "one.json"),
+					JSON.stringify({
+						identity: { key: "one" },
+						path: within("worktree-one"),
+						providerId: "git-worktree",
+						sessions: ["s1"],
+					}),
+				);
+				return records;
+			};
+
+			it("runs for the session they say holds it", () => {
+				const made = inRecorded("s1", recorded());
+				expect(made, JSON.stringify(made)).toHaveProperty("text");
+			});
+
+			it("refuses a session they don't name", () => {
+				const made = inRecorded("s2", recorded());
+				expect(JSON.stringify(made), "another session's").toContain(
+					"a work tree its asker doesn't hold",
+				);
+			});
+
+			it("refuses, never crashes, when they can't be read", () => {
+				const records = join(home, "records-file");
+				writeFileSync(records, "not a folder");
+				const made = inRecorded("s1", records);
+				expect(JSON.stringify(made), "unread records hold nothing").toContain(
+					`a work tree its asker doesn't hold (the work broker's records at ${records} couldn't be read`,
+				);
+			});
+
+			it("says no session was named, when none was", () => {
+				const made = inRecorded("", recorded());
+				expect(JSON.stringify(made), "names the cause").toContain(
+					"(no PI_SESSION_ID names its session)",
+				);
+			});
+		});
+
+		it("spares no tree for a record naming more than one", () => {
+			const made = inTree(within("worktree-two"), [within("")]);
+			expect(JSON.stringify(made), "the trees root isn't a tree").toContain(
+				"a work tree its asker doesn't hold",
+			);
+		});
+
+		it("lets --shared-tree open neither a closed path nor the trees root", () => {
+			for (const folder of [join(home, ".ssh"), within("")]) {
+				const made = fenceRunText(
+					{ kind: "fence", folder, words: ["true"], shared: true },
+					{ env: {}, home, sandbox: LAID, treesRoot: within("") },
+				);
+				expect(JSON.stringify(made), folder).toMatch(
+					/a path the fence hides or keeps read-only/,
+				);
+			}
+		});
+
+		it("runs one the caller says was shared to its asker", () => {
+			const made = inTree(within("worktree-three"), [], true);
+			expect(made, JSON.stringify(made)).toHaveProperty("text");
+		});
+	});
 });
 
 describe("Linux's strict fence, for npm's and Docker's logins", () => {
@@ -229,237 +498,6 @@ describe("Linux's strict fence, for npm's and Docker's logins", () => {
 		} finally {
 			rmSync(own, { recursive: true, force: true });
 		}
-	});
-});
-
-describe("the fence on a Mac", () => {
-	let home: string;
-	let folder: string;
-
-	beforeAll(() => {
-		home = realpathSync(mkdtempSync(join(tmpdir(), "fm-")));
-		folder = join(home, "work");
-		mkdirSync(join(home, ".ssh"), { recursive: true });
-		mkdirSync(join(home, ".cache"), { recursive: true });
-		mkdirSync(folder, { recursive: true });
-	});
-
-	afterAll(() => rmSync(home, { recursive: true, force: true }));
-
-	const onMac = (kind: FenceRunAsk["kind"]) => {
-		const made = fenceRunText(
-			{ kind, folder, words: ["echo", "it's here"] },
-			{
-				env: {},
-				home,
-				platform: "darwin",
-				sandboxExec: "/usr/bin/sandbox-exec",
-			},
-		);
-		if (!("text" in made)) throw new Error(JSON.stringify(made));
-		return made.text;
-	};
-
-	it("tries the profile first and refuses with 126 when it doesn't apply", () => {
-		const text = onMac("fence");
-
-		expect(text).toMatch(
-			/^unset SSH_AUTH_SOCK\n'\/usr\/bin\/sandbox-exec' -p '\(version 1\)[^']*' \/usr\/bin\/true \|\| \{ [^\n]* exit 126; \}\nexec '\/usr\/bin\/sandbox-exec' -p '\(version 1\)[^']*' \/bin\/bash -c /,
-		);
-	});
-
-	it("hides ~/.ssh and keeps home's visible entries read-only but the folder's", () => {
-		const text = onMac("fence");
-
-		expect(text).toContain(
-			`(deny file-read* file-write* (subpath "${join(home, ".ssh")}"))`,
-		);
-		expect(text).toContain(`(deny file-write* (subpath "${home}"))`);
-		expect(text).toContain(
-			`(allow file-read* file-write* (subpath "${folder}"))`,
-		);
-	});
-
-	it("sends no Apple Event, and points caches where the fence lets them write", () => {
-		const text = onMac("fence");
-
-		// The command is quoted again inside bash -c, and its quotes with it.
-		const within = (words: string) => words.replaceAll("'", "'\\''");
-
-		expect(text).toContain("(deny appleevent-send)");
-		expect(text).toContain(
-			within(
-				`[ -n "\${XDG_CACHE_HOME:-}" ] || export XDG_CACHE_HOME='${join(home, ".cache")}'`,
-			),
-		);
-		expect(text).toContain(
-			within(
-				`[ -n "\${GOCACHE:-}" ] || export GOCACHE='${join(home, ".cache", "go-build")}'`,
-			),
-		);
-		expect(text).toContain(
-			`(allow file-read* file-write* (subpath "${join(home, ".cache")}"))`,
-		);
-	});
-
-	it("leaves caches be where strict keeps them read-only, or ~/.cache isn't there, and execs the command", () => {
-		const within = (words: string) => words.replaceAll("'", "'\\''");
-		const bare = realpathSync(mkdtempSync(join(tmpdir(), "fm-bare-")));
-		mkdirSync(join(bare, "work"));
-		try {
-			const made = fenceRunText(
-				{ kind: "fence", folder: join(bare, "work"), words: ["true"] },
-				{
-					env: {},
-					home: bare,
-					platform: "darwin",
-					sandboxExec: "/usr/bin/sandbox-exec",
-				},
-			);
-			expect(JSON.stringify(made)).not.toContain("XDG_CACHE_HOME");
-		} finally {
-			rmSync(bare, { recursive: true, force: true });
-		}
-
-		expect(onMac("strict")).not.toContain("XDG_CACHE_HOME");
-		expect(onMac("fence")).toContain(within("; exec 'echo' "));
-	});
-
-	it("reads npm's settings only as the copy without tokens, and empties Docker's logins", () => {
-		const own = realpathSync(mkdtempSync(join(tmpdir(), "fm-own-")));
-		const work = join(own, "work");
-		mkdirSync(work);
-		mkdirSync(join(own, ".docker"));
-		writeFileSync(
-			join(own, ".npmrc"),
-			"//npm.example/:_authToken=not-a-token\n",
-		);
-		writeFileSync(
-			join(own, ".docker", "config.json"),
-			JSON.stringify({ auths: { "ghcr.io": { auth: "bm90LWEtbG9naW4=" } } }),
-		);
-		const temporary = join(own, "tmp");
-		mkdirSync(temporary);
-		try {
-			const made = fenceRunText(
-				{ kind: "fence", folder: work, words: ["npm", "ping"] },
-				{
-					env: { TMPDIR: temporary },
-					home: own,
-					platform: "darwin",
-					sandboxExec: "/usr/bin/sandbox-exec",
-				},
-			);
-			if (!("text" in made)) throw new Error(JSON.stringify(made));
-			const copy = /export NPM_CONFIG_USERCONFIG='\\''([^']+)'\\''/.exec(
-				made.text,
-			)?.[1];
-			expect(copy, "npm is pointed at a copy").toBeDefined();
-			expect(readFileSync(copy ?? "", "utf8")).not.toContain("not-a-token");
-			expect(made.text).toContain(
-				`(deny file-write* (subpath "${dirname(copy ?? "")}"))`,
-			);
-			for (const hidden of [".npmrc", ".docker/config.json"]) {
-				expect(made.text).toContain(
-					`(deny file-read* file-write* (literal "${join(own, hidden)}"))`,
-				);
-			}
-		} finally {
-			rmSync(own, { recursive: true, force: true });
-		}
-	});
-
-	it("writes npm's copy over a link put in its place, never through it", () => {
-		const own = realpathSync(mkdtempSync(join(tmpdir(), "fm-link-")));
-		const work = join(own, "work");
-		const temporary = join(own, "tmp");
-		const victim = join(own, "victim");
-		mkdirSync(work);
-		mkdirSync(join(temporary, "pi-fence"), { recursive: true });
-		writeFileSync(
-			join(own, ".npmrc"),
-			"//npm.example/:_authToken=not-a-token\n",
-		);
-		writeFileSync(victim, "the person's own\n");
-		symlinkSync(victim, join(temporary, "pi-fence", "npmrc"));
-		try {
-			const made = fenceRunText(
-				{ kind: "fence", folder: work, words: ["true"] },
-				{
-					env: { TMPDIR: temporary },
-					home: own,
-					platform: "darwin",
-					sandboxExec: "/usr/bin/sandbox-exec",
-				},
-			);
-			const replaced = lstatSync(join(temporary, "pi-fence", "npmrc"));
-
-			expect(made).toHaveProperty("text");
-			expect(readFileSync(victim, "utf8")).toBe("the person's own\n");
-			expect(replaced.isSymbolicLink(), "the link is replaced").toBe(false);
-		} finally {
-			rmSync(own, { recursive: true, force: true });
-		}
-	});
-
-	it("hides npm's settings, pointing at nothing, where pi's folder is a link", () => {
-		const own = realpathSync(mkdtempSync(join(tmpdir(), "fm-linked-")));
-		const work = join(own, "work");
-		const temporary = join(own, "tmp");
-		mkdirSync(work);
-		mkdirSync(temporary);
-		mkdirSync(join(own, "elsewhere"));
-		writeFileSync(
-			join(own, ".npmrc"),
-			"//npm.example/:_authToken=not-a-token\n",
-		);
-		symlinkSync(join(own, "elsewhere"), join(temporary, "pi-fence"));
-		try {
-			const made = fenceRunText(
-				{ kind: "fence", folder: work, words: ["true"] },
-				{
-					env: { TMPDIR: temporary },
-					home: own,
-					platform: "darwin",
-					sandboxExec: "/usr/bin/sandbox-exec",
-				},
-			);
-			if (!("text" in made)) throw new Error(JSON.stringify(made));
-
-			expect(made.text).not.toContain("NPM_CONFIG_USERCONFIG");
-			expect(made.text).toContain(
-				`(deny file-read* file-write* (literal "${join(own, ".npmrc")}"))`,
-			);
-			expect(
-				existsSync(join(own, "elsewhere", "npmrc")),
-				"nothing written there",
-			).toBe(false);
-		} finally {
-			rmSync(own, { recursive: true, force: true });
-		}
-	});
-
-	it("writes only the folder when strict, without letting back what is hidden", () => {
-		// The profile the command runs under, after the one tried on true.
-		const lines = (onMac("strict").split("\nexec ")[1] ?? "").split("\n");
-		const hidden = lines.indexOf(
-			`(deny file-read* file-write* (subpath "${join(home, ".ssh")}"))`,
-		);
-		const kept = lines.lastIndexOf(`(deny file-write* (subpath "${home}"))`);
-
-		expect(hidden, "~/.ssh is hidden").toBeGreaterThan(-1);
-		expect(kept, "home is kept from writes after it").toBeGreaterThan(hidden);
-		expect(lines.slice(kept + 1)).toContain(
-			`(allow file-read* file-write* (subpath "${folder}"))`,
-		);
-		expect(
-			lines
-				.slice(hidden + 1)
-				.some((line) =>
-					line.startsWith(`(allow file-read* (subpath "${home}"))`),
-				),
-			"nothing lets home's reads back after the hiding",
-		).toBe(false);
 	});
 });
 

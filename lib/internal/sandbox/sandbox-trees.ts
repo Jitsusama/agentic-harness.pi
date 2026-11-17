@@ -21,8 +21,9 @@ import { namedGitFolder, real, treeGit } from "./tree-git.ts";
 export function sessionWorktrees(
 	cwd: string,
 	session: string | undefined,
+	treesRoot: string = cutTreeDir(),
 ): Worktrees & { readonly trees: BrokerTrees } {
-	const trees = brokerTrees(session);
+	const trees = brokerTrees(session, treesRoot);
 	return {
 		cwd,
 		ownGitFolder: worktreeFolder(cwd),
