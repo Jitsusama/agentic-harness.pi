@@ -30,7 +30,7 @@ import {
 } from "../../lib/core/session/index.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 import { extractTitle } from "../../lib/internal/quest/documents/quest-doc.ts";
-import { sandboxFor } from "../../lib/internal/sandbox.ts";
+import { sandboxFor } from "../../lib/internal/sandbox/sandbox.ts";
 import {
 	askRoute,
 	LONGEST_MINUTES,

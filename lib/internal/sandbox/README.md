@@ -1,12 +1,16 @@
 # Sandbox
 
-What both sandboxes build on, beside `sandbox.ts`, which picks the
-sandbox a session asked for: the shell text, the tree a fenced command
-stands in, the check pi's own file tools are held to, and the brokers
-that hand the strict sandbox its hour-long tokens.
+Which sandbox a session asked for, and what both sandboxes build on:
+the shell text, the tree a fenced command stands in and where pi may
+run git outside it, the programs that run outside it, the check pi's
+own file tools are held to, and the brokers that hand the strict
+sandbox its hour-long tokens.
 
 ## Files
 
+- **`sandbox.ts`**: which sandbox a session asked for and the shell
+  text that runs each command in it: the strict profile as landrun's
+  rules, and the agent fence from `fence/fence.ts`.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.
@@ -18,3 +22,11 @@ that hand the strict sandbox its hour-long tokens.
   the git folder a call outside the fence is held to there.
 - **`sandbox-files.ts`**: the check `sandbox-file-interceptor` holds
   pi's own file tools to, under either sandbox.
+- **`tree-git.ts`**: where pi may run git outside the sandbox, and
+  with which git folder: a tree only as its own files agree, and in a
+  sandboxed session only in repositories the fence guards.
+- **`system-program.ts`**: finding a program that runs outside the
+  sandbox (bwrap, landrun, nix-offload, env, pi-spawner) only in the
+  system's own profile, through steps root alone can change.
+- **`unattended-exec.ts`**: running git and gh with nobody at the
+  keyboard.

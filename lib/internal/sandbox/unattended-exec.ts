@@ -25,7 +25,7 @@ import {
 	EXIT_TIMED_OUT,
 	type Exec,
 	spawnExec,
-} from "../core/exec/index.ts";
+} from "../../core/exec/index.ts";
 import { gitRules } from "./sandbox.ts";
 import { guardedExec } from "./tree-git.ts";
 

@@ -24,7 +24,7 @@ import {
 	recordUnlisted,
 	refusalLine,
 	unlistedLine,
-} from "../../../lib/internal/fence-log.ts";
+} from "../../../../lib/internal/fence/fence-log.ts";
 
 let folder: string;
 let logger: string;

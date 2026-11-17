@@ -27,12 +27,15 @@ may import from here, and any of it may change without notice.
   forking: the shell it forks once for its clipboard reads, and what
   a paste reads and puts in the editor, in pi's own order.
 - **`config/`**: the loader for the package's one configuration
-  file.
+  file, and which project a checkout is, for settings keyed by
+  project.
 - **`errors/`**: telling one failure from another: a failed model
   call a later try could get past, and pi's stale-context error.
 - **`fence/`**: the agent fence: its mounts, the copies it binds
   over files, its doors, the routes a refused command is told, its
-  Mac profile, its census and its pre-flight checks.
+  Mac profile, its census and its pre-flight checks; which pis it
+  takes, the line each refusal leaves in the system's log, and its
+  one exemption, a `nix-offload there` call.
 - **`files/`**: reading files once and keeping their parse until
   they change.
 - **`github/`**: splice-based attribution for `gh pr` and
@@ -78,10 +81,12 @@ may import from here, and any of it may change without notice.
 - **`reload/`**: following the install, reloading a session onto
   a worktree, and telling which extension links moved since the
   process started, which only a new process loads afresh.
-- **`sandbox/`**: what both sandboxes build on beside `sandbox.ts`:
-  the shell text, which tree a fenced command stands in, the check
-  pi's own file tools are held to, and the brokers' hour-long cloud
-  and GitHub tokens for the strict sandbox.
+- **`sandbox/`**: which sandbox a session asked for and what both
+  sandboxes build on: the shell text, which tree a fenced command
+  stands in and where pi may run git outside it, the programs that
+  run outside it, running git and gh with nobody at the keyboard,
+  the check pi's own file tools are held to, and the brokers'
+  hour-long cloud and GitHub tokens for the strict sandbox.
 - **`secrets/`**: credentials kept from what the model and the disk
   see: the shapes one takes in a tool's output and the mark that
   replaces it, and an agent's ask for one work secret.
@@ -131,43 +136,18 @@ may import from here, and any of it may change without notice.
 
 - **`automated.ts`**: the turns the harness starts itself, through
   pi's prompt path.
-- **`fence-log.ts`**: the line each sandbox refusal in pi's own
-  process leaves in the system's log under `pi-fence`, naming the
-  tool, sandbox and session but never what was asked for.
-- **`fence-stage.ts`**: which pis the fence takes by default in its
-  first stage (subagents, fresh `quest spawn` sessions and those listed
-  by hand, under pi's state, `scripts/fence-stage.ts`), and how
-  `PI_SANDBOX` reads: `off` runs a session as it is, and an empty or
-  unknown value reads as the fence, saying so once.
 - **`nearest.ts`**: the known word nearest one typed wrongly, by
   edit distance, which a command or tool says back when it doesn't
   know a word: the quest tool's actions, pi-verbs' commands.
-- **`offload-exemption.ts`**: the fence's one exemption, a
-  `nix-offload there` call let out to run as the person: what may go
-  out, and the environment and git it is given there, through
-  `nix-offload outside` where it has one.
 - **`paths.ts`**: the package's configuration, data, state and cache
   paths, by the XDG base directories.
 - **`process-ticks.ts`**: a process's start in the kernel's ticks
   since boot, which no suspend or clock change moves, and the one
   judgement of whether a recorded process (a mesh presence, a
   fleet's owner) still runs.
-- **`project.ts`**: which project a checkout is, for settings keyed
-  by project.
 - **`record.ts`**: whether a parsed value is an object whose keys
   can be read by name; one copy for the whole package, `lib/core`
   included.
-- **`sandbox.ts`**: which sandbox a session asked for and the shell
-  text that runs each command in it: the strict profile as landrun's
-  rules, and the agent fence from `fence/fence.ts`.
-- **`system-program.ts`**: finding a program that runs outside the
-  sandbox (bwrap, landrun, nix-offload, env, pi-spawner) only in the
-  system's own profile, through steps root alone can change.
-- **`tree-git.ts`**: where pi may run git outside the sandbox, and
-  with which git folder: a tree only as its own files agree, and in a
-  sandboxed session only in repositories the fence guards.
-- **`unattended-exec.ts`**: running git and gh with nobody at the
-  keyboard.
 - **`void-owner.ts`**: who owns a line Joel says into the void, read
   from what he attached (a pi session, a pull request, a page, a
   window) and from the quests that claim it, for

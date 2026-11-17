@@ -21,7 +21,7 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FENCE, fenceRefusesRead, fenceRefusesWrite } from "../fence/fence.ts";
-import { askedSandbox } from "../fence-stage.ts";
+import { askedSandbox } from "../fence/fence-stage.ts";
 import { isRecord } from "../record.ts";
 import {
 	type FileUse,
@@ -31,8 +31,8 @@ import {
 	SANDBOX_VARIABLE,
 	STRICT,
 	unfencedFolder,
-} from "../sandbox.ts";
-import { treeGit, within, worktreeRepository } from "../tree-git.ts";
+} from "./sandbox.ts";
+import { treeGit, within, worktreeRepository } from "./tree-git.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
 
 /**

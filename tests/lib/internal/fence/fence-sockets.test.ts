@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	fenceRules,
 	NEVER_THROUGH,
-} from "../../../lib/internal/fence/fence.ts";
+} from "../../../../lib/internal/fence/fence.ts";
 
 /** A landrun on `PATH` that can lay a Landlock here, or nothing. */
 function workingLandrun(): string | undefined {

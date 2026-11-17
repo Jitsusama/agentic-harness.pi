@@ -31,7 +31,7 @@ import {
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { packageConfigPath } from "../../../lib/internal/paths.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
-import { SANDBOX_VARIABLE, STRICT } from "../../../lib/internal/sandbox.ts";
+import { SANDBOX_VARIABLE, STRICT } from "../../../lib/internal/sandbox/sandbox.ts";
 import { firstResponseBegun } from "../../../lib/subagent/first-response.ts";
 import type { ReviewerThinkingLevel } from "../../../lib/subagent/index.ts";
 import {

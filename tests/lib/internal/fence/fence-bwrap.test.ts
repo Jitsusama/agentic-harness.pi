@@ -32,7 +32,7 @@ import {
 	plantStopped,
 } from "../../../../lib/internal/fence/fence-git-root.ts";
 import { routedPackedRefs } from "../../../../lib/internal/fence/fence-git-route.ts";
-import { gitRun } from "../../../../lib/internal/tree-git.ts";
+import { gitRun } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
 
 /** A bubblewrap on `PATH` that can make a namespace here, or nothing. */

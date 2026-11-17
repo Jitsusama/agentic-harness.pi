@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	gitFolders,
 	guardsGitFolder,
-} from "../../../lib/internal/fence/fence.ts";
+} from "../../../../lib/internal/fence/fence.ts";
 import {
 	LENT_ONLY,
 	NO_GIT_DIR,
@@ -32,11 +32,11 @@ import {
 	offloadKeptIn,
 	takesLentOnly,
 	takesOutside,
-} from "../../../lib/internal/offload-exemption.ts";
+} from "../../../../lib/internal/fence/offload-exemption.ts";
 import {
 	folderGit,
 	heldTree,
-} from "../../../lib/internal/sandbox/sandbox-trees.ts";
+} from "../../../../lib/internal/sandbox/sandbox-trees.ts";
 
 const OFFLOAD = {
 	program: "/nix/store/0000-nix-offload/bin/nix-offload",

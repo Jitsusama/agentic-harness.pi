@@ -26,7 +26,7 @@ import { SPAWNER_VARIABLE } from "../../../../lib/internal/shell/spawner-variabl
 import {
 	systemFolders,
 	systemProgram,
-} from "../../../../lib/internal/system-program.ts";
+} from "../../../../lib/internal/sandbox/system-program.ts";
 import {
 	type SpawnerStandIn,
 	spawnerStandIn as standIn,

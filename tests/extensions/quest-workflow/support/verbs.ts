@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
-import { leaveSpawns } from "../../../../lib/internal/fence-stage.ts";
+import { leaveSpawns } from "../../../../lib/internal/fence/fence-stage.ts";
 import { clearUrlFetchers } from "../../../../lib/quest/index.ts";
 import {
 	clearRefTypes,

@@ -17,13 +17,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { spawnExec } from "../../../lib/core/exec/index.ts";
+import { spawnExec } from "../../../../lib/core/exec/index.ts";
 import {
 	type GitRules,
 	gitRun,
 	guardedExec,
-} from "../../../lib/internal/tree-git.ts";
-import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
+} from "../../../../lib/internal/sandbox/tree-git.ts";
+import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
 
 let home: string;
 let trees: string;

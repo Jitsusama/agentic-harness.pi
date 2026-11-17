@@ -10,8 +10,8 @@
  */
 
 import type { FenceKind } from "../../mesh/presence.ts";
-import { OFF } from "../fence-stage.ts";
-import { SANDBOX_NAMES, STRICT, sandboxName } from "../sandbox.ts";
+import { OFF } from "../fence/fence-stage.ts";
+import { SANDBOX_NAMES, STRICT, sandboxName } from "../sandbox/sandbox.ts";
 
 /** Every kind a done file may name. */
 const FENCE_KINDS: readonly FenceKind[] = ["none", "fence", "strict"];

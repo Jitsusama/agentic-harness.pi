@@ -11,7 +11,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { execUnattended } from "../../../lib/internal/unattended-exec.ts";
+import { execUnattended } from "../../../../lib/internal/sandbox/unattended-exec.ts";
 
 /** Long enough that a command nothing stopped is plainly still running. */
 const SLEEP_SECONDS = "30";

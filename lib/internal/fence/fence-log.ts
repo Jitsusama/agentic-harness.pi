@@ -22,8 +22,8 @@
  */
 
 import { execFile } from "node:child_process";
-import { quoted } from "./sandbox/sandbox-shell.ts";
-import { systemProgram } from "./system-program.ts";
+import { quoted } from "../sandbox/sandbox-shell.ts";
+import { systemProgram } from "../sandbox/system-program.ts";
 
 /** The identifier every refusal's line carries in the system's log. */
 export const FENCE_LOG_TAG = "pi-fence";

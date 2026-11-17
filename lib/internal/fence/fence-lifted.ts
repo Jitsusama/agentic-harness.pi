@@ -13,8 +13,8 @@
  * never stops a listed session being fenced.
  */
 
-import { isSubagent } from "../fence-stage.ts";
-import { SANDBOX_VARIABLE } from "../sandbox.ts";
+import { isSubagent } from "./fence-stage.ts";
+import { SANDBOX_VARIABLE } from "../sandbox/sandbox.ts";
 import { FENCE } from "./fence.ts";
 
 /**

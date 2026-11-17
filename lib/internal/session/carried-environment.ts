@@ -9,8 +9,8 @@
  * from a park, and from a reboot, unfenced.
  */
 
-import { STAGE_VARIABLE } from "../fence-stage.ts";
-import { SANDBOX_VARIABLE } from "../sandbox.ts";
+import { STAGE_VARIABLE } from "../fence/fence-stage.ts";
+import { SANDBOX_VARIABLE } from "../sandbox/sandbox.ts";
 import { SPAWNER_VARIABLE } from "../shell/spawner-variable.ts";
 
 /** The variables carried, by name. */

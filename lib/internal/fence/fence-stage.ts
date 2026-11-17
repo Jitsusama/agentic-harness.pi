@@ -31,8 +31,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { basename, join } from "node:path";
-import { stateDir } from "./paths.ts";
-import { uuidv7 } from "./session/uuidv7.ts";
+import { stateDir } from "../paths.ts";
+import { uuidv7 } from "../session/uuidv7.ts";
 
 /** The variable naming a fresh spawn's listing, before its id is known. */
 export const STAGE_VARIABLE = "PI_FENCE_STAGE";

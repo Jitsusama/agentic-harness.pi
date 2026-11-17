@@ -10,8 +10,8 @@ import {
 	it,
 	vi,
 } from "vitest";
-import { OFF } from "../../../../lib/internal/fence-stage.ts";
-import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox.ts";
+import { OFF } from "../../../../lib/internal/fence/fence-stage.ts";
+import { SANDBOX_VARIABLE } from "../../../../lib/internal/sandbox/sandbox.ts";
 import {
 	mixedTurnRefusal,
 	shellEditRefusal,

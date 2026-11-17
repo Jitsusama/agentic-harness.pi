@@ -20,8 +20,8 @@
 import { execFile, execFileSync } from "node:child_process";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import * as path from "node:path";
-import { gitRules } from "../../sandbox.ts";
-import { gitRun } from "../../tree-git.ts";
+import { gitRules } from "../../sandbox/sandbox.ts";
+import { gitRun } from "../../sandbox/tree-git.ts";
 
 /**
  * Wall-clock ceiling for a single git invocation. A wedged git must

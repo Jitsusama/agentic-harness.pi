@@ -18,7 +18,7 @@
  */
 
 import type { Ref } from "../../../refs/index.ts";
-import { execUnattended } from "../../unattended-exec.ts";
+import { execUnattended } from "../../sandbox/unattended-exec.ts";
 import {
 	sanitizeExcerpt,
 	sanitizeHandle,

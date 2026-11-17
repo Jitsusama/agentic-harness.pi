@@ -10,8 +10,8 @@ import { join, resolve } from "node:path";
 import { guardsGitFolder } from "../fence/fence.ts";
 import type { BrokerTrees } from "../fence/fence-broker-trees.ts";
 import type { HeldWorktree, Worktrees } from "../fence/fence-worktrees.ts";
-import type { HeldGit } from "../offload-exemption.ts";
-import { namedGitFolder, real, treeGit } from "../tree-git.ts";
+import type { HeldGit } from "../fence/offload-exemption.ts";
+import { namedGitFolder, real, treeGit } from "./tree-git.ts";
 import { cutTreeDir, treeRecordDir, treesHeldBy } from "../work-records.ts";
 
 /**

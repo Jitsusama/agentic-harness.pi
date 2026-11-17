@@ -12,7 +12,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Exec } from "../../lib/core/exec/index.ts";
-import { UNATTENDED_HOST } from "../../lib/internal/unattended-exec.ts";
+import { UNATTENDED_HOST } from "../../lib/internal/sandbox/unattended-exec.ts";
 
 type Runner = Pick<ExtensionAPI, "exec">;
 

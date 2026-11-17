@@ -22,8 +22,8 @@ import {
 	startedSession,
 	unlistForStage,
 	withoutOff,
-} from "../../../lib/internal/fence-stage.ts";
-import { sandboxName } from "../../../lib/internal/sandbox.ts";
+} from "../../../../lib/internal/fence/fence-stage.ts";
+import { sandboxName } from "../../../../lib/internal/sandbox/sandbox.ts";
 
 const NAMES = { fence: "fence", known: ["fence", "strict"] };
 const SESSION = "01a1cbd0-f2c7-7eea-9706-777bda77c893";

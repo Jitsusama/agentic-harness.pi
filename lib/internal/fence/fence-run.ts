@@ -41,8 +41,8 @@ import {
 	strictRules,
 	unfencedFolder,
 	wrapFor,
-} from "../sandbox.ts";
-import { real, worktreeRepository } from "../tree-git.ts";
+} from "../sandbox/sandbox.ts";
+import { real, worktreeRepository } from "../sandbox/tree-git.ts";
 import { fenceArgs } from "./fence.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
 import { fenceNpmrc } from "./fence-npmrc.ts";

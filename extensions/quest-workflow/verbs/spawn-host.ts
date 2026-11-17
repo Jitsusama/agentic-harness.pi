@@ -29,8 +29,8 @@ import {
 	type SessionIdentity,
 } from "../../../host/service/protocol.ts";
 import type { SpawnHostSetting } from "../../../lib/core/quest/config.ts";
-import { recordUnlisted } from "../../../lib/internal/fence-log.ts";
-import { STAGE_VARIABLE } from "../../../lib/internal/fence-stage.ts";
+import { recordUnlisted } from "../../../lib/internal/fence/fence-log.ts";
+import { STAGE_VARIABLE } from "../../../lib/internal/fence/fence-stage.ts";
 import { sessionsDir } from "../../../lib/internal/paths.ts";
 import { spawnedWords } from "../../../lib/internal/quest/sessions/first-words.ts";
 import {

@@ -95,7 +95,7 @@ through landrun:
 - **No git of its making run outside.** pi runs git outside the fence
   (the work and review tools, the write classifier, verification), so
   it runs it only where a command couldn't have set what git runs
-  (`lib/internal/tree-git.ts`). A tree's `.git` file counts only when
+  (`lib/internal/sandbox/tree-git.ts`). A tree's `.git` file counts only when
   the folder it names, in its repository's `worktrees`, names it back,
   and git is then told both folders outright. A tree where the work
   tool cuts them must come from a repository the fence guards, in every

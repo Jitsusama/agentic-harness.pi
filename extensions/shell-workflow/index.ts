@@ -52,9 +52,9 @@ import {
 	codeOf,
 	recordRefusal,
 	recordUnlisted,
-} from "../../lib/internal/fence-log.ts";
-import { settleStage } from "../../lib/internal/fence-stage.ts";
-import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox.ts";
+} from "../../lib/internal/fence/fence-log.ts";
+import { settleStage } from "../../lib/internal/fence/fence-stage.ts";
+import { askTheCloudAhead, sandboxFor } from "../../lib/internal/sandbox/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
 import {
 	endsWithItsPrompts,

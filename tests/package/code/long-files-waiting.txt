@@ -4,4 +4,3 @@
 # The test fails on one that's split, says why or is gone, so the list
 # only shrinks.
 extensions
-lib/internal

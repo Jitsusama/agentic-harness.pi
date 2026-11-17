@@ -10,7 +10,7 @@
 
 import { loadPackageConfig } from "../../lib/internal/config/loader.ts";
 import { packageConfigPath } from "../../lib/internal/paths.ts";
-import { projectOf } from "../../lib/internal/project.ts";
+import { projectOf } from "../../lib/internal/config/project.ts";
 import {
 	type OpenOptions,
 	parseTerminalSettings,

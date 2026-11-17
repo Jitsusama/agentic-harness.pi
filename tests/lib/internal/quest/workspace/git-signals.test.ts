@@ -21,7 +21,7 @@ import {
 	it,
 	vi,
 } from "vitest";
-import { OFF } from "../../../../../lib/internal/fence-stage.ts";
+import { OFF } from "../../../../../lib/internal/fence/fence-stage.ts";
 import {
 	gitTreeRootOf,
 	isGitignored,
@@ -31,7 +31,7 @@ import {
 	trackedTreeRoot,
 	treeRootOf,
 } from "../../../../../lib/internal/quest/workspace/git-signals.ts";
-import { SANDBOX_VARIABLE } from "../../../../../lib/internal/sandbox.ts";
+import { SANDBOX_VARIABLE } from "../../../../../lib/internal/sandbox/sandbox.ts";
 
 let repo: string;
 let outside: string;

@@ -7,13 +7,13 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FENCE } from "../../../lib/internal/fence/fence.ts";
-import { sandboxFor } from "../../../lib/internal/sandbox.ts";
+import { FENCE } from "../../../../lib/internal/fence/fence.ts";
+import { sandboxFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 import {
 	type Look,
 	sealedPath,
 	systemProgram,
-} from "../../../lib/internal/system-program.ts";
+} from "../../../../lib/internal/sandbox/system-program.ts";
 
 interface Node {
 	uid: number;

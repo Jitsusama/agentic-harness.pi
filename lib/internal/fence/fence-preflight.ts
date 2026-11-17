@@ -15,7 +15,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { SANDBOX_VARIABLE, sandboxFor, wrapFor } from "../sandbox.ts";
+import { SANDBOX_VARIABLE, sandboxFor, wrapFor } from "../sandbox/sandbox.ts";
 import { FENCE } from "./fence.ts";
 
 /** Who a check stands for: the person's paths, agents', or what stays refused. */

@@ -11,7 +11,7 @@
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { hosted, sessionOwner } from "../../core/session/index.ts";
-import { withoutOff } from "../../internal/fence-stage.ts";
+import { withoutOff } from "../../internal/fence/fence-stage.ts";
 import { offeredShellEnvironment } from "../../internal/shell/environment.ts";
 import { ReviewerArtifactsStore, type ReviewerRunPaths } from "../artifacts.ts";
 import { pinnedChildEnvironment } from "../child-env.ts";

@@ -67,52 +67,52 @@ import {
 	fenceRules,
 	guardsGitFolder,
 	nixDoor,
-} from "./fence/fence.ts";
-import { fenceShims } from "./fence/fence-clipboard.ts";
-import { fencedCommand } from "./fence/fence-command.ts";
-import { DIRENV_VARIABLE, fencedDirenv } from "./fence/fence-direnv.ts";
-import { dockerHoldsCredentials } from "./fence/fence-docker.ts";
+} from "../fence/fence.ts";
+import { fenceShims } from "../fence/fence-clipboard.ts";
+import { fencedCommand } from "../fence/fence-command.ts";
+import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
+import { dockerHoldsCredentials } from "../fence/fence-docker.ts";
 import {
 	afterCheck,
 	guardedFolders,
 	guardedIn,
 	plantStopped,
-} from "./fence/fence-git-root.ts";
-import { githubDoorFolder } from "./fence/fence-github.ts";
-import { foldersMadeFirst, OWN_HOMES } from "./fence/fence-home.ts";
-import { fenceNpmrc } from "./fence/fence-npmrc.ts";
-import { seedOwnHomes } from "./fence/fence-seed.ts";
-import { fenceSshConfig } from "./fence/fence-ssh.ts";
-import { recordedInShell } from "./fence-log.ts";
-import { askedSandbox, inFirstStage } from "./fence-stage.ts";
+} from "../fence/fence-git-root.ts";
+import { githubDoorFolder } from "../fence/fence-github.ts";
+import { foldersMadeFirst, OWN_HOMES } from "../fence/fence-home.ts";
+import { fenceNpmrc } from "../fence/fence-npmrc.ts";
+import { seedOwnHomes } from "../fence/fence-seed.ts";
+import { fenceSshConfig } from "../fence/fence-ssh.ts";
+import { recordedInShell } from "../fence/fence-log.ts";
+import { askedSandbox, inFirstStage } from "../fence/fence-stage.ts";
 import {
 	inStore,
 	type Offload,
 	offloadAt,
 	offloadedOutside,
 	offloadKeptIn,
-} from "./offload-exemption.ts";
-import { questWorkspacesRoot } from "./quest/workspace/workspace-root.ts";
+} from "../fence/offload-exemption.ts";
+import { questWorkspacesRoot } from "../quest/workspace/workspace-root.ts";
 import {
 	type CloudGrant,
 	type CloudGrantSource,
 	cloudGrants,
 	namesTheCloud,
-} from "./sandbox/gcloud-broker.ts";
+} from "./gcloud-broker.ts";
 import {
 	brokerTokens,
 	type GitHubTokenSource,
-} from "./sandbox/github-broker.ts";
-import { quoted, SANDBOXED_COMMAND } from "./sandbox/sandbox-shell.ts";
+} from "./github-broker.ts";
+import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import {
 	folderGit,
 	heldTree,
 	sessionWorktrees,
-} from "./sandbox/sandbox-trees.ts";
-import { withSecretNote } from "./secrets/secret-ask.ts";
+} from "./sandbox-trees.ts";
+import { withSecretNote } from "../secrets/secret-ask.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";
-import { cutTreeDir } from "./work-records.ts";
+import { cutTreeDir } from "../work-records.ts";
 
 /** The variable that asks for the sandbox, and the strict profile's value. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";

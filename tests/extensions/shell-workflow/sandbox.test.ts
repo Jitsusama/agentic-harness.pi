@@ -33,9 +33,9 @@ import {
 	sandboxFor,
 	strictRules,
 	unfencedFolder,
-} from "../../../lib/internal/sandbox.ts";
-import { systemProgram } from "../../../lib/internal/system-program.ts";
-import { worktreeRepository } from "../../../lib/internal/tree-git.ts";
+} from "../../../lib/internal/sandbox/sandbox.ts";
+import { systemProgram } from "../../../lib/internal/sandbox/system-program.ts";
+import { worktreeRepository } from "../../../lib/internal/sandbox/tree-git.ts";
 
 /** Lay out a repository's git folder with one worktree's own folder in it. */
 function worktreeLayout(base: string, tree: string, back: string): string {

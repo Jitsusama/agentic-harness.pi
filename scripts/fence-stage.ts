@@ -22,7 +22,7 @@ import {
 	spawnsJoin,
 	stagedSessions,
 	unlistForStage,
-} from "../lib/internal/fence-stage.ts";
+} from "../lib/internal/fence/fence-stage.ts";
 
 const USAGE =
 	"usage: fence-stage.ts list <session-id> <why> | unlist <session-id> | join <why> | leave | show";

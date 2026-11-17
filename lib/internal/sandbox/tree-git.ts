@@ -24,9 +24,9 @@
 
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import type { Exec, ExecResult } from "../core/exec/index.ts";
-import { guardsGitFolder } from "./fence/fence.ts";
-import type { Disk } from "./fence/fence-disk.ts";
+import type { Exec, ExecResult } from "../../core/exec/index.ts";
+import { guardsGitFolder } from "../fence/fence.ts";
+import type { Disk } from "../fence/fence-disk.ts";
 
 /** A path as it really is, or as given when it can't be resolved. */
 export function real(path: string): string {

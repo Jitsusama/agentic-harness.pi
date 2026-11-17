@@ -32,7 +32,7 @@
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
-import { quoted } from "./sandbox/sandbox-shell.ts";
+import { quoted } from "../sandbox/sandbox-shell.ts";
 
 /**
  * nix-offload, run outside the fence until the SSH agent's proxy lets

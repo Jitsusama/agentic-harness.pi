@@ -3,7 +3,7 @@
 # scripts/host-gate.sh, which takes only a pass nix-offload kept for these
 # very words. Every word is a plain one, and the program is the system's
 # bash by its store path, so the agent fence lets the call out from a
-# tree the session holds (lib/internal/offload-exemption.ts), and a gate
+# tree the session holds (lib/internal/fence/offload-exemption.ts), and a gate
 # working them out again from this machine gets the same words, so long as
 # the runtime and tools haven't moved. Another program (true, say) kept as
 # passing at the commit matches nothing (ISXEG8, 13 November).
@@ -22,7 +22,7 @@
 HOST_TEST_SOME_SECONDS=2400
 HOST_TEST_ALL_SECONDS=6000
 # A word with no meaning to a shell, as the fence's exemption takes them
-# (PLAIN_WORD in lib/internal/offload-exemption.ts). One is also written
+# (PLAIN_WORD in lib/internal/fence/offload-exemption.ts). One is also written
 # the same in JSON, which host_test_ran counts on.
 HOST_TEST_PLAIN='^[A-Za-z0-9._/@:=+^*-]+$'
 

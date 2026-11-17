@@ -14,7 +14,7 @@ import {
 	spawn as nodeSpawn,
 	type SpawnOptions,
 } from "node:child_process";
-import { withoutOff } from "../../internal/fence-stage.ts";
+import { withoutOff } from "../../internal/fence/fence-stage.ts";
 import { pinnedChildEnvironment } from "../child-env.ts";
 import type { PiInstall } from "../install.ts";
 import type { RunPi, RunPiResult } from "../subagent.ts";

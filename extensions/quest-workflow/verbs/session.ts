@@ -8,7 +8,7 @@ import { homedir, hostname } from "node:os";
 import { resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { sessionEnv } from "../../../lib/core/session/index.ts";
-import { STAGE_VARIABLE } from "../../../lib/internal/fence-stage.ts";
+import { STAGE_VARIABLE } from "../../../lib/internal/fence/fence-stage.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	ancestorTreesOf,
