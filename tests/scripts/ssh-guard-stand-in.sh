@@ -3,8 +3,9 @@
 # name it is linked as. It says on stderr that it ran, each argument in
 # brackets, and answers `ssh -G` as a person's settings might: `eq` is an
 # alias for equilibrius.lan, equilibrius, `eqip` and one IPv6 address
-# connect to its address, a `-P` tag must be one it knows, a `-F` file's `HostName` line
-# wins, and `-p` sets the port.
+# connect to its address, `tunnelled` is reached through a tunnel on the
+# loopback, a `-P` tag must be one it knows, a `-F` file's `HostName`
+# line wins, and `-p` sets the port.
 name=${0##*/}
 if [ "$name" = ssh ] && [ "$1" = -G ]; then
 	shift
@@ -45,6 +46,7 @@ if [ "$name" = ssh ] && [ "$1" = -G ]; then
 	case "$host" in
 	eq) host=equilibrius.lan ;;
 	eqip | equilibrius | 2001:db8:0:0:0:0:0:49) host=192.168.4.49 ;;
+	tunnelled) host=localhost ;;
 	esac
 	echo "hostname $host"
 	echo "port $port"

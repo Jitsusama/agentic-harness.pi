@@ -163,6 +163,17 @@ describe("the ssh guard refuses a command run on a realm machine", () => {
 		refused(`ssh -F ${settings} -p 2222 equilibrius uname`);
 	});
 
+	it("keeps a realm machine tunnelled through the loopback from claiming every loopback port", () => {
+		const machines = `${MACHINES} tunnelled`;
+		const byName = run("ssh tunnelled uname", machines);
+		expect(byName.ranReal, byName.err).toBe(false);
+		expect(byName.err).toContain("mycelium run --need machine=tunnelled --");
+		const vm = run("ssh -p 2222 localhost uname", machines);
+		expect(vm.ranReal, `a local VM: ${vm.err}`).toBe(true);
+		const copy = run("scp -P 2222 ./a localhost:/x", machines);
+		expect(copy.ranReal, `a copy to a local VM: ${copy.err}`).toBe(true);
+	});
+
 	it("reads ssh's destination whole, an IPv6 address too", () => {
 		refused("ssh -p 22 ::1 uname", "optimus");
 		refused("ssh 2001:db8:0:0:0:0:0:49 uname");

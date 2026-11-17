@@ -5,7 +5,7 @@
  */
 
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentBash } from "../../../extensions/shell-workflow/agent-bash.ts";
 import {
 	SSH_GUARD_BIN,
@@ -41,6 +41,20 @@ const PRINT =
 	'printf "%s|%s|%s" "$(echo "$PATH" | cut -d: -f1)" "$PI_SSH_GUARD_MACHINES" "$(command -v ssh)"';
 
 describe("the agent's bash under the ssh guard", () => {
+	// A run from a session with the guard on inherits its stand-ins and
+	// machines; each case starts from a shell without them.
+	beforeEach(() => {
+		const path = (process.env.PATH ?? "")
+			.split(":")
+			.filter((dir) => dir !== SSH_GUARD_BIN);
+		vi.stubEnv("PATH", path.join(":"));
+		for (const name of Object.keys(process.env))
+			if (name.startsWith("PI_SSH_GUARD_")) vi.stubEnv(name, undefined);
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
 	it("finds the stand-ins first, knowing the machines, while it refuses", async () => {
 		const said = await run(
 			{ refuse: true, machines: ["optimus", "equilibrius"], here: "optimus" },

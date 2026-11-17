@@ -95,13 +95,14 @@ loopback() {
 
 # Every name a realm machine goes by: its own, on the local network, and
 # what the person's ssh settings connect to for it, which may be an
-# address.
+# address. A machine those settings reach through a tunnel on the
+# loopback keeps only its names, so it can't claim every loopback port.
 here=$(lower "${PI_SSH_GUARD_HERE:-}")
 names_of() {
-	local machine=$1
+	local machine=$1 through
 	printf '%s\n%s.local\n%s.lan\n' "$machine" "$machine" "$machine"
-	connects_to "$machine"
-	echo
+	through=$(connects_to "$machine")
+	loopback "$through" || printf '%s\n' "$through"
 }
 
 # The realm machine a host is, judged by the name ssh connects to. The
