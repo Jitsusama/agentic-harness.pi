@@ -345,9 +345,12 @@ export function replaceWords(
 
 /**
  * Whether a link's `text` is the `name` its address ends with, decoded,
- * or that name without its extension, so the address shows nothing the
- * text doesn't. A name holding a break is shown a word at a time, so its
- * first word stands for it. Any other shortening of it is none.
+ * or that name without its extension, or, for an all-hex name, a
+ * commit's short id of `SHORT_ID` characters or more, so the address
+ * shows nothing the text doesn't beyond a commit's id. A name holding a
+ * break is shown a word at a time, so its first word stands for it; a
+ * line after a name is a word of its own. Any other shortening of it is
+ * none.
  */
 function repeats(text: string, name: string): boolean {
 	let plain = name;
@@ -361,9 +364,16 @@ function repeats(text: string, name: string): boolean {
 	return (
 		text === plain ||
 		(dot > 0 && text === plain.slice(0, dot)) ||
-		(word !== plain && text === word)
+		(word !== plain && text === word) ||
+		(text.length >= SHORT_ID && HEX.test(plain) && plain.startsWith(text))
 	);
 }
+
+/** The fewest characters a commit's short id shows, as git prints one. */
+const SHORT_ID = 7;
+
+/** A name written in hex digits alone, as a commit's id is. */
+const HEX = /^[\dA-Fa-f]+$/;
 
 /**
  * Whether a value, its escapes aside, holds what could be a credential
