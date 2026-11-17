@@ -1,5 +1,5 @@
 /** Reload-safe session slots, preserving legacy process symbols on plain pi. */
-import { processGlobal } from "../../internal/process-global.ts";
+import { processGlobal } from "../../internal/process/process-global.ts";
 import { hosted } from "./host.ts";
 import { requireSession, type SessionRef } from "./identity.ts";
 

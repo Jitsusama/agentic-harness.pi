@@ -23,7 +23,7 @@
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { hosted } from "../../lib/core/session/index.ts";
-import { processGlobal } from "../../lib/internal/process-global.ts";
+import { processGlobal } from "../../lib/internal/process/process-global.ts";
 import { formatSize } from "../../lib/internal/quest/footprint.ts";
 import {
 	type Counters,

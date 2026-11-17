@@ -41,7 +41,7 @@
 import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { questAddress, sessionAddress } from "../../mesh/address.ts";
-import { realmSegments, type SessionRealm, sessionRealm } from "../realm.ts";
+import { realmSegments, type SessionRealm, sessionRealm } from "../machine/realm.ts";
 import type { CarriedEnvironment } from "../session/carried-environment.ts";
 import type { MoveNote } from "../session/move.ts";
 import type { CarriedHome } from "./carried.ts";
@@ -146,7 +146,8 @@ export interface SeenRecord {
 /**
  * Where the file lives, under the state home: pi's own folder for the
  * machine's home realm, as the launcher has always read it, and the
- * harness's folder for that realm for any other (see realm.ts).
+ * harness's folder for that realm for any other (see
+ * ../machine/realm.ts).
  */
 export function restoreFilePath(
 	stateHome: string,

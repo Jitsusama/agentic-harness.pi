@@ -10,8 +10,8 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { machineBooted } from "../../../lib/internal/booted.ts";
-import { thisMachine } from "../../../lib/internal/machine.ts";
+import { machineBooted } from "../../../lib/internal/machine/booted.ts";
+import { thisMachine } from "../../../lib/internal/machine/machine.ts";
 import { sessionsDir, stateDir } from "../../../lib/internal/paths.ts";
 import { takeUpCarried } from "../../../lib/internal/quest/carried.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/frontmatter.ts";

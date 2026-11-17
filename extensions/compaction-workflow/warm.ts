@@ -100,7 +100,7 @@ import {
 	type SectionParse,
 } from "../../lib/internal/config/loader.ts";
 import { isStaleContext } from "../../lib/internal/errors/stale.ts";
-import { processGlobal } from "../../lib/internal/process-global.ts";
+import { processGlobal } from "../../lib/internal/process/process-global.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { scrubSecrets } from "../../lib/internal/secrets/secrets.ts";
 import { keepingRequests, sweepKeptRequests } from "./kept-request.ts";

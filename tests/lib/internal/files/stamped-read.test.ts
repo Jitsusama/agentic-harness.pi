@@ -13,7 +13,7 @@ import {
 	readStamped,
 	readStampedOff,
 	type Stamped,
-} from "../../../lib/internal/stamped-read.ts";
+} from "../../../../lib/internal/files/stamped-read.ts";
 
 describe("a stamped read", () => {
 	let dir: string;

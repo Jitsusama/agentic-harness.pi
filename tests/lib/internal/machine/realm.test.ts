@@ -10,14 +10,14 @@ import {
 	dataDir,
 	everyRealmsDir,
 	stateDir,
-} from "../../../lib/internal/paths.ts";
-import { restoreFilePath } from "../../../lib/internal/quest/restore-file.ts";
+} from "../../../../lib/internal/paths.ts";
+import { restoreFilePath } from "../../../../lib/internal/quest/restore-file.ts";
 import {
 	meshRefusal,
 	realmSegments,
 	sessionRealm,
-} from "../../../lib/internal/realm.ts";
-import { nodeSocket } from "../../../lib/mesh/node.ts";
+} from "../../../../lib/internal/machine/realm.ts";
+import { nodeSocket } from "../../../../lib/mesh/node.ts";
 
 describe("a session's realm", () => {
 	it("is home on a machine in one realm, keeping the paths it always had", () => {

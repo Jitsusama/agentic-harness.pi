@@ -40,7 +40,7 @@ and can answer a question or a gate left open on screen.
   groups (`#harness`, `#optimus/power`) nest: a member of
   `#optimus/power` also hears `#optimus`.
 - **Realm:** a session's mesh is its realm's (see
-  `lib/internal/realm.ts`), and a machine in two realms keeps
+  `lib/internal/machine/realm.ts`), and a machine in two realms keeps
   two meshes that share nothing, with one exception. A hold
   sent to `#machine` also reaches each other realm's
   `#machine`, from `MACHINE`, in one fixed sentence holding

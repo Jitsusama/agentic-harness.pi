@@ -15,7 +15,7 @@
 
 import type { Stats } from "node:fs";
 import { stat } from "node:fs/promises";
-import { processGlobal } from "./process-global.ts";
+import { processGlobal } from "../process/process-global.ts";
 
 /** What one file said, and the stamp of the file that said it. */
 interface Read<T> {

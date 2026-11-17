@@ -24,7 +24,7 @@ import {
 	type QuestIndex,
 } from "../lib/internal/quest/discovery.ts";
 import { mutateQuestFrontMatter } from "../lib/internal/quest/mutate.ts";
-import { sessionRealmName } from "../lib/internal/realm.ts";
+import { sessionRealmName } from "../lib/internal/machine/realm.ts";
 
 /** One realm's quest folder. */
 export interface RealmRoot {

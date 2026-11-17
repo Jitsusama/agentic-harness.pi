@@ -35,7 +35,7 @@ import { spawnExec } from "../../lib/core/exec/index.ts";
 import { createGitRebaser } from "../../lib/core/work/rebase.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
 import { writeRefused } from "../../lib/internal/carry/ordered.ts";
-import { thisMachine } from "../../lib/internal/machine.ts";
+import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { treesHeldBy } from "../../lib/internal/work-records.ts";

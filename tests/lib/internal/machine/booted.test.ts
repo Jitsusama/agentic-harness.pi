@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { machineBooted } from "../../../lib/internal/booted.ts";
+import { machineBooted } from "../../../../lib/internal/machine/booted.ts";
 
 describe("when the machine booted", () => {
 	it("is the kernel's btime, in milliseconds", () => {

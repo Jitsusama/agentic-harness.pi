@@ -33,6 +33,8 @@ may import from here, and any of it may change without notice.
 - **`fence/`**: the agent fence: its mounts, the copies it binds
   over files, its doors, the routes a refused command is told, its
   Mac profile, its census and its pre-flight checks.
+- **`files/`**: reading files once and keeping their parse until
+  they change, and an extension's state kept across sessions.
 - **`github/`**: splice-based attribution for `gh pr` and
   `gh issue` commands, re-exported from core.
 - **`guardian/`**: what the public `guardian/` contract leaves out:
@@ -51,6 +53,8 @@ may import from here, and any of it may change without notice.
 - **`logs/`**: session logs read back: every log a span holds, pi's
   entries as plain turns, and searching a session's own log so what
   a compaction dropped stays within reach.
+- **`machine/`**: this machine: its name as its realm's other
+  machines say it, the realm a session lives in, and when it booted.
 - **`people/`**: the built-in handle types (Slack, GitHub, email),
   the resolvers and where people are stored.
 - **`pineapple/`**: Joel's safe word at the tool call: the stops
@@ -60,6 +64,9 @@ may import from here, and any of it may change without notice.
   `pineapple-workflow`.
 - **`priority/`**: the machine queue: when a session's heavy work
   may run, by memory, VM limits and who is waiting on it.
+- **`process/`**: one process's shared state and how its callers
+  take turns: singletons across module instances, a FIFO mutex and
+  one flight per key.
 - **`quest/`**: everything behind the quest tool: discovery, the
   documents' fields and edits, sessions and trees.
 - **`refs/`**: the built-in reference types: GitHub issues, pull
@@ -119,12 +126,8 @@ may import from here, and any of it may change without notice.
 
 ## Files
 
-- **`async-mutex.ts`**: a FIFO mutex for critical sections within
-  one process.
 - **`automated.ts`**: the turns the harness starts itself, through
   pi's prompt path.
-- **`booted.ts`**: when the machine booted, which bounds what is
-  still under way.
 - **`fence-log.ts`**: the line each sandbox refusal in pi's own
   process leaves in the system's log under `pi-fence`, naming the
   tool, sandbox and session but never what was asked for.
@@ -133,14 +136,6 @@ may import from here, and any of it may change without notice.
   by hand, under pi's state, `scripts/fence-stage.ts`), and how
   `PI_SANDBOX` reads: `off` runs a session as it is, and an empty or
   unknown value reads as the fence, saying so once.
-- **`file-reads.ts`**: what each file in a folder said when the
-  process last read it, asked again only once the file changes, so a
-  ledger asked at every conversation's start reads only what moved.
-- **`folder-mirror.ts`**: a folder's files and their parses, kept for a
-  host's synchronous readers and read again off the thread each second
-  while asked, so a stalled disk holds none of its conversations.
-- **`machine.ts`**: this machine's name as its realm's other
-  machines say it, its hostname's short form, and what may be one.
 - **`nearest.ts`**: the known word nearest one typed wrongly, by
   edit distance, which a command or tool says back when it doesn't
   know a word: the quest tool's actions, pi-verbs' commands.
@@ -150,8 +145,6 @@ may import from here, and any of it may change without notice.
   `nix-offload outside` where it has one.
 - **`paths.ts`**: the package's configuration, data, state and cache
   paths, by the XDG base directories.
-- **`process-global.ts`**: singletons shared across an extension's
-  module instances.
 - **`process-ticks.ts`**: a process's start in the kernel's ticks
   since boot, which no suspend or clock change moves, and the one
   judgement of whether a recorded process (a mesh presence, a
@@ -164,15 +157,6 @@ may import from here, and any of it may change without notice.
 - **`sandbox.ts`**: which sandbox a session asked for and the shell
   text that runs each command in it: the strict profile as landrun's
   rules, and the agent fence from `fence/fence.ts`.
-- **`single-flight.ts`**: one flight per key, which later callers
-  join; work that coalesces, running once more after the run going
-  for every call that came during it; and `loadOnce`, through which
-  every lazy import loads its module once.
-- **`stamped-read.ts`**: a file's parse kept while its inode, mtime
-  and size say it is the same file, read on the thread or off it, for
-  the mesh's presence listings.
-- **`state.ts`**: persisting an extension's state across sessions
-  and restoring it.
 - **`system-program.ts`**: finding a program that runs outside the
   sandbox (bwrap, landrun, nix-offload, env, pi-spawner) only in the
   system's own profile, through steps root alone can change.

@@ -15,7 +15,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fileReads } from "../../../internal/file-reads.ts";
+import { fileReads } from "../../../internal/files/file-reads.ts";
 import { withFileLock } from "../../internal/file-lock.ts";
 import type { ChangeRef } from "../change.ts";
 import { changeKey } from "../keys.ts";

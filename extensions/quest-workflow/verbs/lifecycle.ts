@@ -31,7 +31,7 @@ import { questIdForCwd } from "../../../lib/internal/quest/resolve-cwd.ts";
 import { formatRelativeAge } from "../../../lib/internal/quest/session-liveness.ts";
 import { isSealedStatus } from "../../../lib/internal/quest/status.ts";
 import { recordStructuralOp } from "../../../lib/internal/quest/structural-journal.ts";
-import { sessionRealmName } from "../../../lib/internal/realm.ts";
+import { sessionRealmName } from "../../../lib/internal/machine/realm.ts";
 import {
 	fetchUrlHints,
 	mintId,

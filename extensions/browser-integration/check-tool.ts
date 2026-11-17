@@ -5,7 +5,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
-import { loadOnce } from "../../lib/internal/single-flight.ts";
+import { loadOnce } from "../../lib/internal/process/single-flight.ts";
 import { BROWSER_EXPOSURE } from "./exposure.ts";
 import { renderBrowserCall, renderBrowserResult } from "./render.ts";
 import type { Sessions } from "./sessions.ts";

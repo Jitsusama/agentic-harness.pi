@@ -18,7 +18,7 @@ import {
 import {
 	type AsyncMutex,
 	createMutex,
-} from "../../lib/internal/async-mutex.ts";
+} from "../../lib/internal/process/async-mutex.ts";
 import { dataDir } from "../../lib/internal/paths.ts";
 
 /**

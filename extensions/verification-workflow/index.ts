@@ -40,7 +40,7 @@ import { findProject } from "../../lib/core/verify/project.ts";
 import { runVerify } from "../../lib/core/verify/run.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace-root.ts";
 import { onTurnBoundary } from "../../lib/internal/session/turn-end.ts";
-import { getLastEntry } from "../../lib/internal/state.ts";
+import { getLastEntry } from "../../lib/internal/files/state.ts";
 import {
 	provideVerificationCheck,
 	type VerificationCheck,

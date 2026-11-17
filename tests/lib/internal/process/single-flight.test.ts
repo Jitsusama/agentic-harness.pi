@@ -3,7 +3,7 @@ import {
 	coalescing,
 	loadOnce,
 	singleFlight,
-} from "../../../lib/internal/single-flight.ts";
+} from "../../../../lib/internal/process/single-flight.ts";
 
 /** A start whose answer the test hands over when it chooses. */
 function pending<V>() {

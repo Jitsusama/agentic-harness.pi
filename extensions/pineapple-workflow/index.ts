@@ -48,7 +48,7 @@ import {
 	type GitFacts,
 	repoOfUrl,
 } from "../../lib/internal/pineapple/writes.ts";
-import { sessionRealmName } from "../../lib/internal/realm.ts";
+import { sessionRealmName } from "../../lib/internal/machine/realm.ts";
 import { isPersonText } from "../../lib/internal/session/driven.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { senderIdentity } from "../../lib/mesh/message.ts";

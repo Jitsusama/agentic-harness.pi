@@ -20,7 +20,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hostKey } from "../../../host/service/address.ts";
 import { restoreFilePath } from "../../../lib/internal/quest/restore-file.ts";
-import { sessionRealm } from "../../../lib/internal/realm.ts";
+import { sessionRealm } from "../../../lib/internal/machine/realm.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import {
 	awakePath,

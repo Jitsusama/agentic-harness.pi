@@ -39,7 +39,7 @@ import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { ensureCommitHook } from "../../lib/internal/guardian/commit-hook.ts";
 import { coAuthorTrailer } from "../../lib/internal/guardian/commit-trailer.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
-import { processGlobal } from "../../lib/internal/process-global.ts";
+import { processGlobal } from "../../lib/internal/process/process-global.ts";
 import { attributeGh } from "./attribution.ts";
 
 const GH_ENTITIES = ["pr", "issue"] as const;

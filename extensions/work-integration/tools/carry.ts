@@ -16,7 +16,7 @@ import type { Exec } from "../../../lib/core/exec/index.ts";
 import type { HeldTree } from "../../../lib/core/work/broker.ts";
 import { carrySession, carryTree } from "../../../lib/core/work/carry.ts";
 import { HANDOVER, handoverOf } from "../../../lib/internal/carry/handover.ts";
-import { thisMachine } from "../../../lib/internal/machine.ts";
+import { thisMachine } from "../../../lib/internal/machine/machine.ts";
 import { questLoadedIn } from "../../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace-root.ts";
 import { count } from "../../../lib/ui/count.ts";

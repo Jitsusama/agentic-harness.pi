@@ -27,7 +27,7 @@ import {
 	folderRead,
 	type Mirrored,
 	type MirroredFiles,
-} from "../internal/folder-mirror.ts";
+} from "../internal/files/folder-mirror.ts";
 import { keepTicks, type TickedOwner } from "../internal/process-ticks.ts";
 import { type Doing, isDoing } from "../internal/quest/doing.ts";
 import {
@@ -46,7 +46,7 @@ import {
 	readRefusedWake,
 	refusedWakePath,
 } from "../internal/session/refused-wake.ts";
-import { readStamped, type Stamped } from "../internal/stamped-read.ts";
+import { readStamped, type Stamped } from "../internal/files/stamped-read.ts";
 import { writeWhole } from "../internal/write-whole.ts";
 import type { QuestFrontMatter } from "../quest/types.ts";
 import type { TerminalSessionHandle } from "../terminal/index.ts";

@@ -29,7 +29,7 @@ import {
 	type SweepOutcome,
 	sweepEndedTrees,
 } from "../../lib/core/work/sweep.ts";
-import { machineBooted } from "../../lib/internal/booted.ts";
+import { machineBooted } from "../../lib/internal/machine/booted.ts";
 import { everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery.ts";
 import {

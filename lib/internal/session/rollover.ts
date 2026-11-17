@@ -48,7 +48,7 @@ import {
 	type SystemMessage,
 } from "@earendil-works/pi-ai";
 import { stateDir } from "../paths.ts";
-import { processGlobal } from "../process-global.ts";
+import { processGlobal } from "../process/process-global.ts";
 import { uuidv7 } from "./uuidv7.ts";
 
 /** The bus event asking extensions what to carry over; see `Carry`. */

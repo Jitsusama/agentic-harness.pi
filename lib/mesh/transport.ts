@@ -35,7 +35,7 @@ import {
 } from "node:fs";
 import { opendir } from "node:fs/promises";
 import { join } from "node:path";
-import { processGlobal } from "../internal/process-global.ts";
+import { processGlobal } from "../internal/process/process-global.ts";
 import { clearWriting, writeWhole } from "../internal/write-whole.ts";
 import { type Draft, ENVELOPE, type Message, messageFrom } from "./message.ts";
 import { sentBy } from "./thread.ts";

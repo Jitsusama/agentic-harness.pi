@@ -40,7 +40,7 @@ import {
 	tending,
 } from "../../lib/internal/pineapple/hold.ts";
 import type { Stop } from "../../lib/internal/pineapple/stops.ts";
-import { processGlobal } from "../../lib/internal/process-global.ts";
+import { processGlobal } from "../../lib/internal/process/process-global.ts";
 import type { Draft, Message } from "../../lib/mesh/message.ts";
 import { writeAtomically } from "../../lib/mesh/transport.ts";
 

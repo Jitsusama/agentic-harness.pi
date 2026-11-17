@@ -42,7 +42,7 @@ import {
 	prunePhantomSessions,
 } from "../../lib/internal/quest/session-liveness.ts";
 import { firstPromptPending } from "../../lib/internal/session/first-prompt.ts";
-import { getLastEntry } from "../../lib/internal/state.ts";
+import { getLastEntry } from "../../lib/internal/files/state.ts";
 import { sessionNameFor, shortNameOf } from "./render.ts";
 import type { QuestState } from "./state.ts";
 import { orchestrate } from "./verbs/orchestrate.ts";

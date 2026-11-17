@@ -16,7 +16,7 @@ import {
 	handoverOf,
 	readHandover,
 } from "../../../lib/internal/carry/handover.ts";
-import { thisMachine } from "../../../lib/internal/machine.ts";
+import { thisMachine } from "../../../lib/internal/machine/machine.ts";
 import { sessionRegistryDir } from "../../../lib/internal/quest/loaded.ts";
 import { questWorkspacesRoot } from "../../../lib/internal/quest/workspace-root.ts";
 import { treeRecordDir } from "../../../lib/internal/work-records.ts";

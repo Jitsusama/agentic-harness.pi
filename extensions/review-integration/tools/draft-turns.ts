@@ -15,7 +15,7 @@ import {
 import {
 	type AsyncMutex,
 	createMutex,
-} from "../../../lib/internal/async-mutex.ts";
+} from "../../../lib/internal/process/async-mutex.ts";
 
 /**
  * One queue per draft target, for the life of the process.

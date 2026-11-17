@@ -84,7 +84,7 @@ import {
 	getSection,
 	loadPackageConfig,
 } from "../lib/internal/config/loader.ts";
-import { isMachineName, thisMachine } from "../lib/internal/machine.ts";
+import { isMachineName, thisMachine } from "../lib/internal/machine/machine.ts";
 import { dataDir, sessionsDir, stateDir } from "../lib/internal/paths.ts";
 import { isId } from "../lib/internal/quest/id.ts";
 import { sessionRegistryDir } from "../lib/internal/quest/loaded.ts";

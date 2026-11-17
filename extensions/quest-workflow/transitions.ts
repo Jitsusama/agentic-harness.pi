@@ -19,7 +19,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createMutex } from "../../lib/internal/async-mutex.ts";
+import { createMutex } from "../../lib/internal/process/async-mutex.ts";
 import { sayConcluded } from "../../lib/internal/quest/concluded.ts";
 import { setJournalSession } from "../../lib/internal/quest/structural-journal.ts";
 import { sayLanded, sayUnlanded } from "../../lib/internal/session/landings.ts";

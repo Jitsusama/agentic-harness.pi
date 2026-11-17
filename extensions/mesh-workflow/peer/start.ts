@@ -21,7 +21,7 @@ import { sessionLeft } from "../../../lib/internal/session/left.ts";
 import { carriedBy } from "../../../lib/internal/session/rollover.ts";
 import { showWants } from "../../../lib/internal/session/wants.ts";
 import { writerHold } from "../../../lib/internal/session/writer-hold.ts";
-import { singleFlight } from "../../../lib/internal/single-flight.ts";
+import { singleFlight } from "../../../lib/internal/process/single-flight.ts";
 import { loadedQuest } from "../../../lib/mesh/address.ts";
 import { MESH_SESSION_ENV } from "../../../lib/mesh/hand.ts";
 import { landingKeeper } from "../../../lib/mesh/landing-history.ts";

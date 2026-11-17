@@ -20,7 +20,7 @@ import {
 	folderMirrors,
 	folderRead,
 	type MirroredFiles,
-} from "../../../lib/internal/folder-mirror.ts";
+} from "../../../../lib/internal/files/folder-mirror.ts";
 
 let dir: string;
 let offReads: number;
