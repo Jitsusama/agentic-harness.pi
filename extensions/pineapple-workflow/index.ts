@@ -56,7 +56,7 @@ import { folderTransport } from "../../lib/mesh/transport.ts";
 import { type Judging, judge, questChain, questsOf } from "./enforce.ts";
 import { tendHolds } from "./holding.ts";
 import { createParking } from "./parking.ts";
-import { dirsOf, reposOf } from "./whereabouts.ts";
+import { createWhereabouts, reposOf } from "./whereabouts.ts";
 
 const run = promisify(execFile);
 
@@ -73,6 +73,7 @@ export default function pineappleWorkflow(pi: ExtensionAPI) {
 	const folder = stopsFolder();
 	const stops = (): Stop[] => [...standingStops(folder).stops];
 	const quests = join(dataDir("quest-workflow"), "quests");
+	const whereabouts = createWhereabouts(join(stateDir("work"), "cut"));
 	const parking = createParking({
 		stops,
 		session: async (standing) => {
@@ -85,7 +86,7 @@ export default function pineappleWorkflow(pi: ExtensionAPI) {
 				cwd === undefined
 					? []
 					: asks
-						? dirsOf(id, cwd, join(stateDir("work"), "cut"))
+						? await whereabouts.dirsOf(id, cwd)
 						: [cwd];
 			return {
 				realm: sessionRealmName(),
