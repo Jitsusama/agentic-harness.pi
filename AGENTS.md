@@ -177,6 +177,14 @@ pnpm test:browser    # the browser lane, which needs a Chrome
 pnpm exec vitest run <paths>   # the tests a change touches, as you go
 ```
 
+On optimus, run a typecheck or tests as you go through
+`elsewhere run harness-check -- pnpm typecheck` (or `pnpm test:unit`,
+or `pnpm exec vitest run <paths>`): it needs no push, and goes to
+another machine only where mycelium places it and that machine runs
+agents fenced, else it runs here and says why.
+[`docs/testing.md`](./docs/testing.md#sending-a-check-elsewhere) says
+what travels.
+
 Always run `lint:fix` first: Biome's fixes are safe here. Fix the
 code to satisfy the linter rather than suppressing a rule, and fix
 a failing type on the spot rather than excluding its file. There

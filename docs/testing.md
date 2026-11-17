@@ -27,6 +27,32 @@ includes root files such as `vitest.config.ts`, which sat
 outside it and held a real error while the project called
 itself clean.
 
+## Sending a Check Elsewhere
+
+On optimus, `elsewhere` runs a check as you go on whichever machine
+mycelium places it, without a push:
+
+```sh
+elsewhere where harness-check                   # where it would run now, and why
+elsewhere run harness-check -- pnpm typecheck   # or pnpm test:unit, or vitest on paths
+```
+
+Run it from the checkout's top, since what travels is the folder it
+runs in: the files git tracks there, through the quest's handover, as
+they lie, so edits not yet committed go too. A file git doesn't track
+yet stays behind, and so do hidden and ignored ones such as `.pi/`
+and `node_modules`. The far side installs the packages from the
+lockfile with its own work toolchain's pnpm. A test that reads a file
+left behind runs here, with `--here`.
+
+An agent's run goes to a machine only once that machine declares how
+it fences agents. Until then mycelium refuses it there, and the job
+runs on optimus and says why, so dropping `--here` is always safe. The
+work Mac is the machine it is meant for, and declares no fence yet.
+
+`pnpm check:there` stays the way to send the whole gate, for a pushed
+branch.
+
 ## Tests
 
 Library code under `lib/` has unit tests written with vitest.
