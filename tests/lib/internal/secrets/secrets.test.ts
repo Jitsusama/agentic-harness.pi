@@ -732,11 +732,11 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 	// The test's timeout bounds this: escapes a word may hold, ending in a
 	// break, would let a word start again inside each one.
 	it("answers at once for a long line of escapes that end in a break", () => {
-		for (const escape of ["\x1b=", "\x1b[]", "\x1b['m"]) {
-			const printed = `A=${escape.repeat(25_000)}x=\n`;
+		for (const sequence of ["\x1b=", "\x1b[]", "\x1b['m"]) {
+			const printed = `A=${sequence.repeat(25_000)}x=\n`;
 			expect(
 				scrubToolPartial(partialOf(printed), { command: "./x" }),
-				JSON.stringify(escape),
+				JSON.stringify(sequence),
 			).toBeUndefined();
 		}
 	});

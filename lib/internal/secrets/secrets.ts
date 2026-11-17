@@ -358,10 +358,10 @@ function replaceWords(text: string, replace: (word: string) => string): string {
 		}
 		if (char === "\x1b") {
 			ESCAPE_HERE.lastIndex = at;
-			const escape = ESCAPE_HERE.exec(text);
-			if (escape) {
+			const sequence = ESCAPE_HERE.exec(text);
+			if (sequence) {
 				if (word < 0) word = at;
-				at += escape[0].length;
+				at += sequence[0].length;
 				continue;
 			}
 		}
@@ -393,10 +393,10 @@ function hidden(word: string, kind: string): string | undefined {
 	let opening = 0;
 	let runStart = 0;
 	let runEnd = -1;
-	for (const escape of word.matchAll(ESCAPE)) {
-		if (escape.index === opening) opening += escape[0].length;
-		if (escape.index !== runEnd) runStart = escape.index;
-		runEnd = escape.index + escape[0].length;
+	for (const sequence of word.matchAll(ESCAPE)) {
+		if (sequence.index === opening) opening += sequence[0].length;
+		if (sequence.index !== runEnd) runStart = sequence.index;
+		runEnd = sequence.index + sequence[0].length;
 	}
 	const closing =
 		runEnd === word.length ? Math.max(runStart, opening) : word.length;
