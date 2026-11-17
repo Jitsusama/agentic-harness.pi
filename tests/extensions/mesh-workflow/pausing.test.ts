@@ -9,6 +9,8 @@ import {
 
 interface Session {
 	idle: boolean;
+	/** The time its pausing reads, in ms; it starts at 0. */
+	time: number;
 	readonly pausing: Pausing;
 	readonly did: string[];
 	readonly told: string[];
@@ -24,7 +26,7 @@ function session(
 	const told: string[] = [];
 	const closedBy: string[] = [];
 	let paused = false;
-	const state = { idle };
+	const state = { idle, time: 0 };
 	const at: Session = {
 		get idle() {
 			return state.idle;
@@ -32,7 +34,14 @@ function session(
 		set idle(now) {
 			state.idle = now;
 		},
+		get time() {
+			return state.time;
+		},
+		set time(now) {
+			state.time = now;
+		},
 		pausing: createPausing({
+			now: () => state.time,
 			idle: (): boolean => state.idle,
 			abort: () => did.push("abort"),
 			paused: () => paused,
@@ -107,6 +116,111 @@ describe("stopping a session", () => {
 		const idle = session(true);
 		idle.pausing.act("stop");
 		expect(idle.did).toEqual([]);
+	});
+});
+
+/** A steer's `at`, written `ms` into the test's clock. */
+function written(ms: number): string {
+	return new Date(ms).toISOString();
+}
+
+describe("a stop or pause written before what it would end", () => {
+	// A conversation that parks takes its inbox only as it starts again,
+	// so a Stop pressed on a row still showing it under way was read on
+	// the next wake, and ended the run a key the person typed had begun.
+	it("drops a Stop written before the run in progress began", () => {
+		const woken = session(true);
+		woken.time = 2_000;
+		woken.idle = false;
+		woken.pausing.started();
+
+		woken.pausing.act("stop", "joel", written(1_500));
+
+		expect(woken.did, "the run the wake began goes on").toEqual([]);
+		expect(woken.told.at(-1)).toContain("dropped");
+		expect(woken.told.at(-1)).toContain(written(1_500));
+	});
+
+	it("drops a Pause written before the session last started", () => {
+		// Pausing is made as the session starts, at 0 in the test's clock,
+		// so a steer written at -500 was written while it was parked.
+		const woken = session(true);
+		woken.time = 2_000;
+		woken.pausing.act("pause", "joel", written(-500));
+		woken.idle = false;
+		woken.pausing.started();
+		woken.pausing.turnEnded();
+
+		expect(woken.pausing.paused).toBe(false);
+		expect(woken.did, "no run is ended").toEqual([]);
+		expect(woken.told.at(-1)).toContain("dropped");
+	});
+
+	it("drops a Pause written before the run in progress began", () => {
+		const one = session(true);
+		one.time = 2_000;
+		one.idle = false;
+		one.pausing.started();
+
+		one.pausing.act("pause", "joel", written(1_500));
+		one.pausing.turnEnded();
+
+		expect(one.pausing.paused).toBe(false);
+		expect(one.did).toEqual([]);
+	});
+
+	it("still stops the run it was written during", () => {
+		const one = session(true);
+		one.time = 2_000;
+		one.idle = false;
+		one.pausing.started();
+
+		one.pausing.act("stop", "joel", written(2_500));
+
+		expect(one.did).toEqual(["abort"]);
+	});
+
+	it("still pauses after a run it was written during has ended", () => {
+		const one = session(true);
+		one.time = 2_000;
+		one.idle = false;
+		one.pausing.started();
+		one.time = 3_000;
+		one.idle = true;
+
+		one.pausing.act("pause", "joel", written(2_500));
+		one.pausing.started();
+
+		expect(one.pausing.paused).toBe(true);
+		expect(one.did, "the next run is ended as it starts").toEqual(["abort"]);
+	});
+
+	it("acts on a steer that says no time, or one it can't read, as written now", () => {
+		for (const at of [undefined, "not a time"]) {
+			const one = session(true);
+			one.time = 2_000;
+			one.idle = false;
+			one.pausing.started();
+
+			one.pausing.act("stop", "joel", at);
+
+			expect(one.did, String(at)).toEqual(["abort"]);
+		}
+	});
+
+	it("never drops a Close or a Resume for its time", () => {
+		const closing = session(true);
+		closing.time = 2_000;
+		closing.pausing.started();
+		closing.pausing.act("close", "joel", written(1_500));
+		expect(closing.did).toEqual(["close"]);
+
+		const resuming = session(true);
+		resuming.pausing.act("pause");
+		resuming.time = 2_000;
+		resuming.pausing.started();
+		resuming.pausing.act("resume", "joel", written(1_500));
+		expect(resuming.pausing.paused).toBe(false);
 	});
 });
 
