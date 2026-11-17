@@ -369,10 +369,13 @@ function repeats(text: string, name: string): boolean {
 	);
 }
 
-/** A file's `name` without its extension, or none when it has none. */
+/**
+ * A file's `name` without its extension, or none when it has none or
+ * its extension holds an escape, which could hide a later dot.
+ */
 function stemOf(name: string): string | undefined {
 	const dot = name.lastIndexOf(".");
-	return dot > 0 ? name.slice(0, dot) : undefined;
+	return dot > 0 && !name.includes("%", dot) ? name.slice(0, dot) : undefined;
 }
 
 /** The fewest characters a commit's short id shows, as git prints one. */
