@@ -290,6 +290,23 @@ export function switchQuest(
 }
 
 /**
+ * The quest a session was on last: the one it is on now, or, once it
+ * has unloaded, the one it left most recently. Undefined when it was
+ * never on one. A README's `started` can't say this, since a session
+ * that returns to a quest keeps the stamp of its first attach there.
+ */
+export function lastQuestOf(record: SessionRecord): string | undefined {
+	if (record.quest) return record.quest;
+	let last: { quest: string; ms: number } | undefined;
+	for (const [quest, left] of Object.entries(record.previousQuests ?? {})) {
+		const ms = Date.parse(left);
+		if (Number.isNaN(ms)) continue;
+		if (last === undefined || ms > last.ms) last = { quest, ms };
+	}
+	return last?.quest;
+}
+
+/**
  * When a session was last open on one particular quest, or undefined
  * when it was never on it.
  *

@@ -4,6 +4,7 @@ import {
 	lastBootSessions,
 	lastOpenAt,
 	lastOpenOnQuest,
+	lastQuestOf,
 	markSignalled,
 	openRecord,
 	parseSessionRecord,
@@ -703,6 +704,31 @@ describe("switchQuest", () => {
 
 	it("does nothing when the session reloads the quest it is already on", () => {
 		expect(switchQuest(opened(), "QEST-1", LATER)).toEqual(opened());
+	});
+});
+
+describe("lastQuestOf", () => {
+	it("names the quest a session is on now", () => {
+		expect(lastQuestOf(switchQuest(opened(), "QEST-2", LATER))).toBe("QEST-2");
+	});
+
+	it("names the quest it went back to and left last, once it unloads", () => {
+		const away = switchQuest(opened(), "QEST-2", LATER);
+		const back = switchQuest(away, "QEST-1", LATER_STILL);
+		const gone = switchQuest(
+			back,
+			undefined,
+			new Date("2026-07-28T21:00:00.000Z"),
+		);
+		expect(lastQuestOf(gone)).toBe("QEST-1");
+	});
+
+	it("names none for a session never on a quest, or left at no readable time", () => {
+		const none = opened({ questId: undefined });
+		expect(lastQuestOf(none)).toBeUndefined();
+		expect(
+			lastQuestOf({ ...none, previousQuests: { "QEST-1": "soon" } }),
+		).toBeUndefined();
 	});
 });
 

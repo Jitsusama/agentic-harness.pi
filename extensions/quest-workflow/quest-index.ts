@@ -26,8 +26,9 @@
  * Each still names the sessions it last attached and the orchestrator
  * above it, as an open quest's record does, since a session it held can
  * outlive it and the node proves who may end that hold by them (KP0L6A,
- * 17 November). Only a session whose last quest it was is named: one
- * that moved on answers to where it went, open or ended. They are many
+ * 17 November). Only a session whose last quest it was, by the session
+ * registry, is named: one that moved on answers to where it went, open
+ * or ended. They are many
  * more than the open ones and change mostly as a quest ends or reopens,
  * or as one above them does, so a quest action rewrites only the short
  * list
@@ -62,6 +63,7 @@ import {
 	indexSessionFiles,
 	type LivenessSnapshot,
 } from "../../lib/internal/quest/sessions/session-liveness.ts";
+import { lastQuestOf } from "../../lib/internal/quest/sessions/session-registry.ts";
 import { rosterHolds } from "../../lib/internal/session/host-holds.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
@@ -213,7 +215,12 @@ export function keepDesktopListsCurrent(questsRoot: string): Promise<void> {
 					),
 				});
 				writeWhenChanged(endedQuestsPath(), {
-					quests: endedQuestsIn(index, questsRoot),
+					quests: endedQuestsIn(
+						index,
+						questsRoot,
+						undefined,
+						whereEachSessionWasLast(),
+					),
 				});
 			} catch {
 				// The next quest action tries again.
@@ -327,9 +334,13 @@ export function endedQuestsIn(
 	index: QuestIndex,
 	store: string,
 	home?: string,
+	/** The quest each session was on last, by the session registry. */
+	lastQuestOf: (sessionId: string) => string | undefined = () => undefined,
 ): EndedQuestEntry[] {
 	const read = (id: string) => index.quests.get(id)?.doc.frontMatter;
 	const lastHeld = lastHolders(index);
+	const lastOn = (session: string) =>
+		lastQuestOf(session) ?? lastHeld.get(session);
 	return [...index.quests.entries()]
 		.filter(([, entry]) => !isOpen(entry.doc.frontMatter.status))
 		.sort(([a], [b]) => a.localeCompare(b))
@@ -362,7 +373,7 @@ export function endedQuestsIn(
 				...(by ? { orchestrator: questAddress(by) } : {}),
 				sessions: fm.sessions
 					.map((session) => session.id)
-					.filter((session) => lastHeld.get(session) === id),
+					.filter((session) => lastOn(session) === id),
 				start,
 				updated: fm.updated,
 			};
@@ -370,10 +381,12 @@ export function endedQuestsIn(
 }
 
 /**
- * Each session's quest as it stands: the one it attached to last, by
- * when each README says it started there, whichever way it moved and
- * whether that quest is open or ended. A session that never says when
- * counts as the oldest.
+ * Each session's last quest as the READMEs alone can guess it, for a
+ * session the registry has no record of (one from another machine, or
+ * from before it): the README where it says it started latest. That
+ * misses a return, since a session going back to a quest keeps the
+ * stamp of its first attach there, which is why the registry speaks
+ * first. A session that never says when counts as the oldest.
  */
 function lastHolders(index: QuestIndex): Map<string, string> {
 	const last = new Map<string, { quest: string; at: string }>();
@@ -412,6 +425,19 @@ function toTheHour(iso: string): string {
 }
 
 /** Each recorded session's last quest, read once per pass. */
+/**
+ * The quest each session the registry knows was on last, whether it is
+ * on it still or has unloaded since.
+ */
+function whereEachSessionWasLast(): (sessionId: string) => string | undefined {
+	const quests = new Map<string, string>();
+	for (const { record } of loadRecords()) {
+		const quest = lastQuestOf(record);
+		if (quest) quests.set(record.sessionId, quest);
+	}
+	return (sessionId) => quests.get(sessionId);
+}
+
 function lastQuests(): (sessionId: string) => string | undefined {
 	const quests = new Map<string, string>();
 	for (const { record } of loadRecords()) {

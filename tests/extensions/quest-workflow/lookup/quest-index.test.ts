@@ -361,6 +361,17 @@ describe("the quests the desktop lists", () => {
 					`    cwd: ${elsewhere}`,
 					"    started: 2026-01-01T00:10:00Z",
 					"    status: detached",
+					// Two that went back to a quest they were on before, which
+					// keeps the stamp of their first attach there: only the
+					// registry knows where each is last.
+					"  - id: s-returned",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:40:00Z",
+					"    status: detached",
+					"  - id: s-went-back",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:15:00Z",
+					"    status: detached",
 				].join("\n"),
 				"# Between",
 			);
@@ -387,6 +398,14 @@ describe("the quests the desktop lists", () => {
 					`    cwd: ${newer}`,
 					"    started: 2026-01-01T02:00:00Z",
 					"    status: detached",
+					"  - id: s-returned",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:20:00Z",
+					"    status: detached",
+					"  - id: s-went-back",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T01:45:00Z",
+					"    status: detached",
 				].join("\n"),
 				"# Old\n\n## 📜 Summary\n\nIt was done.",
 			);
@@ -406,7 +425,16 @@ describe("the quests the desktop lists", () => {
 			);
 			const { index } = discoverQuests(root);
 
-			expect(endedQuestsIn(index, root, "/home/someone")).toEqual([
+			const registry = new Map([
+				["s-returned", OLD],
+				["s-went-back", MIDDLE],
+			]);
+
+			expect(
+				endedQuestsIn(index, root, "/home/someone", (session) =>
+					registry.get(session),
+				),
+			).toEqual([
 				{
 					id: CHILD,
 					address: "CHILDQ",
@@ -433,7 +461,7 @@ describe("the quests the desktop lists", () => {
 					// orchestrator above, not the parent, and none of the sessions
 					// an open quest now answers for.
 					orchestrator: "MISSON",
-					sessions: ["s-first", "s-back", "s-last"],
+					sessions: ["s-first", "s-back", "s-last", "s-returned"],
 					start: newer,
 					updated: "2026-01-01T03:00:00Z",
 				},
