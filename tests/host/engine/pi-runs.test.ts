@@ -77,6 +77,39 @@ describe("the agent's own runs in pi", () => {
 		expect(fromFailed, "a failed start").toEqual([]);
 	});
 
+	it("tells extensions a run settled on a pi with no seam, as before it", async () => {
+		// pi settles only runs it began, so without the seam an extension waiting
+		// on a settle, as job-workflow's outbox does, waited until a person typed.
+		const settles: boolean[] = [];
+		const session = (streaming: boolean): HostRunningSession => ({
+			isStreaming: streaming,
+			extensionRunner: {
+				async emit(event) {
+					settles.push(event.aborted);
+				},
+			},
+		});
+		const stopped = new AbortController();
+		stopped.abort();
+		let parked = false;
+		const runs = new PiRuns(() => parked);
+
+		runs.tell(session(false));
+		await runs.holding(() => runs.opening());
+		await runs.holding(() => runs.opening(stopped.signal));
+		await runs.holding(async () => {});
+		runs.tell(session(true));
+		await runs.holding(() => runs.opening());
+		runs.tell(session(false));
+		parked = true;
+		await runs.holding(() => runs.opening());
+
+		expect(
+			settles,
+			"one settle each for the shown runs, none unshown, inside pi's own or once parked",
+		).toEqual([false, true]);
+	});
+
 	it("opens nothing for work nobody holds", async () => {
 		const { session, said } = piSession();
 		const runs = new PiRuns(() => false);
