@@ -25,8 +25,9 @@ hosted-agent.test.ts, call-signal.test.ts and engine.test.ts are the
 exceptions. The first runs fixtures/hosted-session.mts in child node
 processes, beside pi's own agent, on pi's scripted provider; the second
 runs its call-signal scenario the same way, holding that a later call's
-commands start under no signal an earlier call left behind. The third runs fixtures/hosted-engine.mts, a
-host's life one start at a time in a sealed folder: open, a refused key,
+commands start under no signal an earlier call left behind. The third
+runs fixtures/hosted-engine.mts, a host's life one start at a time in a
+sealed folder: open, a refused key,
 a stop and resume, a kill mid-tool and the start after it, a park
 that keeps what an ended command left and the start after it, ordinary
 pi reading the file, and an extension whose link moves onto another
