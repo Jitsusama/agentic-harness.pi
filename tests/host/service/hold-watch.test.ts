@@ -7,10 +7,13 @@
 import { spawnSync } from "node:child_process";
 import {
 	closeSync,
+	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	openSync,
 	readFileSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -135,6 +138,157 @@ describe("watchHolds", () => {
 			expect(end, "the call and its path").toContain(`in openat ${shown}`);
 		},
 	);
+
+	describe("beating the watchdog for a loop held in the disk", () => {
+		// Each beat the thread gives is a line in this file, as systemd's
+		// notify would hear it.
+		const beats = () => join(dir, "beats");
+		const beaten = () =>
+			existsSync(beats())
+				? readFileSync(beats(), "utf8").split("\n").filter(Boolean)
+				: [];
+		const beat = (cap = 60_000) => ({
+			every: 200,
+			cap,
+			command: ["sh", "-c", `echo WATCHDOG=1 >> '${beats()}'`],
+			env: process.env,
+		});
+
+		/**
+		 * A /proc of the main thread's own, saying it sleeps uninterruptibly
+		 * in `wchan` inside the call numbered `call`, whose path argument
+		 * reads `path`: how the kernel showed the host's loop through the
+		 * disk stall of 17 November. The loop is really spinning; the thread
+		 * reads only this.
+		 */
+		function procSaying(state: string, wchan: string, call: number): string {
+			const proc = join(dir, "proc");
+			const task = join(proc, "task", String(process.pid));
+			mkdirSync(task, { recursive: true });
+			const rest = Array.from({ length: 40 }, () => "0").join(" ");
+			writeFileSync(
+				join(task, "stat"),
+				`${process.pid} (node) ${state} ${rest}\n`,
+			);
+			writeFileSync(join(task, "wchan"), wchan);
+			// The path argument is at address 0 of the stand-in memory.
+			writeFileSync(
+				join(task, "syscall"),
+				`${call} 0xffffff9c 0x0 0x0 0x0 0x0 0x0 0x0 0x0\n`,
+			);
+			writeFileSync(
+				join(proc, "mem"),
+				"/home/one/.local/state/mesh/presence/a.json\0",
+			);
+			writeFileSync(join(proc, "status"), "VmSwap:\t0 kB\n");
+			mkdirSync(join(proc, "fd"), { recursive: true });
+			return proc;
+		}
+
+		it.runIf(process.arch === "x64")(
+			"beats for a loop asleep in a filesystem call, and says so",
+			async () => {
+				const proc = procSaying("D", "btrfs_read_lock_root_node", 257);
+				stop = watchHolds({
+					fd,
+					every: EVERY_MS,
+					after: 300,
+					still: 60_000,
+					proc,
+					beat: beat(),
+				});
+				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				hold(1500);
+				await vi.waitFor(() => {
+					expect(said().join("\n"), "a line once it turned").toMatch(
+						/the loop held /,
+					);
+				});
+				expect(
+					beaten().length,
+					"beats while it slept in the disk",
+				).toBeGreaterThanOrEqual(2);
+				expect(said().join("\n"), "each beat journalled").toMatch(
+					/beat the watchdog for the loop, held \d+\.\d s in openat ~\/\.local\/state\/mesh\/presence\/a\.json|beat the watchdog for the loop, held \d+\.\d s in openat \/home\/one/,
+				);
+			},
+		);
+
+		it("never beats for a loop running JavaScript", async () => {
+			stop = watchHolds({
+				fd,
+				every: EVERY_MS,
+				after: 300,
+				still: 60_000,
+				beat: beat(),
+			});
+			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+			hold(1500);
+			await vi.waitFor(() => {
+				expect(said().join("\n"), "a line once it turned").toMatch(
+					/the loop held /,
+				);
+			});
+			expect(beaten(), "a spin is the watchdog's to kill").toEqual([]);
+		});
+
+		it.runIf(process.arch === "x64")(
+			"never beats for a loop waiting off the disk",
+			async () => {
+				// Asleep on a lock between threads, which no disk will end.
+				const proc = procSaying("S", "futex_wait_queue", 202);
+				stop = watchHolds({
+					fd,
+					every: EVERY_MS,
+					after: 300,
+					still: 60_000,
+					proc,
+					beat: beat(),
+				});
+				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				hold(1500);
+				await vi.waitFor(() => {
+					expect(said().join("\n"), "a line once it turned").toMatch(
+						/the loop held /,
+					);
+				});
+				expect(
+					beaten(),
+					"a wait off the disk is the watchdog's to kill",
+				).toEqual([]);
+			},
+		);
+
+		it.runIf(process.arch === "x64")(
+			"stops beating at its cap, and says so",
+			async () => {
+				const proc = procSaying("D", "btrfs_read_lock_root_node", 257);
+				stop = watchHolds({
+					fd,
+					every: EVERY_MS,
+					after: 300,
+					still: 60_000,
+					proc,
+					beat: beat(700),
+				});
+				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				hold(2000);
+				await vi.waitFor(() => {
+					expect(said().join("\n"), "a line once it turned").toMatch(
+						/the loop held /,
+					);
+				});
+				const atCap = beaten().length;
+				expect(atCap, "beats before the cap").toBeGreaterThanOrEqual(1);
+				// Two beats' worth from the cap's 700 ms to the hold's 2000 ms
+				// would have come had it gone on.
+				expect(atCap, "none past the cap").toBeLessThanOrEqual(3);
+				expect(said().join("\n"), "the stop journalled").toMatch(
+					/stopped beating the watchdog for the loop at its cap of 0\.7 s/,
+				);
+			},
+		);
+	});
 
 	it("says nothing while the loop turns, nor once stopped", async () => {
 		stop = watchHolds({ fd, every: EVERY_MS, after: AFTER_MS });
