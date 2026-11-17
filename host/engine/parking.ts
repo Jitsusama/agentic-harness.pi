@@ -19,6 +19,15 @@
  * Lifting the drain (`release`) wakes each one asked for meanwhile, and
  * the next host's `rests` reads the file left for it. A viewer typing or
  * a window opening is never held.
+ *
+ * A drain holds them only until its restart passes the settle ceiling
+ * (`letThrough`): from then the host waits for a gap, which background
+ * work can put off for hours. From 05:02 on 17 November 13 parked
+ * sessions sat on unread wakes that way, questions to them unheard for
+ * 1.5 to 3.5 h. Past it, each one held is woken and the rest go through
+ * at once, while the drain itself stays for the gap: one woken parks
+ * again as soon as it is idle. As the restart comes, or the host stops,
+ * they are held again, so one written then waits for the next host.
  */
 import {
 	existsSync,
@@ -82,6 +91,14 @@ export interface Parking {
 	closed(sessionId: string): void;
 	/** The drain lifted: wake each one asked for through its file or a steer while it held. */
 	release(): void;
+	/**
+	 * Whether the drain's restart is past its ceiling, waiting for a gap:
+	 * if so, hold no wake or steer until the drain lifts or this says not,
+	 * and wake each one held. Answers how many it woke as it began letting
+	 * them through, so the host journals that once; nothing when it
+	 * already did, holds them again, or the host doesn't drain.
+	 */
+	letThrough(on: boolean): number | undefined;
 }
 
 /** A parked conversation's watches, until it wakes or is closed. */
@@ -129,7 +146,9 @@ export function parking(options: {
 	/** Whether wakes through the file and steers are held now, as the host drains. */
 	readonly holding?: () => boolean;
 }): Parking {
-	const holding = () => options.holding?.() === true;
+	// Whether this drain's restart passed its ceiling, until the drain lifts.
+	let through = false;
+	const holding = () => !through && options.holding?.() === true;
 	const { stateDir, report } = options;
 	// Parked conversations, each watching its wake file until it wakes or is closed.
 	const sleepers = new Map<string, Sleeper>();
@@ -278,11 +297,33 @@ export function parking(options: {
 		unwatch: forget,
 		closed: forget,
 		release() {
-			for (const sleeper of [...sleepers.values()]) {
-				if (sleeper.woken?.()) continue;
-				const steer = sleeper.heldSteer;
-				if (steer !== undefined) sleeper.steered?.(steer);
+			through = false;
+			wakeHeld();
+		},
+		letThrough(on) {
+			if (!on) {
+				through = false;
+				return undefined;
 			}
+			if (!holding()) return undefined;
+			through = true;
+			return wakeHeld();
 		},
 	};
+
+	// Wake each one asked for through its file or a steer while wakes were held, answering how many.
+	function wakeHeld(): number {
+		let woken = 0;
+		for (const sleeper of [...sleepers.values()]) {
+			if (sleeper.woken?.()) {
+				woken++;
+				continue;
+			}
+			const steer = sleeper.heldSteer;
+			if (steer === undefined) continue;
+			sleeper.steered?.(steer);
+			woken++;
+		}
+		return woken;
+	}
 }

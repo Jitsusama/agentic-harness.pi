@@ -2,7 +2,8 @@
  * Drain one of the realm's hosts for a restart, or lift its drain
  * (host/service/README.md): while drained each conversation parks as
  * soon as its park rule holds, a wake by file or steer waits for the
- * lift, and a heavy run (a build, a check, a suite) holds the host's
+ * lift or for the host's own restart to pass its settle ceiling, and a
+ * heavy run (a build, a check, a suite) holds the host's
  * restart. Node runs it as it stands, stripping the types:
  *
  *   node scripts/host-drain.ts (attended|background) (on|off) [--by NAME]
