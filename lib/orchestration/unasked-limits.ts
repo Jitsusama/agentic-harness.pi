@@ -9,8 +9,9 @@
  * for no such limit, and at 22:29 asked why it was there. A filed rule
  * didn't stop the next one; this does. A sentence that limits a
  * verdict (approve, request changes, block, comment-only) goes only
- * when it cites its source: his words quoted, a message's id, a named
- * rule, skill or document, or an owner's ruling ("until LWKYKQ says").
+ * when it cites its source: his words quoted with his name, a
+ * message's id, a named standing rule, document or skill, or an
+ * owner's ruling by address.
  *
  * The rule was narrowed by replaying a day of one orchestrator's pivots,
  * questions and spawn notes, and every orchestrator's spawn notes, 287
@@ -18,24 +19,47 @@
  * sound: hardware and network safety, owners' fences, descriptions. So
  * limits on anything but a verdict are left alone, as are a ban on
  * publishing outright and a review kept a draft, both his standing
- * rule. The narrowed rule refuses 2 of the 287: the 22:26 sentence, and
- * one sound one that limited a verdict without naming why.
+ * rule, and questions, which order nothing. The rule refuses 2 of the
+ * 287: the 22:26 sentence, and one sound one that limited a verdict
+ * without naming why.
  */
 
 /** A session's address, as an owner's ruling names it. */
 const ADDRESS = String.raw`\b[0-9A-Z]{6}\b`;
 
 /**
- * A limit opening a clause: after a stop, or after a word that makes it
- * an order ("Post no", "must never") rather than a fact ("is no",
- * "if nothing").
+ * A limit opening a clause: after a stop or a dash, or after a word that
+ * makes it an order ("Post no", "must never") rather than a fact ("is
+ * no", "if nothing"). Every one in a sentence is read, so a limit of its
+ * own ahead of it hides none.
  */
 const LIMIT =
-	/(?:^|[,;:(]\s*|\b(?!(?:is|was|are|were|has|have|had|with|of|in|for|there|if|when|whether|unless|that)\b)\w+\s+)(never|don'?t|do not|no|nothing|none|only|at most|except|without)\b(.*)$/i;
+	/(?:^|[,;:(\u2014\u2013]\s*|\s-\s+|(?<![\w'\u2019])(?!(?:is|was|are|were|has|have|had|of|in|for|there|if|when|whether|unless|that)\b)\w+\s+)(never|don['\u2019]?t|do not|not|no|nothing|none|only|at most|except|without)\b/gi;
 
-/** A verdict on a change, the person's to narrow. "Block" alone, not "block a restart". */
-const VERDICT =
-	/\b(approv\w*|request(ing)? changes|comment[- ]only|comment review|verdicts?|block(ing|s)?\b(?! (a|an|the|any|on|for|until|it|them|this)\b))/i;
+/** Whose approval a limit waits on, which narrows no verdict of his. */
+const WHOSE = String.raw`(?<!\b(?:joel|person|owner)['\u2019]?s\s+|\b(?:his|your|their)\s+)`;
+
+/**
+ * A verdict on a change, the person's to narrow. "Block" only as one
+ * ("block it", "or block"), not "block a restart" or "block other
+ * sessions".
+ */
+const VERDICT = new RegExp(
+	[
+		`${WHOSE}approv\\w*`,
+		"request(ing)? changes",
+		"comment[- ]only",
+		"comment review",
+		"verdicts?",
+		String.raw`blocking (review|verdict|comments?)`,
+		String.raw`block(s|ed)?(?=\s*$|\s+(that|which|it|this|the (pr|change|review)|on (it|the (pr|change)))\b)`,
+	].join("|"),
+	"i",
+);
+
+/** A verdict word told of rather than ordered: "no blocking comments remain". */
+const TOLD_OF =
+	/\b(remains?|is|are|was|were|left|exists?|stands?|limits?|rules?)\b/i;
 
 /** Publishing, which a limit may ban outright by the person's drafts rule. */
 const PUBLISHING =
@@ -43,20 +67,23 @@ const PUBLISHING =
 
 /** A review kept a draft, for the person to publish. */
 const DRAFTS =
-	/\bdrafts?\b|\blive\b|for (joel|him) to (publish|post|send)|(his|joel'?s) to (publish|post|send)/i;
+	/\bdrafts?\b|for (joel|him) to (publish|post|send)|(his|joel'?s) to (publish|post|send)/i;
 
 /** A draft said not to be one, which keeps nothing a draft. */
 const NOT_A_DRAFT = /\bnot a draft\b/i;
 
-/** His words, quoted. */
+/** Words quoted, which are his only when the sentence says so. */
 const QUOTE = /["\u201c]([^"\u201d]{12,})["\u201d]/;
+
+/** The person, named where his words are quoted. */
+const HIM = /\b(joel|he|his|him|the person)\b/i;
 
 /** A message's id, as the mesh shows it. */
 const MESSAGE_ID = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{8}\b/;
 
-/** A named rule, skill or document. */
+/** A named standing rule, document or skill. */
 const NAMED_RULE =
-	/\b(standing( rules?)?|his (rule|gate|word|ask)s?|joel'?s (rule|gate|word|ask)s?|as (he|joel) (said|asked|set)|he (said|asked|set)|AGENTS\.md|docs\/\S+|skill|convention|rules? \w+|policy|the map|README)\b/i;
+	/\b(standing rules?|his (rule|gate)s?|joel['\u2019]?s (rule|gate)s?|AGENTS\.md|docs\/\S+|[a-z]+(-[a-z]+)+ skill)\b/i;
 
 /** An owner's ruling, by address. */
 const RULING = new RegExp(
@@ -64,24 +91,19 @@ const RULING = new RegExp(
 		`${ADDRESS}(?:'s)? (says|said|answers|decides|owns|keeps|holds|agrees|rules)`,
 		`(until|unless|till|before) ${ADDRESS}`,
 		`${ADDRESS}'s (call|say|word|yes|domain|lane|fence)`,
-		`(to|through|from|ask|tell|with) ${ADDRESS}`,
 	].join("|"),
 );
 
-/** A sentence's opening label, such as "Scope:" or "**Next:**". */
-const LABEL = /^[\s\-*\d.)]*(\*\*)?[A-Z][\w ]{0,20}:(\*\*)?\s+/;
-
-/** The sentences of a message, its links and the harness's notes left out. */
+/** The sentences of a message, its links left out. */
 function sentences(text: string): string[] {
 	return text
-		.replace(/\[Automated message[^\]]*\]/g, "")
 		.replace(/https?:\/\/\S+/g, "URL")
 		.split(/(?<=[.!?])\s+|\n+/)
 		.map((part) =>
 			part
 				.trim()
-				.replace(LABEL, "")
-				.replace(/^[\s\-*]+|[\s\-*]+$/g, ""),
+				.replace(/^[\s\-*\d.)]*(\*\*)?/, "")
+				.replace(/[\s\-*]+$/, ""),
 		)
 		.filter(Boolean);
 }
@@ -90,7 +112,7 @@ function sentences(text: string): string[] {
 function covered(rest: string): string[] {
 	const clause =
 		rest.split(
-			/[:;.]|\b(?:so|because|since|until|unless|but|while|when)\b/,
+			/[:;.\u2014\u2013]|\s-\s|\b(?:so|because|since|until|unless|but|while|when)\b/,
 		)[0] ?? "";
 	return clause
 		.split(/,|\bor\b|\band\b|\bnor\b/)
@@ -100,21 +122,33 @@ function covered(rest: string): string[] {
 
 /** Whether a sentence says whose word its limit is. */
 function sourced(sentence: string): boolean {
-	return [QUOTE, MESSAGE_ID, NAMED_RULE, RULING].some((source) =>
-		source.test(sentence),
+	return (
+		(QUOTE.test(sentence) && HIM.test(sentence)) ||
+		[MESSAGE_ID, NAMED_RULE, RULING].some((source) => source.test(sentence))
 	);
+}
+
+/** Whether one item a limit covers is a verdict ordered, not told of. */
+function verdictOrdered(item: string): boolean {
+	const verdict = VERDICT.exec(item);
+	if (!verdict) return false;
+	return !TOLD_OF.test(item.slice(verdict.index + verdict[0].length));
+}
+
+/** Whether a limit's items narrow a verdict, rather than ban publishing outright. */
+function narrowed(items: string[]): boolean {
+	const outright = items.some(
+		(item) => PUBLISHING.test(item) && !VERDICT.test(item),
+	);
+	return !outright && items.some(verdictOrdered);
 }
 
 /** Whether a sentence narrows a verdict with no source and no drafts rule behind it. */
 function narrowsVerdict(sentence: string): boolean {
-	if (sourced(sentence)) return false;
+	if (sentence.endsWith("?") || sourced(sentence)) return false;
 	if (DRAFTS.test(sentence) && !NOT_A_DRAFT.test(sentence)) return false;
-	const limit = LIMIT.exec(sentence);
-	if (!limit) return false;
-	const items = covered(limit[2] ?? "");
-	return (
-		items.some((item) => VERDICT.test(item)) &&
-		!items.some((item) => PUBLISHING.test(item))
+	return [...sentence.matchAll(LIMIT)].some((limit) =>
+		narrowed(covered(sentence.slice((limit.index ?? 0) + limit[0].length))),
 	);
 }
 
@@ -126,5 +160,5 @@ function narrowsVerdict(sentence: string): boolean {
 export function limitsRefusal(text: string): string | undefined {
 	const unasked = sentences(text).find(narrowsVerdict);
 	if (unasked === undefined) return undefined;
-	return `this limits a verdict the person didn't ask to limit ("${unasked}"). A limit on what's approved, blocked or left a comment is his to set: quote his words, name the message or rule it comes from, or the owner whose ruling it is (until LWKYKQ says so), or take the limit out.`;
+	return `this limits a verdict the person didn't ask to limit ("${unasked}"). A limit on what's approved, blocked or left a comment is his to set: quote his words and say they are his, give the id of the message it comes from, name the standing rule or document, or the owner whose ruling it is by address; or take the limit out.`;
 }

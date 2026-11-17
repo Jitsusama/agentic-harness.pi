@@ -64,7 +64,7 @@ found.
 | Rule | Status | Gate |
 | --- | --- | --- |
 | A question for the person's hands counts his acts against the fewest | 🟢 | `extensions/mesh-workflow/joels-hands.ts`, on a question to the orchestrator |
-| A limit on a verdict in his name (approve, block, request changes, comment-only) cites its source: his words quoted, a message id, a named rule or an owner's ruling | 🟢 | `lib/orchestration/unasked-limits.ts`, on an orchestrator's pivot or question and on every spawn note |
+| A limit on a verdict in his name (approve, block, request changes, comment-only) cites its source: his words quoted with his name, a message id, a standing rule, document or skill, or an owner's ruling by address | 🟢 | `lib/orchestration/unasked-limits.ts`, on an orchestrator's pivot or question and on every spawn note |
 | Any other limit an orchestrator adds cites its source | 🚫 | Replayed over a day of one orchestrator's messages and every spawn note, 287 in all, such a rule refused 52, nearly all sound: hardware and network safety, owners' fences, descriptions |
 
 ## Open Gaps
