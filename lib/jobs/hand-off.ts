@@ -19,6 +19,11 @@
  * A line the person types during the run moves the call a moment later
  * rather than at the minute (steer.ts), since pi reads the line only
  * once every call of the turn has ended.
+ *
+ * A moved call's end reaches the session as a message, never as the
+ * call's answer, so neither the secret-scrub extension nor a host's tool
+ * round sees it. It is scrubbed here as they would have scrubbed the
+ * answer, read by the call's input, before anything says or keeps it.
  */
 
 import { writeFileSync } from "node:fs";
@@ -30,6 +35,8 @@ import type {
 	EventBus,
 } from "@earendil-works/pi-coding-agent";
 import { sessionEnv } from "../core/session/index.ts";
+import { scrubSavedOutput } from "../internal/secrets/saved-output.ts";
+import { scrubToolResult } from "../internal/secrets/secrets.ts";
 import { count, verb } from "../ui/count.ts";
 import { firstText } from "../ui/tool-result.ts";
 import { findJobHost, type JobCarry } from "./host.ts";
@@ -80,6 +87,11 @@ export interface HandOff<T> {
 	readonly filePrefix: string;
 	/** The call being run, named on its job if it is handed off. */
 	readonly toolCallId?: string;
+	/**
+	 * The call's input, as it started, by which its end is scrubbed once
+	 * moved: a command printing the environment is read as one.
+	 */
+	readonly input?: unknown;
 	/** True to hand off at once; false or unset, after a while. */
 	readonly background?: boolean;
 	/** True when it must answer for itself: never handed off, even when asked. */
@@ -250,7 +262,8 @@ export async function runOrHandOff<T>(
 	// runs in one process, and the file outlives them all.
 	const fileName = `${call.session}-${startedAt}-${job.id}`;
 	running.then(
-		(result) => {
+		(settled) => {
+			const result = scrubbed(settled, call.input);
 			const took = spoken(now() - startedAt);
 			const code = exitCodeOf(result);
 			const status =
@@ -269,7 +282,14 @@ export async function runOrHandOff<T>(
 			});
 		},
 		(error: unknown) => {
-			const said = error instanceof Error ? error.message : String(error);
+			// A command that throws says its output in its error's words.
+			const words = error instanceof Error ? error.message : String(error);
+			const said = saidBy(
+				scrubbed(
+					{ content: [{ type: "text", text: words }], details: undefined },
+					call.input,
+				),
+			);
 			job.finish({
 				summary: finishedSummary(
 					call.label,
@@ -298,6 +318,19 @@ export async function runOrHandOff<T>(
 		],
 		details: undefined,
 	};
+}
+
+/**
+ * A moved call's result with its saved output and its fields scrubbed,
+ * read by the call's input; the same object when it held nothing to hide.
+ */
+function scrubbed<T>(
+	result: AgentToolResult<T>,
+	input: unknown,
+): AgentToolResult<T> {
+	scrubSavedOutput(result, input);
+	const found = scrubToolResult(result, input);
+	return found === undefined ? result : { ...result, ...found };
 }
 
 /** What the call answers once the work has moved to a job. */

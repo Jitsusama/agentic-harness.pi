@@ -37,6 +37,7 @@
  * ends.
  */
 
+import { scrubSecrets } from "../../lib/internal/secrets/secrets.ts";
 import {
 	isMoveTarget,
 	type MoveTarget,
@@ -382,11 +383,13 @@ function outcomeOf(
 	at: number,
 ): JobOutcome | undefined {
 	const took = spoken(at - work.startedAt);
+	// The command is not carried, so its output is read by what it says: a
+	// credential by its value or shape, and a dump by its lines.
 	const say = (status: string, output: string) =>
 		finishedSummary(
 			job.label,
 			status,
-			output,
+			scrubSecrets(output).text,
 			`${session}-${work.startedAt}-${job.id}`,
 			keepInTemp(session, "pi-bash"),
 		);

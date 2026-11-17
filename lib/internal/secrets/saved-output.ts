@@ -13,6 +13,10 @@
  * in a private folder it makes in the temporary folder, and names it in
  * the structured answer rather than the details. Both are recognised.
  *
+ * A command that fails by throwing, as one that times out or is stopped,
+ * answers with its error's words alone, which name the file in their text
+ * rather than in details; so the text is read for it too.
+ *
  * The secret-scrub extension and a host's tool round both scrub it, so a
  * hosted conversation that loads no extension leaves no raw spill either.
  */
@@ -42,6 +46,9 @@ const PI_OUTPUT_FILE = /^pi-[a-z]+-[0-9a-f]+\.log$/;
 const DURABLE_OUTPUT_FILE =
 	/^pi-output-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.log$/;
 
+/** How pi's text names the file it saved: `Full output: <path>]`. */
+const NAMED_IN_TEXT = /Full output: ([^\s\]]+)/g;
+
 /** The folder pi-durable makes for each spill with `mkdtemp("tmp-")`. */
 const DURABLE_OUTPUT_FOLDER = /^tmp-[A-Za-z0-9]{6}$/;
 
@@ -54,25 +61,26 @@ const MOST_BYTES = 64 * 1024 * 1024;
 
 /**
  * Scrubs the files a tool's answer says its whole output was saved to,
- * pi's in the details or pi-durable's in the structured answer, read as
- * the call's input says (a printing of the environment as one), and says
- * which kinds it found. Call it once the call has settled, never for a
- * streamed update, since the file may still be written.
+ * pi's in the details or pi-durable's in the structured answer, or either
+ * named in its text, read as the call's input says (a printing of the
+ * environment as one), and says which kinds it found. Call it once the
+ * call has settled, never for a streamed update, since the file may
+ * still be written.
  */
 export function scrubSavedOutput(
-	answer: Pick<
-		ToolAnswer<unknown, unknown, unknown>,
-		"details" | "structuredContent"
-	>,
+	answer: ToolAnswer<unknown, unknown, unknown>,
 	input: unknown,
 	folder: string = tmpdir(),
 ): readonly string[] {
 	const options = scrubOptionsOf(input);
-	const files = new Set(
-		[answer.details, answer.structuredContent].map((naming) =>
+	const files = new Set([
+		...[answer.details, answer.structuredContent].map((naming) =>
 			savedOutputFile(naming, folder),
 		),
-	);
+		...(answer.content ?? []).flatMap((part) =>
+			savedOutputFilesIn(part, folder),
+		),
+	]);
 	const kinds: string[] = [];
 	for (const file of files) {
 		if (file) kinds.push(...scrubOutputFile(file, options));
@@ -93,6 +101,20 @@ export function savedOutputFile(
 	if (!isRecord(naming)) return undefined;
 	const named = naming.fullOutputPath;
 	if (typeof named !== "string") return undefined;
+	return savedOutputPath(named, folder);
+}
+
+/** The saved output files a part of an answer names in its text. */
+function savedOutputFilesIn(part: unknown, folder: string): string[] {
+	if (!isRecord(part) || typeof part.text !== "string") return [];
+	return [...part.text.matchAll(NAMED_IN_TEXT)].flatMap(([, named]) => {
+		const file = named ? savedOutputPath(named, folder) : undefined;
+		return file ? [file] : [];
+	});
+}
+
+/** `named`, when it is a file pi or pi-durable saved as they name them. */
+function savedOutputPath(named: string, folder: string): string | undefined {
 	const file = resolve(named);
 	const root = resolve(folder);
 	const parent = dirname(file);

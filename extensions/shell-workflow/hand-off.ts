@@ -83,6 +83,8 @@ export async function runOrHandOff<T>(
 	const { command, ...rest } = call;
 	return await handOff({
 		...rest,
+		// Its end is read as the command started, a printed environment as one.
+		input: { command },
 		kind: "shell",
 		label: labelOf(command),
 		noun: "background command",
