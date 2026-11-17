@@ -589,9 +589,7 @@ describe("the host's engine", () => {
 			const seen = await step(hostFolder(), "replace-lost");
 			const first = seen.firstId ?? "";
 			const next = seen.became[0]?.sessionId ?? "";
-			const refused = seen.probe.find(
-				(line) => line.event === "new-refused",
-			);
+			const refused = seen.probe.find((line) => line.event === "new-refused");
 			expect(
 				refused?.error ?? "",
 				`the command's new session fails, saying why (the prompt said: ${seen.refused ?? ""})`,
