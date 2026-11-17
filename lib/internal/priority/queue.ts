@@ -205,6 +205,11 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 				// test is left alone: Acceluary's deploy waits on its, which is
 				// timed work rather than bulk (N3Q98W).
 				/(?<![\w./-])vitest(?![\w.-])|\bpnpm\s+(?:run\s+)?(?:check|test(?::[\w-]+)?)(?![\w:-])/,
+				// A whole project's type check holds a gigabyte and a core for
+				// minutes: two took no turn on equilibrius at load 155 to 264 on
+				// 16 November (VRZKID). Asking tsc its version or help compiles
+				// nothing.
+				/(?<![\w./-])tsc(?![\w.-])(?!\s+(?:--version|-v|--help|-h)(?![\w-]))|\bpnpm\s+(?:run\s+)?typecheck(?::[\w-]+)?(?![\w:-])/,
 			]
 				.map((pattern) => pattern.source)
 				.join("|"),
