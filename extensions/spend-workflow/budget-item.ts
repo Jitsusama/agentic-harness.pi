@@ -22,12 +22,12 @@ import {
 } from "../../lib/budget/record.ts";
 import type { Exec } from "../../lib/core/exec/index.ts";
 import { sessionEnv } from "../../lib/core/session/index.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import {
 	lastPlanUse,
 	type PlanUse,
 	planUseOf,
 } from "../../lib/internal/spend/claude-plan.ts";
-import { isRecord } from "../../lib/internal/record.ts";
 import {
 	askBudgets,
 	type Budgets,

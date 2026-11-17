@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Exec, ExecResult } from "../../../../lib/core/exec/index.ts";
-import { askBill, isBillCut } from "../../../../lib/internal/spend/spend-watch.ts";
+import {
+	askBill,
+	isBillCut,
+} from "../../../../lib/internal/spend/spend-watch.ts";
 
 /** A report as spend-watch writes one, trimmed to two rows. */
 const REPORT = {

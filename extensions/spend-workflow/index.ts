@@ -59,7 +59,6 @@ import {
 import { citeListing } from "../../lib/core/result/listing.ts";
 import { openSessionStore } from "../../lib/core/result/location.ts";
 import { hosted } from "../../lib/core/session/index.ts";
-import { medianOf } from "../../lib/internal/spend/cost-meter/index.ts";
 import { dataDir, stateDir } from "../../lib/internal/paths.ts";
 import { processGlobal } from "../../lib/internal/process-global.ts";
 import { duMeasure } from "../../lib/internal/quest/footprint.ts";
@@ -71,6 +70,7 @@ import {
 	recordIndex,
 } from "../../lib/internal/session/rollover.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
+import { medianOf } from "../../lib/internal/spend/cost-meter/index.ts";
 import {
 	askBill,
 	BILL_PERIODS,
