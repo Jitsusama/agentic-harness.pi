@@ -7,7 +7,6 @@ extensions
 extensions/quest-workflow/index.ts
 lib/internal
 lib/internal/quest
-lib/internal/quest/discovery.ts
 lib/subagent/runpi/supervisor.mjs
 lib/ui
 tests/extensions/compaction-workflow/host.test.ts
