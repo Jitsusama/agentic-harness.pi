@@ -696,6 +696,34 @@ const scenarios: Record<string, Scenario> = {
 			return { held: host.holds(id) ?? "let go" };
 		},
 	},
+	/** Leave commands running, then close the conversation the service releases while it runs, as it hands one on to plain pi. */
+	"leave-and-release": {
+		responses: () => [
+			compat.fauxAssistantMessage(
+				[
+					compat.fauxToolCall(
+						"bash",
+						{
+							command: [
+								`PI_BASH_CALL=ended-call sleep 300 >/dev/null 2>&1 & echo $! > ${children}`,
+								`sleep 301 >/dev/null 2>&1 & echo $! >> ${children}`,
+							].join("\n"),
+						},
+						{ id: "call-1" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+			say("left them"),
+		],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "leave them" });
+			await idle(engine, id);
+			engine.handsOn?.(id);
+			await host.close(id, "released, asked by a test");
+			return { held: host.holds(id) ?? "let go" };
+		},
+	},
 	/** The next host closes for good the conversation the last one parked, as the service closes one held but not running. */
 	"close-parked": {
 		responses: () => [],

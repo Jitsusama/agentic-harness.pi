@@ -989,6 +989,24 @@ describe("the host's engine", () => {
 	);
 
 	it(
+		"keeps what an ended command left once its conversation is released while it runs",
+		async () => {
+			const folder = hostFolder();
+			const released = await step(folder, "leave-and-release");
+			const [marked] = leftRunning(folder);
+			expect(released.held, "the release let it go").toBe("let go");
+			expect(
+				released.childrenAlive,
+				"plain pi takes the conversation on, and keeps what its ended call left, as a close for good would not",
+			).toEqual([marked]);
+			expect(released.reported, "said as one line, not an error").toEqual([
+				expect.stringMatching(/stop what 1 ended command left$/),
+			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
 		"keeps what a park kept once its conversation is released while parked",
 		async () => {
 			const folder = hostFolder();
