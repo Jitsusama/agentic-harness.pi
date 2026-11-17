@@ -25,6 +25,8 @@ import {
 	discoverQuests,
 } from "../../../../lib/internal/quest/discovery/discovery.ts";
 import type { LivenessSnapshot } from "../../../../lib/internal/quest/sessions/session-liveness.ts";
+import { settle } from "../../../lib/internal/quest/support/discovery-tree.ts";
+import { installTestHost } from "../../../support/session-host.ts";
 
 const MISSION = "QEST-20260101-MISSON";
 const CHILD = "QEST-20260101-CHILDQ";
@@ -416,6 +418,31 @@ describe("the quests the desktop lists", () => {
 				read(endedQuestsPath()).quests.map((one: { id: string }) => one.id),
 			).toEqual([OLD]);
 		} finally {
+			if (before === undefined) delete process.env.XDG_STATE_HOME;
+			else process.env.XDG_STATE_HOME = before;
+			rmSync(state, { recursive: true, force: true });
+		}
+	});
+
+	it("on a host, are written from the tree as it stands, not from the last walk", async () => {
+		const state = mkdtempSync(join(tmpdir(), "quest-index-state-"));
+		const before = process.env.XDG_STATE_HOME;
+		process.env.XDG_STATE_HOME = state;
+		const host = installTestHost();
+		try {
+			quest(OLD, "status: active", "# Old");
+			for (const path of [join(root, OLD, "README.md"), join(root, OLD), root])
+				settle(path);
+			discoverQuests(root);
+			quest(OLD, "status: concluded", "# Old");
+			settle(join(root, OLD, "README.md"));
+
+			await keepDesktopListsCurrent(root);
+
+			const ended = JSON.parse(readFileSync(endedQuestsPath(), "utf8"));
+			expect(ended.quests.map((one: { id: string }) => one.id)).toEqual([OLD]);
+		} finally {
+			host.dispose();
 			if (before === undefined) delete process.env.XDG_STATE_HOME;
 			else process.env.XDG_STATE_HOME = before;
 			rmSync(state, { recursive: true, force: true });

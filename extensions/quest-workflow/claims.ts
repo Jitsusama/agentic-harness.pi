@@ -24,7 +24,10 @@ import {
 	WORK_TREES_SWEPT,
 } from "../../lib/core/work/events.ts";
 import { everyRealmsDir } from "../../lib/internal/paths.ts";
-import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
+import {
+	discoverQuests,
+	signQuestsNow,
+} from "../../lib/internal/quest/discovery/discovery.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 import {
 	removeTreeFromQuest,
@@ -91,6 +94,8 @@ function* liveQuests(questsRoot: string) {
 		),
 	]);
 	for (const store of stores) {
+		// What the sweep writes rests on which quests list a tree now.
+		signQuestsNow(store);
 		const { index } = discoverQuests(store);
 		for (const entry of index.quests.values()) {
 			if (!isSealedStatus(entry.doc.frontMatter.status)) yield entry;
