@@ -275,6 +275,23 @@ describe("taking up", () => {
 		);
 	});
 
+	it("says a carried call's printing of the environment scrubbed, read by its lines", async () => {
+		const { said, watch } = tookUp();
+		const access = `z9${"0a1b2c3d4e".repeat(4)}`;
+		const printed = [
+			"HOME=/home/someone",
+			"SHELL=/bin/zsh",
+			`PROXY_ACCESS=${access}`,
+			"LANG=en_CA.UTF-8",
+			"TERM=xterm-256color",
+		].join("\n");
+		watch.end({ how: "exited", code: 0, output: `${printed}\n` });
+		await settled();
+		const text = said.at(-1)?.text ?? "";
+		expect(text.includes(access), "the value is not said").toBe(false);
+		expect(text).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
+	});
+
 	it("can carry a call on again while it runs", () => {
 		const { jobs, watch, work } = tookUp();
 		expect(jobs.carryOut().map((job) => job.work)).toEqual([work]);

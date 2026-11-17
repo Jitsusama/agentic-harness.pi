@@ -10,7 +10,10 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+	dumpsEnvironment,
+	readsAsDump,
 	scrubOptionsOf,
+	scrubSecrets,
 	scrubToolResult,
 } from "../../../../lib/internal/secrets/secrets.ts";
 
@@ -91,5 +94,120 @@ describe("a tool's answer scrubbed whole", () => {
 		const once = scrubToolResult(dumpOf(fresh()), input);
 		expect(once).toBeDefined();
 		expect(scrubToolResult(once ?? {}, input)).toBe(undefined);
+	});
+});
+
+describe("a printing of the environment, however it is asked for", () => {
+	const dumps = [
+		"/usr/bin/env",
+		"/usr/bin/printenv",
+		"command env",
+		"env -0",
+		"env FOO=1",
+		"env -u HOME | sort",
+		"env --unset=HOME",
+		"export",
+		"export | grep PATH",
+		"declare -x",
+		"declare -p",
+		"declare -px",
+		"declare",
+		"builtin set",
+		"set",
+		"python3 -c 'import os;print(os.environ)'",
+		"python3 -c 'import os, json; print(json.dumps(dict(os.environ)))'",
+		"node -e 'console.log(process.env)'",
+		"ruby -e 'p ENV.to_h'",
+		"perl -e 'print \"$_=$ENV{$_}\\n\" for keys %ENV'",
+	];
+	for (const command of dumps) {
+		it(`is known as one: ${command}`, () => {
+			expect(
+				dumpsEnvironment(command),
+				`${command} prints the environment`,
+			).toBe(true);
+		});
+	}
+
+	const runs = [
+		"env FOO=1 cargo test",
+		"/usr/bin/env python3 script.py",
+		"export FOO=1",
+		"set -euo pipefail; make",
+		"nix-env -q",
+		"python3 -c 'import os; print(os.environ[\"HOME\"])'",
+		"python3 -c 'import os; print(os.environ.get(\"HOME\"))'",
+		"node -e 'console.log(process.env.HOME)'",
+	];
+	for (const command of runs) {
+		it(`is not one: ${command}`, () => {
+			expect(
+				dumpsEnvironment(command),
+				`${command} prints only its own output`,
+			).toBe(false);
+		});
+	}
+
+	it("has a Python environment's every value scrubbed, read by its command", () => {
+		const secret = fresh();
+		const access = fresh();
+		const printed = `environ({'PATH': '/usr/bin:/bin', 'FOO_SECRET': '${secret}', 'PROXY_ACCESS': '${access}'})`;
+		const scrubbed = scrubToolResult(
+			{ content: [{ type: "text", text: printed }] },
+			{ command: "python3 -c 'import os;print(os.environ)'" },
+			[],
+		);
+		const kept = JSON.stringify(scrubbed);
+		expect(kept.includes(secret), "the secret's value is gone").toBe(false);
+		expect(kept.includes(access), "a value of no known name is gone").toBe(
+			false,
+		);
+		expect(kept).toContain("'PATH': '/usr/bin:/bin'");
+	});
+});
+
+describe("an output that reads as a printing of the environment", () => {
+	const variables = (access: string) => [
+		"HOME=/home/someone",
+		"SHELL=/bin/zsh",
+		`PROXY_ACCESS=${access}`,
+		"LANG=en_CA.UTF-8",
+		"TERM=xterm-256color",
+	];
+
+	it("is one with five lines setting a variable, whatever printed it", () => {
+		const access = fresh();
+		const printed = ["starting", ...variables(access)].join("\n");
+		expect(readsAsDump(printed), "five of six lines set a variable").toBe(
+			true,
+		);
+		const { text } = scrubSecrets(printed, []);
+		expect(text).not.toContain(access);
+		expect(text).toContain("PROXY_ACCESS=[secret scrubbed: PROXY_ACCESS]");
+		expect(text).toContain("HOME=/home/someone");
+	});
+
+	it("is one through a tool's whole answer, whatever command ran", () => {
+		const access = fresh();
+		const scrubbed = scrubToolResult(
+			{ content: [{ type: "text", text: variables(access).join("\n") }] },
+			{ command: "./print-settings" },
+			[],
+		);
+		expect(JSON.stringify(scrubbed)).not.toContain(access);
+	});
+
+	it("is not one with fewer than five such lines", () => {
+		const printed = variables(fresh()).slice(0, 4).join("\n");
+		expect(readsAsDump(printed), "four lines are not a dump").toBe(false);
+		expect(scrubSecrets(printed, []).text).toBe(printed);
+	});
+
+	it("is not one when such lines are under half of it", () => {
+		const words = Array.from({ length: 6 }, (_, i) => `step ${i} done`);
+		const printed = [...words, ...variables(fresh())].join("\n");
+		expect(readsAsDump(printed), "five of eleven lines are not half").toBe(
+			false,
+		);
 	});
 });

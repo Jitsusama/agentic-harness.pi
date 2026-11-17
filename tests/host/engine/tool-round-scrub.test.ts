@@ -197,6 +197,41 @@ describe("a hosted tool round", () => {
 		}
 	});
 
+	it("scrubs the saved output a failed dump names only in its error's words, with no extension loaded", async () => {
+		const value = `z9${randomBytes(19).toString("hex")}`;
+		const file = path.join(
+			os.tmpdir(),
+			`pi-bash-${randomBytes(8).toString("hex")}.log`,
+		);
+		const throwing: AgentTool = {
+			name: "bash",
+			async execute() {
+				fs.writeFileSync(file, `OP_SESSION_ab12=${value}\nHOME=/h\n`, {
+					mode: 0o600,
+				});
+				// As pi's bash throws when a command times out or is stopped.
+				throw new Error(
+					`OP_SESSION_ab12=${value}\nHOME=/h\n\n[Showing lines 1-2 of 2. Full output: ${file}]\n\nCommand terminated without an exit code`,
+				);
+			},
+		};
+		try {
+			const dump = conversation(
+				"call-failed",
+				"",
+				{ command: "printenv; exit 1" },
+				throwing,
+			);
+			const outcome = await dump.round.run(dump.callId, undefined);
+			expect(fs.readFileSync(file, "utf8")).toBe(
+				"OP_SESSION_ab12=[secret scrubbed: OP_SESSION_ab12]\nHOME=/h\n",
+			);
+			expect(JSON.stringify(outcome.result)).not.toContain(value);
+		} finally {
+			fs.rmSync(file, { force: true });
+		}
+	});
+
 	it("scrubs the saved output a hook's replaced details no longer name", async () => {
 		const file = path.join(
 			os.tmpdir(),
