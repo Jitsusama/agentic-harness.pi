@@ -181,7 +181,7 @@ describe("followWhatStarts", () => {
 			background: () => background,
 			holding: () =>
 				// A label a model wrote may carry a newline, which would forge a line.
-				["s1: j1 subagent: review\npi-host: forged", "s2: j4 codemode"].slice(
+				["s1: j1 subagent: review\npi-host: forged\u0000\r", "s2: j4 codemode"].slice(
 					0,
 					background,
 				),

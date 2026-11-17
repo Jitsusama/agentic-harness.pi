@@ -113,6 +113,8 @@ describe("heapAfterFullCollections", () => {
 			"not after a minor collection, only V8's own full ones",
 		).toBe(majors.count());
 
+		// Cleared, so only this collection can answer the wait.
+		read.mockClear();
 		gc({ type: "major", execution: "sync" });
 		await vi.waitFor(() => expect(read).toHaveBeenCalled());
 

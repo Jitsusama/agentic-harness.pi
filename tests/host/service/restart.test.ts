@@ -210,7 +210,8 @@ describe("restartWhenSettled", () => {
 		const timers = manualTimers();
 		const { facts: given, said } = facts({
 			background: () => 1,
-			holding: () => ["s1: j1 subagent: review"],
+			// A label a model wrote may carry a line break, which would forge a line.
+			holding: () => ["s1: j1 subagent:\u0000review"],
 			now: () => clock,
 		});
 		restartWhenSettled(given, { after: timers.after, ceilingMs: 0 });
@@ -225,6 +226,9 @@ describe("restartWhenSettled", () => {
 			"report: Restart held past the ceiling by background work: s1: j1 subagent: review",
 			"report: Restart held past the ceiling by background work: s1: j1 subagent: review",
 		]);
+		expect(said.join(""), "no line break left in what it said").not.toMatch(
+			/\p{Cc}/u,
+		);
 	});
 
 	it("names nothing while held before the ceiling", async () => {
@@ -463,6 +467,99 @@ describe("restartWhenSettled", () => {
 
 	// Its resumed conversations park and free their heap, and what fills it
 	// again would otherwise climb to where a park failed before acting.
+	// Its parked conversations come back when woken, so the heap a park
+	// frees isn't room, and counting it so would restart at every wake.
+	it("weighs no growth from the heap a park frees, since a wake fills it again", async () => {
+		const timers = manualTimers();
+		const heap = growingHeap(0.75);
+		let state: Held["state"] = "idle";
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is past half",
+			held: () => [
+				{ state, since: lately },
+				{ state, since: lately },
+			],
+			background: () => 1,
+			heapShare: heap.heapShare,
+		});
+		restartsSaid(given, said);
+		restartWhenSettled(given, { after: timers.after });
+		for (let cycle = 0; cycle < 3; cycle++) {
+			state = "idle";
+			heap.growTo(0.75);
+			await timers.fire();
+			state = "parked";
+			heap.growTo(0.4);
+			await timers.fire();
+		}
+		state = "idle";
+		heap.growTo(0.75);
+		for (let look = 0; look < 3; look++) await timers.fire();
+		expect(
+			said.filter((line) => line.startsWith("restart")),
+			"nothing restarted for the heap a wake fills again",
+		).toEqual([]);
+	});
+
+	it("backs off a refusal from a second again once a restart is queued", async () => {
+		const timers = manualTimers();
+		const heap = growingHeap(0.3);
+		let refuse = true;
+		const { facts: given } = facts({
+			differs: async () => "its heap is past half",
+			held: () => [{ state: "idle", since: lately }],
+			background: () => 1,
+			heapShare: heap.heapShare,
+		});
+		given.restart = async () => {
+			if (refuse) throw new Error("systemctl timed out");
+		};
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		heap.growTo(0.75);
+		await timers.fire();
+		await timers.fire();
+		expect(timers.pending()[0]?.ms, "backed off twice").toBe(2 * GAP_LOOK_MS);
+		refuse = false;
+		await timers.fire();
+		expect(timers.pending()[0]?.ms, "a restart queued").toBe(RESTART_DUE_MS);
+		refuse = true;
+		await timers.fire();
+		expect(
+			timers.pending()[0]?.ms,
+			"refused again after systemd dropped it",
+		).toBe(GAP_LOOK_MS);
+	});
+
+	it("backs off a refusal from a second again once the heap has stopped pressing", async () => {
+		const timers = manualTimers();
+		const heap = growingHeap(0.3);
+		const { facts: given } = facts({
+			differs: async () => "its heap is past half",
+			held: () => [{ state: "idle", since: lately }],
+			background: () => 1,
+			heapShare: heap.heapShare,
+		});
+		given.restart = async () => {
+			throw new Error("systemctl timed out");
+		};
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		heap.growTo(0.75);
+		await timers.fire();
+		await timers.fire();
+		expect(timers.pending()[0]?.ms, "backed off twice").toBe(2 * GAP_LOOK_MS);
+		heap.growTo(0.3);
+		await timers.fire();
+		expect(timers.pending()[0]?.ms, "a look, unpressed").toBe(LOOK_MS);
+		heap.growTo(0.75);
+		await timers.fire();
+		expect(
+			timers.pending()[0]?.ms,
+			"refused again, pressed anew",
+		).toBe(GAP_LOOK_MS);
+	});
+
 	it("weighs growth from the lowest its heap fell to since its first look", async () => {
 		const timers = manualTimers();
 		const heap = growingHeap(0.84);
