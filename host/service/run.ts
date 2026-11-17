@@ -382,14 +382,15 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	return { serving, stopped };
 }
 
+/** How long, in ms, a stop waits for conversations to park (stub). */
+export function stopWithin(_env: NodeJS.ProcessEnv): number {
+	return STOP_WITHIN_MS;
+}
+
 /**
  * How often, in ms, to tell systemd's watchdog the loop still turns, when
  * it watches this process; undefined when it doesn't.
  */
-export function stopWithin(env: NodeJS.ProcessEnv): number {
-	return STOP_WITHIN_MS;
-}
-
 export function watchdogEvery(
 	env: NodeJS.ProcessEnv,
 	pid: number = process.pid,
