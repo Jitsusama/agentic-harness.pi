@@ -25,4 +25,14 @@ describe("a file tool's path", () => {
 		expect(toolPath("~", "/work/tree")).toBe(homedir());
 		expect(toolPath("~/a.md", "/work/tree")).toBe(join(homedir(), "a.md"));
 	});
+
+	it("reads a file address as the path it names", () => {
+		expect(toolPath("file:///work/a.md", "/elsewhere")).toBe("/work/a.md");
+	});
+
+	it("has its unicode spaces made plain", () => {
+		expect(toolPath("a\u00A0b\u202Fc.md", "/work/tree")).toBe(
+			"/work/tree/a b c.md",
+		);
+	});
 });
