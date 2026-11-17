@@ -280,6 +280,9 @@ function takeUpIfCarried(
 	session: JobSession,
 	ctx: ExtensionContext,
 ): void {
+	// A context with no session manager has no history and no records.
+	const id = sessionIdOf(ctx);
+	if (id === undefined) return;
 	let branch: readonly unknown[] = [];
 	try {
 		branch = ctx.sessionManager.getBranch();
@@ -290,7 +293,7 @@ function takeUpIfCarried(
 	const into: TakingUp = {
 		jobs: session.jobs,
 		outbox: session.outbox,
-		session: sessionKeyOf(ctx),
+		session: id,
 		append: (type, data) => pi.appendEntry(type, data),
 		offer: (work) => offerCarried(pi.events, work),
 		taken: (job) => sayTakenUp(pi.events, job),
@@ -299,8 +302,6 @@ function takeUpIfCarried(
 	if (stranded) takeUp(stranded, into);
 	const carried = carriedIn(branch);
 	if (carried) takeUp(carried, into);
-	const id = sessionIdOf(ctx);
-	if (id === undefined) return;
 	const held = new Set(session.jobs.list().map((job) => job.id));
 	const recorded = recordedCarry(id, held, Date.now());
 	// The log says nothing of these: no move wrote them, so none is taken.
