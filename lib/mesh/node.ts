@@ -81,10 +81,38 @@ export const PLACE_PATIENCE_MS = 5000;
  * Asks the node serving `socket` where work needing `needs` goes, without
  * starting anything, answering the machine it chose or its reasons.
  */
-export async function placeAt(
+export function placeAt(
 	socket: string | undefined,
 	needs: readonly Need[],
 	patience: number = PLACE_PATIENCE_MS,
+): Promise<PlaceAnswer> {
+	return placeAsking("Place", socket, needs, patience);
+}
+
+/**
+ * Asks the node serving `socket` where work needing `needs` goes, for a
+ * spawn that starts it here itself when the node answers this machine,
+ * and through the node's start anywhere else. The node counts an answer
+ * of this machine as a start placed here, so a burst of spawns spreads
+ * rather than each being told the machine the last one was. A node too
+ * old to know that request is asked where, as before.
+ */
+export async function placeToStartAt(
+	socket: string | undefined,
+	needs: readonly Need[],
+	patience: number = PLACE_PATIENCE_MS,
+): Promise<PlaceAnswer> {
+	const answer = await placeAsking("PlaceToStart", socket, needs, patience);
+	return !answer.ok && answer.reason.includes("unknown variant `PlaceToStart`")
+		? placeAt(socket, needs, patience)
+		: answer;
+}
+
+async function placeAsking(
+	request: "Place" | "PlaceToStart",
+	socket: string | undefined,
+	needs: readonly Need[],
+	patience: number,
 ): Promise<PlaceAnswer> {
 	if (socket === undefined) {
 		return {
@@ -92,7 +120,7 @@ export async function placeAt(
 			reason: "no mycelium realm is named here, so there is no node to ask",
 		};
 	}
-	const asked = { Place: { needs: needs.map(needOnTheWire) } };
+	const asked = { [request]: { needs: needs.map(needOnTheWire) } };
 	const line = await askAt(socket, asked, patience);
 	if (line === undefined) {
 		return { ok: false, reason: `no mycelium node answered at ${socket}` };

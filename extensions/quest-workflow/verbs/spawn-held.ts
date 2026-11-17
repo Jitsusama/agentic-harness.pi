@@ -37,7 +37,7 @@ import {
 	agentsAt,
 	type NodeStarted,
 	nodeSocket,
-	placeAt,
+	placeToStartAt,
 	type StartAnswer,
 	startAt,
 } from "../../../lib/mesh/node.ts";
@@ -100,10 +100,15 @@ export type StartOnNode = (
 
 const askTheNode: StartOnNode = (start) => startAt(nodeSocket(), start);
 
-/** How spawn asks a node where work goes; the machine's node by default. */
+/**
+ * How spawn asks a node where work goes; the machine's node by default.
+ * It asks for a place to start, since spawn starts the session itself
+ * when the answer is this machine, and the node then counts it, so the
+ * next spawn of a burst sees it rather than being told the same machine.
+ */
 export type PlaceOnNode = (needs: readonly Need[]) => Promise<PlaceAnswer>;
 
-const askWhere: PlaceOnNode = (needs) => placeAt(nodeSocket(), needs);
+const askWhere: PlaceOnNode = (needs) => placeToStartAt(nodeSocket(), needs);
 
 /** How a spawn shares its quest with the machines this one links with. */
 export type ShareQuest = (
