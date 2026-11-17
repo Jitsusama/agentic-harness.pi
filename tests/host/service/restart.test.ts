@@ -554,10 +554,9 @@ describe("restartWhenSettled", () => {
 		expect(timers.pending()[0]?.ms, "a look, unpressed").toBe(LOOK_MS);
 		heap.growTo(0.75);
 		await timers.fire();
-		expect(
-			timers.pending()[0]?.ms,
-			"refused again, pressed anew",
-		).toBe(GAP_LOOK_MS);
+		expect(timers.pending()[0]?.ms, "refused again, pressed anew").toBe(
+			GAP_LOOK_MS,
+		);
 	});
 
 	it("weighs growth from the lowest its heap fell to since its first look", async () => {
