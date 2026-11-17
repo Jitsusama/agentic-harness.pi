@@ -8,13 +8,17 @@
  * parity scenarios compare.
  *
  * One step is the host's own: every credential a tool prints is put out
- * of sight, in each streamed update before any viewer sees it and in the
- * final result before durable commits it, whether or not the conversation
+ * of sight, in each streamed update before any viewer sees it (each line
+ * setting a secret-looking value, however few) and in the final result
+ * before durable commits it, whether or not the conversation
  * loads the secret-scrub extension. pi's afterToolCall still sees the raw
  * result, as on pi, and a result with nothing to hide passes untouched.
  */
 import { scrubSavedOutput } from "../../lib/internal/secrets/saved-output.ts";
-import { scrubToolResult } from "../../lib/internal/secrets/secrets.ts";
+import {
+	scrubToolPartial,
+	scrubToolResult,
+} from "../../lib/internal/secrets/secrets.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import type {
 	AgentContext,
@@ -342,7 +346,7 @@ export class ToolRound {
 							toolCallId: toolCall.id,
 							toolName: toolCall.name,
 							args: toolCall.arguments,
-							partialResult: scrubbedResult(partialResult, prepared.args),
+							partialResult: scrubbedPartial(partialResult, prepared.args),
 						}),
 					);
 				},
@@ -466,6 +470,20 @@ function scrubbedResult(
 ): AgentToolResult {
 	const scrubbed = scrubToolResult(result, args);
 	return scrubbed === undefined ? result : { ...result, ...scrubbed };
+}
+
+/**
+ * A streamed update scrubbed as a result is, with each line setting a
+ * variable to what could be a credential scrubbed however few there are:
+ * a viewer, perhaps on another machine, sees it before a dump's lines are
+ * enough to count. The same object when it held none.
+ */
+function scrubbedPartial(
+	partial: AgentToolResult,
+	args: unknown,
+): AgentToolResult {
+	const scrubbed = scrubToolPartial(partial, args);
+	return scrubbed === undefined ? partial : { ...partial, ...scrubbed };
 }
 
 function prepareArguments(tool: AgentTool, toolCall: ToolCall): ToolCall {

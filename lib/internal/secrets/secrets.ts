@@ -324,6 +324,12 @@ const ENVIRONMENT_VALUE = "environment value";
 export interface ScrubOptions {
 	/** The text is a command's printing of the environment. */
 	readonly environment?: boolean;
+	/**
+	 * The text is part of an answer still streaming, which its settled
+	 * answer replaces: each line setting one variable is read as a dump's
+	 * however few there are, since a viewer sees it before five arrive.
+	 */
+	readonly partial?: boolean;
 }
 
 /**
@@ -374,7 +380,44 @@ export function scrubToolResult<
 	input: unknown,
 	known: readonly KnownSecret[] = knownSecrets(),
 ): ScrubbedAnswer<Part, Details, Structured> | undefined {
-	const options = scrubOptionsOf(input);
+	return scrubAnswer(answer, scrubOptionsOf(input), known);
+}
+
+/**
+ * A streamed update of a tool's answer scrubbed as `scrubToolResult`
+ * scrubs a settled one, with each line setting one variable to a value
+ * that could be a credential scrubbed too, however few such lines it
+ * holds. A host streams each update to its viewers, a window on another
+ * machine among them, before a dump's lines are enough to count; a mark
+ * the settled answer would not make costs nothing, since that answer
+ * replaces the update.
+ */
+export function scrubToolPartial<
+	Part extends { readonly type: string },
+	Details,
+	Structured,
+>(
+	answer: ToolAnswer<Part, Details, Structured>,
+	input: unknown,
+	known: readonly KnownSecret[] = knownSecrets(),
+): ScrubbedAnswer<Part, Details, Structured> | undefined {
+	return scrubAnswer(
+		answer,
+		{ ...scrubOptionsOf(input), partial: true },
+		known,
+	);
+}
+
+/** A tool's answer scrubbed field by field as `options` reads it. */
+function scrubAnswer<
+	Part extends { readonly type: string },
+	Details,
+	Structured,
+>(
+	answer: ToolAnswer<Part, Details, Structured>,
+	options: ScrubOptions,
+	known: readonly KnownSecret[],
+): ScrubbedAnswer<Part, Details, Structured> | undefined {
 	let found = false;
 	const content = answer.content?.map((part): Part => {
 		if (!isTextPart(part)) return part;
@@ -460,7 +503,8 @@ function looksLikeSecret(value: string): boolean {
  * found, in the order found; the same text, and none, when it holds none.
  * The known values are the environment's unless given. The text is read
  * as a dump when `options` says it is one; one that only reads as a dump
- * by its lines has just its variables' values read as one.
+ * by its lines, or a partial one however few such lines it holds, has
+ * just its variables' values read as one.
  */
 export function scrubSecrets(
 	text: string,
@@ -469,7 +513,8 @@ export function scrubSecrets(
 ): { text: string; kinds: string[] } {
 	const kinds: string[] = [];
 	// Read before any value is marked: a mark is no value a line sets.
-	const dumped = !options.environment && readsAsDump(text);
+	const dumped =
+		!options.environment && (options.partial === true || readsAsDump(text));
 	let scrubbed = text;
 	for (const { name, value } of known) {
 		if (!scrubbed.includes(value)) continue;

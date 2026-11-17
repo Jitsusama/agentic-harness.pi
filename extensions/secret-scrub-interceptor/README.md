@@ -109,7 +109,11 @@ read too.
 A shared host also scrubs what a tool streams while it runs, and the
 result it commits, in its tool round (`host/engine/tool-round.ts`),
 before any of it reaches a viewer or the durable store, whether or not
-the conversation loads this extension. The scrub is pure and
+the conversation loads this extension. A streamed update has each line
+setting a variable to a value that could be a credential scrubbed
+however few such lines it holds, since a viewer, a window on another
+machine among them, sees it before five arrive; the settled answer
+replaces it, so a mark it would not make costs nothing. The scrub is pure and
 idempotent, so a result this extension already scrubbed is handed on
 as it is.
 
