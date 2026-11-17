@@ -437,8 +437,11 @@ describe("an output that reads as a printing of the environment", () => {
 		for (const value of values) expect(text).not.toContain(value);
 	});
 
-	it("answers at once for a long run of carriage returns", () => {
+	// The test's timeout bounds this too: a stretch a return ends is read on
+	// its own, so a long run of them is read once each.
+	it("answers at once for a long run of carriage returns, a redrawn line no dump", () => {
 		const printed = `${"A=1\rready\r".repeat(100_000)}---`;
+		expect(readsAsDump(printed), "one redrawn line is no dump").toBe(false);
 		expect(scrubSecrets(printed, []).text).toBe(printed);
 	});
 
@@ -531,6 +534,60 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 		}
 	});
 
+	it("has a line still being written put out of sight when its value holds a space", () => {
+		const scrubbed = scrubToolPartial(
+			partialOf("loading\nPROXY_AUTH=Basic ab12cd34"),
+			{ command: "./show-config" },
+		);
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "loading\nPROXY_AUTH=[secret scrubbed: PROXY_AUTH]",
+		});
+	});
+
+	it("has a dump's line still being written put out of sight however it sets apart its value", () => {
+		const scrubbed = scrubToolPartial(partialOf("PROXY_CRED => ab12cd"), {
+			command: "printenv",
+		});
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "PROXY_CRED => [secret scrubbed: PROXY_CRED]",
+		});
+	});
+
+	it("has a line still being written put out of sight past a terminal's codes", () => {
+		const scrubbed = scrubToolPartial(
+			partialOf("downloading 40%\r\x1b[KPROXY_CRED=ab12"),
+			{ command: "./show-config" },
+		);
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "downloading 40%\r\x1b[KPROXY_CRED=[secret scrubbed: PROXY_CRED]",
+		});
+	});
+
+	it("has a value a highlight splits put out of sight whole", () => {
+		const [head, tail] = [fresh().slice(0, 12), fresh().slice(0, 12)];
+		const lit = `\x1b[01;31m\x1b[KXYZ\x1b[m\x1b[K`;
+		const scrubbed = scrubToolPartial(
+			partialOf(`TOKEN=${head}${lit}${tail}\nready`),
+			{ command: "printenv | grep --color=always XYZ" },
+		);
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "TOKEN=[secret scrubbed: TOKEN]\nready",
+		});
+	});
+
+	// The test's timeout bounds this: a word that may start after each
+	// bracket and run to the line's end is read again from every one.
+	it("answers at once for a long line of brackets ending in an equals", () => {
+		const printed = `A=${"x]".repeat(25_000)}=`;
+		expect(
+			scrubToolPartial(partialOf(`${printed}\n`), { command: "./x" }),
+		).toBeUndefined();
+	});
+
 	it("has a line still being written put out of sight past a mark it holds", () => {
 		const known = fresh();
 		const cut = fresh().slice(0, 8);
@@ -561,6 +618,8 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 			["downloading 40%\r\x1b[K", ""],
 			["\x1b[2K\r\x1b[?25l", ""],
 			["\x1b[01;31m\x1b[K", "\x1b[m\x1b[K"],
+			["\x1b(B\x1b[m", ""],
+			["\x1b7\x1b[>4;2m", ""],
 		]) {
 			const scrubbed = scrubToolPartial(
 				partialOf(`${before}PROXY_CRED=${value}${after}\n`),

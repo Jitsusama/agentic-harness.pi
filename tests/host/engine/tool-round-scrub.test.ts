@@ -243,6 +243,32 @@ describe("a hosted tool round", () => {
 		expect(outcome.result.content).toEqual([{ type: "text", text: "done" }]);
 	});
 
+	it("says again that it withholds an update once a readable one has replaced the notice", async () => {
+		const details: Record<string, unknown> = {};
+		details.self = details;
+		const unreadable: AgentToolResult = {
+			content: [{ type: "text", text: "x" }],
+			details,
+		};
+		const readable: AgentToolResult = {
+			content: [{ type: "text", text: "working" }],
+		};
+		const flickering: AgentTool = {
+			name: "bash",
+			async execute(_id, _args, _signal, onUpdate) {
+				onUpdate(unreadable);
+				onUpdate(readable);
+				onUpdate(unreadable);
+				return { content: [{ type: "text", text: "done" }] };
+			},
+		};
+		const round = conversation("call-flicker", "", { command: "./x" }, flickering);
+		await round.round.run(round.callId, undefined);
+		const updates = shown(round.events, "tool_execution_update");
+		expect(updates).toHaveLength(3);
+		expect(JSON.stringify(updates[2])).toContain("withheld");
+	});
+
 	it("scrubs a printed environment's saved output file, with no extension loaded", async () => {
 		const value = `z9${randomBytes(19).toString("hex")}`;
 		const file = path.join(
