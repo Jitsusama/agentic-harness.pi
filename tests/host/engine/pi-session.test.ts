@@ -1,4 +1,7 @@
-/** A session file counts as gone only when its folder says it isn't there. */
+/**
+ * What the engine judges of pi's session layer: a session file counts as
+ * gone only when its folder says it isn't there.
+ */
 
 import {
 	chmodSync,
@@ -10,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { sessionFileGone } from "../../../host/engine/session-file.ts";
+import { sessionFileGone } from "../../../host/engine/pi-session.ts";
 
 let dir: string;
 beforeEach(() => {

@@ -64,6 +64,7 @@ import { piLibrary } from "./pi-library.ts";
 import {
 	piBuiltInExtensions,
 	piSessions,
+	sessionFileGone,
 	type SessionManager,
 } from "./pi-session.ts";
 import { projectTrust } from "./project-trust.ts";
@@ -75,7 +76,6 @@ import {
 } from "./quiet-collection.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
-import { sessionFileGone } from "./session-file.ts";
 import { backgroundIn, heavyIn, restartEnds, stopKeeping } from "./stopping.ts";
 import {
 	hostedSubagentInstall,

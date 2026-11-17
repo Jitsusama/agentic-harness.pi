@@ -101,7 +101,7 @@ never shown. Without it, job-workflow's outbox held a job's result from
 a carried run until a person typed.
 
 A start drops a hold whose session file is gone for good, as the
-engine's `lost` says (session-file.ts): only a file missing from a
+engine's `lost` says (pi-session.ts): only a file missing from a
 folder that is there counts, so a disk not yet mounted or a file it
 can't look at keeps its hold, and its resume says what is wrong.
 
