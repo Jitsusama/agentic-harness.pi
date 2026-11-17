@@ -4,15 +4,27 @@ import {
 	type HostRunningSession,
 	PiRuns,
 } from "../../../host/engine/hosted-agent/pi-runs.ts";
+import type { AgentMessage } from "../../../host/engine/pi-types.ts";
 
-/** A session that runs work as pi's runForHost does, noting each run it opens and settles. */
-function piSession(streaming = false) {
+/** The update pi prepares when a run's sections changed since the conversation last ran. */
+const SECTION_UPDATE = {
+	role: "user",
+	content: "the sections now in force",
+	timestamp: 0,
+} as unknown as AgentMessage;
+
+/**
+ * A session that runs work as pi's runForHost does, noting each run it
+ * opens and settles, and handing the work `handed`, as a seam that hands
+ * nothing over does when it is undefined.
+ */
+function piSession(streaming = false, handed?: readonly AgentMessage[]) {
 	const said: string[] = [];
 	const session: HostRunningSession = {
 		isStreaming: streaming,
 		async runForHost(work) {
 			said.push("prepared");
-			await work();
+			await work(handed);
 			said.push("settled");
 		},
 	};
@@ -34,6 +46,35 @@ describe("the agent's own runs in pi", () => {
 		await asked();
 
 		expect(said).toEqual(["prepared", "settled"]);
+	});
+
+	it("answers what pi prepared for the run's first request, for the run to place", async () => {
+		const { session } = piSession(false, [SECTION_UPDATE]);
+		const runs = new PiRuns(() => false);
+		runs.tell(session);
+
+		const release = runs.hold();
+		const handed = await runs.opening();
+		const again = await runs.opening();
+		await release();
+
+		expect(handed, "the update goes to the run").toEqual([SECTION_UPDATE]);
+		expect(again, "once only, as the run opens").toEqual([]);
+	});
+
+	it("answers nothing from a seam that hands nothing over, or a start pi failed", async () => {
+		const older = new PiRuns(() => false);
+		older.tell(piSession().session);
+		const failing = new PiRuns(() => false);
+		failing.tell({
+			runForHost: () => Promise.reject(new Error("a handler threw")),
+		});
+
+		const fromOlder = await older.holding(() => older.opening());
+		const fromFailed = await failing.holding(() => failing.opening());
+
+		expect(fromOlder, "an older seam").toEqual([]);
+		expect(fromFailed, "a failed start").toEqual([]);
 	});
 
 	it("opens nothing for work nobody holds", async () => {
