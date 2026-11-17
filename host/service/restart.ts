@@ -52,14 +52,16 @@
  * finish, since the park that failed did so at about 87%. Both tiers
  * weigh the heap V8 kept after its full collections (live-heap.ts), not
  * garbage it has yet to sweep. The gap tier also waits until the heap
- * has grown 15% of the limit since the host's first look, so a host
- * whose resumed conversations alone fill most of it doesn't restart at
- * every first look, ending their background work each time and freeing
- * nothing. The 80% tier waits until it has grown 5%, so a host that
- * starts that full restarts only once it climbs, not at every start; a
- * host whose first look reads past 65% leaves its heap to that tier, and
- * says so once. A refused restart near the limit is tried again after
- * 1 s, then twice as late each time, up to a minute. Neither tier can
+ * has grown 15% of the limit from the lowest any look has read since the
+ * host's first, so a host whose resumed conversations alone fill most of
+ * it doesn't restart at every first look, ending their background work
+ * each time and freeing nothing, while one whose conversations park and
+ * fill again is weighed from where it fell. The 80% tier waits until it
+ * has grown 5%, so a host that starts that full restarts only once it
+ * climbs, not at every start; a host whose first look reads past 65%
+ * leaves its heap to that tier until it falls, and says so once. A refused restart near the limit is tried again after
+ * 1 s, then twice as late each time, up to a minute, and a look that
+ * finds a turn running doesn't start that over. Neither tier can
  * act before the first look, five minutes after the host starts, nor in
  * the two minutes a queued restart is given before it counts as dropped.
  *
@@ -140,8 +142,8 @@ const HEAP_UNHELD_SHARE = 0.7;
 const HEAP_URGENT_SHARE = 0.8;
 
 /**
- * How much of V8's limit the heap must have grown since the first look
- * before the gap tier acts. A host whose first look reads past 65% so
+ * How much of V8's limit the heap must have grown from its lowest since
+ * the first look before the gap tier acts. A host whose first look reads past 65% so
  * never reaches it, and is left to the urgent tier: one resumed past 75%
  * would otherwise restart at its every gap, for conversations the next
  * host resumes the same.
@@ -149,7 +151,7 @@ const HEAP_URGENT_SHARE = 0.8;
 const HEAP_GROWN_SHARE = 0.15;
 
 /**
- * How much the heap must have grown since the first look before the
+ * How much the heap must have grown from its lowest since the first look before the
  * urgent tier acts, so a host its resumed conversations alone fill past
  * 80% doesn't restart at every start for memory a restart doesn't free.
  */
@@ -259,8 +261,10 @@ export function restartWhenSettled(
 	let differingSince: number | undefined;
 	// When background work holding a restart past the ceiling was last named.
 	let heldSaidAt: number | undefined;
-	// The heap's share at the first look, which the heap tiers weigh growth from.
-	let firstShare: number | undefined;
+	// The lowest share any look has read since the first, which the heap
+	// tiers weigh growth from: a host its resumed conversations fill never
+	// falls from its first look, and one whose conversations park re-arms.
+	let lowestShare: number | undefined;
 	// Restarts refused in a row under heap pressure, which back the next try off.
 	let refusals = 0;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
@@ -271,7 +275,8 @@ export function restartWhenSettled(
 		let waitMs = lookMs;
 		try {
 			const next = await consider();
-			refusals = 0;
+			// A look that finds a turn running leaves the backoff where it is.
+			if (next === "restarting" || !heapPressing()) refusals = 0;
 			if (next === "restarting") {
 				if (!stopped)
 					cancel = after(
@@ -288,7 +293,7 @@ export function restartWhenSettled(
 			if (heapPressing()) {
 				waitMs = Math.min(gapLookMs * 2 ** refusals, lookMs);
 				refusals++;
-			}
+			} else refusals = 0;
 		}
 		if (stopped) return;
 		cancel = after(waitMs, () => void look());
@@ -317,7 +322,7 @@ export function restartWhenSettled(
 		heldSaidAt = now;
 		const holding = facts.holding?.() ?? [];
 		facts.report(
-			`Restart held past the ceiling by background work: ${holding.length > 0 ? holding.join("; ") : "unnamed"}`,
+			`Restart held past the ceiling by background work: ${holding.length > 0 ? oneLine(holding) : "unnamed"}`,
 		);
 	}
 
@@ -349,18 +354,18 @@ export function restartWhenSettled(
 		return facts.heapShare?.() ?? 0;
 	}
 
-	// Whether the heap has grown by `by` of V8's limit since the first look.
+	// Whether the heap has grown by `by` of V8's limit from its lowest since the first look.
 	function grown(share: number, by: number): boolean {
-		return share - (firstShare ?? share) >= by;
+		return share - (lowestShare ?? share) >= by;
 	}
 
-	// Past 80%, grown 5% since the first look, the heap restarts the host at once.
+	// Past 80%, grown 5% from its lowest, the heap restarts the host at once.
 	function heapUrgent(): boolean {
 		const share = heapShare();
 		return share > HEAP_URGENT_SHARE && grown(share, HEAP_URGENT_GROWN_SHARE);
 	}
 
-	// Past 70%, grown 15% since the first look, the heap restarts the host at the first gap.
+	// Past 70%, grown 15% from its lowest, the heap restarts the host at the first gap.
 	function heapPressed(): boolean {
 		const share = heapShare();
 		return share > HEAP_UNHELD_SHARE && grown(share, HEAP_GROWN_SHARE);
@@ -371,18 +376,22 @@ export function restartWhenSettled(
 		return heapUrgent() || heapPressed();
 	}
 
-	// Take the first look's share, and say once when it leaves only the urgent tier.
-	function firstLook(): void {
-		if (firstShare !== undefined) return;
-		firstShare = heapShare();
-		if (firstShare + HEAP_GROWN_SHARE > HEAP_URGENT_SHARE)
+	// Keep the lowest share seen, and say once when the first leaves only the urgent tier.
+	function weighLowest(): void {
+		const share = heapShare();
+		if (lowestShare !== undefined) {
+			lowestShare = Math.min(lowestShare, share);
+			return;
+		}
+		lowestShare = share;
+		if (share + HEAP_GROWN_SHARE > HEAP_URGENT_SHARE)
 			facts.report(
-				`Its heap already held ${Math.round(firstShare * 100)}% of what V8 allows at its first look, so only the urgent tier restarts it for its heap, once past ${Math.round(HEAP_URGENT_SHARE * 100)}% and grown ${Math.round(HEAP_URGENT_GROWN_SHARE * 100)}% from there`,
+				`Its heap already held ${Math.round(share * 100)}% of what V8 allows at its first look, so until it falls only the urgent tier restarts it for its heap, once past ${Math.round(HEAP_URGENT_SHARE * 100)}% and grown ${Math.round(HEAP_URGENT_GROWN_SHARE * 100)}% from its lowest`,
 			);
 	}
 
 	async function consider(): Promise<Next> {
-		firstLook();
+		weighLowest();
 		// Past the ceiling or pressed by the heap, a look with no gap asks nothing more.
 		const ahead = mayRestart();
 		if ((pastCeiling() || heapPressing()) && ahead === undefined) return "gap";
@@ -537,7 +546,7 @@ export async function followWhatStarts(
 						? (options.holding?.() ?? [])
 						: [];
 				options.report(
-					`Restarting ${restartedUnder(under, settledMs)}${ending.length > 0 ? ` (${ending.join("; ")})` : ""}, as ${reason}`,
+					`Restarting ${restartedUnder(under, settledMs)}${ending.length > 0 ? ` (${oneLine(ending)})` : ""}, as ${reason}`,
 				);
 				await systemctl(["--no-block", "restart", unit]);
 			},
@@ -560,6 +569,12 @@ function counted(count: number, thing: string): string {
 const MINUTE_MS = 60_000;
 
 /** The journal's words for the rule a restart came under. */
+// Background work's labels, one line: a model writes some, and a newline
+// in one would read in the journal as a line of the host's own.
+function oneLine(holding: readonly string[]): string {
+	return holding.map((line) => line.replace(/\s+/g, " ")).join("; ");
+}
+
 function restartedUnder(under: RestartRule, settledMs: number): string {
 	if (under.rule === "settled") return "once every conversation settled";
 	if (under.rule === "heap") {

@@ -41,10 +41,11 @@ tests/scripts/pi-host.test.ts checks the exit status a unit reads.
 restart.test.ts checks when a host restarts itself, with timers fired
 by hand through restart-fakes.ts: only with every conversation settled,
 no background work held and every screen at rest; past 70% of its
-heap limit, grown 15% since its first look, at the first gap whatever
+heap limit, grown 15% from its lowest since its first look, at the first gap whatever
 background work runs, and past 80%, grown 5%, at once, without asking
 what would start, journalling what it ended, with a refused restart
-tried again after 1, 2, 4 s and on up to a look; and a restart systemd refused leaves no viewer
+tried again after 1, 2, 4 s and on up to a look, across looks that find a
+turn running; and a restart systemd refused leaves no viewer
 told. follow-what-starts.test.ts checks what it follows, with a fake
 systemctl over an install in a private folder: a restart once the
 install changes the host's own code, systemd has a new unit or the

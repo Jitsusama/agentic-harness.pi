@@ -133,11 +133,11 @@ input pipeline or screen. No unit or running host is installed yet.
   since running out ends every turn and job anyway (16 November,
   20:44). Both weigh the heap V8 kept after its full collections
   (live-heap.ts). The 70% tier acts only once the heap has grown 15%
-  of the limit since the host's first look, so a host its resumed
-  conversations fill doesn't restart at every first look; the 80%
-  tier once it has grown 5%, so a host that starts that full restarts
-  only as it climbs, and a refused heap restart is tried again after
-  1, 2, 4 s and on, up to a minute. Code
+  of the limit from the lowest any look has read since the host's
+  first, so a host its resumed conversations fill doesn't restart at
+  every first look; the 80% tier once it has grown 5%, so a host that
+  starts that full restarts only as it climbs, and a refused heap
+  restart is tried again after 1, 2, 4 s and on, up to a minute. Code
   only a conversation loads moves with that conversation instead
   (reload-workflow's follower). Once any of these holds, and every
   conversation has been idle or parked for two minutes, with no
