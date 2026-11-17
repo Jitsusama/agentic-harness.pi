@@ -63,7 +63,7 @@ import {
 	indexSessionFiles,
 	type LivenessSnapshot,
 } from "../../lib/internal/quest/sessions/session-liveness.ts";
-import { lastQuestOf } from "../../lib/internal/quest/sessions/session-registry.ts";
+import { questLastOn } from "../../lib/internal/quest/sessions/session-registry.ts";
 import { rosterHolds } from "../../lib/internal/session/host-holds.ts";
 import { questAddress } from "../../lib/mesh/address.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
@@ -335,12 +335,10 @@ export function endedQuestsIn(
 	store: string,
 	home?: string,
 	/** The quest each session was on last, by the session registry. */
-	lastQuestOf: (sessionId: string) => string | undefined = () => undefined,
+	registered: (sessionId: string) => Registered | undefined = () => undefined,
 ): EndedQuestEntry[] {
 	const read = (id: string) => index.quests.get(id)?.doc.frontMatter;
-	const lastHeld = lastHolders(index);
-	const lastOn = (session: string) =>
-		lastQuestOf(session) ?? lastHeld.get(session);
+	const lastOn = holders(index, registered);
 	return [...index.quests.entries()]
 		.filter(([, entry]) => !isOpen(entry.doc.frontMatter.status))
 		.sort(([a], [b]) => a.localeCompare(b))
@@ -380,23 +378,62 @@ export function endedQuestsIn(
 		});
 }
 
+/** The quest the session registry says a session was on last, and when it last wrote so. */
+export interface Registered {
+	readonly quest: string;
+	/** ISO, the record's last write. */
+	readonly at: string;
+}
+
 /**
- * Each session's last quest as the READMEs alone can guess it, for a
- * session the registry has no record of (one from another machine, or
- * from before it): the README where it says it started latest. That
- * misses a return, since a session going back to a quest keeps the
- * stamp of its first attach there, which is why the registry speaks
- * first. A session that never says when counts as the oldest.
+ * Each session's quest as it stands, from three signs, the surest first.
+ * A README that holds it attached: attaching anywhere detaches it from
+ * every other quest (lib/core/quest/sessions.ts), so only the quest it
+ * is on now says so, whoever ran it and however. Else the session
+ * registry's last quest, as long as no README stamps an attach after the
+ * registry last wrote: a session moved without a window or a host
+ * leaves the registry behind (verbs/lifecycle.ts trackOnQuest). Else the
+ * README where it says it started latest, which misses a return, since
+ * going back to a quest keeps the stamp of the first attach there. A
+ * session that never says when counts as the oldest, and two that tie
+ * keep the first quest by id, so the answer never rests on the walk.
  */
-function lastHolders(index: QuestIndex): Map<string, string> {
-	const last = new Map<string, { quest: string; at: string }>();
+function holders(
+	index: QuestIndex,
+	registered: (sessionId: string) => Registered | undefined,
+): (sessionId: string) => string | undefined {
+	const attached = new Map<string, { quest: string; at: string }>();
+	const stamped = new Map<string, { quest: string; at: string }>();
+	const later = (
+		into: Map<string, { quest: string; at: string }>,
+		session: string,
+		quest: string,
+		at: string,
+	) => {
+		const was = into.get(session);
+		const wins =
+			was === undefined ||
+			at > was.at ||
+			(at === was.at && quest.localeCompare(was.quest) < 0);
+		if (wins) into.set(session, { quest, at });
+	};
 	for (const [quest, entry] of index.quests)
 		for (const session of entry.doc.frontMatter.sessions) {
 			const at = session.started ?? "";
-			const was = last.get(session.id);
-			if (was === undefined || at > was.at) last.set(session.id, { quest, at });
+			later(stamped, session.id, quest, at);
+			if (session.status !== "detached") later(attached, session.id, quest, at);
 		}
-	return new Map([...last].map(([session, { quest }]) => [session, quest]));
+	return (session) => {
+		const on = attached.get(session);
+		if (on) return on.quest;
+		const last = stamped.get(session);
+		const record = registered(session);
+		const behind =
+			record !== undefined &&
+			last !== undefined &&
+			Date.parse(last.at) > Date.parse(record.at);
+		return record && !behind ? record.quest : last?.quest;
+	};
 }
 
 /** The later of two ISO times, as ISO; either may be missing or unreadable. */
@@ -429,11 +466,13 @@ function toTheHour(iso: string): string {
  * The quest each session the registry knows was on last, whether it is
  * on it still or has unloaded since.
  */
-function whereEachSessionWasLast(): (sessionId: string) => string | undefined {
-	const quests = new Map<string, string>();
-	for (const { record } of loadRecords()) {
-		const quest = lastQuestOf(record);
-		if (quest) quests.set(record.sessionId, quest);
+function whereEachSessionWasLast(): (
+	sessionId: string,
+) => Registered | undefined {
+	const quests = new Map<string, Registered>();
+	for (const { record, heartbeatAt } of loadRecords()) {
+		const quest = questLastOn(record);
+		if (quest) quests.set(record.sessionId, { quest, at: heartbeatAt });
 	}
 	return (sessionId) => quests.get(sessionId);
 }

@@ -295,7 +295,7 @@ export function switchQuest(
  * never on one. A README's `started` can't say this, since a session
  * that returns to a quest keeps the stamp of its first attach there.
  */
-export function lastQuestOf(record: SessionRecord): string | undefined {
+export function questLastOn(record: SessionRecord): string | undefined {
 	if (record.quest) return record.quest;
 	let last: { quest: string; ms: number } | undefined;
 	for (const [quest, left] of Object.entries(record.previousQuests ?? {})) {

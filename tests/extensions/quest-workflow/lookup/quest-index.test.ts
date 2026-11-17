@@ -24,6 +24,7 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 } from "../../../../lib/internal/quest/discovery/discovery.ts";
+import { sessionRegistryDir } from "../../../../lib/internal/quest/sessions/loaded.ts";
 import type { LivenessSnapshot } from "../../../../lib/internal/quest/sessions/session-liveness.ts";
 import { settle } from "../../../lib/internal/quest/support/discovery-tree.ts";
 import { installTestHost } from "../../../support/session-host.ts";
@@ -372,6 +373,17 @@ describe("the quests the desktop lists", () => {
 					`    cwd: ${elsewhere}`,
 					"    started: 2026-01-01T00:15:00Z",
 					"    status: detached",
+					// One the registry doesn't know, still attached to the ended
+					// quest it went back to, and one whose registry record fell
+					// behind a later attach it made without a window.
+					"  - id: s-attached",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T02:45:00Z",
+					"    status: detached",
+					"  - id: s-behind",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:50:00Z",
+					"    status: detached",
 				].join("\n"),
 				"# Between",
 			);
@@ -406,6 +418,20 @@ describe("the quests the desktop lists", () => {
 					`    cwd: ${elsewhere}`,
 					"    started: 2026-01-01T01:45:00Z",
 					"    status: detached",
+					"  - id: s-attached",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:25:00Z",
+					"    status: active",
+					"  - id: s-behind",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T01:50:00Z",
+					"    status: detached",
+					// Stamped the same on two ended quests, with no registry
+					// record: the first by id keeps it, whatever the walk's order.
+					"  - id: s-tied",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:35:00Z",
+					"    status: detached",
 				].join("\n"),
 				"# Old\n\n## 📜 Summary\n\nIt was done.",
 			);
@@ -420,14 +446,20 @@ describe("the quests the desktop lists", () => {
 					`    cwd: ${elsewhere}`,
 					"    started: 2026-01-01T00:05:00Z",
 					"    status: detached",
+					"  - id: s-tied",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:35:00Z",
+					"    status: detached",
 				].join("\n"),
 				"# A child",
 			);
 			const { index } = discoverQuests(root);
 
+			const wrote = "2026-01-01T03:00:00Z";
 			const registry = new Map([
-				["s-returned", OLD],
-				["s-went-back", MIDDLE],
+				["s-returned", { quest: OLD, at: wrote }],
+				["s-went-back", { quest: MIDDLE, at: wrote }],
+				["s-behind", { quest: MIDDLE, at: "2026-01-01T01:00:00Z" }],
 			]);
 
 			expect(
@@ -442,7 +474,7 @@ describe("the quests the desktop lists", () => {
 					kind: "sidequest",
 					"quest.kind": "sidequest",
 					status: "retired",
-					sessions: [],
+					sessions: ["s-tied"],
 					start: elsewhere,
 					updated: "2026-01-01T03:00:00Z",
 				},
@@ -461,7 +493,14 @@ describe("the quests the desktop lists", () => {
 					// orchestrator above, not the parent, and none of the sessions
 					// an open quest now answers for.
 					orchestrator: "MISSON",
-					sessions: ["s-first", "s-back", "s-last", "s-returned"],
+					sessions: [
+						"s-first",
+						"s-back",
+						"s-last",
+						"s-returned",
+						"s-attached",
+						"s-behind",
+					],
 					start: newer,
 					updated: "2026-01-01T03:00:00Z",
 				},
@@ -480,12 +519,35 @@ describe("the quests the desktop lists", () => {
 		const before = process.env.XDG_STATE_HOME;
 		process.env.XDG_STATE_HOME = state;
 		try {
+			// A session that went back to the ended quest: only the registry
+			// says so, since its README stamps keep its first attach to each.
+			const wired = (started: string) =>
+				`sessions:\n  - id: s-wired\n    cwd: ${elsewhere}\n    started: ${started}\n    status: detached`;
 			quest(
 				MISSION,
-				"status: active\norchestrator: true",
+				`status: active\norchestrator: true\n${wired("2026-01-01T02:00:00Z")}`,
 				"# Bootstrap optimus",
 			);
-			quest(OLD, "status: concluded", "# Old");
+			quest(
+				OLD,
+				`status: concluded\n${wired("2026-01-01T01:00:00Z")}`,
+				"# Old",
+			);
+			mkdirSync(sessionRegistryDir(), { recursive: true });
+			writeFileSync(
+				join(sessionRegistryDir(), "s-wired.json"),
+				JSON.stringify({
+					sessionId: "s-wired",
+					instanceId: "i-wired",
+					cwd: elsewhere,
+					openedAt: "2026-01-01T00:30:00Z",
+					closedAt: "2026-01-01T02:30:00Z",
+					previousQuests: {
+						[MISSION]: "2026-01-01T02:10:00Z",
+						[OLD]: "2026-01-01T02:30:00Z",
+					},
+				}),
+			);
 
 			await keepDesktopListsCurrent(root);
 
@@ -497,8 +559,10 @@ describe("the quests the desktop lists", () => {
 				read(questIndexPath()).quests.map((one: { id: string }) => one.id),
 			).toEqual([MISSION]);
 			expect(
-				read(endedQuestsPath()).quests.map((one: { id: string }) => one.id),
-			).toEqual([OLD]);
+				read(endedQuestsPath()).quests.map(
+					(one: { id: string; sessions: string[] }) => [one.id, one.sessions],
+				),
+			).toEqual([[OLD, ["s-wired"]]]);
 		} finally {
 			if (before === undefined) delete process.env.XDG_STATE_HOME;
 			else process.env.XDG_STATE_HOME = before;
