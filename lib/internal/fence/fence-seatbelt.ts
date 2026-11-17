@@ -330,7 +330,7 @@ export function seatbeltProfile(
 		...keptInHidden,
 		...hidden,
 		...(reach.regranted ?? []).flatMap(({ tree, writes }) => [
-			...above(tree, home).map(
+			...wayDown(tree, home).map(
 				(folder) => `(allow file-read-metadata (literal ${path(folder)}))`,
 			),
 			`(allow file-read* (subpath ${path(tree)}))`,
@@ -366,16 +366,26 @@ export function seatbeltProfile(
 
 /**
  * The folders between `home` and `tree`, nearest the home first: those
- * a program steps through finding its way down to the tree, and those
  * that, moved, would take it along; none for a tree outside the home.
  */
 function above(tree: string, home: string | undefined): string[] {
 	if (!home || !tree.startsWith(`${home}/`)) return [];
-	const steps = tree
-		.slice(home.length + 1)
-		.split("/")
-		.slice(0, -1);
-	return steps.map((_, at) => join(home, ...steps.slice(0, at + 1)));
+	return between(home, tree);
+}
+
+/**
+ * The folders a program steps through finding its way down to a held
+ * tree: from the home, or from the root for a tree whose real path left
+ * the home through a linked folder on the way.
+ */
+function wayDown(tree: string, home: string | undefined): string[] {
+	return between(home && tree.startsWith(`${home}/`) ? home : "/", tree);
+}
+
+/** The folders strictly between `from` and `to`, nearest `from` first. */
+function between(from: string, to: string): string[] {
+	const steps = to.slice(from.length).split("/").filter(Boolean).slice(0, -1);
+	return steps.map((_, at) => join(from, ...steps.slice(0, at + 1)));
 }
 
 /** The status pi-fence exits with when it refuses, as a shell's for a command it can't run. */

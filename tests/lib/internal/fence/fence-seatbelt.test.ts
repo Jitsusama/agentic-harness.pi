@@ -121,6 +121,29 @@ describe("the fence's mounts as a profile", () => {
 		expect(tree, "the tree comes after").toBeGreaterThan(state);
 	});
 
+	it("finds a way down to a held tree whose real path left the home", () => {
+		const { profile } = seatbeltProfile([], {
+			sockets: [],
+			real: same,
+			home: "/Users/j",
+			regranted: [
+				{ tree: "/Volumes/d/state/pi/t", writes: "/Volumes/d/state/pi/t" },
+			],
+		});
+		const lines = profile.split("\n");
+
+		for (const step of [
+			"/Volumes",
+			"/Volumes/d",
+			"/Volumes/d/state",
+			"/Volumes/d/state/pi",
+		]) {
+			expect(lines, step).toContain(
+				`(allow file-read-metadata (literal "${step}"))`,
+			);
+		}
+	});
+
 	it("lays every hide again after the last grant, with what it lets back read-only", () => {
 		const rules = profileRules([
 			"--tmpfs",

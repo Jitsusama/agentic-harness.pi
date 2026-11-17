@@ -25,6 +25,17 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { createServer, type Server } from "node:net";
+
+/** Whether the temporary folder's volume takes a name in other case as the same. */
+function foldsCase(): boolean {
+	const probe = mkdtempSync(join(tmpdir(), "fence-case-"));
+	try {
+		return existsSync(probe.toUpperCase());
+	} finally {
+		rmSync(probe, { recursive: true, force: true });
+	}
+}
+
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -342,7 +353,9 @@ describe("refusing to run where the fence can't hold", () => {
 			);
 		});
 
-		it("spares no neighbour named in other case", () => {
+		// On a volume that folds case the two names are one folder, so
+		// only a case-sensitive one can hold the neighbour.
+		it.skipIf(foldsCase())("spares no neighbour named in other case", () => {
 			const made = inTree(within("worktree-r-Feature"), [
 				within("worktree-r-feature"),
 			]);
