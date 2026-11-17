@@ -156,17 +156,59 @@ remote() {
 size_there() { awk -v n="$1" '$1 == n { print $2 }' <<< "$2"; }
 
 # Builds the cache of the paths in `missing` in `work`, its pieces and,
-# last, its sha256, so pieces half made are made again.
+# last, its sha256, so pieces half made are made again. A binary cache
+# takes a path only once its references are in it, so the rest of the
+# closure, which the lender holds, goes in first, uncompressed, and comes
+# out again before the cache is tarred: only the missing paths are sent.
+# On 17 November the lender lacked the runtime alone, and the cache
+# refused it for want of the bash it refers to.
 pack() {
+  local -a others
+  mapfile -t others < <(grep -vxF -f <(printf '%s\n' "${paths[@]}") "$scratch/closure" || true)
   rm -rf "$work" &&
     mkdir -p "$work/cache" "$work/pieces" &&
+    { [[ ${#others[@]} == 0 ]] || nix copy --to "file://$work/cache?compression=none" --no-recursive -- "${others[@]}"; } &&
     nix copy --to "file://$work/cache?compression=xz&parallel-compression=true" --no-recursive -- "${paths[@]}" &&
+    drop_others &&
     tar cf "$work/send.tar" -C "$work/cache" . &&
     (cd "$work/pieces" && split -b "$PIECE" -a 4 ../send.tar p.) &&
     sha < "$work/send.tar" > "$work/sha256.part" &&
     [[ -s $work/sha256.part ]] &&
     rm "$work/send.tar" &&
     mv "$work/sha256.part" "$work/sha256"
+}
+
+# The narinfo of the store path `$1` in the cache in `work`.
+narinfo() {
+  local name=${1##*/}
+  printf '%s\n' "$work/cache/${name%%-*}.narinfo"
+}
+
+# The nar the narinfo `$1` names, when it names one in the cache's nar/.
+nar_of() {
+  local url
+  url=$(sed -n 's/^URL: //p' "$1" 2> /dev/null | sed -n 1p)
+  [[ $url =~ ^nar/[A-Za-z0-9._+-]+$ ]] && printf '%s\n' "$url"
+}
+
+# Takes the narinfos of `others`, and the nars they name, out of the cache
+# in `work`, so only the missing paths are sent. A nar a missing path's
+# narinfo names stays, though another's names it too: nix names a nar by
+# its file's hash, so two paths with one content share it.
+drop_others() {
+  local path info nar
+  local -A needed=()
+  for path in "${paths[@]}"; do
+    nar=$(nar_of "$(narinfo "$path")") && needed[$nar]=1
+  done
+  for path in "${others[@]}"; do
+    info=$(narinfo "$path")
+    [[ -e $info ]] || continue
+    if nar=$(nar_of "$info") && [[ -z ${needed[$nar]:-} ]]; then
+      rm -f "$work/cache/$nar"
+    fi
+    rm -f "$info"
+  done
 }
 
 # This machine's folder on the lender, removed, and the shared one when
