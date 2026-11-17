@@ -64,8 +64,8 @@ import { piLibrary } from "./pi-library.ts";
 import {
 	piBuiltInExtensions,
 	piSessions,
-	sessionFileGone,
 	type SessionManager,
+	sessionFileGone,
 } from "./pi-session.ts";
 import { projectTrust } from "./project-trust.ts";
 import {
