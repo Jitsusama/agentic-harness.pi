@@ -272,6 +272,7 @@ let note = (_event: {
 	readonly trigger?: unknown;
 	readonly sectioned?: boolean;
 	readonly prompt?: string;
+	readonly paired?: boolean;
 	readonly streaming?: boolean;
 }): void => {};
 
@@ -337,7 +338,11 @@ function sectionsInForce(messages: readonly unknown[]): Record<string, string> {
 	return sections;
 }
 
-/** Answer `text`, noting the sections the request carried and whether the extension's is among them. */
+/**
+ * Answer `text`, noting the sections the request carried, whether the
+ * extension's is among them, and whether pi's prepared messages left each
+ * tool result after its call.
+ */
 function sectionedAnswer(text: string) {
 	return (context: { readonly messages: readonly unknown[] }): unknown => {
 		const sections = sectionsInForce(context.messages);
@@ -345,6 +350,7 @@ function sectionedAnswer(text: string) {
 			type: "request",
 			sectioned: (sections[SECTION_NAME] ?? "").includes(SECTION),
 			prompt: JSON.stringify(sections),
+			paired: firstUnpaired(context.messages) === undefined,
 		});
 		return say(text);
 	};

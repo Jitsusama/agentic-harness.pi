@@ -29,6 +29,8 @@ export interface Observed {
 		readonly sectioned?: boolean;
 		/** The sections a request carried, as JSON. */
 		readonly prompt?: string;
+		/** Whether each tool result in a request follows its call's answer. */
+		readonly paired?: boolean;
 		/** Whether pi had a run under way as words were sent. */
 		readonly streaming?: boolean;
 	}[];

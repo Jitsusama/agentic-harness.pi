@@ -45,6 +45,10 @@ describe("a run the host carries on after a restart", {
 				"both requests carried the extension's section",
 			).toEqual([true, true]);
 			expect(
+				requests.map((request) => request.paired),
+				"pi's update went after the tool result the restart owed, as a provider requires",
+			).toEqual([true, true]);
+			expect(
 				requests[0]?.prompt,
 				"the carried turn's sections are the typed turn's",
 			).toBe(requests[1]?.prompt);
