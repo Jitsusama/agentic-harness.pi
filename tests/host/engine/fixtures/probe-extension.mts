@@ -117,7 +117,17 @@ export default function probeExtension(pi: ProbeApi): void {
 	pi.registerCommand("probe-new", {
 		description: "Start a new conversation in place of this one",
 		handler: async (_args, context) => {
-			await context.newSession();
+			// pi's runner says a command's error to the binding, not to the prompt,
+			// so the probe notes what the replacement it asked for refused.
+			try {
+				await context.newSession();
+			} catch (error) {
+				note({
+					event: "new-refused",
+					error: error instanceof Error ? error.message : String(error),
+				});
+				throw error;
+			}
 		},
 	});
 

@@ -31,6 +31,7 @@ import type {
 	HostedView,
 } from "../../../../host/engine/contract.ts";
 import { createEngine } from "../../../../host/engine/engine.ts";
+import { bindHeadless } from "../../../../host/engine/headless.ts";
 import { SessionHost } from "../../../../host/engine/session-host.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 import {
@@ -228,14 +229,18 @@ const rebounds: {
 }[] = [];
 
 /**
- * Screens that bind a UI doing nothing, as a hosted screen binds one, and
- * note each rebind pi's replacement asks for, binding the new session too.
+ * Screens that bind each session as the engine binds one with no screen,
+ * so an extension's command can ask pi for a new session, and note each
+ * rebind pi's replacement asks for, binding the new session too. Bound
+ * with no command actions, pi's newSession does nothing and says so.
  */
 function rebindingScreens(): EngineScreens {
-	const bind = (view: HostedView) =>
-		view.runtime.session.bindExtensions({
-			uiContext: new Proxy({}, { get: () => () => undefined }),
-		});
+	const bind = (view: HostedView) => {
+		if (!runningHost) throw new Error("A screen bound before its host ran");
+		return bindHeadless(view.runtime, runningHost, (error) =>
+			reported.push(String(error)),
+		);
+	};
 	return {
 		opened: (view) => bind(view),
 		rebound: async (view, previousId) => {
@@ -826,8 +831,9 @@ const scenarios: Record<string, Scenario> = {
 			const first = await open(engine, { first: "hi" });
 			await idle(engine, first);
 			refusedStore = "next";
-			// pi's failed replacement fails the command; what it said is kept,
-			// so a wait that gives up shows why.
+			// pi's runner says the failed command to the binding, so the probe
+			// notes what it was refused; a prompt that fails anyway is kept, so a
+			// wait that gives up shows why.
 			let refused = "";
 			await host
 				.run(first, () => prompt(engine, first, "/probe-new"))
