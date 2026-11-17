@@ -476,7 +476,16 @@ grep -qxF "${runtime}" "$FAKE/lender-store" && echo had >> "$FAKE/there" || echo
 	mkdirSync(key, { recursive: true });
 	writeFileSync(join(key, "store_ed25519"), "a key\n");
 	const checkout = folder(made, "checkout");
-	const who = ["-c", "user.name=t", "-c", "user.email=t@t"];
+	// The machine's own git may sign every commit with a key this throwaway
+	// repository has no business using.
+	const who = [
+		"-c",
+		"user.name=t",
+		"-c",
+		"user.email=t@t",
+		"-c",
+		"commit.gpgsign=false",
+	];
 	await run("git", ["init", "-q"], { cwd: checkout });
 	await run("git", [...who, "commit", "-q", "--allow-empty", "-m", "start"], {
 		cwd: checkout,
