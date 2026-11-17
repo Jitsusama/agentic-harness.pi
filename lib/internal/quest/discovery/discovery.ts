@@ -39,7 +39,7 @@
  * What the walk reads, and the memo that spares it reading
  * an unchanged file twice, are in `discovery-reads.ts`; the
  * seed that carries the memo to the next process is in
- * `discovery-seed.ts`.
+ * `../discovery-seed.ts`, one folder up.
  */
 
 import { realpathSync } from "node:fs";

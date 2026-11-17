@@ -227,8 +227,10 @@ export function leaveSeed(questsRoot: string, dir: string, code: string): void {
 let code: string | undefined;
 
 /**
- * A hash of the code that shapes a parsed record: every module beside
- * this one and the version of the YAML parser they use.
+ * A hash of the code that shapes a parsed record: every module under
+ * this one's folder, its subfolders included, and the version of the
+ * YAML parser they use. The parser's modules sit in the subfolders, so
+ * the walk must stay recursive and this module must stay at the top.
  */
 export function codeKey(): string {
 	if (code) return code;

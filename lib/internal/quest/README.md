@@ -11,7 +11,8 @@ what changes together:
   mentions whom, which quest a folder belongs to, and the table of
   contents.
 - `fields/`: changing a quest's fields: the one journalled way to write
-  them, reorders and reparents, the fields the workflow owns, and what a
+  them, reorders and reparents, the fields the workflow owns, the event
+  said when a quest or document is concluded or retired, and what a
   quest takes from those above it.
 - `workspace/`: where a quest's work sits on disk: its trees, its
   scratch here and elsewhere, what it holds, and the git checks the write

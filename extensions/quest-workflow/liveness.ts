@@ -1,7 +1,7 @@
 /**
  * Real-dependency wiring for the liveness snapshot.
  *
- * The pure snapshot builder in `lib/internal/quest/session-liveness`
+ * The pure snapshot builder in `lib/internal/quest/sessions/session-liveness`
  * takes its side effects as injected functions so it never shells
  * out under test. This module supplies the live ones: activity read
  * from the pi session store, the process floor probing local pids,

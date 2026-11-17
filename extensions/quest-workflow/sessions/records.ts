@@ -2,7 +2,7 @@
  * The session records on disk: where they live, reading and writing
  * them, and the repairs a reader makes when it finds them wrong.
  *
- * The pure store in `lib/internal/quest/session-registry` shapes
+ * The pure store in `lib/internal/quest/sessions/session-registry` shapes
  * records and answers questions about them; this is the file side.
  * Every record is written by exactly one live process, its own, so
  * there is no lock here and no read-modify-write race to protect
