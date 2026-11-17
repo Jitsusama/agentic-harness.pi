@@ -16,6 +16,8 @@
  */
 import { scrubSavedOutput } from "../../lib/internal/secrets/saved-output.ts";
 import {
+	type KnownSecret,
+	knownSecrets,
 	scrubToolPartial,
 	scrubToolResult,
 } from "../../lib/internal/secrets/secrets.ts";
@@ -333,6 +335,8 @@ export class ToolRound {
 		const startedAt = performance.now();
 		const elapsed = () => Math.round(performance.now() - startedAt);
 		const { toolCall } = prepared;
+		// Read once for the call, rather than from the environment each update.
+		const known = knownSecrets();
 		try {
 			const result = await prepared.tool.execute(
 				toolCall.id,
@@ -340,13 +344,21 @@ export class ToolRound {
 				signal,
 				(partialResult) => {
 					if (!accepting) return;
+					let partial: AgentToolResult;
+					try {
+						partial = scrubbedPartial(partialResult, prepared.args, known);
+					} catch {
+						// An update the scrub can't read is never shown, nor thrown
+						// into the tool's own output handler; the settled answer comes.
+						return;
+					}
 					updates.push(
 						this.agent.emit({
 							type: "tool_execution_update",
 							toolCallId: toolCall.id,
 							toolName: toolCall.name,
 							args: toolCall.arguments,
-							partialResult: scrubbedPartial(partialResult, prepared.args),
+							partialResult: partial,
 						}),
 					);
 				},
@@ -481,8 +493,9 @@ function scrubbedResult(
 function scrubbedPartial(
 	partial: AgentToolResult,
 	args: unknown,
+	known: readonly KnownSecret[],
 ): AgentToolResult {
-	const scrubbed = scrubToolPartial(partial, args);
+	const scrubbed = scrubToolPartial(partial, args, known);
 	return scrubbed === undefined ? partial : { ...partial, ...scrubbed };
 }
 

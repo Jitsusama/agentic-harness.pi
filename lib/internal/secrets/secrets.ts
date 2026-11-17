@@ -205,10 +205,12 @@ const WHOLE_ENVIRONMENT: readonly RegExp[] = [
 /**
  * A line of output that sets one variable and nothing more, as a dump
  * prints each, its value quoted or as env prints it, spaces and all: not
- * a log line of several pairs, nor a pin like `a==1`.
+ * a log line of several pairs, nor a pin like `a==1`. A colour opening it
+ * is read past, as a terminal shows the line without it.
  */
 const ASSIGNED_LINE =
-	/^[ \t]*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=(?!=)(?:'[^']*'[ \t]*$|"[^"]*"[ \t]*$|(?![^\n\0]*\s[A-Za-z_][A-Za-z0-9_]*=))/;
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a colour's escape is read past.
+	/^[ \t]*(?:\x1b\[[0-9;]*m)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=(?!=)(?:'[^']*'[ \t]*$|"[^"]*"[ \t]*$|(?![^\n\r\0]*\s[A-Za-z_][A-Za-z0-9_]*=))/;
 
 /** The fewest such lines that make an output a dump, whatever printed it. */
 const FEWEST_DUMPED_LINES = 5;
@@ -217,7 +219,8 @@ const FEWEST_DUMPED_LINES = 5;
  * Whether an output reads as a printing of the environment, whatever
  * printed it: at least five lines setting a variable, making up at least
  * half its lines that hold anything, or five such lines in a row. A line
- * ends at a newline or at a NUL, as `env -0` ends each. A command no rule
+ * ends at a newline, at a carriage return, as a progress line redrawn
+ * over ends, or at a NUL, as `env -0` ends each. A command no rule
  * knows, as a script or a program of the agent's own, still prints a dump
  * this way.
  */
@@ -245,17 +248,19 @@ export function readsAsDump(text: string): boolean {
 	return assigned >= FEWEST_DUMPED_LINES && assigned * 2 >= lines;
 }
 
-/** Whether a character ends a line of a dump: a newline, or env -0's NUL. */
+/** Whether a character ends a line of a dump: a newline, a return or a NUL. */
 function isLineEnd(code: number): boolean {
-	return code === NEWLINE || code === NUL;
+	return code === NEWLINE || code === RETURN || code === NUL;
 }
 
 const NEWLINE = 10;
+const RETURN = 13;
 const NUL = 0;
 
 /** A variable's line in a dump: its name, what sits between, its value. */
 const DUMPED_VARIABLE =
-	/^([ \t]*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)([^\s'"]+)/gm;
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a colour's escape is read past.
+	/^([ \t]*(?:\x1b\[[0-9;]*m)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)([^\s'"]+)/gm;
 
 /**
  * A mark already standing where a secret was, kept as it is, or a word
@@ -291,13 +296,40 @@ function scrubDump(text: string, kinds: string[]): string {
  * nothing says the rest is the environment.
  */
 function scrubDumpedLines(text: string, kinds: string[]): string {
+	if (!text.includes("=")) return text;
 	return text.replace(EACH_LINE, (line: string) =>
 		ASSIGNED_LINE.test(line) ? scrubDump(line, kinds) : line,
 	);
 }
 
-/** Each line of an output, ended by a newline or by env -0's NUL. */
-const EACH_LINE = /[^\n\0]+/g;
+/** Each line of an output, ended by a newline, a return or env -0's NUL. */
+const EACH_LINE = /[^\n\r\0]+/g;
+
+/**
+ * A partial with its last line, still being written, put out of sight
+ * from where it sets a variable, however short the value so far: the rest
+ * of a credential has yet to arrive to make it look like one, and the
+ * settled answer replaces the partial.
+ */
+function scrubOpenLine(text: string, kinds: string[]): string {
+	const start =
+		Math.max(
+			text.lastIndexOf("\n"),
+			text.lastIndexOf("\r"),
+			text.lastIndexOf("\0"),
+		) + 1;
+	const open = OPEN_VALUE.exec(text.slice(start));
+	if (!open) return text;
+	const [, before = "", name = "", value = ""] = open;
+	if (value.startsWith("[secret scrubbed: ")) return text;
+	kinds.push(name);
+	return `${text.slice(0, start)}${before}${scrubbedMark(name)}`;
+}
+
+/** A line setting a variable, up to its value, and the value so far. */
+const OPEN_VALUE =
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: a colour's escape is read past.
+	/^([ \t]*(?:\x1b\[[0-9;]*m)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)(.+)$/;
 
 /** The text with each variable's value that could be a credential scrubbed. */
 function scrubAssigned(text: string, kinds: string[]): string {
@@ -533,6 +565,7 @@ export function scrubSecrets(
 	}
 	if (options.environment) scrubbed = scrubDump(scrubbed, kinds);
 	else if (dumped) scrubbed = scrubDumpedLines(scrubbed, kinds);
+	if (options.partial === true) scrubbed = scrubOpenLine(scrubbed, kinds);
 	return { text: scrubbed, kinds };
 }
 

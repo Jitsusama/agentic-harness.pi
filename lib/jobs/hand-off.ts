@@ -36,7 +36,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { sessionEnv } from "../core/session/index.ts";
 import { scrubSavedOutput } from "../internal/secrets/saved-output.ts";
-import { scrubToolResult } from "../internal/secrets/secrets.ts";
+import {
+	scrubToolPartial,
+	scrubToolResult,
+} from "../internal/secrets/secrets.ts";
 import { count, verb } from "../ui/count.ts";
 import { firstText } from "../ui/tool-result.ts";
 import { findJobHost, type JobCarry } from "./host.ts";
@@ -332,7 +335,7 @@ export async function runOrHandOff<T>(
 					jobId: job.id,
 					afterMs: steered ? now() - startedAt : delay,
 					steered,
-					output: latest,
+					output: shownSoFar(latest, call.input),
 					silentForMs: now() - lastOutputAt,
 				}),
 			},
@@ -352,6 +355,27 @@ function scrubbed<T>(
 	scrubSavedOutput(result, input);
 	const found = scrubToolResult(result, input);
 	return found === undefined ? result : { ...result, ...found };
+}
+
+/**
+ * What a moved call showed before it moved, scrubbed as a stream's update
+ * is, since it is one: a dump's first lines are put out of sight before
+ * five arrive, and a line still being written however short. Nothing
+ * replaces the answer that quotes it, so it is never said as it stands;
+ * nothing is said when the scrub can't read it.
+ */
+function shownSoFar(output: string, input: unknown): string {
+	try {
+		const found = scrubToolPartial(
+			{ content: [{ type: "text", text: output }] },
+			input,
+		);
+		const part = found?.content?.[0];
+		return part === undefined ? output : part.text;
+	} catch {
+		// Withheld rather than said raw; the job's end says the rest.
+		return "";
+	}
 }
 
 /**
