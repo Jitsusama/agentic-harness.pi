@@ -151,6 +151,50 @@ export function leastGibOfCommand(command: string): number {
 		: 0;
 }
 
+/** The type checkers: TypeScript's own, Vue's over it, and the Go port. */
+const CHECKER = "(?:vue-tsc|tsc|tsgo)";
+
+/**
+ * What leaves a type check out, read only up to the end of its own
+ * command, so a pipe's `grep -v` is not its: the runs that compile
+ * nothing, asking its version or help or writing a config, and a watch,
+ * which never ends and would hold a turn for good. `-v` asks the version
+ * except under `-b`, where it means --verbose over a whole build.
+ */
+const COMPILES_NOTHING = String.raw`(?![^\n|]*\s(?:--version|-h|--help|--all|--init|--showConfig|--clean|-w|--watch)(?![\w-]))(?!(?![^\n|]*\s(?:-b|--build)(?![\w-]))[^\n|]*\s-v(?![\w-]))`;
+
+/**
+ * A type check: a checker by its name, or by its path in a bin folder,
+ * or TypeScript's own entry run by node, over a project or files, each
+ * holding a gigabyte and a core for minutes. Two took no turn on
+ * equilibrius at load 155 to 264 on 16 November (VRZKID). Only a bin
+ * folder's path counts, since `rm -rf dist/tsc` works on a folder
+ * named tsc rather than running one; a path is read only from the start
+ * of its word, so a long one costs a single pass.
+ */
+const TYPE_CHECK = new RegExp(
+	String.raw`(?:(?<![\w./-])${CHECKER}|(?<!\S)\S*\/\.?bin\/${CHECKER}|(?<!\S)\S*\/typescript\/lib\/tsc\.js)(?![\w./-])${COMPILES_NOTHING}`,
+);
+
+/**
+ * A runner's flags, each with its value if it takes one, as `-C dir`,
+ * `--filter=x` and `-r` are. A flag opens with one dash or two and then
+ * a word character, so each reads one way and a long run of them that
+ * fails to match fails in a single pass.
+ */
+const RUNNER_FLAGS = String.raw`(?:\s+-{1,2}\w[\w-]*(?:=\S*|\s+[^\s-]\S*)?)*`;
+
+/**
+ * A package script named typecheck or type-check, or either with
+ * `:<anything>` after it, run by pnpm, bun or yarn (yarn in a workspace
+ * too), or npm's run, with flags before and after `run`. A watch is left
+ * out as {@link COMPILES_NOTHING} leaves tsc's out: a script named for
+ * one, or one given `-w` or `--watch`.
+ */
+const TYPE_CHECK_SCRIPT = new RegExp(
+	String.raw`(?<![\w./-])(?:(?:pnpm|bun)${RUNNER_FLAGS}(?:\s+run${RUNNER_FLAGS})?|yarn${RUNNER_FLAGS}(?:\s+workspace\s+\S+)?(?:\s+run${RUNNER_FLAGS})?|npm${RUNNER_FLAGS}\s+run(?:-script)?${RUNNER_FLAGS})\s+(?!\S*watch)type-?check(?::[\w-]+)*(?![\w:-])(?![^\n|]*\s(?:-w|--watch)(?![\w-]))`,
+);
+
 /**
  * The one map from a command to its kind, first match winning. A VM
  * test is a VM or a test driver run here; building a test's driver is a
@@ -205,6 +249,8 @@ const KINDS: readonly (readonly [RegExp, Kind])[] = [
 				// test is left alone: Acceluary's deploy waits on its, which is
 				// timed work rather than bulk (N3Q98W).
 				/(?<![\w./-])vitest(?![\w.-])|\bpnpm\s+(?:run\s+)?(?:check|test(?::[\w-]+)?)(?![\w:-])/,
+				TYPE_CHECK,
+				TYPE_CHECK_SCRIPT,
 			]
 				.map((pattern) => pattern.source)
 				.join("|"),

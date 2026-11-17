@@ -53,6 +53,81 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("npm test")).toBeUndefined();
 	});
 
+	it("reads a whole project's type check, and the pnpm scripts that run one, as a build", () => {
+		// 16 November, 23:4x: two `pnpm typecheck` runs of about 1.1 GB each
+		// took no turn on equilibrius at load 155 to 264 (VRZKID).
+		expect(kindOf("tsc")).toBe("build");
+		expect(kindOf("tsc --noEmit")).toBe("build");
+		expect(kindOf("tsc -p tsconfig.json")).toBe("build");
+		expect(kindOf("pnpm exec tsc --noEmit > $TMPDIR/t.log 2>&1")).toBe("build");
+		expect(kindOf("npx tsc -b")).toBe("build");
+		expect(kindOf("tsc src/one.ts --noEmit")).toBe("build");
+		// By its path, and the checkers built on it.
+		expect(kindOf("./node_modules/.bin/tsc -p .")).toBe("build");
+		expect(kindOf("node node_modules/typescript/bin/tsc --noEmit")).toBe(
+			"build",
+		);
+		expect(kindOf("pnpm exec vue-tsc --noEmit")).toBe("build");
+		expect(kindOf("npx tsgo --noEmit")).toBe("build");
+		expect(kindOf("cd $T && timeout 600 pnpm typecheck; echo $?")).toBe(
+			"build",
+		);
+		expect(kindOf("pnpm run typecheck")).toBe("build");
+		expect(kindOf("pnpm typecheck:strict")).toBe("build");
+		// With pnpm's flags before the script, and the other runners.
+		expect(kindOf("pnpm -C packages/a typecheck")).toBe("build");
+		expect(kindOf("pnpm --filter web typecheck")).toBe("build");
+		expect(kindOf("pnpm -r typecheck")).toBe("build");
+		expect(kindOf("npm run typecheck")).toBe("build");
+		expect(kindOf("yarn typecheck")).toBe("build");
+		expect(kindOf("bun run typecheck")).toBe("build");
+		expect(kindOf("npm run-script typecheck")).toBe("build");
+		expect(kindOf("npm --prefix web run typecheck")).toBe("build");
+		expect(kindOf("npm run -w web typecheck")).toBe("build");
+		expect(kindOf("pnpm run -r typecheck")).toBe("build");
+		expect(kindOf("pnpm --filter=web typecheck")).toBe("build");
+		expect(kindOf("yarn workspace web typecheck")).toBe("build");
+		expect(kindOf("pnpm typecheck:app:strict")).toBe("build");
+		expect(kindOf("pnpm type-check")).toBe("build");
+		// By path, each checker, and TypeScript's own entry run by node.
+		expect(kindOf("./node_modules/.bin/tsgo --noEmit")).toBe("build");
+		expect(kindOf("node_modules/.bin/vue-tsc --noEmit")).toBe("build");
+		expect(kindOf("node node_modules/typescript/lib/tsc.js -p .")).toBe(
+			"build",
+		);
+		// Under -b, -v is --verbose: a whole build, said aloud.
+		expect(kindOf("tsc -b -v")).toBe("build");
+		// What the exclusions read stays in tsc's own command: a pipe's
+		// reader and the next step have flags of their own.
+		expect(kindOf("tsc -p . 2>&1 | grep -v warning")).toBe("build");
+		expect(kindOf("tsc -p . && node x.mjs --help")).toBe("build");
+		// Asking its version or help, or writing a config, compiles nothing;
+		// a watch never ends, so would hold a turn for good.
+		expect(kindOf("pnpm exec tsc --version")).toBeUndefined();
+		expect(kindOf("pnpm exec tsc -v")).toBeUndefined();
+		expect(kindOf("npx tsc -h")).toBeUndefined();
+		expect(kindOf("npx tsc --help")).toBeUndefined();
+		expect(kindOf("tsc --init")).toBeUndefined();
+		expect(kindOf("tsc -p . --showConfig")).toBeUndefined();
+		expect(kindOf("tsc -b --clean")).toBeUndefined();
+		expect(kindOf("tsc -p . --watch")).toBeUndefined();
+		expect(kindOf("pnpm exec tsc -w")).toBeUndefined();
+		expect(kindOf("tsc --all")).toBeUndefined();
+		expect(kindOf("pnpm typecheck --watch")).toBeUndefined();
+		expect(kindOf("pnpm typecheck -w")).toBeUndefined();
+		expect(kindOf("pnpm typecheck:watch")).toBeUndefined();
+		// A file or folder named tsc is no checker, whatever works on it.
+		expect(kindOf("cp src/tsc.ts out/")).toBeUndefined();
+		expect(kindOf("rm -rf dist/tsc")).toBeUndefined();
+		expect(kindOf("mv packages/tsc packages/old")).toBeUndefined();
+		expect(kindOf("cp -r out dist/tsc/")).toBeUndefined();
+		expect(kindOf("ls node_modules/typescript/lib/tsc.js")).toBeUndefined();
+		expect(kindOf("cat tsconfig.json")).toBeUndefined();
+		expect(kindOf("grep tsc package.json")).toBeUndefined();
+		expect(kindOf("code tsconfig.json")).toBeUndefined();
+		expect(kindOf("pnpm typechecker-notes")).toBeUndefined();
+	});
+
 	it("reads a deploy's stamp as one, by its suite or by npm's test in Acceluary", () => {
 		// 7 November: train 8's stamp took 13 minutes beside ten builds,
 		// against 3 to 5 with few, and its owner ruled it goes first.
