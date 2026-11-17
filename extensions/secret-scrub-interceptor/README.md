@@ -47,8 +47,9 @@ replaced:
   awk's `ENVIRON`, jq's `$ENV`, `docker inspect`, `docker compose
   config`, `systemctl show` of `Environment` and `kubectl set env
   --list`; or a script the command holds (`python3 -c`, `node -e`,
-  one piped in or written in a heredoc) reading its whole environment,
-  as Python's `os.environ` or Node's `process.env`; over SSH or not. A search naming `process.env` is no dump. Every value in
+  one written in a heredoc, or one piped in however the interpreter is
+  wrapped or flagged) reading its whole environment, as Python's
+  `os.environ` or Node's `process.env`; over SSH or not. A search naming `process.env` is no dump. Every value in
   its answer long and mixed enough to be a credential is scrubbed,
   whatever its variable is called, and the mark names the variable.
   On 12 November a `launchctl print` over SSH put two of another
@@ -58,7 +59,8 @@ replaced:
   command run, not a dump, whatever its values' quotes. The rules err
   towards a dump.
 - **An output that reads as a dump:** whatever printed it, an output
-  with at least five lines each setting one variable, making up at
+  with at least five lines each setting one variable, its value quoted
+  or bare as env prints it, spaces and all, making up at
   least half of its lines or five in a row, has each of those lines
   scrubbed the same way, so a command no rule knows still has its
   values put out of sight. It is judged before any credential in it is

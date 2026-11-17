@@ -264,26 +264,24 @@ export async function runOrHandOff<T>(
 	running.then(
 		(settled) => {
 			const took = spoken(now() - startedAt);
+			// How it ended holds no output, so it is said even when the
+			// output can't be, lest a command that worked read as one to rerun.
+			const code = exitCodeOf(settled);
+			const status =
+				code === undefined
+					? `${settled.isError ? "failed" : "finished"} after ${took}`
+					: `exited ${code} after ${took}`;
 			let result: AgentToolResult<T>;
 			try {
 				result = scrubbed(settled, call.input);
 			} catch (failure) {
 				// A result the scrub cannot read is never said as it stands.
 				job.finish({
-					summary: withheldSummary(
-						call.label,
-						`ended after ${took}`,
-						failure,
-					),
-					failed: true,
+					summary: withheldSummary(call.label, status, failure),
+					...(settled.isError ? { failed: true } : {}),
 				});
 				return;
 			}
-			const code = exitCodeOf(result);
-			const status =
-				code === undefined
-					? `${result.isError ? "failed" : "finished"} after ${took}`
-					: `exited ${code} after ${took}`;
 			job.finish({
 				summary: finishedSummary(
 					call.label,

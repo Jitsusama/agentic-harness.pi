@@ -109,8 +109,8 @@ const SHAPES: readonly SecretShape[] = [
  * own, by any path and with only options or assignments after env; a
  * shell's export, declare or set listing, bare or with its flags;
  * systemd's or launchd's environment, a process's environ, ps with its e
- * flag, or a script run inline (`python3 -c`, `node -e`, a heredoc)
- * reading its interpreter's whole environment. A command run under env,
+ * flag, or a script the command holds (`python3 -c`, `node -e`, a
+ * heredoc, or one piped to an interpreter) reading its whole environment. A command run under env,
  * as `env FOO=1 cargo test`, prints only what it prints, and so does a
  * search for `process.env`. It errs towards a dump, since a dump read as
  * ordinary output shows every value no shape knows.
@@ -132,16 +132,31 @@ export function dumpsEnvironment(command: string): boolean {
 const COMMAND_VALUE = String.raw`(?:'[^']*'|"[^"]*"|[^\s;&|)<>'"\`#}])*`;
 
 /**
- * env on its own: by any path, then only options and assignments, then
- * the command's end. Each option form starts differently from the
- * others, so a long run of options is read one way.
+ * One of env's own words: flags ending in one that takes a value, given
+ * it or the next word; a long option taking the next word or its own;
+ * any other option; or an assignment, quoted whole or not. The first form
+ * that fits is the one read.
+ */
+const ENV_WORD = [
+	String.raw`-[0-9A-Za-z]*[uCSPLU]\s*(?=[^\s-])${COMMAND_VALUE}`,
+	String.raw`--(?:unset|chdir|split-string)(?:=|\s+)${COMMAND_VALUE}`,
+	String.raw`-[0-9A-Za-z-]+(?:=${COMMAND_VALUE})?`,
+	String.raw`[A-Za-z_][A-Za-z0-9_]*=${COMMAND_VALUE}`,
+	String.raw`'[A-Za-z_][A-Za-z0-9_]*=[^']*'`,
+	String.raw`"[A-Za-z_][A-Za-z0-9_]*=[^"]*"`,
+].join("|");
+
+/**
+ * env on its own: by any path, then only its own words, then the
+ * command's end. Each word is taken whole, through a lookahead and a
+ * backreference, so a long run of them is read one way.
  */
 const ENV_ALONE = new RegExp(
 	String.raw`(?:^|[\s;&|('"\`{])(?:[^\s;&|('"\`{]*\/)?env` +
-		String.raw`(?:\s+(?:-[uCS]\s*(?=[^\s-])(?=(${COMMAND_VALUE}))\1` +
-		String.raw`|-(?![uCS])[0-9A-Za-z-]+(?:=(?=(${COMMAND_VALUE}))\2)?` +
-		String.raw`|[A-Za-z_][A-Za-z0-9_]*=(?=(${COMMAND_VALUE}))\3))*` +
-		String.raw`\s*(?:$|[\n|;&)<>#'"\`}]|\d+>)`,
+		String.raw`(?:\s+(?=(${ENV_WORD}))\1)*` +
+		// A quote ends it, as `sh -c 'env'` does, unless it opens a word.
+		String.raw`\s*(?:$|[\n|;&)<>#\`}]|\d+>` +
+		String.raw`|['"](?![A-Za-z_][A-Za-z0-9_]*=))`,
 );
 
 /** The commands that print the environment, as `dumpsEnvironment` says. */
@@ -149,7 +164,7 @@ const ENVIRONMENT_DUMPS: readonly RegExp[] = [
 	ENV_ALONE,
 	/(?:^|[\s;&|('"`{])(?:[^\s;&|('"`{]*\/)?printenv\b/,
 	/(?:^|[\s;&|('"`{])(?:export|declare|typeset)\s+-[A-Za-z]*[px]/,
-	/(?:^|[\n;&|('"`{]|\b(?:command|builtin|then|do|else|time|exec)\s|-c\s+|\bssh\s+(?:\S+\s+)*?)\s*(?:export|declare|typeset|set)\s*(?:$|[\n|;&)<>#'"`}]|\d+>)/,
+	/(?:^|[\n;&|('"`{]|\b(?:command|builtin|then|do|else|time|exec)\s|-[A-Za-z]*c\s+|\bssh\s+(?:\S+\s+)*?)\s*(?:export|declare|typeset|set)\s*(?:$|[\n|;&)<>#'"`}]|\d+>)/,
 	/\bshow-environment\b/,
 	/\blaunchctl\s+(?:print|getenv|export|procinfo)\b/,
 	/\/proc\/\S*\/environ\b/,
@@ -168,10 +183,11 @@ const ENVIRONMENT_DUMPS: readonly RegExp[] = [
 
 /**
  * An interpreter run on code the command itself holds: given it as an
- * argument, piped to it, or written in a heredoc, whatever then runs it.
+ * argument on its line, written in a heredoc whatever then runs it, or
+ * piped to one however it is wrapped or flagged.
  */
 const INLINE_SCRIPT =
-	/(?:^|[\s;&|('"`/])(?:python[\d.]*|node(?:js)?|deno|bun|ruby|perl|php|irb)(?:\s+(?:[^|;&\s]+\s+)*?(?:-[A-Za-z]*[ecprE]\b|--(?:eval|print)\b|eval\b|-(?=\s|$))|(?<=\|\s*(?:\S*\/)?[\w.]+)\s*(?:$|[\n;&|)]))|<</;
+	/(?:^|[\s;&|('"`/])(?:python[\d.]*|node(?:js)?|deno|bun|ruby|perl|php|irb)[ \t]+(?:[^|;&\s]+[ \t]+)*?(?:-[A-Za-z]*[ecprE]\b|--(?:eval|print)\b|eval\b|-(?=\s|$))|<<|\|[^|;&\n]*?(?<![\w.-])(?:python[\d.]*|node(?:js)?|deno|bun|ruby|perl|php|irb)(?![\w.-])/;
 
 /** An inline script's whole environment, as against one variable by name. */
 const WHOLE_ENVIRONMENT: readonly RegExp[] = [
@@ -188,10 +204,11 @@ const WHOLE_ENVIRONMENT: readonly RegExp[] = [
 
 /**
  * A line of output that sets one variable and nothing more, as a dump
- * prints each: not a log line of several pairs, nor a pin like `a==1`.
+ * prints each, its value quoted or as env prints it, spaces and all: not
+ * a log line of several pairs, nor a pin like `a==1`.
  */
 const ASSIGNED_LINE =
-	/^\s*(?:export\s+|declare\s+-[-A-Za-z]+\s+)?[A-Za-z_][A-Za-z0-9_]*=(?!=)(?:'[^']*'|"[^"]*"|[^\s'"]*)\s*$/;
+	/^[ \t]*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=(?!=)(?:'[^']*'[ \t]*$|"[^"]*"[ \t]*$|(?![^\n\0]*\s[A-Za-z_][A-Za-z0-9_]*=))/;
 
 /** The fewest such lines that make an output a dump, whatever printed it. */
 const FEWEST_DUMPED_LINES = 5;
@@ -242,11 +259,11 @@ const DUMPED_VARIABLE =
 
 /**
  * A mark already standing where a secret was, kept as it is, or a word
- * long enough to be a credential anywhere in a line, a variable's name
- * before its value aside.
+ * long enough to be a credential anywhere in a line, the rest of a value
+ * a mark cut short included, a variable's name before its value aside.
  */
 const DUMPED_WORD =
-	/\[secret scrubbed: [^\]]*\]|(?<![^\s'"=])[^\s'"=]{16,}(?![^\s'"])(?!\s*=)/g;
+	/\[secret scrubbed: [^\]]*\]|(?<![^\s'"=\]])[^\s'"=]{16,}(?![^\s'"])(?!\s*=)/g;
 
 /**
  * The dump with every value that could be a credential put out of sight,

@@ -369,17 +369,7 @@ function takeUpShell(
 	watching = (into.watch ?? watchCarried)(work, adopted.signal);
 	watching.ended.then((end) => {
 		ended = true;
-		let outcome: JobOutcome | undefined;
-		try {
-			outcome = outcomeOf(job, work, end, into.session, now());
-		} catch (failure) {
-			// An end the scrub cannot read is never said as it stands.
-			const took = spoken(now() - work.startedAt);
-			outcome = {
-				summary: withheldSummary(job.label, `ended after ${took}`, failure),
-				failed: true,
-			};
-		}
+		const outcome = outcomeOf(job, work, end, into.session, now());
 		if (outcome === undefined) {
 			if (end.how === "stopped") removeKept(work.keep);
 			return;
@@ -403,14 +393,22 @@ function outcomeOf(
 	const options = {
 		environment: work.dumps === true || dumpsEnvironment(job.label),
 	};
-	const say = (status: string, output: string) =>
-		finishedSummary(
+	const say = (status: string, output: string) => {
+		let said: string;
+		try {
+			said = scrubSecrets(output, undefined, options).text;
+		} catch (failure) {
+			// An output the scrub cannot read is never said as it stands.
+			return withheldSummary(job.label, status, failure);
+		}
+		return finishedSummary(
 			job.label,
 			status,
-			scrubSecrets(output, undefined, options).text,
+			said,
 			`${session}-${work.startedAt}-${job.id}`,
 			keepInTemp(session, "pi-bash"),
 		);
+	};
 	switch (end.how) {
 		case "exited":
 			return {
