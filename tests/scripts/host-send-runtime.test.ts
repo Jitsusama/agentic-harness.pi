@@ -12,7 +12,9 @@ import {
 	chmodSync,
 	existsSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
+	rmSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -39,7 +41,12 @@ afterEach(() => removeAll(made));
  * lender remade with a new host key is refused, unless it's told to check
  * the host key strictly against a file naming the lender's alias with the
  * key its store URI gives: nix-offload removes its own known-hosts file
- * when each run ends, so a send can't lean on that.
+ * when each run ends, so a send can't lean on that. Each piece it carries
+ * is named in $FAKE/uploads. Given $FAKE/allowed, it carries that many
+ * pieces and then loses every connection that sends one; given
+ * $FAKE/cut-once, it cuts one piece to 10 bytes and loses its connection;
+ * given $FAKE/lose-once, it carries one piece whole and then loses its
+ * connection, as a link dropped after the copy.
  */
 const SSH = `#!/usr/bin/env bash
 known= alias= strict=
@@ -62,13 +69,28 @@ if [[ -z $strict || -z $alias ]] || ! grep -qxF "$alias $(cat "$FAKE/host-key")"
   exit 255
 fi
 echo "$1" >> "$FAKE/hosts"; shift
-if [[ $* == *"cat > "* && -e $FAKE/cut-once ]]; then
-  rm "$FAKE/cut-once"
-  piece=$(sed -E 's/.*cat > ([^ ]+).*/\\1/' <<< "$*")
-  head -c 10 > "$FAKE/lender/$piece"
-  exit 255
+there() { cd "$FAKE/lender" && HOME="$FAKE/lender" PATH="$FAKE/lender-bin:$PATH" bash -c "$*"; }
+if [[ $* == *"cat > "* ]]; then
+  part=$(sed -E 's/.*cat > ([^ ]+).*/\\1/' <<< "$*")
+  if [[ -e $FAKE/allowed ]]; then
+    left=$(cat "$FAKE/allowed")
+    [[ $left -gt 0 ]] || exit 255
+    echo $((left - 1)) > "$FAKE/allowed"
+  fi
+  piece=\${part##*/}
+  echo "\${piece%.part}" >> "$FAKE/uploads"
+  if [[ -e $FAKE/cut-once ]]; then
+    rm "$FAKE/cut-once"
+    head -c 10 > "$FAKE/lender/$part"
+    exit 255
+  fi
+  if [[ -e $FAKE/lose-once ]]; then
+    rm "$FAKE/lose-once"
+    there "$@"
+    exit 255
+  fi
 fi
-cd "$FAKE/lender" && HOME="$FAKE/lender" PATH="$FAKE/lender-bin:$PATH" exec bash -c "$*"
+there "$@"
 `;
 
 /** The lender's nix-store, answering which paths its store lacks. */
@@ -76,6 +98,7 @@ const LENDER_NIX_STORE = `#!/usr/bin/env bash
 [[ "$1 $2" == "--check-validity --print-invalid" ]] || exit 64
 shift 2
 for p; do grep -qxF "$p" "$FAKE/lender-store" || echo "$p"; done
+[[ ! -e $FAKE/greedy ]] || echo /nix/store/9secret-keys
 `;
 
 /** The lender's nix, taking in a path only from a cache that holds it. */
@@ -84,6 +107,8 @@ case $1 in
 copy)
   [[ $2 == --from && $4 == --no-recursive ]] || exit 64
   dir=\${3#file://}; shift 4
+  echo "$*" >> "$FAKE/imports"
+  [[ ! -e $FAKE/refuse ]] || { echo "lacks a signature by a trusted key" >&2; exit 1; }
   for p; do
     h=$(basename "$p"); h=\${h%%-*}
     [[ -s $dir/$h.narinfo ]] || { echo "no $p in $dir" >&2; exit 1; }
@@ -99,10 +124,11 @@ esac
 /** This machine's nix: the closure, and a file cache of the paths given. */
 const NIX = `#!/usr/bin/env bash
 case $1 in
-path-info) cat "$FAKE/closure" ;;
+path-info) echo "$*" >> "$FAKE/asked"; cat "$FAKE/closure" ;;
 copy)
   [[ $2 == --to && $4 == --no-recursive ]] || exit 64
   dir=\${3#file://}; dir=\${dir%%\\?*}; shift 4
+  [[ $1 != -- ]] || shift
   mkdir -p "$dir/nar"
   echo "StoreDir: /nix/store" > "$dir/nix-cache-info"
   for p; do
@@ -151,6 +177,14 @@ function lender(closure: string[], held: string[]) {
 
 type Lender = ReturnType<typeof lender>;
 
+/** The lines of the stand-ins' log `name`, none when it wasn't written. */
+function logged(on: Lender, name: string): string[] {
+	const file = join(on.fake, name);
+	return existsSync(file)
+		? readFileSync(file, "utf8").split("\n").filter(Boolean)
+		: [];
+}
+
 /** What the lender's store holds. */
 function held(on: Lender): string[] {
 	return readFileSync(join(on.fake, "lender-store"), "utf8")
@@ -171,7 +205,7 @@ async function answer(
 		HOME: on.fake,
 		XDG_CACHE_HOME: join(on.fake, "cache"),
 		XDG_RUNTIME_DIR: on.fake,
-		NIX_OFFLOAD_STORES: on.store,
+		NIX_OFFLOAD_STORES: `${join(on.fake, "none")}:${on.store}`,
 		HOST_SEND_PIECE_BYTES: "1000",
 		HOST_SEND_PAUSE: "0",
 		FAKE: on.fake,
@@ -219,7 +253,69 @@ describe("host-send-runtime.sh", () => {
 		expect(copied).toContain(RUNTIME);
 		expect(copied).not.toContain(BASE);
 		expect(answered.said).toContain(`nix-offload-more holds ${RUNTIME}`);
+		expect(logged(on, "asked")).toEqual([`--recursive -- ${RUNTIME}`]);
 		expect(existsSync(join(on.fake, "lender", "pi-host-send"))).toBe(false);
+		const kept = readdirSync(join(on.fake, "cache", "pi-host", "send"));
+		expect(kept.filter((name) => name !== ".lock")).toEqual([]);
+	});
+
+	it("never sends a path the lender names that isn't in the closure", async () => {
+		const on = lender([BASE, RUNTIME], [BASE]);
+		writeFileSync(join(on.fake, "greedy"), "");
+
+		const answered = await answer(on, SENDER, [RUNTIME]);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(logged(on, "copied").join("\n")).not.toContain("9secret");
+	});
+
+	it("takes a cut-off send up again where it stopped, sending no piece twice", async () => {
+		const on = lender([BASE, RUNTIME], [BASE]);
+		writeFileSync(join(on.fake, "allowed"), "2");
+
+		const cut = await answer(on, SENDER, [RUNTIME], { HOST_SEND_TRIES: "1" });
+		rmSync(join(on.fake, "allowed"));
+		const resumed = await answer(on, SENDER, [RUNTIME]);
+
+		expect(cut.code, cut.said).toBe(1);
+		expect(cut.said).toContain("the next run takes it up");
+		expect(resumed.code, resumed.said).toBe(0);
+		expect(held(on)).toContain(RUNTIME);
+		const uploads = logged(on, "uploads");
+		expect(uploads.length).toBeGreaterThan(2);
+		expect(new Set(uploads).size).toBe(uploads.length);
+		expect(logged(on, "copied")).toHaveLength(1);
+	});
+
+	it("makes and sends the pieces again when those on the lender don't make the cache", async () => {
+		const on = lender([BASE, RUNTIME], [BASE]);
+		writeFileSync(join(on.fake, "allowed"), "2");
+		await answer(on, SENDER, [RUNTIME], { HOST_SEND_TRIES: "1" });
+		const sent = join(on.fake, "lender", "pi-host-send");
+		const [sum] = readdirSync(sent);
+		writeFileSync(join(sent, sum, "pieces", "p.aaaa"), "x".repeat(1000));
+		rmSync(join(on.fake, "allowed"));
+
+		const mismatched = await answer(on, SENDER, [RUNTIME]);
+		const again = await answer(on, SENDER, [RUNTIME]);
+
+		expect(mismatched.code, mismatched.said).toBe(1);
+		expect(mismatched.said).toContain("to be made and sent again");
+		expect(again.code, again.said).toBe(0);
+		expect(held(on)).toContain(RUNTIME);
+		expect(logged(on, "copied")).toHaveLength(2);
+	});
+
+	it("gives a lender up at once when its nix refuses the cache", async () => {
+		const on = lender([BASE, RUNTIME], [BASE]);
+		writeFileSync(join(on.fake, "refuse"), "");
+
+		const answered = await answer(on, SENDER, [RUNTIME]);
+
+		expect(answered.code, answered.said).toBe(1);
+		expect(answered.said).toContain("wouldn't take the cache in");
+		expect(logged(on, "imports")).toHaveLength(1);
+		expect(held(on)).not.toContain(RUNTIME);
 	});
 
 	it("checks the lender's host key from its store URI, with no known-hosts file of nix-offload's left", async () => {
@@ -233,6 +329,10 @@ describe("host-send-runtime.sh", () => {
 		expect(answered.code, answered.said).toBe(0);
 		expect(held(on)).toContain(RUNTIME);
 		expect(refused.code, refused.said).toBe(1);
+		expect(refused.said).toContain("Host key verification failed");
+		expect(refused.said).toContain(
+			"couldn't ask nix-offload-more what it lacks",
+		);
 		expect(held(remade)).not.toContain(RUNTIME);
 	});
 
@@ -244,6 +344,20 @@ describe("host-send-runtime.sh", () => {
 
 		expect(answered.code, answered.said).toBe(0);
 		expect(existsSync(join(on.fake, "cut-once"))).toBe(false);
+		expect(held(on)).toContain(RUNTIME);
+		const uploads = logged(on, "uploads");
+		expect(uploads.filter((name) => name === "p.aaaa")).toHaveLength(2);
+	});
+
+	it("sends a piece once when the link drops after it landed whole", async () => {
+		const on = lender([BASE, RUNTIME], [BASE]);
+		writeFileSync(join(on.fake, "lose-once"), "");
+
+		const answered = await answer(on, SENDER, [RUNTIME]);
+
+		expect(answered.code, answered.said).toBe(0);
+		const uploads = logged(on, "uploads");
+		expect(new Set(uploads).size).toBe(uploads.length);
 		expect(held(on)).toContain(RUNTIME);
 	});
 
@@ -260,50 +374,73 @@ describe("host-send-runtime.sh", () => {
 	});
 });
 
-describe("host-test-there.sh", () => {
-	it("sends the runtime to a lender lacking it before nix-offload runs there", async () => {
-		const store = folder(made, "store");
-		const runtime = join(store, "1run-runtime");
-		mkdirSync(join(runtime, "lib", "node_modules", "pi-monorepo"), {
-			recursive: true,
-		});
-		const profile = folder(made, "profile");
-		const tools: string[] = [];
-		for (const [at, tool] of TOOLS.entries()) {
-			const bin = join(store, `${at}tool-${tool}`, "bin");
-			mkdirSync(bin, { recursive: true });
-			program(bin, tool, "");
-			symlinkSync(join(bin, tool), join(profile, tool));
-			tools.push(join(store, `${at}tool-${tool}`));
-		}
-		const on = lender([BASE, runtime, ...tools], [BASE, ...tools]);
-		program(
-			on.bin,
-			"nix-offload",
-			`#!/usr/bin/env bash
+/**
+ * host-test-there.sh run against a lender lacking the runtime, with a
+ * stand-in nix-offload that notes in $FAKE/there whether the lender had
+ * it by the time it ran; `refusing` has the lender's nix refuse it.
+ */
+async function runner(refusing: boolean) {
+	const store = folder(made, "store");
+	const runtime = join(store, "1run-runtime");
+	mkdirSync(join(runtime, "lib", "node_modules", "pi-monorepo"), {
+		recursive: true,
+	});
+	const profile = folder(made, "profile");
+	const tools: string[] = [];
+	for (const [at, tool] of TOOLS.entries()) {
+		const bin = join(store, `${at}tool-${tool}`, "bin");
+		mkdirSync(bin, { recursive: true });
+		program(bin, tool, "");
+		symlinkSync(join(bin, tool), join(profile, tool));
+		tools.push(join(store, `${at}tool-${tool}`));
+	}
+	const on = lender([BASE, runtime, ...tools], [BASE, ...tools]);
+	program(
+		on.bin,
+		"nix-offload",
+		`#!/usr/bin/env bash
 grep -qxF "${runtime}" "$FAKE/lender-store" && echo had >> "$FAKE/there" || echo lacked >> "$FAKE/there"
 `,
-		);
-		const key = join(on.fake, ".local", "state", "nix-offload");
-		mkdirSync(key, { recursive: true });
-		writeFileSync(join(key, "store_ed25519"), "a key\n");
-		const checkout = folder(made, "checkout");
-		for (const words of [
-			["init", "-q"],
-			["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "start"],
-		]) {
-			await run("git", words, { cwd: checkout });
-		}
+	);
+	const key = join(on.fake, ".local", "state", "nix-offload");
+	mkdirSync(key, { recursive: true });
+	writeFileSync(join(key, "store_ed25519"), "a key\n");
+	const checkout = folder(made, "checkout");
+	const who = ["-c", "user.name=t", "-c", "user.email=t@t"];
+	await run("git", ["init", "-q"], { cwd: checkout });
+	await run("git", [...who, "commit", "-q", "--allow-empty", "-m", "start"], {
+		cwd: checkout,
+	});
+	if (refusing) writeFileSync(join(on.fake, "refuse"), "");
 
-		const answered = await answer(
-			on,
-			RUNNER,
-			[],
-			{ PI_HOST_RUNTIME: runtime, HOST_TEST_PROFILES: profile },
-			checkout,
-		);
+	const answered = await answer(
+		on,
+		RUNNER,
+		[],
+		{
+			PI_HOST_RUNTIME: runtime,
+			HOST_TEST_PROFILES: profile,
+			NIX_STORE_DIR: store,
+		},
+		checkout,
+	);
+	const there = readFileSync(join(on.fake, "there"), "utf8");
+	return { ...answered, there };
+}
 
-		expect(answered.code, answered.said).toBe(0);
-		expect(readFileSync(join(on.fake, "there"), "utf8")).toBe("had\n");
+describe("host-test-there.sh", () => {
+	it("sends the runtime to a lender lacking it before nix-offload runs there", async () => {
+		const ran = await runner(false);
+
+		expect(ran.code, ran.said).toBe(0);
+		expect(ran.there).toBe("had\n");
+	});
+
+	it("still runs nix-offload, to copy the runtime itself, when the send fails", async () => {
+		const ran = await runner(true);
+
+		expect(ran.code, ran.said).toBe(0);
+		expect(ran.said).toContain("nix-offload copies what's left");
+		expect(ran.there).toBe("lacked\n");
 	});
 });
