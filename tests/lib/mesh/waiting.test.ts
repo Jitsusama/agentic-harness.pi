@@ -111,10 +111,13 @@ describe("what waits on the person", () => {
 		);
 
 		expect(await waitingOff(folder, QUEST)).toEqual(waitingOf(folder, QUEST));
+		// Only no file means nothing waits; a clock told otherwise would
+		// tell its session the person had settled it all.
 		writeFileSync(waitingFile(folder, QUEST), "{");
-		expect(await waitingOff(folder, QUEST), "a torn file is nothing").toEqual(
-			[],
-		);
+		await expect(
+			waitingOff(folder, QUEST),
+			"a torn file is unread",
+		).rejects.toThrow();
 	});
 
 	it("reads an item written before items said how as the person's to settle", () => {

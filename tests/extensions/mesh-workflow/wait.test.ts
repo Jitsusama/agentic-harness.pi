@@ -98,7 +98,11 @@ describe("what this session raised, read off the thread", () => {
 		const on = { quest: QUEST as string | undefined };
 		const watch = watchSettling(waitingOn(() => on.quest));
 		await watch.settledOff();
-		found({ "eero-login": "done" });
+		// The person cleared it, as the session moved to another quest.
+		writeFileSync(
+			waitingFile(folder, QUEST),
+			JSON.stringify({ v: 2, updated: "t", quest: QUEST, items: [] }),
+		);
 
 		const reading = watch.settledOff();
 		on.quest = "QEST-20261026-OTHERQ";
@@ -109,15 +113,24 @@ describe("what this session raised, read off the thread", () => {
 		addWaiting(folder, item("eero-login"));
 		const watch = watchSettling(waitingOn());
 		await watch.settledOff();
-		writeFileSync(
-			waitingFile(folder, QUEST),
-			JSON.stringify({ v: 2, updated: "t", quest: QUEST, items: [] }),
-		);
 
 		const reading = watch.settledOff();
-		// The session settled it itself, and said so, as the read went on.
-		watch.heard([]);
-		expect(await reading, "its own settling, never told back").toEqual([]);
+		// The session raised another as the read went on, which it never saw.
+		watch.heard([item("eero-login"), item("router-look")]);
+		expect(await reading, "what it raised, never told settled").toEqual([]);
+		expect(watch.watching()).toBe(true);
+	});
+
+	it("says nothing settled when what waits can't be read", async () => {
+		addWaiting(folder, item("eero-login"));
+		const watch = watchSettling(waitingOn());
+		await watch.settledOff();
+		writeFileSync(waitingFile(folder, QUEST), '{"v": 2, "items": [');
+
+		await expect(watch.settledOff(), "read again next tick").rejects.toThrow();
+		expect(watch.watching(), "still watching").toBe(true);
+		addWaiting(folder, item("router-look"));
+		expect(await watch.settledOff(), "and read then").toEqual([]);
 	});
 
 	it("answers nothing to a look while another still reads", async () => {
