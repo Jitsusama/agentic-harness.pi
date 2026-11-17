@@ -34,6 +34,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { hosted } from "../../lib/core/session/index.ts";
+import { holdRunningInstall } from "../../lib/internal/install/held.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	describeLoaded,
@@ -95,6 +96,14 @@ export default function reloadWorkflow(pi: ExtensionAPI) {
 			join(stateDir("reload-workflow"), "stale-rejections.jsonl"),
 		);
 	keepMcpServersAcrossReloads(pi);
+	// The store paths this pi runs from stay rooted while it runs, so a
+	// switch's collection can't take them (lib/internal/install/held.ts).
+	void holdRunningInstall(
+		join(stateDir("reload-workflow"), "held-installs"),
+		(why) => {
+			process.stderr.write(`${why}\n`);
+		},
+	);
 	const settings = piPackageSettings();
 	let running: Loaded = { root: PACKAGE_ROOT };
 	let follower: Follower | undefined;
