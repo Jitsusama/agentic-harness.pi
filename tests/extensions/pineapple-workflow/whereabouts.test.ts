@@ -1,11 +1,13 @@
+import { execFileSync } from "node:child_process";
 import {
 	mkdtempSync,
 	renameSync,
 	rmSync,
 	statSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -35,40 +37,72 @@ function mine(holder: string): unknown {
 	return { path: "/trees/mine", sessions: [holder] };
 }
 
-/** The real disk, watched: what it was asked, and what it is told to do. */
-function watchedDisk() {
-	const seen = { listings: 0, reads: [] as string[] };
-	const hidden = new Set<string>();
-	const failing = new Set<string>();
-	let hanging = false;
-	const disk: Partial<Disk> = {
-		async list(dir) {
-			seen.listings += 1;
-			if (hanging) return new Promise<string[]>(() => undefined);
-			return (await readdir(dir)).filter((name) => !hidden.has(name));
-		},
-		async read(path) {
-			seen.reads.push(basename(path));
-			if (failing.has(basename(path))) {
-				throw Object.assign(new Error("a stalled disk"), { code: "EIO" });
-			}
-			return readFile(path, "utf8");
-		},
-	};
-	return {
-		disk,
-		seen,
-		hidden,
-		failing,
-		hang() {
-			hanging = true;
-		},
-	};
+/**
+ * The folder's times moved on two seconds, as the kernel's next tick
+ * would leave them after a change: a rename within one tick leaves them
+ * as they were, which only the settling rule answers for.
+ */
+function ticked(cuts: string): void {
+	const was = statSync(cuts).mtimeMs;
+	const next = new Date(was + 2_000);
+	utimesSync(cuts, next, next);
 }
 
 /** A clock standing `ms` after the folder last changed. */
 function sinceChanged(cuts: string, ms: number): () => number {
 	return () => statSync(cuts).mtimeMs + ms;
+}
+
+/** A clock under which the folder has always only just changed. */
+function fresh(cuts: string): { now: () => number } {
+	return { now: sinceChanged(cuts, 0) };
+}
+
+/** An error as a stalled disk gives one. */
+function stalled(): Error {
+	return Object.assign(new Error("a stalled disk"), { code: "EIO" });
+}
+
+/** The real disk, watched: what it was asked, and what it is told to do. */
+function watchedDisk() {
+	const seen = { listings: 0, reads: [] as string[], mostStamped: 0 };
+	const hidden = new Set<string>();
+	const failing = new Set<string>();
+	const unstamped = new Set<string>();
+	const how = { hanging: false, listingFails: false, listingTakes: 0 };
+	let stamping = 0;
+	const disk: Partial<Disk> = {
+		async list(dir) {
+			seen.listings += 1;
+			if (how.hanging) return new Promise<string[]>(() => undefined);
+			if (how.listingFails) throw stalled();
+			if (how.listingTakes > 0) {
+				await new Promise((done) => setTimeout(done, how.listingTakes));
+			}
+			return (await readdir(dir)).filter((name) => !hidden.has(name));
+		},
+		async stamp(path) {
+			stamping += 1;
+			seen.mostStamped = Math.max(seen.mostStamped, stamping);
+			try {
+				if (unstamped.has(basename(path))) throw stalled();
+				const now = await stat(path);
+				return {
+					stamp: `${now.ino}:${now.mtimeMs}:${now.ctimeMs}:${now.size}`,
+					changed: now.mtimeMs,
+					plain: now.isFile(),
+				};
+			} finally {
+				stamping -= 1;
+			}
+		},
+		async read(path) {
+			seen.reads.push(basename(path));
+			if (failing.has(basename(path))) throw stalled();
+			return readFile(path, "utf8");
+		},
+	};
+	return { disk, seen, hidden, failing, unstamped, how };
 }
 
 describe("createWhereabouts", () => {
@@ -77,7 +111,10 @@ describe("createWhereabouts", () => {
 		record(cuts, "mine.json", { path: "/trees/mine", sessions: ["s1", "s2"] });
 		record(cuts, "theirs.json", { path: "/trees/theirs", sessions: ["s3"] });
 		record(cuts, "half.json", "{");
-		writeFileSync(join(cuts, "mine.json.1.ab.tmp"), JSON.stringify(mine("s1")));
+		writeFileSync(
+			join(cuts, "mine.json.1.ab.tmp"),
+			JSON.stringify({ path: "/trees/staging", sessions: ["s1"] }),
+		);
 		expect(await createWhereabouts(cuts).dirsOf("s1", "/work")).toEqual([
 			"/work",
 			"/trees/mine",
@@ -98,7 +135,7 @@ describe("createWhereabouts", () => {
 		// Fresh, so every pass lists the folder and looks at each record.
 		const where = createWhereabouts(cuts, {
 			disk: watched.disk,
-			now: sinceChanged(cuts, 0),
+			...fresh(cuts),
 		});
 		await where.dirsOf("s1", "/work");
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
@@ -110,9 +147,10 @@ describe("createWhereabouts", () => {
 		const cuts = cutsFolder();
 		record(cuts, "mine.json", mine("s1"));
 		const watched = watchedDisk();
+		// Settled from the very tick the settling rule names.
 		const where = createWhereabouts(cuts, {
 			disk: watched.disk,
-			now: sinceChanged(cuts, 5_000),
+			now: sinceChanged(cuts, 1_000),
 		});
 		await where.dirsOf("s1", "/work");
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
@@ -127,6 +165,7 @@ describe("createWhereabouts", () => {
 		const where = createWhereabouts(cuts, { now: () => later });
 		expect(await where.dirsOf("s2", "/work")).toEqual(["/work"]);
 		record(cuts, "theirs.json", { path: "/trees/theirs", sessions: ["s2"] });
+		ticked(cuts);
 		expect(await where.dirsOf("s2", "/work")).toEqual([
 			"/work",
 			"/trees/theirs",
@@ -150,7 +189,7 @@ describe("createWhereabouts", () => {
 	it("reads a record again once it is rewritten", async () => {
 		const cuts = cutsFolder();
 		record(cuts, "mine.json", mine("s1"));
-		const where = createWhereabouts(cuts);
+		const where = createWhereabouts(cuts, fresh(cuts));
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
 		record(cuts, "mine.json", mine("s2"));
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work"]);
@@ -160,7 +199,7 @@ describe("createWhereabouts", () => {
 	it("forgets a record once its file is gone", async () => {
 		const cuts = cutsFolder();
 		record(cuts, "mine.json", mine("s1"));
-		const where = createWhereabouts(cuts);
+		const where = createWhereabouts(cuts, fresh(cuts));
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
 		rmSync(join(cuts, "mine.json"));
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work"]);
@@ -169,7 +208,7 @@ describe("createWhereabouts", () => {
 	it("takes a broken record once it is written whole", async () => {
 		const cuts = cutsFolder();
 		record(cuts, "mine.json", "{");
-		const where = createWhereabouts(cuts);
+		const where = createWhereabouts(cuts, fresh(cuts));
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work"]);
 		record(cuts, "mine.json", mine("s1"));
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
@@ -179,15 +218,27 @@ describe("createWhereabouts", () => {
 		const cuts = cutsFolder();
 		record(cuts, "mine.json", mine("s1"));
 		const watched = watchedDisk();
-		const where = createWhereabouts(cuts, { disk: watched.disk });
+		const where = createWhereabouts(cuts, {
+			disk: watched.disk,
+			...fresh(cuts),
+		});
 		await where.dirsOf("s1", "/work");
 		// As btrfs can leave out a record being renamed over itself.
 		watched.hidden.add("mine.json");
-		record(cuts, "other.json", mine("s9"));
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
 		rmSync(join(cuts, "mine.json"));
-		record(cuts, "another.json", mine("s9"));
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work"]);
+	});
+
+	it("doesn't read a record that isn't a plain file", async () => {
+		const cuts = cutsFolder();
+		record(cuts, "mine.json", mine("s1"));
+		// Reading a pipe waits on a writer that never comes.
+		execFileSync("mkfifo", [join(cuts, "pipe.json")]);
+		expect(await createWhereabouts(cuts).dirsOf("s1", "/work")).toEqual([
+			"/work",
+			"/trees/mine",
+		]);
 	});
 
 	it("keeps what it knew of a record the disk fails to read, and reads it again", async () => {
@@ -201,25 +252,94 @@ describe("createWhereabouts", () => {
 		});
 		await where.dirsOf("s1", "/work");
 		record(cuts, "mine.json", mine("s2"));
+		ticked(cuts);
 		watched.failing.add("mine.json");
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
 		// The folder hasn't changed since, but the pass that failed isn't
 		// trusted, so the next one looks again.
 		watched.failing.clear();
 		expect(await where.dirsOf("s2", "/work")).toEqual(["/work", "/trees/mine"]);
+		expect(watched.seen.reads).toEqual(["mine.json", "mine.json", "mine.json"]);
 	});
 
-	it("answers from what it knew when a pass outlasts its patience", async () => {
+	it("keeps what it knew of a record the disk fails to stamp", async () => {
+		const cuts = cutsFolder();
+		record(cuts, "mine.json", mine("s1"));
+		const watched = watchedDisk();
+		const where = createWhereabouts(cuts, {
+			disk: watched.disk,
+			...fresh(cuts),
+		});
+		await where.dirsOf("s1", "/work");
+		watched.unstamped.add("mine.json");
+		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
+	});
+
+	it("keeps what it knew when the disk fails to list, and lists again", async () => {
+		const cuts = cutsFolder();
+		record(cuts, "mine.json", mine("s1"));
+		const watched = watchedDisk();
+		const later = statSync(cuts).mtimeMs + 60_000;
+		const where = createWhereabouts(cuts, {
+			disk: watched.disk,
+			now: () => later,
+		});
+		await where.dirsOf("s1", "/work");
+		ticked(cuts);
+		watched.how.listingFails = true;
+		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
+		watched.how.listingFails = false;
+		await where.dirsOf("s1", "/work");
+		expect(watched.seen.listings).toBe(3);
+	});
+
+	it("waits for its first pass however long it takes", async () => {
+		const cuts = cutsFolder();
+		record(cuts, "mine.json", mine("s1"));
+		const watched = watchedDisk();
+		watched.how.listingTakes = 100;
+		const where = createWhereabouts(cuts, {
+			disk: watched.disk,
+			patienceMs: 10,
+		});
+		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
+	});
+
+	it("answers from what it knew when a later pass outlasts its patience", async () => {
 		const cuts = cutsFolder();
 		record(cuts, "mine.json", mine("s1"));
 		const watched = watchedDisk();
 		const where = createWhereabouts(cuts, {
 			disk: watched.disk,
 			patienceMs: 20,
+			...fresh(cuts),
 		});
 		await where.dirsOf("s1", "/work");
-		watched.hang();
+		watched.how.hanging = true;
 		expect(await where.dirsOf("s1", "/work")).toEqual(["/work", "/trees/mine"]);
+	});
+
+	it("waits on a stuck pass once, not once for each asker", async () => {
+		const cuts = cutsFolder();
+		record(cuts, "mine.json", mine("s1"));
+		const watched = watchedDisk();
+		let clock = 0;
+		const patienceMs = 50;
+		const where = createWhereabouts(cuts, {
+			disk: watched.disk,
+			patienceMs,
+			now: () => clock,
+		});
+		await where.dirsOf("s1", "/work");
+		watched.how.hanging = true;
+		await where.dirsOf("s1", "/work");
+		clock += patienceMs;
+		const marker = new Promise<string>((done) =>
+			setTimeout(() => done("waited"), patienceMs / 2),
+		);
+		const answer = where.dirsOf("s1", "/work").then(() => "answered");
+		expect(await Promise.race([answer, marker])).toBe("answered");
+		expect(watched.seen.listings).toBe(2);
 	});
 
 	it("runs one pass for askers who ask at once", async () => {
@@ -238,7 +358,7 @@ describe("createWhereabouts", () => {
 		expect(watched.seen.listings).toBe(1);
 	});
 
-	it("reads more records than it reads at once", async () => {
+	it("reads more records than it reads at once, two at a time", async () => {
 		const cuts = cutsFolder();
 		const many = 100;
 		for (let one = 0; one < many; one += 1) {
@@ -247,9 +367,14 @@ describe("createWhereabouts", () => {
 				sessions: ["s1"],
 			});
 		}
-		const dirs = await createWhereabouts(cuts).dirsOf("s1", "/work");
+		const watched = watchedDisk();
+		const dirs = await createWhereabouts(cuts, { disk: watched.disk }).dirsOf(
+			"s1",
+			"/work",
+		);
 		expect(dirs).toHaveLength(many + 1);
 		expect(dirs).toContain(`/trees/t${many - 1}`);
+		expect(watched.seen.mostStamped).toBe(2);
 	});
 });
 

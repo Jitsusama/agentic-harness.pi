@@ -14,6 +14,10 @@
  * second reader of those records beside `lib/internal/work-records.ts`,
  * whose reading is synchronous, on purpose: its callers need an answer at
  * once, and this one needs never to hold the loop.
+ *
+ * Each conversation keeps its own, so the bounds here hold per
+ * conversation: a host with several conversations under a repository stop
+ * reads the folder once for each.
  */
 
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -34,15 +38,18 @@ const AT_ONCE = 2;
 const SETTLED_MS = 1_000;
 
 /**
- * How long a session waits on a pass before answering from what it last
- * read, so a stalled disk holds no turn; the pass carries on behind.
+ * How long a session waits on a pass, once one has ended, before answering
+ * from what the last one read, so a stalled disk holds no turn for long;
+ * the pass carries on behind.
  */
 const PATIENCE_MS = 10_000;
 
 /** A file as a stamp tells it apart: what it is, and when it last changed. */
-interface Stamped {
+export interface Stamped {
 	readonly stamp: string;
 	readonly changed: number;
+	/** Whether it is a plain file, which alone is read: a pipe never ends. */
+	readonly plain: boolean;
 }
 
 /** What whereabouts read the disk with, so a case can stand in for it. */
@@ -62,6 +69,7 @@ const NODE_DISK: Disk = {
 		return {
 			stamp: `${now.ino}:${now.mtimeMs}:${now.ctimeMs}:${now.size}`,
 			changed: now.mtimeMs,
+			plain: now.isFile(),
 		};
 	},
 	read: (path) => readFile(path, "utf8"),
@@ -103,13 +111,12 @@ export function createWhereabouts(
 	const kept = new Map<string, Kept>();
 	/** The folder as it stood before the last listing that can be trusted. */
 	let listedAt: string | undefined;
+	/** Whether a pass has ended, so what is kept is the disk's answer. */
+	let known = false;
 	/** The pass under way, which a second asker waits on rather than repeats. */
-	let pass: Promise<void> | undefined;
-
-	/** Whether nothing is there, as against a disk that failed to say. */
-	function gone(error: unknown): boolean {
-		return (error as { code?: unknown } | null)?.code === "ENOENT";
-	}
+	let pass:
+		| { readonly done: Promise<void>; readonly until: number }
+		| undefined;
 
 	/**
 	 * One record, read again only when its file is not the one kept. True
@@ -128,6 +135,11 @@ export function createWhereabouts(
 			return true;
 		}
 		if (kept.get(name)?.stamp === stamped.stamp) return true;
+		if (!stamped.plain) {
+			// Not a file the work tool writes, and reading a pipe never ends.
+			kept.set(name, { stamp: stamped.stamp, tree: undefined });
+			return true;
+		}
 		let text: string;
 		try {
 			text = await disk.read(path);
@@ -196,19 +208,32 @@ export function createWhereabouts(
 		listedAt = whole && settled ? folder?.stamp : undefined;
 	}
 
+	/** The pass under way, or a new one. */
+	function current(): NonNullable<typeof pass> {
+		if (pass !== undefined) return pass;
+		const started = {
+			done: look().finally(() => {
+				known = true;
+				pass = undefined;
+			}),
+			until: now() + patience,
+		};
+		pass = started;
+		return started;
+	}
+
 	return {
 		async dirsOf(session, cwd) {
-			pass ??= look().finally(() => {
-				pass = undefined;
-			});
-			let waiting: ReturnType<typeof setTimeout> | undefined;
-			const late = new Promise<void>((resolve) => {
-				waiting = setTimeout(resolve, patience);
-			});
-			try {
-				await Promise.race([pass, late]);
-			} finally {
-				clearTimeout(waiting);
+			const under = current();
+			if (!known) {
+				// Nothing read yet would answer the session's folder alone and
+				// miss every tree it holds: a stop counted late beats one
+				// missed, so the first pass is waited for, however long.
+				await under.done;
+			} else {
+				// One patience a pass, not one an asker, so a stuck pass holds
+				// each later turn no longer than what is left of it.
+				await within(under.done, under.until - now());
 			}
 			const dirs = [cwd];
 			for (const { tree } of kept.values()) {
@@ -219,10 +244,30 @@ export function createWhereabouts(
 	};
 }
 
+/** `work`, waited for at most `ms`, then let run on behind. */
+async function within(work: Promise<void>, ms: number): Promise<void> {
+	if (ms <= 0) return;
+	let waiting: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<void>((resolve) => {
+		waiting = setTimeout(resolve, ms);
+	});
+	try {
+		await Promise.race([work, late]);
+	} finally {
+		clearTimeout(waiting);
+	}
+}
+
+/** Whether nothing is there, as against a disk that failed to say. */
+function gone(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
 /** The tree a record names, and who holds it, when it names one. */
 function treeOf(record: unknown): Tree | undefined {
 	if (typeof record !== "object" || record === null) return undefined;
-	const { path, sessions } = record as { path?: unknown; sessions?: unknown };
+	if (!("path" in record && "sessions" in record)) return undefined;
+	const { path, sessions } = record;
 	if (typeof path !== "string" || !Array.isArray(sessions)) return undefined;
 	return {
 		path,
