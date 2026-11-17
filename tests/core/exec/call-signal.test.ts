@@ -8,8 +8,13 @@
  * instead, and a command started inside it stops when it fires.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, it, vi } from "vitest";
-import { withCallSignal } from "../../../lib/core/exec/call-signal.ts";
+import {
+	callSignal,
+	withCallSignal,
+} from "../../../lib/core/exec/call-signal.ts";
+import type { ExecResult } from "../../../lib/core/exec/exec.ts";
 import { EXIT_ABORTED, spawnExec } from "../../../lib/core/exec/spawn.ts";
 
 /** What a run settled as within a short wait, or that it had not. */
@@ -71,6 +76,183 @@ describe("a command started inside a call", () => {
 			EXIT_ABORTED,
 		);
 	}, 10_000);
+});
+
+/** A promise that settles when the test says, and the way to say it. */
+function gate(): { opened: Promise<void>; open: () => void } {
+	let open = (): void => undefined;
+	const opened = new Promise<void>((resolve) => {
+		open = resolve;
+	});
+	return { opened, open };
+}
+
+describe("work a call left behind", () => {
+	// A call's continuations keep its context after it ends: a listener
+	// it registered, or a promise it chained and never awaited. Once the
+	// call is over, its signal firing is no reason to stop their work.
+	it("runs its command after the call returned and its signal fired", async () => {
+		const exec = spawnExec();
+		const stop = new AbortController();
+		const later = gate();
+		let leftover: Promise<ExecResult> | undefined;
+		await withCallSignal(stop.signal, async () => {
+			leftover = later.opened.then(() => exec("sh", ["-c", "echo done"]));
+		});
+		stop.abort();
+		later.open();
+
+		const result = await leftover;
+		expect(result?.code).toBe(0);
+		expect(result?.stdout.trim()).toBe("done");
+	});
+
+	it("reads no signal once the call returned", async () => {
+		const stop = new AbortController();
+		const later = gate();
+		let during: AbortSignal | undefined;
+		let after: Promise<AbortSignal | undefined> | undefined;
+		await withCallSignal(stop.signal, async () => {
+			during = callSignal();
+			after = later.opened.then(() => callSignal());
+		});
+		later.open();
+
+		expect(during).toBe(stop.signal);
+		expect(await after).toBeUndefined();
+	});
+
+	it("reads no signal once a call that returned at once is over", async () => {
+		const stop = new AbortController();
+		const later = gate();
+		let after: Promise<AbortSignal | undefined> | undefined;
+		withCallSignal(stop.signal, () => {
+			after = later.opened.then(() => callSignal());
+		});
+		later.open();
+
+		expect(await after).toBeUndefined();
+	});
+
+	it("reads no signal once a call that failed is over", async () => {
+		const stop = new AbortController();
+		const later = gate();
+		let after: Promise<AbortSignal | undefined> | undefined;
+		const failed = withCallSignal(stop.signal, async () => {
+			after = later.opened.then(() => callSignal());
+			throw new Error("the call failed");
+		});
+		await expect(failed).rejects.toThrow("the call failed");
+		later.open();
+
+		expect(await after).toBeUndefined();
+	});
+
+	it("reads no signal once a call that threw as it was made is over", async () => {
+		const stop = new AbortController();
+		const later = gate();
+		let after: Promise<AbortSignal | undefined> | undefined;
+		expect(() =>
+			withCallSignal(stop.signal, () => {
+				after = later.opened.then(() => callSignal());
+				throw new Error("the call threw");
+			}),
+		).toThrow("the call threw");
+		later.open();
+
+		expect(await after).toBeUndefined();
+	});
+
+	it("reads no signal in a timer the call set", async () => {
+		const stop = new AbortController();
+		let after: Promise<AbortSignal | undefined> | undefined;
+		await withCallSignal(stop.signal, async () => {
+			after = new Promise((resolve) =>
+				setTimeout(() => resolve(callSignal()), 20),
+			);
+		});
+		stop.abort();
+
+		expect(await after).toBeUndefined();
+	});
+
+	it("reads the call it was made inside while that one still runs", async () => {
+		const outer = new AbortController();
+		const inner = new AbortController();
+		const later = gate();
+		const outerDone = gate();
+		let whileOuter: Promise<AbortSignal | undefined> | undefined;
+		let afterBoth: Promise<AbortSignal | undefined> | undefined;
+		const running = withCallSignal(outer.signal, async () => {
+			await withCallSignal(inner.signal, async () => {
+				whileOuter = later.opened.then(() => callSignal());
+				afterBoth = outerDone.opened.then(() => callSignal());
+			});
+			later.open();
+			await whileOuter;
+		});
+		await running;
+		outerDone.open();
+
+		expect(await whileOuter, "the outer call still ran").toBe(outer.signal);
+		expect(await afterBoth, "both calls are over").toBeUndefined();
+	});
+
+	it("reads a signal an older copy set inside a call that is over", async () => {
+		// An older copy keeps only the first store, so it marks no call.
+		const first: unknown = Reflect.get(
+			globalThis,
+			Symbol.for("agentic-harness.core/exec/call-signal"),
+		);
+		if (!(first instanceof AsyncLocalStorage))
+			throw new Error("the first store was never made");
+		const stop = new AbortController();
+		const older = new AbortController();
+		const later = gate();
+		let after: Promise<AbortSignal | undefined> | undefined;
+		await withCallSignal(stop.signal, async () => {
+			after = later.opened.then(() =>
+				first.run(older.signal, () => callSignal()),
+			);
+		});
+		later.open();
+
+		expect(await after).toBe(older.signal);
+	});
+
+	it("rejects as the call did, with the promise it hands back", async () => {
+		const failed = withCallSignal(undefined, async () => {
+			throw new Error("the call failed");
+		});
+
+		await expect(failed).rejects.toThrow("the call failed");
+	});
+
+	it("reads no signal in a second copy of this module either", async () => {
+		vi.resetModules();
+		const other = await import("../../../lib/core/exec/call-signal.ts");
+		const stop = new AbortController();
+		const later = gate();
+		let after: Promise<AbortSignal | undefined> | undefined;
+		await other.withCallSignal(stop.signal, async () => {
+			after = later.opened.then(() => callSignal());
+		});
+		later.open();
+
+		expect(await after).toBeUndefined();
+	});
+
+	it("leaves a call still running its signal", async () => {
+		const stop = new AbortController();
+		const later = gate();
+		const running = withCallSignal(stop.signal, async () => {
+			await later.opened;
+			return callSignal();
+		});
+		later.open();
+
+		expect(await running).toBe(stop.signal);
+	});
 });
 
 describe("a command started outside any call", () => {

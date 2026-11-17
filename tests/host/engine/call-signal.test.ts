@@ -43,13 +43,16 @@ async function laterCallSignal(mode: "pi" | "hosted"): Promise<unknown[]> {
 describe("a tool call's commands on the host's agent", {
 	timeout: SESSION_PAIR_MS,
 }, () => {
-	it("start under no signal an earlier call left behind, though pi's agent carries it on", async () => {
+	it("start under no signal an earlier call left behind, on pi's agent as on the host's", async () => {
 		const [ours, hosted] = await Promise.all([
 			laterCallSignal("pi"),
 			laterCallSignal("hosted"),
 		]);
-		// pi's agent runs the later call in the left work's context, under a signal pi never aborts.
-		expect(ours).toEqual([{ type: "call signal", signal: "live" }]);
+		// pi's agent runs the later call in the left work's context, so the
+		// earlier call reads as over there too, not only at the host's
+		// boundary: a plain pi's work tool failed the same way after a
+		// backgrounded review round on 17 November.
+		expect(ours).toEqual([{ type: "call signal", signal: "none" }]);
 		expect(hosted).toEqual([{ type: "call signal", signal: "none" }]);
 	});
 });
