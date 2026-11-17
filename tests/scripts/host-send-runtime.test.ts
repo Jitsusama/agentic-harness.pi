@@ -192,6 +192,18 @@ describe("host-send-runtime.sh", { timeout: 60_000 }, () => {
 		expect(kept.filter((name) => name !== ".lock")).toEqual([]);
 	});
 
+	it("sends only the runtime to a lender holding all it refers to, though a cache takes a path only with its references", async () => {
+		const on = lender([BASE, RUNTIME], [BASE]);
+		writeFileSync(join(on.fake, "references"), `${RUNTIME} ${BASE}\n`);
+
+		const answered = await answer(on, SENDER, [RUNTIME]);
+
+		expect(answered.code, answered.said).toBe(0);
+		expect(held(on)).toContain(RUNTIME);
+		expect(logged(on, "copied")).toEqual([RUNTIME]);
+		expect(logged(on, "offered")).toEqual(["1run.narinfo"]);
+	});
+
 	it("never sends a path the lender names that isn't in the closure", async () => {
 		const on = lender([BASE, RUNTIME], [BASE]);
 		writeFileSync(join(on.fake, "greedy"), "");

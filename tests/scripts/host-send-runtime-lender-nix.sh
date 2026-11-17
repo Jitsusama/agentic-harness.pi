@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The lender's nix, as host-send-runtime.test.ts stands it in: it takes a
 # path into its store, $FAKE/lender-store, only from a cache holding its
-# narinfo, and names each import in $FAKE/imports. Given $FAKE/refuse, it
+# narinfo, and names each import in $FAKE/imports and the narinfos the
+# cache it was given holds in $FAKE/offered. Given $FAKE/refuse, it
 # refuses the cache, as a nix refuses paths no key it trusts signed; given
 # $FAKE/broken, it fails once, as when its daemon can't be reached.
 case $1 in
@@ -10,6 +11,7 @@ copy)
   dir=${3#file://}
   shift 4
   echo "$*" >> "$FAKE/imports"
+  (cd "$dir" && ls -- *.narinfo) >> "$FAKE/offered" 2> /dev/null || true
   if [[ -e $FAKE/broken ]]; then
     rm "$FAKE/broken"
     echo "error: cannot connect to socket at '/nix/var/nix/daemon-socket/socket'" >&2
