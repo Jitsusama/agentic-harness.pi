@@ -70,6 +70,11 @@ export interface NeedRecord extends NeedAsked {
 	readonly fit: string | null;
 	/** How many cells the realm had, so one file can hold every size. */
 	readonly cells: number;
+	/**
+	 * Cells that work on it but were passed over because they have ended,
+	 * so the asker is told rather than left to wonder; left out when none.
+	 */
+	readonly ended?: readonly string[];
 }
 
 /** What a need is routed over. */
@@ -197,9 +202,11 @@ export function hubsFrom(line: string): Hub[] {
  * else to its rarest word's narrowest hub naming a fit that is there;
  * else along ties to the nearest cell working on that word, taking of
  * the cells as near the one working on most of the need. Lost, with no
- * path, when none is within `MOST_HOPS`.
+ * path, when none is within `MOST_HOPS`. A cell that works on it but has
+ * ended is never taken, and is named in `ended`.
  */
 export function routeNeed(asked: NeedAsked, reach: Reach): NeedRecord {
+	const passed = new Set<string>();
 	const record = (path: readonly string[], fit: string | null): NeedRecord => ({
 		need: asked.need,
 		asker: asked.asker,
@@ -208,6 +215,7 @@ export function routeNeed(asked: NeedAsked, reach: Reach): NeedRecord {
 		fit,
 		at: asked.at,
 		cells: reach.foragers.length,
+		...(passed.size > 0 ? { ended: [...passed] } : {}),
 	});
 	const live = reach.live ?? (() => true);
 	const wordsHeld = new Map(
@@ -226,6 +234,13 @@ export function routeNeed(asked: NeedAsked, reach: Reach): NeedRecord {
 		reach.foragers.filter(
 			(cell) => takes(cell.address) && holds(cell.address, word),
 		);
+	/** Whether a cell would take it but has ended, noting it when so. */
+	const endedHolder = (address: string, word: string) => {
+		const gone =
+			address !== asked.asker && !live(address) && holds(address, word);
+		if (gone) passed.add(address);
+		return gone;
+	};
 	const rarest = [...asked.words]
 		.map((word) => ({ word, count: holders(word).length }))
 		.filter(({ count }) => count > 0)
@@ -244,7 +259,9 @@ export function routeNeed(asked: NeedAsked, reach: Reach): NeedRecord {
 	for (const { word } of rarest) {
 		for (const hub of hubsFor(word, reach.hubs)) {
 			const fit = best(
-				hub.fits.filter((one) => takes(one) && holds(one, word)),
+				hub.fits.filter(
+					(one) => !endedHolder(one, word) && takes(one) && holds(one, word),
+				),
 			);
 			if (fit === undefined || !live(hub.hub)) continue;
 			return record(hub.hub === fit ? [fit] : [hub.hub, fit], fit);
@@ -257,8 +274,8 @@ export function routeNeed(asked: NeedAsked, reach: Reach): NeedRecord {
 		const next: string[] = [];
 		for (const cell of frontier) {
 			for (const { other } of reach.ties.get(cell) ?? []) {
-				if (other === asked.asker || parent.has(other) || !takes(other))
-					continue;
+				if (other === asked.asker || parent.has(other)) continue;
+				if (endedHolder(other, first.word) || !takes(other)) continue;
 				parent.set(other, cell);
 				next.push(other);
 			}

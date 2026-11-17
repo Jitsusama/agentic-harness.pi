@@ -231,6 +231,37 @@ describe("routing a need", () => {
 		expect(found).toMatchObject({ path: ["C", "D"], fit: "D" });
 	});
 
+	it("names a cell working on it that has ended, rather than skipping it unsaid", () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({
+				A: [],
+				B: ["carry"],
+				C: [],
+				D: ["carry"],
+				F: ["carry"],
+			}),
+			ties: ties(["A", "B", 9], ["A", "C", 1], ["C", "D", 1]),
+			hubs: [{ subject: "carry", hub: "H", fits: ["F"] }],
+			live: (address) => address !== "B" && address !== "F",
+		});
+
+		expect(found).toMatchObject({
+			path: ["C", "D"],
+			fit: "D",
+			ended: ["F", "B"],
+		});
+	});
+
+	it("names none ended when every cell on the way is there", () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({ A: [], B: ["carry"] }),
+			ties: ties(["A", "B", 1]),
+			hubs: [],
+		});
+
+		expect(found).not.toHaveProperty("ended");
+	});
+
 	it("puts it to the subject's hub first, which names the fit", () => {
 		const hubs: Hub[] = [{ subject: "carry", hub: "H", fits: ["F"] }];
 		const found = routeNeed(asked("A", "carry"), {
