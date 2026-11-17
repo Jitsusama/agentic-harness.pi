@@ -123,7 +123,7 @@ describe("what this session raised, read off the thread", () => {
 		// The session raised another as the read went on, which it never saw.
 		watch.heard([item("eero-login"), item("router-look")]);
 		expect(await reading, "what it raised, never told settled").toEqual([]);
-		expect(watch.watching()).toBe(true);
+		expect(watch.watching(), "still watching what it raised").toBe(true);
 	});
 
 	it("says nothing settled when what waits can't be read", async () => {
