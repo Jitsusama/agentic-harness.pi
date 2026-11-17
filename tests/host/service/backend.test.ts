@@ -388,7 +388,7 @@ describe("hostBackend", () => {
 			resumed: () => order.push("let go"),
 			resume: vi.fn(async (entry) => {
 				order.push(entry.sessionId);
-				if (entry.sessionId === b) throw new Error("session file is gone");
+				if (entry.sessionId === b) throw new Error("pi would not open it");
 				register(entry);
 			}),
 		});
@@ -403,10 +403,10 @@ describe("hostBackend", () => {
 		const b = parseOpenResult(await first.execute(open)).sessionId;
 		for (const id of [a, b]) await host.stop(id);
 
-		const missing = new Error("session file is gone");
+		const refused = new Error("pi would not open it");
 		const restart = engine({
 			resume: vi.fn(async (entry) => {
-				if (entry.sessionId === b) throw missing;
+				if (entry.sessionId === b) throw refused;
 				register(entry);
 			}),
 		});
@@ -414,7 +414,7 @@ describe("hostBackend", () => {
 			resumed: [a],
 			parked: [],
 			dropped: [],
-			unresumed: [{ sessionId: b, reason: missing }],
+			unresumed: [{ sessionId: b, reason: refused }],
 		});
 		const listed = parseListResult(
 			await backendWith(restart.fake).execute({ v: 1, id: "l", op: "list" }),
@@ -450,12 +450,22 @@ describe("hostBackend", () => {
 		for (const id of [a, b]) await host.stop(id);
 
 		const restart = engine({ lost: (entry) => entry.sessionId === b });
-		expect(await resumeHeld({ roster, engine: restart.fake })).toEqual({
+		const said: string[] = [];
+		expect(
+			await resumeHeld({
+				roster,
+				engine: restart.fake,
+				starting: async (step) => {
+					said.push(step.sessionId);
+				},
+			}),
+		).toEqual({
 			resumed: [a],
 			parked: [],
 			dropped: [b],
 			unresumed: [],
 		});
+		expect(said, "the dropped one is never said as resuming").toEqual([a]);
 		expect(
 			vi.mocked(restart.fake.resume).mock.calls.map(([e]) => e.sessionId),
 			"only the one with a log is built",
@@ -574,10 +584,10 @@ describe("hostBackend", () => {
 			for (const id of held) await host.stop(id);
 			const [a, b, c] = held;
 
-			const gone = new Error("session file is gone");
+			const refused = new Error("pi would not open it");
 			const restart = engine({
 				resume: vi.fn(async (entry) => {
-					if (entry.sessionId === a) throw gone;
+					if (entry.sessionId === a) throw refused;
 					register(entry);
 				}),
 			});
@@ -589,7 +599,7 @@ describe("hostBackend", () => {
 				parked: [],
 				dropped: [],
 				unresumed: [
-					{ sessionId: a, reason: gone },
+					{ sessionId: a, reason: refused },
 					{ sessionId: c, reason: stale },
 				],
 			});

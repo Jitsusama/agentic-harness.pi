@@ -61,7 +61,8 @@ export interface ServingHost {
 	/** Holds dropped at start, by id, since their session files are gone. */
 	readonly dropped: readonly string[];
 	/**
-	 * How many of those are still held and not running now: one woken,
+	 * How many of those are still held and not running now, or left
+	 * parked by a resume that failed once it had registered: one woken,
 	 * adopted, closed or released since no longer counts.
 	 */
 	stillUnresumed(): number;
@@ -198,11 +199,12 @@ export async function serveHost(options: {
 			unresumed,
 			dropped,
 			stillUnresumed: () => {
-				const live = new Set(running.list().map(({ id }) => id));
+				const live = new Map(running.list().map((c) => [c.id, c.state]));
 				const held = new Set(roster.entries().map((e) => e.sessionId));
-				return unresumed.filter(
-					({ sessionId }) => held.has(sessionId) && !live.has(sessionId),
-				).length;
+				return unresumed.filter(({ sessionId }) => {
+					const state = live.get(sessionId);
+					return held.has(sessionId) && (state ?? "parked") === "parked";
+				}).length;
 			},
 			resting: () => {
 				const live = new Set(running.list().map(({ id }) => id));

@@ -64,6 +64,7 @@ import {
 } from "./moved.ts";
 import { recordedCarry } from "./recorded.ts";
 import {
+	endedJobs,
 	endedWithHostText,
 	type RunningNote,
 	takeEndedNote,
@@ -177,7 +178,7 @@ function resumeIfCutOff(
 	const branch = branchOf(ctx);
 	// Only a host carries a parked run on; plain pi takes nothing up.
 	const held = new Set(session.jobs.list().map((job) => job.id));
-	const lost = (ended?.jobs ?? []).filter((job) => !held.has(job.id));
+	const lost = endedJobs(ended, held);
 	// Never reported, so no history reserves their ids for a new job.
 	session.jobs.reserve(lost.map((job) => job.id));
 	const cut =

@@ -27,9 +27,10 @@ import type { BeatOptions } from "../../../host/service/hold-watch.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
 import {
 	describeStep,
+	droppedNames,
 	hostKind,
 	phaseTimes,
-	droppedNames,
+	readyCount,
 	readyStatus,
 	runHost,
 	stoppingStatus,
@@ -160,6 +161,22 @@ describe("readyStatus", () => {
 			"ready: loaded 3, parked 2, dropped 32, 1 held but not resumed",
 		);
 		expect(stoppingStatus(2)).toBe("stopping, parking 2 conversations");
+	});
+
+	it("counts a resume that failed once it registered as not resumed, never as parked", () => {
+		const since = "2026-11-17T05:07:00.000Z";
+		const count = readyCount({
+			held: () => [
+				{ id: "awake", state: "idle", since },
+				{ id: "asleep", state: "parked", since },
+				{ id: "failed", state: "parked", since },
+			],
+			unresumed: [{ sessionId: "failed", reason: new Error("no") }],
+			dropped: ["gone"],
+			resting: () => 2,
+			stillUnresumed: () => 1,
+		});
+		expect(count).toEqual({ loaded: 1, parked: 3, dropped: 1, unresumed: 1 });
 	});
 
 	it("names the holds a start dropped, for the journal, and nothing when none", () => {

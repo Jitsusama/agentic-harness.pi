@@ -11,14 +11,17 @@
  * 5HJZ8Z's j222 and j223), and sat three and a half hours until a
  * reload, since nothing started a turn.
  *
- * The note names the pi that holds the jobs, so a session parked and
- * adopted in the same process, whose jobs live on, is told nothing. A
- * session's close for good stops its jobs and takes the note back.
+ * The note names the pi that holds the jobs by its pid and, where procfs
+ * says, the second it started, so a session parked and adopted in the
+ * same process, whose jobs live on, is told nothing, while a pid reused
+ * after a restart or a reboot hides nothing. A hand-off to another
+ * runtime, a close for good and a park nobody adopts take the note back.
  */
 
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
+import { startSecondsFromProcSync } from "../../lib/internal/process-ticks.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import type { CutJob } from "../../lib/internal/session/cut-off-record.ts";
 import { processThere } from "../../lib/internal/shell/kept.ts";
@@ -31,7 +34,18 @@ const FILE_MODE = 0o600;
 export interface RunningNote {
 	/** The pi holding the jobs, by its pid. */
 	readonly owner: number;
+	/**
+	 * When that pi started, in seconds since the epoch, where procfs
+	 * says; a pid since reused started at another second.
+	 */
+	readonly started?: number;
 	readonly jobs: readonly CutJob[];
+}
+
+/** How a process's standing is read, for tests to stand in for. */
+export interface Judge {
+	readonly there?: (pid: number) => boolean;
+	readonly startedOf?: (pid: number) => number | undefined;
 }
 
 /** Where sessions note their running jobs, under this package's state. */
@@ -64,7 +78,16 @@ export function forgetRunning(
 	session: string,
 	folder: string = runningFolder(),
 ): void {
-	rmSync(noteFile(session, folder), { force: true });
+	removeNote(noteFile(session, folder));
+}
+
+function removeNote(file: string): void {
+	try {
+		rmSync(file, { force: true });
+	} catch {
+		// A note that can't be removed is at worst one notice too many,
+		// never a job's end or a session's start that fails.
+	}
 }
 
 function isCutJob(value: unknown): value is CutJob {
@@ -84,9 +107,31 @@ function noteAt(file: string): RunningNote | undefined {
 		return undefined;
 	}
 	if (!isRecord(value)) return undefined;
-	const { owner, jobs } = value;
+	const { owner, started, jobs } = value;
 	if (typeof owner !== "number" || !Array.isArray(jobs)) return undefined;
-	return { owner, jobs: jobs.filter(isCutJob) };
+	return {
+		owner,
+		...(typeof started === "number" ? { started } : {}),
+		jobs: jobs.filter(isCutJob),
+	};
+}
+
+/** This process, as a note names it. */
+export function thisPi(): Pick<RunningNote, "owner" | "started"> {
+	const started = startSecondsFromProcSync(process.pid);
+	return { owner: process.pid, ...(started !== undefined ? { started } : {}) };
+}
+
+// A pid of 0 or less names a group or every process, never a pi. One whose
+// start can't be read now (no procfs, or gone) is judged by its pid alone.
+function ownerRuns(note: RunningNote, judge: Judge): boolean {
+	const there = judge.there ?? processThere;
+	const startedOf = judge.startedOf ?? startSecondsFromProcSync;
+	if (!Number.isSafeInteger(note.owner) || note.owner <= 0) return false;
+	if (!there(note.owner)) return false;
+	if (note.started === undefined) return true;
+	const started = startedOf(note.owner);
+	return started === undefined || started === note.started;
 }
 
 /**
@@ -97,17 +142,28 @@ function noteAt(file: string): RunningNote | undefined {
 export function takeEndedNote(
 	session: string,
 	folder: string = runningFolder(),
-	there: (pid: number) => boolean = processThere,
+	judge: Judge = {},
 ): RunningNote | undefined {
 	const file = noteFile(session, folder);
 	const note = noteAt(file);
 	if (note === undefined) {
-		rmSync(file, { force: true });
+		removeNote(file);
 		return undefined;
 	}
-	if (there(note.owner)) return undefined;
-	rmSync(file, { force: true });
+	if (ownerRuns(note, judge)) return undefined;
+	removeNote(file);
 	return note;
+}
+
+/**
+ * The jobs `ended` noted that nothing took up again, which `held` names
+ * by id: these alone ended with the pi, and the rest live on.
+ */
+export function endedJobs(
+	ended: RunningNote | undefined,
+	held: ReadonlySet<string>,
+): readonly CutJob[] {
+	return (ended?.jobs ?? []).filter((job) => !held.has(job.id));
 }
 
 /** What a session is told of a job that ended with its pi or host. */

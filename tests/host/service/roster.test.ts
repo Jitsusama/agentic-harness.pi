@@ -1,12 +1,16 @@
 /** The durable roster: one lock per host key, holds that outlive every stop. */
-import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	lstat,
+	mkdtemp,
+	readFile,
+	rm,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	openRoster,
-	ROSTER_WAIT_MS,
-} from "../../../host/service/roster.ts";
+import { openRoster, ROSTER_WAIT_MS } from "../../../host/service/roster.ts";
 import {
 	heldSessionStatus,
 	rosterPath,
@@ -188,6 +192,37 @@ describe("openRoster", () => {
 		await next.close();
 	});
 
+	it("takes the lock a dead host's lock leaves as it is judged", async () => {
+		await openRoster({ key: KEY, dir, owner: first });
+		const lock = `${rosterPath(KEY, dir)}.lock`;
+		const next = await openRoster({
+			key: KEY,
+			dir,
+			owner: second,
+			standing: async () => {
+				await unlink(lock);
+				return "gone";
+			},
+		});
+		expect(
+			JSON.parse(await readFile(lock, "utf8")),
+			"nothing left to move aside, so it simply takes the lock",
+		).toMatchObject({ owner: second });
+		await next.close();
+	});
+
+	it("refuses a lock left empty past the wait, naming it", async () => {
+		await openRoster({ key: KEY, dir, owner: first }).then((r) => r.close());
+		const lock = `${rosterPath(KEY, dir)}.lock`;
+		await writeFile(lock, "");
+		const { at, wait } = clock();
+		await expect(
+			openRoster({ key: KEY, dir, owner: second, wait }),
+		).rejects.toThrow(
+			`Roster lock is still missing, empty or unreadable after waiting 60 s; inspect ${lock}`,
+		);
+		expect(at.now, "looked again for the whole minute").toBe(ROSTER_WAIT_MS);
+	});
 
 	it("refuses a malformed lock instead of taking it", async () => {
 		await openRoster({ key: KEY, dir, owner: first }).then((r) => r.close());

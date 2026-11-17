@@ -68,8 +68,9 @@ input pipeline or screen. No unit or running host is installed yet.
   from the unit's environment, ready (systemd-notify, so the unit needs
   NotifyAccess=all) only once it listens, and parked on SIGTERM or
   SIGINT. Its unit's status says each start step, then "ready: loaded
-  N, parked M, dropped K" and any held but not resumed, looked at
-  every 15 s and told only when it changes. When the unit sets
+  N, parked M, dropped K" and any held but not resumed (one whose
+  resume failed counts there, never as parked), looked at every 15 s
+  and told only when it changes. When the unit sets
   WatchdogSec, a ready host pings it from its own loop four times in
   each timeout, until every conversation is parked: a loop that stops
   turning goes quiet and systemd restarts the host, while a long turn,
@@ -172,8 +173,10 @@ input pipeline or screen. No unit or running host is installed yet.
   since a restart can start it while the last host still parks; past
   that it refuses, naming the holder's pid and the wait, and never ends
   the holder itself. A malformed lock or an unreadable roster refuses
-  start at once. A dead holder's lock is moved aside and checked, never
-  just unlinked.
+  start at once; a lock missing or empty, as one let go or not yet
+  written, is looked at again within the minute. A dead holder's lock
+  is moved aside and checked, never just unlinked, and one gone before
+  it can be moved is simply taken.
   Each hold keeps the launch environment the engine derived at open,
   such as an experiment arm, for resume to replay; one naming a
   credential is refused, since keys come from the host per request.

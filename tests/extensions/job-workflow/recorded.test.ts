@@ -206,6 +206,37 @@ describe("noting a session's running jobs", () => {
 		});
 	});
 
+	it("leaves out a job once it has finished", () => {
+		const notes = new Map<string, RunningNote>();
+		const entries = [
+			job("j1", () => shell("m1")),
+			job("j2", () => undefined, "fleet"),
+		];
+		const { recording } = recorder(entries, [], undefined, [], notes);
+		recording.changed();
+		entries[1] = { ...job("j2", () => undefined, "fleet"), state: "finished" };
+		recording.changed();
+		expect(notes.get("s1")?.jobs, "only the one still running").toEqual([
+			{ id: "j1", label: "run j1" },
+		]);
+	});
+
+	it("takes its note back at a hand-off, keeping each call's record", () => {
+		const notes = new Map<string, RunningNote>();
+		const forgotten: string[] = [];
+		const { recording } = recorder(
+			[job("j1", () => shell("m1"))],
+			[],
+			undefined,
+			forgotten,
+			notes,
+		);
+		recording.changed();
+		recording.handOff();
+		expect(notes.size, "the taking runtime notes them again").toBe(0);
+		expect(forgotten, "the record names this same pi").toEqual([]);
+	});
+
 	it("leaves the note its last pi left, and takes its own back once nothing runs", () => {
 		const notes = new Map<string, RunningNote>([
 			["s1", { owner: 1, jobs: [{ id: "j9", label: "left" }] }],

@@ -401,11 +401,26 @@ export interface ReadyCount {
 	readonly unresumed: number;
 }
 
-function readyCount(serving: ServingHost): ReadyCount {
+/**
+ * What a serving host holds, counted for its ready status. A resume
+ * that fails once it has registered leaves its conversation parked in
+ * the host's list, so one of those counts as not resumed, never parked.
+ */
+export function readyCount(
+	serving: Pick<
+		ServingHost,
+		"held" | "unresumed" | "dropped" | "resting" | "stillUnresumed"
+	>,
+): ReadyCount {
 	const held = serving.held();
-	const asleep = held.filter(({ state }) => state === "parked").length;
+	const failed = new Set(serving.unresumed.map(({ sessionId }) => sessionId));
+	const parkedFailed = held.filter(
+		({ id, state }) => state === "parked" && failed.has(id),
+	).length;
+	const asleep =
+		held.filter(({ state }) => state === "parked").length - parkedFailed;
 	return {
-		loaded: held.length - asleep,
+		loaded: held.length - asleep - parkedFailed,
 		parked: asleep + serving.resting(),
 		dropped: serving.dropped.length,
 		unresumed: serving.stillUnresumed(),

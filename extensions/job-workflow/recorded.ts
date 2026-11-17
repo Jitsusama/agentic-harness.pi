@@ -19,7 +19,9 @@
  *
  * Every running job, of any kind, is also noted by session (running.ts),
  * so a session killed while it waited on jobs nothing can take up, a
- * fleet or a review round, is told they ended with it.
+ * fleet or a review round, is told they ended with it. A hand-off to
+ * another runtime, as at a reload or a rollover, takes the note back
+ * (`handOff`), since the runtime taking the jobs notes them again.
  */
 
 import { isCarriedShell } from "../../lib/internal/shell/carried.ts";
@@ -35,6 +37,7 @@ import {
 	forgetRunning,
 	noteRunning,
 	type RunningNote,
+	thisPi,
 } from "./running.ts";
 
 /** How long to wait before asking a job not yet recordable again. */
@@ -51,6 +54,11 @@ export interface JobRecorder {
 	stop(): void;
 	/** Stop for good, taking back every record this recorder wrote. */
 	forget(): void;
+	/**
+	 * The jobs go to another runtime, which notes them again: take back
+	 * the note, keeping each call's record, which names this same pi.
+	 */
+	handOff(): void;
 }
 
 /** How a recorder writes and waits, for tests to stand in for. */
@@ -61,6 +69,8 @@ interface RecorderOptions {
 	readonly now?: () => number;
 	/** The pi holding the jobs, by its pid; this process by default. */
 	readonly owner?: number;
+	/** When that pi started, in seconds; this process's by default. */
+	readonly started?: number;
 	/** Note a session's running jobs, of every kind (running.ts). */
 	readonly note?: (session: string, note: RunningNote) => void;
 	/** Take a session's note back. */
@@ -111,7 +121,9 @@ export function recordJobs(
 	const forget = options.forget ?? forgetKeptJob;
 	const later = options.later ?? laterOnce;
 	const now = options.now ?? Date.now;
-	const owner = options.owner ?? process.pid;
+	const pi = options.owner === undefined ? thisPi() : options;
+	const owner = pi.owner ?? process.pid;
+	const started = pi.started;
 	const note = options.note ?? noteRunning;
 	const unnote = options.unnote ?? forgetRunning;
 	// Each job's kept path, by its session and id, once recorded there.
@@ -136,7 +148,11 @@ export function recordJobs(
 		}
 		const said = JSON.stringify(running);
 		if (noted?.said === said) return;
-		note(id, { owner, jobs: running });
+		note(id, {
+			owner,
+			...(started !== undefined ? { started } : {}),
+			jobs: running,
+		});
 		noted = { session: id, said };
 	};
 
@@ -196,6 +212,10 @@ export function recordJobs(
 			cancel = undefined;
 			for (const keep of new Set(recorded.values())) forget(keep);
 			recorded.clear();
+			if (noted !== undefined) unnote(noted.session);
+			noted = undefined;
+		},
+		handOff() {
 			if (noted !== undefined) unnote(noted.session);
 			noted = undefined;
 		},

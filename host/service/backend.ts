@@ -660,6 +660,12 @@ export async function resumeHeld(options: {
 					!options.roster.entries().some((held) => held.sessionId === sessionId)
 				)
 					continue;
+				// Dropped before it is said as resuming, since nothing resumes.
+				if (options.engine.lost?.(entry)) {
+					await options.roster.drop(sessionId);
+					dropped.push(sessionId);
+					continue;
+				}
 				await options.starting?.({
 					step: "resume",
 					number,
@@ -667,11 +673,6 @@ export async function resumeHeld(options: {
 					sessionId,
 				});
 				options.mark?.("ask");
-				if (options.engine.lost?.(entry)) {
-					await options.roster.drop(sessionId);
-					dropped.push(sessionId);
-					continue;
-				}
 				if (options.engine.restsParked?.(entry)) {
 					parked.push(sessionId);
 					continue;

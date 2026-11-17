@@ -13,7 +13,8 @@
  * never ends the last host itself: one still stopping has parks to
  * write, and systemd's stop timeout owns that kill. Past the minute it
  * refuses, naming the holder and how long it waited, and the unit's
- * restart policy tries again.
+ * restart policy tries again. A lock missing or empty, as one let go or
+ * not yet written, is looked at again within the same minute.
  */
 import { randomBytes } from "node:crypto";
 import {
@@ -272,28 +273,41 @@ async function acquire(
 ): Promise<void> {
 	const within = wait.within ?? ROSTER_WAIT_MS;
 	const pause = wait.pause ?? ((ms: number) => pauseFor(ms));
-	const now = wait.now ?? Date.now;
+	// A clock no change to the wall time moves.
+	const now = wait.now ?? (() => performance.now());
 	const began = now();
 	let told = false;
 	for (;;) {
 		if (await create(lock, mine)) return;
 		const seen = await readLock(lock);
 		const waited = now() - began;
-		// Released between the two, as a last host does as it stops: try
-		// again, within the wait, rather than call it unreadable.
-		if (seen === undefined && waited < within) {
+		// Released between the two, as a last host does as it stops, or
+		// made and not yet written, as a start's is: try again, within the
+		// wait, rather than call it unreadable.
+		if (!seen) {
+			if (waited >= within) throw unsettled(lock, waited);
 			await pause(Math.min(ROSTER_LOOK_MS, within - waited));
 			continue;
 		}
 		const holder = lockOwner(seen);
 		if (!holder) throw new Error(`Roster lock is unreadable; inspect ${lock}`);
 		const verdict = await standing(holder);
-		if (verdict === "gone") return takeOver(lock, mine, seen);
+		if (verdict === "gone") {
+			if (await takeOver(lock, mine, seen)) return;
+			continue;
+		}
 		if (waited >= within) throw refusal(verdict, holder, waited);
 		if (!told) await wait.waiting?.(holder);
 		told = true;
 		await pause(Math.min(ROSTER_LOOK_MS, within - waited));
 	}
+}
+
+function unsettled(lock: string, waited: number): Error {
+	const after = `after waiting ${Math.round(waited / 1000)} s`;
+	return new Error(
+		`Roster lock is still missing, empty or unreadable ${after}; inspect ${lock}`,
+	);
 }
 
 function refusal(
@@ -310,16 +324,25 @@ function refusal(
 	);
 }
 
+/**
+ * Take a dead holder's lock, true once this host holds it, or false when
+ * the lock went first, as its holder let it go, to try again.
+ */
 async function takeOver(
 	lock: string,
 	mine: string,
-	seen: string | undefined,
-): Promise<void> {
+	seen: string,
+): Promise<boolean> {
 	// Move the dead holder's lock aside rather than unlinking it, then
 	// confirm it was the one judged dead: a contender that took over in
 	// between gets its lock put back, and this start refuses.
 	const aside = `${lock}.${randomBytes(4).toString("hex")}.stale`;
-	await rename(lock, aside);
+	try {
+		await rename(lock, aside);
+	} catch (error) {
+		if (isCode(error, "ENOENT")) return false;
+		throw error;
+	}
 	if ((await readLock(aside)) !== seen) {
 		await link(aside, lock).catch(() => {
 			// Someone else holds the lock already; theirs stands.
@@ -330,6 +353,7 @@ async function takeOver(
 	await unlink(aside);
 	if (!(await create(lock, mine)))
 		throw new Error("Another host took this roster during takeover");
+	return true;
 }
 
 async function create(lock: string, content: string): Promise<boolean> {

@@ -100,6 +100,11 @@ pi's is under way, which settles as pi's run ends, nor for a run pi was
 never shown. Without it, job-workflow's outbox held a job's result from
 a carried run until a person typed.
 
+A start drops a hold whose session file is gone for good, as the
+engine's `lost` says (session-file.ts): only a file missing from a
+folder that is there counts, so a disk not yet mounted or a file it
+can't look at keeps its hold, and its resume says what is wrong.
+
 A host coming back carries only a few cut-off runs on at once
 (resume-turns.ts, RESUMED_RUNS_AT_ONCE, 4). As a start resumes what it
 holds, each conversation whose durable store holds a run waits for a

@@ -75,6 +75,7 @@ import {
 } from "./quiet-collection.ts";
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
+import { sessionFileGone } from "./session-file.ts";
 import { backgroundIn, heavyIn, restartEnds, stopKeeping } from "./stopping.ts";
 import {
 	hostedSubagentInstall,
@@ -531,7 +532,7 @@ export async function createEngine(
 
 		lost(entry) {
 			const running = host.holds(entry.sessionId) !== undefined;
-			return !running && !existsSync(entry.file);
+			return !running && sessionFileGone(entry.file);
 		},
 
 		resuming() {

@@ -15,9 +15,11 @@ import { join } from "node:path";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	endedJobs,
 	forgetRunning,
 	noteRunning,
 	runningFolder,
+	takeEndedNote,
 } from "../../../extensions/job-workflow/running.ts";
 import { findJobHost, type JobHost } from "../../../lib/jobs/index.ts";
 import { forgetParkedJobs, jobRuntime } from "../../support/job-runtime.ts";
@@ -137,7 +139,7 @@ describe("a session's running jobs", () => {
 		});
 
 		const noted: unknown = JSON.parse(readFileSync(noteFile(), "utf8"));
-		expect(noted, "the running job, under this pi").toEqual({
+		expect(noted, "the running job, under this pi").toMatchObject({
 			owner: process.pid,
 			jobs: [{ id: job.id, label: "pnpm test" }],
 		});
@@ -156,5 +158,49 @@ describe("a session's running jobs", () => {
 
 		await pi.fire("session_shutdown", { reason: "quit" });
 		expect(existsSync(noteFile()), "a close stops its jobs").toBe(false);
+	});
+});
+
+describe("judging the pi a note names", () => {
+	const noted = { owner: 4242, started: 100, jobs: [JOB] };
+	const runs = (started: number | undefined) => ({
+		there: () => true,
+		startedOf: () => started,
+	});
+
+	it("tells of a pid that runs again in a process started another second", () => {
+		noteRunning(SESSION, noted);
+		expect(
+			takeEndedNote(SESSION, undefined, runs(200)),
+			"a reused pid is not the pi",
+		).toEqual(noted);
+		expect(existsSync(noteFile()), "told once").toBe(false);
+	});
+
+	it("tells nothing while the same pi runs, and leaves its note", () => {
+		noteRunning(SESSION, noted);
+		expect(takeEndedNote(SESSION, undefined, runs(100))).toBeUndefined();
+		expect(existsSync(noteFile()), "its pi holds the jobs yet").toBe(true);
+	});
+
+	it("judges by the pid alone when the start can't be read", () => {
+		noteRunning(SESSION, noted);
+		expect(
+			takeEndedNote(SESSION, undefined, runs(undefined)),
+		).toBeUndefined();
+	});
+
+	it("never takes a pid of 0 or less for a pi", () => {
+		noteRunning(SESSION, { owner: 0, jobs: [JOB] });
+		expect(
+			takeEndedNote(SESSION, undefined, runs(undefined)),
+			"a process group is no pi",
+		).toEqual({ owner: 0, jobs: [JOB] });
+	});
+
+	it("names only the jobs nothing took up again", () => {
+		const ended = { owner: 1, jobs: [JOB, { id: "j105", label: "watch" }] };
+		expect(endedJobs(ended, new Set(["j105"]))).toEqual([JOB]);
+		expect(endedJobs(undefined, new Set())).toEqual([]);
 	});
 });
