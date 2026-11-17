@@ -30,6 +30,7 @@ import { stateDir } from "../internal/paths.ts";
 import { isRecord } from "../internal/record.ts";
 import { ReviewerArtifactsStore } from "./artifacts.ts";
 import { safeSegment } from "./errno.ts";
+import { WRAP_UP_SUFFIX } from "./follow-up.ts";
 
 /** What kind of run: a fleet, or a kind of review round. */
 export type RunKind =
@@ -139,7 +140,11 @@ export async function runRecord(
 	const store = new ReviewerArtifactsStore(asked.artifacts);
 	const read = await Promise.all(
 		members.map((member) =>
-			memberOf(member, store.paths(asked.runId, member.id)),
+			memberOf(
+				member,
+				store.paths(asked.runId, member.id),
+				store.paths(asked.runId, `${member.id}${WRAP_UP_SUFFIX}`),
+			),
 		),
 	);
 	const state = stateOf(read);
@@ -300,10 +305,22 @@ function lastSaid(body: unknown): number | undefined {
 	return Number.isFinite(at) ? at : undefined;
 }
 
-/** A member as its supervisor's files say it, or queued with none. */
+/** The files a member's supervisor keeps, as a record reads them. */
+interface MemberPaths {
+	requestPath: string;
+	leasePath: string;
+	resultPath: string;
+}
+
+/**
+ * A member as its supervisor's files say it, or queued with none; one
+ * a clock stopped is still running while it is asked for what it had,
+ * since its answer is still to come.
+ */
 async function memberOf(
 	member: MemberAsked,
-	paths: { requestPath: string; leasePath: string; resultPath: string },
+	paths: MemberPaths,
+	wrapUp: MemberPaths,
 ): Promise<RunMember> {
 	const [request, lease, result] = await Promise.all([
 		readJson(paths.requestPath),
@@ -333,6 +350,7 @@ async function memberOf(
 		const started = request !== undefined || lease !== undefined;
 		return { ...base, state: started ? "running" : "queued" };
 	}
+	if (await askedStill(wrapUp)) return { ...base, state: "running" };
 	// What its calls took, as the supervisor counted them in its result.
 	const usage = fieldOf(result, "usage");
 	const tokens = fieldOf(usage, "tokens");
@@ -346,6 +364,23 @@ async function memberOf(
 		...(cost === undefined ? {} : { "pi.cost.usd": cost }),
 		...(completed ? { ended: completed } : {}),
 	};
+}
+
+/**
+ * Whether a wrap-up was asked for and has not said how it ended: its
+ * request or lease is there, and neither its result nor its lease says
+ * it is over.
+ */
+async function askedStill(paths: MemberPaths): Promise<boolean> {
+	const [request, lease, result] = await Promise.all([
+		readJson(paths.requestPath),
+		readJson(paths.leasePath),
+		readJson(paths.resultPath),
+	]);
+	if (result !== undefined) return false;
+	const leased = stringIn(lease, "state");
+	if (leased !== undefined && !GOING_ON.has(leased)) return false;
+	return request !== undefined || lease !== undefined;
 }
 
 /** A supervisor's token counts, in gen_ai's names. */

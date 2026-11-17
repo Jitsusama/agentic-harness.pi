@@ -743,9 +743,10 @@ running in their own processes, and
 whenever you ask for it.
 
 Say plainly what that costs, because it is not free. Nothing is
-watching a started round, so there is no progress to read, no wrap-up
-for a reviewer that runs long, and no retry of one that failed to
-start. It also cannot be cancelled by pressing Escape, since there is
+watching a started round, so there is no progress to read and no
+retry of one that failed to start. A reviewer a clock stops is still
+asked for what it had, by its own supervisor, and collect waits for
+that answer. It also cannot be cancelled by pressing Escape, since there is
 no panel holding it: `review_ask stop` is the off switch, and it is
 worth knowing before you start an expensive roster on the wrong
 question. Stopping a round that is running keeps whatever its

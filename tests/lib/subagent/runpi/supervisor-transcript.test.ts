@@ -195,9 +195,14 @@ describe("how a reviewer's run ended", () => {
 
 	it("ended when the line too large to read was its agent_end", () => {
 		const { said } = reading();
-		said.skipped(`{"type":"agent_end","messages":[${"x".repeat(50)}`);
+		const lost = said.skipped(
+			`{"type":"agent_end","messages":[${"x".repeat(50)}`,
+		);
 
 		expect(said.error("complete")).toBeUndefined();
+		expect(lost, "its kind is all that is read of it, so nothing is lost").toBe(
+			false,
+		);
 	});
 
 	it("loses nothing when the line too large to read only echoed what it was asked", () => {
