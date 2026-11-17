@@ -53,11 +53,18 @@ export interface ServingHost {
 	readonly path: string;
 	/** Holds the engine could not resume at start, still held. */
 	readonly unresumed: readonly Unresumed[];
+	/** Holds dropped at start, by id, since their session files are gone. */
+	readonly dropped: readonly string[];
 	/**
 	 * How many of those are still held and not running now: one woken,
 	 * adopted, closed or released since no longer counts.
 	 */
 	stillUnresumed(): number;
+	/**
+	 * How many it holds parked and not built, as one parked before a
+	 * restart rests: held, not running, and not among those that failed.
+	 */
+	resting(): number;
 	/** Each conversation the host runs, by id, with its state and when it last changed. */
 	held(): readonly Pick<ConversationIdentity, "id" | "state" | "since">[];
 	/**
@@ -161,7 +168,7 @@ export async function serveHost(options: {
 		listener = control;
 		wakes = backend.wake;
 		listening(backend.wake);
-		const { unresumed } = await resumeHeld({
+		const { unresumed, dropped } = await resumeHeld({
 			roster,
 			engine,
 			admitAnother,
@@ -177,12 +184,22 @@ export async function serveHost(options: {
 			identity,
 			path,
 			unresumed,
+			dropped,
 			stillUnresumed: () => {
 				const live = new Set(running.list().map(({ id }) => id));
 				const held = new Set(roster.entries().map((e) => e.sessionId));
 				return unresumed.filter(
 					({ sessionId }) => held.has(sessionId) && !live.has(sessionId),
 				).length;
+			},
+			resting: () => {
+				const live = new Set(running.list().map(({ id }) => id));
+				const failed = new Set(unresumed.map(({ sessionId }) => sessionId));
+				return roster
+					.entries()
+					.filter(
+						({ sessionId }) => !live.has(sessionId) && !failed.has(sessionId),
+					).length;
 			},
 			held: () => running.list(),
 			restartComing: (coming) => {

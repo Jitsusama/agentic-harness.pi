@@ -368,6 +368,8 @@ describe("hostBackend", () => {
 			}),
 		).toEqual({
 			resumed: [b],
+			parked: [],
+			dropped: [],
 			unresumed: [{ sessionId: a, reason: unheard }],
 		});
 		expect(await heldSessionStatus(a, { dir: rosters })).toBe("held");
@@ -410,6 +412,8 @@ describe("hostBackend", () => {
 		});
 		expect(await resumeHeld({ roster, engine: restart.fake })).toEqual({
 			resumed: [a],
+			parked: [],
+			dropped: [],
 			unresumed: [{ sessionId: b, reason: missing }],
 		});
 		const listed = parseListResult(
@@ -436,6 +440,31 @@ describe("hostBackend", () => {
 			sessionId: b,
 		});
 		expect(await heldSessionStatus(b, { dir: rosters })).toBe("unheld");
+	});
+
+	it("drops a hold whose session file is gone at start, building nothing for it", async () => {
+		const { fake } = engine();
+		const first = backendWith(fake);
+		const a = parseOpenResult(await first.execute(open)).sessionId;
+		const b = parseOpenResult(await first.execute(open)).sessionId;
+		for (const id of [a, b]) await host.stop(id);
+
+		const restart = engine({ lost: (entry) => entry.sessionId === b });
+		expect(await resumeHeld({ roster, engine: restart.fake })).toEqual({
+			resumed: [a],
+			parked: [],
+			dropped: [b],
+			unresumed: [],
+		});
+		expect(
+			vi.mocked(restart.fake.resume).mock.calls.map(([e]) => e.sessionId),
+			"only the one with a log is built",
+		).toEqual([a]);
+		expect(
+			await heldSessionStatus(b, { dir: rosters }),
+			"no longer held, so the next start doesn't find it either",
+		).toBe("unheld");
+		expect(await heldSessionStatus(a, { dir: rosters })).toBe("held");
 	});
 
 	describe("with the rollout gate", () => {
@@ -512,7 +541,12 @@ describe("hostBackend", () => {
 			const gate = vi.fn(() => Promise.resolve());
 			expect(
 				await resumeHeld({ roster, engine: restart.fake, admitAnother: gate }),
-			).toEqual({ resumed: [a, b], unresumed: [] });
+			).toEqual({
+				resumed: [a, b],
+				parked: [resting],
+				dropped: [],
+				unresumed: [],
+			});
 			expect(
 				vi.mocked(restart.fake.resume).mock.calls.map(([e]) => e.sessionId),
 				"only those that don't rest are built",
@@ -552,6 +586,8 @@ describe("hostBackend", () => {
 				await resumeHeld({ roster, engine: restart.fake, admitAnother: gate }),
 			).toEqual({
 				resumed: [b],
+				parked: [],
+				dropped: [],
 				unresumed: [
 					{ sessionId: a, reason: gone },
 					{ sessionId: c, reason: stale },
@@ -833,7 +869,12 @@ describe("the order a start resumes what it held", () => {
 		go();
 		await asked;
 		expect(host.holds(c), "running once answered").toBeDefined();
-		expect(await started).toEqual({ resumed: [a, c, b], unresumed: [] });
+		expect(await started).toEqual({
+			resumed: [a, c, b],
+			parked: [],
+			dropped: [],
+			unresumed: [],
+		});
 		expect(resumes.map(([id]) => id)).toEqual([a, c, b]);
 	});
 

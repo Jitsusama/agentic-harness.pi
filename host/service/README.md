@@ -12,8 +12,11 @@ input pipeline or screen. No unit or running host is installed yet.
   failed stays held. Close and release drop the hold only after the
   engine's close commits, closing with a reason that names the caller
   as the request does (`by`); a close of one held but not running is
-  journalled here, since no end of the engine's says it. resumeHeld resumes each hold at start, keeping
-  one that won't resume held and listed parked for a person to close.
+  journalled here, since no end of the engine's says it. resumeHeld
+  resumes each hold at start, keeping one that won't resume held and
+  listed parked for a person to close, apart from one whose session
+  file is gone, which nothing could resume: it is dropped, and the
+  journal's ready line names it.
   The engine it drives (prepare, start, discard, resume, abort) is H1's.
   conversationEvents is what the engine, watched once before anything
   resumes, tells the service of a change made inside pi: a conversation
@@ -64,8 +67,8 @@ input pipeline or screen. No unit or running host is installed yet.
 - run.ts: a host as systemd runs it: kind from the command line, realm
   from the unit's environment, ready (systemd-notify, so the unit needs
   NotifyAccess=all) only once it listens, and parked on SIGTERM or
-  SIGINT. Its unit's status says each start step, then "ready,
-  serving N conversations" and any held but not resumed, looked at
+  SIGINT. Its unit's status says each start step, then "ready: loaded
+  N, parked M, dropped K" and any held but not resumed, looked at
   every 15 s and told only when it changes. When the unit sets
   WatchdogSec, a ready host pings it from its own loop four times in
   each timeout, until every conversation is parked: a loop that stops

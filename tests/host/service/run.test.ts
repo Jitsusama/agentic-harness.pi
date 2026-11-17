@@ -29,6 +29,7 @@ import {
 	describeStep,
 	hostKind,
 	phaseTimes,
+	droppedNames,
 	readyStatus,
 	runHost,
 	stoppingStatus,
@@ -148,13 +149,21 @@ describe("describeStep", () => {
 });
 
 describe("readyStatus", () => {
-	it("says how many conversations it serves, and any held but not resumed", () => {
-		expect(readyStatus(0, 0)).toBe("ready, serving no conversations");
-		expect(readyStatus(1, 0)).toBe("ready, serving 1 conversation");
-		expect(readyStatus(3, 2)).toBe(
-			"ready, serving 3 conversations, 2 held but not resumed",
+	it("says how many it loaded, left parked and dropped, and any held but not resumed", () => {
+		const none = { loaded: 0, parked: 0, dropped: 0, unresumed: 0 };
+		expect(readyStatus(none)).toBe("ready: loaded 0, parked 0, dropped 0");
+		const some = { loaded: 3, parked: 2, dropped: 32, unresumed: 1 };
+		expect(readyStatus(some)).toBe(
+			"ready: loaded 3, parked 2, dropped 32, 1 held but not resumed",
 		);
 		expect(stoppingStatus(2)).toBe("stopping, parking 2 conversations");
+	});
+
+	it("names the holds a start dropped, for the journal, and nothing when none", () => {
+		expect(droppedNames([])).toBe("");
+		expect(droppedNames(["a", "b"])).toBe(
+			" (dropped, their session files gone: a, b)",
+		);
 	});
 });
 
@@ -582,7 +591,7 @@ describe("runHost", () => {
 			if (!reply.ok) throw new Error(reply.error.message);
 			await vi.waitFor(() => {
 				expect(statuses.at(-1), "the status once one opened").toBe(
-					"ready, serving 1 conversation",
+					"ready: loaded 1, parked 0, dropped 0",
 				);
 			});
 		} finally {
@@ -593,8 +602,8 @@ describe("runHost", () => {
 		// Five checks' worth, to show none comes once the host has stopped.
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(statuses, "said only as it changed").toEqual([
-			"ready, serving no conversations",
-			"ready, serving 1 conversation",
+			"ready: loaded 0, parked 0, dropped 0",
+			"ready: loaded 1, parked 0, dropped 0",
 			"stopping, parking 1 conversation",
 		]);
 		expect(statuses.length, "nothing said once stopped").toBe(after);
@@ -860,9 +869,10 @@ describe("runHost", () => {
 			expect(said[2]).toMatch(
 				/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s \(ask \d+\.\d s, gate \d+\.\d s, rest \d+\.\d s\)$/,
 			);
-			// This engine's resume registers nothing, so the host serves none.
+			// This engine's resume registers nothing, so the host runs none and
+			// counts the one it holds parked, as its list would show it.
 			expect(said[3]).toMatch(
-				/^\d+\.\d s: ready, serving no conversations, listening on /,
+				/^\d+\.\d s: ready: loaded 0, parked 1, dropped 0, listening on /,
 			);
 		} finally {
 			second.emit("SIGTERM");
@@ -1077,7 +1087,7 @@ describe("runHost", () => {
 			"what the host told systemd",
 		).toEqual([
 			expect.stringContaining("STATUS=building the engine"),
-			"--ready STATUS=ready, serving no conversations",
+			"--ready STATUS=ready: loaded 0, parked 0, dropped 0",
 			"STATUS=stopping, parking no conversations",
 		]);
 		const senders = notifies.map((words) => Number(words.at(0)));

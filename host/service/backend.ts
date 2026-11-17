@@ -62,6 +62,11 @@ export interface ConversationEngine {
 	 */
 	restsParked?(entry: RosterEntry): boolean;
 	/**
+	 * Whether a conversation the host holds has lost its session file, so
+	 * nothing could ever resume it: a start drops it rather than keep it.
+	 */
+	lost?(entry: RosterEntry): boolean;
+	/**
 	 * A start is about to resume what the host holds: carry on none of the
 	 * runs a restart cut off until resumed says it has resumed them all, so
 	 * they go in the whole start's order, a few at a time.
@@ -614,10 +619,13 @@ export function heldOrder(roster: HostRoster): HeldOrder {
  * Resume every held conversation at start, one at a time in the order
  * they were held, or as `order` brings one forward, apart from one that parked before the start and
  * rests parked (`restsParked`), which builds nothing, so passes no gate
- * and counts as none resumed. One that can't resume stays held, since only a
- * deliberate close or release may drop a hold, and is reported for a
- * person to close or repair. With `admitAnother`, each after the first
- * that resumed must pass it, so the same one runs alone after every
+ * and counts as parked rather than resumed. One whose session file is
+ * gone (`lost`) can never resume, so it is dropped from the roster and
+ * named in `dropped`: on 17 November a start kept 32 such holds that only
+ * a person could have closed. Any other that can't resume stays held,
+ * since only a deliberate close or release may drop a hold, and is
+ * reported for a person to close or repair. With `admitAnother`, each
+ * after the first that resumed must pass it, so the same one runs alone after every
  * restart and a refused one is parked with the open path's reason.
  * `starting` hears each one before it begins, so whoever waits on the
  * start knows it still moves; if it throws, that conversation stays held
@@ -635,8 +643,10 @@ export async function resumeHeld(options: {
 	starting?: (step: Resuming) => Promise<void>;
 	mark?: (phase: ResumePhase) => void;
 	order?: HeldOrder;
-}): Promise<{ resumed: string[]; unresumed: Unresumed[] }> {
+}): Promise<HeldResumed> {
 	const resumed: string[] = [];
+	const parked: string[] = [];
+	const dropped: string[] = [];
 	const unresumed: Unresumed[] = [];
 	const order = options.order ?? heldOrder(options.roster);
 	let number = 0;
@@ -657,7 +667,15 @@ export async function resumeHeld(options: {
 					sessionId,
 				});
 				options.mark?.("ask");
-				if (options.engine.restsParked?.(entry)) continue;
+				if (options.engine.lost?.(entry)) {
+					await options.roster.drop(sessionId);
+					dropped.push(sessionId);
+					continue;
+				}
+				if (options.engine.restsParked?.(entry)) {
+					parked.push(sessionId);
+					continue;
+				}
 				if (resumed.length > 0) await options.admitAnother?.();
 				options.mark?.("gate");
 				await options.engine.resume(entry, false, options.mark);
@@ -672,5 +690,17 @@ export async function resumeHeld(options: {
 		order.end();
 		options.engine.resumed?.();
 	}
-	return { resumed, unresumed };
+	return { resumed, parked, dropped, unresumed };
+}
+
+/** What a start did with each conversation the host held. */
+export interface HeldResumed {
+	/** Built and running again, in the order they went. */
+	readonly resumed: string[];
+	/** Left parked as their last process parked them, building nothing. */
+	readonly parked: string[];
+	/** Dropped from the roster, since their session files are gone. */
+	readonly dropped: string[];
+	/** Still held but not running, each with why it would not resume. */
+	readonly unresumed: Unresumed[];
 }

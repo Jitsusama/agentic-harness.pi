@@ -529,6 +529,11 @@ export async function createEngine(
 			parked.unwatch(sessionId);
 		},
 
+		lost(entry) {
+			const running = host.holds(entry.sessionId) !== undefined;
+			return !running && !existsSync(entry.file);
+		},
+
 		resuming() {
 			turns.hold();
 		},

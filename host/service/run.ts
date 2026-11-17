@@ -282,8 +282,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	} finally {
 		renewing?.();
 	}
-	const status = () =>
-		readyStatus(serving.held().length, serving.stillUnresumed());
+	const status = () => readyStatus(readyCount(serving));
 	const tell = (now: string) =>
 		(options.status ?? notifyStatus)(options.env, now);
 	const signals = options.signals ?? process;
@@ -368,7 +367,8 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	// Every conversation the last stop left is resumed by now, so its
 	// mark has said all it can.
 	if (lastStop) unparked.clear();
-	say(`${since()}: ${status()}, listening on ${serving.path}`);
+	const named = droppedNames(serving.dropped);
+	say(`${since()}: ${status()}${named}, listening on ${serving.path}`);
 	return { serving, stopped };
 }
 
@@ -388,10 +388,48 @@ export function watchdogEvery(
 	return timeout / MICROSECONDS_PER_MS / PINGS_PER_TIMEOUT;
 }
 
-/** A ready host's status in words, as systemd's status and the journal show it. */
-export function readyStatus(serving: number, unresumed: number): string {
+/** What a ready host holds, counted for its status. */
+export interface ReadyCount {
+	/** Conversations it runs, built and awake. */
+	readonly loaded: number;
+	/** Conversations it runs parked, building nothing until asked for. */
+	readonly parked: number;
+	/** Holds its start dropped, since their session files were gone. */
+	readonly dropped: number;
+	/** Holds it keeps but could not resume. */
+	readonly unresumed: number;
+}
+
+function readyCount(serving: ServingHost): ReadyCount {
+	const held = serving.held();
+	const asleep = held.filter(({ state }) => state === "parked").length;
+	return {
+		loaded: held.length - asleep,
+		parked: asleep + serving.resting(),
+		dropped: serving.dropped.length,
+		unresumed: serving.stillUnresumed(),
+	};
+}
+
+/**
+ * A ready host's status in words, as systemd's status and the journal
+ * show it: how many it loaded, left parked and dropped, and any held but
+ * not resumed.
+ */
+export function readyStatus(count: ReadyCount): string {
+	const { loaded, parked, dropped, unresumed } = count;
 	const held = unresumed > 0 ? `, ${unresumed} held but not resumed` : "";
-	return `ready, serving ${conversations(serving)}${held}`;
+	return `ready: loaded ${loaded}, parked ${parked}, dropped ${dropped}${held}`;
+}
+
+/**
+ * The holds a start dropped, named for the journal's ready line; nothing
+ * when it dropped none. systemd's status keeps only the count, since a
+ * start may drop dozens.
+ */
+export function droppedNames(dropped: readonly string[]): string {
+	if (dropped.length === 0) return "";
+	return ` (dropped, their session files gone: ${dropped.join(", ")})`;
 }
 
 /** A stopping host's status in words, while it parks what it runs. */
