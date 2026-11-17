@@ -15,11 +15,11 @@
  */
 
 import {
-	ESCAPE_BEFORE_MARK,
 	hidden,
 	looksLikeSecret,
 	replaceWords,
 	scrubbedMark,
+	unescapedMarks,
 } from "./words.ts";
 
 export { scrubbedMark };
@@ -218,7 +218,8 @@ const WHOLE_ENVIRONMENT: readonly RegExp[] = [
  * a log line of several pairs, nor a pin like `a==1`. A terminal's
  * escapes opening it, a colour, a cleared line or a character set, are
  * read past, as a terminal shows the line without them. Each rule below
- * reads an escape as `words.ts`'s ESCAPE does, written out in it.
+ * reads a control sequence, a character set and a cursor's escape as
+ * `words.ts`'s ESCAPE does, written out in it.
  */
 const ASSIGNED_LINE =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
@@ -301,16 +302,25 @@ const DUMPED_VARIABLE =
  * proxy's key under a name of its maker's choosing. A variable's value is
  * named by the variable, and a bare value, as launchctl getenv prints, as
  * an environment value. Paths and addresses read as they did. Each of
- * `env -0`'s NUL-ended entries is read as a line of its own.
+ * `env -0`'s NUL-ended entries is read as a line of its own. The marks
+ * this scrub made are `marked`'s kinds, each a variable's added here.
  */
-function scrubDump(text: string, kinds: string[]): string {
+function scrubDump(
+	text: string,
+	kinds: string[],
+	marked: Set<string>,
+): string {
 	return eachEntry(text, (entry) =>
-		replaceWords(scrubAssigned(entry, kinds), (word: string) => {
-			const mark = hidden(word, ENVIRONMENT_VALUE);
-			if (mark === undefined) return word;
-			kinds.push(ENVIRONMENT_VALUE);
-			return mark;
-		}, kinds),
+		replaceWords(
+			scrubAssigned(entry, kinds, marked),
+			(word: string) => {
+				const mark = hidden(word, ENVIRONMENT_VALUE);
+				if (mark === undefined) return word;
+				kinds.push(ENVIRONMENT_VALUE);
+				return mark;
+			},
+			marked,
+		),
 	);
 }
 
@@ -319,10 +329,14 @@ function scrubDump(text: string, kinds: string[]): string {
  * one variable read as a dump and every other line left as it is, since
  * nothing says the rest is the environment.
  */
-function scrubDumpedLines(text: string, kinds: string[]): string {
+function scrubDumpedLines(
+	text: string,
+	kinds: string[],
+	marked: Set<string>,
+): string {
 	if (!text.includes("=")) return text;
 	return text.replace(EACH_LINE, (line: string) =>
-		ASSIGNED_LINE.test(line) ? scrubDump(line, kinds) : line,
+		ASSIGNED_LINE.test(line) ? scrubDump(line, kinds, marked) : line,
 	);
 }
 
@@ -369,13 +383,18 @@ const OPEN_DUMPED_VALUE =
 const ONLY_MARKS = /^(?:\[secret scrubbed: [^\]\n]*\][ \t'"]*)+$/;
 
 /** The text with each variable's value that could be a credential scrubbed. */
-function scrubAssigned(text: string, kinds: string[]): string {
+function scrubAssigned(
+	text: string,
+	kinds: string[],
+	marked: Set<string>,
+): string {
 	return text.replace(
 		DUMPED_VARIABLE,
 		(whole: string, before: string, name: string, value: string) => {
 			const mark = hidden(value, name);
 			if (mark === undefined) return whole;
 			kinds.push(name);
+			marked.add(name);
 			return `${before}${mark}`;
 		},
 	);
@@ -582,13 +601,16 @@ export function scrubSecrets(
 			return `${before}${scrubbedMark(shape.kind)}${after}`;
 		});
 	}
-	if (options.environment) scrubbed = scrubDump(scrubbed, kinds);
-	else if (dumped) scrubbed = scrubDumpedLines(scrubbed, kinds);
+	// A terminal, and the word scan, read a bare escape and a mark's
+	// bracket as one sequence: dropped before the scan and after it.
+	if (kinds.length) scrubbed = unescapedMarks(scrubbed);
+	const marked = new Set(kinds);
+	if (options.environment) scrubbed = scrubDump(scrubbed, kinds, marked);
+	else if (dumped) scrubbed = scrubDumpedLines(scrubbed, kinds, marked);
 	if (options.partial === true) {
 		scrubbed = scrubOpenLine(scrubbed, kinds, options.environment === true);
 	}
-	// A terminal reads a bare escape and a mark's bracket as one sequence.
-	if (kinds.length) scrubbed = scrubbed.replace(ESCAPE_BEFORE_MARK, "");
+	if (kinds.length) scrubbed = unescapedMarks(scrubbed);
 	return { text: scrubbed, kinds };
 }
 
