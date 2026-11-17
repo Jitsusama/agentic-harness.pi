@@ -18,7 +18,9 @@ type Liveness =
 /** A fresh copy, so the memoized boot token is read again. */
 async function fresh(): Promise<Liveness> {
 	vi.resetModules();
-	return import("../../../../../lib/internal/quest/sessions/process-liveness.ts");
+	return import(
+		"../../../../../lib/internal/quest/sessions/process-liveness.ts"
+	);
 }
 
 /** fn's answer and how long it took, in milliseconds. */

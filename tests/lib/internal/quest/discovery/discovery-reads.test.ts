@@ -185,7 +185,9 @@ describe("one index for the whole process", () => {
 	// unloads one, so several copies of discovery run in one process.
 	async function anotherCopy(): Promise<typeof discoverQuests> {
 		vi.resetModules();
-		const copy = await import("../../../../../lib/internal/quest/discovery/discovery.ts");
+		const copy = await import(
+			"../../../../../lib/internal/quest/discovery/discovery.ts"
+		);
 		expect(copy.discoverQuests).not.toBe(discoverQuests);
 		return copy.discoverQuests;
 	}
