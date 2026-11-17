@@ -225,8 +225,8 @@ export function inboxOf(root: string, address: string): string {
 
 /**
  * Write a steer into an address's inbox whole, as the launcher does,
- * named by when it was written so it sorts after those before it;
- * answers the file's name.
+ * named by the millisecond it was written and random hex; answers the
+ * file's name.
  */
 export function giveSteer(
 	root: string,
@@ -404,7 +404,7 @@ function lastChange(dir: string): { at: number; empty: boolean } | undefined {
 }
 
 /**
- * The steers waiting in an inbox, oldest name first, read off the thread
+ * The steers waiting in an inbox, in the order written, read off the thread
  * and left where they are for their own session to take: what is not a
  * steer, or was taken as it was read, is passed over. A clock reads every
  * parked peer's this way, and a host runs every conversation's clock on
@@ -429,11 +429,13 @@ export async function waitingSteers(inbox: string): Promise<Steer[]> {
 			),
 		),
 	);
-	return read.filter((steer): steer is Steer => steer !== undefined);
+	return inWrittenOrder(
+		read.filter((steer): steer is Steer => steer !== undefined),
+	);
 }
 
 /**
- * Every steer waiting in an inbox, oldest name first, each taken off
+ * Every steer waiting in an inbox, in the order written, each taken off
  * disk as it is read. Making the folder is part of looking, so a
  * writer finds it there once its peer has looked once.
  */
@@ -445,7 +447,7 @@ export function takeSteers(inbox: string, taker: string): Taken {
 		if (taking !== undefined)
 			settle(inbox, name, taking, readFileSync(taking, "utf8"), taken);
 	}
-	return taken;
+	return { ...taken, steers: inWrittenOrder(taken.steers) };
 }
 
 /**
@@ -480,12 +482,46 @@ export async function takenSteers(
 		const taking = claim(inbox, name, taker);
 		if (taking !== undefined) settle(inbox, name, taking, raw, taken);
 	}
-	return taken;
+	return { ...taken, steers: inWrittenOrder(taken.steers) };
 }
 
-/** The steers ready to take among an inbox's `names`, oldest first. */
+/** The steers ready to take among an inbox's `names`, by name. */
 function readyOf(names: string[]): string[] {
 	return names.filter((name) => name.endsWith(READY)).sort();
+}
+
+/**
+ * `steers` in the order they were written: by the time each says, or
+ * else its name's, which a writer opens with the millisecond it wrote
+ * it, the name breaking a tie. By name alone, two written in one
+ * millisecond went in their random hex's order, so a stop and a talk
+ * given together reached pausing either way round.
+ */
+function inWrittenOrder(steers: readonly Steer[]): Steer[] {
+	return steers
+		.map((steer) => ({ steer, at: writtenAt(steer) }))
+		.sort((a, b) => a.at - b.at || byName(a.steer.file, b.steer.file))
+		.map(({ steer }) => steer);
+}
+
+/**
+ * When a steer was written, in milliseconds: the time it says, else the
+ * one its name opens with, else after every other.
+ */
+function writtenAt(steer: Steer): number {
+	const said = steer.at === undefined ? Number.NaN : Date.parse(steer.at);
+	if (!Number.isNaN(said)) return said;
+	const named = NAMED_AT.exec(steer.file)?.[0];
+	return named === undefined ? Number.POSITIVE_INFINITY : Number(named);
+}
+
+/** The millisecond a steer's file name opens with. */
+const NAMED_AT = /^\d+/;
+
+/** Two file names in sorted order, as `readyOf` lists them. */
+function byName(a: string, b: string): number {
+	if (a === b) return 0;
+	return a < b ? -1 : 1;
 }
 
 /**
