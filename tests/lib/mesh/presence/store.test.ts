@@ -4,8 +4,10 @@
  * how a host's conversations read them from one mirror.
  */
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	utimesSync,
 	writeFileSync,
@@ -335,6 +337,77 @@ describe("presences on a host", () => {
 				),
 			{ timeout: 2000 },
 		);
+	});
+
+	it("publish off the thread, answering with what waits until it lands", async () => {
+		const presences = createPresences(root);
+		const path = join(root, "s-1.json");
+
+		presences.publish(presence());
+		expect(existsSync(path), "not written on the publisher's turn").toBe(false);
+		expect(presences.of("s-1"), "its own publish").toEqual(presence());
+		expect(
+			(await presences.listed()).map((one) => one.session),
+			"a listing read off the thread before it lands still holds it",
+		).toEqual(["s-1"]);
+
+		await vi.waitFor(() => {
+			expect(existsSync(path), "written off the thread").toBe(true);
+		});
+		expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(presence());
+	});
+
+	it("settle what waits on the thread, as a conversation ends", () => {
+		const presences = createPresences(root);
+
+		presences.publish(presence());
+		presences.settle();
+
+		expect(
+			JSON.parse(readFileSync(join(root, "s-1.json"), "utf8")),
+			"on disk at once",
+		).toEqual(presence());
+	});
+
+	it("forget on the thread a presence whose publish is still out, for good", async () => {
+		const presences = createPresences(root);
+		const path = join(root, "s-1.json");
+
+		presences.publish(presence());
+		presences.forget("s-1");
+		expect(existsSync(path), "gone at once").toBe(false);
+		presences.publish(presence({ session: "s-2" }));
+		await vi.waitFor(() => {
+			expect(existsSync(join(root, "s-2.json")), "a later publish landed").toBe(
+				true,
+			);
+		});
+		// Every write sent before s-2's has had as long to land as it had.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
+		expect(existsSync(path), "the publish out never brought it back").toBe(
+			false,
+		);
+	});
+
+	it("say a publish that couldn't land once", async () => {
+		const failed = vi.fn();
+		// A file where its folder should be, so no write can land there.
+		const dir = join(root, "not-a-folder");
+		writeFileSync(dir, "");
+		const presences = createPresences(dir, { failed });
+
+		presences.publish(presence());
+		presences.publish(presence({ addresses: ["B"] }));
+
+		await vi.waitFor(() => {
+			expect(failed, "said").toHaveBeenCalledTimes(1);
+		});
+		expect(failed).toHaveBeenCalledWith(
+			join(dir, "s-1.json"),
+			expect.any(Error),
+		);
+		expect(presences.of("s-1")?.addresses, "still its own").toEqual(["B"]);
 	});
 
 	it("answer the first ask from the disk, never empty", () => {

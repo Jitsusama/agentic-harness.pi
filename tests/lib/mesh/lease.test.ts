@@ -8,7 +8,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installHost } from "../../../lib/core/session/index.ts";
 import {
 	awaitedSessions,
 	carryLeases,
@@ -83,6 +84,94 @@ describe("the board", () => {
 
 	it("reads as empty before any peer has written to it", () => {
 		expect(createBoard(join(root, "nowhere")).all()).toEqual([]);
+	});
+});
+
+describe("the board on a host", () => {
+	let uninstall: (() => void) | undefined;
+
+	beforeEach(() => {
+		uninstall = installHost({
+			kind: "pi-durable",
+			key: "board-host",
+			owner: { pid: 101, startedAt: 1000, bootId: "boot", startTicks: 10 },
+			holds: () => "idle",
+			env: () => {
+				throw new Error("Board tests do not consume host env");
+			},
+			hints: () => ({}),
+			close: () => {},
+			stamp: () => {},
+		});
+	});
+
+	afterEach(() => {
+		uninstall?.();
+	});
+
+	it("holds off the thread, answering with what waits until it lands", async () => {
+		const dir = join(root, "leases");
+		const board = createBoard(dir);
+		board.hold({ session: "two", leases: [lease({ kind: "hold" })] });
+		await vi.waitFor(() => {
+			expect(existsSync(join(dir, "two.json")), "two's landed").toBe(true);
+		});
+
+		board.hold({ session: "one", leases: [lease()] });
+		board.hold({ session: "two", leases: [] });
+		expect(existsSync(join(dir, "one.json")), "not on the holder's turn").toBe(
+			false,
+		);
+		expect(board.of("one")?.leases, "its own hold").toEqual([lease()]);
+		expect(board.of("two"), "its own release").toBeUndefined();
+		expect(
+			board.all().map(({ session }) => session),
+			"every hold as asked",
+		).toEqual(["one"]);
+
+		await vi.waitFor(() => {
+			expect(existsSync(join(dir, "two.json")), "released off the thread").toBe(
+				false,
+			);
+			expect(existsSync(join(dir, "one.json")), "held off the thread").toBe(
+				true,
+			);
+		});
+		expect(createBoard(dir).of("one")?.leases).toEqual([lease()]);
+	});
+
+	it("settles what waits on the thread, as a conversation ends", () => {
+		const dir = join(root, "leases");
+		const board = createBoard(dir);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "two.json"),
+			JSON.stringify({ session: "two", leases: [lease()] }),
+		);
+
+		board.hold({ session: "one", leases: [lease()] });
+		board.hold({ session: "two", leases: [] });
+		board.settle();
+
+		expect(existsSync(join(dir, "one.json")), "held at once").toBe(true);
+		expect(existsSync(join(dir, "two.json")), "released at once").toBe(false);
+	});
+
+	it("says a hold that couldn't land once", async () => {
+		const failed = vi.fn();
+		// A file where its folder should be, so no write can land there.
+		const dir = join(root, "not-a-folder");
+		writeFileSync(dir, "");
+
+		createBoard(dir, { failed }).hold({ session: "one", leases: [lease()] });
+
+		await vi.waitFor(() => {
+			expect(failed, "said").toHaveBeenCalledTimes(1);
+		});
+		expect(failed).toHaveBeenCalledWith(
+			join(dir, "one.json"),
+			expect.any(Error),
+		);
 	});
 });
 
