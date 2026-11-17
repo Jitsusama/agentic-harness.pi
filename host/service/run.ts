@@ -297,9 +297,15 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 						say(heldLine(late, every * PINGS_PER_TIMEOUT, serving.held())),
 				});
 	// A host systemd watches also says what holds its loop, from a thread
-	// beside it, since the beats can say only how long.
+	// beside it, since the beats can say only how long; and that thread
+	// beats for a loop asleep in the disk, which no kill would mend.
 	const unwatchHolds =
-		every === undefined ? undefined : (options.holds ?? watchHolds)();
+		every === undefined
+			? undefined
+			: (
+					options.holds ??
+					(() => watchHolds({ beat: { every, env: options.env } }))
+				)();
 	const unwatch = () => {
 		unwatchBeats?.();
 		unwatchHolds?.();

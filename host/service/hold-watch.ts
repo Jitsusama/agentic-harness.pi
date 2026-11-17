@@ -18,6 +18,21 @@
  * leaves a trace, and a last one when the loop turns again. It writes to
  * the journal's descriptor directly, since the loop that would carry a
  * write is the one held. Off Linux, the lines say only how long.
+ *
+ * Given a beat, the thread also tells systemd's watchdog the host lives
+ * while its loop sleeps in the disk: at 00:05 on 17 November the
+ * background host's loop slept 7 to 155 s in btrfs calls, its thread on
+ * a CPU 0.3 s, and the watchdog killed it at 120 s, taking five heavy
+ * runs with it; its replacement faced the same disk, so the kill bought
+ * nothing. It beats only while the newest look finds the main thread in
+ * D inside a filesystem call, and the thread has spent under a quarter
+ * of the hold on a CPU, so a JavaScript spin or a wait off the disk (a
+ * lock, a socket) still goes unbeaten for the watchdog to end. Its
+ * looks once a hold passes `after` sometimes catch the thread between
+ * two calls, running, as the 22:17 hold of 16 November's three in 25
+ * did, so a strict every-look rule would stop beating a stall that goes
+ * on. It beats at most once a beat's `every`, journals each beat, and
+ * stops at its `cap`, past which no disk stall is worth the wait.
  */
 
 import { homedir } from "node:os";
@@ -35,6 +50,19 @@ const STILL_MS = 30_000;
 
 /** Standard error, which systemd's journal keeps. */
 const STDERR = 2;
+
+/** Where the main thread's state is read from: its own process's. */
+const PROC = "/proc/self";
+
+/**
+ * The longest a loop asleep in the disk is beaten for, in ms: five times
+ * the watchdog's two minutes, and nearly four times the longest wait in
+ * a filesystem call of 17 November's stall (155 s).
+ */
+const BEAT_CAP_MS = 10 * 60_000;
+
+/** How a beat is told to systemd: as the loop's own are. */
+const BEAT_COMMAND: readonly string[] = ["systemd-notify", "WATCHDOG=1"];
 
 /** What a call's argument is, so the line can say it: where it is in the call. */
 type Given = readonly [
@@ -142,6 +170,22 @@ export interface HoldWatchOptions {
 	readonly after?: number;
 	/** How often a hold still under way is said again, in ms. */
 	readonly still?: number;
+	/** Where the main thread's state is read; this process's /proc by default. */
+	readonly proc?: string;
+	/** Beat the watchdog for a loop asleep in the disk, as this says; none by default. */
+	readonly beat?: BeatOptions;
+}
+
+/** How the thread beats systemd's watchdog for a loop asleep in the disk. */
+export interface BeatOptions {
+	/** How often it may beat, in ms: the loop's own beat. */
+	readonly every: number;
+	/** How long into a hold it stops beating, in ms; BEAT_CAP_MS by default. */
+	readonly cap?: number;
+	/** The command a beat runs; systemd-notify WATCHDOG=1 by default. */
+	readonly command?: readonly string[];
+	/** The environment it runs in, naming systemd's notify socket. */
+	readonly env: NodeJS.ProcessEnv;
 }
 
 /** What the thread is handed. */
@@ -155,6 +199,15 @@ interface Watched {
 	readonly clock: number;
 	readonly home: string;
 	readonly calls: Readonly<Record<number, Given>>;
+	readonly proc: string;
+	readonly beat:
+		| {
+				readonly every: number;
+				readonly cap: number;
+				readonly command: readonly string[];
+				readonly env: NodeJS.ProcessEnv;
+		  }
+		| undefined;
 }
 
 /**
@@ -165,10 +218,11 @@ interface Watched {
  */
 const PROGRAM = `
 const { workerData } = require("node:worker_threads");
+const { spawnSync } = require("node:child_process");
 const { openSync, readFileSync, readSync, readlinkSync, writeSync } = require("node:fs");
-const { ticks, fd, every, after, still, pid, clock, home, calls } = workerData;
+const { ticks, fd, every, after, still, pid, clock, home, calls, proc, beat } = workerData;
 const count = new Int32Array(ticks);
-const task = "/proc/self/task/" + pid;
+const task = proc + "/task/" + pid;
 // The most of a path a line gives, a page of memory, and a unix socket's
 // address: its family and up to 108 bytes of path.
 const LONGEST = 160;
@@ -193,7 +247,7 @@ const thread = () => {
 	};
 };
 const swapMb = () => {
-	const kb = /^VmSwap:\\s+(\\d+)/m.exec(read("/proc/self/status") ?? "")?.[1];
+	const kb = /^VmSwap:\\s+(\\d+)/m.exec(read(proc + "/status") ?? "")?.[1];
 	return kb === undefined ? undefined : Math.round(Number(kb) / 1024);
 };
 const shortened = (path) => {
@@ -204,7 +258,7 @@ let memory;
 // Up to most bytes of this process's memory at an address, read a page
 // at a time so a string ending before an unmapped page still reads.
 const bytesAt = (address, most) => {
-	if (memory === undefined) memory = openSync("/proc/self/mem", "r");
+	if (memory === undefined) memory = openSync(proc + "/mem", "r");
 	const chunks = [];
 	let at = address;
 	let left = most;
@@ -236,33 +290,40 @@ const socketAt = (address) => {
 	return shortened(path.subarray(0, end < 0 ? path.length : end).toString("utf8"));
 };
 // The call the main thread waits in, named with what it was given: a
-// path, a socket's address or the file behind a descriptor.
+// path, a socket's address or the file behind a descriptor; and whether
+// it is a filesystem call, given a path or a file's descriptor.
 const callOf = () => {
 	const fields = (read(task + "/syscall") ?? "").trim().split(" ");
 	const number = Number(fields[0]);
 	if (fields[0] === "" || !Number.isInteger(number) || number < 0) return undefined;
 	const known = calls[number];
-	if (known === undefined) return "call " + number;
+	if (known === undefined) return { said: "call " + number, disk: false };
 	const [name, kind, index] = known;
 	try {
 		const arg = Number(BigInt(fields[1 + index] ?? "0"));
-		if (kind === "path") return name + " " + stringAt(arg);
-		if (kind === "socket") return name + " " + socketAt(arg);
-		if (kind === "fd") return name + " " + shortened(readlinkSync("/proc/self/fd/" + arg));
+		if (kind === "path") return { said: name + " " + stringAt(arg), disk: true };
+		if (kind === "socket") return { said: name + " " + socketAt(arg), disk: false };
+		if (kind === "fd") {
+			const file = readlinkSync(proc + "/fd/" + arg);
+			return { said: name + " " + shortened(file), disk: file.startsWith("/") };
+		}
 	} catch {
 		// Memory or a descriptor gone by the time it was read: the name alone.
 	}
-	return name;
+	return { said: name, disk: kind === "path" };
 };
 const seen = (hold) => {
 	const now = thread();
+	hold.last = undefined;
 	if (now === undefined) return;
 	const wchan = (read(task + "/wchan") ?? "").trim();
 	const key = now.state === "R" || wchan === "" || wchan === "0" ? now.state : now.state + " in " + wchan;
 	hold.seen.set(key, (hold.seen.get(key) ?? 0) + 1);
 	if (now.state === "R") return;
 	const call = callOf();
-	if (call !== undefined) hold.calls.set(call, (hold.calls.get(call) ?? 0) + 1);
+	if (call === undefined) return;
+	hold.calls.set(call.said, (hold.calls.get(call.said) ?? 0) + 1);
+	if (now.state === "D" && call.disk) hold.last = { said: call.said, cpu: now.cpu };
 };
 const seconds = (ms) => (ms / 1000).toFixed(1);
 const say = (line) => {
@@ -288,6 +349,30 @@ const described = (hold, held, over) => {
 	const head = over ? "the loop held " + seconds(held) + " s" : "the loop has held " + seconds(held) + " s so far";
 	return parts.length > 0 ? head + ": " + parts.join("; ") : head;
 };
+// Beat systemd's watchdog for a loop asleep in the disk, as the header
+// of hold-watch.ts says: at most once a beat, journalled, until the cap.
+const QUARTER = 4;
+const beatFor = (hold, now, held) => {
+	if (!beat || hold.last === undefined || hold.capped) return;
+	const ran = hold.from ? (hold.last.cpu - hold.from.cpu) * 1000 : 0;
+	if (ran * QUARTER > held) return;
+	if (held > beat.cap) {
+		hold.capped = true;
+		say("stopped beating the watchdog for the loop at its cap of " + seconds(beat.cap) + " s, held " + seconds(held) + " s in " + hold.last.said);
+		return;
+	}
+	if (now - hold.beat < beat.every) return;
+	hold.beat = now;
+	try {
+		// A child of this thread stays in the host's own cgroup, as systemd
+		// needs to credit the beat: the placement that moves children into
+		// jobs patches only the main thread's spawn.
+		spawnSync(beat.command[0], beat.command.slice(1), { env: beat.env, stdio: "ignore", timeout: beat.every });
+	} catch {
+		// A beat that can't be sent leaves the watchdog to judge, as before.
+	}
+	say("beat the watchdog for the loop, held " + seconds(held) + " s in " + hold.last.said);
+};
 let last = Atomics.load(count, 0);
 let moved = performance.now();
 let hold;
@@ -303,12 +388,14 @@ setInterval(() => {
 	}
 	if (now - moved < after) return;
 	if (!hold) {
-		hold = { from: thread(), swap: swapMb(), seen: new Map(), calls: new Map(), told: now };
+		hold = { from: thread(), swap: swapMb(), seen: new Map(), calls: new Map(), told: now, beat: -Infinity, capped: false, last: undefined };
 		seen(hold);
 		say(described(hold, now - moved, false));
+		beatFor(hold, now, now - moved);
 		return;
 	}
 	seen(hold);
+	beatFor(hold, now, now - moved);
 	if (now - hold.told >= still) {
 		hold.told = now;
 		say(described(hold, now - moved, false));
@@ -336,6 +423,13 @@ export function watchHolds(options: HoldWatchOptions = {}): () => void {
 		clock: clockTicksPerSecond(),
 		home: homedir(),
 		calls: callsOf(process.arch),
+		proc: options.proc ?? PROC,
+		beat: options.beat && {
+			every: options.beat.every,
+			cap: options.beat.cap ?? BEAT_CAP_MS,
+			command: options.beat.command ?? BEAT_COMMAND,
+			env: options.beat.env,
+		},
 	};
 	const thread = new Worker(PROGRAM, { eval: true, workerData: watched });
 	thread.unref();
