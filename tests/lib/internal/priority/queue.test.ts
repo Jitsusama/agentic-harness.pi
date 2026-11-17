@@ -59,9 +59,7 @@ describe("the kind of heavy work a command runs", () => {
 		expect(kindOf("tsc")).toBe("build");
 		expect(kindOf("tsc --noEmit")).toBe("build");
 		expect(kindOf("tsc -p tsconfig.json")).toBe("build");
-		expect(kindOf("pnpm exec tsc --noEmit > $TMPDIR/t.log 2>&1")).toBe(
-			"build",
-		);
+		expect(kindOf("pnpm exec tsc --noEmit > $TMPDIR/t.log 2>&1")).toBe("build");
 		expect(kindOf("npx tsc -b")).toBe("build");
 		expect(kindOf("cd $T && timeout 600 pnpm typecheck; echo $?")).toBe(
 			"build",
