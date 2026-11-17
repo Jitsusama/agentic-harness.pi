@@ -37,7 +37,10 @@ describe("a bare value in a printing of the environment", () => {
 		const ends = ["'", '"', ",", "\x1b[0m", "]", "\\n", "&b=1", ":", "|"];
 		for (const after of [...ends, "\x07", "''", "'\""]) {
 			const value = `${fresh()}Q`;
-			const text = shown(`environ({'A': '1', 'B': ${value}=${after}})\n`, python);
+			const text = shown(
+				`environ({'A': '1', 'B': ${value}=${after}})\n`,
+				python,
+			);
 			expect(text, JSON.stringify(after)).toBe(
 				`environ({'A': '1', 'B': ${VALUE_MARK}=${after}})\n`,
 			);
@@ -62,7 +65,10 @@ describe("a bare value in a printing of the environment", () => {
 
 	it("is put out of sight inside words shaped as a mark", () => {
 		const value = fresh();
-		const text = shown(`[secret ${"scrubbed"}: ${value}]\n`, "launchctl getenv X");
+		const text = shown(
+			`[secret ${"scrubbed"}: ${value}]\n`,
+			"launchctl getenv X",
+		);
 		expect(text).toBeDefined();
 		expect(text).not.toContain(value);
 	});
@@ -196,18 +202,14 @@ describe("a bare value in a printing of the environment", () => {
 	it("holds a query a highlight marks between its equals", () => {
 		const printed =
 			"URL=https://h/p?a=b&\x1b[01;31m\x1b[Ktoken\x1b[m\x1b[K=xyz\n";
-		expect(
-			shown(printed, "env | grep --color=always token"),
-		).toBeUndefined();
+		expect(shown(printed, "env | grep --color=always token")).toBeUndefined();
 	});
 
 	it("is put out of sight behind a path or an address, an equals after it", () => {
 		expect(shown(`API=https://h/cb?token=${fresh()}=x\n`)).toBe(
 			"API=[secret scrubbed: API]\n",
 		);
-		expect(shown(`X=/opt/a=${fresh()}=v\n`)).toBe(
-			"X=[secret scrubbed: X]\n",
-		);
+		expect(shown(`X=/opt/a=${fresh()}=v\n`)).toBe("X=[secret scrubbed: X]\n");
 	});
 
 	it("holds an address's user that is a plain email or a coloured word", () => {
@@ -341,7 +343,9 @@ describe("what a printing of the environment keeps", () => {
 	// empty variable's name, or one opening a list, readable.
 	it("holds a capitals word with an underscore before its padding", () => {
 		const printed = "environ({'B': ABCD_EF0123456789ABCDEF=,})\n";
-		expect(shown(printed, "python3 -c 'import os;print(os.environ)'")).toBeUndefined();
+		expect(
+			shown(printed, "python3 -c 'import os;print(os.environ)'"),
+		).toBeUndefined();
 	});
 
 	it("holds the scrub's own mark for a long name with a digit", () => {
@@ -350,7 +354,9 @@ describe("what a printing of the environment keeps", () => {
 		const { text } = scrubSecrets(`AWS_ACCESS_KEY_ID_2=${value}\n`, known, {
 			environment: true,
 		});
-		expect(text).toBe("AWS_ACCESS_KEY_ID_2=[secret scrubbed: AWS_ACCESS_KEY_ID_2]\n");
+		expect(text).toBe(
+			"AWS_ACCESS_KEY_ID_2=[secret scrubbed: AWS_ACCESS_KEY_ID_2]\n",
+		);
 		expect(shown(`AWS_ACCESS_KEY_ID_2=${fresh()}\n`)).toBe(
 			"AWS_ACCESS_KEY_ID_2=[secret scrubbed: AWS_ACCESS_KEY_ID_2]\n",
 		);

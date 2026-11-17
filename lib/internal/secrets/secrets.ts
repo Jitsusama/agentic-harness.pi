@@ -308,11 +308,7 @@ const DUMPED_VARIABLE =
  * `env -0`'s NUL-ended entries is read as a line of its own. The marks
  * this scrub made are `marked`'s kinds, each a variable's added here.
  */
-function scrubDump(
-	text: string,
-	kinds: string[],
-	marked: Set<string>,
-): string {
+function scrubDump(text: string, kinds: string[], marked: Set<string>): string {
 	return eachEntry(text, (entry) =>
 		replaceWords(
 			scrubAssigned(entry, kinds, marked),
