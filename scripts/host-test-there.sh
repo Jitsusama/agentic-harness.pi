@@ -56,6 +56,17 @@ if [[ ! -s $key ]]; then
   exit "$NOTHING_RAN"
 fi
 
+# What nix-offload copies up, sent ahead in pieces to a lender lacking it,
+# since its own copy of them is all or nothing. Only out here: inside the
+# fence the lone call above copies as nix-offload always has.
+copies=()
+for ((at = 0; at < ${#words[@]}; at++)); do
+  [[ ${words[at]} == -- ]] && break
+  [[ ${words[at]} == --copy ]] && copies+=("${words[at + 1]}")
+done
+"$(dirname "${BASH_SOURCE[0]}")/host-send-runtime.sh" "${copies[@]}" ||
+  echo "host-test-there: the runtime didn't all go ahead, so nix-offload copies what's left" >&2
+
 echo "host-test-there: test:host at $rev on $runtime"
 set +e
 nix-offload there "${words[@]}"
