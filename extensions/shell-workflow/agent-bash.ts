@@ -19,6 +19,11 @@ import {
 	spawnedBy,
 } from "../../lib/internal/shell/spawner.ts";
 import { spawnerWanted } from "../../lib/internal/shell/spawner-variable.ts";
+import {
+	guardedEnvironment,
+	SSH_GUARD_OFF,
+	type SshGuard,
+} from "../../lib/internal/shell/ssh-guard.ts";
 import { COMMAND_VARIABLE, offCommandLine } from "./command-line.ts";
 import { fromConversation, withoutInteraction } from "./environment.ts";
 import { type Keeping, keepsOnDisk } from "./keeping.ts";
@@ -44,7 +49,9 @@ export type AgentBash = ReturnType<typeof createBashToolDefinition> & {
 
 /**
  * pi's bash for the conversation `session`, built with its settings;
- * `spawner` stands in for parts of pi-spawner, for tests.
+ * `spawner` stands in for parts of pi-spawner, for tests; `sshGuard` says
+ * whether ssh to the person's own machines is refused, as each command
+ * starts (lib/internal/shell/ssh-guard.ts).
  */
 export function agentBash(
 	cwd: string,
@@ -52,6 +59,7 @@ export function agentBash(
 	sandbox: Sandbox = { kind: "none" },
 	session?: SessionRef,
 	spawner: SpawnerOptions = {},
+	sshGuard: () => SshGuard = () => SSH_GUARD_OFF,
 ): AgentBash {
 	// In a host running pi-spawner, the ones its pid started are other
 	// conversations', so none is taken for one an earlier load left. A host
@@ -101,7 +109,11 @@ export function agentBash(
 		// move included, then leaves the shell's command line last, so
 		// `pkill -f` cannot match the shell running it.
 		spawnHook: (context) => {
-			const offered = withoutInteraction(fromConversation(context, session));
+			const plain = withoutInteraction(fromConversation(context, session));
+			const offered = {
+				...plain,
+				env: guardedEnvironment(plain.env, sshGuard(), sandbox.kind),
+			};
 			const wrap = wrapFor(sandbox, offered, homedir());
 			return offCommandLine({
 				...offered,

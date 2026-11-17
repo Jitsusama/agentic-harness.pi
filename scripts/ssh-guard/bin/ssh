@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# ssh as an agent finds it, through the ssh guard (../guard.bash).
+here=${BASH_SOURCE[0]%/*}
+exec bash "$here/../guard.bash" "$here" ssh "$@"

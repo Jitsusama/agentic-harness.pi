@@ -59,6 +59,7 @@ import {
 	sandboxFor,
 } from "../../lib/internal/sandbox/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
+import { watchSshGuard } from "../../lib/internal/shell/ssh-guard.ts";
 import {
 	endsWithItsPrompts,
 	HAND_OFF_MS,
@@ -167,6 +168,14 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	liftFence();
 	const sandbox = sandboxFor();
 	let bash: AgentBash | undefined;
+	// Whether ssh to the person's own machines is refused, read each
+	// minute from the package config (lib/internal/shell/ssh-guard.ts). A
+	// setting that can't be read is said where the person sees it.
+	const onStderr = (why: string) => {
+		process.stderr.write(`${why}\n`);
+	};
+	let tell = onStderr;
+	const sshGuard = watchSshGuard(undefined, undefined, (why) => tell(why));
 	// A bash given up closes its pi-spawner once its commands end, so a
 	// reload or a new session leaves none running behind it.
 	const retireBash = () => {
@@ -180,6 +189,8 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			shellSettings(ctx),
 			sandbox,
 			sessionKeyOf(ctx),
+			{},
+			sshGuard.current,
 		);
 		return bash;
 	};
@@ -190,6 +201,8 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		retireBash();
 		bashFor(ctx);
+		tell = ctx.hasUI ? (why) => ctx.ui.notify(why, "warning") : onStderr;
+		sshGuard.start();
 		if (!noted && sandbox.kind === "fence" && sandbox.note) {
 			noted = true;
 			if (ctx.hasUI) ctx.ui.notify(sandbox.note, "warning");
@@ -199,7 +212,12 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		// What a call kept and nobody took up, a week on (kept.ts).
 		sweepKept();
 	});
-	pi.on("session_shutdown", retireBash);
+	pi.on("session_shutdown", () => {
+		retireBash();
+		sshGuard.stop();
+		// A read still out lands after this session's ctx is gone.
+		tell = onStderr;
+	});
 	if (sandbox.kind === "fence")
 		pi.on("tool_result", (event, ctx) =>
 			routeRefused(event, sandbox.logger, sessionKeyOf(ctx)),
