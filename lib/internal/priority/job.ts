@@ -233,12 +233,26 @@ export interface Rules {
 	readonly buildsWaitForVmChecks: boolean;
 	/** How many VMs run at once, when not bounds.ts's `MOST_VMS`. */
 	readonly mostVms?: number;
+	/**
+	 * How many walks of World's git objects run at once, when not
+	 * needs.ts's `WALKS_AT_ONCE`.
+	 */
+	readonly walksAtOnce?: number;
 }
 
 /** A pressure limit the queue holds work back at, by what presses. */
 export type Pressed = "memory" | "cpu";
 
 export const RULES: Rules = { buildsWaitForVmChecks: true };
+
+/**
+ * A Mac's rules: one walk of World at a time. A Mac has no floors to
+ * keep the person's programs their memory, and its kernel calls pages it
+ * compressed or swapped gone, so its room reads roomy while each walk's
+ * packs push the rest to swap. On 16 November equilibrius, at 48 GiB
+ * with 43 sessions, had 4.7 of its 6 GiB of swap used.
+ */
+export const MAC_RULES: Rules = { ...RULES, walksAtOnce: 1 };
 
 /**
  * Why a job waits: `memory`, the memory it needs isn't free; `vms`, the

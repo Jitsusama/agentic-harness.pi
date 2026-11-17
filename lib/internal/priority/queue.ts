@@ -93,6 +93,7 @@ export {
 export {
 	isVm,
 	type Job,
+	MAC_RULES,
 	type Offload,
 	type Pressed,
 	type Room,

@@ -54,6 +54,7 @@ import {
 	CLASS_OF,
 	type Job,
 	kindOf,
+	MAC_RULES,
 	type Rules,
 	runsChangedChecks,
 } from "../../lib/internal/priority/queue.ts";
@@ -336,7 +337,8 @@ function macMachine(): Machine {
 		// synchronously (room-darwin.ts).
 		room: async () => room(),
 		cgroupFor: () => undefined,
-		rules: () => ({ buildsWaitForVmChecks: true }),
+		// One walk of World at a time, for a Mac's memory (job.ts).
+		rules: () => MAC_RULES,
 	};
 }
 

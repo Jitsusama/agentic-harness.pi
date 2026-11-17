@@ -3,6 +3,7 @@ import {
 	JOINS_FOR_MS,
 	type Job,
 	kindOf,
+	MAC_RULES,
 	needsGibOf,
 	needsGibOfCommand,
 	nextTurn,
@@ -126,6 +127,24 @@ describe("a walk of World's objects", () => {
 		const after = jobs.filter((one) => one.id !== "two");
 		expect(nextTurn(after, plenty, NOW)?.id).toBe("third");
 		expect(waitReasons(after, plenty, NOW).get("third")).toBe("order");
+	});
+
+	it("runs one at a time on a Mac, whose memory has no floors to hold the rest", () => {
+		// Equilibrius on 16 November: 48 GiB, swap 77% used, with 43
+		// sessions and their pushes of World each mapping its packs.
+		const long = startedAgo(RAMP_MS + 60_000);
+		const walk = (id: string, over: Partial<Job> = {}) =>
+			job(id, { kind: "world-walk", what: "git push", ...over });
+		const jobs = [
+			walk("one", { started: long }),
+			walk("two", { since: startedAgo(9_000) }),
+		];
+		const plenty = { ...ROOMY, availableGib: 100 };
+
+		expect(MAC_RULES.walksAtOnce).toBe(1);
+		expect(nextTurn(jobs, plenty, NOW, MAC_RULES)).toBeUndefined();
+		expect(waitReasons(jobs, plenty, NOW, MAC_RULES).get("two")).toBe("walks");
+		expect(nextTurn(jobs, plenty, NOW)?.id).toBe("two");
 	});
 
 	it("waits on memory like any job when its 6 GiB isn't free", () => {
