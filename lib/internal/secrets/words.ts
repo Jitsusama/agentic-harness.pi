@@ -182,14 +182,11 @@ const ADDRESS_PORT =
 /** An address's user, and any password, before its host's at sign. */
 const USER = /:\/\/([^/@\s]*)@/g;
 
-/** A character a user's address writes as a percent and two digits. */
-const PERCENT_ESCAPE = /%[\dA-Fa-f]{2}/g;
-
 /**
- * What opens a terminal's link, whose address no terminal shows, so it
- * joins no text: `judgedCommands` judges it alone.
+ * A character a user's address writes as a percent and two digits, read
+ * as the one character it stands for, whose digits are none of its own.
  */
-const LINK = "\x1b]8;";
+const PERCENT_ESCAPE = /%[\dA-Fa-f]{2}/g;
 
 /** What parts a word into pieces: a break, or a joiner. */
 const PIECE_BREAK = /[\s'"=\][:,;|()]/;
@@ -205,27 +202,37 @@ function payloadOf(sequence: string): string {
 
 /** A run of a word's piece, from its text or from a command's payload. */
 interface Segment {
-	readonly text: string;
+	text: string;
 	readonly payload: boolean;
 }
 
 /**
  * Whether a credential runs across a terminal command's payload in
- * `word`, read with each command as what it holds, in pieces a break or
- * a joiner parts: each piece holding a payload judged whole, and each
- * payload joined to what touches it on either side, read from the last
- * slash before it to the first after, so a path or an address beside it
- * exempts nothing. One pass over the word.
+ * `word`, read with each command as what it holds. Joined across its
+ * breaks alone, as a model reads it; then in pieces a break or a joiner
+ * parts, a colour within text parting none, each piece holding a
+ * payload judged whole, and each payload joined to the text touching it
+ * on either side, from the last slash before the payload to the first
+ * after, so a path or an address just before it exempts nothing. Two
+ * commands side by side are judged only whole, as a model reads them.
+ * One pass over the word.
  */
 function runsAcross(word: string): boolean {
+	const read = word.replace(ESCAPE, payloadOf).split(WORD_BREAK);
+	if (read.some((piece) => looksLikeSecret(piece))) return true;
 	const pieces: Segment[][] = [[]];
+	const push = (text: string, payload: boolean) => {
+		const piece = pieces.at(-1) ?? [];
+		const prior = piece.at(-1);
+		if (!payload && prior && !prior.payload) prior.text += text;
+		else piece.push({ text, payload });
+	};
 	const add = (text: string, payload: boolean) => {
 		let from = 0;
 		for (let at = 0; at <= text.length; at++) {
 			const parts = at < text.length && PIECE_BREAK.test(text.charAt(at));
 			if (!parts && at < text.length) continue;
-			if (at > from)
-				pieces.at(-1)?.push({ text: text.slice(from, at), payload });
+			if (at > from) push(text.slice(from, at), payload);
 			if (parts) pieces.push([]);
 			from = at + 1;
 		}
@@ -233,37 +240,29 @@ function runsAcross(word: string): boolean {
 	let at = 0;
 	for (const sequence of word.matchAll(ESCAPE)) {
 		add(word.slice(at, sequence.index).replace(ADDRESS_PORT, "$1"), false);
-		const [command] = sequence;
-		add(command.startsWith(LINK) ? "" : payloadOf(command), true);
+		add(payloadOf(sequence[0]), true);
 		at = sequence.index + sequence[0].length;
 	}
 	add(word.slice(at).replace(ADDRESS_PORT, "$1"), false);
-	const whole = (piece: Segment[]) =>
-		looksLikeSecret(piece.map((segment) => segment.text).join(""));
-	const joined = (piece: Segment[], from: number, to: number) => {
-		const texts = piece
-			.slice(Math.max(from, 0), to + 1)
-			.map((segment) => segment.text);
-		if (texts.length < 2) return false;
-		const first = texts[0] ?? "";
-		const last = texts.at(-1) ?? "";
-		texts[0] = first.slice(first.lastIndexOf("/") + 1);
-		const slash = last.indexOf("/");
-		texts[texts.length - 1] = slash < 0 ? last : last.slice(0, slash);
-		return looksLikeSecret(texts.join(""));
+	const text = (segment: Segment | undefined) =>
+		segment && !segment.payload ? segment.text : "";
+	const across = (piece: Segment[], at: number) => {
+		const prior = text(piece[at - 1]);
+		const after = text(piece[at + 1]);
+		if (!prior && !after) return false;
+		const before = `${prior}${piece[at]?.text ?? ""}`;
+		const slash = after.indexOf("/");
+		const run = `${before.slice(before.lastIndexOf("/") + 1)}${
+			slash < 0 ? after : after.slice(0, slash)
+		}`;
+		return looksLikeSecret(run);
 	};
 	return pieces.some(
 		(piece) =>
 			piece.length > 1 &&
 			piece.some((segment) => segment.payload) &&
-			(whole(piece) ||
-				piece.some(
-					(segment, at) =>
-						segment.payload &&
-						(joined(piece, at - 1, at) ||
-							joined(piece, at, at + 1) ||
-							joined(piece, at - 1, at + 1)),
-				)),
+			(looksLikeSecret(piece.map((segment) => segment.text).join("")) ||
+				piece.some((segment, at) => segment.payload && across(piece, at))),
 	);
 }
 
@@ -347,13 +346,12 @@ export function hidden(word: string, kind: string): string | undefined {
 		.split(ESCAPE)
 		.flatMap((piece) => piece.split(JOINER));
 	const users = [...word.matchAll(USER)].map(([, user = ""]) =>
-		user.replace(ESCAPE, "").replace(PERCENT_ESCAPE, ""),
+		user.replace(ESCAPE, "").replace(PERCENT_ESCAPE, "_"),
 	);
-	if (runsAcross(word)) return scrubbedMark(kind);
 	const could =
 		looksLikeSecret(word.replace(ESCAPE, "")) ||
 		[...pieces, ...users].some((piece) => looksLikeSecret(piece));
-	if (!could) return undefined;
+	if (!could) return runsAcross(word) ? scrubbedMark(kind) : undefined;
 	let opening = 0;
 	let runStart = 0;
 	let runEnd = -1;
