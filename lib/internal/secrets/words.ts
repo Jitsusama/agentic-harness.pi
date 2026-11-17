@@ -217,12 +217,16 @@ interface Segment {
  * payload judged whole, and each run of payloads side by side joined to
  * the text touching it on either side, that text read from its last
  * slash before the run and to its first after, so a path or an address
- * just before it exempts nothing. A payload itself is never cut, so a
- * link's address, or a title's path, beside its own name stays a path.
- * One pass over the word.
+ * just before it exempts nothing. A run is read whole, and, when text
+ * follows it, cut at its last slash too, so a path opening it exempts
+ * nothing either, unless the text repeats the name the run ends with,
+ * as a link's text repeats its address's. A word holding no command is
+ * judged by what comes before each equals, which would read as a name;
+ * what ends it is judged as a value. One pass over the word.
  */
 function runsAcross(word: string): boolean {
-	if (!word.includes("\x1b]")) return false;
+	if (!word.includes("\x1b]"))
+		return word.split(WORD_BREAK).slice(0, -1).some(looksLikeSecret);
 	const read = word.replace(ESCAPE, payloadOf).split(WORD_BREAK);
 	if (read.some((piece) => looksLikeSecret(piece))) return true;
 	const pieces: Segment[][] = [[]];
@@ -263,11 +267,13 @@ function runsAcross(word: string): boolean {
 			.map((segment) => segment.text)
 			.join("");
 		const slash = after.indexOf("/");
-		return looksLikeSecret(
-			`${prior.slice(prior.lastIndexOf("/") + 1)}${payloads}${
-				slash < 0 ? after : after.slice(0, slash)
-			}`,
-		);
+		const tail = slash < 0 ? after : after.slice(0, slash);
+		const head = prior.slice(prior.lastIndexOf("/") + 1);
+		if (looksLikeSecret(`${head}${payloads}${tail}`)) return true;
+		if (!tail) return false;
+		const run = `${prior}${payloads}`;
+		const name = run.slice(run.lastIndexOf("/") + 1);
+		return !tail.startsWith(name) && looksLikeSecret(`${name}${tail}`);
 	};
 	return pieces.some(
 		(piece) =>
