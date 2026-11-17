@@ -445,12 +445,25 @@ describe("an output that reads as a printing of the environment", () => {
 		expect(scrubSecrets(printed, []).text).toBe(printed);
 	});
 
-	// The test's timeout bounds this: a rule whose line start reads on past
-	// a newline tries every blank line from every blank line.
 	it("is none for one line redrawn five times over", () => {
 		const printed = `${"progress=10%\r".repeat(5)}done\n`;
 		expect(readsAsDump(printed), "one redrawn line is no dump").toBe(false);
 	});
+
+	it("is one with five lines in a row setting the same name", () => {
+		const printed = `${"A=1\n".repeat(5)}${"word\n".repeat(6)}`;
+		expect(readsAsDump(printed), "five lines set A").toBe(true);
+	});
+
+	// The test's timeout bounds this: a name looked for from every letter
+	// of a long run of flags is read again from each.
+	it("answers at once for a line declaring a long run of flags", () => {
+		const printed = `${`declare -${"x".repeat(60_000)} A=1\n`.repeat(2)}`;
+		expect(readsAsDump(printed), "two lines are no dump").toBe(false);
+	});
+
+	// The test's timeout bounds this: a rule whose line start reads on past
+	// a newline tries every blank line from every blank line.
 
 	it("answers at once for a dump followed by many blank lines", () => {
 		const printed = `${"A=1\n".repeat(5)}${"\n".repeat(200_000)}---`;
@@ -681,6 +694,36 @@ describe("a stream's partial answer, which its settled answer replaces", () => {
 			type: "text",
 			text: "[secret scrubbed: environment value]\nready",
 		});
+	});
+
+	it("has a credential put out of sight when a bracket joins it to a path", () => {
+		const value = fresh();
+		const scrubbed = scrubToolPartial(partialOf(`/opt/bin]${value}\nready`), {
+			command: "launchctl getenv PROXY_CRED",
+		});
+		expect(scrubbed).toBeDefined();
+		expect(JSON.stringify(scrubbed)).not.toContain(value);
+	});
+
+	it("has a bare value its padding ends put out of sight", () => {
+		const value = `${fresh().slice(0, 30)}Q`;
+		const scrubbed = scrubToolPartial(partialOf(`${value}==\nready`), {
+			command: "launchctl getenv PROXY_CRED",
+		});
+		expect(scrubbed?.content?.[0]).toEqual({
+			type: "text",
+			text: "[secret scrubbed: environment value]==\nready",
+		});
+	});
+
+	it("has a bare value put out of sight past words that only open a mark", () => {
+		const value = fresh();
+		const printed = `[secret ${"scrubbed"}: x\n${value}\n]`;
+		const scrubbed = scrubToolPartial(partialOf(printed), {
+			command: "launchctl getenv PROXY_CRED",
+		});
+		expect(scrubbed).toBeDefined();
+		expect(JSON.stringify(scrubbed)).not.toContain(value);
 	});
 
 	it("has a credential put out of sight when only escapes join it to an address", () => {
