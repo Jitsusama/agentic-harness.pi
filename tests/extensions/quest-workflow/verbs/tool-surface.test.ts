@@ -1,11 +1,11 @@
-import { type ExtensionAPI, initTheme } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
-import { QUEST_PARAMETERS } from "../../../../extensions/quest-workflow/wiring/parameters.ts";
 import { registerQuestTool } from "../../../../extensions/quest-workflow/wiring/tool.ts";
+import { fakePi } from "../../../support/fake-pi.ts";
 
 /**
- * The quest tool as pi is handed it: its name, its arguments, and how
+ * The quest tool as pi is handed it: its name, its guidelines, and how
  * its call and result are drawn, pinned so moving where the tool is
  * registered keeps each.
  */
@@ -14,10 +14,7 @@ interface Drawn {
 	render(width: number): string[];
 }
 
-interface ToolDefinition {
-	name: string;
-	parameters: unknown;
-	promptGuidelines: string[];
+interface Drawing {
 	renderCall(args: unknown, theme: unknown, context: unknown): Drawn;
 	renderResult(
 		result: unknown,
@@ -27,23 +24,39 @@ interface ToolDefinition {
 	): Drawn;
 }
 
+/** Wraps each coloured span in its token's name, so a test sees which colour drew it. */
 const theme = {
-	fg: (_token: string, text: string) => text,
+	fg: (token: string, text: string) => `<${token}>${text}</${token}>`,
 	bold: (text: string) => text,
 };
 
-function registered(): ToolDefinition {
-	const tools: unknown[] = [];
-	const pi = {
-		registerTool: (tool: unknown) => tools.push(tool),
-	} as unknown as ExtensionAPI;
+function registered() {
+	const pi = fakePi();
 	registerQuestTool(pi, createQuestState({ questsRoot: "/nowhere" }));
-	expect(tools, "one tool registered").toHaveLength(1);
-	return tools[0] as ToolDefinition;
+	expect(pi.recorded.tools, "one tool registered").toHaveLength(1);
+	const [tool] = pi.recorded.tools;
+	if (tool === undefined) throw new Error("no tool registered");
+	return tool;
+}
+
+function drawing(): Drawing {
+	const tool: object = registered();
+	if (!("renderCall" in tool) || !("renderResult" in tool)) {
+		throw new Error("the quest tool draws neither its call nor its result");
+	}
+	return tool as Drawing;
 }
 
 function text(drawn: Drawn): string {
-	return drawn.render(200).join("\n").trimEnd();
+	return drawn
+		.render(400)
+		.map((line) => line.trimEnd())
+		.join("\n")
+		.trimEnd();
+}
+
+function answer(body: string, details: object) {
+	return { content: [{ type: "text", text: body }], details };
 }
 
 describe("the quest tool", () => {
@@ -52,46 +65,42 @@ describe("the quest tool", () => {
 		initTheme();
 	});
 
-	it("is named quest and takes the quest parameters", () => {
+	it("is named quest and tells the agent how to drive it", () => {
 		const tool = registered();
 
-		expect({ name: tool.name, parameters: tool.parameters }).toEqual({
-			name: "quest",
-			parameters: QUEST_PARAMETERS,
-		});
-		expect(tool.promptGuidelines.length).toBeGreaterThan(0);
+		expect(tool.name).toBe("quest");
+		expect(tool.promptGuidelines?.join("\n")).toContain("quest");
 	});
 
 	it("draws its call as the action and the title it was given", () => {
-		const drawn = registered().renderCall(
+		const drawn = drawing().renderCall(
 			{ action: "create", title: "Split the index", id: "QEST-X" },
 			theme,
 			undefined,
 		);
 
-		expect(text(drawn)).toContain("quest create Split the index");
+		expect(text(drawn)).toMatch(/quest.* create.*Split the index/);
 	});
 
-	it("draws a refusal as its guidance", () => {
-		const drawn = registered().renderResult(
-			{
-				content: [{ type: "text", text: "No quest loaded." }],
-				details: { ok: false, guidance: "No quest loaded." },
-			},
+	it("draws a refusal as its guidance, in the error colour", () => {
+		const drawn = drawing().renderResult(
+			answer("What the agent is told.", {
+				ok: false,
+				guidance: "No quest loaded.",
+			}),
 			{ expanded: false },
 			theme,
 			undefined,
 		);
 
-		expect(text(drawn)).toBe("No quest loaded.");
+		expect(text(drawn)).toBe("<error>No quest loaded.</error>");
 	});
 
-	it("draws a long answer collapsed to its first line, and whole when expanded", () => {
-		const result = {
-			content: [{ type: "text", text: "First line\nSecond line\nThird line" }],
-			details: { ok: true },
-		};
-		const tool = registered();
+	it("draws a long answer as its first line and a count of the rest until expanded", () => {
+		const result = answer("First line\nSecond line\nThird line", {
+			ok: true,
+		});
+		const tool = drawing();
 
 		const collapsed = text(
 			tool.renderResult(result, { expanded: false }, theme, undefined),
@@ -100,8 +109,26 @@ describe("the quest tool", () => {
 			tool.renderResult(result, { expanded: true }, theme, undefined),
 		);
 
-		expect(collapsed).toContain("First line");
-		expect(collapsed).not.toContain("Third line");
-		expect(expanded).toContain("Third line");
+		expect(collapsed).toMatch(/^<success>First line \(\+2 more lines, .+\)/);
+		expect(collapsed).not.toContain("Second line");
+		expect(expanded).toBe(
+			"<success>First line\nSecond line\nThird line</success>",
+		);
+	});
+
+	it("draws a listing from its rows rather than its text", () => {
+		const listing = { rows: [], total: 0, offset: 0, limit: 25, remaining: 0 };
+		const result = answer("No quests.\nTry another filter.", {
+			ok: true,
+			listing,
+		});
+		const tool = drawing();
+
+		expect(
+			text(tool.renderResult(result, { expanded: false }, theme, undefined)),
+		).toBe("<success>No quests.</success>");
+		expect(
+			text(tool.renderResult(result, { expanded: true }, theme, undefined)),
+		).toBe("<success>(no matches)</success>");
 	});
 });

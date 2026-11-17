@@ -136,7 +136,8 @@ export function followSessionLife(
 			// loaded quest and focused document), then the cwd for a
 			// fresh session launched inside a quest or its tree.
 			resolveStartup(state, pi, ctx);
-			// Asked now, waited on before the first model call (above).
+			// Asked now, waited on before the first model call
+			// (before_agent_start, in turns.ts).
 			budgets.keep(ctx).catch(() => {
 				// Nothing awaits this ask, and an unwatched rejection ends pi;
 				// before_agent_start keeps again and is awaited.
