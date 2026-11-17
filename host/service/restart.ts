@@ -40,6 +40,16 @@
  * stop is still quick, and the restart waits for the same quiet moment
  * as any other, so it parks first.
  *
+ * Nearer the limit, what a restart would end no longer holds it, since
+ * running out ends it all. On 16 November the background host's heap
+ * passed half before 09:12, and review rounds and shell jobs held its
+ * restart every hour until V8 ran out at 20:44, with every conversation
+ * mid-way and every job lost. So past three quarters of the limit a
+ * restart takes the first moment no conversation has a turn running,
+ * background work or not, without waiting the ceiling; past 85% it
+ * restarts at once, turns and screens in use and all, while a park still
+ * has room to finish.
+ *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
  * with the host as a logout would, and its conversation resumes after.
@@ -110,6 +120,12 @@ export const HELD_SAY_MS = 60 * 60_000;
 /** The share of V8's heap limit past which a host restarts. */
 const HEAP_RESTART_SHARE = 0.5;
 
+/** The share of V8's heap limit past which background work no longer holds a restart. */
+const HEAP_UNHELD_SHARE = 0.75;
+
+/** The share past which nothing holds it: not a turn running, not a screen in use. */
+const HEAP_URGENT_SHARE = 0.85;
+
 const BYTES_PER_MB = 1024 * 1024;
 
 /** How much heap the host uses, against the most V8 allows it. */
@@ -137,7 +153,8 @@ export interface Held {
  */
 export type RestartRule =
 	| { readonly rule: "settled" }
-	| { readonly rule: "ceiling"; readonly waitedMs: number };
+	| { readonly rule: "ceiling"; readonly waitedMs: number }
+	| { readonly rule: "heap"; readonly endsTurns: boolean };
 
 /** What the restart loop asks of the host and the machine; tests give their own. */
 export interface RestartFacts {
@@ -151,6 +168,8 @@ export interface RestartFacts {
 	holding?(): readonly string[];
 	/** Whether every screen shows only an empty editor, with nobody in one. */
 	resting(): boolean;
+	/** The share of V8's heap limit the host uses, from 0 to 1; none counted when missing. */
+	heapShare?(): number;
 	/**
 	 * Whether the host has begun stopping. Its parked conversations look
 	 * settled, but they parked mid-turn: on 13 November a stop for a throw
@@ -266,16 +285,30 @@ export function restartWhenSettled(
 	// The rule a restart may come under now, or nothing while it may not.
 	function mayRestart(): RestartRule | undefined {
 		if (facts.stopping()) return undefined;
-		if (facts.background() > 0) {
+		if (heapShare() > HEAP_URGENT_SHARE) return { rule: "heap", endsTurns: true };
+		const background = facts.background();
+		if (background > 0 && !heapPressed()) {
 			sayHeld();
 			return undefined;
 		}
 		if (!facts.resting()) return undefined;
 		const held = facts.held();
-		if (settled(held, facts.now(), settledMs)) return { rule: "settled" };
-		if (!pastCeiling() || held.some(({ state }) => state === "busy"))
-			return undefined;
+		const running = held.some(({ state }) => state === "busy");
+		if (background === 0 && settled(held, facts.now(), settledMs))
+			return { rule: "settled" };
+		if (heapPressed())
+			return running ? undefined : { rule: "heap", endsTurns: false };
+		if (!pastCeiling() || running) return undefined;
 		return { rule: "ceiling", waitedMs: facts.now() - (differingSince ?? 0) };
+	}
+
+	function heapShare(): number {
+		return facts.heapShare?.() ?? 0;
+	}
+
+	// Past three quarters, the heap restarts the host at the first gap.
+	function heapPressed(): boolean {
+		return heapShare() > HEAP_UNHELD_SHARE;
 	}
 
 	async function consider(): Promise<Next> {
@@ -290,7 +323,8 @@ export function restartWhenSettled(
 		}
 		differingSince ??= facts.now();
 		const under = mayRestart();
-		if (under === undefined) return pastCeiling() ? "gap" : "look";
+		if (under === undefined)
+			return pastCeiling() || heapPressed() ? "gap" : "look";
 		// Before systemctl, since systemd may stop the host before it answers.
 		facts.expect(true);
 		try {
@@ -399,6 +433,10 @@ export async function followWhatStarts(
 			background: options.background,
 			...(options.holding ? { holding: options.holding } : {}),
 			resting: options.resting,
+			heapShare: () => {
+				const { usedBytes, limitBytes } = heap();
+				return usedBytes / limitBytes;
+			},
 			stopping: () => options.serving.stopping(),
 			expect: (coming) => options.serving.restartComing(coming),
 			restart: async (why, under) => {
@@ -419,6 +457,10 @@ const MINUTE_MS = 60_000;
 /** The journal's words for the rule a restart came under. */
 function restartedUnder(under: RestartRule, settledMs: number): string {
 	if (under.rule === "settled") return "once every conversation settled";
+	if (under.rule === "heap")
+		return under.endsTurns
+			? "before its heap runs out, ending what turns and background work were running"
+			: "before its heap runs out, ending what background work was running";
 	const waited = Math.round(under.waitedMs / MINUTE_MS);
 	const settle = Math.round(settledMs / MINUTE_MS);
 	return `at a moment no conversation had a turn or a job, having waited ${waited} min for every one to settle ${settle} min at once`;
