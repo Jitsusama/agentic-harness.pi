@@ -156,17 +156,40 @@ remote() {
 size_there() { awk -v n="$1" '$1 == n { print $2 }' <<< "$2"; }
 
 # Builds the cache of the paths in `missing` in `work`, its pieces and,
-# last, its sha256, so pieces half made are made again.
+# last, its sha256, so pieces half made are made again. A binary cache
+# takes a path only once its references are in it, so the rest of the
+# closure, which the lender holds, goes in first, uncompressed, and comes
+# out again before the cache is tarred: only the missing paths are sent.
+# On 17 November the lender lacked the runtime alone, and the cache
+# refused it for want of the bash it refers to.
 pack() {
+  local -a others
+  mapfile -t others < <(grep -vxF -f <(printf '%s\n' "${paths[@]}") "$scratch/closure" || true)
   rm -rf "$work" &&
     mkdir -p "$work/cache" "$work/pieces" &&
+    { [[ ${#others[@]} == 0 ]] || nix copy --to "file://$work/cache?compression=none" --no-recursive -- "${others[@]}"; } &&
     nix copy --to "file://$work/cache?compression=xz&parallel-compression=true" --no-recursive -- "${paths[@]}" &&
+    drop_others &&
     tar cf "$work/send.tar" -C "$work/cache" . &&
     (cd "$work/pieces" && split -b "$PIECE" -a 4 ../send.tar p.) &&
     sha < "$work/send.tar" > "$work/sha256.part" &&
     [[ -s $work/sha256.part ]] &&
     rm "$work/send.tar" &&
     mv "$work/sha256.part" "$work/sha256"
+}
+
+# Takes the narinfos of `others`, and the nars they name, out of the cache
+# in `work`, so only the missing paths are sent.
+drop_others() {
+  local path name info nar
+  for path in "${others[@]}"; do
+    name=${path##*/}
+    info=$work/cache/${name%%-*}.narinfo
+    [[ -e $info ]] || continue
+    nar=$(sed -n 's/^URL: //p' "$info")
+    [[ -z $nar || $nar == */../* || $nar == ../* ]] || rm -f "$work/cache/$nar"
+    rm -f "$info"
+  done
 }
 
 # This machine's folder on the lender, removed, and the shared one when
