@@ -127,7 +127,10 @@ describe("a bare value in a printing of the environment", () => {
 			`/opt/bin:${one}\x1b]0;${other}\x07\n`,
 			`https://h${one}\x1b]0;${other}\x07\n`,
 			`\x1b]8;;https://h\x07${one}\x1b]0;${other}\x07\n`,
-			`\x1b]0;${one}\x07\x1b]8;;https://h\x07${other}\n`,
+			`\x1b]8;;${one}\x07${other}\n`,
+			`${one}\x1b]8;;${other}\x07\n`,
+			`${one}:\x1b]0;${other}\x07\n`,
+			`/x/${one.slice(0, 4)}\x1b[31m${one.slice(4)}\x1b]0;${other}\x07\n`,
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBe(
 				`${VALUE_MARK}\n`,
@@ -141,6 +144,7 @@ describe("a bare value in a printing of the environment", () => {
 		for (const printed of [
 			`\x1b]0;${short}\x07${long}\n`,
 			`${long}\x1b]0;${short}\x07\n`,
+			`\x1b]0;${short}=\x07${long}\n`,
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBe(
 				`${VALUE_MARK}\n`,
@@ -159,7 +163,19 @@ describe("a bare value in a printing of the environment", () => {
 		}
 	});
 
-	it("holds an address's user that is an email or a coloured word", () => {
+	it("is put out of sight as an address's user or password, escaped", () => {
+		for (const password of [fresh(), `${fresh()}%40x`]) {
+			const text = shown(`API=postgres://app:${password}@db:5432/app\n`);
+			expect(text, password).toBeDefined();
+			expect(text, password).not.toContain(password.slice(0, 16));
+		}
+		const user = `${fresh().slice(0, 10)}%2B${fresh().slice(0, 5)}`;
+		expect(shown(`API=https://${user}@host/x\n`)).toBe(
+			"API=[secret scrubbed: API]\n",
+		);
+	});
+
+	it("holds an address's user that is a plain email or a coloured word", () => {
 		for (const printed of [
 			"GIT_URL=https://joel.gerber%40example.com@git.example.com/org/r.git\n",
 			"GIT_URL=https://\x1b[01;31m\x1b[Kgit\x1b[m\x1b[K@github.com/org/repo\n",
@@ -254,6 +270,7 @@ describe("what a printing of the environment keeps", () => {
 		for (const printed of [
 			"\x1b]0;user@mbp2: ~/src/py3\x07\x1b]1337;CurrentDir=/Users/joel\x07\n",
 			"\x1b]0;joel@mbp: ~/src/service-v2\x07\n",
+			"\x1b]0;joel@mbp: ~/src/service-v2\x07\x1b]1337;CurrentDir=/Users/joel\x07\n",
 		]) {
 			expect(shown(printed, "launchctl getenv X"), printed).toBeUndefined();
 		}
@@ -339,6 +356,8 @@ describe("a long printing of the environment", () => {
 			[`\x1b]0;${"a1".repeat(100_000)}`, true],
 			[`\x1b]0;${"a1 ".repeat(50_000)}\x07`, false],
 			["://u@h:1/".repeat(50_000), false],
+			["ab\x1b]0;cd\x07".repeat(50_000), false],
+			["a1\x1b]0;b2\x07".repeat(50_000), true],
 			[`\x1b[${"1;".repeat(100_000)}${github}`, true],
 		];
 		for (const [printed, hides] of printings) {
