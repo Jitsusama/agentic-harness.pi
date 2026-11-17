@@ -13,6 +13,7 @@
  * loads the secret-scrub extension. pi's afterToolCall still sees the raw
  * result, as on pi, and a result with nothing to hide passes untouched.
  */
+import { scrubSavedOutput } from "../../lib/internal/secrets/saved-output.ts";
 import { scrubToolResult } from "../../lib/internal/secrets/secrets.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import type {
@@ -307,7 +308,10 @@ export class ToolRound {
 			});
 		}
 		const executed = await this.execute(preparation, signal);
-		return this.end(await this.afterCall(preparation, executed));
+		return this.end(
+			await this.afterCall(preparation, executed),
+			preparation.args,
+		);
 	}
 
 	private async execute(
@@ -332,7 +336,7 @@ export class ToolRound {
 							toolCallId: toolCall.id,
 							toolName: toolCall.name,
 							args: toolCall.arguments,
-							partialResult: scrubbedResult(partialResult, toolCall),
+							partialResult: scrubbedResult(partialResult, prepared.args),
 						}),
 					);
 				},
@@ -408,8 +412,17 @@ export class ToolRound {
 		};
 	}
 
-	private async end(settled: CallOutcome): Promise<CallOutcome> {
-		const result = scrubbedResult(settled.result, settled.toolCall);
+	/**
+	 * Settle a call: its saved output and its result scrubbed, read by the
+	 * arguments it ran with (`args`, as preparation and beforeToolCall left
+	 * them), or by the model's own when it never ran.
+	 */
+	private async end(
+		settled: CallOutcome,
+		args: unknown = settled.toolCall.arguments,
+	): Promise<CallOutcome> {
+		scrubSavedOutput(settled.result, args);
+		const result = scrubbedResult(settled.result, args);
 		const outcome =
 			result === settled.result ? settled : { ...settled, result };
 		const { toolCall } = outcome;
@@ -437,15 +450,15 @@ export function truncatedCallText(name: string): string {
 
 /**
  * A result scrubbed as the secret-scrub extension scrubs it, read by the
- * call's own arguments, so a command printing the environment has every
- * value that could be a credential put out of sight whether or not the
- * conversation loads the extension; the same object when it held none.
+ * arguments the call ran with, so a command printing the environment has
+ * every value that could be a credential put out of sight whether or not
+ * the conversation loads the extension; the same object when it held none.
  */
 function scrubbedResult(
 	result: AgentToolResult,
-	toolCall: ToolCall,
+	args: unknown,
 ): AgentToolResult {
-	const scrubbed = scrubToolResult(result, toolCall.arguments);
+	const scrubbed = scrubToolResult(result, args);
 	return scrubbed === undefined ? result : { ...result, ...scrubbed };
 }
 
