@@ -101,16 +101,9 @@ import {
 	cloudGrants,
 	namesTheCloud,
 } from "./gcloud-broker.ts";
-import {
-	brokerTokens,
-	type GitHubTokenSource,
-} from "./github-broker.ts";
+import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
-import {
-	folderGit,
-	heldTree,
-	sessionWorktrees,
-} from "./sandbox-trees.ts";
+import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
 import { systemProgram } from "./system-program.ts";
 import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";
 

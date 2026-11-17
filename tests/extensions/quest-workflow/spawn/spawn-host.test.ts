@@ -29,7 +29,9 @@ import { createEnvGuard } from "../_helpers.ts";
 
 // A miss is counted from the system's log, which a test must never write.
 vi.mock("../../../../lib/internal/fence/fence-log.ts", async (original) => ({
-	...(await original<typeof import("../../../../lib/internal/fence/fence-log.ts")>()),
+	...(await original<
+		typeof import("../../../../lib/internal/fence/fence-log.ts")
+	>()),
 	recordUnlisted: vi.fn(async () => undefined),
 }));
 
