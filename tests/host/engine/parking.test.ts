@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PARKED, parking } from "../../../host/engine/parking.ts";
+import {
+	PARKED,
+	type Parking,
+	parking,
+} from "../../../host/engine/parking.ts";
 import { askWake, writeParked } from "../../../lib/internal/session/park.ts";
 import { readRefusedWake } from "../../../lib/internal/session/refused-wake.ts";
 import { giveSteer, inboxOf } from "../../../lib/mesh/steer.ts";
@@ -462,6 +466,91 @@ describe("parking while the host drains", () => {
 		parked.release();
 		await until("the lifted drain to wake it", () => asked.length > 0);
 		expect(asking, "woken once").toHaveBeenCalledExactlyOnceWith("a");
+		parked.unwatch("a");
+	});
+
+	// From 05:02 on 17 November 13 parked sessions sat on unread wakes for
+	// hours, as background work kept the drain's restart past its ceiling.
+	it("wakes one held once the restart passes its ceiling, and its next wake at once once it parks again", async () => {
+		const { asking, asked } = timedWake();
+		const { parked, letStop } = held(asking, () => true);
+		const parkOnce = async () => {
+			const parking = parked.park("a");
+			letStop();
+			await parking;
+		};
+		await parkOnce();
+		const wake = parked.wakeFile("a");
+		wakeAsTheMeshDoes(wake);
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+		expect(asked, "held before the ceiling").toEqual([]);
+
+		expect(parked.letThrough(true), "the one held, woken").toBe(1);
+		await until("the held wake to be asked", () => asked.length > 0);
+		expect(existsSync(wake), "its wake read").toBe(false);
+		expect(parked.letThrough(true), "said once a drain").toBeUndefined();
+
+		// Woken through the drain, it parks again once idle, as a drain parks it.
+		parked.running("a");
+		await parkOnce();
+		wakeAsTheMeshDoes(wake);
+		await until("its next wake to be asked", () => asked.length > 1);
+		expect(asking, "each woken at once").toHaveBeenCalledTimes(2);
+		parked.unwatch("a");
+	});
+
+	it("wakes one held for a steer once the restart passes its ceiling", async () => {
+		const { asking, asked } = timedWake();
+		const { parked, letStop } = held(asking, () => true);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+		giveSteer(steers(), ADDRESS, { text: "are you there?", from: "joel" });
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+		expect(asked, "held before the ceiling").toEqual([]);
+
+		expect(parked.letThrough(true), "the one held, woken").toBe(1);
+		await until("the held steer to wake it", () => asked.length > 0);
+		expect(asking, "woken once").toHaveBeenCalledExactlyOnceWith("a");
+		parked.unwatch("a");
+	});
+
+	// As the restart comes or the host stops, a wake waits for the next host.
+	it("holds wakes again once told the restart waits no more, or a drain lifts and another starts", async () => {
+		for (const [how, holdAgain] of [
+			["told not", (parked: Parking) => parked.letThrough(false)],
+			["lifted", (parked: Parking) => parked.release()],
+		] as const) {
+			const { asking, asked } = timedWake();
+			const { parked, letStop } = held(asking, () => true);
+			const parking = parked.park("a");
+			letStop();
+			await parking;
+			expect(parked.letThrough(true), `${how}: none held`).toBe(0);
+			holdAgain(parked);
+
+			wakeAsTheMeshDoes(parked.wakeFile("a"));
+			await quietFor(STEER_WAKES_WITHIN_MS, 3);
+			expect(asked, `${how}: held again`).toEqual([]);
+			expect(parked.letThrough(true), `${how}: let through again`).toBe(1);
+			await until(`${how}: the wake to be asked`, () => asked.length > 0);
+			parked.unwatch("a");
+		}
+	});
+
+	it("lets nothing through while the host doesn't drain, so its next drain still holds", async () => {
+		let draining = false;
+		const { asking, asked } = timedWake();
+		const { parked, letStop } = held(asking, () => draining);
+		const parking = parked.park("a");
+		letStop();
+		await parking;
+		expect(parked.letThrough(true), "nothing held").toBeUndefined();
+
+		draining = true;
+		wakeAsTheMeshDoes(parked.wakeFile("a"));
+		await quietFor(STEER_WAKES_WITHIN_MS, 3);
+		expect(asked, "the drain holds it").toEqual([]);
 		parked.unwatch("a");
 	});
 
