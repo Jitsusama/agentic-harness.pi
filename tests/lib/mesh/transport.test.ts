@@ -16,10 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { ALL } from "../../../lib/mesh/group.ts";
 import type { Draft } from "../../../lib/mesh/message.ts";
-import {
-	folderTransport,
-	readEachOff,
-} from "../../../lib/mesh/transport.ts";
+import { folderTransport, readEachOff } from "../../../lib/mesh/transport.ts";
 
 let dir: string;
 
@@ -205,9 +202,7 @@ describe("the folder transport", () => {
 					readTurned = true;
 				});
 				const off = await transport.readOff(sent.id);
-				expect(readTurned, `the thread turned reading ${sent.text}`).toBe(
-					true,
-				);
+				expect(readTurned, `the thread turned reading ${sent.text}`).toBe(true);
 				expect(off, `${sent.text} reads as read() reads it`).toEqual(
 					transport.read(sent.id),
 				);
