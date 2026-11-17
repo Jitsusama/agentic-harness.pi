@@ -55,10 +55,13 @@
  * has grown 15% of the limit since the host's first look, so a host
  * whose resumed conversations alone fill most of it doesn't restart at
  * every first look, ending their background work each time and freeing
- * nothing. A first look past 65% counts as 65%, so the gap tier still
- * acts by 80%, and a first look counting garbage delays it no further.
- * The 80% tier asks no growth: a host that full runs out whatever a
- * restart frees, and running out ends everything.
+ * nothing. The 80% tier waits until it has grown 5%, so a host that
+ * starts that full restarts only once it climbs, not at every start; a
+ * host whose first look reads past 65% leaves its heap to that tier, and
+ * says so once. A refused restart near the limit is tried again after
+ * 1 s, then twice as late each time, up to a minute. Neither tier can
+ * act before the first look, five minutes after the host starts, nor in
+ * the two minutes a queued restart is given before it counts as dropped.
  *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
@@ -136,11 +139,21 @@ const HEAP_UNHELD_SHARE = 0.7;
 /** The share past which nothing holds it: not a turn running, not a screen in use. */
 const HEAP_URGENT_SHARE = 0.8;
 
-/** How much of V8's limit the heap must have grown since the first look before the gap tier acts. */
+/**
+ * How much of V8's limit the heap must have grown since the first look
+ * before the gap tier acts. A host whose first look reads past 65% so
+ * never reaches it, and is left to the urgent tier: one resumed past 75%
+ * would otherwise restart at its every gap, for conversations the next
+ * host resumes the same.
+ */
 const HEAP_GROWN_SHARE = 0.15;
 
-/** The most a first look counts for, so the gap tier acts by the urgent tier at the latest. */
-const HEAP_BASELINE_MOST = HEAP_URGENT_SHARE - HEAP_GROWN_SHARE;
+/**
+ * How much the heap must have grown since the first look before the
+ * urgent tier acts, so a host its resumed conversations alone fill past
+ * 80% doesn't restart at every start for memory a restart doesn't free.
+ */
+const HEAP_URGENT_GROWN_SHARE = 0.05;
 
 const BYTES_PER_MB = 1024 * 1024;
 
@@ -248,26 +261,37 @@ export function restartWhenSettled(
 	let heldSaidAt: number | undefined;
 	// The heap's share at the first look, which the heap tiers weigh growth from.
 	let firstShare: number | undefined;
+	// Restarts refused in a row under heap pressure, which back the next try off.
+	let refusals = 0;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
 
 	async function look(): Promise<void> {
 		if (stopped) return;
-		let next: Next = "look";
+		const gapLookMs = options.gapLookMs ?? GAP_LOOK_MS;
+		let waitMs = lookMs;
 		try {
-			next = await consider();
+			const next = await consider();
+			refusals = 0;
+			if (next === "restarting") {
+				if (!stopped)
+					cancel = after(
+						options.restartDueMs ?? RESTART_DUE_MS,
+						() => void dropped(),
+					);
+				return;
+			}
+			if (next === "gap") waitMs = gapLookMs;
 		} catch (error) {
 			facts.report(error);
-			// A refused restart near the limit is tried again within a second.
-			if (heapPressing()) next = "gap";
+			// A refused restart near the limit is tried again within a second,
+			// then twice as late each time it is refused again, up to a look.
+			if (heapPressing()) {
+				waitMs = Math.min(gapLookMs * 2 ** refusals, lookMs);
+				refusals++;
+			}
 		}
 		if (stopped) return;
-		cancel =
-			next === "restarting"
-				? after(options.restartDueMs ?? RESTART_DUE_MS, () => void dropped())
-				: after(
-						next === "gap" ? (options.gapLookMs ?? GAP_LOOK_MS) : lookMs,
-						() => void look(),
-					);
+		cancel = after(waitMs, () => void look());
 	}
 
 	async function dropped(): Promise<void> {
@@ -304,8 +328,7 @@ export function restartWhenSettled(
 		const background = facts.background();
 		const held = facts.held();
 		const turns = held.filter(({ state }) => state === "busy").length;
-		if (share > HEAP_URGENT_SHARE)
-			return { rule: "heap", share, turns, jobs: background };
+		if (heapUrgent()) return { rule: "heap", share, turns, jobs: background };
 		const pressed = heapPressed();
 		if (background > 0 && !pressed) {
 			sayHeld();
@@ -326,28 +349,50 @@ export function restartWhenSettled(
 		return facts.heapShare?.() ?? 0;
 	}
 
-	// Whether the heap has grown enough since the first look for the gap tier to act.
-	function grown(share: number): boolean {
-		const baseline = Math.min(firstShare ?? share, HEAP_BASELINE_MOST);
-		return share - baseline >= HEAP_GROWN_SHARE;
+	// Whether the heap has grown by `by` of V8's limit since the first look.
+	function grown(share: number, by: number): boolean {
+		return share - (firstShare ?? share) >= by;
 	}
 
-	// Past 70%, grown since the first look, the heap restarts the host at the first gap.
+	// Past 80%, grown 5% since the first look, the heap restarts the host at once.
+	function heapUrgent(): boolean {
+		const share = heapShare();
+		return share > HEAP_URGENT_SHARE && grown(share, HEAP_URGENT_GROWN_SHARE);
+	}
+
+	// Past 70%, grown 15% since the first look, the heap restarts the host at the first gap.
 	function heapPressed(): boolean {
 		const share = heapShare();
-		return grown(share) && share > HEAP_UNHELD_SHARE;
+		return share > HEAP_UNHELD_SHARE && grown(share, HEAP_GROWN_SHARE);
 	}
 
 	// Whether either heap tier stands, so the host looks for its moment every second.
 	function heapPressing(): boolean {
-		return heapShare() > HEAP_URGENT_SHARE || heapPressed();
+		return heapUrgent() || heapPressed();
+	}
+
+	// Take the first look's share, and say once when it leaves only the urgent tier.
+	function firstLook(): void {
+		if (firstShare !== undefined) return;
+		firstShare = heapShare();
+		if (firstShare + HEAP_GROWN_SHARE > HEAP_URGENT_SHARE)
+			facts.report(
+				`Its heap already held ${Math.round(firstShare * 100)}% of what V8 allows at its first look, so only the urgent tier restarts it for its heap, once past ${Math.round(HEAP_URGENT_SHARE * 100)}% and grown ${Math.round(HEAP_URGENT_GROWN_SHARE * 100)}% from there`,
+			);
 	}
 
 	async function consider(): Promise<Next> {
-		firstShare ??= heapShare();
+		firstLook();
 		// Past the ceiling or pressed by the heap, a look with no gap asks nothing more.
-		if ((pastCeiling() || heapPressing()) && mayRestart() === undefined)
-			return "gap";
+		const ahead = mayRestart();
+		if ((pastCeiling() || heapPressing()) && ahead === undefined) return "gap";
+		// The heap is reason enough, so a heap restart asks nothing of what
+		// would start, whose systemctl could outlast a short gap.
+		if (ahead?.rule === "heap")
+			return restartUnder(
+				`its heap holds ${Math.round(ahead.share * 100)}% of what V8 allows`,
+				ahead,
+			);
 		const why = await facts.differs();
 		if (stopped) return "look";
 		if (why === undefined) {
@@ -359,6 +404,10 @@ export function restartWhenSettled(
 		const under = mayRestart();
 		if (under === undefined)
 			return pastCeiling() || heapPressing() ? "gap" : "look";
+		return restartUnder(why, under);
+	}
+
+	async function restartUnder(why: string, under: RestartRule): Promise<Next> {
 		// Before systemctl, since systemd may stop the host before it answers.
 		facts.expect(true);
 		try {
@@ -399,6 +448,8 @@ export interface Following {
 	readonly pid?: number;
 	/** How much heap the host uses; this process's by default. */
 	readonly heap?: () => HeapUse;
+	/** Watches V8's full collections, when no `heap` is given; V8's own by default. */
+	readonly watchHeap?: Parameters<typeof heapAfterFullCollections>[0];
 	/** Passed on to restartWhenSettled, for tests. */
 	readonly timing?: Parameters<typeof restartWhenSettled>[1];
 }
@@ -453,7 +504,7 @@ export async function followWhatStarts(
 	// The heap after V8's last full collection, unless a test gives its own.
 	const live = options.heap
 		? { read: options.heap, stop: () => undefined }
-		: heapAfterFullCollections();
+		: heapAfterFullCollections(options.watchHeap);
 	const heap = live.read;
 	function heapPastShare(): string | undefined {
 		const { usedBytes, limitBytes } = heap();
@@ -480,8 +531,13 @@ export async function followWhatStarts(
 			restart: async (why, under) => {
 				// A heap restart gives the heap as its reason, whatever else moved.
 				const reason = under.rule === "heap" ? (heapPastShare() ?? why) : why;
+				// A heap restart ends background work, so it names what it ends.
+				const ending =
+					under.rule === "heap" && under.jobs > 0
+						? (options.holding?.() ?? [])
+						: [];
 				options.report(
-					`Restarting ${restartedUnder(under, settledMs)}, as ${reason}`,
+					`Restarting ${restartedUnder(under, settledMs)}${ending.length > 0 ? ` (${ending.join("; ")})` : ""}, as ${reason}`,
 				);
 				await systemctl(["--no-block", "restart", unit]);
 			},

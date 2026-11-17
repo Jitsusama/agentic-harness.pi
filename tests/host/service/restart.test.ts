@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
 	GAP_LOOK_MS,
 	HELD_SAY_MS,
-	LOOK_MS,
 	type Held,
+	LOOK_MS,
 	RESTART_DUE_MS,
 	type RestartFacts,
 	restartWhenSettled,
@@ -537,41 +537,41 @@ describe("restartWhenSettled", () => {
 	it.each([
 		{ tier: "the gap tier", share: 0.75, state: "idle" as const },
 		{ tier: "the urgent tier", share: 0.81, state: "busy" as const },
-	])("under $tier, tries a refused restart again after 1, 2 and 4 s, up to a look", async ({
-		share,
-		state,
-	}) => {
-		const timers = manualTimers();
-		const heap = growingHeap(0.3);
-		const { facts: given, said } = facts({
-			differs: async () => "its heap is past half",
-			held: () => [{ state, since: lately }],
-			background: () => 1,
-			heapShare: heap.heapShare,
-		});
-		given.restart = async () => {
-			throw new Error("systemctl timed out");
-		};
-		restartWhenSettled(given, { after: timers.after });
-		await timers.fire();
-		heap.growTo(share);
-		const waits: number[] = [];
-		for (let refused = 0; refused < 8; refused++) {
+	])(
+		"under $tier, tries a refused restart again after 1, 2 and 4 s, up to a look",
+		async ({ share, state }) => {
+			const timers = manualTimers();
+			const heap = growingHeap(0.3);
+			const { facts: given, said } = facts({
+				differs: async () => "its heap is past half",
+				held: () => [{ state, since: lately }],
+				background: () => 1,
+				heapShare: heap.heapShare,
+			});
+			given.restart = async () => {
+				throw new Error("systemctl timed out");
+			};
+			restartWhenSettled(given, { after: timers.after });
 			await timers.fire();
-			waits.push(timers.pending()[0]?.ms ?? 0);
-		}
-		expect(said).toContain("report: Error: systemctl timed out");
-		expect(waits, "each wait after a refusal").toEqual([
-			GAP_LOOK_MS,
-			2 * GAP_LOOK_MS,
-			4 * GAP_LOOK_MS,
-			8 * GAP_LOOK_MS,
-			16 * GAP_LOOK_MS,
-			32 * GAP_LOOK_MS,
-			LOOK_MS,
-			LOOK_MS,
-		]);
-	});
+			heap.growTo(share);
+			const waits: number[] = [];
+			for (let refused = 0; refused < 8; refused++) {
+				await timers.fire();
+				waits.push(timers.pending()[0]?.ms ?? 0);
+			}
+			expect(said).toContain("report: Error: systemctl timed out");
+			expect(waits, "each wait after a refusal").toEqual([
+				GAP_LOOK_MS,
+				2 * GAP_LOOK_MS,
+				4 * GAP_LOOK_MS,
+				8 * GAP_LOOK_MS,
+				16 * GAP_LOOK_MS,
+				32 * GAP_LOOK_MS,
+				LOOK_MS,
+				LOOK_MS,
+			]);
+		},
+	);
 
 	it("asks for no restart once the host has begun stopping, however full its heap", async () => {
 		const timers = manualTimers();
