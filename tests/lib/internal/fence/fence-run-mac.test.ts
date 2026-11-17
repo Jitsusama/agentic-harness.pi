@@ -102,6 +102,22 @@ describe("the fence on a Mac", () => {
 		);
 	});
 
+	it("hides the Aquifer cells' provider logins, under either kind", () => {
+		const logins = join(
+			home,
+			".local/state/aquifer-cell/basin-1/aquifer/credentials",
+		);
+		mkdirSync(logins, { recursive: true });
+		const login = join(logins, "basin-1.json");
+		writeFileSync(login, "{}");
+
+		for (const kind of ["fence", "strict"] as const) {
+			expect(deciding(onMac(kind), login, "file-read*"), kind).toMatch(
+				/^\(deny /,
+			);
+		}
+	});
+
 	it("sends no Apple Event, and points caches where the fence lets them write", () => {
 		const text = onMac("fence");
 
