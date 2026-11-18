@@ -72,6 +72,11 @@ export interface StackCouncilRequest {
 	 * nothing.
 	 */
 	witnessFor?: (ref: string) => string | undefined;
+	/**
+	 * Every change's commit as its reviewers read it, kept on the round
+	 * so the ledger can say each change was read.
+	 */
+	witnesses?: string[];
 	/** Said when the tree the reviewers read was not the stack's tip. */
 	unpinned?: string;
 	/**
@@ -108,6 +113,8 @@ export async function runStackCouncil(
 	const participants: ParticipantIdentity[] = request.roster.reviewers.map(
 		(participant) => participantIdentity("reviewer", participant),
 	);
+	const witnesses =
+		request.unpinned === undefined ? (request.witnesses ?? []) : [];
 
 	return {
 		run: {
@@ -126,6 +133,7 @@ export async function runStackCouncil(
 					? {}
 					: { unpinned: request.unpinned }),
 			}),
+			...(witnesses.length > 0 ? { witnesses } : {}),
 			...whatItGave(request),
 		},
 		warnings,

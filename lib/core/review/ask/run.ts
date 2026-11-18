@@ -174,6 +174,16 @@ export interface AskRun {
 	 */
 	unpinned?: string;
 	/**
+	 * What a stack round's reviewers read, one commit per change.
+	 *
+	 * A stack round has no single witness, so without these nothing on
+	 * the ledger says it read any change, and a change reviewed in its
+	 * stack would wait on a council of its own before people are asked.
+	 * Absent when the round fell back to the caller's checkout, which
+	 * read none of them.
+	 */
+	witnesses?: string[];
+	/**
 	 * What its reviewers were handed, besides the change itself.
 	 *
 	 * A reviewer's answer depends on what it was given, and a run that

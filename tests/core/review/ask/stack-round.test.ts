@@ -241,6 +241,47 @@ describe("a stack-wide round", () => {
 		expect(run.id).toMatch(/^stack-/);
 	});
 
+	it("records the commit it read of every change, so each counts as read", async () => {
+		const { deps: d } = deps({
+			wren: { text: answer() },
+			finch: { text: answer() },
+		});
+
+		const { run } = await runStackCouncil(
+			{
+				roster,
+				prompt: "p",
+				seq: 1,
+				stackRefs: [...stack],
+				witnesses: ["sha-base", "sha-tip"],
+			},
+			d,
+		);
+
+		expect(run.witnesses).toEqual(["sha-base", "sha-tip"]);
+	});
+
+	it("records none when it read another tree, which read no change", async () => {
+		const { deps: d } = deps({
+			wren: { text: answer() },
+			finch: { text: answer() },
+		});
+
+		const { run } = await runStackCouncil(
+			{
+				roster,
+				prompt: "p",
+				seq: 1,
+				stackRefs: [...stack],
+				unpinned: "read the checkout instead",
+				witnesses: ["sha-base", "sha-tip"],
+			},
+			d,
+		);
+
+		expect(run.witnesses).toBeUndefined();
+	});
+
 	it("keeps the round when one reviewer fails", async () => {
 		const { deps: d } = deps({
 			wren: { failure: "overloaded" },

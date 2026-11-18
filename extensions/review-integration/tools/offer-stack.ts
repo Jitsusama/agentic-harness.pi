@@ -20,8 +20,9 @@ import { PR_SHAPE } from "../../../lib/core/sections/sanctioned.ts";
 import { usesDepth } from "../../../lib/core/sections/shape.ts";
 import { sessionCwd, sessionKeyOf } from "../../../lib/core/session/index.ts";
 import { count } from "../../../lib/ui/count.ts";
-import { REVIEW_COMMANDS } from "../commands.ts";
+import { REVIEW_COMMANDS, reviewExec } from "../commands.ts";
 import { GLYPH, proposalLine } from "../render.ts";
+import { councilFirst } from "../reviewed-first.ts";
 import { checkoutSize } from "./change-size.ts";
 import { checkoutFacts, tipSubject } from "./offer-checkout.ts";
 import { confirmWrite, missingMethod } from "./offer-gates.ts";
@@ -131,6 +132,26 @@ export async function proposeStack(
 		if (complaint) {
 			const said = sayRefusal(sessionKeyOf(ctx), complaint, head, body);
 			return refuse(`The body for ${head} is not usable.\n\n${said}`);
+		}
+	}
+
+	// Each change waits for a council of ours, as one proposed alone does.
+	// Each is judged by its own commits, as ready judges it later: a
+	// council of the tip may have read only the top change, and a stack
+	// round records a witness for every change it read.
+	if (!params.draft) {
+		for (const [at, head] of heads.entries()) {
+			const waits = await councilFirst(
+				reviewExec,
+				{
+					repo: bound.repo.key,
+					checkout: cwd,
+					base: at === 0 ? base : (heads[at - 1] ?? base),
+					head,
+				},
+				"proposed for review",
+			);
+			if (waits) return refuse(waits);
 		}
 	}
 

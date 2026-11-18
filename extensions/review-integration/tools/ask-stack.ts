@@ -144,6 +144,9 @@ export async function askStack(
 			seq: nextSeq(),
 			stackRefs,
 			witnessFor: (ref) => witnesses.get(ref),
+			witnesses: [...witnesses.values()].filter(
+				(sha): sha is string => sha !== undefined,
+			),
 			// Per-change witnesses, but one tree, so the caveat is about
 			// the round exactly as it is for every other kind.
 			...(tree.caveat === undefined ? {} : { unpinned: tree.caveat }),

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import {
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	utimesSync,
 	writeFileSync,
@@ -208,6 +209,172 @@ describe("keeping runs per change", () => {
 		await createRunStore(root).record(change, run());
 
 		expect(await createRunStore(root).list(change)).toHaveLength(1);
+	});
+});
+
+describe("finding a council that read a change's commits", () => {
+	let root: string;
+	const range: ChangeRef = {
+		provider: "local-range",
+		repo: { key: "github:Shopify/world" },
+		id: "origin/main..topic",
+		label: "origin/main..topic",
+	};
+	const elsewhere: ChangeRef = {
+		...change,
+		repo: { key: "github:Shopify/other" },
+	};
+	const read = (witness: string, over: Partial<AskRun> = {}) =>
+		run({ id: `council-${witness}`, witness, ...over });
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "run-store-"));
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("finds one held under the range the change was proposed from", async () => {
+		const store = createRunStore(root);
+		await store.record(range, read("aaa"));
+
+		const found = await store.witnessed(
+			"github:Shopify/world",
+			new Set(["aaa"]),
+		);
+
+		expect(found?.id).toBe("council-aaa");
+	});
+
+	it("gives the newest of several", async () => {
+		const store = createRunStore(root);
+		await store.record(
+			range,
+			read("aaa", { startedAt: "2026-07-30T01:00:00.000Z" }),
+		);
+		await store.record(
+			change,
+			read("bbb", { startedAt: "2026-07-30T02:00:00.000Z" }),
+		);
+
+		const found = await store.witnessed(
+			"github:Shopify/world",
+			new Set(["aaa", "bbb"]),
+		);
+
+		expect(found?.id).toBe("council-bbb");
+	});
+
+	it("gives the newest by its start, whichever ledger is read first", async () => {
+		// The case above with the ledgers swapped, so a walk in either
+		// order meets the older round second in one of the two.
+		const store = createRunStore(root);
+		await store.record(
+			range,
+			read("bbb", { startedAt: "2026-07-30T02:00:00.000Z" }),
+		);
+		await store.record(
+			change,
+			read("aaa", { startedAt: "2026-07-30T01:00:00.000Z" }),
+		);
+
+		const found = await store.witnessed(
+			"github:Shopify/world",
+			new Set(["aaa", "bbb"]),
+		);
+
+		expect(found?.id).toBe("council-bbb");
+	});
+
+	it("counts a stack round for each change its reviewers read", async () => {
+		const store = createRunStore(root);
+		await store.record(
+			range,
+			run({ id: "stack-1", round: "stack", witnesses: ["low", "tip"] }),
+		);
+
+		for (const sha of ["low", "tip"]) {
+			expect(
+				(await store.witnessed("github:Shopify/world", new Set([sha])))?.id,
+			).toBe("stack-1");
+		}
+		expect(
+			await store.witnessed("github:Shopify/world", new Set(["other"])),
+		).toBeUndefined();
+	});
+
+	it("sees a round recorded after it last looked", async () => {
+		// Each ledger's reading is kept until the file changes, so a
+		// council that finishes between two asks has to show on the second.
+		const store = createRunStore(root);
+		await store.record(range, read("zzz"));
+		expect(
+			await store.witnessed("github:Shopify/world", new Set(["aaa"])),
+		).toBeUndefined();
+
+		await store.record(range, read("aaa"));
+
+		expect(
+			(await store.witnessed("github:Shopify/world", new Set(["aaa"])))?.id,
+		).toBe("council-aaa");
+	});
+
+	it("passes over a run that isn't one", async () => {
+		const store = createRunStore(root);
+		await store.record(range, read("aaa"));
+		const path = join(root, readdirSync(root)[0] ?? "");
+		const ledger = JSON.parse(readFileSync(path, "utf8"));
+		ledger.runs.unshift(null, { round: "council" }, "council");
+		writeFileSync(path, JSON.stringify(ledger));
+
+		expect(
+			(await store.witnessed("github:Shopify/world", new Set(["aaa"])))?.id,
+		).toBe("council-aaa");
+	});
+
+	it("counts none that read another commit, or another repo", async () => {
+		const store = createRunStore(root);
+		await store.record(range, read("zzz"));
+		await store.record(elsewhere, read("aaa"));
+
+		expect(
+			await store.witnessed("github:Shopify/world", new Set(["aaa"])),
+		).toBeUndefined();
+	});
+
+	it("counts no round that never read the commit, or never finished", async () => {
+		const store = createRunStore(root);
+		await store.record(range, read("a1", { unpinned: "read the checkout" }));
+		await store.record(range, read("a2", { open: true }));
+		await store.record(range, read("a3", { closed: true }));
+		await store.record(range, read("a4", { round: "judge" }));
+		await store.record(
+			range,
+			read("a5", {
+				outcomes: [{ participantId: "hawk", findingIds: [], failure: "died" }],
+			}),
+		);
+
+		expect(
+			await store.witnessed(
+				"github:Shopify/world",
+				new Set(["a1", "a2", "a3", "a4", "a5"]),
+			),
+		).toBeUndefined();
+	});
+
+	it("passes over a ledger that won't read", async () => {
+		const store = createRunStore(root);
+		await store.record(range, read("aaa"));
+		writeFileSync(join(root, "torn.json"), "{");
+
+		const found = await store.witnessed(
+			"github:Shopify/world",
+			new Set(["aaa"]),
+		);
+
+		expect(found?.id).toBe("council-aaa");
 	});
 });
 

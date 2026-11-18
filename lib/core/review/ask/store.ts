@@ -71,6 +71,21 @@ export interface RunStore {
 	 * to decide with.
 	 */
 	openRunIds(): Promise<OpenRuns>;
+	/**
+	 * The newest finished council or stack round, held against any
+	 * change in `repo`, whose reviewers read one of `commits`.
+	 *
+	 * Asked across changes because a change is reviewed before it has a
+	 * number: a council on a local range is held under that range, and
+	 * the change proposed from it is another key. A round that fell back
+	 * to the caller's checkout never read the commit it names, so it
+	 * doesn't count; nor does one still open or given up on. A ledger
+	 * that won't read is passed over, which can only find less.
+	 */
+	witnessed(
+		repo: string,
+		commits: ReadonlySet<string>,
+	): Promise<AskRun | undefined>;
 }
 
 /** A round still open, with what the ledger says of it. */
@@ -321,6 +336,42 @@ export function createRunStore(root: string): RunStore {
 			return { open, rounds, unreadable };
 		},
 
+		async witnessed(repo, commits) {
+			let files: string[];
+			try {
+				files = await readdir(root);
+			} catch {
+				// No ledger, or none that can be read: no council is known.
+				return undefined;
+			}
+			// Asked at every proposal, over every change ever reviewed here,
+			// so each file is parsed again only once it has changed. What is
+			// kept of one is its repo and the rounds that read something.
+			const kept = fileReads<Witnessing | undefined>("review-witnesses", root);
+			const listed = new Set<string>();
+			let newest: AskRun | undefined;
+			for (const file of files) {
+				if (!file.endsWith(".json")) continue;
+				const path = join(root, file);
+				listed.add(path);
+				const seen = await kept.stamp(path);
+				let held = kept.held(path, seen)?.said;
+				if (held === undefined) {
+					held = await witnessingIn(path);
+					kept.keep(path, seen, held);
+				}
+				if (held === undefined || held.repo !== repo) continue;
+				for (const run of held.rounds) {
+					if (!readOneOf(run, commits)) continue;
+					if (newest === undefined || run.startedAt > newest.startedAt) {
+						newest = run;
+					}
+				}
+			}
+			kept.keepOnly(listed);
+			return newest;
+		},
+
 		async latest(change, round) {
 			// Finished rounds only. A round is now on the ledger from the
 			// moment it opens, so the newest entry is routinely one that
@@ -389,12 +440,77 @@ function isMissing(error: unknown): boolean {
 	);
 }
 
+/** A ledger's repo, and its finished rounds whose reviewers read a commit. */
+interface Witnessing {
+	repo: string;
+	rounds: AskRun[];
+}
+
+/** What a ledger file says was read, or nothing when it isn't a ledger. */
+async function witnessingIn(path: string): Promise<Witnessing | undefined> {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(await readFile(path, "utf8"));
+	} catch {
+		// Gone or torn: it can only hold a council not counted.
+		return undefined;
+	}
+	if (
+		typeof parsed !== "object" ||
+		parsed === null ||
+		!("change" in parsed) ||
+		!isChangeRef(parsed.change) ||
+		!("runs" in parsed) ||
+		!Array.isArray(parsed.runs)
+	) {
+		return undefined;
+	}
+	const rounds: AskRun[] = parsed.runs.filter(readSomething);
+	return { repo: parsed.change.repo.key, rounds };
+}
+
+/**
+ * Whether `run` is a finished council or stack round, pinned to what
+ * it read, that at least one reviewer answered. A round that fell back
+ * to the caller's checkout read nothing it names.
+ */
+function readSomething(run: unknown): run is AskRun {
+	if (typeof run !== "object" || run === null) return false;
+	const round = "round" in run ? run.round : undefined;
+	return (
+		(round === "council" || round === "stack") &&
+		!("open" in run && run.open === true) &&
+		!("closed" in run && run.closed === true) &&
+		!("unpinned" in run && run.unpinned !== undefined) &&
+		"startedAt" in run &&
+		typeof run.startedAt === "string" &&
+		"outcomes" in run &&
+		Array.isArray(run.outcomes) &&
+		run.outcomes.some(
+			(outcome: unknown) =>
+				typeof outcome === "object" &&
+				outcome !== null &&
+				!("failure" in outcome && outcome.failure !== undefined),
+		)
+	);
+}
+
+/** Whether `run`'s reviewers read one of `commits`. */
+function readOneOf(run: AskRun, commits: ReadonlySet<string>): boolean {
+	const read = [
+		...(typeof run.witness === "string" ? [run.witness] : []),
+		...(Array.isArray(run.witnesses) ? run.witnesses : []),
+	];
+	return read.some((sha) => commits.has(sha));
+}
+
 /**
  * The file a change's rounds live in.
  *
  * Slugged because the key names a file: a change id is somebody
  * else's string and may hold a separator.
  */
+
 /** Whether a ledger's `change` is a change, as a later write left it. */
 function isChangeRef(value: unknown): value is ChangeRef {
 	if (typeof value !== "object" || value === null) return false;
