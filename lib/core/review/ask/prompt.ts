@@ -168,6 +168,30 @@ export interface JudgePromptInput extends PromptInput {
 	findings: string;
 }
 
+/**
+ * The most characters a round's prompt may hold before it is refused.
+ *
+ * Measured over 228 rounds on 18 Nov 2026: every prompt of up to 550k
+ * characters was answered in full, those near 1.05M only by the soft
+ * deadline, and every one of 1.79M or more ended "Request timed out"
+ * with no answer, or was refused by the model as over a million tokens.
+ * A reviewer cannot answer what it cannot be sent, and four of them
+ * waiting twenty minutes each to say so costs the round and the person.
+ */
+export const MOST_PROMPT_CHARS = 1_200_000;
+
+/**
+ * Why a prompt is too large to put to a reviewer, or nothing when it
+ * can be sent. `narrower` says how the person could ask about less.
+ */
+export function tooLargeToAsk(
+	prompt: string,
+	narrower: string,
+): string | undefined {
+	if (prompt.length <= MOST_PROMPT_CHARS) return undefined;
+	return `This round's prompt is ${prompt.length.toLocaleString("en-CA")} characters, past the ${MOST_PROMPT_CHARS.toLocaleString("en-CA")} a reviewer can be sent: every round of 1.8 million or more has timed out with no answer. ${narrower}`;
+}
+
 /** The prompt a discovery reviewer answers. */
 export function councilPrompt(input: PromptInput): string {
 	return [

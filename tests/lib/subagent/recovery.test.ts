@@ -1,6 +1,6 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	ReviewerArtifactsStore,
@@ -171,5 +171,132 @@ describe("recoverReviewerRuns", () => {
 
 		expect(recovery.active).toEqual([]);
 		expect(recovery.stale).toHaveLength(1);
+	});
+
+	it("recovers a reviewer whose id its folder escapes under that id, making no folder of its own", async () => {
+		const store = await tempStore();
+		const paths = await store.ensureReviewerDir("run", "fast+resume");
+		await store.writeJsonAtomic(paths.progressPath, {
+			runId: "run",
+			reviewerId: "fast+resume",
+			state: "running",
+			activity: "bash test",
+			updatedAt: "2026-01-01T00:00:00Z",
+		});
+		await store.writeJsonAtomic(paths.leasePath, {
+			runId: "run",
+			reviewerId: "fast+resume",
+			state: "running",
+			supervisorPid: 99999999,
+		});
+
+		const first = await recoverReviewerRuns(store);
+		await recoverReviewerRuns(store);
+		await recoverReviewerRuns(store);
+
+		expect(first.stale, "the reviewer is named by its own id").toMatchObject([
+			{ runId: "run", reviewerId: "fast+resume" },
+		]);
+		expect(
+			await store.readJson(paths.cancelPath),
+			"its cancel is in its own folder",
+		).toMatchObject({ reason: "startup-stale" });
+		expect(
+			await readdir(store.rootPaths("run").reviewersDir),
+			"three starts make no other folder",
+		).toEqual([basename(paths.reviewerDir)]);
+	});
+
+	it("reads the ids a later file records when an earlier one was cut short", async () => {
+		const store = await tempStore();
+		const paths = await store.ensureReviewerDir("run", "fast+resume");
+		await writeFile(join(paths.reviewerDir, "request.json"), "{ cut short");
+		await store.writeJsonAtomic(paths.leasePath, {
+			runId: "run",
+			reviewerId: "fast+resume",
+			state: "running",
+			supervisorPid: 99999999,
+		});
+
+		const recovery = await recoverReviewerRuns(store);
+
+		expect(recovery.stale, "named by the lease's ids").toMatchObject([
+			{ runId: "run", reviewerId: "fast+resume" },
+		]);
+	});
+
+	it("recovers a reviewer whose run's id its folder escapes, making no run folder of its own", async () => {
+		const store = await tempStore();
+		const paths = await store.ensureReviewerDir("run+1", "fast");
+		await store.writeJsonAtomic(paths.leasePath, {
+			runId: "run+1",
+			reviewerId: "fast",
+			state: "running",
+			supervisorPid: 99999999,
+		});
+		const before = await readdir(store.runsDir);
+
+		const first = await recoverReviewerRuns(store);
+		await recoverReviewerRuns(store);
+
+		expect(first.stale, "named by its run's own id").toMatchObject([
+			{ runId: "run+1", reviewerId: "fast" },
+		]);
+		expect(
+			await readdir(store.runsDir),
+			"two starts make no other run folder",
+		).toEqual(before);
+	});
+
+	it("leaves alone a folder whose files record ids that lead to another folder", async () => {
+		const store = await tempStore();
+		// What the old sweep left: a name escaped twice, holding a cancel
+		// copied from the reviewer whose ids lead to the folder escaped once.
+		const stray = join(store.rootPaths("run").reviewersDir, "fast~7e2bresume");
+		await mkdir(stray, { recursive: true });
+		await writeFile(
+			join(stray, "lease.json"),
+			JSON.stringify({
+				runId: "run",
+				reviewerId: "fast+resume",
+				state: "running",
+				supervisorPid: 99999999,
+			}),
+		);
+
+		const recovery = await recoverReviewerRuns(store);
+
+		expect(recovery, "nothing is recovered from it").toMatchObject({
+			active: [],
+			stale: [],
+		});
+		expect(
+			await readdir(store.rootPaths("run").reviewersDir),
+			"no folder is made for the ids it records",
+		).toEqual(["fast~7e2bresume"]);
+	});
+
+	it("leaves alone a folder whose name is escaped and whose files say whose it is not", async () => {
+		const store = await tempStore();
+		const stray = join(store.rootPaths("run").reviewersDir, "fast~2bresume");
+		await mkdir(stray, { recursive: true });
+		await writeFile(
+			join(stray, "cancel.json"),
+			JSON.stringify({ reason: "startup-stale" }),
+		);
+		await writeFile(join(stray, "lease.json"), "{ cut short");
+
+		const recovery = await recoverReviewerRuns(store);
+
+		expect(recovery, "nothing is recovered from it").toMatchObject({
+			completed: [],
+			active: [],
+			stale: [],
+			warnings: [],
+		});
+		expect(
+			await readdir(store.rootPaths("run").reviewersDir),
+			"no folder is made from its name",
+		).toEqual(["fast~2bresume"]);
 	});
 });

@@ -21,6 +21,7 @@ import type {
 	Change,
 	ChangeRef,
 } from "../../lib/core/review/index.ts";
+import type { UpstreamBase } from "../../lib/core/review/upstream-base.ts";
 import { count } from "../../lib/ui/count.ts";
 
 /** The provider a range's change names, which no host answers to. */
@@ -43,6 +44,17 @@ export function rangeChange(bound: BoundTarget): ChangeRef | undefined {
 		label: `${name} in ${bound.repo.key}`,
 	};
 }
+
+/**
+ * What a reader of the round is told when its base was read upstream,
+ * so a finding about commits the local branch lacks makes sense.
+ */
+export function upstreamNote(base: string, upstream: UpstreamBase): string {
+	return `The local ${base} is ${count(upstream.behind, "commit")} behind ${upstream.ref}, so ${base} is read at ${upstream.ref} (${upstream.commit.slice(0, SHORT_SHA)}).`;
+}
+
+/** How much of a commit id a person reads. */
+const SHORT_SHA = 12;
 
 /** One commit of a range, as its log tells it. */
 interface Commit {
@@ -76,11 +88,14 @@ export async function rangeProposal(
 	const headCommit = (
 		await git("rev-parse", "--verify", `${range.head}^{commit}`)
 	).trim();
+	// The same base the core diffs from, so the description and the diff
+	// cover the same commits.
+	const from = range.upstream?.commit ?? range.base;
 	const log = await git(
 		"log",
 		"--reverse",
 		"--format=%an%x00%s%x00%b%x1e",
-		`${range.base}..${headCommit}`,
+		`${from}..${headCommit}`,
 	);
 	const commits = log
 		.split("\x1e")
@@ -96,15 +111,19 @@ export async function rangeProposal(
 			`${range.base}..${range.head} holds no commits in ${root}, so there is nothing to put to a reviewer.`,
 		);
 	}
+	const messages = commits.map((one) =>
+		one.body ? `${one.subject}\n\n${one.body}` : one.subject,
+	);
 	return {
 		ref: change,
 		title:
 			commits.length === 1
 				? last.subject
 				: `${count(commits.length, "commit")} from ${range.base} to ${range.head}`,
-		body: commits
-			.map((one) => (one.body ? `${one.subject}\n\n${one.body}` : one.subject))
-			.join("\n\n"),
+		body: [
+			...(range.upstream ? [upstreamNote(range.base, range.upstream)] : []),
+			...messages,
+		].join("\n\n"),
 		state: "open",
 		draft: false,
 		author: { id: last.author },

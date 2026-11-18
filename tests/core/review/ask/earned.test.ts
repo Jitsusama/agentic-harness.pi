@@ -48,6 +48,68 @@ describe("councilNotEarned", () => {
 		expect(councilNotEarned(three, "ccc", "  ")).toBeDefined();
 	});
 
+	it("counts no council whose every reviewer failed, but one still running or with an answer", () => {
+		const failed = (participantId: string) => ({
+			participantId,
+			findingIds: [],
+			failure: "Request timed out.",
+		});
+		const timedOut = council("aaa", {
+			outcomes: [failed("one"), failed("two")],
+		});
+		expect(
+			councilNotEarned([timedOut], "aaa", undefined),
+			"a council nobody answered read nothing",
+		).toBeUndefined();
+		const answered = council("aaa", {
+			outcomes: [failed("one"), { participantId: "two", findingIds: [4] }],
+		});
+		expect(
+			councilNotEarned([answered], "aaa", undefined),
+			"one reviewer answered",
+		).toContain("council-aaa");
+		const running = council("aaa", { open: true, outcomes: [failed("one")] });
+		expect(
+			councilNotEarned([running], "aaa", undefined),
+			"the rest may still answer",
+		).toContain("council-aaa");
+		const read = council("aaa", {
+			outcomes: [
+				failed("one"),
+				{ ...failed("two"), usage: { tokens: 180_000 } },
+			],
+		});
+		expect(
+			councilNotEarned([read], "aaa", undefined),
+			"a reviewer that spent tokens read the change before it failed",
+		).toContain("council-aaa");
+	});
+
+	it("leaves councils whose every reviewer failed unread out of the count of three", () => {
+		const failed = (participantId: string) => ({
+			participantId,
+			findingIds: [],
+			failure: "Request timed out.",
+		});
+		const timedOut = (head: string) =>
+			council(head, { outcomes: [failed("one"), failed("two")] });
+		const earlier = [
+			timedOut("aaa"),
+			timedOut("bbb"),
+			timedOut("ccc"),
+			council("ddd"),
+			council("eee"),
+		];
+		expect(
+			councilNotEarned(earlier, "fff", undefined),
+			"two councils answered, below three",
+		).toBeUndefined();
+		expect(
+			councilNotEarned([...earlier, council("fff")], "ggg", undefined),
+			"a third that answered",
+		).toBeDefined();
+	});
+
 	it("counts no round a person closed, nor any other kind of round", () => {
 		const earlier = [
 			council("aaa", { closed: true }),
