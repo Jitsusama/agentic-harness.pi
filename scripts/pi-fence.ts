@@ -22,7 +22,7 @@
  */
 
 import { homedir } from "node:os";
-import { runForwarding } from "../lib/internal/fence/fence-child.ts";
+import { endAs, runForwarding } from "../lib/internal/fence/fence-child.ts";
 import {
 	FENCE_RUN_HELP,
 	fenceRunAsked,
@@ -65,9 +65,4 @@ if ("refused" in made) {
 	process.exit(REFUSED);
 }
 // What ends pi-fence ends the command too (lib/internal/fence/fence-child.ts).
-const ended = await runForwarding(made.text, made.folder);
-if ("error" in ended) {
-	process.stderr.write(`pi-fence: bash didn't start: ${ended.error}\n`);
-	process.exit(REFUSED);
-}
-process.exit(ended.code);
+endAs(await runForwarding(made.text, made.folder));

@@ -32,7 +32,7 @@ import { KEEPING_STUB } from "../../lib/internal/shell/kept.ts";
 
 const HARNESS = join(import.meta.dirname, "..", "..");
 const SCRIPT = join(HARNESS, "scripts", "pi-fence.ts");
-const STAND_IN = join(import.meta.dirname, "fence-child-stand-in.ts");
+const STAND_IN = join(import.meta.dirname, "fixtures", "fence-child.mts");
 const BOOT = "b0075eed-0000-4000-8000-000000000000";
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const MACHINE = "mnt:[4026531841]";
@@ -264,26 +264,45 @@ describe("pi-fence with no packages", () => {
 	});
 });
 
-/** pi-fence's child, run as pi-fence runs it, with no terminal. */
-function child(text: string): {
+/** How pi-fence's child ended: its status, or the signal it died by. */
+interface Ended {
+	readonly code: number | null;
+	readonly signal: NodeJS.Signals | null;
+}
+
+/**
+ * pi-fence's child, run as pi-fence runs it, with no terminal; in a
+ * process group of its own when `grouped`, as pi's bash tool runs it,
+ * and with `path` for PATH.
+ */
+function child(
+	text: string,
+	{ grouped = false, path = process.env.PATH } = {},
+): {
 	readonly pid: number;
-	readonly ended: Promise<number | null>;
+	readonly ended: Promise<Ended>;
+	readonly err: () => string;
 } {
 	const ran = spawn(
 		process.execPath,
 		["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", STAND_IN, text],
 		{
 			cwd: root,
-			env: { PATH: process.env.PATH, HOME: root },
+			env: { PATH: path, HOME: root },
 			stdio: ["ignore", "pipe", "pipe"],
+			detached: grouped,
 		},
 	);
-	const ended = new Promise<number | null>((done) =>
-		ran.on("exit", (code) => done(code)),
+	let err = "";
+	ran.stderr.on("data", (chunk) => {
+		err += String(chunk);
+	});
+	const ended = new Promise<Ended>((done) =>
+		ran.on("exit", (code, signal) => done({ code, signal })),
 	);
 	// A signal to pid 0 would reach the test's own process group.
 	if (ran.pid === undefined) throw new Error("the stand-in didn't start");
-	return { pid: ran.pid, ended };
+	return { pid: ran.pid, ended, err: () => err };
 }
 
 /** Whether process `pid` is still there. */
@@ -302,10 +321,14 @@ function there(pid: number): boolean {
 async function waitFor(ready: () => boolean, ms: number): Promise<boolean> {
 	for (const until = Date.now() + ms; Date.now() < until; ) {
 		if (ready()) return true;
+		// Polling a process from outside it: nothing to wait on but time.
 		await new Promise((next) => setTimeout(next, 50));
 	}
 	return ready();
 }
+
+/** The longest a case here may take: a grace, and room for a loaded machine. */
+const CASE_MS = 30_000;
 
 describe("pi-fence's child", () => {
 	const left: number[] = [];
@@ -315,36 +338,88 @@ describe("pi-fence's child", () => {
 		}
 	});
 
+	/** Runs `sleep 300` in the background of `before`, and the sleeper's pid once it runs. */
+	async function sleeping(before = "", how = {}) {
+		const pidFile = join(root, "sleeper.pid");
+		const ran = child(`${before}sleep 300 & echo $! > '${pidFile}'; wait`, how);
+		left.push(ran.pid);
+		// Read once written whole: an empty file reads as pid 0, and a
+		// signal to 0 is a signal to the test's own process group.
+		const sleeperPid = () =>
+			existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : 0;
+		const started = await waitFor(() => sleeperPid() > 1, 10_000);
+		expect(started, "the command started its sleeper").toBe(true);
+		const sleeper = sleeperPid();
+		left.push(sleeper);
+		return { ran, sleeper };
+	}
+
 	it("ends with the command's own status", async () => {
-		expect(await child("exit 7").ended).toBe(7);
+		expect(await child("exit 7").ended).toEqual({ code: 7, signal: null });
+	});
+
+	it("says bash didn't start, with 126", async () => {
+		const ran = child("true", { path: root });
+		expect(await ran.ended).toEqual({ code: 126, signal: null });
+		expect(ran.err()).toMatch(/^pi-fence: bash didn't start: /u);
 	});
 
 	// On 17 November a timed-out run on the Mac left its sandboxed command
 	// running: the signal ended pi-fence alone (ISXEG8, slice 2).
-	it.each([
-		["SIGTERM", 15],
-		["SIGHUP", 1],
-		["SIGALRM", 14],
-		["SIGINT", 2],
-	] as const)(
-		"ends what its command started when told %s",
-		async (signal, number) => {
-			const pidFile = join(root, "sleeper.pid");
-			const ran = child(`sleep 300 & echo $! > '${pidFile}'; wait`);
-			// Read once written whole: an empty file reads as pid 0, and a
-			// signal to 0 is a signal to the test's own process group.
-			const sleeperPid = () =>
-				existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : 0;
-			const started = await waitFor(() => sleeperPid() > 1, 10_000);
-			expect(started, "the command started its sleeper").toBe(true);
-			const sleeper = sleeperPid();
-			left.push(sleeper);
+	it.each(["SIGTERM", "SIGHUP", "SIGALRM", "SIGINT"] as const)(
+		"ends what its command started when told %s, and dies by it",
+		async (signal) => {
+			const { ran, sleeper } = await sleeping();
 
 			process.kill(ran.pid, signal);
 
-			expect(await ran.ended).toBe(128 + number);
+			expect(await ran.ended).toEqual({ code: null, signal });
 			const gone = await waitFor(() => !there(sleeper), 5000);
 			expect(gone, `the sleeper ${sleeper} ended with pi-fence`).toBe(true);
 		},
+		CASE_MS,
+	);
+
+	// pi's bash tool ends a command with SIGKILL to its process group,
+	// which no handler hears, and a Mac's sandbox doesn't die with its parent.
+	it(
+		"ends what its command started once killed outright",
+		async () => {
+			const { ran, sleeper } = await sleeping();
+
+			process.kill(ran.pid, "SIGKILL");
+
+			expect(await ran.ended).toEqual({ code: null, signal: "SIGKILL" });
+			const gone = await waitFor(() => !there(sleeper), 5000);
+			expect(gone, `the sleeper ${sleeper} ended with pi-fence`).toBe(true);
+		},
+		CASE_MS,
+	);
+
+	it(
+		"ends what its command started once its whole process group is killed",
+		async () => {
+			const { ran, sleeper } = await sleeping("", { grouped: true });
+
+			process.kill(-ran.pid, "SIGKILL");
+
+			const gone = await waitFor(() => !there(sleeper), 5000);
+			expect(gone, `the sleeper ${sleeper} ended with pi-fence`).toBe(true);
+		},
+		CASE_MS,
+	);
+
+	it(
+		"kills a command that ignores the signal it was told, after a grace",
+		async () => {
+			const { ran, sleeper } = await sleeping("trap '' TERM; ");
+
+			process.kill(ran.pid, "SIGTERM");
+
+			expect(await ran.ended).toEqual({ code: null, signal: "SIGTERM" });
+			const gone = await waitFor(() => !there(sleeper), 5000);
+			expect(gone, `the sleeper ${sleeper} ended with pi-fence`).toBe(true);
+		},
+		CASE_MS,
 	);
 });

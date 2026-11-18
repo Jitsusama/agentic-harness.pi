@@ -4,80 +4,127 @@
  *
  * On 17 November a timed-out run on the Mac left its sandboxed command
  * running: the caller's signal ended pi-fence alone, since it waited on
- * the shell synchronously and could hear nothing. So the shell now runs
- * in a process group of its own, and the signals a caller ends a run
- * with (SIGTERM, SIGHUP, SIGALRM, SIGINT) are passed to that whole
- * group: the shell, the sandbox and everything the command started,
- * which a shell with no job control keeps in its group. Such a shell
- * starts its background commands ignoring SIGINT, so once the shell has
- * ended by a signal passed on, what is left of its group is sent
- * SIGTERM: the run is over. pi-fence then ends as the command did.
+ * the shell synchronously and could hear nothing, and sandbox-exec,
+ * unlike bubblewrap, doesn't die with its parent. So the shell now runs
+ * in a session and process group of its own, which a shell with no job
+ * control keeps everything it starts in: the sandbox and the command.
  *
- * Run from a terminal, the shell stays in pi-fence's group, the
- * terminal's foreground one, so it can still read the keyboard; the
- * terminal sends Ctrl-C to everyone in that group already, so only the
- * other signals are passed on, to the shell alone. A command that leaves
- * its group on purpose (setsid) is past this, as past any group signal.
+ * Two things end that group. The signals a caller ends a run with
+ * (SIGTERM, SIGHUP, SIGALRM, SIGINT) are passed on to it; one that
+ * hasn't ended the shell within a grace is followed by SIGKILL, so a
+ * command that ignores it can't keep the run going. And a watcher in
+ * the group holds a pipe from pi-fence: once pi-fence is gone, however
+ * it went, SIGKILL to its process group included, the pipe closes and
+ * the watcher kills the group, as bubblewrap's --die-with-parent does
+ * on Linux. So nothing a run started outlives it, the command's own
+ * background work included. pi-fence then ends as the command did, or,
+ * ended by a caller's signal, dies by that same signal, so a calling
+ * shell sees Ctrl-C as Ctrl-C.
+ *
+ * Run from a terminal (any of the standard streams on one), the shell
+ * stays in pi-fence's group, the terminal's foreground one, so it can
+ * still read the keyboard and /dev/tty; a new session would lose them.
+ * There no watcher runs, since that group holds the rest of the
+ * person's pipeline, and ending signals go to the shell alone: Ctrl-C
+ * already reaches the whole group. A command that leaves its group on
+ * purpose (setsid), or ends the watcher, is past all of this.
  */
 
 import { spawn } from "node:child_process";
 import { constants } from "node:os";
+import { isatty } from "node:tty";
 
 /** The status a signal's end gives, as a shell reports it. */
 const SIGNALLED = 128;
 
-/** The status a command that ends with neither a status nor a signal gives. */
-const UNKNOWN_END = 1;
+/** The status a command that ends with neither a status nor a signal gives, as pi-fence's own refusals. */
+const UNKNOWN_END = 126;
 
 /** The signals a caller ends a run with, passed on to the command. */
 const ENDING = ["SIGTERM", "SIGHUP", "SIGALRM", "SIGINT"] as const;
 
+/** How long a command has to end once told, before it is killed. */
+export const GRACE_MS = 5000;
+
+/**
+ * What the shell runs first, outside the sandbox: a watcher that waits
+ * for the pipe on descriptor 3 to close, which happens only when
+ * pi-fence is gone, and then kills its own process group (`kill 0`).
+ * The command itself runs without that descriptor.
+ */
+const WATCHER =
+	"{ read -r _ <&3; kill -KILL 0; } </dev/null >/dev/null 2>&1 3<&3 &\nexec 3<&-\n";
+
 /** How a fenced command's shell ended, or why it never started. */
-export type ChildEnd = { readonly code: number } | { readonly error: string };
+export type ChildEnd =
+	| { readonly code: number }
+	| { readonly signal: NodeJS.Signals }
+	| { readonly error: string };
 
 /**
  * Run `text` with bash in `folder`, wiring its stdio to this process's,
  * and pass on each ending signal this process hears until the shell ends.
  */
 export function runForwarding(text: string, folder: string): Promise<ChildEnd> {
-	const fromTerminal = process.stdin.isTTY === true;
-	const shell = spawn("bash", ["-c", text], {
+	const fromTerminal = [0, 1, 2].some((fd) => isatty(fd));
+	const shell = spawn("bash", ["-c", fromTerminal ? text : WATCHER + text], {
 		cwd: folder,
-		stdio: "inherit",
+		stdio: fromTerminal ? "inherit" : ["inherit", "inherit", "inherit", "pipe"],
 		detached: !fromTerminal,
 	});
-	let passed = false;
-	const signalGroup = (signal: NodeJS.Signals) => {
+	// The pipe's far end closes when the watcher ends with the group.
+	shell.stdio[3]?.on("error", () => undefined);
+	let told: NodeJS.Signals | undefined;
+	let grace: NodeJS.Timeout | undefined;
+	const signal = (sent: NodeJS.Signals) => {
 		if (shell.pid === undefined) return;
 		try {
-			process.kill(fromTerminal ? shell.pid : -shell.pid, signal);
+			process.kill(fromTerminal ? shell.pid : -shell.pid, sent);
 		} catch {
 			// The group ended before the signal: nothing is left to end.
 		}
 	};
-	const passOn = (signal: NodeJS.Signals) => {
+	const passOn = (sent: NodeJS.Signals) => {
 		if (shell.exitCode !== null || shell.signalCode !== null) return;
-		passed = true;
-		// From a terminal, Ctrl-C reached the shell's group already.
-		if (fromTerminal && signal === "SIGINT") return;
-		signalGroup(signal);
+		told ??= sent;
+		signal(sent);
+		grace ??= setTimeout(() => signal("SIGKILL"), GRACE_MS);
 	};
-	for (const signal of ENDING) process.on(signal, passOn);
+	for (const sent of ENDING) process.on(sent, passOn);
 	const stopPassing = () => {
-		for (const signal of ENDING) process.off(signal, passOn);
+		for (const sent of ENDING) process.off(sent, passOn);
+		clearTimeout(grace);
 	};
 	return new Promise((done) => {
 		shell.once("error", (error) => {
 			stopPassing();
 			done({ error: error.message });
 		});
-		shell.once("exit", (code, signal) => {
+		shell.once("exit", (code, by) => {
 			stopPassing();
-			if (passed && !fromTerminal) signalGroup("SIGTERM");
-			const number = signal ? constants.signals[signal] : undefined;
+			// What the command left running is told to end; the watcher
+			// kills whatever is left once pi-fence has gone.
+			if (told && !fromTerminal) signal("SIGTERM");
+			if (told && by) return done({ signal: told });
+			const number = by ? constants.signals[by] : undefined;
 			done({
 				code: number === undefined ? (code ?? UNKNOWN_END) : SIGNALLED + number,
 			});
 		});
 	});
+}
+
+/**
+ * End this process as a fenced command's shell ended: with its status,
+ * by the caller's signal that ended it, or saying why it never started.
+ */
+export function endAs(end: ChildEnd): never {
+	if ("error" in end) {
+		process.stderr.write(`pi-fence: bash didn't start: ${end.error}\n`);
+		return process.exit(UNKNOWN_END);
+	}
+	if ("code" in end) return process.exit(end.code);
+	// With no listener left, the signal ends this process as it would have.
+	process.kill(process.pid, end.signal);
+	return process.exit(SIGNALLED + constants.signals[end.signal]);
 }

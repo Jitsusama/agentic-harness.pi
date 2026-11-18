@@ -67,6 +67,10 @@ refusal leaves in the system's log, and its one exemption.
   folder whose writes would reach what runs outside
   (`scripts/pi-fence.ts`). On a Mac it runs the command under
   sandbox-exec instead.
+- **`fence-child.ts`**: pi-fence's run of that command, in a group
+  of its own that ends with pi-fence however pi-fence ends, a caller's
+  signal or a kill outright, since a Mac's sandbox doesn't die with
+  its parent as bubblewrap does.
 - **`fence-seatbelt.ts`**: the fence on a Mac: the same mounts as
   a sandbox-exec profile, rule for rule, mach services allowed only
   by name, its own processes, the sockets and ports it is given, and
