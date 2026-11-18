@@ -86,8 +86,8 @@ export interface Said {
 
 /**
  * Whether `message` has the one shape a receptor's signal takes: an fyi
- * to its own source's network and nobody else, answering, replacing,
- * ending and inviting nothing. The node's record holds no `pid`,
+ * to its own source's network, or to the one cell it feeds, and nobody
+ * else, answering, replacing, ending and inviting nothing. The node's record holds no `pid`,
  * `invite` or `hosted`, so what it can't vouch for has to be what a
  * signal never has, or a planted file could reuse a real signal's words
  * to ask a question, withdraw a message or reach every session. Where
@@ -99,7 +99,8 @@ function signalShaped(message: Message): boolean {
 	return (
 		message.intent === "fyi" &&
 		message.to.length === 1 &&
-		message.to[0] === `#outside/${source}` &&
+		(message.to[0] === `#outside/${source}` ||
+			ONE_CELL.test(message.to[0] ?? "")) &&
 		message.re === undefined &&
 		message.supersedes === undefined &&
 		message.endsHold === undefined &&
@@ -110,12 +111,21 @@ function signalShaped(message: Message): boolean {
 }
 
 /**
- * The group a receptor named `from` says its signal on, as the node
- * names it: `github@kestrel` says on `#outside/github`, which the node
- * holds as `outside.github` (mycelium's src/mesh.rs, `group_for`).
+ * The one cell a receptor feeds, by its address: the node says a change
+ * to the cell whose quest claims it, and to nobody else.
  */
-function groupOf(from: string): string {
-	return `outside.${from.slice(0, from.indexOf("@")).toLowerCase()}`;
+const ONE_CELL = /^@[A-Za-z0-9]+$/;
+
+/**
+ * The group the node holds a message to `target` as: `#outside/github`
+ * as `outside.github`, and `@4UHC5Q` as `peer.4uhc5q` (mycelium's
+ * src/mesh.rs, `group_for`).
+ */
+function groupOf(target: string): string {
+	const name = target.startsWith("@")
+		? `peer.${target.slice(1)}`
+		: target.slice(1).replaceAll("/", ".");
+	return name.toLowerCase();
 }
 
 /** Whether the node's `held` record is `message` as a signal says it. */
@@ -126,7 +136,7 @@ function heldAsSaid(message: Message, held: Said | undefined): boolean {
 		held.text === message.text &&
 		held.at === message.at &&
 		held.groups?.length === 1 &&
-		held.groups[0] === groupOf(message.from) &&
+		held.groups[0] === groupOf(message.to[0] ?? "") &&
 		held.intent === "fyi" &&
 		held.re === undefined &&
 		held.supersedes === undefined &&

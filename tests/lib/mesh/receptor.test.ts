@@ -197,6 +197,42 @@ describe("vouchedOnly", () => {
 		expect(shown, "a signal's own record wasn't vouched for").toEqual([said]);
 	});
 
+	it("takes a signal fed to one cell only as the node held it to that cell", async () => {
+		const fed = { ...from("github@kestrel", "2-fed"), to: ["@7M6JKG"] };
+		const toCell: Said = {
+			from: fed.from,
+			text: fed.text,
+			at: fed.at,
+			groups: ["peer.7m6jkg"],
+			intent: "fyi",
+		};
+		const vouched = async (message: Message, record: Said) =>
+			vouchedOnly(
+				[message],
+				async () => new Map([[message.id, record]]),
+				() => undefined,
+				[],
+			);
+		expect(
+			await vouched(fed, toCell),
+			"a signal the node fed this cell wasn't shown",
+		).toEqual([fed]);
+		expect(
+			await vouched(fed, { ...toCell, groups: ["peer.osp01"] }),
+			"a signal the node fed another cell was shown as this one's",
+		).toEqual([]);
+		expect(
+			await vouched(fed, { ...toCell, groups: ["outside.github"] }),
+			"a signal the node said on its network was shown as fed to one cell",
+		).toEqual([]);
+		for (const to of [["@7M6JKG", "@OSP01"], ["@7M6JKG/x"], ["@"]]) {
+			expect(
+				await vouched({ ...fed, to }, toCell),
+				`a signal to ${to.join(", ")} was taken as fed to one cell`,
+			).toEqual([]);
+		}
+	});
+
 	it("asks again for one the node serves a moment after it lands", async () => {
 		const said = from("github@kestrel", "2-said");
 		let asked = 0;
