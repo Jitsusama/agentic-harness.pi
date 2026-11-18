@@ -176,10 +176,11 @@ describe("a carried call taken up and never said", () => {
 		// Removed off the loop, so just after.
 		await vi.waitFor(() => {
 			for (const work of [exited, lost])
-				expect(
-					existsSync(`${work.keep}.carried`),
-					"its files go once said",
-				).toBe(false);
+				for (const suffix of [".carried", ".end", ".pid", ".out"])
+					expect(
+						existsSync(`${work.keep}${suffix}`),
+						`its ${suffix} goes once said`,
+					).toBe(false);
 		});
 	});
 });

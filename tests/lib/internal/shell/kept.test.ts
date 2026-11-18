@@ -213,6 +213,10 @@ describe("a kept call", () => {
 		});
 		look();
 		await removing;
+		expect(
+			left.some((names) => names.length > 0 && names.length < 5),
+			"seen partway through",
+		).toBe(true);
 		const marked = left.filter(
 			(names) => names.includes(".job") || names.includes("ried"),
 		);
@@ -220,6 +224,16 @@ describe("a kept call", () => {
 			marked.filter((names) => !names.includes(".end")),
 			"marked to take up, its status gone",
 		).toEqual([]);
+	});
+
+	it("leaves its status where a mark won't go, so it still reads as ended", async () => {
+		const where = folder();
+		const path = await makeKept(where);
+		writeFileSync(`${path}.end`, "0\n");
+		mkdirSync(`${path}.carried`);
+		writeFileSync(join(`${path}.carried`, "inside"), "");
+		await expect(removeKept(path)).resolves.toBeUndefined();
+		expect(endOf(path), "its status, for whatever finds the mark").toBe(0);
 	});
 
 	it("says nothing when removed twice", async () => {
@@ -232,11 +246,13 @@ describe("a kept call", () => {
 	it("removes what it can and says nothing of a file it can't", async () => {
 		const where = folder();
 		const path = await makeKept(where);
-		mkdirSync(`${path}.old`);
-		writeFileSync(join(`${path}.old`, "inside"), "");
+		rollIfFull(path, 0);
+		rmSync(`${path}.end`);
+		mkdirSync(`${path}.end`);
+		writeFileSync(join(`${path}.end`, "inside"), "");
 		await expect(removeKept(path)).resolves.toBeUndefined();
 		expect(readdirSync(where), "only what it couldn't").toEqual([
-			`${path.split("/").at(-1)}.old`,
+			`${path.split("/").at(-1)}.end`,
 		]);
 	});
 
@@ -278,6 +294,24 @@ describe("a kept call", () => {
 		);
 		await sweepKeptNowAndThen(where, start + 60 * 60 * 1000);
 		expect(readdirSync(where), "one an hour on sweeps again").toEqual([]);
+	});
+
+	it("begins one sweep for starts that come while it runs", async () => {
+		const where = folder();
+		await makeKept(where);
+		const start = Date.now();
+		const settled: string[] = [];
+		const first = sweepKeptNowAndThen(where, start).then(() =>
+			settled.push("first"),
+		);
+		const second = sweepKeptNowAndThen(where, start + 1).then(() =>
+			settled.push("second"),
+		);
+		await Promise.all([first, second]);
+		expect(settled, "the second has nothing to wait for").toEqual([
+			"second",
+			"first",
+		]);
 	});
 
 	it("is swept again once the clock steps back past its last sweep", async () => {
