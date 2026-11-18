@@ -471,10 +471,15 @@ describe("runHost's watchdog", () => {
 			watched.beats[0]?.env.NOTIFY_SOCKET,
 			"in the environment naming systemd's socket",
 		).toBe(socket.NOTIFY_SOCKET);
+		const unbeaten = await serve(WATCHED);
 		expect(
-			(await serve(WATCHED)).beats,
+			unbeaten.beats,
 			"watched, but unbeaten, where systemd names no socket",
 		).toEqual([undefined]);
+		expect(
+			unbeaten.profiles[0]?.folder,
+			"a spin profiled there all the same",
+		).toBe(folder);
 		expect(watched.running, "watched once while serving").toEqual({
 			started: 1,
 			stopped: 0,

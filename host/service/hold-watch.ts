@@ -85,6 +85,12 @@ const PROFILES_KEPT = 3;
 /** The largest profile kept, in bytes. */
 const PROFILE_MOST_BYTES = 16 * 1024 * 1024;
 
+/**
+ * How long the main thread has to answer a profiler's message, in ms: one
+ * in native code, as a synchronous spawn, answers only once it is back.
+ */
+const PROFILE_ANSWER_MS = 10_000;
+
 /** How a beat is told to systemd: as the loop's own are. */
 const BEAT_COMMAND: readonly string[] = ["systemd-notify", "WATCHDOG=1"];
 
@@ -226,6 +232,8 @@ export interface ProfileOptions {
 	readonly keep?: number;
 	/** The largest profile kept, in bytes; PROFILE_MOST_BYTES by default. */
 	readonly most?: number;
+	/** How long the main thread has to answer each message, in ms; PROFILE_ANSWER_MS by default. */
+	readonly answer?: number;
 }
 
 /** How the thread beats systemd's watchdog for a loop asleep in the disk. */
@@ -272,7 +280,8 @@ interface Watched {
 const PROGRAM = `
 const { workerData } = require("node:worker_threads");
 const { spawn } = require("node:child_process");
-const { mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, rmSync, writeFileSync, writeSync } = require("node:fs");
+const { openSync, readFileSync, readSync, readlinkSync, writeSync } = require("node:fs");
+const { mkdir, readdir, rm, writeFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const { ticks, fd, every, after, still, pid, clock, home, calls, proc, beat, profile } = workerData;
 const count = new Int32Array(ticks);
@@ -495,19 +504,20 @@ const beatFor = (hold, now, held) => {
 	helper.stdin.write("\\n");
 };
 // Profile the main thread through a long spin, as the header of
-// hold-watch.ts says. A message the main thread never answers, as one
-// asleep in the kernel wouldn't, gives up at its time rather than
-// leaving the session open.
+// hold-watch.ts says. A message the main thread doesn't answer in its
+// time, as one in native code wouldn't, gives up rather than leaving the
+// session open.
 const SAMPLE_US = 1000;
-const ANSWER_MS = 10_000;
 const TOP = 5;
 const CALLERS = 5;
 const located = (frame) => {
-	const name = frame.functionName || "(anonymous)";
+	// A function's name is the code's, which says anything it likes.
+	const name = plain(frame.functionName || "(anonymous)");
 	if (!frame.url) return name;
 	return name + " (" + shortened(frame.url.replace(/^file:\\/\\//, "")) + ":" + (frame.lineNumber + 1) + ":" + (frame.columnNumber + 1) + ")";
 };
-// The frames that took the most samples, and the busiest one's callers.
+// The frames that took the most samples, and the busiest one's callers,
+// along the one call path that sampled it most.
 const busiest = (taken) => {
 	const nodes = new Map(taken.nodes.map((node) => [node.id, node]));
 	const parents = new Map();
@@ -518,7 +528,8 @@ const busiest = (taken) => {
 	for (const [id, times] of counts) {
 		const said = located(nodes.get(id).callFrame);
 		const was = byFrame.get(said);
-		byFrame.set(said, { times: (was?.times ?? 0) + times, id: was && was.times > times ? was.id : id });
+		const mine = !was || times > was.most;
+		byFrame.set(said, { times: (was?.times ?? 0) + times, id: mine ? id : was.id, most: mine ? times : was.most });
 	}
 	const total = taken.samples.length;
 	const top = [...byFrame].sort((a, b) => b[1].times - a[1].times).slice(0, TOP);
@@ -532,24 +543,29 @@ const busiest = (taken) => {
 	}
 	return "most in " + frames + (callers.length > 0 ? "; the busiest called from " + callers.join(" < ") : "");
 };
-// Keep a profile under the folder, the newest few, and say where.
-const kept = (taken) => {
+// Keep a profile under the folder, the newest few, and say where. The
+// disk is written without waiting on it, so a slow disk never holds the
+// beats beside it. A file already at its name, a link included, is left
+// alone, and pruning never takes the one just kept, whatever the clock.
+const kept = async (taken) => {
 	const text = JSON.stringify(taken);
-	if (text.length > profile.most) return "its profile, " + Math.round(text.length / 1024) + " KB, is too large to keep";
-	mkdirSync(profile.folder, { recursive: true });
+	const bytes = Buffer.byteLength(text);
+	if (bytes > profile.most) return "its profile, " + Math.round(bytes / 1024) + " KB, is too large to keep";
+	await mkdir(profile.folder, { recursive: true, mode: 0o700 });
 	const name = "held-" + new Date().toISOString().replace(/[:.]/g, "-") + ".cpuprofile";
-	writeFileSync(join(profile.folder, name), text, { mode: 0o600 });
-	const all = readdirSync(profile.folder).filter((file) => /^held-.*\\.cpuprofile$/.test(file)).sort();
-	for (const old of all.slice(0, Math.max(0, all.length - profile.keep))) rmSync(join(profile.folder, old), { force: true });
+	await writeFile(join(profile.folder, name), text, { mode: 0o600, flag: "wx" });
+	const others = (await readdir(profile.folder)).filter((file) => file !== name && /^held-.*\\.cpuprofile$/.test(file)).sort();
+	for (const old of others.slice(0, Math.max(0, others.length - (profile.keep - 1)))) await rm(join(profile.folder, old), { force: true });
 	return "kept in " + shortened(join(profile.folder, name));
 };
-const profileFor = (hold, held) => {
-	if (!profile || hold.profiled || !hold.running || held < profile.after) return;
-	hold.profiled = true;
+const failure = (error) => (error instanceof Error ? error.message : String(error));
+const profileFor = (held, into) => {
+	if (!profile || held.profiled || !held.running || into < profile.after) return;
+	held.profiled = true;
 	let session;
 	const post = (method, params) =>
 		new Promise((ok, fail) => {
-			const late = setTimeout(() => fail(new Error("the main thread didn't answer " + method + " in " + seconds(ANSWER_MS) + " s")), ANSWER_MS);
+			const late = setTimeout(() => fail(new Error("the main thread didn't answer " + method + " in " + seconds(profile.answer) + " s")), profile.answer);
 			session.post(method, params ?? {}, (error, answer) => {
 				clearTimeout(late);
 				if (error) fail(error);
@@ -566,15 +582,23 @@ const profileFor = (hold, held) => {
 			await post("Profiler.start");
 			await new Promise((done) => setTimeout(done, profile.for));
 			const { profile: taken } = await post("Profiler.stop");
+			// A loop that moved again was sampled partly after its hold.
+			const outlived = hold === held ? "" : "; the loop moved again before it ended, so some samples are from after the hold";
 			let where;
 			try {
-				where = kept(taken);
+				where = await kept(taken);
 			} catch (error) {
-				where = "its profile couldn't be kept: " + (error instanceof Error ? error.message : String(error));
+				where = "its profile couldn't be kept: " + failure(error);
 			}
-			say("profiled the held loop's main thread for " + seconds(profile.for) + " s, " + seconds(held) + " s into the hold: " + busiest(taken) + "; " + where);
+			let most;
+			try {
+				most = busiest(taken);
+			} catch (error) {
+				most = "its samples couldn't be read: " + failure(error);
+			}
+			say("profiled the held loop's main thread for " + seconds(profile.for) + " s, " + seconds(into) + " s into the hold: " + most + outlived + "; " + where);
 		} catch (error) {
-			say("couldn't profile the held loop's main thread: " + (error instanceof Error ? error.message : String(error)));
+			say("couldn't profile the held loop's main thread: " + failure(error));
 		} finally {
 			try {
 				session?.disconnect();
@@ -652,6 +676,7 @@ export function watchHolds(options: HoldWatchOptions = {}): () => void {
 			for: options.profile.for ?? PROFILE_FOR_MS,
 			keep: options.profile.keep ?? PROFILES_KEPT,
 			most: options.profile.most ?? PROFILE_MOST_BYTES,
+			answer: options.profile.answer ?? PROFILE_ANSWER_MS,
 		},
 	};
 	const thread = new Worker(PROGRAM, { eval: true, workerData: watched });

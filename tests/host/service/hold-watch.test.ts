@@ -14,6 +14,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -595,6 +596,9 @@ describe("watchHolds", () => {
 	});
 
 	describe("profiling a spin", () => {
+		/** How long three spins and their profiles may take, in ms. */
+		const THREE_SPINS_MS = 20_000;
+
 		/** The profiles kept so far, oldest first. */
 		const kept = (folder: string): string[] =>
 			existsSync(folder)
@@ -606,6 +610,20 @@ describe("watchHolds", () => {
 		/** The lines that say a profile was taken, or couldn't be. */
 		const profiled = (): string[] =>
 			said().filter((line) => /profil/.test(line));
+
+		/** A /proc of the main thread's own, saying only its `state`. */
+		const procIn = (state: string): string => {
+			const proc = join(dir, "proc");
+			const task = join(proc, "task", String(process.pid));
+			mkdirSync(task, { recursive: true });
+			const rest = Array.from({ length: 40 }, () => "0").join(" ");
+			writeFileSync(
+				join(task, "stat"),
+				`${process.pid} (node) ${state} ${rest}\n`,
+			);
+			writeFileSync(join(proc, "status"), "VmSwap:\t0 kB\n");
+			return proc;
+		};
 
 		it("profiles the main thread once a spin's hold is long, saying where it spun", async () => {
 			const folder = join(dir, "held");
@@ -629,10 +647,17 @@ describe("watchHolds", () => {
 				lines,
 				`one profile in one hold: ${lines.join(" | ")}`,
 			).toHaveLength(1);
+			// The spin's own name goes once V8 inlines it into its caller, as it
+			// does after the cases before; the file it was written in stays.
 			expect(lines[0], "the file it spun in").toContain("hold-watch.test.ts");
+			expect(lines[0], "sampled within the hold").not.toMatch(/moved again/);
 			const files = kept(folder);
 			expect(files, "the profile kept").toHaveLength(1);
 			expect(lines[0], "says where it is kept").toContain(files[0]);
+			expect(
+				statSync(join(folder, files[0] ?? "")).mode & 0o777,
+				"read by its owner alone",
+			).toBe(0o600);
 			const taken: unknown = JSON.parse(
 				readFileSync(join(folder, files[0] ?? ""), "utf8"),
 			);
@@ -642,7 +667,11 @@ describe("watchHolds", () => {
 			});
 		});
 
-		it("keeps only the newest profiles", async () => {
+		// Three spins of a second and a half each, and their turns between,
+		// pass vitest's 5 s on a busy machine, so this one has longer.
+		it("keeps only the newest profiles", {
+			timeout: THREE_SPINS_MS,
+		}, async () => {
 			const folder = join(dir, "held");
 			stop = watchHolds({
 				fd,
@@ -685,6 +714,68 @@ describe("watchHolds", () => {
 			expect(profiled()[0], "too large to keep").toMatch(/too large to keep/);
 			expect(kept(folder), "nothing kept").toEqual([]);
 		});
+
+		it.runIf(ON_LINUX)(
+			"profiles no hold short of its time, nor a thread asleep in the kernel",
+			async () => {
+				const folder = join(dir, "held");
+				const watch = (proc?: string) =>
+					watchHolds({
+						fd,
+						every: EVERY_MS,
+						after: 300,
+						still: 60_000,
+						...(proc !== undefined ? { proc } : {}),
+						profile: { after: 1500, for: 300, folder },
+					});
+				stop = watch();
+				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				hold(1000);
+				await vi.waitFor(() => {
+					expect(said().join("\n"), "the short hold ended").toMatch(
+						/the loop held /,
+					);
+				});
+				expect(profiled(), "no profile short of its time").toEqual([]);
+				stop();
+				stop = watch(procIn("D"));
+				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				hold(2500);
+				// Long enough for a profile begun at 1.5 s to have been said.
+				await new Promise((resolve) => setTimeout(resolve, 1000));
+				expect(profiled(), "no profile of a thread in D").toEqual([]);
+				expect(kept(folder), "nothing kept").toEqual([]);
+			},
+		);
+
+		it.runIf(ON_LINUX)(
+			"gives up on a main thread that doesn't answer, and says so",
+			async () => {
+				const folder = join(dir, "held");
+				// Said to be running while it waits in a synchronous spawn, which
+				// answers the inspector only once it is back.
+				stop = watchHolds({
+					fd,
+					every: EVERY_MS,
+					after: 300,
+					still: 60_000,
+					proc: procIn("R"),
+					profile: { after: 400, for: 300, folder, answer: 300 },
+				});
+				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				expect(
+					spawnSync("sleep", ["1.5"]).status,
+					"held in a native wait",
+				).toBe(0);
+				await vi.waitFor(() => {
+					expect(profiled(), "a profile said").toHaveLength(1);
+				});
+				expect(profiled()[0], "gave up on its answer").toMatch(
+					/couldn't profile the held loop's main thread: the main thread didn't answer Profiler\.enable in 0\.3 s/,
+				);
+				expect(kept(folder), "nothing kept").toEqual([]);
+			},
+		);
 	});
 
 	it("says nothing while the loop turns, nor once stopped", async () => {
