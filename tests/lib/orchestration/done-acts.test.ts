@@ -176,6 +176,25 @@ describe("a question asking the person for an act he has done", () => {
 				at(17, 0),
 			),
 		).toBeUndefined();
+		// Newest by its time, whatever order the record lists them in.
+		const listed = (reviews: PullRecord["reviews"]) =>
+			probes({ pull: { headOid: "head", reviews } });
+		const approval = { approved: true, at: at(15, 0), oid: "head" };
+		const changes = { approved: false, at: at(15, 30), oid: "head" };
+		expect(
+			await doneAlreadyRefusal(
+				`Can Joel approve ${PULL}?`,
+				listed([changes, approval]),
+				at(17, 0),
+			),
+		).toBeUndefined();
+		expect(
+			await doneAlreadyRefusal(
+				`Can Joel approve ${PULL}?`,
+				listed([{ ...changes, at: at(14, 0) }, approval]),
+				at(17, 0),
+			),
+		).toContain("he approved its newest commit at 15:00");
 	});
 
 	it("goes for a review he gave of an older commit, or one asked for again", async () => {
@@ -260,16 +279,24 @@ describe("a question asking the person for an act he has done", () => {
 			pull: () => Promise.reject(new Error("gh is signed out")),
 			posts: async () => undefined,
 		};
-		expect(
-			await doneAlreadyRefusal(`Can Joel merge ${PULL}?`, failing, at(17, 0)),
-		).toBeUndefined();
-		expect(
-			await doneAlreadyRefusal(
-				`Can Joel post the draft in ${CHANNEL}?`,
-				failing,
-				at(17, 0),
-			),
-		).toBeUndefined();
+		// Each ask is refused over records that read done, so only the
+		// unread record lets it through.
+		const done = probes({
+			pull: { mergedAt: at(16, 30), reviews: [] },
+			posts: [at(16, 30)],
+		});
+		for (const ask of [
+			`Can Joel merge ${PULL}?`,
+			`Can Joel post the draft in ${CHANNEL}?`,
+		]) {
+			expect(
+				await doneAlreadyRefusal(ask, failing, at(17, 0)),
+				ask,
+			).toBeUndefined();
+			expect(await doneAlreadyRefusal(ask, done, at(17, 0)), ask).toContain(
+				"already done at 16:30",
+			);
+		}
 	});
 
 	it("goes when it names no place to read, as most such asks are sound", async () => {
@@ -432,12 +459,61 @@ describe("a question asking the person for an act he has done", () => {
 			),
 		).toContain("already done at 19:23");
 		// A linked message asked to be posted elsewhere says nothing of its
-		// thread, so his comment under the draft proves nothing.
+		// thread, so his comment under the draft proves nothing, while the
+		// channel named beside it is still read.
+		const read: [string, string | undefined][] = [];
+		const asked = `Joel needs to post the draft at ${linkTo(at(19, 0))} in #delta-dev on Slack.`;
 		expect(
 			await doneAlreadyRefusal(
-				`Joel needs to post the draft at ${linkTo(at(19, 0))} in #delta-dev on Slack.`,
+				asked,
+				{
+					pull: async () => undefined,
+					posts: async (channel, thread) => {
+						read.push([channel, thread]);
+						return [at(19, 10)];
+					},
+				},
+				now,
+			),
+		).toContain("#delta-dev");
+		expect(read).toEqual([["#delta-dev", undefined]]);
+		expect(
+			await doneAlreadyRefusal(
+				`Joel needs to post the draft at ${linkTo(at(19, 0))}.`,
 				his([at(19, 10)]),
 				now,
+			),
+		).toBeUndefined();
+		// A draft time said beside his own linked reply still never counts it.
+		expect(
+			await doneAlreadyRefusal(
+				`Joel should post a reply to Sam under ${linkTo(at(19, 0), at(18, 0))}, drafted at 18:30. Ask him?`,
+				his([at(19, 0)]),
+				now,
+			),
+		).toBeUndefined();
+	});
+
+	it("still reads the 19:24 ask however it is worded", async () => {
+		const posted = probes({ posts: [at(19, 18, 29)] });
+		for (const ask of [
+			"The one thing left is Joel's posting the top-level Slack draft in #delta-dev. Can you ask him?",
+			"The one thing left is Joel\u2019s: posting the top-level Slack draft in #delta-dev.",
+			"Joel, the one thing left: it's posting the top-level draft in Slack's #delta-dev.",
+			"The one thing left is Joel's: posting the follow-up Slack draft in #delta-dev. Can you ask him?",
+			"Joel needs to post the draft about the fix in #delta-dev on Slack.",
+			`Joel's: posting the Slack draft in #delta-dev. Then he can review the fix for ${PULL}.`,
+		]) {
+			expect(await doneAlreadyRefusal(ask, posted, at(19, 24)), ask).toContain(
+				"already done at 19:18",
+			);
+		}
+		// A curly apostrophe makes a noun as a straight one does.
+		expect(
+			await doneAlreadyRefusal(
+				`Joel\u2019s merge of ${PULL} went in at 16:40; should I close the row?`,
+				probes({ pull: { mergedAt: at(16, 40), reviews: [] } }),
+				at(19, 24),
 			),
 		).toBeUndefined();
 	});
@@ -648,59 +724,64 @@ describe("the live probes", () => {
 		expect(await live.pull("a/b", 1)).toBeUndefined();
 	});
 
-	it("read Slack by search for a channel's name, by thread, or by history", async () => {
+	it("read Slack by search for a channel's name, by thread, or by history, under the judge's signal", async () => {
 		const calls: string[] = [];
+		const signals: AbortSignal[] = [];
 		const read = slackReadWith({
-			search: async (channel, after) => {
+			search: async (channel, after, signal) => {
 				calls.push(`search ${channel} after ${after}`);
+				signals.push(signal);
 				return [{ ts: "1.000000", user: "U1" }];
 			},
-			thread: async (channel, ts) => {
+			thread: async (channel, ts, signal) => {
 				calls.push(`thread ${channel} ${ts}`);
+				signals.push(signal);
 				return [];
 			},
-			history: async (channel, oldest) => {
+			history: async (channel, oldest, signal) => {
 				calls.push(`history ${channel} ${oldest}`);
+				signals.push(signal);
 				return [];
 			},
 		});
 		const oldest = `${at(19, 0) / 1000}.000000`;
-		expect(await read("#delta-dev", undefined, oldest)).toEqual([
+		const judge = new AbortController().signal;
+		expect(await read("#delta-dev", undefined, oldest, judge)).toEqual([
 			{ ts: "1.000000", user: "U1" },
 		]);
-		await read("C1", "2.000000", oldest);
-		await read("C1", undefined, oldest);
+		await read("C1", "2.000000", oldest, judge);
+		await read("C1", undefined, oldest, judge);
 		expect(calls).toEqual([
 			"search #delta-dev after 2026-11-15",
 			"thread C1 2.000000",
 			`history C1 ${oldest}`,
 		]);
+		expect(signals).toEqual([judge, judge, judge]);
 	});
 
-	it("stop each Slack read once the judge has given up on it", async () => {
-		const signals: AbortSignal[] = [];
-		const read = slackReadWith({
-			search: async (_channel, _after, signal) => {
-				signals.push(signal);
-				return [];
+	it("stop a Slack read once the judge has given up on it, sign-in included", async () => {
+		vi.useFakeTimers();
+		let stopped: AbortSignal | undefined;
+		const live = liveProbes(
+			async () => ({ code: 1, stdout: "", stderr: "" }),
+			async () => {
+				// A slow keyring takes most of the judge's time.
+				await new Promise((resolve) =>
+					setTimeout(resolve, PROBE_WITHIN_MS - 1),
+				);
+				return {
+					me: "U1",
+					read: (_channel, _thread, _oldest, signal) =>
+						new Promise((resolve) => {
+							stopped = signal;
+							signal.addEventListener("abort", () => resolve(undefined));
+						}),
+				};
 			},
-			thread: async (_channel, _ts, signal) => {
-				signals.push(signal);
-				return [];
-			},
-			history: async (_channel, _oldest, signal) => {
-				signals.push(signal);
-				return [];
-			},
-		});
-		const oldest = `${at(19, 0) / 1000}.000000`;
-		await read("#delta-dev", undefined, oldest);
-		await read("C1", "2.000000", oldest);
-		await read("C1", undefined, oldest);
-		expect(signals).toHaveLength(3);
-		for (const signal of signals) {
-			expect(signal).toBeInstanceOf(AbortSignal);
-			expect(signal.aborted).toBe(false);
-		}
+		);
+		const reading = live.posts("C1", undefined, at(19, 0));
+		await vi.advanceTimersByTimeAsync(PROBE_WITHIN_MS);
+		expect(stopped?.aborted).toBe(true);
+		expect(await reading).toBeUndefined();
 	});
 });

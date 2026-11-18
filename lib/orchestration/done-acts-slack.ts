@@ -22,8 +22,8 @@ function dayBefore(oldest: string): string {
 }
 
 /**
- * The three ways the judge reads Slack, each stopped by `signal` once the
- * judge has given up on it, so a read held up by Slack's rate limit stops
+ * The three ways the judge reads Slack, each stopped by the judge's
+ * `signal` once it has given up, so a read held up by Slack's rate limit stops
  * retrying rather than spending the token his own Slack tools use.
  */
 export interface SlackCalls {
@@ -52,8 +52,7 @@ export interface SlackCalls {
  * wants an id), a thread by its replies, and a channel by its history.
  */
 export function slackReadWith(calls: SlackCalls): SlackRead {
-	return async (channel, thread, oldest) => {
-		const signal = AbortSignal.timeout(PROBE_WITHIN_MS);
+	return async (channel, thread, oldest, signal) => {
 		if (channel.startsWith("#")) {
 			return calls.search(channel, dayBefore(oldest), signal);
 		}

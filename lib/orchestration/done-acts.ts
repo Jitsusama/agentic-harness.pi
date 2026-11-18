@@ -329,6 +329,7 @@ export type SlackRead = (
 	channel: string,
 	thread: string | undefined,
 	oldest: string,
+	signal: AbortSignal,
 ) => Promise<readonly SlackPost[] | undefined>;
 
 /** Whether a post is a reply in a thread, rather than at the top level. */
@@ -370,25 +371,47 @@ export function liveProbes(
 			}
 		},
 		async posts(channel, thread, since) {
-			const reader = await slack?.();
-			if (!reader) return undefined;
-			const messages = await reader.read(
-				channel,
-				thread,
-				(since / 1000).toFixed(6),
-			);
-			if (!messages) return undefined;
-			return messages
-				.filter(
-					(one) =>
-						one.user === reader.me &&
-						(thread === undefined ? !isReply(one) : one.ts !== thread),
-				)
-				.map((one) => Math.round(Number(one.ts) * 1000))
-				.filter((at) => at >= since)
-				.sort((a, b) => a - b);
+			// The judge's time starts before sign-in, so a slow keyring can't
+			// leave a read running past the moment the send stopped waiting.
+			const stop = new AbortController();
+			const timer = setTimeout(() => stop.abort(), PROBE_WITHIN_MS);
+			try {
+				const reader = await slack?.();
+				if (!reader || stop.signal.aborted) return undefined;
+				const messages = await reader.read(
+					channel,
+					thread,
+					(since / 1000).toFixed(6),
+					stop.signal,
+				);
+				if (!messages || stop.signal.aborted) return undefined;
+				return hisPosts(messages, reader.me, thread, since);
+			} finally {
+				clearTimeout(timer);
+			}
 		},
 	};
+}
+
+/**
+ * His posts' times among `messages`, at or after `since`: outside a
+ * thread only top-level ones, and in one never its parent.
+ */
+function hisPosts(
+	messages: readonly SlackPost[],
+	me: string,
+	thread: string | undefined,
+	since: number,
+): number[] {
+	return messages
+		.filter(
+			(one) =>
+				one.user === me &&
+				(thread === undefined ? !isReply(one) : one.ts !== thread),
+		)
+		.map((one) => Math.round(Number(one.ts) * 1000))
+		.filter((at) => at >= since)
+		.sort((a, b) => a - b);
 }
 
 /** An act of the person's hands a question can ask for. */
@@ -418,7 +441,7 @@ const ACTS: ReadonlyArray<readonly [Act, RegExp]> = [
  * "the review".
  */
 const NAMED_AS_A_THING =
-	/\b(the|a|an|this|that|his|her|their|its|my|our|your|[\w-]+'s)\s+$/i;
+	/\b(the|a|an|this|that|his|her|their|its|my|our|your|(?!(it|what|that|he|she|let|there|here|who|where)['\u2019]s\b)[\w-]+['\u2019]s)\s+$/i;
 
 /**
  * A pull request named as the thing another change answers, as in "the
@@ -508,8 +531,12 @@ function actsIn(sentence: string): Act[] {
 /** Whether `pattern` finds its act's word anywhere in `words` as a verb. */
 function asked(words: string, pattern: RegExp): boolean {
 	const every = new RegExp(pattern.source, "gi");
+	// A gerund after a possessive is still an ask: "Joel's posting the
+	// draft" is what's left for him to do.
 	return [...words.matchAll(every)].some(
-		(found) => !NAMED_AS_A_THING.test(words.slice(0, found.index)),
+		(found) =>
+			/^\w+ing\b/i.test(found[0]) ||
+			!NAMED_AS_A_THING.test(words.slice(0, found.index)),
 	);
 }
 
@@ -519,21 +546,19 @@ function draftedSince(
 	message: string | undefined,
 	now: number,
 ): number {
+	// The linked message is what he was asked to answer, never his answer.
+	const after = message ? Math.round(Number(message) * 1000) + 1 : 0;
 	const said = DRAFTED.exec(text);
 	if (said) {
 		const at = new Date(now);
 		at.setHours(Number(said[1]), Number(said[2]), 0, 0);
 		// A time later than now was yesterday's.
-		return at.getTime() > now ? at.getTime() - 86_400_000 : at.getTime();
+		const drafted =
+			at.getTime() > now ? at.getTime() - 86_400_000 : at.getTime();
+		return Math.max(drafted, after);
 	}
-	// The linked message is what he was asked to answer, never his answer,
-	// and a reply of his long before the ask answered something else.
-	if (message)
-		return Math.max(
-			Math.round(Number(message) * 1000) + 1,
-			now - DRAFT_WINDOW_MS,
-		);
-	return now - DRAFT_WINDOW_MS;
+	// A reply of his long before the ask answered something else.
+	return Math.max(after, now - DRAFT_WINDOW_MS);
 }
 
 /** A link and the act it can show done. */
@@ -569,18 +594,15 @@ function pullsIn(sentence: string, acts: readonly Act[]): Asked[] {
 }
 
 /** Where a post asked in `sentence` would be, as Slack links and channel names. */
-function postsIn(
-	sentence: string,
-	text: string,
-	now: number,
-): Asked[] | undefined {
+function postsIn(sentence: string, text: string, now: number): Asked[] {
 	const iso = (ms: number) => new Date(ms).toISOString();
-	const links = [...sentence.matchAll(SLACK)];
 	// A message's link asks for a reply in its thread only when the
 	// sentence asks for one; otherwise it may be the draft itself, whose
-	// thread says nothing of where it was posted.
-	if (links.some((found) => found[2]) && !REPLY.test(sentence))
-		return undefined;
+	// thread says nothing of where it was posted, so it isn't read.
+	const replying = REPLY.test(sentence);
+	const links = [...sentence.matchAll(SLACK)].filter(
+		(found) => replying || !found[2],
+	);
 	const linked = links.map((found): Asked => {
 		const message = found[2] ? `${found[2]}.${found[3]}` : undefined;
 		const thread =
@@ -621,13 +643,13 @@ export function doneWhensIn(text: string, now: number): Asked[] {
 	for (const sentence of sentencesOf(text)) {
 		const acts = actsIn(sentence);
 		if (acts.length === 0) continue;
-		// An ask about another change than the one linked, or a place that
-		// can't be read for it, leaves the text with nothing it can judge.
-		if (ANOTHER_CHANGE.test(sentence.replace(/https?:\/\/\S+/g, "URL")))
-			return [];
-		const posts = acts.includes("post") ? postsIn(sentence, text, now) : [];
-		if (!posts) return [];
-		asked.push(...pullsIn(sentence, acts), ...posts);
+		// An ask about another change than the one linked can't be judged
+		// at that link, though a post asked beside it still can.
+		const another = ANOTHER_CHANGE.test(
+			sentence.replace(/https?:\/\/\S+/g, "URL"),
+		);
+		if (!another) asked.push(...pullsIn(sentence, acts));
+		if (acts.includes("post")) asked.push(...postsIn(sentence, text, now));
 	}
 	const once = new Map(asked.map((one) => [JSON.stringify(one.when), one]));
 	return once.size > PROBES_AT_MOST ? [] : [...once.values()];
