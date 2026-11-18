@@ -177,6 +177,17 @@ pnpm test:browser    # the browser lane, which needs a Chrome
 pnpm exec vitest run <paths>   # the tests a change touches, as you go
 ```
 
+On optimus, from the checkout's top, run a typecheck or tests on
+paths as you go through `elsewhere run harness-check -- pnpm
+typecheck` (or `pnpm exec vitest run <paths>`), with no push. It goes
+far only from a quest session, to a machine with an agent fence as
+tight as optimus's, and else runs here. Only tracked, unhidden files
+travel, so check `git status` first, and whatever reads git or `.pi`
+runs here with `--here`, as do the tests that skip on the Mac, for
+being Linux-only or wanting a tool it lacks.
+[`docs/testing.md`](./docs/testing.md#sending-a-check-elsewhere) says
+what travels.
+
 Always run `lint:fix` first: Biome's fixes are safe here. Fix the
 code to satisfy the linter rather than suppressing a rule, and fix
 a failing type on the spot rather than excluding its file. There

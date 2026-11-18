@@ -27,6 +27,54 @@ includes root files such as `vitest.config.ts`, which sat
 outside it and held a real error while the project called
 itself clean.
 
+## Sending a Check Elsewhere
+
+On optimus, `elsewhere` runs a check as you go on whichever machine
+mycelium places it, without a push:
+
+```sh
+elsewhere where harness-check                   # where mycelium would place it, and why
+elsewhere run harness-check -- pnpm typecheck   # or: pnpm exec vitest run <paths>
+```
+
+It travels only from a session on a quest, through that quest's
+handover; with no quest it runs here. Run it from the checkout's top,
+since what travels is the folder it runs in: the files git tracks
+there, as they lie, so edits not yet committed go too. A new file goes
+only once `git add` tracks it. Otherwise it stays behind: code that
+needs it fails far as though the code were at fault, code that copes
+without it passes having checked less, and a file nothing reaches goes
+unchecked, a test file not run and a module not typechecked, so the
+far run passes without it unless every file named stayed behind. So
+look at `git status` before sending, and add the files you mean to
+send by name, not with `git add -A`, which would send scratch files
+too. Hidden files never travel, tracked or not: `.git`, `.pi/skills`
+and `.npmrc` stay here. The far side installs the packages from the
+lockfile with its own work toolchain's pnpm.
+
+So keep to here, with `--here`, anything that reads what stays behind:
+`tests/package` asks git for its files and reads `.pi/skills`, and
+`--changed` asks git what changed, so `pnpm test`, `pnpm test:unit`,
+`pnpm test:changed` and `pnpm check` all run here. Keep to here for
+Linux too: on the work Mac, every test that runs only on Linux, such
+as the fence's, the shell sandbox's and the host's, skips, so a pass
+there says nothing of them. The same goes for a test that skips where
+a tool it needs is missing, such as verify's npm runs.
+
+A run that fails far, its setup included, ends with that failure
+rather than running again here. Run it again with `--here`: a failure
+here too is the code's. One only far is a file left behind, the far
+machine, or code that fails only there, as on macOS or in a flaky
+test, so read the far failure before deciding which.
+
+An agent's run goes only to a machine that declares a fence for
+agents at least as tight as optimus's, and mycelium places it only
+among those: with none to take it, it runs on optimus and says why.
+The work Mac is the machine it is meant for, once it declares one.
+
+`pnpm check:there` stays the way to send the whole gate, for a pushed
+branch.
+
 ## Tests
 
 Library code under `lib/` has unit tests written with vitest.
