@@ -72,16 +72,26 @@ interface OpenRun {
 export class PiRuns {
 	private readonly parked: () => boolean;
 	private readonly within: Within;
+	private readonly next: () => void;
 	private session: HostRunningSession | undefined;
 	private holds = 0;
 	private open: OpenRun | undefined;
 	/** The stop signals of runs shown pi with no seam to open them, for the settle owed. */
 	private unseamed: (AbortSignal | undefined)[] | undefined;
 
-	/** Runs whose host is stopping once `parked` says so, each settle said `within`. */
-	constructor(parked: () => boolean, within: Within = (say) => say()) {
+	/**
+	 * Runs whose host is stopping once `parked` says so, each settle said
+	 * `within`, going on to `next` once pi's run settled, as pi's own run
+	 * goes on to words that wait: pi starts none for them after a host's.
+	 */
+	constructor(
+		parked: () => boolean,
+		within: Within = (say) => say(),
+		next: () => void = () => {},
+	) {
 		this.parked = parked;
 		this.within = within;
+		this.next = next;
 	}
 
 	/** Open runs in `session` from now on. */
@@ -113,6 +123,7 @@ export class PiRuns {
 			if (!open) return;
 			open.end();
 			await open.settled;
+			if (!this.parked()) this.next();
 		};
 	}
 

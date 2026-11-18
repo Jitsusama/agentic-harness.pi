@@ -134,6 +134,10 @@ export class HostedAgent {
 	private readonly piRuns = new PiRuns(
 		() => this.parked,
 		(say) => this.within(say),
+		() => {
+			// Words left queued once pi's run settled run next, as after pi's own; a run's failure shows in it.
+			if (this.hasQueuedMessages()) void this.continue().catch(() => undefined);
+		},
 	);
 
 	constructor(
@@ -326,18 +330,15 @@ export class HostedAgent {
 		if (messages.some((message) => isPersonWords({ type: "message", message })))
 			this.joelTyped = true;
 		if (this.active) {
-			// pi begins a run only while it holds none, so one under way here is durable's:
-			// the recovery's or durable's own. The words queue behind it as an early prompt's
-			// do. Refused, pi, idle by its own account, let job-workflow say its cut-off
-			// notice 335 times in one conversation; two resumes took 72 s (14 November).
+			// pi begins a run only while it holds none, so one under way is durable's. The words
+			// queue behind it as an early prompt's do; refused, pi, idle by its own account, let
+			// job-workflow say its cut-off notice 335 times; two resumes took 72 s (14 November).
 			if (await this.recovery.followCarriedOn(messages)) return;
 		} else if (!this.recovery.begun) {
-			// A prompt before the recovery, as an extension's start sends, begins
-			// it: durable refuses new words as busy while it holds a turn a
-			// restart cut off, and the words were lost (13 November).
-			await this.recover().catch(() => {
-				// The host reports the recovery's failure where it began it; the words go on.
-			});
+			// A prompt before the recovery, as an extension's start sends, begins it: durable refuses
+			// new words while it holds a turn a restart cut off, and they were lost (13 November).
+			// The host reports the recovery's failure where it began it; the words go on.
+			await this.recover().catch(() => undefined);
 			if (await this.recovery.followCarriedOn(messages)) return;
 		}
 		await this.runPromptMessages(messages);
@@ -345,9 +346,8 @@ export class HostedAgent {
 
 	async continue(): Promise<void> {
 		if (this.active) {
-			// pi continues only once its own prompt has ended, so a run under way here is
-			// durable's: the ask again for a request a restart cut off, begun as the recovery
-			// holding pi's words ended. Refused, words typed while it waited failed as the
+			// pi continues only once its prompt ended, so a run under way is durable's: the ask
+			// again for a request a restart cut off. Refused, words typed meanwhile failed as the
 			// agent already processing (15 November); followed, pi continues to its answer.
 			while (this.active) await this.active.promise;
 			if (
