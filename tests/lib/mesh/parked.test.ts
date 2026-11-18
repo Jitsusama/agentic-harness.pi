@@ -143,7 +143,10 @@ describe("waking a parked peer", () => {
 		});
 		const read = (id: string) => (id === pivot.id ? pivot : undefined);
 
-		expect(wakes(taken, parked, read, sender)).toBe(true);
+		expect(
+			wakes(taken, parked, read, sender),
+			"a parked orchestrator wakes for a landing answering its pivot",
+		).toBe(true);
 	});
 
 	it("wakes it for an answer to its question, however it was sent", () => {
