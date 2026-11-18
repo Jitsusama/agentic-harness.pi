@@ -52,12 +52,14 @@ const JUDGED_FOR_MS = 60_000;
 
 /**
  * How soon after its folder's last write a listing isn't kept. A file's
- * time comes from a coarse clock, a tick of up to 10 ms, and a folder's
- * size need not move when an entry is replaced, so a write in the tick
- * a listing was read in can leave the stamp as it was. Git calls such
- * an index entry racily clean, and checks it again.
+ * time comes from a coarse clock, and a folder's size need not move when
+ * an entry is replaced, so a write in the tick a listing was read in can
+ * leave the stamp as it was. Git calls such an index entry racily clean,
+ * and checks it again. As long as the quest documents' rule
+ * (lib/internal/quest/documents/parsed-file.ts), for filesystems whose
+ * tick is coarser still; a listing read within it costs one more read.
  */
-const RACY_MS = 100;
+const RACY_MS = 3_000;
 
 // The records each folder held when it was last read, for the whole
 // process and every copy of this module: every session in a host asks
@@ -72,6 +74,9 @@ const listings = processGlobal(
 
 /** Every record in `dir`, read with the trees still on disk. */
 function readListing(dir: string): Listing {
+	// Judged from before the read: a write landing while a slow read runs
+	// can share the stamp the read was keyed by.
+	const started = Date.now();
 	const written = writtenAt(dir);
 	const trees = createTreeMemory(dir)
 		.recall()
@@ -81,9 +86,8 @@ function readListing(dir: string): Listing {
 				? tree.sessions.filter((one): one is string => typeof one === "string")
 				: [],
 		}));
-	const judgedAt = Date.now();
-	const racy = written === undefined || judgedAt - written < RACY_MS;
-	return { trees, judgedAt, racy };
+	const racy = written === undefined || started - written < RACY_MS;
+	return { trees, judgedAt: Date.now(), racy };
 }
 
 /** When `dir` was last written, if it is there. */
@@ -101,8 +105,10 @@ function writtenAt(dir: string): number | undefined {
  * for the process while the folder's stamp holds: each record is written
  * beside it and renamed in, so a write moves the stamp, unless it falls
  * in the tick the listing was read in, which is why a listing read just
- * after a write isn't kept. Trees are looked for again once the listing
- * is a minute old.
+ * after a write isn't kept. A record edited in place, as the broker never
+ * writes one, moves no stamp and isn't seen until the next write. Trees
+ * are looked for again once the listing is a minute old. Callers keep no
+ * listing of their own: this one is already kept, and its rules are here.
  */
 export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
 	const listing = readStamped(listings, dir, readListing);
