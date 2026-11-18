@@ -27,8 +27,9 @@
  * reason on the host's error output, as the node logs it. The
  * node keeps the word only while it runs, so spawner.ts says it again
  * every 30 seconds while the spawner runs. Where the
- * node isn't there, or doesn't know the word, nothing is said and the
- * spawner's commands are told no session, as before. With no /proc, as
+ * node isn't there, nothing is said and the spawner's commands are told
+ * no session, as before; one that doesn't know the word refuses it, and
+ * that refusal is said like any other. With no /proc, as
  * on a Mac, there is no tick to read, and nothing is said. A command a
  * host's restart keeps runs on under a spawner the next host didn't
  * start, and so is told no session from then on.
@@ -103,20 +104,28 @@ export async function registerSpawner(
 		patience,
 	);
 	const why = refusalIn(answer);
-	if (why === undefined || saidRefusals.has(why)) return;
-	if (saidRefusals.size >= REFUSALS_SAID) return;
-	saidRefusals.add(why);
+	if (why === undefined) return;
+	// A spawner's pid, or the session, makes no reason of its own.
+	const reason = why.split(session).join("").replace(/\d+/g, "");
+	if (saidRefusals.has(reason) || saidRefusals.size >= REFUSALS_SAID) return;
+	saidRefusals.add(reason);
+	// Whoever answers on the socket wrote it, so only its printable
+	// characters reach the host's journal, and only so many of them.
+	const said = why.replace(/\p{Cc}/gu, "?").slice(0, REFUSAL_CHARS);
 	(options.say ?? ((line) => process.stderr.write(line)))(
-		`pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: ${why}\n`,
+		`pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: ${said}\n`,
 	);
 }
 
+/** How much of a refusal's reason is said, at most. */
+const REFUSAL_CHARS = 300;
+
 /**
  * The reasons a node refused the word, each said once on the host's
- * error output, as the node says each once in its own log. A refusal of
- * the host itself, as for its inspector, names no session, so a host's
- * conversations share it; one naming a spawner or a session is said
- * once each, up to REFUSALS_SAID.
+ * error output, as the node says each once in its own log. A reason is
+ * kept without its numbers or the session, so refusals of one spawner
+ * after another, or of one conversation after another, count as one,
+ * and the node's few reasons never fill REFUSALS_SAID.
  */
 const saidRefusals = new Set<string>();
 

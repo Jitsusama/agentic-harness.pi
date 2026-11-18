@@ -73,7 +73,7 @@ describe.skipIf(process.platform !== "linux")(
 			await ran;
 
 			expect(session, "the session it was told").toBe("s-one");
-			// The start is /proc's 22nd field, the first 20 after the name.
+			// The start is /proc's 22nd field, the twentieth after the name.
 			const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
 			expect(started, "the start it was told").toBe(Number(fields[19]));
 			// The load starts the program through any links to it.

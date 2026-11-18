@@ -124,6 +124,46 @@ describe("a host telling the node a spawner's session", () => {
 		]);
 	});
 
+	it("says another reason too, but not one only a pid or session sets apart", async () => {
+		const said: string[] = [];
+		const proc = procWith(SPAWNER, "pi-spawner");
+		const say = (line: string) => said.push(line);
+		for (const [why, session] of [
+			["process 7 is no pi host proving s-three, so it can't say", "s-three"],
+			["process 8 is no pi host proving s-four, so it can't say", "s-four"],
+			["this machine can't show its processes", "s-three"],
+		]) {
+			const stand = node(JSON.stringify({ Err: why }));
+			await stand.listening;
+			await registerSpawner(SPAWNED, `${session}`, {
+				socket: stand.socket,
+				proc,
+				say,
+			});
+		}
+
+		expect(said, "what the host said").toEqual([
+			"pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: process 7 is no pi host proving s-three, so it can't say\n",
+			"pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: this machine can't show its processes\n",
+		]);
+	});
+
+	it("says a reason's printable characters only", async () => {
+		const stand = node(JSON.stringify({ Err: "a node\u001b[2J\nwrites" }));
+		await stand.listening;
+		const said: string[] = [];
+
+		await registerSpawner(SPAWNED, "s-one", {
+			socket: stand.socket,
+			proc: procWith(SPAWNER, "pi-spawner"),
+			say: (line: string) => said.push(line),
+		});
+
+		expect(said, "what the host said").toEqual([
+			"pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: a node?[2J?writes\n",
+		]);
+	});
+
 	it("says nothing of a node that takes the word", async () => {
 		const stand = node();
 		await stand.listening;

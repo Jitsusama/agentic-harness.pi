@@ -295,16 +295,17 @@ at most about four seconds, or until it is stopped; once the telling
 gives up, the command runs anyway and is told no conversation until a
 later telling lands. The node takes the word only from a process
 proving the conversation as its host in pi's records, of its own
-`pi-spawner`, and checks for itself that the kernel lets no process trace any but its
-own descendants and that the host's Node.js started with
-`--disable-sigusr1` as its first option and no inspector, as
-core.nix's unit for a host starts it, since a command that could trace
-the host or open its inspector could speak for it. A host without them
-is refused, and each of its conversations' commands told none; the
-node logs why, once, as it does every refusal, and the host says it
-once on its own error output. The node keeps the word only while it runs, so the host says
-each running `pi-spawner` again every 30 seconds, with the start it
-read when the spawner began. A command run another way, as pi's own
+`pi-spawner`, and checks for itself that the kernel lets no process
+trace any but its own descendants and that the host's Node.js started
+with `--disable-sigusr1` as its first option and no inspector, on its
+command line or in `NODE_OPTIONS`, as core.nix's unit for a host
+starts it, since a command that could trace the host or open its
+inspector could speak for it. A host without them is refused, and each
+of its conversations' commands told none; the node logs why, once, as
+it does every refusal, and the host says each reason once on its own
+error output, its printable characters only. The node keeps the word
+only while it runs, so the host says each running `pi-spawner` again
+every 30 seconds, with the start it read when the spawner began. A command run another way, as pi's own
 once a spawner is lost, or kept through a host's restart under a
 spawner the next host didn't start, is told no conversation. A
 spawner counts as lost once it ends, so a command that kills its own
