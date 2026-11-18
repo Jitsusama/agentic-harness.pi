@@ -21,8 +21,8 @@
  * fenced is kept in its state folder for the next census.
  */
 
-import { spawnSync } from "node:child_process";
-import { constants, homedir } from "node:os";
+import { homedir } from "node:os";
+import { endAs, runForwarding } from "../lib/internal/fence/fence-child.ts";
 import {
 	FENCE_RUN_HELP,
 	fenceRunAsked,
@@ -34,9 +34,6 @@ const REFUSED = 126;
 
 /** The status a wrong asking exits with. */
 const ASKED_WRONGLY = 2;
-
-/** The status a signal's end gives, as a shell reports it. */
-const SIGNALLED = 128;
 
 const asked = fenceRunAsked(process.argv.slice(2), process.cwd());
 if ("help" in asked) {
@@ -67,15 +64,5 @@ if ("refused" in made) {
 	process.stderr.write(`pi-fence: ${made.refused}\n`);
 	process.exit(REFUSED);
 }
-const ran = spawnSync("bash", ["-c", made.text], {
-	cwd: made.folder,
-	stdio: "inherit",
-});
-if (ran.error) {
-	process.stderr.write(`pi-fence: bash didn't start: ${ran.error.message}\n`);
-	process.exit(REFUSED);
-}
-const signal = ran.signal ? constants.signals[ran.signal] : undefined;
-process.exit(
-	signal === undefined ? (ran.status ?? REFUSED) : SIGNALLED + signal,
-);
+// What ends pi-fence ends the command too (lib/internal/fence/fence-child.ts).
+endAs(await runForwarding(made.text, made.folder));
