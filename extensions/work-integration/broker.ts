@@ -162,6 +162,20 @@ export function forgetTreeBroker(id?: string): void {
 }
 
 /**
+ * Name the process this conversation runs in now on every tree its
+ * records say it holds, answering how many records changed.
+ *
+ * A conversation resumed after a restart runs in a new process while
+ * its records still name the old one, and the disk guard, which judges
+ * a tree by its owners, would read the tree as abandoned and take what
+ * it can from it. Nothing to do without a conversation to name.
+ */
+export async function reownSessionTrees(id?: string): Promise<number> {
+	if (id === undefined) return 0;
+	return createTreeMemory(treeRecordDir()).reownSession(id);
+}
+
+/**
  * How long to wait for anybody to object to a publish.
  *
  * A listener has to reach a backend to answer, so this cannot be instant. It is

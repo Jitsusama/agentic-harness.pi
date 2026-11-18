@@ -32,6 +32,7 @@ import { isAgentCut } from "../../lib/internal/work-records.ts";
 import {
 	forgetTreeBroker,
 	registerBuiltinTreeProviders,
+	reownSessionTrees,
 	treeBroker,
 	treesHeldBySession,
 } from "./broker.ts";
@@ -104,6 +105,14 @@ export default function workIntegration(pi: ExtensionAPI) {
 		// process, so a session resumed after a restart keeps its trees.
 		const id = ctx?.sessionManager?.getSessionId?.();
 		void treesHeldBySession(id);
+		// And the trees it already holds name the process it runs in now,
+		// since after a restart their records still name the old one. Not
+		// awaited: the start reads the records but never waits on a lock
+		// or a rewrite.
+		void reownSessionTrees(id).catch(() => {
+			// A record that can't be rewritten keeps its old owner, as it
+			// did before, and the next start tries again.
+		});
 		// A new session must not inherit the last one's providers or
 		// its broker: the trees on disk outlive the session, but which
 		// provider would be chosen for one is a question of the

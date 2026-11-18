@@ -18,6 +18,12 @@ the host's open-conversation list after confirming its process identity,
 using kernel ticks where available so suspend cannot retire a live hold.
 Plain pi retains its existing process holders.
 
+A session outlives its process, so `reownSession` names the process a
+session runs in now on every record with an owner naming the session.
+It drops the session's earlier entry and any holder whose process has
+gone, and keeps every other holder. A tree that lists the session only
+as the runner of the subagent that cut it is left to that subagent.
+
 ## Folders
 
 - `providers/`: the providers this package ships to cut trees.
