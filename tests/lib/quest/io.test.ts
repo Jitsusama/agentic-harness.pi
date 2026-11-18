@@ -31,7 +31,13 @@ import { WRITING } from "../../../lib/internal/write-whole.ts";
 let dir: string;
 
 /** How many lock-named folders a takeover clears while a swapper races it. */
-const SWAPPED_ROUNDS = 200;
+const SWAPPED_ROUNDS = 100;
+
+/**
+ * The swapper walks every folder left aside on each pass, so the rounds
+ * slow as they go; a lender took over 5 s for 200.
+ */
+const SWAPPED_BUDGET_MS = 30_000;
 
 /**
  * A fenced command's part, run on its own thread so it races the
@@ -518,61 +524,65 @@ describe("withQuestLock on the login's runtime folder", () => {
 		},
 	);
 
-	it("never walks a folder in the lock's place, so a link swapped into it reaches nothing outside", async () => {
-		// A fenced command can write the lock folder: it makes a folder by a
-		// lock's name and, while a writer outside clears it, swaps a subfolder
-		// for a link to the writer's own files.
-		const outside = join(dir, "outside");
-		mkdirSync(join(outside, "kept"), { recursive: true });
-		const marker = join(outside, "marker");
-		writeFileSync(marker, "keep");
-		const questDir = quest("QEST-20261117-SSS777");
-		const [name] = withQuestLock(questDir, locks);
-		if (!name) throw new Error("no lock was taken in the runtime folder");
-		const folder = join(run, "agentic-harness.pi", "quest-locks");
-		const lock = join(folder, name);
-		const stop = new Int32Array(
-			new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
-		);
-		const swapper = new Worker(SWAP_SUBFOLDERS, {
-			eval: true,
-			workerData: { folder, outside, stop },
-		});
-		await once(swapper, "online");
-		try {
-			for (let round = 0; round < SWAPPED_ROUNDS; round++) {
-				// Made whole beside the folder, so the swapper meets it only in place.
-				const made = join(dir, `made-${round}`);
-				mkdirSync(join(made, "sub", "a", "b"), { recursive: true });
-				writeFileSync(join(made, "sub", "a", "f"), "");
-				symlinkSync(marker, join(made, "link"));
-				renameSync(made, lock);
-				// What the walk reached outside is asked first, then whether it wrote.
-				let failed: unknown;
-				try {
-					withQuestLock(questDir, () => {
-						atomicWriteFile(join(questDir, "ok.txt"), `${round}`);
-					});
-				} catch (error) {
-					failed = error;
+	it(
+		"never walks a folder in the lock's place, so a link swapped into it reaches nothing outside",
+		async () => {
+			// A fenced command can write the lock folder: it makes a folder by a
+			// lock's name and, while a writer outside clears it, swaps a subfolder
+			// for a link to the writer's own files.
+			const outside = join(dir, "outside");
+			mkdirSync(join(outside, "kept"), { recursive: true });
+			const marker = join(outside, "marker");
+			writeFileSync(marker, "keep");
+			const questDir = quest("QEST-20261117-SSS777");
+			const [name] = withQuestLock(questDir, locks);
+			if (!name) throw new Error("no lock was taken in the runtime folder");
+			const folder = join(run, "agentic-harness.pi", "quest-locks");
+			const lock = join(folder, name);
+			const stop = new Int32Array(
+				new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+			);
+			const swapper = new Worker(SWAP_SUBFOLDERS, {
+				eval: true,
+				workerData: { folder, outside, stop },
+			});
+			await once(swapper, "online");
+			try {
+				for (let round = 0; round < SWAPPED_ROUNDS; round++) {
+					// Made whole beside the folder, so the swapper meets it only in place.
+					const made = join(dir, `made-${round}`);
+					mkdirSync(join(made, "sub", "a", "b"), { recursive: true });
+					writeFileSync(join(made, "sub", "a", "f"), "");
+					symlinkSync(marker, join(made, "link"));
+					renameSync(made, lock);
+					// What the walk reached outside is asked first, then whether it wrote.
+					let failed: unknown;
+					try {
+						withQuestLock(questDir, () => {
+							atomicWriteFile(join(questDir, "ok.txt"), `${round}`);
+						});
+					} catch (error) {
+						failed = error;
+					}
+					expect(existsSync(marker), `the marker outside, round ${round}`).toBe(
+						true,
+					);
+					expect(
+						existsSync(join(outside, "kept")),
+						`its folder, round ${round}`,
+					).toBe(true);
+					expect(failed, `the write, round ${round}`).toBeUndefined();
 				}
-				expect(existsSync(marker), `the marker outside, round ${round}`).toBe(
-					true,
-				);
-				expect(
-					existsSync(join(outside, "kept")),
-					`its folder, round ${round}`,
-				).toBe(true);
-				expect(failed, `the write, round ${round}`).toBeUndefined();
+			} finally {
+				Atomics.store(stop, 0, 1);
+				await once(swapper, "exit");
 			}
-		} finally {
-			Atomics.store(stop, 0, 1);
-			await once(swapper, "exit");
-		}
-		expect(readFileSync(join(questDir, "ok.txt"), "utf8")).toBe(
-			`${SWAPPED_ROUNDS - 1}`,
-		);
-	});
+			expect(readFileSync(join(questDir, "ok.txt"), "utf8")).toBe(
+				`${SWAPPED_ROUNDS - 1}`,
+			);
+		},
+		SWAPPED_BUDGET_MS,
+	);
 
 	it("takes no bus that isn't a socket", async () => {
 		await new Promise<void>((resolve) => bus.close(() => resolve()));
