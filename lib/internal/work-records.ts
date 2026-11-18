@@ -12,10 +12,12 @@
  * `pi-carry` for the sessions no pi runs, carry the trees these name.
  */
 
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { createTreeMemory } from "../core/work/memory.ts";
+import { readStamped, type Stamped } from "./files/stamped-read.ts";
 import { stateDir } from "./paths.ts";
+import { processGlobal } from "./process/process-global.ts";
 
 /** The folder of the work broker's records of the trees it cut. */
 export function treeRecordDir(): string {
@@ -33,9 +35,33 @@ export interface RecordedTree {
 	readonly sessions: readonly string[];
 }
 
-/** Every tree the records in `dir` name that is still on disk. */
-export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
-	return createTreeMemory(dir)
+/** The records as last read, and when each tree's folder was last seen. */
+interface Listing {
+	trees: readonly RecordedTree[];
+	judgedAt: number;
+}
+
+/**
+ * How long a listing's trees are taken to be on disk without looking: a
+ * tree removed by hand with its record left moves no stamp, so it is
+ * looked for again this often.
+ */
+const JUDGED_FOR_MS = 60_000;
+
+// The records each folder held when it was last read, for the whole
+// process and every copy of this module: every session in a host asks
+// at each presence publish and each fenced command, and the records are
+// the same for all of them, so one cut costs one read of them, not one
+// for each session. The key names the shape; a change to Listing takes
+// a new one.
+const listings = processGlobal(
+	"agentic-harness.internal/work-records/listings.v1",
+	() => new Map<string, Stamped<Listing>>(),
+);
+
+/** Every record in `dir`, read with the trees still on disk. */
+function readListing(dir: string): Listing {
+	const trees = createTreeMemory(dir)
 		.recall()
 		.map((tree) => ({
 			path: tree.path,
@@ -43,6 +69,23 @@ export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
 				? tree.sessions.filter((one): one is string => typeof one === "string")
 				: [],
 		}));
+	return { trees, judgedAt: Date.now() };
+}
+
+/**
+ * Every tree the records in `dir` name that is still on disk. Read once
+ * for the process while the folder's stamp holds: each record is written
+ * beside it and renamed in, so a write moves the stamp. Trees are looked
+ * for again once the listing is a minute old.
+ */
+export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
+	const listing = readStamped(listings, dir, readListing);
+	if (!listing) return [];
+	if (Date.now() - listing.judgedAt > JUDGED_FOR_MS) {
+		listing.trees = listing.trees.filter((tree) => existsSync(tree.path));
+		listing.judgedAt = Date.now();
+	}
+	return [...listing.trees];
 }
 
 /** A path as the disk names it, links followed, where it can be. */
