@@ -1,32 +1,43 @@
 /**
- * What signing the quest tree reads, read off the thread: every listing,
- * stat, file and real path the signature and the walk would ask for,
- * through the filesystem's promises a few at a time, into a pass they
- * then read from memory. A host runs it so its conversations don't wait
- * on the disk while the tree is signed; `discovery.ts` decides when.
+ * What signing the quest tree reads, read on a thread of its own: every
+ * listing, stat, file and real path the signature and the walk would
+ * ask for, into a pass they then read from memory. A host runs it so
+ * its conversations don't wait on the disk while the tree is signed;
+ * `discovery.ts` decides when.
+ *
+ * The reads were once the filesystem's promises, four at a time, on the
+ * host's own thread. Each of their thousands of calls (2,596 listings
+ * and 3,499 files over 1,440 quests on 18 November) needed a free
+ * thread in the pool every conversation's reads share, and then a turn
+ * of the host's event loop. Measured on that store, one signing took
+ * 0.7 s quiet, 47 s beside 64 reads of large session logs, and 57 s
+ * with the loop held 90 ms at a time, as a host with many conversations
+ * holds it; past 30 s its asks gave up, and hosts logged walks hung
+ * past five minutes. A worker thread making plain synchronous calls
+ * waits on neither: its calls run on the worker itself, and the host
+ * hears from it once, with everything it read.
+ *
+ * The thread is handed the stamps this process already trusts, so it
+ * reads the bytes only of files that changed, and it answers in plain
+ * data, since a `Dirent` or a stat can't cross a thread whole.
  */
 
-import { type BigIntStats, type Dirent, statSync } from "node:fs";
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
-import { isId, prefixOf } from "../creation/id.ts";
+import { type BigIntStats, statSync } from "node:fs";
+import { join } from "node:path";
+import { Worker } from "node:worker_threads";
+import { isRecord } from "../../record.ts";
+import { DOCUMENT_ID_SOURCE, QUEST_ID_SOURCE } from "../creation/id.ts";
 import {
 	CANONICAL_DOCUMENT_DIRS,
-	hashRead,
+	type Entry,
+	keepRead,
 	MAX_WALK_DEPTH,
 	newPass,
 	type Pass,
-	recordFor,
+	SETTLED_NS,
 	settled,
-	vouchedHash,
+	stampsUnder,
 } from "./discovery-reads.ts";
-
-/**
- * How many calls a signing keeps with the disk at once. libuv serves
- * the filesystem's promises from four threads, so four keeps them busy
- * without queueing ahead of another conversation's own reads.
- */
-const AT_ONCE = 4;
 
 /**
  * A folder's stat, as a host compares it to see an entry made or
@@ -45,16 +56,7 @@ export function folderStampOf(path: string): string | undefined {
 	}
 }
 
-/** A folder's stat, read off the thread; undefined as `folderStampOf`. */
-async function folderStampOffThread(path: string): Promise<string | undefined> {
-	try {
-		return stampOf(await stat(path, { bigint: true }));
-	} catch {
-		// No folder: one made later is seen, since nothing matches this.
-		return undefined;
-	}
-}
-
+/** A stat's stamp, as the signing thread writes it too. */
 function stampOf(st: BigIntStats): string | undefined {
 	return settled(st) ? `${st.mtimeNs}:${st.ctimeNs}:${st.ino}` : undefined;
 }
@@ -75,28 +77,6 @@ export function pendingStampOf(dir: string): string | undefined {
 		// No README: the folder's own stat moves when one is made.
 		readme = undefined;
 	}
-	return joined(folder, readme);
-}
-
-/** `pendingStampOf`, read off the thread. */
-async function pendingStampOffThread(dir: string): Promise<string | undefined> {
-	const folder = await folderStampOffThread(dir);
-	if (folder === undefined) return undefined;
-	let readme: BigIntStats | undefined;
-	try {
-		readme = await stat(join(dir, "README.md"), { bigint: true });
-	} catch {
-		// No README: the folder's own stat moves when one is made.
-		readme = undefined;
-	}
-	return joined(folder, readme);
-}
-
-/** A folder's stamp with its README's, "none" for a README not there. */
-function joined(
-	folder: string,
-	readme: BigIntStats | undefined,
-): string | undefined {
 	if (!readme) return `${folder}|none`;
 	const stamp = stampOf(readme);
 	return stamp === undefined ? undefined : `${folder}|${stamp}`;
@@ -108,156 +88,243 @@ export interface ReadOffThread {
 	readonly rootStamp: string | undefined;
 }
 
-/**
- * Read everything signing `questsRoot` and walking it would, off the
- * thread. The root's stat is taken first, so a quest made while it reads
- * leaves a stamp that no longer matches and the next ask signs at once.
- */
-export async function readTreeOffThread(
-	questsRoot: string,
-): Promise<ReadOffThread> {
-	const pass = newPass();
-	const rootStamp = await folderStampOffThread(questsRoot);
-	const rootEntries = await listed(questsRoot, pass);
-	if (!rootEntries) return { pass, rootStamp };
-	const folders = rootEntries.filter(
-		(e) => e.isDirectory() && !e.isSymbolicLink() && !e.name.startsWith("."),
-	);
-	const quests = folders.filter(
-		(e) => isId(e.name) && prefixOf(e.name) === "QEST",
-	);
-	await resolved(questsRoot, pass);
-	await inTurn(folders, (e) => resolved(join(questsRoot, e.name), pass));
-	const questDirs = quests.map((e) => join(questsRoot, e.name));
-	// Stamped before it is listed, so a README made while this reads
-	// leaves a stamp that no longer matches.
-	await inTurn(questDirs, async (dir) => {
-		pass.pending.set(dir, await pendingStampOffThread(dir));
-		await listed(dir, pass);
-	});
-	await nestedListed(questDirs, pass);
-	const files: string[] = [];
-	const kinds: string[] = [];
-	for (const questDir of questDirs) {
-		files.push(join(questDir, "README.md"));
-		const entries = pass.listings.get(questDir) ?? [];
-		for (const kind of CANONICAL_DOCUMENT_DIRS) {
-			const present = entries.some(
-				(e) => e.name === kind && (e.isDirectory() || e.isSymbolicLink()),
-			);
-			if (present) kinds.push(join(questDir, kind));
-		}
-	}
-	await inTurn(kinds, (dir) => listed(dir, pass));
-	for (const dir of kinds) {
-		for (const doc of pass.listings.get(dir) ?? []) {
-			if (doc.isFile()) files.push(join(dir, doc.name));
-		}
-	}
-	await inTurn(files, (path) => hashed(path, pass));
-	return { pass, rootStamp };
-}
+/** An entry's kinds, as the thread lists them in one number. */
+const DIRECTORY = 1;
+const FILE = 2;
+const LINK = 4;
 
 /**
- * The listings of quest folders nested inside quests, which the walk
- * reports as layout errors: each level's nested folders, to the walk's
- * own depth.
+ * The thread's whole program. It is source rather than a file beside
+ * this one, because this module runs as TypeScript and node won't strip
+ * types where consumers install this package; it needs nothing but
+ * node's own modules. It follows the walk's own order: the root's stat
+ * before its listing, so a quest made while it reads leaves a stamp that
+ * no longer matches, and each quest folder's stamp before its listing,
+ * so a README made meanwhile does too. A file whose stat still matches
+ * its stamp, and whose record is kept when the walk parses it, keeps its
+ * hash unread; its key is `statKey`'s in `discovery-reads.ts`.
  */
-async function nestedListed(questDirs: string[], pass: Pass): Promise<void> {
-	let level = questDirs;
-	for (let depth = 1; depth <= MAX_WALK_DEPTH && level.length > 0; depth++) {
-		const nested = level.flatMap((dir) =>
-			(pass.listings.get(dir) ?? [])
-				.filter(
-					(e) =>
-						e.isDirectory() &&
-						!e.isSymbolicLink() &&
-						isId(e.name) &&
-						prefixOf(e.name) === "QEST",
-				)
-				.map((e) => join(dir, e.name)),
-		);
-		await inTurn(nested, (dir) => listed(dir, pass));
-		level = nested;
-	}
-}
-
-/** A folder's listing into the pass, undefined when it has none. */
-async function listed(path: string, pass: Pass): Promise<Dirent[] | undefined> {
-	let entries: Dirent[] | undefined;
+const PROGRAM = `
+const { parentPort, workerData } = require("node:worker_threads");
+const { readdirSync, readFileSync, realpathSync, statSync } = require("node:fs");
+const { basename, join } = require("node:path");
+const { root, questId, documentId, kinds, maxDepth, settledNs, known } = workerData;
+const quest = new RegExp(questId);
+const doc = new RegExp(documentId);
+const listings = new Map();
+const reals = new Map();
+const pending = new Map();
+const hashes = new Map();
+const absent = [];
+const reads = [];
+const settled = (st) => BigInt(Date.now()) * 1000000n - st.mtimeNs > settledNs;
+const stampOf = (st) => (settled(st) ? st.mtimeNs + ":" + st.ctimeNs + ":" + st.ino : undefined);
+const statOf = (path) => {
 	try {
-		entries = await readdir(path, { withFileTypes: true });
+		return statSync(path, { bigint: true });
 	} catch {
-		// No folder: the walk reads it as having none, as readEntries does.
+		return undefined;
+	}
+};
+const folderStamp = (path) => {
+	const st = statOf(path);
+	return st ? stampOf(st) : undefined;
+};
+const pendingStamp = (dir) => {
+	const folder = folderStamp(dir);
+	if (folder === undefined) return undefined;
+	const readme = statOf(join(dir, "README.md"));
+	if (!readme) return folder + "|none";
+	const stamp = stampOf(readme);
+	return stamp === undefined ? undefined : folder + "|" + stamp;
+};
+const kindOf = (e) =>
+	(e.isDirectory() ? ${DIRECTORY} : 0) | (e.isFile() ? ${FILE} : 0) | (e.isSymbolicLink() ? ${LINK} : 0);
+const listed = (path) => {
+	let entries;
+	try {
+		entries = readdirSync(path, { withFileTypes: true }).map((e) => [e.name, kindOf(e)]);
+	} catch {
 		entries = undefined;
 	}
-	pass.listings.set(path, entries);
+	listings.set(path, entries);
 	return entries;
-}
-
-/** A folder's real path into the pass, undefined when it can't be had. */
-async function resolved(path: string, pass: Pass): Promise<void> {
+};
+const resolved = (path) => {
 	try {
-		pass.reals.set(path, await realpath(path));
+		reals.set(path, realpathSync(path));
 	} catch {
-		// Gone or unreadable; the walk reports the read error itself.
-		pass.reals.set(path, undefined);
+		reals.set(path, undefined);
 	}
-}
-
-/**
- * A file's hash into the pass: its stamp's when the stat still vouches
- * and, for a file the walk parses, its parsed record is the one kept;
- * else its bytes', which the walk then parses without reading it again.
- */
-async function hashed(path: string, pass: Pass): Promise<void> {
-	try {
-		const st = await stat(path, { bigint: true });
-		// A FIFO or device would hold one of libuv's threads for good.
-		if (!st.isFile()) {
-			pass.absent.add(path);
-			return;
-		}
-		const vouched = vouchedHash(path, st);
-		if (
-			vouched !== undefined &&
-			(!parsedByTheWalk(path) || recordFor(path, vouched))
-		) {
-			pass.hashes.set(path, vouched);
-			return;
-		}
-		hashRead(path, st, await readFile(path), pass);
-	} catch {
-		// Missing or unreadable: the signature leaves it out, as it would.
-		pass.absent.add(path);
-	}
-}
-
-/**
- * Whether the walk parses a file: a quest's README, or a markdown file
- * named as a document. Any other file in a kind folder is only hashed,
- * so its stamp is enough.
- */
-function parsedByTheWalk(path: string): boolean {
+};
+const parsedByTheWalk = (path) => {
 	const name = basename(path);
 	if (name === "README.md") return true;
-	if (!name.endsWith(".md")) return false;
-	const base = name.slice(0, -3);
-	return isId(base) && prefixOf(base) !== "QEST";
+	return name.endsWith(".md") && doc.test(name.slice(0, -3));
+};
+const hashed = (path) => {
+	try {
+		const st = statSync(path, { bigint: true });
+		if (!st.isFile()) {
+			absent.push(path);
+			return;
+		}
+		const key = st.size + ":" + st.mtimeNs + ":" + st.ctimeNs + ":" + st.ino;
+		const stamp = known.get(path);
+		if (stamp && stamp.key === key && (stamp.record || !parsedByTheWalk(path))) {
+			hashes.set(path, stamp.hash);
+			return;
+		}
+		reads.push({ path, key, settled: settled(st), bytes: readFileSync(path) });
+	} catch {
+		absent.push(path);
+	}
+};
+const isFolder = (kind) => (kind & ${DIRECTORY}) !== 0 && (kind & ${LINK}) === 0;
+const walk = () => {
+	const rootStamp = folderStamp(root);
+	const rootEntries = listed(root);
+	if (!rootEntries) return rootStamp;
+	const folders = rootEntries.filter(([name, kind]) => isFolder(kind) && !name.startsWith("."));
+	const questDirs = folders.filter(([name]) => quest.test(name)).map(([name]) => join(root, name));
+	resolved(root);
+	for (const [name] of folders) resolved(join(root, name));
+	for (const dir of questDirs) {
+		pending.set(dir, pendingStamp(dir));
+		listed(dir);
+	}
+	let level = questDirs;
+	for (let depth = 1; depth <= maxDepth && level.length > 0; depth++) {
+		const nested = level.flatMap((dir) =>
+			(listings.get(dir) ?? [])
+				.filter(([name, kind]) => isFolder(kind) && quest.test(name))
+				.map(([name]) => join(dir, name)),
+		);
+		for (const dir of nested) listed(dir);
+		level = nested;
+	}
+	const files = [];
+	for (const questDir of questDirs) {
+		files.push(join(questDir, "README.md"));
+		const entries = listings.get(questDir) ?? [];
+		for (const kind of kinds) {
+			const present = entries.some(
+				([name, flags]) => name === kind && (flags & (${DIRECTORY} | ${LINK})) !== 0,
+			);
+			if (!present) continue;
+			const dir = join(questDir, kind);
+			for (const [name, flags] of listed(dir) ?? []) {
+				if ((flags & ${FILE}) !== 0) files.push(join(dir, name));
+			}
+		}
+	}
+	for (const path of files) hashed(path);
+	return rootStamp;
+};
+try {
+	const rootStamp = walk();
+	parentPort.postMessage({ rootStamp, listings, reals, pending, hashes, absent, reads });
+} catch (error) {
+	parentPort.postMessage({ failed: String(error) });
+}
+`;
+
+/** What the thread answers, once. */
+interface Answer {
+	rootStamp: string | undefined;
+	listings: Map<string, [string, number][] | undefined>;
+	reals: Map<string, string | undefined>;
+	pending: Map<string, string | undefined>;
+	hashes: Map<string, string>;
+	absent: string[];
+	reads: { path: string; key: string; settled: boolean; bytes: Uint8Array }[];
 }
 
-/** Run `each` over `items`, `AT_ONCE` at a time. */
-async function inTurn<T>(
-	items: readonly T[],
-	each: (item: T) => Promise<unknown>,
-): Promise<void> {
-	let next = 0;
-	const worker = async (): Promise<void> => {
-		while (next < items.length) {
-			const item = items[next];
-			next += 1;
-			if (item !== undefined) await each(item);
-		}
+function isAnswer(value: unknown): value is Answer {
+	return (
+		isRecord(value) &&
+		value.listings instanceof Map &&
+		value.reals instanceof Map &&
+		value.pending instanceof Map &&
+		value.hashes instanceof Map &&
+		Array.isArray(value.absent) &&
+		Array.isArray(value.reads)
+	);
+}
+
+/**
+ * Read everything signing `questsRoot` and walking it would, on a
+ * thread of its own. Rejects when the thread fails or ends unanswered;
+ * the signing then fails, and the last walk stands.
+ */
+export function readTreeOffThread(questsRoot: string): Promise<ReadOffThread> {
+	return new Promise((resolve, reject) => {
+		const worker = new Worker(PROGRAM, {
+			eval: true,
+			workerData: {
+				root: questsRoot,
+				questId: QUEST_ID_SOURCE,
+				documentId: DOCUMENT_ID_SOURCE,
+				kinds: CANONICAL_DOCUMENT_DIRS,
+				maxDepth: MAX_WALK_DEPTH,
+				settledNs: SETTLED_NS,
+				known: stampsUnder(questsRoot),
+			},
+		});
+		// A signing is no reason for a process to stay up.
+		worker.unref();
+		worker.once("message", (answer: unknown) => {
+			// Once it has answered the thread is only freed, and a refusal to
+			// end is no longer this signing's concern.
+			worker.terminate().catch(() => undefined);
+			if (isAnswer(answer)) resolve(passOf(answer));
+			else
+				reject(
+					new Error(
+						isRecord(answer) && typeof answer.failed === "string"
+							? answer.failed
+							: "the signing thread answered in no shape it keeps",
+					),
+				);
+		});
+		worker.once("error", reject);
+		// Settles nothing once the answer came, since a promise settles once.
+		worker.once("exit", (code) =>
+			reject(new Error(`the signing thread ended (${code}) without answering`)),
+		);
+	});
+}
+
+/** The pass the thread's answer stands for. */
+function passOf(answer: Answer): ReadOffThread {
+	const pass = newPass();
+	for (const [path, entries] of answer.listings) {
+		pass.listings.set(
+			path,
+			entries?.map(([name, kind]) => entryOf(name, kind)),
+		);
+	}
+	for (const [path, real] of answer.reals) pass.reals.set(path, real);
+	for (const [dir, stamp] of answer.pending) pass.pending.set(dir, stamp);
+	for (const [path, hash] of answer.hashes) pass.hashes.set(path, hash);
+	for (const path of answer.absent) pass.absent.add(path);
+	for (const read of answer.reads) {
+		const bytes = Buffer.from(
+			read.bytes.buffer,
+			read.bytes.byteOffset,
+			read.bytes.byteLength,
+		);
+		keepRead(read.path, read.key, read.settled, bytes, pass);
+	}
+	return { pass, rootStamp: answer.rootStamp };
+}
+
+/** An entry as the walk reads it, from the name and kinds the thread listed. */
+function entryOf(name: string, kind: number): Entry {
+	return {
+		name,
+		isDirectory: () => (kind & DIRECTORY) !== 0,
+		isFile: () => (kind & FILE) !== 0,
+		isSymbolicLink: () => (kind & LINK) !== 0,
 	};
-	await Promise.all(Array.from({ length: AT_ONCE }, worker));
 }

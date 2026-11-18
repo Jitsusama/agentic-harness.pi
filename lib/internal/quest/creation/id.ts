@@ -28,6 +28,14 @@ const DATE_PATTERN =
 const ID_REGEX = new RegExp(
 	`^(${ID_PREFIXES.join("|")})-(${DATE_PATTERN})-([0-9A-Z]{6})$`,
 );
+/**
+ * A quest's whole id as a pattern's source, and a document's (any prefix
+ * but a quest's): what `isId` and `prefixOf` together say, for a thread
+ * that has none of this module.
+ */
+export const QUEST_ID_SOURCE = `^QEST-${DATE_PATTERN}-[0-9A-Z]{6}$`;
+export const DOCUMENT_ID_SOURCE = `^(?:${ID_PREFIXES.filter((prefix) => prefix !== "QEST").join("|")})-${DATE_PATTERN}-[0-9A-Z]{6}$`;
+
 const ID_REGEX_BODY = `(${ID_PREFIXES.join("|")})-(${DATE_PATTERN})-([0-9A-Z]{6})`;
 
 function pad(n: number): string {

@@ -17,7 +17,7 @@ import {
 	readFileSync,
 	statSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import type { QuestDoc, QuestDocumentDoc } from "../../../quest/types.ts";
 import { isId, prefixOf } from "../creation/id.ts";
 import { splitFrontMatter } from "../documents/frontmatter.ts";
@@ -30,7 +30,7 @@ import type { DiscoveryResult } from "./discovery.ts";
  */
 export interface Pass {
 	bytes: Map<string, Buffer>;
-	listings: Map<string, Dirent[] | undefined>;
+	listings: Map<string, Entry[] | undefined>;
 	/** Each file's content hash, as the signature pass found it. */
 	hashes: Map<string, string>;
 	/** Files a signing off the thread found missing or unreadable. */
@@ -47,6 +47,15 @@ export interface Pass {
 	/** How many files the walk had to parse, reusing no record. */
 	parses: number;
 }
+
+/**
+ * What the walk reads of a folder's entry: a `Dirent` read here, or one
+ * rebuilt from what a signing thread listed.
+ */
+export type Entry = Pick<
+	Dirent,
+	"name" | "isDirectory" | "isFile" | "isSymbolicLink"
+>;
 
 /** A pass that has read nothing yet. */
 export function newPass(): Pass {
@@ -79,9 +88,9 @@ export const CANONICAL_DOCUMENT_DIRS = [
 ] as const;
 
 /** A directory's listing, read once a pass, or undefined when it has none. */
-export function readEntries(path: string, pass: Pass): Dirent[] | undefined {
+export function readEntries(path: string, pass: Pass): Entry[] | undefined {
 	if (pass.listings.has(path)) return pass.listings.get(path);
-	let entries: Dirent[] | undefined;
+	let entries: Entry[] | undefined;
 	try {
 		entries = readdirSync(path, { withFileTypes: true });
 	} catch {
@@ -100,7 +109,7 @@ export function kindEntries(
 	questDir: string,
 	subdir: string,
 	pass: Pass,
-): Dirent[] | undefined {
+): Entry[] | undefined {
 	const present = readEntries(questDir, pass)?.some(
 		(e) => e.name === subdir && (e.isDirectory() || e.isSymbolicLink()),
 	);
@@ -246,7 +255,7 @@ export function forgetMemo(): void {
  * would then keep its stat; this is git's racy-index rule. Two seconds
  * covers the coarsest clock in use.
  */
-const SETTLED_NS = 2_000_000_000n;
+export const SETTLED_NS = 2_000_000_000n;
 
 /**
  * A content-sensitive fingerprint of the quest tree. For each
@@ -272,7 +281,7 @@ export function discoverySignature(questsRoot: string, pass: Pass): string {
 			// absence is itself a change from a signature that had it.
 		}
 	};
-	const layout = (entries: Dirent[]): string =>
+	const layout = (entries: Entry[]): string =>
 		entries
 			.map((e) => `${e.name}/${e.isDirectory() ? "d" : "f"}`)
 			.sort()
@@ -316,7 +325,10 @@ function contentHash(path: string, pass: Pass): string {
 	return hashRead(path, st, readFileSync(path), pass);
 }
 
-/** A file's stat as a stamp keeps it. */
+/**
+ * A file's stat as a stamp keeps it. The signing thread
+ * (`off-thread.ts`) writes the same key from its own stats.
+ */
 function statKey(st: BigIntStats): string {
 	return `${st.size}:${st.mtimeNs}:${st.ctimeNs}:${st.ino}`;
 }
@@ -337,13 +349,51 @@ export function hashRead(
 	bytes: Buffer,
 	pass: Pass,
 ): string {
+	return keepRead(path, statKey(st), settled(st), bytes, pass);
+}
+
+/**
+ * `hashRead` for bytes read under a stat already keyed, as a signing
+ * thread reads them: stamped only when that stat had `settledThen`.
+ */
+export function keepRead(
+	path: string,
+	key: string,
+	settledThen: boolean,
+	bytes: Buffer,
+	pass: Pass,
+): string {
 	const { stamps } = memo();
 	pass.bytes.set(path, bytes);
 	const hash = hashOf(bytes);
 	pass.hashes.set(path, hash);
-	if (settled(st)) stamps.set(path, { stat: statKey(st), hash });
+	if (settledThen) stamps.set(path, { stat: key, hash });
 	else stamps.delete(path);
 	return hash;
+}
+
+/**
+ * Each file under `questsRoot` whose hash a stamp vouches for, with
+ * the stat it vouches under and whether a parsed record is kept for
+ * that hash, as a signing thread is handed them.
+ */
+export function stampsUnder(
+	questsRoot: string,
+): Map<string, { key: string; hash: string; record: boolean }> {
+	const under = questsRoot.endsWith(sep) ? questsRoot : `${questsRoot}${sep}`;
+	const found = new Map<
+		string,
+		{ key: string; hash: string; record: boolean }
+	>();
+	for (const [path, stamp] of memo().stamps) {
+		if (!path.startsWith(under)) continue;
+		found.set(path, {
+			key: stamp.stat,
+			hash: stamp.hash,
+			record: recordFor(path, stamp.hash),
+		});
+	}
+	return found;
 }
 
 /** Whether a stat is old enough to stand for what it describes. */
