@@ -17,6 +17,7 @@ import {
 	type Held,
 	RESTART_DUE_MS,
 	type RestartFacts,
+	type RestartRule,
 	restartWhenSettled,
 	SETTLE_CEILING_MS,
 	settled,
@@ -384,6 +385,157 @@ describe("restartWhenSettled", () => {
 		stop();
 		expect(timers.pending()).toEqual([]);
 	});
+
+	// The background host on 18 November: councils held its restart past
+	// half its heap for hours, and at 01:15 V8 aborted it out of memory,
+	// ending every turn and every council anyway.
+	it("restarts at the first moment no turn runs once its heap is pressed, whatever background work or screens hold", async () => {
+		let busy = true;
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is pressed",
+			held: () => [{ state: busy ? "busy" : "idle", since: lately }],
+			background: () => 1,
+			holding: () => ["s1: j1 review: council"],
+			resting: () => false,
+			pressure: () => "pressed",
+		});
+		given.restart = async (why, under) => {
+			said.push(`restart under ${under.rule}: ${why}`);
+		};
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(
+			said.filter((line) => !line.startsWith("report:")),
+			"never mid-turn",
+		).toEqual([]);
+		expect(timers.pending()[0]?.ms, "it looks for a gap each second").toBe(
+			1000,
+		);
+
+		busy = false;
+		await timers.fire(() => said.length > 1);
+		expect(said).toEqual([
+			"report: Heap short of room: restarting at the first moment no conversation has a turn, whatever background work or screens hold; 1 running now",
+			"expect true",
+			"restart under heap: its heap is pressed",
+		]);
+	});
+
+	it("restarts at once, mid-turn, once its heap has nearly run out, naming the turns, screens and background work it ends", async () => {
+		const timers = manualTimers();
+		const rules: RestartRule[] = [];
+		const { facts: given, said } = facts({
+			differs: async () => "its heap has nearly run out",
+			held: () => [
+				{ state: "busy", since: lately },
+				{ state: "busy", since: lately },
+				{ state: "idle", since: lately },
+			],
+			background: () => 1,
+			holding: () => ["s1: j1 review: council"],
+			resting: () => false,
+			pressure: () => "urgent",
+		});
+		given.restart = async (why, under) => {
+			said.push(`restart: ${why}`);
+			rules.push(under);
+		};
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire(() => said.length > 1);
+		expect(said).toEqual([
+			"expect true",
+			"restart: its heap has nearly run out",
+		]);
+		expect(rules).toEqual([
+			{
+				rule: "heap",
+				pressure: "urgent",
+				ending: ["s1: j1 review: council"],
+				turns: 2,
+				screens: true,
+			},
+		]);
+	});
+
+	it("goes back to waiting for background work once a pressed heap has room again", async () => {
+		let pressure: "pressed" | undefined = "pressed";
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is past half",
+			held: () => [{ state: "busy", since: lately }],
+			background: () => 1,
+			pressure: () => pressure,
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		expect(timers.pending()[0]?.ms, "pressed, a look a second").toBe(1000);
+
+		pressure = undefined;
+		await timers.fire();
+		await timers.fire();
+		expect(timers.pending()[0]?.ms, "with room, a look a minute").toBe(60);
+		expect(said.filter((line) => !line.startsWith("report:"))).toEqual([]);
+	});
+
+	// Waking parked conversations grows a heap already short of room.
+	it("lets no held wake through while its heap is short, past the ceiling or not", async () => {
+		let clock = NOW;
+		const timers = manualTimers();
+		const waits: boolean[] = [];
+		const { facts: given } = facts({
+			held: () => [{ state: "busy", since: lately }],
+			background: () => 1,
+			pressure: () => "pressed",
+			waitsForGap: (waiting) => waits.push(waiting),
+			now: () => clock,
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		clock += SETTLE_CEILING_MS;
+		await timers.fire();
+		await timers.fire();
+		expect(waits).toEqual([false, false, false]);
+	});
+
+	// The 18 November host: sixty conversations, one always mid-turn.
+	it("waits as long as a turn always runs while pressed, saying so once, then restarts at once as the heap nearly runs out", async () => {
+		let pressure: "pressed" | "urgent" = "pressed";
+		const timers = manualTimers();
+		const sixty: Held[] = Array.from({ length: 60 }, (_, at) => ({
+			state: at === 0 ? "busy" : "idle",
+			since: lately,
+		}));
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is short",
+			held: () => sixty,
+			background: () => 3,
+			pressure: () => pressure,
+		});
+		restartWhenSettled(given, { after: timers.after });
+		for (let look = 0; look < 5; look++) await timers.fire();
+		expect(said).toEqual([
+			"report: Heap short of room: restarting at the first moment no conversation has a turn, whatever background work or screens hold; 1 running now",
+		]);
+
+		pressure = "urgent";
+		await timers.fire(() => said.length > 2);
+		expect(said.slice(1)).toEqual([
+			"expect true",
+			"restart: its heap is short",
+		]);
+	});
+
+	it("asks for no restart for its heap once the host has begun stopping", async () => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			stopping: () => true,
+			pressure: () => "urgent",
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(said).toEqual([]);
+	});
 });
 
 describe("followWhatStarts", () => {
@@ -441,17 +593,30 @@ describe("followWhatStarts", () => {
 	// A heap far under V8's limit, unless a test says otherwise.
 	const small = () => ({ usedBytes: MB, limitBytes: 4144 * MB });
 
-	async function follow(systemctl: Systemctl, report = vi.fn(), heap = small) {
+	// What the host holds, unless a test says otherwise: one conversation
+	// long idle, no background work and every screen at rest.
+	async function follow(
+		systemctl: Systemctl,
+		report = vi.fn(),
+		heap = small,
+		holds: {
+			held?: () => readonly Held[];
+			background?: () => number;
+			holding?: () => readonly string[];
+			resting?: () => boolean;
+		} = {},
+	) {
 		const timers = manualTimers();
 		const serving = {
-			held: () => [{ state: "idle" as const, since: long }],
+			held: holds.held ?? (() => [{ state: "idle" as const, since: long }]),
 			restartComing: vi.fn(),
 			stopping: () => false,
 		};
 		const stop = await followWhatStarts({
 			serving,
-			background: () => 0,
-			resting: () => true,
+			background: holds.background ?? (() => 0),
+			...(holds.holding ? { holding: holds.holding } : {}),
+			resting: holds.resting ?? (() => true),
 			report,
 			root: join(install, "versions", "one"),
 			systemctl,
@@ -526,6 +691,70 @@ describe("followWhatStarts", () => {
 		expect(calls.at(-1)).toEqual(["--no-block", "restart", unit]);
 		expect(String(report.mock.calls[0]?.[0])).toBe(
 			"Restarting once every conversation settled, as its heap holds 2073 of the 4144 MB V8 allows, past half",
+		);
+	});
+
+	it("still waits for background work past half of what V8 allows, short of three-fifths", async () => {
+		const { systemctl } = systemd();
+		const { timers, serving } = await follow(
+			systemctl,
+			vi.fn(),
+			() => ({ usedBytes: 2486 * MB, limitBytes: 4144 * MB }),
+			{ background: () => 1 },
+		);
+		await timers.fire();
+		expect(serving.restartComing).not.toHaveBeenCalled();
+	});
+
+	it("restarts past three-fifths of what V8 allows at a moment no turn runs, ending the screens and background work it names", async () => {
+		const { systemctl, calls } = systemd();
+		const { timers, serving, report } = await follow(
+			systemctl,
+			vi.fn(),
+			() => ({ usedBytes: 2487 * MB, limitBytes: 4144 * MB }),
+			{
+				held: () => [{ state: "idle", since: lately }],
+				background: () => 1,
+				holding: () => ["s1: j1 review: council"],
+				resting: () => false,
+			},
+		);
+		await timers.fire(() => calls.at(-1)?.[1] === "restart");
+		expect(serving.restartComing).toHaveBeenCalledExactlyOnceWith(true);
+		expect(String(report.mock.calls[0]?.[0])).toBe(
+			"Restarting at a moment no conversation had a turn, before its heap runs out, ending a screen in use; s1: j1 review: council, as its heap holds 2487 of the 4144 MB V8 allows, past three-fifths",
+		);
+	});
+
+	it("restarts at once, mid-turn, past three-quarters of what V8 allows, saying the turn it ends", async () => {
+		const { systemctl, calls } = systemd();
+		const { timers, report } = await follow(
+			systemctl,
+			vi.fn(),
+			() => ({ usedBytes: 3109 * MB, limitBytes: 4144 * MB }),
+			{
+				held: () => [{ state: "busy", since: lately }],
+				background: () => 0,
+			},
+		);
+		await timers.fire(() => calls.at(-1)?.[1] === "restart");
+		expect(String(report.mock.calls[0]?.[0])).toBe(
+			"Restarting at once, turns and all, before its heap runs out, ending 1 turn mid-answer, as its heap holds 3109 of the 4144 MB V8 allows, past three-quarters",
+		);
+	});
+
+	it("says both its heap and the install's move when it restarts for its heap with the install moved", async () => {
+		const { systemctl, calls } = systemd();
+		const { timers, report } = await follow(
+			systemctl,
+			vi.fn(),
+			() => ({ usedBytes: 3109 * MB, limitBytes: 4144 * MB }),
+			{ held: () => [{ state: "busy", since: lately }] },
+		);
+		await moveTo("two");
+		await timers.fire(() => calls.at(-1)?.[1] === "restart");
+		expect(String(report.mock.calls[0]?.[0])).toBe(
+			"Restarting at once, turns and all, before its heap runs out, ending 1 turn mid-answer, as its heap holds 3109 of the 4144 MB V8 allows, past three-quarters, and the install's two changes the host's own code",
 		);
 	});
 
