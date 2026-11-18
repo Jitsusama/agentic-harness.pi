@@ -98,7 +98,7 @@ export function holdMessagesThroughCarriedTurns(
 /**
  * Write what pi holds through a run it counts, as it would once the turn
  * ends. pi keeps that flush to itself, so it is found by name; a pi that
- * moves it drops the message, as pi does, which the host suite shows.
+ * moves it drops the message, as pi does, and that loss is reported.
  */
 function writeWhatPiHolds(
 	session: MessagingSession,
@@ -106,7 +106,14 @@ function writeWhatPiHolds(
 ): void {
 	if (!session.isStreaming) return;
 	const flush: unknown = Reflect.get(session, PI_FLUSH);
-	if (typeof flush !== "function") return;
+	if (typeof flush !== "function") {
+		report(
+			new Error(
+				`pi has no ${PI_FLUSH}, so what it held through its run is lost as it lets go`,
+			),
+		);
+		return;
+	}
 	try {
 		flush.call(session);
 	} catch (error) {

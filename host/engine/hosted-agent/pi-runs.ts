@@ -197,19 +197,26 @@ export class PiRuns {
 			late = done;
 		});
 		this.open = { end, settled, overdue };
-		// A run pi failed to prepare, or took too long over, hands nothing over,
-		// and the work goes on; one prepared late ends with it as any other.
+		// A run pi failed to prepare, took too long over, or that was stopped
+		// meanwhile, hands nothing over, and the work goes on; one prepared late
+		// ends with it as any other.
 		let timer: ReturnType<typeof setTimeout> | undefined;
+		let stop = () => {};
 		const unprepared = new Promise<readonly AgentMessage[]>((done) => {
-			timer = setTimeout(() => {
+			const give = () => {
 				late();
 				done([]);
-			}, PREPARING_MS);
+			};
+			timer = setTimeout(give, PREPARING_MS);
+			stop = give;
+			if (signal?.aborted) give();
+			else signal?.addEventListener("abort", give, { once: true });
 		});
 		try {
 			return await Promise.race([prepared, settled.then(() => []), unprepared]);
 		} finally {
 			clearTimeout(timer);
+			signal?.removeEventListener("abort", stop);
 		}
 	}
 }
