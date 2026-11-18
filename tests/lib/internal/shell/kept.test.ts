@@ -204,10 +204,7 @@ describe("a kept call", () => {
 		for (const suffix of [".out", ".end", ".pid"])
 			utimesSync(`${old}${suffix}`, weekAgo, weekAgo);
 		const sweeping = sweepKept(where);
-		expect(
-			readdirSync(where).length,
-			"swept without holding the loop",
-		).toBe(6);
+		expect(readdirSync(where).length, "swept without holding the loop").toBe(6);
 		await sweeping;
 		expect(readdirSync(where).sort()).toEqual(
 			[".end", ".out", ".pid"]
@@ -232,7 +229,9 @@ describe("a kept call", () => {
 		expect(readdirSync(where), "the first start sweeps").toEqual([]);
 		await age();
 		await sweepKeptNowAndThen(where, start + 1000);
-		expect(readdirSync(where), "a start within the hour doesn't").toHaveLength(3);
+		expect(readdirSync(where), "a start within the hour doesn't").toHaveLength(
+			3,
+		);
 		await sweepKeptNowAndThen(where, start + 60 * 60 * 1000 + 1);
 		expect(readdirSync(where), "one an hour on sweeps again").toEqual([]);
 	});

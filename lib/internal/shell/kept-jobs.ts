@@ -150,7 +150,8 @@ export function keptJobsOf(
 		if (job.session !== session || !unheld(job, owner)) continue;
 		const { keep, pid, mark } = job.work;
 		if (endOf(keep) !== undefined || there(pid, mark)) found.push(job);
-		else removeKept(keep);
+		// Left to run: nothing waits on files nobody will take up.
+		else void removeKept(keep);
 	}
 	return found;
 }

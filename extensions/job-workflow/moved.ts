@@ -363,7 +363,7 @@ function takeUpShell(
 		},
 	});
 	// Its files go once its end is said, or once it is stopped and so said.
-	adopted.onDelivered(() => removeKept(work.keep));
+	adopted.onDelivered(() => void removeKept(work.keep));
 	// Before the first look, which may find it already ended.
 	into.taken?.(job);
 	watching = (into.watch ?? watchCarried)(work, adopted.signal);
@@ -371,7 +371,7 @@ function takeUpShell(
 		ended = true;
 		const outcome = outcomeOf(job, work, end, into.session, now());
 		if (outcome === undefined) {
-			if (end.how === "stopped") removeKept(work.keep);
+			if (end.how === "stopped") void removeKept(work.keep);
 			return;
 		}
 		adopted.finish(outcome);

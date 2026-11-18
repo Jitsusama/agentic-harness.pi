@@ -10,7 +10,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createJobs } from "../../../extensions/job-workflow/jobs.ts";
 import {
 	CARRIED_ENTRY,
@@ -36,10 +36,7 @@ afterEach(() => {
 });
 
 /** A carried call's work, its files made fresh and marked carried. */
-async function shellWork(
-	pid = 4242,
-	mark = "mark-1",
-): Promise<CarriedShell> {
+async function shellWork(pid = 4242, mark = "mark-1"): Promise<CarriedShell> {
 	const dir = mkdtempSync(join(tmpdir(), "stranded-"));
 	made.push(dir);
 	const keep = await makeKept(dir);
@@ -176,9 +173,13 @@ describe("a carried call taken up and never said", () => {
 			"Failed. `sleep 1` was lost after 45 seconds: its shell is gone and wrote no exit status.\nhalf",
 		]);
 		jobs.delivered(() => false);
-		for (const work of [exited, lost])
-			expect(existsSync(`${work.keep}.carried`), "its files go once said").toBe(
-				false,
-			);
+		// Removed off the loop, so just after.
+		await vi.waitFor(() => {
+			for (const work of [exited, lost])
+				expect(
+					existsSync(`${work.keep}.carried`),
+					"its files go once said",
+				).toBe(false);
+		});
 	});
 });

@@ -8,7 +8,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createJobs,
 	type Jobs,
@@ -264,7 +264,10 @@ describe("taking up", () => {
 		});
 		expect(existsSync(`${work.keep}.out`), "kept until said").toBe(true);
 		jobs.delivered(() => false);
-		expect(existsSync(`${work.keep}.out`), "gone once said").toBe(false);
+		// Removed off the loop, so just after.
+		await vi.waitFor(() =>
+			expect(existsSync(`${work.keep}.out`), "gone once said").toBe(false),
+		);
 	});
 
 	it("says a call whose shell is gone as lost, with its last lines", async () => {

@@ -104,7 +104,9 @@ export function keepsOnDisk(
 					if (call.signal) unkept.add(call.signal);
 					return await ops.exec(command, cwd, call);
 				}
-				const path = options.folder ? makeKept(options.folder()) : makeKept();
+				const path = await (options.folder
+					? makeKept(options.folder())
+					: makeKept());
 				const startedAt = now();
 				// Stops the call on pi's abort, or at its limit while it is still
 				// this pi's.
@@ -154,7 +156,9 @@ export function keepsOnDisk(
 				} finally {
 					clearTimeout(timer);
 					call.signal?.removeEventListener("abort", stop);
-					if (!kept.handed) removeKept(path);
+					// Waited for, so its files are gone once the call settles, though
+					// not on the loop.
+					if (!kept.handed) await removeKept(path);
 				}
 			},
 		},

@@ -60,7 +60,7 @@ import {
 	askTheCloudAhead,
 	sandboxFor,
 } from "../../lib/internal/sandbox/sandbox.ts";
-import { sweepKept } from "../../lib/internal/shell/kept.ts";
+import { sweepKeptNowAndThen } from "../../lib/internal/shell/kept.ts";
 import { watchSshGuard } from "../../lib/internal/shell/ssh-guard.ts";
 import {
 	endsWithItsPrompts,
@@ -215,8 +215,9 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		}
 		if (sandbox.kind === "fence") listByIdOnce(sessionKeyOf(ctx));
 		askTheCloudAhead(sandbox);
-		// What a call kept and nobody took up, a week on (kept.ts).
-		sweepKept();
+		// What a call kept and nobody took up, a week on, swept once an hour
+		// for the process however many sessions it starts (kept.ts).
+		void sweepKeptNowAndThen();
 	});
 	pi.on("session_shutdown", () => {
 		retireBash();

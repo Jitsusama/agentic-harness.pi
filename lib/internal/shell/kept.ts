@@ -17,7 +17,13 @@
  * tail moves to `.old` and `.out` starts again, so at most twice that is
  * on disk. Bytes written in the instant of that move can be lost. The
  * files go when the call ends in its pi, or once a carried call's end is
- * said; any left a week are swept.
+ * said; any left a week are swept, once an hour for a process.
+ *
+ * Making, removing and sweeping them go through libuv's pool rather than
+ * pi's loop, which in a host every conversation shares: a busy disk held
+ * it in these files' openat and unlink 24 times in 287 hold samples on
+ * 17 November. Reading a call's status, pid and output stays as it was,
+ * since it is done at a move or each 64 KB of output.
  *
  * A call handed to another process is marked `<path>.carried` until its
  * end is said, so a host that reaps what its conversations started
@@ -32,18 +38,17 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
-	chmodSync,
 	existsSync,
-	mkdirSync,
 	readdirSync,
 	readFileSync,
-	rmSync,
 	statSync,
 	truncateSync,
 	writeFileSync,
 } from "node:fs";
+import { chmod, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { stateDir } from "../paths.ts";
+import { processGlobal } from "../process/process-global.ts";
 
 /** The variable a bash call's command travels in (shell-workflow's command-line.ts). */
 export const COMMAND_VARIABLE = "PI_BASH_COMMAND";
@@ -111,12 +116,12 @@ export function keptFolder(): string {
  * empty and private, so nothing the stub writes is made with the
  * command's own umask.
  */
-export function makeKept(folder: string = keptFolder()): string {
-	mkdirSync(folder, { recursive: true, mode: FOLDER_MODE });
-	chmodSync(folder, FOLDER_MODE);
+export async function makeKept(folder: string = keptFolder()): Promise<string> {
+	await mkdir(folder, { recursive: true, mode: FOLDER_MODE });
+	await chmod(folder, FOLDER_MODE);
 	const path = join(folder, randomUUID());
 	for (const suffix of [".out", ".end", ".pid"]) {
-		writeFileSync(`${path}${suffix}`, "", { mode: FILE_MODE, flag: "wx" });
+		await writeFile(`${path}${suffix}`, "", { mode: FILE_MODE, flag: "wx" });
 	}
 	return path;
 }
@@ -317,20 +322,30 @@ function textOf(file: string): string {
 	}
 }
 
-/** Remove everything a call kept. */
-export function removeKept(path: string): void {
-	for (const suffix of SUFFIXES) rmSync(`${path}${suffix}`, { force: true });
+/**
+ * Remove everything a call kept. It never fails, so a caller that has
+ * nothing to wait for can leave it to run.
+ */
+export async function removeKept(path: string): Promise<void> {
+	for (const suffix of SUFFIXES) {
+		try {
+			await rm(`${path}${suffix}`, { force: true });
+		} catch {
+			// Not a file it can remove, as no call leaves: the week's sweep
+			// says nothing of it either, and the call's other files still go.
+		}
+	}
 }
 
 /** Remove the files in `folder` nothing has touched for `olderThanMs`. */
-export function sweepKept(
+export async function sweepKept(
 	folder: string = keptFolder(),
 	now: number = Date.now(),
 	olderThanMs: number = KEPT_FOR_MS,
-): void {
+): Promise<void> {
 	let names: string[];
 	try {
-		names = readdirSync(folder);
+		names = await readdir(folder);
 	} catch {
 		// No folder yet: nothing was ever kept.
 		return;
@@ -338,11 +353,38 @@ export function sweepKept(
 	for (const name of names) {
 		const file = join(folder, name);
 		try {
-			if (now - statSync(file).mtimeMs > olderThanMs) rmSync(file);
+			if (now - (await stat(file)).mtimeMs > olderThanMs) await rm(file);
 		} catch {
 			// Removed meanwhile by the call it belonged to.
 		}
 	}
+}
+
+/** How often a process sweeps the kept folder, however many sessions start. */
+export const SWEEP_EVERY_MS = 60 * 60 * 1000;
+
+// When each folder was last swept, for the whole process and every copy
+// of this module: a host starts every conversation in one process, and
+// a sweep for each would read the whole folder each time.
+const sweptAt = processGlobal(
+	"agentic-harness.internal/shell/kept-swept-at.v1",
+	() => new Map<string, number>(),
+);
+
+/**
+ * Sweep `folder` as {@link sweepKept} does, unless this process began a
+ * sweep of it within the hour. Marked as it begins, so starts that come
+ * while it runs don't begin another.
+ */
+export function sweepKeptNowAndThen(
+	folder: string = keptFolder(),
+	now: number = Date.now(),
+): Promise<void> {
+	const last = sweptAt.get(folder);
+	if (last !== undefined && now - last < SWEEP_EVERY_MS)
+		return Promise.resolve();
+	sweptAt.set(folder, now);
+	return sweepKept(folder, now);
 }
 
 /** What {@link teePersists} found, or is finding, by the PATH it was asked with. */
