@@ -61,7 +61,7 @@ import {
 	readFileSync,
 	readlinkSync,
 	renameSync,
-	rmSync,
+	rmdirSync,
 	statSync,
 	unlinkSync,
 	writeSync,
@@ -285,7 +285,8 @@ function tryStealStaleLock(lockPath: string, now: number): boolean {
 		// Somebody else took it over first; the next attempt sees theirs.
 		return false;
 	}
-	if (lstatSync(aside).ino !== judged.ino) {
+	const moved = lstatSync(aside);
+	if (moved.ino !== judged.ino) {
 		// Moved a fresh lock another writer made after taking over first.
 		// Put it back, unless a third already made one, which then stands.
 		try {
@@ -294,10 +295,25 @@ function tryStealStaleLock(lockPath: string, now: number): boolean {
 			// EEXIST: the newer lock stands, as above.
 		}
 	}
-	// A folder made there is removed whole; its own links aren't followed.
-	if (judged.isFile()) unlinkSync(aside);
-	else rmSync(aside, { recursive: true, force: true });
+	clearAside(aside, moved);
 	return true;
+}
+
+/**
+ * Remove what a takeover moved aside, never walking into it. A fenced
+ * command can write the lock folder, and a recursive delete of a folder it
+ * made can be led out of the fence by a link it swaps in mid-walk (ISXEG8,
+ * 17 November). So a folder goes only if it is empty; one that isn't stays
+ * under its aside name, which already freed the lock's, until tmpfs clears
+ * it at logout.
+ */
+function clearAside(aside: string, moved: ReturnType<typeof lstatSync>): void {
+	try {
+		if (moved.isDirectory()) rmdirSync(aside);
+		else unlinkSync(aside);
+	} catch {
+		// Not empty, or changed since: left aside, which holds no lock's name.
+	}
 }
 
 /** Why a writer gave up on a quest's lock, naming the quest, not just the lock. */
