@@ -56,7 +56,6 @@ import {
 import { settleStage } from "../../lib/internal/fence/fence-stage.ts";
 import {
 	askTheCloudAhead,
-	type Sandbox,
 	sandboxFor,
 } from "../../lib/internal/sandbox/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
@@ -68,6 +67,7 @@ import {
 } from "../../lib/jobs/hand-off.ts";
 import { type AgentBash, agentBash, type ShellSettings } from "./agent-bash.ts";
 import { runOrHandOff } from "./hand-off.ts";
+import { outlivingIt } from "./outliving.ts";
 
 /** The settings pi builds its own bash with, as this project sees them. */
 function shellSettings(ctx: ExtensionContext): ShellSettings {
@@ -307,18 +307,4 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			});
 		},
 	});
-}
-
-/**
- * How a process can outlive its command and its host, as a session in
- * `kind` of sandbox is told. A transient service starts from the user
- * manager, not the command, so it carries none of the marks a reap looks
- * for, wherever its slice; where systemd can't be reached, as in the
- * fence or the strict sandbox, nothing the agent runs can make one.
- */
-function outlivingIt(kind: Sandbox["kind"]): string {
-	if (kind === "fence" || kind === "strict") {
-		return "Here no command can reach systemd to start what would outlive it, so something meant to outlive its command needs a service its owner runs, or the person.";
-	}
-	return 'To outlive both, start it as a transient service, which carries none: `systemd-run --user --unit=NAME --collect --same-dir --expand-environment=no --setenv=PATH="$PATH" --setenv=HOME="$HOME" -p RuntimeMaxSec=SECONDS -- bash -c \'COMMAND > LOG 2>&1; echo rc=$? >> LOG\'`, with a NAME of its own each run. It starts with none of the command\'s environment but what --setenv passes, so pass each variable the run needs, and the journal says how it ended (`journalctl --user -u NAME`).';
 }
