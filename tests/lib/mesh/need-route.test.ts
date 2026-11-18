@@ -16,25 +16,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	type Forager,
 	foragersFrom,
 	type Hub,
 	hubsFrom,
 	keepNeed,
 	MOST_HOPS,
-	MOST_SUBJECTS,
 	MOST_WORDS,
-	type NeedAsked,
 	needAt,
 	needId,
 	needsFile,
-	type Reach,
-	routeNeed as routeOver,
-	subjectWords,
-	type TieGraph,
 	tieGraphFrom,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
+import { AT, asked, cells, routeNeed, ties } from "./support/needs.ts";
 
 let root: string;
 let servers: Server[];
@@ -50,36 +44,6 @@ afterEach(async () => {
 	);
 	rmSync(root, { recursive: true, force: true });
 });
-
-const AT = Date.UTC(2026, 10, 17, 19, 0, 0);
-
-/** A need asked by `asker` about `words`, at a fixed moment. */
-const asked = (asker: string, ...words: string[]): NeedAsked => ({
-	need: `${asker}/1`,
-	asker,
-	words,
-	at: AT,
-});
-
-/** A need routed where every cell is there unless `live` says not. */
-const routeNeed = (
-	need: NeedAsked,
-	reach: Omit<Reach, "live"> & Partial<Pick<Reach, "live">>,
-) => routeOver(need, { live: () => true, ...reach });
-
-/** Cells with the words each works on. */
-const cells = (held: Record<string, string[]>): Forager[] =>
-	Object.entries(held).map(([address, words]) => ({ address, words }));
-
-/** Ties as pairs of ends, each as strong as given, both ways. */
-const ties = (...pairs: [string, string, number][]): TieGraph => {
-	const graph = new Map<string, { other: string; strength: number }[]>();
-	for (const [one, other, strength] of pairs) {
-		graph.set(one, [...(graph.get(one) ?? []), { other, strength }]);
-		graph.set(other, [...(graph.get(other) ?? []), { other: one, strength }]);
-	}
-	return graph;
-};
 
 describe("the words a need or a cell's work is matched by", () => {
 	it("keeps the telling words, lowercased, once each", () => {
@@ -106,50 +70,6 @@ describe("the words a need or a cell's work is matched by", () => {
 			{ address: "04TNWT", words: ["run", "command", "machine", "mycelium"] },
 			{ address: "FZ9MFJ", words: ["web", "funnel"] },
 		]);
-	});
-
-	it("reads the narrowest part of each subject a cell declares, beside its title", () => {
-		const line = JSON.stringify({
-			id: 2,
-			records: [
-				{
-					key: "cell:5HJZ8Z",
-					title: "Carry a Session",
-					subjects: ["mycelium:easing", "health.asks.", 12345],
-				},
-				{ key: "cell:9T2BBY", title: "Placement", subjects: "easing" },
-			],
-		});
-
-		expect(foragersFrom(line)).toEqual([
-			{ address: "5HJZ8Z", words: ["carry", "session", "easing", "asks"] },
-			{ address: "9T2BBY", words: ["placement"] },
-		]);
-	});
-
-	it("never gives a cell the broader words of a subject it narrows", () => {
-		expect(subjectWords("mycelium:easing")).toEqual(["easing"]);
-		expect(subjectWords("unit:pi-host-")).toEqual(["host"]);
-		expect(subjectWords("health.asks.")).toEqual(["asks"]);
-		expect(subjectWords("")).toEqual([]);
-	});
-
-	it("reads at most MOST_SUBJECTS subjects from one cell", () => {
-		const subjects = Array.from(
-			{ length: MOST_SUBJECTS + 1 },
-			(_, at) => `stuffed:word${at}`,
-		);
-		const line = JSON.stringify({
-			id: 2,
-			records: [{ key: "cell:X", subjects }],
-		});
-
-		const [cell] = foragersFrom(line);
-
-		expect(cell?.words).toHaveLength(MOST_SUBJECTS);
-		expect(cell?.words, "the subject past the cap is not read").not.toContain(
-			`word${MOST_SUBJECTS}`,
-		);
 	});
 
 	it("reads none from a node that keeps no cells", () => {
@@ -535,68 +455,6 @@ describe("keeping a need", () => {
 		expect(file).toBe(join(root, "needs", "2026-11-17.jsonl"));
 		const lines = readFileSync(file, "utf8").trim().split("\n");
 		expect(lines.map((line) => JSON.parse(line).need)).toEqual(["A/1", "A/2"]);
-	});
-});
-
-describe("a need routed by declared subjects", () => {
-	it("reaches the cell declaring its subject past a nearer one holding a generic word", () => {
-		// The first live need: `lines` was in another cell's title, and no
-		// title said easing.
-		const found = routeNeed(asked("A", "mycelium", "easing", "lines"), {
-			foragers: [
-				...cells({ A: ["web", "funnel"], W: ["command", "lines"] }),
-				...foragersFrom(
-					JSON.stringify({
-						id: 2,
-						records: [
-							{
-								key: "cell:B",
-								title: "Carry a Session",
-								repo: "mycelium",
-								subjects: ["mycelium:easing"],
-							},
-							{ key: "cell:M", title: "Mycelium Map" },
-						],
-					}),
-				),
-			],
-			ties: ties(["A", "W", 9], ["A", "M", 5], ["W", "B", 1]),
-			hubs: [],
-		});
-
-		expect(found, "easing, the rarest word, carries it to B").toMatchObject({
-			fit: "B",
-			path: ["W", "B"],
-		});
-	});
-
-	it("keeps the rarest words when a need says more than MOST_WORDS held ones", () => {
-		const common = Array.from({ length: MOST_WORDS }, (_, at) => `word${at}`);
-		const found = routeNeed(asked("A", ...common, "rare"), {
-			foragers: cells({ A: [], B: common, C: [...common, "rare"] }),
-			ties: ties(["A", "B", 2], ["A", "C", 1]),
-			hubs: [],
-		});
-
-		expect(found.words).toHaveLength(MOST_WORDS);
-		expect(found.words, "the rarest word is kept").toContain("rare");
-		expect(found.fit).toBe("C");
-	});
-
-	it("puts a need to the hub of a subject whose narrowest part breaks at a hyphen", () => {
-		const found = routeNeed(asked("A", "host"), {
-			foragers: cells({ A: [], H: ["host"], F: ["host"] }),
-			ties: ties(),
-			hubs: [
-				{ subject: "pi-host", hub: "H", fits: ["H"] },
-				{ subject: "unit:pi-host-", hub: "H", fits: ["F"] },
-			],
-		});
-
-		expect(found, "the longer subject, the narrower, wins").toMatchObject({
-			fit: "F",
-			path: ["H", "F"],
-		});
 	});
 });
 

@@ -29,10 +29,12 @@
  * answer. A fit is chosen by the words of its own title, its repository
  * and the subjects it declares, which the cell and its forage set, so a
  * cell can draw needs by what it says it works on. A subject counts by
- * its narrowest part alone: `mycelium:easing` gives `easing`, never
- * `mycelium`, since declaring a narrow subject claims nothing of the
- * broader one. At most `MOST_SUBJECTS` are read from a cell, and a need
- * keeps its rarest words, so a cell declaring many can't crowd it.
+ * its narrowest part alone, after its last colon, dot or slash:
+ * `mycelium:easing` gives `easing`, never `mycelium`, since declaring a
+ * narrow subject claims nothing of the broader one. At most
+ * `MOST_SUBJECTS` are read from a cell and `MOST_SUBJECT_WORDS` words
+ * taken from them, and a need keeps the words that route it rarest
+ * first, so a cell declaring many can't crowd it, nor its asker's own.
  * That routes a message and grants nothing: a need finds who works on
  * something, and a yes, a ruling or a grant still comes only from the
  * owner named by address.
@@ -190,16 +192,28 @@ const CELL_FIELDS = ["title", "repo", "subjects"];
 /** The most declared subjects read from one cell. */
 export const MOST_SUBJECTS = 12;
 
-/** What a declared subject breaks at: colons and dots, as keys do. */
-const SUBJECT_BREAK = /[:.]/;
+/** The most words one cell's declared subjects give it, all together. */
+export const MOST_SUBJECT_WORDS = 12;
 
 /**
- * The words of a subject's narrowest part, the one after its last colon
- * or dot: `mycelium:easing` gives `easing`, `health.asks.` gives `asks`.
+ * What a declared subject breaks at: colons and dots, as keys do, and
+ * slashes, as a repository's scope does.
+ */
+const SUBJECT_BREAK = /[:./]/;
+
+/** A subject's parts, broadest first. */
+function subjectParts(subject: string): string[] {
+	return subject.split(SUBJECT_BREAK).filter((part) => part !== "");
+}
+
+/**
+ * The words of a subject's narrowest part, the one after its last colon,
+ * dot or slash: `mycelium:easing` gives `easing`, `health.asks.` gives
+ * `asks`. A narrowest part with no word long enough gives none, rather
+ * than a broader part's.
  */
 export function subjectWords(subject: string): string[] {
-	const parts = subject.split(SUBJECT_BREAK).filter((part) => part !== "");
-	return wordsOf(parts.at(-1) ?? "");
+	return wordsOf(subjectParts(subject).at(-1) ?? "");
 }
 
 /**
@@ -215,11 +229,16 @@ export function foragersFrom(line: string): Forager[] {
 			.filter((one): one is string => typeof one === "string")
 			.slice(0, MOST_SUBJECTS);
 		const said = [title, repo].filter((one) => typeof one === "string");
-		const words = [
-			...wordsOf(said.join(" ")),
-			...declared.flatMap(subjectWords),
+		const titled = wordsOf(said.join(" "));
+		const subjectsSay = [...new Set(declared.flatMap(subjectWords))]
+			.filter((word) => !titled.includes(word))
+			.slice(0, MOST_SUBJECT_WORDS);
+		return [
+			{
+				address: key.slice("cell:".length),
+				words: [...titled, ...subjectsSay],
+			},
 		];
-		return [{ address: key.slice("cell:".length), words: [...new Set(words)] }];
 	});
 }
 
@@ -281,8 +300,10 @@ export function hubsFrom(line: string): Hub[] {
  * Only a cell `live` says is there is taken.
  */
 export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
-	const asked = { ...said, words: keptWords(said, reach.foragers) };
-	const selves = new Set([asked.asker, ...(asked.selves ?? [])]);
+	const selves = new Set([said.asker, ...(said.selves ?? [])]);
+	const { live } = reach;
+	const takes = (address: string) => !selves.has(address) && live(address);
+	const asked = { ...said, words: keptWords(said, reach.foragers, takes) };
 	const passed = new Set<string>();
 	const record = (path: readonly string[], fit: string | null): NeedRecord => ({
 		need: asked.need,
@@ -294,7 +315,6 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		cells: reach.foragers.length,
 		...(passed.size > 0 ? { ended: [...passed] } : {}),
 	});
-	const { live } = reach;
 	const wordsHeld = new Map(
 		reach.foragers.map((cell) => [cell.address, new Set(cell.words)]),
 	);
@@ -305,7 +325,6 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	if (asked.words.length > 0 && asked.words.every(ownWord)) {
 		return record([], asked.asker);
 	}
-	const takes = (address: string) => !selves.has(address) && live(address);
 	const holders = (word: string) =>
 		reach.foragers.filter(
 			(cell) => takes(cell.address) && holds(cell.address, word),
@@ -385,34 +404,54 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
  * The words a need is routed and kept by: only those some cell works
  * on, none past `LONGEST_WORD` and at most `MOST_WORDS`, so a token in
  * what was said, in its text or its `about`, never reaches the file.
- * Past `MOST_WORDS`, the rarest are kept, since they route it; among
- * words as rare, the first said.
+ * Past `MOST_WORDS`, those that route it are kept rarest first, counted
+ * over the cells that would take it; then those only the asker or an
+ * ended cell holds, which route nowhere; among words as rare, the first
+ * said. They stay in the order said.
  */
-function keptWords(asked: NeedAsked, foragers: readonly Forager[]): string[] {
-	const holders = new Map<string, number>();
-	for (const word of foragers.flatMap((cell) => cell.words)) {
-		holders.set(word, (holders.get(word) ?? 0) + 1);
+function keptWords(
+	asked: NeedAsked,
+	foragers: readonly Forager[],
+	takes: (address: string) => boolean,
+): string[] {
+	const takers = new Map<string, number>();
+	for (const cell of foragers) {
+		const taking = takes(cell.address) ? 1 : 0;
+		for (const word of cell.words) {
+			takers.set(word, (takers.get(word) ?? 0) + taking);
+		}
 	}
 	const held = asked.words.filter(
-		(word) => word.length <= LONGEST_WORD && holders.has(word),
+		(word) => word.length <= LONGEST_WORD && takers.has(word),
 	);
 	if (held.length <= MOST_WORDS) return held;
+	const rarity = (word: string) => {
+		const count = takers.get(word) ?? 0;
+		return count === 0 ? Number.POSITIVE_INFINITY : count;
+	};
 	const rarest = new Set(
-		[...held]
-			.sort((a, b) => (holders.get(a) ?? 0) - (holders.get(b) ?? 0))
-			.slice(0, MOST_WORDS),
+		[...held].sort((a, b) => rarity(a) - rarity(b)).slice(0, MOST_WORDS),
 	);
 	return held.filter((word) => rarest.has(word));
 }
 
 /**
- * The hubs whose subject's narrowest part says `word`, the longest
- * subject first, since a declared prefix is narrower the longer it is.
+ * The hubs whose subject's narrowest part says `word`: first those
+ * whose narrowest part says only `word`, then those saying more besides;
+ * within each, the deepest subject first, by its parts, since each part
+ * narrows it; among as deep, in the order the node listed them. A
+ * subject's length says nothing of how narrow it is, so it never ranks.
  */
 function hubsFor(word: string, hubs: readonly Hub[]): Hub[] {
-	return hubs
-		.filter((hub) => subjectWords(hub.subject).includes(word))
-		.sort((a, b) => b.subject.length - a.subject.length);
+	const ranked = hubs.flatMap((hub) => {
+		const words = subjectWords(hub.subject);
+		if (!words.includes(word)) return [];
+		const exact = words.length === 1 ? 0 : 1;
+		return [{ hub, exact, depth: subjectParts(hub.subject).length }];
+	});
+	return ranked
+		.sort((a, b) => a.exact - b.exact || b.depth - a.depth)
+		.map(({ hub }) => hub);
 }
 
 /** The cells from the asker's first tie to `fit`, as the walk found them. */
