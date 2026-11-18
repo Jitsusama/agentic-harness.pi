@@ -116,14 +116,16 @@ export interface Reach {
 	readonly ties: TieGraph;
 	readonly hubs: readonly Hub[];
 	/**
-	 * Whether a cell is there to take or pass a need. Always said, so a
-	 * caller that forgets it reaches no cell rather than every one.
+	 * Whether a cell is there to take a need or be found through. Always
+	 * said, so a caller that forgets it reaches no cell rather than every
+	 * one.
 	 */
 	readonly live: (address: string) => boolean;
 	/**
-	 * Whether a cell has stopped the asker. It is never taken, nor passed
-	 * through, and never named as ended, since it is there: it only won't
-	 * hear this asker, so a lost need names it in `stopped`. Left out, no
+	 * Whether a cell has stopped the asker. It is never taken and never
+	 * named as ended, since it is there: it only won't hear this asker, so
+	 * a lost need names it in `stopped`. It may still be found through, as
+	 * a hub or along ties, since a need goes to its fit alone. Left out, no
 	 * cell has.
 	 */
 	readonly stopped?: (address: string) => boolean;
@@ -354,6 +356,9 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		!selves.has(address) && live(address) && !stops(address);
 	const ended = (address: string) =>
 		!selves.has(address) && !live(address) && !stops(address);
+	// A need goes to its fit alone, so a cell it is found through never
+	// hears it: one that stopped the asker may still be walked through.
+	const through = (address: string) => !selves.has(address) && live(address);
 	const asked = {
 		...said,
 		words: keptWords(said, reach.foragers, {
@@ -422,13 +427,15 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	const saying = new Set(said.words);
 	for (const { word } of within) {
 		for (const hub of hubsFor(word, saying, reach.hubs)) {
+			if (!live(hub.hub)) continue;
 			const fit = best(
 				hub.fits.filter(
 					(one) => !endedHolder(one, word) && takes(one) && holds(one, word),
 				),
 			);
-			if (fit === undefined || !live(hub.hub) || stops(hub.hub)) continue;
-			return record(hub.hub === fit ? [fit] : [hub.hub, fit], fit);
+			if (fit === undefined) continue;
+			const direct = hub.hub === fit || selves.has(hub.hub);
+			return record(direct ? [fit] : [hub.hub, fit], fit);
 		}
 	}
 
@@ -450,12 +457,12 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 			for (const cell of frontier) {
 				for (const { other } of reach.ties.get(cell) ?? []) {
 					if (selves.has(other) || parent.has(other)) continue;
-					if (endedHolder(other, word) || !takes(other)) continue;
+					if (endedHolder(other, word) || !through(other)) continue;
 					parent.set(other, cell);
 					next.push(other);
 				}
 			}
-			const fit = best(next.filter((one) => holds(one, word)));
+			const fit = best(next.filter((one) => takes(one) && holds(one, word)));
 			if (fit !== undefined) return chainTo(fit, selves, parent);
 			frontier = next;
 		}

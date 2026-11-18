@@ -323,7 +323,7 @@ describe("a need routed by declared subjects", () => {
 		expect(found.fit).toBe("B");
 	});
 
-	it("never takes a live cell that stopped the asker, naming it as that, never as ended", () => {
+	it("never takes a live cell that stopped the asker, naming it as that", () => {
 		const found = routeNeed(asked("A", "carry"), {
 			foragers: cells({ A: [], S: ["carry"] }),
 			ties: ties(["A", "S", 1]),
@@ -336,22 +336,64 @@ describe("a need routed by declared subjects", () => {
 			fit: null,
 			stopped: ["S"],
 		});
-		expect(found.ended, "S is there, so never ended").toBeUndefined();
 	});
 
-	it("passes a need through no hub cell that stopped the asker", () => {
+	// A need goes to its fit alone, so a cell it was found through never
+	// hears it, and one that stopped the asker may still be found through.
+	it("finds a fit through a hub cell that stopped the asker, which never hears it", () => {
 		const found = routeNeed(asked("A", "carry"), {
 			foragers: cells({ A: [], S: ["carry"], F: ["carry"] }),
 			ties: ties(),
-			hubs: [{ subject: "mycelium:carry", hub: "S", fits: ["F"] }],
+			hubs: [{ subject: "mycelium:carry", hub: "S", fits: ["S", "F"] }],
 			live: () => true,
 			stopped: (address) => address === "S",
 		});
 
-		expect(found, "S won't pass it on, and F is beyond reach").toMatchObject({
-			fit: null,
-			stopped: ["S"],
+		expect(found, "F takes it by S's hub, S never").toMatchObject({
+			fit: "F",
+			path: ["S", "F"],
 		});
+		expect(found.stopped, "found, so nobody is named").toBeUndefined();
+	});
+
+	it("walks through a cell that stopped the asker, never taking it", () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({ A: [], S: ["carry"], F: ["carry"] }),
+			ties: ties(["A", "S", 1], ["S", "F", 1]),
+			hubs: [],
+			live: () => true,
+			stopped: (address) => address === "S",
+		});
+
+		expect(found, "F, one tie past S").toMatchObject({
+			fit: "F",
+			path: ["S", "F"],
+		});
+	});
+
+	it("puts no asker at the head of a path when it is the hub", () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({ A: [], F: ["carry"] }),
+			ties: ties(),
+			hubs: [{ subject: "mycelium:carry", hub: "A", fits: ["F"] }],
+		});
+
+		expect(found, "straight to F").toMatchObject({ fit: "F", path: ["F"] });
+	});
+
+	it("names no fit of a gone hub as passed over", () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({ A: [], E: ["carry"], C: ["carry"] }),
+			ties: ties(["A", "C", 1]),
+			hubs: [{ subject: "mycelium:carry", hub: "H", fits: ["E"] }],
+			live: (address) => address !== "H" && address !== "E",
+		});
+
+		expect(found, "C along the tie").toMatchObject({ fit: "C", path: ["C"] });
+		expect(
+			found.ended,
+			"H is gone, so its fits were never read",
+		).toBeUndefined();
 	});
 
 	it("keeps a word only a cell that stopped the asker holds over the asker's own", () => {

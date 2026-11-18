@@ -168,6 +168,9 @@ describe("sending to a need", () => {
 
 		expect(said).toContain("Not sent");
 		expect(said).toContain("5HJZ8Z works on it but has ended");
+		expect(said, "with no stopper, any peer may be named").toContain(
+			"Name the peers it is for by address.",
+		);
 	});
 
 	it("takes no cell that stopped this one, since it can't be written to", async () => {
