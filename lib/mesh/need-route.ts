@@ -16,8 +16,8 @@
  * Each need is kept as one line in the day's file, in the shape the
  * scale run's judge reads (`judge.py needs`): who asked, its words,
  * every cell it passed after the asker with the fit last, and the
- * realm's size. Its id is the asker's address, a stamp and a count of
- * its own, so no two needs share one and it never changes as it goes.
+ * realm's size. Its id is the asker's address, a stamp and a random
+ * tail, so no two needs share one and it never changes as it goes.
  * Only words some cell works on are kept when they were read from a
  * message's text, at most `MOST_WORDS` of them, so a token pasted into
  * the text never lands in the file. The files go with the week the
@@ -33,6 +33,7 @@
  * owner named by address.
  */
 
+import { randomBytes } from "node:crypto";
 import { readdirSync, rmSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -63,7 +64,7 @@ export type TieGraph = ReadonlyMap<
 
 /** A need as its asker puts it. */
 export interface NeedAsked {
-	/** `<asker>/<its own stamp>`, the same wherever the need goes. */
+	/** `<asker>/<stamp>.<random tail>`, the same wherever the need goes. */
 	readonly need: string;
 	readonly asker: string;
 	readonly words: readonly string[];
@@ -117,13 +118,16 @@ export const MOST_WORDS = 12;
 /** The longest word a need keeps: longer is a token, not a word of work. */
 const LONGEST_WORD = 32;
 
-/** Needs minted in this process, so two in one moment differ. */
-let minted = 0;
+/**
+ * Random bytes in a need's id, so two in one moment differ without a
+ * count kept process-wide, which a host's conversations would share.
+ */
+const ID_TAIL_BYTES = 6;
 
-/** A new need's id: its asker's address, then a stamp and count of its own. */
+/** A new need's id: its asker's address, then a stamp and a random tail. */
 export function needId(asker: string, at: number): string {
-	minted += 1;
-	return `${asker}/${at.toString(36)}.${minted.toString(36)}`;
+	const tail = randomBytes(ID_TAIL_BYTES).toString("hex");
+	return `${asker}/${at.toString(36)}.${tail}`;
 }
 
 /** How long the node has to list a kind: a realm's every cell or tie. */
