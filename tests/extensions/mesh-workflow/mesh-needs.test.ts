@@ -196,6 +196,9 @@ describe("sending to a need", () => {
 
 		expect(said).toContain("Not sent");
 		expect(said).toContain("counted as lost");
+		expect(said, "it names who works on it and why not").toContain(
+			"5HJZ8Z works on it but stopped this peer",
+		);
 		expect(said, "it is there, so it never reads as ended").not.toContain(
 			"has ended",
 		);

@@ -102,6 +102,12 @@ export interface NeedRecord extends Omit<NeedAsked, "fromText" | "selves"> {
 	 * so the asker is told rather than left to wonder; left out when none.
 	 */
 	readonly ended?: readonly string[];
+	/**
+	 * Cells that work on a need counted lost but stopped its asker, so
+	 * the asker is told why rather than that no cell works on it; left out
+	 * when none, or when the need was found.
+	 */
+	readonly stopped?: readonly string[];
 }
 
 /** What a need is routed over. */
@@ -115,9 +121,10 @@ export interface Reach {
 	 */
 	readonly live: (address: string) => boolean;
 	/**
-	 * Whether a cell has stopped the asker. It is never taken, and never
-	 * named as ended, since it is there: it only won't hear this asker.
-	 * Left out, no cell has.
+	 * Whether a cell has stopped the asker. It is never taken, nor passed
+	 * through, and never named as ended, since it is there: it only won't
+	 * hear this asker, so a lost need names it in `stopped`. Left out, no
+	 * cell has.
 	 */
 	readonly stopped?: (address: string) => boolean;
 }
@@ -334,22 +341,29 @@ export function hubsFrom(line: string): Hub[] {
  * nearest cell working on the rarest word any cell within reach works
  * on, taking of the cells as near the one working on most of the need.
  * Lost, with no path, when none is within `MOST_HOPS`. A cell that
- * works on it but has ended is never taken, and is named in `ended`.
+ * works on it but has ended is never taken, and is named in `ended`;
+ * one that stopped the asker is named in `stopped` when the need is lost.
  * Only a cell `live` says is there is taken.
  */
 export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	const selves = new Set([said.asker, ...(said.selves ?? [])]);
 	const { live } = reach;
-	const stopped = reach.stopped ?? (() => false);
+	const stopper = reach.stopped ?? (() => false);
+	const stops = (address: string) => !selves.has(address) && stopper(address);
 	const takes = (address: string) =>
-		!selves.has(address) && live(address) && !stopped(address);
+		!selves.has(address) && live(address) && !stops(address);
 	const ended = (address: string) =>
-		!selves.has(address) && !live(address) && !stopped(address);
+		!selves.has(address) && !live(address) && !stops(address);
 	const asked = {
 		...said,
-		words: keptWords(said, reach.foragers, takes, ended),
+		words: keptWords(said, reach.foragers, {
+			takes,
+			untaken: (address) => ended(address) || stops(address),
+			self: (address) => selves.has(address),
+		}),
 	};
 	const passed = new Set<string>();
+	const refusing = new Set<string>();
 	const record = (path: readonly string[], fit: string | null): NeedRecord => ({
 		need: asked.need,
 		asker: asked.asker,
@@ -359,6 +373,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		at: asked.at,
 		cells: reach.foragers.length,
 		...(passed.size > 0 ? { ended: [...passed] } : {}),
+		...(fit === null && refusing.size > 0 ? { stopped: [...refusing] } : {}),
 	});
 	const wordsHeld = new Map(
 		reach.foragers.map((cell) => [cell.address, new Set(cell.words)]),
@@ -384,10 +399,13 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		.filter((word) => !ownWord(word))
 		.map((word) => ({ word, count: holders(word).length }))
 		.sort((a, b) => a.count - b.count || a.word.localeCompare(b.word));
-	/** Lost, naming every cell that works on it but has ended. */
+	/** Lost, naming every cell that works on it but has ended or stopped it. */
 	const lost = () => {
 		for (const { word } of rarest) {
-			for (const cell of reach.foragers) endedHolder(cell.address, word);
+			for (const { address } of reach.foragers) {
+				endedHolder(address, word);
+				if (stops(address) && holds(address, word)) refusing.add(address);
+			}
 		}
 		return record([], null);
 	};
@@ -451,25 +469,31 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
  * on, none past `LONGEST_WORD` and at most `MOST_WORDS`, so a token in
  * what was said, in its text or its `about`, never reaches the file.
  * Past `MOST_WORDS`, those that route it are kept rarest first, counted
- * over the cells that would take it; then those only an ended cell
- * holds, which say the need is lost and who worked on it; then those only
- * the asker or a cell that stopped it holds, which route nowhere; among
+ * over the cells that would take it; then those only cells there to name
+ * but not to take hold, ended or stopping the asker, which say why the
+ * need is lost; then those the asker holds, which route nowhere; among
  * words as rare, the first said. They stay in the order said.
  */
 function keptWords(
 	asked: NeedAsked,
 	foragers: readonly Forager[],
-	takes: (address: string) => boolean,
-	ended: (address: string) => boolean,
+	cells: {
+		readonly takes: (address: string) => boolean;
+		readonly untaken: (address: string) => boolean;
+		readonly self: (address: string) => boolean;
+	},
 ): string[] {
 	const takers = new Map<string, number>();
-	const endedHold = new Set<string>();
-	for (const cell of foragers) {
-		const taking = takes(cell.address) ? 1 : 0;
-		const gone = ended(cell.address);
-		for (const word of cell.words) {
+	const untakenHold = new Set<string>();
+	const ownHold = new Set<string>();
+	for (const { address, words } of foragers) {
+		const taking = cells.takes(address) ? 1 : 0;
+		const untaken = cells.untaken(address);
+		const own = cells.self(address);
+		for (const word of words) {
 			takers.set(word, (takers.get(word) ?? 0) + taking);
-			if (gone) endedHold.add(word);
+			if (untaken) untakenHold.add(word);
+			if (own) ownHold.add(word);
 		}
 	}
 	const held = asked.words.filter(
@@ -477,9 +501,10 @@ function keptWords(
 	);
 	if (held.length <= MOST_WORDS) return held;
 	const rarity = (word: string) => {
+		if (ownHold.has(word)) return Number.POSITIVE_INFINITY;
 		const count = takers.get(word) ?? 0;
 		if (count > 0) return count;
-		return endedHold.has(word) ? ENDED_ONLY : Number.POSITIVE_INFINITY;
+		return untakenHold.has(word) ? UNTAKEN_ONLY : Number.POSITIVE_INFINITY;
 	};
 	const rarest = new Set(
 		[...held].sort((a, b) => rarity(a) - rarity(b)).slice(0, MOST_WORDS),
@@ -488,10 +513,11 @@ function keptWords(
 }
 
 /**
- * How rare a word held only by ended cells ranks: past every word a
- * live cell would take, and before those only the asker holds.
+ * How rare a word held only by cells there to name but not to take
+ * ranks: past every word a live cell would take, and before those the
+ * asker holds.
  */
-const ENDED_ONLY = Number.MAX_SAFE_INTEGER;
+const UNTAKEN_ONLY = Number.MAX_SAFE_INTEGER;
 
 /**
  * The hubs whose subject's narrowest part says `word`, and says nothing

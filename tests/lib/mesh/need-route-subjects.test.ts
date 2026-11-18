@@ -250,8 +250,9 @@ describe("a need routed by declared subjects", () => {
 	});
 
 	it("matches a hub on what the need said, not only on the words it kept", () => {
-		// Twelve words as rare as easing crowd out lines, which two cells
-		// hold; the need still said lines, so easing-lines is its hub.
+		// Eleven words as rare as easing fill the twelve with it, crowding
+		// out lines, which two cells hold; the need still said lines, so
+		// easing-lines is its hub.
 		const rare = Array.from({ length: MOST_WORDS - 1 }, (_, at) => `rare${at}`);
 		const found = routeNeed(asked("A", "easing", "lines", ...rare), {
 			foragers: cells({
@@ -316,23 +317,56 @@ describe("a need routed by declared subjects", () => {
 			live: (address) => address !== "E",
 		});
 
-		expect(found.words, "the ended cell's word goes first").toEqual(taken);
+		expect(found.words, "the ended cell's word is dropped first").toEqual(
+			taken,
+		);
 		expect(found.fit).toBe("B");
 	});
 
-	it("never takes a cell that stopped the asker, nor names it as ended", () => {
+	it("never takes a live cell that stopped the asker, naming it as that, never as ended", () => {
 		const found = routeNeed(asked("A", "carry"), {
 			foragers: cells({ A: [], S: ["carry"] }),
 			ties: ties(["A", "S", 1]),
 			hubs: [{ subject: "mycelium:carry", hub: "S", fits: ["S"] }],
-			live: (address) => address !== "S",
+			live: () => true,
 			stopped: (address) => address === "S",
 		});
 
-		expect(found, "lost, and S is there, not ended").toMatchObject({
+		expect(found, "lost, naming S as the one that stopped it").toMatchObject({
 			fit: null,
+			stopped: ["S"],
 		});
-		expect(found.ended).toBeUndefined();
+		expect(found.ended, "S is there, so never ended").toBeUndefined();
+	});
+
+	it("keeps a word only a cell that stopped the asker holds over the asker's own", () => {
+		const own = Array.from({ length: MOST_WORDS }, (_, at) => `mine${at}`);
+		const found = routeNeed(asked("A", ...own, "carry"), {
+			foragers: cells({ A: own, S: ["carry"] }),
+			ties: ties(["A", "S", 1]),
+			hubs: [],
+			stopped: (address) => address === "S",
+		});
+
+		expect(found.words, "the stopper's word is kept").toContain("carry");
+		expect(found, "lost, naming S, not the asker's own").toMatchObject({
+			fit: null,
+			stopped: ["S"],
+		});
+	});
+
+	it("keeps a word only another cell holds over words the asker holds too, which route nowhere", () => {
+		const shared = Array.from({ length: MOST_WORDS }, (_, at) => `both${at}`);
+		const found = routeNeed(asked("A", ...shared, "carry"), {
+			foragers: cells({ A: shared, B: shared, C: ["carry"] }),
+			ties: ties(["A", "C", 1]),
+			hubs: [],
+		});
+
+		expect(found.words, "carry is kept").toContain("carry");
+		expect(found, "C takes it, not the asker").toMatchObject({
+			fit: "C",
+		});
 	});
 
 	it("keeps a word only an ended cell holds over the asker's own, so the need reads as lost", () => {

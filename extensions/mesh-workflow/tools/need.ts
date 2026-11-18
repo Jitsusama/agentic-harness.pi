@@ -66,7 +66,7 @@ export async function needRead(
 	const standing = await peers(at);
 	// A peer that stopped this one is not written to, so it can't take
 	// a need from it either; it is there, so it is never said to have
-	// ended.
+	// ended, only to have stopped this peer when the need is lost.
 	const stopped = new Set(
 		stoppedBy(at.peer, standing.present).flatMap(
 			({ stopper }) => stopper.addresses,
@@ -98,7 +98,7 @@ export async function needRead(
 	const ended = endedText(found);
 	if (found.fit === null) {
 		return refused(
-			`no live cell within three ties works on ${about}.${ended} It is counted as lost, never sent to an orchestrator. Name the peers it is for by address.`,
+			`no live cell within three ties that hears this peer works on ${about}.${ended}${stoppedText(found)} It is counted as lost, never sent to an orchestrator. Name the peers it is for by address.`,
 		);
 	}
 	if (found.fit === asker) {
@@ -113,6 +113,14 @@ export async function needRead(
 }
 
 /** Who was passed over for having ended, as a sentence, or nothing. */
+/** Who works on a lost need but stopped this peer, as a sentence. */
+function stoppedText(found: NeedRecord): string {
+	const stopped = found.stopped ?? [];
+	if (stopped.length === 0) return "";
+	const one = stopped.length === 1;
+	return ` ${stopped.join(", ")} ${one ? "works" : "work"} on it but stopped this peer, so ${one ? "it doesn't" : "they don't"} hear it.`;
+}
+
 function endedText(found: NeedRecord): string {
 	const ended = found.ended ?? [];
 	if (ended.length === 0) return "";
