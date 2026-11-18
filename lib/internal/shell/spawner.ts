@@ -36,19 +36,22 @@
  * carried the host's environment, which names no quest, and every
  * hosted session's work was filed as no quest's (VRZKID, 15 November).
  *
- * Each is started naming, too, the session whose load made it
- * (`PI_SPAWNER_SESSION`), taken from the load and never from pi's own
- * environment, which a host's sessions share. A host's sessions share its
- * process, so a mycelium node tells which asked it for a run by the
- * spawner its command runs under: the host's child running a program
- * named pi-spawner. While its spawner runs, the host runs none of an
- * agent's commands as its own child, so a command could pass as a
- * spawner only by running a copy of that program on purpose, or, where
- * the kernel lets a process trace more than its descendants, by writing
- * a spawner's memory. Once a spawner is lost, or none can start, pi runs
- * the commands itself, as its own children; one could then start
- * pi-spawner on purpose naming any session, and the node can't tell it
- * from the host's. It stops a mistake, not a forger.
+ * Each is started naming, too, the session whose load made it, as its
+ * own argument, `pi-spawner for <session>`, taken from the load and
+ * never from pi's own environment, which a host's sessions share. A
+ * host's sessions share its process, so a mycelium node tells which
+ * asked it for a run by the spawner its command runs under: the host's
+ * own child, named pi-spawner, its command line naming the session. The
+ * spawner can't be dumped, so nothing it starts can rewrite that line,
+ * and its environment is closed to the node. While its spawner runs,
+ * the host runs none of an agent's commands as its own child, so no
+ * command can start a spawner of its own beside it as the host's child.
+ * Once a spawner is lost, or none can start, pi runs the commands
+ * itself, as its own children; one could then start pi-spawner on
+ * purpose naming any session, and the node can't tell it from the
+ * host's. It stops a mistake, not a forger who outlives a spawner. A
+ * spawner from before refuses `for`, asked once with nothing to serve,
+ * and is then started bare, naming no session.
  *
  * When pi goes, pi-spawner kills every command it still runs but one kept
  * on disk (shell-workflow's keeping.ts), which a shared host hands to the
@@ -110,8 +113,14 @@ const FAILED = "e".charCodeAt(0);
 /** The variable naming the quest a command's work is for. */
 const QUEST_VARIABLE = "PI_QUEST";
 
-/** The variable naming, in a spawner's own start, the session it serves. */
-const SESSION_VARIABLE = "PI_SPAWNER_SESSION";
+/** The word before the session a pi-spawner is started naming. */
+const FOR_WORD = "for";
+
+/** The session a spawner is asked to serve, with nothing to serve, to learn whether it takes `for`. */
+const FOR_ASKED_SESSION = "asked";
+
+/** How long pi-spawner may take to say whether it takes `for`. */
+const FOR_TIMEOUT_MS = 5000;
 
 /** A frame's kind, id and length, ahead of its payload. */
 const HEAD_BYTES = 9;
@@ -148,11 +157,16 @@ export interface SpawnerOptions {
 	find?: (program: string) => string | undefined;
 	/**
 	 * Start the program, its environment naming `quest`, the work it runs,
-	 * and `session`, whose commands it runs.
+	 * and its command line `session`, whose commands it runs.
 	 */
 	start?: (program: string, quest?: string, session?: string) => Started;
-	/** The session whose load this is, which its spawners are started naming. */
+	/**
+	 * The session whose load this is, which its spawners are started
+	 * naming where they take `for`.
+	 */
 	session?: string;
+	/** Whether the program at a path takes `for <session>`. */
+	asksFor?: (program: string) => Promise<boolean>;
 	/** Whether the program at a path spares kept commands when pi goes. */
 	asksKeeps?: (program: string) => Promise<boolean>;
 	/** Kill a command's process group, as pi's stop does. */
@@ -245,7 +259,19 @@ export function spawnedBy(
 		return found.program;
 	};
 	let keeps: Promise<boolean> | undefined;
-	const linked = (quest: string | undefined): Link | undefined => {
+	let takesFor: Promise<boolean> | undefined;
+	// The session its spawners name: the load's, where the spawner takes
+	// the word, asked once.
+	const naming = async (session: string): Promise<string | undefined> => {
+		const program = programOf();
+		if (program === undefined) return undefined;
+		takesFor ??= (options.asksFor ?? spawnerTakesFor)(program);
+		return (await takesFor) ? session : undefined;
+	};
+	const linked = (
+		quest: string | undefined,
+		session: string | undefined,
+	): Link | undefined => {
 		if (lost) return undefined;
 		if (link && linkQuest === quest) return link;
 		// Another quest's work: the one running closes once its own commands
@@ -260,7 +286,7 @@ export function spawnedBy(
 		try {
 			let made: Link | undefined;
 			made = connect(
-				(options.start ?? startProgram)(program, quest, options.session),
+				(options.start ?? startProgram)(program, quest, session),
 				kill,
 				() => {
 					// One retired for another quest's ends with no loss to the next.
@@ -286,10 +312,14 @@ export function spawnedBy(
 				// pi's own spawn says why the shell can't be found.
 				return fallback.exec(command, cwd, settings);
 			}
-			const through =
-				shell.commandTransport !== "stdin" && settings.env !== undefined
-					? linked(settings.env[QUEST_VARIABLE])
-					: undefined;
+			if (shell.commandTransport === "stdin" || settings.env === undefined)
+				return fallback.exec(command, cwd, settings);
+			const quest = settings.env[QUEST_VARIABLE];
+			// A load naming no session asks the spawner nothing first.
+			const session = options.session
+				? await naming(options.session)
+				: undefined;
+			const through = linked(quest, session);
 			if (through === undefined) return fallback.exec(command, cwd, settings);
 			return runThrough(through, shell, command, cwd, settings, kill);
 		},
@@ -327,8 +357,6 @@ function resolved(program: string | undefined): string | undefined {
 export function spawnerKeeps(program: string): Promise<boolean> {
 	return new Promise((resolve) => {
 		const asked = spawn(program, [KEEPS_WORD], {
-			// Asked only what it keeps, it names no session.
-			env: spawnerEnvironment(process.env),
 			stdio: ["ignore", "pipe", "ignore"],
 			timeout: KEEPS_TIMEOUT_MS,
 		});
@@ -544,13 +572,14 @@ export function startProgram(
 	session?: string,
 	setting: ScopeSetting = settingHere(hosted() !== undefined),
 ): Started {
-	const start = spawnerStart(program, setting);
+	const words = session ? [FOR_WORD, session] : [];
+	const start = spawnerStart(program, setting, words);
 	if (start.unscoped !== undefined) sayUnscoped(start.unscoped);
-	const scoped = start.args.length > 0;
+	const scoped = start.scoped;
 	const child = spawn(start.command, [...start.args], {
 		stdio: ["pipe", "pipe", scoped ? "pipe" : "ignore"],
 		detached: true,
-		env: spawnerEnvironment(process.env, quest, session),
+		env: quest ? { ...process.env, [QUEST_VARIABLE]: quest } : process.env,
 	});
 	child.unref();
 	if (scoped) {
@@ -586,22 +615,21 @@ export function startProgram(
 }
 
 /**
- * The environment a spawner starts in: pi's own, naming `quest` and
- * `session` where given. One inherited naming a session is dropped when
- * none is given, so a spawner never claims a session its load didn't
- * name.
+ * Whether the pi-spawner at `program` takes `for <session>`: asked to
+ * serve a session with nothing to serve, one that takes it reads its
+ * empty input as pi gone and ends at once. One from before refuses the
+ * word, as it refuses any but `keeps`.
  */
-export function spawnerEnvironment(
-	env: NodeJS.ProcessEnv,
-	quest?: string,
-	session?: string,
-): NodeJS.ProcessEnv {
-	const { [SESSION_VARIABLE]: _inherited, ...rest } = env;
-	return {
-		...rest,
-		...(quest ? { [QUEST_VARIABLE]: quest } : {}),
-		...(session ? { [SESSION_VARIABLE]: session } : {}),
-	};
+export function spawnerTakesFor(program: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const asked = spawn(program, [FOR_WORD, FOR_ASKED_SESSION], {
+			stdio: "ignore",
+			timeout: FOR_TIMEOUT_MS,
+		});
+		// One that can't start takes nothing.
+		asked.once("error", () => resolve(false));
+		asked.once("close", (status) => resolve(status === 0));
+	});
 }
 
 /** A command's frames as they come, until it is done. */

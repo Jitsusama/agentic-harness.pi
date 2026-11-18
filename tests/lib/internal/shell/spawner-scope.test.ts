@@ -52,8 +52,26 @@ describe("starting a host's spawner", () => {
 				"--",
 				"/nix/bin/pi-spawner",
 			],
+			scoped: true,
 		});
 		expect(spawnersScoped(linuxHost()), "a host's calls are kept").toBe(true);
+	});
+
+	it("passes the spawner's own words after it, scoped or not", () => {
+		const words = ["for", "s-one"];
+
+		expect(
+			spawnerStart("/nix/bin/pi-spawner", linuxHost(), words).args.slice(-3),
+			"scoped, after the program",
+		).toEqual(["/nix/bin/pi-spawner", "for", "s-one"]);
+		expect(
+			spawnerStart("/bin/pi-spawner", linuxHost({ hosted: false }), words),
+			"started directly, as its arguments",
+		).toEqual({
+			command: "/bin/pi-spawner",
+			args: ["for", "s-one"],
+			scoped: false,
+		});
 	});
 
 	it("reaches the user manager by its private socket too", () => {
@@ -72,6 +90,7 @@ describe("starting a host's spawner", () => {
 		expect(spawnerStart("/bin/pi-spawner", setting)).toEqual({
 			command: "/bin/pi-spawner",
 			args: [],
+			scoped: false,
 			unscoped: "systemd-run isn't in the system's profile",
 		});
 	});
@@ -103,6 +122,7 @@ describe("starting a host's spawner", () => {
 		expect(spawnerStart("/bin/pi-spawner", setting)).toEqual({
 			command: "/bin/pi-spawner",
 			args: [],
+			scoped: false,
 			unscoped: why,
 		});
 		expect(spawnersScoped(setting), "nothing keeps a host's calls").toBe(false);
@@ -111,7 +131,7 @@ describe("starting a host's spawner", () => {
 	it("runs plain pi's where it always has, with nothing to say", () => {
 		expect(
 			spawnerStart("/bin/pi-spawner", linuxHost({ hosted: false })),
-		).toEqual({ command: "/bin/pi-spawner", args: [] });
+		).toEqual({ command: "/bin/pi-spawner", args: [], scoped: false });
 	});
 });
 

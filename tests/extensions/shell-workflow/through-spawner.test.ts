@@ -91,6 +91,7 @@ describe("the agent's bash for a conversation", () => {
 			kill: vi.fn<(pid: number) => void>(),
 			reap: () => undefined,
 			asksKeeps: async () => false,
+			asksFor: async () => true,
 			session: "s-given",
 		});
 
