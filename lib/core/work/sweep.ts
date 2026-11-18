@@ -85,8 +85,15 @@ export const PUSHED_SETTLE_MS = 24 * 60 * 60 * 1000;
 export interface SweepDeps extends UseSigns {
 	exec: Exec;
 	memory: TreeMemory;
-	/** Paths something else says it wants, such as a quest's trees. */
-	claims: readonly string[];
+	/**
+	 * Paths something else says it wants, such as a quest's trees, or how
+	 * to ask for them. Asked only once the sweep holds its lock and isn't
+	 * resting, since asking can be dear: a quest answers by signing its
+	 * whole tree, on a host's shared thread, and sixty conversations'
+	 * first sweeps asking at once held a host's thread past its watchdog
+	 * on 18 November, though all but one of them then skipped.
+	 */
+	claims: readonly string[] | (() => readonly string[]);
 	/** The file that keeps two sweeps from running at once. */
 	lockPath: string;
 	/**
@@ -187,7 +194,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			...held
 				.filter((tree) => !unattributed.has(tree.path))
 				.map((tree) => tree.path),
-			...deps.claims,
+			...(typeof deps.claims === "function" ? deps.claims() : deps.claims),
 		].map(resolved);
 		const repositories = await byRepository(deps, ended, outcome);
 		for (const tree of repositories.orphans) {

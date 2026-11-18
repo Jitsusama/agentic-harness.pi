@@ -126,12 +126,16 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 		// on 11 November took 154 trees, among them the folder a hosted
 		// conversation worked in, since nothing here sees a hosted
 		// conversation's folder as in use.
-		const claims: TreeClaims = { paths: [] };
-		pi.events.emit(WORK_TREE_CLAIMS, claims);
+		// Asked only by a sweep that runs, as the sweep says why.
+		const claimed = (): readonly string[] => {
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+			return claims.paths;
+		};
 		const outcome = await sweepEndedTrees({
 			exec: unattendedExec(),
 			memory: createTreeMemory(treeRecordDir()),
-			claims: claims.paths,
+			claims: claimed,
 			lockPath: join(dir, "sweep.lock"),
 			restMs: SWEEP_REST_MS,
 			wentWithFinishedWork: inFinishedQuest,

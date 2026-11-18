@@ -38,14 +38,17 @@ const idle: { rested?: string; skipped?: string } = {};
 
 vi.mock("../../../lib/core/work/sweep.ts", () => ({
 	sweepEndedTrees: async (deps: {
-		claims: readonly string[];
+		claims: readonly string[] | (() => readonly string[]);
 		restMs?: number;
 	}) => {
-		given.push([...deps.claims]);
 		rests.push(deps.restMs);
 		const none = { taken: [], refused: [], kept: [], dropped: [] };
+		// As the library does: claims are asked only by a sweep that runs.
 		if (idle.rested !== undefined) return { ...none, rested: idle.rested };
 		if (idle.skipped !== undefined) return { ...none, skipped: idle.skipped };
+		given.push([
+			...(typeof deps.claims === "function" ? deps.claims() : deps.claims),
+		]);
 		return {
 			...none,
 			taken: [{ path: "/src/repo/.worktrees/spent", branch: "spent" }],
@@ -174,6 +177,26 @@ it("writes no line for a sweep that rested", async () => {
 	expect(existsSync(sweepLog()), "a log written for a sweep that rested").toBe(
 		false,
 	);
+});
+
+it("asks nobody for claims when it rests or another sweep holds the lock", async () => {
+	// Asking makes each quest sign its whole tree on a host's thread, and
+	// sixty conversations' first sweeps asking at once held the background
+	// host past its watchdog on 18 November, though all but one skipped.
+	let asked = 0;
+	for (const why of ["rested", "skipped"] as const) {
+		delete idle.rested;
+		delete idle.skipped;
+		idle[why] = "not now";
+		const events = createEventBus();
+		events.on(WORK_TREE_CLAIMS, () => {
+			asked++;
+		});
+
+		await sweepOn(events);
+	}
+
+	expect(asked, "times a sweep that didn't run asked for claims").toBe(0);
 });
 
 it("says when another sweep held the lock", async () => {
