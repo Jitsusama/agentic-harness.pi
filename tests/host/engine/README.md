@@ -26,8 +26,10 @@ pi-runs.test.ts opens the agent's own runs as pi's through a session
 standing in for pi's runForHost: one run for nested holds, none for a
 run pi began, and no settle once the host parks.
 
-hosted-agent.test.ts, call-signal.test.ts and engine.test.ts are the
-exceptions. The first runs fixtures/hosted-session.mts in child node
+hosted-agent.test.ts, call-signal.test.ts, engine.test.ts and
+carried-runs.test.ts are the exceptions. The last holds that a carried
+run's first request carries the sections a typed prompt's would, where
+the runtime has pi's run seam. The first runs fixtures/hosted-session.mts in child node
 processes, beside pi's own agent, on pi's scripted provider; the second
 runs its call-signal scenario the same way, holding that a later call's
 commands start under no signal an earlier call left behind. The third
@@ -49,7 +51,7 @@ restart that leaves it resting parked. Another runs a turn on this package, a
 bash call included, and holds that nothing it starts from its prompt to
 idle starts a child with spawnSync, execFileSync or execSync, which
 would hold every conversation's loop (tests/support/spawns.ts watches).
-All three need a pi built with the host's
+All four need a pi built with the host's
 patches, found as tests/host/end-to-end/support/host-pi.ts finds it, so
 an ordinary `pnpm test` skips each case, saying how to get one. They sit
 in the process lane, since they spawn node from node. Run them before
