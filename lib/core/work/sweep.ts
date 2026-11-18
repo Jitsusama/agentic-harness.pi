@@ -178,6 +178,10 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	const release = sweepLock(deps.lockPath);
 	if (typeof release === "string") return { ...outcome, skipped: release };
 	try {
+		// Asked at once, before any wait, so a conversation that closes
+		// while the sweep runs has already said what its quests hold.
+		const claims =
+			typeof deps.claims === "function" ? deps.claims() : deps.claims;
 		const facts = deps.facts ?? systemFacts;
 		const inUse = await treesInUse(deps, deps.memory.recall());
 		const held = [...(await deps.memory.heldNow(facts)), ...inUse];
@@ -194,7 +198,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			...held
 				.filter((tree) => !unattributed.has(tree.path))
 				.map((tree) => tree.path),
-			...(typeof deps.claims === "function" ? deps.claims() : deps.claims),
+			...claims,
 		].map(resolved);
 		const repositories = await byRepository(deps, ended, outcome);
 		for (const tree of repositories.orphans) {
