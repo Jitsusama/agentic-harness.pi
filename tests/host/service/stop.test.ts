@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	endWithin,
+	stopBackstop,
 	stopWithin,
 	unparkedLine,
 } from "../../../host/service/stop.ts";
@@ -43,6 +44,31 @@ describe("stopWithin", () => {
 			{ PI_HOST_STOP_USEC: "-5" },
 		])
 			expect(stopWithin(env), JSON.stringify(env)).toBe(45_000);
+	});
+});
+
+// At 04:33 on 18 November a stop's loop ran on a CPU for 117 s of its
+// 150 s, so its own 112 s bound never fired and systemd killed it with
+// nothing said. A thread beside the loop ends the host past the bound,
+// still short of systemd's kill.
+describe("stopBackstop", () => {
+	it("ends a stop its loop can't at seven eighths of the unit's stop limit", () => {
+		expect(stopBackstop({ PI_HOST_STOP_USEC: "150000000" })).toBe(131_250);
+		expect(stopBackstop({ PI_HOST_STOP_USEC: "100000000" })).toBe(87_500);
+	});
+
+	it("comes after the loop's own bound, so a loop that turns ends its stop itself", () => {
+		for (const env of [{ PI_HOST_STOP_USEC: "150000000" }, {}])
+			expect(stopBackstop(env), JSON.stringify(env)).toBeGreaterThan(
+				stopWithin(env),
+			);
+	});
+
+	it("waits no longer than a timer can, and 52.5 s when its unit names no limit", () => {
+		expect(stopBackstop({ PI_HOST_STOP_USEC: "18446744073709551615" })).toBe(
+			LONGEST_TIMER_MS,
+		);
+		expect(stopBackstop({ PI_HOST_STOP_USEC: "soon" })).toBe(52_500);
 	});
 });
 

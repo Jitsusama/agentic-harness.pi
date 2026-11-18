@@ -56,6 +56,11 @@ export function stopWithin(env: NodeJS.ProcessEnv): number {
 	);
 }
 
+/** How long, in ms, a stop's backstop waits before ending the host. */
+export function stopBackstop(_env: NodeJS.ProcessEnv): number {
+	return 0;
+}
+
 /**
  * Settle as `work` does, or once `ms` have passed, telling `late` how long
  * that really took, since a busy loop comes to its bound late; a failure
