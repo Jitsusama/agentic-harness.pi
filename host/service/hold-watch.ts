@@ -511,10 +511,16 @@ const SAMPLE_US = 1000;
 const TOP = 5;
 const CALLERS = 5;
 const located = (frame) => {
-	// A function's name is the code's, which says anything it likes.
-	const name = plain(frame.functionName || "(anonymous)");
+	// A function's name is the code's, which says anything it likes, at
+	// any length.
+	const whole = plain(frame.functionName || "(anonymous)");
+	const name = whole.length > LONGEST ? whole.slice(0, LONGEST) + "..." : whole;
 	if (!frame.url) return name;
-	return name + " (" + shortened(frame.url.replace(/^file:\\/\\//, "")) + ":" + (frame.lineNumber + 1) + ":" + (frame.columnNumber + 1) + ")";
+	// A frame's file is told by its end, so a long path loses its start.
+	const path = plain(frame.url.replace(/^file:\\/\\//, ""));
+	const homed = home && path.startsWith(home + "/") ? "~" + path.slice(home.length) : path;
+	const file = homed.length > LONGEST ? "..." + homed.slice(-LONGEST) : homed;
+	return name + " (" + file + ":" + (frame.lineNumber + 1) + ":" + (frame.columnNumber + 1) + ")";
 };
 // The frames that took the most samples, and the busiest one's callers,
 // along the one call path that sampled it most.
@@ -543,22 +549,35 @@ const busiest = (taken) => {
 	}
 	return "most in " + frames + (callers.length > 0 ? "; the busiest called from " + callers.join(" < ") : "");
 };
+const failure = (error) => (error instanceof Error ? error.message : String(error));
 // Keep a profile under the folder, the newest few, and say where. The
 // disk is written without waiting on it, so a slow disk never holds the
 // beats beside it. A file already at its name, a link included, is left
-// alone, and pruning never takes the one just kept, whatever the clock.
+// alone; one this write left half done is taken back; and pruning never
+// takes the one just kept, whatever the clock, nor unsays its keeping.
 const kept = async (taken) => {
 	const text = JSON.stringify(taken);
 	const bytes = Buffer.byteLength(text);
-	if (bytes > profile.most) return "its profile, " + Math.round(bytes / 1024) + " KB, is too large to keep";
+	if (bytes > profile.most) return "didn't keep the held loop's profile: at " + Math.round(bytes / 1024) + " KB it is too large to keep";
 	await mkdir(profile.folder, { recursive: true, mode: 0o700 });
 	const name = "held-" + new Date().toISOString().replace(/[:.]/g, "-") + ".cpuprofile";
-	await writeFile(join(profile.folder, name), text, { mode: 0o600, flag: "wx" });
-	const others = (await readdir(profile.folder)).filter((file) => file !== name && /^held-.*\\.cpuprofile$/.test(file)).sort();
-	for (const old of others.slice(0, Math.max(0, others.length - (profile.keep - 1)))) await rm(join(profile.folder, old), { force: true });
-	return "kept in " + shortened(join(profile.folder, name));
+	const file = join(profile.folder, name);
+	try {
+		await writeFile(file, text, { mode: 0o600, flag: "wx" });
+	} catch (error) {
+		// A file already there is someone else's; one this write began is ours.
+		if (error?.code !== "EEXIST") await rm(file, { force: true }).catch(() => {});
+		throw error;
+	}
+	const said = "kept the held loop's profile in " + shortened(file);
+	try {
+		const others = (await readdir(profile.folder)).filter((other) => other !== name && /^held-.*\\.cpuprofile$/.test(other)).sort();
+		for (const old of others.slice(0, Math.max(0, others.length - (profile.keep - 1)))) await rm(join(profile.folder, old), { force: true });
+	} catch (error) {
+		return said + "; couldn't prune the older ones: " + failure(error);
+	}
+	return said;
 };
-const failure = (error) => (error instanceof Error ? error.message : String(error));
 const profileFor = (held, into) => {
 	if (!profile || held.profiled || !held.running || into < profile.after) return;
 	held.profiled = true;
@@ -584,19 +603,20 @@ const profileFor = (held, into) => {
 			const { profile: taken } = await post("Profiler.stop");
 			// A loop that moved again was sampled partly after its hold.
 			const outlived = hold === held ? "" : "; the loop moved again before it ended, so some samples are from after the hold";
-			let where;
-			try {
-				where = await kept(taken);
-			} catch (error) {
-				where = "its profile couldn't be kept: " + failure(error);
-			}
 			let most;
 			try {
 				most = busiest(taken);
 			} catch (error) {
 				most = "its samples couldn't be read: " + failure(error);
 			}
-			say("profiled the held loop's main thread for " + seconds(profile.for) + " s, " + seconds(into) + " s into the hold: " + most + outlived + "; " + where);
+			// Where it spun is said before the disk is asked, so a disk that
+			// never answers, or a kill, can't take it.
+			say("profiled the held loop's main thread for " + seconds(profile.for) + " s, " + seconds(into) + " s into the hold: " + most + outlived);
+			try {
+				say(await kept(taken));
+			} catch (error) {
+				say("couldn't keep the held loop's profile: " + failure(error));
+			}
 		} catch (error) {
 			say("couldn't profile the held loop's main thread: " + failure(error));
 		} finally {

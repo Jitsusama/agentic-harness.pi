@@ -612,7 +612,13 @@ describe("watchHolds", () => {
 
 		/** The lines that say a profile was taken, or couldn't be. */
 		const profiled = (): string[] =>
-			said().filter((line) => /profil/.test(line));
+			said().filter((line) =>
+				/(profiled|couldn't profile) the held loop/.test(line),
+			);
+
+		/** The lines that say whether a profile was kept. */
+		const stored = (): string[] =>
+			said().filter((line) => /the held loop's profile/.test(line));
 
 		/** A /proc of the main thread's own, saying only its `state`. */
 		const procIn = (state: string): string => {
@@ -643,9 +649,7 @@ describe("watchHolds", () => {
 			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
 			hold(2500);
 			await vi.waitFor(() => {
-				expect(profiled().join("\n"), "a profile said").toMatch(
-					/profiled the held loop/,
-				);
+				expect(stored(), "its keeping said").toHaveLength(1);
 			});
 			const lines = profiled();
 			expect(
@@ -658,7 +662,11 @@ describe("watchHolds", () => {
 			expect(lines[0], "sampled within the hold").not.toMatch(/moved again/);
 			const files = kept(folder);
 			expect(files, "the profile kept").toHaveLength(1);
-			expect(lines[0], "says where it is kept").toContain(files[0]);
+			expect(stored()[0], "says where it is kept").toMatch(
+				new RegExp(
+					`^pi-host: kept the held loop's profile in \\S+${files[0]}$`,
+				),
+			);
 			expect(
 				statSync(join(folder, files[0] ?? "")).mode & 0o777,
 				"read by its owner alone",
@@ -686,10 +694,10 @@ describe("watchHolds", () => {
 				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
 				hold(1500);
 				await vi.waitFor(() => {
-					expect(profiled(), `profile ${time} said`).toHaveLength(time);
+					expect(stored(), `profile ${time} kept`).toHaveLength(time);
 				});
 			}
-			const named = profiled().map(
+			const named = stored().map(
 				(line) => /(held-[^ ]+\.cpuprofile)/.exec(line)?.[1],
 			);
 			expect(kept(folder), "the newest two").toEqual(named.slice(1));
@@ -708,13 +716,64 @@ describe("watchHolds", () => {
 			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
 			hold(1500);
 			await vi.waitFor(() => {
-				expect(profiled(), "a profile said").toHaveLength(1);
+				expect(stored(), "its keeping said").toHaveLength(1);
 			});
 			expect(profiled()[0], "where it spun, still").toContain(
 				"hold-watch.test.ts",
 			);
-			expect(profiled()[0], "too large to keep").toMatch(/too large to keep/);
+			expect(stored()[0], "too large to keep").toMatch(
+				/didn't keep the held loop's profile: at \d+ KB it is too large to keep/,
+			);
 			expect(kept(folder), "nothing kept").toEqual([]);
+		});
+
+		it("says where it spun when the profile can't be kept", async () => {
+			// A file where the folder would be, so making the folder fails.
+			const folder = join(dir, "held");
+			writeFileSync(folder, "");
+			stop = watchHolds({
+				fd,
+				every: EVERY_MS,
+				after: 300,
+				still: 60_000,
+				profile: { after: 400, for: 300, folder },
+			});
+			// A turn first, so the thread has started and seen the loop move.
+			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+			hold(1500);
+			await vi.waitFor(() => {
+				expect(stored(), "its keeping said").toHaveLength(1);
+			});
+			expect(profiled()[0], "where it spun, still").toContain(
+				"hold-watch.test.ts",
+			);
+			expect(stored()[0], "why it wasn't kept").toMatch(
+				/^pi-host: couldn't keep the held loop's profile: \S+/,
+			);
+		});
+
+		it("says when the loop moved before its profile ended", async () => {
+			const folder = join(dir, "held");
+			stop = watchHolds({
+				fd,
+				every: EVERY_MS,
+				after: 300,
+				still: 60_000,
+				profile: { after: 400, for: 1500, folder },
+			});
+			// A turn first, so the thread has started and seen the loop move.
+			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+			// Ends half a second into a profile one and a half seconds long.
+			hold(900);
+			await vi.waitFor(
+				() => {
+					expect(profiled(), "a profile said").toHaveLength(1);
+				},
+				{ timeout: 4000 },
+			);
+			expect(profiled()[0], "some samples after the hold").toMatch(
+				/the loop moved again before it ended/,
+			);
 		});
 
 		it.runIf(ON_LINUX)(

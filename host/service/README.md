@@ -96,9 +96,11 @@ input pipeline or screen. No unit or running host is installed yet.
   JavaScript or the collector at work from waiting on disk or a lock
   (D, with where). A hold 30 s long with the thread last seen running
   is profiled once for 3 s through the inspector: the journal names the
-  busiest frames and the busiest one's callers, and the profile is kept
-  in the host's state folder under held/, the newest three up to 16 MB
-  each, readable by its owner alone, to open in a browser's profiler.
+  busiest frames and the busiest one's callers, then where the profile
+  is kept, in the host's state folder under held/, the newest three up
+  to 16 MB each, each file written readable by its owner alone, to open
+  in a browser's profiler. Where it spun is said before the disk is
+  asked, so a disk that never answers can't take it.
   The engine is passed in by the program that starts it.
   Given the process's faults, it backstops an uncaught exception: one
   thrown inside a conversation goes to that conversation's screen, and
