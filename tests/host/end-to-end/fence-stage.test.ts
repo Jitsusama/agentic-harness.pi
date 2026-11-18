@@ -24,7 +24,6 @@ import { mkdir, readFile, readlink } from "node:fs/promises";
 import { platform } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { fenceArgs, fenceRules } from "../../../lib/internal/fence/fence.ts";
 import { listForStage } from "../../../lib/internal/fence/fence-stage.ts";
 import { sandboxFor } from "../../../lib/internal/sandbox/sandbox.ts";
 import { sessionAddress } from "../../../lib/mesh/address.ts";
@@ -81,30 +80,45 @@ function stageFolder(): string {
 
 /**
  * Why the fence can't be shown here, or nothing when it can: it needs
- * Linux, the fence's programs, and a kernel that lets bubblewrap and
- * landrun lay it, tried with the fence's own arguments and rules for
- * the seal's home (fence.ts's fenceArgs and fenceRules), less the runtime
- * folder's, which only a session names. Only their own refusal skips:
- * a probe that runs out of time throws, under load as anywhere, since a
- * slow machine still has the fence and a skip would hide the proof.
+ * Linux, the fence's programs, and a kernel that gives bubblewrap the
+ * namespaces the fence makes and landrun its Landlock. The probe asks
+ * the kernel for those alone, never for the fence's own arguments and
+ * rules, so a fault in fenceArgs or fenceRules fails the case rather
+ * than skipping it. Only the kernel's refusal skips: a probe that
+ * doesn't end by itself throws, since a slow machine still has the
+ * fence and a skip would hide the proof.
  */
 function unprovable(): string | undefined {
 	if (platform() !== "linux") return "the fence's bubblewrap runs on Linux";
 	const sandbox = sandboxFor({ ...process.env, PI_SANDBOX: "fence" });
 	if (sandbox.kind !== "fence") return "the fence's programs aren't here";
-	const place = { home: sealed.home, runtimeDir: undefined };
+	const namespaces = [
+		"--die-with-parent",
+		"--new-session",
+		"--unshare-pid",
+		"--bind",
+		"/",
+		"/",
+		"--dev",
+		"/dev",
+		"--proc",
+		"/proc",
+	];
+	const landlock = ["--rwx", "/", "--unrestricted-network", "--", "true"];
 	const tried = spawnSync(
 		sandbox.bwrap,
-		[...fenceArgs(place), "--", sandbox.landrun, ...fenceRules(place), "true"],
+		[...namespaces, "--", sandbox.landrun, ...landlock],
 		{ encoding: "utf8", timeout: PROBE_MS },
 	);
 	if (tried.status === 0) return undefined;
 	if (tried.status === null) {
-		throw new Error(
-			`the fence's probe didn't end by itself within ${PROBE_MS} ms: ${tried.error?.message ?? tried.signal}`,
-		);
+		const how = tried.error
+			? tried.error.message
+			: `ended by ${tried.signal}, within ${PROBE_MS} ms or at it`;
+		throw new Error(`the fence's probe didn't end by itself: ${how}`);
 	}
-	return `the fence can't be laid here: ${tried.stderr.trim()}`;
+	const said = tried.stderr.trim() || "nothing said";
+	return `the kernel won't lay the fence here (exit ${tried.status}): ${said}`;
 }
 
 /** Whether this runner may still gain privileges, as the kernel says. */
@@ -128,13 +142,17 @@ function marks(file: string | undefined): {
 it(
 	"a hosted conversation listed for the stage runs its commands fenced, and its neighbour doesn't",
 	async ({ skip }) => {
-		const why = unprovable();
-		if (why) skip(why);
-		const machine = await readlink("/proc/self/ns/mnt");
-		// What a command run as this runner shows: 0, or 1 where the
-		// runner is fenced itself, when only the mounts tell.
-		const unfenced = { privileges: await runnerPrivileges(), mounts: machine };
+		if (platform() !== "linux") skip("the fence's bubblewrap runs on Linux");
 		await onHostPi(skip, said, async (pi) => {
+			const why = unprovable();
+			if (why) skip(why);
+			const machine = await readlink("/proc/self/ns/mnt");
+			// What a command run as this runner shows: 0, or 1 where the
+			// runner is fenced itself, when only the mounts tell.
+			const unfenced = {
+				privileges: await runnerPrivileges(),
+				mounts: machine,
+			};
 			const start = async () => {
 				const host = await startHost({
 					seal: sealed,
@@ -204,7 +222,8 @@ it(
 	},
 	// Ten round trips: every wait inside at its longest is two listens
 	// and two opens of two minutes, three round trips, a kill and the
-	// probe's ten seconds, and what is left gives the host's words under
-	// load before vitest's clock.
+	// probe's ten seconds, and what is left gives a list still in flight
+	// at a wait's end, and the host's words under load, before vitest's
+	// clock.
 	ROUND_TRIP_MS * 10,
 );
