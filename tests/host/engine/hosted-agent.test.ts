@@ -379,7 +379,8 @@ describe("the hosted agent continued once durable's session closed", {
 }, () => {
 	it.each([
 		["asking the model again", "continue-closed"],
-		["running words pi queued", "continue-closed-queued"],
+		["running words pi queued to steer", "continue-closed-steered"],
+		["running words pi queued to follow up", "continue-closed-followed"],
 	])(
 		"throws what refused it once its run has ended, %s, so pi's loop ends rather than asking again forever",
 		async (_branch, scenario) => {

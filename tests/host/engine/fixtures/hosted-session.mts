@@ -78,6 +78,7 @@ interface Session {
 		hasQueuedMessages(): boolean;
 		continue(): Promise<void>;
 		steer(message: unknown): void;
+		followUp(message: unknown): void;
 		readonly state: {
 			readonly messages: unknown[];
 			readonly isStreaming: boolean;
@@ -276,6 +277,15 @@ async function answerOnceQueued(text: string): Promise<unknown> {
 }
 
 const say = (text: string) => compat.fauxAssistantMessage(text);
+
+/** Words a person queued after an answer. */
+function alsoThis(): unknown {
+	return {
+		role: "user",
+		content: [{ type: "text", text: "also this" }],
+		timestamp: Date.now(),
+	};
+}
 
 /** Continue the session's agent, saying what it threw, or "none". */
 function continuedWith(session: Session): Promise<string> {
@@ -740,17 +750,28 @@ const scenarios: Record<string, Scenario> = {
 			});
 		},
 	},
-	/** As continue-closed, but with words pi queued after the answer, which continue runs as a prompt. */
-	"continue-closed-queued": {
+	/** As continue-closed, but with words pi queued to steer after the answer, which continue runs as a prompt. */
+	"continue-closed-steered": {
 		responses: () => [say("one")],
 		drive: async (session) => {
 			await session.prompt("hi");
 			await closeStore();
-			session.agent.steer({
-				role: "user",
-				content: [{ type: "text", text: "also this" }],
-				timestamp: Date.now(),
+			session.agent.steer(alsoThis());
+			const error = await continuedWith(session);
+			note({
+				type: "continued",
+				error,
+				streaming: session.agent.state.isStreaming,
 			});
+		},
+	},
+	/** As continue-closed-steered, but queued as a follow-up. */
+	"continue-closed-followed": {
+		responses: () => [say("one")],
+		drive: async (session) => {
+			await session.prompt("hi");
+			await closeStore();
+			session.agent.followUp(alsoThis());
 			const error = await continuedWith(session);
 			note({
 				type: "continued",
