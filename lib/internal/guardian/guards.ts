@@ -144,6 +144,16 @@ export const GUARDS = {
 		defaultMode: "block",
 		groups: ["github"],
 	}),
+	councilFirst: declare({
+		name: "council-first",
+		class: "form",
+		description:
+			"Sends a shell gh pr that asks people to look to review_offer, which waits for our own council",
+		// It reaches other people, and review_offer makes the same move
+		// once a council has read the change, so there is one right form.
+		defaultMode: "block",
+		groups: ["github"],
+	}),
 	githubCli: declare({
 		name: "github-cli",
 		class: "form",

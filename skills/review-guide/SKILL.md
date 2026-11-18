@@ -240,7 +240,8 @@ are seen, so once reviewed work's branch is pruned, a branch cut
 from it passes on that work's council. Each change of a stack is judged by its own
 commits: `review_ask stack` reads them all at once, where a council
 of the tip reads only what that range shows. A draft can go up
-first, since nobody is asked to look at one.
+first, since nobody is asked to look at one. The same moves through
+`gh pr` in the shell are refused and sent here.
 
 **Give the description as its four sections**: `problem`,
 `solution`, `validation` and `tldr`, written in that order. The tool

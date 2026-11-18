@@ -398,13 +398,16 @@ is followed by judgment, not by a regex.
   half these names are ordinary English that appears in prose
   about something else.
 
-  A second `review-guide` rule is partly gated: 🟡 a change goes
-  to people (proposed for review, marked ready, put to
-  reviewers) only once our own council has read one of its own
-  commits, in `extensions/review-integration/reviewed-first.ts`.
-  That holds every door through `review_offer`; the same moves
-  made through the shell (`gh pr create` without `--draft`,
-  `gh pr ready`, `gh pr edit --add-reviewer`) aren't held yet.
+  A second `review-guide` rule is gated: 🟢 a change goes to
+  people (proposed for review, marked ready, put to reviewers)
+  only once our own council has read one of its own commits, in
+  `extensions/review-integration/reviewed-first.ts` for every
+  `review_offer` door. The same moves through the shell
+  (`gh pr create` without `--draft` or with `--reviewer`,
+  `gh pr ready`, `gh pr edit --add-reviewer`) are sent to
+  `review_offer` by the `council-first` guard, in
+  `extensions/pr-guardian/council-first.ts`. A `gh api` call
+  requesting reviewers is not read.
 
   `review-guide` is worth a note, because it looks gateable and
   is not. Its rules are about what to say rather than what to

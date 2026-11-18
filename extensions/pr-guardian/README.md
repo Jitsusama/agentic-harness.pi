@@ -25,6 +25,16 @@ The `sections` guard holds a body to its headings and to its
 shape: the word, sentence, code-span and bullet limits the
 `github-pr-format` skill sets for each section.
 
+## Our Council First
+
+The `council-first` guard refuses a shell `gh pr` that puts a
+change in front of people: `gh pr create` without `--draft` or
+with `--reviewer`, `gh pr ready`, and `gh pr edit --add-reviewer`.
+Its refusal names the `review_offer` action that makes the same
+move, which goes ahead once a finished council of ours has read
+one of the change's own commits. A draft with no reviewers,
+`gh pr ready --undo` and every other `gh pr` pass through.
+
 ## The Audit After Publishing
 
 A form guard switched to off or redirect, or one that relents on
