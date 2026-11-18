@@ -103,13 +103,16 @@ export const KEPT_FOR_MS = 7 * 24 * 60 * 60 * 1000;
 const FILE_MODE = 0o600;
 const FOLDER_MODE = 0o700;
 
-/** The files a kept call writes, by the suffix each adds to its path. */
 /**
  * Every file a call keeps, in the order they are removed: the marks that
- * have it taken up again first, then its status, so whatever a removal
- * left partway through reads as nothing to take up.
+ * have it taken up again first, then its status, so a removal cut short
+ * leaves no call that reads as running. A carried call taken up has both
+ * marks, and one cut between them can still have its end said again.
  */
 const SUFFIXES = [".job", ".carried", ".end", ".pid", ".out", ".old"] as const;
+
+/** The suffixes that have a call taken up again. */
+const MARKS: ReadonlySet<string> = new Set([".job", ".carried"]);
 
 /** The suffix of a call's record as a session's job (kept-jobs.ts). */
 export const JOB_SUFFIX = ".job";
@@ -335,7 +338,9 @@ function textOf(file: string): string {
 
 /**
  * Remove everything a call kept. It never fails, so a caller that has
- * nothing to wait for can leave it to run.
+ * nothing to wait for can leave it to run. A mark it can't remove stops
+ * it there, leaving the call's status beside the mark so whatever finds
+ * it reads the call as ended; any other file it can't remove it passes.
  */
 export async function removeKept(path: string): Promise<void> {
 	for (const suffix of SUFFIXES) {
@@ -343,9 +348,10 @@ export async function removeKept(path: string): Promise<void> {
 			await rm(`${path}${suffix}`, { force: true });
 		} catch {
 			// A folder in its place, or one that refuses it: no call leaves
-			// either, and its callers between processes have no one to tell, so
-			// the call's other files still go and the week's sweep, which says
-			// nothing of one it can't remove either, tries it again.
+			// either, and its callers between processes have no one to tell;
+			// the week's sweep, which says nothing of one it can't remove
+			// either, tries it again.
+			if (MARKS.has(suffix)) return;
 		}
 	}
 }

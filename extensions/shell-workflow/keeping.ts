@@ -160,9 +160,10 @@ export function keepsOnDisk(
 						// Ended here, so nothing may carry or hand it on while its files
 						// go, which takes turns of the loop.
 						if (call.signal) calls.delete(call.signal);
-						// Waited for, so its files are gone once the call settles, though
-						// not on the loop.
-						await removeKept(path);
+						// Not waited for: the call settles as it ends, so its job is
+						// said ended rather than met by a move or a shutdown as neither
+						// carriable nor ended, and its files go just after.
+						void removeKept(path);
 					}
 				}
 			},
