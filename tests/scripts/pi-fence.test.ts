@@ -358,6 +358,59 @@ describe("pi-fence's child", () => {
 		expect(await child("exit 7").ended).toEqual({ code: 7, signal: null });
 	});
 
+	it("ends what its command left running once the command ends", async () => {
+		const pidFile = join(root, "left.pid");
+		const ran = child(`sleep 300 & echo $! > '${pidFile}'`);
+		left.push(ran.pid);
+
+		expect(await ran.ended).toEqual({ code: 0, signal: null });
+		const sleeper = Number(readFileSync(pidFile, "utf8").trim());
+		left.push(sleeper);
+		const gone = await waitFor(() => !there(sleeper), 5000);
+		expect(gone, `the sleeper ${sleeper} ended with pi-fence`).toBe(true);
+	});
+
+	it("keeps its watcher's pipe from the command", async () => {
+		const ran = child("if [ -e /dev/fd/3 ]; then exit 9; fi");
+		expect(await ran.ended).toEqual({ code: 0, signal: null });
+	});
+
+	it(
+		"passes the signal to the command, which may end its own way",
+		async () => {
+			const heard = join(root, "heard");
+			const { ran } = await sleeping(
+				`trap "echo TERM > '${heard}'; exit 3" TERM; `,
+			);
+
+			process.kill(ran.pid, "SIGTERM");
+
+			expect(await ran.ended).toEqual({ code: 3, signal: null });
+			expect(readFileSync(heard, "utf8")).toBe("TERM\n");
+		},
+		CASE_MS,
+	);
+
+	// The watcher is in the group the signal goes to, so it must outlive it.
+	it(
+		"ends background work that ignores the signal its shell ended by",
+		async () => {
+			const pidFile = join(root, "deaf.pid");
+			const { ran } = await sleeping(
+				`( trap '' TERM; exec sleep 301 ) & echo $! > '${pidFile}'; `,
+			);
+			const deaf = Number(readFileSync(pidFile, "utf8").trim());
+			left.push(deaf);
+
+			process.kill(ran.pid, "SIGTERM");
+
+			expect(await ran.ended).toEqual({ code: null, signal: "SIGTERM" });
+			const gone = await waitFor(() => !there(deaf), 5000);
+			expect(gone, `the deaf sleeper ${deaf} ended with pi-fence`).toBe(true);
+		},
+		CASE_MS,
+	);
+
 	it("says bash didn't start, with 126", async () => {
 		const ran = child("true", { path: root });
 		expect(await ran.ended).toEqual({ code: 126, signal: null });

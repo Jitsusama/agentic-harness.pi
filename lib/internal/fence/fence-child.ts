@@ -16,18 +16,22 @@
  * the group holds a pipe from pi-fence: once pi-fence is gone, however
  * it went, SIGKILL to its process group included, the pipe closes and
  * the watcher kills the group, as bubblewrap's --die-with-parent does
- * on Linux. So nothing a run started outlives it, the command's own
+ * on Linux. The watcher ignores the signals passed on, or the first
+ * one would end it before what outlasts the shell. So nothing a run started outlives it, the command's own
  * background work included. pi-fence then ends as the command did, or,
  * ended by a caller's signal, dies by that same signal, so a calling
  * shell sees Ctrl-C as Ctrl-C.
  *
- * Run from a terminal (any of the standard streams on one), the shell
- * stays in pi-fence's group, the terminal's foreground one, so it can
- * still read the keyboard and /dev/tty; a new session would lose them.
- * There no watcher runs, since that group holds the rest of the
- * person's pipeline, and ending signals go to the shell alone: Ctrl-C
- * already reaches the whole group. A command that leaves its group on
- * purpose (setsid), or ends the watcher, is past all of this.
+ * Run with the keyboard (stdin on a terminal), the shell stays in
+ * pi-fence's group, the terminal's foreground one, so it can still read
+ * it and /dev/tty; a new session would lose them. There no watcher
+ * runs, since that group holds the rest of the person's pipeline, the
+ * other ending signals go to the shell alone, and SIGINT isn't passed
+ * on nor followed by a kill: Ctrl-C already reached the whole group,
+ * and a program may take it as cancel. A run whose stdin is piped loses
+ * /dev/tty prompts, which agents never answer. This contains accidents,
+ * not a hostile command, which can leave its group (setsid) or end the
+ * watcher.
  */
 
 import { spawn } from "node:child_process";
@@ -53,7 +57,7 @@ export const GRACE_MS = 5000;
  * The command itself runs without that descriptor.
  */
 const WATCHER =
-	"{ read -r _ <&3; kill -KILL 0; } </dev/null >/dev/null 2>&1 3<&3 &\nexec 3<&-\n";
+	"{ trap '' TERM HUP ALRM INT; read -r _ <&3; kill -KILL 0; } </dev/null >/dev/null 2>&1 3<&3 &\nexec 3<&-\n";
 
 /** How a fenced command's shell ended, or why it never started. */
 export type ChildEnd =
@@ -66,7 +70,7 @@ export type ChildEnd =
  * and pass on each ending signal this process hears until the shell ends.
  */
 export function runForwarding(text: string, folder: string): Promise<ChildEnd> {
-	const fromTerminal = [0, 1, 2].some((fd) => isatty(fd));
+	const fromTerminal = isatty(0);
 	const shell = spawn("bash", ["-c", fromTerminal ? text : WATCHER + text], {
 		cwd: folder,
 		stdio: fromTerminal ? "inherit" : ["inherit", "inherit", "inherit", "pipe"],
@@ -87,6 +91,8 @@ export function runForwarding(text: string, folder: string): Promise<ChildEnd> {
 	const passOn = (sent: NodeJS.Signals) => {
 		if (shell.exitCode !== null || shell.signalCode !== null) return;
 		told ??= sent;
+		// From a terminal, Ctrl-C reached the shell's group already.
+		if (fromTerminal && sent === "SIGINT") return;
 		signal(sent);
 		grace ??= setTimeout(() => signal("SIGKILL"), GRACE_MS);
 	};
