@@ -402,24 +402,33 @@ describe("a need routed by declared subjects", () => {
 		expect([...taken.entries()]).toEqual([["F3", SHARED_NEEDS]]);
 	});
 
-	it("puts only the needs that drew a gone hub elsewhere, shared over the rest", () => {
-		const reach = equalHubs(
-			(at) => `realm.g${at}:carry`,
-			(at) => `H${at}`,
-		);
-		const gone = { ...reach, live: (address: string) => address !== "H0" };
-		const moved = new Set<string | null>();
+	it.each([
+		["a gone hub", "H0"],
+		["a hub whose fit is gone", "F0"],
+	])(
+		"puts only the needs that drew %s elsewhere, shared over the rest",
+		(_, away) => {
+			const reach = equalHubs(
+				(at) => `realm.g${at}:carry`,
+				(at) => `H${at}`,
+			);
+			const gone = { ...reach, live: (address: string) => address !== away };
+			const moved = new Set<string | null>();
 
-		for (const need of numbered("A", "carry")) {
-			const drawn = routeNeed(need, reach).fit;
-			const now = routeNeed(need, gone).fit;
-			if (drawn === "F0") moved.add(now);
-			else expect(now, need.need).toBe(drawn);
-		}
+			for (const need of numbered("A", "carry")) {
+				const drawn = routeNeed(need, reach).fit;
+				const now = routeNeed(need, gone).fit;
+				if (drawn === "F0") moved.add(now);
+				else expect(now, need.need).toBe(drawn);
+			}
 
-		expect(moved.has("F0")).toBe(false);
-		expect(moved.size, "not all to the first listed").toBeGreaterThan(1);
-	});
+			expect(
+				[...moved].every((fit) => ["F1", "F2", "F3"].includes(fit ?? "")),
+				"each to a live fit",
+			).toBe(true);
+			expect(moved.size, "not all to the first listed").toBeGreaterThan(1);
+		},
+	);
 
 	it("puts a need to the next equal hub when the one it drew has no live fit", () => {
 		const reach = equalHubs(
