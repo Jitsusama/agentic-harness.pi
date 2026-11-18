@@ -41,6 +41,7 @@ import {
 	renameSync,
 	rmSync,
 	statSync,
+	utimesSync,
 	writeFileSync,
 	writeSync,
 } from "node:fs";
@@ -131,6 +132,8 @@ export interface LeftTree {
 export interface SweepOutcome {
 	/** Why it did nothing at all, when another sweep was running. */
 	skipped?: string;
+	/** Why it did nothing at all, when a sweep ended within the rest. */
+	rested?: string;
 	taken: SweptTree[];
 	/** Git or its provider wouldn't remove it, and it is back where it was. */
 	refused: LeftTree[];
@@ -164,7 +167,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	};
 	const now = deps.now?.() ?? Date.now();
 	const resting = restingSince(deps.lockPath, now, deps.restMs);
-	if (resting !== undefined) return { ...outcome, skipped: resting };
+	if (resting !== undefined) return { ...outcome, rested: resting };
 	const release = sweepLock(deps.lockPath);
 	if (typeof release === "string") return { ...outcome, skipped: release };
 	try {
@@ -207,7 +210,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		}
 		await dropIdleRoots(deps, outcome);
 	} finally {
-		markEnded(deps.lockPath);
+		markEnded(deps.lockPath, deps.now?.() ?? Date.now());
 		release();
 	}
 	return outcome;
@@ -231,22 +234,31 @@ function restingSince(
 	restMs: number | undefined,
 ): string | undefined {
 	if (restMs === undefined) return undefined;
+	let ended: number;
 	try {
-		const ago = now - statSync(endedStamp(lockPath)).mtimeMs;
-		if (ago >= 0 && ago < restMs) {
-			return `a sweep ended ${Math.round(ago / 1000)} s ago`;
-		}
-	} catch (error) {
-		// No stamp yet: no sweep has ended here, so nothing to rest from.
-		if (!hasCode(error, "ENOENT")) throw error;
+		ended = statSync(endedStamp(lockPath)).mtimeMs;
+	} catch {
+		// No stamp, or none to read: rest from nothing, as a stamp that
+		// couldn't be written does. The lock still keeps sweeps apart.
+		return undefined;
 	}
-	return undefined;
+	const ago = now - ended;
+	// A stamp from the future, as a clock set back leaves, rests nobody.
+	return ago >= 0 && ago < restMs
+		? `a sweep ended ${Math.round(ago / 1000)} s ago`
+		: undefined;
 }
 
-/** Stamp that a sweep has just ended, for {@link restingSince}. */
-function markEnded(lockPath: string): void {
+/**
+ * Stamp that a sweep has just ended, for {@link restingSince}, dated by
+ * the sweep's own clock rather than the file system's, so the two
+ * readings of the rest are of one clock.
+ */
+function markEnded(lockPath: string, at: number): void {
+	const stamp = endedStamp(lockPath);
 	try {
-		writeFileSync(endedStamp(lockPath), String(process.pid));
+		writeFileSync(stamp, String(process.pid));
+		utimesSync(stamp, at / 1000, at / 1000);
 	} catch {
 		// A stamp that can't be written only lets the next sweep come
 		// sooner, which the lock still keeps from overlapping this one.
@@ -467,6 +479,38 @@ async function takeOrphan(
 	}
 }
 
+/**
+ * The snapshots among `trees` whose HEAD never left the commit they were
+ * cut at, by resolved path, with that commit. Only a tree's own record
+ * says what it was cut at. Its HEAD's reflog says where HEAD has been:
+ * a commit made there and then left, by checking the pin out again, is
+ * held by that reflog alone, which the removal deletes, so a tree whose
+ * reflog names any other commit, or that has none to read, is left out.
+ */
+async function neverLeftPins(
+	exec: Exec,
+	trees: readonly HeldTree[],
+): Promise<Map<string, string>> {
+	const pins = new Map<string, string>();
+	for (const tree of trees) {
+		const commit = pinnedCommit(tree.identity);
+		if (commit === undefined) continue;
+		const reflog = await exec("git", [
+			"-C",
+			tree.path,
+			"reflog",
+			"--format=%H",
+			"HEAD",
+		]);
+		const been = reflog.stdout.split("\n").filter((line) => line !== "");
+		if (reflog.code !== 0 || been.length === 0) continue;
+		if (been.every((line) => line === commit)) {
+			pins.set(resolved(tree.path), commit);
+		}
+	}
+	return pins;
+}
+
 /** Reclaim's rules over one repository's ended trees, and acting on them. */
 async function sweepRepository(
 	deps: SweepDeps,
@@ -480,15 +524,7 @@ async function sweepRepository(
 	},
 ): Promise<void> {
 	const { outcome } = held;
-	// Only the ended trees' own records say what each snapshot was cut at.
-	const pins = new Map(
-		trees.flatMap((tree) => {
-			const commit = pinnedCommit(tree.identity);
-			return commit === undefined
-				? []
-				: [[resolved(tree.path), commit] as const];
-		}),
-	);
+	const pins = await neverLeftPins(deps.exec, trees);
 	let plan: ReturnType<typeof orphanedTrees>;
 	try {
 		const trunk = await trunkOf(deps.exec, main);

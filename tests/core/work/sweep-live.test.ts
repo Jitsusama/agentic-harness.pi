@@ -16,6 +16,7 @@ import {
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	utimesSync,
 	writeFileSync,
@@ -35,6 +36,7 @@ import {
 	PUSHED_SETTLE_MS,
 	sweepEndedTrees,
 } from "../../../lib/core/work/sweep.ts";
+import { treeIdentity } from "../../../lib/core/work/tree.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 /** An exec over real processes, shaped the way the library expects. */
@@ -102,6 +104,9 @@ function elsewhere(
 
 /** How long the sweeps rest in the test of resting. */
 const REST_MS = 20 * 60 * 1000;
+
+/** How long a sweep takes in the test of resting, by its own clock. */
+const SWEEP_TAKES_MS = 5 * 60 * 1000;
 
 /** A pid no process can have, for a lock whose holder has ended. */
 const NO_SUCH_PID = 2_147_483_646;
@@ -283,6 +288,7 @@ async function pinnedWhereNoRefHolds(
 	main: string,
 	memory: TreeMemory,
 	path: string,
+	owners: readonly Owner[] = [ENDED],
 ): Promise<string> {
 	await git(main, "branch", "-q", "before-rebase", "main");
 	await git(main, "checkout", "-q", "before-rebase");
@@ -292,11 +298,18 @@ async function pinnedWhereNoRefHolds(
 	await git(main, "checkout", "-q", "main");
 	await git(main, "branch", "-q", "-D", "before-rebase");
 	await git(main, "worktree", "add", "-q", "--detach", path, commit);
+	// The identity the broker gives a snapshot, so the pin is read back
+	// from the key it really writes.
 	memory.remember({
-		identity: { key: `snapshot-local-repo-${commit}`, shareable: true },
+		identity: treeIdentity({
+			intent: "snapshot",
+			repo: { key: "local:repo" },
+			purpose: "review",
+			commit,
+		}),
 		path,
 		providerId: "git-worktree",
-		owners: [ENDED],
+		owners: [...owners],
 	});
 	return commit;
 }
@@ -363,12 +376,23 @@ describe("sweeping the trees whose sessions have ended", () => {
 		const moved = join(state, "moved");
 		await pinnedWhereNoRefHolds(main, memory, moved);
 		await git(moved, "commit", "-q", "--allow-empty", "-m", "only here");
+		// A commit made there and left by checking the pin out again: only
+		// that tree's own reflog holds it.
+		const left = join(state, "left");
+		const pin = await pinnedWhereNoRefHolds(main, memory, left);
+		await git(left, "commit", "-q", "--allow-empty", "-m", "tried here");
+		await git(left, "checkout", "-q", pin);
 
 		const outcome = await sweep();
 
 		expect(outcome.taken).toEqual([]);
-		expect(outcome.kept.map((one) => one.path).sort()).toEqual(
-			[moved, noted].sort(),
+		const why = new Map(outcome.kept.map((one) => [one.path, one.why]));
+		expect([...why.keys()].sort()).toEqual([left, moved, noted].sort());
+		expect(why.get(noted)).toMatch(/uncommitted changes/);
+		expect(why.get(moved)).toMatch(/no branch or tag holds the commit/);
+		expect(why.get(left)).toMatch(/no branch or tag holds the commit/);
+		expect(existsSync(left), `${left}, with a commit it left, is kept`).toBe(
+			true,
 		);
 		expect(existsSync(noted), `${noted}, with a file of its own, is kept`).toBe(
 			true,
@@ -376,6 +400,18 @@ describe("sweeping the trees whose sessions have ended", () => {
 		expect(
 			existsSync(moved),
 			`${moved}, with a commit of its own, is kept`,
+		).toBe(true);
+	});
+
+	it("keeps a snapshot at its pin that a running session shares", async () => {
+		const { main, state, memory, sweep } = await setUp();
+		const tree = join(state, "shared");
+		await pinnedWhereNoRefHolds(main, memory, tree, [ENDED, RUNNING]);
+
+		expect((await sweep()).taken).toEqual([]);
+		expect(
+			existsSync(tree),
+			`${tree}, which a running session shares, is kept`,
 		).toBe(true);
 	});
 
@@ -513,29 +549,75 @@ describe("sweeping the trees whose sessions have ended", () => {
 	});
 
 	it("rests after any sweep ends, until its rest is over", async () => {
-		const { memory, lockPath, cut } = await setUp();
-		const rested = (now: number) =>
+		const { memory, lockPath, cut, elsewhereTree } = await setUp();
+		const stamp = `${lockPath}.ended`;
+		// The sweep's clock moves on while it runs, as a real sweep takes
+		// minutes, through a provider it asks of a tree left a while.
+		const started = Date.now();
+		let clock = started;
+		const slow: TreeProvider = {
+			...elsewhere("its provider keeps it"),
+			whyKept: async () => {
+				clock += SWEEP_TAKES_MS;
+				return "its provider keeps it";
+			},
+		};
+		settleFolder(elsewhereTree("slow"));
+		const rested = () =>
 			sweepEndedTrees({
 				exec,
 				memory,
 				claims: [],
 				lockPath,
-				facts: machine,
+				facts: machineWithUs,
+				providers: () => [slow],
 				restMs: REST_MS,
-				now: () => now,
+				now: () => clock,
 			});
-		expect((await rested(Date.now())).skipped).toBeUndefined();
+
+		const first = await rested();
+		expect(first.rested, "the first sweep rests").toBeUndefined();
+		expect(
+			statSync(stamp).mtimeMs,
+			"the stamp is dated when the sweep ended, by its own clock",
+		).toBeGreaterThanOrEqual(started + SWEEP_TAKES_MS - 1000);
+		const ended = statSync(stamp).mtimeMs;
 		const tree = await cut("done", ["-b", "done", "@", "main"]);
 
-		const soon = await rested(Date.now() + REST_MS / 2);
-		expect(soon.skipped).toContain("a sweep ended");
+		clock += REST_MS / 2;
+		const soon = await rested();
+		expect(soon.rested).toContain("a sweep ended");
+		expect(soon.skipped, "a rest is not a held lock").toBeUndefined();
 		expect(existsSync(tree), `${tree} is kept while the sweeps rest`).toBe(
 			true,
 		);
+		expect(statSync(stamp).mtimeMs, "a rest leaves the stamp as it was").toBe(
+			ended,
+		);
 
-		const later = await rested(Date.now() + 2 * REST_MS);
-		expect(later.skipped).toBeUndefined();
+		clock += REST_MS;
+		const later = await rested();
+		expect(later.rested, "the rest is over").toBeUndefined();
 		expect(later.taken.map((one) => one.path)).toEqual([tree]);
+	});
+
+	it("rests from nothing when its stamp can't be read", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		// A stamp that links to itself can't be read, nor written over.
+		symlinkSync(`${lockPath}.ended`, `${lockPath}.ended`);
+		const tree = await cut("done", ["-b", "done", "@", "main"]);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+			restMs: REST_MS,
+		});
+
+		expect(outcome.rested).toBeUndefined();
+		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
 	});
 });
 

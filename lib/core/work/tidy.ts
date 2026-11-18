@@ -87,7 +87,8 @@ export interface OrphanAsk {
 	settled?: (path: string) => boolean;
 	/**
 	 * Whether a detached tree is a snapshot the broker cut that still sits
-	 * at the commit it was cut at, given its path and that commit. Such a
+	 * at the commit it was cut at and never left it, given its path and the
+	 * commit it sits at. Such a
 	 * tree was cut to read a commit somebody fetched, so once it is clean
 	 * it holds nothing of its own, even when no ref holds that commit any
 	 * more, as a branch pushed again over it leaves it. Without it such a
@@ -208,7 +209,11 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			// commit it was pinned at.
 			// A snapshot still at its pin goes too: on 18 November one machine
 			// kept 336 such trees, most at a pull request's head from before a
-			// rebase, whose work trunk holds under other commits.
+			// rebase, whose work trunk holds under other commits. Two things
+			// go with one, knowingly. A local commit it was cut at that no ref
+			// holds any more is left to the main checkout's reflog, as an
+			// amended commit is. Files the commit under review tells git to
+			// ignore are taken like build output, as only a reader wrote them.
 			if (tree.commitKept || ask.stillPinned?.(tree.path, tree.commit)) {
 				reclaimable.push({ path: tree.path });
 			} else {
