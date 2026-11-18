@@ -87,6 +87,24 @@ describe("an extension's message during a turn the host carries on", () => {
 		expect(written).toEqual(["a word pi held", "disposed"]);
 	});
 
+	it("is written as the session is disposed when pi kept it after a carried run's work failed", () => {
+		// pi keeps what it held past a run whose work failed, since the turn may owe a tool result, and counts no run then.
+		const { session, written } = carrying();
+		const held = ["a word pi kept"];
+		Reflect.set(session, "_flushPendingCustomMessages", () => {
+			written.push(...held.splice(0));
+		});
+		session.dispose();
+		expect(written).toEqual(["a word pi kept", "disposed"]);
+	});
+
+	it("says nothing lost when an idle pi has no flush, since it counts no run to hold for", () => {
+		const { session, written, reported } = carrying();
+		session.dispose();
+		expect(written).toEqual(["disposed"]);
+		expect(reported, "nothing was said lost").toEqual([]);
+	});
+
 	it("is said lost when pi has no flush to write what it held", () => {
 		// A pi that renamed its flush would otherwise drop a peer's words at every stop unsaid.
 		const { session, written, reported } = carrying();
