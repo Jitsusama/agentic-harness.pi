@@ -114,6 +114,28 @@ describe("the hubs a need is put to first", () => {
 		]);
 	});
 
+	it("reads each of the several hubs one subject's record lists", () => {
+		const line = JSON.stringify({
+			id: 2,
+			records: [
+				{
+					key: "hub:carry",
+					hubs: [
+						{ hub: "KP0L6A", fits: ["5HJZ8Z"] },
+						{ hub: "9T2BBY", fits: ["9T2BBY", 7] },
+						{ fits: ["X"] },
+					],
+					counted: AT,
+				},
+			],
+		});
+
+		expect(hubsFrom(line)).toEqual([
+			{ subject: "carry", hub: "KP0L6A", fits: ["5HJZ8Z"] },
+			{ subject: "carry", hub: "9T2BBY", fits: ["9T2BBY"] },
+		]);
+	});
+
 	it("reads none from a node that holds no hubs yet", () => {
 		const refused = JSON.stringify({
 			id: 2,

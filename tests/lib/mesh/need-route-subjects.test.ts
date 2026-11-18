@@ -7,15 +7,57 @@
 import { describe, expect, it } from "vitest";
 import {
 	foragersFrom,
+	type Hub,
 	MOST_SUBJECT_WORDS,
 	MOST_SUBJECTS,
 	MOST_WORDS,
+	type NeedAsked,
 	subjectWords,
 } from "../../../lib/mesh/need-route.ts";
 import { asked, cells, routeNeed, ties } from "./support/needs.ts";
 
 /** How many needs, each its own id, a sharing out is judged over. */
 const SHARED_NEEDS = 40;
+
+/** `SHARED_NEEDS` needs from `asker` about `words`, each its own id. */
+const numbered = (asker: string, ...words: string[]): NeedAsked[] =>
+	Array.from({ length: SHARED_NEEDS }, (_, at) => ({
+		...asked(asker, ...words),
+		need: `${asker}/${at}`,
+	}));
+
+/**
+ * Four hubs that rank the same for `carry`, each naming its own fit
+ * working on it, with the subject and the hub cell each hub has.
+ */
+const equalHubs = (
+	subject: (at: number) => string,
+	hub: (at: number) => string,
+) => {
+	const hubs: Hub[] = Array.from({ length: 4 }, (_, at) => ({
+		subject: subject(at),
+		hub: hub(at),
+		fits: [`F${at}`],
+	}));
+	const foragers = cells({
+		A: [],
+		...Object.fromEntries(hubs.map((_, at) => [`F${at}`, ["carry"]])),
+	});
+	return { hubs, foragers, ties: ties() };
+};
+
+/** How many of `needs` each fit took over `reach`. */
+const takenOver = (
+	needs: readonly NeedAsked[],
+	reach: Parameters<typeof routeNeed>[1],
+): Map<string | null, number> => {
+	const taken = new Map<string | null, number>();
+	for (const need of needs) {
+		const { fit } = routeNeed(need, reach);
+		taken.set(fit, (taken.get(fit) ?? 0) + 1);
+	}
+	return taken;
+};
 
 describe("the words a cell's declared subjects give it", () => {
 	it("reads the narrowest part of each subject a cell declares, beside its title", () => {
@@ -196,60 +238,66 @@ describe("a need routed by declared subjects", () => {
 	});
 
 	it("puts a need to the hub of a subject whose narrowest part breaks at a hyphen", () => {
-		const found = routeNeed(asked("A", "host"), {
-			foragers: cells({ A: [], H: ["host"], F: ["host"] }),
-			ties: ties(),
-			hubs: [
-				{ subject: "pi-host", hub: "H", fits: ["H"] },
-				{ subject: "unit:pi-host-", hub: "H", fits: ["F"] },
-			],
-		});
+		for (const need of numbered("A", "host")) {
+			const found = routeNeed(need, {
+				foragers: cells({ A: [], H: ["host"], F: ["host"] }),
+				ties: ties(),
+				hubs: [
+					{ subject: "pi-host", hub: "H", fits: ["H"] },
+					{ subject: "unit:pi-host-", hub: "H", fits: ["F"] },
+				],
+			});
 
-		expect(found, "the deeper subject, the narrower, wins").toMatchObject({
-			fit: "F",
-			path: ["H", "F"],
-		});
+			expect(found, "the deeper subject, the narrower, wins").toMatchObject({
+				fit: "F",
+				path: ["H", "F"],
+			});
+		}
 	});
 
 	it("ranks hubs by depth, never by the length of their subject", () => {
-		const found = routeNeed(asked("A", "easing"), {
-			foragers: cells({ A: [], S: ["easing"], D: ["easing"] }),
-			ties: ties(),
-			hubs: [
-				{ subject: "observability-padded:easing", hub: "S", fits: ["S"] },
-				{ subject: "a:b:easing", hub: "D", fits: ["D"] },
-			],
-		});
+		for (const need of numbered("A", "easing")) {
+			const found = routeNeed(need, {
+				foragers: cells({ A: [], S: ["easing"], D: ["easing"] }),
+				ties: ties(),
+				hubs: [
+					{ subject: "observability-padded:easing", hub: "S", fits: ["S"] },
+					{ subject: "a:b:easing", hub: "D", fits: ["D"] },
+				],
+			});
 
-		expect(found, "three parts beat two, however long").toMatchObject({
-			fit: "D",
-		});
+			expect(found, "three parts beat two, however long").toMatchObject({
+				fit: "D",
+			});
+		}
 	});
 
 	it("puts a need to the hub saying most of what it says, before a deeper one saying less", () => {
 		// X and Y make lines commoner, so easing is tried first, and both
 		// hubs say easing.
-		const found = routeNeed(asked("A", "easing", "lines"), {
-			foragers: cells({
-				A: [],
-				D: ["easing"],
-				B: ["easing", "lines"],
-				X: ["lines"],
-				Y: ["lines"],
-			}),
-			ties: ties(),
-			hubs: [
-				{ subject: "a:b:easing", hub: "D", fits: ["D"] },
-				{ subject: "x:easing-lines", hub: "B", fits: ["B"] },
-			],
-		});
+		for (const need of numbered("A", "easing", "lines")) {
+			const found = routeNeed(need, {
+				foragers: cells({
+					A: [],
+					D: ["easing"],
+					B: ["easing", "lines"],
+					X: ["lines"],
+					Y: ["lines"],
+				}),
+				ties: ties(),
+				hubs: [
+					{ subject: "a:b:easing", hub: "D", fits: ["D"] },
+					{ subject: "x:easing-lines", hub: "B", fits: ["B"] },
+				],
+			});
 
-		expect(
-			found,
-			"easing-lines says both, so it is the narrower",
-		).toMatchObject({
-			fit: "B",
-		});
+			expect(
+				found,
+				"easing-lines says both, so it is the narrower",
+			).toMatchObject({
+				fit: "B",
+			});
+		}
 	});
 
 	it("matches a hub on what the need said, not only on the words it kept", () => {
@@ -284,74 +332,90 @@ describe("a need routed by declared subjects", () => {
 			foragers: cells({ A: [], S: ["easing"], D: ["easing"] }),
 			ties: ties(),
 		};
-		const fits = new Set(
-			Array.from(
-				{ length: SHARED_NEEDS },
-				(_, at) =>
-					routeNeed(
-						{ ...asked("A", "easing"), need: `A/${at}` },
-						{ ...reach, hubs },
-					).fit,
-			),
+		const taken = takenOver(numbered("A", "easing"), { ...reach, hubs });
+
+		expect([...taken.keys()].sort(), "each takes some, the longer too").toEqual(
+			["D", "S"],
+		);
+	});
+
+	it("puts one need id to the same hub among equals, whatever order they are listed in", () => {
+		const reach = equalHubs(
+			(at) => `realm.g${at}:carry`,
+			(at) => `H${at}`,
 		);
 
-		expect([...fits].sort(), "each takes some, the longer too").toEqual([
-			"D",
-			"S",
-		]);
-	});
-
-	it("puts one need to the same hub among equals, whatever order they are listed in", () => {
-		const hubs = Array.from({ length: 4 }, (_, at) => ({
-			subject: `realm.g${at}:carry`,
-			hub: `H${at}`,
-			fits: [`F${at}`],
-		}));
-		const reach = {
-			foragers: cells({
-				A: [],
-				...Object.fromEntries(hubs.map(({ fits }) => [fits[0], ["carry"]])),
-			}),
-			ties: ties(),
-		};
-
-		for (let at = 0; at < SHARED_NEEDS; at++) {
-			const need = { ...asked("A", "carry"), need: `A/${at}` };
-			expect(routeNeed(need, { ...reach, hubs }).fit).toBe(
-				routeNeed(need, { ...reach, hubs: [...hubs].reverse() }).fit,
+		for (const need of numbered("A", "carry")) {
+			expect(routeNeed(need, reach).fit).toBe(
+				routeNeed(need, { ...reach, hubs: [...reach.hubs].reverse() }).fit,
 			);
 		}
 	});
 
-	it("shares a subject's needs out over all of its hubs that rank the same", () => {
-		// A node names a hub for each ten holders of a subject; listing
-		// them in one order must not send every need to the first.
-		const hubs = Array.from({ length: 4 }, (_, at) => ({
-			subject: `realm.g${at}:carry`,
-			hub: `H${at}`,
-			fits: [`F${at}`],
-		}));
-		const taken = new Map<string, number>();
-		for (let at = 0; at < SHARED_NEEDS; at++) {
-			const { fit } = routeNeed(
-				{ ...asked("A", "carry"), need: `A/${at}` },
-				{
-					foragers: cells({
-						A: [],
-						...Object.fromEntries(hubs.map(({ fits }) => [fits[0], ["carry"]])),
-					}),
-					ties: ties(),
-					hubs,
-				},
-			);
-			if (fit !== null) taken.set(fit, (taken.get(fit) ?? 0) + 1);
-		}
+	it("shares one subject's needs out over its hubs, each its own cell", () => {
+		// A node names a hub for each ten holders of a subject, all under
+		// the one subject; listing them in one order must not send every
+		// need to the first.
+		const taken = takenOver(
+			numbered("A", "carry"),
+			equalHubs(
+				() => "realm:carry",
+				(at) => `H${at}`,
+			),
+		);
 
 		expect([...taken.keys()].sort()).toEqual(["F0", "F1", "F2", "F3"]);
 		expect(
 			Math.max(...taken.values()),
 			"none takes more than half",
 		).toBeLessThanOrEqual(SHARED_NEEDS / 2);
+	});
+
+	it("shares needs out over equal subjects one cell hubs", () => {
+		const taken = takenOver(
+			numbered("A", "carry"),
+			equalHubs(
+				(at) => `realm.g${at}:carry`,
+				() => "H",
+			),
+		);
+
+		expect([...taken.keys()].sort()).toEqual(["F0", "F1", "F2", "F3"]);
+	});
+
+	it("puts a need to the next equal hub when the one it drew has no live fit", () => {
+		const reach = equalHubs(
+			(at) => `realm.g${at}:carry`,
+			(at) => `H${at}`,
+		);
+		const taken = takenOver(numbered("A", "carry"), {
+			...reach,
+			live: (address) => !["F0", "F1", "F2"].includes(address),
+		});
+
+		expect([...taken.entries()]).toEqual([["F3", SHARED_NEEDS]]);
+	});
+
+	it("puts a need to the equal hub whose fit works on most of it, whatever it drew", () => {
+		// E1 to E3 make easing commoner, so carry is tried first, and both
+		// hubs rank the same for it; only F1 works on easing too.
+		const taken = takenOver(numbered("A", "carry", "easing"), {
+			foragers: cells({
+				A: [],
+				F0: ["carry"],
+				F1: ["carry", "easing"],
+				E1: ["easing"],
+				E2: ["easing"],
+				E3: ["easing"],
+			}),
+			ties: ties(),
+			hubs: [
+				{ subject: "realm.g0:carry", hub: "H0", fits: ["F0"] },
+				{ subject: "realm.g1:carry", hub: "H1", fits: ["F1"] },
+			],
+		});
+
+		expect([...taken.entries()]).toEqual([["F1", SHARED_NEEDS]]);
 	});
 
 	it("takes no hub whose subject says words the need doesn't, before walking for a rarer word", () => {

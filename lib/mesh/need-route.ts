@@ -319,20 +319,23 @@ export function tieGraphFrom(line: string, now: number): TieGraph {
 
 /**
  * The hubs in a node's list of its `hub` kind; none for a node that
- * holds no hubs yet, which refuses the kind.
+ * holds no hubs yet, which refuses the kind. A subject's record names
+ * one hub and its fits, or lists several under `hubs`, since a record's
+ * key is its subject and a subject may have more than one hub.
  */
 export function hubsFrom(line: string): Hub[] {
 	return recordsOf(line).flatMap((record): Hub[] => {
-		const { key, hub, fits } = record;
+		const { key, hubs } = record;
 		if (typeof key !== "string" || !key.startsWith("hub:")) return [];
-		if (typeof hub !== "string" || !Array.isArray(fits)) return [];
-		return [
-			{
-				subject: key.slice("hub:".length),
-				hub,
-				fits: fits.filter((fit) => typeof fit === "string"),
-			},
-		];
+		const subject = key.slice("hub:".length);
+		const listed = Array.isArray(hubs) ? hubs.filter(isRecord) : [record];
+		return listed.flatMap((one): Hub[] => {
+			const { hub, fits } = one;
+			if (typeof hub !== "string" || !Array.isArray(fits)) return [];
+			return [
+				{ subject, hub, fits: fits.filter((fit) => typeof fit === "string") },
+			];
+		});
 	});
 }
 
@@ -426,7 +429,12 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 
 	const saying = new Set(said.words);
 	for (const { word } of within) {
-		for (const hub of hubsFor(word, saying, reach.hubs, asked.need)) {
+		// Among hubs that rank the same, the one whose fit works on most of
+		// the need; among those, the first the lot drew.
+		let chosen: { ranked: RankedHub; fit: string } | undefined;
+		for (const ranked of hubsFor(word, saying, reach.hubs, asked.need)) {
+			if (chosen !== undefined && !rankSame(chosen.ranked, ranked)) break;
+			const { hub } = ranked;
 			if (!live(hub.hub)) continue;
 			const fit = best(
 				hub.fits.filter(
@@ -434,8 +442,14 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 				),
 			);
 			if (fit === undefined) continue;
-			const direct = hub.hub === fit || selves.has(hub.hub);
-			return record(direct ? [fit] : [hub.hub, fit], fit);
+			if (chosen === undefined || most(fit) > most(chosen.fit)) {
+				chosen = { ranked, fit };
+			}
+		}
+		if (chosen !== undefined) {
+			const { ranked, fit } = chosen;
+			const direct = ranked.hub.hub === fit || selves.has(ranked.hub.hub);
+			return record(direct ? [fit] : [ranked.hub.hub, fit], fit);
 		}
 	}
 
@@ -528,7 +542,7 @@ const UNTAKEN_ONLY = Number.MAX_SAFE_INTEGER;
  * says lines alone. Those saying more of the need come first, since a
  * need saying easing and lines is narrower than easing alone; then the
  * deepest subject, by its parts, since each part narrows it. Hubs that
- * rank the same are shared out among needs by `need`, the same need
+ * rank the same are shared out among needs by `need`, one need id
  * always to the same hub, never by the order the node listed them: a
  * node names a hub for every ten holders of a subject, and taking the
  * first listed sent every one of its needs to that hub's fits (the
@@ -540,7 +554,7 @@ function hubsFor(
 	saying: ReadonlySet<string>,
 	hubs: readonly Hub[],
 	need: string,
-): Hub[] {
+): RankedHub[] {
 	const lot = (hub: Hub) =>
 		createHash("sha256")
 			.update(`${need}\u0000${hub.subject}\u0000${hub.hub}`)
@@ -553,12 +567,31 @@ function hubsFor(
 		const depth = subjectParts(hub.subject).length;
 		return [{ hub, says, depth, lot: lot(hub) }];
 	});
-	return ranked
-		.sort(
-			(a, b) =>
-				b.says - a.says || b.depth - a.depth || a.lot.localeCompare(b.lot),
-		)
-		.map(({ hub }) => hub);
+	return ranked.sort(
+		(a, b) => b.says - a.says || b.depth - a.depth || byLot(a.lot, b.lot),
+	);
+}
+
+/** A hub a need may be put to, with what ranks it. */
+interface RankedHub {
+	readonly hub: Hub;
+	/** How many words of the need its subject's narrowest part says. */
+	readonly says: number;
+	/** How many parts its subject has. */
+	readonly depth: number;
+	/** The need's draw among hubs that rank the same. */
+	readonly lot: string;
+}
+
+/** Whether two hubs say as much of a need and are as deep. */
+function rankSame(a: RankedHub, b: RankedHub): boolean {
+	return a.says === b.says && a.depth === b.depth;
+}
+
+/** Two draws in byte order, the same on every machine. */
+function byLot(a: string, b: string): number {
+	if (a === b) return 0;
+	return a < b ? -1 : 1;
 }
 
 /** The cells from the asker's first tie to `fit`, as the walk found them. */
