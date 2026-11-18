@@ -29,6 +29,7 @@ import type { Presence } from "../../../lib/mesh/presence.ts";
 import { type Route, routeOf } from "../../../lib/mesh/routing.ts";
 import { stoppedBy } from "../../../lib/mesh/stop.ts";
 import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
+import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import { handsRefusal } from "../joels-hands.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
@@ -302,16 +303,6 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		} satisfies SendDetails);
 	}
 	const ended = endedOnWord(at, params.endsHold, answersNamed);
-	if (ended.hold) {
-		const refused = at.confirmEnd
-			? await at.confirmEnd(ended.hold, params.text)
-			: "nobody here can confirm it is the person's word.";
-		if (refused !== undefined) {
-			return answer(`Not sent: ${refused}`, {
-				sent: false,
-			} satisfies SendDetails);
-		}
-	}
 	const target = orchestratorNamed(params.to ?? "", at.peer.orchestratedBy);
 	const named = groupsNamed(target.to);
 	// Meant for one recipient that is not there: routed by rule, it would
@@ -370,15 +361,38 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	}
 	// A question for the person's hands, put to the orchestrator that
 	// takes it to him, counts his acts first (joels-hands.ts).
-	const hands =
+	const forHisHands =
 		intent.intent === "question" &&
-		toOrchestrator(named, at.peer.orchestratedBy, everyone)
-			? handsRefusal(params.text)
-			: undefined;
+		toOrchestrator(named, at.peer.orchestratedBy, everyone);
+	const hands = forHisHands ? handsRefusal(params.text) : undefined;
 	if (hands !== undefined) {
 		return answer(`Not sent: ${hands}`, {
 			sent: false,
 		} satisfies SendDetails);
+	}
+	// And an act it asks of him that its record shows done already is
+	// refused, as the 19:24 ask on 16 November should have been
+	// (lib/orchestration/done-acts.ts). Only a record saying done refuses.
+	const done =
+		forHisHands && at.doneProbes
+			? await doneAlreadyRefusal(params.text, at.doneProbes, Date.now())
+			: undefined;
+	if (done !== undefined) {
+		return answer(`Not sent: ${done}`, {
+			sent: false,
+		} satisfies SendDetails);
+	}
+	// The person is asked to confirm a hold's end only once nothing else
+	// refuses the send, so his yes is never spent on one that won't go.
+	if (ended.hold) {
+		const refused = at.confirmEnd
+			? await at.confirmEnd(ended.hold, params.text)
+			: "nobody here can confirm it is the person's word.";
+		if (refused !== undefined) {
+			return answer(`Not sent: ${refused}`, {
+				sent: false,
+			} satisfies SendDetails);
+		}
 	}
 	// A replacement goes wherever what it replaces went, so it reaches
 	// everyone who heard that, beside whoever it is now sent to.

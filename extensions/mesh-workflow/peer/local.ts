@@ -9,6 +9,11 @@ import { crossAt } from "../../../lib/mesh/flow.ts";
 import { isCurrent, ownerOf } from "../../../lib/mesh/lease.ts";
 import { nodeSocket, tiesAt } from "../../../lib/mesh/node.ts";
 import { wakeParked } from "../../../lib/mesh/parked.ts";
+import {
+	liveProbes,
+	PROBE_WITHIN_MS,
+} from "../../../lib/orchestration/done-acts.ts";
+import { slackOfThePerson } from "../../../lib/orchestration/done-acts-slack.ts";
 import { confirmEnd } from "../end-hold.ts";
 import { queueJobs } from "../leases.ts";
 import { type Local, registerTools } from "../tools.ts";
@@ -75,6 +80,11 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 					},
 					confirmEnd: (hold, text) =>
 						confirmEnd(m.ctx, hold, text, waitingOn(hold.id)),
+					doneProbes: liveProbes(
+						(command, args) =>
+							m.pi.exec(command, args, { timeout: PROBE_WITHIN_MS }),
+						slackOfThePerson,
+					),
 					...(m.paths.looks ? { looks: m.paths.looks } : {}),
 					...(m.waiting ? { waiting: m.waiting } : {}),
 				}

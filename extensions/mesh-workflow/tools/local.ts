@@ -16,6 +16,7 @@ import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presences } from "../../../lib/mesh/presence.ts";
 import type { Judge } from "../../../lib/mesh/routing.ts";
 import type { Transport } from "../../../lib/mesh/transport.ts";
+import type { DoneProbes } from "../../../lib/orchestration/done-acts.ts";
 import type { Waiting } from "../wait.ts";
 
 /** What the tools act through, once the session has started. */
@@ -50,6 +51,11 @@ export interface Local {
 	readonly endProcess?: EndProcess;
 	/** Ask a parked session's holder to wake it; whether it was parked. */
 	readonly wakeParked?: (session: string, why: string) => boolean;
+	/**
+	 * The records that say whether an act of the person's hands is done
+	 * (lib/orchestration/done-acts.ts); none, and nothing is judged.
+	 */
+	readonly doneProbes?: DoneProbes;
 }
 
 /**

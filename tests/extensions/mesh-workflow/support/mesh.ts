@@ -18,6 +18,7 @@ import {
 	type MeshPaths,
 	meshWorkflow,
 } from "../../../../extensions/mesh-workflow/index.ts";
+import type { ExecResult } from "../../../../lib/core/exec/exec.ts";
 import { ALL } from "../../../../lib/mesh/group.ts";
 import { createBoard, type Lease } from "../../../../lib/mesh/lease.ts";
 import type { Draft, Message } from "../../../../lib/mesh/message.ts";
@@ -33,7 +34,14 @@ export const session = "01a15f3a-2255-7463-9909-afa624b025fe";
  * fresh before each test. A test that needs another folder, such as
  * what waits on the person, adds it to `paths` before it starts a session.
  */
-export const fixture: { root: string; paths: MeshPaths } = {
+export const fixture: {
+	root: string;
+	paths: MeshPaths;
+	// What a command the extension runs through pi answers, for a test
+	// that fakes one; with none, running a command fails as it would
+	// with no such program.
+	exec?: (command: string, args: readonly string[]) => Promise<ExecResult>;
+} = {
 	root: "",
 	paths: { mesh: "", sessions: "", quests: "" },
 };
@@ -48,6 +56,7 @@ beforeEach(() => {
 		sessions: join(fixture.root, "sessions"),
 		quests: join(fixture.root, "quests"),
 	};
+	fixture.exec = undefined;
 	mkdirSync(fixture.paths.sessions, { recursive: true });
 	writeFileSync(
 		join(fixture.paths.sessions, `${session}.json`),
@@ -115,6 +124,10 @@ export async function startSession(
 		sendMessage: (message: Sent["message"], options?: unknown) =>
 			sent.push({ message, options }),
 		appendEntry: (type: string, data: unknown) => entries.push({ type, data }),
+		exec: (command: string, args: readonly string[]) =>
+			fixture.exec
+				? fixture.exec(command, args)
+				: Promise.reject(new Error(`no ${command} in this test`)),
 		registerEntryRenderer: () => {},
 		registerMessageRenderer: (type: string, renderer: Renderer) =>
 			renderers.set(type, renderer),

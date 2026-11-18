@@ -174,7 +174,7 @@ and can answer a question or a gate left open on screen.
   question too. A send is not refused
   for a field that doesn't hold: an id nobody has, another
   peer's message to replace, or what cannot be a group is left
-  out and said. Three sends are refused for what they say: one to the home of a
+  out and said. Four sends are refused for what they say: one to the home of a
   peer that stopped this one (see Stop), and a question to the
   orchestrator that asks for the person's hands (a touch, a
   paste, a sign-in, a sitting) without a line "his acts: N;
@@ -190,7 +190,15 @@ and can answer a question or a gate left open on screen.
   an outright ban on posting are left alone
   ([`unasked-limits.ts`](../../lib/orchestration/unasked-limits.ts)).
   On 16 November one told a review cell to post no approval
-  or block, which he had never asked.
+  or block, which he had never asked. And a question to the
+  orchestrator asking for an act of his (a post, a review, an
+  approval, a merge) that its record already says is done:
+  the pull request or Slack place it names is read, each
+  probe within five seconds, and anything unread lets the
+  question through
+  ([`done-acts.ts`](../../lib/orchestration/done-acts.ts)).
+  On 16 November at 19:24 he was asked to post a draft he
+  had posted at 19:18.
 - `mesh_read`: the latest messages this peer hears, and what
   it sent, for catching up after a reload or a compaction, or
   for reading a glance in full. Under each message it sent, it
