@@ -21,6 +21,9 @@ import {
 } from "../../../extensions/mesh-workflow/moving.ts";
 import type { Moving } from "../../../lib/mesh/moving.ts";
 
+/** The flag that keeps node's module-type warning out of a window's join. */
+const QUIET = "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON";
+
 let folder: string;
 let wake: string;
 let again: string;
@@ -60,6 +63,7 @@ describe("handing a window over", () => {
 		)?.end();
 		expect(JSON.parse(readFileSync(again, "utf8"))).toEqual([
 			process.execPath,
+			QUIET,
 			JOIN_SCRIPT,
 			"--session",
 			"01a1",
@@ -89,7 +93,7 @@ describe("handing a window over", () => {
 		)?.end();
 		const command: unknown = JSON.parse(readFileSync(again, "utf8"));
 		expect(
-			Array.isArray(command) ? command.slice(5, 9) : command,
+			Array.isArray(command) ? command.slice(6, 10) : command,
 			"plain pi's words, after the join's, start in the fence",
 		).toEqual(["env", "PI_SANDBOX=fence", "pi", "--session"]);
 	});
@@ -114,6 +118,7 @@ describe("a hosted conversation's presence", () => {
 				conversation: "01a1",
 				view: [
 					process.execPath,
+					QUIET,
 					JOIN_SCRIPT,
 					"--view",
 					"--session",
@@ -138,7 +143,7 @@ describe("a hosted conversation's presence", () => {
 			},
 		);
 		expect(
-			view?.slice(6),
+			view?.slice(7),
 			"plain pi's words carry the fence, and nothing else of the env",
 		).toEqual([
 			"env",

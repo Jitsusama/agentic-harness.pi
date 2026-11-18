@@ -28,6 +28,10 @@ import { PARKED_EXIT } from "../../lib/internal/session/park.ts";
 const run = promisify(execFile);
 const SCRIPT = join(import.meta.dirname, "..", "..", "scripts", "host-join.ts");
 const PLAIN_PI = ["sh", "-c", "echo carried on as plain pi; exit 4"];
+/** The flag that keeps node's module-type warning out of a window's join. */
+const QUIET = "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON";
+/** A conversation a host keeps on its roster, by pi's stable id. */
+const KEPT = "01a1ecc3-3a52-76e8-8e98-0c71415e1697";
 
 const made: string[] = [];
 afterEach(() => {
@@ -97,7 +101,7 @@ async function hostJoin(
 			`${names}exec "$@"`,
 			holder?.files.record ?? "sh",
 			process.execPath,
-			"--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+			QUIET,
 			SCRIPT,
 			...args,
 		],
@@ -194,5 +198,40 @@ describe("host-join under its own holder", () => {
 			existsSync(files.wake),
 			"its wake tells the holder to start it at once",
 		).toBe(true);
+	});
+
+	it("names the join again, started with no module-type warning, should the host's attach end", async () => {
+		const at = home();
+		const files = holderIn(at);
+		const rosters = join(at, "state", "pi", "agentic-harness.pi", "host-rosters");
+		mkdirSync(rosters, { recursive: true });
+		writeFileSync(
+			join(rosters, "work-background.json"),
+			JSON.stringify({
+				v: 1,
+				key: "work-background",
+				sessions: [
+					{
+						sessionId: KEPT,
+						file: "/logs/kept.jsonl",
+						cwd: "/work",
+						attended: false,
+						since: "2026-11-18T14:25:00.000Z",
+					},
+				],
+			}),
+		);
+		const joined = await hostJoin(
+			["--view", "--session", KEPT, "--", ...PLAIN_PI],
+			at,
+			{ files, recordsSelf: true },
+		);
+		expect(joined.code, "it exited as a park does").toBe(PARKED_EXIT);
+		const next: unknown = JSON.parse(readFileSync(files.again, "utf8"));
+		const joinAt = Array.isArray(next) ? next.indexOf(process.execPath) : -1;
+		expect(
+			Array.isArray(next) ? next.slice(joinAt, joinAt + 4) : next,
+			"after the attach, node starts the join quietly",
+		).toEqual([process.execPath, QUIET, SCRIPT, "--released"]);
 	});
 });
