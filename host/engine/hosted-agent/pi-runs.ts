@@ -57,10 +57,14 @@ export const PREPARING_MS = 30_000;
 /** Runs `say` as the conversation's own, whoever scheduled it. */
 export type Within = (say: () => Promise<unknown>) => Promise<unknown>;
 
-/** An open run of pi's, ended by `end`, settled once `settled` resolves. */
+/**
+ * An open run of pi's, ended by `end`, settled once `settled` resolves,
+ * or given up on once `overdue` does, as pi never prepared it in time.
+ */
 interface OpenRun {
 	readonly end: () => void;
 	readonly settled: Promise<void>;
+	readonly overdue: Promise<void>;
 }
 
 /**
@@ -122,7 +126,9 @@ export class PiRuns {
 			if (unseamed) await this.settledWithoutSeam(unseamed);
 			if (!open) return;
 			open.end();
-			await open.settled;
+			// pi settles a run it never finished preparing only once it has, which a
+			// handler that never answers puts off for good: the run ends without it.
+			await Promise.race([open.settled, open.overdue]);
 			if (!this.parked()) this.next();
 		};
 	}
@@ -183,15 +189,22 @@ export class PiRuns {
 			.catch(() => {
 				// pi reports what failed in preparing or settling its run to its own listeners; the host's work goes on either way.
 			});
-		this.open = { end, settled };
+		let late = () => {};
+		const overdue = new Promise<void>((done) => {
+			late = done;
+		});
+		this.open = { end, settled, overdue };
 		// A run pi failed to prepare, or took too long over, hands nothing over,
 		// and the work goes on; one prepared late ends with it as any other.
 		let timer: ReturnType<typeof setTimeout> | undefined;
-		const overdue = new Promise<readonly AgentMessage[]>((done) => {
-			timer = setTimeout(() => done([]), PREPARING_MS);
+		const unprepared = new Promise<readonly AgentMessage[]>((done) => {
+			timer = setTimeout(() => {
+				late();
+				done([]);
+			}, PREPARING_MS);
 		});
 		try {
-			return await Promise.race([prepared, settled.then(() => []), overdue]);
+			return await Promise.race([prepared, settled.then(() => []), unprepared]);
 		} finally {
 			clearTimeout(timer);
 		}

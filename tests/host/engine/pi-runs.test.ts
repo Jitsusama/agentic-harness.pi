@@ -206,22 +206,47 @@ describe("the agent's own runs in pi", () => {
 		expect(said).toEqual(["prepared", "settled", "next"]);
 	});
 
-	it("goes on to nothing once the host parks", async () => {
-		const { session, said } = piSession();
+	it("goes on to nothing once the host parks, even while pi settles", async () => {
+		const said: string[] = [];
 		let parked = false;
 		const runs = new PiRuns(
 			() => parked,
 			(say) => say(),
 			() => said.push("next"),
 		);
-		runs.tell(session);
+		runs.tell({
+			async runForHost(work) {
+				await work([]);
+				parked = true;
+				said.push("settled");
+			},
+		});
 
-		const release = runs.hold();
-		await runs.opening();
-		parked = true;
-		await release();
+		await runs.holding(() => runs.opening());
 
-		expect(said).toEqual(["prepared"]);
+		expect(said).toEqual(["settled"]);
+	});
+
+	it("goes on to nothing inside pi's own run, which goes on itself, or where no seam opened one", async () => {
+		const said: string[] = [];
+		const next = () => said.push("next");
+		const inside = new PiRuns(
+			() => false,
+			(say) => say(),
+			next,
+		);
+		inside.tell(piSession(true).session);
+		const unseamed = new PiRuns(
+			() => false,
+			(say) => say(),
+			next,
+		);
+		unseamed.tell({ extensionRunner: { emit: async () => undefined } });
+
+		await inside.holding(() => inside.opening());
+		await unseamed.holding(() => unseamed.opening());
+
+		expect(said).toEqual([]);
 	});
 
 	it("settles nothing once the host parks, as it shows pi nothing more", async () => {
