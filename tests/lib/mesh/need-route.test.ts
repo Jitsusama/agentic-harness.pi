@@ -136,6 +136,21 @@ describe("the hubs a need is put to first", () => {
 		]);
 	});
 
+	it("reads a record's single hub when its list names none", () => {
+		const line = JSON.stringify({
+			id: 2,
+			records: [
+				{ key: "hub:carry", hub: "KP0L6A", fits: ["5HJZ8Z"], hubs: [] },
+				{ key: "hub:easing", hub: "9T2BBY", fits: ["9T2BBY"], hubs: [7] },
+			],
+		});
+
+		expect(hubsFrom(line)).toEqual([
+			{ subject: "carry", hub: "KP0L6A", fits: ["5HJZ8Z"] },
+			{ subject: "easing", hub: "9T2BBY", fits: ["9T2BBY"] },
+		]);
+	});
+
 	it("reads none from a node that holds no hubs yet", () => {
 		const refused = JSON.stringify({
 			id: 2,
@@ -558,6 +573,26 @@ describe("asking the node for a need's fit", () => {
 			found,
 			"a need finds the cell that declares its subject",
 		).toMatchObject({ path: ["B"], fit: "B" });
+	});
+
+	it("asks the node for a subject's several hubs, and routes by them", async () => {
+		// F has no tie from A, so only its hub can lead the need there.
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{ key: "cell:H", title: "Hub" },
+				{ key: "cell:F", title: "Carry a Session" },
+			],
+			tie: [{ key: "tie:A~H", strength: 2, heard: AT }],
+			hub: [{ key: "hub:carry", hubs: [{ hub: "H", fits: ["F"] }] }],
+		});
+
+		const found = await needAt(socket, asked("A", "carry"), {
+			live: () => true,
+			keep: root,
+		});
+
+		expect(found).toMatchObject({ path: ["H", "F"], fit: "F" });
 	});
 
 	it("answers nothing, and keeps nothing, when no node answers", async () => {

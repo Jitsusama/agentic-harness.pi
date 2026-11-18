@@ -19,6 +19,12 @@ import { asked, cells, routeNeed, ties } from "./support/needs.ts";
 /** How many needs, each its own id, a sharing out is judged over. */
 const SHARED_NEEDS = 40;
 
+/**
+ * The fits `equalHubs` draws for `A/0` to `A/3`, as sha256 orders them
+ * in bytes; a change here means needs reach other hubs than before.
+ */
+const DRAWN = ["F3", "F0", "F1", "F1"];
+
 /** `SHARED_NEEDS` needs from `asker` about `words`, each its own id. */
 const numbered = (asker: string, ...words: string[]): NeedAsked[] =>
 	Array.from({ length: SHARED_NEEDS }, (_, at) => ({
@@ -394,6 +400,68 @@ describe("a need routed by declared subjects", () => {
 		});
 
 		expect([...taken.entries()]).toEqual([["F3", SHARED_NEEDS]]);
+	});
+
+	it("draws the same hub for a known need id on every machine", () => {
+		const reach = equalHubs(
+			(at) => `realm.g${at}:carry`,
+			(at) => `H${at}`,
+		);
+
+		expect(
+			numbered("A", "carry")
+				.slice(0, 4)
+				.map((need) => routeNeed(need, reach).fit),
+			"a sha256 in byte order, the same anywhere",
+		).toEqual(DRAWN);
+	});
+
+	it("names every ended fit among the equal hubs it weighed", () => {
+		const reach = equalHubs(
+			(at) => `realm.g${at}:carry`,
+			(at) => `H${at}`,
+		);
+		const live = (address: string) => address !== "F0";
+
+		for (const need of numbered("A", "carry")) {
+			expect(routeNeed(need, { ...reach, live }).ended).toEqual(["F0"]);
+		}
+	});
+
+	it("never takes a lower-ranked hub's fuller fit over the top rank's", () => {
+		// E1 to E3 make easing commoner, so carry is tried first; the
+		// deeper hub outranks the shallow one, though F1 works on more.
+		const taken = takenOver(numbered("A", "carry", "easing"), {
+			foragers: cells({
+				A: [],
+				F0: ["carry"],
+				F1: ["carry", "easing"],
+				E1: ["easing"],
+				E2: ["easing"],
+				E3: ["easing"],
+			}),
+			ties: ties(),
+			hubs: [
+				{ subject: "carry", hub: "H1", fits: ["F1"] },
+				{ subject: "realm:carry", hub: "H0", fits: ["F0"] },
+			],
+		});
+
+		expect([...taken.entries()]).toEqual([["F0", SHARED_NEEDS]]);
+	});
+
+	it("puts a need to a lower-ranked hub, before the walk, when the top rank has no live fit", () => {
+		const taken = takenOver(numbered("A", "carry"), {
+			foragers: cells({ A: [], F0: ["carry"], F1: ["carry"], W: ["carry"] }),
+			ties: ties(["A", "W", 9]),
+			hubs: [
+				{ subject: "realm:carry", hub: "H0", fits: ["F0"] },
+				{ subject: "carry", hub: "H1", fits: ["F1"] },
+			],
+			live: (address) => address !== "F0",
+		});
+
+		expect([...taken.entries()]).toEqual([["F1", SHARED_NEEDS]]);
 	});
 
 	it("puts a need to the equal hub whose fit works on most of it, whatever it drew", () => {

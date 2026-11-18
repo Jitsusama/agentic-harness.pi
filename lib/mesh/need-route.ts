@@ -204,6 +204,12 @@ export function wordsOf(text: string): string[] {
 /** What a cell says it works on, as the node lists each one. */
 const CELL_FIELDS = ["title", "repo", "subjects"];
 
+/**
+ * What a subject's hub record names: its one hub and fits, or several
+ * listed under `hubs`. The node leaves out a field a record lacks.
+ */
+const HUB_FIELDS = ["hub", "fits", "hubs"];
+
 /** The most declared subjects read from one cell. */
 export const MOST_SUBJECTS = 12;
 
@@ -321,22 +327,28 @@ export function tieGraphFrom(line: string, now: number): TieGraph {
  * The hubs in a node's list of its `hub` kind; none for a node that
  * holds no hubs yet, which refuses the kind. A subject's record names
  * one hub and its fits, or lists several under `hubs`, since a record's
- * key is its subject and a subject may have more than one hub.
+ * key is its subject and a subject may have more than one hub. A list
+ * naming none it can read leaves the single hub standing.
  */
 export function hubsFrom(line: string): Hub[] {
 	return recordsOf(line).flatMap((record): Hub[] => {
 		const { key, hubs } = record;
 		if (typeof key !== "string" || !key.startsWith("hub:")) return [];
 		const subject = key.slice("hub:".length);
-		const listed = Array.isArray(hubs) ? hubs.filter(isRecord) : [record];
-		return listed.flatMap((one): Hub[] => {
-			const { hub, fits } = one;
-			if (typeof hub !== "string" || !Array.isArray(fits)) return [];
-			return [
-				{ subject, hub, fits: fits.filter((fit) => typeof fit === "string") },
-			];
-		});
+		const listed = (Array.isArray(hubs) ? hubs.filter(isRecord) : []).flatMap(
+			(one) => hubOf(subject, one),
+		);
+		return listed.length > 0 ? listed : hubOf(subject, record);
 	});
+}
+
+/** The hub a record or one of its listed hubs names, if it names one. */
+function hubOf(subject: string, named: Record<string, unknown>): Hub[] {
+	const { hub, fits } = named;
+	if (typeof hub !== "string" || !Array.isArray(fits)) return [];
+	return [
+		{ subject, hub, fits: fits.filter((fit) => typeof fit === "string") },
+	];
 }
 
 /**
@@ -670,7 +682,7 @@ export async function needAt(
 	const [cells, ties, hubs] = await Promise.all([
 		listAt(socket, "cell", CELL_FIELDS, LIST_PATIENCE_MS),
 		listAt(socket, "tie", ["strength", "heard"], LIST_PATIENCE_MS),
-		listAt(socket, "hub", ["hub", "fits"], LIST_PATIENCE_MS),
+		listAt(socket, "hub", HUB_FIELDS, LIST_PATIENCE_MS),
 	]);
 	if (!lists(cells) || !lists(ties)) return undefined;
 	const record = routeNeed(asked, {
