@@ -12,10 +12,12 @@
  * `pi-carry` for the sessions no pi runs, carry the trees these name.
  */
 
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { createTreeMemory } from "../core/work/memory.ts";
+import { readStamped, type Stamped } from "./files/stamped-read.ts";
 import { stateDir } from "./paths.ts";
+import { processGlobal } from "./process/process-global.ts";
 
 /** The folder of the work broker's records of the trees it cut. */
 export function treeRecordDir(): string {
@@ -33,16 +35,111 @@ export interface RecordedTree {
 	readonly sessions: readonly string[];
 }
 
-/** Every tree the records in `dir` name that is still on disk. */
-export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
-	return createTreeMemory(dir)
+/** The records as last read, and when each tree's folder was last seen. */
+interface Listing {
+	trees: readonly RecordedTree[];
+	judgedAt: number;
+	/**
+	 * When a listing read so soon after its folder's last write that a
+	 * later write may share its stamp is read once more; none for one
+	 * read long enough after.
+	 */
+	readonly recheckAt?: number;
+}
+
+/**
+ * How long a listing's trees are taken to be on disk without looking: a
+ * tree removed by hand with its record left moves no stamp, so it is
+ * looked for again this often.
+ */
+const JUDGED_FOR_MS = 60_000;
+
+/**
+ * How soon after its folder's last write a listing is read once more. A
+ * file's time comes from a coarse clock, and a folder's size need not
+ * move when an entry is replaced, so a write in the tick a listing was
+ * read in can leave the stamp as it was. Git calls such an index entry
+ * racily clean, and checks it again. As long as the quest documents'
+ * rule (lib/internal/quest/documents/parsed-file.ts), for filesystems
+ * whose tick is coarser still. The listing is kept until then rather
+ * than read at every call, so a burst of writes costs one more read for
+ * the process, not one for each caller in the window; such a write is
+ * seen at most this late.
+ */
+const RACY_MS = 3_000;
+
+// The records each folder held when it was last read, for the whole
+// process and every copy of this module: every session in a host asks
+// at each presence publish and each fenced command, and the records are
+// the same for all of them, so one cut costs one read of them, not one
+// for each session. The key names the shape; a change to Listing takes
+// a new one.
+const listings = processGlobal(
+	"agentic-harness.internal/work-records/listings.v1",
+	() => new Map<string, Stamped<Listing>>(),
+);
+
+/** Every record in `dir`, read with the trees still on disk. */
+function readListing(dir: string): Listing {
+	// Judged from before the read: a write landing while a slow read runs
+	// can share the stamp the read was keyed by.
+	const started = Date.now();
+	const written = writtenAt(dir);
+	const trees = createTreeMemory(dir)
 		.recall()
-		.map((tree) => ({
-			path: tree.path,
-			sessions: Array.isArray(tree.sessions)
-				? tree.sessions.filter((one): one is string => typeof one === "string")
-				: [],
-		}));
+		// Frozen: every session in the process is handed these, and the
+		// fence grants writes from them.
+		.map((tree) =>
+			Object.freeze({
+				path: tree.path,
+				sessions: Object.freeze(
+					Array.isArray(tree.sessions)
+						? tree.sessions.filter(
+								(one): one is string => typeof one === "string",
+							)
+						: [],
+				),
+			}),
+		);
+	const judgedAt = Date.now();
+	if (written === undefined) return { trees, judgedAt, recheckAt: judgedAt };
+	return started - written < RACY_MS
+		? { trees, judgedAt, recheckAt: written + RACY_MS }
+		: { trees, judgedAt };
+}
+
+/** When `dir` was last written, if it is there. */
+function writtenAt(dir: string): number | undefined {
+	try {
+		return statSync(dir).mtimeMs;
+	} catch {
+		// Gone since its stamp was taken: a listing of it isn't kept.
+		return undefined;
+	}
+}
+
+/**
+ * Every tree the records in `dir` name that is still on disk. Read once
+ * for the process while the folder's stamp holds: each record is written
+ * beside it and renamed in, so a write moves the stamp, unless it falls
+ * in the tick the listing was read in, which is why a listing read just
+ * after a write is read once more when that write is old enough. A record edited in place, as the broker never
+ * writes one, moves no stamp and isn't seen until the next write. Trees
+ * are looked for again once the listing is a minute old. Callers keep no
+ * listing of their own: this one is already kept, and its rules are here.
+ */
+export function recordedTrees(dir: string = treeRecordDir()): RecordedTree[] {
+	let listing = readStamped(listings, dir, readListing);
+	if (listing?.recheckAt !== undefined && Date.now() >= listing.recheckAt) {
+		listings.delete(dir);
+		listing = readStamped(listings, dir, readListing);
+	}
+	if (!listing) return [];
+	if (Date.now() - listing.judgedAt > JUDGED_FOR_MS) {
+		listing.trees = listing.trees.filter((tree) => existsSync(tree.path));
+		listing.judgedAt = Date.now();
+	}
+	return [...listing.trees];
 }
 
 /** A path as the disk names it, links followed, where it can be. */

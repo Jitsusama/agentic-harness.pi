@@ -4,10 +4,17 @@
  * network of its own (mycelium #208). A repository with no origin is
  * named by its main checkout, never by each worktree's folder.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	renameSync,
+	rmSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { localPeer } from "../../../../lib/mesh/peer.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
 import { repositoryName } from "../../../../lib/mesh/scope.ts";
@@ -22,6 +29,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	rmSync(root, { recursive: true, force: true });
 });
 
@@ -125,6 +133,41 @@ describe("a peer's trees", () => {
 
 		expect(presences.of(session)?.trees, "the new tree").toEqual([
 			{ key: "w-later", repo: "local:harness", branch: "later" },
+		]);
+		peer.dispose();
+	});
+
+	it("are read again once a record is replaced in the tick of the last read, and that read is old enough", () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		const harness = mainCheckout("harness");
+		const tree = worktree(harness, "w-taken", "ref: refs/heads/taken");
+		record(tree, [other]);
+		const cut = join(root, "cut");
+		const now = Date.now();
+		const tick = new Date(now - 1_000);
+		utimesSync(cut, tick, tick);
+		const { presences, peer } = peerWithTrees();
+		expect(presences.of(session)?.trees, "none yet").toBeUndefined();
+
+		// Taken up by this session too, renamed over, the folder's time as it was.
+		const staged = join(root, "w-taken.json");
+		writeFileSync(
+			staged,
+			JSON.stringify({
+				identity: { key: "w-taken", shareable: false },
+				path: tree,
+				providerId: "git-worktree",
+				owners: [],
+				sessions: [other, session],
+			}),
+		);
+		renameSync(staged, join(cut, "w-taken.json"));
+		utimesSync(cut, tick, tick);
+		vi.setSystemTime(now + 2_001);
+		peer.refresh();
+
+		expect(presences.of(session)?.trees, "the tree taken up").toEqual([
+			{ key: "w-taken", repo: "local:harness", branch: "taken" },
 		]);
 		peer.dispose();
 	});

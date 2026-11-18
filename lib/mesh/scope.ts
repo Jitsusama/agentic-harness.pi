@@ -24,7 +24,7 @@
  * attention it gives.
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { isRecord } from "../internal/record.ts";
@@ -213,31 +213,18 @@ export function treesFrom(value: unknown): HeldTree[] {
  * What `session` holds of the trees the broker's records in `dir` name,
  * as a presence says them, sorted by key; nothing with no records.
  *
- * Asked at every publish, so the records are listed again only when
- * their folder changed: each is written beside itself and renamed over,
- * which moves the folder's time. Each held tree's HEAD is read every
- * time, since a branch moves without its record being rewritten.
+ * Asked at every publish; the records are kept for the process by
+ * `recordedTrees` (lib/internal/work-records.ts), read again only when
+ * their folder changed. Each held tree's HEAD is read every time, since
+ * a branch moves without its record being rewritten.
  */
 export function heldTreesOf(
 	session: string,
 	dir: string | undefined,
 ): () => { trees?: HeldTree[] } {
 	if (dir === undefined) return () => ({});
-	let listedAt: number | undefined;
-	let paths: string[] = [];
 	return () => {
-		let changed: number;
-		try {
-			changed = statSync(dir).mtimeMs;
-		} catch {
-			// No records folder yet: the broker has cut nothing here.
-			return {};
-		}
-		if (changed !== listedAt) {
-			paths = treesHeldBy(session, dir);
-			listedAt = changed;
-		}
-		const trees = paths
+		const trees = treesHeldBy(session, dir)
 			.flatMap((path) => heldTreeAt(path) ?? [])
 			.sort((one, other) => one.key.localeCompare(other.key));
 		return trees.length > 0 ? { trees } : {};
