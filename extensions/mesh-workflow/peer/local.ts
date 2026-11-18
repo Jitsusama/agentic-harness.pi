@@ -55,8 +55,12 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 					flows: () => m.flows,
 					cross: (crossing) => crossAt(nodeSocket(m.env), crossing),
 					ties: () => tiesAt(nodeSocket(m.env), m.peer?.addresses ?? []),
-					need: (asked, live) =>
-						needAt(nodeSocket(m.env), asked, { live, keep: m.paths.mesh }),
+					need: (asked, live, stopped) =>
+						needAt(nodeSocket(m.env), asked, {
+							live,
+							...(stopped === undefined ? {} : { stopped }),
+							keep: m.paths.mesh,
+						}),
 					served: (ids) => servedAt(nodeSocket(m.env), ids),
 					asWrittenOff: m.asWrittenOff,
 					sent: (message) => {

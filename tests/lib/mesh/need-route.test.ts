@@ -16,23 +16,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	type Forager,
 	foragersFrom,
 	type Hub,
 	hubsFrom,
 	keepNeed,
 	MOST_HOPS,
 	MOST_WORDS,
-	type NeedAsked,
 	needAt,
 	needId,
 	needsFile,
-	type Reach,
-	routeNeed as routeOver,
-	type TieGraph,
 	tieGraphFrom,
 	wordsOf,
 } from "../../../lib/mesh/need-route.ts";
+import { AT, asked, cells, routeNeed, ties } from "./support/needs.ts";
 
 let root: string;
 let servers: Server[];
@@ -48,36 +44,6 @@ afterEach(async () => {
 	);
 	rmSync(root, { recursive: true, force: true });
 });
-
-const AT = Date.UTC(2026, 10, 17, 19, 0, 0);
-
-/** A need asked by `asker` about `words`, at a fixed moment. */
-const asked = (asker: string, ...words: string[]): NeedAsked => ({
-	need: `${asker}/1`,
-	asker,
-	words,
-	at: AT,
-});
-
-/** A need routed where every cell is there unless `live` says not. */
-const routeNeed = (
-	need: NeedAsked,
-	reach: Omit<Reach, "live"> & Partial<Pick<Reach, "live">>,
-) => routeOver(need, { live: () => true, ...reach });
-
-/** Cells with the words each works on. */
-const cells = (held: Record<string, string[]>): Forager[] =>
-	Object.entries(held).map(([address, words]) => ({ address, words }));
-
-/** Ties as pairs of ends, each as strong as given, both ways. */
-const ties = (...pairs: [string, string, number][]): TieGraph => {
-	const graph = new Map<string, { other: string; strength: number }[]>();
-	for (const [one, other, strength] of pairs) {
-		graph.set(one, [...(graph.get(one) ?? []), { other, strength }]);
-		graph.set(other, [...(graph.get(other) ?? []), { other: one, strength }]);
-	}
-	return graph;
-};
 
 describe("the words a need or a cell's work is matched by", () => {
 	it("keeps the telling words, lowercased, once each", () => {
@@ -544,6 +510,30 @@ describe("asking the node for a need's fit", () => {
 
 		expect(found).toMatchObject({ path: ["B"], fit: "B", cells: 2 });
 		expect(readFileSync(needsFile(root, AT), "utf8")).toContain('"fit":"B"');
+	});
+
+	it("asks the node for each cell's subjects, and routes by them", async () => {
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{
+					key: "cell:B",
+					title: "Carry a Session",
+					subjects: ["mycelium:easing"],
+				},
+			],
+			tie: [{ key: "tie:A~B", strength: 2, heard: AT }],
+		});
+
+		const found = await needAt(socket, asked("A", "easing"), {
+			live: () => true,
+			keep: root,
+		});
+
+		expect(
+			found,
+			"a need finds the cell that declares its subject",
+		).toMatchObject({ path: ["B"], fit: "B" });
 	});
 
 	it("answers nothing, and keeps nothing, when no node answers", async () => {

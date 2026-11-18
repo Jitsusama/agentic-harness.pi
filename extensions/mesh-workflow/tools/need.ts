@@ -10,7 +10,8 @@
  * measure counts it, and the sender is told to name the peers it is for.
  *
  * A need finds who works on something and grants nothing, since a cell
- * is found by the words of its own title: a yes, a ruling or a grant
+ * is found by what it says it works on, its title, repository and
+ * declared subjects: a yes, a ruling or a grant
  * still comes only from the owner named by address, and each answer
  * says so.
  */
@@ -64,20 +65,19 @@ export async function needRead(
 	}
 	const standing = await peers(at);
 	// A peer that stopped this one is not written to, so it can't take
-	// a need from it either: it counts as not there.
+	// a need from it either; it is there, so it is live and may be found
+	// through, since the need goes to its fit alone, and it is never said
+	// to have ended, only to have stopped this peer when the need is lost.
 	const stopped = new Set(
 		stoppedBy(at.peer, standing.present).flatMap(
 			({ stopper }) => stopper.addresses,
 		),
 	);
-	const live = new Set(
-		standing.present
-			.flatMap((one) => one.addresses)
-			.filter((address) => !stopped.has(address)),
-	);
+	const live = new Set(standing.present.flatMap((one) => one.addresses));
 	const found = await at.need(
 		{ need: needId(asker, now), asker, words, at: now, fromText, selves },
 		(address) => live.has(address),
+		(address) => stopped.has(address),
 	);
 	if (found === undefined) {
 		return refused(
@@ -94,8 +94,13 @@ export async function needRead(
 	}
 	const ended = endedText(found);
 	if (found.fit === null) {
+		// A peer that stopped this one refuses a send, so it isn't offered.
+		const instead =
+			(found.stopped ?? []).length > 0
+				? "Name another peer it is for by address."
+				: "Name the peers it is for by address.";
 		return refused(
-			`no live cell within three ties works on ${about}.${ended} It is counted as lost, never sent to an orchestrator. Name the peers it is for by address.`,
+			`no live cell within three ties that hears this peer works on ${about}.${ended}${stoppedText(found)} It is counted as lost, never sent to an orchestrator. ${instead}`,
 		);
 	}
 	if (found.fit === asker) {
@@ -107,6 +112,14 @@ export async function needRead(
 		to: [found.fit, named.to].filter((one) => one !== "").join(", "),
 		note: `The need, about ${about}, went to ${found.fit}, which works on it; it was found along ${found.path.join(", then ")}.${ended} ${NEED_GRANTS_NOTHING}`,
 	};
+}
+
+/** Who works on a lost need but stopped this peer, as a sentence, or nothing. */
+function stoppedText(found: NeedRecord): string {
+	const stopped = found.stopped ?? [];
+	if (stopped.length === 0) return "";
+	const one = stopped.length === 1;
+	return ` ${stopped.join(", ")} ${one ? "works" : "work"} on it but stopped this peer, so ${one ? "it doesn't" : "they don't"} hear it.`;
 }
 
 /** Who was passed over for having ended, as a sentence, or nothing. */
