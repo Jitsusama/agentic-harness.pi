@@ -612,8 +612,7 @@ export async function keepNeed(dir: string, record: NeedRecord): Promise<void> {
  * of them would read as lost when it was never looked for. Who stopped
  * the asker is always said here, since it alone keeps such a cell from
  * being taken: `live` names it too, as one a need may be found through.
- * A record the
- * folder won't take is left unkept rather than refusing the send: the
+ * A record the folder won't take is left unkept rather than refusing the send: the
  * measure misses one line, and the asker still reaches its cell.
  */
 export async function needAt(
