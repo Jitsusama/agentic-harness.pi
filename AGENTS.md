@@ -183,8 +183,8 @@ typecheck` (or `pnpm exec vitest run <paths>`), with no push. It goes
 far only from a quest session, to a machine with an agent fence as
 tight as optimus's, and else runs here. Only tracked, unhidden files
 travel, so check `git status` first, and whatever reads git or `.pi`
-runs here with `--here`, as do the Linux-only tests, which skip on
-the Mac.
+runs here with `--here`, as do the tests that skip on the Mac, for
+being Linux-only or wanting a tool it lacks.
 [`docs/testing.md`](./docs/testing.md#sending-a-check-elsewhere) says
 what travels.
 
