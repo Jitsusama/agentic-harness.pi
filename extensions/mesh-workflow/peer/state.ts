@@ -76,7 +76,7 @@ export function createState(
 ): MeshState {
 	// Everything here reads a receptor's name as nothing, but delivery and
 	// mesh_read, which ask the node to vouch for it (lib/mesh/receptor.ts).
-	const { transport, asWritten } = heedingNoReceptor(
+	const { transport, asWritten, asWrittenOff } = heedingNoReceptor(
 		folderTransport(join(paths.mesh, "messages")),
 	);
 	// A host writes presence and leases off its thread; one that can't
@@ -338,6 +338,7 @@ export function createState(
 		lookAgainMs,
 		transport,
 		asWritten,
+		asWrittenOff,
 		presences,
 		glances,
 		damper,

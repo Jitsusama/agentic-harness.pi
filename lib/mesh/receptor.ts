@@ -212,30 +212,29 @@ export function unvouched(from: string, id: string, why: Unvouched): string {
 /**
  * `transport` for every reader that doesn't ask the node: a message
  * under a receptor's name reads as nothing, as one no node vouched for
- * must. `asWritten` reads it as it lies, for the readers that vouch for
- * what they show (delivery and mesh_read).
+ * must, on the thread or off it. `asWritten` reads it as it lies, for
+ * the readers that vouch for what they show (delivery, and mesh_read
+ * off the thread as `asWrittenOff`).
  */
 export function heedingNoReceptor(transport: Transport): {
 	readonly transport: Transport;
 	readonly asWritten: (id: string) => Message | undefined;
+	readonly asWrittenOff: (id: string) => Promise<Message | undefined>;
 } {
 	// Read under the file's own name, whatever id it says inside, so one
 	// copying a real signal into a new file is asked after by the name it
 	// lies under, which the node never served.
-	const asWritten = (id: string) => {
-		const message = transport.read(id);
-		return message && readsAsReceptor(message.from)
-			? { ...message, id }
-			: message;
-	};
+	const underItsName = (message: Message | undefined, id: string) =>
+		message && readsAsReceptor(message.from) ? { ...message, id } : message;
+	const heeded = (message: Message | undefined) =>
+		message && readsAsReceptor(message.from) ? undefined : message;
 	return {
 		transport: {
 			...transport,
-			read: (id) => {
-				const message = transport.read(id);
-				return message && readsAsReceptor(message.from) ? undefined : message;
-			},
+			read: (id) => heeded(transport.read(id)),
+			readOff: async (id) => heeded(await transport.readOff(id)),
 		},
-		asWritten,
+		asWritten: (id) => underItsName(transport.read(id), id),
+		asWrittenOff: async (id) => underItsName(await transport.readOff(id), id),
 	};
 }

@@ -52,9 +52,10 @@ export interface Local {
 	readonly served?: Served;
 	/**
 	 * One message as it lies, a receptor's name and all, for a reader that
-	 * vouches for what it shows. Without it, `transport` reads it.
+	 * vouches for what it shows, read off the thread. Without it,
+	 * `transport` reads it.
 	 */
-	readonly asWritten?: (id: string) => Message | undefined;
+	readonly asWrittenOff?: (id: string) => Promise<Message | undefined>;
 	/** Hand a message to the node to send into another realm. */
 	readonly cross?: (crossing: Crossing) => Promise<CrossAnswer>;
 	/** Note a message this peer sent, so it is never handed back to it. */
@@ -66,7 +67,7 @@ export interface Local {
 	confirmEnd?(hold: Message, text: string): Promise<string | undefined>;
 	/** Where what waits on the person is kept (see wait.ts). */
 	readonly waiting?: Waiting;
-	/** Where what sessions point the person at is kept (lib/mesh/looks.ts). */
+	/** Where what sessions point the person at is kept (lib/mesh/looks/looks.ts). */
 	readonly looks?: string;
 	/** Ask a session's process to end; pi's own SIGTERM by default. */
 	readonly endProcess?: EndProcess;

@@ -85,7 +85,7 @@ export async function read(
 	const from = before === undefined ? ids.length : ids.indexOf(before);
 	// As written, a receptor's name and all, since what is found is vouched
 	// for below.
-	const readOne = at.asWritten ?? ((id: string) => at.transport.read(id));
+	const readOne = at.asWrittenOff ?? ((id: string) => at.transport.readOff(id));
 	const latest: Message[] = [];
 	let dropped = 0;
 	const why = new Set<Unvouched>();

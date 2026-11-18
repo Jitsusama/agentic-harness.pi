@@ -58,7 +58,7 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 					need: (asked, live) =>
 						needAt(nodeSocket(m.env), asked, { live, keep: m.paths.mesh }),
 					served: (ids) => servedAt(nodeSocket(m.env), ids),
-					asWritten: m.asWritten,
+					asWrittenOff: m.asWrittenOff,
 					sent: (message) => {
 						m.seen.add(message.id);
 						if (message.re !== undefined) m.owing.paid(message.re);

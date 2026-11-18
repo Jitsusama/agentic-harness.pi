@@ -273,6 +273,30 @@ describe("heedingNoReceptor", () => {
 			"a copy of a real signal was read under the id it claims",
 		).toBe("9-copy");
 	});
+
+	it("reads the same off the thread as on it", async () => {
+		const held = new Map([
+			["9-copy", from("github@kestrel", "1-signal")],
+			["2-plain", from("WCJQSG", "2-plain")],
+		]);
+		const folder = {
+			read: (id: string) => held.get(id),
+			readOff: async (id: string) => held.get(id),
+		} as Transport;
+		const { transport, asWrittenOff } = heedingNoReceptor(folder);
+		expect(
+			await transport.readOff("9-copy"),
+			"a plain read off the thread took a receptor's name",
+		).toBe(undefined);
+		expect(
+			(await transport.readOff("2-plain"))?.id,
+			"a plain message read off the thread went",
+		).toBe("2-plain");
+		expect(
+			(await asWrittenOff("9-copy"))?.id,
+			"the vouching read off the thread lost it, or took the id it claims",
+		).toBe("9-copy");
+	});
 });
 
 describe("servedFrom", () => {
