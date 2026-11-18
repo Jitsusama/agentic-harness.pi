@@ -9,7 +9,11 @@ import { SlackClient } from "../slack/api/client.ts";
 import { getThread, listMessages } from "../slack/api/messages.ts";
 import { searchMessages } from "../slack/api/search.ts";
 import { getToken } from "../slack/auth/credentials.ts";
-import { PROBE_WITHIN_MS, type SlackRead } from "./done-acts.ts";
+import {
+	PROBE_WITHIN_MS,
+	type SlackPost,
+	type SlackRead,
+} from "./done-acts.ts";
 
 /** The day before `oldest`, as Slack's search reads `after:`, which excludes its own day. */
 function dayBefore(oldest: string): string {
@@ -17,11 +21,44 @@ function dayBefore(oldest: string): string {
 	return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
 }
 
+/** The three ways the judge reads Slack. */
+export interface SlackCalls {
+	/** His messages in a channel known by its `#name`, after a day. */
+	search(channel: string, after: string): Promise<readonly SlackPost[]>;
+	/** A thread's messages, its parent included. */
+	thread(channel: string, ts: string): Promise<readonly SlackPost[]>;
+	/** A channel's top-level messages since `oldest`. */
+	history(channel: string, oldest: string): Promise<readonly SlackPost[]>;
+}
+
 /**
- * The person's Slack, as the judge reads it, or none while he isn't
- * signed in to it, which leaves every post unknown.
+ * How the judge reads a place: a `#name` by search (Slack's history
+ * wants an id), a thread by its replies, and a channel by its history.
  */
-export async function slackOfThePerson(): Promise<
+export function slackReadWith(calls: SlackCalls): SlackRead {
+	return async (channel, thread, oldest) => {
+		if (channel.startsWith("#")) {
+			return calls.search(channel, dayBefore(oldest));
+		}
+		if (thread) return calls.thread(channel, thread);
+		return calls.history(channel, oldest);
+	};
+}
+
+/** How long a sign-in, or its absence, is kept before the keyring is read again. */
+const SIGN_IN_KEPT_MS = 10 * 60_000;
+
+let signedIn:
+	| {
+			readonly at: number;
+			readonly reader: Promise<
+				{ readonly me: string; readonly read: SlackRead } | undefined
+			>;
+	  }
+	| undefined;
+
+/** The person's Slack read through his token. */
+async function signIn(): Promise<
 	{ readonly me: string; readonly read: SlackRead } | undefined
 > {
 	const token = await getToken().catch(() => null);
@@ -29,21 +66,43 @@ export async function slackOfThePerson(): Promise<
 	const client = new SlackClient(token.accessToken, token.cookie, {
 		requestTimeoutMs: PROBE_WITHIN_MS,
 	});
-	const read: SlackRead = async (channel, thread, oldest) => {
-		if (channel.startsWith("#")) {
-			const found = await searchMessages(client, "", {
-				channel,
-				from: "me",
-				after: dayBefore(oldest),
-				limit: 50,
-			});
-			return found.messages;
-		}
-		const conversation = { id: channel, kind: "channel" as const };
-		if (thread) {
-			return getThread(client, { conversation, ts: thread }, { limit: 200 });
-		}
-		return listMessages(client, conversation, { oldest, limit: 200 });
-	};
+	const conversation = (id: string) => ({ id, kind: "channel" as const });
+	const read = slackReadWith({
+		search: async (channel, after) =>
+			(
+				await searchMessages(client, "", {
+					channel,
+					from: "me",
+					after,
+					limit: 50,
+				})
+			).messages,
+		thread: (channel, ts) =>
+			getThread(
+				client,
+				{ conversation: conversation(channel), ts },
+				{
+					limit: 200,
+				},
+			),
+		history: (channel, oldest) =>
+			listMessages(client, conversation(channel), { oldest, limit: 200 }),
+	});
 	return { me: token.userId, read };
+}
+
+/**
+ * The person's Slack, as the judge reads it, or none while he isn't
+ * signed in to it, which leaves every post unknown. The keyring is read
+ * once in {@link SIGN_IN_KEPT_MS}, so a locked one asks him at most
+ * that often, never on every send.
+ */
+export function slackOfThePerson(): Promise<
+	{ readonly me: string; readonly read: SlackRead } | undefined
+> {
+	const now = Date.now();
+	if (!signedIn || now - signedIn.at > SIGN_IN_KEPT_MS) {
+		signedIn = { at: now, reader: signIn().catch(() => undefined) };
+	}
+	return signedIn.reader;
 }
