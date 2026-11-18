@@ -230,16 +230,35 @@ export function foragersFrom(line: string): Forager[] {
 			.slice(0, MOST_SUBJECTS);
 		const said = [title, repo].filter((one) => typeof one === "string");
 		const titled = wordsOf(said.join(" "));
-		const subjectsSay = [...new Set(declared.flatMap(subjectWords))]
-			.filter((word) => !titled.includes(word))
-			.slice(0, MOST_SUBJECT_WORDS);
 		return [
 			{
 				address: key.slice("cell:".length),
-				words: [...titled, ...subjectsSay],
+				words: [...titled, ...wordsBeyond(titled, declared)],
 			},
 		];
 	});
+}
+
+/**
+ * The words `subjects` give beyond those `titled` already says, in the
+ * order declared, stopping at `MOST_SUBJECT_WORDS` so an oversized
+ * record costs no more to read than a full one.
+ */
+function wordsBeyond(
+	titled: readonly string[],
+	subjects: readonly string[],
+): string[] {
+	const seen = new Set(titled);
+	const beyond: string[] = [];
+	for (const subject of subjects) {
+		for (const word of subjectWords(subject)) {
+			if (seen.has(word)) continue;
+			seen.add(word);
+			beyond.push(word);
+			if (beyond.length === MOST_SUBJECT_WORDS) return beyond;
+		}
+	}
+	return beyond;
 }
 
 /**
@@ -357,8 +376,9 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 			undefined,
 		);
 
+	const saying = new Set(asked.words);
 	for (const { word } of within) {
-		for (const hub of hubsFor(word, reach.hubs)) {
+		for (const hub of hubsFor(word, saying, reach.hubs)) {
 			const fit = best(
 				hub.fits.filter(
 					(one) => !endedHolder(one, word) && takes(one) && holds(one, word),
@@ -405,8 +425,9 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
  * on, none past `LONGEST_WORD` and at most `MOST_WORDS`, so a token in
  * what was said, in its text or its `about`, never reaches the file.
  * Past `MOST_WORDS`, those that route it are kept rarest first, counted
- * over the cells that would take it; then those only the asker or an
- * ended cell holds, which route nowhere; among words as rare, the first
+ * over the cells that would take it; then those only an ended cell
+ * holds, which say the need is lost and who worked on it; then those only
+ * the asker holds, which route nowhere; among words as rare, the first
  * said. They stay in the order said.
  */
 function keptWords(
@@ -414,11 +435,15 @@ function keptWords(
 	foragers: readonly Forager[],
 	takes: (address: string) => boolean,
 ): string[] {
+	const selves = new Set([asked.asker, ...(asked.selves ?? [])]);
 	const takers = new Map<string, number>();
+	const othersHold = new Set<string>();
 	for (const cell of foragers) {
 		const taking = takes(cell.address) ? 1 : 0;
+		const other = !selves.has(cell.address);
 		for (const word of cell.words) {
 			takers.set(word, (takers.get(word) ?? 0) + taking);
+			if (other) othersHold.add(word);
 		}
 	}
 	const held = asked.words.filter(
@@ -427,7 +452,8 @@ function keptWords(
 	if (held.length <= MOST_WORDS) return held;
 	const rarity = (word: string) => {
 		const count = takers.get(word) ?? 0;
-		return count === 0 ? Number.POSITIVE_INFINITY : count;
+		if (count > 0) return count;
+		return othersHold.has(word) ? ENDED_ONLY : Number.POSITIVE_INFINITY;
 	};
 	const rarest = new Set(
 		[...held].sort((a, b) => rarity(a) - rarity(b)).slice(0, MOST_WORDS),
@@ -436,16 +462,29 @@ function keptWords(
 }
 
 /**
- * The hubs whose subject's narrowest part says `word`: first those
- * whose narrowest part says only `word`, then those saying more besides;
- * within each, the deepest subject first, by its parts, since each part
- * narrows it; among as deep, in the order the node listed them. A
- * subject's length says nothing of how narrow it is, so it never ranks.
+ * How rare a word held only by ended cells ranks: past every word a
+ * live cell would take, and before those only the asker holds.
  */
-function hubsFor(word: string, hubs: readonly Hub[]): Hub[] {
+const ENDED_ONLY = Number.MAX_SAFE_INTEGER;
+
+/**
+ * The hubs whose subject's narrowest part says `word`, and says nothing
+ * the need doesn't, so a hub of `pallet-lines` is never a need's that
+ * says lines alone: first those whose narrowest part says only `word`,
+ * then those saying more besides; within each, the deepest subject
+ * first, by its parts, since each part narrows it; among as deep, in the
+ * order the node listed them. A subject's length says nothing of how
+ * narrow it is, so it never ranks.
+ */
+function hubsFor(
+	word: string,
+	saying: ReadonlySet<string>,
+	hubs: readonly Hub[],
+): Hub[] {
 	const ranked = hubs.flatMap((hub) => {
 		const words = subjectWords(hub.subject);
 		if (!words.includes(word)) return [];
+		if (!words.every((one) => saying.has(one))) return [];
 		const exact = words.length === 1 ? 0 : 1;
 		return [{ hub, exact, depth: subjectParts(hub.subject).length }];
 	});

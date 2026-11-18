@@ -46,10 +46,12 @@ describe("the words a cell's declared subjects give it", () => {
 	});
 
 	it("reads at most MOST_SUBJECTS subjects from one cell", () => {
-		const subjects = Array.from(
-			{ length: MOST_SUBJECTS + 1 },
-			(_, at) => `stuffed:word${at}`,
-		);
+		// Every subject within the cap says the same word, so only the cap
+		// on subjects, not the one on their words, leaves the last unread.
+		const subjects = [
+			...Array.from({ length: MOST_SUBJECTS }, (_, at) => `same${at}:easing`),
+			"past:carry",
+		];
 		const line = JSON.stringify({
 			id: 2,
 			records: [{ key: "cell:X", subjects }],
@@ -57,27 +59,32 @@ describe("the words a cell's declared subjects give it", () => {
 
 		const [cell] = foragersFrom(line);
 
-		expect(cell?.words).toHaveLength(MOST_SUBJECTS);
-		expect(cell?.words, "the subject past the cap is not read").not.toContain(
-			`word${MOST_SUBJECTS}`,
-		);
+		expect(cell?.words, "the subject past the cap is not read").toEqual([
+			"easing",
+		]);
 	});
 
-	it("gives a cell at most MOST_SUBJECT_WORDS words from its subjects", () => {
-		const stuffed = Array.from(
-			{ length: MOST_SUBJECT_WORDS + 4 },
-			(_, at) => `word${at}`,
-		).join("-");
+	it("gives a cell at most MOST_SUBJECT_WORDS words from all its subjects together", () => {
+		const half = MOST_SUBJECT_WORDS / 2 + 1;
+		const subject = (from: number) =>
+			`x:${Array.from({ length: half }, (_, at) => `word${from + at}`).join("-")}`;
 		const line = JSON.stringify({
 			id: 2,
 			records: [
-				{ key: "cell:X", title: "Placement", subjects: [`x:${stuffed}`] },
+				{
+					key: "cell:X",
+					title: "Placement",
+					subjects: [subject(0), subject(half)],
+				},
 			],
 		});
 
 		const [cell] = foragersFrom(line);
 
-		expect(cell?.words, "its title, then the capped subject words").toEqual([
+		expect(
+			cell?.words,
+			"its title, then the first subject words up to the cap, across subjects",
+		).toEqual([
 			"placement",
 			...Array.from({ length: MOST_SUBJECT_WORDS }, (_, at) => `word${at}`),
 		]);
@@ -193,5 +200,60 @@ describe("a need routed by declared subjects", () => {
 		});
 
 		expect(found, "lines alone is the exact hub").toMatchObject({ fit: "W" });
+	});
+
+	it("ranks hubs as deep in the order the node listed them, never shortest first", () => {
+		const found = routeNeed(asked("A", "easing"), {
+			foragers: cells({ A: [], S: ["easing"], D: ["easing"] }),
+			ties: ties(),
+			hubs: [
+				{ subject: "observability-padded:easing", hub: "S", fits: ["S"] },
+				{ subject: "zz:easing", hub: "D", fits: ["D"] },
+			],
+		});
+
+		expect(found, "the first listed, though longer").toMatchObject({
+			fit: "S",
+		});
+	});
+
+	it("takes no hub whose subject says words the need doesn't, before walking for a rarer word", () => {
+		// H's hub says lines among other words; the need says lines but
+		// not pallet, so that hub isn't the need's, and easing, rarer,
+		// is walked for instead.
+		const found = routeNeed(asked("A", "easing", "lines"), {
+			foragers: cells({
+				A: [],
+				C: ["easing"],
+				H: ["pallet", "lines"],
+				W: ["lines"],
+			}),
+			ties: ties(["A", "C", 1]),
+			hubs: [{ subject: "x:pallet-lines", hub: "H", fits: ["H"] }],
+		});
+
+		expect(found, "easing carries it to C").toMatchObject({
+			fit: "C",
+			path: ["C"],
+		});
+	});
+
+	it("keeps a word only an ended cell holds over the asker's own, so the need reads as lost", () => {
+		const own = Array.from({ length: MOST_WORDS }, (_, at) => `mine${at}`);
+		const found = routeNeed(asked("A", ...own, "gone"), {
+			foragers: cells({ A: own, E: ["gone"] }),
+			ties: ties(["A", "E", 1]),
+			hubs: [],
+			live: (address) => address !== "E",
+		});
+
+		expect(found.words, "the ended cell's word is kept").toContain("gone");
+		expect(
+			found,
+			"lost, naming the ended cell, not the asker's own",
+		).toMatchObject({
+			fit: null,
+			ended: ["E"],
+		});
 	});
 });
