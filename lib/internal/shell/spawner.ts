@@ -40,8 +40,12 @@
  * (`PI_SPAWNER_SESSION`), taken from the load and never from pi's own
  * environment, which a host's sessions share. A host's sessions share its
  * process, so a mycelium node tells which asked it for a run by the
- * spawner its command runs under: only the host makes its own children,
- * and nothing a command runs can change what its spawner began with.
+ * spawner its command runs under: the host's child running a program
+ * named pi-spawner. The host runs none of an agent's commands as its own
+ * child, so a command could pass as a spawner only by running a copy of
+ * that program on purpose, or, where the kernel lets a process trace more
+ * than its descendants, by writing a spawner's memory. It stops a
+ * mistake, not a forger.
  *
  * When pi goes, pi-spawner kills every command it still runs but one kept
  * on disk (shell-workflow's keeping.ts), which a shared host hands to the
@@ -320,6 +324,8 @@ function resolved(program: string | undefined): string | undefined {
 export function spawnerKeeps(program: string): Promise<boolean> {
 	return new Promise((resolve) => {
 		const asked = spawn(program, [KEEPS_WORD], {
+			// Asked only what it keeps, it names no session.
+			env: spawnerEnvironment(process.env),
 			stdio: ["ignore", "pipe", "ignore"],
 			timeout: KEEPS_TIMEOUT_MS,
 		});

@@ -3,6 +3,8 @@
  * two streams and an end, takes the requests and sends frames, so what
  * pi's bash sees is checked without starting anything.
  */
+
+import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	mkdirSync,
@@ -31,6 +33,7 @@ import {
 } from "../../../../lib/internal/shell/spawner.ts";
 import {
 	inSpawnerScope,
+	type ScopeSetting,
 	settingHere,
 	spawnerStart,
 } from "../../../../lib/internal/shell/spawner-scope.ts";
@@ -41,6 +44,12 @@ import {
 } from "../../../support/spawner-stand-in.ts";
 
 const SHELL = { shell: "/bin/bash", args: ["-c"] };
+
+/** Puts pi's own environment's `name` back as `value` had it, unset where it was. */
+function restore(name: string, value: string | undefined): void {
+	if (value === undefined) delete process.env[name];
+	else process.env[name] = value;
+}
 
 /** pi's own spawn as a stand-in, counting what fell back to it. */
 function fallback(): BashOperations & { calls: string[] } {
@@ -402,6 +411,19 @@ describe("asking a pi-spawner whether it keeps", () => {
 		expect(await spawnerKeeps(program), "it said nothing").toBe(false);
 	});
 
+	it("names no session to it, whatever pi's environment names", async () => {
+		const program = programOf(
+			'[ "$1" = keeps ] && ! printenv PI_SPAWNER_SESSION >/dev/null && echo keeps',
+		);
+		const before = process.env.PI_SPAWNER_SESSION;
+		process.env.PI_SPAWNER_SESSION = "s-host";
+		try {
+			expect(await spawnerKeeps(program), "it was told no session").toBe(true);
+		} finally {
+			restore("PI_SPAWNER_SESSION", before);
+		}
+	});
+
 	it("hears no from one that isn't there", async () => {
 		expect(
 			await spawnerKeeps("/no/such/pi-spawner"),
@@ -488,36 +510,63 @@ describe("the quest a pi-spawner's work is filed under", () => {
 });
 
 describe("the session a pi-spawner is started naming", () => {
-	/** A start keeping the session each pi-spawner was named for. */
-	function naming() {
+	/** A start keeping the session each pi-spawner was named for, in turn. */
+	function naming(...programs: SpawnerStandIn[]) {
 		const sessions: (string | undefined)[] = [];
-		const program = standIn();
 		const start = (_program: string, _quest?: string, session?: string) => {
 			sessions.push(session);
-			return program.start();
+			const next = programs.shift();
+			if (!next) throw new Error("started more often than stood in for");
+			return next.start();
 		};
-		return { program, sessions, start };
+		return { sessions, start };
 	}
 
-	it("is the load's own, whatever pi's environment or the command's says", async () => {
-		const one = naming();
-		const two = naming();
-		const first = through({ start: one.start, session: "s-one" });
-		const second = through({ start: two.start, session: "s-two" });
+	it("is each load's own", async () => {
+		const [one, two] = [standIn(), standIn()];
+		const first = naming(one);
+		const second = naming(two);
 
 		for (const { operations, program } of [
-			{ operations: first.operations, program: one.program },
-			{ operations: second.operations, program: two.program },
+			{
+				operations: through({ start: first.start, session: "s-one" })
+					.operations,
+				program: one,
+			},
+			{
+				operations: through({ start: second.start, session: "s-two" })
+					.operations,
+				program: two,
+			},
 		]) {
-			void operations.exec("true", "/", {
-				onData: () => {},
-				env: { PI_SPAWNER_SESSION: "s-forged" },
-			});
+			void operations.exec("true", "/", { onData: () => {}, env: {} });
 			await askedFor(program, 1);
 		}
 
-		expect(one.sessions, "the first load's spawner").toEqual(["s-one"]);
-		expect(two.sessions, "the second load's spawner").toEqual(["s-two"]);
+		expect(first.sessions, "the first load's spawner").toEqual(["s-one"]);
+		expect(second.sessions, "the second load's spawner").toEqual(["s-two"]);
+	});
+
+	it("is still the load's own when another quest's command starts the next", async () => {
+		const [before, after] = [standIn(), standIn()];
+		const { sessions, start } = naming(before, after);
+		const { operations } = through({ start, session: "s-one" });
+
+		void operations.exec("true", "/", {
+			onData: () => {},
+			env: { PI_QUEST: "QEST-20261116-AAAAAA" },
+		});
+		await askedFor(before, 1);
+		void operations.exec("true", "/", {
+			onData: () => {},
+			env: { PI_QUEST: "QEST-20261116-BBBBBB" },
+		});
+		await askedFor(after, 1);
+
+		expect(sessions, "each spawner the load started").toEqual([
+			"s-one",
+			"s-one",
+		]);
 	});
 
 	it("is put in its environment, and one inherited is dropped when none is named", () => {
@@ -627,13 +676,13 @@ describe("the pi-spawners an earlier load left", () => {
 	});
 });
 
-/** A program's path, for asking whether a scope could be made for it. */
-const SPAWNER_STAND_IN = "/run/pi-spawner";
-
-describe("a host's pi-spawner started in a scope of its own", () => {
-	/** A pi-spawner saying its parent, its name, its session and its cgroup. */
+describe.skipIf(process.platform !== "linux")("a pi-spawner as started", () => {
+	/**
+	 * A pi-spawner saying its parent, its name, the session its starting
+	 * environment names as the kernel keeps it (or none), and its cgroup.
+	 */
 	function sayingItself(): { folder: string; program: string } {
-		const folder = mkdtempSync(join(tmpdir(), "scoped-spawner-"));
+		const folder = mkdtempSync(join(tmpdir(), "started-spawner-"));
 		const program = join(folder, "pi-spawner");
 		writeFileSync(
 			program,
@@ -641,7 +690,9 @@ describe("a host's pi-spawner started in a scope of its own", () => {
 				"#!/bin/sh",
 				'echo "$PPID"',
 				'cat "/proc/$$/comm"',
-				'echo "$PI_SPAWNER_SESSION"',
+				`named=$(tr '\\0' '\\n' < "/proc/$$/environ" | sed -n 's/^PI_SPAWNER_SESSION=//p')`,
+				'[ -n "$named" ] || named=none',
+				'echo "$named"',
 				'cat "/proc/$$/cgroup"',
 				"",
 			].join("\n"),
@@ -662,38 +713,84 @@ describe("a host's pi-spawner started in a scope of its own", () => {
 		return said;
 	}
 
+	/**
+	 * What a spawner started under `setting` says of itself, for `session`,
+	 * while pi's own environment names another, as a host started below a
+	 * spawner would.
+	 */
+	async function startedFor(
+		session: string | undefined,
+		setting: ScopeSetting,
+	): Promise<{
+		parent?: string;
+		name?: string;
+		named?: string;
+		cgroup: string;
+	}> {
+		const inherited = process.env.PI_SPAWNER_SESSION;
+		process.env.PI_SPAWNER_SESSION = "s-host";
+		const { folder, program } = sayingItself();
+		try {
+			const said = await saidBy(
+				startProgram(program, undefined, session, setting),
+			);
+			const [parent, name, named, ...cgroup] = said.trim().split("\n");
+			return { parent, name, named, cgroup: cgroup.join("\n") };
+		} finally {
+			restore("PI_SPAWNER_SESSION", inherited);
+			rmSync(folder, { recursive: true, force: true });
+		}
+	}
+
+	it("is pi's own child, named pi-spawner, naming only its load's session", async () => {
+		const setting = settingHere(false);
+		const named = await startedFor("s-one", setting);
+		const unnamed = await startedFor(undefined, setting);
+
+		expect(named.parent, "its parent is pi").toBe(String(process.pid));
+		expect(named.name, "the kernel's name for it").toBe("pi-spawner");
+		expect(named.named, "what its own start names").toBe("s-one");
+		expect(unnamed.named, "none, though pi's own names one").toBe("none");
+	});
+
 	// The suite's runtime folder is a sandbox (xdg-sandbox.ts), so this
 	// reaches the account's own user manager, whose scope it makes is
-	// collected as its pi-spawner ends; where none answers, it is skipped.
+	// collected as its pi-spawner ends; where none makes one, it is skipped.
 	const ownRuntime = `/run/user/${process.getuid?.() ?? 0}`;
-	const unscoped = spawnerStart(SPAWNER_STAND_IN, {
+	const probe = spawnerStart("true", {
 		...settingHere(true),
 		env: { ...process.env, XDG_RUNTIME_DIR: ownRuntime },
-	}).unscoped;
+	});
+	const scopes =
+		probe.unscoped === undefined &&
+		spawnSync(probe.command, [...probe.args], {
+			env: { ...process.env, XDG_RUNTIME_DIR: ownRuntime },
+			stdio: "ignore",
+		}).status === 0;
 
-	it.skipIf(unscoped !== undefined)(
-		"is still the host's own child, named pi-spawner, naming its session",
+	it.skipIf(!scopes)(
+		"is still the host's own child, named pi-spawner, naming only its session, in a scope",
 		async () => {
 			const sandboxed = process.env.XDG_RUNTIME_DIR;
 			process.env.XDG_RUNTIME_DIR = ownRuntime;
-			const setting = settingHere(true);
-			const { folder, program } = sayingItself();
 			try {
-				const said = await saidBy(
-					startProgram(program, undefined, "s-one", setting),
-				);
-				const [parent, name, session, ...cgroup] = said.trim().split("\n");
+				const setting = settingHere(true);
+				const named = await startedFor("s-one", setting);
+				const unnamed = await startedFor(undefined, setting);
 
-				expect(parent, "its parent is the host").toBe(String(process.pid));
-				expect(name, "the kernel's name for it").toBe("pi-spawner");
-				expect(session, "what its own start names").toBe("s-one");
-				expect(
-					inSpawnerScope(cgroup.join("\n")),
-					"it runs in its own scope",
-				).toBe(true);
+				expect(named.parent, "its parent is the host").toBe(
+					String(process.pid),
+				);
+				expect(named.name, "the kernel's name for it").toBe("pi-spawner");
+				expect(named.named, "what its own start names").toBe("s-one");
+				expect(unnamed.named, "none, though the host's own names one").toBe(
+					"none",
+				);
+				expect(inSpawnerScope(named.cgroup), "it runs in its own scope").toBe(
+					true,
+				);
 			} finally {
-				process.env.XDG_RUNTIME_DIR = sandboxed;
-				rmSync(folder, { recursive: true, force: true });
+				restore("XDG_RUNTIME_DIR", sandboxed);
 			}
 		},
 	);

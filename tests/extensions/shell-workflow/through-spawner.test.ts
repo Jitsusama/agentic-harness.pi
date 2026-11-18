@@ -78,7 +78,7 @@ async function ran(
 }
 
 describe("the agent's bash for a conversation", () => {
-	it("starts its pi-spawner naming that conversation", async () => {
+	it("starts its pi-spawner naming that conversation, whatever else it is given", async () => {
 		const program = spawnerStandIn();
 		const sessions: (string | undefined)[] = [];
 		const bash = agentBash(root, {}, { kind: "none" }, "s-one", {
@@ -91,6 +91,7 @@ describe("the agent's bash for a conversation", () => {
 			kill: vi.fn<(pid: number) => void>(),
 			reap: () => undefined,
 			asksKeeps: async () => false,
+			session: "s-given",
 		});
 
 		await ran({ program, bash }, new AbortController().signal);

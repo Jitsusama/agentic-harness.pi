@@ -73,9 +73,10 @@ export function agentBash(
 		{
 			...(settings.shellPath ? { shellPath: settings.shellPath } : {}),
 			...(sharing ? { reap: () => undefined } : {}),
-			// The load's own session, which its spawner is started naming.
-			...(session !== undefined ? { session: requireSession(session) } : {}),
 			...spawner,
+			// The load's own session, which its spawner is started naming;
+			// last, so nothing else given names another.
+			...(session !== undefined ? { session: requireSession(session) } : {}),
 		},
 	);
 	// Each call keeps itself on disk where it can, so a move can hand it
