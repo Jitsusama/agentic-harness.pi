@@ -76,6 +76,7 @@ lib/mesh/message.ts:pid 1 The sender's pid on plain pi; hosted, senderIdentity n
 lib/mesh/present.ts:global 2 One connection to the node per process, which the kernel closes when the process ends, and the listeners each load adds and takes back itself (H1 for 85PKB2, 2026-11-10).
 lib/mesh/transport.ts:global 1 The last stamp for the process, so ids rise across every conversation's copy of the module and no reader passes a later message by (H1 for 85PKB2, 2026-11-10).
 lib/mesh/waiting.ts:pid 1 Names a waiting file's temporary copy, written and renamed in one synchronous tick (H1 for 85PKB2, 2026-11-10).
+lib/orchestration/done-acts-slack.ts:module 1 Joel's Slack sign-in for the done-acts probes, kept ten minutes: the machine's one stored token, the same person whichever conversation asks, so a slot per conversation only read the keyring again on each question (1JQPPC, for 85PKB2's review, 2026-11-17).
 extensions/work-integration/sweep.ts:pid 1 The sweep log names the process that swept, for reading afterwards; a host's sweeps are its own whichever conversation they serve (MDRIRB, 2026-11-09).
 lib/guardian/policy.ts:global 1 Holds each guard's declaration and the user's package config, one file for every conversation; a session's own overrides are already keyed apart by the pi:guard-session-modes slot (2QZBX9 with 85PKB2, 2026-11-10).
 lib/internal/away/machine.ts:pid 1 Names the temporary file a machine's away state is written to, with a random tail after the pid, so two conversations in a host never share one (2QZBX9 with 85PKB2, 2026-11-10).
