@@ -16,6 +16,7 @@ import {
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	utimesSync,
 	writeFileSync,
@@ -26,12 +27,16 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Owner, ProcessFacts } from "../../../lib/core/process/index.ts";
 import type { HeldTree, TreeProvider } from "../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../lib/core/work/dev-shell-roots.ts";
-import { createTreeMemory } from "../../../lib/core/work/memory.ts";
+import {
+	createTreeMemory,
+	type TreeMemory,
+} from "../../../lib/core/work/memory.ts";
 import type { SweepDeps } from "../../../lib/core/work/sweep.ts";
 import {
 	PUSHED_SETTLE_MS,
 	sweepEndedTrees,
 } from "../../../lib/core/work/sweep.ts";
+import { treeIdentity } from "../../../lib/core/work/tree.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 /** An exec over real processes, shaped the way the library expects. */
@@ -96,6 +101,12 @@ function elsewhere(
 		whyKept: async () => why,
 	};
 }
+
+/** How long the sweeps rest in the test of resting. */
+const REST_MS = 20 * 60 * 1000;
+
+/** How long a sweep takes in the test of resting, by its own clock. */
+const SWEEP_TAKES_MS = 5 * 60 * 1000;
 
 /** A pid no process can have, for a lock whose holder has ended. */
 const NO_SUCH_PID = 2_147_483_646;
@@ -227,6 +238,7 @@ async function setUp() {
 
 	return {
 		main,
+		state,
 		memory,
 		lockPath,
 		cut,
@@ -267,6 +279,41 @@ async function landed(
 	return tree;
 }
 
+/**
+ * Cut a snapshot at a commit no ref holds, as a pull request's head is
+ * left once its branch is pushed again over it, with the broker's record
+ * of a snapshot pinned there.
+ */
+async function pinnedWhereNoRefHolds(
+	main: string,
+	memory: TreeMemory,
+	path: string,
+	owners: readonly Owner[] = [ENDED],
+): Promise<string> {
+	await git(main, "branch", "-q", "before-rebase", "main");
+	await git(main, "checkout", "-q", "before-rebase");
+	// A message of its own, so two snapshots cut in one second differ.
+	await git(main, "commit", "-q", "--allow-empty", "-m", `head of ${path}`);
+	const commit = (await git(main, "rev-parse", "HEAD")).trim();
+	await git(main, "checkout", "-q", "main");
+	await git(main, "branch", "-q", "-D", "before-rebase");
+	await git(main, "worktree", "add", "-q", "--detach", path, commit);
+	// The identity the broker gives a snapshot, so the pin is read back
+	// from the key it really writes.
+	memory.remember({
+		identity: treeIdentity({
+			intent: "snapshot",
+			repo: { key: "local:repo" },
+			purpose: "review",
+			commit,
+		}),
+		path,
+		providerId: "git-worktree",
+		owners: [...owners],
+	});
+	return commit;
+}
+
 /** Put a folder with no git, and its `src`, two days back, as one left alone. */
 function settleFolder(tree: string): void {
 	const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
@@ -305,6 +352,67 @@ describe("sweeping the trees whose sessions have ended", () => {
 		const tree = await cut("snapshot", ["--detach", "@", "main"]);
 
 		expect((await sweep()).taken).toEqual([{ path: tree }]);
+	});
+
+	it("takes a clean snapshot at its pin, though no ref holds the commit", async () => {
+		const { main, state, memory, sweep } = await setUp();
+		const tree = join(state, "pinned");
+		await pinnedWhereNoRefHolds(main, memory, tree);
+		// A build the snapshot made, which git ignores and the removal takes.
+		mkdirSync(join(tree, "target"));
+		writeFileSync(join(tree, "target", "out"), "built");
+
+		const outcome = await sweep();
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(existsSync(tree), `${tree} is taken`).toBe(false);
+	});
+
+	it("keeps a snapshot with a new file in it, or moved off its pin", async () => {
+		const { main, state, memory, sweep } = await setUp();
+		const noted = join(state, "noted");
+		await pinnedWhereNoRefHolds(main, memory, noted);
+		writeFileSync(join(noted, "notes.txt"), "written here\n");
+		const moved = join(state, "moved");
+		await pinnedWhereNoRefHolds(main, memory, moved);
+		await git(moved, "commit", "-q", "--allow-empty", "-m", "only here");
+		// A commit made there and left by checking the pin out again: only
+		// that tree's own reflog holds it.
+		const left = join(state, "left");
+		const pin = await pinnedWhereNoRefHolds(main, memory, left);
+		await git(left, "commit", "-q", "--allow-empty", "-m", "tried here");
+		await git(left, "checkout", "-q", pin);
+
+		const outcome = await sweep();
+
+		expect(outcome.taken).toEqual([]);
+		const why = new Map(outcome.kept.map((one) => [one.path, one.why]));
+		expect([...why.keys()].sort()).toEqual([left, moved, noted].sort());
+		expect(why.get(noted)).toMatch(/uncommitted changes/);
+		expect(why.get(moved)).toMatch(/no branch or tag holds the commit/);
+		expect(why.get(left)).toMatch(/no branch or tag holds the commit/);
+		expect(existsSync(left), `${left}, with a commit it left, is kept`).toBe(
+			true,
+		);
+		expect(existsSync(noted), `${noted}, with a file of its own, is kept`).toBe(
+			true,
+		);
+		expect(
+			existsSync(moved),
+			`${moved}, with a commit of its own, is kept`,
+		).toBe(true);
+	});
+
+	it("keeps a snapshot at its pin that a running session shares", async () => {
+		const { main, state, memory, sweep } = await setUp();
+		const tree = join(state, "shared");
+		await pinnedWhereNoRefHolds(main, memory, tree, [ENDED, RUNNING]);
+
+		expect((await sweep()).taken).toEqual([]);
+		expect(
+			existsSync(tree),
+			`${tree}, which a running session shares, is kept`,
+		).toBe(true);
 	});
 
 	it("never takes a tree a running session holds, or one claimed", async () => {
@@ -438,6 +546,78 @@ describe("sweeping the trees whose sessions have ended", () => {
 			existsSync(lockPath),
 			`${lockPath} is released once the sweep ends`,
 		).toBe(false);
+	});
+
+	it("rests after any sweep ends, until its rest is over", async () => {
+		const { memory, lockPath, cut, elsewhereTree } = await setUp();
+		const stamp = `${lockPath}.ended`;
+		// The sweep's clock moves on while it runs, as a real sweep takes
+		// minutes, through a provider it asks of a tree left a while.
+		const started = Date.now();
+		let clock = started;
+		const slow: TreeProvider = {
+			...elsewhere("its provider keeps it"),
+			whyKept: async () => {
+				clock += SWEEP_TAKES_MS;
+				return "its provider keeps it";
+			},
+		};
+		settleFolder(elsewhereTree("slow"));
+		const rested = () =>
+			sweepEndedTrees({
+				exec,
+				memory,
+				claims: [],
+				lockPath,
+				facts: machineWithUs,
+				providers: () => [slow],
+				restMs: REST_MS,
+				now: () => clock,
+			});
+
+		const first = await rested();
+		expect(first.rested, "the first sweep rests").toBeUndefined();
+		expect(
+			statSync(stamp).mtimeMs,
+			"the stamp is dated when the sweep ended, by its own clock",
+		).toBeGreaterThanOrEqual(started + SWEEP_TAKES_MS - 1000);
+		const ended = statSync(stamp).mtimeMs;
+		const tree = await cut("done", ["-b", "done", "@", "main"]);
+
+		clock += REST_MS / 2;
+		const soon = await rested();
+		expect(soon.rested).toContain("a sweep ended");
+		expect(soon.skipped, "a rest is not a held lock").toBeUndefined();
+		expect(existsSync(tree), `${tree} is kept while the sweeps rest`).toBe(
+			true,
+		);
+		expect(statSync(stamp).mtimeMs, "a rest leaves the stamp as it was").toBe(
+			ended,
+		);
+
+		clock += REST_MS;
+		const later = await rested();
+		expect(later.rested, "the rest is over").toBeUndefined();
+		expect(later.taken.map((one) => one.path)).toEqual([tree]);
+	});
+
+	it("rests from nothing when its stamp can't be read", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		// A stamp that links to itself can't be read, nor written over.
+		symlinkSync(`${lockPath}.ended`, `${lockPath}.ended`);
+		const tree = await cut("done", ["-b", "done", "@", "main"]);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+			restMs: REST_MS,
+		});
+
+		expect(outcome.rested).toBeUndefined();
+		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
 	});
 });
 

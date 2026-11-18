@@ -170,14 +170,29 @@ Three minutes after a session starts, and every hour after, it
 takes back the git worktrees whose recorded sessions have all
 ended, by `reclaim`'s rules: clean, and merged into trunk or,
 detached, at a commit some ref holds. On 26 October, 185 such trees
-sat on one machine, 48 of them reclaimable. It looks again under
+sat on one machine, 48 of them reclaimable. A snapshot also goes
+when it is clean and its HEAD never left the commit its record says
+it was cut at, whatever holds that commit: on 18 November one
+machine kept 746 ended snapshots, 25 GiB, most at a pull request's
+head from before a rebase. Its HEAD's reflog must name only that
+commit, since a commit made there and then left is held by that
+reflog alone. Files the commit under review tells git to ignore go
+with it, as build output does. It looks again under
 the tree's record lock before acting, so a session that took the
 tree up since is seen. Under that lock it only moves the tree aside
 and forgets its record; the removal comes after. A tree claimed
 over `work:tree-claims:v1`, one whose record names nobody, and one
 the broker never cut are left alone, and no branch is deleted.
-One sweep runs at a time on a machine. Each writes a JSON line to
-`sweep.log` in the work state folder.
+One sweep runs at a time on a machine, and none starts within 20
+minutes of one ending, told by `sweep.lock.ended` beside the lock:
+each session sweeps on its own timer, and on 18 November about 120
+of them kept one sweep or another running without a break. Each
+sweep writes a JSON line to `sweep.log` in the work state folder,
+but for one that rested. One that found another running says so,
+as the sign of a sweep that holds the lock and never ends.
+
+A session that joins a snapshot as a sweep takes it finds it gone
+once its own claim is written, and cuts it afresh.
 
 A tree cut from a clone in a quest's scratch folder outlives the
 clone, which goes when the quest concludes or retires, and git can

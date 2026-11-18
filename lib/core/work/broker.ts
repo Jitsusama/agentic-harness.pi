@@ -302,7 +302,21 @@ export function createTreeBroker(
 					trees.push(taken);
 				}
 				await memory?.rememberHeldByUs(taken);
-				return taken;
+				// Once our owner is written no sweep takes the tree, but one may
+				// have taken it between the provider finding it and that write,
+				// since a sweep judges owners under the record's lock and we
+				// only now took it. The record goes with the folder, so a tree
+				// not ours already whose record memory no longer recalls was
+				// taken, and is cut afresh below rather than handed back gone.
+				const gone =
+					!ours &&
+					memory !== undefined &&
+					!memory
+						.recall()
+						.some((tree) => tree.identity.key === taken.identity.key);
+				if (!gone) return taken;
+				const stale = trees.findIndex((tree) => tree.path === taken.path);
+				if (stale >= 0) trees.splice(stale, 1);
 			}
 
 			const choice = chooseTreeProvider(roster(), request.repo);

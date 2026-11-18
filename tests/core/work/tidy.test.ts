@@ -244,6 +244,58 @@ describe("trees left behind", () => {
 		expect(plan.retained.at(-1)?.why).toContain("uncommitted");
 	});
 
+	it("offers a clean snapshot still at its pin, though nothing holds its commit", () => {
+		const tree = { path: "/repo/snapshot-pin", commit: "c0ffee" };
+		const plan = orphanedTrees({
+			...ask([{ path: main }, tree]),
+			stillPinned: (path, commit) => path === tree.path && commit === "c0ffee",
+		});
+
+		expect(plan.reclaimable).toEqual([{ path: tree.path }]);
+	});
+
+	it("keeps a snapshot at its pin that is held, claimed, dirty or unread", () => {
+		const pinned = () => true;
+		const at = (path: string, more: object = {}) => ({
+			path,
+			commit: "c0ffee",
+			...more,
+		});
+		const held = "/repo/snapshot-held";
+		const claimed = "/repo/snapshot-claimed";
+		const plan = orphanedTrees({
+			...ask(
+				[
+					{ path: main },
+					at(held),
+					at(claimed),
+					at("/repo/snapshot-dirty", { dirty: true }),
+					at("/repo/snapshot-unread", { unread: true }),
+				],
+				[held, claimed],
+			),
+			unattributed: [claimed],
+			stillPinned: pinned,
+		});
+
+		expect(plan.reclaimable, "the snapshots offered").toEqual([]);
+	});
+
+	it("puts a snapshot to a person when nothing says it is at its pin", () => {
+		const tree = { path: "/repo/snapshot-moved", commit: "c0ffee" };
+		const moved = orphanedTrees({
+			...ask([{ path: main }, tree]),
+			stillPinned: () => false,
+		});
+		// As reclaim asks, with no records to read pins from.
+		const unasked = orphanedTrees(ask([{ path: main }, tree]));
+
+		for (const plan of [moved, unasked]) {
+			expect(plan.reclaimable).toEqual([]);
+			expect(plan.retained.at(-1)).toMatchObject({ decide: true });
+		}
+	});
+
 	it("names both readings when nothing can prove the work landed", () => {
 		const plan = orphanedTrees(
 			ask([{ path: main }, { path: "/repo/.worktrees/x", branch: "plan-9" }]),

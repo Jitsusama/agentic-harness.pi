@@ -2,7 +2,14 @@
  * The unattended sweep holds every live quest's trees for good, and
  * tells holders what it took.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
@@ -23,17 +30,33 @@ import { installTestHost } from "../../support/session-host.ts";
 /** The claims each sweep was given. */
 const given: (readonly string[])[] = [];
 
+/** The rest each sweep was asked to keep. */
+const rests: (number | undefined)[] = [];
+
+/** Why the next sweep does nothing, when it should, as the library says. */
+const idle: { rested?: string; skipped?: string } = {};
+
 vi.mock("../../../lib/core/work/sweep.ts", () => ({
-	sweepEndedTrees: async (deps: { claims: readonly string[] }) => {
+	sweepEndedTrees: async (deps: {
+		claims: readonly string[];
+		restMs?: number;
+	}) => {
 		given.push([...deps.claims]);
+		rests.push(deps.restMs);
+		const none = { taken: [], refused: [], kept: [], dropped: [] };
+		if (idle.rested !== undefined) return { ...none, rested: idle.rested };
+		if (idle.skipped !== undefined) return { ...none, skipped: idle.skipped };
 		return {
+			...none,
 			taken: [{ path: "/src/repo/.worktrees/spent", branch: "spent" }],
-			refused: [],
-			kept: [],
-			dropped: [],
 		};
 	},
 }));
+
+/** The sweep's log, as the extension writes it under the stubbed state. */
+function sweepLog(): string {
+	return join(root, "state", "pi", "agentic-harness.pi", "work", "sweep.log");
+}
 
 const FIRST_SWEEP_MS = 3 * 60 * 1000;
 
@@ -48,6 +71,9 @@ beforeEach(() => {
 	vi.stubEnv("XDG_DATA_HOME", join(root, "data"));
 	vi.useFakeTimers();
 	given.length = 0;
+	rests.length = 0;
+	delete idle.rested;
+	delete idle.skipped;
 	host = installTestHost();
 });
 afterEach(() => {
@@ -132,6 +158,32 @@ it("counts a hosted conversation's folder as in use, though its host stands else
 	const folders = (await useSigns().sessionFolders?.()) ?? [];
 
 	expect(folders, "the folders live sessions work in").toContain(folder);
+});
+
+it("asks every sweep to rest 20 minutes after any sweep ends", async () => {
+	await sweepOn(createEventBus());
+
+	expect(rests, "the rest each sweep was asked for").toEqual([20 * 60 * 1000]);
+});
+
+it("writes no line for a sweep that rested", async () => {
+	idle.rested = "a sweep ended 60 s ago";
+
+	await sweepOn(createEventBus());
+
+	expect(existsSync(sweepLog()), "a log written for a sweep that rested").toBe(
+		false,
+	);
+});
+
+it("says when another sweep held the lock", async () => {
+	idle.skipped = "another sweep is running, pid 4242";
+
+	await sweepOn(createEventBus());
+
+	expect(readFileSync(sweepLog(), "utf8")).toContain(
+		'"skipped":"another sweep is running, pid 4242"',
+	);
 });
 
 it("says what it took to whoever listed it", async () => {

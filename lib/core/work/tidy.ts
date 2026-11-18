@@ -18,6 +18,8 @@ export interface WorktreeOnDisk {
 	path: string;
 	/** The branch checked out there, when one is. */
 	branch?: string;
+	/** The commit it sits at, when git said. */
+	commit?: string;
 	/** Whether it holds changes that are not committed anywhere. */
 	dirty?: boolean;
 	/** Whether git failed to say, or ran out of time saying, if it is dirty. */
@@ -83,6 +85,17 @@ export interface OrphanAsk {
 	 * sweep, which runs with nobody watching, says how long is enough.
 	 */
 	settled?: (path: string) => boolean;
+	/**
+	 * Whether a detached tree is a snapshot the broker cut that still sits
+	 * at the commit it was cut at and never left it, given its path and the
+	 * commit it sits at. Such a
+	 * tree was cut to read a commit somebody fetched, so once it is clean
+	 * it holds nothing of its own, even when no ref holds that commit any
+	 * more, as a branch pushed again over it leaves it. Without it such a
+	 * tree is kept unless a ref holds its commit: only the sweep, which
+	 * reads the broker's records, can say what a tree was cut at.
+	 */
+	stillPinned?: (path: string, commit: string | undefined) => boolean;
 }
 
 /** A tree nothing claims any more, and what was in it. */
@@ -194,7 +207,14 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			// nothing goes with the tree. Kept for ever without this: one
 			// repository had 172 such trees, every one clean and still at the
 			// commit it was pinned at.
-			if (tree.commitKept) {
+			// A snapshot still at its pin goes too: on 18 November one machine
+			// kept 336 such trees, most at a pull request's head from before a
+			// rebase, whose work trunk holds under other commits. Two things
+			// go with one, knowingly. A local commit it was cut at that no ref
+			// holds any more is left to the main checkout's reflog, as an
+			// amended commit is. Files the commit under review tells git to
+			// ignore are taken like build output, as only a reader wrote them.
+			if (tree.commitKept || ask.stillPinned?.(tree.path, tree.commit)) {
 				reclaimable.push({ path: tree.path });
 			} else {
 				keep(

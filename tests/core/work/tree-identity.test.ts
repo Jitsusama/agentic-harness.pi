@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RepoLocator } from "../../../lib/core/review/index.ts";
 import {
+	pinnedCommit,
 	satisfies,
 	type TreeRequest,
 	treeIdentity,
@@ -135,5 +136,32 @@ describe("treeIdentity", () => {
 		expect(treeIdentity(snapshot("abc123")).key).toBe(
 			treeIdentity(snapshot("abc123")).key,
 		);
+	});
+});
+
+describe("pinnedCommit", () => {
+	const full = "0123456789abcdef0123456789abcdef01234567";
+
+	it("reads a snapshot's commit back from the key the broker writes", () => {
+		expect(pinnedCommit(treeIdentity(snapshot(full)))).toBe(full);
+		expect(pinnedCommit(treeIdentity(snapshot(full, other)))).toBe(full);
+	});
+
+	// Each of these names no pin the sweep could prove a tree sits at, so
+	// a tree cut so is judged by its refs alone, as before.
+	it.each([
+		["a worktree whose branch is 40 hex", treeIdentity(worktree(full))],
+		["a snapshot cut at a short id", treeIdentity(snapshot("abc123"))],
+		["a snapshot cut at a ref's name", treeIdentity(snapshot("main"))],
+		[
+			"a snapshot cut at a 64 hex id",
+			treeIdentity(snapshot(full + full.slice(0, 24))),
+		],
+		[
+			"a key that isn't shareable",
+			{ key: `snapshot-x-${full}`, shareable: false },
+		],
+	])("names none for %s", (_, identity) => {
+		expect(pinnedCommit(identity)).toBeUndefined();
 	});
 });

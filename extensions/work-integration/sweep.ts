@@ -8,7 +8,8 @@
  * share the disk with a removal, and every hour, since a session can run
  * for days. Off the turn, and never waited on: what it did goes to a log
  * beside the trees' records, one JSON line a sweep, naming the trees
- * taken and those whose dev-shell roots were dropped.
+ * taken and those whose dev-shell roots were dropped. A sweep that
+ * rests, since one ended within the last 20 minutes, writes none.
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -48,6 +49,13 @@ const FIRST_SWEEP_MS = 3 * 60 * 1000;
 
 /** How often a session sweeps after its first. */
 const SWEEP_EVERY_MS = 60 * 60 * 1000;
+
+/**
+ * How long the machine rests after any sweep ends, whichever session
+ * ran it: each session sweeps hourly on its own timer, so a hundred of
+ * them would otherwise keep one sweep or another running all the time.
+ */
+const SWEEP_REST_MS = 20 * 60 * 1000;
 
 /**
  * How long a session a crash or a signal took away keeps its trees:
@@ -125,10 +133,16 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 			memory: createTreeMemory(treeRecordDir()),
 			claims: claims.paths,
 			lockPath: join(dir, "sweep.lock"),
+			restMs: SWEEP_REST_MS,
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
 			...useSigns(),
 		});
+		// A sweep that rested did nothing, and the one before it said what
+		// it did: a line for each filled the log at one every 3 seconds on
+		// 18 November. One that found another running still says so, as
+		// the only sign of a sweep that holds the lock and never ends.
+		if (outcome.rested !== undefined) return;
 		line = said(outcome);
 		taken = outcome.taken.map((tree) => tree.path);
 	} catch (error) {

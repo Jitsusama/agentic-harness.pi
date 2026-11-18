@@ -401,6 +401,7 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 			return found.map(({ path, commit, branch }) => ({
 				path,
 				...(branch ? { branch } : {}),
+				...(commit ? { commit } : {}),
 				...(dirty.has(path) ? { dirty: true } : {}),
 				...(unread.has(path) ? { unread: true } : {}),
 				...(branch && merged.has(branch) ? { mergedIntoTrunk: true } : {}),

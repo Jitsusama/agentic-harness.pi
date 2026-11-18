@@ -41,6 +41,8 @@ import {
 	renameSync,
 	rmSync,
 	statSync,
+	utimesSync,
+	writeFileSync,
 	writeSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -58,6 +60,7 @@ import {
 } from "./in-use.ts";
 import type { TreeMemory } from "./memory.ts";
 import { orphanedTrees } from "./tidy.ts";
+import { pinnedCommit } from "./tree.ts";
 
 /** The provider a git worktree's record names. */
 const GIT_WORKTREE = "git-worktree";
@@ -86,6 +89,12 @@ export interface SweepDeps extends UseSigns {
 	claims: readonly string[];
 	/** The file that keeps two sweeps from running at once. */
 	lockPath: string;
+	/**
+	 * How long after any sweep on this machine ends before another runs,
+	 * in milliseconds, told by a stamp beside the lock. Without it a sweep
+	 * runs whenever the lock is free.
+	 */
+	restMs?: number;
 	facts?: ProcessFacts;
 	/**
 	 * Whether a repository that is gone went with work that has finished,
@@ -123,6 +132,8 @@ export interface LeftTree {
 export interface SweepOutcome {
 	/** Why it did nothing at all, when another sweep was running. */
 	skipped?: string;
+	/** Why it did nothing at all, when a sweep ended within the rest. */
+	rested?: string;
 	taken: SweptTree[];
 	/** Git or its provider wouldn't remove it, and it is back where it was. */
 	refused: LeftTree[];
@@ -141,7 +152,8 @@ export interface DroppedRoots {
 /**
  * Take back every git worktree the broker cut whose recorded sessions
  * have all ended and that reclaim's rules would take: clean, and merged
- * into trunk or, detached, at a commit some ref holds. Then every other
+ * into trunk or, detached, at a commit some ref holds or a snapshot
+ * still at the commit it was cut at. Then every other
  * provider's unshareable tree whose provider says it is spent, through
  * that provider. Says what it took, what was refused and what it kept,
  * tree by tree.
@@ -153,6 +165,9 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		kept: [],
 		dropped: [],
 	};
+	const now = deps.now?.() ?? Date.now();
+	const resting = restingSince(deps.lockPath, now, deps.restMs);
+	if (resting !== undefined) return { ...outcome, rested: resting };
 	const release = sweepLock(deps.lockPath);
 	if (typeof release === "string") return { ...outcome, skipped: release };
 	try {
@@ -195,9 +210,59 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		}
 		await dropIdleRoots(deps, outcome);
 	} finally {
+		markEnded(deps.lockPath, deps.now?.() ?? Date.now());
 		release();
 	}
 	return outcome;
+}
+
+/** The stamp beside a sweep's lock that says when the last sweep ended. */
+function endedStamp(lockPath: string): string {
+	return `${lockPath}.ended`;
+}
+
+/**
+ * Why a sweep should rest, when one ended within `restMs` of `now`.
+ * Every conversation sweeps on its own timer, and one sweep reads every
+ * tree: on 18 November about 120 of them kept one machine sweeping
+ * without a break, each sweep 3 to 12 minutes long and every one taking
+ * nothing, while the rest found the lock held about every 3 seconds.
+ */
+function restingSince(
+	lockPath: string,
+	now: number,
+	restMs: number | undefined,
+): string | undefined {
+	if (restMs === undefined) return undefined;
+	let ended: number;
+	try {
+		ended = statSync(endedStamp(lockPath)).mtimeMs;
+	} catch {
+		// No stamp, or none to read: rest from nothing, as a stamp that
+		// couldn't be written does. The lock still keeps sweeps apart.
+		return undefined;
+	}
+	const ago = now - ended;
+	// A stamp from the future, as a clock set back leaves, rests nobody.
+	return ago >= 0 && ago < restMs
+		? `a sweep ended ${Math.round(ago / 1000)} s ago`
+		: undefined;
+}
+
+/**
+ * Stamp that a sweep has just ended, for {@link restingSince}, dated by
+ * the sweep's own clock rather than the file system's, so the two
+ * readings of the rest are of one clock.
+ */
+function markEnded(lockPath: string, at: number): void {
+	const stamp = endedStamp(lockPath);
+	try {
+		writeFileSync(stamp, String(process.pid));
+		utimesSync(stamp, at / 1000, at / 1000);
+	} catch {
+		// A stamp that can't be written only lets the next sweep come
+		// sooner, which the lock still keeps from overlapping this one.
+	}
 }
 
 /**
@@ -414,6 +479,38 @@ async function takeOrphan(
 	}
 }
 
+/**
+ * The snapshots among `trees` whose HEAD never left the commit they were
+ * cut at, by resolved path, with that commit. Only a tree's own record
+ * says what it was cut at. Its HEAD's reflog says where HEAD has been:
+ * a commit made there and then left, by checking the pin out again, is
+ * held by that reflog alone, which the removal deletes, so a tree whose
+ * reflog names any other commit, or that has none to read, is left out.
+ */
+async function neverLeftPins(
+	exec: Exec,
+	trees: readonly HeldTree[],
+): Promise<Map<string, string>> {
+	const pins = new Map<string, string>();
+	for (const tree of trees) {
+		const commit = pinnedCommit(tree.identity);
+		if (commit === undefined) continue;
+		const reflog = await exec("git", [
+			"-C",
+			tree.path,
+			"reflog",
+			"--format=%H",
+			"HEAD",
+		]);
+		const been = reflog.stdout.split("\n").filter((line) => line !== "");
+		if (reflog.code !== 0 || been.length === 0) continue;
+		if (been.every((line) => line === commit)) {
+			pins.set(resolved(tree.path), commit);
+		}
+	}
+	return pins;
+}
+
 /** Reclaim's rules over one repository's ended trees, and acting on them. */
 async function sweepRepository(
 	deps: SweepDeps,
@@ -427,6 +524,7 @@ async function sweepRepository(
 	},
 ): Promise<void> {
 	const { outcome } = held;
+	const pins = await neverLeftPins(deps.exec, trees);
 	let plan: ReturnType<typeof orphanedTrees>;
 	try {
 		const trunk = await trunkOf(deps.exec, main);
@@ -444,6 +542,8 @@ async function sweepRepository(
 			unattributed: held.unattributed,
 			settled: (path) =>
 				headStillSince(path, (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS),
+			stillPinned: (path, commit) =>
+				commit !== undefined && pins.get(path) === commit,
 		});
 	} catch (error) {
 		for (const tree of trees) {

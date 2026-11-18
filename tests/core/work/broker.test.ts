@@ -138,6 +138,41 @@ describe("a worktree somebody else is working in", () => {
 
 		expect(held.path).toBe("/trees/shared");
 	});
+
+	it("cuts a snapshot afresh when a sweep took it as it was joined", async () => {
+		const commit = snapshot("abc123");
+		const shared: HeldTree = {
+			identity: treeIdentity(commit),
+			path: "/trees/shared",
+			providerId: "git-worktree",
+		};
+		const { provider, cuts } = fakeProvider(
+			"git-worktree",
+			0,
+			undefined,
+			new Map([[shared.identity.key, shared.path]]),
+		);
+		// The sweep takes the tree after the provider found it and before
+		// this session's owner is written, so the first write finds it gone.
+		let writes = 0;
+		const memory: TreeMemory = {
+			...remembering(shared, []),
+			rememberHeldByUs: async () => {
+				writes += 1;
+			},
+			recall: () => (writes === 1 ? [] : [shared]),
+		};
+		const broker = createTreeBroker({ providers: [provider], memory });
+
+		const held = await broker.ensure(commit);
+
+		expect(held.path).toBe("/trees/shared");
+		expect(
+			cuts,
+			"the provider is asked once to find it, once to cut it",
+		).toHaveLength(2);
+		expect(writes, "the fresh cut is written down as ours").toBe(2);
+	});
 });
 
 describe("createTreeBroker", () => {
