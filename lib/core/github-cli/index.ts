@@ -31,10 +31,11 @@ export { GH_BODY_SPEC } from "./command-spec.ts";
  */
 const REQUIRED_FORM =
 	"The required form is:\n\n" +
-	"gh pr create --title '...' --body-file - <<'EOF'\n" +
+	"gh pr create --draft --title '...' --body-file - <<'EOF'\n" +
 	"### \u{1F4A1} TL;DR\n...\nEOF\n\n" +
 	"A quoted delimiter, stdin rather than a path, and nothing piped or wrapped " +
-	"around the command.";
+	"around the command. A pull request goes up as a draft from the shell; " +
+	"review_offer puts it in front of people once our own council has read it.";
 
 /** Matches gh pr or issue create/edit commands. */
 const GH_ENTITY_COMMAND = /\bgh\s+(?:pr|issue)\s+(?:create|edit)\b/;
@@ -130,7 +131,9 @@ export function detectPackedMetadata(command: string): string | null {
 		"Assign metadata in separate gh edit commands after " +
 		"creation, one concern per call:\n\n" +
 		"gh pr edit <number> --add-label bug\n" +
-		"gh pr edit <number> --add-assignee someone"
+		"gh pr edit <number> --add-assignee someone\n\n" +
+		"Reviewers are asked through review_offer reviewers, once our own " +
+		"council has read the change."
 	);
 }
 

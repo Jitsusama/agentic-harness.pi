@@ -24,13 +24,15 @@ import { createPrGuardian } from "./review.ts";
 
 export default function prGuardianExtension(pi: ExtensionAPI) {
 	declareGuards(GUARDS.host, GUARDS.sections, GUARDS.titles, GUARDS.prose);
-	registerGuardian(pi, createPrGuardian(pi), {
-		declaration: GUARDS.pr,
-		enforceWithoutUI: true,
-	});
 	// A refusal needs nobody to read a panel, so it holds headless too.
+	// It goes first, so nobody reviews a description in the panel for a
+	// create this then refuses.
 	registerGuardian(pi, councilFirstGuardian, {
 		declaration: GUARDS.councilFirst,
+		enforceWithoutUI: true,
+	});
+	registerGuardian(pi, createPrGuardian(pi), {
+		declaration: GUARDS.pr,
 		enforceWithoutUI: true,
 	});
 

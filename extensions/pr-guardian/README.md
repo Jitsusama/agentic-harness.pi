@@ -33,7 +33,16 @@ with `--reviewer`, `gh pr ready`, and `gh pr edit --add-reviewer`.
 Its refusal names the `review_offer` action that makes the same
 move, which goes ahead once a finished council of ours has read
 one of the change's own commits. A draft with no reviewers,
-`gh pr ready --undo` and every other `gh pr` pass through.
+`gh pr ready --undo`, `gh pr create --web` or `--dry-run`, and
+every other `gh pr` pass through.
+
+It reads flags as gh does, so `--draft=false` is no draft and
+`-fdr evan` asks a reviewer, and it sees through `timeout`,
+`env` and the like. A `gh pr` in a subshell or control flow is
+asked for in a simpler form. It doesn't read `gh api` calls, a
+command quoted for another shell (`bash -c '...'`), or gh
+aliases. It runs before the description panel, so nobody reads
+a description for a create it then refuses.
 
 ## The Audit After Publishing
 

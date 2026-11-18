@@ -406,8 +406,10 @@ is followed by judgment, not by a regex.
   (`gh pr create` without `--draft` or with `--reviewer`,
   `gh pr ready`, `gh pr edit --add-reviewer`) are sent to
   `review_offer` by the `council-first` guard, in
-  `extensions/pr-guardian/council-first.ts`. A `gh api` call
-  requesting reviewers is not read.
+  `extensions/pr-guardian/council-first.ts`, reading flags as
+  gh does and refusing a `gh pr` in a shape it can't read. Not
+  read: a `gh api` call requesting reviewers, a command quoted
+  for another shell (`bash -c '...'`), and gh aliases.
 
   `review-guide` is worth a note, because it looks gateable and
   is not. Its rules are about what to say rather than what to
