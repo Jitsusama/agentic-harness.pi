@@ -358,7 +358,6 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		...said,
 		words: keptWords(said, reach.foragers, {
 			takes,
-			untaken: (address) => ended(address) || stops(address),
 			self: (address) => selves.has(address),
 		}),
 	};
@@ -428,7 +427,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 					(one) => !endedHolder(one, word) && takes(one) && holds(one, word),
 				),
 			);
-			if (fit === undefined || !live(hub.hub)) continue;
+			if (fit === undefined || !live(hub.hub) || stops(hub.hub)) continue;
 			return record(hub.hub === fit ? [fit] : [hub.hub, fit], fit);
 		}
 	}
@@ -479,20 +478,16 @@ function keptWords(
 	foragers: readonly Forager[],
 	cells: {
 		readonly takes: (address: string) => boolean;
-		readonly untaken: (address: string) => boolean;
 		readonly self: (address: string) => boolean;
 	},
 ): string[] {
 	const takers = new Map<string, number>();
-	const untakenHold = new Set<string>();
 	const ownHold = new Set<string>();
 	for (const { address, words } of foragers) {
 		const taking = cells.takes(address) ? 1 : 0;
-		const untaken = cells.untaken(address);
 		const own = cells.self(address);
 		for (const word of words) {
 			takers.set(word, (takers.get(word) ?? 0) + taking);
-			if (untaken) untakenHold.add(word);
 			if (own) ownHold.add(word);
 		}
 	}
@@ -503,8 +498,9 @@ function keptWords(
 	const rarity = (word: string) => {
 		if (ownHold.has(word)) return Number.POSITIVE_INFINITY;
 		const count = takers.get(word) ?? 0;
-		if (count > 0) return count;
-		return untakenHold.has(word) ? UNTAKEN_ONLY : Number.POSITIVE_INFINITY;
+		// A cell not the asker's either takes or is there to name, ended
+		// or stopping it, so a held word no cell takes is an untaken one.
+		return count > 0 ? count : UNTAKEN_ONLY;
 	};
 	const rarest = new Set(
 		[...held].sort((a, b) => rarity(a) - rarity(b)).slice(0, MOST_WORDS),

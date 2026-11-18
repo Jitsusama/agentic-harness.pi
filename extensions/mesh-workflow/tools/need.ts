@@ -97,8 +97,13 @@ export async function needRead(
 	}
 	const ended = endedText(found);
 	if (found.fit === null) {
+		// A peer that stopped this one refuses a send, so it isn't offered.
+		const instead =
+			(found.stopped ?? []).length > 0
+				? "Name another peer it is for by address."
+				: "Name the peers it is for by address.";
 		return refused(
-			`no live cell within three ties that hears this peer works on ${about}.${ended}${stoppedText(found)} It is counted as lost, never sent to an orchestrator. Name the peers it is for by address.`,
+			`no live cell within three ties that hears this peer works on ${about}.${ended}${stoppedText(found)} It is counted as lost, never sent to an orchestrator. ${instead}`,
 		);
 	}
 	if (found.fit === asker) {
@@ -112,8 +117,7 @@ export async function needRead(
 	};
 }
 
-/** Who was passed over for having ended, as a sentence, or nothing. */
-/** Who works on a lost need but stopped this peer, as a sentence. */
+/** Who works on a lost need but stopped this peer, as a sentence, or nothing. */
 function stoppedText(found: NeedRecord): string {
 	const stopped = found.stopped ?? [];
 	if (stopped.length === 0) return "";
@@ -121,6 +125,7 @@ function stoppedText(found: NeedRecord): string {
 	return ` ${stopped.join(", ")} ${one ? "works" : "work"} on it but stopped this peer, so ${one ? "it doesn't" : "they don't"} hear it.`;
 }
 
+/** Who was passed over for having ended, as a sentence, or nothing. */
 function endedText(found: NeedRecord): string {
 	const ended = found.ended ?? [];
 	if (ended.length === 0) return "";

@@ -199,6 +199,9 @@ describe("sending to a need", () => {
 		expect(said, "it names who works on it and why not").toContain(
 			"5HJZ8Z works on it but stopped this peer",
 		);
+		expect(said, "it points at another peer, not the one refusing").toContain(
+			"Name another peer it is for by address",
+		);
 		expect(said, "it is there, so it never reads as ended").not.toContain(
 			"has ended",
 		);

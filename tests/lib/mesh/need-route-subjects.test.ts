@@ -339,14 +339,37 @@ describe("a need routed by declared subjects", () => {
 		expect(found.ended, "S is there, so never ended").toBeUndefined();
 	});
 
+	it("passes a need through no hub cell that stopped the asker", () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({ A: [], S: ["carry"], F: ["carry"] }),
+			ties: ties(),
+			hubs: [{ subject: "mycelium:carry", hub: "S", fits: ["F"] }],
+			live: () => true,
+			stopped: (address) => address === "S",
+		});
+
+		expect(found, "S won't pass it on, and F is beyond reach").toMatchObject({
+			fit: null,
+			stopped: ["S"],
+		});
+	});
+
 	it("keeps a word only a cell that stopped the asker holds over the asker's own", () => {
+		// S is gone as well, which is never said of a cell that stopped the
+		// asker: it is named as that alone.
 		const own = Array.from({ length: MOST_WORDS }, (_, at) => `mine${at}`);
 		const found = routeNeed(asked("A", ...own, "carry"), {
 			foragers: cells({ A: own, S: ["carry"] }),
 			ties: ties(["A", "S", 1]),
 			hubs: [],
+			live: (address) => address !== "S",
 			stopped: (address) => address === "S",
 		});
+
+		expect(
+			found.ended,
+			"S stopped it, so it is never named ended",
+		).toBeUndefined();
 
 		expect(found.words, "the stopper's word is kept").toContain("carry");
 		expect(found, "lost, naming S, not the asker's own").toMatchObject({
