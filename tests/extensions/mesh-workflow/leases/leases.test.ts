@@ -6,8 +6,8 @@ import {
 	createHeavyCalls,
 	createLeasing,
 	leasesText,
-} from "../../../extensions/mesh-workflow/leases.ts";
-import { ALL } from "../../../lib/mesh/group.ts";
+} from "../../../../extensions/mesh-workflow/leases.ts";
+import { ALL } from "../../../../lib/mesh/group.ts";
 import {
 	createBoard,
 	type LeaseEvent,
@@ -15,11 +15,14 @@ import {
 	type OwnLeases,
 	ownLeases,
 	RUN_LEASE_MS,
-} from "../../../lib/mesh/lease.ts";
-import { clock, type Draft } from "../../../lib/mesh/message.ts";
-import type { Peer } from "../../../lib/mesh/peer.ts";
-import { createPresences, type Presence } from "../../../lib/mesh/presence.ts";
-import { folderTransport } from "../../../lib/mesh/transport.ts";
+} from "../../../../lib/mesh/lease.ts";
+import { clock, type Draft } from "../../../../lib/mesh/message.ts";
+import type { Peer } from "../../../../lib/mesh/peer.ts";
+import {
+	createPresences,
+	type Presence,
+} from "../../../../lib/mesh/presence.ts";
+import { folderTransport } from "../../../../lib/mesh/transport.ts";
 
 let root: string;
 

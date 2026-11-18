@@ -46,7 +46,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { writeWhole } from "../internal/write-whole.ts";
+import { writeWhole } from "../../internal/write-whole.ts";
 
 /** The kinds of thing a look opens, each in its own place. */
 export const LOOK_KINDS = ["pr", "page", "file", "diff", "terminal"] as const;
@@ -77,7 +77,7 @@ const ONLY_TO_SEE =
 
 /**
  * How a look was resolved without the person: its change merged or
- * closed, or their own account reviewed it on GitHub (looks-github.ts);
+ * closed, or their own account reviewed it on GitHub (github.ts);
  * its session took it back; or the quest it was for ended.
  */
 export type LookResolution =

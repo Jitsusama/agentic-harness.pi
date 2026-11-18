@@ -7,11 +7,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { awaitedNow } from "../../../lib/internal/priority/awaited.ts";
-import { JOBS_TAKEN_UP } from "../../../lib/jobs/host.ts";
-import { JOBS_FINISHED } from "../../../lib/jobs/index.ts";
-import { LEASE_EVENT } from "../../../lib/mesh/lease.ts";
-import { folderTransport } from "../../../lib/mesh/transport.ts";
+import { awaitedNow } from "../../../../lib/internal/priority/awaited.ts";
+import { JOBS_TAKEN_UP } from "../../../../lib/jobs/host.ts";
+import { JOBS_FINISHED } from "../../../../lib/jobs/index.ts";
+import { LEASE_EVENT } from "../../../../lib/mesh/lease.ts";
+import { folderTransport } from "../../../../lib/mesh/transport.ts";
 import {
 	fixture,
 	fromElsewhere,
@@ -22,7 +22,7 @@ import {
 	send,
 	sentOut,
 	startSession,
-} from "./support/mesh.ts";
+} from "../support/mesh.ts";
 
 describe("a lease", () => {
 	it("holds what this peer holds until it ends its own hold", async () => {

@@ -174,7 +174,7 @@ export interface Steer {
 	readonly re?: string;
 	/** The want an `answer` answers, by its id (lib/mesh/want.ts). */
 	readonly want?: string;
-	/** The look an `answer` answers instead, by its id (lib/mesh/looks.ts). */
+	/** The look an `answer` answers instead, by its id (lib/mesh/looks/looks.ts). */
 	readonly look?: string;
 	/** What an `answer` gives the ask: a choice's value, or words. */
 	readonly given?: GivenAnswer;

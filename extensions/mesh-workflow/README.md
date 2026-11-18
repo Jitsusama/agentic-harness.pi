@@ -268,7 +268,7 @@ and can answer a question or a gate left open on screen.
 - `show_person`: point the person at something to look at (a pull
   request, a page, a file, a diff, a terminal) rather than open it.
   Each look is a file of its own in
-  `~/.local/state/pi/agentic-harness.pi/looks/` (`lib/mesh/looks.ts`),
+  `~/.local/state/pi/agentic-harness.pi/looks/` (`lib/mesh/looks/looks.ts`),
   naming its session, what it is, why and what the person is asked
   (`ask`, with the choices, or that it is only to see), which the
   launcher shows and marks opened or cleared. A look is refused that

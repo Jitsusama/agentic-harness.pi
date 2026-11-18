@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { Look } from "../../../lib/mesh/looks.ts";
 import {
 	askableElsewhere,
 	changeOf,
 	type HostedState,
 	MOST_ASKED_ELSEWHERE,
 	resolutionsElsewhere,
-} from "../../../lib/mesh/looks-hosted.ts";
+} from "../../../../lib/mesh/looks/hosted.ts";
+import type { Look } from "../../../../lib/mesh/looks/looks.ts";
 
 const HOSTED = "https://code.example.com/acme/app/pull";
 

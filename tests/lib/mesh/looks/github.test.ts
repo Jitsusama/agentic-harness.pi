@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { looksIn, pointAt } from "../../../lib/mesh/looks.ts";
 import {
 	ASK_EVERY_MS,
 	askable,
@@ -11,7 +10,8 @@ import {
 	queryFor,
 	resolutionsFrom,
 	takeTurnToAsk,
-} from "../../../lib/mesh/looks-github.ts";
+} from "../../../../lib/mesh/looks/github.ts";
+import { looksIn, pointAt } from "../../../../lib/mesh/looks/looks.ts";
 
 let dir: string;
 beforeEach(() => {

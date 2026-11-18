@@ -30,7 +30,7 @@ import {
 	sessionWants,
 	wantId,
 } from "../../../lib/internal/session/wants.ts";
-import { looksIn, pointAt } from "../../../lib/mesh/looks.ts";
+import { looksIn, pointAt } from "../../../lib/mesh/looks/looks.ts";
 import { inboxOf, type Steer } from "../../../lib/mesh/steer.ts";
 
 const AT = new Date("2026-11-12T06:00:00.000Z");
