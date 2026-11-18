@@ -227,10 +227,16 @@ the title from the last commit's subject.
 
 **Our own council reads it first.** A proposal that isn't a draft, a
 move to ready and a request for reviewers are each refused until a
-finished `review_ask council` has read one of the change's commits,
-from its base to its head. Run the council at the head, check its
-findings against the source, fix and push what holds, then propose;
-a council read before that last fix still counts. A draft can go up
+finished `review_ask council` has read one of the change's own
+commits, from its base to its head. Run the council at the head,
+check its findings against the source, fix and push what holds, then
+propose; a council read before that last fix still counts. Commits
+another pushed branch holds without the change's head aren't its
+own, so a branch cut from reviewed work needs its own council, and
+a lower branch fixed under a stack is judged once the branches above
+it are restacked. Each change of a stack is judged by its own
+commits: `review_ask stack` reads them all at once, where a council
+of the tip reads only what that range shows. A draft can go up
 first, since nobody is asked to look at one.
 
 **Give the description as its four sections**: `problem`,

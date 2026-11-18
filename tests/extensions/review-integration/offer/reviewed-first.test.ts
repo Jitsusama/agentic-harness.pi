@@ -163,20 +163,46 @@ describe("holding a change until our own council has read it", () => {
 		);
 	});
 
-	it("counts a council on its stack's tip for a change below it", async () => {
+	it("holds a change below a stack whose council read only the top change", async () => {
 		await git(repo, "branch", "lower", first);
 		await councilRead(fix);
 
 		expect(
-			await councilFirst(
-				exec,
-				{ ...topic(), head: "lower", through: "topic" },
-				"proposed",
-			),
-		).toBeUndefined();
-		expect(
 			await councilFirst(exec, { ...topic(), head: "lower" }, "proposed"),
 		).toContain("No council of ours");
+	});
+
+	it("holds a branch cut from reviewed work, whose own commits nobody read", async () => {
+		// `first` went up as another branch and its council read it; this
+		// one adds `fix` on top and is proposed onto main by itself.
+		await git(repo, "update-ref", "refs/remotes/origin/reviewed", first);
+		await councilRead(first);
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("keeps a lower change's commits its own, though the branch above holds them", async () => {
+		await git(repo, "branch", "lower", first);
+		await git(repo, "update-ref", "refs/remotes/origin/lower", first);
+		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
+		await councilRead(first);
+
+		expect(
+			await councilFirst(exec, { ...topic(), head: "lower" }, "proposed"),
+		).toBeUndefined();
+	});
+
+	it("says the range can't be read when the head the backend names has no council", async () => {
+		const said = await councilFirst(
+			exec,
+			{ ...topic(), head: "nowhere", headCommit: "e".repeat(40) },
+			"marked ready",
+		);
+
+		expect(said).toContain("can't be read");
+		expect(said).not.toContain("No council of ours");
 	});
 
 	it("counts the head the backend names, though the checkout lacks it", async () => {

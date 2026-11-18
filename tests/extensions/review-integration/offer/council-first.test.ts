@@ -118,18 +118,37 @@ function recordingProvider(options: { fetches?: boolean } = {}) {
 	return { provider, did };
 }
 
-/** What the stand-in judge was asked, and what it answers. */
-function judging(read: boolean) {
+/**
+ * What the stand-in judge was asked. It answers `read` when that is a
+ * yes or no, and otherwise whether a council read one of the commits.
+ */
+function judging(read: boolean | ReadonlySet<string>) {
 	const asked: { repo: string; commits: string[] }[] = [];
 	witnessCouncilsWith(async (repo, commits) => {
 		asked.push({ repo, commits: [...commits] });
-		return read;
+		return typeof read === "boolean"
+			? read
+			: [...commits].some((sha) => read.has(sha));
 	});
 	return asked;
 }
 
-async function offer(params: Record<string, unknown>, read: boolean) {
-	const stub = activate({ "log -1 --format=%s": { stdout: "A Tip Subject" } });
+/** Each of a two-change stack's own commits, as the checkout lists them. */
+const ONE = "1".repeat(40);
+const TWO = "2".repeat(40);
+const STACK_COMMITS = {
+	"origin/main..origin/one": { stdout: `${ONE}\n` },
+	"origin/one..origin/two": { stdout: `${TWO}\n` },
+};
+
+async function offer(
+	params: Record<string, unknown>,
+	read: boolean | ReadonlySet<string>,
+) {
+	const stub = activate({
+		"log -1 --format=%s": { stdout: "A Tip Subject" },
+		...STACK_COMMITS,
+	});
 	const asked = judging(read);
 	const tool = toolNamed(stub, "review_offer");
 	const answer = await tool.execute(
@@ -175,7 +194,7 @@ describe("waiting for our own council", () => {
 		);
 
 		expect(did).toEqual([]);
-		expect(text).toContain("isn't proposed for review");
+		expect(text).toContain("No council of ours has read main..topic");
 	});
 
 	it("holds a stack proposed for review", async () => {
@@ -193,7 +212,44 @@ describe("waiting for our own council", () => {
 		);
 
 		expect(did).toEqual([]);
-		expect(text).toContain("isn't proposed for review");
+		expect(text).toContain("No council of ours has read main..one");
+	});
+
+	it("holds a stack whose council read only its top change", async () => {
+		const { provider, did } = recordingProvider();
+		registerReviewProvider(provider);
+
+		const { text, asked } = await offer(
+			{
+				action: "propose-stack",
+				draft: false,
+				base: "main",
+				heads: ["one", "two"],
+			},
+			new Set([TWO]),
+		);
+
+		expect(did).toEqual([]);
+		expect(asked.map((one) => one.commits)).toEqual([[ONE]]);
+		expect(text).toContain("No council of ours has read main..one");
+	});
+
+	it("puts a stack up once each change's own commits were read", async () => {
+		const { provider, did } = recordingProvider();
+		registerReviewProvider(provider);
+
+		const { asked } = await offer(
+			{
+				action: "propose-stack",
+				draft: false,
+				base: "main",
+				heads: ["one", "two"],
+			},
+			new Set([ONE, TWO]),
+		);
+
+		expect(asked.map((one) => one.commits)).toEqual([[ONE], [TWO]]);
+		expect(did).toEqual(["stack one,two"]);
 	});
 
 	it("lets a stack up as drafts", async () => {

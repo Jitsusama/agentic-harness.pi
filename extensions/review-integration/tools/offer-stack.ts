@@ -136,10 +136,10 @@ export async function proposeStack(
 	}
 
 	// Each change waits for a council of ours, as one proposed alone does.
-	// A council on the stack's tip read every change below it, so each is
-	// judged from its own base up to the tip.
+	// Each is judged by its own commits, as ready judges it later: a
+	// council of the tip may have read only the top change, and a stack
+	// round records a witness for every change it read.
 	if (!params.draft) {
-		const tip = heads[heads.length - 1] ?? base;
 		for (const [at, head] of heads.entries()) {
 			const waits = await councilFirst(
 				reviewExec,
@@ -148,7 +148,6 @@ export async function proposeStack(
 					checkout: cwd,
 					base: at === 0 ? base : (heads[at - 1] ?? base),
 					head,
-					through: tip,
 				},
 				"proposed for review",
 			);

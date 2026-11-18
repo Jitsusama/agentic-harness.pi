@@ -294,9 +294,14 @@ describe("finding a council that read a change's commits", () => {
 			run({ id: "stack-1", round: "stack", witnesses: ["low", "tip"] }),
 		);
 
+		for (const sha of ["low", "tip"]) {
+			expect(
+				(await store.witnessed("github:Shopify/world", new Set([sha])))?.id,
+			).toBe("stack-1");
+		}
 		expect(
-			(await store.witnessed("github:Shopify/world", new Set(["low"])))?.id,
-		).toBe("stack-1");
+			await store.witnessed("github:Shopify/world", new Set(["other"])),
+		).toBeUndefined();
 	});
 
 	it("sees a round recorded after it last looked", async () => {
