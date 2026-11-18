@@ -22,7 +22,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { ATTACH_FAILED_ENV } from "../../lib/internal/session/host-holds.ts";
+import {
+	ATTACH_FAILED_ENV,
+	JOIN_QUIET,
+} from "../../lib/internal/session/host-holds.ts";
 import { PARKED_EXIT } from "../../lib/internal/session/park.ts";
 
 const run = promisify(execFile);
@@ -67,13 +70,15 @@ function home(): string {
 /**
  * host-join's output and exit code, run by node under a sealed `env` in
  * `at`, under `holder`'s variables when given and `more` of them, through
- * `sh` so the shell can name its own pid before it becomes node.
+ * `sh` so the shell can name its own pid before it becomes node, which
+ * starts with `flags`: the join's own, as every window's words give it.
  */
 async function hostJoin(
 	args: readonly string[],
 	at: string = home(),
 	holder?: { readonly files: Holder; readonly recordsSelf: boolean },
 	more: Readonly<Record<string, string>> = {},
+	flags: readonly string[] = [JOIN_QUIET],
 ) {
 	const env = {
 		PATH: process.env.PATH,
@@ -101,7 +106,7 @@ async function hostJoin(
 			`${names}exec "$@"`,
 			holder?.files.record ?? "sh",
 			process.execPath,
-			QUIET,
+			...flags,
 			SCRIPT,
 			...args,
 		],
@@ -169,6 +174,19 @@ describe("host-join under no holder", () => {
 		);
 		expect(joined.code).toBe(4);
 		expect(Date.now() - began).toBeGreaterThanOrEqual(4_000);
+	});
+
+	it("prints no module-type warning, started as every window's words start it", async () => {
+		const view = ["--view", "--session", "01a1", "--", ...PLAIN_PI];
+		const bare = await hostJoin(view, home(), undefined, {}, []);
+		expect(bare.stderr, "node warns without the flag").toContain(
+			"MODULE_TYPELESS_PACKAGE_JSON",
+		);
+		const quiet = await hostJoin(view);
+		expect(quiet.stderr, "the join's own flag keeps it out").not.toContain(
+			"MODULE_TYPELESS_PACKAGE_JSON",
+		);
+		expect(quiet.code, "it still ran plain pi").toBe(4);
 	});
 
 	it("refuses a move, which only a holder carries on past", async () => {

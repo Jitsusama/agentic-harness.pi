@@ -93,7 +93,9 @@ describe("handing a window over", () => {
 		)?.end();
 		const command: unknown = JSON.parse(readFileSync(again, "utf8"));
 		expect(
-			Array.isArray(command) ? command.slice(6, 10) : command,
+			Array.isArray(command)
+				? command.slice(command.indexOf("--") + 1).slice(0, 4)
+				: command,
 			"plain pi's words, after the join's, start in the fence",
 		).toEqual(["env", "PI_SANDBOX=fence", "pi", "--session"]);
 	});
@@ -143,7 +145,7 @@ describe("a hosted conversation's presence", () => {
 			},
 		);
 		expect(
-			view?.slice(7),
+			view === undefined ? view : view.slice(view.indexOf("--") + 1),
 			"plain pi's words carry the fence, and nothing else of the env",
 		).toEqual([
 			"env",

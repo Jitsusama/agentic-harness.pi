@@ -98,9 +98,11 @@ export function handOverOf(facts: InPlaceFacts): HandOver | undefined {
 }
 
 /**
- * The words that start the join for `session`: `--session` and its id
- * first, which is how mycelium's node knows the window the join holds
- * is the hosted session's, then plain pi's words should it fall back.
+ * The words that start the join for `session`: node with the flag that
+ * keeps its module-type warning out of the window ({@link JOIN_QUIET}),
+ * then `--session` and its id, which is how mycelium's node knows the
+ * window the join holds is the hosted session's, then plain pi's words
+ * should it fall back.
  */
 export function joinCommand(
 	session: string,

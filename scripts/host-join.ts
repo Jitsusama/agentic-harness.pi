@@ -5,7 +5,8 @@
  * mycelium's node knows the window is the hosted session's, and plain
  * pi's words after `--`:
  *
- *   node scripts/host-join.ts [--released [--failures N]|--view] --session ID -- pi --session LOG [FLAGS]
+ *   node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/host-join.ts \
+ *     [--released [--failures N]|--view] --session ID -- pi --session LOG [FLAGS]
  *
  * It draws nothing, unless a host holding the conversation is slow to
  * come back, when it says so in one line. Once the host has the
