@@ -41,9 +41,11 @@ It travels only from a session on a quest, through that quest's
 handover; with no quest it runs here. Run it from the checkout's top,
 since what travels is the folder it runs in: the files git tracks
 there, as they lie, so edits not yet committed go too. A new file goes
-only once `git add` tracks it; otherwise it stays behind and the far
-run fails, or quietly skips a test file, as though the code were at
-fault. Hidden files never travel, tracked or not: `.git`, `.pi/skills`
+only once `git add` tracks it. Otherwise it stays behind: code that
+imports it fails far as though the code were at fault, and a test file
+left behind doesn't run, so the far run passes without it unless it
+was the only one named. So look at `git status` for untracked files before
+sending. Hidden files never travel, tracked or not: `.git`, `.pi/skills`
 and `.npmrc` stay here. The far side installs the packages from the
 lockfile with its own work toolchain's pnpm.
 
@@ -53,9 +55,7 @@ So keep to here, with `--here`, anything that reads what stays behind:
 `pnpm test:changed` and `pnpm check` all run here. Keep to here for
 Linux too: on the work Mac, every test that runs only on Linux, such
 as the fence's, the shell sandbox's and the host's, skips, so a pass
-there says nothing of them. A skip, or a test file left behind, fails
-no far run, so when a far pass is what you rest on, check its counts
-of files and tests against a run here.
+there says nothing of them.
 
 A run that fails far, its setup included, ends with that failure
 rather than running again here. Run it again with `--here` to tell
