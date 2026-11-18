@@ -53,14 +53,9 @@ So keep to here, with `--here`, anything that reads what stays behind:
 `pnpm test:changed` and `pnpm check` all run here. Keep to here for
 Linux too: on the work Mac, every test that runs only on Linux, such
 as the fence's, the shell sandbox's and the host's, skips, so a pass
-there says nothing of them. To make a far run fail on a skip rather
-than pass over it, add the reporter that names each case that skipped
-and why:
-
-```sh
-elsewhere run harness-check -- pnpm exec vitest run <paths> \
-  --reporter=default --reporter=./tests/host/end-to-end/support/every-case-ran.mts
-```
+there says nothing of them. A skip, or a test file left behind, fails
+no far run, so when a far pass is what you rest on, check its counts
+of files and tests against a run here.
 
 A run that fails far, its setup included, ends with that failure
 rather than running again here. Run it again with `--here` to tell
