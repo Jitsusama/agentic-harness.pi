@@ -48,36 +48,54 @@ export interface Landing {
 	 * opens a change by it, since `ref` drops the change's owner.
 	 */
 	readonly url?: string;
+	/**
+	 * The commit a merged change landed as, when its host says: the
+	 * launcher tells by it whether the change has reached the machine,
+	 * once a switch builds a revision that holds it.
+	 */
+	readonly commit?: string;
 }
 
 /** Whether a payload is a landing, as this version says one. */
 export function isLanding(data: unknown): data is Landing {
 	if (typeof data !== "object" || data === null) return false;
-	const { at, ref, what, person, url } = data as Record<string, unknown>;
+	const { at, ref, what, person, url, commit } = data as Record<
+		string,
+		unknown
+	>;
 	return (
 		typeof at === "string" &&
 		typeof ref === "string" &&
 		ref !== "" &&
 		typeof what === "string" &&
 		(person === undefined || typeof person === "string") &&
-		(url === undefined || typeof url === "string")
+		(url === undefined || typeof url === "string") &&
+		(commit === undefined || typeof commit === "string")
 	);
 }
 
 /** Say on `bus` that `ref` landed now. */
 export function sayLanded(
 	bus: Pick<EventBus, "emit">,
-	landed: { ref: string; what: string; person?: string; url?: string },
+	landed: {
+		ref: string;
+		what: string;
+		person?: string;
+		url?: string;
+		commit?: string;
+	},
 	now: number = Date.now(),
 ): void {
 	const person = landed.person ? oneLine(landed.person) : "";
 	const url = landed.url?.trim() ?? "";
+	const commit = landed.commit?.trim() ?? "";
 	const landing: Landing = {
 		at: new Date(now).toISOString(),
 		ref: landed.ref,
 		what: oneLine(landed.what),
 		...(person ? { person } : {}),
 		...(url ? { url } : {}),
+		...(commit ? { commit } : {}),
 	};
 	try {
 		bus.emit(SESSION_LANDED, landing);

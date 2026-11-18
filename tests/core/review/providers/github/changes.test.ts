@@ -119,6 +119,30 @@ describe("reading a pull request", () => {
 		expect((await gh.changes?.fetch(ref))?.state).toBe("merged");
 	});
 
+	it("names the commit a merged pull request landed as, and none for an open one", async () => {
+		const merged = JSON.stringify({
+			...JSON.parse(pullJson),
+			state: "closed",
+			merged_at: "2026-07-03T00:00:00Z",
+			merge_commit_sha: "2fcf2d5d42df",
+		});
+		const open = JSON.stringify({
+			...JSON.parse(pullJson),
+			merge_commit_sha: "a7e1a1merge",
+		});
+		const { provider: gh } = provider([
+			{ when: ["pulls/123"], stdout: merged },
+		]);
+		const { provider: openGh } = provider([
+			{ when: ["pulls/123"], stdout: open },
+		]);
+
+		expect(await gh.changes?.fetch(ref)).toMatchObject({
+			mergeCommit: "2fcf2d5d42df",
+		});
+		expect(await openGh.changes?.fetch(ref)).not.toHaveProperty("mergeCommit");
+	});
+
 	it("reads a closed pull request that never merged as closed", async () => {
 		const closed = JSON.stringify({
 			...JSON.parse(pullJson),

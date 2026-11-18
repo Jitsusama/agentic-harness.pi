@@ -82,6 +82,30 @@ describe("a landing said on the bus", () => {
 			isLanding({ ...landing("x"), url: 1 }),
 			"a landing whose url is a number is none",
 		).toBe(false);
+		expect(
+			isLanding({ ...landing("x"), commit: "2fcf2d5d42df" }),
+			"a landing whose commit is text is one",
+		).toBe(true);
+		expect(
+			isLanding({ ...landing("x"), commit: 1 }),
+			"a landing whose commit is a number is none",
+		).toBe(false);
+	});
+
+	it("carries the commit a change landed as, when said", () => {
+		const events = bus();
+		const heard: Landing[] = [];
+		onLanded(events, (one) => heard.push(one));
+
+		sayLanded(
+			events,
+			{ ref: "agentic-harness.pi#1801", what: "x", commit: " 2fcf2d5d " },
+			noon,
+		);
+		sayLanded(events, { ref: "core.nix#2141", what: "x", commit: "" }, noon);
+
+		expect(heard[0]).toMatchObject({ commit: "2fcf2d5d" });
+		expect(heard[1]).not.toHaveProperty("commit");
 	});
 
 	it("carries its web page and its person's line when said", () => {

@@ -99,6 +99,12 @@ export interface Change {
 	head: string;
 	/** Tip commit of `head`, when the provider reports it. */
 	headCommit?: string;
+	/**
+	 * The commit a merged change landed as on its base, when the
+	 * provider reports it. Absent while the change is open, since a
+	 * host's trial merge of an open change is no commit of the base.
+	 */
+	mergeCommit?: string;
 	createdAt?: string;
 	updatedAt?: string;
 	/** Web location for humans. */

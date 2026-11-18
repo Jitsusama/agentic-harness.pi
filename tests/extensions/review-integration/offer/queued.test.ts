@@ -104,6 +104,7 @@ describe("a change sent to a queue", () => {
 					state: "merged",
 					title: "Delete Unread Settings",
 					url: "https://delta.example/shop/world/pull/2399124",
+					mergeCommit: "9c0ffee1",
 				},
 			}),
 			told,
@@ -118,6 +119,7 @@ describe("a change sent to a queue", () => {
 					what: "Delete Unread Settings",
 					url: "https://delta.example/shop/world/pull/2399124",
 					person: "Nothing to try.",
+					commit: "9c0ffee1",
 				}),
 			},
 		]);

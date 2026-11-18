@@ -72,8 +72,16 @@ const proposal: Change = {
 	url: "https://example.invalid/438",
 };
 
-/** A backend whose merge lands, or is taken into a queue. */
-function backend(outcome: { kind: "merged" | "enqueued" }) {
+/**
+ * A backend whose merge lands, or is taken into a queue. Its merge
+ * names the commit it landed as unless `commit` says otherwise, and
+ * `readBack` is the change it reads back afterwards.
+ */
+function backend(outcome: {
+	kind: "merged" | "enqueued";
+	commit?: string | null;
+	readBack?: Partial<Change>;
+}) {
 	return stubProvider({
 		id: "meteorite",
 		priority: 50,
@@ -87,7 +95,7 @@ function backend(outcome: { kind: "merged" | "enqueued" }) {
 		capabilities: { authoring: CAN_MERGE },
 		facets: {
 			changes: {
-				fetch: async () => proposal,
+				fetch: async () => ({ ...proposal, ...outcome.readBack }),
 				diff: unused("diff a change"),
 			},
 			authoring: {
@@ -96,7 +104,12 @@ function backend(outcome: { kind: "merged" | "enqueued" }) {
 				close: unused("close a change"),
 				merge: async () =>
 					outcome.kind === "merged"
-						? { kind: "merged" as const, commit: "deadbeefcafe" }
+						? {
+								kind: "merged" as const,
+								...(outcome.commit === null
+									? {}
+									: { commit: outcome.commit ?? "deadbeefcafe" }),
+							}
 						: { kind: "enqueued" as const },
 			},
 		},
@@ -105,7 +118,7 @@ function backend(outcome: { kind: "merged" | "enqueued" }) {
 
 /** Attach 438, then merge it, and report what is left attached. */
 async function attachThenMerge(
-	outcome: { kind: "merged" | "enqueued" },
+	outcome: Parameters<typeof backend>[0],
 	asked: { person?: string } = {},
 ) {
 	registerReviewProvider(backend(outcome));
@@ -193,6 +206,24 @@ describe("what merging says it landed", () => {
 			expect.objectContaining({ url: "https://example.invalid/438" }),
 		]);
 		expect(landed[0]).not.toHaveProperty("person");
+	});
+
+	it("carries the commit it landed as, so the launcher can tell when it reaches the machine", async () => {
+		const { landed } = await attachThenMerge({ kind: "merged" });
+
+		expect(landed).toEqual([
+			expect.objectContaining({ commit: "deadbeefcafe" }),
+		]);
+	});
+
+	it("takes the commit from the change read back when the merge didn't say", async () => {
+		const { landed } = await attachThenMerge({
+			kind: "merged",
+			commit: null,
+			readBack: { state: "merged", mergeCommit: "c0ffee00" },
+		});
+
+		expect(landed).toEqual([expect.objectContaining({ commit: "c0ffee00" })]);
 	});
 
 	it("carries the person's line the merge was asked to", async () => {
