@@ -59,9 +59,27 @@ describe("where every round's reviewers are told to look", () => {
 
 	for (const [round, prompt] of Object.entries(prompts)) {
 		it(`keeps a ${round} round inside the tree, off the store and home`, () => {
-			expect(prompt).toContain("Read within the tree you were given.");
-			expect(prompt).toContain("Never search or list /, /nix/store");
-			expect(prompt).toContain("nix path-info");
+			expect(prompt).toContain("Read within the tree you were given");
+			expect(prompt).toContain(
+				"Never search or list /, /nix/store or a home folder",
+			);
+		});
+
+		it(`has a ${round} round search a large tree by the folders changed`, () => {
+			expect(prompt).toContain("search the folders the change touches");
+		});
+
+		it(`has a ${round} round say a library it can't find went unchecked`, () => {
+			expect(prompt).toContain("only at a path the tree itself names");
+			expect(prompt).toContain("went unchecked, rather than looking for it");
+			expect(prompt).not.toContain("nix eval");
+		});
+
+		it(`tells a ${round} round where to look before the change it reads`, () => {
+			const said = prompt.indexOf("Read within the tree you were given");
+			const change = prompt.indexOf("const added = 2;");
+			expect(said).toBeGreaterThanOrEqual(0);
+			expect(change).toBeGreaterThan(said);
 		});
 	}
 });

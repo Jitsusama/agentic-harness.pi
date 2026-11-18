@@ -34,11 +34,17 @@ const ANSWER_AS_CONTRACTED =
  * A reviewer told to check how a library behaves, and told nothing of
  * where, hunts for it: one walked the whole Nix store with fd at 250%
  * CPU on a machine already at load 40 with Joel at the screen (17
- * November). The tree, its lockfile and the store path a dependency
- * resolves to hold everything a review needs, and each is one read.
+ * November). So a reviewer reads a dependency only where the tree
+ * names it, and says what it couldn't check rather than hunting: a
+ * snapshot has no node_modules, and the built-in roster has no shell to
+ * resolve a store path with, so the honest answer there is that the
+ * library went unread. Nothing is said about running a build tool,
+ * since evaluating the author's own Nix would be a way in, and heavy.
+ * A large tree is searched by the folders the change touches, which
+ * keeps a monorepo under review readable without walking all of it.
  */
 const WHERE_TO_LOOK =
-	"Read within the tree you were given. To see a dependency, find it through the tree's own lockfile or vendored copy, or resolve its one store path with `nix path-info` or `nix eval`, and read only that path. Never search or list /, /nix/store, a home folder or a whole monorepo: a walk of any of them takes minutes of the machine somebody is working at, and finds nothing the tree and its lockfile don't name.";
+	"Read within the tree you were given; in a large one, search the folders the change touches rather than the whole of it. Read a dependency only at a path the tree itself names, such as a vendored copy or a folder its lockfile points at. When none is there, say in the finding that the library's behaviour went unchecked, rather than looking for it. Never search or list /, /nix/store or a home folder: a walk of any of them takes minutes of the machine somebody is working at, and finds nothing the tree doesn't name.";
 
 /**
  * What the repo under review says about how it wants to be worked in.
