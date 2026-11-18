@@ -196,6 +196,7 @@ it("asks nobody for claims when it rests or another sweep holds the lock", async
 		await sweepOn(events);
 	}
 
+	expect(rests, "the sweeps that were started").toHaveLength(2);
 	expect(asked, "times a sweep that didn't run asked for claims").toBe(0);
 });
 
