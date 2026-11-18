@@ -92,7 +92,9 @@ it("names the new host's process on a resumed session's trees, leaving others' a
 					host: "test-host",
 				},
 			]),
-		{ timeout: 5_000 },
+		// Under vitest's own 5 s limit, so a red says why rather than that
+		// the test timed out.
+		{ timeout: 3_000 },
 	);
 	expect(ownersOf(theirs), "another session's record is its own").toEqual([
 		{ pid: GONE, startedAt: 1_000, session: "b", host: "test-host" },
