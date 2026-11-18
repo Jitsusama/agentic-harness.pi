@@ -374,7 +374,7 @@ export class HostedAgent {
 			}
 			throw new Error("Cannot continue from message role: assistant");
 		}
-		await this.continueRun();
+		await this.continueOrThrow();
 	}
 
 	/**
@@ -468,11 +468,40 @@ export class HostedAgent {
 
 	/** pi's continue: a run that asks the model again on what the session holds. */
 	private continueRun(): Promise<Run> {
-		return this.runWithLifecycle(async (run) => {
+		return this.continueRunRefusing().then(({ run }) => run);
+	}
+
+	/**
+	 * pi's continue for pi's own run loop: as `continueRun`, but one durable
+	 * refused to admit, as a closed or failed session refuses every one at
+	 * once, ends as a failed run and then throws what refused it. pi's loop
+	 * asks again while words wait or a settle boundary wants more, so a
+	 * continue that only fails is asked again forever in one microtask
+	 * chain, starving the host's loop past its watchdog (18 November, seven
+	 * deaths). The recovery's ask again keeps `continueRun`, whose settle
+	 * nothing catches.
+	 */
+	private async continueOrThrow(): Promise<void> {
+		const { refused } = await this.continueRunRefusing();
+		if (refused) throw refused.error;
+	}
+
+	private async continueRunRefusing(): Promise<{
+		readonly run: Run;
+		readonly refused?: { readonly error: unknown };
+	}> {
+		let refused: { readonly error: unknown } | undefined;
+		const run = await this.runWithLifecycle(async (started) => {
 			await this.emit({ type: "agent_start" });
 			await this.emit({ type: "turn_start" });
-			await this.admit(run, { type: "continue" });
+			try {
+				await this.admit(started, { type: "continue" });
+			} catch (error) {
+				refused = { error };
+				throw error;
+			}
 		});
+		return refused ? { run, refused } : { run };
 	}
 
 	private runWithLifecycle(start: (run: Run) => Promise<void>): Promise<Run> {
