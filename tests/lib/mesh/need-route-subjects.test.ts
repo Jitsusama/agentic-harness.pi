@@ -64,6 +64,40 @@ describe("the words a cell's declared subjects give it", () => {
 		]);
 	});
 
+	it("reads every one of MOST_SUBJECTS subjects, each its own word", () => {
+		const subjects = Array.from(
+			{ length: MOST_SUBJECTS },
+			(_, at) => `x:word${at}`,
+		);
+		const line = JSON.stringify({
+			id: 2,
+			records: [{ key: "cell:X", subjects: [5, ...subjects] }],
+		});
+
+		const [cell] = foragersFrom(line);
+
+		expect(cell?.words, "a non-string takes no subject's place").toEqual(
+			Array.from({ length: MOST_SUBJECTS }, (_, at) => `word${at}`),
+		);
+	});
+
+	it("gives a word a subject shares with the title once, as the title's", () => {
+		const line = JSON.stringify({
+			id: 2,
+			records: [
+				{
+					key: "cell:X",
+					title: "Carry a Session",
+					subjects: ["mycelium:carry", "mycelium:easing"],
+				},
+			],
+		});
+
+		const [cell] = foragersFrom(line);
+
+		expect(cell?.words).toEqual(["carry", "session", "easing"]);
+	});
+
 	it("gives a cell at most MOST_SUBJECT_WORDS words from all its subjects together", () => {
 		const half = MOST_SUBJECT_WORDS / 2 + 1;
 		const subject = (from: number) =>
@@ -189,17 +223,52 @@ describe("a need routed by declared subjects", () => {
 		});
 	});
 
-	it("puts a need to the hub saying only its word before one saying more", () => {
-		const found = routeNeed(asked("A", "lines"), {
-			foragers: cells({ A: [], W: ["lines"], B: ["easing", "lines"] }),
+	it("puts a need to the hub saying most of what it says, before a deeper one saying less", () => {
+		// X and Y make lines commoner, so easing is tried first, and both
+		// hubs say easing.
+		const found = routeNeed(asked("A", "easing", "lines"), {
+			foragers: cells({
+				A: [],
+				D: ["easing"],
+				B: ["easing", "lines"],
+				X: ["lines"],
+				Y: ["lines"],
+			}),
 			ties: ties(),
 			hubs: [
-				{ subject: "mycelium:easing-lines", hub: "B", fits: ["B"] },
-				{ subject: "lines", hub: "W", fits: ["W"] },
+				{ subject: "a:b:easing", hub: "D", fits: ["D"] },
+				{ subject: "x:easing-lines", hub: "B", fits: ["B"] },
 			],
 		});
 
-		expect(found, "lines alone is the exact hub").toMatchObject({ fit: "W" });
+		expect(
+			found,
+			"easing-lines says both, so it is the narrower",
+		).toMatchObject({
+			fit: "B",
+		});
+	});
+
+	it("matches a hub on what the need said, not only on the words it kept", () => {
+		// Twelve words as rare as easing crowd out lines, which two cells
+		// hold; the need still said lines, so easing-lines is its hub.
+		const rare = Array.from({ length: MOST_WORDS - 1 }, (_, at) => `rare${at}`);
+		const found = routeNeed(asked("A", "easing", "lines", ...rare), {
+			foragers: cells({
+				A: [],
+				B: ["easing", "lines"],
+				W: ["lines"],
+				...Object.fromEntries(rare.map((word) => [`R${word}`, [word]])),
+			}),
+			ties: ties(),
+			hubs: [{ subject: "x:easing-lines", hub: "B", fits: ["B"] }],
+		});
+
+		expect(found.words, "lines is past the cap").not.toContain("lines");
+		expect(found, "easing-lines is still its hub").toMatchObject({
+			fit: "B",
+			path: ["B"],
+		});
 	});
 
 	it("ranks hubs as deep in the order the node listed them, never shortest first", () => {
@@ -236,6 +305,34 @@ describe("a need routed by declared subjects", () => {
 			fit: "C",
 			path: ["C"],
 		});
+	});
+
+	it("keeps the words live cells would take over one only an ended cell holds", () => {
+		const taken = Array.from({ length: MOST_WORDS }, (_, at) => `word${at}`);
+		const found = routeNeed(asked("A", "gone", ...taken), {
+			foragers: cells({ A: [], B: taken, E: ["gone"] }),
+			ties: ties(["A", "B", 1], ["A", "E", 2]),
+			hubs: [],
+			live: (address) => address !== "E",
+		});
+
+		expect(found.words, "the ended cell's word goes first").toEqual(taken);
+		expect(found.fit).toBe("B");
+	});
+
+	it("never takes a cell that stopped the asker, nor names it as ended", () => {
+		const found = routeNeed(asked("A", "carry"), {
+			foragers: cells({ A: [], S: ["carry"] }),
+			ties: ties(["A", "S", 1]),
+			hubs: [{ subject: "mycelium:carry", hub: "S", fits: ["S"] }],
+			live: (address) => address !== "S",
+			stopped: (address) => address === "S",
+		});
+
+		expect(found, "lost, and S is there, not ended").toMatchObject({
+			fit: null,
+		});
+		expect(found.ended).toBeUndefined();
 	});
 
 	it("keeps a word only an ended cell holds over the asker's own, so the need reads as lost", () => {

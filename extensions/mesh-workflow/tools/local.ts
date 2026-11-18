@@ -39,11 +39,13 @@ export interface Local {
 	/**
 	 * Find the live cell that works on a need, over the node's hubs and
 	 * ties, and keep where it went (lib/mesh/need-route.ts); nothing when
-	 * no node answers.
+	 * no node answers. A cell `stopped` says stopped this peer is never
+	 * taken, nor named as ended.
 	 */
 	readonly need?: (
 		asked: NeedAsked,
 		live: (address: string) => boolean,
+		stopped?: (address: string) => boolean,
 	) => Promise<NeedRecord | undefined>;
 	/**
 	 * Which messages the node serves, which vouches for one under a

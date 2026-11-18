@@ -65,7 +65,8 @@ export async function needRead(
 	}
 	const standing = await peers(at);
 	// A peer that stopped this one is not written to, so it can't take
-	// a need from it either: it counts as not there.
+	// a need from it either; it is there, so it is never said to have
+	// ended.
 	const stopped = new Set(
 		stoppedBy(at.peer, standing.present).flatMap(
 			({ stopper }) => stopper.addresses,
@@ -79,6 +80,7 @@ export async function needRead(
 	const found = await at.need(
 		{ need: needId(asker, now), asker, words, at: now, fromText, selves },
 		(address) => live.has(address),
+		(address) => stopped.has(address),
 	);
 	if (found === undefined) {
 		return refused(

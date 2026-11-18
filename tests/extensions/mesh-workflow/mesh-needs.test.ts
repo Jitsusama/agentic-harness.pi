@@ -196,6 +196,9 @@ describe("sending to a need", () => {
 
 		expect(said).toContain("Not sent");
 		expect(said).toContain("counted as lost");
+		expect(said, "it is there, so it never reads as ended").not.toContain(
+			"has ended",
+		);
 	});
 
 	it("never crosses into another realm", async () => {

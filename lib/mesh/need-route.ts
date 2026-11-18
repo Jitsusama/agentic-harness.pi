@@ -114,6 +114,12 @@ export interface Reach {
 	 * caller that forgets it reaches no cell rather than every one.
 	 */
 	readonly live: (address: string) => boolean;
+	/**
+	 * Whether a cell has stopped the asker. It is never taken, and never
+	 * named as ended, since it is there: it only won't hear this asker.
+	 * Left out, no cell has.
+	 */
+	readonly stopped?: (address: string) => boolean;
 }
 
 /** The most ties a need passes along before it counts as lost. */
@@ -225,9 +231,7 @@ export function foragersFrom(line: string): Forager[] {
 	return recordsOf(line).flatMap((record): Forager[] => {
 		const { key, title, repo, subjects } = record;
 		if (typeof key !== "string" || !key.startsWith("cell:")) return [];
-		const declared = (Array.isArray(subjects) ? subjects : [])
-			.filter((one): one is string => typeof one === "string")
-			.slice(0, MOST_SUBJECTS);
+		const declared = firstSubjects(subjects);
 		const said = [title, repo].filter((one) => typeof one === "string");
 		const titled = wordsOf(said.join(" "));
 		return [
@@ -240,9 +244,24 @@ export function foragersFrom(line: string): Forager[] {
 }
 
 /**
+ * The first `MOST_SUBJECTS` strings a record's `subjects` declares,
+ * reading no further; none when it isn't a list.
+ */
+function firstSubjects(subjects: unknown): string[] {
+	const first: string[] = [];
+	if (!Array.isArray(subjects)) return first;
+	for (const one of subjects) {
+		if (typeof one !== "string") continue;
+		first.push(one);
+		if (first.length === MOST_SUBJECTS) break;
+	}
+	return first;
+}
+
+/**
  * The words `subjects` give beyond those `titled` already says, in the
- * order declared, stopping at `MOST_SUBJECT_WORDS` so an oversized
- * record costs no more to read than a full one.
+ * order declared, stopping at `MOST_SUBJECT_WORDS`, so a record past the
+ * caps is read no further than they reach.
  */
 function wordsBeyond(
 	titled: readonly string[],
@@ -321,8 +340,15 @@ export function hubsFrom(line: string): Hub[] {
 export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 	const selves = new Set([said.asker, ...(said.selves ?? [])]);
 	const { live } = reach;
-	const takes = (address: string) => !selves.has(address) && live(address);
-	const asked = { ...said, words: keptWords(said, reach.foragers, takes) };
+	const stopped = reach.stopped ?? (() => false);
+	const takes = (address: string) =>
+		!selves.has(address) && live(address) && !stopped(address);
+	const ended = (address: string) =>
+		!selves.has(address) && !live(address) && !stopped(address);
+	const asked = {
+		...said,
+		words: keptWords(said, reach.foragers, takes, ended),
+	};
 	const passed = new Set<string>();
 	const record = (path: readonly string[], fit: string | null): NeedRecord => ({
 		need: asked.need,
@@ -350,7 +376,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		);
 	/** Whether a cell would take it but has ended, noting it when so. */
 	const endedHolder = (address: string, word: string) => {
-		const gone = !selves.has(address) && !live(address) && holds(address, word);
+		const gone = ended(address) && holds(address, word);
 		if (gone) passed.add(address);
 		return gone;
 	};
@@ -376,7 +402,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 			undefined,
 		);
 
-	const saying = new Set(asked.words);
+	const saying = new Set(said.words);
 	for (const { word } of within) {
 		for (const hub of hubsFor(word, saying, reach.hubs)) {
 			const fit = best(
@@ -427,23 +453,23 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
  * Past `MOST_WORDS`, those that route it are kept rarest first, counted
  * over the cells that would take it; then those only an ended cell
  * holds, which say the need is lost and who worked on it; then those only
- * the asker holds, which route nowhere; among words as rare, the first
- * said. They stay in the order said.
+ * the asker or a cell that stopped it holds, which route nowhere; among
+ * words as rare, the first said. They stay in the order said.
  */
 function keptWords(
 	asked: NeedAsked,
 	foragers: readonly Forager[],
 	takes: (address: string) => boolean,
+	ended: (address: string) => boolean,
 ): string[] {
-	const selves = new Set([asked.asker, ...(asked.selves ?? [])]);
 	const takers = new Map<string, number>();
-	const othersHold = new Set<string>();
+	const endedHold = new Set<string>();
 	for (const cell of foragers) {
 		const taking = takes(cell.address) ? 1 : 0;
-		const other = !selves.has(cell.address);
+		const gone = ended(cell.address);
 		for (const word of cell.words) {
 			takers.set(word, (takers.get(word) ?? 0) + taking);
-			if (other) othersHold.add(word);
+			if (gone) endedHold.add(word);
 		}
 	}
 	const held = asked.words.filter(
@@ -453,7 +479,7 @@ function keptWords(
 	const rarity = (word: string) => {
 		const count = takers.get(word) ?? 0;
 		if (count > 0) return count;
-		return othersHold.has(word) ? ENDED_ONLY : Number.POSITIVE_INFINITY;
+		return endedHold.has(word) ? ENDED_ONLY : Number.POSITIVE_INFINITY;
 	};
 	const rarest = new Set(
 		[...held].sort((a, b) => rarity(a) - rarity(b)).slice(0, MOST_WORDS),
@@ -469,12 +495,11 @@ const ENDED_ONLY = Number.MAX_SAFE_INTEGER;
 
 /**
  * The hubs whose subject's narrowest part says `word`, and says nothing
- * the need doesn't, so a hub of `pallet-lines` is never a need's that
- * says lines alone: first those whose narrowest part says only `word`,
- * then those saying more besides; within each, the deepest subject
- * first, by its parts, since each part narrows it; among as deep, in the
- * order the node listed them. A subject's length says nothing of how
- * narrow it is, so it never ranks.
+ * the need didn't, so a hub of `pallet-lines` is never a need's that
+ * says lines alone. Those saying more of the need come first, since a
+ * need saying easing and lines is narrower than easing alone; then the
+ * deepest subject, by its parts, since each part narrows it; then the
+ * order the node listed them. A subject's length never ranks.
  */
 function hubsFor(
 	word: string,
@@ -485,11 +510,11 @@ function hubsFor(
 		const words = subjectWords(hub.subject);
 		if (!words.includes(word)) return [];
 		if (!words.every((one) => saying.has(one))) return [];
-		const exact = words.length === 1 ? 0 : 1;
-		return [{ hub, exact, depth: subjectParts(hub.subject).length }];
+		const says = words.length;
+		return [{ hub, says, depth: subjectParts(hub.subject).length }];
 	});
 	return ranked
-		.sort((a, b) => a.exact - b.exact || b.depth - a.depth)
+		.sort((a, b) => b.says - a.says || b.depth - a.depth)
 		.map(({ hub }) => hub);
 }
 
@@ -562,7 +587,7 @@ export async function keepNeed(dir: string, record: NeedRecord): Promise<void> {
 export async function needAt(
 	socket: string | undefined,
 	asked: NeedAsked,
-	how: { readonly live: (address: string) => boolean; readonly keep: string },
+	how: Pick<Reach, "live" | "stopped"> & { readonly keep: string },
 ): Promise<NeedRecord | undefined> {
 	const [cells, ties, hubs] = await Promise.all([
 		listAt(socket, "cell", CELL_FIELDS, LIST_PATIENCE_MS),
@@ -575,6 +600,7 @@ export async function needAt(
 		ties: tieGraphFrom(ties, asked.at),
 		hubs: hubs === undefined ? [] : hubsFrom(hubs),
 		live: how.live,
+		...(how.stopped === undefined ? {} : { stopped: how.stopped }),
 	});
 	await keepNeed(how.keep, record).catch(() => {
 		// A full or unwritable folder costs the measure this one line;
