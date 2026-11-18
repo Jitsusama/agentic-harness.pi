@@ -12,15 +12,17 @@
 
 import * as fs from "node:fs";
 import { mkdirSync, rmSync, utimesSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
 	discoverQuestsAfresh,
 	discoverySettled,
+	signingPausedPath,
 	signQuestsNow,
 } from "../../../../../lib/internal/quest/discovery/discovery.ts";
+import { threadsLetGo } from "../../../../../lib/internal/quest/discovery/off-thread.ts";
 import { atomicWriteFile } from "../../../../../lib/internal/quest/io.ts";
 import { installTestHost } from "../../../../support/session-host.ts";
 import {
@@ -127,6 +129,11 @@ function syncCalls(but: readonly string[] = []): unknown[] {
 	];
 }
 
+/** The one call an answer from the last walk makes: the root's stat. */
+function rootStat(): unknown[] {
+	return [[root, { bigint: true }]];
+}
+
 function clearCalls(): void {
 	reads.mockClear();
 	listings.mockClear();
@@ -158,7 +165,10 @@ beforeEach(() => {
 
 let openSignings: (() => void) | undefined;
 
-afterEach(() => {
+afterEach(async () => {
+	// A wall fake time ran past lets its thread go, and while it stops no
+	// signing starts: the next test's would fail at once.
+	await Promise.all(threadsLetGo());
 	openSignings?.();
 	openSignings = undefined;
 	signing.gate = undefined;
@@ -441,6 +451,61 @@ describe("discovery on a host", () => {
 		atomicWriteFile(readmePath, readme("paused"));
 		await discoverySettled(root);
 		expect(statusNow()).toBe("paused");
+	});
+
+	it("walks again at once rather than drop a walk this process wrote during", async () => {
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		later(6_000);
+		discoverQuests(root);
+		await read;
+		atomicWriteFile(readmePath, readme("paused"));
+		signing.gate = undefined;
+		openSignings();
+		expect(await discoverySettled(root)).toBe("kept");
+		expect(signing.walks, "walked again for the write").toBe(2);
+		clearCalls();
+		expect(statusNow()).toBe("paused");
+		expect(
+			syncCalls(),
+			"answered from the walk signed after the write",
+		).toEqual(rootStat());
+	});
+
+	it("answers from its last walk while a signing runs, its own write or none", async () => {
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		later(6_000);
+		discoverQuests(root);
+		await read;
+		atomicWriteFile(readmePath, readme("paused"));
+		later(120_000);
+		clearCalls();
+		expect(statusNow(), "the walk under way brings the write").toBe("active");
+		expect(syncCalls(), "nothing walked on the thread").toEqual(rootStat());
+		signing.gate = undefined;
+		openSignings();
+		await discoverySettled(root);
+		expect(statusNow()).toBe("paused");
+	});
+
+	it("signs nothing off the thread while the person has paused it", async () => {
+		discoverQuests(root);
+		const paused = signingPausedPath();
+		mkdirSync(dirname(paused), { recursive: true });
+		fs.writeFileSync(paused, "");
+		try {
+			writeSettled(readmePath, readme("paused"));
+			later(120_000);
+			clearCalls();
+			expect(statusNow(), "answered from the last walk").toBe("active");
+			expect(signing.walks, "no walk off the thread").toBe(0);
+			expect(syncCalls(), "nor on it").toEqual(rootStat());
+		} finally {
+			rmSync(paused, { force: true });
+		}
 	});
 
 	it("answers the asks after a signing now as the tree stood then", () => {

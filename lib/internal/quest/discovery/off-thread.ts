@@ -88,6 +88,19 @@ export interface ReadOffThread {
 	readonly rootStamp: string | undefined;
 }
 
+/**
+ * Threads ended past their wall that haven't stopped yet, each with
+ * how it stopped. A thread in a read of a hung disk stops only when
+ * the read returns, so while one stands no other starts: a disk that
+ * hangs holds one thread, never one more every wall.
+ */
+const letGo = new Map<Worker, Promise<number>>();
+
+/** How each signing thread ended past its wall but not yet stopped will stop. */
+export function threadsLetGo(): readonly Promise<number>[] {
+	return [...letGo.values()];
+}
+
 /** An entry's kinds, as the thread lists them in one number. */
 const DIRECTORY = 1;
 const FILE = 2;
@@ -186,8 +199,12 @@ const hashed = (path) => {
 			return;
 		}
 		// Opened without waiting and judged by what was opened, so a path
-		// swapped for a FIFO since its stat can't hold this thread.
-		fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+		// swapped for a FIFO since its stat can't hold this thread, nor one
+		// swapped for a terminal become the host's.
+		fd = openSync(
+			path,
+			constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY,
+		);
 		const opened = fstatSync(fd, { bigint: true });
 		if (!opened.isFile()) {
 			absent.push(path);
@@ -289,13 +306,22 @@ function isAnswer(value: unknown): value is Answer {
  * hasn't answered in `wallMs`, when it is ended; the signing then fails,
  * and the last walk stands. A thread held in a read of a hung disk ends
  * once the read returns, since nothing can interrupt a call in the
- * kernel; it holds no thread of the pool the host's reads share.
+ * kernel; it holds no thread of the pool the host's reads share, and
+ * until it ends, every signing fails at once rather than start another.
  */
 export function readTreeOffThread(
 	questsRoot: string,
 	wallMs: number,
 ): Promise<ReadOffThread> {
 	return new Promise((resolve, reject) => {
+		if (letGo.size > 0) {
+			reject(
+				new Error(
+					"a signing thread ended past its wall hasn't stopped, so its disk still hangs",
+				),
+			);
+			return;
+		}
 		const worker = new Worker(PROGRAM, {
 			eval: true,
 			workerData: {
@@ -317,9 +343,16 @@ export function readTreeOffThread(
 			worker.terminate().catch(() => undefined);
 		};
 		const clock = setTimeout(() => {
-			end();
+			// An answer that lands as it ends writes no stamps for a signing
+			// already failed.
+			worker.removeAllListeners("message");
+			const stopped = worker.terminate().catch(() => -1);
+			letGo.set(worker, stopped);
+			void stopped.then(() => letGo.delete(worker));
 			reject(
-				new Error(`the signing thread hadn't answered after ${wallMs} ms`),
+				new Error(
+					`the signing thread hadn't answered after ${wallMs} ms, so its disk is taken to hang`,
+				),
 			);
 		}, wallMs);
 		clock.unref();

@@ -7,8 +7,15 @@
  * have read, and reads the bytes only of files that changed.
  */
 
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	rmSync,
+	symlinkSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import * as promises from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -24,6 +31,7 @@ import {
 	folderStampOf,
 	pendingStampOf,
 	readTreeOffThread,
+	threadsLetGo,
 } from "../../../../../lib/internal/quest/discovery/off-thread.ts";
 import {
 	ID,
@@ -162,6 +170,10 @@ it("re-reads a file the walk parses until its record is kept", async () => {
 
 it("re-reads a file each signing while it is still being written", async () => {
 	writeFileSync(readmePath, readme("concluded"));
+	// Written a minute ahead, so it stays unsettled however slowly the
+	// two threads start.
+	const ahead = new Date(Date.now() + 60_000);
+	utimesSync(readmePath, ahead, ahead);
 	discoverQuests(root);
 
 	const first = await readTreeOffThread(root, WALL_MS);
@@ -173,10 +185,40 @@ it("re-reads a file each signing while it is still being written", async () => {
 	expect([...second.pass.bytes.keys()], "and read again").toEqual([readmePath]);
 });
 
-it("gives up on a thread that hasn't answered in time", async () => {
+it("ends a thread that hasn't answered in time", async () => {
 	await expect(readTreeOffThread(root, 1)).rejects.toThrow(
 		"the signing thread hadn't answered after 1 ms",
 	);
+
+	const stopping = threadsLetGo();
+	expect(stopping, "the thread is let go until it stops").toHaveLength(1);
+	await Promise.all(stopping);
+	expect(threadsLetGo(), "and is forgotten once stopped").toHaveLength(0);
+});
+
+it("starts no thread while one ended past its wall hasn't stopped", async () => {
+	await expect(readTreeOffThread(root, 1)).rejects.toThrow("after 1 ms");
+
+	await expect(
+		readTreeOffThread(root, WALL_MS),
+		"a hung disk holds one thread, never one more each signing",
+	).rejects.toThrow("hasn't stopped, so its disk still hangs");
+
+	await Promise.all(threadsLetGo());
+	await expect(
+		readTreeOffThread(root, WALL_MS),
+		"and signs again once it stops",
+	).resolves.toBeDefined();
+});
+
+it("reads a FIFO in a file's place as absent, without waiting on it", async () => {
+	rmSync(readmePath);
+	spawnSync("mkfifo", [readmePath]);
+
+	const read = await readTreeOffThread(root, WALL_MS);
+
+	expect(read.pass.bytes.has(readmePath), "no bytes from a FIFO").toBe(false);
+	expect(read.pass.absent.has(readmePath), "taken as absent").toBe(true);
 });
 
 it("reads the bytes only of files that changed since the last walk", async () => {

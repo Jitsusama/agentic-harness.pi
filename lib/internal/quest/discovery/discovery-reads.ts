@@ -197,6 +197,8 @@ interface Memo {
 	seeded: Set<string>;
 	/** Each root's signing under way off the thread, at most one. */
 	signing: Map<string, Promise<SigningEnd | undefined>>;
+	/** Whether the person paused signing off the thread, and when read. */
+	paused?: { readonly is: boolean; readonly readAt: number };
 }
 
 /**
