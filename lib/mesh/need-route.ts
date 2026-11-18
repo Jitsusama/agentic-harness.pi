@@ -609,14 +609,17 @@ export async function keepNeed(dir: string, record: NeedRecord): Promise<void> {
  * Routes a need over what the node serving `socket` keeps, its cells,
  * ties and hubs, and keeps it in `keep`; nothing, and nothing kept, when
  * no node lists its cells and ties there, since a need routed over half
- * of them would read as lost when it was never looked for. A record the
+ * of them would read as lost when it was never looked for. Who stopped
+ * the asker is always said here, since it alone keeps such a cell from
+ * being taken: `live` names it too, as one a need may be found through.
+ * A record the
  * folder won't take is left unkept rather than refusing the send: the
  * measure misses one line, and the asker still reaches its cell.
  */
 export async function needAt(
 	socket: string | undefined,
 	asked: NeedAsked,
-	how: Pick<Reach, "live" | "stopped"> & { readonly keep: string },
+	how: Required<Pick<Reach, "live" | "stopped">> & { readonly keep: string },
 ): Promise<NeedRecord | undefined> {
 	const [cells, ties, hubs] = await Promise.all([
 		listAt(socket, "cell", CELL_FIELDS, LIST_PATIENCE_MS),
@@ -629,7 +632,7 @@ export async function needAt(
 		ties: tieGraphFrom(ties, asked.at),
 		hubs: hubs === undefined ? [] : hubsFrom(hubs),
 		live: how.live,
-		...(how.stopped === undefined ? {} : { stopped: how.stopped }),
+		stopped: how.stopped,
 	});
 	await keepNeed(how.keep, record).catch(() => {
 		// A full or unwritable folder costs the measure this one line;

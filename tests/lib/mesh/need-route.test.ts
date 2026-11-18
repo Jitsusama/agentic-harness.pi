@@ -505,6 +505,7 @@ describe("asking the node for a need's fit", () => {
 
 		const found = await needAt(socket, asked("A", "carry"), {
 			live: () => true,
+			stopped: () => false,
 			keep: root,
 		});
 
@@ -527,6 +528,7 @@ describe("asking the node for a need's fit", () => {
 
 		const found = await needAt(socket, asked("A", "easing"), {
 			live: () => true,
+			stopped: () => false,
 			keep: root,
 		});
 
@@ -539,6 +541,7 @@ describe("asking the node for a need's fit", () => {
 	it("answers nothing, and keeps nothing, when no node answers", async () => {
 		const found = await needAt(join(root, "none.sock"), asked("A", "carry"), {
 			live: () => true,
+			stopped: () => false,
 			keep: root,
 		});
 
@@ -559,6 +562,7 @@ describe("asking the node for a need's fit", () => {
 
 		const found = await needAt(socket, asked("A", "carry"), {
 			live: () => true,
+			stopped: () => false,
 			keep: root,
 		});
 
@@ -583,9 +587,35 @@ describe("asking the node for a need's fit", () => {
 
 		const found = await needAt(socket, asked("A", "carry"), {
 			live: () => true,
+			stopped: () => false,
 			keep: file,
 		});
 
 		expect(found).toMatchObject({ fit: "B" });
+	});
+
+	it("takes no cell that stopped the asker, and finds through it", async () => {
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{ key: "cell:S", title: "Carry a Session" },
+				{ key: "cell:F", title: "Carry a Tree" },
+			],
+			tie: [
+				{ key: "tie:A~S", strength: 2, heard: AT },
+				{ key: "tie:S~F", strength: 2, heard: AT },
+			],
+		});
+
+		const found = await needAt(socket, asked("A", "carry"), {
+			live: () => true,
+			stopped: (address) => address === "S",
+			keep: root,
+		});
+
+		expect(found, "F, one tie past S, never S").toMatchObject({
+			path: ["S", "F"],
+			fit: "F",
+		});
 	});
 });
