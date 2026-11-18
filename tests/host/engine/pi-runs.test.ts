@@ -118,6 +118,19 @@ describe("the agent's own runs in pi", () => {
 		}
 	});
 
+	it("goes on without pi's preparation once the run is stopped", async () => {
+		// A stopped run would otherwise wait out the whole deadline for nothing.
+		const runs = new PiRuns(() => false);
+		runs.tell({ runForHost: () => new Promise(() => {}) });
+		const release = runs.hold();
+		const stopping = new AbortController();
+		const opening = runs.opening(stopping.signal);
+		stopping.abort();
+
+		expect(await opening, "the run went on with nothing").toEqual([]);
+		await release();
+	});
+
 	it("tells extensions a run settled on a pi with no seam, as before it", async () => {
 		// pi settles only runs it began, so without the seam an extension waiting
 		// on a settle, as job-workflow's outbox does, waited until a person typed.

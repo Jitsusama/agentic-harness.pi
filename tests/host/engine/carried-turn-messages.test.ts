@@ -87,6 +87,17 @@ describe("an extension's message during a turn the host carries on", () => {
 		expect(written).toEqual(["a word pi held", "disposed"]);
 	});
 
+	it("is said lost when pi has no flush to write what it held", () => {
+		// A pi that renamed its flush would otherwise drop a peer's words at every stop unsaid.
+		const { session, written, reported } = carrying();
+		session.isStreaming = true;
+		session.dispose();
+		expect(written, "the session still lets go").toEqual(["disposed"]);
+		expect(String(reported[0]), "what was lost is said").toContain(
+			"_flushPendingCustomMessages",
+		);
+	});
+
 	it("lets go of the session as it is disposed", async () => {
 		const { session, send, emit, written } = carrying();
 		session.dispose();
