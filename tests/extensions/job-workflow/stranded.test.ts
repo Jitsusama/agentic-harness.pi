@@ -36,10 +36,13 @@ afterEach(() => {
 });
 
 /** A carried call's work, its files made fresh and marked carried. */
-function shellWork(pid = 4242, mark = "mark-1"): CarriedShell {
+async function shellWork(
+	pid = 4242,
+	mark = "mark-1",
+): Promise<CarriedShell> {
 	const dir = mkdtempSync(join(tmpdir(), "stranded-"));
 	made.push(dir);
-	const keep = makeKept(dir);
+	const keep = await makeKept(dir);
 	markCarried(keep, mark);
 	return { kind: "shell", keep, pid, mark, startedAt: 1000 };
 }
@@ -69,8 +72,8 @@ function endedPid(): number {
 }
 
 describe("a carried call taken up and never said", () => {
-	it("is found once its shell is gone and its mark still stands", () => {
-		const work = shellWork();
+	it("is found once its shell is gone and its mark still stands", async () => {
+		const work = await shellWork();
 		const carried = carriedAt(5000, work);
 		const found = strandedIn(
 			[entry(CARRIED_ENTRY, carried), entry(TAKEN_ENTRY, { at: 5000 })],
@@ -80,9 +83,9 @@ describe("a carried call taken up and never said", () => {
 		expect(found?.results, "results were said as it was taken up").toEqual([]);
 	});
 
-	it("is not found while none is gone, or before anything took it up", () => {
+	it("is not found while none is gone, or before anything took it up", async () => {
 		const branch = [
-			entry(CARRIED_ENTRY, carriedAt(5000, shellWork())),
+			entry(CARRIED_ENTRY, carriedAt(5000, await shellWork())),
 			entry(TAKEN_ENTRY, { at: 5000 }),
 		];
 		expect(
@@ -91,15 +94,15 @@ describe("a carried call taken up and never said", () => {
 		).toBeUndefined();
 		expect(
 			strandedIn(
-				[entry(CARRIED_ENTRY, carriedAt(9000, shellWork()))],
+				[entry(CARRIED_ENTRY, carriedAt(9000, await shellWork()))],
 				() => true,
 			),
 			"not taken up yet: carriedIn's to take",
 		).toBeUndefined();
 	});
 
-	it("is found once, though two moves carried it", () => {
-		const work = shellWork();
+	it("is found once, though two moves carried it", async () => {
+		const work = await shellWork();
 		const found = strandedIn(
 			[
 				entry(CARRIED_ENTRY, carriedAt(5000, work)),
@@ -112,9 +115,9 @@ describe("a carried call taken up and never said", () => {
 		expect(found?.jobs.map((job) => job.work)).toEqual([work]);
 	});
 
-	it("is left to a newer move not yet taken up that carries it again", () => {
+	it("is left to a newer move not yet taken up that carries it again", async () => {
 		// A second host restart carried it on; carriedIn takes that one up.
-		const work = shellWork();
+		const work = await shellWork();
 		expect(
 			strandedIn(
 				[
@@ -127,17 +130,17 @@ describe("a carried call taken up and never said", () => {
 		).toBeUndefined();
 	});
 
-	it("reads its mark and its shell from the machine", () => {
-		const gone = shellWork(endedPid());
-		const said = shellWork(endedPid());
+	it("reads its mark and its shell from the machine", async () => {
+		const gone = await shellWork(endedPid());
+		const said = await shellWork(endedPid());
 		rmSync(`${said.keep}.carried`);
 		const shell = spawn("sleep", ["30"], {
 			env: { ...process.env, [CALL_VARIABLE]: "mark-running" },
 		});
 		running.push(shell);
-		const live = shellWork(shell.pid, "mark-running");
+		const live = await shellWork(shell.pid, "mark-running");
 		// A pid now another process's, as after a reboot, isn't the call.
-		const reused = shellWork(process.pid, "mark-reused");
+		const reused = await shellWork(process.pid, "mark-reused");
 		const found = strandedIn([
 			entry(CARRIED_ENTRY, carriedAt(5000, gone, said, live, reused)),
 			entry(TAKEN_ENTRY, { at: 5000 }),
@@ -148,10 +151,10 @@ describe("a carried call taken up and never said", () => {
 	});
 
 	it("is said on return as exited or lost, with its output, and its files go", async () => {
-		const exited = shellWork();
+		const exited = await shellWork();
 		writeFileSync(`${exited.keep}.out`, "done\n");
 		writeFileSync(`${exited.keep}.end`, "0\n");
-		const lost = shellWork();
+		const lost = await shellWork();
 		writeFileSync(`${lost.keep}.out`, "half\n");
 		const said: JobResult[] = [];
 		const jobs = createJobs(

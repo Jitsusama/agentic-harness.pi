@@ -48,12 +48,12 @@ function registry(): { jobs: Jobs; said: JobResult[] } {
 }
 
 /** A carried call's work, its files made fresh. */
-function shellWork(): CarriedShell {
+async function shellWork(): Promise<CarriedShell> {
 	const dir = mkdtempSync(join(tmpdir(), "moved-"));
 	made.push(dir);
 	return {
 		kind: "shell",
-		keep: makeKept(dir),
+		keep: await makeKept(dir),
 		pid: 4242,
 		mark: "mark-1",
 		startedAt: 1000,
@@ -105,9 +105,9 @@ describe("a pi that is ending", () => {
 });
 
 describe("carrying away", () => {
-	it("hands on what can be carried, unstopped, and leaves what holds", () => {
+	it("hands on what can be carried, unstopped, and leaves what holds", async () => {
 		const { jobs } = registry();
-		const work = shellWork();
+		const work = await shellWork();
 		const handed: string[] = [];
 		const command = jobs.start({
 			kind: "shell",
@@ -142,12 +142,13 @@ describe("carrying away", () => {
 		]);
 	});
 
-	it("holds a host's restart on the work it can't keep, though a move would carry it", () => {
+	it("holds a host's restart on the work it can't keep, though a move would carry it", async () => {
 		const { jobs } = registry();
+		const work = await shellWork();
 		jobs.start({
 			kind: "shell",
 			label: "sleep 45",
-			carry: { what: () => shellWork(), handed: () => {} },
+			carry: { what: () => work, handed: () => {} },
 		});
 		jobs.start({
 			kind: "review-checks",
@@ -214,9 +215,9 @@ describe("what a log says was carried", () => {
 
 describe("taking up", () => {
 	/** Take up one carried call `j3`, with a result `j2` not yet said. */
-	function tookUp(label = "sleep 45", dumps?: boolean) {
+	async function tookUp(label = "sleep 45", dumps?: boolean) {
 		const { jobs, said } = registry();
-		const work = { ...shellWork(), ...(dumps ? { dumps } : {}) };
+		const work = { ...(await shellWork()), ...(dumps ? { dumps } : {}) };
 		const watch = handWatch();
 		const appended: [string, unknown][] = [];
 		takeUp(
@@ -239,8 +240,8 @@ describe("taking up", () => {
 		return { jobs, said, work, watch, appended };
 	}
 
-	it("says what was waiting, keeps each call's id and marks the move taken", () => {
-		const { jobs, said, appended } = tookUp();
+	it("says what was waiting, keeps each call's id and marks the move taken", async () => {
+		const { jobs, said, appended } = await tookUp();
 		expect(said.map((result) => result.jobId)).toEqual(["j2"]);
 		expect(jobs.list().map((job) => [job.id, job.state])).toEqual([
 			["j3", "running"],
@@ -253,7 +254,7 @@ describe("taking up", () => {
 	});
 
 	it("says a call's end as its own pi would have, then removes its files", async () => {
-		const { jobs, said, work, watch } = tookUp();
+		const { jobs, said, work, watch } = await tookUp();
 		watch.end({ how: "exited", code: 0, output: "carried-job-ended\n" });
 		await settled();
 		expect(said.at(-1)).toEqual({
@@ -267,7 +268,7 @@ describe("taking up", () => {
 	});
 
 	it("says a call whose shell is gone as lost, with its last lines", async () => {
-		const { said, watch } = tookUp();
+		const { said, watch } = await tookUp();
 		watch.end({ how: "lost", output: "one\ntwo\n" });
 		await settled();
 		expect(said.at(-1)?.text).toBe(
@@ -276,7 +277,7 @@ describe("taking up", () => {
 	});
 
 	it("says a carried call's printing of the environment scrubbed, read by its lines", async () => {
-		const { said, watch } = tookUp();
+		const { said, watch } = await tookUp();
 		const access = `z9${"0a1b2c3d4e".repeat(4)}`;
 		const printed = [
 			"HOME=/home/someone",
@@ -293,7 +294,7 @@ describe("taking up", () => {
 	});
 
 	it("says a carried call's printing of the environment scrubbed, read by its label", async () => {
-		const { said, watch } = tookUp("printenv");
+		const { said, watch } = await tookUp("printenv");
 		const access = `z9${"5f6e7d8c9b".repeat(4)}`;
 		const printed = ["HOME=/home/someone", `PROXY_ACCESS=${access}`].join("\n");
 		watch.end({ how: "exited", code: 0, output: `${printed}\n` });
@@ -305,7 +306,7 @@ describe("taking up", () => {
 
 	it("says a carried call's printing of the environment scrubbed, as its process said it prints one", async () => {
 		// The label is the command's first line, cut short; the work says.
-		const { said, watch } = tookUp("cd /srv/app ...", true);
+		const { said, watch } = await tookUp("cd /srv/app ...", true);
 		const access = `z9${"1a2b3c4d5e".repeat(4)}`;
 		const printed = ["HOME=/home/someone", `PROXY_ACCESS=${access}`].join("\n");
 		watch.end({ how: "exited", code: 0, output: `${printed}\n` });
@@ -316,15 +317,15 @@ describe("taking up", () => {
 	});
 
 	it("says a carried call's output as it stands when nothing says it is the environment", async () => {
-		const { said, watch } = tookUp();
+		const { said, watch } = await tookUp();
 		const commit = "commit 3f9c2a7be41d08e5c6a1f2b3d4e5f60718293a4b";
 		watch.end({ how: "exited", code: 0, output: `${commit}\n` });
 		await settled();
 		expect(said.at(-1)?.text).toContain(commit);
 	});
 
-	it("can carry a call on again while it runs", () => {
-		const { jobs, watch, work } = tookUp();
+	it("can carry a call on again while it runs", async () => {
+		const { jobs, watch, work } = await tookUp();
 		expect(jobs.carryOut().map((job) => job.work)).toEqual([work]);
 		expect(watch.handed, "the watch let go").toEqual([work.keep]);
 	});

@@ -23,12 +23,14 @@ afterEach(() => {
 });
 
 /** A carried call's work, its files made fresh. */
-function carried(extra: Partial<CarriedShell> = {}): CarriedShell {
+async function carried(
+	extra: Partial<CarriedShell> = {},
+): Promise<CarriedShell> {
 	const dir = mkdtempSync(join(tmpdir(), "carried-"));
 	made.push(dir);
 	return {
 		kind: "shell",
-		keep: makeKept(dir),
+		keep: await makeKept(dir),
 		pid: 4242,
 		mark: "mark-1",
 		startedAt: 1000,
@@ -73,7 +75,7 @@ describe("whether a pid is still the call it was", () => {
 
 describe("a carried call's watch", () => {
 	it("reads the status it wrote as it ended, with its output", async () => {
-		const work = carried();
+		const work = await carried();
 		const watch = watchCarried(work, new AbortController().signal, {
 			everyMs: QUICK,
 			alive: () => true,
@@ -88,7 +90,7 @@ describe("a carried call's watch", () => {
 	});
 
 	it("says a shell gone with no status as lost, with what it printed", async () => {
-		const work = carried();
+		const work = await carried();
 		writeFileSync(`${work.keep}.out`, "last words\n");
 		const watch = watchCarried(work, new AbortController().signal, {
 			everyMs: QUICK,
@@ -98,7 +100,7 @@ describe("a carried call's watch", () => {
 	});
 
 	it("kills its work when stopped", async () => {
-		const work = carried();
+		const work = await carried();
 		const stopped: CarriedShell[] = [];
 		const stop = new AbortController();
 		const watch = watchCarried(work, stop.signal, {
@@ -112,7 +114,7 @@ describe("a carried call's watch", () => {
 	});
 
 	it("kills its work once its time limit runs out", async () => {
-		const work = carried({ deadline: 5000 });
+		const work = await carried({ deadline: 5000 });
 		const stopped: CarriedShell[] = [];
 		const watch = watchCarried(work, new AbortController().signal, {
 			everyMs: QUICK,
@@ -125,7 +127,7 @@ describe("a carried call's watch", () => {
 	});
 
 	it("lets it run on when it moves again", async () => {
-		const work = carried();
+		const work = await carried();
 		const stopped: CarriedShell[] = [];
 		const watch = watchCarried(work, new AbortController().signal, {
 			everyMs: QUICK,
@@ -139,8 +141,8 @@ describe("a carried call's watch", () => {
 });
 
 describe("carried work", () => {
-	it("is taken as a bash call only when it says all a watch needs", () => {
-		expect(isCarriedShell(carried()), "a whole call").toBe(true);
+	it("is taken as a bash call only when it says all a watch needs", async () => {
+		expect(isCarriedShell(await carried()), "a whole call").toBe(true);
 		expect(
 			isCarriedShell({ kind: "shell", keep: "/k", pid: 1, startedAt: 1 }),
 			"one with no mark",
@@ -148,13 +150,13 @@ describe("carried work", () => {
 		expect(isCarriedShell({ kind: "subagent" }), "another kind").toBe(false);
 	});
 
-	it("says whether it prints the environment only by a yes or a no", () => {
+	it("says whether it prints the environment only by a yes or a no", async () => {
 		expect(
-			isCarriedShell({ ...carried(), dumps: true }),
+			isCarriedShell({ ...(await carried()), dumps: true }),
 			"one that prints it",
 		).toBe(true);
 		expect(
-			isCarriedShell({ ...carried(), dumps: "yes" }),
+			isCarriedShell({ ...(await carried()), dumps: "yes" }),
 			"one that says it otherwise",
 		).toBe(false);
 	});
