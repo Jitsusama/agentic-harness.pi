@@ -173,6 +173,45 @@ describe("the agent's own runs in pi", () => {
 		expect(said, "once pi's run ended").toEqual(["prepared", "settled"]);
 	});
 
+	it("goes on to what waits once pi's run settled, as pi's own run does", async () => {
+		// Words queued into pi's run after the agent's last run stopped taking
+		// them wait on this, since pi starts no run for them after a host's.
+		const { session, said } = piSession();
+		const runs = new PiRuns(
+			() => false,
+			(say) => say(),
+			() => said.push("next"),
+		);
+		runs.tell(session);
+
+		const carried = runs.hold();
+		await runs.opening();
+		const asked = runs.hold();
+		await carried();
+		expect(said, "still held by the ask again").toEqual(["prepared"]);
+		await asked();
+
+		expect(said).toEqual(["prepared", "settled", "next"]);
+	});
+
+	it("goes on to nothing once the host parks", async () => {
+		const { session, said } = piSession();
+		let parked = false;
+		const runs = new PiRuns(
+			() => parked,
+			(say) => say(),
+			() => said.push("next"),
+		);
+		runs.tell(session);
+
+		const release = runs.hold();
+		await runs.opening();
+		parked = true;
+		await release();
+
+		expect(said).toEqual(["prepared"]);
+	});
+
 	it("settles nothing once the host parks, as it shows pi nothing more", async () => {
 		// A stopping host disposes pi's session; a settle then would wake
 		// extensions to act on a conversation that is closing.
