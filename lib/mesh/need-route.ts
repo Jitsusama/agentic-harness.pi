@@ -207,6 +207,9 @@ const CELL_FIELDS = ["title", "repo", "subjects"];
 /**
  * What a subject's hub record names: its one hub and fits, or several
  * listed under `hubs`. The node leaves out a field a record lacks.
+ * An install from before `hubs` reads only the one hub and fits, so
+ * the node keeps those beside the list, as the list's first hub, for
+ * as long as such installs may run.
  */
 const HUB_FIELDS = ["hub", "fits", "hubs"];
 

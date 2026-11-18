@@ -402,6 +402,25 @@ describe("a need routed by declared subjects", () => {
 		expect([...taken.entries()]).toEqual([["F3", SHARED_NEEDS]]);
 	});
 
+	it("puts only the needs that drew a gone hub elsewhere, shared over the rest", () => {
+		const reach = equalHubs(
+			(at) => `realm.g${at}:carry`,
+			(at) => `H${at}`,
+		);
+		const gone = { ...reach, live: (address: string) => address !== "H0" };
+		const moved = new Set<string | null>();
+
+		for (const need of numbered("A", "carry")) {
+			const drawn = routeNeed(need, reach).fit;
+			const now = routeNeed(need, gone).fit;
+			if (drawn === "F0") moved.add(now);
+			else expect(now, need.need).toBe(drawn);
+		}
+
+		expect(moved.has("F0")).toBe(false);
+		expect(moved.size, "not all to the first listed").toBeGreaterThan(1);
+	});
+
 	it("puts a need to the next equal hub when the one it drew has no live fit", () => {
 		const reach = equalHubs(
 			(at) => `realm.g${at}:carry`,
@@ -472,6 +491,38 @@ describe("a need routed by declared subjects", () => {
 				{ subject: "carry", hub: "H1", fits: ["F1"] },
 			],
 			live: (address) => address !== "F0",
+		});
+
+		expect([...taken.entries()]).toEqual([["F1", SHARED_NEEDS]]);
+	});
+
+	it("weighs the whole next rank when the top has no live fit, and goes no lower", () => {
+		// Carry is rarest, so it is tried first. The top rank's fit is
+		// gone; of the next rank's two, F1 works on more of the need, and
+		// the rank below holds F2, which works on all of it.
+		const taken = takenOver(numbered("A", "carry", "easing", "lines"), {
+			foragers: cells({
+				A: [],
+				X: ["carry"],
+				F0: ["carry"],
+				F1: ["carry", "easing"],
+				F2: ["carry", "easing", "lines"],
+				E1: ["easing"],
+				E2: ["easing"],
+				E3: ["easing"],
+				L1: ["lines"],
+				L2: ["lines"],
+				L3: ["lines"],
+				L4: ["lines"],
+			}),
+			ties: ties(),
+			hubs: [
+				{ subject: "realm.g9.top:carry", hub: "H9", fits: ["X"] },
+				{ subject: "realm.g0:carry", hub: "H0", fits: ["F0"] },
+				{ subject: "realm.g1:carry", hub: "H1", fits: ["F1"] },
+				{ subject: "realm:carry", hub: "H2", fits: ["F2"] },
+			],
+			live: (address) => address !== "X",
 		});
 
 		expect([...taken.entries()]).toEqual([["F1", SHARED_NEEDS]]);
