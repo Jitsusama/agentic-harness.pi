@@ -547,9 +547,15 @@ describe("withQuestLock on the login's runtime folder", () => {
 				writeFileSync(join(made, "sub", "a", "f"), "");
 				symlinkSync(marker, join(made, "link"));
 				renameSync(made, lock);
-				withQuestLock(questDir, () => {
-					atomicWriteFile(join(questDir, "ok.txt"), `${round}`);
-				});
+				// What the walk reached outside is asked first, then whether it wrote.
+				let failed: unknown;
+				try {
+					withQuestLock(questDir, () => {
+						atomicWriteFile(join(questDir, "ok.txt"), `${round}`);
+					});
+				} catch (error) {
+					failed = error;
+				}
 				expect(existsSync(marker), `the marker outside, round ${round}`).toBe(
 					true,
 				);
@@ -557,6 +563,7 @@ describe("withQuestLock on the login's runtime folder", () => {
 					existsSync(join(outside, "kept")),
 					`its folder, round ${round}`,
 				).toBe(true);
+				expect(failed, `the write, round ${round}`).toBeUndefined();
 			}
 		} finally {
 			Atomics.store(stop, 0, 1);
