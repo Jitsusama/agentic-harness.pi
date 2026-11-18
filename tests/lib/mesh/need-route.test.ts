@@ -469,7 +469,7 @@ describe("a need's id", () => {
 		const one = needId("A", AT);
 		const two = needId("A", AT);
 
-		expect(one).toMatch(/^A\//);
+		expect(one).toMatch(new RegExp(`^A/${AT.toString(36)}\\.[0-9a-f]{12}$`));
 		expect(two).not.toBe(one);
 	});
 });
@@ -575,7 +575,7 @@ describe("asking the node for a need's fit", () => {
 		expect(found).toBeUndefined();
 		expect(
 			existsSync(needsFile(root, AT)),
-			"no needs record kept when the node lists no ties",
+			"no needs record kept when the node won't list its ties",
 		).toBe(false);
 	});
 

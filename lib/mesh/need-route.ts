@@ -16,8 +16,8 @@
  * Each need is kept as one line in the day's file, in the shape the
  * scale run's judge reads (`judge.py needs`): who asked, its words,
  * every cell it passed after the asker with the fit last, and the
- * realm's size. Its id is the asker's address, a stamp and a count of
- * its own, so no two needs share one and it never changes as it goes.
+ * realm's size. Its id is the asker's address, a stamp and a random
+ * tail, so no two needs share one and it never changes as it goes.
  * Only words some cell works on are kept when they were read from a
  * message's text, at most `MOST_WORDS` of them, so a token pasted into
  * the text never lands in the file. The files go with the week the
@@ -64,7 +64,7 @@ export type TieGraph = ReadonlyMap<
 
 /** A need as its asker puts it. */
 export interface NeedAsked {
-	/** `<asker>/<its own stamp>`, the same wherever the need goes. */
+	/** `<asker>/<stamp>.<random tail>`, the same wherever the need goes. */
 	readonly need: string;
 	readonly asker: string;
 	readonly words: readonly string[];
