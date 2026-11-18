@@ -236,4 +236,37 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 		await Promise.all([before, written, after]);
 		expect(starts().map((start) => start.account)).toHaveLength(3);
 	}, 30_000);
+
+	it("never shares a read asked during a write or remove once it has ended", async () => {
+		for (const act of ["write", "remove"]) {
+			const store = secretServiceStore(callingEntries(call("holds")));
+			const account = `during-${act}`;
+			const changed =
+				act === "write" ? store.write(account, "new") : store.remove(account);
+			const during = store.read(account);
+			await vi.waitFor(
+				() => expect(running(), `the ${act} and the read during it`).toBe(2),
+				{ timeout: 20_000 },
+			);
+
+			writeFileSync(
+				join(dirname(process.env.KEYRING_CALL_FILE ?? ""), `go-${act}`),
+				"",
+			);
+			await changed;
+			const readBack = store.read(account);
+			await vi.waitFor(
+				() =>
+					expect(running(), `the read back after the ${act}, on its own`).toBe(
+						2,
+					),
+				{ timeout: 20_000 },
+			);
+			letThemGo();
+
+			await Promise.all([during, readBack]);
+			rmSync(join(dirname(process.env.KEYRING_CALL_FILE ?? ""), "go"));
+			rmSync(join(dirname(process.env.KEYRING_CALL_FILE ?? ""), `go-${act}`));
+		}
+	}, 60_000);
 });

@@ -111,17 +111,24 @@ function callOnce(
 		child.stdin.on("error", (error) => settle(error));
 		let stdout = "";
 		let stderr = "";
-		child.stdout.on("data", (chunk: Buffer) => {
-			stdout += chunk.toString("utf-8");
+		child.stdout.setEncoding("utf-8");
+		child.stderr.setEncoding("utf-8");
+		child.stdout.on("data", (chunk: string) => {
+			stdout += chunk;
 			const end = stdout.indexOf("\n");
 			if (end >= 0) settle(answerIn(stdout.slice(0, end)));
 		});
-		child.stderr.on("data", (chunk: Buffer) => {
-			stderr += chunk.toString("utf-8");
+		child.stderr.on("data", (chunk: string) => {
+			stderr += chunk;
 		});
 		child.on("close", (code, signal) => {
 			if (signal) {
-				settle(new Error(`its keyring call stopped by ${signal}`));
+				const said = stderr.trim().split("\n").at(-1);
+				settle(
+					new Error(
+						`its keyring call stopped by ${signal}${said ? `: ${said}` : ""}`,
+					),
+				);
 			} else if (stdout.trim()) {
 				settle(answerIn(stdout.trim()));
 			} else {
@@ -159,8 +166,9 @@ function limited(at: number) {
  * once. Reads of one account asked while one is already under way share
  * its answer, or its failure, rather than starting another process.
  * Nothing is kept once it ends, so a write elsewhere is read the next
- * time, and a write or remove here sends every later read to a call of
- * its own, so it never takes an answer from before them.
+ * time. A write or remove here stops any read under way being shared,
+ * as it starts and again as it ends, so a read asked after it, its own
+ * read-back included, never takes an answer from before it.
  */
 export function callingEntries(
 	script: string = CALL_SCRIPT,
@@ -180,17 +188,24 @@ export function callingEntries(
 		return started;
 	}
 
+	async function changing(account: string, asked: Asked): Promise<void> {
+		reading.delete(account);
+		try {
+			await call(asked);
+		} finally {
+			reading.delete(account);
+		}
+	}
+
 	return async (account) => ({
 		async getPassword() {
 			return (await read(account)).value ?? null;
 		},
 		async setPassword(password) {
-			reading.delete(account);
-			await call({ account, act: "write", value: password });
+			await changing(account, { account, act: "write", value: password });
 		},
 		async deleteCredential() {
-			reading.delete(account);
-			await call({ account, act: "remove" });
+			await changing(account, { account, act: "remove" });
 			return true;
 		},
 	});

@@ -1,4 +1,4 @@
-// A keyring call that says it started in KEYRING_CALL_FILE's folder, with how many were running then, and answers only once a file named go is there: with its account's name, or a refusal for an account named fails-*.
+// A keyring call that says it started in KEYRING_CALL_FILE's folder, with how many were running then, and answers only once a file named go, or go-<its act>, is there: with its account's name, or a refusal for an account named fails-*.
 import {
 	appendFileSync,
 	existsSync,
@@ -11,10 +11,11 @@ import { dirname, join } from "node:path";
 
 const folder = dirname(process.env.KEYRING_CALL_FILE ?? "");
 const running = join(folder, "running");
-const go = join(folder, "go");
 let text = "";
 for await (const chunk of process.stdin) text += chunk;
 const asked = JSON.parse(text);
+const letGo = () =>
+	existsSync(join(folder, "go")) || existsSync(join(folder, `go-${asked.act}`));
 
 const mine = join(running, String(process.pid));
 writeFileSync(mine, "");
@@ -23,14 +24,14 @@ appendFileSync(
 	`${JSON.stringify({ account: asked.account, running: readdirSync(running).length })}\n`,
 );
 
-if (!existsSync(go)) {
+if (!letGo()) {
 	await new Promise((answer) => {
 		const watcher = watch(folder, () => {
-			if (!existsSync(go)) return;
+			if (!letGo()) return;
 			watcher.close();
 			answer(undefined);
 		});
-		if (existsSync(go)) {
+		if (letGo()) {
 			watcher.close();
 			answer(undefined);
 		}
