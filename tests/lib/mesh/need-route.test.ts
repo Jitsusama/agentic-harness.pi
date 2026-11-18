@@ -589,6 +589,7 @@ describe("asking the node for a need's fit", () => {
 
 		const found = await needAt(socket, asked("A", "carry"), {
 			live: () => true,
+			stopped: () => false,
 			keep: root,
 		});
 
