@@ -95,6 +95,16 @@ function slowResume(ms: number) {
 
 /** Leave one conversation held, as a stopped host leaves it, answering its id. */
 async function heldOne(): Promise<string> {
+	const [sessionId] = await heldSome(1);
+	if (!sessionId) throw new Error("nothing held");
+	return sessionId;
+}
+
+/** Lets every conversation after the first in, as a current install would. */
+const admitting = async () => {};
+
+/** Open `count` conversations and stop, so the next start holds them. */
+async function heldSome(count: number): Promise<string[]> {
 	const signals = new EventEmitter();
 	const seeded = await runHost({
 		argv: ["background"],
@@ -106,18 +116,26 @@ async function heldOne(): Promise<string> {
 		say: () => {},
 		report: () => {},
 		places: places(),
+		rollout: admitting,
 	});
-	const reply = await controlRequest(seeded.serving.path, {
-		v: 1,
-		id: "o",
-		op: "open",
-		cwd: dir,
-		attended: false,
-	});
-	if (!reply.ok) throw new Error(reply.error.message);
-	signals.emit("SIGTERM");
-	await seeded.stopped;
-	return parseOpenResult(reply.result).sessionId;
+	const held: string[] = [];
+	try {
+		for (let n = 0; n < count; n++) {
+			const reply = await controlRequest(seeded.serving.path, {
+				v: 1,
+				id: `o${n}`,
+				op: "open",
+				cwd: dir,
+				attended: false,
+			});
+			if (!reply.ok) throw new Error(reply.error.message);
+			held.push(parseOpenResult(reply.result).sessionId);
+		}
+	} finally {
+		signals.emit("SIGTERM");
+		await seeded.stopped;
+	}
+	return held;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -1031,6 +1049,57 @@ describe("runHost", () => {
 				Number(rest),
 				"what followed the last mark",
 			).toBeGreaterThanOrEqual(0.1);
+		} finally {
+			second.emit("SIGTERM");
+			await run.stopped;
+		}
+	});
+
+	// The background host on 18 November resumed 81 one at a time in 479 s.
+	it("says each of the resumes that run together under its own step, with its own phases", async () => {
+		await heldSome(3);
+		const PHASE_MS = 60;
+		const said: string[] = [];
+		const second = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => ({
+				...(await engine(host)),
+				resume: async (_entry, _woken, mark) => {
+					mark?.("log");
+					// A real pause, so the two after the first overlap.
+					await new Promise((done) => setTimeout(done, PHASE_MS));
+				},
+			}),
+			signals: second,
+			ready: async () => {},
+			progress: async () => {},
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+			rollout: admitting,
+		});
+		try {
+			const steps = said
+				.map((line) => line.replace(/^\d+\.\d s: /, ""))
+				.filter((line) => /^resum/.test(line))
+				.map((line) => line.replace(/ in .*|: .*/, ""));
+			expect(steps, "the second and third begin before either ends").toEqual([
+				"resuming 1 of 3",
+				"resumed 1 of 3",
+				"resuming 2 of 3",
+				"resuming 3 of 3",
+				"resumed 2 of 3",
+				"resumed 3 of 3",
+			]);
+			for (const number of [2, 3])
+				expect(
+					said.find((line) => line.includes(`resumed ${number} of 3`)),
+					"its phases alone",
+				).toMatch(
+					/ \(ask \d+\.\d s, gate \d+\.\d s, log \d+\.\d s, rest \d+\.\d s\)$/,
+				);
 		} finally {
 			second.emit("SIGTERM");
 			await run.stopped;

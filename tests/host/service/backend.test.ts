@@ -15,6 +15,7 @@ import {
 	heldOrder,
 	hostBackend,
 	type Prepared,
+	RESUME_AT_ONCE,
 	resumeHeld,
 } from "../../../host/service/backend.ts";
 import { controlRequest, drainHost } from "../../../host/service/client.ts";
@@ -394,6 +395,94 @@ describe("hostBackend", () => {
 		});
 		await resumeHeld({ roster, engine: restart.fake });
 		expect(order).toEqual(["held", a, b, "let go"]);
+	});
+
+	describe("a few at a time", () => {
+		/** Hold `count` conversations, as a stopped host leaves them. */
+		async function holding(count: number): Promise<string[]> {
+			const opening = backendWith(engine().fake);
+			const held: string[] = [];
+			for (let n = 0; n < count; n++)
+				held.push(parseOpenResult(await opening.execute(open)).sessionId);
+			for (const id of held) await host.stop(id);
+			return held;
+		}
+
+		/** An engine whose resumes each take a moment, counting how many run at once as each begins. */
+		function overlapping(fails?: string) {
+			let running = 0;
+			const atBegin: number[] = [];
+			const restart = engine({
+				resume: vi.fn(async (entry) => {
+					running += 1;
+					atBegin.push(running);
+					try {
+						await new Promise((resolve) => setTimeout(resolve, 5));
+						if (entry.sessionId === fails)
+							throw new Error("pi would not open it");
+						register(entry);
+					} finally {
+						running -= 1;
+					}
+				}),
+			});
+			return { restart, atBegin };
+		}
+
+		it("resumes the first alone, then never more than RESUME_AT_ONCE together", async () => {
+			const held = await holding(RESUME_AT_ONCE + 3);
+			const { restart, atBegin } = overlapping();
+			const result = await resumeHeld({ roster, engine: restart.fake });
+			expect(atBegin[1], "the second begins once the first has resumed").toBe(
+				1,
+			);
+			expect(Math.max(...atBegin)).toBe(RESUME_AT_ONCE);
+			expect([...result.resumed].sort()).toEqual([...held].sort());
+		});
+
+		it("keeps going alone after a first that failed, until one resumes", async () => {
+			const held = await holding(RESUME_AT_ONCE + 2);
+			const { restart, atBegin } = overlapping(held[0]);
+			const result = await resumeHeld({ roster, engine: restart.fake });
+			expect(
+				atBegin.slice(0, 3),
+				"a, then b alone, then c beside others",
+			).toEqual([1, 1, 1]);
+			expect(Math.max(...atBegin)).toBe(RESUME_AT_ONCE);
+			expect(result.unresumed.map(({ sessionId }) => sessionId)).toEqual([
+				held[0],
+			]);
+		});
+
+		it("says each resume's phases and its end under its own step", async () => {
+			const held = await holding(RESUME_AT_ONCE + 1);
+			const restart = engine({
+				resume: vi.fn(async (entry, _adopt, mark) => {
+					mark?.("log");
+					await new Promise((resolve) => setTimeout(resolve, 5));
+					mark?.("screen");
+					register(entry);
+				}),
+			});
+			const heard: string[] = [];
+			await resumeHeld({
+				roster,
+				engine: restart.fake,
+				mark: (step, phase) => heard.push(`${step.sessionId} ${phase}`),
+				finished: (step) => heard.push(`${step.sessionId} done`),
+			});
+			for (const id of held)
+				expect(
+					heard.filter((line) => line.startsWith(id)),
+					"its own phases, in order",
+				).toEqual([
+					`${id} ask`,
+					`${id} gate`,
+					`${id} log`,
+					`${id} screen`,
+					`${id} done`,
+				]);
+		});
 	});
 
 	it("resumes every hold at start and lists one that would not resume as parked", async () => {

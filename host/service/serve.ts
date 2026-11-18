@@ -109,10 +109,15 @@ export async function serveHost(options: {
 	 * default the rollout gate over the install this host runs from.
 	 */
 	rollout?: AdmitAnother;
-	/** Hears each step of the start before it begins. */
+	/**
+	 * Hears each step of the start before it begins; a few resumes run at
+	 * once, so a resume's step may begin before the last has finished.
+	 */
 	starting?: (step: StartStep) => Promise<void>;
-	/** Hears each phase of the conversation being resumed as it ends. */
-	mark?: (phase: ResumePhase) => void;
+	/** Hears each phase of a conversation being resumed as it ends. */
+	mark?: (step: Resuming, phase: ResumePhase) => void;
+	/** Hears a resume that `starting` heard end, resumed, parked or failed. */
+	finished?: (step: Resuming) => void;
 }): Promise<ServingHost> {
 	const admitAnother = options.rollout ?? hostRolloutGate();
 	const key = hostKey(options.realm, options.kind);
@@ -187,6 +192,7 @@ export async function serveHost(options: {
 			admitAnother,
 			starting: options.starting,
 			mark: options.mark,
+			finished: options.finished,
 			order,
 		});
 		for (const { reason } of unresumed) options.report(reason);
