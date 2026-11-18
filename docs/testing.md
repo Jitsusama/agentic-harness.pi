@@ -42,11 +42,13 @@ handover; with no quest it runs here. Run it from the checkout's top,
 since what travels is the folder it runs in: the files git tracks
 there, as they lie, so edits not yet committed go too. A new file goes
 only once `git add` tracks it. Otherwise it stays behind: code that
-imports it fails far as though the code were at fault, and a test file
-left behind doesn't run, so the far run passes without it unless it
-was the only one named. So look at `git status` for untracked files before
-sending. Hidden files never travel, tracked or not: `.git`, `.pi/skills`
-and `.npmrc` stay here. The far side installs the packages from the
+imports or reads it fails far as though the code were at fault, and a
+file nothing reaches goes unchecked, a test file not run and a module
+not typechecked, so the far run passes without it unless every file
+named stayed behind. So look at `git status` before sending, and add
+the files you mean to send by name, not with `git add -A`, which
+would send scratch files too. Hidden files never travel, tracked or
+not: `.git`, `.pi/skills` and `.npmrc` stay here. The far side installs the packages from the
 lockfile with its own work toolchain's pnpm.
 
 So keep to here, with `--here`, anything that reads what stays behind:
@@ -55,11 +57,13 @@ So keep to here, with `--here`, anything that reads what stays behind:
 `pnpm test:changed` and `pnpm check` all run here. Keep to here for
 Linux too: on the work Mac, every test that runs only on Linux, such
 as the fence's, the shell sandbox's and the host's, skips, so a pass
-there says nothing of them.
+there says nothing of them. The same goes for a test that skips where
+a tool it needs is missing, such as verify's npm runs.
 
 A run that fails far, its setup included, ends with that failure
-rather than running again here. Run it again with `--here` to tell
-whether the code or the far machine was at fault.
+rather than running again here. Run it again with `--here`: a failure
+here too is the code's, and one only far is the far machine's or a
+file left behind.
 
 An agent's run goes only to a machine that declares a fence for
 agents at least as tight as optimus's, and mycelium places it only

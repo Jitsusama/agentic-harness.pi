@@ -182,8 +182,9 @@ paths as you go through `elsewhere run harness-check -- pnpm
 typecheck` (or `pnpm exec vitest run <paths>`), with no push. It goes
 far only from a quest session, to a machine with an agent fence as
 tight as optimus's, and else runs here. Only tracked, unhidden files
-travel, so whatever reads git or `.pi` runs here with `--here`, as do
-the Linux-only tests, which skip on the Mac.
+travel, so check `git status` first, and whatever reads git or `.pi`
+runs here with `--here`, as do the Linux-only tests, which skip on
+the Mac.
 [`docs/testing.md`](./docs/testing.md#sending-a-check-elsewhere) says
 what travels.
 
