@@ -25,7 +25,7 @@ import type {
 	Submission,
 	ToolRegistration,
 } from "./durable-types.ts";
-import { Admissions } from "./hosted-agent/admissions.ts";
+import { Admissions, type WordsWatch } from "./hosted-agent/admissions.ts";
 import type {
 	DurableBinding,
 	QueueShowingSession,
@@ -430,9 +430,9 @@ export class HostedAgent {
 
 	// Runs.
 
-	/** Settle once durable holds the next words pi gives, or reject with why not: an open's first words wait on it. */
-	whenNextHeld(): Promise<void> {
-		return this.admissions.whenNextHeld();
+	/** Watch for words pi gives until `signal` stops it, settled once durable holds them: an open's first words wait on it. */
+	watchWords(signal?: AbortSignal): WordsWatch {
+		return this.admissions.watch(signal);
 	}
 
 	/**

@@ -39,7 +39,10 @@ import { isRecord } from "../../../../lib/internal/record.ts";
 interface Session {
 	prompt(
 		text: string,
-		options?: { streamingBehavior?: "steer" | "followUp" },
+		options?: {
+			streamingBehavior?: "steer" | "followUp";
+			preflightResult?: (disposition: "handled" | "queued" | "started") => void;
+		},
 	): Promise<void>;
 	steer(text: string): Promise<void>;
 	followUp(text: string): Promise<void>;
@@ -690,8 +693,8 @@ const scenarios: Record<string, Scenario> = {
 			}
 			note({ type: "prompted", streaming: session.isStreaming });
 			// As an open waits for its first words: held once durable has them, which commits no prompt here.
-			const held = agent?.whenNextHeld("sent during the turn");
-			void held?.then(
+			const watch = agent?.watchWords();
+			void watch?.held.then(
 				() => note({ type: "words_held" }),
 				(error: unknown) =>
 					note({ type: "words_refused", error: String(error) }),
@@ -702,6 +705,11 @@ const scenarios: Record<string, Scenario> = {
 				// sends them as a follow-up.
 				await session.prompt("sent during the turn", {
 					streamingBehavior: session.isStreaming ? "followUp" : undefined,
+					// As an open's first words are watched.
+					preflightResult: (disposition: string) => {
+						if (disposition === "started") watch?.next();
+						else if (disposition === "queued") watch?.last();
+					},
 				});
 			} catch (error) {
 				// Noted rather than thrown, so the test sees what pi's caller was told.

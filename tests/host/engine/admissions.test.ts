@@ -67,73 +67,90 @@ function queued(
 describe("the words the agent watches for", () => {
 	it("are held once queued behind a run that takes them, which commits no prompt", async () => {
 		const { admissions, followUp } = admitting();
-		const held = admissions.whenNextHeld();
+		const watch = admissions.watch();
 		queued(admissions, followUp, words("first"));
-		expect(await outcome(held)).toBe("held");
+		watch.last();
+		expect(await outcome(watch.held)).toBe("held");
+	});
+
+	it("are held though durable took them before pi said it queued them", async () => {
+		// pi says it queued words only after an await, by when durable may have them.
+		const { admissions, followUp } = admitting();
+		const watch = admissions.watch();
+		queued(admissions, followUp, words("first"));
+		expect(await outcome(watch.held), "not yet told which").toBe("waiting");
+		watch.last();
+		expect(await outcome(watch.held)).toBe("held");
 	});
 
 	it("are held once a prompt carrying them is committed", async () => {
 		const { admissions } = admitting();
-		const held = admissions.whenNextHeld();
+		const watch = admissions.watch();
+		watch.next();
 		const first = words("first");
 		admissions.given([first]);
 		admissions.committed([first]);
-		expect(await outcome(held)).toBe("held");
+		expect(await outcome(watch.held)).toBe("held");
 	});
 
 	it("are not held by a prompt of words given before them", async () => {
 		const { admissions, followUp } = admitting();
 		const left = words("left from before");
 		followUp.enqueue({ hostId: "left", message: left });
-		const held = admissions.whenNextHeld();
+		const watch = admissions.watch();
+		watch.next();
 		admissions.given([words("first")]);
 		admissions.committed([left]);
-		expect(await outcome(held)).toBe("waiting");
+		expect(await outcome(watch.held)).toBe("waiting");
 	});
 
 	it("are not held by another's words given before them", async () => {
 		// An extension may send words of its own while pi is still taking the first.
 		const { admissions } = admitting();
-		const held = admissions.whenNextHeld("first");
+		const watch = admissions.watch();
 		const other = words("from an extension");
 		admissions.given([other]);
 		admissions.committed([other]);
-		expect(await outcome(held), "another's words").toBe("waiting");
+		expect(await outcome(watch.held), "another's words").toBe("waiting");
 
+		watch.next();
 		const first = words("first");
 		admissions.given([first]);
 		admissions.committed([first]);
-		expect(await outcome(held), "the first words").toBe("held");
+		expect(await outcome(watch.held), "the first words").toBe("held");
 	});
 
 	it("are watched for no more once the watcher stops", async () => {
 		// A watch nobody waits on would otherwise take the next words anyone gives.
 		const { admissions } = admitting();
 		const stopping = new AbortController();
-		const held = admissions.whenNextHeld("first", stopping.signal);
+		const watch = admissions.watch(stopping.signal);
+		watch.next();
 		stopping.abort();
 		const first = words("first");
 		admissions.given([first]);
 		admissions.committed([first]);
-		expect(await outcome(held)).toBe("refused");
+		expect(await outcome(watch.held)).toBe("refused");
 	});
 
 	it("are refused as the prompt carrying them is", async () => {
 		const { admissions } = admitting();
-		const held = admissions.whenNextHeld();
+		const watch = admissions.watch();
+		watch.next();
 		const first = words("first");
 		admissions.given([first]);
 		admissions.committed([first], new Error("durable refused the prompt"));
-		expect(await outcome(held)).toBe("refused");
+		expect(await outcome(watch.held)).toBe("refused");
 	});
 
 	it("are refused once pi drops them before durable held them", async () => {
 		const { admissions, followUp } = admitting();
-		const held = admissions.whenNextHeld();
+		const watch = admissions.watch();
 		const first = words("first");
 		followUp.enqueue({ hostId: "first", message: first });
 		admissions.given([first]);
+		watch.last();
 		admissions.withdraw(followUp.clear());
-		expect(await outcome(held)).toBe("refused");
+		expect(await outcome(watch.held)).toBe("refused");
 	});
 });

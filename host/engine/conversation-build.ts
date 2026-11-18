@@ -474,9 +474,10 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		first: string,
 	): Promise<void> {
 		const session = view(record.traits.sessionId, record).runtime.session;
-		const held = agent.whenNextHeld();
+		const stopping = new AbortController();
+		const words = agent.watchWords(stopping.signal);
 		// Once the race is decided, a later rejection says only what the race already said.
-		held.catch(() => undefined);
+		words.held.catch(() => undefined);
 		let handled = () => {};
 		const taken = new Promise<void>((done) => {
 			handled = done;
@@ -485,8 +486,12 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			source: "rpc",
 			// An extension may begin a run of pi's as the carried one settles, and pi refuses words that don't say how to queue behind it, as its editor's do.
 			streamingBehavior: "followUp",
+			// pi says a run started just before it gives the run's words, and
+			// queued just after it gave them, so the watch takes only these.
 			preflightResult: (disposition) => {
 				if (disposition === "handled") handled();
+				else if (disposition === "started") words.next();
+				else if (disposition === "queued") words.last();
 			},
 		});
 		// pi runs an extension command inside prompt and calls it handled only
@@ -496,7 +501,11 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		// pi answers at once for words it only queued behind a run under way, or
 		// put off while a run settled, so its answer alone says nothing: durable
 		// holds them once the run takes them or a later prompt carries them.
-		await Promise.race([held, taken, prompting.then(() => held)]);
+		try {
+			await Promise.race([words.held, taken, prompting.then(() => words.held)]);
+		} finally {
+			stopping.abort();
+		}
 		prompting.catch((error: unknown) => failedAfterStart(record, error));
 	}
 

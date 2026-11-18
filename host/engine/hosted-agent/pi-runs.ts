@@ -128,8 +128,11 @@ export class PiRuns {
 			open.end();
 			// pi settles a run it never finished preparing only once it has, which a
 			// handler that never answers puts off for good: the run ends without it.
+			// What waits goes on only once pi settles, so no run hears that settle.
+			void open.settled.then(() => {
+				if (!this.parked()) this.next();
+			});
 			await Promise.race([open.settled, open.overdue]);
-			if (!this.parked()) this.next();
 		};
 	}
 
