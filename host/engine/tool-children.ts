@@ -30,7 +30,11 @@
  * A busy machine holds thousands of processes, and their environments tens
  * of megabytes, so the table is read without holding the host's one loop,
  * a few files at a time, and only an environment that mentions the marker
- * sought is parsed.
+ * sought is parsed. A start reaps every conversation it resumes, so it
+ * reads the table once (`markedByConversation`) and each reap first looks
+ * only at what that reading named for it: on 18 November a start of 81
+ * read it 81 times, about 14 MB each, and its reaps grew from half a
+ * second each to six.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -136,8 +140,37 @@ export function reapToolChildren(
 	sessionId: string,
 	table: ProcessTable = linuxProcessTable(),
 	spared: CarriedCalls = carriedCalls(),
+	among?: readonly number[],
 ): Promise<Reaped> {
-	return reapWhere(conversationSought(sessionId), table, spared);
+	return reapWhere(conversationSought(sessionId), table, spared, among);
+}
+
+/**
+ * The processes other than this one carrying each conversation's marker,
+ * by conversation, from one reading of the table. A reap given one
+ * conversation's (`among`) looks first at those alone, which holds only
+ * while nothing of that conversation has started since, as at a start
+ * before pi builds it.
+ */
+export async function markedByConversation(
+	table: ProcessTable = linuxProcessTable(),
+): Promise<Map<string, number[]>> {
+	const byConversation = new Map<string, number[]>();
+	const found = await markedWhere(
+		{
+			mentioning: `${CONVERSATION_MARKER}=`,
+			chosen: (environ) => environ[CONVERSATION_MARKER] !== undefined,
+		},
+		table,
+	);
+	for (const [pid, environ] of found) {
+		const sessionId = environ[CONVERSATION_MARKER];
+		if (sessionId === undefined) continue;
+		const pids = byConversation.get(sessionId) ?? [];
+		pids.push(pid);
+		byConversation.set(sessionId, pids);
+	}
+	return byConversation;
 }
 
 /**
@@ -227,6 +260,7 @@ async function reapWhere(
 	sought: Sought,
 	table: ProcessTable,
 	spared: CarriedCalls,
+	among?: readonly number[],
 ): Promise<Reaped> {
 	const own = table.group(table.self);
 	const ownCgroup = table.cgroup(table.self);
@@ -234,7 +268,13 @@ async function reapWhere(
 	const groups = new Set<number>();
 	const pids = new Set<number>();
 	for (let pass = 0; pass < MOST_PASSES; pass += 1) {
-		const found = await markedWhere(sought, table);
+		// What a start's reading named is all the first look needs; a look
+		// after a kill reads the whole table, for a child forked meanwhile.
+		const found = await markedWhere(
+			sought,
+			table,
+			pass === 0 ? among : undefined,
+		);
 		// Groups holding a process that must live, whose others die one by one.
 		const holdingKept = new Set<number>();
 		const dying: [number, number][] = [];
@@ -278,8 +318,9 @@ function handedOn(
 async function markedWhere(
 	sought: Sought,
 	table: ProcessTable,
+	among?: readonly number[],
 ): Promise<Map<number, Readonly<Record<string, string>>>> {
-	const others = table.pids().filter((pid) => pid !== table.self);
+	const others = (among ?? table.pids()).filter((pid) => pid !== table.self);
 	const found = new Map<number, Readonly<Record<string, string>>>();
 	for (let at = 0; at < others.length; at += READ_AT_ONCE) {
 		const some = others.slice(at, at + READ_AT_ONCE);

@@ -17,6 +17,7 @@ import {
 	conversationMarker,
 	linuxProcessTable,
 	marked,
+	markedByConversation,
 	ownerMark,
 	type ProcessTable,
 	parseEnviron,
@@ -55,16 +56,28 @@ const HOST = { key: "test-host", mark: "1:0" };
 function fakeTable(
 	processes: Record<number, FakeProcess>,
 	self = 1,
-): ProcessTable & { killed: string[] } {
+): ProcessTable & {
+	killed: string[];
+	read: number[];
+	start(pid: number, p: FakeProcess): void;
+} {
 	const live = new Map(
 		Object.entries(processes).map(([pid, p]) => [Number(pid), p]),
 	);
 	const killed: string[] = [];
+	const read: number[] = [];
 	return {
 		self,
 		killed,
+		read,
+		start: (pid, p) => {
+			live.set(pid, p);
+		},
 		pids: () => [...live.keys()],
-		environ: async (pid) => live.get(pid)?.env,
+		environ: async (pid) => {
+			read.push(pid);
+			return live.get(pid)?.env;
+		},
 		group: (pid) => live.get(pid)?.group,
 		cgroup: (pid) => live.get(pid)?.cgroup,
 		started: (pid) => {
@@ -293,6 +306,74 @@ describe("reaping a conversation's tool children", () => {
 			pids: [],
 		});
 		expect(table.killed).toEqual([]);
+	});
+
+	describe("at a start, from one reading of the table", () => {
+		it("names each conversation's marked processes, reading each environment once", async () => {
+			const table = fakeTable({
+				1: { group: 1, env: conversationMarker("a", HOST) },
+				10: { group: 10, env: conversationMarker("a", HOST) },
+				11: { group: 10, env: conversationMarker("a", HOST) },
+				20: { group: 20, env: conversationMarker("b", HOST) },
+				30: { group: 30, env: {} },
+			});
+			const scan = await markedByConversation(table);
+			expect(scan.get("a"), "never the host itself").toEqual([10, 11]);
+			expect(scan.get("b")).toEqual([20]);
+			expect(scan.size, "a stranger names none").toBe(2);
+			expect([...table.read].sort()).toEqual([10, 11, 20, 30]);
+		});
+
+		it("reads only the processes the scan named for it, and kills them", async () => {
+			const table = fakeTable({
+				1: { group: 1, env: {} },
+				10: { group: 10, env: conversationMarker("a", HOST) },
+				20: { group: 20, env: conversationMarker("b", HOST) },
+				30: { group: 30, env: {} },
+			});
+			expect(await reapToolChildren("b", table, undefined, [20])).toEqual({
+				groups: [20],
+				pids: [],
+			});
+			expect(table.killed).toEqual(["group 20"]);
+			expect(
+				table.read[0],
+				"its first look reads only what the scan named",
+			).toBe(20);
+		});
+
+		it("reads nothing more when the scan named nothing for it", async () => {
+			const table = fakeTable({
+				1: { group: 1, env: {} },
+				20: { group: 20, env: conversationMarker("b", HOST) },
+				30: { group: 30, env: {} },
+			});
+			expect(await reapToolChildren("a", table, undefined, [])).toEqual({
+				groups: [],
+				pids: [],
+			});
+			expect(table.read, "no environment read").toEqual([]);
+		});
+
+		it("looks over the whole table again once it killed, for a child forked meanwhile", async () => {
+			const table = fakeTable({
+				1: { group: 1, env: {} },
+				10: { group: 10, env: conversationMarker("a", HOST) },
+			});
+			const kill = table.kill;
+			let forked = false;
+			table.kill = (target) => {
+				kill(target);
+				// A child it forked into a group of its own as the kill went out.
+				if (!forked)
+					table.start(40, { group: 40, env: conversationMarker("a", HOST) });
+				forked = true;
+			};
+			expect(await reapToolChildren("a", table, undefined, [10])).toEqual({
+				groups: [10, 40],
+				pids: [],
+			});
+		});
 	});
 
 	it("reads /proc's environ and stat lines, a command with spaces and parentheses included", () => {

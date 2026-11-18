@@ -542,9 +542,11 @@ export async function createEngine(
 
 		resuming() {
 			turns.hold();
+			stopping.resuming();
 		},
 
 		resumed() {
+			stopping.resumed();
 			turns.open();
 		},
 

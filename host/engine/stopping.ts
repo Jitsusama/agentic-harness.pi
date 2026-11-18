@@ -15,6 +15,9 @@ import { leftRunning } from "./left-running.ts";
 import type { EventBus } from "./pi-session.ts";
 import {
 	callsLeftRunning,
+	linuxProcessTable,
+	markedByConversation,
+	type ProcessTable,
 	reapLeftBehind,
 	reapToolChildren,
 } from "./tool-children.ts";
@@ -40,8 +43,21 @@ export interface Running {
 export interface StopKeeping {
 	/** End what this host's dead predecessors' tools left running, held or not. */
 	reapEarlier(hostKey: string): Promise<void>;
-	/** End what a conversation's tools left running, sparing what is carried or kept. */
+	/**
+	 * End what a conversation's tools left running, sparing what is carried
+	 * or kept. Between `resuming` and `resumed`, each conversation's first
+	 * reap looks first at what one reading of the table, taken at the
+	 * start's first reap, named for it.
+	 */
 	reap(sessionId: string): Promise<void>;
+	/**
+	 * A start begins resuming what it held, after `reapEarlier`: nothing of
+	 * a conversation runs in this host until pi builds it, which its first
+	 * reap comes before, so one reading of the table serves them all.
+	 */
+	resuming(): void;
+	/** The start is over: every reap reads the table for itself again. */
+	resumed(): void;
 	/** Keep or end what a released conversation's ended calls left, by how it stopped, then reap the rest. */
 	afterRelease(sessionId: string, record: Stopped): Promise<void>;
 	/** The service is releasing a conversation to another holder, so its close keeps what parks kept. */
@@ -54,15 +70,49 @@ export interface StopKeeping {
 export function stopKeeping(options: {
 	readonly stateDir: string;
 	readonly report: (error: unknown) => void;
+	/** The process table reaps read; Linux's /proc by default. */
+	readonly table?: ProcessTable;
 }): StopKeeping {
 	const { report } = options;
+	const table = options.table ?? linuxProcessTable();
+	// The start's one reading of the table, taken at its first reap, and
+	// the conversations whose first reap has had it.
+	let start:
+		| { scan?: Promise<Map<string, number[]>>; readonly reaped: Set<string> }
+		| undefined;
 	// What parks kept of what ended calls left running is spared by every reap.
 	const left = leftRunning(options);
 	// Conversations the service is releasing to another holder, whose close keeps what parks kept.
 	const handedOn = new Set<string>();
 
 	async function reap(sessionId: string): Promise<void> {
-		await reapToolChildren(sessionId, undefined, left.spared(carriedCalls()));
+		const among = await startScanFor(sessionId);
+		await reapToolChildren(
+			sessionId,
+			table,
+			left.spared(carriedCalls()),
+			among,
+		);
+	}
+
+	/**
+	 * What the start's reading named for a conversation, on its first reap
+	 * of the start; nothing outside a start, or once it has had it, when
+	 * what it built since may have started more.
+	 */
+	async function startScanFor(
+		sessionId: string,
+	): Promise<readonly number[] | undefined> {
+		if (!start || start.reaped.has(sessionId)) return undefined;
+		start.reaped.add(sessionId);
+		start.scan ??= markedByConversation(table);
+		try {
+			return (await start.scan).get(sessionId) ?? [];
+		} catch (error) {
+			// The reap reads the table for itself, as outside a start.
+			report(error);
+			return undefined;
+		}
 	}
 
 	/** Spare no longer what a conversation closed for good kept, saying it in the journal; true when it kept any. */
@@ -107,6 +157,14 @@ export function stopKeeping(options: {
 		},
 
 		reap,
+
+		resuming() {
+			start = { reaped: new Set() };
+		},
+
+		resumed() {
+			start = undefined;
+		},
 
 		async afterRelease(sessionId, record) {
 			// Any stop short of a close for good, a park, a host's stop, a release
