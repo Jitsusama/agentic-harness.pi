@@ -53,13 +53,13 @@ import {
 	stoppingStatus,
 } from "./status.ts";
 import {
+	backstopWithin,
 	endWithin,
-	stopBackstop,
 	stopWithin,
 	unparkedLine,
 	unparkedMarks,
 } from "./stop.ts";
-import { type BackstopOptions, backstopStop } from "./stop-backstop.ts";
+import { type Backstop, backstopStop } from "./stop-backstop.ts";
 
 /** The signals that stop a host: systemd's stop, and Ctrl+C by hand. */
 const STOP_SIGNALS = ["SIGTERM", "SIGINT"] as const;
@@ -92,12 +92,8 @@ const STATUS_EVERY_MS = 15_000;
  */
 const BACKSTOP_TOLD_EVERY_MS = 1000;
 
-/**
- * The least a backstop comes after its stop's own bound, in ms, so a loop
- * merely late on a busy machine still ends its stop itself, as a unit's
- * 150 s limit always allows; only a limit under 40 s is held to it.
- */
-const BACKSTOP_AFTER_BOUND_MS = 5000;
+/** No backstop, for a stop whose unit never kills it. */
+const UNARMED: Backstop = { held() {}, done() {} };
 
 /**
  * How many times the host pings systemd's watchdog in each of its
@@ -349,15 +345,17 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		// The bound is a timer on this loop, which a loop held on a CPU never
 		// comes back to, as at 04:33 on 18 November; a thread beside it ends
 		// the host later, still short of systemd's kill.
-		const armed: BackstopOptions = {
-			within: Math.max(
-				stopBackstop(options.env),
-				bound + BACKSTOP_AFTER_BOUND_MS,
-			),
-			file: unparked.file,
-			ids: unparkedIds(),
-		};
-		const backstop = (options.backstop ?? backstopStop)(armed);
+		// A loop already held as SIGTERM comes never arms it, since this
+		// handler runs on that loop.
+		const within = backstopWithin(options.env, bound);
+		const backstop: Backstop =
+			within === undefined
+				? UNARMED
+				: (options.backstop ?? backstopStop)({
+						within,
+						file: unparked.file,
+						ids: unparkedIds(),
+					});
 		const telling = setInterval(
 			() => backstop.held(unparkedIds()),
 			BACKSTOP_TOLD_EVERY_MS,

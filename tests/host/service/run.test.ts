@@ -35,6 +35,12 @@ vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
 	spareStaleRejections: () => {},
 }));
 
+// A real backstop would SIGKILL this whole worker past a case whose stop
+// never ended; stop-backstop.test.ts runs the thread in a child of its own.
+vi.mock("../../../host/service/stop-backstop.ts", () => ({
+	backstopStop: () => ({ held() {}, done() {} }),
+}));
+
 let dir: string;
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "h2-run-"));
@@ -724,9 +730,10 @@ describe("runHost", () => {
 
 	// At 04:33 on 18 November a stop's loop ran on a CPU past its own
 	// bound, a timer that never fired, and systemd killed the host.
-	it("arms a backstop beside the loop with what is unparked, disarmed as the stop ends", async () => {
+	it("arms a backstop beside the loop with what is unparked, tells it each second, and disarms it as the stop ends", async () => {
 		const signals = new EventEmitter();
 		const armed: BackstopOptions[] = [];
+		const told: (readonly string[])[] = [];
 		let disarmed = 0;
 		let parks = () => {};
 		const run = await runHost({
@@ -746,11 +753,14 @@ describe("runHost", () => {
 			signals,
 			ready: async () => {},
 			status: async () => {},
-			stopWithin: 200,
+			// Long enough for a second's telling before the bound ends it.
+			stopWithin: 1500,
 			backstop: (options) => {
 				armed.push(options);
 				return {
-					held() {},
+					held(ids) {
+						told.push(ids);
+					},
 					done() {
 						disarmed += 1;
 					},
@@ -779,6 +789,7 @@ describe("runHost", () => {
 				ids: [sessionId],
 			},
 		]);
+		expect(told, "told again a second in").toEqual([[sessionId]]);
 		expect(disarmed, "disarmed as the stop ended").toBe(1);
 		parks();
 		await run.serving.stop();

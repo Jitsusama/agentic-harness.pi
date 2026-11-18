@@ -6,8 +6,10 @@
 
 import { spawn } from "node:child_process";
 import {
+	closeSync,
 	existsSync,
 	mkdtempSync,
+	openSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -15,6 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { backstopStop } from "../../../host/service/stop-backstop.ts";
 
 const BACKSTOP = resolve(
 	import.meta.dirname,
@@ -40,7 +43,8 @@ const backstop = backstopStop({ within: ${WITHIN_MS}, file, ids });
 if (mode === "moved") backstop.held(["b"]);
 if (mode === "done") {
 	backstop.done();
-	setTimeout(() => process.exit(0), ${3 * WITHIN_MS});
+	// Long past the backstop, so a thread slow to start would still fire.
+	setTimeout(() => process.exit(0), ${10 * WITHIN_MS});
 } else {
 	const until = Date.now() + ${CHILD_MS};
 	while (Date.now() < until) {
@@ -107,6 +111,10 @@ describe("backstopStop", () => {
 			at: expect.any(Number),
 			ids: ["a", "b"],
 		});
+		const waited = Number(/after (\d+) ms/.exec(ended.said)?.[1]);
+		expect(waited, "counted from when it was armed").toBeGreaterThanOrEqual(
+			WITHIN_MS,
+		);
 	});
 
 	it("names what was unparked as last told, which the held loop can't update", {
@@ -140,5 +148,27 @@ describe("backstopStop", () => {
 			said: "",
 		});
 		expect(existsSync(file), "no mark").toBe(false);
+	});
+
+	it("says so when its thread can't start, leaving the stop to its loop", () => {
+		const said = join(dir, "said");
+		const fd = openSync(said, "w");
+		try {
+			// A symbol can't be handed to a thread, so its start throws.
+			const unclonable: string[] = [Symbol("unclonable") as unknown as string];
+			const backstop = backstopStop({
+				within: 60_000,
+				file: join(dir, "not-parked.json"),
+				ids: unclonable,
+				fd,
+			});
+			backstop.held(["a"]);
+			backstop.done();
+		} finally {
+			closeSync(fd);
+		}
+		expect(readFileSync(said, "utf8")).toMatch(
+			/^pi-host: couldn't arm the stop's backstop thread: .+; its loop's own bound is all that ends it\n$/,
+		);
 	});
 });

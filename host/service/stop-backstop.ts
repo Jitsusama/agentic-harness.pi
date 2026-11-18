@@ -5,6 +5,7 @@
  * kill and says what it left unparked.
  */
 
+import { writeSync } from "node:fs";
 import { Worker } from "node:worker_threads";
 
 /** Standard error, which the journal reads. */
@@ -57,14 +58,11 @@ parentPort.on("message", (told) => {
 	if (told === "done") process.exit(0);
 	else ids = told;
 });
+// From when it was armed, since a starved machine may be slow to start it.
 setTimeout(() => {
 	const waited = Date.now() - began;
 	const left = ids.length > 0 ? ": " + ids.join(", ") : "";
-	try {
-		writeSync(fd, "pi-host: stopping after " + waited + " ms, its loop held past the " + within + " ms its thread allows, " + ids.length + " not parked" + left + "; ending the host from that thread\\n");
-	} catch {
-		// With no journal to write to, the mark and the end still matter.
-	}
+	// The mark first, as a write to a journal that has stopped reading can block.
 	if (ids.length > 0)
 		try {
 			mkdirSync(dirname(file), { recursive: true });
@@ -72,15 +70,24 @@ setTimeout(() => {
 		} catch {
 			// The line names them; only the next start's note is lost.
 		}
+	try {
+		writeSync(fd, "pi-host: stopping after " + waited + " ms, its loop held past the " + within + " ms its thread allows, " + ids.length + " not parked" + left + "; ending the host from that thread\\n");
+	} catch {
+		// With no journal to write to, the end still matters.
+	}
 	process.kill(pid, "SIGKILL");
-}, within);
+}, Math.max(0, within - (Date.now() - began)));
 `;
+
+/** A backstop that couldn't start, leaving the stop to its loop's timer. */
+const UNARMED: Backstop = { held() {}, done() {} };
 
 /**
  * Arm a backstop for a stop beginning now: unless told the stop is done,
  * its thread ends the host once `within` ms have passed, saying in the
  * journal and marking at `file` the conversations it was last told were
- * unparked. The thread never keeps the process alive.
+ * unparked. The thread never keeps the process alive. One that can't
+ * start says so, and leaves the stop bound by its loop's timer alone.
  */
 export function backstopStop(options: BackstopOptions): Backstop {
 	const armed: Armed = {
@@ -91,10 +98,20 @@ export function backstopStop(options: BackstopOptions): Backstop {
 		pid: process.pid,
 		began: Date.now(),
 	};
-	const thread = new Worker(PROGRAM, { eval: true, workerData: armed });
+	const unarmed = (error: unknown) =>
+		sayUnarmed(
+			armed.fd,
+			error instanceof Error ? error.message : String(error),
+		);
+	let thread: Worker;
+	try {
+		thread = new Worker(PROGRAM, { eval: true, workerData: armed });
+	} catch (error) {
+		unarmed(error);
+		return UNARMED;
+	}
 	thread.unref();
-	// A thread that fails to start leaves the stop as it was: bound by its timer alone.
-	thread.on("error", () => {});
+	thread.on("error", unarmed);
 	return {
 		held(ids) {
 			thread.postMessage([...ids]);
@@ -103,4 +120,16 @@ export function backstopStop(options: BackstopOptions): Backstop {
 			thread.postMessage("done");
 		},
 	};
+}
+
+/** Say that a stop's backstop isn't armed, and why. */
+function sayUnarmed(fd: number, why: string): void {
+	try {
+		writeSync(
+			fd,
+			`pi-host: couldn't arm the stop's backstop thread: ${why}; its loop's own bound is all that ends it\n`,
+		);
+	} catch {
+		// With no journal to write to, there is nobody to tell.
+	}
 }

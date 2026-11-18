@@ -41,6 +41,13 @@ const STOP_SHARE = 3 / 4;
  */
 const BACKSTOP_SHARE = 7 / 8;
 
+/**
+ * The least a backstop comes after its stop's own bound, in ms, so a loop
+ * merely late on a busy machine still ends its stop itself; a unit's
+ * 150 s limit leaves more, and only a limit under 40 s is held to it.
+ */
+const BACKSTOP_AFTER_BOUND_MS = 5000;
+
 /** The stop limit, in ms, assumed when a unit names none: systemd's default. */
 const DEFAULT_STOP_LIMIT_MS = 60_000;
 
@@ -66,12 +73,22 @@ export function stopWithin(env: NodeJS.ProcessEnv): number {
 }
 
 /**
- * How long, in ms, a stop's backstop waits before ending the host from
- * its own thread: seven eighths of the stop limit its unit names, else of
- * systemd's default minute, never longer than a timer can wait.
+ * How long, in ms, a stop bound to `bound` ms lets its backstop wait before
+ * ending the host from its own thread: seven eighths of the stop limit its
+ * unit names, else of systemd's default minute, and never sooner than
+ * BACKSTOP_AFTER_BOUND_MS past the bound. Undefined, arming none, past the
+ * longest a timer can wait, where a thread's timer would fire at once and
+ * systemd's own kill, if any, is weeks off.
  */
-export function stopBackstop(env: NodeJS.ProcessEnv): number {
-	return shareOf(stopLimit(env) ?? DEFAULT_STOP_LIMIT_MS, BACKSTOP_SHARE);
+export function backstopWithin(
+	env: NodeJS.ProcessEnv,
+	bound: number,
+): number | undefined {
+	const within = Math.max(
+		Math.floor((stopLimit(env) ?? DEFAULT_STOP_LIMIT_MS) * BACKSTOP_SHARE),
+		bound + BACKSTOP_AFTER_BOUND_MS,
+	);
+	return within > LONGEST_TIMER_MS ? undefined : within;
 }
 
 /** The stop limit its unit names in PI_HOST_STOP_USEC, in ms, if it can be read. */

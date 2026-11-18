@@ -5,8 +5,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	backstopWithin,
 	endWithin,
-	stopBackstop,
 	stopWithin,
 	unparkedLine,
 } from "../../../host/service/stop.ts";
@@ -51,24 +51,33 @@ describe("stopWithin", () => {
 // 150 s, so its own 112 s bound never fired and systemd killed it with
 // nothing said. A thread beside the loop ends the host past the bound,
 // still short of systemd's kill.
-describe("stopBackstop", () => {
+describe("backstopWithin", () => {
 	it("ends a stop its loop can't at seven eighths of the unit's stop limit", () => {
-		expect(stopBackstop({ PI_HOST_STOP_USEC: "150000000" })).toBe(131_250);
-		expect(stopBackstop({ PI_HOST_STOP_USEC: "100000000" })).toBe(87_500);
+		for (const [usec, within] of [
+			["150000000", 131_250],
+			["100000000", 87_500],
+		] as const) {
+			const env = { PI_HOST_STOP_USEC: usec };
+			expect(backstopWithin(env, stopWithin(env)), usec).toBe(within);
+		}
 	});
 
-	it("comes after the loop's own bound, so a loop that turns ends its stop itself", () => {
-		for (const env of [{ PI_HOST_STOP_USEC: "150000000" }, {}])
-			expect(stopBackstop(env), JSON.stringify(env)).toBeGreaterThan(
-				stopWithin(env),
-			);
+	it("comes 5 s after the loop's own bound at least, so a loop late on a busy machine ends its stop itself", () => {
+		const env = { PI_HOST_STOP_USEC: "400000" };
+		expect(backstopWithin(env, stopWithin(env))).toBe(5300);
+		expect(backstopWithin({}, 200), "a bound of its own").toBe(52_500);
 	});
 
-	it("waits no longer than a timer can, and 52.5 s when its unit names no limit", () => {
-		expect(stopBackstop({ PI_HOST_STOP_USEC: "18446744073709551615" })).toBe(
-			LONGEST_TIMER_MS,
-		);
-		expect(stopBackstop({ PI_HOST_STOP_USEC: "soon" })).toBe(52_500);
+	it("takes 52.5 s when its unit names no limit it can read", () => {
+		expect(backstopWithin({ PI_HOST_STOP_USEC: "soon" }, 45_000)).toBe(52_500);
+	});
+
+	// A wait past a timer's longest fires at once, which would kill the
+	// host a millisecond into every stop.
+	it("arms nothing under systemd's infinity, which never kills", () => {
+		const env = { PI_HOST_STOP_USEC: "18446744073709551615" };
+		expect(stopWithin(env), "the loop's bound").toBe(LONGEST_TIMER_MS);
+		expect(backstopWithin(env, stopWithin(env))).toBeUndefined();
 	});
 });
 
