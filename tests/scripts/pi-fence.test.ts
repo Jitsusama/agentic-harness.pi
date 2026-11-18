@@ -438,7 +438,8 @@ describe("pi-fence's child", () => {
 			);
 			const deafPid = () =>
 				existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : 0;
-			expect(await waitFor(() => deafPid() > 1, 10_000)).toBe(true);
+			const started = await waitFor(() => deafPid() > 1, 10_000);
+			expect(started, "the deaf sleeper wrote its pid").toBe(true);
 			const deaf = deafPid();
 			left.push(deaf);
 
