@@ -332,4 +332,29 @@ describe("a kept call", () => {
 		ended = false;
 		expect(seen, "nothing to carry once it ended here").toEqual([]);
 	});
+
+	// A pi gone between the settle and the record's removal would leave a
+	// job its next start takes up and says the end of a second time.
+	it("takes back its job's record before it settles", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "keeping-"));
+		made.push(dir);
+		const folder = join(dir, "kept");
+		let keep: string | undefined;
+		const kept = keepsOnDisk(
+			{
+				async exec(_command, _cwd, call) {
+					keep = call.env?.[KEEP_VARIABLE];
+					writeFileSync(`${keep}.job`, "{}");
+					writeFileSync(`${keep}.end`, "0");
+					return { exitCode: 0 };
+				},
+			},
+			{ can: () => true, folder: () => folder },
+		);
+		await run(kept.operations, "true", new AbortController().signal);
+		expect(existsSync(`${keep}.job`), "its record, as it settles").toBe(false);
+		await vi.waitFor(() =>
+			expect(readdirSync(folder), "its files go just after").toEqual([]),
+		);
+	});
 });
