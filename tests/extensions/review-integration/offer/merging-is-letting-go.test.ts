@@ -226,6 +226,38 @@ describe("what merging says it landed", () => {
 		expect(landed).toEqual([expect.objectContaining({ commit: "c0ffee00" })]);
 	});
 
+	it("takes the merge's own commit over the one read back", async () => {
+		const { landed } = await attachThenMerge({
+			kind: "merged",
+			commit: "a11ce000",
+			readBack: { state: "merged", mergeCommit: "c0ffee00" },
+		});
+
+		expect(landed).toEqual([expect.objectContaining({ commit: "a11ce000" })]);
+	});
+
+	it("reads back past a merge that answered with a blank commit", async () => {
+		const { landed } = await attachThenMerge({
+			kind: "merged",
+			commit: " ",
+			readBack: { state: "merged", mergeCommit: "c0ffee00" },
+		});
+
+		expect(landed).toEqual([expect.objectContaining({ commit: "c0ffee00" })]);
+	});
+
+	it("names no commit when neither the merge nor the change read back says one", async () => {
+		const { landed } = await attachThenMerge({ kind: "merged", commit: null });
+
+		expect(landed[0]).not.toHaveProperty("commit");
+	});
+
+	it("names the branch it landed on, so a stacked parent's is told from trunk", async () => {
+		const { landed } = await attachThenMerge({ kind: "merged" });
+
+		expect(landed).toEqual([expect.objectContaining({ onto: "main" })]);
+	});
+
 	it("carries the person's line the merge was asked to", async () => {
 		const { landed } = await attachThenMerge(
 			{ kind: "merged" },

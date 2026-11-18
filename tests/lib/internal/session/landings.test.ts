@@ -90,6 +90,14 @@ describe("a landing said on the bus", () => {
 			isLanding({ ...landing("x"), commit: 1 }),
 			"a landing whose commit is a number is none",
 		).toBe(false);
+		expect(
+			isLanding({ ...landing("x"), commit: "main --all" }),
+			"a landing whose commit is no commit id is none",
+		).toBe(false);
+		expect(
+			isLanding({ ...landing("x"), commit: "" }),
+			"a landing whose commit is empty is none",
+		).toBe(false);
 	});
 
 	it("carries the commit a change landed as, when said", () => {
@@ -103,9 +111,16 @@ describe("a landing said on the bus", () => {
 			noon,
 		);
 		sayLanded(events, { ref: "core.nix#2141", what: "x", commit: "" }, noon);
+		sayLanded(
+			events,
+			{ ref: "core.nix#2142", what: "x", commit: "HEAD~1; rm", onto: "main" },
+			noon,
+		);
 
 		expect(heard[0]).toMatchObject({ commit: "2fcf2d5d" });
 		expect(heard[1]).not.toHaveProperty("commit");
+		expect(heard[2]).not.toHaveProperty("commit");
+		expect(heard[2]).toMatchObject({ onto: "main" });
 	});
 
 	it("carries its web page and its person's line when said", () => {

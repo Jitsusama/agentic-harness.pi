@@ -44,10 +44,10 @@ export interface Queued {
 }
 
 /** What a look at a queued change finds of it. */
-export type Seen = Pick<
-	Change,
-	"state" | "title" | "url" | "mergeCommit"
-> | null;
+export type Seen =
+	| (Pick<Change, "state" | "title" | "url"> &
+			Partial<Pick<Change, "mergeCommit" | "base">>)
+	| null;
 
 /** Where this session keeps what it queued. */
 function queuedFile(session = sessionKey()): string {
@@ -129,6 +129,7 @@ export async function settleQueued(
 				...(seen.url ? { url: seen.url } : {}),
 				...(one.person ? { person: one.person } : {}),
 				...(seen.mergeCommit ? { commit: seen.mergeCommit } : {}),
+				...(seen.base ? { onto: seen.base } : {}),
 			});
 			done.add(label);
 		} else if (seen?.state === "closed") {

@@ -602,8 +602,6 @@ function restProposal(repo: RepoLocator, raw: Record<string, unknown>): Change {
 		: str(raw.state) === "closed"
 			? "closed"
 			: "open";
-	const mergeCommit =
-		state === "merged" ? str(raw.merge_commit_sha) : undefined;
 	return {
 		ref: githubChange(repo, id),
 		title: str(raw.title) ?? "",
@@ -616,7 +614,6 @@ function restProposal(repo: RepoLocator, raw: Record<string, unknown>): Change {
 		...(str(nested(raw, "head").sha)
 			? { headCommit: str(nested(raw, "head").sha) }
 			: {}),
-		...(mergeCommit ? { mergeCommit } : {}),
 		...(str(raw.created_at) ? { createdAt: str(raw.created_at) } : {}),
 		...(str(raw.updated_at) ? { updatedAt: str(raw.updated_at) } : {}),
 		...(str(raw.html_url) ? { url: str(raw.html_url) } : {}),

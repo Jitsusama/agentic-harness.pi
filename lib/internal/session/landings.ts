@@ -49,17 +49,29 @@ export interface Landing {
 	 */
 	readonly url?: string;
 	/**
-	 * The commit a merged change landed as, when its host says: the
-	 * launcher tells by it whether the change has reached the machine,
-	 * once a switch builds a revision that holds it.
+	 * The commit a merged change landed as, when its host says, as hex:
+	 * the launcher tells by it whether the change has reached the
+	 * machine, once a switch builds a revision that holds it.
 	 */
 	readonly commit?: string;
+	/**
+	 * The branch a merged change landed on, when its host says: a change
+	 * merged into a stacked parent's branch reaches no machine until that
+	 * parent lands on trunk, so only one landed on trunk is matched.
+	 */
+	readonly onto?: string;
 }
+
+/**
+ * A commit id as git writes one, whole or shortened: what a revision
+ * lookup is handed, so nothing else is.
+ */
+const COMMIT = /^[0-9a-f]{7,64}$/;
 
 /** Whether a payload is a landing, as this version says one. */
 export function isLanding(data: unknown): data is Landing {
 	if (typeof data !== "object" || data === null) return false;
-	const { at, ref, what, person, url, commit } = data as Record<
+	const { at, ref, what, person, url, commit, onto } = data as Record<
 		string,
 		unknown
 	>;
@@ -70,7 +82,9 @@ export function isLanding(data: unknown): data is Landing {
 		typeof what === "string" &&
 		(person === undefined || typeof person === "string") &&
 		(url === undefined || typeof url === "string") &&
-		(commit === undefined || typeof commit === "string")
+		(commit === undefined ||
+			(typeof commit === "string" && COMMIT.test(commit))) &&
+		(onto === undefined || typeof onto === "string")
 	);
 }
 
@@ -83,12 +97,17 @@ export function sayLanded(
 		person?: string;
 		url?: string;
 		commit?: string;
+		onto?: string;
 	},
 	now: number = Date.now(),
 ): void {
 	const person = landed.person ? oneLine(landed.person) : "";
 	const url = landed.url?.trim() ?? "";
-	const commit = landed.commit?.trim() ?? "";
+	const said = landed.commit?.trim().toLowerCase() ?? "";
+	// Anything but a commit id is left out rather than sent on to a
+	// revision lookup.
+	const commit = COMMIT.test(said) ? said : "";
+	const onto = landed.onto?.trim() ?? "";
 	const landing: Landing = {
 		at: new Date(now).toISOString(),
 		ref: landed.ref,
@@ -96,6 +115,7 @@ export function sayLanded(
 		...(person ? { person } : {}),
 		...(url ? { url } : {}),
 		...(commit ? { commit } : {}),
+		...(onto ? { onto } : {}),
 	};
 	try {
 		bus.emit(SESSION_LANDED, landing);
