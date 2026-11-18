@@ -29,7 +29,6 @@ import type {
 	EngineOptions,
 	HostedView,
 } from "./contract.ts";
-import { firstWordsHeld } from "./first-words.ts";
 import type { HarnessRequest } from "./harness-settings.ts";
 import { bindHeadless } from "./headless.ts";
 import type { HeldLogs } from "./held-logs.ts";
@@ -475,20 +474,18 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		first: string,
 	): Promise<void> {
 		const session = view(record.traits.sessionId, record).runtime.session;
-		const admitted = agent.whenAdmitted();
-		// Once the race is decided, a later rejection says only what the race already said, or concerns a later prompt.
-		admitted.catch(() => undefined);
+		const held = agent.whenNextHeld();
+		// Once the race is decided, a later rejection says only what the race already said.
+		held.catch(() => undefined);
 		let handled = () => {};
 		const taken = new Promise<void>((done) => {
 			handled = done;
 		});
-		let said: string | undefined;
 		const prompting = session.prompt(first, {
 			source: "rpc",
 			// An extension may begin a run of pi's as the carried one settles, and pi refuses words that don't say how to queue behind it, as its editor's do.
 			streamingBehavior: "followUp",
 			preflightResult: (disposition) => {
-				said = disposition;
 				if (disposition === "handled") handled();
 			},
 		});
@@ -496,12 +493,10 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		// once its handler returns, which may wait on a person at a panel; the
 		// command was taken the moment it started, which prompt has done by now.
 		if (namesCommand(session, first)) handled();
-		await firstWordsHeld({
-			prompting,
-			admitted,
-			taken,
-			started: () => said === "started",
-		});
+		// pi answers at once for words it only queued behind a run under way, or
+		// put off while a run settled, so its answer alone says nothing: durable
+		// holds them once the run takes them or a later prompt carries them.
+		await Promise.race([held, taken, prompting.then(() => held)]);
 		prompting.catch((error: unknown) => failedAfterStart(record, error));
 	}
 

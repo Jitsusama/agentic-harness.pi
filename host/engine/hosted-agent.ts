@@ -327,6 +327,7 @@ export class HostedAgent {
 		images?: readonly ContentBlock[],
 	): Promise<void> {
 		const messages = normalizePromptInput(input, images);
+		this.admissions.given(messages);
 		if (messages.some((message) => isPersonWords({ type: "message", message })))
 			this.joelTyped = true;
 		if (this.active) {
@@ -429,13 +430,9 @@ export class HostedAgent {
 
 	// Runs.
 
-	/**
-	 * Settle once the next prompt is committed to durable, or reject with
-	 * why it was not. The host's start waits on it to say a conversation's
-	 * first words are safe.
-	 */
-	whenAdmitted(): Promise<void> {
-		return this.admissions.whenAdmitted();
+	/** Settle once durable holds the next words pi gives, or reject with why not: an open's first words wait on it. */
+	whenNextHeld(): Promise<void> {
+		return this.admissions.whenNextHeld();
 	}
 
 	/**
@@ -472,11 +469,11 @@ export class HostedAgent {
 					entry: { kind: INPUT_KINDS.prompt, data },
 				});
 			} catch (error) {
-				this.admissions.settleAdmission(error);
+				this.admissions.committed(prompts, error);
 				refusedBy?.(error);
 				throw error;
 			}
-			this.admissions.settleAdmission();
+			this.admissions.committed(prompts);
 			for (const message of messages) {
 				await this.emit({ type: "message_start", message });
 				await this.emit({ type: "message_end", message });
@@ -815,6 +812,7 @@ export class HostedAgent {
 	): QueuedMessage {
 		const item: QueuedMessage = { hostId: randomUUID(), message };
 		queue.enqueue(item);
+		this.admissions.given([message]);
 		if (this.active?.run.admitting) this.admissions.admitQueued(item, mode);
 		return item;
 	}

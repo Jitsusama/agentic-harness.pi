@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import { Admissions } from "../../../host/engine/hosted-agent/admissions.ts";
 import type { DurableBinding } from "../../../host/engine/hosted-agent/binding.ts";
 import type { AgentMessage } from "../../../host/engine/pi-types.ts";
-import { MessageQueue, type QueuedMessage } from "../../../host/engine/queue.ts";
+import {
+	MessageQueue,
+	type QueuedMessage,
+} from "../../../host/engine/queue.ts";
 
 /** A person's words, each a distinct message as pi makes one. */
 function words(text: string): AgentMessage {
