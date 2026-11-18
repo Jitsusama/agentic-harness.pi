@@ -40,6 +40,17 @@ describe("questLastOn", () => {
 		});
 	});
 
+	it("dates a move an older install wrote by when it left the quest before", () => {
+		const moved = switchQuest(opened(), "QEST-2", LATER);
+		const at = LATER.toISOString();
+		for (const questSince of [undefined, "soon"]) {
+			expect(questLastOn({ ...moved, questSince })).toEqual({
+				quest: "QEST-2",
+				at,
+			});
+		}
+	});
+
 	it("names the quest it went back to and left last, once it unloads", () => {
 		const away = switchQuest(opened(), "QEST-2", LATER);
 		const back = switchQuest(away, "QEST-1", LATER_STILL);

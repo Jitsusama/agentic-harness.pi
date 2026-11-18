@@ -623,6 +623,7 @@ describe("parseSessionRecord", () => {
 			endReason: "evaporated",
 		};
 		expect(parseSessionRecord(record)).toBeUndefined();
+		expect(parseSessionRecord({ ...opened(), questSince: 7 })).toBeUndefined();
 	});
 });
 
