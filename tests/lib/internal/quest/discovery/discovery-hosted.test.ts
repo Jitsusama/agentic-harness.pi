@@ -58,6 +58,7 @@ const signing = vi.hoisted(() => ({
 	returned: 0,
 	onRead: undefined as (() => void) | undefined,
 	gate: undefined as Promise<void> | undefined,
+	letGo: false,
 }));
 
 vi.mock(
@@ -69,6 +70,11 @@ vi.mock(
 			>();
 		return {
 			...actual,
+			// A thread let go that never stops, as on a disk that hangs for good.
+			threadsLetGo: () =>
+				signing.letGo
+					? [new Promise<number>(() => undefined)]
+					: actual.threadsLetGo(),
 			readTreeOffThread: async (questsRoot: string, wallMs: number) => {
 				// Asked afresh at each step, since a walk an earlier test began
 				// may read on into this one and must not be heard as its own.
@@ -166,6 +172,7 @@ beforeEach(() => {
 let openSignings: (() => void) | undefined;
 
 afterEach(async () => {
+	signing.letGo = false;
 	// A wall fake time ran past lets its thread go, and while it stops no
 	// signing starts: the next test's would fail at once.
 	await Promise.all(threadsLetGo());
@@ -265,11 +272,29 @@ describe("discovery on a host", () => {
 		later(6_000);
 		discoverQuests(root);
 		await read;
-		writeSettled(readmePath, readme("paused"));
+		otherQuest();
 		later(1_000);
-		signQuestsNow(root);
+		expect(questIds(), "a quest made shows at once").toContain(OTHER);
 		openSignings();
-		await discoverySettled(root);
+		expect(await discoverySettled(root)).toBe("dropped");
+		expect(questIds()).toContain(OTHER);
+	});
+
+	it("walks again for an action asked while a signing ran, rather than walk on the thread", async () => {
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		later(6_000);
+		discoverQuests(root);
+		await read;
+		writeSettled(readmePath, readme("paused"));
+		clearCalls();
+		signQuestsNow(root);
+		expect(listings.mock.calls, "no walk on the thread").toEqual([]);
+		signing.gate = undefined;
+		openSignings();
+		expect(await discoverySettled(root)).toBe("kept");
+		expect(signing.walks, "walked again for the action").toBe(2);
 		expect(statusNow()).toBe("paused");
 	});
 
@@ -278,7 +303,10 @@ describe("discovery on a host", () => {
 		discoverQuests(root);
 		openSignings = holdSignings();
 		later(6_000);
+		// Its thread answers, so only the gate holds it, as a disk would.
+		const read = nextRead();
 		discoverQuests(root);
+		await read;
 		const hung = discoverySettled(root);
 		await vi.advanceTimersByTimeAsync(30_000);
 		expect(await hung).toBe("gave up");
@@ -491,21 +519,83 @@ describe("discovery on a host", () => {
 		expect(statusNow()).toBe("paused");
 	});
 
-	it("signs nothing off the thread while the person has paused it", async () => {
+	it("keeps walking while writes overtake each walk, and never walks on the thread", async () => {
+		discoverQuests(root);
+		let overtaken = 0;
+		const overtake = () => {
+			if (overtaken >= 4) return;
+			overtaken += 1;
+			atomicWriteFile(readmePath, readme(overtaken < 4 ? "active" : "paused"));
+			signing.onRead = overtake;
+		};
+		signing.onRead = overtake;
+		later(6_000);
+		clearCalls();
+		discoverQuests(root);
+		for (let ask = 0; ask < 4; ask++) {
+			await new Promise((resolve) => setImmediate(resolve));
+			later(120_000);
+			discoverQuests(root);
+		}
+		expect(await discoverySettled(root)).toBe("kept");
+		expect(signing.walks, "a walk for each write, and one past them").toBe(5);
+		expect(statusNow()).toBe("paused");
+		expect(listings.mock.calls, "no ask walked the tree on the thread").toEqual(
+			[],
+		);
+	});
+
+	it("walks nothing while the person has paused signing, its own writes neither, and resumes once the file goes", async () => {
 		discoverQuests(root);
 		const paused = signingPausedPath();
 		mkdirSync(dirname(paused), { recursive: true });
 		fs.writeFileSync(paused, "");
 		try {
-			writeSettled(readmePath, readme("paused"));
+			atomicWriteFile(readmePath, readme("paused"));
 			later(120_000);
 			clearCalls();
 			expect(statusNow(), "answered from the last walk").toBe("active");
+			signQuestsNow(root);
 			expect(signing.walks, "no walk off the thread").toBe(0);
 			expect(syncCalls(), "nor on it").toEqual(rootStat());
+			await expect(discoverQuestsAfresh(root)).rejects.toThrow();
 		} finally {
 			rmSync(paused, { force: true });
 		}
+		later(6_000);
+		expect(statusNow(), "resumed, its own write shows").toBe("paused");
+	});
+
+	it("walks nothing on the thread while a thread let go at its wall hasn't stopped", async () => {
+		discoverQuests(root);
+		signing.letGo = true;
+		atomicWriteFile(readmePath, readme("paused"));
+		later(120_000);
+		clearCalls();
+		expect(statusNow(), "answered from the last walk").toBe("active");
+		signQuestsNow(root);
+		expect(signing.walks, "no walk off the thread").toBe(0);
+		expect(listings.mock.calls, "nor on it").toEqual([]);
+		await expect(discoverQuestsAfresh(root)).rejects.toThrow();
+		signing.letGo = false;
+		expect(statusNow(), "once it stops, its own write shows").toBe("paused");
+	});
+
+	it("signs nothing on the thread for an action while a signing runs", async () => {
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		later(6_000);
+		discoverQuests(root);
+		await read;
+		atomicWriteFile(readmePath, readme("paused"));
+		clearCalls();
+		signQuestsNow(root);
+		expect(listings.mock.calls, "no walk on the thread").toEqual([]);
+		signing.gate = undefined;
+		openSignings();
+		await discoverySettled(root);
+		expect(statusNow()).toBe("paused");
 	});
 
 	it("answers the asks after a signing now as the tree stood then", () => {

@@ -83,6 +83,7 @@ import {
 	folderStampOf,
 	pendingStampOf,
 	readTreeOffThread,
+	threadsLetGo,
 } from "./off-thread.ts";
 
 /** A single quest entry in the index. */
@@ -243,7 +244,21 @@ export function discoverQuests(
  * starts. Plain pi signs every ask already, so this does nothing there.
  */
 export function signQuestsNow(questsRoot: string): void {
-	if (hosted()) discoverQuestsSigned(questsRoot, {});
+	if (!hosted()) return;
+	if (!holdsBack(questsRoot)) {
+		discoverQuestsSigned(questsRoot, {});
+		return;
+	}
+	// A walk under way walks again once it ends, so the action's reads
+	// answer as the tree stood after it was asked; held back otherwise,
+	// it is signed off the thread as soon as it may be, never on it.
+	const m = memo();
+	if (m.signing.has(questsRoot)) {
+		m.again ??= new Set();
+		m.again.add(questsRoot);
+	} else if (!signingPaused() && threadsLetGo().length === 0) {
+		void startSigning(questsRoot);
+	}
 }
 
 /**
@@ -253,12 +268,18 @@ export function signQuestsNow(questsRoot: string): void {
  * signing this process's own write overtook is made again off the
  * thread, and after `AFRESH_TRIES` on it. One that gives up on the disk
  * throws, since signing it on the thread would hold every conversation
- * on that same disk. Plain pi signs it on the thread, as every ask.
+ * on that same disk, as does one paused, or held back (`holdsBack`)
+ * once the tries are spent. Plain pi signs it on the thread, as every
+ * ask.
  */
 export async function discoverQuestsAfresh(
 	questsRoot: string,
 ): Promise<DiscoveryResult> {
 	if (!hosted()) return discoverQuestsSigned(questsRoot, {});
+	// Paused, or on a disk a thread still hangs on, no walk is to be had.
+	if (signingPaused() || threadsLetGo().length > 0) {
+		throw new Error(SIGNING_GAVE_UP);
+	}
 	for (let tries = 0; tries < AFRESH_TRIES; tries++) {
 		const asked = Date.now();
 		const writes = questWritesMade();
@@ -267,13 +288,16 @@ export async function discoverQuestsAfresh(
 		const ended = await signOffThread(questsRoot);
 		if (ended === "gave up") throw new Error(SIGNING_GAVE_UP);
 		const slot = memo().cache.get(questsRoot);
+		// A walk signed again for a later write is current too.
 		const current =
 			slot &&
 			slot.signedAt >= asked &&
-			slot.writes === writes &&
-			writes === questWritesMade();
+			slot.writes >= writes &&
+			slot.writes === questWritesMade();
 		if (current) return slot.result;
 	}
+	// Held back, the thread is the one place left, and the reason not to.
+	if (holdsBack(questsRoot)) throw new Error(SIGNING_GAVE_UP);
 	return discoverQuestsSigned(questsRoot, {});
 }
 
@@ -314,9 +338,6 @@ const SIGNING_GIVES_UP_MS = 30_000;
  */
 const SIGNING_HUNG_AFTER_MS = 5 * 60_000;
 
-/** How many walks a signing makes while this process's writes overtake it. */
-const RESIGN_TRIES = 3;
-
 /**
  * A host's discovery, which shares one thread with every conversation:
  * a known tree is answered from its last signed walk, and signed again
@@ -327,22 +348,33 @@ function discoverQuestsHosted(
 	questsRoot: string,
 	seed: SeedOptions,
 ): DiscoveryResult {
-	const m = memo();
-	const slot = m.cache.get(questsRoot);
-	const paused = signingPaused();
-	// A walk under way answers however old the last one is, and past this
-	// process's own writes, which it walks again for at once: signing on
-	// the thread then would hold every conversation for a walk already
-	// coming. Paused, the last walk answers however old, but not past an
-	// own write, which nothing else would bring.
-	const under = m.signing.has(questsRoot);
-	if (!slot || !stands(questsRoot, slot, { under, paused })) {
+	const slot = memo().cache.get(questsRoot);
+	const back = holdsBack(questsRoot);
+	if (!slot || !stands(questsRoot, slot, back)) {
 		return discoverQuestsSigned(questsRoot, seed);
 	}
-	if (!paused && Date.now() - slot.signedAt > SIGN_AGAIN_AFTER_MS) {
+	const free = !signingPaused() && threadsLetGo().length === 0;
+	if (free && Date.now() - slot.signedAt > SIGN_AGAIN_AFTER_MS) {
 		void startSigning(questsRoot);
 	}
 	return slot.result;
+}
+
+/**
+ * Whether a host holds back from walking `questsRoot` on its thread:
+ * while a walk of it is under way, which walks again at once for this
+ * process's writes; while a thread let go at its wall hasn't stopped,
+ * since its disk still hangs; and while the person has paused signing.
+ * Each would hold every conversation for a walk already coming, or one
+ * on a disk that hangs, or one the person stopped, so the last walk
+ * answers however old, past this process's own writes too.
+ */
+function holdsBack(questsRoot: string): boolean {
+	return (
+		memo().signing.has(questsRoot) ||
+		threadsLetGo().length > 0 ||
+		signingPaused()
+	);
 }
 
 /**
@@ -361,6 +393,13 @@ function signingPaused(): boolean {
 		return read.is;
 	}
 	const is = existsSync(signingPausedPath());
+	if (is !== (read?.is ?? false)) {
+		sayOnHost(
+			is
+				? `signing is paused by ${signingPausedPath()}, so each ask answers from the last walk`
+				: "signing resumed",
+		);
+	}
 	m.paused = { is, readAt: now };
 	return is;
 }
@@ -371,31 +410,29 @@ export function signingPausedPath(): string {
 }
 
 /**
- * The file that pauses signing off the thread on every host while it
- * is there: a host then answers from its last walk however old, and
- * walks on its thread only for its own writes, or a quest made,
- * removed or given its README.
+ * The file that pauses signing on every host while it is there: a host
+ * then answers from its last walk however old, its own writes too, and
+ * walks on its thread only for a quest made, removed or given its
+ * README, or a tree it has never walked.
  */
 const SIGNING_PAUSED = "signing-paused";
 
 /**
  * Whether a host may answer from its last walk: no quest written by
- * this process since unless a walk is `under` way, signed within the
- * minute unless one is under way or signing is `paused`, and the stats
- * of the root and of each folder it found with no README both settled
- * when taken and unchanged since, so no quest was made, removed or
- * given its README meanwhile.
+ * this process since and signed within the minute, unless it `holds
+ * back` (`holdsBack`), and the stats of the root and of each folder it
+ * found with no README both settled when taken and unchanged since, so
+ * no quest was made, removed or given its README meanwhile.
  */
 function stands(
 	questsRoot: string,
 	slot: CacheSlot,
-	signing: { readonly under: boolean; readonly paused: boolean },
+	holdsBack: boolean,
 ): boolean {
-	if (!signing.under && slot.writes !== questWritesMade()) return false;
+	if (!holdsBack && slot.writes !== questWritesMade()) return false;
 	// A clock stepped back gives a negative age, which no limit bounds.
 	const age = Date.now() - slot.signedAt;
-	const waits = signing.under || signing.paused;
-	if (age < 0 || (!waits && age > STALE_AFTER_MS)) return false;
+	if (age < 0 || (!holdsBack && age > STALE_AFTER_MS)) return false;
 	const root = slot.rootStamp;
 	if (root === undefined || root !== folderStampOf(questsRoot)) return false;
 	for (const [dir, stamp] of slot.pending) {
@@ -450,64 +487,73 @@ function waitOnSigning(
 
 /**
  * Sign `questsRoot` off the thread, one signing a root at a time, and
- * keep what it found unless the memo was let go or a signing begun
- * later already answered. One this process wrote a quest during is
- * signed again at once, up to `RESIGN_TRIES` walks, since a host whose
- * conversations write all the time would otherwise drop every walk and
- * sign on its thread at every ask (13:40 to 13:48, 18 Nov). An
+ * keep what each walk found unless the memo was let go or a signing
+ * begun later already answered. One this process wrote a quest during
+ * is kept as of the writes it began after and walked again at once,
+ * as is one an action asked to sign during (`signQuestsNow`), until one
+ * ends with neither: a host whose
+ * conversations write all the time otherwise dropped every walk and
+ * signed on its thread at every ask (13:40 to 13:48, 18 Nov). An
  * unchanged tree keeps its walk; a changed one is walked again on the
- * thread, from memory. The walk holds its root until it ends, however
- * long its asks waited, or until `SIGNING_HUNG_AFTER_MS` says its disk
- * hangs, so no second walk starts beside a slow one. Answers the walk,
- * which nothing bounds: wait on it through `waitOnSigning`.
+ * thread, from memory. The signing holds its root until it ends,
+ * however long its asks waited, or until `SIGNING_HUNG_AFTER_MS` past
+ * its latest walk's start says its disk hangs, so no second walk starts
+ * beside a slow one. Answers the signing, which nothing bounds: wait on
+ * it through `waitOnSigning`.
  */
 function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 	const m = memo();
 	const under = m.signing.get(questsRoot);
 	if (under) return under;
 	const started = Date.now();
+	let hung: ReturnType<typeof setTimeout> | undefined;
+	// Only this signing's own hold: one freed as hung that ends later
+	// must not free the signing that took its root since.
+	const holds = () => m.signing.get(questsRoot) === work;
+	// Not a wait for something to happen: the longest a hung walk keeps
+	// others off its root, from each walk's start, as its thread's wall.
+	const holdFor = () => {
+		clearTimeout(hung);
+		hung = setTimeout(() => {
+			if (!holds()) return;
+			sayOnHost(
+				`signing ${questsRoot} hadn't ended after ${SIGNING_HUNG_AFTER_MS} ms, so its disk is taken to hang and another may start`,
+			);
+			m.signing.delete(questsRoot);
+		}, SIGNING_HUNG_AFTER_MS);
+		hung.unref();
+	};
 	const work = (async (): Promise<SigningEnd> => {
-		let signedAt = started;
-		let writes = questWritesMade();
-		let read = await readTreeOffThread(questsRoot, SIGNING_HUNG_AFTER_MS);
-		for (let tries = 1; questWritesMade() !== writes; tries++) {
-			if (memo() !== m || tries >= RESIGN_TRIES) return "dropped";
-			signedAt = Date.now();
-			writes = questWritesMade();
-			read = await readTreeOffThread(questsRoot, SIGNING_HUNG_AFTER_MS);
+		for (;;) {
+			const signedAt = Date.now();
+			const writes = questWritesMade();
+			holdFor();
+			const { pass, rootStamp } = await readTreeOffThread(
+				questsRoot,
+				SIGNING_HUNG_AFTER_MS,
+			);
+			if (memo() !== m) return "dropped";
+			const cached = m.cache.get(questsRoot);
+			if (cached && cached.signedAt > signedAt) return "dropped";
+			const signature = discoverySignature(questsRoot, pass);
+			const result =
+				cached && cached.signature === signature
+					? cached.result
+					: discoverQuestsUncached(questsRoot, pass);
+			// Kept as of the writes it began after, so a write made during it
+			// still asks for the walk that follows.
+			m.cache.set(
+				questsRoot,
+				slotOf(signature, result, { signedAt, writes, rootStamp }, pass),
+			);
+			const asked = m.again?.delete(questsRoot) ?? false;
+			if (questWritesMade() === writes && !asked) return "kept";
 		}
-		const { pass, rootStamp } = read;
-		if (memo() !== m) return "dropped";
-		const cached = m.cache.get(questsRoot);
-		if (cached && cached.signedAt > signedAt) return "dropped";
-		const signature = discoverySignature(questsRoot, pass);
-		const result =
-			cached && cached.signature === signature
-				? cached.result
-				: discoverQuestsUncached(questsRoot, pass);
-		m.cache.set(
-			questsRoot,
-			slotOf(signature, result, { signedAt, writes, rootStamp }, pass),
-		);
-		return "kept";
 	})().catch((error: unknown): SigningEnd => {
 		// The last walk stands, and the next ask past its age signs again.
 		sayOnHost(`signing ${questsRoot} off the thread failed: ${error}`);
 		return "failed";
 	});
-	// Only this walk's own hold: one freed as hung that ends later must
-	// not free the walk that took its root since.
-	const holds = () => m.signing.get(questsRoot) === work;
-	// Not a wait for something to happen: the longest a hung walk keeps
-	// others off its root.
-	const hung = setTimeout(() => {
-		if (!holds()) return;
-		sayOnHost(
-			`signing ${questsRoot} hadn't ended after ${SIGNING_HUNG_AFTER_MS} ms, so its disk is taken to hang and another may start`,
-		);
-		m.signing.delete(questsRoot);
-	}, SIGNING_HUNG_AFTER_MS);
-	hung.unref();
 	void work.then((end) => {
 		clearTimeout(hung);
 		const took = Date.now() - started;

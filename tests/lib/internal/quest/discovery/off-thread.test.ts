@@ -211,9 +211,11 @@ it("starts no thread while one ended past its wall hasn't stopped", async () => 
 	).resolves.toBeDefined();
 });
 
+// A FIFO found by the stat; one swapped in between the stat and the
+// open, which the open's O_NONBLOCK guards, no test here can time.
 it("reads a FIFO in a file's place as absent, without waiting on it", async () => {
 	rmSync(readmePath);
-	spawnSync("mkfifo", [readmePath]);
+	expect(spawnSync("mkfifo", [readmePath]).status, "a FIFO made").toBe(0);
 
 	const read = await readTreeOffThread(root, WALL_MS);
 
