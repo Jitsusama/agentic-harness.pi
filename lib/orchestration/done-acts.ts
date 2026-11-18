@@ -323,7 +323,7 @@ export type SlackRead = (
 	channel: string,
 	thread: string | undefined,
 	oldest: string,
-) => Promise<ReadonlyArray<SlackPost> | undefined>;
+) => Promise<readonly SlackPost[] | undefined>;
 
 /** Whether a post is a reply in a thread, rather than at the top level. */
 function isReply(post: SlackPost): boolean {
@@ -442,18 +442,21 @@ export const DRAFT_WINDOW_MS = 3 * 60 * 60_000;
 /** The most records one question has read; past it, none are. */
 export const PROBES_AT_MOST = 6;
 
-/** The text's sentences, each with its links whole. */
+/**
+ * The text's sentences, each with its links whole. A link's place is held
+ * by a private-use character, which no one types, while the text is split.
+ */
 function sentencesOf(text: string): string[] {
 	const links: string[] = [];
 	const held = text.replace(
 		LINK,
-		(link) => `\u0000${links.push(link) - 1}\u0000`,
+		(link) => `\uE000${links.push(link) - 1}\uE000`,
 	);
 	return held
 		.split(/(?<=[.?!])\s+|\n+/)
 		.map((one) =>
 			one.replace(
-				/\u0000(\d+)\u0000/g,
+				/\uE000(\d+)\uE000/g,
 				(_, index) => links[Number(index)] ?? "",
 			),
 		);
