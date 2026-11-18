@@ -78,21 +78,35 @@ async function headGuard(
  * session's presence for an orchestrator to read rather than be told
  * (lib/internal/session/landings.ts). Named as `repo#number`, without
  * the owner, as people write it, so its web page goes beside it for the
- * launcher to open; `person` is the line the merge was asked to carry.
+ * launcher to open; `person` is the line the merge was asked to carry,
+ * and `commit` the one it landed as, on the branch `onto`, by which the
+ * launcher tells when a switch has brought it to the machine. The read
+ * back runs once, straight after the merge: a host that answers it late
+ * or not at all leaves the landing without the commit it would have
+ * offered, and the launcher draws no line for it.
  */
 async function sayMerged(
 	bus: EventBus,
 	bound: BoundTarget,
 	change: NonNullable<ReturnType<typeof hostedChange>>,
 	person: string | undefined,
+	commit: string | undefined,
 ): Promise<void> {
-	let read: { title?: string; url?: string } | null = null;
+	let read: {
+		title?: string;
+		url?: string;
+		base?: string;
+		mergeCommit?: string;
+	} | null = null;
 	try {
 		read = await bound.proposal();
 	} catch {
 		// A change that can't be read now still landed; it is named alone.
 	}
 	const ref = change.label.slice(change.label.lastIndexOf("/") + 1);
+	// The merge's own answer first; a host that didn't give one may say
+	// it on the change read back.
+	const landedAs = commit?.trim() || read?.mergeCommit;
 	sayDid(bus, {
 		kind: "merge",
 		where: change.repo.key,
@@ -103,6 +117,8 @@ async function sayMerged(
 		what: read?.title ?? `${change.label} merged`,
 		...(read?.url ? { url: read.url } : {}),
 		...(person ? { person } : {}),
+		...(landedAs ? { commit: landedAs } : {}),
+		...(read?.base ? { onto: read.base } : {}),
 	});
 }
 /** The package config's `review` section, or nothing when it can't be read. */
@@ -207,7 +223,7 @@ export async function merge(
 	// checks fail, which is exactly the state in which it is still
 	// yours to watch.
 	const letGo = await attachments().detach(change.label);
-	if (bus) await sayMerged(bus, bound, change, params.person);
+	if (bus) await sayMerged(bus, bound, change, params.person, outcome.commit);
 	return say(
 		`${GLYPH.lands} ${change.label} merged${outcome.commit ? ` at ${outcome.commit.slice(0, 12)}` : ""}.${letGo ? " Detached, since it is no longer what you are working on." : ""}`,
 		{
