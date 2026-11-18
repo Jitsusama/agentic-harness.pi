@@ -654,8 +654,10 @@ describe("runHost", () => {
 			said.filter((line) => line.includes("not parked")),
 			"says which conversation it ends unparked",
 		).toEqual([
-			expect.stringContaining(
-				`stopping after 200 ms, 1 not parked: ${sessionId}`,
+			expect.stringMatching(
+				new RegExp(
+					`stopping after \\d+ ms, past its 200 ms bound, 1 not parked: ${sessionId}`,
+				),
 			),
 		]);
 		expect(
@@ -664,6 +666,57 @@ describe("runHost", () => {
 		).toBe("held");
 		// The process would end here; the case lets the park end instead, so
 		// the host it installed is gone before the next case starts one.
+		parks();
+		await run.serving.stop();
+	});
+
+	it("ends a stop a park holds within three quarters of its unit's stop limit", async () => {
+		const signals = new EventEmitter();
+		const said: string[] = [];
+		let parks = () => {};
+		const run = await runHost({
+			argv: ["background"],
+			// A unit stopping within 400 ms, as systemd's 150 s is to its 112.5 s.
+			env: { ...env(), PI_HOST_STOP_USEC: "400000" },
+			engine: async (host) => ({
+				...(await engine(host)),
+				start: async ({ sessionId, file, cwd }) => {
+					const close = () =>
+						new Promise<void>((parked) => {
+							parks = parked;
+						});
+					host.register({ id: sessionId, file, cwd, env: {}, close });
+				},
+			}),
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+		});
+		const reply = await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+
+		signals.emit("SIGTERM");
+		await run.stopped;
+		expect(
+			said.filter((line) => line.includes("not parked")),
+			"ends at three quarters of the unit's limit, naming what it left",
+		).toEqual([
+			expect.stringMatching(
+				new RegExp(
+					`stopping after \\d+ ms, past its 300 ms bound, 1 not parked: ${sessionId}`,
+				),
+			),
+		]);
 		parks();
 		await run.serving.stop();
 	});
