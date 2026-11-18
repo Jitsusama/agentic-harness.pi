@@ -11,7 +11,9 @@
  * own whenever the agent runs and the session counts no run. A host stops
  * in the middle of such turns, so what is held is written as the session
  * is disposed, even mid-round: a peer's lost words cost more than their
- * place, which the request's pairing mends (paired-results.ts).
+ * place, which the request's pairing mends (paired-results.ts). Where pi
+ * has the seam, a carried turn is pi's own run, so pi holds the message
+ * and drops it as it lets go; pi's own flush writes it first.
  */
 
 import type {
@@ -74,6 +76,7 @@ export function holdMessagesThroughCarriedTurns(
 	};
 	session.dispose = () => {
 		undo();
+		writeWhatPiHolds(session, report);
 		// pi writes a no-turn message at once while it counts no run, so it is in the file before pi lets go of it.
 		flush();
 		dispose();
@@ -91,6 +94,29 @@ export function holdMessagesThroughCarriedTurns(
 	};
 	return undo;
 }
+
+/**
+ * Write what pi holds through a run it counts, as it would once the turn
+ * ends. pi keeps that flush to itself, so it is found by name; a pi that
+ * moves it drops the message, as pi does, which the host suite shows.
+ */
+function writeWhatPiHolds(
+	session: MessagingSession,
+	report: (error: unknown) => void,
+): void {
+	if (!session.isStreaming) return;
+	const flush: unknown = Reflect.get(session, PI_FLUSH);
+	if (typeof flush !== "function") return;
+	try {
+		flush.call(session);
+	} catch (error) {
+		// The session still lets go: a word pi fails to write is reported, as one held here is.
+		report(error);
+	}
+}
+
+/** pi's own name for writing the messages it held through a turn. */
+const PI_FLUSH = "_flushPendingCustomMessages";
 
 /** The message as pi's session hands it to its agent. */
 function asAgentMessage(message: CustomMessageInput): AgentMessage {
