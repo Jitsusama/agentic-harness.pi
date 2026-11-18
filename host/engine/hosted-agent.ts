@@ -477,9 +477,10 @@ export class HostedAgent {
 	 * once, ends as a failed run and then throws what refused it. pi's loop
 	 * asks again while words wait or a settle boundary wants more, so a
 	 * continue that only fails is asked again forever in one microtask
-	 * chain, starving the host's loop past its watchdog (18 November, seven
-	 * deaths). The recovery's ask again keeps `continueRun`, whose settle
-	 * nothing catches.
+	 * chain, starving the host's loop past its watchdog (the held profile of
+	 * 18 November, 09:02). The recovery's ask again keeps `continueRun`: it
+	 * wants the run back, failed or not, and nothing above it would catch a
+	 * throw.
 	 */
 	private async continueOrThrow(): Promise<void> {
 		const { refused } = await this.continueRunRefusing();
