@@ -79,9 +79,9 @@ describe("a question asking the person for an act he has done", () => {
 		);
 		expect(refused).toContain("already done at 19:18");
 		expect(refused).toContain("#delta-dev");
-		expect(read).toEqual([
-			["#delta-dev", undefined, at(19, 24) - DRAFT_WINDOW_MS],
-		]);
+		// Three hours back, as nothing says when the draft was made.
+		expect(read).toEqual([["#delta-dev", undefined, at(16, 24)]]);
+		expect(DRAFT_WINDOW_MS).toBe(3 * 60 * 60_000);
 	});
 
 	it("reads his posts from when the draft was made, by its time", async () => {
@@ -118,7 +118,8 @@ describe("a question asking the person for an act he has done", () => {
 			},
 			at(19, 24),
 		);
-		expect(read).toEqual([["C07DELTADEV", `${ts}.000000`, at(19, 5)]]);
+		// The linked message itself is what he was asked to answer.
+		expect(read).toEqual([["C07DELTADEV", `${ts}.000000`, at(19, 5) + 1]]);
 	});
 
 	it("is refused for a pull request merged already, and goes for one open", async () => {
@@ -138,7 +139,7 @@ describe("a question asking the person for an act he has done", () => {
 	});
 
 	it("tells his review from his approval", async () => {
-		const commented = probes({
+		const changesAsked = probes({
 			pull: {
 				headOid: "head",
 				reviews: [{ approved: false, at: at(15, 0), oid: "head" }],
@@ -147,14 +148,31 @@ describe("a question asking the person for an act he has done", () => {
 		expect(
 			await doneAlreadyRefusal(
 				`Can Joel review ${PULL}?`,
-				commented,
+				changesAsked,
 				at(17, 0),
 			),
 		).toContain("he reviewed its newest commit at 15:00");
 		expect(
 			await doneAlreadyRefusal(
 				`Can Joel approve ${PULL}?`,
-				commented,
+				changesAsked,
+				at(17, 0),
+			),
+		).toBeUndefined();
+		// An approval he overruled since, asking for changes, isn't one.
+		const overruled = probes({
+			pull: {
+				headOid: "head",
+				reviews: [
+					{ approved: true, at: at(15, 0), oid: "head" },
+					{ approved: false, at: at(15, 30), oid: "head" },
+				],
+			},
+		});
+		expect(
+			await doneAlreadyRefusal(
+				`Can Joel approve ${PULL}?`,
+				overruled,
 				at(17, 0),
 			),
 		).toBeUndefined();
@@ -300,10 +318,22 @@ describe("a question asking the person for an act he has done", () => {
 	});
 
 	it("goes when it asks nothing of his hands", async () => {
+		// Every act reads done here, so only the reading of the words lets
+		// each question through.
 		const done = probes({
-			pull: { mergedAt: at(16, 40), reviews: [] },
+			pull: {
+				mergedAt: at(16, 40),
+				headOid: "head",
+				reviews: [
+					{ approved: true, at: at(15, 0), oid: "head" },
+					{ approved: false, at: at(15, 30), oid: "head" },
+				],
+			},
 			posts: [at(19, 18)],
 		});
+		expect(
+			await doneAlreadyRefusal(`Can Joel merge ${PULL}?`, done, at(19, 24)),
+		).toContain("already done");
 		expect(
 			await doneAlreadyRefusal(
 				`Joel merged ${PULL} at 16:40; should I close the row?`,
@@ -320,7 +350,7 @@ describe("a question asking the person for an act he has done", () => {
 		).toBeUndefined();
 		expect(
 			await doneAlreadyRefusal(
-				`May I run a review council on ${PULL}?`,
+				`May I run a review council on ${PULL} before Joel looks?`,
 				done,
 				at(17, 0),
 			),
@@ -330,6 +360,84 @@ describe("a question asking the person for an act he has done", () => {
 				`Joel's approval of ${PULL} is in; should I close the row?`,
 				done,
 				at(17, 0),
+			),
+		).toBeUndefined();
+		// An act said as a noun after his name, or a determiner, is told of.
+		for (const told of [
+			`Joel's merge of ${PULL} went in at 16:40; should I close the row?`,
+			`Joel's review of ${PULL} asked for a rename. Should I make it?`,
+			`His review of ${PULL} asked for a rename. Should I make it?`,
+			"Joel's post about the draft in Slack's #delta-dev got no replies. Should I nudge?",
+		]) {
+			expect(await doneAlreadyRefusal(told, done, at(19, 24)), told).toBe(
+				undefined,
+			);
+		}
+	});
+
+	it("reads a pull request named as a condition or as context as no place for the act", async () => {
+		const done = probes({
+			pull: {
+				mergedAt: at(16, 0),
+				headOid: "head",
+				reviews: [{ approved: true, at: at(15, 0), oid: "head" }],
+			},
+		});
+		for (const sound of [
+			`Now that ${PULL} has merged, can Joel merge the release branch?`,
+			`Once ${PULL} merged, can he approve the docs change?`,
+			`Joel approved ${PULL} this morning; can he review the docs change?`,
+			`Can Joel merge the revert of ${PULL}?`,
+			`${PULL} broke main. Can he merge the fix for ${PULL}?`,
+			`Can Joel review the backport of ${PULL}?`,
+		]) {
+			expect(await doneAlreadyRefusal(sound, done, at(17, 0)), sound).toBe(
+				undefined,
+			);
+		}
+	});
+
+	it("never counts the linked message, nor an old reply in its thread, as his answer", async () => {
+		const now = at(19, 24);
+		const linkTo = (ms: number, parent?: number) =>
+			`${CHANNEL}/p${ms / 1000}000000${parent ? `?thread_ts=${parent / 1000}.000000` : ""}`;
+		const his = (posted: number[]): DoneProbes => ({
+			pull: async () => undefined,
+			posts: async (_channel, _thread, since) =>
+				posted.filter((one) => one >= since),
+		});
+		// A link to his own reply, asking him to follow it up.
+		expect(
+			await doneAlreadyRefusal(
+				`Joel should post a reply to Sam under ${linkTo(at(19, 0), at(18, 0))}. Ask him?`,
+				his([at(19, 0)]),
+				now,
+			),
+		).toBeUndefined();
+		// A thread he answered in hours before the new question in it.
+		const parent = now - 2 * 86_400_000;
+		expect(
+			await doneAlreadyRefusal(
+				`Joel should post a reply in ${linkTo(parent)}. Ask him?`,
+				his([parent + 3_600_000]),
+				now,
+			),
+		).toBeUndefined();
+		// A reply of his since the ask was made still answers it.
+		expect(
+			await doneAlreadyRefusal(
+				`Joel should post a reply in ${linkTo(parent)}. Ask him?`,
+				his([now - 60_000]),
+				now,
+			),
+		).toContain("already done at 19:23");
+		// A linked message asked to be posted elsewhere says nothing of its
+		// thread, so his comment under the draft proves nothing.
+		expect(
+			await doneAlreadyRefusal(
+				`Joel needs to post the draft at ${linkTo(at(19, 0))} in #delta-dev on Slack.`,
+				his([at(19, 10)]),
+				now,
 			),
 		).toBeUndefined();
 	});
@@ -518,6 +626,28 @@ describe("the live probes", () => {
 		expect(await live.pull("a/b", 1)).toBeUndefined();
 	});
 
+	it("tell a searched reply by its link, which search answers without its thread", async () => {
+		const ts = (ms: number) => `${ms / 1000}.000000`;
+		const live = liveProbes(
+			async () => ({ code: 1, stdout: "", stderr: "" }),
+			async () => ({
+				me: "U1",
+				read: async () => [
+					{
+						ts: ts(at(19, 25)),
+						user: "U1",
+						permalink: `https://x.slack.com/archives/C1/p${at(19, 25) / 1000}000000?thread_ts=${ts(at(19, 1))}`,
+					},
+					{ ts: ts(at(19, 18)), user: "U1" },
+				],
+			}),
+		);
+		expect(await live.posts("#delta-dev", undefined, at(19, 0))).toEqual([
+			at(19, 18),
+		]);
+		expect(await live.pull("a/b", 1)).toBeUndefined();
+	});
+
 	it("read Slack by search for a channel's name, by thread, or by history", async () => {
 		const calls: string[] = [];
 		const read = slackReadWith({
@@ -545,5 +675,32 @@ describe("the live probes", () => {
 			"thread C1 2.000000",
 			`history C1 ${oldest}`,
 		]);
+	});
+
+	it("stop each Slack read once the judge has given up on it", async () => {
+		const signals: AbortSignal[] = [];
+		const read = slackReadWith({
+			search: async (_channel, _after, signal) => {
+				signals.push(signal);
+				return [];
+			},
+			thread: async (_channel, _ts, signal) => {
+				signals.push(signal);
+				return [];
+			},
+			history: async (_channel, _oldest, signal) => {
+				signals.push(signal);
+				return [];
+			},
+		});
+		const oldest = `${at(19, 0) / 1000}.000000`;
+		await read("#delta-dev", undefined, oldest);
+		await read("C1", "2.000000", oldest);
+		await read("C1", undefined, oldest);
+		expect(signals).toHaveLength(3);
+		for (const signal of signals) {
+			expect(signal).toBeInstanceOf(AbortSignal);
+			expect(signal.aborted).toBe(false);
+		}
 	});
 });

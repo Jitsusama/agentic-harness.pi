@@ -21,14 +21,30 @@ function dayBefore(oldest: string): string {
 	return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
 }
 
-/** The three ways the judge reads Slack. */
+/**
+ * The three ways the judge reads Slack, each stopped by `signal` once the
+ * judge has given up on it, so a read held up by Slack's rate limit stops
+ * retrying rather than spending the token his own Slack tools use.
+ */
 export interface SlackCalls {
 	/** His messages in a channel known by its `#name`, after a day. */
-	search(channel: string, after: string): Promise<readonly SlackPost[]>;
+	search(
+		channel: string,
+		after: string,
+		signal: AbortSignal,
+	): Promise<readonly SlackPost[]>;
 	/** A thread's messages, its parent included. */
-	thread(channel: string, ts: string): Promise<readonly SlackPost[]>;
+	thread(
+		channel: string,
+		ts: string,
+		signal: AbortSignal,
+	): Promise<readonly SlackPost[]>;
 	/** A channel's top-level messages since `oldest`. */
-	history(channel: string, oldest: string): Promise<readonly SlackPost[]>;
+	history(
+		channel: string,
+		oldest: string,
+		signal: AbortSignal,
+	): Promise<readonly SlackPost[]>;
 }
 
 /**
@@ -37,11 +53,12 @@ export interface SlackCalls {
  */
 export function slackReadWith(calls: SlackCalls): SlackRead {
 	return async (channel, thread, oldest) => {
+		const signal = AbortSignal.timeout(PROBE_WITHIN_MS);
 		if (channel.startsWith("#")) {
-			return calls.search(channel, dayBefore(oldest));
+			return calls.search(channel, dayBefore(oldest), signal);
 		}
-		if (thread) return calls.thread(channel, thread);
-		return calls.history(channel, oldest);
+		if (thread) return calls.thread(channel, thread, signal);
+		return calls.history(channel, oldest, signal);
 	};
 }
 
@@ -68,25 +85,28 @@ async function signIn(): Promise<
 	});
 	const conversation = (id: string) => ({ id, kind: "channel" as const });
 	const read = slackReadWith({
-		search: async (channel, after) =>
+		search: async (channel, after, signal) =>
 			(
 				await searchMessages(client, "", {
 					channel,
 					from: "me",
 					after,
 					limit: 50,
+					signal,
 				})
 			).messages,
-		thread: (channel, ts) =>
+		thread: (channel, ts, signal) =>
 			getThread(
 				client,
 				{ conversation: conversation(channel), ts },
-				{
-					limit: 200,
-				},
+				{ limit: 200, signal },
 			),
-		history: (channel, oldest) =>
-			listMessages(client, conversation(channel), { oldest, limit: 200 }),
+		history: (channel, oldest, signal) =>
+			listMessages(client, conversation(channel), {
+				oldest,
+				limit: 200,
+				signal,
+			}),
 	});
 	return { me: token.userId, read };
 }

@@ -174,9 +174,15 @@ function pullJudged(when: PrMerged | PrReviewed, record: PullRecord): Judged {
 	if (since === undefined && record.headOid === undefined) return UNKNOWN;
 	const counts = (one: PullRecord["reviews"][number]) =>
 		since === undefined ? one.oid === record.headOid : one.at >= since;
-	const review = record.reviews.find(
-		(one) => counts(one) && (!when.approved || one.approved),
-	);
+	const counted = record.reviews.filter(counts).sort((a, b) => a.at - b.at);
+	// An approval stands only while his newest verdict is one: changes
+	// asked after it overrule it.
+	const newest = counted.at(-1);
+	const review = when.approved
+		? newest?.approved
+			? newest
+			: undefined
+		: counted[0];
 	if (!review) return { verdict: "not-done" };
 	const did = when.approved ? "approved" : "reviewed";
 	const of =
@@ -406,6 +412,33 @@ const ACTS: ReadonlyArray<readonly [Act, RegExp]> = [
 	],
 ];
 
+/**
+ * What makes an act's word a noun, told of rather than asked: a
+ * possessive or a determiner just before it, as in "Joel's merge" or
+ * "the review".
+ */
+const NAMED_AS_A_THING =
+	/\b(the|a|an|this|that|his|her|their|its|my|our|your|[\w-]+'s)\s+$/i;
+
+/**
+ * A pull request named as the thing another change answers, as in "the
+ * revert of" or "the fix for": what is asked of him is that other
+ * change, which isn't linked, so nothing in the text can show it done.
+ */
+const ANOTHER_CHANGE =
+	/\b(revert|reverts|reverting|backport|backports|cherry-?pick|fix|fixes|follow-?up|forward-?port)\b/i;
+
+/**
+ * A clause that sets a condition ("once X has merged", "now that X
+ * merged"), up to the comma that ends it: a pull request named in it is
+ * the condition, not what the act is asked of.
+ */
+const CONDITION =
+	/(^|[,;]\s*)(once|after|now that|since|given that|because|as soon as)\b[^,;]*/gi;
+
+/** A sentence that asks for a reply, where a message's link is its thread. */
+const REPLY = /\b(repl(y|ies|ying)|answer|respond|in (the|its|that) thread)\b/i;
+
 /** An act asked for again, which an earlier one can't answer. */
 const AGAIN = /\b(again|re-?review|re-?approve|another look)\b/i;
 
@@ -453,7 +486,7 @@ function sentencesOf(text: string): string[] {
 		(link) => `\uE000${links.push(link) - 1}\uE000`,
 	);
 	return held
-		.split(/(?<=[.?!])\s+|\n+/)
+		.split(/(?<=[.?!;])\s+|\n+/)
 		.map((one) =>
 			one.replace(
 				/\uE000(\d+)\uE000/g,
@@ -468,8 +501,16 @@ function actsIn(sentence: string): Act[] {
 	if (!HIM.test(words)) return [];
 	const again = AGAIN.test(words);
 	return ACTS.filter(
-		([act, pattern]) => pattern.test(words) && !(again && act !== "merge"),
+		([act, pattern]) => asked(words, pattern) && !(again && act !== "merge"),
 	).map(([act]) => act);
+}
+
+/** Whether `pattern` finds its act's word anywhere in `words` as a verb. */
+function asked(words: string, pattern: RegExp): boolean {
+	const every = new RegExp(pattern.source, "gi");
+	return [...words.matchAll(every)].some(
+		(found) => !NAMED_AS_A_THING.test(words.slice(0, found.index)),
+	);
 }
 
 /** When the draft was made: the time the text gives, the linked message's, or a window back. */
@@ -485,7 +526,13 @@ function draftedSince(
 		// A time later than now was yesterday's.
 		return at.getTime() > now ? at.getTime() - 86_400_000 : at.getTime();
 	}
-	if (message) return Math.round(Number(message) * 1000);
+	// The linked message is what he was asked to answer, never his answer,
+	// and a reply of his long before the ask answered something else.
+	if (message)
+		return Math.max(
+			Math.round(Number(message) * 1000) + 1,
+			now - DRAFT_WINDOW_MS,
+		);
 	return now - DRAFT_WINDOW_MS;
 }
 
@@ -497,7 +544,8 @@ export interface Asked {
 
 /** What each act asked in `sentence` reads at a pull request it links. */
 function pullsIn(sentence: string, acts: readonly Act[]): Asked[] {
-	return [...sentence.matchAll(PULL)].flatMap((found): Asked[] => {
+	const asked = sentence.replace(CONDITION, "$1");
+	return [...asked.matchAll(PULL)].flatMap((found): Asked[] => {
 		const repo = `${found[1]}/${found[2]}`;
 		const number = Number(found[3]);
 		const link = found[0];
@@ -521,11 +569,20 @@ function pullsIn(sentence: string, acts: readonly Act[]): Asked[] {
 }
 
 /** Where a post asked in `sentence` would be, as Slack links and channel names. */
-function postsIn(sentence: string, text: string, now: number): Asked[] {
+function postsIn(
+	sentence: string,
+	text: string,
+	now: number,
+): Asked[] | undefined {
 	const iso = (ms: number) => new Date(ms).toISOString();
-	const linked = [...sentence.matchAll(SLACK)].map((found): Asked => {
+	const links = [...sentence.matchAll(SLACK)];
+	// A message's link asks for a reply in its thread only when the
+	// sentence asks for one; otherwise it may be the draft itself, whose
+	// thread says nothing of where it was posted.
+	if (links.some((found) => found[2]) && !REPLY.test(sentence))
+		return undefined;
+	const linked = links.map((found): Asked => {
 		const message = found[2] ? `${found[2]}.${found[3]}` : undefined;
-		// A message's link asks for a reply in its thread.
 		const thread =
 			/[?&]thread_ts=(\d+\.\d+)/.exec(found[4] ?? "")?.[1] ?? message;
 		return {
@@ -560,14 +617,18 @@ function postsIn(sentence: string, text: string, now: number): Asked[] {
  * none, so a text can't make a send run a crowd of probes.
  */
 export function doneWhensIn(text: string, now: number): Asked[] {
-	const asked = sentencesOf(text).flatMap((sentence) => {
+	const asked: Asked[] = [];
+	for (const sentence of sentencesOf(text)) {
 		const acts = actsIn(sentence);
-		if (acts.length === 0) return [];
-		return [
-			...pullsIn(sentence, acts),
-			...(acts.includes("post") ? postsIn(sentence, text, now) : []),
-		];
-	});
+		if (acts.length === 0) continue;
+		// An ask about another change than the one linked, or a place that
+		// can't be read for it, leaves the text with nothing it can judge.
+		if (ANOTHER_CHANGE.test(sentence.replace(/https?:\/\/\S+/g, "URL")))
+			return [];
+		const posts = acts.includes("post") ? postsIn(sentence, text, now) : [];
+		if (!posts) return [];
+		asked.push(...pullsIn(sentence, acts), ...posts);
+	}
 	const once = new Map(asked.map((one) => [JSON.stringify(one.when), one]));
 	return once.size > PROBES_AT_MOST ? [] : [...once.values()];
 }
@@ -612,5 +673,5 @@ export async function doneAlreadyRefusal(
 		(one, index) => `${one.said} (${asked[index]?.link})`,
 	);
 	const latest = Math.max(...judged.map((one) => one.at ?? 0));
-	return `already done at ${clockOf(latest)}: ${said.join("; ")}. Take the ask back and tell whoever waits on it that it's done. If he must do it again, say so ("again"); if what he did there was something else, say when the draft was made ("drafted at HH:MM"), and ask again.`;
+	return `already done at ${clockOf(latest)}: ${said.join("; ")}. Take the ask back and tell whoever waits on it that it's done. If he must do it again, say so ("again"); if what he did there was something else, say when the draft was made ("drafted at HH:MM"); if a link only says what the act follows from, name the change it's for instead; and ask again.`;
 }
