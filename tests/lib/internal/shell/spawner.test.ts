@@ -44,6 +44,8 @@ import {
 } from "../../../support/spawner-stand-in.ts";
 
 const SHELL = { shell: "/bin/bash", args: ["-c"] };
+/** How long the probe for a user manager that makes scopes may take. */
+const SCOPE_PROBE_MS = 5000;
 
 /** Puts pi's own environment's `name` back as `value` had it, unset where it was. */
 function restore(name: string, value: string | undefined): void {
@@ -579,6 +581,25 @@ describe("the session a pi-spawner is started naming", () => {
 		});
 		expect(spawnerEnvironment(inherited)).toEqual({ PATH: "/bin" });
 	});
+
+	it("is none for a load that names none, whatever pi's or a command's own environment names", async () => {
+		const program = standIn();
+		const { sessions, start } = naming(program);
+		const { operations } = through({ start });
+		const inherited = process.env.PI_SPAWNER_SESSION;
+		process.env.PI_SPAWNER_SESSION = "s-host";
+		try {
+			void operations.exec("true", "/", {
+				onData: () => {},
+				env: { PI_SPAWNER_SESSION: "s-command" },
+			});
+			await askedFor(program, 1);
+		} finally {
+			restore("PI_SPAWNER_SESSION", inherited);
+		}
+
+		expect(sessions, "the spawner the load started").toEqual([undefined]);
+	});
 });
 
 describe("a load's pi-spawner once the load is over", () => {
@@ -679,7 +700,7 @@ describe("the pi-spawners an earlier load left", () => {
 describe.skipIf(process.platform !== "linux")("a pi-spawner as started", () => {
 	/**
 	 * A pi-spawner saying its parent, its name, the session its starting
-	 * environment names as the kernel keeps it (or none), and its cgroup.
+	 * environment names as it was started with (or none), and its cgroup.
 	 */
 	function sayingItself(): { folder: string; program: string } {
 		const folder = mkdtempSync(join(tmpdir(), "started-spawner-"));
@@ -766,6 +787,7 @@ describe.skipIf(process.platform !== "linux")("a pi-spawner as started", () => {
 		spawnSync(probe.command, [...probe.args], {
 			env: { ...process.env, XDG_RUNTIME_DIR: ownRuntime },
 			stdio: "ignore",
+			timeout: SCOPE_PROBE_MS,
 		}).status === 0;
 
 	it.skipIf(!scopes)(
@@ -774,9 +796,9 @@ describe.skipIf(process.platform !== "linux")("a pi-spawner as started", () => {
 			const sandboxed = process.env.XDG_RUNTIME_DIR;
 			process.env.XDG_RUNTIME_DIR = ownRuntime;
 			try {
-				const setting = settingHere(true);
-				const named = await startedFor("s-one", setting);
-				const unnamed = await startedFor(undefined, setting);
+				// Each its own setting, so each asks for a scope of its own name.
+				const named = await startedFor("s-one", settingHere(true));
+				const unnamed = await startedFor(undefined, settingHere(true));
 
 				expect(named.parent, "its parent is the host").toBe(
 					String(process.pid),
@@ -789,6 +811,10 @@ describe.skipIf(process.platform !== "linux")("a pi-spawner as started", () => {
 				expect(inSpawnerScope(named.cgroup), "it runs in its own scope").toBe(
 					true,
 				);
+				expect(
+					inSpawnerScope(unnamed.cgroup),
+					"one naming none, in its own too",
+				).toBe(true);
 			} finally {
 				restore("XDG_RUNTIME_DIR", sandboxed);
 			}

@@ -41,11 +41,14 @@
  * environment, which a host's sessions share. A host's sessions share its
  * process, so a mycelium node tells which asked it for a run by the
  * spawner its command runs under: the host's child running a program
- * named pi-spawner. The host runs none of an agent's commands as its own
- * child, so a command could pass as a spawner only by running a copy of
- * that program on purpose, or, where the kernel lets a process trace more
- * than its descendants, by writing a spawner's memory. It stops a
- * mistake, not a forger.
+ * named pi-spawner. While its spawner runs, the host runs none of an
+ * agent's commands as its own child, so a command could pass as a
+ * spawner only by running a copy of that program on purpose, or, where
+ * the kernel lets a process trace more than its descendants, by writing
+ * a spawner's memory. Once a spawner is lost, or none can start, pi runs
+ * the commands itself, as its own children; one could then start
+ * pi-spawner on purpose naming any session, and the node can't tell it
+ * from the host's. It stops a mistake, not a forger.
  *
  * When pi goes, pi-spawner kills every command it still runs but one kept
  * on disk (shell-workflow's keeping.ts), which a shared host hands to the
