@@ -5,6 +5,11 @@
  * prove only that the sweep believes it. These cut real worktrees,
  * write the broker's records for them, and say which sessions still
  * run through stand-in process facts.
+ *
+ * Long because worktrees, snapshots, the rest between sweeps and a
+ * session joining what a sweep just took all drive one sweep over the
+ * same real repository and records, which splitting would copy into
+ * each file.
  */
 
 import { execFile } from "node:child_process";
