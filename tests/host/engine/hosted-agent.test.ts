@@ -698,6 +698,10 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				observed.events.map((event) => event.type),
 				"the prompt's words were queued while the carried-on turn ran",
 			).toContain("queued_mid_turn");
+			expect(
+				observed.events.map((event) => event.type),
+				"an open waiting on those words heard durable held them, though no prompt committed them",
+			).toContain("words_held");
 			expect(observed.ran, "the tool ran once, before the kill").toBe(1);
 		} finally {
 			rmSync(folder, { recursive: true, force: true });

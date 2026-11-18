@@ -185,6 +185,43 @@ describe("the agent's own runs in pi", () => {
 		expect(said, "once pi's run ended").toEqual(["prepared", "settled"]);
 	});
 
+	it("goes on to what waits from a run pi prepared late only once pi settles it", async () => {
+		// The run that goes on would otherwise hear pi's late settle in its midst.
+		vi.useFakeTimers();
+		try {
+			const said: string[] = [];
+			let prepare = () => {};
+			const preparing = new Promise<void>((done) => {
+				prepare = done;
+			});
+			const runs = new PiRuns(
+				() => false,
+				(say) => say(),
+				() => said.push("next"),
+			);
+			runs.tell({
+				async runForHost(work) {
+					await preparing;
+					said.push("prepared");
+					await work([]);
+					said.push("settled");
+				},
+			});
+			const release = runs.hold();
+			void runs.opening();
+			await vi.advanceTimersByTimeAsync(PREPARING_MS);
+			await release();
+			expect(said, "nothing goes on while pi prepares").toEqual([]);
+
+			prepare();
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(said).toEqual(["prepared", "settled", "next"]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("goes on to what waits once pi's run settled, as pi's own run does", async () => {
 		// Words queued into pi's run after the agent's last run stopped taking
 		// them wait on this, since pi starts no run for them after a host's.

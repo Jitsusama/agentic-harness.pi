@@ -26,6 +26,7 @@ import {
 } from "../../../../extensions/job-workflow/outbox.ts";
 import { holdMessagesThroughCarriedTurns } from "../../../../host/engine/carried-turn-messages.ts";
 import { loadHostPi } from "../../../../host/engine/host-pi.ts";
+import type { HostedAgent } from "../../../../host/engine/hosted-agent.ts";
 import { openHostedConversation } from "../../../../host/engine/hosted-conversation.ts";
 import { piLibrary } from "../../../../host/engine/pi-library.ts";
 import {
@@ -190,7 +191,7 @@ interface Scenario {
 	/** What the session is sent before the agent recovers, as an extension's start may send it. */
 	early?: (session: Session) => Promise<void>;
 	/** What the session is sent once the recovery has begun carrying a turn on, as an extension may send it then. */
-	during?: (session: Session) => Promise<void>;
+	during?: (session: Session, agent?: HostedAgent) => Promise<void>;
 	/** Keep the session in a file under the folder, to be opened again by a later run. */
 	persist?: boolean;
 	/** Recover as a start's resume does, noting each turn the run takes and gives back. */
@@ -681,13 +682,20 @@ const scenarios: Record<string, Scenario> = {
 			say("and the prompt"),
 		],
 		tools: echo(async () => noteEffect("ping")),
-		during: async (session) => {
+		during: async (session, agent) => {
 			const by = Date.now() + QUEUED_WAIT_MS;
 			while (!session.isStreaming && Date.now() < by) {
 				// Polled: typed once the carried turn shows as pi's run under way.
 				await new Promise((done) => setTimeout(done, QUEUED_POLL_MS));
 			}
 			note({ type: "prompted", streaming: session.isStreaming });
+			// As an open waits for its first words: held once durable has them, which commits no prompt here.
+			const held = agent?.whenNextHeld("sent during the turn");
+			void held?.then(
+				() => note({ type: "words_held" }),
+				(error: unknown) =>
+					note({ type: "words_refused", error: String(error) }),
+			);
 			try {
 				// The carried turn is pi's own run, so pi refuses words that
 				// don't say how to wait, as it does in any run; its editor
@@ -1160,7 +1168,7 @@ try {
 	);
 	const during =
 		scenario.typed === undefined
-			? scenario.during?.(session)
+			? scenario.during?.(session, hosted)
 			: session.prompt(scenario.typed);
 	await recovery?.settled;
 	await early;

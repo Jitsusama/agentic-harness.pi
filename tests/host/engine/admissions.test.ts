@@ -91,6 +91,33 @@ describe("the words the agent watches for", () => {
 		expect(await outcome(held)).toBe("waiting");
 	});
 
+	it("are not held by another's words given before them", async () => {
+		// An extension may send words of its own while pi is still taking the first.
+		const { admissions } = admitting();
+		const held = admissions.whenNextHeld("first");
+		const other = words("from an extension");
+		admissions.given([other]);
+		admissions.committed([other]);
+		expect(await outcome(held), "another's words").toBe("waiting");
+
+		const first = words("first");
+		admissions.given([first]);
+		admissions.committed([first]);
+		expect(await outcome(held), "the first words").toBe("held");
+	});
+
+	it("are watched for no more once the watcher stops", async () => {
+		// A watch nobody waits on would otherwise take the next words anyone gives.
+		const { admissions } = admitting();
+		const stopping = new AbortController();
+		const held = admissions.whenNextHeld("first", stopping.signal);
+		stopping.abort();
+		const first = words("first");
+		admissions.given([first]);
+		admissions.committed([first]);
+		expect(await outcome(held)).toBe("refused");
+	});
+
 	it("are refused as the prompt carrying them is", async () => {
 		const { admissions } = admitting();
 		const held = admissions.whenNextHeld();
