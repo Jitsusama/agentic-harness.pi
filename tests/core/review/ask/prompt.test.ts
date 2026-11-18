@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+	MOST_PROMPT_CHARS,
+	tooLargeToAsk,
+} from "../../../../lib/core/review/ask/prompt.ts";
 import type {
 	Change,
 	RepoGuidance,
@@ -11,6 +15,25 @@ import {
 	parseUnifiedDiff,
 	stackPrompt,
 } from "../../../../lib/core/review/index.ts";
+
+describe("a prompt too large to put to a reviewer", () => {
+	it("is refused past the most a reviewer can be sent, saying its size and how to ask about less", () => {
+		const refusal = tooLargeToAsk(
+			"x".repeat(41_800_000),
+			"Ask about fewer commits.",
+		);
+
+		expect(refusal, "a 41.8M prompt is refused").toMatch(
+			/^This round's prompt is 41\.8 million characters, past the 1,200,000 .*Ask about fewer commits\.$/,
+		);
+	});
+
+	it("is sent at the most a reviewer can be sent", () => {
+		expect(
+			tooLargeToAsk("x".repeat(MOST_PROMPT_CHARS), "Ask about less."),
+		).toBeUndefined();
+	});
+});
 
 // A valid hunk: the header promises two old lines and three new
 // ones, so the body has to deliver them. An earlier version of this

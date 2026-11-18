@@ -31,6 +31,7 @@ import { getReviewProvider } from "./register.ts";
 import type { ResolvedVia } from "./resolve.ts";
 import { resolveReference } from "./resolve.ts";
 import type { Stack } from "./stack.ts";
+import { upstreamBase } from "./upstream-base.ts";
 
 /** What the engine needs to work. */
 export interface ReviewEngineDeps {
@@ -116,7 +117,7 @@ export interface ReviewEngine {
 /** The two endpoints of whatever the target covers. */
 function endpointsOf(target: ReviewTarget): { base: string; head: string } {
 	if (target.kind === "range") {
-		return { base: target.base, head: target.head };
+		return { base: target.upstream?.commit ?? target.base, head: target.head };
 	}
 	if (target.kind === "stack") {
 		// A stack's diff is everything from below its first ref to
@@ -377,14 +378,22 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 
 		async fromLocal(repoRoot, spec) {
 			const probed = await probe(repoRoot);
-			const repo: RepoLocator = {
-				key: `local:${probed.repoRoot ?? repoRoot}`,
-				localPath: probed.repoRoot ?? repoRoot,
-			};
+			const root = probed.repoRoot ?? repoRoot;
+			const repo: RepoLocator = { key: `local:${root}`, localPath: root };
+			const upstream =
+				"refs" in spec
+					? undefined
+					: await upstreamBase(deps.exec, root, spec.base);
 			const target: ReviewTarget =
 				"refs" in spec
 					? { kind: "stack", repo, refs: spec.refs }
-					: { kind: "range", repo, base: spec.base, head: spec.head };
+					: {
+							kind: "range",
+							repo,
+							base: spec.base,
+							head: spec.head,
+							...(upstream ? { upstream } : {}),
+						};
 			return bindTargetOrThrow(target, { probe: probed });
 		},
 

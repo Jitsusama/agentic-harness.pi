@@ -10,7 +10,7 @@
  */
 
 import type { EventBus } from "@earendil-works/pi-coding-agent";
-import { lensFor } from "../../../lib/core/review/ask/prompt.ts";
+import { lensFor, tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
 import {
 	type ChangeRef,
 	councilNotEarned,
@@ -107,6 +107,10 @@ export async function askCouncil(
 	);
 }
 
+/** How to ask a council about less, said when its prompt is too large. */
+const NARROWER_COUNCIL =
+	"Ask about fewer commits: a base the head is a few commits past, such as origin/main rather than a local main nobody pulls, or the change itself.";
+
 /**
  * Everything a council round needs before it starts, as a council and
  * a background round both make it: the roster, the change's material,
@@ -142,6 +146,8 @@ async function councilRound(
 		...(params.intent === undefined ? {} : { intent: params.intent }),
 		...conventions,
 	});
+	const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
+	if (tooLarge !== undefined) return { refused: refuse(tooLarge) };
 	return { roster, chosen, proposal, tree, charters, conventions, prompt };
 }
 

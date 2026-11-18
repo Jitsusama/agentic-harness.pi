@@ -15,6 +15,7 @@
 
 import type { Landability } from "./landing.ts";
 import type { QueueState } from "./queue.ts";
+import type { UpstreamBase } from "./upstream-base.ts";
 
 /**
  * Where a repo lives. Providers claim locators; the `key`
@@ -63,10 +64,20 @@ export interface ChangeRef {
  * gets reviewed. `stack` is an ordered set of refs reviewed
  * as one body of work, whether or not proposals exist for
  * its members.
+ *
+ * A range's `upstream`, when there is one, is where its base is read:
+ * the base names a local branch strictly behind its upstream. The base
+ * keeps the name it was given, so the range is held under that name.
  */
 export type ReviewTarget =
 	| { kind: "change"; change: ChangeRef }
-	| { kind: "range"; repo: RepoLocator; base: string; head: string }
+	| {
+			kind: "range";
+			repo: RepoLocator;
+			base: string;
+			head: string;
+			upstream?: UpstreamBase;
+	  }
 	| { kind: "stack"; repo: RepoLocator; refs: string[] };
 
 /**

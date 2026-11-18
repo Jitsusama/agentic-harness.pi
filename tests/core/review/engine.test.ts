@@ -268,6 +268,28 @@ describe("a target with no host", () => {
 		expect(await bound.diff()).toContain("diff --git");
 	});
 
+	it("reads a base that has fallen behind its upstream at the upstream's tip, keeping its name", async () => {
+		const { engine } = engineWith([
+			...localRepo,
+			{ when: ["refs/heads/main^{commit}"], stdout: "old\n" },
+			{ when: ["main@{upstream}"], stdout: "origin/main\n" },
+			{ when: ["origin/main^{commit}"], stdout: "new\n" },
+			{ when: ["--is-ancestor", "old", "new"] },
+			{ when: ["rev-list", "--count", "old..new"], stdout: "3\n" },
+			{ when: ["diff", "new...topic"], stdout: "diff --git a/y b/y\n" },
+		]);
+		const bound = await engine.fromLocal("/src/app", {
+			base: "main",
+			head: "topic",
+		});
+		expect(bound.target).toMatchObject({
+			kind: "range",
+			base: "main",
+			upstream: { ref: "origin/main", commit: "new", behind: 3 },
+		});
+		expect(await bound.diff()).toContain("diff --git a/y");
+	});
+
 	it("has no conversation to offer", async () => {
 		const { engine } = engineWith(localRepo);
 		const bound = await engine.fromLocal("/src/app", {

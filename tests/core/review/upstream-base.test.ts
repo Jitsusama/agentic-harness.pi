@@ -1,0 +1,85 @@
+/**
+ * Where a local range's base is read: at its upstream's tip when the
+ * local branch has only fallen behind it, and as named otherwise. Run
+ * against real repositories, a clone tracking an origin, since what is
+ * checked is what git says about them.
+ */
+
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { spawnExec } from "../../../lib/core/exec/index.ts";
+import { upstreamBase } from "../../../lib/core/review/upstream-base.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
+
+let origin: string;
+let clone: string;
+const exec = spawnExec();
+
+beforeEach(async () => {
+	origin = await freshRepo("upstream-origin");
+	clone = await freshRepo("upstream-clone");
+	disposeRepo(clone);
+	await git(origin, "clone", "-q", origin, clone);
+	await git(clone, "config", "user.name", "Test");
+	// A clone keeps none of its origin's config, so the fixture's own
+	// identity, and its signing turned off, are set again here.
+	await git(clone, "config", "user.email", "test@example.com");
+	await git(clone, "config", "commit.gpgsign", "false");
+});
+
+afterEach(() => {
+	disposeRepo(origin);
+	disposeRepo(clone);
+});
+
+async function commit(repo: string, file: string): Promise<string> {
+	writeFileSync(join(repo, file), `${file}\n`);
+	await git(repo, "add", file);
+	await git(repo, "commit", "-q", "-m", `feat: add ${file}`);
+	return git(repo, "rev-parse", "HEAD");
+}
+
+async function originMoves(by: number): Promise<string> {
+	let tip = "";
+	for (let at = 0; at < by; at += 1) tip = await commit(origin, `o${at}.ts`);
+	await git(clone, "fetch", "-q", "origin");
+	return tip;
+}
+
+describe("where a range's base is read", () => {
+	it("is its upstream's tip when the local branch has only fallen behind", async () => {
+		const tip = await originMoves(3);
+
+		expect(await upstreamBase(exec, clone, "main")).toEqual({
+			ref: "origin/main",
+			commit: tip,
+			behind: 3,
+		});
+	});
+
+	it("is the branch as named when it is level with its upstream", async () => {
+		expect(await upstreamBase(exec, clone, "main")).toBeUndefined();
+	});
+
+	it("is the branch as named when it holds commits its upstream lacks", async () => {
+		await originMoves(2);
+		await commit(clone, "mine.ts");
+
+		expect(await upstreamBase(exec, clone, "main")).toBeUndefined();
+	});
+
+	it("is the branch as named when it tracks nothing", async () => {
+		await git(clone, "branch", "-q", "solo");
+		await originMoves(1);
+
+		expect(await upstreamBase(exec, clone, "solo")).toBeUndefined();
+	});
+
+	it("is the ref as named when it is no local branch", async () => {
+		const tip = await originMoves(1);
+
+		expect(await upstreamBase(exec, clone, "origin/main")).toBeUndefined();
+		expect(await upstreamBase(exec, clone, tip)).toBeUndefined();
+	});
+});

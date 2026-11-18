@@ -8,6 +8,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
 import {
 	createFindingStore,
 	createRunStore,
@@ -128,19 +129,25 @@ export async function askStack(
 			? { files: changes.flatMap((one) => one.diff.files) }
 			: { unknown: "not every branch in this stack is proposed" },
 	);
+	const prompt = stackPrompt({
+		changes: changes.map((one) => ({
+			ref: one.ref,
+			proposal: one.proposal,
+			diff: one.diff,
+		})),
+		...(params.intent === undefined ? {} : { intent: params.intent }),
+		...conventions,
+	});
+	const tooLarge = tooLargeToAsk(
+		prompt,
+		"Ask about fewer of its changes: a council on each change, or on the lower part of the stack first.",
+	);
+	if (tooLarge !== undefined) return refuse(tooLarge);
 	const asking = deps(tip.change, tree.path, watch, charters);
 	const { run, warnings } = await runStackCouncil(
 		{
 			roster,
-			prompt: stackPrompt({
-				changes: changes.map((one) => ({
-					ref: one.ref,
-					proposal: one.proposal,
-					diff: one.diff,
-				})),
-				...(params.intent === undefined ? {} : { intent: params.intent }),
-				...conventions,
-			}),
+			prompt,
 			seq: nextSeq(),
 			stackRefs,
 			witnessFor: (ref) => witnesses.get(ref),

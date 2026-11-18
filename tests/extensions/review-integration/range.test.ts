@@ -16,6 +16,7 @@ import {
 } from "../../../extensions/review-integration/range.ts";
 import { reviewedChange } from "../../../extensions/review-integration/tools/shared.ts";
 import type { BoundTarget } from "../../../lib/core/review/index.ts";
+import type { UpstreamBase } from "../../../lib/core/review/upstream-base.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 
 let repo: string;
@@ -29,10 +30,20 @@ afterEach(() => {
 });
 
 /** A bound target for base..head in the fixture, as the core binds one. */
-function boundRange(base: string, head: string): BoundTarget {
+function boundRange(
+	base: string,
+	head: string,
+	upstream?: UpstreamBase,
+): BoundTarget {
 	const local = { key: `local:${repo}`, localPath: repo };
 	return {
-		target: { kind: "range", repo: local, base, head },
+		target: {
+			kind: "range",
+			repo: local,
+			base,
+			head,
+			...(upstream ? { upstream } : {}),
+		},
 		// A hosted repo's locator carries no path; the target's does.
 		repo: { key: "github:owner/name" },
 		provider: { id: "github" },
@@ -90,6 +101,27 @@ describe("a local range as a change", () => {
 			base: "main",
 			head: "topic",
 			headCommit: head,
+		});
+	});
+
+	it("tells only the commits past its upstream when its base is read there, and says so", async () => {
+		await git(repo, "checkout", "-q", "-b", "topic");
+		await commit("a.ts", "feat: add a");
+		const upstream = await git(repo, "rev-parse", "HEAD");
+		await commit("b.ts", "fix: mend b");
+
+		const proposal = await rangeProposal(
+			boundRange("main", "topic", {
+				ref: "origin/main",
+				commit: upstream,
+				behind: 1,
+			}),
+		);
+
+		expect(proposal).toMatchObject({
+			title: "fix: mend b",
+			body: `The local main is 1 commit behind origin/main, so main is read at origin/main (${upstream.slice(0, 12)}).\n\nfix: mend b`,
+			base: "main",
 		});
 	});
 

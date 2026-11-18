@@ -9,6 +9,7 @@ import type {
 	ReviewerRunPaths,
 	ReviewerTerminalState,
 } from "./artifacts.ts";
+import { safeSegment } from "./errno.ts";
 import type { LeaseRecord, ProcessFacts } from "./lease.ts";
 import {
 	sameProcess,
@@ -139,15 +140,18 @@ export async function recoverReviewerRuns(
 	const reaped: ReapedReviewerChild[] = [];
 	const warnings: string[] = [];
 	let since = pace.now();
-	for (const runId of await listDirs(store.runsDir)) {
-		const reviewersDir = join(store.runsDir, runId, "reviewers");
-		for (const reviewerId of await listDirs(reviewersDir)) {
+	for (const runDir of await listDirs(store.runsDir)) {
+		const reviewersDir = join(store.runsDir, runDir, "reviewers");
+		for (const reviewerDir of await listDirs(reviewersDir)) {
 			// Between reviewers, never inside one, so a reviewer is always
 			// judged from one reading of its files.
 			if (pace.now() - since >= WALK_SLICE_MS) {
 				await pace.giveBack();
 				since = pace.now();
 			}
+			const ids = await idsOf(store, runDir, reviewerDir);
+			if (ids === undefined) continue;
+			const { runId, reviewerId } = ids;
 			const paths = store.paths(runId, reviewerId);
 			try {
 				const result = await store.readJson<ResultFile>(paths.resultPath);
@@ -338,6 +342,58 @@ async function readProgress(
 		activity: progress?.activity ?? "",
 		updatedAt: progress?.updatedAt ?? "",
 	};
+}
+
+/**
+ * The run and reviewer a reviewer's folder was made for, or nothing
+ * when it can't say.
+ *
+ * A folder's name is its id escaped (`safeSegment`), and escaping
+ * again is no way back: from 26 Oct each start read the name
+ * `a~2bresume` as an id, wrote a cancel under `a~7e2bresume`, and the
+ * next start did the same to that, 32,637 folders by 18 Nov. So a name
+ * is taken as the id only when escaping leaves it as it is; otherwise
+ * the ids the reviewer's own files record are, and a folder recording
+ * none is no reviewer's and is left alone.
+ */
+async function idsOf(
+	store: ReviewerArtifactsStore,
+	runDir: string,
+	reviewerDir: string,
+): Promise<{ runId: string; reviewerId: string } | undefined> {
+	if (
+		safeSegment(runDir) === runDir &&
+		safeSegment(reviewerDir) === reviewerDir
+	)
+		return { runId: runDir, reviewerId: reviewerDir };
+	const dir = join(store.runsDir, runDir, "reviewers", reviewerDir);
+	for (const file of RECORDING_FILES) {
+		const recorded = await store
+			.readJson<RecordedIds>(join(dir, file))
+			// A file cut short by a crash says nothing; the next may.
+			.catch(() => null);
+		const { runId, reviewerId } = recorded ?? {};
+		if (typeof runId !== "string" || typeof reviewerId !== "string") continue;
+		// Ids that lead somewhere else were escaped by other rules than
+		// these, and reading them would judge a reviewer by another's files.
+		if (store.paths(runId, reviewerId).reviewerDir !== dir) return undefined;
+		return { runId, reviewerId };
+	}
+	return undefined;
+}
+
+/** The files a reviewer writes that say whose they are, oldest first. */
+const RECORDING_FILES = [
+	"request.json",
+	"lease.json",
+	"progress.json",
+	"result.json",
+] as const;
+
+/** The ids a reviewer's file records about itself. */
+interface RecordedIds {
+	readonly runId?: unknown;
+	readonly reviewerId?: unknown;
 }
 
 async function listDirs(path: string): Promise<string[]> {
