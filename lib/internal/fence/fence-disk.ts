@@ -4,13 +4,8 @@
  * and a test hands in a disk of its own.
  */
 
-import { lstatSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
-import { join } from "node:path";
-import {
-	holdsSessionBus,
-	lockFolder,
-	QUEST_LOCKS,
-} from "../quest/lock-folder.ts";
+import { lstatSync, readdirSync, realpathSync } from "node:fs";
+import { questLockFolder } from "../quest/lock-folder.ts";
 
 /** What the fence needs to know of the disk: what a path is, and what a folder holds. */
 export interface Disk {
@@ -19,9 +14,9 @@ export interface Disk {
 	/** Where a path ends once its links are followed, if it ends anywhere. */
 	real?(path: string): string | undefined;
 	/**
-	 * The quest lock folder in a login's runtime folder, made if it isn't
-	 * there, and whether it may be bound: undefined where the runtime
-	 * folder holds no session bus, and so no writer outside locks there.
+	 * The quest lock folder in a login's runtime folder, judged as every
+	 * writer outside judges it, and whether it may be bound: undefined
+	 * where there is none, so writers outside lock in `.writing` too.
 	 */
 	questLocks?(
 		runtimeDir: string,
@@ -57,13 +52,9 @@ export const DISK: Disk = {
 		}
 	},
 	questLocks(runtimeDir) {
-		if (!holdsSessionBus(runtimeDir)) return undefined;
-		const folder = join(runtimeDir, QUEST_LOCKS);
-		try {
-			mkdirSync(folder, { recursive: true, mode: 0o700 });
-		} catch {
-			// Something else stands there: judged, and refused, below.
-		}
-		return { folder, ours: lockFolder(folder) === "ours" };
+		const { folder, stands } = questLockFolder(runtimeDir);
+		return stands === "absent"
+			? undefined
+			: { folder, ours: stands === "ours" };
 	},
 };

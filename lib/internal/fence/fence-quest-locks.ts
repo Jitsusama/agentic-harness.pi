@@ -13,8 +13,8 @@ import type { Disk } from "./fence-disk.ts";
  * link, another's, open to others) an empty file stands in its place,
  * which a fenced writer reads as no folder let through and so writes no
  * quest rather than lock where writers outside never look (ISXEG8, 17
- * November). Nothing where the runtime folder holds no bus, since
- * writers outside lock in each quest's `.writing` there too.
+ * November). Nothing where there is no folder and no bus to make one
+ * for, since writers outside lock in each quest's `.writing` there too.
  */
 export function questLockArgs(runtimeDir: string, disk: Disk): string[] {
 	const locks = disk.questLocks?.(runtimeDir);
