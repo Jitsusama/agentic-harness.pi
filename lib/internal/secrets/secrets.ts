@@ -296,7 +296,7 @@ export function readsAsDump(text: string): boolean {
 }
 
 /** The name a line setting a variable sets, read from its start. */
-const SET_NAME = new RegExp(`^${LINE_LEAD}(${NAME})`);
+const SET_NAME = new RegExp(String.raw`^${LINE_LEAD}(${NAME})`);
 
 const NEWLINE = 10;
 const RETURN = 13;
