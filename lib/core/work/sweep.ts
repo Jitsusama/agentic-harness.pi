@@ -225,7 +225,8 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			});
 		}
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
-		for (const idle of await idleSnapshots(live, { ...deps, now })) {
+		const choice = { ...deps, claims, now };
+		for (const idle of await idleSnapshots(live, choice)) {
 			await takeIdle(deps, facts, idle, now, outcome);
 		}
 		const others = deps.memory
