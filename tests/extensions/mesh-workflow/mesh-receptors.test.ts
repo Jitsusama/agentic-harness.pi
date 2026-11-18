@@ -20,6 +20,7 @@ import { folderTransport } from "../../../lib/mesh/transport.ts";
 import {
 	fixture,
 	fromElsewhere,
+	noNode,
 	session,
 	startSession,
 } from "./support/mesh.ts";
@@ -100,7 +101,9 @@ async function nodeServing(
 
 describe("a receptor's signal", () => {
 	it("is dropped, and said in the log, when planted in the folder under a receptor's name", async () => {
-		const { sent, entries } = await startSession({}, { isIdle: () => true });
+		const { sent, entries } = await startSession(noNode(), {
+			isIdle: () => true,
+		});
 
 		const planted = fromElsewhere({
 			from: "GitHub@kestrel",
@@ -141,7 +144,7 @@ describe("a receptor's signal", () => {
 	});
 
 	it("brings this peer into no group", async () => {
-		const { sent } = await startSession({}, { isIdle: () => true });
+		const { sent } = await startSession(noNode(), { isIdle: () => true });
 
 		fromElsewhere({
 			from: "github@kestrel",
@@ -159,7 +162,7 @@ describe("a receptor's signal", () => {
 	});
 
 	it("is read by no other view, and mesh_read says it left one out", async () => {
-		const { tools } = await startSession({}, { isIdle: () => true });
+		const { tools } = await startSession(noNode(), { isIdle: () => true });
 
 		fromElsewhere({
 			from: "github@kestrel",
@@ -186,7 +189,7 @@ describe("a receptor's signal", () => {
 	});
 
 	it("leaves mesh_read reading on past it to what can be shown", async () => {
-		const { tools } = await startSession({}, { isIdle: () => true });
+		const { tools } = await startSession(noNode(), { isIdle: () => true });
 		fromElsewhere({ text: "the plain one, older than what was planted" });
 		for (let one = 0; one < 3; one++) {
 			fromElsewhere({ from: "github@kestrel", text: `planted ${one}` });
@@ -204,7 +207,7 @@ describe("a receptor's signal", () => {
 	});
 
 	it("leaves mesh_read reading no more than its bound, saying where to read on", async () => {
-		const { tools } = await startSession({}, { isIdle: () => true });
+		const { tools } = await startSession(noNode(), { isIdle: () => true });
 		fromElsewhere({ text: "beyond the bound" });
 		for (let one = 0; one < 501; one++) {
 			fromElsewhere({ from: "github@kestrel", text: `planted ${one}` });
@@ -222,7 +225,7 @@ describe("a receptor's signal", () => {
 	});
 
 	it("leaves mesh_read's bound to receptors' names, so a busy mesh still shows this peer's own", async () => {
-		const { tools } = await startSession({}, { isIdle: () => true });
+		const { tools } = await startSession(noNode(), { isIdle: () => true });
 		fromElsewhere({ to: ["@7M6JKG"], text: "put to this peer, long ago" });
 		for (let one = 0; one < 501; one++) {
 			fromElsewhere({ to: ["#elsewhere"], text: `another group's ${one}` });

@@ -19,6 +19,7 @@ import {
 	fromElsewhere,
 	judging,
 	leased,
+	noNode,
 	notYours,
 	ownBoard,
 	peer,
@@ -162,7 +163,7 @@ describe("an answer", () => {
 
 	it("under a receptor's name, planted in the folder, leaves this peer's question unanswered", async () => {
 		peer("session-p", ["P9R1KI"], ["#optimus"]);
-		const { tools } = await startSession();
+		const { tools } = await startSession(noNode());
 		await send(tools, "#optimus", "question", "who has qemu?");
 		const [asked = ""] = folderTransport(
 			join(fixture.paths.mesh, "messages"),

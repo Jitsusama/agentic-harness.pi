@@ -16,6 +16,7 @@ import {
 	fixture,
 	fromElsewhere,
 	leased,
+	noNode,
 	ownBoard,
 	peer,
 	type Sent,
@@ -168,7 +169,9 @@ describe("a lease", () => {
 
 	it("keeps waiting when a receptor's name is planted saying another's hold is over", async () => {
 		peer("session-w", ["WCJQSG"], []);
-		const { sent, tools } = await startSession({}, { isIdle: () => true });
+		const { sent, tools } = await startSession(noNode(), {
+			isIdle: () => true,
+		});
 		const hold = fromElsewhere({ intent: "hold", text: "hold qemu" });
 		await tools.get("mesh_send")?.execute("call-2", {
 			to: "WCJQSG",

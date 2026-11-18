@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { noted } from "../../../extensions/mesh-workflow/delivery.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
 import { servedFrom } from "../../../lib/mesh/node.ts";
@@ -257,6 +257,32 @@ describe("vouchedOnly", () => {
 		expect(asked, "the node was asked once more").toBe(2);
 	});
 
+	it("asks again three times, over 4 s in all, before dropping a signal", async () => {
+		vi.useFakeTimers();
+		try {
+			const said = from("github@kestrel", "2-said");
+			const asked: number[] = [];
+			const start = Date.now();
+			const shown = vouchedOnly(
+				[said],
+				async () => {
+					asked.push(Date.now() - start);
+					return asked.length < 4 ? new Map() : serving(said);
+				},
+				() => undefined,
+			);
+			await vi.advanceTimersByTimeAsync(4_250);
+			expect(await shown, "a signal the node served late was lost").toEqual([
+				said,
+			]);
+			expect(asked, "the node wasn't asked at these times").toEqual([
+				0, 250, 1_250, 4_250,
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("drops every one under a receptor's name when no node answers", async () => {
 		const dropped: [string, Unvouched][] = [];
 		const shown = await vouchedOnly(
@@ -430,5 +456,15 @@ describe("noted", () => {
 			noted([from("WCJQSG", "1-plain")]),
 			"a session's message was framed as a receptor's",
 		).not.toContain(RECEPTOR_SIGNAL);
+	});
+
+	it("puts the frame before the signal's words", () => {
+		const said = noted([from("github@kestrel", "2-said")]);
+		const words = said.indexOf(SIGNAL);
+		expect(words, "the signal's words weren't said").toBeGreaterThan(-1);
+		expect(
+			said.indexOf(RECEPTOR_SIGNAL),
+			"the frame came after the words it frames",
+		).toBeLessThan(words);
 	});
 });

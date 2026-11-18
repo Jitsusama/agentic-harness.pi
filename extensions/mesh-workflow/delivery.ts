@@ -123,10 +123,12 @@ export function noted(
 		const crossed = message.fromRealm
 			? `\n\n${crossedText(message.fromRealm)}`
 			: "";
+		// A receptor's frame comes before its words, as in a glance, so it
+		// is read before what it frames.
 		const signal = readsAsReceptor(message.from)
-			? `\n\n${RECEPTOR_SIGNAL}`
+			? `${RECEPTOR_SIGNAL}\n\n`
 			: "";
-		return `Mesh message [${shortId(message)}] (${message.intent}) from ${sender(message)} to ${message.to.join(", ")} at ${clock(message)}${thread}:\n\n${message.text}${crossed}${signal}`;
+		return `Mesh message [${shortId(message)}] (${message.intent}) from ${sender(message)} to ${message.to.join(", ")} at ${clock(message)}${thread}:\n\n${signal}${message.text}${crossed}`;
 	});
 	const asks = INTENTS.filter((intent) =>
 		messages.some((message) => message.intent === intent),

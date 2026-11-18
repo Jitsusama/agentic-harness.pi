@@ -39,6 +39,7 @@ import {
 	readsAsReceptor,
 	type Unvouched,
 	unvouched,
+	VOUCH_AGAIN_MS,
 	vouchedOnly,
 } from "../../../lib/mesh/receptor.ts";
 import type { Judge } from "../../../lib/mesh/routing.ts";
@@ -211,8 +212,12 @@ export function createHearing(m: MeshState, f: Handing) {
 		// lands in the folder, so one under a receptor's name is shown only
 		// when the node serves it as written, and dropped, said in the log,
 		// otherwise. A batch holding none never waits on the node; one that
-		// does waits as a whole, at most the node's patience and two asks
-		// again, so its messages keep their order. One dropped is handed
+		// does waits as a whole, so its messages keep their order: the node
+		// is asked, then again after each of VOUCH_AGAIN_MS, each ask given
+		// its patience. A catch-up asks again once only, since what it
+		// reads was written before this session started, so the node has
+		// long had it, and a planted file holds back its first turn no
+		// longer than it must. One dropped is handed
 		// over as needing nothing more, or the read marker would stop
 		// behind it for the rest of the session. Drops are said once the
 		// wait is over, and only to the session they were routed for, since
@@ -223,6 +228,7 @@ export function createHearing(m: MeshState, f: Handing) {
 					arrived,
 					(ids) => servedAt(nodeSocket(m.env), ids),
 					(message, why) => drops.push([message, why]),
+					starting ? VOUCH_AGAIN_MS.slice(0, 1) : VOUCH_AGAIN_MS,
 				)
 			: arrived;
 		if (m.peer !== routedFor) return;
