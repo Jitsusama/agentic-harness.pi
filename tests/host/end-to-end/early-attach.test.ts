@@ -8,8 +8,14 @@
  * closed on Joel's workspace. Here the conversation's own extension
  * holds its start between the two, and the attach is answered only once
  * the screen exists, which it then shows.
+ *
+ * On 18 November six of Joel's windows attached while the background
+ * host was starting, and sat blank for 2 h 20 min with nothing in the
+ * host's journal to say why. The last case attaches a window while the
+ * next host's start is held, and the window must be drawn, the journal
+ * saying what its attach waited on and the size of its first frame.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { quietFor, until } from "../../support/until.ts";
@@ -41,6 +47,10 @@ const ROWS = 30;
 const COLUMNS = 120;
 /** The file the folder's extension waits for before it lets its start go on. */
 const GO_ON = "go-on";
+/** The file the folder's extension writes once it is holding its start. */
+const HOLDING = "holding";
+/** How long a viewer waits between tries to reach a host not yet listening. */
+const REACH_EVERY_MS = 100;
 
 let sealed: Seal;
 let host: ScreenHost;
@@ -89,8 +99,84 @@ describe.skipIf(!packageDir)(
 			},
 			CASE_MS,
 		);
+
+		// Last, since it replaces the host every case before it shares.
+		it(
+			"draws a window that attached during the host's start, journaling what it waited on and its first frame",
+			async () => {
+				if (!packageDir) throw new Error(hostPiMissing());
+				const cwd = heldAtStart();
+				writeFileSync(join(cwd, GO_ON), "");
+				const { sessionId } = await host.open(cwd, "before the start");
+				await host.idle(sessionId, TURN_MS);
+				const { path } = host;
+				expect(await host.restart(), "the host stops cleanly").toBe(0);
+				rmSync(join(cwd, GO_ON));
+				rmSync(join(cwd, HOLDING), { force: true });
+
+				const starting = startScreenHost(sealed, packageDir);
+				let answered = false;
+				const attaching = attachOnceListening(path, sessionId).finally(() => {
+					answered = true;
+				});
+				// The conversation is being built, whether the start resumes it or
+				// the attach wakes it from a park, and the attach waits on it.
+				await until(
+					"the conversation's start to be held",
+					() => existsSync(join(cwd, HOLDING)),
+					CASE_MS / 2,
+				);
+				// Past the fixture host's half a second, so it journals the wait.
+				await quietFor(ANSWER_MS, 10);
+				expect(answered, "the host answered while the start was held").toBe(
+					false,
+				);
+
+				writeFileSync(join(cwd, GO_ON), "");
+				host = await starting;
+				const viewer = await attaching;
+				viewers.push(viewer);
+				await viewer.shows("heard: before the start", TURN_MS);
+				const journal = host.errors();
+				expect(journal, "the journal names what the attach waited on").toMatch(
+					new RegExp(
+						`\\(${sessionId}\\): a window's attach has waited [0-9.]+ s on (the host's start to resume it|its wake)`,
+					),
+				);
+				expect(journal, "and when it was answered").toMatch(
+					new RegExp(
+						`\\(${sessionId}\\): a window's attach was answered after [0-9.]+ s`,
+					),
+				);
+				expect(journal, "and the first frame the window was sent").toMatch(
+					new RegExp(
+						`\\(${sessionId}\\): a window's first frame, [1-9][0-9]* bytes`,
+					),
+				);
+			},
+			CASE_MS * 2,
+		);
 	},
 );
+
+/**
+ * A viewer attached through `path` once a host listens there, as a
+ * window's attach is when it starts before the next host has bound it.
+ */
+async function attachOnceListening(
+	path: string,
+	sessionId: string,
+): Promise<Viewer> {
+	const deadline = Date.now() + CASE_MS;
+	for (;;) {
+		try {
+			return await attach(path, sessionId, ROWS, COLUMNS);
+		} catch (error) {
+			if (Date.now() > deadline) throw error;
+			await new Promise((done) => setTimeout(done, REACH_EVERY_MS));
+		}
+	}
+}
 
 /**
  * A fresh trusted folder whose own extension holds its conversation's
@@ -103,8 +189,10 @@ function heldAtStart(): string {
 	mkdirSync(extensions, { recursive: true });
 	writeFileSync(
 		join(extensions, "held.ts"),
-		`import { existsSync } from "node:fs";
+		`import { existsSync, writeFileSync } from "node:fs";
 export default async function () {
+	if (!existsSync(${JSON.stringify(join(cwd, GO_ON))}))
+		writeFileSync(${JSON.stringify(join(cwd, HOLDING))}, "");
 	while (!existsSync(${JSON.stringify(join(cwd, GO_ON))}))
 		// Nothing tells an extension a file appeared, so it looks every 50 ms.
 		await new Promise((done) => setTimeout(done, 50));

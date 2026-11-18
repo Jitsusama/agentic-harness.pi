@@ -206,6 +206,9 @@ const serving = await serveHost({
 	report,
 	// The lines the host's journal keeps, such as each conversation's end.
 	say: (line: string) => process.stderr.write(`screen-host: ${line}\n`),
+	// Half a second, not a real host's five, so a case holding an attach
+	// past it stays short; a slower one only adds lines to the journal.
+	attachSlowMs: 500,
 	runtimeDir: process.env.XDG_RUNTIME_DIR,
 	rollout: () => Promise.resolve(),
 });

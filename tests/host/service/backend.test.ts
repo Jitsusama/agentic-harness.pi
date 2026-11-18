@@ -846,6 +846,93 @@ describe("hostBackend", () => {
 		expect(order).toEqual(["screen", "attach"]);
 	});
 
+	it("journals an attach left waiting, naming what it waits on, and when it is answered", async () => {
+		// Six of Joel's windows sat blank for hours after a host start on 18
+		// November, and nothing the host journaled said which attach waited
+		// on what.
+		const sessionId = randomUUID();
+		let screenUp = (): void => undefined;
+		const { fake } = engine({
+			prepare: vi.fn(async (request) => ({
+				sessionId,
+				file: request.op === "adopt" ? request.sessionFile : dir,
+				cwd: dir,
+			})),
+			start: vi.fn(async (prepared: Prepared) => {
+				register(prepared);
+				await new Promise<void>((done) => {
+					screenUp = done;
+				});
+			}),
+		});
+		const said: string[] = [];
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: fake,
+			say: (line) => said.push(line),
+			attachSlowMs: 20,
+		});
+		const adopting = backend.execute({
+			v: 1,
+			id: "a",
+			op: "adopt",
+			sessionFile: join(dir, "moved.jsonl"),
+			attended: false,
+		});
+		await vi.waitFor(() => expect(host.holds(sessionId)).toBeDefined());
+		const attaching = backend.execute({
+			v: 1,
+			id: "t",
+			op: "attach",
+			sessionId,
+			rows: 1,
+			columns: 1,
+		});
+		await vi.waitFor(() =>
+			expect(said, "the journal says the attach waits on the open").toEqual([
+				expect.stringMatching(
+					new RegExp(
+						`\\(${sessionId}\\): a window's attach has waited [0-9.]+ s on its open to finish$`,
+					),
+				),
+			]),
+		);
+		screenUp();
+		await adopting;
+		expect(parseSessionResult(await attaching)).toEqual({ sessionId });
+		expect(said[1], "and says when it was answered").toMatch(
+			new RegExp(
+				`\\(${sessionId}\\): a window's attach was answered after [0-9.]+ s$`,
+			),
+		);
+		expect(said, "nothing more").toHaveLength(2);
+	});
+
+	it("journals nothing for an attach answered at once", async () => {
+		const said: string[] = [];
+		const { fake } = engine();
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: fake,
+			say: (line) => said.push(line),
+			attachSlowMs: 1_000,
+		});
+		const { sessionId } = parseOpenResult(await backend.execute(open));
+		await backend.execute({
+			v: 1,
+			id: "t",
+			op: "attach",
+			sessionId,
+			rows: 1,
+			columns: 1,
+		});
+		expect(said, "an attach answered at once says nothing").toEqual([]);
+	});
+
 	it("refuses an attach on a conversation whose start failed before it registered", async () => {
 		const sessionId = randomUUID();
 		let fail = (): void => undefined;

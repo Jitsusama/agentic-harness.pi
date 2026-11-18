@@ -478,6 +478,65 @@ describe("viewer connection lifecycle", () => {
 		});
 		socket.destroy();
 	});
+	it("journals the first frame each window it attached was sent, and how big", async () => {
+		const said: string[] = [];
+		listener = await listenControl({
+			path,
+			backend,
+			report,
+			say: (line) => said.push(line),
+			viewer: {
+				attach: (_request, sink) => {
+					sink.write("drawn");
+					return { input: vi.fn(), resize: vi.fn(), detach: vi.fn() };
+				},
+			},
+		});
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		await messages.next();
+		await messages.next();
+		expect(said, "one line, naming the size of the frame drawn").toEqual([
+			expect.stringMatching(
+				new RegExp(
+					`\\(${a}\\): a window's first frame, 5 bytes, went [0-9.]+ s after its attach was answered$`,
+				),
+			),
+		]);
+		socket.destroy();
+	});
+	it("journals a window it attached that nothing was drawn for", async () => {
+		const said: string[] = [];
+		listener = await listenControl({
+			path,
+			backend,
+			report,
+			say: (line) => said.push(line),
+			attachSlowMs: 20,
+			viewer: {
+				attach: () => ({ input: vi.fn(), resize: vi.fn(), detach: vi.fn() }),
+			},
+		});
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		await messages.next();
+		await vi.waitFor(() =>
+			expect(said).toEqual([
+				expect.stringMatching(
+					new RegExp(
+						`\\(${a}\\): a window attached [0-9.]+ s ago has been sent nothing to draw$`,
+					),
+				),
+			]),
+		);
+		socket.destroy();
+	});
 	it("bounds output even when a viewer does not read", async () => {
 		const detach = vi.fn();
 		await start({
