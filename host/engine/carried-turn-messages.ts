@@ -13,7 +13,9 @@
  * is disposed, even mid-round: a peer's lost words cost more than their
  * place, which the request's pairing mends (paired-results.ts). Where pi
  * has the seam, a carried turn is pi's own run, so pi holds the message
- * and drops it as it lets go; pi's own flush writes it first.
+ * and drops it as it lets go; pi's own flush writes it first. pi keeps
+ * what it held past a run whose work failed, counting no run by then, so
+ * the flush is asked for at every dispose.
  */
 
 import type {
@@ -96,17 +98,20 @@ export function holdMessagesThroughCarriedTurns(
 }
 
 /**
- * Write what pi holds through a run it counts, as it would once the turn
- * ends. pi keeps that flush to itself, so it is found by name; a pi that
- * moves it drops the message, as pi does, and that loss is reported.
+ * Write what pi holds, through a run it counts or kept past one whose
+ * work failed, as it would once a turn ends; it writes nothing when it
+ * holds nothing. pi keeps that flush to itself, so it is found by name; a
+ * pi that moves it drops what it holds through a run, as pi does, and
+ * that loss is reported.
  */
 function writeWhatPiHolds(
 	session: MessagingSession,
 	report: (error: unknown) => void,
 ): void {
-	if (!session.isStreaming) return;
 	const flush: unknown = Reflect.get(session, PI_FLUSH);
 	if (typeof flush !== "function") {
+		// An idle pi holds nothing for a run, so only a run's loss is said.
+		if (!session.isStreaming) return;
 		report(
 			new Error(
 				`pi has no ${PI_FLUSH}, so what it held through its run is lost as it lets go`,
