@@ -33,6 +33,9 @@ vi.mock("node:fs", async (importOriginal) => {
 	};
 });
 
+// A setup file loads write-whole before this file's mock; loaded again,
+// it takes the mocked fs.
+vi.resetModules();
 const { writeWhole } = await import("../../../lib/internal/write-whole.ts");
 
 let dir: string;
@@ -74,6 +77,16 @@ describe("writing a file whole durably", () => {
 
 	it("flushes a new one on btrfs, which no file stands behind", () => {
 		const file = join(dir, "README.md");
+
+		writeWhole(file, "new", { durable: true });
+
+		expect(fs.readFileSync(file, "utf8")).toBe("new");
+		expect(disk.syncs).toBe(1);
+	});
+
+	it("flushes one replacing an empty file, which btrfs's rename doesn't start writing", () => {
+		const file = join(dir, "README.md");
+		fs.writeFileSync(file, "");
 
 		writeWhole(file, "new", { durable: true });
 
