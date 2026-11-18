@@ -596,8 +596,11 @@ describe("watchHolds", () => {
 	});
 
 	describe("profiling a spin", () => {
-		/** How long three spins and their profiles may take, in ms. */
-		const THREE_SPINS_MS = 20_000;
+		/**
+		 * How long a case of several spins may take, in ms: their seconds of
+		 * spinning and the turns between pass vitest's 5 s on a busy machine.
+		 */
+		const SPINS_MS = 20_000;
 
 		/** The profiles kept so far, oldest first. */
 		const kept = (folder: string): string[] =>
@@ -625,7 +628,9 @@ describe("watchHolds", () => {
 			return proc;
 		};
 
-		it("profiles the main thread once a spin's hold is long, saying where it spun", async () => {
+		it("profiles the main thread once a spin's hold is long, saying where it spun", {
+			timeout: SPINS_MS,
+		}, async () => {
 			const folder = join(dir, "held");
 			stop = watchHolds({
 				fd,
@@ -667,11 +672,7 @@ describe("watchHolds", () => {
 			});
 		});
 
-		// Three spins of a second and a half each, and their turns between,
-		// pass vitest's 5 s on a busy machine, so this one has longer.
-		it("keeps only the newest profiles", {
-			timeout: THREE_SPINS_MS,
-		}, async () => {
+		it("keeps only the newest profiles", { timeout: SPINS_MS }, async () => {
 			const folder = join(dir, "held");
 			stop = watchHolds({
 				fd,
@@ -717,6 +718,7 @@ describe("watchHolds", () => {
 
 		it.runIf(ON_LINUX)(
 			"profiles no hold short of its time, nor a thread asleep in the kernel",
+			{ timeout: SPINS_MS },
 			async () => {
 				const folder = join(dir, "held");
 				const watch = (proc?: string) =>
