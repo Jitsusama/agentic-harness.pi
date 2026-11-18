@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import {
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	utimesSync,
 	writeFileSync,
@@ -263,6 +264,68 @@ describe("finding a council that read a change's commits", () => {
 		);
 
 		expect(found?.id).toBe("council-bbb");
+	});
+
+	it("gives the newest by its start, whichever ledger is read first", async () => {
+		// The case above with the ledgers swapped, so a walk in either
+		// order meets the older round second in one of the two.
+		const store = createRunStore(root);
+		await store.record(
+			range,
+			read("bbb", { startedAt: "2026-07-30T02:00:00.000Z" }),
+		);
+		await store.record(
+			change,
+			read("aaa", { startedAt: "2026-07-30T01:00:00.000Z" }),
+		);
+
+		const found = await store.witnessed(
+			"github:Shopify/world",
+			new Set(["aaa", "bbb"]),
+		);
+
+		expect(found?.id).toBe("council-bbb");
+	});
+
+	it("counts a stack round for each change its reviewers read", async () => {
+		const store = createRunStore(root);
+		await store.record(
+			range,
+			run({ id: "stack-1", round: "stack", witnesses: ["low", "tip"] }),
+		);
+
+		expect(
+			(await store.witnessed("github:Shopify/world", new Set(["low"])))?.id,
+		).toBe("stack-1");
+	});
+
+	it("sees a round recorded after it last looked", async () => {
+		// Each ledger's reading is kept until the file changes, so a
+		// council that finishes between two asks has to show on the second.
+		const store = createRunStore(root);
+		await store.record(range, read("zzz"));
+		expect(
+			await store.witnessed("github:Shopify/world", new Set(["aaa"])),
+		).toBeUndefined();
+
+		await store.record(range, read("aaa"));
+
+		expect(
+			(await store.witnessed("github:Shopify/world", new Set(["aaa"])))?.id,
+		).toBe("council-aaa");
+	});
+
+	it("passes over a run that isn't one", async () => {
+		const store = createRunStore(root);
+		await store.record(range, read("aaa"));
+		const path = join(root, readdirSync(root)[0] ?? "");
+		const ledger = JSON.parse(readFileSync(path, "utf8"));
+		ledger.runs.unshift(null, { round: "council" }, "council");
+		writeFileSync(path, JSON.stringify(ledger));
+
+		expect(
+			(await store.witnessed("github:Shopify/world", new Set(["aaa"])))?.id,
+		).toBe("council-aaa");
 	});
 
 	it("counts none that read another commit, or another repo", async () => {

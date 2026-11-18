@@ -4,7 +4,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runDir } from "../../../../extensions/review-integration/engine.ts";
@@ -59,6 +59,10 @@ describe("holding a change until our own council has read it", () => {
 	let fix: string;
 
 	beforeEach(async () => {
+		// Every repo here is a copy of one pristine repo, so commits made in
+		// the same second get the same hashes from test to test; an earlier
+		// test's council would read as this one's.
+		rmSync(runDir(), { recursive: true, force: true });
 		witnessCouncilsWith(undefined);
 		repo = await freshRepo("reviewed-first");
 		trunk = await git(repo, "rev-parse", "HEAD");
@@ -116,12 +120,63 @@ describe("holding a change until our own council has read it", () => {
 		).toContain("isn't proposed");
 	});
 
-	it("holds it when its commits can't be read", async () => {
+	it("says its commits can't be read, rather than that no council read them", async () => {
+		await councilRead(fix);
+
+		const said = await councilFirst(
+			exec,
+			{ ...topic(), head: "nowhere" },
+			"proposed",
+		);
+
+		expect(said).toContain("can't be read");
+		expect(said).not.toContain("Run review_ask council");
+	});
+
+	it("reads no name git would take for an option", async () => {
 		await councilRead(fix);
 
 		expect(
-			await councilFirst(exec, { ...topic(), head: "nowhere" }, "proposed"),
-		).toContain("Run review_ask council");
+			await councilFirst(exec, { ...topic(), head: "--all" }, "proposed"),
+		).toContain(`"--all" isn't a ref`);
+	});
+
+	it("judges the pushed head, which is what goes up", async () => {
+		// Pushed at `first`, with `fix` only on the local branch: the
+		// council read `fix`, which nobody proposing this would see.
+		await councilRead(fix);
+		await git(repo, "update-ref", "refs/remotes/origin/topic", first);
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("measures from the remote's base, which the local one may trail", async () => {
+		// The local main sits at the trunk; the remote's has taken `first`.
+		// A council of `first` read only what the change builds on.
+		await councilRead(first);
+		await git(repo, "update-ref", "refs/remotes/origin/main", first);
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("counts a council on its stack's tip for a change below it", async () => {
+		await git(repo, "branch", "lower", first);
+		await councilRead(fix);
+
+		expect(
+			await councilFirst(
+				exec,
+				{ ...topic(), head: "lower", through: "topic" },
+				"proposed",
+			),
+		).toBeUndefined();
+		expect(
+			await councilFirst(exec, { ...topic(), head: "lower" }, "proposed"),
+		).toContain("No council of ours");
 	});
 
 	it("counts the head the backend names, though the checkout lacks it", async () => {

@@ -58,7 +58,8 @@ export async function propose(
 	if ("refusal" in filled) return refuse(filled.refusal);
 	const { base, head, title, body, guessed, warnings } = filled.fill;
 
-	if (!params.draft) {
+	// A draft asks nobody to look, unless it names reviewers.
+	if (!params.draft || (params.reviewers?.length ?? 0) > 0) {
 		const waits = await councilFirst(
 			reviewExec,
 			{

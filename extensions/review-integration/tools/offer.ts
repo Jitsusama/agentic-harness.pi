@@ -542,15 +542,21 @@ async function heldForCouncil(
 	ctx: ExtensionToolContext,
 	doing: string,
 ): Promise<string | undefined> {
-	const hosted = await bound.provider.changes?.fetch(change);
+	// Guessing the range would judge whatever the session stands on,
+	// which isn't the change.
+	const changes = bound.provider.changes;
+	if (changes === undefined) {
+		return `${change.label} isn't ${doing}: ${bound.provider.id} can't say what its commits are, so whether our own council read it can't be told (Joel's rule: our own review before anyone else's).`;
+	}
+	const hosted = await changes.fetch(change);
 	return councilFirst(
 		reviewExec,
 		{
 			repo: bound.repo.key,
 			checkout: params.repo ?? change.repo.localPath ?? sessionCwd(ctx),
-			base: hosted?.base ?? "main",
-			head: hosted?.head ?? "HEAD",
-			...(hosted?.headCommit ? { headCommit: hosted.headCommit } : {}),
+			base: hosted.base,
+			head: hosted.head,
+			...(hosted.headCommit ? { headCommit: hosted.headCommit } : {}),
 		},
 		doing,
 	);
