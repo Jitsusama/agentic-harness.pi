@@ -9,6 +9,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { withCallSignal } from "../../lib/core/exec/call-signal.ts";
 import { isRecord } from "../../lib/internal/record.ts";
+import type { Checkpoints } from "./checkpoints.ts";
 import type {
 	Conversation,
 	DurableContext,
@@ -65,6 +66,8 @@ export async function openHostedConversation(options: {
 	/** Run work as this conversation's own, whoever scheduled it. */
 	readonly within?: <T>(work: () => T) => T;
 	readonly report?: (error: unknown) => void;
+	/** The host's checkpointer, which keeps the store's checkpoints off the host's thread. */
+	readonly checkpoints?: Checkpoints;
 }): Promise<HostedConversation> {
 	const durable = durableModule(options.modules);
 	const context = backgroundContext(options.modules);
@@ -72,7 +75,10 @@ export async function openHostedConversation(options: {
 	if (typeof openStorage !== "function")
 		throw new Error("The host's pi-durable has no SQLite storage for Node");
 	await mkdir(dirname(options.storePath), { recursive: true });
-	const storage: unknown = await openStorage(options.storePath);
+	const storage: unknown = await openStorage(
+		options.storePath,
+		options.checkpoints?.storeOptions,
+	);
 	const registry = durable.createRegistry();
 	let agent: HostedAgent | undefined;
 	const built = (): HostedAgent => {
@@ -91,6 +97,8 @@ export async function openHostedConversation(options: {
 		context,
 	);
 	const root: Conversation = await harness.root(context);
+	// Kept once open, so a store that failed to open leaves nothing kept.
+	const kept = options.checkpoints?.keep(options.storePath);
 	return {
 		get agent() {
 			return agent;
@@ -130,7 +138,13 @@ export async function openHostedConversation(options: {
 			return agent;
 		},
 		async close() {
-			await harness.close(context);
+			// Checkpointed first, off the thread, so the store's own TRUNCATE as it closes finds nothing left to copy.
+			await kept?.settle();
+			try {
+				await harness.close(context);
+			} finally {
+				kept?.release();
+			}
 		},
 	};
 }
