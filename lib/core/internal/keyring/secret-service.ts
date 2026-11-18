@@ -41,6 +41,11 @@ export type EntryOpener = (account: string) => Promise<KeyringEntry>;
 const NAME = "The Secret Service keyring";
 /** Long enough for a person to answer an unlock prompt. */
 const CALL_TIMEOUT_MS = 60_000;
+/**
+ * The most calls that run at once: a host resuming 84 conversations
+ * could otherwise start a node for each in the same second.
+ */
+const CALLS_AT_ONCE = 4;
 /** The program that makes one call, beside this file. */
 const CALL_SCRIPT = fileURLToPath(
 	new URL("./secret-service-call.mjs", import.meta.url),
@@ -112,24 +117,56 @@ function callOnce(
 	});
 }
 
+/** Runs work `at` most so many at once, the rest waiting their turn in order. */
+function limited(at: number) {
+	let running = 0;
+	const waiting: (() => void)[] = [];
+	return async <T>(work: () => Promise<T>): Promise<T> => {
+		if (running >= at) await new Promise<void>((go) => waiting.push(go));
+		running++;
+		try {
+			return await work();
+		} finally {
+			running--;
+			waiting.shift()?.();
+		}
+	};
+}
+
 /**
  * Opens entries whose every call runs `script` with `node` in a process
- * of its own; the real call by default.
+ * of its own, the real call by default, at most {@link CALLS_AT_ONCE} at
+ * once. Reads of one account asked while one is already under way share
+ * its answer rather than starting another process; nothing is kept once
+ * it ends, so a write elsewhere is read the next time.
  */
 export function callingEntries(
 	script: string = CALL_SCRIPT,
 	node: string = process.execPath,
 ): EntryOpener {
+	const turn = limited(CALLS_AT_ONCE);
+	const reading = new Map<string, Promise<Answered>>();
+	const call = (asked: Asked) => turn(() => callOnce(node, script, asked));
+
+	function read(account: string): Promise<Answered> {
+		const under = reading.get(account);
+		if (under) return under;
+		const started = call({ account, act: "read" }).finally(() => {
+			reading.delete(account);
+		});
+		reading.set(account, started);
+		return started;
+	}
+
 	return async (account) => ({
 		async getPassword() {
-			const answered = await callOnce(node, script, { account, act: "read" });
-			return answered.value ?? null;
+			return (await read(account)).value ?? null;
 		},
 		async setPassword(password) {
-			await callOnce(node, script, { account, act: "write", value: password });
+			await call({ account, act: "write", value: password });
 		},
 		async deleteCredential() {
-			await callOnce(node, script, { account, act: "remove" });
+			await call({ account, act: "remove" });
 			return true;
 		},
 	});
