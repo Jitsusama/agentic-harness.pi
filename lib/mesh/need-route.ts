@@ -40,7 +40,7 @@
  * owner named by address.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readdirSync, rmSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -426,7 +426,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 
 	const saying = new Set(said.words);
 	for (const { word } of within) {
-		for (const hub of hubsFor(word, saying, reach.hubs)) {
+		for (const hub of hubsFor(word, saying, reach.hubs, asked.need)) {
 			if (!live(hub.hub)) continue;
 			const fit = best(
 				hub.fits.filter(
@@ -527,23 +527,37 @@ const UNTAKEN_ONLY = Number.MAX_SAFE_INTEGER;
  * the need didn't, so a hub of `pallet-lines` is never a need's that
  * says lines alone. Those saying more of the need come first, since a
  * need saying easing and lines is narrower than easing alone; then the
- * deepest subject, by its parts, since each part narrows it; then the
- * order the node listed them. A subject's length never ranks.
+ * deepest subject, by its parts, since each part narrows it. Hubs that
+ * rank the same are shared out among needs by `need`, the same need
+ * always to the same hub, never by the order the node listed them: a
+ * node names a hub for every ten holders of a subject, and taking the
+ * first listed sent every one of its needs to that hub's fits (the
+ * scale run of 18 November: one fit took 34 of 1,000 needs at 10,000
+ * cells). A subject's length never ranks.
  */
 function hubsFor(
 	word: string,
 	saying: ReadonlySet<string>,
 	hubs: readonly Hub[],
+	need: string,
 ): Hub[] {
+	const lot = (hub: Hub) =>
+		createHash("sha256")
+			.update(`${need}\u0000${hub.subject}\u0000${hub.hub}`)
+			.digest("hex");
 	const ranked = hubs.flatMap((hub) => {
 		const words = subjectWords(hub.subject);
 		if (!words.includes(word)) return [];
 		if (!words.every((one) => saying.has(one))) return [];
 		const says = words.length;
-		return [{ hub, says, depth: subjectParts(hub.subject).length }];
+		const depth = subjectParts(hub.subject).length;
+		return [{ hub, says, depth, lot: lot(hub) }];
 	});
 	return ranked
-		.sort((a, b) => b.says - a.says || b.depth - a.depth)
+		.sort(
+			(a, b) =>
+				b.says - a.says || b.depth - a.depth || a.lot.localeCompare(b.lot),
+		)
 		.map(({ hub }) => hub);
 }
 
