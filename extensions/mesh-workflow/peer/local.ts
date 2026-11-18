@@ -58,7 +58,7 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 					need: (asked, live, stopped) =>
 						needAt(nodeSocket(m.env), asked, {
 							live,
-							...(stopped === undefined ? {} : { stopped }),
+							stopped,
 							keep: m.paths.mesh,
 						}),
 					served: (ids) => servedAt(nodeSocket(m.env), ids),
