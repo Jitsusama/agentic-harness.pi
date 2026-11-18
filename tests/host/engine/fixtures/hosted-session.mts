@@ -120,7 +120,10 @@ interface Coding {
 interface ExtensionPi {
 	on(
 		event: "agent_start" | "agent_settled" | "message_end",
-		handler: (event: Record<string, unknown>) => void,
+		handler: (
+			event: Record<string, unknown>,
+			ctx: { isIdle(): boolean },
+		) => void,
 	): void;
 }
 
@@ -196,6 +199,8 @@ interface Scenario {
 	 * the extensions hear.
 	 */
 	listens?: boolean;
+	/** Load an extension that notes whether its context reads idle as each answer ends, as compaction-workflow asks before it compacts. */
+	readsIdle?: boolean;
 }
 
 /** Two models of different sizes, for a scenario that tells which answered. */
@@ -248,6 +253,8 @@ let note = (_event: {
 	readonly first?: boolean;
 	/** The signal a command started now would stop with: none, one still live, or one already aborted. */
 	readonly signal?: "none" | "live" | "aborted";
+	/** Whether an extension's context read the conversation idle. */
+	readonly idle?: boolean;
 }): void => {};
 
 /** Answer only after SLOW_FIRST_TOKEN_MS, as a provider that pays an abort no heed does. */
@@ -530,6 +537,21 @@ const scenarios: Record<string, Scenario> = {
 		drive: async () => {},
 		persist: true,
 		turns: true,
+	},
+	/** As reopen-taking-turns, an extension noting whether the conversation reads idle as the carried run answers. */
+	"reopen-reading-idle": {
+		responses: () => [say("after the restart")],
+		tools: echo(async () => noteEffect("ping")),
+		drive: async () => {},
+		persist: true,
+		turns: true,
+		readsIdle: true,
+	},
+	/** A fresh run, an extension noting whether the conversation reads idle as it answers. */
+	"reading-idle": {
+		responses: () => [say("hello")],
+		drive: (session) => session.prompt("hi"),
+		readsIdle: true,
 	},
 	/** As reopen-taking-turns, the carried run going on past its first answer with another tool round, as a builder's does. */
 	"reopen-taking-turns-busy": {
@@ -886,14 +908,19 @@ try {
 		...scenario.settings,
 	});
 	// pi's own loader, as createAgentSession builds it, with the fixture's extension beside.
-	const resourceLoader = scenario.listens
-		? new coding.DefaultResourceLoader({
-				cwd: folder,
-				agentDir,
-				settingsManager,
-				extensionFactories: [listeningExtension(builtSession)],
-			})
-		: undefined;
+	const extensionFactories = [
+		...(scenario.listens ? [listeningExtension(builtSession)] : []),
+		...(scenario.readsIdle ? [idleReadingExtension] : []),
+	];
+	const resourceLoader =
+		extensionFactories.length > 0
+			? new coding.DefaultResourceLoader({
+					cwd: folder,
+					agentDir,
+					settingsManager,
+					extensionFactories,
+				})
+			: undefined;
 	await resourceLoader?.reload();
 	const { session } = await coding.createAgentSession({
 		cwd: folder,
@@ -1121,6 +1148,15 @@ function listeningExtension(session: () => Session) {
 		});
 		listened = { box, sends: () => sends };
 	};
+}
+
+/** An extension noting whether its context reads idle as each answer ends. */
+function idleReadingExtension(pi: ExtensionPi): void {
+	pi.on("message_end", (event, ctx) => {
+		const { message } = event;
+		if (isRecord(message) && message.role === "assistant")
+			note({ type: "idle read", idle: ctx.isIdle() });
+	});
 }
 
 /**
