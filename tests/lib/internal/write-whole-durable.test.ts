@@ -9,7 +9,7 @@ const BTRFS = 0x9123683e;
 const EXT4 = 0xef53;
 
 /** Where write-whole keeps what it learned of each device. */
-const DEVICES = "agentic-harness.write-whole.renames-keep-data";
+const DEVICES = "agentic-harness.internal/write-whole/btrfs-devices.v1";
 
 const disk = vi.hoisted(() => ({
 	type: 0 as number | Error,

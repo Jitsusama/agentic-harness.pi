@@ -12,17 +12,28 @@
  *
  * A writer that shares its thread (a host runs every conversation on
  * one) writes off it, in the order it asked, through `wholeWrites`.
+ *
+ * A durable write on the thread skips its flush where the rename alone
+ * keeps it whole: replacing a file that isn't empty on btrfs. There
+ * `btrfs_rename` starts the new file's writeback as it renames over a
+ * regular file with content (fs/btrfs/inode.c, "we're using rename to
+ * replace one file with another"), so the commit that lands the rename
+ * lands the data too. The flush held a host's thread about 13 s in its
+ * hold samples of 16 and 17 November. Its cost: a power cut within
+ * btrfs's commit interval, 30 s by default, can keep the edit before.
  */
 
 import { randomBytes } from "node:crypto";
 import {
 	closeSync,
 	fsyncSync,
+	lstatSync,
 	mkdirSync,
 	openSync,
 	readdirSync,
 	renameSync,
 	rmSync,
+	statfsSync,
 	statSync,
 	writeFileSync,
 	writeSync,
@@ -46,7 +57,8 @@ export interface WriteWholeOptions {
 	 * Flush the content to the disk before it is renamed into place, so
 	 * a power cut leaves the old file or the new one, never an empty one.
 	 * Records a person keeps (a quest's README) ask for it; state that is
-	 * written again within seconds does not.
+	 * written again within seconds does not. Where the rename keeps that
+	 * already, the flush is left out (see the header).
 	 */
 	readonly durable?: boolean;
 	/** The file's mode, for one only its owner may read. */
@@ -72,7 +84,8 @@ export function writeWhole(
 	const { writing, staged } = stagedFor(file);
 	mkdirSync(writing, { recursive: true });
 	try {
-		if (options.durable) writeDurably(staged, content, options.mode);
+		if (options.durable && !renameKeepsWhole(file))
+			writeDurably(staged, content, options.mode);
 		else writeFileSync(staged, content, { mode: options.mode });
 		renameSync(staged, file);
 	} catch (error) {
@@ -417,6 +430,38 @@ async function writeOff(file: string, wanted: Wanted): Promise<void> {
 function writeOn(file: string, wanted: Wanted): void {
 	if (wanted === null) rmSync(file, { force: true });
 	else writeWhole(file, wanted);
+}
+
+/** statfs's magic number for btrfs. */
+const BTRFS_MAGIC = 0x9123683e;
+
+// Whether each device's filesystem is btrfs, for the process and every
+// copy of this module: a filesystem never changes under a mounted
+// device, so it is asked once a device, never a path.
+const btrfsDevices = processGlobal(
+	"agentic-harness.internal/write-whole/btrfs-devices.v1",
+	() => new Map<number, boolean>(),
+);
+
+/**
+ * Whether renaming over `file` alone keeps the old content or the new
+ * across a power cut: a regular file with content, by lstat, on btrfs.
+ * Anything it can't tell keeps the flush.
+ */
+function renameKeepsWhole(file: string): boolean {
+	try {
+		const target = lstatSync(file, { throwIfNoEntry: false });
+		if (!target?.isFile() || target.size === 0) return false;
+		const known = btrfsDevices.get(target.dev);
+		if (known !== undefined) return known;
+		const btrfs = statfsSync(dirname(file)).type === BTRFS_MAGIC;
+		btrfsDevices.set(target.dev, btrfs);
+		return btrfs;
+	} catch {
+		// Not told, so not remembered: the flush stays, and the next write
+		// asks again.
+		return false;
+	}
 }
 
 function writeDurably(
