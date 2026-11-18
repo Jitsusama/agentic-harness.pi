@@ -7,19 +7,21 @@
  * then each has bash show whether its command may gain privileges and
  * which mounts it sees. The listed one's command now has NoNewPrivs and
  * mounts of its own, the two marks of the fence's bubblewrap the census
- * reads, and its neighbour's has neither.
+ * reads, and its neighbour's has neither. On a runner that already
+ * can't gain privileges, as a fenced agent's is, every command shows
+ * NoNewPrivs, and the mounts alone tell the two apart.
  *
  * It holds because the host loads a conversation's extensions inside
  * its own scope, where process.env is that conversation's and names its
  * session, and the host's own command line names none. The proof reads
  * the kernel's word, never a socket or a path the fence hides. Runs on
  * the host's pi, as support/host-pi.ts finds it, and skipped saying why
- * without one, where the fence can't be laid, or where this runner
- * already can't gain privileges, since then no command could show 0.
+ * without one, off Linux, or where the fence can't be laid.
  */
 
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, readlink } from "node:fs/promises";
+import { platform } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { listForStage } from "../../../lib/internal/fence/fence-stage.ts";
@@ -32,6 +34,7 @@ import {
 	steerInbox,
 	textOf,
 	toolAnswer,
+	turnEnded,
 	untilAnswered,
 } from "./support/hosted-case.ts";
 import { FENCED, SCRIPTED } from "./support/scripted-model.ts";
@@ -44,6 +47,9 @@ const NO_NEW_PRIVS = /^NoNewPrivs:\s*(\d)$/m;
 
 /** The mount namespace a `fenced` command said it runs in. */
 const MOUNTS = /^mounts: (\S+)$/m;
+
+/** Longer than bubblewrap takes to start and end `true`. */
+const PROBE_MS = 10_000;
 
 let sealed: Seal;
 const hosts: HostProcess[] = [];
@@ -74,27 +80,41 @@ function stageFolder(): string {
 
 /**
  * Why the fence can't be shown here, or nothing when it can: it needs
- * the fence's programs, a bubblewrap that can make its namespaces, and
- * a runner that can still gain privileges, for the neighbour's 0.
+ * Linux, the fence's programs, and a bubblewrap that can make what the
+ * fence asks of it (fence.ts's fenceArgs): a session, process ids, a
+ * /dev and a /proc of its own.
  */
-async function unprovable(): Promise<string | undefined> {
-	const status = await readFile("/proc/self/status", "utf8");
-	if (NO_NEW_PRIVS.exec(status)?.[1] !== "0") {
-		return "this runner already can't gain privileges, so no command could show it unfenced";
-	}
+function unprovable(): string | undefined {
+	if (platform() !== "linux") return "the fence's bubblewrap runs on Linux";
 	const sandbox = sandboxFor({ ...process.env, PI_SANDBOX: "fence" });
 	if (sandbox.kind !== "fence") return "the fence's programs aren't here";
-	const tried = spawnSync(sandbox.bwrap, [
-		"--ro-bind",
-		"/",
-		"/",
-		"--unshare-all",
-		"--",
-		"true",
-	]);
-	return tried.status === 0
-		? undefined
-		: "bubblewrap can't make its namespaces here";
+	const tried = spawnSync(
+		sandbox.bwrap,
+		[
+			"--die-with-parent",
+			"--new-session",
+			"--unshare-pid",
+			"--bind",
+			"/",
+			"/",
+			"--dev",
+			"/dev",
+			"--proc",
+			"/proc",
+			"--",
+			"true",
+		],
+		{ encoding: "utf8", timeout: PROBE_MS },
+	);
+	if (tried.status === 0) return undefined;
+	const reason = tried.error?.message ?? tried.stderr.trim();
+	return `bubblewrap can't lay the fence's namespaces here: ${reason}`;
+}
+
+/** Whether this runner may still gain privileges, as the kernel says. */
+async function runnerPrivileges(): Promise<string | undefined> {
+	const status = await readFile("/proc/self/status", "utf8");
+	return NO_NEW_PRIVS.exec(status)?.[1];
 }
 
 /** The marks a conversation's latest `fenced` answer shows. */
@@ -112,10 +132,12 @@ function marks(file: string | undefined): {
 it(
 	"a hosted conversation listed for the stage runs its commands fenced, and its neighbour doesn't",
 	async ({ skip }) => {
-		const why = await unprovable();
+		const why = unprovable();
 		if (why) skip(why);
 		const machine = await readlink("/proc/self/ns/mnt");
-		const unfenced = { privileges: "0", mounts: machine };
+		// What a command run as this runner shows: 0, or 1 where the
+		// runner is fenced itself, when only the mounts tell.
+		const unfenced = { privileges: await runnerPrivileges(), mounts: machine };
 		await onHostPi(skip, said, async (pi) => {
 			const start = async () => {
 				const host = await startHost({
@@ -126,7 +148,10 @@ it(
 				hosts.push(host);
 				return host;
 			};
-			/** Have each conversation run `fenced`, and wait for its new answer. */
+			/**
+			 * Have each conversation run `fenced`, and wait for its new answer
+			 * and its turn's end, so a kill after it cuts no run short.
+			 */
 			const shown = async (
 				which: readonly { sessionId: string; file?: string }[],
 			) => {
@@ -138,7 +163,9 @@ it(
 					async () =>
 						which.every((one, at) => {
 							const now = toolAnswer(one.file, "bash");
-							return now !== undefined && now !== before[at];
+							return (
+								now !== undefined && now !== before[at] && turnEnded(one.file)
+							);
 						}),
 					ROUND_TRIP_MS,
 				).catch((error: unknown) => {
@@ -179,7 +206,8 @@ it(
 			).toEqual({ a: { privileges: "1", ownMounts: true }, b: unfenced });
 		});
 	},
-	// The host's start, two opens, a turn, a restart resuming both and a
-	// turn each, with room to say why under load before vitest's clock.
-	ROUND_TRIP_MS * 6,
+	// Every wait inside at its longest (two listens and two opens of two
+	// minutes, four round trips, a kill), about 770 s, with room to say
+	// why under load before vitest's clock.
+	ROUND_TRIP_MS * 10,
 );
