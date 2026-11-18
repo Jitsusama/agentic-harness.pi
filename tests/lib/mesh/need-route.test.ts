@@ -614,6 +614,26 @@ describe("asking the node for a need's fit", () => {
 		expect(found).toMatchObject({ path: ["H", "F"], fit: "F" });
 	});
 
+	it("asks the node for a record's single hub, as a node from before the list writes it", async () => {
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{ key: "cell:H", title: "Hub" },
+				{ key: "cell:F", title: "Carry a Session" },
+			],
+			tie: [{ key: "tie:A~H", strength: 2, heard: AT }],
+			hub: [{ key: "hub:carry", hub: "H", fits: ["F"] }],
+		});
+
+		const found = await needAt(socket, asked("A", "carry"), {
+			live: () => true,
+			stopped: () => false,
+			keep: root,
+		});
+
+		expect(found).toMatchObject({ path: ["H", "F"], fit: "F" });
+	});
+
 	it("answers nothing, and keeps nothing, when no node answers", async () => {
 		const found = await needAt(join(root, "none.sock"), asked("A", "carry"), {
 			live: () => true,

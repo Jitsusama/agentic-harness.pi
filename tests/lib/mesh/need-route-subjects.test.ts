@@ -423,9 +423,9 @@ describe("a need routed by declared subjects", () => {
 			}
 
 			expect(
-				[...moved].every((fit) => ["F1", "F2", "F3"].includes(fit ?? "")),
-				"each to a live fit",
-			).toBe(true);
+				[...moved].filter((fit) => !["F1", "F2", "F3"].includes(fit ?? "")),
+				"each to another hub's fit",
+			).toEqual([]);
 			expect(moved.size, "not all to the first listed").toBeGreaterThan(1);
 		},
 	);
@@ -506,23 +506,16 @@ describe("a need routed by declared subjects", () => {
 	});
 
 	it("weighs the whole next rank when the top has no live fit, and goes no lower", () => {
-		// Carry is rarest, so it is tried first. The top rank's fit is
-		// gone; of the next rank's two, F1 works on more of the need, and
-		// the rank below holds F2, which works on all of it.
-		const taken = takenOver(numbered("A", "carry", "easing", "lines"), {
+		// Only carry has hubs. The top rank's fit is gone; of the next
+		// rank's two, F1 works on more of the need, and the rank below
+		// holds F2, which works on all of it.
+		const reach = {
 			foragers: cells({
 				A: [],
 				X: ["carry"],
 				F0: ["carry"],
 				F1: ["carry", "easing"],
 				F2: ["carry", "easing", "lines"],
-				E1: ["easing"],
-				E2: ["easing"],
-				E3: ["easing"],
-				L1: ["lines"],
-				L2: ["lines"],
-				L3: ["lines"],
-				L4: ["lines"],
 			}),
 			ties: ties(),
 			hubs: [
@@ -531,10 +524,18 @@ describe("a need routed by declared subjects", () => {
 				{ subject: "realm.g1:carry", hub: "H1", fits: ["F1"] },
 				{ subject: "realm:carry", hub: "H2", fits: ["F2"] },
 			],
-			live: (address) => address !== "X",
-		});
+			live: (address: string) => address !== "X",
+		};
+		const needs = numbered("A", "carry", "easing", "lines");
 
-		expect([...taken.entries()]).toEqual([["F1", SHARED_NEEDS]]);
+		expect(
+			[
+				...new Set(
+					needs.map((need) => routeNeed(need, reach).path.join(" > ")),
+				),
+			],
+			"each by H1 to its own fit",
+		).toEqual(["H1 > F1"]);
 	});
 
 	it("puts a need to the equal hub whose fit works on most of it, whatever it drew", () => {
