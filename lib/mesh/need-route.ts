@@ -33,6 +33,7 @@
  * owner named by address.
  */
 
+import { randomBytes } from "node:crypto";
 import { readdirSync, rmSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -117,13 +118,16 @@ export const MOST_WORDS = 12;
 /** The longest word a need keeps: longer is a token, not a word of work. */
 const LONGEST_WORD = 32;
 
-/** Needs minted in this process, so two in one moment differ. */
-let minted = 0;
+/**
+ * Random bytes in a need's id, so two in one moment differ without a
+ * count kept process-wide, which a host's conversations would share.
+ */
+const ID_TAIL_BYTES = 6;
 
-/** A new need's id: its asker's address, then a stamp and count of its own. */
+/** A new need's id: its asker's address, then a stamp and a random tail. */
 export function needId(asker: string, at: number): string {
-	minted += 1;
-	return `${asker}/${at.toString(36)}.${minted.toString(36)}`;
+	const tail = randomBytes(ID_TAIL_BYTES).toString("hex");
+	return `${asker}/${at.toString(36)}.${tail}`;
 }
 
 /** How long the node has to list a kind: a realm's every cell or tie. */

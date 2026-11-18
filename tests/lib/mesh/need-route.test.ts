@@ -469,7 +469,7 @@ describe("a need's id", () => {
 		const one = needId("A", AT);
 		const two = needId("A", AT);
 
-		expect(one.startsWith("A/")).toBe(true);
+		expect(one).toMatch(/^A\//);
 		expect(two).not.toBe(one);
 	});
 });
@@ -553,7 +553,10 @@ describe("asking the node for a need's fit", () => {
 		});
 
 		expect(found).toBeUndefined();
-		expect(existsSync(needsFile(root, AT))).toBe(false);
+		expect(
+			existsSync(needsFile(root, AT)),
+			"no needs record kept when no node answers",
+		).toBe(false);
 	});
 
 	it("answers nothing, never a lost need, when the node won't list its ties", async () => {
@@ -570,7 +573,10 @@ describe("asking the node for a need's fit", () => {
 		});
 
 		expect(found).toBeUndefined();
-		expect(existsSync(needsFile(root, AT))).toBe(false);
+		expect(
+			existsSync(needsFile(root, AT)),
+			"no needs record kept when the node lists no ties",
+		).toBe(false);
 	});
 
 	it("still answers when the needs folder won't take the line", async () => {
