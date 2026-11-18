@@ -8,6 +8,9 @@
  * carries the seams, found as tests/host/end-to-end/support/host-pi.ts
  * finds it; without one each case is skipped saying how to get one, and
  * fails under `pnpm test:host`. tests/host/engine/README.md says more.
+ * Long because its scenarios share one paired harness, each a run on
+ * pi's agent and on the host's compared event by event, and read as one
+ * account of where the two must agree.
  */
 import { execFile } from "node:child_process";
 import {

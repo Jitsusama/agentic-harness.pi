@@ -1,4 +1,4 @@
-// A keyring call that says it started in KEYRING_CALL_FILE's folder, with how many were running then, and answers only once a file named go is there.
+// A keyring call that says it started in KEYRING_CALL_FILE's folder, with how many were running then, and answers only once a file named go is there: with its account's name, or a refusal for an account named fails-*.
 import {
 	appendFileSync,
 	existsSync,
@@ -37,5 +37,8 @@ if (!existsSync(go)) {
 	});
 }
 
-rmSync(mine);
-process.stdout.write(`${JSON.stringify({ value: asked.account })}\n`);
+rmSync(mine, { force: true });
+const answer = asked.account.startsWith("fails-")
+	? { error: `refused ${asked.account}` }
+	: { value: asked.account };
+process.stdout.write(`${JSON.stringify(answer)}\n`);

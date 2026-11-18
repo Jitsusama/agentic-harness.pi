@@ -16,7 +16,9 @@
  *
  * A locked collection asks the person to unlock it, as the desktop's
  * own prompt; the call's process waits on it, so pi stays live
- * meanwhile.
+ * meanwhile. No call has a deadline, as before: giving up on a prompt
+ * nobody has answered yet would put the credentials in the plain file
+ * (document.ts) instead.
  */
 
 import { spawn } from "node:child_process";
@@ -39,8 +41,6 @@ export interface KeyringEntry {
 export type EntryOpener = (account: string) => Promise<KeyringEntry>;
 
 const NAME = "The Secret Service keyring";
-/** Long enough for a person to answer an unlock prompt. */
-const CALL_TIMEOUT_MS = 60_000;
 /**
  * The most calls that run at once: a host resuming 84 conversations
  * could otherwise start a node for each in the same second.
@@ -68,10 +68,27 @@ function isAnswered(parsed: unknown): parsed is Answered {
 	return typeof parsed === "object" && parsed !== null;
 }
 
+/** What one line of the call's stdout says, or why it says nothing usable. */
+function answerIn(line: string): Answered | Error {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(line);
+	} catch {
+		return new Error("its keyring call answered nothing readable");
+	}
+	if (!isAnswered(parsed)) {
+		return new Error("its keyring call answered nothing readable");
+	}
+	return typeof parsed.error === "string" ? new Error(parsed.error) : parsed;
+}
+
 /**
  * Runs `script` with `node` for one call, the call going in on stdin so
- * a value never rides on a command line. Rejects with why when the call
- * failed, its process stopped by a signal, or it said nothing readable.
+ * a value never rides on a command line. Settles on the first full line
+ * it answers, ending the process if it lingers, since the call is done
+ * by then. Rejects with why when the call failed, its process could not
+ * start or stopped by a signal before answering, or it said nothing
+ * readable.
  */
 function callOnce(
 	node: string,
@@ -79,56 +96,59 @@ function callOnce(
 	asked: Asked,
 ): Promise<Answered> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(node, [script], {
-			stdio: ["pipe", "pipe", "pipe"],
-			timeout: CALL_TIMEOUT_MS,
-		});
+		let settled = false;
+		const child = spawn(node, [script], { stdio: ["pipe", "pipe", "pipe"] });
+		function settle(outcome: Answered | Error): void {
+			if (settled) return;
+			settled = true;
+			if (outcome instanceof Error) reject(outcome);
+			else resolve(outcome);
+			if (child.exitCode === null && child.signalCode === null) {
+				child.kill("SIGKILL");
+			}
+		}
+		child.on("error", (error) => settle(error));
+		child.stdin.on("error", (error) => settle(error));
 		let stdout = "";
 		let stderr = "";
 		child.stdout.on("data", (chunk: Buffer) => {
 			stdout += chunk.toString("utf-8");
+			const end = stdout.indexOf("\n");
+			if (end >= 0) settle(answerIn(stdout.slice(0, end)));
 		});
 		child.stderr.on("data", (chunk: Buffer) => {
 			stderr += chunk.toString("utf-8");
 		});
-		child.on("error", reject);
 		child.on("close", (code, signal) => {
 			if (signal) {
-				reject(new Error(`its keyring call stopped by ${signal}`));
-				return;
-			}
-			let parsed: unknown;
-			try {
-				parsed = JSON.parse(stdout);
-			} catch {
-				const said = stderr.trim() || `its keyring call exited ${code}`;
-				reject(new Error(said));
-				return;
-			}
-			if (!isAnswered(parsed)) {
-				reject(new Error("its keyring call answered nothing readable"));
-			} else if (typeof parsed.error === "string") {
-				reject(new Error(parsed.error));
+				settle(new Error(`its keyring call stopped by ${signal}`));
+			} else if (stdout.trim()) {
+				settle(answerIn(stdout.trim()));
 			} else {
-				resolve(parsed);
+				settle(new Error(stderr.trim() || `its keyring call exited ${code}`));
 			}
 		});
 		child.stdin.end(JSON.stringify({ service: KEYRING_SERVICE, ...asked }));
 	});
 }
 
-/** Runs work `at` most so many at once, the rest waiting their turn in order. */
+/**
+ * Runs work at most `at` at once, the rest waiting their turn in the
+ * order they came. A finished call hands its place straight to the next
+ * waiting, so a newcomer can't slip in between.
+ */
 function limited(at: number) {
 	let running = 0;
 	const waiting: (() => void)[] = [];
 	return async <T>(work: () => Promise<T>): Promise<T> => {
-		if (running >= at) await new Promise<void>((go) => waiting.push(go));
-		running++;
+		if (running < at) running++;
+		else await new Promise<void>((go) => waiting.push(go));
 		try {
 			return await work();
 		} finally {
-			running--;
-			waiting.shift()?.();
+			const next = waiting.shift();
+			if (next) next();
+			else running--;
 		}
 	};
 }
@@ -137,8 +157,10 @@ function limited(at: number) {
  * Opens entries whose every call runs `script` with `node` in a process
  * of its own, the real call by default, at most {@link CALLS_AT_ONCE} at
  * once. Reads of one account asked while one is already under way share
- * its answer rather than starting another process; nothing is kept once
- * it ends, so a write elsewhere is read the next time.
+ * its answer, or its failure, rather than starting another process.
+ * Nothing is kept once it ends, so a write elsewhere is read the next
+ * time, and a write or remove here sends every later read to a call of
+ * its own, so it never takes an answer from before them.
  */
 export function callingEntries(
 	script: string = CALL_SCRIPT,
@@ -152,7 +174,7 @@ export function callingEntries(
 		const under = reading.get(account);
 		if (under) return under;
 		const started = call({ account, act: "read" }).finally(() => {
-			reading.delete(account);
+			if (reading.get(account) === started) reading.delete(account);
 		});
 		reading.set(account, started);
 		return started;
@@ -163,9 +185,11 @@ export function callingEntries(
 			return (await read(account)).value ?? null;
 		},
 		async setPassword(password) {
+			reading.delete(account);
 			await call({ account, act: "write", value: password });
 		},
 		async deleteCredential() {
+			reading.delete(account);
 			await call({ account, act: "remove" });
 			return true;
 		},

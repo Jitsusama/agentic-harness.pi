@@ -1,8 +1,10 @@
+import { spawnSync } from "node:child_process";
 import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +15,10 @@ import {
 	callingEntries,
 	secretServiceStore,
 } from "../../../../lib/core/internal/keyring/secret-service.ts";
-import { KeyringUnavailable } from "../../../../lib/core/internal/keyring/store.ts";
+import {
+	KEYRING_SERVICE,
+	KeyringUnavailable,
+} from "../../../../lib/core/internal/keyring/store.ts";
 
 /** What holds.mjs said of each call it started: its account and how many were running. */
 function starts(): { account: string; running: number }[] {
@@ -51,6 +56,12 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 	});
 
 	afterEach(() => {
+		// A held call left by a failed case answers and ends, rather than waiting on.
+		letThemGo();
+		rmSync(dirname(process.env.KEYRING_CALL_FILE ?? ""), {
+			recursive: true,
+			force: true,
+		});
 		if (before === undefined) delete process.env.KEYRING_CALL_FILE;
 		else process.env.KEYRING_CALL_FILE = before;
 	});
@@ -60,6 +71,10 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 
 		await store.write("slack-credentials", "value");
 		expect(await store.read("slack-credentials")).toBe("value");
+		expect(
+			JSON.parse(readFileSync(process.env.KEYRING_CALL_FILE ?? "", "utf8")),
+			"each call should name the harness's service",
+		).toEqual({ [`${KEYRING_SERVICE}/slack-credentials`]: "value" });
 
 		await store.remove("slack-credentials");
 		expect(await store.read("slack-credentials")).toBeNull();
@@ -72,6 +87,61 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 
 		await expect(read).rejects.toBeInstanceOf(KeyringUnavailable);
 		await expect(read).rejects.toThrow("SIGSEGV");
+	});
+
+	it("says why when the call refuses, complains or answers nothing readable", async () => {
+		const cases: [string, string][] = [
+			["refuses", "the collection is locked"],
+			["complains", "the call could not start"],
+			["garbles", "answered nothing readable"],
+		];
+		for (const [stand, why] of cases) {
+			const read = secretServiceStore(callingEntries(call(stand))).read("x");
+
+			await expect(read, stand).rejects.toBeInstanceOf(KeyringUnavailable);
+			await expect(read, stand).rejects.toThrow(why);
+		}
+	});
+
+	it("fails a call whose node can't start, rather than the process that asked", async () => {
+		const store = secretServiceStore(
+			callingEntries(call("remembers"), "/nonexistent/node"),
+		);
+
+		await expect(store.write("x", "value")).rejects.toBeInstanceOf(
+			KeyringUnavailable,
+		);
+	});
+
+	it("takes the answer of a call that lingers after giving it", async () => {
+		const store = secretServiceStore(callingEntries(call("lingers")));
+
+		expect(await store.read("x")).toBe("value");
+	});
+
+	it("loads the real keyring module and speaks its protocol", () => {
+		const real = fileURLToPath(
+			new URL(
+				"../../../../lib/core/internal/keyring/secret-service-call.mjs",
+				import.meta.url,
+			),
+		);
+
+		const ran = spawnSync(process.execPath, [real], {
+			input: JSON.stringify({
+				service: KEYRING_SERVICE,
+				account: "x",
+				act: "write",
+			}),
+			encoding: "utf8",
+			timeout: 20_000,
+		});
+
+		expect(ran.status, ran.stderr).toBe(0);
+		expect(
+			JSON.parse(ran.stdout),
+			"a write with no value should be refused by the call, after its module loaded",
+		).toEqual({ error: "a write needs a value" });
 	});
 
 	it("runs at most four calls at once, the rest waiting their turn", async () => {
@@ -117,5 +187,53 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 			starts(),
 			"the later read should start a call of its own",
 		).toHaveLength(2);
+	}, 30_000);
+
+	it("shares a failed read without keeping the failure", async () => {
+		const store = secretServiceStore(callingEntries(call("holds")));
+
+		const reads = [store.read("fails-x"), store.read("fails-x")];
+		await vi.waitFor(() => expect(running(), "one call should start").toBe(1), {
+			timeout: 20_000,
+		});
+		letThemGo();
+
+		for (const read of reads)
+			await expect(read).rejects.toThrow("refused fails-x");
+		await expect(store.read("fails-x")).rejects.toThrow("refused fails-x");
+		expect(starts(), "the later read should ask again").toHaveLength(2);
+	}, 30_000);
+
+	it("frees each place a failed call held", async () => {
+		const store = secretServiceStore(callingEntries(call("holds")));
+		letThemGo();
+
+		const failing = Array.from({ length: 4 }, (_, n) =>
+			store.read(`fails-${n}`).catch((error: unknown) => error),
+		);
+		for (const failed of await Promise.all(failing)) {
+			expect(failed).toBeInstanceOf(KeyringUnavailable);
+		}
+
+		expect(
+			await store.read("after"),
+			"a call after four failures should run",
+		).toBe("after");
+	}, 30_000);
+
+	it("sends a read asked after a write to a call of its own", async () => {
+		const store = secretServiceStore(callingEntries(call("holds")));
+
+		const before = store.read("slack-credentials");
+		const written = store.write("slack-credentials", "new");
+		const after = store.read("slack-credentials");
+		await vi.waitFor(
+			() => expect(running(), "the read, the write and the later read").toBe(3),
+			{ timeout: 20_000 },
+		);
+		letThemGo();
+
+		await Promise.all([before, written, after]);
+		expect(starts().map((start) => start.account)).toHaveLength(3);
 	}, 30_000);
 });
