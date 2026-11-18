@@ -62,6 +62,7 @@ import {
 	readlinkSync,
 	renameSync,
 	rmdirSync,
+	type Stats,
 	statSync,
 	unlinkSync,
 	writeSync,
@@ -307,7 +308,7 @@ function tryStealStaleLock(lockPath: string, now: number): boolean {
  * under its aside name, which already freed the lock's, until tmpfs clears
  * it at logout.
  */
-function clearAside(aside: string, moved: ReturnType<typeof lstatSync>): void {
+function clearAside(aside: string, moved: Stats): void {
 	try {
 		if (moved.isDirectory()) rmdirSync(aside);
 		else unlinkSync(aside);
