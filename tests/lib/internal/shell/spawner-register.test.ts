@@ -105,6 +105,39 @@ describe("a host telling the node a spawner's session", () => {
 		]);
 	});
 
+	it("says a refusal on the host's error output, once for each reason", async () => {
+		const why = "this host's Node.js can open its inspector";
+		const stand = node(JSON.stringify({ Err: why }));
+		await stand.listening;
+		const said: string[] = [];
+		const options = {
+			socket: stand.socket,
+			proc: procWith(SPAWNER, "pi-spawner"),
+			say: (line: string) => said.push(line),
+		};
+
+		await registerSpawner(SPAWNED, "s-one", options);
+		await registerSpawner(SPAWNED, "s-two", options);
+
+		expect(said, "what the host said").toEqual([
+			`pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: ${why}\n`,
+		]);
+	});
+
+	it("says nothing of a node that takes the word", async () => {
+		const stand = node();
+		await stand.listening;
+		const said: string[] = [];
+
+		await registerSpawner(SPAWNED, "s-one", {
+			socket: stand.socket,
+			proc: procWith(SPAWNER, "pi-spawner"),
+			say: (line: string) => said.push(line),
+		});
+
+		expect(said, "what the host said").toEqual([]);
+	});
+
 	it("waits for the spawner's own name, as one in a scope goes by another first", async () => {
 		const stand = node();
 		await stand.listening;

@@ -21,7 +21,10 @@
  * code running inside the host itself, as an extension a project brings
  * or a reload onto another tree, which can say what it likes, nor a
  * command that rewrites the harness's files and restarts the host, whose
- * next start runs that code; only a fence round such commands does. The
+ * next start runs that code, or writes pi's host records and starts a
+ * Node.js of its own that passes the node's checks; only a fence round
+ * every conversation's commands does. A refusal is said once for each
+ * reason on the host's error output, as the node logs it. The
  * node keeps the word only while it runs, so spawner.ts says it again
  * every 30 seconds while the spawner runs. Where the
  * node isn't there, or doesn't know the word, nothing is said and the
@@ -73,6 +76,8 @@ export interface RegisterOptions {
 	patience?: number;
 	/** How long to wait for the spawner to go by its own name. */
 	namePatience?: number;
+	/** Where a refusal is said; the host's error output by default. */
+	say?: (line: string) => void;
 }
 
 /**
@@ -92,7 +97,52 @@ export async function registerSpawner(
 	const socket = "socket" in options ? options.socket : nodeSocket();
 	if (socket === undefined) return;
 	if (!(await namedSpawner(pid, proc, Date.now() + namePatience))) return;
-	await askAt(socket, { Spawned: { pid, started, session } }, patience);
+	const answer = await askAt(
+		socket,
+		{ Spawned: { pid, started, session } },
+		patience,
+	);
+	const why = refusalIn(answer);
+	if (why === undefined || saidRefusals.has(why)) return;
+	if (saidRefusals.size >= REFUSALS_SAID) return;
+	saidRefusals.add(why);
+	(options.say ?? ((line) => process.stderr.write(line)))(
+		`pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: ${why}\n`,
+	);
+}
+
+/**
+ * The reasons a node refused the word, each said once on the host's
+ * error output, as the node says each once in its own log. A refusal of
+ * the host itself, as for its inspector, names no session, so a host's
+ * conversations share it; one naming a spawner or a session is said
+ * once each, up to REFUSALS_SAID.
+ */
+const saidRefusals = new Set<string>();
+
+/**
+ * How many reasons a host says at most, so one running for weeks never
+ * grows with spawners refused one by one.
+ */
+const REFUSALS_SAID = 32;
+
+/** The node's reason, when its answer refuses the word. */
+function refusalIn(answer: string | undefined): string | undefined {
+	if (answer === undefined) return undefined;
+	try {
+		const reply: unknown = JSON.parse(answer);
+		if (
+			typeof reply === "object" &&
+			reply !== null &&
+			"Err" in reply &&
+			typeof reply.Err === "string"
+		) {
+			return reply.Err;
+		}
+	} catch {
+		// An answer this harness can't read refuses nothing it can say.
+	}
+	return undefined;
 }
 
 /** When `pid` started, in clock ticks since boot, or nothing once it's gone. */
