@@ -152,7 +152,13 @@ input pipeline or screen. No unit or running host is installed yet.
   work is what a restart would end (fleets, codemode, review rounds),
   since bash calls are carried to the next host (see the engine's
   README); work holding a restart past the ceiling is named in the
-  journal once an hour, and nothing is ended for it. Only once
+  journal once an hour, and nothing is ended for it, short of a heap
+  running out. Past three-quarters of V8's limit the host takes the
+  first moment no conversation has a turn running, whatever background
+  work or screens hold, naming the work it ends; past nine-tenths it
+  restarts at once, turns and all, since on 18 November a host whose
+  councils held its restart ran out of heap and ended everything
+  anyway. Only once
   systemctl has queued it does the stop tell
   each viewer `restarting`, just before it closes on them, so a
   refused restart says nothing. A unit file systemd hasn't reloaded

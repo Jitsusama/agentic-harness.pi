@@ -405,14 +405,16 @@ describe("restartWhenSettled", () => {
 		restartWhenSettled(given, { after: timers.after });
 		await timers.fire();
 		expect(said, "never mid-turn").toEqual([]);
-		expect(
-			timers.pending()[0]?.ms,
-			"it looks for a gap each second",
-		).toBe(1000);
+		expect(timers.pending()[0]?.ms, "it looks for a gap each second").toBe(
+			1000,
+		);
 
 		busy = false;
 		await timers.fire(() => said.length > 0);
-		expect(said).toEqual(["expect true", "restart under heap: its heap is pressed"]);
+		expect(said).toEqual([
+			"expect true",
+			"restart under heap: its heap is pressed",
+		]);
 	});
 
 	it("restarts at once, mid-turn, once its heap has nearly run out", async () => {

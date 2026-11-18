@@ -40,6 +40,17 @@
  * stop is still quick, and the restart waits for the same quiet moment
  * as any other, so it parks first.
  *
+ * A heap that keeps growing doesn't wait for background work for long,
+ * though. On 18 November councils held the background host's restart
+ * past half its heap for hours, as sixty conversations always had
+ * one running, and at 01:15 V8 aborted it out of memory, ending every
+ * turn and every council anyway. So past three-quarters the restart
+ * takes the first moment no conversation has a turn running, ending
+ * the background work it names in its journal line, whatever screens
+ * show; and past nine-tenths it restarts at once, turns and all, which
+ * the next host carries on, as a stop that runs into the limit parks
+ * nothing.
+ *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
  * with the host as a logout would, and its conversation resumes after.
@@ -110,6 +121,18 @@ export const HELD_SAY_MS = 60 * 60_000;
 /** The share of V8's heap limit past which a host restarts. */
 const HEAP_RESTART_SHARE = 0.5;
 
+/** The share past which a restart waits for no background work or screen. */
+const HEAP_PRESSED_SHARE = 0.75;
+
+/** The share past which a restart waits for nothing, turns included. */
+const HEAP_URGENT_SHARE = 0.9;
+
+/**
+ * How short the host's heap runs: pressed, when a restart waits only for
+ * a moment no turn runs, or urgent, when it waits for nothing.
+ */
+export type HeapPressure = "pressed" | "urgent";
+
 const BYTES_PER_MB = 1024 * 1024;
 
 /** How much heap the host uses, against the most V8 allows it. */
@@ -137,7 +160,13 @@ export interface Held {
  */
 export type RestartRule =
 	| { readonly rule: "settled" }
-	| { readonly rule: "ceiling"; readonly waitedMs: number };
+	| { readonly rule: "ceiling"; readonly waitedMs: number }
+	| {
+			readonly rule: "heap";
+			readonly pressure: HeapPressure;
+			/** The background work the restart ends, a line each. */
+			readonly ending: readonly string[];
+	  };
 
 /** What the restart loop asks of the host and the machine; tests give their own. */
 export interface RestartFacts {
@@ -151,6 +180,8 @@ export interface RestartFacts {
 	holding?(): readonly string[];
 	/** Whether every screen shows only an empty editor, with nobody in one. */
 	resting(): boolean;
+	/** How short the heap runs, or nothing while it has room. */
+	pressure?(): HeapPressure | undefined;
 	/**
 	 * Whether the restart is past its ceiling and waits for a gap, so a
 	 * drain for it holds wakes no longer: said at each look that waits
@@ -282,6 +313,8 @@ export function restartWhenSettled(
 	// The rule a restart may come under now, or nothing while it may not.
 	function mayRestart(): RestartRule | undefined {
 		if (facts.stopping()) return undefined;
+		const pressure = facts.pressure?.();
+		if (pressure !== undefined) return pressed(pressure);
 		if (facts.background() > 0) {
 			sayHeld();
 			return undefined;
@@ -294,9 +327,26 @@ export function restartWhenSettled(
 		return { rule: "ceiling", waitedMs: facts.now() - (differingSince ?? 0) };
 	}
 
+	// A heap running short waits for no background work or screen, and,
+	// urgent, for no turn either.
+	function pressed(pressure: HeapPressure): RestartRule | undefined {
+		if (
+			pressure === "pressed" &&
+			facts.held().some(({ state }) => state === "busy")
+		)
+			return undefined;
+		const ending = facts.background() > 0 ? (facts.holding?.() ?? []) : [];
+		return { rule: "heap", pressure, ending };
+	}
+
+	// Whether the next look comes in a second, for a gap, rather than a minute.
+	function looksForGap(): boolean {
+		return pastCeiling() || facts.pressure?.() !== undefined;
+	}
+
 	async function consider(): Promise<Next> {
 		// Past the ceiling, a look with no gap asks nothing more.
-		if (pastCeiling() && mayRestart() === undefined) return "gap";
+		if (looksForGap() && mayRestart() === undefined) return "gap";
 		const why = await facts.differs();
 		if (stopped) return "look";
 		if (why === undefined) {
@@ -306,7 +356,7 @@ export function restartWhenSettled(
 		}
 		differingSince ??= facts.now();
 		const under = mayRestart();
-		if (under === undefined) return pastCeiling() ? "gap" : "look";
+		if (under === undefined) return looksForGap() ? "gap" : "look";
 		// Before systemctl, since systemd may stop the host before it answers.
 		waitsForGap(false);
 		facts.expect(true);
@@ -404,9 +454,23 @@ export async function followWhatStarts(
 	const heap = options.heap ?? ownHeap;
 	function heapPastShare(): string | undefined {
 		const { usedBytes, limitBytes } = heap();
-		if (usedBytes <= limitBytes * HEAP_RESTART_SHARE) return undefined;
+		const past =
+			usedBytes > limitBytes * HEAP_URGENT_SHARE
+				? "nine-tenths"
+				: usedBytes > limitBytes * HEAP_PRESSED_SHARE
+					? "three-quarters"
+					: usedBytes > limitBytes * HEAP_RESTART_SHARE
+						? "half"
+						: undefined;
+		if (past === undefined) return undefined;
 		const mb = (bytes: number) => Math.round(bytes / BYTES_PER_MB);
-		return `its heap holds ${mb(usedBytes)} of the ${mb(limitBytes)} MB V8 allows, past half`;
+		return `its heap holds ${mb(usedBytes)} of the ${mb(limitBytes)} MB V8 allows, past ${past}`;
+	}
+	function pressure(): HeapPressure | undefined {
+		const { usedBytes, limitBytes } = heap();
+		if (usedBytes > limitBytes * HEAP_URGENT_SHARE) return "urgent";
+		if (usedBytes > limitBytes * HEAP_PRESSED_SHARE) return "pressed";
+		return undefined;
 	}
 
 	const settledMs = options.timing?.settledMs ?? SETTLED_MS;
@@ -419,6 +483,7 @@ export async function followWhatStarts(
 			...(options.holding ? { holding: options.holding } : {}),
 			...(options.waitsForGap ? { waitsForGap: options.waitsForGap } : {}),
 			resting: options.resting,
+			pressure,
 			stopping: () => options.serving.stopping(),
 			expect: (coming) => options.serving.restartComing(coming),
 			restart: async (why, under) => {
@@ -439,6 +504,15 @@ const MINUTE_MS = 60_000;
 /** The journal's words for the rule a restart came under. */
 function restartedUnder(under: RestartRule, settledMs: number): string {
 	if (under.rule === "settled") return "once every conversation settled";
+	if (under.rule === "heap") {
+		const when =
+			under.pressure === "urgent"
+				? "at once, turns and all"
+				: "at a moment no conversation had a turn";
+		const ending =
+			under.ending.length > 0 ? `, ending ${under.ending.join("; ")}` : "";
+		return `${when}, before its heap runs out${ending}`;
+	}
 	const waited = Math.round(under.waitedMs / MINUTE_MS);
 	const settle = Math.round(settledMs / MINUTE_MS);
 	return `at a moment no conversation had a turn or a job, having waited ${waited} min for every one to settle ${settle} min at once`;
