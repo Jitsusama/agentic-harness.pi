@@ -75,7 +75,10 @@ export function wakes(
 		},
 		idle: true,
 		...(led ? { led: true } : {}),
-		answers: answers(message, read, self),
+		// A parked orchestrator has no next turn coming to read news from a
+		// session it leads with, and it can't read whether that news names a
+		// landing, so any of it wakes it, answering its pivot or not.
+		answers: !(led && message.intent === "fyi") && answers(message, read, self),
 		asked: answersQuestion(message, read, self),
 		askedEach: asksEach(message, listener),
 		now: Date.parse(message.at),

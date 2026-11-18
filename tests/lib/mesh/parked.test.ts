@@ -122,6 +122,30 @@ describe("waking a parked peer", () => {
 		expect(asked).toEqual(["s-parked"]);
 	});
 
+	it("wakes a parked orchestrator for news answering its pivot, landing or not", () => {
+		const sender: Presence = {
+			...parked,
+			session: "s-led",
+			addresses: ["80ECO2"],
+			state: "listening",
+			orchestratedBy: "85PKB2",
+		};
+		const pivot = message({
+			id: "1-85PKB2-1-pppp",
+			from: "85PKB2",
+			intent: "pivot",
+			pid: 3,
+		});
+		const taken = message({
+			intent: "fyi",
+			re: pivot.id,
+			text: "pivot taken; #920 is merged",
+		});
+		const read = (id: string) => (id === pivot.id ? pivot : undefined);
+
+		expect(wakes(taken, parked, read, sender)).toBe(true);
+	});
+
 	it("wakes it for an answer to its question, however it was sent", () => {
 		const asked = message({
 			id: "1-85PKB2-1-bbbb",

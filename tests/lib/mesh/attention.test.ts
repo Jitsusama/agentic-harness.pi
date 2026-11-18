@@ -112,6 +112,21 @@ describe("attention", () => {
 		});
 	});
 
+	it("notes, idle, a led session's fyi only answering what it sent, landings aside", () => {
+		const idle = { ...standing, idle: true, led: true, answers: true };
+		const done = message({ to: ["@5GV2AH"], text: "pivot taken, carrying on" });
+
+		expect(attend(done, idle)).toEqual({
+			attention: "note",
+			why: "answering this peer",
+		});
+		expect(attend(done, { ...idle, restates: true }).attention).toBe("act");
+		expect(
+			attend(message({ intent: "finding", to: ["@5GV2AH"] }), idle).attention,
+		).toBe("act");
+		expect(attend(done, { ...idle, asked: true }).attention).toBe("turn");
+	});
+
 	it("leaves a led session's news to the run under way, or to a group's readers", () => {
 		const led = { ...standing, led: true };
 		const finding = message({ intent: "finding", to: ["@5GV2AH"] });

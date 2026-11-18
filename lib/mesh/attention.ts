@@ -179,10 +179,20 @@ export function attend(message: Message, at: Standing): Heed {
 	// and typed "." to have them read. Passing what its sessions land and
 	// find on to the person is an orchestrator's work, so an idle one acts
 	// on it: held until the mesh settles, so a burst costs one turn.
+	// An fyi that only answers what the orchestrator sent, a pivot taken
+	// or a checkpoint on it, is noted for its next turn instead: from 10:00
+	// to 22:00 on 17 November 532 of 1,097 led fyis to four orchestrators
+	// answered them, 322 of those a pivot, and one pivot woke WM4KSZ for 29
+	// at 14:41. Who changed course is still shown beside the pivot, a
+	// landing that answers one still acts, and an answer to its question
+	// still takes a turn above.
+	const answerOnly =
+		message.intent === "fyi" && at.answers === true && !at.restates;
 	if (
 		at.led &&
 		at.idle &&
 		(message.intent === "finding" || message.intent === "fyi") &&
+		!answerOnly &&
 		isHomeTo(message, at.receiver.addresses)
 	) {
 		return {
