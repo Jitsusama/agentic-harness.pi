@@ -67,6 +67,7 @@ import {
 } from "../../lib/jobs/hand-off.ts";
 import { type AgentBash, agentBash, type ShellSettings } from "./agent-bash.ts";
 import { runOrHandOff } from "./hand-off.ts";
+import { outlivingIt } from "./outliving.ts";
 
 /** The settings pi builds its own bash with, as this project sees them. */
 function shellSettings(ctx: ExtensionContext): ShellSettings {
@@ -249,7 +250,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			// Only where /proc lets a stop find what left the group (reap.ts).
 			...(process.platform === "linux"
 				? [
-						`A process a command starts dies when the command is stopped or times out, or when the pi host that ran it restarts, whatever group or session it moved to: setsid, nohup and \`jobs-broker run\` don't keep it. Only one moved to a scope outside pi's own cgroup and outside the jobs slice, as \`systemd-run --user --scope\` makes, is spared.${sandbox.kind === "fence" ? " Inside the agent fence no command can make one, so something meant to outlive its command needs a service its owner runs, or the person." : ""}`,
+						`A process a command starts dies when the command is stopped or times out, or when the pi host that ran it restarts, whatever group, session or scope it moved to: setsid, nohup, \`jobs-broker run\` and a \`systemd-run --user --scope\` landing in pi's cgroup or the jobs slice all still carry the command's marks. ${outlivingIt(sandbox.kind)}`,
 					]
 				: []),
 			// Only where commands are placed in the jobs cgroup: elsewhere

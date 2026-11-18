@@ -302,7 +302,18 @@ the slice `JOBS_CGROUP` puts work in, as `systemd-run --user --scope`
 makes. `setsid`, `nohup`, the jobs sorter's scopes and
 `jobs-broker run`'s stay in that slice, and a host's pi-spawner scope
 counts as where work runs too, so they still die; a pi host
-restarting spares the same, by the same rule. The hand-off answer tells the agent
+restarting spares the same, by the same rule. A scope an agent makes
+with `systemd-run --user --scope` is spared only when it lands outside
+both, and a machine whose `systemd-run` keeps an agent's units in its
+caller's slice puts it in the jobs slice, where it dies. So the agent
+is told to start a run meant to outlive its command and its host as a
+transient service instead (`systemd-run --user --unit=NAME --collect
+--same-dir --expand-environment=no`, passing each variable it needs
+with `--setenv`). A service starts from the user manager, so it
+carries none of the command's marks and no reap finds it, whatever
+its slice; and the journal records how it ended, which for a scope
+nothing does. In the fence and the strict sandbox no command reaches
+systemd, and the agent is told so instead. The hand-off answer tells the agent
 to use the tool and never to kill the shell by hand, which would leave
 what the command started running. A reload does not: the
 command keeps running, and its result arrives in the reloaded session

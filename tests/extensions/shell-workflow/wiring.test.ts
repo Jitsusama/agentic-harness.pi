@@ -11,6 +11,7 @@ import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import shellWorkflow from "../../../extensions/shell-workflow/index.ts";
+import { outlivingIt } from "../../../extensions/shell-workflow/outliving.ts";
 import { OFF } from "../../../lib/internal/fence/fence-stage.ts";
 import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox/sandbox.ts";
 import { announceJobHost, type JobSpec } from "../../../lib/jobs/host.ts";
@@ -216,4 +217,39 @@ describe("telling agents not to add nice", () => {
 			guidelines(undefined).filter((line) => line.includes("nice")),
 		).toEqual([]);
 	});
+});
+
+// On 18 Nov two test:host runs started as `systemd-run --user --scope`,
+// as the rule then said would spare them, died with the host that ran
+// them: a scope in the jobs slice still carries the command's marks.
+describe("telling agents what outlives a command", () => {
+	const guidelines = (): string[] => {
+		let registered: Tool | undefined;
+		shellWorkflow({
+			events: createEventBus(),
+			on: () => {},
+			registerTool: (definition: Tool) => {
+				registered = definition;
+			},
+		} as unknown as ExtensionAPI);
+		return registered?.promptGuidelines ?? [];
+	};
+
+	it.runIf(process.platform === "linux")(
+		"names the scopes that still die, then a service, where nothing is sandboxed",
+		() => {
+			vi.stubEnv(SANDBOX_VARIABLE, OFF);
+
+			const said = guidelines().filter((line) =>
+				line.startsWith("A process a command starts dies"),
+			);
+
+			expect(said, "one line says what outlives a command").toHaveLength(1);
+			expect(said[0]).toMatch(/systemd-run --user --scope`.*jobs slice/s);
+			expect(
+				said[0]?.endsWith(outlivingIt("none")),
+				"an unsandboxed session is told to start a service",
+			).toBe(true);
+		},
+	);
 });

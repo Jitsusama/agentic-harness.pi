@@ -16,9 +16,10 @@
 # OUT/real.log and its report, cut into files, to OUT/real/, with
 # OUT/real/run.json naming the commit, the runtime, the model, the
 # arguments and how it ended. It waits while the machine's memory is
-# under pressure, since a person's work comes first. Run it under
-# systemd-run --user --scope, so nothing that restarts a session cuts it
-# off.
+# under pressure, since a person's work comes first. Run it as a
+# transient service (systemd-run --user --unit=NAME, not --scope, which
+# in the jobs slice still dies with the host), so nothing that restarts
+# a session cuts it off.
 set -euo pipefail
 
 model=${1:?soak-real.sh MODEL OUT [SOAK ARGUMENTS...]}
