@@ -137,15 +137,17 @@ export interface TreeMemory {
 		facts?: ProcessFacts,
 	): Promise<HeldTree | undefined>;
 	/**
-	 * Make `session` the holder of every tree whose record names it, as
+	 * Make `session` the holder of every tree a record says it holds, as
 	 * the process it runs in now, and answer how many records changed.
 	 *
 	 * A session outlives its process: resumed after a restart, it runs in
 	 * a new one while its records still name the old, which reads as
-	 * ended to anything judging by owners. Each record drops the owners
-	 * naming this session and those whose process is gone, and gains this
-	 * one, under the record's lock. A record already naming only live
-	 * holders and this one is left as it is.
+	 * ended to anything judging by owners. Each record with an owner
+	 * naming this session drops the owners naming it and those whose
+	 * process is gone, and gains this one, under the record's lock. A
+	 * record already naming only live holders and this one is left as it
+	 * is. Plain pi names no session on an owner, so only hosted records
+	 * follow.
 	 */
 	reownSession(session: string, facts?: ProcessFacts): Promise<number>;
 }
@@ -501,8 +503,12 @@ export function createTreeMemory(
 		},
 
 		async reownSession(session, facts = systemFacts) {
+			// Only a tree the session itself held: an owner names it. A tree
+			// a subagent cut lists the session that ran it too, and re-owning
+			// that would make the runner a holder of its lane's tree and turn
+			// the lane's next job away from it.
 			const names = (tree: HeldTree) =>
-				Array.isArray(tree.sessions) && tree.sessions.includes(session);
+				named(tree).some((owner) => owner.session === session);
 			const ours = this.recall().filter(names);
 			if (ours.length === 0) return 0;
 			const us = await holderNow(facts, session);
@@ -516,7 +522,7 @@ export function createTreeMemory(
 			for (const found of ours) {
 				// Read again under the lock, so a holder that arrived since the
 				// listing is kept.
-				await underLock(found.identity.key, async () => {
+				const reowned = underLock(found.identity.key, async () => {
 					const tree = this.recall().find((one) => one.path === found.path);
 					if (tree === undefined || !names(tree)) return;
 					const owners = named(tree);
@@ -533,6 +539,12 @@ export function createTreeMemory(
 					this.remember({ ...tree, owners: [...kept, us] });
 					changed += 1;
 				});
+				try {
+					await reowned;
+				} catch {
+					// One record that can't be rewritten keeps its old owner, as
+					// before; the rest of the session's trees still follow it.
+				}
 			}
 			return changed;
 		},

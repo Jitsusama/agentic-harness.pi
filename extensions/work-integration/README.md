@@ -161,8 +161,8 @@ one removal path.
 
 ## Trees Whose Sessions Have Ended
 
-When a session starts, the records of the trees it holds are made to
-name the process it runs in now. After a host restart they named the
+When a session starts in a pi host, the records of the trees it holds
+are made to name the process it runs in now. After a host restart they named the
 old one, and the disk guard, which judges a tree by its owners, took
 the node_modules of a tree a resumed session was working in.
 
