@@ -38,6 +38,19 @@ export class Admissions {
 		});
 	}
 
+	/** Stub: the old meaning, the next prompt committed. */
+	whenNextHeld(): Promise<void> {
+		return this.whenAdmitted();
+	}
+
+	/** Stub. */
+	given(_words: readonly unknown[]): void {}
+
+	/** Stub. */
+	committed(_prompts: readonly unknown[], error?: unknown): void {
+		this.settleAdmission(error);
+	}
+
 	/** Tell whoever waits that the prompt was admitted, or why not. */
 	settleAdmission(error?: unknown): void {
 		for (const waiter of this.admissionWaiters.splice(0)) {
