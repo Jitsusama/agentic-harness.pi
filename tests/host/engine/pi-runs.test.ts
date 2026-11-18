@@ -105,7 +105,14 @@ describe("the agent's own runs in pi", () => {
 			await vi.advanceTimersByTimeAsync(1);
 
 			expect(handed, "the run went on with nothing").toEqual([]);
-			void release();
+			let ended = false;
+			void release().then(() => {
+				ended = true;
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			expect(ended, "the run ends without waiting on pi's preparation").toBe(
+				true,
+			);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -135,12 +142,17 @@ describe("the agent's own runs in pi", () => {
 		runs.tell(session(true));
 		await runs.holding(() => runs.opening());
 		runs.tell(session(false));
+		await runs.holding(async () => {
+			await runs.opening();
+			runs.tell(session(true));
+		});
+		runs.tell(session(false));
 		parked = true;
 		await runs.holding(() => runs.opening());
 
 		expect(
 			settles,
-			"one settle each for the shown runs, none unshown, inside pi's own or once parked",
+			"one settle each for the shown runs, none unshown, inside pi's own, begun since or once parked",
 		).toEqual([false, true]);
 	});
 
