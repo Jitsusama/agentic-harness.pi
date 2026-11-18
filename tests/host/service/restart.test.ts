@@ -1,8 +1,9 @@
 /**
  * When a host restarts itself: only once it would differ and all is
- * settled. Long because every rule (a moved install, a changed unit,
- * each share of the heap, background work held, a gap between turns)
- * is driven through the one restartWhenSettled and its fake clock.
+ * settled. Long because its 33 cases cover restart.ts's three exports,
+ * which decide one restart together: whether all is settled, when a
+ * restart waits for it (each share of the heap, background work held, a
+ * gap between turns), and what a host follows to know it would differ.
  */
 import {
 	mkdir,

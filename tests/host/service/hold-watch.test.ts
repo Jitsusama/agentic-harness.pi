@@ -3,9 +3,9 @@
  * said while it lasts and once it ends, with what the main thread did,
  * and a loop that turns says nothing. The loop is held here by spinning,
  * since the test shares it, or by a call that waits in the kernel.
- * Long because each case holds a real loop and a real thread beside it,
- * so the beats in the disk and the profile of a spin share one watch's
- * setup rather than each building its own.
+ * Long because each of its eight cases holds a real loop, by spinning
+ * or in the kernel, and reads what the watch said from its own thread,
+ * which takes a page of setup apiece; all eight watch the one module.
  */
 import { spawn, spawnSync } from "node:child_process";
 import {
