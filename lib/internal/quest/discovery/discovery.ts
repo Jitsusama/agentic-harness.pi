@@ -305,6 +305,15 @@ const STALE_AFTER_MS = 60_000;
 const SIGNING_GIVES_UP_MS = 30_000;
 
 /**
+ * How long a signing given up on still holds its root, so no other
+ * starts beside it: past this its disk is taken to hang, and another
+ * may try. A walk that is only slow, as on a host thread shared by
+ * sixty conversations, ends well inside it; on 17 Nov one starting
+ * each time the last gave up left walks piling up on that thread.
+ */
+const SIGNING_HUNG_AFTER_MS = 5 * 60_000;
+
+/**
  * A host's discovery, which shares one thread with every conversation:
  * a known tree is answered from its last signed walk, and signed again
  * off the thread once that is a few seconds old. It signs on the thread
@@ -360,7 +369,9 @@ export function discoverySettled(
  * memo was let go, or a signing begun later already answered. An
  * unchanged tree keeps its walk; a changed one is walked again on the
  * thread, from memory. One that runs past `SIGNING_GIVES_UP_MS` is no
- * longer waited on.
+ * longer waited on, but holds its root until it ends, or until
+ * `SIGNING_HUNG_AFTER_MS` says its disk hangs, so no second walk
+ * starts beside a slow one.
  */
 function signOffThread(questsRoot: string): Promise<SigningEnd | undefined> {
 	const m = memo();
@@ -389,9 +400,11 @@ function signOffThread(questsRoot: string): Promise<SigningEnd | undefined> {
 		return "failed";
 	});
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let gaveUp = false;
 	const givenUp = new Promise<SigningEnd>((resolve) => {
 		// Not a wait for something to happen: a ceiling on a disk that hangs.
 		timer = setTimeout(() => {
+			gaveUp = true;
 			sayOnHost(
 				`signing ${questsRoot} gave up after ${SIGNING_GIVES_UP_MS} ms`,
 			);
@@ -399,9 +412,22 @@ function signOffThread(questsRoot: string): Promise<SigningEnd | undefined> {
 		}, SIGNING_GIVES_UP_MS);
 		timer.unref();
 	});
-	const signing = Promise.race([work, givenUp]).finally(() => {
-		clearTimeout(timer);
+	const signing = Promise.race([work, givenUp]);
+	const free = () => {
 		if (m.signing.get(questsRoot) === signing) m.signing.delete(questsRoot);
+	};
+	// Not a wait either: the longest a hung walk keeps others off its root.
+	const hung = setTimeout(free, SIGNING_HUNG_AFTER_MS);
+	hung.unref();
+	void work.then((end) => {
+		clearTimeout(timer);
+		clearTimeout(hung);
+		if (gaveUp) {
+			sayOnHost(
+				`signing ${questsRoot} ended (${end}) after ${Date.now() - signedAt} ms, past its give-up`,
+			);
+		}
+		free();
 	});
 	m.signing.set(questsRoot, signing);
 	return signing;

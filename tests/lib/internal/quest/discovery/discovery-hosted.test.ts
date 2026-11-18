@@ -249,7 +249,7 @@ describe("discovery on a host", () => {
 		expect(statusNow()).toBe("paused");
 	});
 
-	it("gives up on a signing whose disk never answers, and starts another", async () => {
+	it("gives up on a signing whose disk never answers, and starts another once it hangs", async () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		discoverQuests(root);
 		openSignings = holdSignings();
@@ -260,7 +260,49 @@ describe("discovery on a host", () => {
 		expect(await hung).toBe("gave up");
 		later(6_000);
 		discoverQuests(root);
-		expect(discoverySettled(root)).not.toBe(hung);
+		expect(
+			discoverySettled(root),
+			"no second walk starts beside one only given up on",
+		).toBe(hung);
+		await vi.advanceTimersByTimeAsync(5 * 60_000);
+		later(6_000);
+		discoverQuests(root);
+		expect(
+			discoverySettled(root),
+			"another walk starts once the first has hung",
+		).not.toBe(hung);
+	});
+
+	it("frees its root as soon as a walk given up on ends, and keeps what it found", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		discoverQuests(root);
+		openSignings = holdSignings();
+		later(6_000);
+		const read = nextRead();
+		discoverQuests(root);
+		const slow = discoverySettled(root);
+		await read;
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(await slow).toBe("gave up");
+		openSignings();
+		// Its read is real disk work, so the walk ends when it ends; a hung
+		// walk's five minutes are far past what this waits.
+		await vi.waitFor(() =>
+			expect(
+				discoverySettled(root),
+				"a walk that ended frees its root at once",
+			).not.toBe(slow),
+		);
+		expect(
+			discoverQuests(root).index.quests.has(ID),
+			"the slow walk's findings are kept",
+		).toBe(true);
+		later(6_000);
+		discoverQuests(root);
+		expect(
+			discoverySettled(root),
+			"the next ask past its age starts a walk of its own",
+		).not.toBe(slow);
 	});
 
 	it("starts one signing at a time for a root", async () => {
