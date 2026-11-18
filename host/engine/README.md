@@ -369,3 +369,9 @@ and the old one closes as `replaced`. If pi fails past its teardown,
 both end. Whatever closes a conversation itself (its screen, an
 extension, a replacement) is said to the service as `ended`; a host
 stopping never is.
+
+Many entries because the engine's concerns each change for their own
+reason (building a conversation, its screen, its store, its stop, its
+tool children, its checkpoints, the session seam) and all of them meet
+in engine.ts; a subfolder per concern would split files that import
+each other at every turn.

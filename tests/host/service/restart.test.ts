@@ -1,4 +1,9 @@
-/** When a host restarts itself: only once it would differ and all is settled. */
+/**
+ * When a host restarts itself: only once it would differ and all is
+ * settled. Long because every rule (a moved install, a changed unit,
+ * each share of the heap, background work held, a gap between turns)
+ * is driven through the one restartWhenSettled and its fake clock.
+ */
 import {
 	mkdir,
 	mkdtemp,
