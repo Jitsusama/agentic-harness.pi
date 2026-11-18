@@ -40,7 +40,7 @@
  * owner named by address.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { readdirSync, rmSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -204,6 +204,12 @@ export function wordsOf(text: string): string[] {
 /** What a cell says it works on, as the node lists each one. */
 const CELL_FIELDS = ["title", "repo", "subjects"];
 
+/**
+ * What a subject's hub record names: its one hub and fits, or several
+ * listed under `hubs`. The node leaves out a field a record lacks.
+ */
+const HUB_FIELDS = ["hub", "fits", "hubs"];
+
 /** The most declared subjects read from one cell. */
 export const MOST_SUBJECTS = 12;
 
@@ -319,21 +325,30 @@ export function tieGraphFrom(line: string, now: number): TieGraph {
 
 /**
  * The hubs in a node's list of its `hub` kind; none for a node that
- * holds no hubs yet, which refuses the kind.
+ * holds no hubs yet, which refuses the kind. A subject's record names
+ * one hub and its fits, or lists several under `hubs`, since a record's
+ * key is its subject and a subject may have more than one hub. A list
+ * naming none it can read leaves the single hub standing.
  */
 export function hubsFrom(line: string): Hub[] {
 	return recordsOf(line).flatMap((record): Hub[] => {
-		const { key, hub, fits } = record;
+		const { key, hubs } = record;
 		if (typeof key !== "string" || !key.startsWith("hub:")) return [];
-		if (typeof hub !== "string" || !Array.isArray(fits)) return [];
-		return [
-			{
-				subject: key.slice("hub:".length),
-				hub,
-				fits: fits.filter((fit) => typeof fit === "string"),
-			},
-		];
+		const subject = key.slice("hub:".length);
+		const listed = (Array.isArray(hubs) ? hubs.filter(isRecord) : []).flatMap(
+			(one) => hubOf(subject, one),
+		);
+		return listed.length > 0 ? listed : hubOf(subject, record);
 	});
+}
+
+/** The hub a record or one of its listed hubs names, if it names one. */
+function hubOf(subject: string, named: Record<string, unknown>): Hub[] {
+	const { hub, fits } = named;
+	if (typeof hub !== "string" || !Array.isArray(fits)) return [];
+	return [
+		{ subject, hub, fits: fits.filter((fit) => typeof fit === "string") },
+	];
 }
 
 /**
@@ -426,7 +441,12 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 
 	const saying = new Set(said.words);
 	for (const { word } of within) {
-		for (const hub of hubsFor(word, saying, reach.hubs)) {
+		// Among hubs that rank the same, the one whose fit works on most of
+		// the need; among those, the first the lot drew.
+		let chosen: { ranked: RankedHub; fit: string } | undefined;
+		for (const ranked of hubsFor(word, saying, reach.hubs, asked.need)) {
+			if (chosen !== undefined && !rankSame(chosen.ranked, ranked)) break;
+			const { hub } = ranked;
 			if (!live(hub.hub)) continue;
 			const fit = best(
 				hub.fits.filter(
@@ -434,8 +454,14 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 				),
 			);
 			if (fit === undefined) continue;
-			const direct = hub.hub === fit || selves.has(hub.hub);
-			return record(direct ? [fit] : [hub.hub, fit], fit);
+			if (chosen === undefined || most(fit) > most(chosen.fit)) {
+				chosen = { ranked, fit };
+			}
+		}
+		if (chosen !== undefined) {
+			const { ranked, fit } = chosen;
+			const direct = ranked.hub.hub === fit || selves.has(ranked.hub.hub);
+			return record(direct ? [fit] : [ranked.hub.hub, fit], fit);
 		}
 	}
 
@@ -527,24 +553,57 @@ const UNTAKEN_ONLY = Number.MAX_SAFE_INTEGER;
  * the need didn't, so a hub of `pallet-lines` is never a need's that
  * says lines alone. Those saying more of the need come first, since a
  * need saying easing and lines is narrower than easing alone; then the
- * deepest subject, by its parts, since each part narrows it; then the
- * order the node listed them. A subject's length never ranks.
+ * deepest subject, by its parts, since each part narrows it. Hubs that
+ * rank the same are shared out among needs by `need`, one need id
+ * always to the same hub, never by the order the node listed them: a
+ * node names a hub for every ten holders of a subject, and taking the
+ * first listed sent every one of its needs to that hub's fits (the
+ * scale run of 18 November: one fit took 34 of 1,000 needs at 10,000
+ * cells). A subject's length never ranks.
  */
 function hubsFor(
 	word: string,
 	saying: ReadonlySet<string>,
 	hubs: readonly Hub[],
-): Hub[] {
+	need: string,
+): RankedHub[] {
+	const lot = (hub: Hub) =>
+		createHash("sha256")
+			.update(`${need}\u0000${hub.subject}\u0000${hub.hub}`)
+			.digest("hex");
 	const ranked = hubs.flatMap((hub) => {
 		const words = subjectWords(hub.subject);
 		if (!words.includes(word)) return [];
 		if (!words.every((one) => saying.has(one))) return [];
 		const says = words.length;
-		return [{ hub, says, depth: subjectParts(hub.subject).length }];
+		const depth = subjectParts(hub.subject).length;
+		return [{ hub, says, depth, lot: lot(hub) }];
 	});
-	return ranked
-		.sort((a, b) => b.says - a.says || b.depth - a.depth)
-		.map(({ hub }) => hub);
+	return ranked.sort(
+		(a, b) => b.says - a.says || b.depth - a.depth || byLot(a.lot, b.lot),
+	);
+}
+
+/** A hub a need may be put to, with what ranks it. */
+interface RankedHub {
+	readonly hub: Hub;
+	/** How many words of the need its subject's narrowest part says. */
+	readonly says: number;
+	/** How many parts its subject has. */
+	readonly depth: number;
+	/** The need's draw among hubs that rank the same. */
+	readonly lot: string;
+}
+
+/** Whether two hubs say as much of a need and are as deep. */
+function rankSame(a: RankedHub, b: RankedHub): boolean {
+	return a.says === b.says && a.depth === b.depth;
+}
+
+/** Two draws in byte order, the same on every machine. */
+function byLot(a: string, b: string): number {
+	if (a === b) return 0;
+	return a < b ? -1 : 1;
 }
 
 /** The cells from the asker's first tie to `fit`, as the walk found them. */
@@ -623,7 +682,7 @@ export async function needAt(
 	const [cells, ties, hubs] = await Promise.all([
 		listAt(socket, "cell", CELL_FIELDS, LIST_PATIENCE_MS),
 		listAt(socket, "tie", ["strength", "heard"], LIST_PATIENCE_MS),
-		listAt(socket, "hub", ["hub", "fits"], LIST_PATIENCE_MS),
+		listAt(socket, "hub", HUB_FIELDS, LIST_PATIENCE_MS),
 	]);
 	if (!lists(cells) || !lists(ties)) return undefined;
 	const record = routeNeed(asked, {

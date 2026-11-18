@@ -114,6 +114,52 @@ describe("the hubs a need is put to first", () => {
 		]);
 	});
 
+	it("reads each of the several hubs one subject's record lists, in place of its single one", () => {
+		const line = JSON.stringify({
+			id: 2,
+			records: [
+				{
+					key: "hub:carry",
+					hub: "OLD",
+					fits: ["OLD"],
+					hubs: [
+						{ hub: "KP0L6A", fits: ["5HJZ8Z"] },
+						{ hub: "9T2BBY", fits: ["9T2BBY", 7] },
+						{ fits: ["X"] },
+					],
+					counted: AT,
+				},
+			],
+		});
+
+		expect(hubsFrom(line)).toEqual([
+			{ subject: "carry", hub: "KP0L6A", fits: ["5HJZ8Z"] },
+			{ subject: "carry", hub: "9T2BBY", fits: ["9T2BBY"] },
+		]);
+	});
+
+	it("reads a record's single hub when its list names none", () => {
+		const line = JSON.stringify({
+			id: 2,
+			records: [
+				{ key: "hub:carry", hub: "KP0L6A", fits: ["5HJZ8Z"], hubs: [] },
+				{ key: "hub:easing", hub: "9T2BBY", fits: ["9T2BBY"], hubs: [7] },
+				{
+					key: "hub:lines",
+					hub: "5HJZ8Z",
+					fits: ["5HJZ8Z"],
+					hubs: [{ fits: ["X"] }, { hub: "Y" }],
+				},
+			],
+		});
+
+		expect(hubsFrom(line)).toEqual([
+			{ subject: "carry", hub: "KP0L6A", fits: ["5HJZ8Z"] },
+			{ subject: "easing", hub: "9T2BBY", fits: ["9T2BBY"] },
+			{ subject: "lines", hub: "5HJZ8Z", fits: ["5HJZ8Z"] },
+		]);
+	});
+
 	it("reads none from a node that holds no hubs yet", () => {
 		const refused = JSON.stringify({
 			id: 2,
@@ -536,6 +582,36 @@ describe("asking the node for a need's fit", () => {
 			found,
 			"a need finds the cell that declares its subject",
 		).toMatchObject({ path: ["B"], fit: "B" });
+	});
+
+	it("asks the node for a subject's several hubs, and routes by them", async () => {
+		// F has no tie from A, so only its hub can lead the need there, and
+		// only the list's second hub names it.
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{ key: "cell:H", title: "Hub" },
+				{ key: "cell:F", title: "Carry a Session" },
+			],
+			tie: [{ key: "tie:A~H", strength: 2, heard: AT }],
+			hub: [
+				{
+					key: "hub:carry",
+					hubs: [
+						{ hub: "H", fits: ["X"] },
+						{ hub: "H", fits: ["F"] },
+					],
+				},
+			],
+		});
+
+		const found = await needAt(socket, asked("A", "carry"), {
+			live: () => true,
+			stopped: () => false,
+			keep: root,
+		});
+
+		expect(found).toMatchObject({ path: ["H", "F"], fit: "F" });
 	});
 
 	it("answers nothing, and keeps nothing, when no node answers", async () => {
