@@ -524,11 +524,15 @@ describe("the quests the desktop lists", () => {
 			// And one moved to it headless, after the registry last said where
 			// it was: its record's file is fresh from a heartbeat, but the
 			// record says it got to MISSION at 01:00, before OLD's stamp.
-			const stamps = (wired: string, headless: string) =>
+			// And one back on OLD, its record from an older install that
+			// wrote no questSince: only its leaving MISSION at 01:30 dates
+			// the return past MISSION's stamp.
+			const stamps = (wired: string, headless: string, older: string) =>
 				[
 					"sessions:",
 					...entry("s-wired", wired),
 					...entry("s-headless", headless),
+					...entry("s-older", older),
 				].join("\n");
 			const entry = (id: string, started: string) => [
 				`  - id: ${id}`,
@@ -538,12 +542,12 @@ describe("the quests the desktop lists", () => {
 			];
 			quest(
 				MISSION,
-				`status: active\norchestrator: true\n${stamps("2026-01-01T02:00:00Z", "2026-01-01T00:30:00Z")}`,
+				`status: active\norchestrator: true\n${stamps("2026-01-01T02:00:00Z", "2026-01-01T00:30:00Z", "2026-01-01T01:00:00Z")}`,
 				"# Bootstrap optimus",
 			);
 			quest(
 				OLD,
-				`status: concluded\n${stamps("2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z")}`,
+				`status: concluded\n${stamps("2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z", "2026-01-01T00:10:00Z")}`,
 				"# Old",
 			);
 			mkdirSync(sessionRegistryDir(), { recursive: true });
@@ -573,6 +577,21 @@ describe("the quests the desktop lists", () => {
 				}),
 			);
 
+			writeFileSync(
+				join(sessionRegistryDir(), "s-older.json"),
+				JSON.stringify({
+					sessionId: "s-older",
+					instanceId: "i-older",
+					cwd: elsewhere,
+					openedAt: "2026-01-01T00:05:00Z",
+					quest: OLD,
+					previousQuests: {
+						[OLD]: "2026-01-01T00:40:00Z",
+						[MISSION]: "2026-01-01T01:30:00Z",
+					},
+				}),
+			);
+
 			await keepDesktopListsCurrent(root);
 
 			const read = (path: string) => JSON.parse(readFileSync(path, "utf8"));
@@ -586,7 +605,7 @@ describe("the quests the desktop lists", () => {
 				read(endedQuestsPath()).quests.map(
 					(one: { id: string; sessions: string[] }) => [one.id, one.sessions],
 				),
-			).toEqual([[OLD, ["s-wired", "s-headless"]]]);
+			).toEqual([[OLD, ["s-wired", "s-headless", "s-older"]]]);
 		} finally {
 			if (before === undefined) delete process.env.XDG_STATE_HOME;
 			else process.env.XDG_STATE_HOME = before;
