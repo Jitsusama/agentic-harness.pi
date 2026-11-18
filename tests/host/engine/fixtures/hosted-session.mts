@@ -77,7 +77,11 @@ interface Session {
 		waitForIdle(): Promise<void>;
 		hasQueuedMessages(): boolean;
 		continue(): Promise<void>;
-		readonly state: { readonly messages: unknown[] };
+		steer(message: unknown): void;
+		readonly state: {
+			readonly messages: unknown[];
+			readonly isStreaming: boolean;
+		};
 	};
 }
 
@@ -247,6 +251,8 @@ let note = (_event: {
 	readonly waiting?: number;
 	readonly ms?: number;
 	readonly first?: boolean;
+	/** Whether the agent still counted a run under way once the step returned. */
+	readonly streaming?: boolean;
 	/** The signal a command started now would stop with: none, one still live, or one already aborted. */
 	readonly signal?: "none" | "live" | "aborted";
 }): void => {};
@@ -270,6 +276,15 @@ async function answerOnceQueued(text: string): Promise<unknown> {
 }
 
 const say = (text: string) => compat.fauxAssistantMessage(text);
+
+/** Continue the session's agent, saying what it threw, or "none". */
+function continuedWith(session: Session): Promise<string> {
+	return session.agent.continue().then(
+		() => "none",
+		(refused: unknown) =>
+			refused instanceof Error ? refused.message : String(refused),
+	);
+}
 
 /**
  * Answer `text`, unless a tool result in the request does not follow its
@@ -717,12 +732,31 @@ const scenarios: Record<string, Scenario> = {
 				content: [{ type: "text", text: "again" }],
 				timestamp: Date.now(),
 			});
-			const error = await session.agent.continue().then(
-				() => "none",
-				(refused: unknown) =>
-					refused instanceof Error ? refused.message : String(refused),
-			);
-			note({ type: "continued", error });
+			const error = await continuedWith(session);
+			note({
+				type: "continued",
+				error,
+				streaming: session.agent.state.isStreaming,
+			});
+		},
+	},
+	/** As continue-closed, but with words pi queued after the answer, which continue runs as a prompt. */
+	"continue-closed-queued": {
+		responses: () => [say("one")],
+		drive: async (session) => {
+			await session.prompt("hi");
+			await closeStore();
+			session.agent.steer({
+				role: "user",
+				content: [{ type: "text", text: "also this" }],
+				timestamp: Date.now(),
+			});
+			const error = await continuedWith(session);
+			note({
+				type: "continued",
+				error,
+				streaming: session.agent.state.isStreaming,
+			});
 		},
 	},
 	/** A host stopping before the provider's first token, the provider paying the park's abort no heed. */

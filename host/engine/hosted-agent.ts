@@ -364,12 +364,12 @@ export class HostedAgent {
 		if (last.role === "assistant") {
 			const steering = this.steeringQueue.drain();
 			if (steering.length > 0) {
-				await this.runPromptMessages(steering.map((item) => item.message));
+				await this.promptOrThrow(steering.map((item) => item.message));
 				return;
 			}
 			const followUps = this.followUpQueue.drain();
 			if (followUps.length > 0) {
-				await this.runPromptMessages(followUps.map((item) => item.message));
+				await this.promptOrThrow(followUps.map((item) => item.message));
 				return;
 			}
 			throw new Error("Cannot continue from message role: assistant");
@@ -436,7 +436,24 @@ export class HostedAgent {
 		return this.admissions.whenAdmitted();
 	}
 
-	private async runPromptMessages(prompts: AgentMessage[]): Promise<void> {
+	/**
+	 * Words pi queued, run for pi's continue: as `runPromptMessages`, but a
+	 * refused admission throws once the run has failed, as `continueOrThrow`
+	 * does, so pi's loop ends on a closed session whichever branch it took.
+	 * The words are lost with the session, as any run's would be.
+	 */
+	private async promptOrThrow(prompts: AgentMessage[]): Promise<void> {
+		let refused: { readonly error: unknown } | undefined;
+		await this.runPromptMessages(prompts, (error) => {
+			refused = { error };
+		});
+		if (refused) throw refused.error;
+	}
+
+	private async runPromptMessages(
+		prompts: AgentMessage[],
+		refusedBy?: (error: unknown) => void,
+	): Promise<void> {
 		await this.runWithLifecycle(async (run) => {
 			const messages = this.declareToolChanges(run.context, prompts);
 			try {
@@ -454,6 +471,7 @@ export class HostedAgent {
 				});
 			} catch (error) {
 				this.admissions.settleAdmission(error);
+				refusedBy?.(error);
 				throw error;
 			}
 			this.admissions.settleAdmission();
