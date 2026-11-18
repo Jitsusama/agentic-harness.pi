@@ -14,8 +14,9 @@ import type { BoundTarget, Change } from "../../../lib/core/review/index.ts";
 import { fillProposal } from "../../../lib/core/review/index.ts";
 import { sessionCwd } from "../../../lib/core/session/index.ts";
 import { sayDid } from "../../../lib/internal/session/events.ts";
-import { REVIEW_COMMANDS } from "../commands.ts";
+import { REVIEW_COMMANDS, reviewExec } from "../commands.ts";
 import { GLYPH, proposalLine } from "../render.ts";
+import { councilFirst } from "../reviewed-first.ts";
 import { checkoutFacts } from "./offer-checkout.ts";
 import { confirmWrite, missingMethod, proposePanel } from "./offer-gates.ts";
 import type { OfferParams } from "./offer-request.ts";
@@ -56,6 +57,20 @@ export async function propose(
 	);
 	if ("refusal" in filled) return refuse(filled.refusal);
 	const { base, head, title, body, guessed, warnings } = filled.fill;
+
+	if (!params.draft) {
+		const waits = await councilFirst(
+			reviewExec,
+			{
+				repo: bound.repo.key,
+				checkout: params.repo ?? sessionCwd(ctx),
+				base,
+				head,
+			},
+			"proposed for review",
+		);
+		if (waits) return refuse(waits);
+	}
 
 	const decision = await confirmWrite(
 		ctx,

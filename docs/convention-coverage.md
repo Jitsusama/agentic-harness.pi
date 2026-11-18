@@ -396,6 +396,11 @@ is followed by judgment, not by a regex.
   half these names are ordinary English that appears in prose
   about something else.
 
+  A second `review-guide` rule is gated: 🟢 a change goes to
+  people (proposed for review, marked ready, put to reviewers)
+  only once our own council has read one of its commits, in
+  `extensions/review-integration/reviewed-first.ts`.
+
   `review-guide` is worth a note, because it looks gateable and
   is not. Its rules are about what to say rather than what to
   write: plan before publishing, pass a stack's provenance on,

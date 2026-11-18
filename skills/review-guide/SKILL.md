@@ -225,6 +225,14 @@ so do not read an uncontested finding as a corroborated one.
 comes from the branch you are on, the base from the repo's trunk, and
 the title from the last commit's subject.
 
+**Our own council reads it first.** A proposal that isn't a draft, a
+move to ready and a request for reviewers are each refused until a
+finished `review_ask council` has read one of the change's commits,
+from its base to its head. Run the council at the head, check its
+findings against the source, fix and push what holds, then propose;
+a council read before that last fix still counts. A draft can go up
+first, since nobody is asked to look at one.
+
 **Give the description as its four sections**: `problem`,
 `solution`, `validation` and `tldr`, written in that order. The tool
 writes the headings and the order, and refuses a section outside the

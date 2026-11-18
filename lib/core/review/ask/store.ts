@@ -71,6 +71,21 @@ export interface RunStore {
 	 * to decide with.
 	 */
 	openRunIds(): Promise<OpenRuns>;
+	/**
+	 * The newest finished council, held against any change in `repo`,
+	 * whose reviewers read one of `commits`.
+	 *
+	 * Asked across changes because a change is reviewed before it has a
+	 * number: a council on a local range is held under that range, and
+	 * the change proposed from it is another key. A round that fell back
+	 * to the caller's checkout never read the commit it names, so it
+	 * doesn't count; nor does one still open or given up on. A ledger
+	 * that won't read is passed over, which can only find less.
+	 */
+	witnessed(
+		repo: string,
+		commits: ReadonlySet<string>,
+	): Promise<AskRun | undefined>;
 }
 
 /** A round still open, with what the ledger says of it. */
@@ -321,6 +336,45 @@ export function createRunStore(root: string): RunStore {
 			return { open, rounds, unreadable };
 		},
 
+		async witnessed(repo, commits) {
+			let files: string[];
+			try {
+				files = await readdir(root);
+			} catch {
+				// No ledger, or none that can be read: no council is known.
+				return undefined;
+			}
+			let newest: AskRun | undefined;
+			for (const file of files) {
+				if (!file.endsWith(".json")) continue;
+				let parsed: unknown;
+				try {
+					parsed = JSON.parse(await readFile(join(root, file), "utf8"));
+				} catch {
+					// Gone or torn: it can only hold a council not counted.
+					continue;
+				}
+				if (
+					typeof parsed !== "object" ||
+					parsed === null ||
+					!("change" in parsed) ||
+					!isChangeRef(parsed.change) ||
+					parsed.change.repo.key !== repo ||
+					!("runs" in parsed) ||
+					!Array.isArray(parsed.runs)
+				) {
+					continue;
+				}
+				for (const run of parsed.runs as AskRun[]) {
+					if (!readTheCommit(run, commits)) continue;
+					if (newest === undefined || run.startedAt > newest.startedAt) {
+						newest = run;
+					}
+				}
+			}
+			return newest;
+		},
+
 		async latest(change, round) {
 			// Finished rounds only. A round is now on the ledger from the
 			// moment it opens, so the newest entry is routinely one that
@@ -395,6 +449,20 @@ function isMissing(error: unknown): boolean {
  * Slugged because the key names a file: a change id is somebody
  * else's string and may hold a separator.
  */
+/** Whether `run` is a finished council whose reviewers read one of `commits`. */
+function readTheCommit(run: AskRun, commits: ReadonlySet<string>): boolean {
+	return (
+		run?.round === "council" &&
+		run.open !== true &&
+		run.closed !== true &&
+		run.unpinned === undefined &&
+		typeof run.witness === "string" &&
+		commits.has(run.witness) &&
+		Array.isArray(run.outcomes) &&
+		run.outcomes.some((outcome) => outcome.failure === undefined)
+	);
+}
+
 /** Whether a ledger's `change` is a change, as a later write left it. */
 function isChangeRef(value: unknown): value is ChangeRef {
 	if (typeof value !== "object" || value === null) return false;

@@ -211,6 +211,105 @@ describe("keeping runs per change", () => {
 	});
 });
 
+describe("finding a council that read a change's commits", () => {
+	let root: string;
+	const range: ChangeRef = {
+		provider: "local-range",
+		repo: { key: "github:Shopify/world" },
+		id: "origin/main..topic",
+		label: "origin/main..topic",
+	};
+	const elsewhere: ChangeRef = {
+		...change,
+		repo: { key: "github:Shopify/other" },
+	};
+	const read = (witness: string, over: Partial<AskRun> = {}) =>
+		run({ id: `council-${witness}`, witness, ...over });
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "run-store-"));
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("finds one held under the range the change was proposed from", async () => {
+		const store = createRunStore(root);
+		await store.record(range, read("aaa"));
+
+		const found = await store.witnessed(
+			"github:Shopify/world",
+			new Set(["aaa"]),
+		);
+
+		expect(found?.id).toBe("council-aaa");
+	});
+
+	it("gives the newest of several", async () => {
+		const store = createRunStore(root);
+		await store.record(
+			range,
+			read("aaa", { startedAt: "2026-07-30T01:00:00.000Z" }),
+		);
+		await store.record(
+			change,
+			read("bbb", { startedAt: "2026-07-30T02:00:00.000Z" }),
+		);
+
+		const found = await store.witnessed(
+			"github:Shopify/world",
+			new Set(["aaa", "bbb"]),
+		);
+
+		expect(found?.id).toBe("council-bbb");
+	});
+
+	it("counts none that read another commit, or another repo", async () => {
+		const store = createRunStore(root);
+		await store.record(range, read("zzz"));
+		await store.record(elsewhere, read("aaa"));
+
+		expect(
+			await store.witnessed("github:Shopify/world", new Set(["aaa"])),
+		).toBeUndefined();
+	});
+
+	it("counts no round that never read the commit, or never finished", async () => {
+		const store = createRunStore(root);
+		await store.record(range, read("a1", { unpinned: "read the checkout" }));
+		await store.record(range, read("a2", { open: true }));
+		await store.record(range, read("a3", { closed: true }));
+		await store.record(range, read("a4", { round: "judge" }));
+		await store.record(
+			range,
+			read("a5", {
+				outcomes: [{ participantId: "hawk", findingIds: [], failure: "died" }],
+			}),
+		);
+
+		expect(
+			await store.witnessed(
+				"github:Shopify/world",
+				new Set(["a1", "a2", "a3", "a4", "a5"]),
+			),
+		).toBeUndefined();
+	});
+
+	it("passes over a ledger that won't read", async () => {
+		const store = createRunStore(root);
+		await store.record(range, read("aaa"));
+		writeFileSync(join(root, "torn.json"), "{");
+
+		const found = await store.witnessed(
+			"github:Shopify/world",
+			new Set(["aaa"]),
+		);
+
+		expect(found?.id).toBe("council-aaa");
+	});
+});
+
 describe("finding the run you mean", () => {
 	let root: string;
 

@@ -12,6 +12,7 @@
 import { afterEach, vi } from "vitest";
 import { runCommandsWith } from "../../../extensions/review-integration/commands.ts";
 import reviewIntegration from "../../../extensions/review-integration/index.ts";
+import { witnessCouncilsWith } from "../../../extensions/review-integration/reviewed-first.ts";
 import { cleanupSessionResults } from "../../../lib/core/result/location.ts";
 import { resultSession } from "../../support/result-session.ts";
 
@@ -156,6 +157,9 @@ export function activateWith(
 	// The review tools run their commands unattended rather than through
 	// the host, so the stub's answers reach them only by being put there.
 	runCommandsWith(stub.pi);
+	// Every change counts as reviewed by our own council, so a case that
+	// isn't about that rule needn't keep a ledger; its own cases set it.
+	witnessCouncilsWith(async () => true);
 	// The stub is structural: the extension only uses the parts modelled
 	// here, and a real ExtensionAPI is unavailable outside a session.
 	extension(stub.pi as never);

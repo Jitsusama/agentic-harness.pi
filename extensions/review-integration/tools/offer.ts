@@ -41,9 +41,10 @@ import { PR_SHAPE } from "../../../lib/core/sections/sanctioned.ts";
 import { usesDepth } from "../../../lib/core/sections/shape.ts";
 import { sessionCwd, sessionKeyOf } from "../../../lib/core/session/index.ts";
 import { sayClosed } from "../../../lib/internal/session/landings.ts";
-import { REVIEW_COMMANDS } from "../commands.ts";
+import { REVIEW_COMMANDS, reviewExec } from "../commands.ts";
 import { GATE_TIMEOUT_MS } from "../merge-gate.ts";
 import { GLYPH } from "../render.ts";
+import { councilFirst } from "../reviewed-first.ts";
 import { hostedSize } from "./change-size.ts";
 import {
 	proposalSize,
@@ -388,6 +389,16 @@ export async function runOffer(
 			case "ready":
 			case "unready": {
 				const wanted = params.action === "unready";
+				if (!wanted) {
+					const waits = await heldForCouncil(
+						bound,
+						change,
+						params,
+						ctx,
+						"marked ready",
+					);
+					if (waits) return refuse(waits);
+				}
 				const decision = await confirmWrite(
 					ctx,
 					`Move ${change.label} to ${wanted ? "Draft" : "Ready"}`,
@@ -484,8 +495,17 @@ export async function runOffer(
 							timeout: GATE_TIMEOUT_MS,
 						}),
 				});
-			case "reviewers":
+			case "reviewers": {
+				const waits = await heldForCouncil(
+					bound,
+					change,
+					params,
+					ctx,
+					"put to reviewers",
+				);
+				if (waits) return refuse(waits);
 				return reviewers(ctx, change, authoring, params);
+			}
 		}
 	} catch (error) {
 		return refuseFailure(error, bound);
@@ -509,6 +529,31 @@ function peopleComplaint(
 	return complaint === undefined
 		? undefined
 		: `${complaint} Name them the way ${bound.provider.id} does.`;
+}
+
+/**
+ * Why a hosted change must wait for a council of ours before `doing`,
+ * read from the change's base and head as its backend reports them.
+ */
+async function heldForCouncil(
+	bound: BoundTarget,
+	change: NonNullable<ReturnType<typeof hostedChange>>,
+	params: OfferParams,
+	ctx: ExtensionToolContext,
+	doing: string,
+): Promise<string | undefined> {
+	const hosted = await bound.provider.changes?.fetch(change);
+	return councilFirst(
+		reviewExec,
+		{
+			repo: bound.repo.key,
+			checkout: params.repo ?? change.repo.localPath ?? sessionCwd(ctx),
+			base: hosted?.base ?? "main",
+			head: hosted?.head ?? "HEAD",
+			...(hosted?.headCommit ? { headCommit: hosted.headCommit } : {}),
+		},
+		doing,
+	);
 }
 
 /**

@@ -16,6 +16,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
+import { witnessCouncilsWith } from "../../../../extensions/review-integration/reviewed-first.ts";
 import {
 	type AuthoringCapabilities,
 	type Change,
@@ -318,5 +319,43 @@ describe("proposing through the tool", () => {
 
 		expect(asked).toHaveLength(1);
 		expect(asked[0]?.repo.key).toBe(world.key);
+	});
+});
+
+describe("proposing before our own council has read it", () => {
+	/** Offer as `offer` does, with councils judged by `read` instead. */
+	async function offerJudged(params: Record<string, unknown>, read: boolean) {
+		const stub = activate();
+		witnessCouncilsWith(async () => read);
+		const tool = toolNamed(stub, "review_offer");
+		return await tool.execute("1", params, undefined, undefined, HEADLESS);
+	}
+
+	it("holds a change for review until a council has read it", async () => {
+		const { provider, asked } = recordingProvider();
+		registerReviewProvider(provider);
+
+		const held = await offerJudged({ ...proposal, draft: false }, false);
+
+		expect(asked).toHaveLength(0);
+		expect(JSON.stringify(held)).toContain("No council of ours has read");
+	});
+
+	it("opens it once one has", async () => {
+		const { provider, asked } = recordingProvider();
+		registerReviewProvider(provider);
+
+		await offerJudged({ ...proposal, draft: false }, true);
+
+		expect(asked.map((request) => request.draft)).toEqual([false]);
+	});
+
+	it("lets a draft up first, which nobody is asked to look at", async () => {
+		const { provider, asked } = recordingProvider();
+		registerReviewProvider(provider);
+
+		await offerJudged(proposal, false);
+
+		expect(asked.map((request) => request.draft)).toEqual([true]);
 	});
 });
