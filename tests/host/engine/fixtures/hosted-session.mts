@@ -701,6 +701,29 @@ const scenarios: Record<string, Scenario> = {
 		tools: echo(),
 		drive: (session) => session.prompt("use the tools"),
 	},
+	/**
+	 * pi's continue once durable's session has closed under it, words still
+	 * waiting: durable refuses every admission at once, and pi's loop asks
+	 * again for as long as a continue only resolves (18 November).
+	 */
+	"continue-closed": {
+		responses: () => [say("one")],
+		drive: async (session) => {
+			await session.prompt("hi");
+			await closeStore();
+			session.agent.state.messages.push({
+				role: "user",
+				content: [{ type: "text", text: "again" }],
+				timestamp: Date.now(),
+			});
+			const error = await session.agent.continue().then(
+				() => "none",
+				(refused: unknown) =>
+					refused instanceof Error ? refused.message : String(refused),
+			);
+			note({ type: "continued", error });
+		},
+	},
 	/** A host stopping before the provider's first token, the provider paying the park's abort no heed. */
 	"park-slow-first-token": {
 		responses: () => [answerSlowly],
@@ -814,6 +837,11 @@ const scenarios: Record<string, Scenario> = {
 
 /** Stop the host mid-round, once the session is built. */
 let stopHost: () => void = () => {
+	throw new Error("the session is not built yet");
+};
+
+/** Close durable's store under the session, as a parked or failed conversation's closes; once the session is built. */
+let closeStore: () => Promise<void> = async () => {
 	throw new Error("the session is not built yet");
 };
 
@@ -936,6 +964,11 @@ try {
 	queued = () => session.agent.hasQueuedMessages();
 	pending = () => session.getFollowUpMessages();
 	note = (event) => events.push(event);
+	let storeClosed = false;
+	closeStore = async () => {
+		storeClosed = true;
+		await conversation?.close();
+	};
 	parkAndClose = async () => {
 		// As the engine's release does for a stopping host, timing the close it waits on.
 		conversation?.agent?.park();
@@ -994,7 +1027,7 @@ try {
 	const transcript = session.agent.state.messages.map(comparable);
 	const pendingAtEnd = [...session.getFollowUpMessages()];
 	session.dispose();
-	await conversation?.close();
+	if (!storeClosed) await conversation?.close();
 	const ran = existsSync(effects())
 		? readFileSync(effects(), "utf8").split("\n").filter(Boolean).length
 		: 0;

@@ -43,6 +43,8 @@ interface Observed {
 		readonly ms?: number;
 		/** Whether a turn taken to carry a run on went to words a person wrote. */
 		readonly first?: boolean;
+		/** What a step threw, for an event that notes one. */
+		readonly error?: string;
 	}[];
 	readonly transcript: readonly {
 		readonly role: string;
@@ -367,6 +369,20 @@ describe("the hosted agent after SIGKILL mid-tool", {
 		} finally {
 			rmSync(folder, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("the hosted agent continued once durable's session closed", {
+	timeout: SESSION_PAIR_MS,
+}, () => {
+	it("throws what refused it, so pi's loop ends rather than asking again forever", async () => {
+		const observed = await observe("hosted", "continue-closed");
+		const continued = observed.events.find(
+			(event) => event.type === "continued",
+		);
+		expect(continued?.error, "the continue threw the refusal").toBe(
+			"Session is closed",
+		);
 	});
 });
 
