@@ -296,11 +296,10 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			every: options.stepRenewEvery ?? STEP_RENEW_MS,
 			ceiling: options.stepCeiling ?? STEP_CEILING_MS,
 		});
-		if (!under) renewing = renewal;
-		// One that ended while it asked has nothing left to renew.
-		else if (step.step === "resume" && resuming.get(step.number) === under)
-			under.renewing = renewal;
-		else renewal();
+		// A resume's end is said only once its start has resolved, so it
+		// is still under way here.
+		if (under) under.renewing = renewal;
+		else renewing = renewal;
 	};
 	// Whatever still asks once the start ends, ended or not, stops asking.
 	const stopRenewing = () => {

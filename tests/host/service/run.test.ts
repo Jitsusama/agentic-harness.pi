@@ -1085,11 +1085,16 @@ describe("runHost", () => {
 				.map((line) => line.replace(/^\d+\.\d s: /, ""))
 				.filter((line) => /^resum/.test(line))
 				.map((line) => line.replace(/ in .*|: .*/, ""));
-			expect(steps, "the second and third begin before either ends").toEqual([
+			expect(
+				steps.slice(0, 4),
+				"the second and third begin before either ends",
+			).toEqual([
 				"resuming 1 of 3",
 				"resumed 1 of 3",
 				"resuming 2 of 3",
 				"resuming 3 of 3",
+			]);
+			expect(steps.slice(4).sort(), "then each ends, in either order").toEqual([
 				"resumed 2 of 3",
 				"resumed 3 of 3",
 			]);
@@ -1102,6 +1107,58 @@ describe("runHost", () => {
 				);
 		} finally {
 			second.emit("SIGTERM");
+			await run.stopped;
+		}
+	});
+
+	it("keeps asking for each of the resumes that run together until its own ends", async () => {
+		const [, short, long] = await heldSome(3);
+		const RENEW_MS = 10;
+		const lasts = new Map([
+			[short, 40],
+			[long, 300],
+		]);
+		const asked: { status: string; at: number }[] = [];
+		const ended: { line: string; at: number }[] = [];
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => ({
+				...(await engine(host)),
+				resume: async (entry) => {
+					const ms = lasts.get(entry.sessionId) ?? 0;
+					await new Promise((done) => setTimeout(done, ms));
+				},
+			}),
+			signals,
+			ready: async () => {},
+			progress: async (_env, status) => {
+				asked.push({ status, at: performance.now() });
+			},
+			stepRenewEvery: RENEW_MS,
+			say: (line) => ended.push({ line, at: performance.now() }),
+			report: () => {},
+			places: places(),
+			rollout: admitting,
+		});
+		try {
+			const shortEnd =
+				ended.find(({ line }) => line.includes("resumed 2 of 3"))?.at ?? 0;
+			const askedSince = (status: string) =>
+				asked.filter((ask) => ask.status === status && ask.at > shortEnd)
+					.length;
+			expect(shortEnd, "the short one ended").toBeGreaterThan(0);
+			expect(
+				askedSince(`resuming 2 of 3: ${short}`),
+				"the short one asks no more once it ends",
+			).toBe(0);
+			expect(
+				askedSince(`resuming 3 of 3: ${long}`),
+				"the long one goes on asking beside it",
+			).toBeGreaterThanOrEqual(3);
+		} finally {
+			signals.emit("SIGTERM");
 			await run.stopped;
 		}
 	});

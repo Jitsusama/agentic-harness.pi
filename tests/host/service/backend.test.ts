@@ -384,8 +384,12 @@ describe("hostBackend", () => {
 		for (const id of [a, b]) await host.stop(id);
 
 		const order: string[] = [];
+		const told: string[][] = [];
 		const restart = engine({
-			resuming: () => order.push("held"),
+			resuming: (held) => {
+				told.push([...held]);
+				order.push("held");
+			},
 			resumed: () => order.push("let go"),
 			resume: vi.fn(async (entry) => {
 				order.push(entry.sessionId);
@@ -395,6 +399,10 @@ describe("hostBackend", () => {
 		});
 		await resumeHeld({ roster, engine: restart.fake });
 		expect(order).toEqual(["held", a, b, "let go"]);
+		expect(
+			told,
+			"told once which it holds, so only their first reaps share a reading",
+		).toEqual([[a, b]]);
 	});
 
 	describe("a few at a time", () => {
@@ -433,11 +441,44 @@ describe("hostBackend", () => {
 			const held = await holding(RESUME_AT_ONCE + 3);
 			const { restart, atBegin } = overlapping();
 			const result = await resumeHeld({ roster, engine: restart.fake });
-			expect(atBegin[1], "the second begins once the first has resumed").toBe(
+			expect(
+				atBegin.slice(0, RESUME_AT_ONCE + 1),
+				"the first alone, then the next RESUME_AT_ONCE together",
+			).toEqual([
 				1,
-			);
+				...Array.from({ length: RESUME_AT_ONCE }, (_, n) => n + 1),
+			]);
 			expect(Math.max(...atBegin)).toBe(RESUME_AT_ONCE);
 			expect([...result.resumed].sort()).toEqual([...held].sort());
+		});
+
+		it("ends a start whose listener throws only once no resume is still building", async () => {
+			await holding(RESUME_AT_ONCE + 2);
+			let running = 0;
+			const atLetGo: number[] = [];
+			const restart = engine({
+				resumed: () => atLetGo.push(running),
+				resume: vi.fn(async (entry) => {
+					running += 1;
+					try {
+						await new Promise((resolve) => setTimeout(resolve, 5));
+						register(entry);
+					} finally {
+						running -= 1;
+					}
+				}),
+			});
+			const broken = new Error("a listener's fault");
+			await expect(
+				resumeHeld({
+					roster,
+					engine: restart.fake,
+					finished: (step) => {
+						if (step.number === 2) throw broken;
+					},
+				}),
+			).rejects.toBe(broken);
+			expect(atLetGo, "let go once, with nothing still building").toEqual([0]);
 		});
 
 		it("keeps going alone after a first that failed, until one resumes", async () => {
@@ -445,10 +486,13 @@ describe("hostBackend", () => {
 			const { restart, atBegin } = overlapping(held[0]);
 			const result = await resumeHeld({ roster, engine: restart.fake });
 			expect(
-				atBegin.slice(0, 3),
-				"a, then b alone, then c beside others",
-			).toEqual([1, 1, 1]);
-			expect(Math.max(...atBegin)).toBe(RESUME_AT_ONCE);
+				atBegin.slice(0, RESUME_AT_ONCE + 2),
+				"a fails alone, b resumes alone, then RESUME_AT_ONCE together",
+			).toEqual([
+				1,
+				1,
+				...Array.from({ length: RESUME_AT_ONCE }, (_, n) => n + 1),
+			]);
 			expect(result.unresumed.map(({ sessionId }) => sessionId)).toEqual([
 				held[0],
 			]);

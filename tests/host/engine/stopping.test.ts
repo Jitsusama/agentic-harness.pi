@@ -1,7 +1,8 @@
 /**
  * What a start's reaps read: between resuming and resumed, the table is
- * read once for every conversation's first reap, and each reap after a
- * conversation's first, or outside a start, reads it whole again.
+ * read once for the first reap of every conversation the start holds,
+ * and every other reap (a held one's second, one the start doesn't hold,
+ * one after a failed reading, or any outside a start) reads it whole.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +20,12 @@ const HOST = { key: "test-host", mark: "1:0" };
 /** A table of marked processes that counts how often it is listed whole. */
 function countingTable(
 	envs: Record<number, Record<string, string>>,
-): ProcessTable & { listed: number; killed: number[] } {
+	failing = 0,
+): ProcessTable & {
+	listed: number;
+	killed: number[];
+	live: Map<number, Record<string, string>>;
+} {
 	const live = new Map(
 		Object.entries(envs).map(([pid, env]) => [Number(pid), env]),
 	);
@@ -27,8 +33,10 @@ function countingTable(
 		self: 1,
 		listed: 0,
 		killed: [] as number[],
+		live,
 		pids: () => {
 			table.listed += 1;
+			if (table.listed <= failing) throw new Error("/proc refused");
 			return [...live.keys()];
 		},
 		environ: async (pid: number) => live.get(pid),
@@ -49,10 +57,14 @@ describe("a start's reaps", () => {
 	afterEach(() => {
 		for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true });
 	});
-	function keeping(table: ProcessTable) {
+	function keeping(table: ProcessTable, reported: unknown[] = []) {
 		const stateDir = mkdtempSync(join(tmpdir(), "stopping-"));
 		dirs.push(stateDir);
-		return stopKeeping({ stateDir, report: () => undefined, table });
+		return stopKeeping({
+			stateDir,
+			report: (error) => reported.push(error),
+			table,
+		});
 	}
 
 	it("read the table once for every conversation's first reap", async () => {
@@ -62,7 +74,7 @@ describe("a start's reaps", () => {
 			30: {},
 		});
 		const stopping = keeping(table);
-		stopping.resuming();
+		stopping.resuming(["a", "b", "c"]);
 		await Promise.all([
 			stopping.reap("a"),
 			stopping.reap("b"),
@@ -79,16 +91,58 @@ describe("a start's reaps", () => {
 			20: conversationMarker("b", HOST),
 		});
 		const stopping = keeping(table);
-		stopping.resuming();
+		stopping.resuming(["a", "b"]);
 		await stopping.reap("a");
 		await stopping.reap("b");
 		expect(table.killed).toEqual([10, 20]);
 	});
 
+	it("read it whole for a conversation the start doesn't hold, whose tools may have started since", async () => {
+		const table = countingTable({ 1: {}, 10: conversationMarker("z", HOST) });
+		const stopping = keeping(table);
+		stopping.resuming(["a"]);
+		await stopping.reap("a");
+		// Opened, adopted or put in a seat by pi's replacement during the start.
+		table.live.set(40, conversationMarker("n", HOST));
+		await stopping.reap("n");
+		expect(
+			table.listed,
+			"the start's, then its own, and again once it kills",
+		).toBe(3);
+		expect(table.killed, "what it started after the start's reading").toEqual([
+			40,
+		]);
+	});
+
+	it("say a failed reading once, and each reap then reads for itself", async () => {
+		const table = countingTable(
+			{
+				1: {},
+				10: conversationMarker("a", HOST),
+				20: conversationMarker("b", HOST),
+			},
+			1,
+		);
+		const reported: unknown[] = [];
+		const stopping = keeping(table, reported);
+		stopping.resuming(["a", "b", "c"]);
+		await stopping.reap("a");
+		await stopping.reap("b");
+		await stopping.reap("c");
+		expect(reported.map(String), "the failure, once").toEqual([
+			"Error: /proc refused",
+		]);
+		expect(table.killed, "each found by its own reading").toEqual([10, 20]);
+		expect(
+			table.listed,
+			"the failed one, then each its own, and again after each kill",
+		).toBe(6);
+	});
+
 	it("read it whole again for a conversation's second reap of the start, which pi has built since", async () => {
 		const table = countingTable({ 1: {}, 10: conversationMarker("z", HOST) });
 		const stopping = keeping(table);
-		stopping.resuming();
+		stopping.resuming(["a"]);
 		await stopping.reap("a");
 		expect(table.listed).toBe(1);
 		await stopping.reap("a");
@@ -101,7 +155,7 @@ describe("a start's reaps", () => {
 		await stopping.reap("a");
 		await stopping.reap("b");
 		expect(table.listed, "before the start").toBe(2);
-		stopping.resuming();
+		stopping.resuming(["c"]);
 		stopping.resumed();
 		await stopping.reap("c");
 		expect(table.listed, "once it is over").toBe(3);

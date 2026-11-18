@@ -540,9 +540,9 @@ export async function createEngine(
 			return !running && sessionFileGone(entry.file);
 		},
 
-		resuming() {
+		resuming(held) {
 			turns.hold();
-			stopping.resuming();
+			stopping.resuming(held);
 		},
 
 		resumed() {

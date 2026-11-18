@@ -67,11 +67,11 @@ export interface ConversationEngine {
 	 */
 	lost?(entry: RosterEntry): boolean;
 	/**
-	 * A start is about to resume what the host holds: carry on none of the
-	 * runs a restart cut off until resumed says it has resumed them all, so
-	 * they go in the whole start's order, a few at a time.
+	 * A start is about to resume `held`, what the host holds: carry on none
+	 * of the runs a restart cut off until resumed says it has resumed them
+	 * all, so they go in the whole start's order, a few at a time.
 	 */
-	resuming?(): void;
+	resuming?(held: readonly string[]): void;
 	/** The start has resumed everything it holds; the runs it cut off may go. */
 	resumed?(): void;
 	abort(sessionId: string): Promise<void>;
@@ -711,7 +711,9 @@ export async function resumeHeld(options: {
 			await resumeOne(entry);
 	}
 
-	options.engine.resuming?.();
+	options.engine.resuming?.(
+		options.roster.entries().map((entry) => entry.sessionId),
+	);
 	try {
 		// Alone until one resumes, so the rollout gate's first runs by itself.
 		while (resumed.length === 0) {
@@ -719,9 +721,16 @@ export async function resumeHeld(options: {
 			if (!entry) break;
 			await resumeOne(entry);
 		}
-		await Promise.all(
+		// Every worker ends before the start does, so one that throws (a
+		// listener's fault, since each resume's own is caught) leaves none
+		// still building as the runs a restart cut off are let go.
+		const rest = await Promise.allSettled(
 			Array.from({ length: RESUME_AT_ONCE }, () => resumeRest()),
 		);
+		const failed = rest.find(
+			(worker): worker is PromiseRejectedResult => worker.status === "rejected",
+		);
+		if (failed) throw failed.reason;
 	} finally {
 		order.end();
 		options.engine.resumed?.();

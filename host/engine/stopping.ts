@@ -45,17 +45,21 @@ export interface StopKeeping {
 	reapEarlier(hostKey: string): Promise<void>;
 	/**
 	 * End what a conversation's tools left running, sparing what is carried
-	 * or kept. Between `resuming` and `resumed`, each conversation's first
-	 * reap looks first at what one reading of the table, taken at the
-	 * start's first reap, named for it.
+	 * or kept. Between `resuming` and `resumed`, the first reap of each
+	 * conversation the start holds looks first at what one reading of the
+	 * table, taken at the start's first such reap, named for it.
 	 */
 	reap(sessionId: string): Promise<void>;
 	/**
-	 * A start begins resuming what it held, after `reapEarlier`: nothing of
-	 * a conversation runs in this host until pi builds it, which its first
-	 * reap comes before, so one reading of the table serves them all.
+	 * A start begins resuming the conversations it held, after
+	 * `reapEarlier`: nothing of a held one runs in this host until pi builds
+	 * it, which its first reap comes before, and the hosts whose tools left
+	 * it processes have ended, so one reading of the table, however old,
+	 * serves them all. A conversation the start doesn't hold (opened,
+	 * adopted or pi's replacement) may have started tools since, so it
+	 * reads the table for itself, as does every reap once a reading fails.
 	 */
-	resuming(): void;
+	resuming(held: Iterable<string>): void;
 	/** The start is over: every reap reads the table for itself again. */
 	resumed(): void;
 	/** Keep or end what a released conversation's ended calls left, by how it stopped, then reap the rest. */
@@ -75,10 +79,14 @@ export function stopKeeping(options: {
 }): StopKeeping {
 	const { report } = options;
 	const table = options.table ?? linuxProcessTable();
-	// The start's one reading of the table, taken at its first reap, and
-	// the conversations whose first reap has had it.
+	// The start's one reading of the table, taken at the first reap of a
+	// conversation it holds, and the held ones whose first reap hasn't had it.
 	let start:
-		| { scan?: Promise<Map<string, number[]>>; readonly reaped: Set<string> }
+		| {
+				scan?: Promise<Map<string, number[]>>;
+				readonly unreaped: Set<string>;
+				failed?: boolean;
+		  }
 		| undefined;
 	// What parks kept of what ended calls left running is spared by every reap.
 	const left = leftRunning(options);
@@ -96,21 +104,26 @@ export function stopKeeping(options: {
 	}
 
 	/**
-	 * What the start's reading named for a conversation, on its first reap
-	 * of the start; nothing outside a start, or once it has had it, when
-	 * what it built since may have started more.
+	 * What the start's reading named for a conversation it holds, on its
+	 * first reap of the start; nothing for any other, or once it has had
+	 * it, when what pi built since may have started more.
 	 */
 	async function startScanFor(
 		sessionId: string,
 	): Promise<readonly number[] | undefined> {
-		if (!start || start.reaped.has(sessionId)) return undefined;
-		start.reaped.add(sessionId);
-		start.scan ??= markedByConversation(table);
+		const current = start;
+		if (!current?.unreaped.delete(sessionId)) return undefined;
+		current.scan ??= markedByConversation(table);
 		try {
-			return (await start.scan).get(sessionId) ?? [];
+			return (await current.scan).get(sessionId) ?? [];
 		} catch (error) {
-			// The reap reads the table for itself, as outside a start.
-			report(error);
+			// Said once, by whichever reap hears it first: this reap and every
+			// one after read the table for themselves, as outside a start.
+			if (!current.failed) {
+				current.failed = true;
+				current.unreaped.clear();
+				report(error);
+			}
 			return undefined;
 		}
 	}
@@ -158,8 +171,8 @@ export function stopKeeping(options: {
 
 		reap,
 
-		resuming() {
-			start = { reaped: new Set() };
+		resuming(held) {
+			start = { unreaped: new Set(held) };
 		},
 
 		resumed() {

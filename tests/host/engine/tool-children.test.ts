@@ -321,7 +321,10 @@ describe("reaping a conversation's tool children", () => {
 			expect(scan.get("a"), "never the host itself").toEqual([10, 11]);
 			expect(scan.get("b")).toEqual([20]);
 			expect(scan.size, "a stranger names none").toBe(2);
-			expect([...table.read].sort()).toEqual([10, 11, 20, 30]);
+			expect(
+				[...table.read].sort((a, b) => a - b),
+				"every process read once",
+			).toEqual([10, 11, 20, 30]);
 		});
 
 		it("reads only the processes the scan named for it, and kills them", async () => {
