@@ -705,11 +705,8 @@ const scenarios: Record<string, Scenario> = {
 				// sends them as a follow-up.
 				await session.prompt("sent during the turn", {
 					streamingBehavior: session.isStreaming ? "followUp" : undefined,
-					// As an open's first words are watched.
-					preflightResult: (disposition: string) => {
-						if (disposition === "started") watch?.next();
-						else if (disposition === "queued") watch?.last();
-					},
+					// As an open tells its watch what pi did with its first words.
+					preflightResult: (disposition) => watch?.told(disposition),
 				});
 			} catch (error) {
 				// Noted rather than thrown, so the test sees what pi's caller was told.

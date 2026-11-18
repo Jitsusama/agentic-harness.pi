@@ -69,7 +69,7 @@ describe("the words the agent watches for", () => {
 		const { admissions, followUp } = admitting();
 		const watch = admissions.watch();
 		queued(admissions, followUp, words("first"));
-		watch.last();
+		watch.told("queued");
 		expect(await outcome(watch.held)).toBe("held");
 	});
 
@@ -79,14 +79,14 @@ describe("the words the agent watches for", () => {
 		const watch = admissions.watch();
 		queued(admissions, followUp, words("first"));
 		expect(await outcome(watch.held), "not yet told which").toBe("waiting");
-		watch.last();
+		watch.told("queued");
 		expect(await outcome(watch.held)).toBe("held");
 	});
 
 	it("are held once a prompt carrying them is committed", async () => {
 		const { admissions } = admitting();
 		const watch = admissions.watch();
-		watch.next();
+		watch.told("started");
 		const first = words("first");
 		admissions.given([first]);
 		admissions.committed([first]);
@@ -98,7 +98,7 @@ describe("the words the agent watches for", () => {
 		const left = words("left from before");
 		followUp.enqueue({ hostId: "left", message: left });
 		const watch = admissions.watch();
-		watch.next();
+		watch.told("started");
 		admissions.given([words("first")]);
 		admissions.committed([left]);
 		expect(await outcome(watch.held)).toBe("waiting");
@@ -113,7 +113,7 @@ describe("the words the agent watches for", () => {
 		admissions.committed([other]);
 		expect(await outcome(watch.held), "another's words").toBe("waiting");
 
-		watch.next();
+		watch.told("started");
 		const first = words("first");
 		admissions.given([first]);
 		admissions.committed([first]);
@@ -125,7 +125,7 @@ describe("the words the agent watches for", () => {
 		const { admissions } = admitting();
 		const stopping = new AbortController();
 		const watch = admissions.watch(stopping.signal);
-		watch.next();
+		watch.told("started");
 		stopping.abort();
 		const first = words("first");
 		admissions.given([first]);
@@ -133,10 +133,21 @@ describe("the words the agent watches for", () => {
 		expect(await outcome(watch.held)).toBe("refused");
 	});
 
+	it("are watched for no more once pi handled them", async () => {
+		// Words an input handler or a command took reach no agent.
+		const { admissions } = admitting();
+		const watch = admissions.watch();
+		watch.told("handled");
+		const other = words("from an extension");
+		admissions.given([other]);
+		admissions.committed([other]);
+		expect(await outcome(watch.held)).toBe("refused");
+	});
+
 	it("are refused as the prompt carrying them is", async () => {
 		const { admissions } = admitting();
 		const watch = admissions.watch();
-		watch.next();
+		watch.told("started");
 		const first = words("first");
 		admissions.given([first]);
 		admissions.committed([first], new Error("durable refused the prompt"));
@@ -149,7 +160,7 @@ describe("the words the agent watches for", () => {
 		const first = words("first");
 		followUp.enqueue({ hostId: "first", message: first });
 		admissions.given([first]);
-		watch.last();
+		watch.told("queued");
 		admissions.withdraw(followUp.clear());
 		expect(await outcome(watch.held)).toBe("refused");
 	});

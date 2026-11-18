@@ -486,12 +486,10 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			source: "rpc",
 			// An extension may begin a run of pi's as the carried one settles, and pi refuses words that don't say how to queue behind it, as its editor's do.
 			streamingBehavior: "followUp",
-			// pi says a run started just before it gives the run's words, and
-			// queued just after it gave them, so the watch takes only these.
+			// What pi says it did tells the watch which words are these.
 			preflightResult: (disposition) => {
 				if (disposition === "handled") handled();
-				else if (disposition === "started") words.next();
-				else if (disposition === "queued") words.last();
+				words.told(disposition);
 			},
 		});
 		// pi runs an extension command inside prompt and calls it handled only

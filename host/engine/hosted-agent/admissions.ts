@@ -34,11 +34,18 @@ interface Watch {
 export interface WordsWatch {
 	/** Settles once durable holds the words, or rejects as it refuses them, pi drops them or the watcher stops. */
 	readonly held: Promise<void>;
-	/** pi is about to give the words, as it does once it says a run started. */
-	next(): void;
-	/** pi just gave the words, as it has once it says it queued them. */
-	last(): void;
+	/**
+	 * pi said what it did with the words, as its prompt's preflight does. A
+	 * run it started is given its words next, with no await between; words
+	 * it queued it gave just before, though a microtask passes before it
+	 * says so, and another sender's words given in that tick would be taken
+	 * for these. Words it handled reach no agent, so are watched no more.
+	 */
+	told(disposition: Disposition): void;
 }
+
+/** What pi's prompt says it did with words before it answers. */
+export type Disposition = "handled" | "queued" | "started";
 
 /** Gives durable what pi prompts and queues, one after another, and takes it back. */
 export class Admissions {
@@ -79,10 +86,11 @@ export class Admissions {
 		else signal?.addEventListener("abort", stop, { once: true });
 		return {
 			held,
-			next: () => {
-				watch.awaiting = true;
+			told: (disposition) => {
+				if (disposition === "started") watch.awaiting = true;
+				else if (disposition === "queued") this.choose(watch, this.lastGiven);
+				else stop();
 			},
-			last: () => this.choose(watch, this.lastGiven),
 		};
 	}
 
