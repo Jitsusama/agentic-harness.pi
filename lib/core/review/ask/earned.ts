@@ -14,6 +14,15 @@
 
 import type { AskRun } from "./run.ts";
 
+/** Whether every reviewer `run` heard from failed, with none still to answer. */
+function everyoneFailed(run: AskRun): boolean {
+	return (
+		run.open !== true &&
+		run.outcomes.length > 0 &&
+		run.outcomes.every((outcome) => outcome.failure !== undefined)
+	);
+}
+
 /** How many councils a change has before another must say what it is for. */
 export const COUNCILS_BEFORE_ASKING_WHY = 3;
 
@@ -28,9 +37,13 @@ export function councilNotEarned(
 	intent: string | undefined,
 ): string | undefined {
 	if (intent !== undefined && intent.trim() !== "") return undefined;
-	// A round a person gave up on asked nobody anything worth keeping.
+	// A round a person gave up on asked nobody anything worth keeping,
+	// and nor did one whose every reviewer failed: on 18 November whole
+	// councils timed out on prompts too large to answer, and asking again
+	// once that was mended read nothing any of them had read.
 	const councils = earlier.filter(
-		(run) => run.round === "council" && run.closed !== true,
+		(run) =>
+			run.round === "council" && run.closed !== true && !everyoneFailed(run),
 	);
 	const sameCommit =
 		head === undefined

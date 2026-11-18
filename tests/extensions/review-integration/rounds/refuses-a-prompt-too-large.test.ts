@@ -19,7 +19,7 @@ const ASKS =
 
 /** Where a refusal of a prompt too large is asked, and acted on. */
 const REFUSED =
-	/tooLargeToAsk\([\s\S]*?\)[\s\S]{0,40}?if \(tooLarge !== undefined\) return/;
+	/const tooLarge = tooLargeToAsk\(\s*prompt,[^;]*;\s*if \(tooLarge !== undefined\) return/;
 
 /** Where a council's round is made, which asks the refusal itself. */
 const MADE = "await councilRound(";

@@ -52,11 +52,12 @@ import {
 } from "./shared.ts";
 
 /**
- * How to weigh a change whose prompt is too large: the same diff that
- * no reviewer could be sent can't be put to a judge or an auditor.
+ * How to weigh a change whose prompt is too large. A judge, critique or
+ * audit reads the change with every finding or thread beside it, so
+ * either can make the size, and a hosted change has no base to move.
  */
 const NARROWER_WEIGHING =
-	"Ask about fewer commits: a base the head is a few commits past, such as origin/main rather than a local main nobody pulls, or the change itself.";
+	"It reads the change with every finding or open thread beside it. For a local range, a nearer base (origin/main rather than a local main nobody pulls) makes it smaller; a hosted change this large needs splitting, and its findings can still be read with review_see findings.";
 
 /** Ask the judge to consolidate the latest council. */
 export async function askJudge(

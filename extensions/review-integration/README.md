@@ -131,6 +131,15 @@ record, the mesh's `runs/` file the launcher reads under the
 session that asked, until each participant has ended
 (`run-records.ts`; the shape is in mesh-workflow's README).
 
+A local range whose base is a branch behind its upstream, such as
+a `main` nobody pulls, is read from the upstream's tip, and its
+description says so; a base level with, ahead of or diverged from
+its upstream, or a head already upstream, is read as named. Nothing
+is fetched. A round of any kind whose prompt passes 1,200,000
+characters is refused before anyone is asked, since no reviewer
+answers one that large (`lib/core/review/upstream-base.ts`,
+`tooLargeToAsk` in `lib/core/review/ask/prompt.ts`).
+
 Every participant reads a change a stranger may have written, so
 each runs under `PI_SANDBOX=strict` and loads the sandbox file
 interceptor and the secret scrub, whatever its round. Its file

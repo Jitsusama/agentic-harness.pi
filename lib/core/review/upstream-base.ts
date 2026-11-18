@@ -55,18 +55,27 @@ export async function upstreamBase(
 	if (local === undefined) return undefined;
 	const ref = await git("rev-parse", "--abbrev-ref", `${base}@{upstream}`);
 	if (!ref) return undefined;
+	// Read from the tracking ref itself rather than the name said for it,
+	// which git lengthens (remotes/origin/main) only while a tag or branch
+	// shares the short one.
 	const commit = await git(
 		"rev-parse",
 		"--verify",
 		"--quiet",
-		`${ref}^{commit}`,
+		`${base}@{upstream}^{commit}`,
 	);
 	if (commit === undefined || commit === local) return undefined;
 	const behind = await git("merge-base", "--is-ancestor", local, commit);
 	if (behind === undefined) return undefined;
 	if (
 		head !== undefined &&
-		(await git("merge-base", "--is-ancestor", head, commit)) !== undefined
+		(await git(
+			"merge-base",
+			"--is-ancestor",
+			"--end-of-options",
+			head,
+			commit,
+		)) !== undefined
 	)
 		return undefined;
 	const count = Number(await git("rev-list", "--count", `${local}..${commit}`));

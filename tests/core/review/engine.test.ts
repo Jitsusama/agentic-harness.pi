@@ -272,8 +272,9 @@ describe("a target with no host", () => {
 		const { engine } = engineWith([
 			...localRepo,
 			{ when: ["refs/heads/main^{commit}"], stdout: "old\n" },
+			// Before the name's rule, which its words would also match.
+			{ when: ["main@{upstream}^{commit}"], stdout: "new\n" },
 			{ when: ["main@{upstream}"], stdout: "origin/main\n" },
-			{ when: ["origin/main^{commit}"], stdout: "new\n" },
 			{ when: ["--is-ancestor", "old", "new"] },
 			{ when: ["rev-list", "--count", "old..new"], stdout: "3\n" },
 			{ when: ["diff", "new...topic"], stdout: "diff --git a/y b/y\n" },
