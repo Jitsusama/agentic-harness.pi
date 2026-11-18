@@ -43,6 +43,8 @@ interface Observed {
 		readonly ms?: number;
 		/** Whether a turn taken to carry a run on went to words a person wrote. */
 		readonly first?: boolean;
+		/** Whether an extension's context read the conversation idle. */
+		readonly idle?: boolean;
 	}[];
 	readonly transcript: readonly {
 		readonly role: string;
@@ -217,6 +219,13 @@ const SCENARIOS = {
 } as const;
 
 /** The ends of pi's runs and the settles its extensions heard, in order. */
+/** What an extension read of the conversation's idleness as each answer ended. */
+function idleReadsOf(observed: Observed): boolean[] {
+	return observed.events.flatMap((event) =>
+		event.type === "idle read" && event.idle !== undefined ? [event.idle] : [],
+	);
+}
+
 function endsOf(observed: Observed): string[] {
 	return observed.events
 		.map((event) => event.type)
@@ -563,6 +572,29 @@ describe("the hosted agent resuming a turn a restart cut off", {
 			}
 		});
 	}
+
+	// On 18 November a summary written ahead came ready during a run a restart cut off; compaction-workflow read the conversation idle, compacted with no resume, and pi's compaction aborted the carried run, leaving S99IA2 silent for seven minutes.
+	it("reads busy to its extensions while it carries a cut-off run on, as a run of pi's own does", async () => {
+		const folder = mkdtempSync(join(tmpdir(), "hosted-reads-busy-"));
+		try {
+			const fresh = await observe("hosted", "reading-idle");
+			expect(idleReadsOf(fresh), "a run of pi's own reads busy").toEqual([
+				false,
+			]);
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			const reopened = await observe("hosted", "reopen-reading-idle", folder);
+			expect(
+				said(reopened, "assistant").at(-1),
+				"the carried run answered",
+			).toBe("after the restart");
+			expect(
+				idleReadsOf(reopened),
+				"the carried run reads busy as its answer ends",
+			).toEqual([false]);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
 
 	it("takes no turn for a conversation with nothing to carry on", async () => {
 		const fresh = await observe("hosted", "fresh-taking-turns");

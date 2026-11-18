@@ -134,6 +134,12 @@ also has its tool results put back beside their calls first
 (paired-results.ts), which keeps a file already in that shape
 answering; a result whose call is not before it goes as text saying so.
 
+That turn reads busy to extensions as well (busy-while-carried.ts): an
+extension's context reads idle only when pi's session does and the agent
+holds no run's signal. Without it, compaction-workflow read a carried
+turn idle, compacted with no resume, and pi's compaction aborted the
+turn, leaving the conversation silent until something new arrived.
+
 Words sent as a conversation reopens wait behind the turn durable carries
 on, queued on the agent rather than on pi's session, whose screen lists
 only what it queued itself: queueing them there too would run them through
