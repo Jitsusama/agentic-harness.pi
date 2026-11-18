@@ -35,10 +35,12 @@
  */
 
 import { execFile } from "node:child_process";
+import { join } from "node:path";
 import { ambientSession } from "../../lib/core/session/index.ts";
+import { stateDir } from "../../lib/internal/paths.ts";
 import { withPi } from "../../lib/internal/priority/place.ts";
 import type { SessionHost } from "../engine/index.ts";
-import { type HostKind, hostRealm } from "./address.ts";
+import { type HostKind, hostKey, hostRealm } from "./address.ts";
 import type { ConversationEngine, ResumePhase } from "./backend.ts";
 import { type HoldWatchOptions, watchHolds } from "./hold-watch.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
@@ -97,6 +99,11 @@ const HALF = 2;
 
 const MICROSECONDS_PER_MS = 1000;
 const MS_PER_SECOND = 1000;
+
+/**
+ * The folder, in a host's own state folder, keeping its spins' profiles.
+ */
+const HELD = "held";
 
 /**
  * The codes of a write to a pipe or stream whose other end has gone: a
@@ -293,16 +300,20 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 						say(heldLine(late, every * PINGS_PER_TIMEOUT, serving.held())),
 				});
 	// A host systemd watches also says what holds its loop, from a thread
-	// beside it, since the beats can say only how long; and that thread
-	// beats for a loop asleep in the disk, which no kill would mend.
+	// beside it, since the beats can say only how long; that thread beats
+	// for a loop asleep in the disk, which no kill would mend, and profiles
+	// one that spins into the host's own state, so the code is named.
+	const profile = {
+		folder: join(stateDir("host-service"), hostKey(realm, kind), HELD),
+	};
 	const unwatchHolds =
 		every === undefined
 			? undefined
 			: (options.holds ?? watchHolds)(
 					// As the loop's own beats, none where systemd names no socket.
 					options.env.NOTIFY_SOCKET
-						? { beat: { every, env: options.env } }
-						: {},
+						? { beat: { every, env: options.env }, profile }
+						: { profile },
 				);
 	const unwatch = () => {
 		unwatchBeats?.();

@@ -33,6 +33,18 @@
  * did, so a strict every-look rule would stop beating a stall that goes
  * on. It beats at most once a beat's `every`, journals each beat, and
  * stops at its `cap`, past which no disk stall is worth the wait.
+ *
+ * Given a folder to profile into, the thread also takes a short CPU
+ * profile of the main thread once a hold has lasted the profile's
+ * `after` with the thread last seen running: at 16:46 on 17 November the
+ * background host's main thread spun on a CPU 234 s of 245, and the
+ * journal could say only that it ran, not which code. The inspector,
+ * connected to the main thread from this one, samples it while it spins,
+ * since V8 answers an inspector's message by interrupting the running
+ * JavaScript. It journals the frames that took the most samples, with
+ * the busiest one's callers, and keeps the profile itself, up to `most`
+ * bytes and the newest `keep`, for a closer look in a browser's
+ * profiler. It profiles once a hold, since one spin's profile says it.
  */
 
 import { homedir } from "node:os";
@@ -60,6 +72,18 @@ const PROC = "/proc/self";
  * a filesystem call of 17 November's stall (155 s).
  */
 const BEAT_CAP_MS = 10 * 60_000;
+
+/** How long into a spinning hold its main thread is profiled, in ms. */
+const PROFILE_AFTER_MS = 30_000;
+
+/** How long a profile samples, in ms. */
+const PROFILE_FOR_MS = 3000;
+
+/** How many profiles a folder keeps, the newest. */
+const PROFILES_KEPT = 3;
+
+/** The largest profile kept, in bytes. */
+const PROFILE_MOST_BYTES = 16 * 1024 * 1024;
 
 /** How a beat is told to systemd: as the loop's own are. */
 const BEAT_COMMAND: readonly string[] = ["systemd-notify", "WATCHDOG=1"];
@@ -236,6 +260,7 @@ interface Watched {
 				readonly env: NodeJS.ProcessEnv;
 		  }
 		| undefined;
+	readonly profile: Required<ProfileOptions> | undefined;
 }
 
 /**
@@ -247,8 +272,9 @@ interface Watched {
 const PROGRAM = `
 const { workerData } = require("node:worker_threads");
 const { spawn } = require("node:child_process");
-const { openSync, readFileSync, readSync, readlinkSync, writeSync } = require("node:fs");
-const { ticks, fd, every, after, still, pid, clock, home, calls, proc, beat } = workerData;
+const { mkdirSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, rmSync, writeFileSync, writeSync } = require("node:fs");
+const { join } = require("node:path");
+const { ticks, fd, every, after, still, pid, clock, home, calls, proc, beat, profile } = workerData;
 const count = new Int32Array(ticks);
 const task = proc + "/task/" + pid;
 // The most of a path a line gives, a page of memory, and a unix socket's
@@ -353,6 +379,8 @@ const callOf = () => {
 const seen = (hold) => {
 	const now = thread();
 	hold.last = undefined;
+	// Off Linux nothing says whether it runs, so a hold may be a spin.
+	hold.running = now === undefined || now.state === "R";
 	if (now === undefined) return;
 	const wchan = (read(task + "/wchan") ?? "").trim();
 	const key = now.state === "R" || wchan === "" || wchan === "0" ? now.state : now.state + " in " + wchan;
@@ -466,6 +494,96 @@ const beatFor = (hold, now, held) => {
 	asked = { what: "the watchdog for the loop, held " + seconds(held) + " s in " + hold.last.said, at: now, late: false };
 	helper.stdin.write("\\n");
 };
+// Profile the main thread through a long spin, as the header of
+// hold-watch.ts says. A message the main thread never answers, as one
+// asleep in the kernel wouldn't, gives up at its time rather than
+// leaving the session open.
+const SAMPLE_US = 1000;
+const ANSWER_MS = 10_000;
+const TOP = 5;
+const CALLERS = 5;
+const located = (frame) => {
+	const name = frame.functionName || "(anonymous)";
+	if (!frame.url) return name;
+	return name + " (" + shortened(frame.url.replace(/^file:\\/\\//, "")) + ":" + (frame.lineNumber + 1) + ":" + (frame.columnNumber + 1) + ")";
+};
+// The frames that took the most samples, and the busiest one's callers.
+const busiest = (taken) => {
+	const nodes = new Map(taken.nodes.map((node) => [node.id, node]));
+	const parents = new Map();
+	for (const node of taken.nodes) for (const child of node.children ?? []) parents.set(child, node.id);
+	const counts = new Map();
+	for (const id of taken.samples) counts.set(id, (counts.get(id) ?? 0) + 1);
+	const byFrame = new Map();
+	for (const [id, times] of counts) {
+		const said = located(nodes.get(id).callFrame);
+		const was = byFrame.get(said);
+		byFrame.set(said, { times: (was?.times ?? 0) + times, id: was && was.times > times ? was.id : id });
+	}
+	const total = taken.samples.length;
+	const top = [...byFrame].sort((a, b) => b[1].times - a[1].times).slice(0, TOP);
+	if (top.length === 0) return "no samples";
+	const frames = top.map(([said, { times }]) => said + " " + Math.round((100 * times) / total) + "%").join(", ");
+	const callers = [];
+	for (let id = parents.get(top[0][1].id); id !== undefined && callers.length < CALLERS; id = parents.get(id)) {
+		const frame = nodes.get(id).callFrame;
+		if (frame.functionName === "(root)") break;
+		callers.push(located(frame));
+	}
+	return "most in " + frames + (callers.length > 0 ? "; the busiest called from " + callers.join(" < ") : "");
+};
+// Keep a profile under the folder, the newest few, and say where.
+const kept = (taken) => {
+	const text = JSON.stringify(taken);
+	if (text.length > profile.most) return "its profile, " + Math.round(text.length / 1024) + " KB, is too large to keep";
+	mkdirSync(profile.folder, { recursive: true });
+	const name = "held-" + new Date().toISOString().replace(/[:.]/g, "-") + ".cpuprofile";
+	writeFileSync(join(profile.folder, name), text, { mode: 0o600 });
+	const all = readdirSync(profile.folder).filter((file) => /^held-.*\\.cpuprofile$/.test(file)).sort();
+	for (const old of all.slice(0, Math.max(0, all.length - profile.keep))) rmSync(join(profile.folder, old), { force: true });
+	return "kept in " + shortened(join(profile.folder, name));
+};
+const profileFor = (hold, held) => {
+	if (!profile || hold.profiled || !hold.running || held < profile.after) return;
+	hold.profiled = true;
+	let session;
+	const post = (method, params) =>
+		new Promise((ok, fail) => {
+			const late = setTimeout(() => fail(new Error("the main thread didn't answer " + method + " in " + seconds(ANSWER_MS) + " s")), ANSWER_MS);
+			session.post(method, params ?? {}, (error, answer) => {
+				clearTimeout(late);
+				if (error) fail(error);
+				else ok(answer);
+			});
+		});
+	(async () => {
+		try {
+			const { Session } = require("node:inspector");
+			session = new Session();
+			session.connectToMainThread();
+			await post("Profiler.enable");
+			await post("Profiler.setSamplingInterval", { interval: SAMPLE_US });
+			await post("Profiler.start");
+			await new Promise((done) => setTimeout(done, profile.for));
+			const { profile: taken } = await post("Profiler.stop");
+			let where;
+			try {
+				where = kept(taken);
+			} catch (error) {
+				where = "its profile couldn't be kept: " + (error instanceof Error ? error.message : String(error));
+			}
+			say("profiled the held loop's main thread for " + seconds(profile.for) + " s, " + seconds(held) + " s into the hold: " + busiest(taken) + "; " + where);
+		} catch (error) {
+			say("couldn't profile the held loop's main thread: " + (error instanceof Error ? error.message : String(error)));
+		} finally {
+			try {
+				session?.disconnect();
+			} catch {
+				// A session that never connected has nothing to end.
+			}
+		}
+	})();
+};
 let last = Atomics.load(count, 0);
 let moved = performance.now();
 // The thread's CPU as the loop last moved, read only for a beat.
@@ -484,14 +602,16 @@ setInterval(() => {
 	}
 	if (now - moved < after) return;
 	if (!hold) {
-		hold = { from: thread(), moving, swap: swapMb(), seen: new Map(), calls: new Map(), told: now, capped: false, last: undefined };
+		hold = { from: thread(), moving, swap: swapMb(), seen: new Map(), calls: new Map(), told: now, capped: false, last: undefined, running: false, profiled: false };
 		seen(hold);
 		say(described(hold, now - moved, false));
 		beatFor(hold, now, now - moved);
+		profileFor(hold, now - moved);
 		return;
 	}
 	seen(hold);
 	beatFor(hold, now, now - moved);
+	profileFor(hold, now - moved);
 	if (now - hold.told >= still) {
 		hold.told = now;
 		say(described(hold, now - moved, false));
@@ -525,6 +645,13 @@ export function watchHolds(options: HoldWatchOptions = {}): () => void {
 			cap: options.beat.cap ?? BEAT_CAP_MS,
 			command: options.beat.command ?? BEAT_COMMAND,
 			env: options.beat.env,
+		},
+		profile: options.profile && {
+			folder: options.profile.folder,
+			after: options.profile.after ?? PROFILE_AFTER_MS,
+			for: options.profile.for ?? PROFILE_FOR_MS,
+			keep: options.profile.keep ?? PROFILES_KEPT,
+			most: options.profile.most ?? PROFILE_MOST_BYTES,
 		},
 	};
 	const thread = new Worker(PROGRAM, { eval: true, workerData: watched });
