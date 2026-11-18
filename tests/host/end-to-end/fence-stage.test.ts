@@ -143,9 +143,11 @@ it(
 	"a hosted conversation listed for the stage runs its commands fenced, and its neighbour doesn't",
 	async ({ skip }) => {
 		if (platform() !== "linux") skip("the fence's bubblewrap runs on Linux");
+		// Asked before the host's pi is, since onHostPi takes whatever its
+		// work throws, a skip too, for a failure.
+		const why = unprovable();
+		if (why) skip(why);
 		await onHostPi(skip, said, async (pi) => {
-			const why = unprovable();
-			if (why) skip(why);
 			const machine = await readlink("/proc/self/ns/mnt");
 			// What a command run as this runner shows: 0, or 1 where the
 			// runner is fenced itself, when only the mounts tell.
