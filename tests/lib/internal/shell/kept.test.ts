@@ -7,6 +7,7 @@
 import {
 	chmodSync,
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	rmSync,
@@ -190,10 +191,51 @@ describe("a kept call", () => {
 		expect(readdirSync(where)).toEqual([]);
 	});
 
+	// Removal now spans turns of the loop, so a pi ended partway through
+	// leaves some of a call's files: never its marks to take it up again
+	// without its status, or another pi would say an ended call twice.
+	it("goes its marks first, so what is left never reads as a call to take up", async () => {
+		const where = folder();
+		const path = await makeKept(where);
+		writeFileSync(`${path}.end`, "0\n");
+		markCarried(path);
+		writeFileSync(`${path}.job`, "{}");
+		let removed = false;
+		const left: string[][] = [];
+		const look = () => {
+			left.push(readdirSync(where).map((name) => name.slice(-4)));
+			if (!removed) setImmediate(look);
+		};
+		const removing = removeKept(path).then(() => {
+			removed = true;
+		});
+		look();
+		await removing;
+		const marked = left.filter(
+			(names) => names.includes(".job") || names.includes("ried"),
+		);
+		expect(
+			marked.filter((names) => !names.includes(".end")),
+			"marked to take up, its status gone",
+		).toEqual([]);
+	});
+
 	it("says nothing when removed twice", async () => {
 		const path = await makeKept(folder());
 		await removeKept(path);
 		await expect(removeKept(path)).resolves.toBeUndefined();
+	});
+
+	// Its callers between processes leave it to run, so it must never reject.
+	it("removes what it can and says nothing of a file it can't", async () => {
+		const where = folder();
+		const path = await makeKept(where);
+		mkdirSync(`${path}.old`);
+		writeFileSync(join(`${path}.old`, "inside"), "");
+		await expect(removeKept(path)).resolves.toBeUndefined();
+		expect(readdirSync(where), "only what it couldn't").toEqual([
+			`${path.split("/").at(-1)}.old`,
+		]);
 	});
 
 	it("is swept a week on, and not before", async () => {
@@ -232,7 +274,21 @@ describe("a kept call", () => {
 		expect(readdirSync(where), "a start within the hour doesn't").toHaveLength(
 			3,
 		);
-		await sweepKeptNowAndThen(where, start + 60 * 60 * 1000 + 1);
+		await sweepKeptNowAndThen(where, start + 60 * 60 * 1000);
 		expect(readdirSync(where), "one an hour on sweeps again").toEqual([]);
+	});
+
+	it("is swept again once the clock steps back past its last sweep", async () => {
+		const where = folder();
+		const weekAgo = (Date.now() - 8 * 24 * 60 * 60 * 1000) / 1000;
+		const start = Date.now();
+		await sweepKeptNowAndThen(where, start);
+		const path = await makeKept(where);
+		for (const suffix of [".out", ".end", ".pid"])
+			utimesSync(`${path}${suffix}`, weekAgo, weekAgo);
+		await sweepKeptNowAndThen(where, start - 1000);
+		expect(readdirSync(where), "not held off for however far it stepped").toEqual(
+			[],
+		);
 	});
 });

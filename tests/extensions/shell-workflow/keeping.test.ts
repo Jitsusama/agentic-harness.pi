@@ -27,6 +27,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	COMMAND_STUB,
 	COMMAND_VARIABLE,
+	KEEP_VARIABLE,
 } from "../../../extensions/shell-workflow/command-line.ts";
 import { keepsOnDisk } from "../../../extensions/shell-workflow/keeping.ts";
 import { isCarriedShell } from "../../../lib/internal/shell/carried.ts";
@@ -280,5 +281,43 @@ describe("a kept call", () => {
 			outputOf(work.keep),
 			"every line, those after its reader went too",
 		).toBe("tick-1\ntick-2\ntick-3\ntick-4\ntick-5\ntick-6\n");
+	});
+
+	it("can't be carried or handed on once it has ended, while its files go", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "keeping-"));
+		made.push(dir);
+		const folder = join(dir, "kept");
+		const signal = new AbortController().signal;
+		let ended = false;
+		const seen: unknown[] = [];
+		// Asks after the call each turn of the loop from the moment its shell
+		// ends, as a move arriving then would.
+		const ask = () => {
+			if (!ended) return;
+			const carry = kept.carryOf(signal);
+			const work = carry?.what();
+			if (work !== undefined) {
+				seen.push(work);
+				carry?.handed();
+			}
+			setImmediate(ask);
+		};
+		const kept = keepsOnDisk(
+			{
+				async exec(_command, _cwd, call) {
+					const keep = call.env?.[KEEP_VARIABLE];
+					writeFileSync(`${keep}.pid`, String(process.pid));
+					writeFileSync(`${keep}.end`, "0");
+					ended = true;
+					setImmediate(ask);
+					return { exitCode: 0 };
+				},
+			},
+			{ can: () => true, folder: () => folder },
+		);
+		await run(kept.operations, "true", signal);
+		ended = false;
+		expect(seen, "nothing to carry once it ended here").toEqual([]);
+		expect(readdirSync(folder), "its files went with it").toEqual([]);
 	});
 });
