@@ -40,13 +40,38 @@ describe("questLastOn", () => {
 		});
 	});
 
-	it("dates a move an older install wrote by when it left the quest before", () => {
-		const moved = switchQuest(opened(), "QEST-2", LATER);
-		const at = LATER.toISOString();
-		for (const questSince of [undefined, "soon"]) {
-			expect(questLastOn({ ...moved, questSince })).toEqual({
-				quest: "QEST-2",
-				at,
+	// An older install wrote no questSince, and its openedAt dated a
+	// return too early for the README stamps it exists to outrank.
+	it("dates a return an older install wrote by when it left the quest before", () => {
+		const away = switchQuest(opened(), "QEST-2", LATER);
+		const back = switchQuest(away, "QEST-1", LATER_STILL);
+		const { questSince: _written, ...older } = back;
+		const at = LATER_STILL.toISOString();
+		expect(questLastOn(older)).toEqual({ quest: "QEST-1", at });
+		expect(questLastOn({ ...older, questSince: "soon" })).toEqual({
+			quest: "QEST-1",
+			at,
+		});
+	});
+
+	it("dates a move past a questSince an older install left stale", () => {
+		const back = switchQuest(
+			switchQuest(opened(), "QEST-2", LATER),
+			"QEST-1",
+			LATER_STILL,
+		);
+		expect(questLastOn({ ...back, questSince: LATER.toISOString() })).toEqual({
+			quest: "QEST-1",
+			at: LATER_STILL.toISOString(),
+		});
+	});
+
+	it("dates a session that never left a quest from when it opened", () => {
+		const { questSince: _written, ...older } = opened();
+		for (const record of [older, { ...older, questSince: "soon" }]) {
+			expect(questLastOn(record)).toEqual({
+				quest: "QEST-1",
+				at: NOW.toISOString(),
 			});
 		}
 	});

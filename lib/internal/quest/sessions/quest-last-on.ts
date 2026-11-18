@@ -20,30 +20,47 @@ export interface QuestLastOn {
  * session that returns to a quest keeps the stamp of its first attach
  * there.
  *
- * A record an older install wrote, or one whose `questSince` can't be
- * read, says no move. Its latest leaving is that move, since a session
- * leaves one quest as it moves onto the next; one that never left a
- * quest has been on this one since it opened.
+ * A record an older install wrote says no move, and one an older install
+ * moved after a newer one wrote it keeps a stale `questSince`. Its latest
+ * leaving dates the move too: a session that moves from one quest onto
+ * the next leaves the first as it goes, and no leaving comes after the
+ * move onto the quest it is on, so the later of the two is never late.
+ * After an unload and a later load the leaving is earlier than the
+ * move, which errs toward the README stamps as before. One that never
+ * left a quest has been on this one since it opened.
  */
 export function questLastOn(record: SessionRecord): QuestLastOn | undefined {
 	if (record.quest) {
-		const since = record.questSince;
+		const since = readable(record.questSince);
+		const left = lastLeft(record);
 		const moved =
-			since !== undefined && !Number.isNaN(Date.parse(since))
-				? since
-				: lastLeft(record)?.at;
+			since !== undefined && (left === undefined || since.ms >= left.ms)
+				? since.at
+				: left?.at;
 		return { quest: record.quest, at: moved ?? record.openedAt };
 	}
-	return lastLeft(record);
+	const left = lastLeft(record);
+	return left && { quest: left.quest, at: left.at };
+}
+
+/** An ISO time with its milliseconds, or undefined when it can't be read. */
+function readable(
+	at: string | undefined,
+): { at: string; ms: number } | undefined {
+	if (at === undefined) return undefined;
+	const ms = Date.parse(at);
+	return Number.isNaN(ms) ? undefined : { at, ms };
 }
 
 /** The quest the record says the session left most recently, as of leaving it. */
-function lastLeft(record: SessionRecord): QuestLastOn | undefined {
+function lastLeft(
+	record: SessionRecord,
+): { quest: string; at: string; ms: number } | undefined {
 	let last: { quest: string; at: string; ms: number } | undefined;
 	for (const [quest, left] of Object.entries(record.previousQuests ?? {})) {
 		const ms = Date.parse(left);
 		if (Number.isNaN(ms)) continue;
 		if (last === undefined || ms > last.ms) last = { quest, at: left, ms };
 	}
-	return last && { quest: last.quest, at: last.at };
+	return last;
 }
