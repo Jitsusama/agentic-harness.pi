@@ -126,6 +126,7 @@ describe("the work broker's records", () => {
 		const one = join(root, "trees", "one");
 		const two = join(root, "trees", "two");
 		recorded(dir, one, ["s-1"]);
+		settled(dir);
 		expect(treesHeldBy("s-1", dir)).toEqual([one]);
 
 		recorded(dir, two, ["s-1"]);
@@ -139,7 +140,9 @@ describe("the work broker's records", () => {
 		const dir = join(root, "cut");
 		const one = join(root, "trees", "one");
 		recorded(dir, one, ["s-1"]);
-		const tick = new Date(Math.floor(Date.now()));
+		// A second ago: a clock a filesystem stamps by can be that coarse,
+		// and a machine that busy, so the rule's window must reach past it.
+		const tick = new Date(Math.floor(Date.now()) - 1_000);
 		utimesSync(dir, tick, tick);
 		const stamp = statSync(dir).mtimeMs;
 		expect(treesHeldBy("s-1", dir)).toEqual([one]);
@@ -161,12 +164,29 @@ describe("the work broker's records", () => {
 		const two = join(root, "trees", "two");
 		recorded(dir, one, ["s-1"]);
 		recorded(dir, two, ["s-1"]);
+		settled(dir);
 		expect(treesHeldBy("s-1", dir).sort()).toEqual([one, two]);
 
 		rmSync(one, { recursive: true });
+		expect(
+			treesHeldBy("s-1", dir).sort(),
+			"the listing is kept, its trees not looked for, within the minute",
+		).toEqual([one, two]);
 		vi.setSystemTime(Date.now() + 61_000);
 
 		expect(treesHeldBy("s-1", dir)).toEqual([two]);
+	});
+
+	it("aren't changed for the next caller by what one caller does with them", () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		settled(dir);
+
+		recordedTrees(dir).length = 0;
+
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
 	});
 
 	it("pass over a record that won't parse, as they always have", () => {

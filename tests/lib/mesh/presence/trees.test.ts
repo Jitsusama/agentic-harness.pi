@@ -4,7 +4,14 @@
  * network of its own (mycelium #208). A repository with no origin is
  * named by its main checkout, never by each worktree's folder.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	renameSync,
+	rmSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -125,6 +132,30 @@ describe("a peer's trees", () => {
 
 		expect(presences.of(session)?.trees, "the new tree").toEqual([
 			{ key: "w-later", repo: "local:harness", branch: "later" },
+		]);
+		peer.dispose();
+	});
+
+	it("are read again once a record is replaced in the tick of the last read", () => {
+		const harness = mainCheckout("harness");
+		const tree = worktree(harness, "w-taken", "ref: refs/heads/taken");
+		record(tree, [other]);
+		const cut = join(root, "cut");
+		const tick = new Date(Math.floor(Date.now()) - 1_000);
+		utimesSync(cut, tick, tick);
+		const { presences, peer } = peerWithTrees();
+		expect(presences.of(session)?.trees, "none yet").toBeUndefined();
+
+		// Taken up by this session too, renamed over, the folder's time as it was.
+		const staged = join(root, "w-taken.json");
+		record(tree, [other, session]);
+		renameSync(join(cut, "w-taken.json"), staged);
+		renameSync(staged, join(cut, "w-taken.json"));
+		utimesSync(cut, tick, tick);
+		peer.refresh();
+
+		expect(presences.of(session)?.trees, "the tree taken up").toEqual([
+			{ key: "w-taken", repo: "local:harness", branch: "taken" },
 		]);
 		peer.dispose();
 	});

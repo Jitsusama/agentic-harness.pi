@@ -8,6 +8,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	realpathSync,
+	renameSync,
 	rmSync,
 	utimesSync,
 	writeFileSync,
@@ -166,6 +167,27 @@ describe("the trees a session holds, from the broker's records", () => {
 			[...brokerTrees("s1", root, records).held].sort(),
 			"a tree taken up after the first read is missing",
 		).toEqual([join(root, "a"), join(root, "c")]);
+	});
+
+	it("reads a record replaced in the tick of the last read", () => {
+		scratch = realpathSync(mkdtempSync(join(tmpdir(), "broker-trees-")));
+		const root = join(scratch, "trees");
+		const records = join(scratch, "cut");
+		mkdirSync(records, { recursive: true });
+		record(records, "a", join(root, "a"), ["s2"]);
+		const tick = new Date(Math.floor(Date.now()) - 1_000);
+		utimesSync(records, tick, tick);
+		expect(brokerTrees("s1", root, records).held, "none yet").toEqual([]);
+
+		// Taken up by s1 too, renamed over, the folder's time as it was.
+		record(scratch, "a", join(root, "a"), ["s1", "s2"]);
+		renameSync(join(scratch, "a.json"), join(records, "a.json"));
+		utimesSync(records, tick, tick);
+
+		expect(
+			brokerTrees("s1", root, records).held,
+			"a tree taken up in the read's tick is missing",
+		).toEqual([join(root, "a")]);
 	});
 
 	it("holds nothing for a session with no name or no records", () => {
