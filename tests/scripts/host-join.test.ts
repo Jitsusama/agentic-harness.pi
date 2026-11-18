@@ -203,7 +203,13 @@ describe("host-join under its own holder", () => {
 	it("names the join again, started with no module-type warning, should the host's attach end", async () => {
 		const at = home();
 		const files = holderIn(at);
-		const rosters = join(at, "state", "pi", "agentic-harness.pi", "host-rosters");
+		const rosters = join(
+			at,
+			"state",
+			"pi",
+			"agentic-harness.pi",
+			"host-rosters",
+		);
 		mkdirSync(rosters, { recursive: true });
 		writeFileSync(
 			join(rosters, "work-background.json"),
