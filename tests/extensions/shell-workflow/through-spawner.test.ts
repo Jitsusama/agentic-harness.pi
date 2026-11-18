@@ -14,7 +14,11 @@ import {
 	COMMAND_VARIABLE,
 	KEEP_VARIABLE,
 } from "../../../extensions/shell-workflow/command-line.ts";
-import { withSession } from "../../../lib/core/session/index.ts";
+import {
+	NoSessionInHost,
+	type SessionRef,
+	withSession,
+} from "../../../lib/core/session/index.ts";
 import { teePersists } from "../../../lib/internal/shell/kept.ts";
 import { SPAWNER_VARIABLE } from "../../../lib/internal/shell/spawner-variable.ts";
 import { installTestHost } from "../../support/session-host.ts";
@@ -89,12 +93,15 @@ describe("the agent's bash for a conversation", () => {
 	});
 
 	/** The conversation's bash, keeping what the node is told. */
-	function tellingBash(given: { session?: string } = {}) {
+	function tellingBash(
+		given: { session?: string } = {},
+		conversation: SessionRef = "s-one",
+	) {
 		const program = spawnerStandIn();
 		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
 			async () => undefined,
 		);
-		const bash = agentBash(root, {}, { kind: "none" }, "s-one", {
+		const bash = agentBash(root, {}, { kind: "none" }, conversation, {
 			env: { [SPAWNER_VARIABLE]: "on" },
 			program: "/run/pi-spawner",
 			start: () => ({ ...program.start(), pid: SPAWNER_PID }),
@@ -120,6 +127,45 @@ describe("the agent's bash for a conversation", () => {
 			SPAWNER_PID,
 			"s-one",
 		);
+	});
+
+	it("tells it the conversation pi's context names", async () => {
+		dispose = installTestHost().dispose;
+		vi.stubEnv(SPAWNER_VARIABLE, "on");
+		const { program, bash, register } = tellingBash(
+			{},
+			{ sessionManager: { getSessionId: () => "s-context" } },
+		);
+
+		await withSession("s-context", () =>
+			ran({ program, bash }, new AbortController().signal),
+		);
+
+		expect(register, "what the node was told").toHaveBeenCalledExactlyOnceWith(
+			SPAWNER_PID,
+			"s-context",
+		);
+	});
+
+	it("refuses a conversation with no id, telling it nothing", async () => {
+		dispose = installTestHost().dispose;
+		vi.stubEnv(SPAWNER_VARIABLE, "on");
+		const { program, bash, register } = tellingBash({}, "");
+
+		await expect(
+			withSession("s-one", () =>
+				bash.execute(
+					"t1",
+					{ command: "echo hi" },
+					new AbortController().signal,
+					undefined,
+					undefined as never,
+				),
+			),
+		).rejects.toThrow(NoSessionInHost);
+
+		expect(program.asked, "commands the spawner was asked").toEqual([]);
+		expect(register, "tellings").not.toHaveBeenCalled();
 	});
 
 	it("tells it nothing on plain pi, whose process is its conversation's alone", async () => {

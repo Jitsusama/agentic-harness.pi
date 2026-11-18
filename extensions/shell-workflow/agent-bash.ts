@@ -82,8 +82,8 @@ export function agentBash(
 			...spawner,
 			// In a host, the load's own session, which the node is told its
 			// spawners serve; last, so nothing else given names another. A pi
-			// of its own needs none, its process being its session's alone, and
-			// one with no id names none, so its runs are told no session.
+			// of its own needs none, its process being its session's alone; a
+			// host refuses a load with no id before any command starts.
 			...(sharing && loadSession ? { session: loadSession } : {}),
 		},
 	);

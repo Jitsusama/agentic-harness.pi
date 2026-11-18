@@ -42,7 +42,9 @@
  * can tell which of a host's sessions asked it for a run. The node takes
  * the word only from the host itself, of its own pi-spawner child, so a
  * command that starts a spawner of its own, or runs as pi's own child
- * once a spawner is lost, is told no session.
+ * once a spawner is lost, is told no session. The node keeps that word
+ * only while it runs, so each spawner is said again every 30 seconds
+ * until it ends, and a node that restarted knows it again by then.
  *
  * When pi goes, pi-spawner kills every command it still runs but one kept
  * on disk (shell-workflow's keeping.ts), which a shared host hands to the
@@ -101,6 +103,12 @@ const CLOSED = "c".charCodeAt(0);
 const EXITED = "x".charCodeAt(0);
 const FAILED = "e".charCodeAt(0);
 
+/**
+ * How often a spawner's session is said again while it runs, as the
+ * node's protocol has a host say it (mycelium's PROTOCOL.md).
+ */
+export const RESAY_MS = 30_000;
+
 /** The variable naming the quest a command's work is for. */
 const QUEST_VARIABLE = "PI_QUEST";
 
@@ -148,6 +156,8 @@ export interface SpawnerOptions {
 	 * default on the node's socket (registerSpawner).
 	 */
 	register?: (pid: number, session: string) => Promise<void>;
+	/** How often a running spawner's session is said again (RESAY_MS). */
+	resay?: number;
 	/** Whether the program at a path spares kept commands when pi goes. */
 	asksKeeps?: (program: string) => Promise<boolean>;
 	/** Kill a command's process group, as pi's stop does. */
@@ -256,8 +266,12 @@ export function spawnedBy(
 		}
 		try {
 			let made: Link | undefined;
+			let resaying: ReturnType<typeof setInterval> | undefined;
+			let ended = false;
 			const begun = (options.start ?? startProgram)(program, quest);
 			made = connect(begun, kill, () => {
+				ended = true;
+				clearInterval(resaying);
 				// One retired for another quest's ends with no loss to the next.
 				if (link !== made) return;
 				lost = true;
@@ -265,13 +279,27 @@ export function spawnedBy(
 			});
 			link = made;
 			linkQuest = quest;
-			linkTold =
-				options.session !== undefined && begun.pid !== undefined
-					? (options.register ?? registerSpawner)(
-							begun.pid,
-							options.session,
-						).catch(() => undefined)
-					: undefined;
+			const { pid } = begun;
+			const { session } = options;
+			const register = options.register ?? registerSpawner;
+			linkTold = undefined;
+			if (session !== undefined && pid !== undefined) {
+				// A telling that fails, at once or later, leaves the spawner
+				// unnamed until the next says it.
+				const tell = () =>
+					Promise.resolve()
+						.then(() => register(pid, session))
+						.catch(() => undefined);
+				linkTold = tell();
+				// Said again while it runs, even once retired, since what it
+				// still runs may ask the node; never holding pi open.
+				if (!ended) {
+					resaying = setInterval(() => {
+						void tell();
+					}, options.resay ?? RESAY_MS);
+					resaying.unref();
+				}
+			}
 		} catch {
 			// A program that won't start leaves pi's own spawn to do it.
 			lost = true;
@@ -287,13 +315,20 @@ export function spawnedBy(
 				// pi's own spawn says why the shell can't be found.
 				return fallback.exec(command, cwd, settings);
 			}
-			const through =
-				shell.commandTransport !== "stdin" && settings.env !== undefined
-					? linked(settings.env[QUEST_VARIABLE])
-					: undefined;
+			const sharing =
+				shell.commandTransport !== "stdin" && settings.env !== undefined;
+			const quest = settings.env?.[QUEST_VARIABLE];
+			let through = sharing ? linked(quest) : undefined;
+			// Nothing it runs asks the node before the node knows whose it is;
+			// a spawner lost or retired while it waited leaves the command to
+			// whatever serves its quest now.
+			while (through !== undefined && linkTold !== undefined) {
+				await linkTold;
+				const now = linked(quest);
+				if (now === through) break;
+				through = now;
+			}
 			if (through === undefined) return fallback.exec(command, cwd, settings);
-			// Nothing it runs asks the node before the node knows whose it is.
-			if (linkTold) await linkTold;
 			return runThrough(through, shell, command, cwd, settings, kill);
 		},
 		retire: () => {
@@ -622,7 +657,9 @@ function connect(
 			pending.get(id)?.frame(kind, payload);
 		}
 	});
+	let over = false;
 	started.ended(() => {
+		over = true;
 		gone();
 		for (const one of pending.values()) one.lost();
 		pending.clear();
@@ -644,6 +681,11 @@ function connect(
 			});
 			// A failure to start rejects started, never awaited past it.
 			done.catch(() => undefined);
+			// One that stopped, or was told to close, hears nothing more.
+			if (over || started.input.writableEnded) {
+				begin?.no(new Error("pi-spawner stopped before the command started"));
+				return { started: startedRun, done };
+			}
 			const finish = () => {
 				clearTimeout(idle);
 				pending.delete(id);

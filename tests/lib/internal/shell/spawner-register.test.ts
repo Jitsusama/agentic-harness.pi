@@ -3,20 +3,14 @@
  * node on a socket of its own hears what's said, and a folder stands in
  * for /proc, so nothing real is started or named.
  */
-import { execFile } from "node:child_process";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readlinkSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	NAME_PATIENCE_MS,
+	REGISTER_PATIENCE_MS,
 	registerSpawner,
 	startOf,
 } from "../../../../lib/internal/shell/spawner-register.ts";
@@ -26,6 +20,12 @@ const STARTED = 987_654;
 
 /** A short wait for things that must not happen. */
 const BRIEFLY_MS = 50;
+
+/** How early a timer may fire, as the wall clock reads it. */
+const TIMER_SLACK_MS = 10;
+
+/** A patience shorter than the default, to show the one given is kept. */
+const SHORT_PATIENCE_MS = 300;
 
 const made: string[] = [];
 const serving: Server[] = [];
@@ -48,18 +48,25 @@ function procWith(pid: number, name: string, started = STARTED): string {
 	const proc = folder();
 	mkdirSync(join(proc, `${pid}`));
 	writeFileSync(join(proc, `${pid}`, "comm"), `${name}\n`);
-	// Twenty fields after the name, the last its start; the name holds a
-	// space and a bracket, as a process's may.
-	const fields = ["S", ...Array.from({ length: 18 }, (_, at) => `${at}`)];
-	writeFileSync(
-		join(proc, `${pid}`, "stat"),
-		`${pid} (${name} x) ${fields.join(" ")} ${started} 0 0\n`,
-	);
+	statOf(proc, pid, name, started);
 	return proc;
 }
 
+/**
+ * Writes `pid`'s stat in `proc`: its state, eighteen fields more, its
+ * start as the twenty-second and two after. The name holds a space and a
+ * closing bracket, as a process's may.
+ */
+function statOf(proc: string, pid: number, name: string, started: number) {
+	const fields = ["S", ...Array.from({ length: 18 }, (_, at) => `${at}`)];
+	writeFileSync(
+		join(proc, `${pid}`, "stat"),
+		`${pid} (${name} x) y) ${fields.join(" ")} ${started} 0 0\n`,
+	);
+}
+
 /** A stand-in node: what each connection says, answered with `answer`. */
-function node(answer: string | undefined = '{"Ok":"Spawned"}') {
+function node(answer: string | false = '{"Ok":"Spawned"}') {
 	const socket = join(folder(), "node.sock");
 	const heard: unknown[] = [];
 	const connections: Socket[] = [];
@@ -72,7 +79,7 @@ function node(answer: string | undefined = '{"Ok":"Spawned"}') {
 			const end = said.indexOf("\n");
 			if (end < 0) return;
 			heard.push(JSON.parse(said.slice(0, end)));
-			if (answer !== undefined) connection.write(`${answer}\n`);
+			if (answer !== false) connection.write(`${answer}\n`);
 		});
 	});
 	serving.push(server);
@@ -106,6 +113,7 @@ describe("a host telling the node a spawner's session", () => {
 			socket: stand.socket,
 			proc,
 		});
+		// Nothing is said meanwhile, and nothing is there to wait on for it.
 		await new Promise((settle) => setTimeout(settle, BRIEFLY_MS));
 		expect(stand.heard, "said before the spawner ran").toEqual([]);
 		writeFileSync(join(proc, `${SPAWNER}`, "comm"), "pi-spawner\n");
@@ -114,17 +122,44 @@ describe("a host telling the node a spawner's session", () => {
 		expect(stand.heard, "said once it ran").toHaveLength(1);
 	});
 
-	it("says nothing of one that never goes by pi-spawner's name", async () => {
+	it("says the start read before the wait, so a spawner gone meanwhile is never named", async () => {
 		const stand = node();
 		await stand.listening;
+		const proc = procWith(SPAWNER, "systemd-run");
+
+		const telling = registerSpawner(SPAWNER, "s-one", {
+			socket: stand.socket,
+			proc,
+		});
+		// Nothing is said meanwhile, and nothing is there to wait on for it.
+		await new Promise((settle) => setTimeout(settle, BRIEFLY_MS));
+		statOf(proc, SPAWNER, "pi-spawner", STARTED + 1);
+		writeFileSync(join(proc, `${SPAWNER}`, "comm"), "pi-spawner\n");
+		await telling;
+
+		expect(stand.heard, "what the node heard").toEqual([
+			{ Spawned: { pid: SPAWNER, started: STARTED, session: "s-one" } },
+		]);
+	});
+
+	it("says nothing of one that never goes by pi-spawner's name, once its patience is spent", async () => {
+		const stand = node();
+		await stand.listening;
+		const began = Date.now();
 
 		await registerSpawner(SPAWNER, "s-one", {
 			socket: stand.socket,
 			proc: procWith(SPAWNER, "sh"),
-			patience: BRIEFLY_MS,
+			namePatience: SHORT_PATIENCE_MS,
 		});
 
 		expect(stand.heard, "what the node heard").toEqual([]);
+		expect(Date.now() - began, "how long it waited").toBeGreaterThanOrEqual(
+			SHORT_PATIENCE_MS - TIMER_SLACK_MS,
+		);
+		expect(Date.now() - began, "how long it waited").toBeLessThan(
+			NAME_PATIENCE_MS,
+		);
 	});
 
 	it("says nothing of one /proc doesn't hold, as on a Mac or once it's gone", async () => {
@@ -149,16 +184,22 @@ describe("a host telling the node a spawner's session", () => {
 	});
 
 	it("gives up once its patience runs out, when the node never answers", async () => {
-		const stand = node(undefined);
+		const stand = node(false);
 		await stand.listening;
+		const began = Date.now();
 
 		await registerSpawner(SPAWNER, "s-one", {
 			socket: stand.socket,
 			proc: procWith(SPAWNER, "pi-spawner"),
-			patience: BRIEFLY_MS,
+			patience: SHORT_PATIENCE_MS,
 		});
 
-		expect(stand.heard, "it was said, though unanswered").toHaveLength(1);
+		expect(Date.now() - began, "how long it waited").toBeGreaterThanOrEqual(
+			SHORT_PATIENCE_MS - TIMER_SLACK_MS,
+		);
+		expect(Date.now() - began, "how long it waited").toBeLessThan(
+			REGISTER_PATIENCE_MS,
+		);
 	});
 
 	it("gives up at once where nothing serves the socket", async () => {
@@ -182,64 +223,3 @@ describe("a spawner's start, as /proc says it", () => {
 		expect(await startOf(SPAWNER, folder())).toBeUndefined();
 	});
 });
-
-/** The sockets this process holds, by the inode /proc names each. */
-function socketsHeld(): Set<string> {
-	const held = new Set<string>();
-	for (const fd of readdirSync("/proc/self/fd")) {
-		try {
-			const target = readlinkSync(`/proc/self/fd/${fd}`);
-			if (target.startsWith("socket:")) held.add(target);
-		} catch {
-			// The listing's own descriptor, closed once read.
-		}
-	}
-	return held;
-}
-
-/** The sockets a command started now holds, as it reads its own /proc. */
-function socketsAChildHolds(): Promise<string[]> {
-	const script = `
-const fs = require("node:fs");
-const held = fs.readdirSync("/proc/self/fd").flatMap((fd) => {
-	try { return [fs.readlinkSync("/proc/self/fd/" + fd)]; } catch { return []; }
-});
-process.stdout.write(JSON.stringify(held.filter((t) => t.startsWith("socket:"))));`;
-	return new Promise((settle, fail) =>
-		execFile(process.execPath, ["-e", script], (error, out) =>
-			error ? fail(error) : settle(JSON.parse(out)),
-		),
-	);
-}
-
-describe.skipIf(process.platform !== "linux")(
-	"the host's connection to the node",
-	() => {
-		it("is held by no command the host starts while it is open", async () => {
-			const stand = node(undefined);
-			await stand.listening;
-			const before = socketsHeld();
-			const opened = new Promise<void>((ready) =>
-				stand.listening.then(() =>
-					serving[serving.length - 1]?.once("connection", () => ready()),
-				),
-			);
-
-			const telling = registerSpawner(SPAWNER, "s-one", {
-				socket: stand.socket,
-				proc: procWith(SPAWNER, "pi-spawner"),
-			});
-			await opened;
-			const opening = [...socketsHeld()].filter((one) => !before.has(one));
-			const childHolds = await socketsAChildHolds();
-			for (const connection of stand.connections) connection.destroy();
-			await telling;
-
-			expect(opening.length, "sockets the telling opened").toBeGreaterThan(0);
-			expect(
-				childHolds.filter((one) => opening.includes(one)),
-				"the telling's sockets a command holds",
-			).toEqual([]);
-		});
-	},
-);

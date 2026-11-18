@@ -21,6 +21,7 @@ import {
 	systemProgram,
 } from "../../../../lib/internal/sandbox/system-program.ts";
 import {
+	RESAY_MS,
 	type SpawnerOptions,
 	spawnedBy,
 	spawnerKeeps,
@@ -537,6 +538,80 @@ describe("the node told the session a load's pi-spawner serves", () => {
 		expect(register, "tellings").toHaveBeenCalledOnce();
 	});
 
+	it("is told again of the spawner another quest's command starts", async () => {
+		const first = standIn();
+		const second = standIn();
+		const starts = [
+			() => ({ ...first.start(), pid: SPAWNER_PID }),
+			() => ({ ...second.start(), pid: SPAWNER_PID + 1 }),
+		];
+		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
+			async () => undefined,
+		);
+		const { operations } = through({
+			start: () => {
+				const next = starts.shift();
+				if (next === undefined) throw new Error("started too often");
+				return next();
+			},
+			session: "s-one",
+			register,
+		});
+
+		const loads: [SpawnerStandIn, string][] = [
+			[first, "QEST-20261118-AAAAAA"],
+			[second, "QEST-20261118-BBBBBB"],
+		];
+		for (const [program, quest] of loads) {
+			const ran = operations.exec("true", "/", {
+				onData: () => {},
+				env: { PI_QUEST: quest },
+			});
+			await askedFor(program, 1);
+			program.ends(1, 10);
+			await ran;
+		}
+
+		expect(register.mock.calls, "what the node was told").toEqual([
+			[SPAWNER_PID, "s-one"],
+			[SPAWNER_PID + 1, "s-one"],
+		]);
+	});
+
+	it("is told again while the spawner runs, and no more once it ends", async () => {
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		try {
+			const program = standIn();
+			const register = vi.fn<(pid: number, session: string) => Promise<void>>(
+				async () => undefined,
+			);
+			const { operations } = through({
+				start: asProcess(program),
+				session: "s-one",
+				register,
+			});
+			const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
+			await askedFor(program, 1);
+			program.ends(1, 10);
+			await ran;
+
+			vi.advanceTimersByTime(RESAY_MS);
+			await vi.waitFor(() =>
+				expect(register, "tellings, said again").toHaveBeenCalledTimes(2),
+			);
+			program.stop();
+			vi.advanceTimersByTime(RESAY_MS * 3);
+			await delivered();
+
+			expect(register.mock.calls, "what the node was told").toEqual([
+				[SPAWNER_PID, "s-one"],
+				[SPAWNER_PID, "s-one"],
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("still runs the command when the telling fails", async () => {
 		const program = standIn();
 		const { operations } = through({
@@ -554,6 +629,54 @@ describe("the node told the session a load's pi-spawner serves", () => {
 		await expect(ran, "how the command ended").resolves.toEqual({
 			exitCode: 0,
 		});
+	});
+
+	it("leaves the waiting command to pi's own spawn when the spawner stops meanwhile", async () => {
+		const program = standIn();
+		let told: (() => void) | undefined;
+		const { operations, own } = through({
+			start: asProcess(program),
+			session: "s-one",
+			register: () =>
+				new Promise((settle) => {
+					told = settle;
+				}),
+		});
+
+		const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
+		await vi.waitFor(() => expect(told, "the telling began").toBeDefined());
+		program.stop();
+		await delivered();
+		told?.();
+
+		await expect(ran, "how the command ended").resolves.toEqual({
+			exitCode: 0,
+		});
+		expect(own.calls, "what pi's own spawn ran").toEqual(["true"]);
+	});
+
+	it("leaves the waiting command to pi's own spawn when the load retires meanwhile", async () => {
+		const program = standIn();
+		let told: (() => void) | undefined;
+		const { operations, own } = through({
+			start: asProcess(program),
+			session: "s-one",
+			register: () =>
+				new Promise((settle) => {
+					told = settle;
+				}),
+		});
+
+		const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
+		await vi.waitFor(() => expect(told, "the telling began").toBeDefined());
+		operations.retire();
+		told?.();
+
+		await expect(ran, "how the command ended").resolves.toEqual({
+			exitCode: 0,
+		});
+		expect(own.calls, "what pi's own spawn ran").toEqual(["true"]);
+		expect(program.asked, "what the retired spawner was asked").toEqual([]);
 	});
 
 	it("is told nothing for a load that names no session", async () => {

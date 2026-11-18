@@ -291,10 +291,18 @@ A shared host's conversations share its process, so the machine's
 mycelium node can't tell from that which one asked it for a run. The
 host tells the node, on its own connection, which conversation each
 `pi-spawner` it starts serves, before that spawner runs anything, and
-the node takes the word only from the host, of its own `pi-spawner`.
-A command run another way, as pi's own once a spawner is lost, is
-told no conversation. Code running inside the host itself, an
-extension a project brings among it, could still say what it likes.
+the node takes the word only from the host, of its own `pi-spawner`,
+and only where the kernel lets no process trace any but its own
+descendants, and the host's node runs with `--disable-sigusr1`, since
+a command that could trace the host or open its inspector could speak
+for it. The node keeps the word only while it runs, so the host says
+each running `pi-spawner` again every 30 seconds. A command run
+another way, as pi's own once a spawner is lost, is told no
+conversation. Code running inside the host itself, an extension a
+project brings among it, could still say what it likes; and so could
+a command able to rewrite the harness and restart the host, so the
+word tells a conversation apart only where its commands are fenced
+from the harness's files.
 
 ## Stopping a Command
 
