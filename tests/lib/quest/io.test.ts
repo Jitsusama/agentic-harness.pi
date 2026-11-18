@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { once } from "node:events";
 import {
 	chmodSync,
 	existsSync,
@@ -17,6 +18,7 @@ import {
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	atomicWriteFile,
@@ -26,6 +28,30 @@ import {
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 
 let dir: string;
+
+/** How many lock-named folders a takeover clears while a swapper races it. */
+const SWAPPED_ROUNDS = 200;
+
+/**
+ * A fenced command's part, run on its own thread so it races the
+ * synchronous takeover: in every folder there, it swaps the subfolder
+ * `sub` for a link to `outside` and back, until told to stop.
+ */
+const SWAP_SUBFOLDERS = `
+const { workerData } = require("node:worker_threads");
+const fs = require("node:fs");
+const path = require("node:path");
+const { folder, outside, stop } = workerData;
+while (Atomics.load(stop, 0) === 0) {
+	let names = [];
+	try { names = fs.readdirSync(folder); } catch { /* not made yet */ }
+	for (const name of names) {
+		const sub = path.join(folder, name, "sub");
+		try { fs.renameSync(sub, sub + ".real"); fs.symlinkSync(outside, sub); } catch { /* gone or a file */ }
+		try { fs.unlinkSync(sub); fs.renameSync(sub + ".real", sub); } catch { /* gone or a file */ }
+	}
+}
+`;
 
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "quest-io-"));
@@ -490,6 +516,52 @@ describe("withQuestLock on the login's runtime folder", () => {
 			expect(locks()).toEqual([]);
 		},
 	);
+
+	it("never walks a folder in the lock's place, so a link swapped into it reaches nothing outside", async () => {
+		// A fenced command can write the lock folder: it makes a folder by a
+		// lock's name and, while a writer outside clears it, swaps a subfolder
+		// for a link to the writer's own files.
+		const outside = join(dir, "outside");
+		mkdirSync(join(outside, "kept"), { recursive: true });
+		const marker = join(outside, "marker");
+		writeFileSync(marker, "keep");
+		const questDir = quest("QEST-20261117-SSS777");
+		const [name] = withQuestLock(questDir, locks);
+		if (!name) throw new Error("no lock was taken in the runtime folder");
+		const folder = join(run, "agentic-harness.pi", "quest-locks");
+		const lock = join(folder, name);
+		const stop = new Int32Array(
+			new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+		);
+		const swapper = new Worker(SWAP_SUBFOLDERS, {
+			eval: true,
+			workerData: { folder, outside, stop },
+		});
+		await once(swapper, "online");
+		try {
+			for (let round = 0; round < SWAPPED_ROUNDS; round++) {
+				mkdirSync(join(lock, "sub", "a", "b"), { recursive: true });
+				writeFileSync(join(lock, "sub", "a", "f"), "");
+				symlinkSync(marker, join(lock, "link"));
+				withQuestLock(questDir, () => {
+					atomicWriteFile(join(questDir, "ok.txt"), `${round}`);
+				});
+				expect(existsSync(marker), `the marker outside, round ${round}`).toBe(
+					true,
+				);
+				expect(
+					existsSync(join(outside, "kept")),
+					`its folder, round ${round}`,
+				).toBe(true);
+			}
+		} finally {
+			Atomics.store(stop, 0, 1);
+			await once(swapper, "exit");
+		}
+		expect(readFileSync(join(questDir, "ok.txt"), "utf8")).toBe(
+			`${SWAPPED_ROUNDS - 1}`,
+		);
+	});
 
 	it("takes no bus that isn't a socket", async () => {
 		await new Promise<void>((resolve) => bus.close(() => resolve()));
