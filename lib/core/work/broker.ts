@@ -62,6 +62,14 @@ export interface HeldTree {
 	 * Absent from a record written before this existed.
 	 */
 	usedAt?: number;
+	/**
+	 * The owners whose every ask dates {@link usedAt}. A session on code
+	 * from before the dating keeps the fields it read when it asks again,
+	 * a stale `usedAt` among them, and adds itself to `owners` but not
+	 * here, so a tree one of its owners isn't named in may be in use
+	 * whatever its date says.
+	 */
+	datedBy?: Owner[];
 }
 
 /**

@@ -225,9 +225,14 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 			});
 		}
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
-		const choice = { ...deps, claims, now };
-		for (const idle of await idleSnapshots(live, choice)) {
-			await takeIdle(deps, facts, idle, now, outcome);
+		try {
+			for (const idle of await idleSnapshots(live, { ...deps, claims, now })) {
+				await takeIdle(deps, facts, idle, now, outcome);
+			}
+		} catch (error) {
+			// A record's lock held too long or a census failing leaves the
+			// other providers' trees and the dev shells' roots to go as before.
+			outcome.kept.push({ path: "idle snapshots", why: messageOf(error) });
 		}
 		const others = deps.memory
 			.recall()

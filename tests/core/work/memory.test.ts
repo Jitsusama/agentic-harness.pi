@@ -576,24 +576,49 @@ describe("a tree remembers which session cut it", () => {
 		expect(memory.recall(), "the taken tree's record stayed").toEqual([]);
 	});
 
-	it("dates a record that says nothing of its use, and never one that does", async () => {
-		// A session on code from before the dating never writes its use, so
-		// the sweep's first sight stands in for it.
+	it("names each asker among those dating its use, keeping only holders still named", async () => {
 		const memory = memoryAt();
-		memory.remember(tree("older"));
-		memory.remember({ ...tree("newer"), usedAt: 1000 });
+		const facts = { alive: () => true, startedAt: async () => 5000 };
+		const us = { pid: process.pid, startedAt: 5000 };
+		const gone = { pid: 4003, startedAt: 3000 };
+		memory.remember({ ...tree("shared"), datedBy: [gone] });
 
-		const older = await memory.dateFirstSeen(tree("older").path, 5000);
-		const newer = await memory.dateFirstSeen(tree("newer").path, 5000);
-		const again = await memory.dateFirstSeen(tree("older").path, 9000);
-		const at = (name: string) =>
-			memory.recall().find((one) => one.path === tree(name).path)?.usedAt;
+		await memory.rememberHeldByUs(tree("shared"), facts);
 
-		expect(older, "a record saying nothing of its use wasn't dated").toBe(true);
-		expect(at("older")).toBe(5000);
-		expect(newer, "a record dated by its session was dated again").toBe(false);
-		expect(at("newer")).toBe(1000);
-		expect(again, "a first sight was dated twice").toBe(false);
+		expect(
+			memory.recall()[0]?.datedBy,
+			"an ask didn't name its asker alone among those dating the tree's use",
+		).toEqual([us]);
+	});
+
+	it("never takes a tree whose use went undated, or an owner's asks don't date", async () => {
+		// A session on code from before the dating writes back the record it
+		// read, a stale date or none among it, and adds itself as an owner
+		// without saying its asks are dated.
+		const memory = memoryAt();
+		const ours = { pid: 4001, startedAt: 1000 };
+		const older = { pid: 4002, startedAt: 2000 };
+		memory.remember({
+			...tree("joined", ours, older),
+			usedAt: 1000,
+			datedBy: [ours],
+		});
+		memory.remember({ ...tree("undated", ours), datedBy: [ours] });
+		memory.remember({ ...tree("unnamed", ours), usedAt: 1000 });
+		memory.remember({ ...tree("dated", ours), usedAt: 1000, datedBy: [ours] });
+		const moved: string[] = [];
+
+		for (const key of ["joined", "undated", "unnamed", "dated"]) {
+			await memory.whileUnusedSince(tree(key).path, 2000, async () => {
+				moved.push(key);
+				return true;
+			});
+		}
+
+		expect(
+			moved,
+			"a tree was taken whose date an older session's ask may have left stale",
+		).toEqual(["dated"]);
 	});
 
 	it("names a subagent's fleet session beside its own, once each", async () => {

@@ -52,6 +52,7 @@ async function leftAlone(
 		...record,
 		sessions: [OPEN_SESSION],
 		usedAt: Date.now() - ago,
+		datedBy: record.owners,
 	});
 	await untouchedFor(tree, ago);
 	return { tree, commit };
@@ -127,21 +128,15 @@ describe("taking the snapshots a live session pinned and left", () => {
 		expect(setup.memory.recall().map((one) => one.path)).not.toContain(tree);
 	});
 
-	it("keeps one a session asked for within the window, though its files sat still, and leaves its index alone", async () => {
+	it("keeps one a session asked for within the window, though its files sat still", async () => {
 		const setup = await setUp();
 		const { tree } = await leftAlone(setup, "asked", IDLE);
 		rewrite(setup, tree, () => ({ usedAt: Date.now() - HOUR }));
-		const [, index] = await movedByGit(tree);
-		const before = statSync(index ?? "").mtimeMs;
 
 		const outcome = await sweepWhileOpen(setup);
 
 		expect(outcome.taken, "a snapshot used an hour ago was taken").toEqual([]);
 		expect(existsSync(tree), "a snapshot used an hour ago went").toBe(true);
-		expect(
-			statSync(index ?? "").mtimeMs,
-			"judging a snapshot rewrote its index, marking it used",
-		).toBe(before);
 	});
 
 	it("keeps one whose git moved within the window, though its folder sat still", async () => {
@@ -247,7 +242,38 @@ describe("taking the snapshots a live session pinned and left", () => {
 		);
 	});
 
-	it("keeps an idle one a process works in or holds a file open in, read just before the take", async () => {
+	it("keeps an idle one a process came to work in while the sweep chose, leaving its index alone", async () => {
+		const setup = await setUp();
+		const worked = (await leftAlone(setup, "worked", IDLE)).tree;
+		const free = (await leftAlone(setup, "free", IDLE)).tree;
+		const [, index] = await movedByGit(worked);
+		const before = statSync(index ?? "").mtimeMs;
+		const asked: string[][] = [];
+
+		const outcome = await sweepWhileOpen(setup, {
+			// Free at the first reading, so its git is read; busy at the
+			// second, just before the take.
+			busyAmong: async (paths) => {
+				asked.push([...paths].sort());
+				return new Set(
+					asked.length > 1 ? paths.filter((path) => path === worked) : [],
+				);
+			},
+		});
+
+		expect(
+			asked,
+			"what processes hold wasn't read of every aged tree, then again of those chosen",
+		).toEqual([[free, worked].sort(), [free, worked].sort()]);
+		expect(outcome.taken.map((one) => one.path)).toEqual([free]);
+		expect(existsSync(worked), "a tree a process works in went").toBe(true);
+		expect(
+			statSync(index ?? "").mtimeMs,
+			"judging a snapshot rewrote its index, marking it used",
+		).toBe(before);
+	});
+
+	it("never chooses one a process works in at the first reading, so it fills none of the takes", async () => {
 		const setup = await setUp();
 		const worked = (await leftAlone(setup, "worked", IDLE)).tree;
 		const free = (await leftAlone(setup, "free", IDLE)).tree;
@@ -255,17 +281,43 @@ describe("taking the snapshots a live session pinned and left", () => {
 
 		const outcome = await sweepWhileOpen(setup, {
 			busyAmong: async (paths) => {
-				asked.push([...paths]);
+				asked.push([...paths].sort());
 				return new Set(paths.filter((path) => path === worked));
 			},
 		});
 
 		expect(
-			asked.map((paths) => [...paths].sort()),
-			"what processes hold wasn't asked once, of the chosen trees alone",
-		).toEqual([[free, worked].sort()]);
+			asked[1],
+			"a tree busy at the first reading was among those chosen",
+		).toEqual([free]);
 		expect(outcome.taken.map((one) => one.path)).toEqual([free]);
 		expect(existsSync(worked), "a tree a process works in went").toBe(true);
+	});
+
+	it("keeps one whose folder moved after the choosing, judged again under its record's lock", async () => {
+		const setup = await setUp();
+		const { tree } = await leftAlone(setup, "touched", IDLE);
+		let readings = 0;
+
+		const outcome = await sweepWhileOpen(setup, {
+			// Something works there between the last reading and the take.
+			busyAmong: async () => {
+				readings += 1;
+				if (readings === 2) {
+					const now = new Date();
+					utimesSync(tree, now, now);
+				}
+				return new Set();
+			},
+		});
+
+		expect(
+			outcome.taken,
+			"a snapshot used after it was chosen was taken",
+		).toEqual([]);
+		expect(existsSync(tree), "a snapshot used after it was chosen went").toBe(
+			true,
+		);
 	});
 
 	it("takes none where the machine can't say what processes hold", async () => {
@@ -283,15 +335,19 @@ describe("taking the snapshots a live session pinned and left", () => {
 		).toBe(true);
 	});
 
-	it("dates a record that says nothing of its use at first sight, and keeps it a whole idle spell", async () => {
+	it("keeps one held by a session whose asks don't date its use, as one on older code", async () => {
+		// Older code writes back the record it read, its date stale or
+		// gone, and adds itself as an owner without saying its asks date it.
 		const setup = await setUp();
-		const { tree } = await leftAlone(setup, "older", IDLE);
-		// As a session on code from before the dating writes its record.
-		const record = find(setup, tree);
-		if (record === undefined) throw new Error(`${tree} has no record`);
-		const { usedAt: _, ...undated } = record;
-		setup.memory.remember(undated);
-		const before = Date.now();
+		const joined = (await leftAlone(setup, "joined", IDLE)).tree;
+		rewrite(setup, joined, (record) => ({
+			owners: [...(record.owners ?? []), { pid: 4003, startedAt: 3000 }],
+		}));
+		const undated = (await leftAlone(setup, "undated", IDLE)).tree;
+		const record = find(setup, undated);
+		if (record === undefined) throw new Error(`${undated} has no record`);
+		const { datedBy: _, ...withoutDating } = record;
+		setup.memory.remember(withoutDating);
 
 		const outcome = await sweepWhileOpen(setup);
 
@@ -299,10 +355,11 @@ describe("taking the snapshots a live session pinned and left", () => {
 			outcome.taken,
 			"a snapshot an older session may be using was taken",
 		).toEqual([]);
-		expect(existsSync(tree), "a tree an older session holds went").toBe(true);
-		expect(
-			find(setup, tree)?.usedAt ?? 0,
-			"the sweep's first sight didn't date it",
-		).toBeGreaterThanOrEqual(before);
+		expect(existsSync(joined), "a tree an older session joined went").toBe(
+			true,
+		);
+		expect(existsSync(undated), "a tree whose use went undated went").toBe(
+			true,
+		);
 	});
 });

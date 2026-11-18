@@ -14,7 +14,7 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { readdir, readlink } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sessionSlot, withSession } from "../../lib/core/session/index.ts";
 import {
@@ -320,29 +320,43 @@ async function standingIn(): Promise<string[]> {
 const PROCESSES_AT_ONCE = 64;
 
 /**
+ * The link the kernel gives the machine's own process namespace, which
+ * it numbers the same on every boot.
+ */
+const HOST_PID_NAMESPACE = "pid:[4026531836]";
+
+/**
  * Which of `paths` a process running now works in or holds a file open
  * in, or a live session's folder lies in, read afresh from the kernel's
  * links and the sessions' records. Nothing when there is no `/proc`, as
- * on macOS, so a tree a session still open holds is never taken there.
+ * on macOS, or when this process sees only a namespace's share of it, as
+ * in a container, so a tree a session still open holds is never taken
+ * there.
  */
 async function busyAmong(
 	paths: readonly string[],
 ): Promise<ReadonlySet<string> | undefined> {
 	let pids: string[];
 	try {
+		if ((await readlink("/proc/self/ns/pid")) !== HOST_PID_NAMESPACE)
+			return undefined;
 		pids = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
 	} catch {
 		return undefined;
 	}
+	const asked = new Set(paths);
 	const busy = new Set<string>();
+	// Up a link's folders rather than across every path, since a sweep
+	// asks of hundreds of trees and a machine holds tens of thousands.
 	const mark = (link: string) => {
-		for (const path of paths) {
-			if (link === path || link.startsWith(`${path}/`)) busy.add(path);
+		for (let at = link; at.startsWith("/"); at = dirname(at)) {
+			if (asked.has(at)) busy.add(at);
+			if (at === "/") break;
 		}
 	};
 	let next = 0;
 	const reader = async () => {
-		while (next < pids.length) {
+		while (next < pids.length && busy.size < asked.size) {
 			const proc = join("/proc", pids[next++] ?? "");
 			// Ended since the listing, or another user's: nothing to read.
 			mark(await readlink(join(proc, "cwd")).catch(() => ""));
