@@ -76,7 +76,13 @@ interface Session {
 		subscribe(listener: (event: { readonly type: string }) => void): () => void;
 		waitForIdle(): Promise<void>;
 		hasQueuedMessages(): boolean;
-		readonly state: { readonly messages: readonly unknown[] };
+		continue(): Promise<void>;
+		steer(message: unknown): void;
+		followUp(message: unknown): void;
+		readonly state: {
+			readonly messages: unknown[];
+			readonly isStreaming: boolean;
+		};
 	};
 }
 
@@ -246,6 +252,8 @@ let note = (_event: {
 	readonly waiting?: number;
 	readonly ms?: number;
 	readonly first?: boolean;
+	/** Whether the agent still counted a run under way once the step returned. */
+	readonly streaming?: boolean;
 	/** The signal a command started now would stop with: none, one still live, or one already aborted. */
 	readonly signal?: "none" | "live" | "aborted";
 }): void => {};
@@ -269,6 +277,24 @@ async function answerOnceQueued(text: string): Promise<unknown> {
 }
 
 const say = (text: string) => compat.fauxAssistantMessage(text);
+
+/** Words a person queued after an answer. */
+function alsoThis(): unknown {
+	return {
+		role: "user",
+		content: [{ type: "text", text: "also this" }],
+		timestamp: Date.now(),
+	};
+}
+
+/** Continue the session's agent, saying what it threw, or "none". */
+function continuedWith(session: Session): Promise<string> {
+	return session.agent.continue().then(
+		() => "none",
+		(refused: unknown) =>
+			refused instanceof Error ? refused.message : String(refused),
+	);
+}
 
 /**
  * Answer `text`, unless a tool result in the request does not follow its
@@ -701,6 +727,59 @@ const scenarios: Record<string, Scenario> = {
 		tools: echo(),
 		drive: (session) => session.prompt("use the tools"),
 	},
+	/**
+	 * pi's continue once durable's session has closed under it, words still
+	 * waiting: durable refuses every admission at once, and pi's loop asks
+	 * again for as long as a continue only resolves (18 November).
+	 */
+	"continue-closed": {
+		responses: () => [say("one")],
+		drive: async (session) => {
+			await session.prompt("hi");
+			await closeStore();
+			session.agent.state.messages.push({
+				role: "user",
+				content: [{ type: "text", text: "again" }],
+				timestamp: Date.now(),
+			});
+			const error = await continuedWith(session);
+			note({
+				type: "continued",
+				error,
+				streaming: session.agent.state.isStreaming,
+			});
+		},
+	},
+	/** As continue-closed, but with words pi queued to steer after the answer, which continue runs as a prompt. */
+	"continue-closed-steered": {
+		responses: () => [say("one")],
+		drive: async (session) => {
+			await session.prompt("hi");
+			await closeStore();
+			session.agent.steer(alsoThis());
+			const error = await continuedWith(session);
+			note({
+				type: "continued",
+				error,
+				streaming: session.agent.state.isStreaming,
+			});
+		},
+	},
+	/** As continue-closed-steered, but queued as a follow-up. */
+	"continue-closed-followed": {
+		responses: () => [say("one")],
+		drive: async (session) => {
+			await session.prompt("hi");
+			await closeStore();
+			session.agent.followUp(alsoThis());
+			const error = await continuedWith(session);
+			note({
+				type: "continued",
+				error,
+				streaming: session.agent.state.isStreaming,
+			});
+		},
+	},
 	/** A host stopping before the provider's first token, the provider paying the park's abort no heed. */
 	"park-slow-first-token": {
 		responses: () => [answerSlowly],
@@ -814,6 +893,11 @@ const scenarios: Record<string, Scenario> = {
 
 /** Stop the host mid-round, once the session is built. */
 let stopHost: () => void = () => {
+	throw new Error("the session is not built yet");
+};
+
+/** Close durable's store under the session, as a parked or failed conversation's closes; once the session is built. */
+let closeStore: () => Promise<void> = async () => {
 	throw new Error("the session is not built yet");
 };
 
@@ -936,6 +1020,11 @@ try {
 	queued = () => session.agent.hasQueuedMessages();
 	pending = () => session.getFollowUpMessages();
 	note = (event) => events.push(event);
+	let storeClosed = false;
+	closeStore = async () => {
+		storeClosed = true;
+		await conversation?.close();
+	};
 	parkAndClose = async () => {
 		// As the engine's release does for a stopping host, timing the close it waits on.
 		conversation?.agent?.park();
@@ -994,7 +1083,7 @@ try {
 	const transcript = session.agent.state.messages.map(comparable);
 	const pendingAtEnd = [...session.getFollowUpMessages()];
 	session.dispose();
-	await conversation?.close();
+	if (!storeClosed) await conversation?.close();
 	const ran = existsSync(effects())
 		? readFileSync(effects(), "utf8").split("\n").filter(Boolean).length
 		: 0;

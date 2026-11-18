@@ -364,17 +364,17 @@ export class HostedAgent {
 		if (last.role === "assistant") {
 			const steering = this.steeringQueue.drain();
 			if (steering.length > 0) {
-				await this.runPromptMessages(steering.map((item) => item.message));
+				await this.promptOrThrow(steering.map((item) => item.message));
 				return;
 			}
 			const followUps = this.followUpQueue.drain();
 			if (followUps.length > 0) {
-				await this.runPromptMessages(followUps.map((item) => item.message));
+				await this.promptOrThrow(followUps.map((item) => item.message));
 				return;
 			}
 			throw new Error("Cannot continue from message role: assistant");
 		}
-		await this.continueRun();
+		await this.continueOrThrow();
 	}
 
 	/**
@@ -436,7 +436,24 @@ export class HostedAgent {
 		return this.admissions.whenAdmitted();
 	}
 
-	private async runPromptMessages(prompts: AgentMessage[]): Promise<void> {
+	/**
+	 * Words pi queued, run for pi's continue: as `runPromptMessages`, but a
+	 * refused admission throws once the run has failed, as `continueOrThrow`
+	 * does, so pi's loop ends on a closed session whichever branch it took.
+	 * The words are lost with the session, as any run's would be.
+	 */
+	private async promptOrThrow(prompts: AgentMessage[]): Promise<void> {
+		let refused: { readonly error: unknown } | undefined;
+		await this.runPromptMessages(prompts, (error) => {
+			refused = { error };
+		});
+		if (refused) throw refused.error;
+	}
+
+	private async runPromptMessages(
+		prompts: AgentMessage[],
+		refusedBy?: (error: unknown) => void,
+	): Promise<void> {
 		await this.runWithLifecycle(async (run) => {
 			const messages = this.declareToolChanges(run.context, prompts);
 			try {
@@ -454,6 +471,7 @@ export class HostedAgent {
 				});
 			} catch (error) {
 				this.admissions.settleAdmission(error);
+				refusedBy?.(error);
 				throw error;
 			}
 			this.admissions.settleAdmission();
@@ -468,11 +486,41 @@ export class HostedAgent {
 
 	/** pi's continue: a run that asks the model again on what the session holds. */
 	private continueRun(): Promise<Run> {
-		return this.runWithLifecycle(async (run) => {
+		return this.continueRunRefusing().then(({ run }) => run);
+	}
+
+	/**
+	 * pi's continue for pi's own run loop: as `continueRun`, but one durable
+	 * refused to admit, as a closed or failed session refuses every one at
+	 * once, ends as a failed run and then throws what refused it. pi's loop
+	 * asks again while words wait or a settle boundary wants more, so a
+	 * continue that only fails is asked again forever in one microtask
+	 * chain, starving the host's loop past its watchdog (the held profile of
+	 * 18 November, 09:02). The recovery's ask again keeps `continueRun`: it
+	 * wants the run back, failed or not, and nothing above it would catch a
+	 * throw.
+	 */
+	private async continueOrThrow(): Promise<void> {
+		const { refused } = await this.continueRunRefusing();
+		if (refused) throw refused.error;
+	}
+
+	private async continueRunRefusing(): Promise<{
+		readonly run: Run;
+		readonly refused?: { readonly error: unknown };
+	}> {
+		let refused: { readonly error: unknown } | undefined;
+		const run = await this.runWithLifecycle(async (started) => {
 			await this.emit({ type: "agent_start" });
 			await this.emit({ type: "turn_start" });
-			await this.admit(run, { type: "continue" });
+			try {
+				await this.admit(started, { type: "continue" });
+			} catch (error) {
+				refused = { error };
+				throw error;
+			}
 		});
+		return refused ? { run, refused } : { run };
 	}
 
 	private runWithLifecycle(start: (run: Run) => Promise<void>): Promise<Run> {

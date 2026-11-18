@@ -43,6 +43,10 @@ interface Observed {
 		readonly ms?: number;
 		/** Whether a turn taken to carry a run on went to words a person wrote. */
 		readonly first?: boolean;
+		/** What a step threw, for an event that notes one. */
+		readonly error?: string;
+		/** Whether the agent still counted a run under way once the step returned. */
+		readonly streaming?: boolean;
 	}[];
 	readonly transcript: readonly {
 		readonly role: string;
@@ -368,6 +372,28 @@ describe("the hosted agent after SIGKILL mid-tool", {
 			rmSync(folder, { recursive: true, force: true });
 		}
 	});
+});
+
+describe("the hosted agent continued once durable's session closed", {
+	timeout: SESSION_PAIR_MS,
+}, () => {
+	it.each([
+		["asking the model again", "continue-closed"],
+		["running words pi queued to steer", "continue-closed-steered"],
+		["running words pi queued to follow up", "continue-closed-followed"],
+	])(
+		"throws what refused it once its run has ended, %s, so pi's loop ends rather than asking again forever",
+		async (_branch, scenario) => {
+			const observed = await observe("hosted", scenario);
+			const continued = observed.events.find(
+				(event) => event.type === "continued",
+			);
+			expect(continued?.error, "the continue threw the refusal").toBe(
+				"Session is closed",
+			);
+			expect(continued?.streaming, "a run still under way").toBe(false);
+		},
+	);
 });
 
 describe("the hosted agent parked before a slow first token", {
