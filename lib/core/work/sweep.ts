@@ -252,12 +252,13 @@ function restingSince(
 /**
  * Stamp that a sweep has just ended, for {@link restingSince}, dated by
  * the sweep's own clock rather than the file system's, so the two
- * readings of the rest are of one clock.
+ * readings of the rest are of one clock. Only its time is read, so it
+ * holds nothing.
  */
 function markEnded(lockPath: string, at: number): void {
 	const stamp = endedStamp(lockPath);
 	try {
-		writeFileSync(stamp, String(process.pid));
+		writeFileSync(stamp, "");
 		utimesSync(stamp, at / 1000, at / 1000);
 	} catch {
 		// A stamp that can't be written only lets the next sweep come
