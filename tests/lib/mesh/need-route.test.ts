@@ -22,6 +22,7 @@ import {
 	hubsFrom,
 	keepNeed,
 	MOST_HOPS,
+	MOST_SUBJECTS,
 	MOST_WORDS,
 	type NeedAsked,
 	needAt,
@@ -29,6 +30,7 @@ import {
 	needsFile,
 	type Reach,
 	routeNeed as routeOver,
+	subjectWords,
 	type TieGraph,
 	tieGraphFrom,
 	wordsOf,
@@ -106,26 +108,48 @@ describe("the words a need or a cell's work is matched by", () => {
 		]);
 	});
 
-	it("reads the words of the subjects a cell declares, beside its title's", () => {
+	it("reads the narrowest part of each subject a cell declares, beside its title", () => {
 		const line = JSON.stringify({
 			id: 2,
 			records: [
 				{
 					key: "cell:5HJZ8Z",
 					title: "Carry a Session",
-					subjects: ["mycelium:easing", "health.asks.", 7],
+					subjects: ["mycelium:easing", "health.asks.", 12345],
 				},
 				{ key: "cell:9T2BBY", title: "Placement", subjects: "easing" },
 			],
 		});
 
 		expect(foragersFrom(line)).toEqual([
-			{
-				address: "5HJZ8Z",
-				words: ["carry", "session", "mycelium", "easing", "health", "asks"],
-			},
+			{ address: "5HJZ8Z", words: ["carry", "session", "easing", "asks"] },
 			{ address: "9T2BBY", words: ["placement"] },
 		]);
+	});
+
+	it("never gives a cell the broader words of a subject it narrows", () => {
+		expect(subjectWords("mycelium:easing")).toEqual(["easing"]);
+		expect(subjectWords("unit:pi-host-")).toEqual(["host"]);
+		expect(subjectWords("health.asks.")).toEqual(["asks"]);
+		expect(subjectWords("")).toEqual([]);
+	});
+
+	it("reads at most MOST_SUBJECTS subjects from one cell", () => {
+		const subjects = Array.from(
+			{ length: MOST_SUBJECTS + 1 },
+			(_, at) => `stuffed:word${at}`,
+		);
+		const line = JSON.stringify({
+			id: 2,
+			records: [{ key: "cell:X", subjects }],
+		});
+
+		const [cell] = foragersFrom(line);
+
+		expect(cell?.words).toHaveLength(MOST_SUBJECTS);
+		expect(cell?.words, "the subject past the cap is not read").not.toContain(
+			`word${MOST_SUBJECTS}`,
+		);
 	});
 
 	it("reads none from a node that keeps no cells", () => {
@@ -511,6 +535,68 @@ describe("keeping a need", () => {
 		expect(file).toBe(join(root, "needs", "2026-11-17.jsonl"));
 		const lines = readFileSync(file, "utf8").trim().split("\n");
 		expect(lines.map((line) => JSON.parse(line).need)).toEqual(["A/1", "A/2"]);
+	});
+});
+
+describe("a need routed by declared subjects", () => {
+	it("reaches the cell declaring its subject past a nearer one holding a generic word", () => {
+		// The first live need: `lines` was in another cell's title, and no
+		// title said easing.
+		const found = routeNeed(asked("A", "mycelium", "easing", "lines"), {
+			foragers: [
+				...cells({ A: ["web", "funnel"], W: ["command", "lines"] }),
+				...foragersFrom(
+					JSON.stringify({
+						id: 2,
+						records: [
+							{
+								key: "cell:B",
+								title: "Carry a Session",
+								repo: "mycelium",
+								subjects: ["mycelium:easing"],
+							},
+							{ key: "cell:M", title: "Mycelium Map" },
+						],
+					}),
+				),
+			],
+			ties: ties(["A", "W", 9], ["A", "M", 5], ["W", "B", 1]),
+			hubs: [],
+		});
+
+		expect(found, "easing, the rarest word, carries it to B").toMatchObject({
+			fit: "B",
+			path: ["W", "B"],
+		});
+	});
+
+	it("keeps the rarest words when a need says more than MOST_WORDS held ones", () => {
+		const common = Array.from({ length: MOST_WORDS }, (_, at) => `word${at}`);
+		const found = routeNeed(asked("A", ...common, "rare"), {
+			foragers: cells({ A: [], B: common, C: [...common, "rare"] }),
+			ties: ties(["A", "B", 2], ["A", "C", 1]),
+			hubs: [],
+		});
+
+		expect(found.words).toHaveLength(MOST_WORDS);
+		expect(found.words, "the rarest word is kept").toContain("rare");
+		expect(found.fit).toBe("C");
+	});
+
+	it("puts a need to the hub of a subject whose narrowest part breaks at a hyphen", () => {
+		const found = routeNeed(asked("A", "host"), {
+			foragers: cells({ A: [], H: ["host"], F: ["host"] }),
+			ties: ties(),
+			hubs: [
+				{ subject: "pi-host", hub: "H", fits: ["H"] },
+				{ subject: "unit:pi-host-", hub: "H", fits: ["F"] },
+			],
+		});
+
+		expect(found, "the longer subject, the narrower, wins").toMatchObject({
+			fit: "F",
+			path: ["H", "F"],
+		});
 	});
 });
 

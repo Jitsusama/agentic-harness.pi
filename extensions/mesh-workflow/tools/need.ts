@@ -10,7 +10,8 @@
  * measure counts it, and the sender is told to name the peers it is for.
  *
  * A need finds who works on something and grants nothing, since a cell
- * is found by the words of its own title: a yes, a ruling or a grant
+ * is found by what it says it works on, its title, repository and
+ * declared subjects: a yes, a ruling or a grant
  * still comes only from the owner named by address, and each answer
  * says so.
  */
