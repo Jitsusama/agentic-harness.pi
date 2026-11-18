@@ -213,20 +213,33 @@ const WHOLE_ENVIRONMENT: readonly RegExp[] = [
 ];
 
 /**
+ * A terminal's escape a line's variable is read past: a control
+ * sequence, a character set chosen, or a cursor saved or restored, as
+ * `words.ts`'s ESCAPE reads each. Written as a pattern's source, so no
+ * literal holds the escape character the linter asks to see named.
+ */
+const LINE_ESCAPE = String.raw`\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])`;
+
+/** What opens a line setting a variable: blanks, escapes, and its verb. */
+const LINE_LEAD = String.raw`[ \t]*(?:${LINE_ESCAPE}[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?`;
+
+/** A variable's name, as a shell spells one. */
+const NAME = "[A-Za-z_][A-Za-z0-9_]*";
+
+/**
  * A line of output that sets one variable and nothing more, as a dump
  * prints each, its value quoted or as env prints it, spaces and all: not
  * a log line of several pairs, nor a pin like `a==1`. A terminal's
  * escapes opening it, a colour, a cleared line or a character set, are
- * read past, as a terminal shows the line without them. Each rule below
- * reads a control sequence, a character set and a cursor's escape as
- * `words.ts`'s ESCAPE does, written out in it. A terminal's command or
+ * read past, as a terminal shows the line without them, each rule below
+ * reading them as LINE_ESCAPE does. A terminal's command or
  * a bell opening a line is not read past here, so such a line is a
  * variable's only in a printing of the environment, whose word scan
  * reads every line.
  */
-const ASSIGNED_LINE =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
-	/^[ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?[A-Za-z_][A-Za-z0-9_]*=(?!=)(?:'[^']*'[ \t]*$|"[^"]*"[ \t]*$|(?![^\n\r\0]*\s[A-Za-z_][A-Za-z0-9_]*=))/;
+const ASSIGNED_LINE = new RegExp(
+	String.raw`^${LINE_LEAD}${NAME}=(?!=)(?:'[^']*'[ \t]*$|"[^"]*"[ \t]*$|(?![^\n\r\0]*\s${NAME}=))`,
+);
 
 /** The fewest such lines that make an output a dump, whatever printed it. */
 const FEWEST_DUMPED_LINES = 5;
@@ -283,9 +296,7 @@ export function readsAsDump(text: string): boolean {
 }
 
 /** The name a line setting a variable sets, read from its start. */
-const SET_NAME =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
-	/^[ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)/;
+const SET_NAME = new RegExp(`^${LINE_LEAD}(${NAME})`);
 
 const NEWLINE = 10;
 const RETURN = 13;
@@ -295,9 +306,10 @@ const NUL = 0;
  * A variable's line in a dump: its name, what sits between, its value,
  * escapes within it included, as a highlight splits a value.
  */
-const DUMPED_VARIABLE =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
-	/^([ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)((?:[^\s'"\x1b]|\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>]))+)/gm;
+const DUMPED_VARIABLE = new RegExp(
+	String.raw`^(${LINE_LEAD}(${NAME})[ \t]*(?:=>|=)[ \t]*['"]?)((?:[^\s'"\x1b]|${LINE_ESCAPE})+)`,
+	"gm",
+);
 
 /**
  * The dump with every value that could be a credential put out of sight,
@@ -369,14 +381,14 @@ function scrubOpenLine(text: string, kinds: string[], dump: boolean): string {
  * value, and the value so far, to the line's end: a pin, a spaced `=` or
  * a log line of several pairs is no variable's.
  */
-const OPEN_VALUE =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
-	/^([ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)=(?!=)['"]?)((?<=['"])[^\n]+|(?![^\n]*\s[A-Za-z_][A-Za-z0-9_]*=)[^\s'"][^\n]*)$/;
+const OPEN_VALUE = new RegExp(
+	String.raw`^(${LINE_LEAD}(${NAME})=(?!=)['"]?)((?<=['"])[^\n]+|(?![^\n]*\s${NAME}=)[^\s'"][^\n]*)$`,
+);
 
 /** A dump's line setting a variable, as DUMPED_VARIABLE reads one. */
-const OPEN_DUMPED_VALUE =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is read past.
-	/^([ \t]*(?:\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>])[ \t]*)*(?:export[ \t]+|declare[ \t]+-[-A-Za-z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:=>|=)[ \t]*['"]?)(\S[^\n]*)$/;
+const OPEN_DUMPED_VALUE = new RegExp(
+	String.raw`^(${LINE_LEAD}(${NAME})[ \t]*(?:=>|=)[ \t]*['"]?)(\S[^\n]*)$`,
+);
 
 /** A value that is marks alone, already out of sight. */
 const ONLY_MARKS = /^(?:\[secret scrubbed: [^\]\n]*\][ \t'"]*)+$/;

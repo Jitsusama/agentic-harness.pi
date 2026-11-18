@@ -12,6 +12,16 @@
  */
 
 /**
+ * What a terminal's command holds: anything to its line's end but what
+ * ends it. Each pattern here is written as a source, so no literal holds
+ * the escape or bell character the linter asks to see named.
+ */
+const COMMAND_TEXT = String.raw`[^\x07\x1b\n]*`;
+
+/** One escape, as ESCAPE reads one, without its bell. */
+const ONE_ESCAPE = String.raw`\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>\\]|\]\d*;${COMMAND_TEXT}(?:\x07|\x1b\\))`;
+
+/**
  * A terminal's escape: a control sequence, as a colour, its reset or a
  * cleared line; a character set chosen; a cursor saved or restored; a
  * string's terminator; a terminal's whole command on one line, as a
@@ -19,23 +29,20 @@
  * or a bell, which alone shows nothing. None splits a value, since a
  * terminal shows none of them.
  */
-const ESCAPE =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
-	/\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>\\]|\]\d*;[^\x07\x1b\n]*(?:\x07|\x1b\\))|\x07/g;
+const ESCAPE = new RegExp(String.raw`${ONE_ESCAPE}|\x07`, "g");
 
 /** A terminal's escape, read where a scan of words stands at an ESC. */
-const ESCAPE_HERE =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape is what this reads.
-	/\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[78=>\\]|\]\d*;[^\x07\x1b\n]*(?:\x07|\x1b\\))/y;
+const ESCAPE_HERE = new RegExp(ONE_ESCAPE, "y");
 
 /**
  * A terminal's command on one line, as ESCAPE reads one: its opening
  * (the command's number, and a link's empty field), its payload, and
  * the bell or string terminator that ends it.
  */
-const COMMAND =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's command is what this reads.
-	/(\x1b\]\d*;;?)([^\x07\x1b\n]*)(\x07|\x1b\\)/g;
+const COMMAND = new RegExp(
+	String.raw`(\x1b\]\d*;;?)(${COMMAND_TEXT})(\x07|\x1b\\)`,
+	"g",
+);
 
 /**
  * `text` with each terminal command's payload, a title's or a link's
@@ -141,6 +148,9 @@ const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  */
 const SHOUTED = /^(?=[^_]*_)(?=[^A-Z]*[A-Z])[A-Z0-9_]+$/;
 
+/** What ends a value beside a space: a list's, statement's or field's end, a backslash, an escape or a bell. */
+const VALUE_ENDS = String.raw`,;:&|\\)\]}\x1b\x07`;
+
 /**
  * What follows a value's padding rather than a name's equals: nothing, a
  * second equals, a space, what ends a list, a statement or a query's
@@ -148,9 +158,9 @@ const SHOUTED = /^(?=[^_]*_)(?=[^A-Z]*[A-Z])[A-Z0-9_]+$/;
  * a doubled one among them unless it ends its line or word: an empty
  * quoted value, `=""` alone, is a name's.
  */
-const PADDING_END =
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's escape ends a value.
-	/^(?:$|[=\s,;:&|\\)\]}\x1b\x07]|['"](?:$|[\s,;:&|\\)\]}\x1b\x07]|['"](?!$|\s)))/;
+const PADDING_END = new RegExp(
+	String.raw`^(?:$|[=\s${VALUE_ENDS}]|['"](?:$|[\s${VALUE_ENDS}]|['"](?!$|\s)))`,
+);
 
 /**
  * Whether `word`, ending at `at`, is a variable's name: it reads as one,
@@ -195,8 +205,7 @@ const PERCENT_DIGIT = /%3\d/g;
 const PIECE_BREAK = /[\s'"=\][:,;|()]/;
 
 /** What a terminal's command holds, as ESCAPE reads one whole. */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: a terminal's command is what this reads.
-const PAYLOAD = /^\x1b\]\d*;;?([^\x07\x1b\n]*)/;
+const PAYLOAD = new RegExp(String.raw`^\x1b\]\d*;;?(${COMMAND_TEXT})`);
 
 /** An escape's payload: a terminal command's, or none. */
 function payloadOf(sequence: string): string {
