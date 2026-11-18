@@ -167,6 +167,7 @@ export default defineConfig({
 						"./tests/setup/pi-install.ts",
 						"./tests/setup/xdg-sandbox.ts",
 						"./tests/setup/signal-stamp.ts",
+						"./tests/setup/quest-lock-folder.ts",
 					],
 					maxWorkers: MAX_WORKERS,
 				},

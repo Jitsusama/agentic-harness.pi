@@ -60,7 +60,12 @@ const counter = join(quest, "counter");
 // longer to start, and two writers that never overlap prove nothing.
 writeFileSync(join(quest, "..", "ready-" + name), "");
 const deadline = Date.now() + 20000;
-while (!existsSync(join(quest, "..", "ready-" + other)) && Date.now() < deadline) {}
+while (!existsSync(join(quest, "..", "ready-" + other))) {
+	if (Date.now() >= deadline) {
+		process.stderr.write("the other writer never got ready, so the two never overlapped");
+		process.exit(3);
+	}
+}
 try {
 	for (let bump = 0; bump < Number(times); bump++) {
 		withQuestLock(quest, () => {
