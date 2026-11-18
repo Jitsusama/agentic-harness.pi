@@ -76,7 +76,8 @@ interface Session {
 		subscribe(listener: (event: { readonly type: string }) => void): () => void;
 		waitForIdle(): Promise<void>;
 		hasQueuedMessages(): boolean;
-		readonly state: { readonly messages: readonly unknown[] };
+		continue(): Promise<void>;
+		readonly state: { readonly messages: unknown[] };
 	};
 }
 
