@@ -11,6 +11,7 @@ import { homeOf } from "../../../lib/mesh/group.ts";
 import type { Board } from "../../../lib/mesh/lease.ts";
 import { type Census, census } from "../../../lib/mesh/liveness.ts";
 import { type Message, senderIdentity } from "../../../lib/mesh/message.ts";
+import type { NeedAsked, NeedRecord } from "../../../lib/mesh/need-route.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presences } from "../../../lib/mesh/presence.ts";
@@ -34,6 +35,15 @@ export interface Local {
 	readonly flows?: () => Promise<readonly string[]>;
 	/** This peer's ties, strongest first, as the node keeps them (lib/mesh/node.ts). */
 	readonly ties?: () => Promise<readonly Tie[] | undefined>;
+	/**
+	 * Find the live cell that works on a need, over the node's hubs and
+	 * ties, and keep where it went (lib/mesh/need-route.ts); nothing when
+	 * no node answers.
+	 */
+	readonly need?: (
+		asked: NeedAsked,
+		live: (address: string) => boolean,
+	) => Promise<NeedRecord | undefined>;
 	/** Hand a message to the node to send into another realm. */
 	readonly cross?: (crossing: Crossing) => Promise<CrossAnswer>;
 	/** Note a message this peer sent, so it is never handed back to it. */

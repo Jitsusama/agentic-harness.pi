@@ -351,6 +351,25 @@ describe("the sweep", () => {
 		]);
 	});
 
+	it("lets go of a day's needs once older than it keeps messages", async () => {
+		const needs = join(root, "needs");
+		mkdirSync(needs, { recursive: true });
+		const day = (ago: number) => `${dayAgo(ago)}.jsonl`;
+		writeFileSync(join(needs, day(KEEP_MS + DAY)), "{}\n");
+		writeFileSync(join(needs, day(KEEP_MS - DAY)), "{}\n");
+		// The day the week's edge falls in has not ended before it, so it
+		// stays, though it began before the edge.
+		writeFileSync(join(needs, day(KEEP_MS)), "{}\n");
+		writeFileSync(join(needs, "notes.txt"), "not a day's needs");
+		const at = { ...kept(), needs: root };
+
+		await sweep(at, now, async () => ({ present: [], gone: [] }));
+
+		expect(readdirSync(needs).sort()).toEqual(
+			[day(KEEP_MS - DAY), day(KEEP_MS), "notes.txt"].sort(),
+		);
+	});
+
 	it("keeps an ended peer that stopped another for the week it keeps messages", async () => {
 		const at = kept();
 		const stopping = (session: string, ago: number): Presence => ({

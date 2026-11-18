@@ -104,6 +104,7 @@ export function createState(
 			presences,
 			board,
 			...(paths.steer !== undefined ? { inboxes: paths.steer } : {}),
+			needs: paths.mesh,
 		},
 		SWEEP_EVERY_MS,
 		Date.now,

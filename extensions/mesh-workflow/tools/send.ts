@@ -13,6 +13,7 @@ import {
 	homeOf,
 	MACHINE,
 	machineTakes,
+	needNamed,
 	orchestratorNamed,
 } from "../../../lib/mesh/group.ts";
 import { isCurrent } from "../../../lib/mesh/lease.ts";
@@ -33,6 +34,7 @@ import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import { handsRefusal } from "../joels-hands.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
+import { needRead } from "./need.ts";
 import { reach, unheardOf } from "./reach.ts";
 import { capitalized } from "./said.ts";
 import { stopsText } from "./stop.ts";
@@ -166,6 +168,8 @@ export interface SendParams {
 	readonly supersedes?: string;
 	readonly endsHold?: boolean;
 	readonly realm?: string;
+	/** What a need named in `to` is about; its text, when left out. */
+	readonly about?: string;
 }
 
 /**
@@ -196,6 +200,14 @@ export async function sendAcross(
 	params: SendParams,
 ): Promise<Answer> {
 	const realm = params.realm?.trim() ?? "";
+	// Read before the flows, so `need` never crosses as a peer called
+	// NEED: a need is found among this realm's cells alone.
+	if (needNamed(params.to ?? "").asked) {
+		return answer(
+			"Not sent: a need is found among this realm's cells, so it can't cross into another. Name the peers there by address.",
+			{ sent: false } satisfies SendDetails,
+		);
+	}
 	const flows = (await at.flows?.()) ?? [];
 	if (!flows.includes(realm) || !at.cross) {
 		return answer(
@@ -303,7 +315,9 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		} satisfies SendDetails);
 	}
 	const ended = endedOnWord(at, params.endsHold, answersNamed);
-	const target = orchestratorNamed(params.to ?? "", at.peer.orchestratedBy);
+	const needed = await needRead(at, params);
+	if ("refused" in needed) return needed.refused;
+	const target = orchestratorNamed(needed.to, at.peer.orchestratedBy);
 	const named = groupsNamed(target.to);
 	// Meant for one recipient that is not there: routed by rule, it would
 	// land in a group that may have nobody listening.
@@ -334,12 +348,14 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		kept ? keptSaid(kept) : "",
 		intent.why ?? "",
 	].filter(Boolean);
-	const notes: string[] =
-		said.length > 0
+	const notes: string[] = [
+		...(needed.note ? [needed.note] : []),
+		...(said.length > 0
 			? [
 					`${capitalized(said.join("; "))}. mesh_read shows each message's id in brackets.`,
 				]
-			: [];
+			: []),
+	];
 	const standing = await peers(at);
 	const everyone = standing.present;
 	let pivotTo: readonly string[] = [];
