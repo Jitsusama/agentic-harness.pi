@@ -86,8 +86,8 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 		const read = store.read("slack-credentials");
 
 		await expect(read).rejects.toBeInstanceOf(KeyringUnavailable);
-		await expect(read).rejects.toThrow("SIGSEGV");
-	});
+		await expect(read).rejects.toThrow("stopped by SIGKILL");
+	}, 30_000);
 
 	it("says why when the call refuses, complains or answers nothing readable", async () => {
 		const cases: [string, string][] = [
