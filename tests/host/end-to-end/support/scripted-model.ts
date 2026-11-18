@@ -35,6 +35,8 @@
  *   answers in, which for a subagent is the subagent's own;
  * - told `dawdle`, it has bash run a command that never ends by
  *   itself, so only a Stop ends it;
+ * - told `fenced`, it has bash print whether the command may gain
+ *   privileges;
  * - told `linger`, it has bash run, in the background from the start, a
  *   command that ends by itself a while after the turn does;
  * - told `carry`, it has bash run, in the background from the start, a
@@ -90,6 +92,17 @@ export const ACCOUNT = "account";
 
 /** What a conversation is told to start a tool only a Stop ends. */
 export const DAWDLE = "dawdle";
+
+/** What a conversation is told to say whether its commands run fenced. */
+export const FENCED = "fenced";
+
+/**
+ * What bash runs for `fenced`: the kernel's word on whether the command
+ * may gain privileges, which the fence's bubblewrap always takes away
+ * and a command run as it is keeps: a proof that names no socket or
+ * path the fence hides.
+ */
+const FENCING = "grep '^NoNewPrivs:' /proc/self/status";
 
 /**
  * What bash runs for `dawdle`: a follow of a file nothing writes, which
@@ -352,6 +365,8 @@ function answer(faux: Faux, messages: readonly Said[]): unknown {
 	if (toldTo(words, WHOAMI)) return faux.fauxAssistantMessage(ownPi());
 	if (toldTo(words, DAWDLE))
 		return toolCall(faux, "bash", { command: DAWDLING });
+	if (toldTo(words, FENCED))
+		return toolCall(faux, "bash", { command: FENCING });
 	if (toldTo(words, GO_AWAY))
 		return toolCall(faux, "away", { goal: AWAY_GOAL });
 	if (toldTo(words, WAIT_A_WHILE))
