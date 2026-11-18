@@ -10,7 +10,8 @@
  * message whose sender reads as a receptor's is shown only when the node
  * serves it, as written, which it does only for one it said itself; one
  * shown is a fact to weigh, never orders; and every other reader of the
- * folder reads one as nothing at all.
+ * folder reads one as nothing at all. The folder's own upkeep (settling
+ * and expiring) still reads files as they lie, as it does any sender's.
  */
 
 import type { Message } from "./message.ts";
@@ -74,6 +75,8 @@ export interface Said {
 	readonly from: string;
 	readonly text: string;
 	readonly at: string;
+	/** The groups it went to, as the node names them (`outside.github`). */
+	readonly groups?: readonly string[];
 	readonly intent?: string;
 	readonly re?: string;
 	readonly supersedes?: string;
@@ -84,10 +87,12 @@ export interface Said {
 /**
  * Whether `message` has the one shape a receptor's signal takes: an fyi
  * to its own source's network and nobody else, answering, replacing,
- * ending and inviting nothing. The node's record holds no `to`, `pid` or
- * `invite`, so what it can't vouch for has to be what a signal never
- * has, or a planted file could reuse a real signal's words to ask a
- * question, withdraw a message or reach every session.
+ * ending and inviting nothing. The node's record holds no `pid`,
+ * `invite` or `hosted`, so what it can't vouch for has to be what a
+ * signal never has, or a planted file could reuse a real signal's words
+ * to ask a question, withdraw a message or reach every session. Where
+ * it went, the record does hold, as groups, and {@link heldAsSaid}
+ * checks them.
  */
 function signalShaped(message: Message): boolean {
 	const source = message.from.slice(0, message.from.indexOf("@"));
@@ -104,6 +109,15 @@ function signalShaped(message: Message): boolean {
 	);
 }
 
+/**
+ * The group a receptor named `from` says its signal on, as the node
+ * names it: `github@kestrel` says on `#outside/github`, which the node
+ * holds as `outside.github` (mycelium's src/mesh.rs, `group_for`).
+ */
+function groupOf(from: string): string {
+	return `outside.${from.slice(0, from.indexOf("@")).toLowerCase()}`;
+}
+
 /** Whether the node's `held` record is `message` as a signal says it. */
 function heldAsSaid(message: Message, held: Said | undefined): boolean {
 	return (
@@ -111,6 +125,8 @@ function heldAsSaid(message: Message, held: Said | undefined): boolean {
 		held.from === message.from &&
 		held.text === message.text &&
 		held.at === message.at &&
+		held.groups?.length === 1 &&
+		held.groups[0] === groupOf(message.from) &&
 		held.intent === "fyi" &&
 		held.re === undefined &&
 		held.supersedes === undefined &&

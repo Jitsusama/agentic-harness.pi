@@ -37,6 +37,7 @@ import { wakeSteered } from "../../../lib/mesh/parked.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
 import {
 	readsAsReceptor,
+	type Unvouched,
 	unvouched,
 	vouchedOnly,
 } from "../../../lib/mesh/receptor.ts";
@@ -213,22 +214,27 @@ export function createHearing(m: MeshState, f: Handing) {
 		// does waits as a whole, at most the node's patience and two asks
 		// again, so its messages keep their order. One dropped is handed
 		// over as needing nothing more, or the read marker would stop
-		// behind it for the rest of the session.
+		// behind it for the rest of the session. Drops are said once the
+		// wait is over, and only to the session they were routed for, since
+		// one that ended or switched meanwhile has no log of its own here.
+		const drops: [Message, Unvouched][] = [];
 		const messages = arrived.some((one) => readsAsReceptor(one.from))
 			? await vouchedOnly(
 					arrived,
 					(ids) => servedAt(nodeSocket(m.env), ids),
-					(message, why) => {
-						m.pi.appendEntry(UNVOUCHED, {
-							id: message.id,
-							from: message.from,
-							why: unvouched(message.from, message.id, why),
-						});
-						f.handedOver([message]);
-					},
+					(message, why) => drops.push([message, why]),
 				)
 			: arrived;
-		if (messages.length === 0 || !m.ctx || m.peer !== routedFor) return;
+		if (m.peer !== routedFor) return;
+		for (const [message, why] of drops) {
+			m.pi.appendEntry(UNVOUCHED, {
+				id: message.id,
+				from: message.from,
+				why: unvouched(message.from, message.id, why),
+			});
+		}
+		if (drops.length > 0) f.handedOver(drops.map(([message]) => message));
+		if (messages.length === 0 || !m.ctx) return;
 		m.peer.refresh();
 		identity();
 		// What it changes now tells its business from another's best.

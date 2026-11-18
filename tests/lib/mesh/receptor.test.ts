@@ -30,19 +30,29 @@ function from(sender: string, id: string, text = SIGNAL): Message {
 	};
 }
 
-/** What a node serves of these messages, as they were written. */
+/**
+ * What a node serves of these messages, as they were written, in the
+ * fields mycelium's `Message` record serializes (src/record.rs).
+ */
 function serving(...messages: Message[]): ReadonlyMap<string, Said> {
 	return new Map(
 		messages.map((one) => [
 			one.id,
-			{ from: one.from, text: one.text, at: one.at, intent: "fyi" },
+			{
+				from: one.from,
+				text: one.text,
+				at: one.at,
+				groups: ["outside.github"],
+				intent: "fyi",
+			},
 		]),
 	);
 }
 
 describe("readsAsReceptor", () => {
 	// The fixtures of Jitsusama/mycelium's speaks_as_receptor tests, case
-	// for case, so the harness and the node can't drift apart.
+	// for case, copied by hand: a case added on one side and not the other
+	// is the drift to look for.
 	it("takes every name that could be read as a receptor's cell", () => {
 		for (const name of [
 			"github@kestrel",
@@ -151,10 +161,14 @@ describe("vouchedOnly", () => {
 			from: said.from,
 			text: said.text,
 			at: said.at,
+			groups: ["outside.github"],
 			intent: "fyi",
 		};
 		// Each differs from a signal's record by one field alone.
 		const records: Said[] = [
+			{ ...asSaid, groups: undefined },
+			{ ...asSaid, groups: ["all"] },
+			{ ...asSaid, groups: ["outside.github", "all"] },
 			{ ...asSaid, intent: undefined },
 			{ ...asSaid, intent: "question" },
 			{ ...asSaid, re: "1-asked" },
@@ -334,6 +348,7 @@ describe("servedFrom", () => {
 					from: "github@kestrel",
 					text: SIGNAL,
 					at: "2026-11-16T23:00:00.000Z",
+					groups: ["outside.github"],
 					intent: "fyi",
 				},
 			],

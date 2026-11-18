@@ -44,9 +44,10 @@ export const MOST_READ = 50;
 const READ_BUDGET_BYTES = 12_288;
 
 /**
- * The most messages one mesh_read reads looking for what it shows, so a
- * folder full of planted receptor names costs a bounded read, and the
- * answer says where to read on from.
+ * The most messages under a receptor's name one mesh_read reads looking
+ * for what it shows, so a folder full of planted ones costs a bounded
+ * read and one ask of the node, and the answer says where to read on
+ * from. Plain messages are read on until enough are found, as ever.
  */
 const MOST_EXAMINED = 10 * MOST_READ;
 
@@ -56,7 +57,7 @@ function leftOut(dropped: number, why: ReadonlySet<Unvouched>): string {
 	const them = dropped === 1 ? "it" : "them";
 	const said: Record<Unvouched, string> = {
 		unanswered: `no node answered with what it holds to vouch for ${them}`,
-		unserved: `the node doesn't serve ${them} as written since it started`,
+		unserved: `the node doesn't serve ${them} as written: not yet, if just said, or never since it started`,
 		misshapen: `${dropped === 1 ? "it isn't" : "some aren't"} shaped as a signal`,
 	};
 	const because = [...why].map((one) => said[one]).join("; ");
@@ -86,66 +87,47 @@ export async function read(
 	// As written, a receptor's name and all, since what is found is vouched
 	// for below.
 	const readOne = at.asWrittenOff ?? ((id: string) => at.transport.readOff(id));
-	const latest: Message[] = [];
 	let dropped = 0;
 	const why = new Set<Unvouched>();
 	let index = from - 1;
-	const examined = () => from - 1 - index;
-	// A node that didn't answer once isn't asked again in this read, so
-	// a folder of planted files costs one wait on it, not one a batch.
-	const asked = at.served ?? (async () => undefined);
-	let silent = false;
-	const served: typeof asked = async (ids) => {
-		if (silent) return undefined;
-		const said = await asked(ids);
-		if (said === undefined) silent = true;
-		return said;
-	};
-	// Read on past what is dropped until enough are shown, so planted
-	// files at the top can't fill the page and leave no id to read on
-	// from; but no more than MOST_EXAMINED in all.
-	while (latest.length < wanted && index >= 0 && examined() < MOST_EXAMINED) {
-		const found: Message[] = [];
-		for (
-			;
-			index >= 0 &&
-			found.length < wanted - latest.length &&
-			examined() < MOST_EXAMINED;
-			index--
+	// Read on past what is under a receptor's name until enough others
+	// are found, so planted files at the top can't fill the page and leave
+	// no id to read on from; but read no more than MOST_EXAMINED of them.
+	const found: Message[] = [];
+	let plain = 0;
+	let named = 0;
+	for (; index >= 0 && plain < wanted && named < MOST_EXAMINED; index--) {
+		const message = await readOne(ids[index] as string);
+		if (
+			message &&
+			(sentBy(message, { addresses: at.peer.addresses, ...senderIdentity() }) ||
+				reaches(message, at.peer.listener, -1))
 		) {
-			const message = await readOne(ids[index] as string);
-			if (
-				message &&
-				(sentBy(message, {
-					addresses: at.peer.addresses,
-					...senderIdentity(),
-				}) ||
-					reaches(message, at.peer.listener, -1))
-			) {
-				found.unshift(message);
-			}
+			found.unshift(message);
+			if (readsAsReceptor(message.from)) named++;
+			else plain++;
 		}
-		// One under a receptor's name is shown only when the node serves
-		// it, as when it is heard (lib/mesh/receptor.ts). What is listed
-		// back is never so new that the node is still to serve it, so it
-		// isn't asked again.
-		const kept = await vouchedOnly(
-			found,
-			served,
-			(_, because) => {
-				dropped++;
-				why.add(because);
-			},
-			[],
-		);
-		latest.unshift(...kept);
 	}
-	// Stopped short of the folder's start with too few to show: say
-	// where to read on from, since the oldest read may not be shown.
+	// One under a receptor's name is shown only when the node serves it,
+	// as when it is heard (lib/mesh/receptor.ts), all asked after at once.
+	// A signal just landed may not be served yet, and its line says so,
+	// rather than this read waiting on the node to ask again.
+	const vouched = await vouchedOnly(
+		found,
+		at.served ?? (async () => undefined),
+		(_, because) => {
+			dropped++;
+			why.add(because);
+		},
+		[],
+	);
+	const latest = vouched.slice(-wanted);
+	// Stopped at the bound with too few to show: say where to read on
+	// from, since the oldest read may not be shown.
 	const readTo = ids[index + 1];
 	const further =
-		latest.length < wanted && index >= 0 && readTo
-			? `\nRead ${examined()} messages without finding ${wanted} to show; mesh_read with before ${shortId({ id: readTo })} reads on.`
+		named >= MOST_EXAMINED && latest.length < wanted && index >= 0 && readTo
+			? `\nRead ${named} messages under a receptor's name without finding ${wanted} to show; mesh_read with before ${shortId({ id: readTo })} reads on.`
 			: "";
 	const present = (await peers(at)).present;
 	const receipt = receipts(at, present);
@@ -175,7 +157,7 @@ export async function read(
 	const text =
 		latest.length > 0
 			? `${shown.join("\n")}${rest}${unvouched}${further}`
-			: dropped > 0
+			: dropped > 0 || further
 				? `${unvouched}${further}`.trimStart()
 				: before === undefined
 					? "Nothing on the mesh yet."

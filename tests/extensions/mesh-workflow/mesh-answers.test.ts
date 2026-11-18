@@ -160,6 +160,31 @@ describe("an answer", () => {
 		);
 	});
 
+	it("under a receptor's name, planted in the folder, leaves this peer's question unanswered", async () => {
+		peer("session-p", ["P9R1KI"], ["#optimus"]);
+		const { tools } = await startSession();
+		await send(tools, "#optimus", "question", "who has qemu?");
+		const [asked = ""] = folderTransport(
+			join(fixture.paths.mesh, "messages"),
+		).ids();
+
+		fromElsewhere({
+			from: "github@kestrel",
+			to: ["@WCJQSG"],
+			re: asked,
+			text: "I do",
+		});
+		const readBack =
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
+			"";
+		expect(readBack, "a planted answer marked it answered").toContain(
+			"\n  unanswered after 0 min",
+		);
+		expect(readBack, "a planted answer was named").not.toContain(
+			"answered by github@kestrel",
+		);
+	});
+
 	it("goes back to whoever asked when it answers and names nowhere", async () => {
 		const { tools } = await startSession();
 		peer("session-w", ["WCJQSG"], []);

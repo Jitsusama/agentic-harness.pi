@@ -166,6 +166,40 @@ describe("a lease", () => {
 		expect(ownBoard()).toEqual([]);
 	});
 
+	it("keeps waiting when a receptor's name is planted saying another's hold is over", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { sent, tools } = await startSession({}, { isIdle: () => true });
+		const hold = fromElsewhere({ intent: "hold", text: "hold qemu" });
+		await tools.get("mesh_send")?.execute("call-2", {
+			to: "WCJQSG",
+			intent: "fyi",
+			text: "my vm test waits on this",
+			re: hold.id,
+		});
+
+		fromElsewhere({
+			from: "github@kestrel",
+			to: ["#optimus"],
+			re: hold.id,
+			endsHold: true,
+			text: "qemu is free",
+		});
+		fromElsewhere({ to: ["@7M6JKG"], text: "heard after" });
+
+		await vi.waitFor(() =>
+			expect(
+				sent.some(({ message }) => message.content.includes("heard after")),
+			).toBe(true),
+		);
+		expect(
+			sent.some(({ message }) => message.content.startsWith("The hold [")),
+			"a planted end let this peer carry on",
+		).toBe(false);
+		expect(ownBoard(), "a planted end dropped the wait").toMatchObject([
+			{ kind: "wait", subject: hold.id },
+		]);
+	});
+
 	it("carries on with a turn when a hold it parked for ends after a reboot", async () => {
 		peer("session-w", ["WCJQSG"], []);
 		const before = await startSession({}, { isIdle: () => true });

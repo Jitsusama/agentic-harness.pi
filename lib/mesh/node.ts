@@ -585,10 +585,15 @@ function saidIn(record: Record<string, unknown>): Said | undefined {
 	if (from === undefined || said === undefined || at === undefined) {
 		return undefined;
 	}
+	const groups = record.groups;
 	return {
 		from,
 		text: said,
 		at,
+		...(Array.isArray(groups) &&
+		groups.every((group) => typeof group === "string")
+			? { groups }
+			: {}),
 		...(text("intent") !== undefined ? { intent: text("intent") } : {}),
 		...(text("re") !== undefined ? { re: text("re") } : {}),
 		...(text("supersedes") !== undefined

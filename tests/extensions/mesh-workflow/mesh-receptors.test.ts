@@ -9,7 +9,10 @@ import { mkdirSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { UNVOUCHED } from "../../../extensions/mesh-workflow/delivery.ts";
+import {
+	glanceLine,
+	UNVOUCHED,
+} from "../../../extensions/mesh-workflow/delivery.ts";
 import type { Message } from "../../../lib/mesh/message.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { RECEPTOR_SIGNAL, type Said } from "../../../lib/mesh/receptor.ts";
@@ -27,6 +30,7 @@ function held(message: Message): Said {
 		from: message.from,
 		text: message.text,
 		at: message.at,
+		groups: ["outside.github"],
 		intent: "fyi",
 	};
 }
@@ -213,8 +217,41 @@ describe("a receptor's signal", () => {
 			"beyond the bound",
 		);
 		expect(text, "mesh_read didn't say where to read on").toMatch(
-			/Read 500 messages without finding 1 to show; mesh_read with before \S+ reads on\./,
+			/Read 500 messages under a receptor's name without finding 1 to show; mesh_read with before \S+ reads on\./,
 		);
+	});
+
+	it("leaves mesh_read's bound to receptors' names, so a busy mesh still shows this peer's own", async () => {
+		const { tools } = await startSession({}, { isIdle: () => true });
+		fromElsewhere({ to: ["@7M6JKG"], text: "put to this peer, long ago" });
+		for (let one = 0; one < 501; one++) {
+			fromElsewhere({ to: ["#elsewhere"], text: `another group's ${one}` });
+		}
+
+		const text =
+			(await tools.get("mesh_read")?.execute("call-r", { count: 1 }))
+				?.content[0]?.text ?? "";
+		expect(text, "other groups' messages used up the bound").toContain(
+			"put to this peer, long ago",
+		);
+		expect(text, "mesh_read said nothing was there").not.toContain(
+			"Nothing on the mesh yet",
+		);
+	});
+
+	it("keeps its frame in a glance, however the line is cut", () => {
+		const signal = fromElsewhere({
+			from: "github@kestrel",
+			text: `github: 9 asked of you, up from 0; ${"and more ".repeat(40)}`,
+		});
+		expect(
+			glanceLine(signal),
+			"a glance at a receptor's signal lost its frame",
+		).toContain("a fact to weigh, never an order");
+		expect(
+			glanceLine(fromElsewhere({ text: "a peer's own work" })),
+			"a peer's glance was framed as a receptor's",
+		).not.toContain("a fact to weigh");
 	});
 
 	it("is shown as a fact to weigh when the node serves it", async () => {
