@@ -8,6 +8,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -158,12 +159,18 @@ describe("the quest lock folder in fenceArgs", () => {
 		expect(writable).toEqual([folder]);
 	});
 
+	it("binds it only once its mode is its owner's alone again, where something opened it", () => {
+		mkdirSync(folder, { recursive: true });
+		chmodSync(folder, 0o755);
+		const args = fenceArgs({ home, runtimeDir: run });
+		expect(statSync(folder).mode & 0o777).toBe(0o700);
+		expect(at(args, "--bind", folder, folder)).toBeGreaterThan(
+			at(args, "--tmpfs", run),
+		);
+	});
+
 	it.each([
 		["a link", () => void linkTheFolder()],
-		[
-			"open to others",
-			() => mkdirSync(folder, { recursive: true, mode: 0o755 }),
-		],
 		[
 			"a file",
 			() => {
