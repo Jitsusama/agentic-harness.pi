@@ -9,6 +9,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { withCallSignal } from "../../lib/core/exec/call-signal.ts";
 import { isRecord } from "../../lib/internal/record.ts";
+import { readCarriedRunsBusy } from "./busy-while-carried.ts";
 import type {
 	Conversation,
 	DurableContext,
@@ -67,6 +68,8 @@ export async function openHostedConversation(options: {
 	readonly report?: (error: unknown) => void;
 }): Promise<HostedConversation> {
 	const durable = durableModule(options.modules);
+	// Before pi builds this conversation's session, so its extensions' context reads a carried run busy.
+	readCarriedRunsBusy(options.modules);
 	const context = backgroundContext(options.modules);
 	const openStorage = options.modules.sqlite.openNodeSqliteStorage;
 	if (typeof openStorage !== "function")
