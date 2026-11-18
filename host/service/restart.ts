@@ -44,12 +44,21 @@
  * though. On 18 November councils held the background host's restart
  * past half its heap for hours, as sixty conversations always had
  * one running, and at 01:15 V8 aborted it out of memory, ending every
- * turn and every council anyway. So past three-quarters the restart
- * takes the first moment no conversation has a turn running, ending
- * the background work it names in its journal line, whatever screens
- * show; and past nine-tenths it restarts at once, turns and all, which
- * the next host carries on, as a stop that runs into the limit parks
- * nothing.
+ * turn and every council anyway. So past three-fifths the restart takes
+ * the first moment no conversation has a turn running, ending the
+ * background work and the screens in use it names in its journal line;
+ * and past three-quarters it restarts at once, turns and all, which the
+ * next host carries on. Both stay short of the 87% at which the 16
+ * November stop ran into the limit, since a stop needs heap of its own.
+ * A pressed host says once that it waits for such a moment, and, its
+ * drain's held wakes still held, wakes no parked conversation onto a
+ * heap already short.
+ *
+ * The heap is read as the last major collection left it, which counts
+ * no garbage: V8's used heap between collections can stand well past
+ * what is live, and one such reading could end every turn for nothing.
+ * Until the host has seen a major collection it reads the heap as it
+ * stands, which in a host's first minutes is small.
  *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
@@ -58,6 +67,11 @@
 
 import { realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
+import {
+	constants,
+	type PerformanceEntry,
+	PerformanceObserver,
+} from "node:perf_hooks";
 import { getHeapStatistics } from "node:v8";
 import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
@@ -122,10 +136,10 @@ export const HELD_SAY_MS = 60 * 60_000;
 const HEAP_RESTART_SHARE = 0.5;
 
 /** The share past which a restart waits for no background work or screen. */
-const HEAP_PRESSED_SHARE = 0.75;
+const HEAP_PRESSED_SHARE = 0.6;
 
 /** The share past which a restart waits for nothing, turns included. */
-const HEAP_URGENT_SHARE = 0.9;
+const HEAP_URGENT_SHARE = 0.75;
 
 /**
  * How short the host's heap runs: pressed, when a restart waits only for
@@ -141,10 +155,35 @@ interface HeapUse {
 	readonly limitBytes: number;
 }
 
-/** This process's heap, as V8 counts it. */
-function ownHeap(): HeapUse {
-	const { used_heap_size, heap_size_limit } = getHeapStatistics();
-	return { usedBytes: used_heap_size, limitBytes: heap_size_limit };
+/** Whether a performance entry is a major collection's. */
+function isMajorCollection(entry: PerformanceEntry): boolean {
+	// A gc entry's detail says its kind; node's types don't give it on every entry.
+	const detail: unknown = Reflect.get(entry, "detail");
+	if (typeof detail !== "object" || detail === null) return false;
+	return Reflect.get(detail, "kind") === constants.NODE_PERFORMANCE_GC_MAJOR;
+}
+
+/**
+ * This process's heap as its last major collection left it, or as it
+ * stands until one has run, with the function that stops watching.
+ */
+function liveHeap(): { read: () => HeapUse; stop: () => void } {
+	let collected: number | undefined;
+	const watching = new PerformanceObserver((list) => {
+		if (list.getEntries().some(isMajorCollection))
+			collected = getHeapStatistics().used_heap_size;
+	});
+	watching.observe({ entryTypes: ["gc"] });
+	return {
+		read: () => {
+			const { used_heap_size, heap_size_limit } = getHeapStatistics();
+			return {
+				usedBytes: collected ?? used_heap_size,
+				limitBytes: heap_size_limit,
+			};
+		},
+		stop: () => watching.disconnect(),
+	};
 }
 
 /** A conversation as the host lists it, for whether it is settled. */
@@ -166,6 +205,10 @@ export type RestartRule =
 			readonly pressure: HeapPressure;
 			/** The background work the restart ends, a line each. */
 			readonly ending: readonly string[];
+			/** How many turns it ends mid-answer, which only an urgent one does. */
+			readonly turns: number;
+			/** Whether a screen is in use as it restarts. */
+			readonly screens: boolean;
 	  };
 
 /** What the restart loop asks of the host and the machine; tests give their own. */
@@ -253,6 +296,10 @@ export function restartWhenSettled(
 	let differingSince: number | undefined;
 	// When background work holding a restart past the ceiling was last named.
 	let heldSaidAt: number | undefined;
+	// How short the heap ran at the last look, which a gap look follows.
+	let short: HeapPressure | undefined;
+	// The pressure a wait for a moment with no turn was last said for.
+	let saidPressed: HeapPressure | undefined;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
 
 	async function look(): Promise<void> {
@@ -264,7 +311,9 @@ export function restartWhenSettled(
 			facts.report(error);
 		}
 		if (stopped) return;
-		if (next === "gap") waitsForGap(!facts.stopping());
+		// A heap short of room lets no held wake through, which would grow it.
+		if (next === "gap")
+			waitsForGap(pastCeiling() && short === undefined && !facts.stopping());
 		cancel =
 			next === "restarting"
 				? after(options.restartDueMs ?? RESTART_DUE_MS, () => void dropped())
@@ -313,8 +362,7 @@ export function restartWhenSettled(
 	// The rule a restart may come under now, or nothing while it may not.
 	function mayRestart(): RestartRule | undefined {
 		if (facts.stopping()) return undefined;
-		const pressure = facts.pressure?.();
-		if (pressure !== undefined) return pressed(pressure);
+		if (short !== undefined) return pressed(short);
 		if (facts.background() > 0) {
 			sayHeld();
 			return undefined;
@@ -330,21 +378,43 @@ export function restartWhenSettled(
 	// A heap running short waits for no background work or screen, and,
 	// urgent, for no turn either.
 	function pressed(pressure: HeapPressure): RestartRule | undefined {
-		if (
-			pressure === "pressed" &&
-			facts.held().some(({ state }) => state === "busy")
-		)
+		const turns = facts.held().filter(({ state }) => state === "busy").length;
+		if (pressure === "pressed" && turns > 0) {
+			sayPressed(pressure, turns);
 			return undefined;
+		}
 		const ending = facts.background() > 0 ? (facts.holding?.() ?? []) : [];
-		return { rule: "heap", pressure, ending };
+		return {
+			rule: "heap",
+			pressure,
+			ending,
+			turns,
+			screens: !facts.resting(),
+		};
+	}
+
+	// Say once that a pressed heap waits for a moment with no turn, so the journal isn't silent meanwhile.
+	function sayPressed(pressure: HeapPressure, turns: number): void {
+		if (saidPressed === pressure) return;
+		saidPressed = pressure;
+		facts.report(
+			`Heap short of room: restarting at the first moment no conversation has a turn, whatever background work or screens hold; ${turns} running now`,
+		);
+	}
+
+	// Read how short the heap runs, once for each decision, so the rule and its journal line agree.
+	function readPressure(): void {
+		short = facts.pressure?.();
+		if (short === undefined) saidPressed = undefined;
 	}
 
 	// Whether the next look comes in a second, for a gap, rather than a minute.
 	function looksForGap(): boolean {
-		return pastCeiling() || facts.pressure?.() !== undefined;
+		return pastCeiling() || short !== undefined;
 	}
 
 	async function consider(): Promise<Next> {
+		readPressure();
 		// Past the ceiling, a look with no gap asks nothing more.
 		if (looksForGap() && mayRestart() === undefined) return "gap";
 		const why = await facts.differs();
@@ -355,6 +425,7 @@ export function restartWhenSettled(
 			return "look";
 		}
 		differingSince ??= facts.now();
+		readPressure();
 		const under = mayRestart();
 		if (under === undefined) return looksForGap() ? "gap" : "look";
 		// Before systemctl, since systemd may stop the host before it answers.
@@ -398,7 +469,7 @@ export interface Following {
 	readonly systemctl?: Systemctl;
 	readonly cgroupFile?: string;
 	readonly pid?: number;
-	/** How much heap the host uses; this process's by default. */
+	/** How much heap the host uses; this process's as its last major collection left it by default. */
 	readonly heap?: () => HeapUse;
 	/** Passed on to restartWhenSettled, for tests. */
 	readonly timing?: Parameters<typeof restartWhenSettled>[1];
@@ -451,33 +522,27 @@ export async function followWhatStarts(
 		return `systemd has a new ${unit}, such as one naming a new pi`;
 	}
 
-	const heap = options.heap ?? ownHeap;
-	function heapPastShare(): string | undefined {
-		const { usedBytes, limitBytes } = heap();
-		const past =
-			usedBytes > limitBytes * HEAP_URGENT_SHARE
-				? "nine-tenths"
-				: usedBytes > limitBytes * HEAP_PRESSED_SHARE
-					? "three-quarters"
-					: usedBytes > limitBytes * HEAP_RESTART_SHARE
-						? "half"
-						: undefined;
-		if (past === undefined) return undefined;
-		const mb = (bytes: number) => Math.round(bytes / BYTES_PER_MB);
-		return `its heap holds ${mb(usedBytes)} of the ${mb(limitBytes)} MB V8 allows, past ${past}`;
-	}
+	const watched = options.heap ? undefined : liveHeap();
+	const heap = options.heap ?? watched?.read ?? (() => getHeapUse());
+	// The reading the last heap rule was decided on, which its journal line gives.
+	let decided: HeapUse | undefined;
+	// Why the host differs other than its heap, at the last look.
+	let otherwise: string | undefined;
 	function pressure(): HeapPressure | undefined {
-		const { usedBytes, limitBytes } = heap();
+		decided = heap();
+		const { usedBytes, limitBytes } = decided;
 		if (usedBytes > limitBytes * HEAP_URGENT_SHARE) return "urgent";
 		if (usedBytes > limitBytes * HEAP_PRESSED_SHARE) return "pressed";
 		return undefined;
 	}
 
 	const settledMs = options.timing?.settledMs ?? SETTLED_MS;
-	return restartWhenSettled(
+	const unfollow = restartWhenSettled(
 		{
-			differs: async () =>
-				(await installMoved()) ?? (await unitChanged()) ?? heapPastShare(),
+			differs: async () => {
+				otherwise = (await installMoved()) ?? (await unitChanged());
+				return otherwise ?? heapPastShare(heap());
+			},
 			held: () => options.serving.held(),
 			background: options.background,
 			...(options.holding ? { holding: options.holding } : {}),
@@ -487,8 +552,15 @@ export async function followWhatStarts(
 			stopping: () => options.serving.stopping(),
 			expect: (coming) => options.serving.restartComing(coming),
 			restart: async (why, under) => {
+				// A heap rule says the reading it was decided on, not an earlier one.
+				const as =
+					under.rule === "heap" && decided !== undefined
+						? [heapPastShare(decided), otherwise]
+								.filter((said) => said !== undefined)
+								.join(", and ")
+						: why;
 				options.report(
-					`Restarting ${restartedUnder(under, settledMs)}, as ${why}`,
+					`Restarting ${restartedUnder(under, settledMs)}, as ${as}`,
 				);
 				await systemctl(["--no-block", "restart", unit]);
 			},
@@ -497,6 +569,31 @@ export async function followWhatStarts(
 		},
 		options.timing,
 	);
+	return () => {
+		unfollow();
+		watched?.stop();
+	};
+}
+
+/** This process's heap as it stands, garbage and all. */
+function getHeapUse(): HeapUse {
+	const { used_heap_size, heap_size_limit } = getHeapStatistics();
+	return { usedBytes: used_heap_size, limitBytes: heap_size_limit };
+}
+
+/** How far past a share of V8's limit a heap stands, in words, or nothing while under half. */
+function heapPastShare({ usedBytes, limitBytes }: HeapUse): string | undefined {
+	const past =
+		usedBytes > limitBytes * HEAP_URGENT_SHARE
+			? "three-quarters"
+			: usedBytes > limitBytes * HEAP_PRESSED_SHARE
+				? "three-fifths"
+				: usedBytes > limitBytes * HEAP_RESTART_SHARE
+					? "half"
+					: undefined;
+	if (past === undefined) return undefined;
+	const mb = (bytes: number) => Math.round(bytes / BYTES_PER_MB);
+	return `its heap holds ${mb(usedBytes)} of the ${mb(limitBytes)} MB V8 allows, past ${past}`;
 }
 
 const MINUTE_MS = 60_000;
@@ -509,8 +606,14 @@ function restartedUnder(under: RestartRule, settledMs: number): string {
 			under.pressure === "urgent"
 				? "at once, turns and all"
 				: "at a moment no conversation had a turn";
-		const ending =
-			under.ending.length > 0 ? `, ending ${under.ending.join("; ")}` : "";
+		const ends = [
+			...(under.turns > 0 && under.pressure === "urgent"
+				? [`${under.turns} turn${under.turns === 1 ? "" : "s"} mid-answer`]
+				: []),
+			...(under.screens ? ["a screen in use"] : []),
+			...under.ending,
+		];
+		const ending = ends.length > 0 ? `, ending ${ends.join("; ")}` : "";
 		return `${when}, before its heap runs out${ending}`;
 	}
 	const waited = Math.round(under.waitedMs / MINUTE_MS);
