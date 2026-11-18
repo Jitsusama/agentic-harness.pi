@@ -10,10 +10,12 @@
  * its own child named pi-spawner, started at the clock tick the host
  * read for it. Nothing an agent's command can say reaches that
  * connection, which the node's socket opens close-on-exec, so a command
- * the host starts holds none of it. The tick is read here, at once, so a
- * spawner that ended and left its id to another is never named; and the
- * word waits for the spawner's own name, since one started in a scope
- * goes by systemd-run's until that hands over to it.
+ * the host starts holds none of it. The tick is read once, as the
+ * spawner starts (spawner.ts), and said each time, so a spawner that
+ * ended and left its id to another is never named: the node refuses a
+ * pid whose start differs. The word waits for the spawner's own name,
+ * since one started in a scope goes by systemd-run's until that hands
+ * over to it, and a spawner that never gets its name is never named.
  *
  * It stops a command claiming another session's spawner; it doesn't stop
  * code running inside the host itself, as an extension a project brings
@@ -24,7 +26,9 @@
  * every 30 seconds while the spawner runs. Where the
  * node isn't there, or doesn't know the word, nothing is said and the
  * spawner's commands are told no session, as before. With no /proc, as
- * on a Mac, there is no tick to read, and nothing is said.
+ * on a Mac, there is no tick to read, and nothing is said. A command a
+ * host's restart keeps runs on under a spawner the next host didn't
+ * start, and so is told no session from then on.
  */
 
 import { readFile } from "node:fs/promises";
@@ -52,6 +56,13 @@ const SPAWNER_NAME = "pi-spawner";
 /** The field of /proc's stat holding a process's start, counted from one. */
 const START_FIELD = 22;
 
+/** A pi-spawner as the node is told of it: its pid and when it started. */
+export interface Spawned {
+	pid: number;
+	/** Clock ticks since boot, as /proc's stat says it (startOf). */
+	started: number;
+}
+
 /** Where registration looks and asks; each defaults to the real thing. */
 export interface RegisterOptions {
 	/** The node's socket, or nothing where no realm is named. */
@@ -65,23 +76,21 @@ export interface RegisterOptions {
 }
 
 /**
- * Tell the node that `pid`, a pi-spawner this process just started,
+ * Tell the node that `spawned`, a pi-spawner this process started,
  * serves `session`. It settles once the node answers, or patience runs
  * out, whatever is said; a refusal is the node's to log.
  */
 export async function registerSpawner(
-	pid: number,
+	spawned: Spawned,
 	session: string,
 	options: RegisterOptions = {},
 ): Promise<void> {
+	const { pid, started } = spawned;
 	const proc = options.proc ?? "/proc";
 	const patience = options.patience ?? REGISTER_PATIENCE_MS;
 	const namePatience = options.namePatience ?? NAME_PATIENCE_MS;
 	const socket = "socket" in options ? options.socket : nodeSocket();
 	if (socket === undefined) return;
-	// Read before anything waits, so it is the start of what was started.
-	const started = await startOf(pid, proc);
-	if (started === undefined) return;
 	if (!(await namedSpawner(pid, proc, Date.now() + namePatience))) return;
 	await askAt(socket, { Spawned: { pid, started, session } }, patience);
 }

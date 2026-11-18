@@ -17,6 +17,7 @@ import {
 
 const SPAWNER = 4242;
 const STARTED = 987_654;
+const SPAWNED = { pid: SPAWNER, started: STARTED };
 
 /** A short wait for things that must not happen. */
 const BRIEFLY_MS = 50;
@@ -90,11 +91,11 @@ function node(answer: string | false = '{"Ok":"Spawned"}') {
 }
 
 describe("a host telling the node a spawner's session", () => {
-	it("says the spawner, its start as /proc reads it, and the session", async () => {
+	it("says the spawner, the start it was given, and the session", async () => {
 		const stand = node();
 		await stand.listening;
 
-		await registerSpawner(SPAWNER, "s-one", {
+		await registerSpawner(SPAWNED, "s-one", {
 			socket: stand.socket,
 			proc: procWith(SPAWNER, "pi-spawner"),
 		});
@@ -109,7 +110,7 @@ describe("a host telling the node a spawner's session", () => {
 		await stand.listening;
 		const proc = procWith(SPAWNER, "systemd-run");
 
-		const telling = registerSpawner(SPAWNER, "s-one", {
+		const telling = registerSpawner(SPAWNED, "s-one", {
 			socket: stand.socket,
 			proc,
 		});
@@ -122,12 +123,12 @@ describe("a host telling the node a spawner's session", () => {
 		expect(stand.heard, "said once it ran").toHaveLength(1);
 	});
 
-	it("says the start read before the wait, so a spawner gone meanwhile is never named", async () => {
+	it("says the start it was given, never one /proc says meanwhile", async () => {
 		const stand = node();
 		await stand.listening;
 		const proc = procWith(SPAWNER, "systemd-run");
 
-		const telling = registerSpawner(SPAWNER, "s-one", {
+		const telling = registerSpawner(SPAWNED, "s-one", {
 			socket: stand.socket,
 			proc,
 		});
@@ -147,7 +148,7 @@ describe("a host telling the node a spawner's session", () => {
 		await stand.listening;
 		const began = Date.now();
 
-		await registerSpawner(SPAWNER, "s-one", {
+		await registerSpawner(SPAWNED, "s-one", {
 			socket: stand.socket,
 			proc: procWith(SPAWNER, "sh"),
 			namePatience: SHORT_PATIENCE_MS,
@@ -166,7 +167,7 @@ describe("a host telling the node a spawner's session", () => {
 		const stand = node();
 		await stand.listening;
 
-		await registerSpawner(SPAWNER, "s-one", {
+		await registerSpawner(SPAWNED, "s-one", {
 			socket: stand.socket,
 			proc: folder(),
 		});
@@ -176,7 +177,7 @@ describe("a host telling the node a spawner's session", () => {
 
 	it("says nothing where no node is named", async () => {
 		await expect(
-			registerSpawner(SPAWNER, "s-one", {
+			registerSpawner(SPAWNED, "s-one", {
 				socket: undefined,
 				proc: procWith(SPAWNER, "pi-spawner"),
 			}),
@@ -188,7 +189,7 @@ describe("a host telling the node a spawner's session", () => {
 		await stand.listening;
 		const began = Date.now();
 
-		await registerSpawner(SPAWNER, "s-one", {
+		await registerSpawner(SPAWNED, "s-one", {
 			socket: stand.socket,
 			proc: procWith(SPAWNER, "pi-spawner"),
 			patience: SHORT_PATIENCE_MS,
@@ -204,7 +205,7 @@ describe("a host telling the node a spawner's session", () => {
 
 	it("gives up at once where nothing serves the socket", async () => {
 		await expect(
-			registerSpawner(SPAWNER, "s-one", {
+			registerSpawner(SPAWNED, "s-one", {
 				socket: join(folder(), "none.sock"),
 				proc: procWith(SPAWNER, "pi-spawner"),
 			}),

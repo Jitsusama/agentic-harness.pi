@@ -290,19 +290,27 @@ Through a Move below).
 A shared host's conversations share its process, so the machine's
 mycelium node can't tell from that which one asked it for a run. The
 host tells the node, on its own connection, which conversation each
-`pi-spawner` it starts serves, before that spawner runs anything, and
-the node takes the word only from the host, of its own `pi-spawner`,
-and only where the kernel lets no process trace any but its own
-descendants, and the host's node runs with `--disable-sigusr1`, since
-a command that could trace the host or open its inspector could speak
-for it. The node keeps the word only while it runs, so the host says
-each running `pi-spawner` again every 30 seconds. A command run
-another way, as pi's own once a spawner is lost, is told no
-conversation. Code running inside the host itself, an extension a
-project brings among it, could still say what it likes; and so could
-a command able to rewrite the harness and restart the host, so the
-word tells a conversation apart only where its commands are fenced
-from the harness's files.
+`pi-spawner` it starts serves, and a command waits for that telling,
+at most about four seconds, or until it is stopped; once the telling
+gives up, the command runs anyway and is told no conversation. The
+node takes the word only from the host, of its own `pi-spawner`, and
+checks for itself that the kernel lets no process trace any but its
+own descendants and that the host's Node.js started with
+`--disable-sigusr1` and no inspector, which the machine's own
+configuration gives it, since a command that could trace the host or
+open its inspector could speak for it. The node keeps the word only
+while it runs, so the host says each running `pi-spawner` again every
+30 seconds, with the start it read when the spawner began. A command
+run another way, as pi's own once a spawner is lost, or kept through
+a host's restart under a spawner the next host didn't start, is told
+no conversation. Code running inside the host itself, an extension a
+project brings among it, could still say what it likes. So could a
+command able to rewrite the harness and restart the host, or one
+that reaches the host's control socket and types into another
+conversation, which the host then honestly says. The word tells a
+conversation apart from mistakes, then, and from a command only where
+its commands are fenced from the harness's files and the host's and
+node's sockets.
 
 ## Stopping a Command
 

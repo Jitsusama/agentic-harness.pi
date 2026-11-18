@@ -19,6 +19,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { registerSpawner } from "../../../../lib/internal/shell/spawner-register.ts";
 
 const SPAWNER = 4242;
+/** Any start: the telling says the one it is given. */
+const SPAWNER_STARTED = 1;
 
 /**
  * Longer than any test runs, so the connection is open until the test
@@ -109,11 +111,15 @@ describe.skipIf(process.platform !== "linux")(
 			await stand.listening;
 			const before = socketsHeld();
 
-			const telling = registerSpawner(SPAWNER, "s-one", {
-				socket: stand.socket,
-				proc: procWithSpawner(SPAWNER),
-				patience: HELD_OPEN_MS,
-			});
+			const telling = registerSpawner(
+				{ pid: SPAWNER, started: SPAWNER_STARTED },
+				"s-one",
+				{
+					socket: stand.socket,
+					proc: procWithSpawner(SPAWNER),
+					patience: HELD_OPEN_MS,
+				},
+			);
 			await stand.opened;
 			const opening = [...socketsHeld()].filter((one) => !before.has(one));
 			const childHolds = await socketsAChildHolds();

@@ -20,6 +20,7 @@ import {
 	withSession,
 } from "../../../lib/core/session/index.ts";
 import { teePersists } from "../../../lib/internal/shell/kept.ts";
+import type { Spawned } from "../../../lib/internal/shell/spawner-register.ts";
 import { SPAWNER_VARIABLE } from "../../../lib/internal/shell/spawner-variable.ts";
 import { installTestHost } from "../../support/session-host.ts";
 import {
@@ -85,6 +86,7 @@ async function ran(
 
 describe("the agent's bash for a conversation", () => {
 	const SPAWNER_PID = 4242;
+	const SPAWNER_STARTED = 987_654;
 	let dispose: (() => void) | undefined;
 	afterEach(() => {
 		dispose?.();
@@ -98,9 +100,9 @@ describe("the agent's bash for a conversation", () => {
 		conversation: SessionRef = "s-one",
 	) {
 		const program = spawnerStandIn();
-		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
-			async () => undefined,
-		);
+		const register = vi.fn<
+			(spawned: Spawned, session: string) => Promise<void>
+		>(async () => undefined);
 		const bash = agentBash(root, {}, { kind: "none" }, conversation, {
 			env: { [SPAWNER_VARIABLE]: "on" },
 			program: "/run/pi-spawner",
@@ -109,6 +111,7 @@ describe("the agent's bash for a conversation", () => {
 			reap: () => undefined,
 			asksKeeps: async () => false,
 			register,
+			startOf: async () => SPAWNER_STARTED,
 			...given,
 		});
 		return { program, bash, register };
@@ -124,7 +127,7 @@ describe("the agent's bash for a conversation", () => {
 		);
 
 		expect(register, "what the node was told").toHaveBeenCalledExactlyOnceWith(
-			SPAWNER_PID,
+			{ pid: SPAWNER_PID, started: SPAWNER_STARTED },
 			"s-one",
 		);
 	});
@@ -142,7 +145,7 @@ describe("the agent's bash for a conversation", () => {
 		);
 
 		expect(register, "what the node was told").toHaveBeenCalledExactlyOnceWith(
-			SPAWNER_PID,
+			{ pid: SPAWNER_PID, started: SPAWNER_STARTED },
 			"s-context",
 		);
 	});

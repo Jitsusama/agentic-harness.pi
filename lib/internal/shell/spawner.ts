@@ -38,18 +38,27 @@
  *
  * A load given its session tells the machine's mycelium node which
  * session each spawner it starts serves (spawner-register.ts), and its
- * first command waits for that, at most a couple of seconds, so the node
- * can tell which of a host's sessions asked it for a run. The node takes
+ * first command waits for that, at most the two patiences there (about
+ * four seconds), or until it's stopped, so the node can tell which of a
+ * host's sessions asked it for a run. The node takes
  * the word only from the host itself, of its own pi-spawner child, so a
  * command that starts a spawner of its own, or runs as pi's own child
  * once a spawner is lost, is told no session. The node keeps that word
  * only while it runs, so each spawner is said again every 30 seconds
- * until it ends, and a node that restarted knows it again by then.
+ * until it ends, and a node that restarted knows it again by then. Each
+ * saying names the start read once as the spawner began, so a pid it
+ * left to another process once it ended is never named.
+ * A command waiting on that holds its spawner, so another quest's
+ * command retiring it closes it only once this one has run.
  *
  * When pi goes, pi-spawner kills every command it still runs but one kept
  * on disk (shell-workflow's keeping.ts), which a shared host hands to the
  * next. A spawner from before that answers no `keeps`, so through it no
  * command is kept, and each holds a host's restart as before.
+ *
+ * Long because one link's life, from its start through its quest, its
+ * registering, its retiring and its stop, is one state machine that
+ * every command it starts reads, and split it would be read in pieces.
  */
 
 import { execFile, spawn } from "node:child_process";
@@ -69,7 +78,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../core/session/host.ts";
 import { systemProgram } from "../sandbox/system-program.ts";
-import { registerSpawner } from "./spawner-register.ts";
+import { registerSpawner, type Spawned, startOf } from "./spawner-register.ts";
 import {
 	sayUnscoped,
 	scopeFailed,
@@ -155,7 +164,12 @@ export interface SpawnerOptions {
 	 * Tell the machine's node the session a started spawner serves; by
 	 * default on the node's socket (registerSpawner).
 	 */
-	register?: (pid: number, session: string) => Promise<void>;
+	register?: (spawned: Spawned, session: string) => Promise<void>;
+	/**
+	 * When a process started, in clock ticks since boot, read once as a
+	 * spawner starts; by default from /proc (startOf).
+	 */
+	startOf?: (pid: number) => Promise<number | undefined>;
 	/** How often a running spawner's session is said again (RESAY_MS). */
 	resay?: number;
 	/** Whether the program at a path spares kept commands when pi goes. */
@@ -211,6 +225,13 @@ interface Link {
 	): Run;
 	/** Close the program once the commands it runs have ended. */
 	retire(): void;
+	/**
+	 * Keep the program open, though retired, until what this returns is
+	 * called: a command about to be sent holds it as one running does.
+	 */
+	hold(): () => void;
+	/** Whether the program has stopped. */
+	stopped(): boolean;
 }
 
 /**
@@ -284,11 +305,21 @@ export function spawnedBy(
 			const register = options.register ?? registerSpawner;
 			linkTold = undefined;
 			if (session !== undefined && pid !== undefined) {
+				// Read at once, while the pid is still the spawner's, and said
+				// each time: the node refuses a pid whose start differs.
+				const began = Promise.resolve()
+					.then(() => (options.startOf ?? startOf)(pid))
+					.catch(() => undefined);
 				// A telling that fails, at once or later, leaves the spawner
-				// unnamed until the next says it.
+				// unnamed until the next says it; with no start, as with no
+				// /proc, nothing is said.
 				const tell = () =>
-					Promise.resolve()
-						.then(() => register(pid, session))
+					began
+						.then(async (started) => {
+							if (started !== undefined) {
+								await register({ pid, started }, session);
+							}
+						})
 						.catch(() => undefined);
 				linkTold = tell();
 				// Said again while it runs, even once retired, since what it
@@ -318,18 +349,25 @@ export function spawnedBy(
 			const sharing =
 				shell.commandTransport !== "stdin" && settings.env !== undefined;
 			const quest = settings.env?.[QUEST_VARIABLE];
-			let through = sharing ? linked(quest) : undefined;
-			// Nothing it runs asks the node before the node knows whose it is;
-			// a spawner lost or retired while it waited leaves the command to
-			// whatever serves its quest now.
-			while (through !== undefined && linkTold !== undefined) {
-				await linkTold;
-				const now = linked(quest);
-				if (now === through) break;
-				through = now;
-			}
+			const through = sharing ? linked(quest) : undefined;
 			if (through === undefined) return fallback.exec(command, cwd, settings);
-			return runThrough(through, shell, command, cwd, settings, kill);
+			// The telling of the spawner just taken, read before anything waits.
+			const told = linkTold;
+			// Held until it has run, so a command of another quest retiring
+			// this spawner meanwhile closes it only after, never in a loop.
+			const release = through.hold();
+			try {
+				// Nothing it runs asks the node before the node knows whose it
+				// is; a spawner lost, or a load retired, while it waited leaves
+				// the command to pi's own spawn.
+				if (told !== undefined) await toldOrStopped(told, settings.signal);
+				if (lost || through.stopped()) {
+					return await fallback.exec(command, cwd, settings);
+				}
+				return await runThrough(through, shell, command, cwd, settings, kill);
+			} finally {
+				release();
+			}
 		},
 		retire: () => {
 			lost = true;
@@ -482,6 +520,26 @@ function commOf(pid: number, proc: string): string | undefined {
 }
 
 /** One command through pi-spawner, held to what pi's own spawn does. */
+/** Once `told` settles, or sooner if `signal` stops the command. */
+function toldOrStopped(
+	told: Promise<void>,
+	signal: AbortSignal | undefined,
+): Promise<void> {
+	if (signal === undefined) return told;
+	return new Promise((settle) => {
+		const stop = () => settle();
+		if (signal.aborted) {
+			settle();
+			return;
+		}
+		signal.addEventListener("abort", stop, { once: true });
+		void told.then(() => {
+			signal.removeEventListener("abort", stop);
+			settle();
+		});
+	});
+}
+
 async function runThrough(
 	link: Link,
 	shell: Shell,
@@ -633,10 +691,17 @@ function connect(
 	let next = 1;
 	let held: Buffer = Buffer.alloc(0);
 	let retiring = false;
+	// Commands about to be sent, which keep it open as running ones do.
+	let holding = 0;
 	// The end of its input tells pi-spawner to stop; with nothing running,
 	// it kills nothing.
 	const closeOnceIdle = () => {
-		if (retiring && pending.size === 0 && !started.input.writableEnded) {
+		if (
+			retiring &&
+			pending.size === 0 &&
+			holding === 0 &&
+			!started.input.writableEnded
+		) {
 			started.input.end();
 		}
 	};
@@ -757,6 +822,17 @@ function connect(
 			retiring = true;
 			closeOnceIdle();
 		},
+		hold() {
+			holding += 1;
+			let released = false;
+			return () => {
+				if (released) return;
+				released = true;
+				holding -= 1;
+				closeOnceIdle();
+			};
+		},
+		stopped: () => over,
 	};
 }
 

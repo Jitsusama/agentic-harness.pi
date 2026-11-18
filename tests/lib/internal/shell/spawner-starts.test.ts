@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { spawnedBy } from "../../../../lib/internal/shell/spawner.ts";
+import type { Spawned } from "../../../../lib/internal/shell/spawner-register.ts";
 import { SPAWNER_VARIABLE } from "../../../../lib/internal/shell/spawner-variable.ts";
 
 const made: string[] = [];
@@ -24,12 +25,15 @@ afterEach(() => {
 		rmSync(folder, { recursive: true, force: true });
 });
 
-/** A program that reads its input until it ends, as pi-spawner does. */
+/**
+ * A program that reads its input until it ends, as pi-spawner does, with
+ * the shell's own read, so stopping it leaves no child behind.
+ */
 function readsUntilClosed(): string {
 	const folder = mkdtempSync(join(tmpdir(), "spawner-starts-"));
 	made.push(folder);
 	const program = join(folder, "pi-spawner");
-	writeFileSync(program, "#!/bin/sh\ncat >/dev/null\n");
+	writeFileSync(program, "#!/bin/sh\nwhile read -r _; do :; done\n");
 	chmodSync(program, 0o755);
 	return program;
 }
@@ -39,9 +43,9 @@ describe.skipIf(process.platform !== "linux")(
 	() => {
 		it("is the process the node is told serves the load's session", async () => {
 			const program = readsUntilClosed();
-			const register = vi.fn<(pid: number, session: string) => Promise<void>>(
-				async () => undefined,
-			);
+			const register = vi.fn<
+				(spawned: Spawned, session: string) => Promise<void>
+			>(async () => undefined);
 			const operations = spawnedBy(
 				{ exec: async () => ({ exitCode: 0 }) },
 				{
@@ -60,13 +64,18 @@ describe.skipIf(process.platform !== "linux")(
 				.exec("true", "/", { onData: () => {}, env: {} })
 				.catch(() => undefined);
 			await vi.waitFor(() => expect(register).toHaveBeenCalledOnce());
-			const [pid, session] = register.mock.calls[0] ?? [];
-			if (pid === undefined) throw new Error("no process was told");
+			const [spawned, session] = register.mock.calls[0] ?? [];
+			if (spawned === undefined) throw new Error("no process was told");
+			const { pid, started } = spawned;
+			const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
 			const runs = readFileSync(`/proc/${pid}/cmdline`, "utf8");
 			process.kill(pid, "SIGTERM");
 			await ran;
 
 			expect(session, "the session it was told").toBe("s-one");
+			// The start is /proc's 22nd field, the first 20 after the name.
+			const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+			expect(started, "the start it was told").toBe(Number(fields[19]));
 			// The load starts the program through any links to it.
 			expect(runs.split("\0"), "what the told process runs").toContain(
 				realpathSync(program),

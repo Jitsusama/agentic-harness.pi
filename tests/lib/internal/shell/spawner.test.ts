@@ -1,7 +1,8 @@
 /**
  * The agent's commands through pi-spawner: a stand-in for the program,
  * two streams and an end, takes the requests and sends frames, so what
- * pi's bash sees is checked without starting anything.
+ * pi's bash sees is checked without starting anything. Long because
+ * every case drives the same stand-in program through the one link.
  */
 import {
 	chmodSync,
@@ -27,6 +28,7 @@ import {
 	spawnerKeeps,
 	stopIdleSpawners,
 } from "../../../../lib/internal/shell/spawner.ts";
+import type { Spawned } from "../../../../lib/internal/shell/spawner-register.ts";
 import { SPAWNER_VARIABLE } from "../../../../lib/internal/shell/spawner-variable.ts";
 import {
 	type SpawnerStandIn,
@@ -34,6 +36,9 @@ import {
 } from "../../../support/spawner-stand-in.ts";
 
 const SHELL = { shell: "/bin/bash", args: ["-c"] };
+
+/** When every stand-in spawner started, as /proc would say it. */
+const STARTED = 987_654;
 
 /** pi's own spawn as a stand-in, counting what fell back to it. */
 function fallback(): BashOperations & { calls: string[] } {
@@ -59,6 +64,7 @@ function through(over: Partial<SpawnerOptions> = {}) {
 		start: program.start,
 		kill,
 		reap: () => undefined,
+		startOf: async () => STARTED,
 		...over,
 	});
 	return { program, own, kill, operations };
@@ -490,7 +496,9 @@ describe("the node told the session a load's pi-spawner serves", () => {
 	it("is told before the first command reaches the spawner", async () => {
 		const program = standIn();
 		let told: (() => void) | undefined;
-		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
+		const register = vi.fn<
+			(spawned: Spawned, session: string) => Promise<void>
+		>(
 			() =>
 				new Promise((settle) => {
 					told = settle;
@@ -512,16 +520,16 @@ describe("the node told the session a load's pi-spawner serves", () => {
 		await ran;
 
 		expect(register, "what the node was told").toHaveBeenCalledExactlyOnceWith(
-			SPAWNER_PID,
+			{ pid: SPAWNER_PID, started: STARTED },
 			"s-one",
 		);
 	});
 
 	it("is told once a spawner, not once a command", async () => {
 		const program = standIn();
-		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
-			async () => undefined,
-		);
+		const register = vi.fn<
+			(spawned: Spawned, session: string) => Promise<void>
+		>(async () => undefined);
 		const { operations } = through({
 			start: asProcess(program),
 			session: "s-one",
@@ -545,9 +553,9 @@ describe("the node told the session a load's pi-spawner serves", () => {
 			() => ({ ...first.start(), pid: SPAWNER_PID }),
 			() => ({ ...second.start(), pid: SPAWNER_PID + 1 }),
 		];
-		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
-			async () => undefined,
-		);
+		const register = vi.fn<
+			(spawned: Spawned, session: string) => Promise<void>
+		>(async () => undefined);
 		const { operations } = through({
 			start: () => {
 				const next = starts.shift();
@@ -573,8 +581,8 @@ describe("the node told the session a load's pi-spawner serves", () => {
 		}
 
 		expect(register.mock.calls, "what the node was told").toEqual([
-			[SPAWNER_PID, "s-one"],
-			[SPAWNER_PID + 1, "s-one"],
+			[{ pid: SPAWNER_PID, started: STARTED }, "s-one"],
+			[{ pid: SPAWNER_PID + 1, started: STARTED }, "s-one"],
 		]);
 	});
 
@@ -582,9 +590,9 @@ describe("the node told the session a load's pi-spawner serves", () => {
 		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
 		try {
 			const program = standIn();
-			const register = vi.fn<(pid: number, session: string) => Promise<void>>(
-				async () => undefined,
-			);
+			const register = vi.fn<
+				(spawned: Spawned, session: string) => Promise<void>
+			>(async () => undefined);
 			const { operations } = through({
 				start: asProcess(program),
 				session: "s-one",
@@ -604,8 +612,8 @@ describe("the node told the session a load's pi-spawner serves", () => {
 			await delivered();
 
 			expect(register.mock.calls, "what the node was told").toEqual([
-				[SPAWNER_PID, "s-one"],
-				[SPAWNER_PID, "s-one"],
+				[{ pid: SPAWNER_PID, started: STARTED }, "s-one"],
+				[{ pid: SPAWNER_PID, started: STARTED }, "s-one"],
 			]);
 		} finally {
 			vi.useRealTimers();
@@ -679,11 +687,159 @@ describe("the node told the session a load's pi-spawner serves", () => {
 		expect(program.asked, "what the retired spawner was asked").toEqual([]);
 	});
 
+	it("says the start read as the spawner began, each time it's said", async () => {
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+		try {
+			const program = standIn();
+			let now = STARTED;
+			const startOf = vi.fn<(pid: number) => Promise<number>>(async () => now);
+			const register = vi.fn<
+				(spawned: Spawned, session: string) => Promise<void>
+			>(async () => undefined);
+			const { operations } = through({
+				start: asProcess(program),
+				session: "s-one",
+				register,
+				startOf,
+			});
+			const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
+			await askedFor(program, 1);
+			program.ends(1, 10);
+			await ran;
+			// The pid left to another process, as /proc would say it.
+			now = STARTED + 1;
+
+			vi.advanceTimersByTime(RESAY_MS);
+			await vi.waitFor(() =>
+				expect(register, "tellings, said again").toHaveBeenCalledTimes(2),
+			);
+
+			expect(register.mock.calls, "what the node was told").toEqual([
+				[{ pid: SPAWNER_PID, started: STARTED }, "s-one"],
+				[{ pid: SPAWNER_PID, started: STARTED }, "s-one"],
+			]);
+			expect(startOf, "starts read").toHaveBeenCalledOnce();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("runs two quests' commands waiting on their tellings, each through its own spawner", async () => {
+		const first = standIn();
+		const second = standIn();
+		const programs = [first, second];
+		let starts = 0;
+		const tellings: (() => void)[] = [];
+		const { operations } = through({
+			start: () => {
+				const next = programs[starts];
+				if (next === undefined) throw new Error("started too often");
+				starts += 1;
+				return { ...next.start(), pid: SPAWNER_PID + starts };
+			},
+			session: "s-one",
+			register: () =>
+				new Promise((settle) => {
+					tellings.push(settle);
+				}),
+		});
+
+		const ran = [
+			operations.exec("true", "/", {
+				onData: () => {},
+				env: { PI_QUEST: "QEST-20261118-AAAAAA" },
+			}),
+			operations.exec("true", "/", {
+				onData: () => {},
+				env: { PI_QUEST: "QEST-20261118-BBBBBB" },
+			}),
+		];
+		await vi.waitFor(() => expect(tellings, "tellings begun").toHaveLength(2));
+		for (const told of tellings) told();
+		await askedFor(first, 1);
+		await askedFor(second, 1);
+		first.ends(1, 10);
+		second.ends(1, 11);
+
+		await expect(Promise.all(ran), "how the commands ended").resolves.toEqual([
+			{ exitCode: 0 },
+			{ exitCode: 0 },
+		]);
+		expect(starts, "spawners started").toBe(2);
+		expect(tellings, "tellings").toHaveLength(2);
+		expect(first.hungUp(), "the retired one, once its command ran").toBe(true);
+		expect(second.hungUp(), "the one serving now").toBe(false);
+	});
+
+	it("leaves a waiting command to pi's own spawn when its retired spawner stops meanwhile", async () => {
+		const first = standIn();
+		const second = standIn();
+		const programs = [first, second];
+		let starts = 0;
+		const tellings: (() => void)[] = [];
+		const { operations, own } = through({
+			start: () => {
+				const next = programs[starts];
+				if (next === undefined) throw new Error("started too often");
+				starts += 1;
+				return { ...next.start(), pid: SPAWNER_PID + starts };
+			},
+			session: "s-one",
+			register: () =>
+				new Promise((settle) => {
+					tellings.push(settle);
+				}),
+		});
+
+		const waiting = operations.exec("echo first", "/", {
+			onData: () => {},
+			env: { PI_QUEST: "QEST-20261118-AAAAAA" },
+		});
+		const next = operations.exec("echo second", "/", {
+			onData: () => {},
+			env: { PI_QUEST: "QEST-20261118-BBBBBB" },
+		});
+		await vi.waitFor(() => expect(tellings, "tellings begun").toHaveLength(2));
+		first.stop();
+		await delivered();
+		for (const told of tellings) told();
+		await askedFor(second, 1);
+		second.ends(1, 11);
+
+		await expect(waiting, "how the waiting command ended").resolves.toEqual({
+			exitCode: 0,
+		});
+		await next;
+		expect(own.calls, "what pi's own spawn ran").toEqual(["echo first"]);
+		expect(first.asked, "what the stopped spawner was asked").toEqual([]);
+	});
+
+	it("stops waiting on the telling once the command is stopped", async () => {
+		const program = standIn();
+		const { operations } = through({
+			start: asProcess(program),
+			session: "s-one",
+			register: () => new Promise<void>(() => undefined),
+		});
+		const stopping = new AbortController();
+
+		const ran = operations.exec("true", "/", {
+			onData: () => {},
+			env: {},
+			signal: stopping.signal,
+		});
+		await delivered();
+		stopping.abort();
+
+		await expect(ran, "how the command ended").rejects.toThrow("aborted");
+		expect(program.asked, "what the spawner was asked").toEqual([]);
+	});
+
 	it("is told nothing for a load that names no session", async () => {
 		const program = standIn();
-		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
-			async () => undefined,
-		);
+		const register = vi.fn<
+			(spawned: Spawned, session: string) => Promise<void>
+		>(async () => undefined);
 		const { operations } = through({ start: asProcess(program), register });
 
 		const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
