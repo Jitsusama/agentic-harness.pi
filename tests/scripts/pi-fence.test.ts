@@ -465,11 +465,47 @@ describe("pi-fence's child", () => {
 		async (signal) => {
 			const { ran, sleeper } = await sleeping();
 
+			const told = Date.now();
 			process.kill(ran.pid, signal);
 
 			expect(await ran.ended).toEqual({ code: null, signal });
+			// Ended by the signal itself, not the grace's SIGKILL.
+			expect(Date.now() - told).toBeLessThan(GRACE_MS);
 			const gone = await waitFor(() => !there(sleeper), 5000);
 			expect(gone, `the sleeper ${sleeper} ended with pi-fence`).toBe(true);
+		},
+		CASE_MS,
+	);
+
+	// A shell running a script stops it on Ctrl-C only when the command
+	// it waited on died by SIGINT, rather than exiting 130.
+	it.skipIf(process.platform !== "linux")(
+		"stops a calling script on a terminal's Ctrl-C",
+		async () => {
+			const run = `${process.execPath} --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ${STAND_IN} "echo up; exec sleep 30"`;
+			const ran = spawn(
+				"script",
+				["-qec", `bash -c '${run}; echo after'`, "/dev/null"],
+				{
+					cwd: root,
+					env: { PATH: process.env.PATH, HOME: root },
+					stdio: ["pipe", "pipe", "pipe"],
+				},
+			);
+			if (ran.pid === undefined) throw new Error("script didn't start");
+			left.push(ran.pid);
+			let said = "";
+			ran.stdout.on("data", (chunk) => {
+				said += String(chunk);
+			});
+			const ended = new Promise((done) => ran.on("exit", done));
+			const up = await waitFor(() => said.includes("up"), 20_000);
+			expect(up, `the run started: ${said}`).toBe(true);
+
+			ran.stdin.write("\u0003");
+			await ended;
+
+			expect(said).not.toContain("after");
 		},
 		CASE_MS,
 	);

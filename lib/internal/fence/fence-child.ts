@@ -93,6 +93,8 @@ export function runForwarding(text: string, folder: string): Promise<ChildEnd> {
 	// The pipe's far end closes when the watcher ends with the group.
 	shell.stdio[3]?.on("error", () => undefined);
 	let told: NodeJS.Signals | undefined;
+	// A terminal's Ctrl-C, heard but not passed: the group had it.
+	let interrupted = false;
 	let grace: NodeJS.Timeout | undefined;
 	const signal = (sent: NodeJS.Signals) => {
 		if (shell.pid === undefined) return;
@@ -105,7 +107,10 @@ export function runForwarding(text: string, folder: string): Promise<ChildEnd> {
 	const passOn = (sent: NodeJS.Signals) => {
 		if (shell.exitCode !== null || shell.signalCode !== null) return;
 		// From a terminal, Ctrl-C reached the shell's group already.
-		if (fromTerminal && sent === "SIGINT") return;
+		if (fromTerminal && sent === "SIGINT") {
+			interrupted = true;
+			return;
+		}
 		told ??= sent;
 		signal(sent);
 		grace ??= setTimeout(() => signal("SIGKILL"), GRACE_MS);
@@ -125,6 +130,8 @@ export function runForwarding(text: string, folder: string): Promise<ChildEnd> {
 			// What the command left running ends by the watcher, once
 			// pi-fence has gone.
 			if (told && by) return done({ signal: told });
+			// So a calling script stops on Ctrl-C, as it would without us.
+			if (interrupted && by === "SIGINT") return done({ signal: by });
 			const number = by ? constants.signals[by] : undefined;
 			done({
 				code: number === undefined ? (code ?? UNKNOWN_END) : SIGNALLED + number,
