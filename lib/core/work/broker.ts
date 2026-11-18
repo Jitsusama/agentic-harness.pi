@@ -183,10 +183,19 @@ export interface BrokerDeps {
 	 */
 	memory?: TreeMemory;
 	/**
-	 * Told of a tree asked for again after a sweep took it, just before
-	 * it is cut afresh, so the cut can be said where the taking was.
+	 * Told of a tree asked for again whose record or folder had gone,
+	 * just before it is cut afresh, so the cut can be said where a
+	 * sweep's taking is.
 	 */
 	recut?(was: HeldTree): void;
+	/**
+	 * Whether a tree's folder still stands. A sweep may take a tree this
+	 * session cut once it is left unused, and tells no broker, so this
+	 * session's own list is checked against the disk before it answers.
+	 * Without it every tree on the list is taken to stand, which is what
+	 * a broker over made-up paths in a test needs.
+	 */
+	stands?(path: string): boolean;
 }
 
 /**
@@ -224,7 +233,31 @@ export function createTreeBroker(
 	 * asked about, and deduping by path keeps a remembered copy of it from
 	 * appearing twice under two names for the same directory.
 	 */
+	/**
+	 * Takes off this session's list each tree whose folder has gone, and
+	 * says which. A sweep takes a snapshot this session left unused for
+	 * hours without telling its broker, and the list answering for it
+	 * named a gone folder as cut, so attaching a change again sent its
+	 * readers to a missing directory.
+	 */
+	const fallen: HeldTree[] = [];
+	const forgetFallen = (): void => {
+		const stands = deps.stands;
+		if (stands === undefined) return;
+		for (const tree of trees.filter((one) => !stands(one.path))) {
+			trees.splice(trees.indexOf(tree), 1);
+			fallen.push(tree);
+		}
+	};
+	/** The tree of ours that fell and this request asks for again, said once. */
+	const askedAgain = (request: TreeRequest): HeldTree | undefined => {
+		forgetFallen();
+		const at = fallen.findIndex((tree) => satisfies(tree.identity, request));
+		return at >= 0 ? fallen.splice(at, 1)[0] : undefined;
+	};
+
 	const everything = (): readonly HeldTree[] => {
+		forgetFallen();
 		const mine = new Set(trees.map((tree) => tree.path));
 		const earlier = (memory?.recall() ?? []).filter(
 			(tree) => !mine.has(tree.path),
@@ -266,6 +299,8 @@ export function createTreeBroker(
 			// trees that needed it. The provider is asked either way, and
 			// every provider treats already-there as the ordinary case,
 			// which is what makes `ensure` mean what the word says.
+			const again = askedAgain(request);
+			if (again) deps.recut?.(again);
 			const reusable = everything().find((tree) =>
 				satisfies(tree.identity, request),
 			);
@@ -315,14 +350,14 @@ export function createTreeBroker(
 					trees.push(taken);
 				}
 				await memory?.rememberHeldByUs(taken);
-				// Once our owner is written no sweep takes the tree, but one may
-				// have taken it between the provider finding it and that write,
-				// since a sweep judges owners under the record's lock and we
-				// only now took it. The record goes with the folder, so a tree
-				// not ours already whose record memory no longer recalls was
-				// taken, and is cut afresh below rather than handed back gone.
+				// A sweep may have taken the tree between the provider finding
+				// it and that write, since it judges under the record's lock and
+				// we only now dated our ask. That holds for a tree this session
+				// cut as much as another's, since one left unused is taken while
+				// its session stays open. The record goes with the folder, so a
+				// tree whose record memory no longer recalls was taken, and is
+				// cut afresh below rather than handed back gone.
 				const gone =
-					!ours &&
 					memory !== undefined &&
 					!memory
 						.recall()

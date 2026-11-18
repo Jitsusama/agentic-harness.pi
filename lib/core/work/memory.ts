@@ -154,6 +154,14 @@ export interface TreeMemory {
 		take: () => Promise<boolean>,
 	): Promise<HeldTree | undefined>;
 	/**
+	 * Date a tree's record as used at `at` when it says nothing of its use,
+	 * under the record's lock, and answer whether it did. A session on
+	 * code older than the dating never writes its use, so the sweep's
+	 * first sight stands in for it, and the tree waits out a whole idle
+	 * spell from then before it may go.
+	 */
+	dateFirstSeen(path: string, at: number): Promise<boolean>;
+	/**
 	 * Make `session` the holder of every tree a record says it holds, as
 	 * the process it runs in now, and answer how many records changed.
 	 *
@@ -366,7 +374,11 @@ export function createTreeMemory(
 				// without one is right: it reads as unattributable, which is
 				// held, and a tree wrongly held costs disk where a tree
 				// wrongly reclaimed costs work.
-				this.remember({ ...held, ...sessionsWith(held), usedAt: Date.now() });
+				// Under the lock all the same, since a sweep judges a record's
+				// use under it.
+				await underLock(held.identity.key, async () => {
+					this.remember({ ...held, ...sessionsWith(held), usedAt: Date.now() });
+				});
 				return;
 			}
 			// Added to whoever else holds it rather than replacing them. A
@@ -477,6 +489,19 @@ export function createTreeMemory(
 				taken = tree;
 			});
 			return taken;
+		},
+
+		async dateFirstSeen(path, at) {
+			const found = this.recall().find((one) => one.path === path);
+			if (found === undefined || found.usedAt !== undefined) return false;
+			let dated = false;
+			await underLock(found.identity.key, async () => {
+				const tree = this.recall().find((one) => one.path === path);
+				if (tree === undefined || tree.usedAt !== undefined) return;
+				this.remember({ ...tree, usedAt: at });
+				dated = true;
+			});
+			return dated;
 		},
 
 		async holdWhileUnheld(path, facts = systemFacts) {

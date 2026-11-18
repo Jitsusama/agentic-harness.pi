@@ -31,11 +31,17 @@ export interface UseSigns {
 	 */
 	standingIn?(): readonly string[] | Promise<readonly string[]>;
 	/**
-	 * Every file a process running now holds open. Asked only of what
-	 * would be taken from a session still open, since reading them all
-	 * is a walk of every process's descriptors.
+	 * Which of `paths`, each a real path, a process running now works in
+	 * or holds a file open in, or a live session's folder lies in. Read
+	 * afresh at each asking, just before trees a session still open holds
+	 * are taken, since a census from the start of a sweep is minutes old
+	 * by then; and asked only of those, since reading every process's
+	 * descriptors is a walk of thousands. Nothing when the machine can't
+	 * say, as without `/proc`, and then nothing is taken.
 	 */
-	openIn?(): readonly string[] | Promise<readonly string[]>;
+	busyAmong?(
+		paths: readonly string[],
+	): Promise<ReadonlySet<string> | undefined>;
 	/**
 	 * The working folders of every session that may work in one, wherever
 	 * it runs. A hosted conversation's folder is no process's: on 11

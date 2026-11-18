@@ -64,6 +64,7 @@ import type { TreeMemory } from "./memory.ts";
 import {
 	type IdleSnapshot,
 	idleSnapshots,
+	lastUsed,
 	mainCheckoutOf,
 } from "./sweep-idle.ts";
 import { markEnded, restingSince } from "./sweep-rest.ts";
@@ -601,7 +602,14 @@ async function takeIdle(
 		tree,
 		{ path: tree.path, ...sessions, commit, why },
 		outcome,
-		(take) => deps.memory.whileUnusedSince(tree.path, usedAt, take),
+		// Its git and folder are read again under the lock too, since a
+		// session may have worked in it since it was chosen.
+		(take) =>
+			deps.memory.whileUnusedSince(
+				tree.path,
+				usedAt,
+				async () => lastUsed(tree) <= usedAt && take(),
+			),
 	);
 }
 

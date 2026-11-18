@@ -72,6 +72,7 @@ function remembering(held: HeldTree, others: number[]): TreeMemory {
 		whileUnheld: async () => undefined,
 		holdWhileUnheld: async () => undefined,
 		whileUnusedSince: async () => undefined,
+		dateFirstSeen: async () => false,
 		reownSession: async () => 0,
 	};
 }
@@ -179,6 +180,64 @@ describe("a worktree somebody else is working in", () => {
 			"the provider is asked once to find it, once to cut it",
 		).toHaveLength(2);
 		expect(writes, "the fresh cut is written down as ours").toBe(2);
+	});
+
+	it("cuts afresh a snapshot this session cut when a sweep took it as it was asked again", async () => {
+		// A sweep takes a snapshot its own session left unused, so the
+		// race above reaches this session's own trees too.
+		const commit = snapshot("abc123");
+		const { provider, cuts } = fakeProvider("git-worktree");
+		let writes = 0;
+		let cut: HeldTree | undefined;
+		const memory: TreeMemory = {
+			...remembering(
+				{ identity: treeIdentity(commit), path: "", providerId: "" },
+				[],
+			),
+			rememberHeldByUs: async (tree) => {
+				writes += 1;
+				cut = tree;
+			},
+			// Written once, then taken between the provider finding it
+			// again and the second write.
+			recall: () => (writes === 1 && cut ? [cut] : []),
+		};
+		const recut: string[] = [];
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory,
+			recut: (was) => recut.push(was.path),
+		});
+
+		const first = await broker.ensure(commit);
+		await broker.ensure(commit);
+
+		expect(recut, "the fresh cut isn't said").toEqual([first.path]);
+		expect(cuts, "it isn't cut afresh").toHaveLength(3);
+	});
+
+	it("lists no tree of its own whose folder has gone, and says it is cut afresh", async () => {
+		// A sweep tells no broker what it took, so this session's own list
+		// named a gone folder as cut, and attaching a change again sent its
+		// readers to a missing directory.
+		const commit = snapshot("abc123");
+		const { provider, cuts } = fakeProvider("git-worktree");
+		const gone = new Set<string>();
+		const recut: string[] = [];
+		const broker = createTreeBroker({
+			providers: [provider],
+			recut: (was) => recut.push(was.path),
+			stands: (path) => !gone.has(path),
+		});
+
+		const first = await broker.ensure(commit);
+		gone.add(first.path);
+		const listed = broker.held().map((tree) => tree.path);
+		await broker.ensure(commit);
+
+		expect(listed, "a gone folder is listed as held").toEqual([]);
+		expect(recut, "the fresh cut isn't said").toEqual([first.path]);
+		expect(cuts, "it isn't cut afresh").toHaveLength(2);
 	});
 });
 

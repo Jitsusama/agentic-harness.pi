@@ -576,6 +576,26 @@ describe("a tree remembers which session cut it", () => {
 		expect(memory.recall(), "the taken tree's record stayed").toEqual([]);
 	});
 
+	it("dates a record that says nothing of its use, and never one that does", async () => {
+		// A session on code from before the dating never writes its use, so
+		// the sweep's first sight stands in for it.
+		const memory = memoryAt();
+		memory.remember(tree("older"));
+		memory.remember({ ...tree("newer"), usedAt: 1000 });
+
+		const older = await memory.dateFirstSeen(tree("older").path, 5000);
+		const newer = await memory.dateFirstSeen(tree("newer").path, 5000);
+		const again = await memory.dateFirstSeen(tree("older").path, 9000);
+		const at = (name: string) =>
+			memory.recall().find((one) => one.path === tree(name).path)?.usedAt;
+
+		expect(older, "a record saying nothing of its use wasn't dated").toBe(true);
+		expect(at("older")).toBe(5000);
+		expect(newer, "a record dated by its session was dated again").toBe(false);
+		expect(at("newer")).toBe(1000);
+		expect(again, "a first sight was dated twice").toBe(false);
+	});
+
 	it("names a subagent's fleet session beside its own, once each", async () => {
 		// A lane's own session ends with its job, while the session that
 		// ran it goes on and sends the next job into the same tree.

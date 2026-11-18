@@ -14,7 +14,9 @@
  * it was pinned at and never left it. Never one a process works in or
  * holds a file open in, one a session's folder lies in, one something
  * claims, or one whose record names nobody, since nothing can say whose
- * that is.
+ * that is. Nothing at all where the machine can't say what processes
+ * hold, and never one whose record has said nothing of its use until a
+ * whole idle spell after the sweep first saw it so.
  */
 
 import { statSync } from "node:fs";
@@ -26,6 +28,7 @@ import {
 	resolvedPath as resolved,
 	type UseSigns,
 } from "./in-use.ts";
+import type { TreeMemory } from "./memory.ts";
 import { pinnedCommit } from "./tree.ts";
 
 /**
@@ -34,6 +37,14 @@ import { pinnedCommit } from "./tree.ts";
  * the hour it asked for it.
  */
 export const IDLE_HELD_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * How many such snapshots one sweep takes at most, oldest first, so a
+ * sweep's last take is seconds behind the reading of who works where,
+ * and a sweep holds the lock and the host's time for no longer than
+ * that many removals.
+ */
+export const IDLE_TAKES_PER_SWEEP = 20;
 
 /** A snapshot to take, with the commit it was pinned at. */
 export interface IdleSnapshot {
@@ -48,6 +59,8 @@ export interface IdleChoice extends UseSigns {
 	exec: Exec;
 	/** Paths something says it wants, such as a quest's trees. */
 	claims: readonly string[];
+	/** Where a record saying nothing of its use is dated by first sight. */
+	memory: Pick<TreeMemory, "dateFirstSeen">;
 	/** The time now, in milliseconds since the epoch. */
 	now: number;
 }
@@ -70,37 +83,39 @@ export function lastUsed(tree: HeldTree): number {
 
 /**
  * The snapshots among `held`, which live sessions hold, that nothing has
- * used within {@link IDLE_HELD_MS} and that lose nothing by going.
+ * used within {@link IDLE_HELD_MS} and that lose nothing by going, at
+ * most {@link IDLE_TAKES_PER_SWEEP} of them, least recently used first.
  */
 export async function idleSnapshots(
 	held: readonly HeldTree[],
 	choice: IdleChoice,
 ): Promise<IdleSnapshot[]> {
 	const since = choice.now - IDLE_HELD_MS;
-	const aged = held.filter(
-		(tree) =>
-			tree.providerId === "git-worktree" &&
-			Array.isArray(tree.owners) &&
-			tree.owners.length > 0 &&
-			pinnedCommit(tree.identity) !== undefined &&
-			lastUsed(tree) <= since,
-	);
-	if (aged.length === 0) return [];
+	const aged = held
+		.filter(
+			(tree) =>
+				tree.providerId === "git-worktree" &&
+				Array.isArray(tree.owners) &&
+				tree.owners.length > 0 &&
+				pinnedCommit(tree.identity) !== undefined &&
+				lastUsed(tree) <= since,
+		)
+		.map((tree) => ({ tree, usedAt: lastUsed(tree) }))
+		.sort((a, b) => a.usedAt - b.usedAt);
 	const claimed = choice.claims.map(resolved);
-	// A process's folder and open files are read from the kernel, already
-	// real paths; a session's folder may name a link.
-	const busy = [
-		...((await choice.standingIn?.()) ?? []),
-		...((await choice.openIn?.()) ?? []),
-		...((await choice.sessionFolders?.()) ?? []).map(resolved),
-	];
-	const idle: IdleSnapshot[] = [];
-	for (const tree of aged) {
+	const chosen: IdleSnapshot[] = [];
+	for (const { tree, usedAt } of aged) {
+		if (chosen.length >= IDLE_TAKES_PER_SWEEP) break;
+		// A session on code older than the dating of use never writes it,
+		// so the first sight of its record starts the idle spell.
+		if (tree.usedAt === undefined) {
+			await choice.memory.dateFirstSeen(tree.path, choice.now);
+			continue;
+		}
 		const path = resolved(tree.path);
 		const inside = (one: string) => one === path || one.startsWith(`${path}/`);
 		if (claimed.some((one) => inside(one) || path.startsWith(`${one}/`)))
 			continue;
-		if (busy.some(inside)) continue;
 		const commit = pinnedCommit(tree.identity);
 		if (
 			commit === undefined ||
@@ -108,9 +123,15 @@ export async function idleSnapshots(
 		) {
 			continue;
 		}
-		idle.push({ tree, commit, usedAt: lastUsed(tree) });
+		chosen.push({ tree, commit, usedAt });
 	}
-	return idle;
+	if (chosen.length === 0) return [];
+	// Read once the choosing is done, so it is seconds old at each take.
+	const busy = await choice.busyAmong?.(
+		chosen.map(({ tree }) => resolved(tree.path)),
+	);
+	if (busy === undefined) return [];
+	return chosen.filter(({ tree }) => !busy.has(resolved(tree.path)));
 }
 
 /**

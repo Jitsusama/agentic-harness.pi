@@ -23,7 +23,7 @@ import {
 	WORK_TREE_CLAIMS,
 	WORK_TREES_SWEPT,
 } from "../../lib/core/work/events.ts";
-import type { UseSigns } from "../../lib/core/work/in-use.ts";
+import { resolvedPath, type UseSigns } from "../../lib/core/work/in-use.ts";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
 import { listTreeProviders } from "../../lib/core/work/register.ts";
 import {
@@ -220,7 +220,7 @@ export function useSigns(): UseSigns {
 			standing ??= standingIn();
 			return standing;
 		},
-		openIn,
+		busyAmong,
 		...bootedAt(),
 	};
 }
@@ -313,30 +313,53 @@ async function standingIn(): Promise<string[]> {
 }
 
 /**
- * Every file a process running now holds open, by the kernel's links to
- * them, which on a machine without `/proc` is none. Read off the event
- * loop, as {@link standingIn} reads folders.
+ * How many processes' links are read at once. Each read waits its turn
+ * on libuv's few threads, which a shared host's other conversations need
+ * too, and a machine's processes hold tens of thousands of descriptors.
  */
-async function openIn(): Promise<string[]> {
+const PROCESSES_AT_ONCE = 64;
+
+/**
+ * Which of `paths` a process running now works in or holds a file open
+ * in, or a live session's folder lies in, read afresh from the kernel's
+ * links and the sessions' records. Nothing when there is no `/proc`, as
+ * on macOS, so a tree a session still open holds is never taken there.
+ */
+async function busyAmong(
+	paths: readonly string[],
+): Promise<ReadonlySet<string> | undefined> {
 	let pids: string[];
 	try {
 		pids = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
 	} catch {
-		// No /proc, as on macOS: the other guards still stand.
-		return [];
+		return undefined;
 	}
-	const held = await Promise.all(
-		pids.map(async (pid) => {
-			const fds = join("/proc", pid, "fd");
+	const busy = new Set<string>();
+	const mark = (link: string) => {
+		for (const path of paths) {
+			if (link === path || link.startsWith(`${path}/`)) busy.add(path);
+		}
+	};
+	let next = 0;
+	const reader = async () => {
+		while (next < pids.length) {
+			const proc = join("/proc", pids[next++] ?? "");
 			// Ended since the listing, or another user's: nothing to read.
-			const listed = await readdir(fds).catch((): string[] => []);
-			const links = await Promise.all(
-				listed.map((fd) => readlink(join(fds, fd)).catch(() => "")),
-			);
-			return links.filter((link) => link.startsWith("/"));
-		}),
+			mark(await readlink(join(proc, "cwd")).catch(() => ""));
+			const fds = join(proc, "fd");
+			for (const fd of await readdir(fds).catch((): string[] => [])) {
+				mark(await readlink(join(fds, fd)).catch(() => ""));
+			}
+		}
+	};
+	await Promise.all(
+		Array.from({ length: Math.min(PROCESSES_AT_ONCE, pids.length) }, reader),
 	);
-	return held.flat();
+	// A session's folder may name a link; the kernel's are real paths.
+	for (const folder of await sessionFolders(presentNow)) {
+		mark(resolvedPath(folder));
+	}
+	return busy;
 }
 
 /** When this boot began, where the machine will say. */
