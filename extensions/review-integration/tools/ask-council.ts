@@ -65,6 +65,7 @@ import {
 	nextSeq,
 	renderFindings,
 } from "./ask-round.ts";
+import { NARROWER_WEIGHING } from "./ask-weigh.ts";
 import { type Answer, type boundFor, refuse, say } from "./shared.ts";
 
 /** Ask every reviewer on the roster. */
@@ -437,7 +438,12 @@ export async function retryOne(
 			: councilPrompt({ proposal, diff, ...intent, ...conventions });
 	// A retry is asked what its round was, so one too large to send then
 	// is too large now, and waiting out a reviewer's clock says nothing.
-	const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
+	// A judge's is made large by its findings too, so it is told what a
+	// judge is.
+	const tooLarge = tooLargeToAsk(
+		prompt,
+		asked.role === "judge" ? NARROWER_WEIGHING : NARROWER_COUNCIL,
+	);
 	if (tooLarge !== undefined) return refuse(tooLarge);
 	const { run: fresh, warnings } =
 		asked.role === "judge"

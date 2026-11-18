@@ -14,12 +14,20 @@
 
 import type { AskRun } from "./run.ts";
 
-/** Whether every reviewer `run` heard from failed, with none still to answer. */
-function everyoneFailed(run: AskRun): boolean {
+/**
+ * Whether every reviewer `run` heard from failed before reading
+ * anything, with none still to answer. One that spent tokens read the
+ * change, so a failure that comes late, as a change that makes its
+ * reviewers die would, still counts against asking again.
+ */
+function everyoneFailedUnread(run: AskRun): boolean {
 	return (
 		run.open !== true &&
 		run.outcomes.length > 0 &&
-		run.outcomes.every((outcome) => outcome.failure !== undefined)
+		run.outcomes.every(
+			(outcome) =>
+				outcome.failure !== undefined && !((outcome.usage?.tokens ?? 0) > 0),
+		)
 	);
 }
 
@@ -38,12 +46,15 @@ export function councilNotEarned(
 ): string | undefined {
 	if (intent !== undefined && intent.trim() !== "") return undefined;
 	// A round a person gave up on asked nobody anything worth keeping,
-	// and nor did one whose every reviewer failed: on 18 November whole
-	// councils timed out on prompts too large to answer, and asking again
-	// once that was mended read nothing any of them had read.
+	// and nor did one whose every reviewer failed unread: on 18 November
+	// whole councils timed out on prompts too large to answer, using no
+	// tokens, and asking again once that was mended read nothing any of
+	// them had read.
 	const councils = earlier.filter(
 		(run) =>
-			run.round === "council" && run.closed !== true && !everyoneFailed(run),
+			run.round === "council" &&
+			run.closed !== true &&
+			!everyoneFailedUnread(run),
 	);
 	const sameCommit =
 		head === undefined

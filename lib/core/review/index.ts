@@ -448,3 +448,4 @@ export type {
 	StackStep,
 } from "./stack.ts";
 export { stackStep } from "./stack.ts";
+export type { UpstreamBase } from "./upstream-base.ts";

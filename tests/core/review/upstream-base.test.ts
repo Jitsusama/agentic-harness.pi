@@ -58,7 +58,7 @@ describe("where a range's base is read", () => {
 		});
 	});
 
-	it("is the tracking ref's tip, never a tag or branch of the same short name", async () => {
+	it("is the tracking ref's tip, never a tag of the same short name", async () => {
 		const first = await git(clone, "rev-parse", "HEAD");
 		const tip = await originMoves(2);
 		// A tag of the upstream's short name, which git finds before a
@@ -66,9 +66,9 @@ describe("where a range's base is read", () => {
 		await git(clone, "update-ref", "refs/tags/origin/main", first);
 
 		expect(
-			(await upstreamBase(exec, clone, "main"))?.commit,
-			"the upstream's own tip",
-		).toBe(tip);
+			await upstreamBase(exec, clone, "main"),
+			"the upstream's own tip, under the name git gives it beside the tag",
+		).toMatchObject({ ref: "remotes/origin/main", commit: tip });
 	});
 
 	it("is the branch as named when it is level with its upstream", async () => {

@@ -56,7 +56,7 @@ import {
  * audit reads the change with every finding or thread beside it, so
  * either can make the size, and a hosted change has no base to move.
  */
-const NARROWER_WEIGHING =
+export const NARROWER_WEIGHING =
 	"It reads the change with every finding or open thread beside it. For a local range, a nearer base (origin/main rather than a local main nobody pulls) makes it smaller; a hosted change this large needs splitting, and its findings can still be read with review_see findings.";
 
 /** Ask the judge to consolidate the latest council. */
