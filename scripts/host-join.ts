@@ -38,6 +38,7 @@ import {
 import {
 	ATTACH_FAILED_ENV,
 	hostHold,
+	JOIN_QUIET,
 	viewingWords,
 } from "../lib/internal/session/host-holds.ts";
 import {
@@ -123,6 +124,7 @@ const joined = await joining();
 // this failure with those before it, so the next waits longer.
 const released = [
 	process.execPath,
+	JOIN_QUIET,
 	fileURLToPath(import.meta.url),
 	"--released",
 	...(failed === "" ? [] : ["--failures", String(failures + 1)]),

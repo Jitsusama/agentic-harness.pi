@@ -174,6 +174,15 @@ export function attachWords(hold: HostHold, sessionId: string): string[] {
 export const RELEASED_EXIT = 3;
 
 /**
+ * The flag node starts the join with in every window's words. This
+ * package's TypeScript sits under a package.json that names no module
+ * type, so node warned MODULE_TYPELESS_PACKAGE_JSON at each start; on 18
+ * November six of Joel's windows showed those warnings between every
+ * attach. Only that warning is kept out: any other still shows.
+ */
+export const JOIN_QUIET = "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON";
+
+/**
  * Set, to the exit code attach failed with, for the words a window
  * carries on as after its attach failed rather than being released; unset
  * after a release.

@@ -24,6 +24,7 @@
 
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { JOIN_QUIET } from "../../lib/internal/session/host-holds.ts";
 import {
 	AGAIN_ENV,
 	flagsLost,
@@ -107,6 +108,7 @@ export function joinCommand(
 ): string[] {
 	return [
 		process.execPath,
+		JOIN_QUIET,
 		JOIN_SCRIPT,
 		"--session",
 		session,
@@ -140,6 +142,7 @@ export function hostedPresence(
 			: {
 					view: [
 						process.execPath,
+						JOIN_QUIET,
 						JOIN_SCRIPT,
 						"--view",
 						"--session",
