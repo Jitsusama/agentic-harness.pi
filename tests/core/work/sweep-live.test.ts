@@ -334,6 +334,64 @@ describe("sweeping the trees whose sessions have ended", () => {
 		expect(outcome.rested).toBeUndefined();
 		expect(outcome.taken.map((one) => one.path)).toEqual([tree]);
 	});
+
+	it("asks for claims only in a sweep that runs, not one that rests or finds the lock held", async () => {
+		// Asking makes each quest sign its whole tree on a host's thread, and
+		// sixty first sweeps asking at once held a host past its watchdog on
+		// 18 November, though all but one of them rested or skipped.
+		const { memory, lockPath } = await setUp();
+		let asked = 0;
+		const sweep = () =>
+			sweepEndedTrees({
+				exec,
+				memory,
+				claims: () => {
+					asked++;
+					return [];
+				},
+				lockPath,
+				facts: machine,
+				restMs: REST_MS,
+			});
+
+		const ran = await sweep();
+		const rested = await sweep();
+		rmSync(`${lockPath}.ended`, { force: true });
+		writeFileSync(lockPath, String(process.pid));
+		const skipped = await sweep();
+
+		expect(ran.rested ?? ran.skipped, "the first sweep ran").toBeUndefined();
+		expect(rested.rested, "the second rested").toContain("a sweep ended");
+		expect(skipped.skipped, "the third found the lock held").toContain(
+			"another sweep is running",
+		);
+		expect(asked, "the sweeps that asked for claims").toBe(1);
+	});
+
+	it("asks for claims before it reads anything else, so a conversation closing meanwhile has said what its quests hold", async () => {
+		const { memory, lockPath } = await setUp();
+		const order: string[] = [];
+		const watched: typeof memory = {
+			...memory,
+			recall: () => {
+				order.push("recall");
+				return memory.recall();
+			},
+		};
+
+		await sweepEndedTrees({
+			exec,
+			memory: watched,
+			claims: () => {
+				order.push("claims");
+				return [];
+			},
+			lockPath,
+			facts: machine,
+		});
+
+		expect(order[0], "what the sweep asked first").toBe("claims");
+	});
 });
 
 describe("trees whose repository is gone", () => {
