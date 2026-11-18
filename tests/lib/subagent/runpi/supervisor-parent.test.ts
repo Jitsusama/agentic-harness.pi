@@ -10,7 +10,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ReviewerArtifactsStore } from "../../../../lib/subagent/artifacts.ts";
-// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { STDIO_GRACE_MS } from "../../../../lib/subagent/runpi/grace.mjs";
 import {
 	createSupervisorRunPi as createRealSupervisorRunPi,

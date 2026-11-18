@@ -183,6 +183,22 @@
 				}
 			}
 		},
+		// A .mjs here has its types in a .d.mts beside it, which Biome takes
+		// for the module, asking for .mjs.mts; the mapping names the .mjs.
+		// The host tests' own .mts modules, imported as written, sit outside.
+		{
+			"includes": ["**", "!tests/host/**"],
+			"linter": {
+				"rules": {
+					"correctness": {
+						"useImportExtensions": {
+							"level": "error",
+							"options": { "extensionMappings": { "mts": "mjs" } }
+						}
+					}
+				}
+			}
+		},
 		// A page script is one expression the browser evaluates, and its
 		// value is the answer, so the expression standing alone is the point.
 		{

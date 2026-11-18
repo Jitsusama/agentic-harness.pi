@@ -21,7 +21,6 @@ import {
 	fetchHeadLine,
 	mainFetchOf,
 	pathPast,
-	// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 } from "../../../../lib/internal/priority/fetched-git.mjs";
 import {
 	NOTHING_BESIDE,
