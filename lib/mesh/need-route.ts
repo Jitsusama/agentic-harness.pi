@@ -26,8 +26,10 @@
  * The path is the chain the fit was found along, read from the node's
  * own ties and hubs. Only the fit is written to: the cells on the way
  * are not asked in turn, since the node already holds what each would
- * answer. A fit is chosen by the words of its own title and repository,
- * which the cell sets, so a cell can draw needs by what its title says.
+ * answer. A fit is chosen by the words of its own title, its repository
+ * and the subjects it declares, which the cell sets, so a cell can draw
+ * needs by what it says it works on. A subject such as `mycelium:easing`
+ * counts here by its words; the node's hubs match it whole.
  * That routes a message and grants nothing: a need finds who works on
  * something, and a yes, a ruling or a grant still comes only from the
  * owner named by address.
@@ -179,15 +181,22 @@ export function wordsOf(text: string): string[] {
 	return [...new Set(words)];
 }
 
+/** What a cell says it works on, as the node lists each one. */
+const CELL_FIELDS = ["title", "repo", "subjects"];
+
 /**
  * The cells in a node's list of its `cell` kind, each with the words of
- * its title and repository; none for an answer that lists no records.
+ * its title, repository and declared subjects; none for an answer that
+ * lists no records. A node that doesn't know subjects yet lists none.
  */
 export function foragersFrom(line: string): Forager[] {
 	return recordsOf(line).flatMap((record): Forager[] => {
-		const { key, title, repo } = record;
+		const { key, title, repo, subjects } = record;
 		if (typeof key !== "string" || !key.startsWith("cell:")) return [];
-		const said = [title, repo].filter((one) => typeof one === "string");
+		const declared = Array.isArray(subjects) ? subjects : [];
+		const said = [title, repo, ...declared].filter(
+			(one) => typeof one === "string",
+		);
 		return [
 			{ address: key.slice("cell:".length), words: wordsOf(said.join(" ")) },
 		];
@@ -444,7 +453,7 @@ export async function needAt(
 	how: { readonly live: (address: string) => boolean; readonly keep: string },
 ): Promise<NeedRecord | undefined> {
 	const [cells, ties, hubs] = await Promise.all([
-		listAt(socket, "cell", ["title", "repo"], LIST_PATIENCE_MS),
+		listAt(socket, "cell", CELL_FIELDS, LIST_PATIENCE_MS),
 		listAt(socket, "tie", ["strength", "heard"], LIST_PATIENCE_MS),
 		listAt(socket, "hub", ["hub", "fits"], LIST_PATIENCE_MS),
 	]);

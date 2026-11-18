@@ -106,6 +106,28 @@ describe("the words a need or a cell's work is matched by", () => {
 		]);
 	});
 
+	it("reads the words of the subjects a cell declares, beside its title's", () => {
+		const line = JSON.stringify({
+			id: 2,
+			records: [
+				{
+					key: "cell:5HJZ8Z",
+					title: "Carry a Session",
+					subjects: ["mycelium:easing", "health.asks.", 7],
+				},
+				{ key: "cell:9T2BBY", title: "Placement", subjects: "easing" },
+			],
+		});
+
+		expect(foragersFrom(line)).toEqual([
+			{
+				address: "5HJZ8Z",
+				words: ["carry", "session", "mycelium", "easing", "health", "asks"],
+			},
+			{ address: "9T2BBY", words: ["placement"] },
+		]);
+	});
+
 	it("reads none from a node that keeps no cells", () => {
 		expect(foragersFrom(JSON.stringify({ id: 2, error: "no" }))).toEqual([]);
 		expect(foragersFrom("not json")).toEqual([]);
@@ -544,6 +566,30 @@ describe("asking the node for a need's fit", () => {
 
 		expect(found).toMatchObject({ path: ["B"], fit: "B", cells: 2 });
 		expect(readFileSync(needsFile(root, AT), "utf8")).toContain('"fit":"B"');
+	});
+
+	it("asks the node for each cell's subjects, and routes by them", async () => {
+		const socket = await serving({
+			cell: [
+				{ key: "cell:A", title: "A Web, Not a Funnel" },
+				{
+					key: "cell:B",
+					title: "Carry a Session",
+					subjects: ["mycelium:easing"],
+				},
+			],
+			tie: [{ key: "tie:A~B", strength: 2, heard: AT }],
+		});
+
+		const found = await needAt(socket, asked("A", "easing"), {
+			live: () => true,
+			keep: root,
+		});
+
+		expect(
+			found,
+			"a need finds the cell that declares its subject",
+		).toMatchObject({ path: ["B"], fit: "B" });
 	});
 
 	it("answers nothing, and keeps nothing, when no node answers", async () => {
