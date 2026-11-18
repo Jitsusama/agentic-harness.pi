@@ -43,11 +43,17 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 
 /**
- * A seam in the signing off the thread: `onRead` hears when its reads
- * are done, and `gate` holds what they found back until it opens, as a
- * slow or hung disk would.
+ * A seam in the signing off the thread: `walks` counts those started
+ * of this test's `root`, `onRead` hears when one's reads are done, and
+ * `gate` holds what they found back until it opens, as a slow or hung
+ * disk would. Each walk waits on the gate standing when its reads
+ * ended. Only this test's root counts and is heard, since a walk an
+ * earlier test left running may end during this one.
  */
 const signing = vi.hoisted(() => ({
+	root: undefined as string | undefined,
+	walks: 0,
+	returned: 0,
 	onRead: undefined as (() => void) | undefined,
 	gate: undefined as Promise<void> | undefined,
 }));
@@ -62,9 +68,14 @@ vi.mock(
 		return {
 			...actual,
 			readTreeOffThread: async (questsRoot: string) => {
+				// Asked afresh at each step, since a walk an earlier test began
+				// may read on into this one and must not be heard as its own.
+				const ours = () => questsRoot === signing.root;
+				if (ours()) signing.walks += 1;
 				const read = await actual.readTreeOffThread(questsRoot);
-				signing.onRead?.();
+				if (ours()) signing.onRead?.();
 				if (signing.gate) await signing.gate;
+				if (ours()) signing.returned += 1;
 				return read;
 			},
 		};
@@ -140,6 +151,7 @@ function otherQuest(): void {
 
 beforeEach(() => {
 	({ root, readmePath } = settledTree());
+	signing.root = root;
 	clearDiscoveryCache();
 	clearCalls();
 });
@@ -151,6 +163,8 @@ afterEach(() => {
 	openSignings = undefined;
 	signing.gate = undefined;
 	signing.onRead = undefined;
+	signing.walks = 0;
+	signing.returned = 0;
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 	host?.dispose();
@@ -261,22 +275,43 @@ describe("discovery on a host", () => {
 		later(6_000);
 		discoverQuests(root);
 		expect(
-			discoverySettled(root),
+			signing.walks,
 			"no second walk starts beside one only given up on",
-		).toBe(hung);
-		await vi.advanceTimersByTimeAsync(5 * 60_000);
+		).toBe(1);
+		await vi.advanceTimersByTimeAsync(5 * 60_000 - 31_000);
 		later(6_000);
 		discoverQuests(root);
-		expect(
-			discoverySettled(root),
-			"another walk starts once the first has hung",
-		).not.toBe(hung);
+		expect(signing.walks, "nor just short of five minutes on").toBe(1);
+		await vi.advanceTimersByTimeAsync(1_000);
+		later(6_000);
+		discoverQuests(root);
+		expect(signing.walks, "another walk starts once the first has hung").toBe(
+			2,
+		);
+	});
+
+	it("has an ask after another gave up wait on the same walk, and hear what it found", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		discoverQuests(root);
+		openSignings = holdSignings();
+		later(6_000);
+		const read = nextRead();
+		discoverQuests(root);
+		const first = discoverySettled(root);
+		await read;
+		await vi.advanceTimersByTimeAsync(30_000);
+		expect(await first).toBe("gave up");
+		const second = discoverySettled(root);
+		openSignings();
+		expect(await second).toBe("kept");
+		expect(signing.walks, "both asks waited on one walk").toBe(1);
 	});
 
 	it("frees its root as soon as a walk given up on ends, and keeps what it found", async () => {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		discoverQuests(root);
 		openSignings = holdSignings();
+		writeSettled(readmePath, readme("paused"));
 		later(6_000);
 		const read = nextRead();
 		discoverQuests(root);
@@ -284,25 +319,64 @@ describe("discovery on a host", () => {
 		await read;
 		await vi.advanceTimersByTimeAsync(30_000);
 		expect(await slow).toBe("gave up");
+		expect(statusNow(), "nothing is kept before the walk ends").toBe("active");
 		openSignings();
 		// Its read is real disk work, so the walk ends when it ends; a hung
 		// walk's five minutes are far past what this waits.
 		await vi.waitFor(() =>
-			expect(
-				discoverySettled(root),
-				"a walk that ended frees its root at once",
-			).not.toBe(slow),
+			expect(statusNow(), "the slow walk's findings are kept").toBe("paused"),
 		);
-		expect(
-			discoverQuests(root).index.quests.has(ID),
-			"the slow walk's findings are kept",
-		).toBe(true);
 		later(6_000);
 		discoverQuests(root);
 		expect(
-			discoverySettled(root),
+			signing.walks,
 			"the next ask past its age starts a walk of its own",
-		).not.toBe(slow);
+		).toBe(2);
+	});
+
+	it("keeps the root of a walk begun after a hung one, when the hung one ends", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		discoverQuests(root);
+		const openHung = holdSignings();
+		later(6_000);
+		const firstRead = nextRead();
+		discoverQuests(root);
+		await firstRead;
+		await vi.advanceTimersByTimeAsync(5 * 60_000 - 1_000);
+		// A wait on the hung walk, with a clock of its own, that answers
+		// once that walk has ended and let go of whatever it holds.
+		const hungEnded = discoverySettled(root);
+		await vi.advanceTimersByTimeAsync(1_000);
+		openSignings = holdSignings();
+		later(6_000);
+		const secondRead = nextRead();
+		discoverQuests(root);
+		await secondRead;
+		expect(signing.walks, "a second walk took the hung one's root").toBe(2);
+		openHung();
+		// The walk's end may wait on a timer of its own, so time moves on in
+		// small steps, well inside the wait's 30 s clock, until it ends.
+		let ended: Awaited<typeof hungEnded> | "waiting" = "waiting";
+		void hungEnded.then((end) => {
+			ended = end;
+		});
+		await vi.waitFor(
+			async () => {
+				await vi.advanceTimersByTimeAsync(100);
+				expect(
+					ended,
+					`the hung walk ended (walks returned: ${signing.returned})`,
+				).not.toBe("waiting");
+			},
+			{ timeout: 10_000 },
+		);
+		expect(ended, "the hung walk ended").not.toBe("gave up");
+		later(6_000);
+		discoverQuests(root);
+		expect(
+			signing.walks,
+			"the hung walk's end leaves the second holding its root",
+		).toBe(2);
 	});
 
 	it("starts one signing at a time for a root", async () => {
@@ -311,8 +385,9 @@ describe("discovery on a host", () => {
 		discoverQuests(root);
 		const under = discoverySettled(root);
 		discoverQuests(root);
-		expect(discoverySettled(root)).toBe(under);
-		await under;
+		const beside = discoverySettled(root);
+		await Promise.all([under, beside]);
+		expect(signing.walks, "two asks at once start one walk").toBe(1);
 	});
 
 	it("shows this process's own write at once", () => {

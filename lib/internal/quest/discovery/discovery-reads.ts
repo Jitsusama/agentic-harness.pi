@@ -192,7 +192,8 @@ interface Memo {
 
 /**
  * How a signing off the thread ended: its walk kept, dropped for a
- * newer one, failed, or given up on. Undefined from code that says none.
+ * newer one or failed; or, to one ask, given up on while the walk ran
+ * on. Undefined from code that says none.
  */
 export type SigningEnd = "kept" | "dropped" | "failed" | "gave up";
 
