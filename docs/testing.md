@@ -33,22 +33,32 @@ On optimus, `elsewhere` runs a check as you go on whichever machine
 mycelium places it, without a push:
 
 ```sh
-elsewhere where harness-check                   # where it would run now, and why
-elsewhere run harness-check -- pnpm typecheck   # or pnpm test:unit, or vitest on paths
+elsewhere where harness-check                   # where mycelium would place it, and why
+elsewhere run harness-check -- pnpm typecheck   # or: pnpm exec vitest run <paths>
 ```
 
-Run it from the checkout's top, since what travels is the folder it
-runs in: the files git tracks there, through the quest's handover, as
-they lie, so edits not yet committed go too. A file git doesn't track
-yet stays behind, and so do hidden and ignored ones such as `.pi/`
-and `node_modules`. The far side installs the packages from the
-lockfile with its own work toolchain's pnpm. A test that reads a file
-left behind runs here, with `--here`.
+It travels only from a session on a quest, through that quest's
+handover; with no quest it runs here. Run it from the checkout's top,
+since what travels is the folder it runs in: the files git tracks
+there, as they lie, so edits not yet committed go too. A new file goes
+only once `git add` tracks it; otherwise it stays behind and the far
+run fails, or quietly skips a test file, as though the code were at
+fault. Hidden files never travel, tracked or not: `.git`, `.pi/skills`
+and `.npmrc` stay here. The far side installs the packages from the
+lockfile with its own work toolchain's pnpm.
 
-An agent's run goes to a machine only once that machine declares how
-it fences agents. Until then mycelium refuses it there, and the job
-runs on optimus and says why, so dropping `--here` is always safe. The
-work Mac is the machine it is meant for, and declares no fence yet.
+So keep to here, with `--here`, for anything that reads what stays
+behind: `tests/package`, which asks git for its files and reads
+`.pi/skills`, and so the whole of `pnpm test:unit`. Keep to here for
+Linux too: on the work Mac, the tests that run only on Linux (the
+fence, the shell's sandbox, the host) skip, so a pass there says
+nothing of them. A run that fails far, its setup included, ends with
+that failure rather than running again here.
+
+An agent's run goes only to a machine that declares a fence for
+agents at least as tight as optimus's, and mycelium places it only
+among those: with none to take it, it runs on optimus and says why.
+The work Mac is the machine it is meant for, once it declares one.
 
 `pnpm check:there` stays the way to send the whole gate, for a pushed
 branch.
