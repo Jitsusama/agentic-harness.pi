@@ -24,6 +24,7 @@ import { mkdir, readFile, readlink } from "node:fs/promises";
 import { platform } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { fenceArgs, fenceRules } from "../../../lib/internal/fence/fence.ts";
 import { listForStage } from "../../../lib/internal/fence/fence-stage.ts";
 import { sandboxFor } from "../../../lib/internal/sandbox/sandbox.ts";
 import { sessionAddress } from "../../../lib/mesh/address.ts";
@@ -80,35 +81,30 @@ function stageFolder(): string {
 
 /**
  * Why the fence can't be shown here, or nothing when it can: it needs
- * Linux, the fence's programs, and a bubblewrap that can make what the
- * fence asks of it (fence.ts's fenceArgs): a session, process ids, a
- * /dev and a /proc of its own.
+ * Linux, the fence's programs, and a kernel that lets bubblewrap and
+ * landrun lay it, tried with the fence's own arguments and rules for
+ * the seal's home (fence.ts's fenceArgs and fenceRules), less the runtime
+ * folder's, which only a session names. Only their own refusal skips:
+ * a probe that runs out of time throws, under load as anywhere, since a
+ * slow machine still has the fence and a skip would hide the proof.
  */
 function unprovable(): string | undefined {
 	if (platform() !== "linux") return "the fence's bubblewrap runs on Linux";
 	const sandbox = sandboxFor({ ...process.env, PI_SANDBOX: "fence" });
 	if (sandbox.kind !== "fence") return "the fence's programs aren't here";
+	const place = { home: sealed.home, runtimeDir: undefined };
 	const tried = spawnSync(
 		sandbox.bwrap,
-		[
-			"--die-with-parent",
-			"--new-session",
-			"--unshare-pid",
-			"--bind",
-			"/",
-			"/",
-			"--dev",
-			"/dev",
-			"--proc",
-			"/proc",
-			"--",
-			"true",
-		],
+		[...fenceArgs(place), "--", sandbox.landrun, ...fenceRules(place), "true"],
 		{ encoding: "utf8", timeout: PROBE_MS },
 	);
 	if (tried.status === 0) return undefined;
-	const reason = tried.error?.message ?? tried.stderr.trim();
-	return `bubblewrap can't lay the fence's namespaces here: ${reason}`;
+	if (tried.status === null) {
+		throw new Error(
+			`the fence's probe didn't end by itself within ${PROBE_MS} ms: ${tried.error?.message ?? tried.signal}`,
+		);
+	}
+	return `the fence can't be laid here: ${tried.stderr.trim()}`;
 }
 
 /** Whether this runner may still gain privileges, as the kernel says. */
@@ -206,8 +202,9 @@ it(
 			).toEqual({ a: { privileges: "1", ownMounts: true }, b: unfenced });
 		});
 	},
-	// Every wait inside at its longest (two listens and two opens of two
-	// minutes, four round trips, a kill), about 770 s, with room to say
-	// why under load before vitest's clock.
+	// Ten round trips: every wait inside at its longest is two listens
+	// and two opens of two minutes, three round trips, a kill and the
+	// probe's ten seconds, and what is left gives the host's words under
+	// load before vitest's clock.
 	ROUND_TRIP_MS * 10,
 );
