@@ -11,7 +11,10 @@
  * at once, round after round. The base a person names is the branch as
  * it stands upstream, so when the local copy is strictly behind its
  * upstream, the upstream's tip is what is read. A local branch with
- * commits of its own, or none upstream, is read as it is.
+ * commits of its own, or none upstream, is read as it is, and so is one
+ * whose upstream already holds the head: read there, the range would be
+ * empty, and a round asked about a branch that has landed means the
+ * commits since the base the person named.
  */
 
 import type { Exec } from "../exec/index.ts";
@@ -29,12 +32,13 @@ export interface UpstreamBase {
 /**
  * The upstream to read `base` at, or nothing when the base is read as
  * named: not a local branch, tracking nothing, level with its upstream,
- * or holding commits its upstream lacks.
+ * holding commits its upstream lacks, or with `head` already upstream.
  */
 export async function upstreamBase(
 	exec: Exec,
 	root: string,
 	base: string,
+	head?: string,
 ): Promise<UpstreamBase | undefined> {
 	const git = async (...args: string[]): Promise<string | undefined> => {
 		const result = await exec("git", ["-C", root, ...args]);
@@ -60,6 +64,11 @@ export async function upstreamBase(
 	if (commit === undefined || commit === local) return undefined;
 	const behind = await git("merge-base", "--is-ancestor", local, commit);
 	if (behind === undefined) return undefined;
+	if (
+		head !== undefined &&
+		(await git("merge-base", "--is-ancestor", head, commit)) !== undefined
+	)
+		return undefined;
 	const count = Number(await git("rev-list", "--count", `${local}..${commit}`));
 	return { ref, commit, behind: Number.isFinite(count) ? count : 0 };
 }

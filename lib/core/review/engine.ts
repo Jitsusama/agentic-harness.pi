@@ -383,7 +383,7 @@ export function createReviewEngine(deps: ReviewEngineDeps): ReviewEngine {
 			const upstream =
 				"refs" in spec
 					? undefined
-					: await upstreamBase(deps.exec, root, spec.base);
+					: await upstreamBase(deps.exec, root, spec.base, spec.head);
 			const target: ReviewTarget =
 				"refs" in spec
 					? { kind: "stack", repo, refs: spec.refs }

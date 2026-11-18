@@ -189,8 +189,7 @@ export function tooLargeToAsk(
 	narrower: string,
 ): string | undefined {
 	if (prompt.length <= MOST_PROMPT_CHARS) return undefined;
-	const millions = (prompt.length / 1_000_000).toFixed(1);
-	return `This round's prompt is ${millions} million characters, past the ${MOST_PROMPT_CHARS.toLocaleString("en-CA")} a reviewer can be sent: every round of 1.8 million or more has timed out with no answer. ${narrower}`;
+	return `This round's prompt is ${prompt.length.toLocaleString("en-CA")} characters, past the ${MOST_PROMPT_CHARS.toLocaleString("en-CA")} a reviewer can be sent: every round of 1.8 million or more has timed out with no answer. ${narrower}`;
 }
 
 /** The prompt a discovery reviewer answers. */

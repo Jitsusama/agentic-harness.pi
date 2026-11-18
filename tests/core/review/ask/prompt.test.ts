@@ -24,7 +24,15 @@ describe("a prompt too large to put to a reviewer", () => {
 		);
 
 		expect(refusal, "a 41.8M prompt is refused").toMatch(
-			/^This round's prompt is 41\.8 million characters, past the 1,200,000 .*Ask about fewer commits\.$/,
+			/^This round's prompt is 41,800,000 characters, past the 1,200,000 .*Ask about fewer commits\.$/,
+		);
+	});
+
+	it("says the exact count one past the most, not a rounded one", () => {
+		expect(
+			tooLargeToAsk("x".repeat(MOST_PROMPT_CHARS + 1), "Ask about less."),
+		).toMatch(
+			/^This round's prompt is 1,200,001 characters, past the 1,200,000 /,
 		);
 	});
 

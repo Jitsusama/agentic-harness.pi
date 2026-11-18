@@ -423,20 +423,28 @@ export async function retryOne(
 	// record its findings with a reviewer's origin, and the
 	// consolidation would become indistinguishable from the thing it
 	// consolidated: exactly what the two rounds are kept apart for.
+	const prompt =
+		asked.role === "judge"
+			? judgePrompt({
+					proposal,
+					diff,
+					findings: renderFindings(
+						await councilFindingsBehind(change, store, held.basis),
+					),
+					...intent,
+					...conventions,
+				})
+			: councilPrompt({ proposal, diff, ...intent, ...conventions });
+	// A retry is asked what its round was, so one too large to send then
+	// is too large now, and waiting out a reviewer's clock says nothing.
+	const tooLarge = tooLargeToAsk(prompt, NARROWER_COUNCIL);
+	if (tooLarge !== undefined) return refuse(tooLarge);
 	const { run: fresh, warnings } =
 		asked.role === "judge"
 			? await runJudge(
 					{
 						judge: participant,
-						prompt: judgePrompt({
-							proposal,
-							diff,
-							findings: renderFindings(
-								await councilFindingsBehind(change, store, held.basis),
-							),
-							...intent,
-							...conventions,
-						}),
+						prompt,
 						seq: 1,
 						...read,
 						...given,
@@ -446,12 +454,7 @@ export async function retryOne(
 			: await runCouncil(
 					{
 						roster: { reviewers: [participant] } satisfies Roster,
-						prompt: councilPrompt({
-							proposal,
-							diff,
-							...intent,
-							...conventions,
-						}),
+						prompt,
 						seq: 1,
 						...read,
 						...given,

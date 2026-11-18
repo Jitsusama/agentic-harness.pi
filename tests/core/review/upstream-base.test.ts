@@ -69,8 +69,37 @@ describe("where a range's base is read", () => {
 		expect(await upstreamBase(exec, clone, "main")).toBeUndefined();
 	});
 
+	it("is the branch as named when its upstream already holds the head", async () => {
+		const landed = await commit(origin, "landed.ts");
+		await originMoves(2);
+
+		expect(
+			await upstreamBase(exec, clone, "main", landed),
+			"a landed branch reads the commits since the base named",
+		).toBeUndefined();
+		expect(
+			await upstreamBase(exec, clone, "main", "origin/main"),
+		).toBeUndefined();
+	});
+
+	it("is its upstream's tip when the head is past it, HEAD included", async () => {
+		const tip = await originMoves(2);
+		await git(clone, "checkout", "-q", "-b", "topic", "origin/main");
+		await commit(clone, "topic.ts");
+
+		for (const head of ["topic", "HEAD"]) {
+			expect(await upstreamBase(exec, clone, "main", head), head).toEqual({
+				ref: "origin/main",
+				commit: tip,
+				behind: 2,
+			});
+		}
+	});
+
 	it("is the branch as named when it tracks nothing", async () => {
-		await git(clone, "branch", "-q", "solo");
+		// Not even where git would set one up for a branch cut from a
+		// remote's, as branch.autoSetupMerge may say.
+		await git(clone, "branch", "-q", "--no-track", "solo", "origin/main");
 		await originMoves(1);
 
 		expect(await upstreamBase(exec, clone, "solo")).toBeUndefined();

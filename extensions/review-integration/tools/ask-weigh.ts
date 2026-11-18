@@ -9,6 +9,7 @@
  * that material is put to the one weighing it and what it may conclude.
  */
 
+import { tooLargeToAsk } from "../../../lib/core/review/ask/prompt.ts";
 import {
 	auditPrompt,
 	type ChangeRef,
@@ -49,6 +50,13 @@ import {
 	refuse,
 	say,
 } from "./shared.ts";
+
+/**
+ * How to weigh a change whose prompt is too large: the same diff that
+ * no reviewer could be sent can't be put to a judge or an auditor.
+ */
+const NARROWER_WEIGHING =
+	"Ask about fewer commits: a base the head is a few commits past, such as origin/main rather than a local main nobody pulls, or the change itself.";
 
 /** Ask the judge to consolidate the latest council. */
 export async function askJudge(
@@ -100,6 +108,8 @@ export async function askJudge(
 		...(params.intent === undefined ? {} : { intent: params.intent }),
 		...conventions,
 	});
+	const tooLarge = tooLargeToAsk(prompt, NARROWER_WEIGHING);
+	if (tooLarge !== undefined) return refuse(tooLarge);
 	const { run, warnings } = await runJudge(
 		{
 			judge: roster.judge,
@@ -166,17 +176,21 @@ export async function askCritique(
 	const charters = await chartersFor(roster, tree, "reviewers", diff);
 	const conventions = await guidanceFor(tree, diff);
 
+	const prompt = critiquePrompt({
+		proposal,
+		diff,
+		findings: renderFindings(raised),
+		...(params.intent === undefined ? {} : { intent: params.intent }),
+		...conventions,
+	});
+	const tooLarge = tooLargeToAsk(prompt, NARROWER_WEIGHING);
+	if (tooLarge !== undefined) return refuse(tooLarge);
+
 	const asking = deps(change, tree.path, watch, charters);
 	const { run, critiques, warnings } = await runCritique(
 		{
 			roster,
-			prompt: critiquePrompt({
-				proposal,
-				diff,
-				findings: renderFindings(raised),
-				...(params.intent === undefined ? {} : { intent: params.intent }),
-				...conventions,
-			}),
+			prompt,
 			seq: nextSeq(),
 			findingIds: raised.map((finding) => finding.id),
 			...readFrom(tree, proposal.headCommit),
@@ -266,16 +280,19 @@ export async function askAudit(
 	});
 
 	const conventions = await guidanceFor(tree, diff);
+	const prompt = auditPrompt({
+		proposal,
+		diff,
+		threads: renderThreads(open, indexOf),
+		...(params.intent === undefined ? {} : { intent: params.intent }),
+		...conventions,
+	});
+	const tooLarge = tooLargeToAsk(prompt, NARROWER_WEIGHING);
+	if (tooLarge !== undefined) return refuse(tooLarge);
 	const { run, audits, warnings } = await runAudit(
 		{
 			auditor,
-			prompt: auditPrompt({
-				proposal,
-				diff,
-				threads: renderThreads(open, indexOf),
-				...(params.intent === undefined ? {} : { intent: params.intent }),
-				...conventions,
-			}),
+			prompt,
 			seq: nextSeq(),
 			threadIndices,
 			...readFrom(tree, proposal.headCommit),
