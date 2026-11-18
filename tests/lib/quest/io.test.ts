@@ -1,30 +1,73 @@
+import { execFileSync } from "node:child_process";
+import { once } from "node:events";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	readlinkSync,
+	renameSync,
 	rmSync,
+	statSync,
+	symlinkSync,
 	utimesSync,
 	watch,
 	writeFileSync,
 } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	atomicWriteFile,
+	useRunFolderForTests,
 	withQuestLock,
 } from "../../../lib/internal/quest/io.ts";
 import { WRITING } from "../../../lib/internal/write-whole.ts";
 
 let dir: string;
 
+/** How many lock-named folders a takeover clears while a swapper races it. */
+const SWAPPED_ROUNDS = 100;
+
+/**
+ * The swapper walks every folder left aside on each pass, so the rounds
+ * slow as they go; a lender took over 5 s for 200.
+ */
+const SWAPPED_BUDGET_MS = 30_000;
+
+/**
+ * A fenced command's part, run on its own thread so it races the
+ * synchronous takeover: in every folder there, it swaps the subfolder
+ * `sub` for a link to `outside` and back, until told to stop.
+ */
+const SWAP_SUBFOLDERS = `
+const { workerData } = require("node:worker_threads");
+const fs = require("node:fs");
+const path = require("node:path");
+const { folder, outside, stop } = workerData;
+while (Atomics.load(stop, 0) === 0) {
+	let names = [];
+	try { names = fs.readdirSync(folder); } catch { /* not made yet */ }
+	for (const name of names) {
+		const sub = path.join(folder, name, "sub");
+		try { fs.renameSync(sub, sub + ".real"); fs.symlinkSync(outside, sub); } catch { /* gone or a file */ }
+		try { fs.unlinkSync(sub); fs.renameSync(sub + ".real", sub); } catch { /* gone or a file */ }
+	}
+}
+`;
+
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "quest-io-"));
+	// No runtime folder unless a test makes one, whatever the machine has.
+	useRunFolderForTests(join(dir, "no-run-folder"));
 });
 
 afterEach(() => {
+	useRunFolderForTests(undefined);
 	rmSync(dir, { recursive: true, force: true });
 });
 
@@ -125,7 +168,8 @@ describe("withQuestLock", () => {
 		expect(readFileSync(counter, "utf8")).toBe("3");
 	});
 
-	it("holds its lock in .writing, never in the quest folder", () => {
+	it("holds its lock in .writing where there is no runtime folder, as on the Mac", () => {
+		// The Mac has no /run/user, so every writer there agrees on .writing.
 		const questDir = join(dir, "QEST-20260603-EEE555");
 		mkdirSync(questDir, { recursive: true });
 		const during = withQuestLock(questDir, () => ({
@@ -208,5 +252,407 @@ describe("withQuestLock", () => {
 			existsSync(join(questDir, "ok.txt")),
 			`${join(questDir, "ok.txt")} exists`,
 		).toBe(true);
+	});
+
+	// The fence runs its commands in a pid namespace of their own, so a
+	// fenced writer's pid means another process, or none, out here, and
+	// the host's means another inside.
+	const ownNamespace = existsSync("/proc/self/ns/pid");
+	/** A pid no process has: past Linux's highest, 2^22. */
+	const NO_SUCH_PID = 999_999_999;
+
+	it.runIf(ownNamespace)("writes its pid namespace in its lock", () => {
+		const questDir = join(dir, "QEST-20261117-NS0001");
+		mkdirSync(questDir, { recursive: true });
+		const record = withQuestLock(questDir, () =>
+			JSON.parse(readFileSync(join(questDir, WRITING, "quest.lock"), "utf8")),
+		);
+		expect(record).toMatchObject({
+			pid: process.pid,
+			pidns: readlinkSync("/proc/self/ns/pid"),
+		});
+	});
+
+	it.runIf(ownNamespace)(
+		"waits on a fresh lock from another pid namespace, whose pid means nothing here",
+		() => {
+			const questDir = join(dir, "QEST-20261117-NS0002");
+			mkdirSync(join(questDir, WRITING), { recursive: true });
+			writeFileSync(
+				join(questDir, WRITING, "quest.lock"),
+				JSON.stringify({
+					pid: NO_SUCH_PID,
+					startedAt: Date.now(),
+					pidns: "pid:[1]",
+				}),
+			);
+			expect(() =>
+				withQuestLock(questDir, () => {
+					atomicWriteFile(join(questDir, "ok.txt"), "y");
+				}),
+			).toThrow(/Timed out/);
+			expect(existsSync(join(questDir, "ok.txt")), "ok.txt not written").toBe(
+				false,
+			);
+		},
+		15_000,
+	);
+
+	it("takes over a lock from another pid namespace once it is older than any write takes", () => {
+		const questDir = join(dir, "QEST-20261117-NS0003");
+		mkdirSync(join(questDir, WRITING), { recursive: true });
+		writeFileSync(
+			join(questDir, WRITING, "quest.lock"),
+			JSON.stringify({
+				pid: process.pid,
+				startedAt: Date.now() - 60_000,
+				pidns: "pid:[1]",
+			}),
+		);
+		withQuestLock(questDir, () => {
+			atomicWriteFile(join(questDir, "ok.txt"), "y");
+		});
+		expect(readFileSync(join(questDir, "ok.txt"), "utf8")).toBe("y");
+	});
+
+	it("takes over a fresh lock from its own pid namespace whose owner is gone", () => {
+		const questDir = join(dir, "QEST-20261117-NS0004");
+		mkdirSync(join(questDir, WRITING), { recursive: true });
+		const pidns = ownNamespace ? readlinkSync("/proc/self/ns/pid") : undefined;
+		writeFileSync(
+			join(questDir, WRITING, "quest.lock"),
+			JSON.stringify({ pid: NO_SUCH_PID, startedAt: Date.now(), pidns }),
+		);
+		withQuestLock(questDir, () => {
+			atomicWriteFile(join(questDir, "ok.txt"), "y");
+		});
+		expect(readFileSync(join(questDir, "ok.txt"), "utf8")).toBe("y");
+	});
+});
+
+/**
+ * The login's runtime folder is tmpfs, so a lock made and removed there
+ * never waits on the quest disk: on 16 and 17 November the hosts' loops
+ * held about 77 s in the lock's create and unlink in `.writing`, on
+ * btrfs's tree lock. The machine's own runtime folder holds the session
+ * bus; the fence's private one never does.
+ */
+describe("withQuestLock on the login's runtime folder", () => {
+	let run: string;
+	let bus: Server;
+
+	beforeEach(async () => {
+		run = join(dir, "run");
+		mkdirSync(run);
+		bus = createServer();
+		await new Promise<void>((resolve) => bus.listen(join(run, "bus"), resolve));
+		useRunFolderForTests(run);
+	});
+
+	afterEach(async () => {
+		await new Promise<void>((resolve) => bus.close(() => resolve()));
+	});
+
+	const locks = (): string[] => {
+		const folder = join(run, "agentic-harness.pi", "quest-locks");
+		return existsSync(folder) ? readdirSync(folder) : [];
+	};
+
+	const quest = (id: string): string => {
+		const questDir = join(dir, id);
+		mkdirSync(questDir, { recursive: true });
+		return questDir;
+	};
+
+	it("holds its lock there, never in the quest's .writing", () => {
+		const questDir = quest("QEST-20261117-AAA111");
+		const during = withQuestLock(questDir, () => ({
+			locks: locks(),
+			writing: existsSync(join(questDir, WRITING, "quest.lock")),
+		}));
+		expect(during.locks).toHaveLength(1);
+		expect(during.writing, "no lock in the quest's .writing").toBe(false);
+		expect(locks()).toEqual([]);
+	});
+
+	it("never takes its folder from XDG_RUNTIME_DIR", () => {
+		// A pi from cron, ssh or a bare systemd unit has no XDG_RUNTIME_DIR,
+		// and two writers that pick different locks both go ahead. With the
+		// lookup the machine's own, a runtime folder named only by the
+		// variable is never used.
+		const questDir = quest("QEST-20261117-BBB222");
+		const before = process.env.XDG_RUNTIME_DIR;
+		useRunFolderForTests(undefined);
+		try {
+			process.env.XDG_RUNTIME_DIR = run;
+			const during = withQuestLock(questDir, locks);
+			expect(during).toEqual([]);
+		} finally {
+			if (before === undefined) delete process.env.XDG_RUNTIME_DIR;
+			else process.env.XDG_RUNTIME_DIR = before;
+		}
+	});
+
+	it("gives a quest reached by two paths one lock", () => {
+		const questDir = quest("QEST-20261117-III999");
+		const link = join(dir, "linked");
+		symlinkSync(questDir, link);
+		const direct = withQuestLock(questDir, locks);
+		const linked = withQuestLock(link, locks);
+		expect(direct).toHaveLength(1);
+		expect(linked).toEqual(direct);
+	});
+
+	it("gives each quest a lock of its own", () => {
+		const first = quest("QEST-20261117-CCC333");
+		const second = quest("QEST-20261117-DDD444");
+		const during = withQuestLock(first, () => withQuestLock(second, locks));
+		expect(during).toHaveLength(2);
+	});
+
+	it("falls back to .writing where there is neither a session bus nor a lock folder, as on the Mac", async () => {
+		await new Promise<void>((resolve) => bus.close(() => resolve()));
+		bus = createServer();
+		const questDir = quest("QEST-20261117-EEE555");
+		const during = withQuestLock(questDir, () => ({
+			locks: locks(),
+			writing: readdirSync(join(questDir, WRITING)),
+		}));
+		expect(during).toEqual({ locks: [], writing: ["quest.lock"] });
+	});
+
+	it("locks where the fence lets the lock folder through, though it hides the bus", async () => {
+		// Inside the fence the runtime folder is a private tmpfs with no
+		// bus, but the lock folder is bound back in, so a fenced writer and
+		// one outside take the same lock.
+		const questDir = quest("QEST-20261117-JJJ000");
+		const outside = withQuestLock(questDir, locks);
+		await new Promise<void>((resolve) => bus.close(() => resolve()));
+		bus = createServer();
+		const inside = withQuestLock(questDir, () => ({
+			locks: locks(),
+			writing: existsSync(join(questDir, WRITING, "quest.lock")),
+		}));
+		expect(outside).toHaveLength(1);
+		expect(inside).toEqual({ locks: outside, writing: false });
+	});
+
+	it.each([
+		["with the bus", false],
+		["inside the fence", true],
+	])(
+		"writes nothing where the lock folder is a link, %s, rather than lock alone",
+		async (_, fenced) => {
+			if (fenced) {
+				await new Promise<void>((resolve) => bus.close(() => resolve()));
+				bus = createServer();
+			}
+			const elsewhere = join(dir, "elsewhere");
+			mkdirSync(elsewhere);
+			mkdirSync(join(run, "agentic-harness.pi"));
+			symlinkSync(elsewhere, join(run, "agentic-harness.pi", "quest-locks"));
+			const questDir = quest("QEST-20261117-KKK111");
+			expect(() =>
+				withQuestLock(questDir, () => {
+					atomicWriteFile(join(questDir, "ok.txt"), "y");
+				}),
+			).toThrow(/quest-locks/);
+			expect(readdirSync(elsewhere)).toEqual([]);
+			expect(existsSync(join(questDir, "ok.txt")), "ok.txt not written").toBe(
+				false,
+			);
+		},
+	);
+
+	it("puts back a lock folder's mode that another process widened, rather than stop every writer", () => {
+		const questDir = quest("QEST-20261117-NNN444");
+		const [first] = withQuestLock(questDir, locks);
+		const folder = join(run, "agentic-harness.pi", "quest-locks");
+		chmodSync(folder, 0o755);
+		const during = withQuestLock(questDir, locks);
+		expect(during).toEqual([first]);
+		expect(statSync(folder).mode & 0o777).toBe(0o700);
+	});
+
+	it("writes nothing where the bus is there but no lock folder can be made", () => {
+		writeFileSync(join(run, "agentic-harness.pi"), "");
+		const questDir = quest("QEST-20261117-OOO555");
+		expect(() =>
+			withQuestLock(questDir, () => {
+				atomicWriteFile(join(questDir, "ok.txt"), "y");
+			}),
+		).toThrow(/remove what stands there/);
+		expect(
+			existsSync(join(questDir, WRITING, "quest.lock")),
+			"no lock in .writing",
+		).toBe(false);
+	});
+
+	it.each([
+		["a pipe", (path: string) => execFileSync("mkfifo", [path])],
+		["a folder", (path: string) => mkdirSync(path)],
+		[
+			"a link to nothing",
+			(path: string) => symlinkSync(join(dir, "nothing"), path),
+		],
+		[
+			"a lock dated ahead",
+			(path: string) =>
+				writeFileSync(
+					path,
+					JSON.stringify({
+						pid: 1,
+						startedAt: Date.now() + 3_600_000,
+						pidns: "pid:[1]",
+					}),
+				),
+		],
+	])(
+		"takes over %s in the lock's place at once, rather than hang or wedge",
+		(_, plant) => {
+			const questDir = quest("QEST-20261117-PPP666");
+			const [name] = withQuestLock(questDir, locks);
+			if (!name) throw new Error("no lock was taken in the runtime folder");
+			plant(join(run, "agentic-harness.pi", "quest-locks", name));
+			const started = Date.now();
+			withQuestLock(questDir, () => {
+				atomicWriteFile(join(questDir, "ok.txt"), "y");
+			});
+			expect(readFileSync(join(questDir, "ok.txt"), "utf8")).toBe("y");
+			expect(Date.now() - started).toBeLessThan(2000);
+			expect(locks()).toEqual([]);
+		},
+	);
+
+	it(
+		"never walks a folder in the lock's place, so a link swapped into it reaches nothing outside",
+		async () => {
+			// A fenced command can write the lock folder: it makes a folder by a
+			// lock's name and, while a writer outside clears it, swaps a subfolder
+			// for a link to the writer's own files.
+			const outside = join(dir, "outside");
+			mkdirSync(join(outside, "kept"), { recursive: true });
+			const marker = join(outside, "marker");
+			writeFileSync(marker, "keep");
+			const questDir = quest("QEST-20261117-SSS777");
+			const [name] = withQuestLock(questDir, locks);
+			if (!name) throw new Error("no lock was taken in the runtime folder");
+			const folder = join(run, "agentic-harness.pi", "quest-locks");
+			const lock = join(folder, name);
+			const stop = new Int32Array(
+				new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+			);
+			const swapper = new Worker(SWAP_SUBFOLDERS, {
+				eval: true,
+				workerData: { folder, outside, stop },
+			});
+			await once(swapper, "online");
+			try {
+				for (let round = 0; round < SWAPPED_ROUNDS; round++) {
+					// Made whole beside the folder, so the swapper meets it only in place.
+					const made = join(dir, `made-${round}`);
+					mkdirSync(join(made, "sub", "a", "b"), { recursive: true });
+					writeFileSync(join(made, "sub", "a", "f"), "");
+					symlinkSync(marker, join(made, "link"));
+					renameSync(made, lock);
+					// What the walk reached outside is asked first, then whether it wrote.
+					let failed: unknown;
+					try {
+						withQuestLock(questDir, () => {
+							atomicWriteFile(join(questDir, "ok.txt"), `${round}`);
+						});
+					} catch (error) {
+						failed = error;
+					}
+					expect(existsSync(marker), `the marker outside, round ${round}`).toBe(
+						true,
+					);
+					expect(
+						existsSync(join(outside, "kept")),
+						`its folder, round ${round}`,
+					).toBe(true);
+					expect(failed, `the write, round ${round}`).toBeUndefined();
+				}
+			} finally {
+				Atomics.store(stop, 0, 1);
+				await once(swapper, "exit");
+			}
+			expect(readFileSync(join(questDir, "ok.txt"), "utf8")).toBe(
+				`${SWAPPED_ROUNDS - 1}`,
+			);
+		},
+		SWAPPED_BUDGET_MS,
+	);
+
+	it("takes no bus that isn't a socket", async () => {
+		await new Promise<void>((resolve) => bus.close(() => resolve()));
+		bus = createServer();
+		writeFileSync(join(run, "bus"), "");
+		const questDir = quest("QEST-20261117-LLL222");
+		const during = withQuestLock(questDir, () => ({
+			locks: locks(),
+			writing: readdirSync(join(questDir, WRITING)),
+		}));
+		expect(during).toEqual({ locks: [], writing: ["quest.lock"] });
+	});
+
+	it("takes over a stale lock in .writing", () => {
+		const questDir = quest("QEST-20261117-MMM333");
+		mkdirSync(join(questDir, WRITING));
+		const stale = join(questDir, WRITING, "quest.lock");
+		writeFileSync(stale, "");
+		const old = new Date(Date.now() - 60_000);
+		utimesSync(stale, old, old);
+		withQuestLock(questDir, () => {
+			atomicWriteFile(join(questDir, "ok.txt"), "y");
+		});
+		expect(readFileSync(join(questDir, "ok.txt"), "utf8")).toBe("y");
+		expect(readdirSync(join(questDir, WRITING))).toEqual([]);
+	});
+
+	it("waits on a fresh lock in .writing, as older code holds", () => {
+		const questDir = quest("QEST-20261117-FFF666");
+		mkdirSync(join(questDir, WRITING));
+		writeFileSync(join(questDir, WRITING, "quest.lock"), "");
+		expect(() =>
+			withQuestLock(questDir, () => {
+				atomicWriteFile(join(questDir, "ok.txt"), "y");
+			}),
+		).toThrow(/Timed out/);
+		expect(locks()).toEqual([]);
+		expect(existsSync(join(questDir, "ok.txt")), "ok.txt not written").toBe(
+			false,
+		);
+	}, 15_000);
+
+	it("waits on a fresh lock another writer holds there", () => {
+		const questDir = quest("QEST-20261117-GGG777");
+		const [name] = withQuestLock(questDir, locks);
+		if (!name) throw new Error("no lock was taken in the runtime folder");
+		writeFileSync(join(run, "agentic-harness.pi", "quest-locks", name), "");
+		// The lock's own name says nothing of which quest is stuck.
+		expect(() =>
+			withQuestLock(questDir, () => {
+				atomicWriteFile(join(questDir, "ok.txt"), "y");
+			}),
+		).toThrow(`Timed out acquiring the lock of quest ${questDir}`);
+		expect(existsSync(join(questDir, "ok.txt")), "ok.txt not written").toBe(
+			false,
+		);
+	}, 15_000);
+
+	it("takes over an ownerless lock there once it is older than any write takes", () => {
+		const questDir = quest("QEST-20261117-HHH888");
+		const [name] = withQuestLock(questDir, locks);
+		if (!name) throw new Error("no lock was taken in the runtime folder");
+		const lock = join(run, "agentic-harness.pi", "quest-locks", name);
+		writeFileSync(lock, "");
+		const old = new Date(Date.now() - 60_000);
+		utimesSync(lock, old, old);
+		withQuestLock(questDir, () => {
+			atomicWriteFile(join(questDir, "ok.txt"), "y");
+		});
+		expect(readFileSync(join(questDir, "ok.txt"), "utf8")).toBe("y");
+		expect(locks()).toEqual([]);
 	});
 });

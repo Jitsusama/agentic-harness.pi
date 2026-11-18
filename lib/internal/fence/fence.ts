@@ -84,6 +84,7 @@ import {
 	readOnlyPaths,
 } from "./fence-home.ts";
 import { NPMRC } from "./fence-npmrc.ts";
+import { questLockArgs } from "./fence-quest-locks.ts";
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -350,6 +351,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 			const path = join(place.runtimeDir, name);
 			if (exists(path)) args.push("--ro-bind", path, path);
 		}
+		args.push(...questLockArgs(place.runtimeDir, disk));
 		args.push(...githubDoorArgs(place.githubDoor));
 		// Read-only: written from outside, unfenced, so nothing inside may
 		// put a link in its place for that write to follow.

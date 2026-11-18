@@ -21,8 +21,24 @@
  * Neither the temp file nor the lock is made in the quest
  * folder itself: the shell watches the folders of quests
  * with something waiting on Joel, and each file made and
- * removed there woke it (6b, 31 October). Both live in
- * the folder's `.writing`, which its watch doesn't reach.
+ * removed there woke it (6b, 31 October). The temp file
+ * lives in the folder's `.writing`, which its watch
+ * doesn't reach.
+ *
+ * The lock lives in the login's runtime folder, which is
+ * tmpfs: on 16 and 17 November the hosts' loops held about
+ * 77 s creating and removing it in `.writing`, waiting on
+ * btrfs's tree lock while the disk was busy, and nothing
+ * made on tmpfs waits on the disk. Every writer on the
+ * machine must pick the same lock, so the folder is found
+ * without `XDG_RUNTIME_DIR`, which a pi from cron or ssh
+ * lacks: `/run/user/<uid>`, when it holds the session bus.
+ * The fence gives a command a private runtime folder of
+ * its own, never with the bus, and binds this one folder
+ * back in, so a pi inside it locks there too. A machine
+ * without a login runtime folder, as the Mac, locks in
+ * `.writing` as before; one locking in the runtime folder
+ * still waits out a lock there, held by older code.
  *
  * The lock is file-creation with `O_EXCL`. A short retry
  * loop covers the normal contention case; a stale-lock
@@ -35,19 +51,25 @@
 
 import {
 	closeSync,
+	constants,
 	existsSync,
 	fstatSync,
 	linkSync,
+	lstatSync,
 	mkdirSync,
 	openSync,
 	readFileSync,
+	readlinkSync,
 	renameSync,
+	rmdirSync,
+	type Stats,
 	statSync,
 	unlinkSync,
 	writeSync,
 } from "node:fs";
 import { join } from "node:path";
 import { WRITING, writeWhole } from "../write-whole.ts";
+import { questLockFolder } from "./lock-folder.ts";
 
 /** Lock-acquire retry budget per call. */
 const LOCK_TIMEOUT_MS = 5000;
@@ -55,9 +77,62 @@ const LOCK_TIMEOUT_MS = 5000;
 const LOCK_RETRY_MS = 25;
 /** A lock older than this is considered stale and stolen. */
 const STALE_LOCK_MS = 30_000;
+/**
+ * How far ahead of now a lock may be dated before it is judged made up:
+ * every writer reads one clock, so this covers only its coarse ticks.
+ */
+const AHEAD_MS = 1000;
 
 /** The lock's name in the quest folder's `.writing`. */
 const LOCK_NAME = "quest.lock";
+
+/** Where a process's pid namespace is named, on Linux. */
+const PID_NAMESPACE = "/proc/self/ns/pid";
+
+/** Where tests have the runtime folder looked for, when they say. */
+let runFolderForTests: string | undefined;
+
+/**
+ * The folder quest locks are made in on this machine, or undefined to
+ * make each in its quest's `.writing`. Looked for on every lock, since
+ * one stat on tmpfs is cheap and a process started before the login's
+ * folder was made must not keep `.writing` once it is there.
+ *
+ * Where the login's runtime folder holds its session bus, the folder in
+ * it, made if it isn't there. Inside the fence the bus is hidden but
+ * the folder is bound back in, so a fenced writer finds it as well.
+ * Where neither is, as on the Mac, every writer keeps `.writing`. Where
+ * something other than a folder of this user's alone stands in its
+ * place, as the fence leaves when it won't let the folder through, no
+ * quest is written: locking in `.writing` there would be locking alone
+ * (ISXEG8 and 85PKB2, 17 November).
+ */
+function runtimeLocks(): string | undefined {
+	const run =
+		runFolderForTests ??
+		(process.getuid ? `/run/user/${process.getuid()}` : undefined);
+	if (run === undefined) return undefined;
+	const { folder, stands } = questLockFolder(run);
+	if (stands === "refused") {
+		throw new Error(
+			`Wrote no quest: the quest lock folder ${folder} is missing, a link, a file or another user's, and a lock anywhere else is one other writers never see. Outside the fence, remove what stands there and the next write makes the folder again; inside, the fence put an empty file there because the folder outside was like that.`,
+		);
+	}
+	return stands === "ours" ? folder : undefined;
+}
+
+/**
+ * This process's pid namespace, or undefined where there is no `/proc`,
+ * as on the Mac. Read on every lock, since it is one read of procfs.
+ */
+function pidNamespace(): string | undefined {
+	try {
+		return readlinkSync(PID_NAMESPACE);
+	} catch {
+		// No /proc here, so every writer is judged by its pid as before.
+		return undefined;
+	}
+}
 
 /**
  * Where the lock was made, in the quest folder itself, by sessions on
@@ -111,12 +186,34 @@ export function questWritesMade(): number {
 interface LockRecord {
 	pid: number;
 	startedAt: number;
+	/**
+	 * The holder's pid namespace: a fenced writer's pid names another
+	 * process, or none, outside its own. Absent from older code's locks.
+	 */
+	pidns?: string;
 }
 
 function readLockRecord(lockPath: string): LockRecord | undefined {
 	try {
-		const text = readFileSync(lockPath, "utf8");
-		const parsed = JSON.parse(text) as { pid?: unknown; startedAt?: unknown };
+		// Never through a link, and never waiting on a pipe: a fenced command
+		// can write the shared lock folder, and a read that blocked would
+		// hold every conversation on the host's thread.
+		const fd = openSync(
+			lockPath,
+			constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+		);
+		let text: string;
+		try {
+			if (!fstatSync(fd).isFile()) return undefined;
+			text = readFileSync(fd, "utf8");
+		} finally {
+			closeSync(fd);
+		}
+		const parsed = JSON.parse(text) as {
+			pid?: unknown;
+			startedAt?: unknown;
+			pidns?: unknown;
+		};
 		const pid =
 			typeof parsed.pid === "number" && Number.isFinite(parsed.pid)
 				? parsed.pid
@@ -126,7 +223,8 @@ function readLockRecord(lockPath: string): LockRecord | undefined {
 				? parsed.startedAt
 				: undefined;
 		if (pid === undefined || startedAt === undefined) return undefined;
-		return { pid, startedAt };
+		if (typeof parsed.pidns !== "string") return { pid, startedAt };
+		return { pid, startedAt, pidns: parsed.pidns };
 	} catch {
 		// Lock file is malformed or unreadable. Treat as stale
 		// so the steal loop can recover instead of wedging.
@@ -159,17 +257,27 @@ function isProcessAlive(pid: number): boolean {
  * another writer made after taking over first.
  */
 function tryStealStaleLock(lockPath: string, now: number): boolean {
-	let judged: ReturnType<typeof statSync>;
+	let judged: ReturnType<typeof lstatSync>;
 	try {
-		judged = statSync(lockPath);
+		judged = lstatSync(lockPath);
 	} catch {
 		// Released since the failed create; the next attempt takes it.
 		return true;
 	}
 	const record = readLockRecord(lockPath);
-	const stale = record
-		? now - record.startedAt >= STALE_LOCK_MS || !isProcessAlive(record.pid)
-		: now - judged.mtimeMs >= STALE_LOCK_MS;
+	// A pid from another namespace says nothing here, so such a lock is
+	// judged by its age alone.
+	const here = record?.pidns === undefined || record.pidns === pidNamespace();
+	// No writer makes anything but a file, nor dates one ahead: anything
+	// else there would otherwise wedge the quest until someone removed it.
+	const stale = !judged.isFile()
+		? true
+		: record
+			? now - record.startedAt >= STALE_LOCK_MS ||
+				record.startedAt > now + AHEAD_MS ||
+				(here && !isProcessAlive(record.pid))
+			: now - judged.mtimeMs >= STALE_LOCK_MS ||
+				judged.mtimeMs > now + AHEAD_MS;
 	if (!stale) return false;
 	const aside = `${lockPath}.stale-${process.pid}-${Math.random().toString(36).slice(2, 10)}`;
 	try {
@@ -178,7 +286,8 @@ function tryStealStaleLock(lockPath: string, now: number): boolean {
 		// Somebody else took it over first; the next attempt sees theirs.
 		return false;
 	}
-	if (statSync(aside).ino !== judged.ino) {
+	const moved = lstatSync(aside);
+	if (moved.ino !== judged.ino) {
 		// Moved a fresh lock another writer made after taking over first.
 		// Put it back, unless a third already made one, which then stands.
 		try {
@@ -187,19 +296,48 @@ function tryStealStaleLock(lockPath: string, now: number): boolean {
 			// EEXIST: the newer lock stands, as above.
 		}
 	}
-	unlinkSync(aside);
+	clearAside(aside, moved);
 	return true;
 }
 
-function acquireLock(lockPath: string): { fd: number; ino: number } {
+/**
+ * Remove what a takeover moved aside, never walking into it. A fenced
+ * command can write the lock folder, and a recursive delete of a folder it
+ * made can be led out of the fence by a link it swaps in mid-walk (ISXEG8,
+ * 17 November). So a folder goes only if it is empty; one that isn't stays
+ * under its aside name, which already freed the lock's, until tmpfs clears
+ * it at logout.
+ */
+function clearAside(aside: string, moved: Stats): void {
+	try {
+		if (moved.isDirectory()) rmdirSync(aside);
+		else unlinkSync(aside);
+	} catch {
+		// Not empty, or changed since: left aside, which holds no lock's name.
+	}
+}
+
+/** Why a writer gave up on a quest's lock, naming the quest, not just the lock. */
+function timedOut(questDir: string, lockPath: string): Error {
+	return new Error(
+		`Timed out acquiring the lock of quest ${questDir} at ${lockPath} after ${LOCK_TIMEOUT_MS}ms.`,
+	);
+}
+
+function acquireLock(
+	questDir: string,
+	lockPath: string,
+): { fd: number; ino: number } {
 	const deadline = Date.now() + LOCK_TIMEOUT_MS;
 	let lastStealCheck = 0;
 	while (true) {
 		try {
 			const fd = openSync(lockPath, "wx");
+			const pidns = pidNamespace();
 			const payload: LockRecord = {
 				pid: process.pid,
 				startedAt: Date.now(),
+				...(pidns === undefined ? {} : { pidns }),
 			};
 			// Not flushed: other writers read the record from the page cache
 			// they share, and a lock a power cut empties is judged by its age.
@@ -211,11 +349,7 @@ function acquireLock(lockPath: string): { fd: number; ino: number } {
 			if (code !== "EEXIST") throw err;
 		}
 		const now = Date.now();
-		if (now >= deadline) {
-			throw new Error(
-				`Timed out acquiring quest lock at ${lockPath} after ${LOCK_TIMEOUT_MS}ms.`,
-			);
-		}
+		if (now >= deadline) throw timedOut(questDir, lockPath);
 		// Probe for staleness every couple of retries so a
 		// crashed holder doesn't keep us spinning.
 		if (now - lastStealCheck > LOCK_RETRY_MS * 4) {
@@ -230,16 +364,12 @@ function acquireLock(lockPath: string): { fd: number; ino: number } {
  * Wait until no older session holds the legacy lock, taking it over
  * only when it is stale, as a holder of it would be; never making it.
  */
-function awaitLegacyRelease(legacyPath: string): void {
+function awaitLegacyRelease(questDir: string, legacyPath: string): void {
 	const deadline = Date.now() + LOCK_TIMEOUT_MS;
 	let lastStealCheck = 0;
 	while (existsSync(legacyPath)) {
 		const now = Date.now();
-		if (now >= deadline) {
-			throw new Error(
-				`Timed out acquiring quest lock at ${legacyPath} after ${LOCK_TIMEOUT_MS}ms.`,
-			);
-		}
+		if (now >= deadline) throw timedOut(questDir, legacyPath);
 		if (now - lastStealCheck > LOCK_RETRY_MS * 4) {
 			tryStealStaleLock(legacyPath, now);
 			lastStealCheck = now;
@@ -280,18 +410,32 @@ function releaseLock(
 
 /**
  * Run `fn` under an advisory lock on the given quest dir.
- * Acquires `<questDir>/.writing/quest.lock`, waits out any
+ * Acquires the quest's lock in the login's runtime folder,
+ * keyed by the quest folder's device and inode, or where
+ * there is none `<questDir>/.writing/quest.lock`; inside the
+ * fence, the same folder, bound back in. Waits out the lock
+ * in `.writing` that a writer on older code holds, and any
  * older session's `<questDir>/.quest.lock`, runs fn,
- * releases. Steals locks older than `STALE_LOCK_MS` whose
- * owner is no longer alive.
+ * releases. Steals a lock older than `STALE_LOCK_MS`, or
+ * one whose owner in this pid namespace is no longer alive.
  */
 export function withQuestLock<T>(questDir: string, fn: () => T): T {
-	if (!existsSync(questDir)) {
+	let folder: ReturnType<typeof statSync>;
+	try {
+		folder = statSync(questDir);
+	} catch {
+		// Gone, or never made: said as the caller's error below.
 		throw new Error(`Quest directory ${questDir} does not exist.`);
 	}
-	const writing = join(questDir, WRITING);
-	mkdirSync(writing, { recursive: true });
-	const lockPath = join(writing, LOCK_NAME);
+	const inWriting = join(questDir, WRITING, LOCK_NAME);
+	const runtime = runtimeLocks();
+	const lockPath = runtime
+		? join(runtime, `${folder.dev}-${folder.ino}.lock`)
+		: inWriting;
+	mkdirSync(runtime ?? join(questDir, WRITING), {
+		recursive: true,
+		mode: 0o700,
+	});
 	// Probe once before the loop so we don't wait the full
 	// retry budget on a clearly-stale lock.
 	if (existsSync(lockPath)) {
@@ -302,14 +446,23 @@ export function withQuestLock<T>(questDir: string, fn: () => T): T {
 			// Stat failed; the acquire loop handles it.
 		}
 	}
-	const held = acquireLock(lockPath);
+	const held = acquireLock(questDir, lockPath);
 	try {
-		awaitLegacyRelease(join(questDir, LEGACY_LOCK_NAME));
+		if (runtime) awaitLegacyRelease(questDir, inWriting);
+		awaitLegacyRelease(questDir, join(questDir, LEGACY_LOCK_NAME));
 		return fn();
 	} finally {
 		wrote();
 		releaseLock(lockPath, held);
 	}
+}
+
+/**
+ * Look for the login's runtime folder at `folder` rather than
+ * `/run/user/<uid>`, or there again given undefined, for tests.
+ */
+export function useRunFolderForTests(folder: string | undefined): void {
+	runFolderForTests = folder;
 }
 
 /** Fallback when we have a path but no enclosing quest dir. */
