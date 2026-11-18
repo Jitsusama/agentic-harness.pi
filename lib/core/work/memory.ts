@@ -136,6 +136,18 @@ export interface TreeMemory {
 		path: string,
 		facts?: ProcessFacts,
 	): Promise<HeldTree | undefined>;
+	/**
+	 * Make `session` the holder of every tree whose record names it, as
+	 * the process it runs in now, and answer how many records changed.
+	 *
+	 * A session outlives its process: resumed after a restart, it runs in
+	 * a new one while its records still name the old, which reads as
+	 * ended to anything judging by owners. Each record drops the owners
+	 * naming this session and those whose process is gone, and gains this
+	 * one, under the record's lock. A record already naming only live
+	 * holders and this one is left as it is.
+	 */
+	reownSession(session: string, facts?: ProcessFacts): Promise<number>;
 }
 
 /** How many times a listing the directory changed under is read again. */
@@ -197,8 +209,11 @@ function sameOwner(one: Owner, two: Owner): boolean {
 }
 
 /** Keep plain pi fact injection while a host supplies the conversation owner. */
-async function holderNow(facts: ProcessFacts): Promise<Owner | undefined> {
-	return hosted() ? sessionOwner() : ownerNow(facts);
+async function holderNow(
+	facts: ProcessFacts,
+	session?: string,
+): Promise<Owner | undefined> {
+	return hosted() ? sessionOwner(session) : ownerNow(facts);
 }
 
 /** Whether a record read back off disk says enough to be useful. */
@@ -483,6 +498,43 @@ export function createTreeMemory(
 				if (stands.some((one) => one !== "gone")) held.push(tree);
 			}
 			return held;
+		},
+
+		async reownSession(session, facts = systemFacts) {
+			const names = (tree: HeldTree) =>
+				Array.isArray(tree.sessions) && tree.sessions.includes(session);
+			const ours = this.recall().filter(names);
+			if (ours.length === 0) return 0;
+			const us = await holderNow(facts, session);
+			// The machine won't say when we started: the records stay as they
+			// are, since an owner nobody can check is worse than an old one.
+			if (us === undefined) return 0;
+			const once = askedOnceWithTicks(
+				facts === systemFacts ? tickFacts : facts,
+			);
+			let changed = 0;
+			for (const found of ours) {
+				// Read again under the lock, so a holder that arrived since the
+				// listing is kept.
+				await underLock(found.identity.key, async () => {
+					const tree = this.recall().find((one) => one.path === found.path);
+					if (tree === undefined || !names(tree)) return;
+					const owners = named(tree);
+					const kept: Owner[] = [];
+					for (const owner of owners) {
+						if (sameOwner(owner, us) || owner.session === session) continue;
+						if ((await tickedStanding(owner, once)) === "gone") continue;
+						kept.push(owner);
+					}
+					const already =
+						owners.some((owner) => sameOwner(owner, us)) &&
+						kept.length === owners.length - 1;
+					if (already) return;
+					this.remember({ ...tree, owners: [...kept, us] });
+					changed += 1;
+				});
+			}
+			return changed;
 		},
 	};
 }
