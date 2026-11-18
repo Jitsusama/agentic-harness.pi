@@ -211,6 +211,20 @@ describe("telling agents not to add nice", () => {
 		expect(said[0]).toMatch(/VM test.*every build/s);
 	});
 
+	it.runIf(process.platform === "linux")(
+		"tells a run meant to outlive its command to start as a service, in its own folder, with nothing expanded",
+		() => {
+			const said = guidelines("jobs.slice/jobs.service").filter((line) =>
+				line.startsWith("A process a command starts dies"),
+			);
+
+			expect(said, "one line says what outlives a command").toHaveLength(1);
+			expect(said[0]).toMatch(
+				/systemd-run --user --scope`.*jobs slice.*(transient service.*--same-dir --expand-environment=no|no command can reach systemd)/s,
+			);
+		},
+	);
+
 	it("says nothing where nice still does what it says", () => {
 		expect(
 			guidelines(undefined).filter((line) => line.includes("nice")),

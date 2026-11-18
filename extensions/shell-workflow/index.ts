@@ -56,6 +56,7 @@ import {
 import { settleStage } from "../../lib/internal/fence/fence-stage.ts";
 import {
 	askTheCloudAhead,
+	type Sandbox,
 	sandboxFor,
 } from "../../lib/internal/sandbox/sandbox.ts";
 import { sweepKept } from "../../lib/internal/shell/kept.ts";
@@ -249,7 +250,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			// Only where /proc lets a stop find what left the group (reap.ts).
 			...(process.platform === "linux"
 				? [
-						`A process a command starts dies when the command is stopped or times out, or when the pi host that ran it restarts, whatever group or session it moved to: setsid, nohup and \`jobs-broker run\` don't keep it. To outlive both, start it as a transient service: \`systemd-run --user --unit=NAME --collect --setenv=PATH=$PATH --setenv=HOME=$HOME bash -c 'COMMAND > LOG 2>&1'\`. A service takes none of the command's environment but what --setenv passes, and the journal says how it ended (\`journalctl --user -u NAME\`). A \`systemd-run --user --scope\` is spared too, but nothing records how it ended.${sandbox.kind === "fence" ? " Inside the agent fence no command can make either, so something meant to outlive its command needs a service its owner runs, or the person." : ""}`,
+						`A process a command starts dies when the command is stopped or times out, or when the pi host that ran it restarts, whatever group, session or scope it moved to: setsid, nohup, \`jobs-broker run\` and a \`systemd-run --user --scope\` landing in pi's cgroup or the jobs slice all still carry the command's marks. ${outlivingIt(sandbox.kind)}`,
 					]
 				: []),
 			// Only where commands are placed in the jobs cgroup: elsewhere
@@ -306,4 +307,18 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			});
 		},
 	});
+}
+
+/**
+ * How a process can outlive its command and its host, as a session in
+ * `kind` of sandbox is told. A transient service starts from the user
+ * manager, not the command, so it carries none of the marks a reap looks
+ * for, wherever its slice; where systemd can't be reached, as in the
+ * fence or the strict sandbox, nothing the agent runs can make one.
+ */
+function outlivingIt(kind: Sandbox["kind"]): string {
+	if (kind === "fence" || kind === "strict") {
+		return "Here no command can reach systemd to start what would outlive it, so something meant to outlive its command needs a service its owner runs, or the person.";
+	}
+	return 'To outlive both, start it as a transient service, which carries none: `systemd-run --user --unit=NAME --collect --same-dir --expand-environment=no --setenv=PATH="$PATH" --setenv=HOME="$HOME" -p RuntimeMaxSec=SECONDS -- bash -c \'COMMAND > LOG 2>&1; echo rc=$? >> LOG\'`, with a NAME of its own each run. It starts with none of the command\'s environment but what --setenv passes, so pass each variable the run needs, and the journal says how it ended (`journalctl --user -u NAME`).';
 }
