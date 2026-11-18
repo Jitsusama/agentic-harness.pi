@@ -189,6 +189,7 @@ describe("a lease", () => {
 		await vi.waitFor(() =>
 			expect(
 				sent.some(({ message }) => message.content.includes("heard after")),
+				"the plain message after the planted one wasn't heard",
 			).toBe(true),
 		);
 		expect(
