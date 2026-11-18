@@ -367,6 +367,31 @@ describe("sweeping the trees whose sessions have ended", () => {
 		);
 		expect(asked, "the sweeps that asked for claims").toBe(1);
 	});
+
+	it("asks for claims before it reads anything else, so a conversation closing meanwhile has said what its quests hold", async () => {
+		const { memory, lockPath } = await setUp();
+		const order: string[] = [];
+		const watched: typeof memory = {
+			...memory,
+			recall: () => {
+				order.push("recall");
+				return memory.recall();
+			},
+		};
+
+		await sweepEndedTrees({
+			exec,
+			memory: watched,
+			claims: () => {
+				order.push("claims");
+				return [];
+			},
+			lockPath,
+			facts: machine,
+		});
+
+		expect(order[0], "what the sweep asked first").toBe("claims");
+	});
 });
 
 describe("trees whose repository is gone", () => {
