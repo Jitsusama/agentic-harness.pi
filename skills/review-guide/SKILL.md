@@ -234,7 +234,10 @@ propose; a council read before that last fix still counts. Commits
 another pushed branch holds without the change's head aren't its
 own, so a branch cut from reviewed work needs its own council, and
 a lower branch fixed under a stack is judged once the branches above
-it are restacked. Each change of a stack is judged by its own
+it are restacked; the refusal names the branches holding what the
+council read. Only branches the checkout still has as remote refs
+are seen, so once reviewed work's branch is pruned, a branch cut
+from it passes on that work's council. Each change of a stack is judged by its own
 commits: `review_ask stack` reads them all at once, where a council
 of the tip reads only what that range shows. A draft can go up
 first, since nobody is asked to look at one.

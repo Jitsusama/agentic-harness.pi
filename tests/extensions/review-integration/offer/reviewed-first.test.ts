@@ -33,6 +33,34 @@ const exec: Exec = async (command, args) =>
 		),
 	);
 
+/** Git in `cwd`, reading `input` on its standard input. */
+function gitFed(cwd: string, args: string[], input: string): Promise<string> {
+	return new Promise((done, fail) => {
+		const child = execFile("git", ["-C", cwd, ...args], (error, stdout) =>
+			error ? fail(error) : done(String(stdout)),
+		);
+		child.stdin?.end(input);
+	});
+}
+
+/** A remote branch for each name, each a commit of its own on `parent`. */
+function branchesOn(cwd: string, parent: string, names: readonly string[]) {
+	const stream = names
+		.map((name) => {
+			const message = `${name}\n`;
+			return [
+				`commit refs/remotes/origin/${name}`,
+				"committer Test <test@example.com> 1700000000 +0000",
+				`data ${message.length}`,
+				message,
+				`from ${parent}`,
+				"",
+			].join("\n");
+		})
+		.join("\n");
+	return gitFed(cwd, ["fast-import", "--quiet"], stream);
+}
+
 /** A finished council whose reviewers read `witness`, held against a local range. */
 async function councilRead(witness: string, over: Partial<AskRun> = {}) {
 	const range: ChangeRef = {
@@ -152,7 +180,7 @@ describe("holding a change until our own council has read it", () => {
 		);
 	});
 
-	it("measures from the remote's base, which the local one may trail", async () => {
+	it("leaves out what the remote's base has taken, which the local one may trail", async () => {
 		// The local main sits at the trunk; the remote's has taken `first`.
 		// A council of `first` read only what the change builds on.
 		await councilRead(first);
@@ -178,9 +206,48 @@ describe("holding a change until our own council has read it", () => {
 		await git(repo, "update-ref", "refs/remotes/origin/reviewed", first);
 		await councilRead(first);
 
-		expect(await councilFirst(exec, topic(), "proposed")).toContain(
-			"No council of ours",
+		const said = await councilFirst(exec, topic(), "proposed");
+
+		expect(said).toContain("isn't proposed yet");
+		expect(said).toContain("commits reviewed also hold without its head");
+		expect(said).toContain("restack them onto its head");
+	});
+
+	it("counts what its own branch on another remote holds as its own", async () => {
+		// Pushed to a fork before the fix, with the fix only local.
+		await git(repo, "update-ref", "refs/remotes/fork/topic", first);
+		await councilRead(first);
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	});
+
+	it("leaves out reviewed work however many branches the clone has", async () => {
+		// Five hundred branches off `first` hold none of what the council
+		// read, and sort first; the one holding `fix` comes after them, so
+		// only a second batch of branches leaves it out.
+		writeFileSync(join(repo, "three"), "three\n");
+		await git(repo, "add", "three");
+		await git(repo, "commit", "-qm", "three");
+		const stale = Array.from(
+			{ length: 500 },
+			(_, at) => `stale-${String(at).padStart(3, "0")}`,
 		);
+		await branchesOn(repo, first, stale);
+		await git(repo, "update-ref", "refs/remotes/origin/zz-reviewed", fix);
+		await councilRead(fix);
+
+		const said = await councilFirst(exec, topic(), "proposed");
+
+		expect(said).toContain("stale-000, stale-001, stale-002 and others");
+	});
+
+	it("lets a reviewed change through beside hundreds of unrelated branches", async () => {
+		// Branches off the trunk hold nothing the change does.
+		const beside = Array.from({ length: 600 }, (_, at) => `beside-${at}`);
+		await branchesOn(repo, trunk, beside);
+		await councilRead(first);
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
 	});
 
 	it("keeps a lower change's commits its own, though the branch above holds them", async () => {
