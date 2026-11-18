@@ -36,7 +36,7 @@ const child = `
 import { backstopStop } from ${JSON.stringify(BACKSTOP)};
 const [mode, file] = process.argv.slice(2);
 const ids = mode === "parked" ? [] : ["a", "b"];
-const backstop = backstopStop({ within: ${WITHIN_MS}, bound: 200, file, ids });
+const backstop = backstopStop({ within: ${WITHIN_MS}, file, ids });
 if (mode === "moved") backstop.held(["b"]);
 if (mode === "done") {
 	backstop.done();

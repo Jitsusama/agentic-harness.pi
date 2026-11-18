@@ -32,6 +32,19 @@ const STOP_WITHIN_MS = 45_000;
 const STOP_SHARE = 3 / 4;
 
 /**
+ * The share of its unit's stop limit after which a thread beside the loop
+ * ends the host, for a loop held past its own bound: at 04:33 on 18
+ * November one ran on a CPU for 117 s of 150, its 112 s timer never
+ * fired, and systemd killed the host with nothing said. Past the loop's
+ * share, so a loop that turns ends its stop itself, and short of the
+ * limit by enough for a thread on a busy machine to come to it.
+ */
+const BACKSTOP_SHARE = 7 / 8;
+
+/** The stop limit, in ms, assumed when a unit names none: systemd's default. */
+const DEFAULT_STOP_LIMIT_MS = 60_000;
+
+/**
  * The longest a Node timer waits: past it setTimeout fires at once, so a
  * limit of systemd's infinity would end a stop with nothing parked.
  */
@@ -47,18 +60,31 @@ const UNPARKED = "not-parked.json";
  * whole milliseconds, and never longer than a timer can wait.
  */
 export function stopWithin(env: NodeJS.ProcessEnv): number {
-	const limit = Number(env.PI_HOST_STOP_USEC);
-	if (!env.PI_HOST_STOP_USEC || !Number.isFinite(limit) || limit <= 0)
-		return STOP_WITHIN_MS;
-	return Math.min(
-		Math.floor((limit / MICROSECONDS_PER_MS) * STOP_SHARE),
-		LONGEST_TIMER_MS,
-	);
+	const limit = stopLimit(env);
+	if (limit === undefined) return STOP_WITHIN_MS;
+	return shareOf(limit, STOP_SHARE);
 }
 
-/** How long, in ms, a stop's backstop waits before ending the host. */
-export function stopBackstop(_env: NodeJS.ProcessEnv): number {
-	return 0;
+/**
+ * How long, in ms, a stop's backstop waits before ending the host from
+ * its own thread: seven eighths of the stop limit its unit names, else of
+ * systemd's default minute, never longer than a timer can wait.
+ */
+export function stopBackstop(env: NodeJS.ProcessEnv): number {
+	return shareOf(stopLimit(env) ?? DEFAULT_STOP_LIMIT_MS, BACKSTOP_SHARE);
+}
+
+/** The stop limit its unit names in PI_HOST_STOP_USEC, in ms, if it can be read. */
+function stopLimit(env: NodeJS.ProcessEnv): number | undefined {
+	const limit = Number(env.PI_HOST_STOP_USEC);
+	if (!env.PI_HOST_STOP_USEC || !Number.isFinite(limit) || limit <= 0)
+		return undefined;
+	return limit / MICROSECONDS_PER_MS;
+}
+
+/** A share of `limit` ms, in whole ms no longer than a timer can wait. */
+function shareOf(limit: number, share: number): number {
+	return Math.min(Math.floor(limit * share), LONGEST_TIMER_MS);
 }
 
 /**
@@ -115,12 +141,15 @@ export function unparkedMarks(
 	kind: HostKind,
 	report: (error: unknown) => void,
 ): {
+	/** Where the mark is, for a writer that can't call write. */
+	readonly file: string;
 	read(): UnparkedMark | undefined;
 	write(ids: readonly string[]): void;
 	clear(): void;
 } {
 	const file = join(stateDir("host-service"), hostKey(realm, kind), UNPARKED);
 	return {
+		file,
 		read() {
 			let text: string;
 			try {

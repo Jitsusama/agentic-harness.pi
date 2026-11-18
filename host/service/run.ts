@@ -52,7 +52,14 @@ import {
 	readyStatus,
 	stoppingStatus,
 } from "./status.ts";
-import { endWithin, stopWithin, unparkedLine, unparkedMarks } from "./stop.ts";
+import {
+	endWithin,
+	stopBackstop,
+	stopWithin,
+	unparkedLine,
+	unparkedMarks,
+} from "./stop.ts";
+import { type BackstopOptions, backstopStop } from "./stop-backstop.ts";
 
 /** The signals that stop a host: systemd's stop, and Ctrl+C by hand. */
 const STOP_SIGNALS = ["SIGTERM", "SIGINT"] as const;
@@ -78,6 +85,19 @@ export const STEP_CEILING_MS = 15 * 60_000;
  * the unit's status: a conversation's coming or going shows within this.
  */
 const STATUS_EVERY_MS = 15_000;
+
+/**
+ * How often a stop tells its backstop what is still unparked, in ms, so a
+ * loop held from then on leaves it at most this stale.
+ */
+const BACKSTOP_TOLD_EVERY_MS = 1000;
+
+/**
+ * The least a backstop comes after its stop's own bound, in ms, so a loop
+ * merely late on a busy machine still ends its stop itself, as a unit's
+ * 150 s limit always allows; only a limit under 40 s is held to it.
+ */
+const BACKSTOP_AFTER_BOUND_MS = 5000;
 
 /**
  * How many times the host pings systemd's watchdog in each of its
@@ -128,6 +148,12 @@ export interface HostRunOptions {
 	statusEvery?: number;
 	/** How long, in ms, a stop may park before the host ends; stopWithin(env) by default. */
 	stopWithin?: number;
+	/**
+	 * Arms what ends a stop whose loop is held past its bound, from beside
+	 * the loop, for stopBackstop(env) ms; a thread that kills the host by
+	 * default.
+	 */
+	backstop?: typeof backstopStop;
 	/**
 	 * Says the host's loop still turns, when systemd's watchdog watches it,
 	 * given how many ms the saying may take; systemd's notify by default.
@@ -319,11 +345,34 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			.catch(report)
 			.then(() => serving.stop());
 		const bound = options.stopWithin ?? stopWithin(options.env);
+		const unparkedIds = () => serving.held().map(({ id }) => id);
+		// The bound is a timer on this loop, which a loop held on a CPU never
+		// comes back to, as at 04:33 on 18 November; a thread beside it ends
+		// the host later, still short of systemd's kill.
+		const armed: BackstopOptions = {
+			within: Math.max(
+				stopBackstop(options.env),
+				bound + BACKSTOP_AFTER_BOUND_MS,
+			),
+			file: unparked.file,
+			ids: unparkedIds(),
+		};
+		const backstop = (options.backstop ?? backstopStop)(armed);
+		const telling = setInterval(
+			() => backstop.held(unparkedIds()),
+			BACKSTOP_TOLD_EVERY_MS,
+		);
+		telling.unref();
 		stopping = endWithin(parked, bound, (waited) => {
 			const held = serving.held();
 			say(unparkedLine(bound, waited, held));
 			unparked.write(held.map(({ id }) => id));
-		}).finally(unwatch);
+		}).finally(() => {
+			// The host exits as its stop ends, so nothing is left to end.
+			clearInterval(telling);
+			backstop.done();
+			unwatch();
+		});
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {

@@ -26,6 +26,7 @@ import { controlRequest } from "../../../host/service/client.ts";
 import type { BeatOptions } from "../../../host/service/hold-watch.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
 import { hostKind, runHost, watchdogEvery } from "../../../host/service/run.ts";
+import type { BackstopOptions } from "../../../host/service/stop-backstop.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
 
@@ -717,6 +718,68 @@ describe("runHost", () => {
 				),
 			),
 		]);
+		parks();
+		await run.serving.stop();
+	});
+
+	// At 04:33 on 18 November a stop's loop ran on a CPU past its own
+	// bound, a timer that never fired, and systemd killed the host.
+	it("arms a backstop beside the loop with what is unparked, disarmed as the stop ends", async () => {
+		const signals = new EventEmitter();
+		const armed: BackstopOptions[] = [];
+		let disarmed = 0;
+		let parks = () => {};
+		const run = await runHost({
+			argv: ["background"],
+			// A unit stopping within 160 s, of which the backstop takes 7/8.
+			env: { ...env(), PI_HOST_STOP_USEC: "160000000" },
+			engine: async (host) => ({
+				...(await engine(host)),
+				start: async ({ sessionId, file, cwd }) => {
+					const close = () =>
+						new Promise<void>((parked) => {
+							parks = parked;
+						});
+					host.register({ id: sessionId, file, cwd, env: {}, close });
+				},
+			}),
+			signals,
+			ready: async () => {},
+			status: async () => {},
+			stopWithin: 200,
+			backstop: (options) => {
+				armed.push(options);
+				return {
+					held() {},
+					done() {
+						disarmed += 1;
+					},
+				};
+			},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		const reply = await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		if (!reply.ok) throw new Error(reply.error.message);
+		const { sessionId } = parseOpenResult(reply.result);
+
+		signals.emit("SIGTERM");
+		await run.stopped;
+		expect(armed, "armed once, as the stop began").toEqual([
+			{
+				within: 140_000,
+				file: expect.stringMatching(/\/not-parked\.json$/),
+				ids: [sessionId],
+			},
+		]);
+		expect(disarmed, "disarmed as the stop ended").toBe(1);
 		parks();
 		await run.serving.stop();
 	});

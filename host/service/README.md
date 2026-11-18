@@ -110,6 +110,16 @@ input pipeline or screen. No unit or running host is installed yet.
   took beside its bound, since a busy loop comes to it late, and names
   each conversation not parked, which the next host resumes from its
   store as it would after a kill and notes beside that resume.
+- stop-backstop.ts: what ends a stop whose loop never comes back to its
+  bound, which is a timer on that loop: at 04:33 on 18 November one ran
+  on a CPU for 117 s of 150 and systemd killed it with nothing said. A
+  worker thread, armed as each stop begins and told each second what is
+  still unparked, ends the host at seven eighths of the stop limit
+  (131.25 s of 150), and at least 5 s past the loop's bound, writing the
+  same journal line and mark stop.ts would. It ends it with SIGKILL,
+  the one end a thread can give its process that a held loop can't put
+  off, which systemd reads as a failed stop, as it reads its own kill. A stop that
+  ends on the loop disarms it, since the host exits then.
 - program.ts: that program, which `scripts/pi-host.ts` runs. It loads
   the host's pi from PI_PACKAGE_DIR, refused unless every host patch is
   there, starts pi's theme from the person's settings, and gives each
