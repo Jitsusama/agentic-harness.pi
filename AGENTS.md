@@ -179,11 +179,11 @@ pnpm exec vitest run <paths>   # the tests a change touches, as you go
 
 On optimus, from the checkout's top, run a typecheck or tests on
 paths as you go through `elsewhere run harness-check -- pnpm
-typecheck` (or `pnpm exec vitest run <paths>`): it needs no push, and
-goes to another machine only where mycelium places it on one that
-declares a fence for agents, else it runs here and says why. Only
-tracked, unhidden files travel, so `tests/package` and Linux-only
-tests stay here with `--here`, and a far failure is not retried here.
+typecheck` (or `pnpm exec vitest run <paths>`), with no push. It goes
+far only from a quest session, to a machine with an agent fence as
+tight as optimus's, and else runs here. Only tracked, unhidden files
+travel, so whatever reads git or `.pi` runs here with `--here`, as do
+the Linux-only tests, which skip on the Mac.
 [`docs/testing.md`](./docs/testing.md#sending-a-check-elsewhere) says
 what travels.
 

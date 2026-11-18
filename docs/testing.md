@@ -47,13 +47,24 @@ fault. Hidden files never travel, tracked or not: `.git`, `.pi/skills`
 and `.npmrc` stay here. The far side installs the packages from the
 lockfile with its own work toolchain's pnpm.
 
-So keep to here, with `--here`, for anything that reads what stays
-behind: `tests/package`, which asks git for its files and reads
-`.pi/skills`, and so the whole of `pnpm test:unit`. Keep to here for
-Linux too: on the work Mac, the tests that run only on Linux (the
-fence, the shell's sandbox, the host) skip, so a pass there says
-nothing of them. A run that fails far, its setup included, ends with
-that failure rather than running again here.
+So keep to here, with `--here`, anything that reads what stays behind:
+`tests/package` asks git for its files and reads `.pi/skills`, and
+`--changed` asks git what changed, so `pnpm test`, `pnpm test:unit`,
+`pnpm test:changed` and `pnpm check` all run here. Keep to here for
+Linux too: on the work Mac, every test that runs only on Linux, such
+as the fence's, the shell sandbox's and the host's, skips, so a pass
+there says nothing of them. To make a far run fail on a skip rather
+than pass over it, add the reporter that names each case that skipped
+and why:
+
+```sh
+elsewhere run harness-check -- pnpm exec vitest run <paths> \
+  --reporter=default --reporter=./tests/host/end-to-end/support/every-case-ran.mts
+```
+
+A run that fails far, its setup included, ends with that failure
+rather than running again here. Run it again with `--here` to tell
+whether the code or the far machine was at fault.
 
 An agent's run goes only to a machine that declares a fence for
 agents at least as tight as optimus's, and mycelium places it only
