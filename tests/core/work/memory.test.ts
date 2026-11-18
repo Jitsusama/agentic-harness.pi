@@ -541,6 +541,41 @@ describe("a tree remembers which session cut it", () => {
 		expect(memory.recall()[0]?.sessions).toEqual(["theirs"]);
 	});
 
+	it("dates each ask for a tree, so one asked for since the sweep looked stays", async () => {
+		// Reading a snapshot leaves no mark on a disk without access times,
+		// so the ask is the mark, and the sweep's take is judged against it
+		// under the record's lock.
+		const memory = memoryAt();
+		const facts = { alive: () => true, startedAt: async () => 5000 };
+		const looked = Date.now() - 1;
+		memory.remember(tree("shared"));
+
+		await memory.rememberHeldByUs(tree("shared"), facts);
+		const usedAt = memory.recall()[0]?.usedAt ?? 0;
+		let moved = false;
+		const taken = await memory.whileUnusedSince(
+			tree("shared").path,
+			looked,
+			async () => {
+				moved = true;
+				return true;
+			},
+		);
+
+		expect(usedAt, "the ask wasn't dated").toBeGreaterThan(looked);
+		expect(taken, "a tree asked for since was taken").toBeUndefined();
+		expect(moved, "a tree asked for since was moved").toBe(false);
+		expect(
+			await memory.whileUnusedSince(
+				tree("shared").path,
+				usedAt,
+				async () => true,
+			),
+			"a tree unused since was kept",
+		).toBeDefined();
+		expect(memory.recall(), "the taken tree's record stayed").toEqual([]);
+	});
+
 	it("names a subagent's fleet session beside its own, once each", async () => {
 		// A lane's own session ends with its job, while the session that
 		// ran it goes on and sends the next job into the same tree.

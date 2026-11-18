@@ -71,6 +71,7 @@ function remembering(held: HeldTree, others: number[]): TreeMemory {
 		forgetUsAsHolder: async () => {},
 		whileUnheld: async () => undefined,
 		holdWhileUnheld: async () => undefined,
+		whileUnusedSince: async () => undefined,
 		reownSession: async () => 0,
 	};
 }
@@ -162,11 +163,17 @@ describe("a worktree somebody else is working in", () => {
 			},
 			recall: () => (writes === 1 ? [] : [shared]),
 		};
-		const broker = createTreeBroker({ providers: [provider], memory });
+		const recut: string[] = [];
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory,
+			recut: (was) => recut.push(was.path),
+		});
 
 		const held = await broker.ensure(commit);
 
 		expect(held.path).toBe("/trees/shared");
+		expect(recut, "the fresh cut isn't said").toEqual(["/trees/shared"]);
 		expect(
 			cuts,
 			"the provider is asked once to find it, once to cut it",

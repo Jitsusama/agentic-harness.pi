@@ -43,6 +43,7 @@ import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
 import { unattendedExec } from "../../lib/internal/sandbox/unattended-exec.ts";
 import { cutTreeDir, treeRecordDir } from "../../lib/internal/work-records.ts";
 import { createFleetLedger } from "../../lib/subagent/fleet.ts";
+import { logSweep } from "./sweep.ts";
 
 /** Where trees this package cuts are put. */
 export function treeDir(): string {
@@ -151,6 +152,15 @@ export function treeBroker(): TreeBroker {
 			memory: createTreeMemory(treeRecordDir(), {
 				sessions: () => ours.sessions,
 			}),
+			// Said where the sweep said it took the tree, so whoever reads
+			// why a snapshot moved finds both halves in one place.
+			recut: (was) =>
+				logSweep({
+					recut: was.path,
+					key: was.identity.key,
+					sessions: ours.sessions,
+					why: "a sweep took it since it was last used, so it is cut afresh",
+				}),
 		});
 	}
 	return ours.broker;

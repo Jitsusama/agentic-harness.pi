@@ -54,6 +54,14 @@ export interface HeldTree {
 	 * written before this existed, or by a broker that knows no session.
 	 */
 	sessions?: string[];
+	/**
+	 * When a session last asked for it, cut or reused, in milliseconds
+	 * since the epoch. A snapshot is read, which leaves no mark on a disk
+	 * that keeps no access times, so this is how the sweep tells one a
+	 * live session still uses from one it pinned hours ago and left.
+	 * Absent from a record written before this existed.
+	 */
+	usedAt?: number;
 }
 
 /**
@@ -174,6 +182,11 @@ export interface BrokerDeps {
 	 * means every test, should not have to supply a directory to get a broker.
 	 */
 	memory?: TreeMemory;
+	/**
+	 * Told of a tree asked for again after a sweep took it, just before
+	 * it is cut afresh, so the cut can be said where the taking was.
+	 */
+	recut?(was: HeldTree): void;
 }
 
 /**
@@ -315,6 +328,7 @@ export function createTreeBroker(
 						.recall()
 						.some((tree) => tree.identity.key === taken.identity.key);
 				if (!gone) return taken;
+				deps.recut?.(taken);
 				const stale = trees.findIndex((tree) => tree.path === taken.path);
 				if (stale >= 0) trees.splice(stale, 1);
 			}

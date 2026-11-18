@@ -31,6 +31,12 @@ export interface UseSigns {
 	 */
 	standingIn?(): readonly string[] | Promise<readonly string[]>;
 	/**
+	 * Every file a process running now holds open. Asked only of what
+	 * would be taken from a session still open, since reading them all
+	 * is a walk of every process's descriptors.
+	 */
+	openIn?(): readonly string[] | Promise<readonly string[]>;
+	/**
 	 * The working folders of every session that may work in one, wherever
 	 * it runs. A hosted conversation's folder is no process's: on 11
 	 * November a sweep took one while its host held it open.
@@ -111,17 +117,28 @@ const MOVES_WITH_USE = ["HEAD", "index", join("logs", "HEAD")] as const;
  * checkout is a `src` folder inside it is read there.
  */
 function gitMovedSince(path: string, since: number): boolean {
+	return gitMovedAt(path) > since;
+}
+
+/**
+ * When a tree's git last moved, in milliseconds since the epoch, as
+ * {@link gitMovedSince} reads it, or 0 for a tree with no git to say.
+ */
+export function gitMovedAt(path: string): number {
 	const checkout = existsSync(join(path, ".git")) ? path : join(path, "src");
 	const gitDir = gitDirOf(checkout);
-	if (gitDir === undefined) return false;
-	return MOVES_WITH_USE.some((one) => {
-		try {
-			return statSync(join(gitDir, one)).mtimeMs > since;
-		} catch {
-			// Not every tree has each of these; one missing says nothing.
-			return false;
-		}
-	});
+	if (gitDir === undefined) return 0;
+	return Math.max(
+		0,
+		...MOVES_WITH_USE.map((one) => {
+			try {
+				return statSync(join(gitDir, one)).mtimeMs;
+			} catch {
+				// Not every tree has each of these; one missing says nothing.
+				return 0;
+			}
+		}),
+	);
 }
 
 /**

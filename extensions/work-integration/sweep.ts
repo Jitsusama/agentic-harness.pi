@@ -152,26 +152,30 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 	} catch (error) {
 		line = { failed: error instanceof Error ? error.message : String(error) };
 	}
-	try {
-		mkdirSync(dir, { recursive: true });
-		appendFileSync(
-			join(dir, "sweep.log"),
-			`${JSON.stringify({
-				at: new Date(started).toISOString(),
-				pid: process.pid,
-				ms: Date.now() - started,
-				...line,
-			})}\n`,
-		);
-	} catch {
-		// The log is for reading afterwards; a sweep that can't write it
-		// has still done what it did, and a timer has nobody to tell.
-	}
+	logSweep({ ms: Date.now() - started, ...line }, started);
 	// Whoever listed a tree it took stops listing a folder that is gone.
 	// pi's bus reports a listener's error itself, never to the emitter.
 	if (taken.length > 0) {
 		const swept: SweptTrees = { paths: taken };
 		pi.events.emit(WORK_TREES_SWEPT, swept);
+	}
+}
+
+/**
+ * Write one line to the sweep's log, dated `at`, in milliseconds since
+ * the epoch: a sweep's outcome, or a tree a sweep took being cut afresh.
+ */
+export function logSweep(line: Record<string, unknown>, at = Date.now()): void {
+	const dir = stateDir("work");
+	try {
+		mkdirSync(dir, { recursive: true });
+		appendFileSync(
+			join(dir, "sweep.log"),
+			`${JSON.stringify({ at: new Date(at).toISOString(), pid: process.pid, ...line })}\n`,
+		);
+	} catch {
+		// The log is for reading afterwards; a sweep that can't write it
+		// has still done what it did, and a timer has nobody to tell.
 	}
 }
 
@@ -216,6 +220,7 @@ export function useSigns(): UseSigns {
 			standing ??= standingIn();
 			return standing;
 		},
+		openIn,
 		...bootedAt(),
 	};
 }
@@ -305,6 +310,33 @@ async function standingIn(): Promise<string[]> {
 		),
 	);
 	return folders.filter((folder) => folder !== undefined);
+}
+
+/**
+ * Every file a process running now holds open, by the kernel's links to
+ * them, which on a machine without `/proc` is none. Read off the event
+ * loop, as {@link standingIn} reads folders.
+ */
+async function openIn(): Promise<string[]> {
+	let pids: string[];
+	try {
+		pids = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
+	} catch {
+		// No /proc, as on macOS: the other guards still stand.
+		return [];
+	}
+	const held = await Promise.all(
+		pids.map(async (pid) => {
+			const fds = join("/proc", pid, "fd");
+			// Ended since the listing, or another user's: nothing to read.
+			const listed = await readdir(fds).catch((): string[] => []);
+			const links = await Promise.all(
+				listed.map((fd) => readlink(join(fds, fd)).catch(() => "")),
+			);
+			return links.filter((link) => link.startsWith("/"));
+		}),
+	);
+	return held.flat();
 }
 
 /** When this boot began, where the machine will say. */

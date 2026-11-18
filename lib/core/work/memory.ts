@@ -137,6 +137,23 @@ export interface TreeMemory {
 		facts?: ProcessFacts,
 	): Promise<HeldTree | undefined>;
 	/**
+	 * Run `take` on a tree whatever sessions hold it, but only while none
+	 * has asked for it since `since`, in milliseconds since the epoch, and
+	 * forget the record once `take` says the tree is out of the way.
+	 *
+	 * For a snapshot a live session pinned and left: judged under the
+	 * record's lock, where a session asking for the tree writes its use,
+	 * so one that asked since the caller looked is seen and the tree is
+	 * left alone, and one asking after finds no record and cuts afresh.
+	 * `take` must be quick, as for {@link whileUnheld}. Answers the record
+	 * it forgot, or nothing when `take` didn't run or didn't take it.
+	 */
+	whileUnusedSince(
+		path: string,
+		since: number,
+		take: () => Promise<boolean>,
+	): Promise<HeldTree | undefined>;
+	/**
 	 * Make `session` the holder of every tree a record says it holds, as
 	 * the process it runs in now, and answer how many records changed.
 	 *
@@ -349,7 +366,7 @@ export function createTreeMemory(
 				// without one is right: it reads as unattributable, which is
 				// held, and a tree wrongly held costs disk where a tree
 				// wrongly reclaimed costs work.
-				this.remember({ ...held, ...sessionsWith(held) });
+				this.remember({ ...held, ...sessionsWith(held), usedAt: Date.now() });
 				return;
 			}
 			// Added to whoever else holds it rather than replacing them. A
@@ -369,6 +386,7 @@ export function createTreeMemory(
 					...rest,
 					owners: [...before, us],
 					...sessionsWith(found ?? held),
+					usedAt: Date.now(),
 				});
 			});
 		},
@@ -440,6 +458,20 @@ export function createTreeMemory(
 			await underLock(found.identity.key, async () => {
 				const tree = this.recall().find((one) => one.path === path);
 				if (tree === undefined || !(await spent(tree, facts))) return;
+				if (!(await take())) return;
+				this.forget(path);
+				taken = tree;
+			});
+			return taken;
+		},
+
+		async whileUnusedSince(path, since, take) {
+			const found = this.recall().find((one) => one.path === path);
+			if (found === undefined) return undefined;
+			let taken: HeldTree | undefined;
+			await underLock(found.identity.key, async () => {
+				const tree = this.recall().find((one) => one.path === path);
+				if (tree === undefined || (tree.usedAt ?? 0) > since) return;
 				if (!(await take())) return;
 				this.forget(path);
 				taken = tree;
