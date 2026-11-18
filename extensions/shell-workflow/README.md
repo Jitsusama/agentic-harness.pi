@@ -296,21 +296,29 @@ gives up, the command runs anyway and is told no conversation. The
 node takes the word only from the host, of its own `pi-spawner`, and
 checks for itself that the kernel lets no process trace any but its
 own descendants and that the host's Node.js started with
-`--disable-sigusr1` and no inspector, which the machine's own
-configuration gives it, since a command that could trace the host or
-open its inspector could speak for it. The node keeps the word only
-while it runs, so the host says each running `pi-spawner` again every
-30 seconds, with the start it read when the spawner began. A command
-run another way, as pi's own once a spawner is lost, or kept through
-a host's restart under a spawner the next host didn't start, is told
-no conversation. Code running inside the host itself, an extension a
-project brings among it, could still say what it likes. So could a
-command able to rewrite the harness and restart the host, or one
-that reaches the host's control socket and types into another
-conversation, which the host then honestly says. The word tells a
-conversation apart from mistakes, then, and from a command only where
-its commands are fenced from the harness's files and the host's and
-node's sockets.
+`--disable-sigusr1` as its first option and no inspector, as
+core.nix's unit for a host starts it, since a command that could trace
+the host or open its inspector could speak for it. A host without them
+is refused, and each of its conversations' commands told none; the
+node logs why, once, as it does every refusal, and the host isn't
+told. The node keeps the word only while it runs, so the host says
+each running `pi-spawner` again every 30 seconds, with the start it
+read when the spawner began. A command run another way, as pi's own
+once a spawner is lost, or kept through a host's restart under a
+spawner the next host didn't start, is told no conversation. A
+spawner counts as lost once it ends, so a command that kills its own
+leaves its conversation's later commands told none until the
+conversation starts again. An unfenced command can do the same to
+every conversation's, since it can see and signal every process of
+its user; a fenced one, in a process namespace of its own, can't.
+Code running inside the host itself, an extension a project brings
+among it, could still say what it likes. So could a command able to
+rewrite the harness and restart the host, or one that reaches the
+host's control socket and types into another conversation, which the
+host then honestly says. The word tells a conversation apart from
+mistakes, then, and from a command only where its commands are fenced
+from the harness's files, the host's and node's sockets, and the
+host's processes.
 
 ## Stopping a Command
 

@@ -519,7 +519,6 @@ function commOf(pid: number, proc: string): string | undefined {
 	}
 }
 
-/** One command through pi-spawner, held to what pi's own spawn does. */
 /** Once `told` settles, or sooner if `signal` stops the command. */
 function toldOrStopped(
 	told: Promise<void>,
@@ -540,6 +539,7 @@ function toldOrStopped(
 	});
 }
 
+/** One command through pi-spawner, held to what pi's own spawn does. */
 async function runThrough(
 	link: Link,
 	shell: Shell,
