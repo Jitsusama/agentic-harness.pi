@@ -138,6 +138,19 @@ describe("a start's reaps", () => {
 		expect(table.killed, "the child the reading never saw").toEqual([50]);
 	});
 
+	it("read it whole for a conversation handed on and back during the start, whose first reap the start no longer owes", async () => {
+		const table = countingTable({ 1: {}, 10: conversationMarker("z", HOST) });
+		const stopping = keeping(table);
+		stopping.resuming(["a", "b"]);
+		stopping.handsOn("a");
+		await stopping.dropped("a");
+		await stopping.reap("b");
+		// Adopted back after the start's reading, with a tool of its own.
+		table.live.set(60, conversationMarker("a", HOST));
+		await stopping.reap("a");
+		expect(table.killed, "what it started after the reading").toEqual([60]);
+	});
+
 	it("say a failed reading once, and each reap then reads for itself", async () => {
 		const table = countingTable(
 			{

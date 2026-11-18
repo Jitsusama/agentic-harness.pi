@@ -118,8 +118,9 @@ holds up neither the runs behind it nor words sent to them. Every turn
 is held until the start has resumed its last conversation, so the order
 is the whole start's: runs begun by words a person typed first, and any
 a person types into while it waits, then the rest in the order they
-asked, roughly the order the host held them, since a few resume at once. A run's place is read each time a turn comes free, not once
-as it asks. A wake, an open or an adopt takes no turn, an abort ends
+asked, roughly the order the host held them, since a few resume at
+once. A run's place is read each time a turn comes free, not once as
+it asks. A wake, an open or an adopt takes no turn, an abort ends
 the wait, and a park leaves the run in durable for the start that opens
 it next. Words typed while a run waits queue behind it, and when the
 recovery ends into the ask again for a cut-off request, pi's session

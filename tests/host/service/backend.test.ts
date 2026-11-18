@@ -449,6 +449,10 @@ describe("hostBackend", () => {
 				1,
 				...Array.from({ length: RESUME_AT_ONCE }, (_, n) => n + 1),
 			]);
+			expect(
+				atBegin[RESUME_AT_ONCE + 1],
+				"the next begins as one ends, while the others still run",
+			).toBe(RESUME_AT_ONCE);
 			expect(Math.max(...atBegin)).toBe(RESUME_AT_ONCE);
 			expect([...result.resumed].sort()).toEqual([...held].sort());
 		});

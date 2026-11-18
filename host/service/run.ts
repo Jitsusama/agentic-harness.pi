@@ -230,7 +230,7 @@ export interface HostRun {
 
 /**
  * How the journal says a resume ended, so a failed or parked one isn't
- * read as resumed; why one failed is said in its own line.
+ * read as resumed; one that failed says why at its end.
  */
 const ENDED_AS: Record<ResumeEnd, string> = {
 	resumed: "resumed",
@@ -271,14 +271,14 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const mark = (step: Resuming, phase: ResumePhase) => {
 		resuming.get(step.number)?.phases.push({ phase, at: Date.now() });
 	};
-	const finished = (step: Resuming, end: ResumeEnd) => {
+	const finished = (step: Resuming, end: ResumeEnd, reason?: unknown) => {
 		const under = resuming.get(step.number);
 		if (!under) return;
 		resuming.delete(step.number);
 		under.renewing?.();
 		const now = Date.now();
 		say(
-			`${since()}: ${ENDED_AS[end]} ${step.number} of ${step.of} in ${seconds(now - under.at)}${phaseTimes(under.at, under.phases, now)}`,
+			`${since()}: ${ENDED_AS[end]} ${step.number} of ${step.of} in ${seconds(now - under.at)}${phaseTimes(under.at, under.phases, now)}${end === "unresumed" && reason !== undefined ? `: ${reason instanceof Error ? reason.message : String(reason)}` : ""}`,
 		);
 	};
 	const ask = async (status: string) => {

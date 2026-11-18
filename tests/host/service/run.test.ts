@@ -1111,10 +1111,49 @@ describe("runHost", () => {
 		}
 	});
 
+	it("says a resume that failed as one it could not resume, with why, and a parked one as left parked", async () => {
+		const [, parked, failing] = await heldSome(3);
+		const said: string[] = [];
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => ({
+				...(await engine(host)),
+				restsParked: (entry) => entry.sessionId === parked,
+				resume: async (entry) => {
+					if (entry.sessionId === failing) throw new Error("its log is gone");
+				},
+			}),
+			signals,
+			ready: async () => {},
+			progress: async () => {},
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+			rollout: admitting,
+		});
+		try {
+			const ends = said
+				.map((line) => line.replace(/^\d+\.\d s: /, ""))
+				.filter((line) => / \d of 3 in /.test(line))
+				.map((line) => line.replace(/ in \d+\.\d s \([^)]*\)/, ""))
+				.sort();
+			expect(ends).toEqual([
+				"could not resume 3 of 3: its log is gone",
+				"left parked 2 of 3",
+				"resumed 1 of 3",
+			]);
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
+	});
+
 	it("keeps asking for each of the resumes that run together until its own ends", async () => {
-		// The long one begins first, so the short one begins while it asks:
-		// a shared renewal would stop the long one's at the short one's start.
-		const [, long, short] = await heldSome(3);
+		// The short one begins first and the long one while it asks: a
+		// shared renewal would stop the long one's asks at the short one's end.
+		const [, short, long] = await heldSome(3);
 		const RENEW_MS = 10;
 		const lasts = new Map([
 			[short, 40],
@@ -1145,20 +1184,26 @@ describe("runHost", () => {
 			rollout: admitting,
 		});
 		try {
-			const shortEnd =
-				ended.find(({ line }) => line.includes("resumed 3 of 3"))?.at ?? 0;
-			const askedSince = (status: string) =>
-				asked.filter((ask) => ask.status === status && ask.at > shortEnd)
-					.length;
+			const endOf = (step: string) =>
+				ended.find(({ line }) => line.includes(`resumed ${step}`))?.at ?? 0;
+			const shortEnd = endOf("2 of 3");
+			const longEnd = endOf("3 of 3");
+			const askedSince = (status: string, since: number) =>
+				asked.filter((ask) => ask.status === status && ask.at > since).length;
 			expect(shortEnd, "the short one ended").toBeGreaterThan(0);
+			expect(longEnd, "after the short one").toBeGreaterThan(shortEnd);
 			expect(
-				askedSince(`resuming 3 of 3: ${short}`),
+				askedSince(`resuming 2 of 3: ${short}`, shortEnd),
 				"the short one asks no more once it ends",
 			).toBe(0);
 			expect(
-				askedSince(`resuming 2 of 3: ${long}`),
+				askedSince(`resuming 3 of 3: ${long}`, shortEnd),
 				"the long one goes on asking beside it",
 			).toBeGreaterThanOrEqual(3);
+			expect(
+				askedSince(`resuming 3 of 3: ${long}`, longEnd),
+				"nor the long one once it ends",
+			).toBe(0);
 		} finally {
 			signals.emit("SIGTERM");
 			await run.stopped;

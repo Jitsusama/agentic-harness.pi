@@ -223,7 +223,9 @@ export function stopKeeping(options: {
 
 		async dropped(sessionId) {
 			// Closed for good while parked, what its parks kept ends with it,
-			// as a running one's close ends it; released, it is kept.
+			// as a running one's close ends it; released, it is kept. Either
+			// way the start owes it no reap.
+			start?.unreaped.delete(sessionId);
 			if (!handedOn.delete(sessionId) && endKept(sessionId))
 				try {
 					await reapAfresh(sessionId);
