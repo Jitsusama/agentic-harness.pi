@@ -140,8 +140,8 @@ describe("a question asking the person for an act he has done", () => {
 	it("tells his review from his approval", async () => {
 		const commented = probes({
 			pull: {
-				headAt: at(14, 0),
-				reviews: [{ approved: false, at: at(15, 0) }],
+				headOid: "head",
+				reviews: [{ approved: false, at: at(15, 0), oid: "head" }],
 			},
 		});
 		expect(
@@ -150,7 +150,7 @@ describe("a question asking the person for an act he has done", () => {
 				commented,
 				at(17, 0),
 			),
-		).toContain("he reviewed it at 15:00");
+		).toContain("he reviewed its newest commit at 15:00");
 		expect(
 			await doneAlreadyRefusal(
 				`Can Joel approve ${PULL}?`,
@@ -160,19 +160,19 @@ describe("a question asking the person for an act he has done", () => {
 		).toBeUndefined();
 	});
 
-	it("goes for a review he gave before the newest commit, or one asked for again", async () => {
-		const reviewed = { approved: true, at: at(15, 0) };
+	it("goes for a review he gave of an older commit, or one asked for again", async () => {
+		const reviewed = { approved: true, at: at(15, 0), oid: "old" };
 		expect(
 			await doneAlreadyRefusal(
 				`Can Joel approve ${PULL}?`,
-				probes({ pull: { headAt: at(16, 0), reviews: [reviewed] } }),
+				probes({ pull: { headOid: "head", reviews: [reviewed] } }),
 				at(17, 0),
 			),
 		).toBeUndefined();
 		expect(
 			await doneAlreadyRefusal(
 				`Can Joel approve ${PULL} again?`,
-				probes({ pull: { headAt: at(14, 0), reviews: [reviewed] } }),
+				probes({ pull: { headOid: "old", reviews: [reviewed] } }),
 				at(17, 0),
 			),
 		).toBeUndefined();
@@ -180,7 +180,10 @@ describe("a question asking the person for an act he has done", () => {
 
 	it("goes while any act it asks is still to do", async () => {
 		const approved = probes({
-			pull: { headAt: at(14, 0), reviews: [{ approved: true, at: at(15, 0) }] },
+			pull: {
+				headOid: "head",
+				reviews: [{ approved: true, at: at(15, 0), oid: "head" }],
+			},
 		});
 		expect(
 			await doneAlreadyRefusal(
@@ -203,13 +206,15 @@ describe("a question asking the person for an act he has done", () => {
 				at(17, 0),
 			),
 		).toBeUndefined();
+		// Across sentences, merging the open one would be asked too, and
+		// let it through.
 		expect(
 			await doneAlreadyRefusal(
-				`Joel's merge of ${PULL} unblocked it. Can he review ${OTHER}?`,
+				`Can Joel merge ${PULL}? ${OTHER} is still open.`,
 				byNumber,
 				at(17, 0),
 			),
-		).toBeUndefined();
+		).toContain("it merged at 16:00");
 	});
 
 	it("reads each pull request once, and none when it links too many", async () => {
@@ -273,7 +278,21 @@ describe("a question asking the person for an act he has done", () => {
 		).toBeUndefined();
 		expect(
 			await doneAlreadyRefusal(
+				"Joel should post the Slack note to #quest/wcjqsg. Ask him?",
+				posted,
+				at(17, 0),
+			),
+		).toBeUndefined();
+		expect(
+			await doneAlreadyRefusal(
 				"Joel should post the note in #machine. Ask him?",
+				posted,
+				at(17, 0),
+			),
+		).toBeUndefined();
+		expect(
+			await doneAlreadyRefusal(
+				"Joel should post the Slack note in #delta-dev again. Ask him?",
 				posted,
 				at(17, 0),
 			),
@@ -302,6 +321,13 @@ describe("a question asking the person for an act he has done", () => {
 		expect(
 			await doneAlreadyRefusal(
 				`May I run a review council on ${PULL}?`,
+				done,
+				at(17, 0),
+			),
+		).toBeUndefined();
+		expect(
+			await doneAlreadyRefusal(
+				`Joel's approval of ${PULL} is in; should I close the row?`,
 				done,
 				at(17, 0),
 			),
@@ -342,14 +368,14 @@ describe("the judge of a named act", () => {
 		}
 	});
 
-	it("counts a review from its since, else the newest commit, else knows nothing", async () => {
-		const review = { approved: false, at: at(15, 0) };
+	it("counts a review from its since, else of the newest commit, else knows nothing", async () => {
+		const review = { approved: false, at: at(15, 0), oid: "head" };
 		const reviewed = { probe: "pr-reviewed", repo: "a/b", number: 1 };
 		expect(
 			(
 				await judgeDone(
 					{ ...reviewed, since: stamp(15, 30) },
-					probes({ pull: { headAt: at(14, 0), reviews: [review] } }),
+					probes({ pull: { headOid: "head", reviews: [review] } }),
 					at(17, 0),
 				)
 			).verdict,
@@ -359,6 +385,15 @@ describe("the judge of a named act", () => {
 				await judgeDone(
 					{ ...reviewed, since: stamp(14, 30) },
 					probes({ pull: { reviews: [review] } }),
+					at(17, 0),
+				)
+			).verdict,
+		).toBe("done");
+		expect(
+			(
+				await judgeDone(
+					reviewed,
+					probes({ pull: { headOid: "head", reviews: [review] } }),
 					at(17, 0),
 				)
 			).verdict,
@@ -392,16 +427,14 @@ describe("the judge of a named act", () => {
 });
 
 describe("the live probes", () => {
-	it("read his merge, sent reviews and newest commit from GitHub's answer", () => {
+	it("read his merge, approvals and changes asked, and the head, from GitHub's answer", () => {
 		const record = pullRecordFrom({
 			data: {
 				viewer: { login: "Jitsusama" },
 				repository: {
 					pullRequest: {
 						mergedAt: "2026-11-17T21:40:00Z",
-						commits: {
-							nodes: [{ commit: { committedDate: "2026-11-17T19:00:00Z" } }],
-						},
+						headRefOid: "head",
 						reviews: {
 							nodes: [
 								{
@@ -416,8 +449,21 @@ describe("the live probes", () => {
 								},
 								{
 									author: { login: "Jitsusama" },
+									state: "COMMENTED",
+									submittedAt: "2026-11-17T20:15:00Z",
+									commit: { oid: "head" },
+								},
+								{
+									author: { login: "Jitsusama" },
 									state: "APPROVED",
 									submittedAt: "2026-11-17T20:20:00Z",
+									commit: { oid: "head" },
+								},
+								{
+									author: { login: "Jitsusama" },
+									state: "CHANGES_REQUESTED",
+									submittedAt: "2026-11-17T19:20:00Z",
+									commit: { oid: "old" },
 								},
 							],
 						},
@@ -427,8 +473,11 @@ describe("the live probes", () => {
 		});
 		expect(record).toEqual({
 			mergedAt: Date.parse("2026-11-17T21:40:00Z"),
-			headAt: Date.parse("2026-11-17T19:00:00Z"),
-			reviews: [{ approved: true, at: Date.parse("2026-11-17T20:20:00Z") }],
+			headOid: "head",
+			reviews: [
+				{ approved: true, at: Date.parse("2026-11-17T20:20:00Z"), oid: "head" },
+				{ approved: false, at: Date.parse("2026-11-17T19:20:00Z"), oid: "old" },
+			],
 		});
 	});
 
@@ -460,6 +509,11 @@ describe("the live probes", () => {
 			at(19, 18, 29),
 			at(19, 25),
 			at(19, 30),
+		]);
+		// A thread's parent is what he was asked to answer, not his answer.
+		expect(await live.posts("C1", ts(at(19, 30)), at(19, 0))).toEqual([
+			at(19, 18, 29),
+			at(19, 25),
 		]);
 		expect(await live.pull("a/b", 1)).toBeUndefined();
 	});

@@ -12,11 +12,11 @@
  * is held to {@link PROBE_WITHIN_MS}, so a slow GitHub or Slack never
  * holds a send.
  *
- * One judge serves every door that asks for his hands: mesh_send's
- * questions to an orchestrator (read from their words by
- * {@link doneAlreadyRefusal}) and the asks show_person and mesh_wait
- * carry, which name their `doneWhen` outright and call
- * {@link judgeDone}.
+ * One judge for every door that asks for his hands: mesh_send's
+ * questions to an orchestrator, read from their words by
+ * {@link doneAlreadyRefusal}, and, once 85PKB2 wires them, the asks
+ * show_person and mesh_wait carry, which will name their `doneWhen`
+ * outright and call {@link judgeDone}.
  *
  * Reading an ask from words is loose on purpose where looseness can
  * only let a question through: "he" in a sentence about a peer reads
@@ -41,9 +41,11 @@ export interface PrMerged {
 
 /**
  * A pull request reviewed by the person, or approved when `approved`
- * says so, at or after `since` (RFC 3339). With no `since`, a review
- * counts from the newest commit, and with neither the verdict is
- * unknown, so a review of work since replaced never counts. Mycelium
+ * says so, at or after `since` (RFC 3339). With no `since`, only a
+ * review of the head commit counts, and with no head read the verdict
+ * is unknown, so a review of work since replaced never counts. A review
+ * is an approval or changes asked: a comment-only one, which GitHub
+ * also makes for a single reply in a thread, says nothing. Mycelium
  * has no such probe yet; it reads as unknown there.
  */
 export interface PrReviewed {
@@ -81,12 +83,13 @@ export const VERDICT_KEPT_MS = 15 * 60_000;
 /** What a pull request's record says, times in ms. */
 export interface PullRecord {
 	readonly mergedAt?: number;
-	/** When its newest commit was made. */
-	readonly headAt?: number;
-	/** The person's own reviews, oldest first. */
+	/** Its head commit. */
+	readonly headOid?: string;
+	/** The person's own approvals and changes asked, with the commit each was of. */
 	readonly reviews: ReadonlyArray<{
 		readonly approved: boolean;
 		readonly at: number;
+		readonly oid?: string;
 	}>;
 }
 
@@ -166,17 +169,22 @@ function pullJudged(when: PrMerged | PrReviewed, record: PullRecord): Judged {
 					said: `it merged at ${clockOf(record.mergedAt)}`,
 				};
 	}
-	const since = when.since === undefined ? record.headAt : timeOf(when.since);
-	if (since === undefined) return UNKNOWN;
+	const since = when.since === undefined ? undefined : timeOf(when.since);
+	if (when.since !== undefined && since === undefined) return UNKNOWN;
+	if (since === undefined && record.headOid === undefined) return UNKNOWN;
+	const counts = (one: PullRecord["reviews"][number]) =>
+		since === undefined ? one.oid === record.headOid : one.at >= since;
 	const review = record.reviews.find(
-		(one) => one.at >= since && (!when.approved || one.approved),
+		(one) => counts(one) && (!when.approved || one.approved),
 	);
 	if (!review) return { verdict: "not-done" };
 	const did = when.approved ? "approved" : "reviewed";
+	const of =
+		since === undefined ? "its newest commit" : `it since ${clockOf(since)}`;
 	return {
 		verdict: "done",
 		at: review.at,
-		said: `he ${did} it at ${clockOf(review.at)}, after its newest work (${clockOf(since)})`,
+		said: `he ${did} ${of} at ${clockOf(review.at)}`,
 	};
 }
 
@@ -244,7 +252,7 @@ export async function judgeDone(
 /** A GraphQL string. */
 const quoted = (value: string): string => JSON.stringify(value);
 
-/** The person's sent reviews, from GitHub's review nodes, where `me` is he. */
+/** The person's approvals and changes asked, from GitHub's review nodes, where `me` is he. */
 function reviewsOf(
 	nodes: readonly unknown[],
 	me: string,
@@ -254,20 +262,29 @@ function reviewsOf(
 			author?: { login?: unknown };
 			state?: unknown;
 			submittedAt?: unknown;
+			commit?: { oid?: unknown };
 		};
 		const at = timeOf(review.submittedAt);
-		// A pending review is a draft he hasn't sent.
+		// A pending review is a draft he hasn't sent, and a comment-only
+		// one may be a single reply in a thread.
 		if (
 			review.author?.login !== me ||
-			review.state === "PENDING" ||
+			(review.state !== "APPROVED" && review.state !== "CHANGES_REQUESTED") ||
 			at === undefined
 		)
 			return [];
-		return [{ approved: review.state === "APPROVED", at }];
+		const oid = review.commit?.oid;
+		return [
+			{
+				approved: review.state === "APPROVED",
+				at,
+				...(typeof oid === "string" ? { oid } : {}),
+			},
+		];
 	});
 }
 
-/** One pull request's merge, newest commit and the person's reviews, read from GitHub's answer. */
+/** One pull request's merge, head and the person's reviews, read from GitHub's answer. */
 export function pullRecordFrom(answer: unknown): PullRecord | undefined {
 	const data = (answer as { data?: Record<string, unknown> } | undefined)?.data;
 	const me = (data?.viewer as { login?: unknown } | undefined)?.login;
@@ -276,25 +293,20 @@ export function pullRecordFrom(answer: unknown): PullRecord | undefined {
 	)?.pullRequest;
 	if (typeof me !== "string" || !pull) return undefined;
 	const merged = timeOf(pull.mergedAt);
-	const head = (
-		pull.commits as
-			| { nodes?: { commit?: { committedDate?: unknown } }[] }
-			| undefined
-	)?.nodes?.[0]?.commit?.committedDate;
-	const headAt = timeOf(head);
+	const head = pull.headRefOid;
 	const nodes =
 		(pull.reviews as { nodes?: unknown[] } | undefined)?.nodes ?? [];
 	return {
 		...(merged === undefined ? {} : { mergedAt: merged }),
-		...(headAt === undefined ? {} : { headAt }),
+		...(typeof head === "string" ? { headOid: head } : {}),
 		reviews: reviewsOf(nodes, me),
 	};
 }
 
-/** The GraphQL query for one pull request's merge, newest commit and reviews. */
+/** The GraphQL query for one pull request's merge, head and reviews. */
 export function pullQuery(repo: string, number: number): string {
 	const [owner = "", name = ""] = repo.split("/");
-	return `query { viewer { login } repository(owner: ${quoted(owner)}, name: ${quoted(name)}) { pullRequest(number: ${number}) { mergedAt commits(last: 1) { nodes { commit { committedDate } } } reviews(first: 100) { nodes { author { login } state submittedAt } } } } }`;
+	return `query { viewer { login } repository(owner: ${quoted(owner)}, name: ${quoted(name)}) { pullRequest(number: ${number}) { mergedAt headRefOid reviews(last: 100) { nodes { author { login } state submittedAt commit { oid } } } } } }`;
 }
 
 /** A Slack message as the judge reads it. */
@@ -326,7 +338,8 @@ function isReply(post: SlackPost): boolean {
  * what `slack` gives, which reads as the person, whose id is `me`; it
  * is asked only when a post is judged, so a send asking nothing of
  * Slack never reads its token. Outside a thread only his top-level
- * posts count, since a reply in some thread posts no draft. Each
+ * posts count, since a reply in some thread posts no draft; in one,
+ * its parent never counts, as that is what he was asked to answer. Each
  * answers undefined on any failure, so the judge reads it as unknown.
  */
 export function liveProbes(
@@ -362,7 +375,8 @@ export function liveProbes(
 			return messages
 				.filter(
 					(one) =>
-						one.user === reader.me && (thread !== undefined || !isReply(one)),
+						one.user === reader.me &&
+						(thread === undefined ? !isReply(one) : one.ts !== thread),
 				)
 				.map((one) => Math.round(Number(one.ts) * 1000))
 				.filter((at) => at >= since)
@@ -384,7 +398,7 @@ const HIM = /\b(joel|the person|he|him|his)\b/i;
  */
 const ACTS: ReadonlyArray<readonly [Act, RegExp]> = [
 	["merge", /\bmerg(e|es|ing)\b/i],
-	["approve", /\bapprov(e|es|ing|al)\b/i],
+	["approve", /\bapprov(e|es|ing)\b/i],
 	["review", /\breview(s|ing)?\b(?!\s+(cell|council|round|tool|guide))/i],
 	[
 		"post",
@@ -392,7 +406,7 @@ const ACTS: ReadonlyArray<readonly [Act, RegExp]> = [
 	],
 ];
 
-/** A review or approval asked for again, which an earlier one can't answer. */
+/** An act asked for again, which an earlier one can't answer. */
 const AGAIN = /\b(again|re-?review|re-?approve|another look)\b/i;
 
 /** A sentence that speaks of Slack, where a `#name` is a channel. */
@@ -418,8 +432,12 @@ const LINK = /https?:\/\/\S+?(?=[.?!,;:]*(?:\s|$))/g;
 /** A draft's time, as an ask says it: "drafted at 18:40". */
 const DRAFTED = /\bdrafted at (\d{1,2}):(\d{2})\b/i;
 
-/** How far back his posts count, when nothing says when the draft was made. */
-export const DRAFT_WINDOW_MS = 12 * 60 * 60_000;
+/**
+ * How far back his posts count, when nothing says when the draft was
+ * made: an ask passed on goes out within hours of its draft, so an
+ * older post of his there is something else.
+ */
+export const DRAFT_WINDOW_MS = 3 * 60 * 60_000;
 
 /** The most records one question has read; past it, none are. */
 export const PROBES_AT_MOST = 6;
@@ -447,9 +465,7 @@ function actsIn(sentence: string): Act[] {
 	if (!HIM.test(words)) return [];
 	const again = AGAIN.test(words);
 	return ACTS.filter(
-		([act, pattern]) =>
-			pattern.test(words) &&
-			!(again && (act === "review" || act === "approve")),
+		([act, pattern]) => pattern.test(words) && !(again && act !== "merge"),
 	).map(([act]) => act);
 }
 
