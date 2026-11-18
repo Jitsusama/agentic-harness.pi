@@ -262,7 +262,8 @@ export async function discoverQuestsAfresh(
 	for (let tries = 0; tries < AFRESH_TRIES; tries++) {
 		const asked = Date.now();
 		const writes = questWritesMade();
-		await discoverySettled(questsRoot);
+		const before = await discoverySettled(questsRoot);
+		if (before === "gave up") throw new Error(SIGNING_GAVE_UP);
 		const ended = await signOffThread(questsRoot);
 		if (ended === "gave up") throw new Error(SIGNING_GAVE_UP);
 		const slot = memo().cache.get(questsRoot);
@@ -298,11 +299,20 @@ const SIGN_AGAIN_AFTER_MS = 5_000;
 const STALE_AFTER_MS = 60_000;
 
 /**
- * How long a signing off the thread may run before a host stops
- * waiting on it: past this, the next ask may start another, and what
- * the late one finds is dropped for the newer.
+ * How long an ask waits on a signing off the thread before it stops
+ * waiting. The walk runs on, holding its root, and what it finds is
+ * kept; a later ask waits on that same walk afresh.
  */
 const SIGNING_GIVES_UP_MS = 30_000;
+
+/**
+ * How long a signing given up on still holds its root, so no other
+ * starts beside it: past this its disk is taken to hang, and another
+ * may try. A walk that is only slow, as on a host thread shared by
+ * sixty conversations, ends well inside it; on 17 Nov one starting
+ * each time the last gave up left walks piling up on that thread.
+ */
+const SIGNING_HUNG_AFTER_MS = 5 * 60_000;
 
 /**
  * A host's discovery, which shares one thread with every conversation:
@@ -319,7 +329,7 @@ function discoverQuestsHosted(
 		return discoverQuestsSigned(questsRoot, seed);
 	}
 	if (Date.now() - slot.signedAt > SIGN_AGAIN_AFTER_MS) {
-		void signOffThread(questsRoot);
+		void startSigning(questsRoot);
 	}
 	return slot.result;
 }
@@ -351,7 +361,41 @@ function stands(questsRoot: string, slot: CacheSlot): boolean {
 export function discoverySettled(
 	questsRoot: string,
 ): Promise<SigningEnd | undefined> {
-	return memo().signing.get(questsRoot) ?? Promise.resolve(undefined);
+	const walk = memo().signing.get(questsRoot);
+	return walk ? waitOnSigning(questsRoot, walk) : Promise.resolve(undefined);
+}
+
+/**
+ * Sign `questsRoot` off the thread and wait on it, giving up after
+ * `SIGNING_GIVES_UP_MS`: the walk under way, when there is one, else a
+ * new one.
+ */
+function signOffThread(questsRoot: string): Promise<SigningEnd | undefined> {
+	return waitOnSigning(questsRoot, startSigning(questsRoot));
+}
+
+/**
+ * Wait on `walk` for at most `SIGNING_GIVES_UP_MS`. Each wait has its
+ * own clock, so an ask after another gave up waits on the walk too,
+ * and hears what it found if it ends in time, rather than being told
+ * at once that the earlier ask gave up.
+ */
+function waitOnSigning(
+	questsRoot: string,
+	walk: Promise<SigningEnd | undefined>,
+): Promise<SigningEnd | undefined> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const givenUp = new Promise<SigningEnd>((resolve) => {
+		// Not a wait for something to happen: a ceiling on a disk that hangs.
+		timer = setTimeout(() => {
+			sayOnHost(
+				`a wait on signing ${questsRoot} gave up after ${SIGNING_GIVES_UP_MS} ms`,
+			);
+			resolve("gave up");
+		}, SIGNING_GIVES_UP_MS);
+		timer.unref();
+	});
+	return Promise.race([walk, givenUp]).finally(() => clearTimeout(timer));
 }
 
 /**
@@ -359,10 +403,12 @@ export function discoverySettled(
  * keep what it found unless this process wrote a quest meanwhile, the
  * memo was let go, or a signing begun later already answered. An
  * unchanged tree keeps its walk; a changed one is walked again on the
- * thread, from memory. One that runs past `SIGNING_GIVES_UP_MS` is no
- * longer waited on.
+ * thread, from memory. The walk holds its root until it ends, however
+ * long its asks waited, or until `SIGNING_HUNG_AFTER_MS` says its disk
+ * hangs, so no second walk starts beside a slow one. Answers the walk,
+ * which nothing bounds: wait on it through `waitOnSigning`.
  */
-function signOffThread(questsRoot: string): Promise<SigningEnd | undefined> {
+function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 	const m = memo();
 	const under = m.signing.get(questsRoot);
 	if (under) return under;
@@ -388,23 +434,31 @@ function signOffThread(questsRoot: string): Promise<SigningEnd | undefined> {
 		sayOnHost(`signing ${questsRoot} off the thread failed: ${error}`);
 		return "failed";
 	});
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const givenUp = new Promise<SigningEnd>((resolve) => {
-		// Not a wait for something to happen: a ceiling on a disk that hangs.
-		timer = setTimeout(() => {
+	// Only this walk's own hold: one freed as hung that ends later must
+	// not free the walk that took its root since.
+	const holds = () => m.signing.get(questsRoot) === work;
+	// Not a wait for something to happen: the longest a hung walk keeps
+	// others off its root.
+	const hung = setTimeout(() => {
+		if (!holds()) return;
+		sayOnHost(
+			`signing ${questsRoot} hadn't ended after ${SIGNING_HUNG_AFTER_MS} ms, so its disk is taken to hang and another may start`,
+		);
+		m.signing.delete(questsRoot);
+	}, SIGNING_HUNG_AFTER_MS);
+	hung.unref();
+	void work.then((end) => {
+		clearTimeout(hung);
+		const took = Date.now() - signedAt;
+		if (took > SIGNING_GIVES_UP_MS) {
 			sayOnHost(
-				`signing ${questsRoot} gave up after ${SIGNING_GIVES_UP_MS} ms`,
+				`signing ${questsRoot} ended (${end}) after ${took} ms, past its give-up`,
 			);
-			resolve("gave up");
-		}, SIGNING_GIVES_UP_MS);
-		timer.unref();
+		}
+		if (holds()) m.signing.delete(questsRoot);
 	});
-	const signing = Promise.race([work, givenUp]).finally(() => {
-		clearTimeout(timer);
-		if (m.signing.get(questsRoot) === signing) m.signing.delete(questsRoot);
-	});
-	m.signing.set(questsRoot, signing);
-	return signing;
+	m.signing.set(questsRoot, work);
+	return work;
 }
 
 /**
