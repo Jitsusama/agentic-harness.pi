@@ -7,6 +7,7 @@
  */
 
 import {
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	rmSync,
@@ -193,6 +194,12 @@ describe("a recorded job", () => {
 		expect(listed(where), "its pid still kept").toContain(
 			`${job.work.keep.split("/").pop()}.pid`,
 		);
+	});
+
+	it("never throws when what holds its name won't go", () => {
+		const keep = join(folder(), "k1");
+		mkdirSync(`${keep}.job`, { recursive: true });
+		expect(() => forgetKeptJob(keep)).not.toThrow();
 	});
 
 	it("is passed over when it isn't one this code wrote", async () => {
