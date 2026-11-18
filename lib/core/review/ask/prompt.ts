@@ -29,6 +29,24 @@ const ANSWER_AS_CONTRACTED =
 	"Answer in the JSON your output contract skill describes. A pass with nothing to say answers with an empty findings list rather than prose.";
 
 /**
+ * Where a reviewer looks, said in every round's prompt.
+ *
+ * A reviewer told to check how a library behaves, and told nothing of
+ * where, hunts for it: one walked the whole Nix store with fd at 250%
+ * CPU on a machine already at load 40 with Joel at the screen (17
+ * November). So a reviewer reads a dependency only where the tree
+ * names it, and says what it couldn't check rather than hunting: a
+ * snapshot has no node_modules, and the built-in roster has no shell to
+ * resolve a store path with, so the honest answer there is that the
+ * library went unread. Nothing is said about running a build tool,
+ * since evaluating the author's own Nix would be a way in, and heavy.
+ * A large tree is searched by the folders the change touches, which
+ * keeps a monorepo under review readable without walking all of it.
+ */
+const WHERE_TO_LOOK =
+	"Read within the tree you were given; in a large one, search the folders the change touches rather than the whole of it. Read a dependency only at a path the tree itself names, such as a vendored copy or a folder its lockfile points at. When none is there, say in the finding that the library's behaviour went unchecked, rather than looking for it. Never search or list /, /nix/store or a home folder: a walk of any of them takes minutes of the machine somebody is working at, and finds nothing the tree doesn't name.";
+
+/**
  * What the repo under review says about how it wants to be worked in.
  *
  * A reviewer reads a tree pinned to the commit under review, and a pi
@@ -156,6 +174,7 @@ export function councilPrompt(input: PromptInput): string {
 		"You are one of several reviewers reading the same change independently. Your pass is for discovery: find what is worth saying, and say why you believe it. Another pass will consolidate, and a third will push back, so a finding you are unsure of is still worth raising as long as the uncertainty comes with the evidence that would settle it.",
 		"Read the change below, then use your tools on the tree to check what the diff cannot tell you: who calls this, what the tests around it assume, whether the library really behaves the way the code expects. A finding grounded in something you went and read is worth ten that restate the diff.",
 		"Cover correctness, security, performance, interface design, readability, test quality and naming. Say where each finding points and what the consequence is. Do not describe what the diff already shows.",
+		WHERE_TO_LOOK,
 		anchorGuidance(input.diff),
 		intentSection(input.intent),
 		guidanceSection(input.guidance),
@@ -236,6 +255,7 @@ export function judgePrompt(input: JudgePromptInput): string {
 	return [
 		"Several reviewers read this change independently and raised the findings below. Your pass is consolidation: decide what is real, merge what is the same observation in different words, and drop what does not survive contact with the code.",
 		"Agreement between reviewers who could not see each other's work is evidence, so record it: when you merge several into one, name the reviewer ids that raised it in raisedBy. That is how a reader later knows a finding was found twice rather than once.",
+		WHERE_TO_LOOK,
 		"Be willing to drop a finding entirely. A reviewer that misread the code, or flagged a risk the surrounding code already handles, produced a finding that would waste the author's time. Check the ones that matter against the tree before you keep them.",
 		anchorGuidance(input.diff),
 		intentSection(input.intent),
@@ -265,6 +285,7 @@ export function critiquePrompt(input: CritiquePromptInput): string {
 		"Take a position of agree, disagree, qualify or unsure. Disagree when you think the finding is wrong about the code. Qualify when it is right but overstated, or right only under a condition it does not name. Unsure when you can see the argument and cannot settle it from what is here.",
 		"Every position needs a rationale, and the rationale is the whole value: a bare vote cannot be weighed against the finding it disputes, so one without an argument is worth less than saying nothing. Go and read the code before you disagree with somebody about it.",
 		"Say nothing about a finding you have no view on. Silence is read as no position, never as agreement, so there is no cost to leaving one out and a real cost to guessing.",
+		WHERE_TO_LOOK,
 		"You are not raising new findings here. If you notice something nobody raised, that is worth knowing, but this round records positions only.",
 		intentSection(input.intent),
 		guidanceSection(input.guidance),
@@ -294,6 +315,7 @@ export function auditPrompt(input: AuditPromptInput): string {
 		"People have left the review threads below on this change. Some of them were answered by later commits and never marked resolved. Your job is to work out which, and to say why for each one.",
 		"Report a standing of addressed, outstanding, elsewhere or unclear. Addressed means the change as it now stands does what the thread asked. Outstanding means it does not. Elsewhere means another change answers it, which happens constantly in a stack and matters because reporting it as addressed sends somebody looking in the wrong diff. Unclear means you cannot tell from what is here, which is a useful answer and much better than a guess.",
 		"Go and read the code before you call something addressed. A thread saying the handle leaks is addressed by a close on the error path, not by a comment saying it should be closed. Cite where you saw it.",
+		WHERE_TO_LOOK,
 		"You are not replying to anybody and not raising findings. These are other people's words, and what you produce informs a reply that somebody else will write.",
 		intentSection(input.intent),
 		guidanceSection(input.guidance),
@@ -349,6 +371,7 @@ export function stackPrompt(input: StackPromptInput): string {
 		"Name the changes each finding is about, by the refs given below. A finding about one change names one. A finding that only exists between changes names every change it involves, and stays one finding: reporting it separately against each change turns one observation into several unrelated ones and loses the thing that made it worth saying.",
 		"Review each change on its own merits too. A stack pass that only reports cross-change findings is half a review.",
 		"Read the changes below, then use your tools on the tree to check what the diffs cannot tell you. When a change looks wrong on its own, check whether a later change in the stack fixes it before you say so.",
+		WHERE_TO_LOOK,
 		intentSection(input.intent),
 		guidanceSection(input.guidance),
 		...input.changes.map(stackChangeSection),
