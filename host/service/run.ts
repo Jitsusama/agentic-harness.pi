@@ -52,7 +52,14 @@ import {
 	readyStatus,
 	stoppingStatus,
 } from "./status.ts";
-import { endWithin, stopWithin, unparkedLine, unparkedMarks } from "./stop.ts";
+import {
+	backstopWithin,
+	endWithin,
+	stopWithin,
+	unparkedLine,
+	unparkedMarks,
+} from "./stop.ts";
+import { type Backstop, backstopStop } from "./stop-backstop.ts";
 
 /** The signals that stop a host: systemd's stop, and Ctrl+C by hand. */
 const STOP_SIGNALS = ["SIGTERM", "SIGINT"] as const;
@@ -78,6 +85,15 @@ export const STEP_CEILING_MS = 15 * 60_000;
  * the unit's status: a conversation's coming or going shows within this.
  */
 const STATUS_EVERY_MS = 15_000;
+
+/**
+ * How often a stop tells its backstop what is still unparked, in ms, so a
+ * loop held from then on leaves it at most this stale.
+ */
+const BACKSTOP_TOLD_EVERY_MS = 1000;
+
+/** No backstop, for a stop whose unit never kills it. */
+const UNARMED: Backstop = { held() {}, done() {} };
 
 /**
  * How many times the host pings systemd's watchdog in each of its
@@ -128,6 +144,12 @@ export interface HostRunOptions {
 	statusEvery?: number;
 	/** How long, in ms, a stop may park before the host ends; stopWithin(env) by default. */
 	stopWithin?: number;
+	/**
+	 * Arms what ends a stop whose loop is held past its bound, from beside
+	 * the loop, for stopBackstop(env) ms; a thread that kills the host by
+	 * default.
+	 */
+	backstop?: typeof backstopStop;
 	/**
 	 * Says the host's loop still turns, when systemd's watchdog watches it,
 	 * given how many ms the saying may take; systemd's notify by default.
@@ -319,11 +341,36 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			.catch(report)
 			.then(() => serving.stop());
 		const bound = options.stopWithin ?? stopWithin(options.env);
+		const unparkedIds = () => serving.held().map(({ id }) => id);
+		// The bound is a timer on this loop, which a loop held on a CPU never
+		// comes back to, as at 04:33 on 18 November; a thread beside it ends
+		// the host later, still short of systemd's kill.
+		// A loop already held as SIGTERM comes never arms it, since this
+		// handler runs on that loop.
+		const within = backstopWithin(options.env, bound);
+		const backstop: Backstop =
+			within === undefined
+				? UNARMED
+				: (options.backstop ?? backstopStop)({
+						within,
+						file: unparked.file,
+						ids: unparkedIds(),
+					});
+		const telling = setInterval(
+			() => backstop.held(unparkedIds()),
+			BACKSTOP_TOLD_EVERY_MS,
+		);
+		telling.unref();
 		stopping = endWithin(parked, bound, (waited) => {
 			const held = serving.held();
 			say(unparkedLine(bound, waited, held));
 			unparked.write(held.map(({ id }) => id));
-		}).finally(unwatch);
+		}).finally(() => {
+			// The host exits as its stop ends, so nothing is left to end.
+			clearInterval(telling);
+			backstop.done();
+			unwatch();
+		});
 		return stopping;
 	};
 	const stopped = new Promise<void>((resolve, reject) => {

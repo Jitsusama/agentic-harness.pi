@@ -23,6 +23,12 @@ vi.mock("../../../lib/internal/reload/stale-rejections.ts", () => ({
 	spareStaleRejections: () => {},
 }));
 
+// A real backstop would SIGKILL this whole worker past a case whose stop
+// never ended; stop-backstop.test.ts runs the thread in a child of its own.
+vi.mock("../../../host/service/stop-backstop.ts", () => ({
+	backstopStop: () => ({ held() {}, done() {} }),
+}));
+
 let dir: string;
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "h1-"));
