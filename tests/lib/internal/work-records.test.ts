@@ -8,6 +8,8 @@ import {
 	readFileSync,
 	renameSync,
 	rmSync,
+	statSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,6 +54,30 @@ function rewriteInPlace(record: string, sessions: string[]): void {
 	writeFileSync(record, JSON.stringify({ ...held, sessions }));
 }
 
+/**
+ * `record` replaced by a rename to name `sessions`, with its folder's
+ * times set to `tick` again: a write within the same tick of a coarse
+ * clock, on a filesystem whose folder size a replaced entry doesn't
+ * move, leaves the stamp just so.
+ */
+function replaceInTheSameTick(
+	record: string,
+	sessions: string[],
+	tick: Date,
+): void {
+	const held = JSON.parse(readFileSync(record, "utf8"));
+	const staged = `${record}.staged`;
+	writeFileSync(staged, JSON.stringify({ ...held, sessions }));
+	renameSync(staged, record);
+	utimesSync(join(record, ".."), tick, tick);
+}
+
+/** `dir` as last written a while ago, so a listing of it is settled. */
+function settled(dir: string): void {
+	const while_ago = new Date(Date.now() - 10_000);
+	utimesSync(dir, while_ago, while_ago);
+}
+
 describe("the work broker's records", () => {
 	afterEach(() => {
 		vi.useRealTimers();
@@ -81,6 +107,7 @@ describe("the work broker's records", () => {
 		const dir = join(root, "cut");
 		const one = join(root, "trees", "one");
 		recorded(dir, one, ["s-1"]);
+		settled(dir);
 		expect(treesHeldBy("s-1", dir)).toEqual([one]);
 
 		rewriteInPlace(recordOf(dir, one), ["s-2"]);
@@ -104,6 +131,26 @@ describe("the work broker's records", () => {
 		recorded(dir, two, ["s-1"]);
 
 		expect(treesHeldBy("s-1", dir).sort()).toEqual([one, two]);
+	});
+
+	// Git calls such an index entry racily clean.
+	it("aren't kept from a read made just after their folder was written", () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		const tick = new Date(Math.floor(Date.now()));
+		utimesSync(dir, tick, tick);
+		const stamp = statSync(dir).mtimeMs;
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		replaceInTheSameTick(recordOf(dir, one), ["s-2"], tick);
+		expect(statSync(dir).mtimeMs, "the folder's time is as it was").toBe(stamp);
+
+		expect(
+			treesHeldBy("s-2", dir),
+			"a record replaced in the tick its listing was read in is read",
+		).toEqual([one]);
 	});
 
 	it("drop a tree gone from the disk within a minute, its record left", () => {
