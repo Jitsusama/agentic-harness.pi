@@ -249,7 +249,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			// Only where /proc lets a stop find what left the group (reap.ts).
 			...(process.platform === "linux"
 				? [
-						`A process a command starts dies when the command is stopped or times out, or when the pi host that ran it restarts, whatever group or session it moved to: setsid, nohup and \`jobs-broker run\` don't keep it. Only one moved to a scope outside pi's own cgroup and outside the jobs slice, as \`systemd-run --user --scope\` makes, is spared.${sandbox.kind === "fence" ? " Inside the agent fence no command can make one, so something meant to outlive its command needs a service its owner runs, or the person." : ""}`,
+						`A process a command starts dies when the command is stopped or times out, or when the pi host that ran it restarts, whatever group or session it moved to: setsid, nohup and \`jobs-broker run\` don't keep it. To outlive both, start it as a transient service: \`systemd-run --user --unit=NAME --collect --setenv=PATH=$PATH --setenv=HOME=$HOME bash -c 'COMMAND > LOG 2>&1'\`. A service takes none of the command's environment but what --setenv passes, and the journal says how it ended (\`journalctl --user -u NAME\`). A \`systemd-run --user --scope\` is spared too, but nothing records how it ended.${sandbox.kind === "fence" ? " Inside the agent fence no command can make either, so something meant to outlive its command needs a service its owner runs, or the person." : ""}`,
 					]
 				: []),
 			// Only where commands are placed in the jobs cgroup: elsewhere
