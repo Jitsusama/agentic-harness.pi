@@ -704,6 +704,7 @@ describe("watchHolds", () => {
 				still: 60_000,
 				profile: { after: 400, for: 300, folder, most: 10 },
 			});
+			// A turn first, so the thread has started and seen the loop move.
 			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
 			hold(1500);
 			await vi.waitFor(() => {
@@ -731,6 +732,7 @@ describe("watchHolds", () => {
 						profile: { after: 1500, for: 300, folder },
 					});
 				stop = watch();
+				// A turn first, so the thread has started and seen the loop move.
 				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
 				hold(1000);
 				await vi.waitFor(() => {
@@ -741,6 +743,7 @@ describe("watchHolds", () => {
 				expect(profiled(), "no profile short of its time").toEqual([]);
 				stop();
 				stop = watch(procIn("D"));
+				// A turn first, so the thread has started and seen the loop move.
 				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
 				hold(2500);
 				// Long enough for a profile begun at 1.5 s to have been said.
@@ -764,6 +767,7 @@ describe("watchHolds", () => {
 					proc: procIn("R"),
 					profile: { after: 400, for: 300, folder, answer: 300 },
 				});
+				// A turn first, so the thread has started and seen the loop move.
 				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
 				expect(
 					spawnSync("sleep", ["1.5"]).status,
