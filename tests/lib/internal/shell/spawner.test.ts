@@ -3,8 +3,6 @@
  * two streams and an end, takes the requests and sends frames, so what
  * pi's bash sees is checked without starting anything.
  */
-
-import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	mkdirSync,
@@ -24,19 +22,10 @@ import {
 } from "../../../../lib/internal/sandbox/system-program.ts";
 import {
 	type SpawnerOptions,
-	type Started,
 	spawnedBy,
 	spawnerKeeps,
-	spawnerTakesFor,
-	startProgram,
 	stopIdleSpawners,
 } from "../../../../lib/internal/shell/spawner.ts";
-import {
-	inSpawnerScope,
-	type ScopeSetting,
-	settingHere,
-	spawnerStart,
-} from "../../../../lib/internal/shell/spawner-scope.ts";
 import { SPAWNER_VARIABLE } from "../../../../lib/internal/shell/spawner-variable.ts";
 import {
 	type SpawnerStandIn,
@@ -44,14 +33,6 @@ import {
 } from "../../../support/spawner-stand-in.ts";
 
 const SHELL = { shell: "/bin/bash", args: ["-c"] };
-/** How long the probe for a user manager that makes scopes may take. */
-const SCOPE_PROBE_MS = 5000;
-
-/** Puts pi's own environment's `name` back as `value` had it, unset where it was. */
-function restore(name: string, value: string | undefined): void {
-	if (value === undefined) delete process.env[name];
-	else process.env[name] = value;
-}
 
 /** pi's own spawn as a stand-in, counting what fell back to it. */
 function fallback(): BashOperations & { calls: string[] } {
@@ -77,7 +58,6 @@ function through(over: Partial<SpawnerOptions> = {}) {
 		start: program.start,
 		kill,
 		reap: () => undefined,
-		asksFor: async () => true,
 		...over,
 	});
 	return { program, own, kill, operations };
@@ -363,7 +343,6 @@ describe("whether a kept command outlives pi's going", () => {
 			expect(start, "started the one it asked").toHaveBeenCalledWith(
 				asked,
 				undefined,
-				undefined,
 			);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -379,7 +358,7 @@ describe("whether a kept command outlives pi's going", () => {
 	});
 });
 
-describe("asking a pi-spawner whether it keeps, and whether it takes for", () => {
+describe("asking a pi-spawner whether it keeps", () => {
 	const made: string[] = [];
 	afterEach(() => {
 		for (const dir of made.splice(0))
@@ -412,27 +391,6 @@ describe("asking a pi-spawner whether it keeps, and whether it takes for", () =>
 		const program = programOf("cat >/dev/null");
 
 		expect(await spawnerKeeps(program), "it said nothing").toBe(false);
-	});
-
-	it("hears it takes for from one that serves a session and ends with its input", async () => {
-		const program = programOf(
-			'[ "$1" = for ] && [ -n "$2" ] && [ -z "$3" ] && cat >/dev/null',
-		);
-
-		expect(await spawnerTakesFor(program), "it served and ended").toBe(true);
-	});
-
-	it("hears it takes no for from one that refuses the word, as one from before does", async () => {
-		const program = programOf("echo 'x no subcommand called for' >&2; exit 64");
-
-		expect(await spawnerTakesFor(program), "it refused the word").toBe(false);
-	});
-
-	it("hears it takes no for from one that isn't there", async () => {
-		expect(
-			await spawnerTakesFor("/no/such/pi-spawner"),
-			"nothing there to take it",
-		).toBe(false);
 	});
 
 	it("hears no from one that isn't there", async () => {
@@ -520,132 +478,97 @@ describe("the quest a pi-spawner's work is filed under", () => {
 	});
 });
 
-describe("the session a pi-spawner is started naming", () => {
-	/** A start keeping the session each pi-spawner was named for, in turn. */
-	function naming(...programs: SpawnerStandIn[]) {
-		const sessions: (string | undefined)[] = [];
-		const start = (_program: string, _quest?: string, session?: string) => {
-			sessions.push(session);
-			const next = programs.shift();
-			if (!next) throw new Error("started more often than stood in for");
-			return next.start();
-		};
-		return { sessions, start };
+describe("the node told the session a load's pi-spawner serves", () => {
+	const SPAWNER_PID = 4242;
+
+	/** A stand-in whose start says the process it runs as. */
+	function asProcess(program: SpawnerStandIn) {
+		return () => ({ ...program.start(), pid: SPAWNER_PID });
 	}
 
-	it("is each load's own", async () => {
-		const [one, two] = [standIn(), standIn()];
-		const first = naming(one);
-		const second = naming(two);
+	it("is told before the first command reaches the spawner", async () => {
+		const program = standIn();
+		let told: (() => void) | undefined;
+		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
+			() =>
+				new Promise((settle) => {
+					told = settle;
+				}),
+		);
+		const { operations } = through({
+			start: asProcess(program),
+			session: "s-one",
+			register,
+		});
 
-		for (const { operations, program } of [
-			{
-				operations: through({ start: first.start, session: "s-one" })
-					.operations,
-				program: one,
-			},
-			{
-				operations: through({ start: second.start, session: "s-two" })
-					.operations,
-				program: two,
-			},
-		]) {
-			void operations.exec("true", "/", { onData: () => {}, env: {} });
-			await askedFor(program, 1);
+		const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
+		await vi.waitFor(() => expect(told, "the telling began").toBeDefined());
+		await delivered();
+		expect(program.asked, "asked before the node was told").toEqual([]);
+		told?.();
+		await askedFor(program, 1);
+		program.ends(1, 10);
+		await ran;
+
+		expect(register, "what the node was told").toHaveBeenCalledExactlyOnceWith(
+			SPAWNER_PID,
+			"s-one",
+		);
+	});
+
+	it("is told once a spawner, not once a command", async () => {
+		const program = standIn();
+		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
+			async () => undefined,
+		);
+		const { operations } = through({
+			start: asProcess(program),
+			session: "s-one",
+			register,
+		});
+
+		for (const id of [1, 2]) {
+			const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
+			await askedFor(program, id);
+			program.ends(id, 10 + id);
+			await ran;
 		}
 
-		expect(first.sessions, "the first load's spawner").toEqual(["s-one"]);
-		expect(second.sessions, "the second load's spawner").toEqual(["s-two"]);
+		expect(register, "tellings").toHaveBeenCalledOnce();
 	});
 
-	it("is still the load's own when another quest's command starts the next", async () => {
-		const [before, after] = [standIn(), standIn()];
-		const { sessions, start } = naming(before, after);
-		const { operations } = through({ start, session: "s-one" });
-
-		void operations.exec("true", "/", {
-			onData: () => {},
-			env: { PI_QUEST: "QEST-20261116-AAAAAA" },
-		});
-		await askedFor(before, 1);
-		void operations.exec("true", "/", {
-			onData: () => {},
-			env: { PI_QUEST: "QEST-20261116-BBBBBB" },
-		});
-		await askedFor(after, 1);
-
-		expect(sessions, "each spawner the load started").toEqual([
-			"s-one",
-			"s-one",
-		]);
-	});
-
-	it("is none where the spawner takes no for, as one from before", async () => {
+	it("still runs the command when the telling fails", async () => {
 		const program = standIn();
-		const { sessions, start } = naming(program);
-		const asked: string[] = [];
 		const { operations } = through({
-			start,
+			start: asProcess(program),
 			session: "s-one",
-			asksFor: async (path) => {
-				asked.push(path);
-				return false;
+			register: async () => {
+				throw new Error("no node");
 			},
 		});
 
-		void operations.exec("true", "/", { onData: () => {}, env: {} });
+		const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
 		await askedFor(program, 1);
+		program.ends(1, 10);
 
-		expect(asked, "the spawner asked whether it takes for").toEqual([
-			"/run/pi-spawner",
-		]);
-		expect(sessions, "the spawner the load started, bare").toEqual([undefined]);
+		await expect(ran, "how the command ended").resolves.toEqual({
+			exitCode: 0,
+		});
 	});
 
-	it("asks the spawner only once whether it takes for", async () => {
-		const [before, after] = [standIn(), standIn()];
-		const { start } = naming(before, after);
-		let asked = 0;
-		const { operations } = through({
-			start,
-			session: "s-one",
-			asksFor: async () => {
-				asked += 1;
-				return true;
-			},
-		});
-
-		void operations.exec("true", "/", {
-			onData: () => {},
-			env: { PI_QUEST: "QEST-20261116-AAAAAA" },
-		});
-		await askedFor(before, 1);
-		void operations.exec("true", "/", {
-			onData: () => {},
-			env: { PI_QUEST: "QEST-20261116-BBBBBB" },
-		});
-		await askedFor(after, 1);
-
-		expect(asked, "times it was asked, for two spawners").toBe(1);
-	});
-
-	it("is none for a load that names none, the spawner asked nothing", async () => {
+	it("is told nothing for a load that names no session", async () => {
 		const program = standIn();
-		const { sessions, start } = naming(program);
-		let asked = 0;
-		const { operations } = through({
-			start,
-			asksFor: async () => {
-				asked += 1;
-				return true;
-			},
-		});
+		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
+			async () => undefined,
+		);
+		const { operations } = through({ start: asProcess(program), register });
 
-		void operations.exec("true", "/", { onData: () => {}, env: {} });
+		const ran = operations.exec("true", "/", { onData: () => {}, env: {} });
 		await askedFor(program, 1);
+		program.ends(1, 10);
+		await ran;
 
-		expect(sessions, "the spawner the load started").toEqual([undefined]);
-		expect(asked, "times it was asked whether it takes for").toBe(0);
+		expect(register, "tellings").not.toHaveBeenCalled();
 	});
 });
 
@@ -742,121 +665,4 @@ describe("the pi-spawners an earlier load left", () => {
 
 		expect(stopped).toEqual([200]);
 	});
-});
-
-describe.skipIf(process.platform !== "linux")("a pi-spawner as started", () => {
-	/**
-	 * A pi-spawner saying its parent, its name, the words its own command
-	 * line holds after the program (or none), and its cgroup. Run under
-	 * sh, its command line starts with sh and the program's path.
-	 */
-	function sayingItself(): { folder: string; program: string } {
-		const folder = mkdtempSync(join(tmpdir(), "started-spawner-"));
-		const program = join(folder, "pi-spawner");
-		writeFileSync(
-			program,
-			[
-				"#!/bin/sh",
-				'echo "$PPID"',
-				'cat "/proc/$$/comm"',
-				`named=$(tr '\\0' '\\n' < "/proc/$$/cmdline" | sed '1,2d' | paste -sd ' ')`,
-				'[ -n "$named" ] || named=none',
-				'echo "$named"',
-				'cat "/proc/$$/cgroup"',
-				"",
-			].join("\n"),
-		);
-		chmodSync(program, 0o755);
-		return { folder, program };
-	}
-
-	/** Everything `started` writes, until it ends. */
-	async function saidBy(started: Started): Promise<string> {
-		let said = "";
-		const closed = new Promise((done) => started.output.once("close", done));
-		started.output.on("data", (chunk: Buffer) => {
-			said += chunk.toString("utf8");
-		});
-		await new Promise<void>((done) => started.ended(done));
-		await closed;
-		return said;
-	}
-
-	/** What a spawner started under `setting` says of itself, for `session`. */
-	async function startedFor(
-		session: string | undefined,
-		setting: ScopeSetting,
-	): Promise<{
-		parent?: string;
-		name?: string;
-		named?: string;
-		cgroup: string;
-	}> {
-		const { folder, program } = sayingItself();
-		try {
-			const said = await saidBy(
-				startProgram(program, undefined, session, setting),
-			);
-			const [parent, name, named, ...cgroup] = said.trim().split("\n");
-			return { parent, name, named, cgroup: cgroup.join("\n") };
-		} finally {
-			rmSync(folder, { recursive: true, force: true });
-		}
-	}
-
-	it("is pi's own child, named pi-spawner, its command line naming only its load's session", async () => {
-		const setting = settingHere(false);
-		const named = await startedFor("s-one", setting);
-		const unnamed = await startedFor(undefined, setting);
-
-		expect(named.parent, "its parent is pi").toBe(String(process.pid));
-		expect(named.name, "the kernel's name for it").toBe("pi-spawner");
-		expect(named.named, "what its command line names").toBe("for s-one");
-		expect(unnamed.named, "nothing, for a load naming none").toBe("none");
-	});
-
-	// The suite's runtime folder is a sandbox (xdg-sandbox.ts), so this
-	// reaches the account's own user manager, whose scope it makes is
-	// collected as its pi-spawner ends; where none makes one, it is skipped.
-	const ownRuntime = `/run/user/${process.getuid?.() ?? 0}`;
-	const probe = spawnerStart("true", {
-		...settingHere(true),
-		env: { ...process.env, XDG_RUNTIME_DIR: ownRuntime },
-	});
-	const scopes =
-		probe.unscoped === undefined &&
-		spawnSync(probe.command, [...probe.args], {
-			env: { ...process.env, XDG_RUNTIME_DIR: ownRuntime },
-			stdio: "ignore",
-			timeout: SCOPE_PROBE_MS,
-		}).status === 0;
-
-	it.skipIf(!scopes)(
-		"is still the host's own child, named pi-spawner, its command line naming only its session, in a scope",
-		async () => {
-			const sandboxed = process.env.XDG_RUNTIME_DIR;
-			process.env.XDG_RUNTIME_DIR = ownRuntime;
-			try {
-				// Each its own setting, so each asks for a scope of its own name.
-				const named = await startedFor("s-one", settingHere(true));
-				const unnamed = await startedFor(undefined, settingHere(true));
-
-				expect(named.parent, "its parent is the host").toBe(
-					String(process.pid),
-				);
-				expect(named.name, "the kernel's name for it").toBe("pi-spawner");
-				expect(named.named, "what its command line names").toBe("for s-one");
-				expect(unnamed.named, "nothing, for a load naming none").toBe("none");
-				expect(inSpawnerScope(named.cgroup), "it runs in its own scope").toBe(
-					true,
-				);
-				expect(
-					inSpawnerScope(unnamed.cgroup),
-					"one naming none, in its own too",
-				).toBe(true);
-			} finally {
-				restore("XDG_RUNTIME_DIR", sandboxed);
-			}
-		},
-	);
 });

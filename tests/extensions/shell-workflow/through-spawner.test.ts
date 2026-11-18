@@ -14,8 +14,10 @@ import {
 	COMMAND_VARIABLE,
 	KEEP_VARIABLE,
 } from "../../../extensions/shell-workflow/command-line.ts";
+import { withSession } from "../../../lib/core/session/index.ts";
 import { teePersists } from "../../../lib/internal/shell/kept.ts";
 import { SPAWNER_VARIABLE } from "../../../lib/internal/shell/spawner-variable.ts";
+import { installTestHost } from "../../support/session-host.ts";
 import {
 	type SpawnerStandIn,
 	spawnerStandIn,
@@ -78,28 +80,54 @@ async function ran(
 }
 
 describe("the agent's bash for a conversation", () => {
-	it("starts its pi-spawner naming that conversation, whatever else it is given", async () => {
+	const SPAWNER_PID = 4242;
+	let dispose: (() => void) | undefined;
+	afterEach(() => {
+		dispose?.();
+		dispose = undefined;
+		vi.unstubAllEnvs();
+	});
+
+	/** The conversation's bash, keeping what the node is told. */
+	function tellingBash(given: { session?: string } = {}) {
 		const program = spawnerStandIn();
-		const sessions: (string | undefined)[] = [];
+		const register = vi.fn<(pid: number, session: string) => Promise<void>>(
+			async () => undefined,
+		);
 		const bash = agentBash(root, {}, { kind: "none" }, "s-one", {
 			env: { [SPAWNER_VARIABLE]: "on" },
 			program: "/run/pi-spawner",
-			start: (_program, _quest, session) => {
-				sessions.push(session);
-				return program.start();
-			},
+			start: () => ({ ...program.start(), pid: SPAWNER_PID }),
 			kill: vi.fn<(pid: number) => void>(),
 			reap: () => undefined,
 			asksKeeps: async () => false,
-			asksFor: async () => true,
-			session: "s-given",
+			register,
+			...given,
 		});
+		return { program, bash, register };
+	}
+
+	it("tells the node its spawner serves that conversation, on a host, whatever else it is given", async () => {
+		dispose = installTestHost().dispose;
+		vi.stubEnv(SPAWNER_VARIABLE, "on");
+		const { program, bash, register } = tellingBash({ session: "s-given" });
+
+		await withSession("s-one", () =>
+			ran({ program, bash }, new AbortController().signal),
+		);
+
+		expect(register, "what the node was told").toHaveBeenCalledExactlyOnceWith(
+			SPAWNER_PID,
+			"s-one",
+		);
+	});
+
+	it("tells it nothing on plain pi, whose process is its conversation's alone", async () => {
+		const { program, bash, register } = tellingBash();
 
 		await ran({ program, bash }, new AbortController().signal);
 
-		expect(sessions, "the session its spawner was started naming").toEqual([
-			"s-one",
-		]);
+		expect(register, "tellings").not.toHaveBeenCalled();
 	});
 });
 

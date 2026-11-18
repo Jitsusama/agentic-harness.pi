@@ -60,8 +60,6 @@ export interface ScopeSetting {
 interface SpawnerStart {
 	readonly command: string;
 	readonly args: readonly string[];
-	/** Whether it starts in a scope of its own. */
-	readonly scoped: boolean;
 	/** Why it runs in the host's own cgroup, when a host's spawner does. */
 	readonly unscoped?: string;
 }
@@ -95,16 +93,15 @@ function managerReachable(
 }
 
 /**
- * How to start the spawner at `program`, given its own `words`: in a
- * scope of its own when a host on Linux can make one, and otherwise
- * directly, saying why when a host's commands then end with it.
+ * How to start the spawner at `program`: in a scope of its own when a
+ * host on Linux can make one, and otherwise directly, saying why when a
+ * host's commands then end with it.
  */
 export function spawnerStart(
 	program: string,
 	setting: ScopeSetting,
-	words: readonly string[] = [],
 ): SpawnerStart {
-	const direct = { command: program, args: [...words], scoped: false };
+	const direct = { command: program, args: [] };
 	if (!setting.hosted) return direct;
 	if (setting.platform !== "linux")
 		return { ...direct, unscoped: "this machine has no systemd" };
@@ -125,9 +122,7 @@ export function spawnerStart(
 			`--unit=${SPAWNER_SCOPE_PREFIX}${setting.name}`,
 			"--",
 			program,
-			...words,
 		],
-		scoped: true,
 	};
 }
 

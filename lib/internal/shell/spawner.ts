@@ -36,22 +36,13 @@
  * carried the host's environment, which names no quest, and every
  * hosted session's work was filed as no quest's (VRZKID, 15 November).
  *
- * Each is started naming, too, the session whose load made it, as its
- * own argument, `pi-spawner for <session>`, taken from the load and
- * never from pi's own environment, which a host's sessions share. A
- * host's sessions share its process, so a mycelium node tells which
- * asked it for a run by the spawner its command runs under: the host's
- * own child, named pi-spawner, its command line naming the session. The
- * spawner can't be dumped, so nothing it starts can rewrite that line,
- * and its environment is closed to the node. While its spawner runs,
- * the host runs none of an agent's commands as its own child, so no
- * command can start a spawner of its own beside it as the host's child.
- * Once a spawner is lost, or none can start, pi runs the commands
- * itself, as its own children; one could then start pi-spawner on
- * purpose naming any session, and the node can't tell it from the
- * host's. It stops a mistake, not a forger who outlives a spawner. A
- * spawner from before refuses `for`, asked once with nothing to serve,
- * and is then started bare, naming no session.
+ * A load given its session tells the machine's mycelium node which
+ * session each spawner it starts serves (spawner-register.ts), and its
+ * first command waits for that, at most a couple of seconds, so the node
+ * can tell which of a host's sessions asked it for a run. The node takes
+ * the word only from the host itself, of its own pi-spawner child, so a
+ * command that starts a spawner of its own, or runs as pi's own child
+ * once a spawner is lost, is told no session.
  *
  * When pi goes, pi-spawner kills every command it still runs but one kept
  * on disk (shell-workflow's keeping.ts), which a shared host hands to the
@@ -76,8 +67,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../core/session/host.ts";
 import { systemProgram } from "../sandbox/system-program.ts";
+import { registerSpawner } from "./spawner-register.ts";
 import {
-	type ScopeSetting,
 	sayUnscoped,
 	scopeFailed,
 	settingHere,
@@ -113,15 +104,6 @@ const FAILED = "e".charCodeAt(0);
 /** The variable naming the quest a command's work is for. */
 const QUEST_VARIABLE = "PI_QUEST";
 
-/** The word before the session a pi-spawner is started naming. */
-const FOR_WORD = "for";
-
-/** The session a spawner is asked to serve, with nothing to serve, to learn whether it takes `for`. */
-const FOR_ASKED_SESSION = "asked";
-
-/** How long pi-spawner may take to say whether it takes `for`. */
-const FOR_TIMEOUT_MS = 5000;
-
 /** A frame's kind, id and length, ahead of its payload. */
 const HEAD_BYTES = 9;
 
@@ -139,6 +121,8 @@ export interface Shell {
 export interface Started {
 	input: Writable;
 	output: Readable;
+	/** Its process, where it started as one. */
+	pid?: number;
 	/** Call back once, when the program has stopped or failed to start. */
 	ended(listener: () => void): void;
 }
@@ -155,18 +139,15 @@ export interface SpawnerOptions {
 	program?: string;
 	/** How the program is found, when `program` doesn't say. */
 	find?: (program: string) => string | undefined;
-	/**
-	 * Start the program, its environment naming `quest`, the work it runs,
-	 * and its command line `session`, whose commands it runs.
-	 */
-	start?: (program: string, quest?: string, session?: string) => Started;
-	/**
-	 * The session whose load this is, which its spawners are started
-	 * naming where they take `for`.
-	 */
+	/** Start the program, its environment naming `quest`, the work it runs. */
+	start?: (program: string, quest?: string) => Started;
+	/** The session whose load this is, which its spawners serve. */
 	session?: string;
-	/** Whether the program at a path takes `for <session>`. */
-	asksFor?: (program: string) => Promise<boolean>;
+	/**
+	 * Tell the machine's node the session a started spawner serves; by
+	 * default on the node's socket (registerSpawner).
+	 */
+	register?: (pid: number, session: string) => Promise<void>;
 	/** Whether the program at a path spares kept commands when pi goes. */
 	asksKeeps?: (program: string) => Promise<boolean>;
 	/** Kill a command's process group, as pi's stop does. */
@@ -245,6 +226,8 @@ export function spawnedBy(
 	const kill = options.kill ?? killGroup;
 	let link: Link | undefined;
 	let linkQuest: string | undefined;
+	// The node told the session the link's spawner serves, or given up on.
+	let linkTold: Promise<void> | undefined;
 	let lost = false;
 	let shell: Shell | undefined = options.shell;
 	let found: { program: string | undefined } | undefined;
@@ -259,19 +242,7 @@ export function spawnedBy(
 		return found.program;
 	};
 	let keeps: Promise<boolean> | undefined;
-	let takesFor: Promise<boolean> | undefined;
-	// The session its spawners name: the load's, where the spawner takes
-	// the word, asked once.
-	const naming = async (session: string): Promise<string | undefined> => {
-		const program = programOf();
-		if (program === undefined) return undefined;
-		takesFor ??= (options.asksFor ?? spawnerTakesFor)(program);
-		return (await takesFor) ? session : undefined;
-	};
-	const linked = (
-		quest: string | undefined,
-		session: string | undefined,
-	): Link | undefined => {
+	const linked = (quest: string | undefined): Link | undefined => {
 		if (lost) return undefined;
 		if (link && linkQuest === quest) return link;
 		// Another quest's work: the one running closes once its own commands
@@ -285,18 +256,22 @@ export function spawnedBy(
 		}
 		try {
 			let made: Link | undefined;
-			made = connect(
-				(options.start ?? startProgram)(program, quest, session),
-				kill,
-				() => {
-					// One retired for another quest's ends with no loss to the next.
-					if (link !== made) return;
-					lost = true;
-					link = undefined;
-				},
-			);
+			const begun = (options.start ?? startProgram)(program, quest);
+			made = connect(begun, kill, () => {
+				// One retired for another quest's ends with no loss to the next.
+				if (link !== made) return;
+				lost = true;
+				link = undefined;
+			});
 			link = made;
 			linkQuest = quest;
+			linkTold =
+				options.session !== undefined && begun.pid !== undefined
+					? (options.register ?? registerSpawner)(
+							begun.pid,
+							options.session,
+						).catch(() => undefined)
+					: undefined;
 		} catch {
 			// A program that won't start leaves pi's own spawn to do it.
 			lost = true;
@@ -312,15 +287,13 @@ export function spawnedBy(
 				// pi's own spawn says why the shell can't be found.
 				return fallback.exec(command, cwd, settings);
 			}
-			if (shell.commandTransport === "stdin" || settings.env === undefined)
-				return fallback.exec(command, cwd, settings);
-			const quest = settings.env[QUEST_VARIABLE];
-			// A load naming no session asks the spawner nothing first.
-			const session = options.session
-				? await naming(options.session)
-				: undefined;
-			const through = linked(quest, session);
+			const through =
+				shell.commandTransport !== "stdin" && settings.env !== undefined
+					? linked(settings.env[QUEST_VARIABLE])
+					: undefined;
 			if (through === undefined) return fallback.exec(command, cwd, settings);
+			// Nothing it runs asks the node before the node knows whose it is.
+			if (linkTold) await linkTold;
 			return runThrough(through, shell, command, cwd, settings, kill);
 		},
 		retire: () => {
@@ -566,16 +539,10 @@ function killGroup(pid: number): void {
  * output is read, the first of it kept, so a scope that couldn't be made
  * is said and the spawners after it run unscoped.
  */
-export function startProgram(
-	program: string,
-	quest?: string,
-	session?: string,
-	setting: ScopeSetting = settingHere(hosted() !== undefined),
-): Started {
-	const words = session ? [FOR_WORD, session] : [];
-	const start = spawnerStart(program, setting, words);
+function startProgram(program: string, quest?: string): Started {
+	const start = spawnerStart(program, settingHere(hosted() !== undefined));
 	if (start.unscoped !== undefined) sayUnscoped(start.unscoped);
-	const scoped = start.scoped;
+	const scoped = start.args.length > 0;
 	const child = spawn(start.command, [...start.args], {
 		stdio: ["pipe", "pipe", scoped ? "pipe" : "ignore"],
 		detached: true,
@@ -601,6 +568,7 @@ export function startProgram(
 	return {
 		input: child.stdin,
 		output: child.stdout,
+		...(child.pid !== undefined ? { pid: child.pid } : {}),
 		ended: (listener) => {
 			let told = false;
 			const once = () => {
@@ -612,24 +580,6 @@ export function startProgram(
 			child.once("error", once);
 		},
 	};
-}
-
-/**
- * Whether the pi-spawner at `program` takes `for <session>`: asked to
- * serve a session with nothing to serve, one that takes it reads its
- * empty input as pi gone and ends at once. One from before refuses the
- * word, as it refuses any but `keeps`.
- */
-export function spawnerTakesFor(program: string): Promise<boolean> {
-	return new Promise((resolve) => {
-		const asked = spawn(program, [FOR_WORD, FOR_ASKED_SESSION], {
-			stdio: "ignore",
-			timeout: FOR_TIMEOUT_MS,
-		});
-		// One that can't start takes nothing.
-		asked.once("error", () => resolve(false));
-		asked.once("close", (status) => resolve(status === 0));
-	});
 }
 
 /** A command's frames as they come, until it is done. */

@@ -287,6 +287,15 @@ since there they are other conversations'. When pi goes, its
 `pi-spawner` kills every command still running but a kept one (see
 Through a Move below).
 
+A shared host's conversations share its process, so the machine's
+mycelium node can't tell from that which one asked it for a run. The
+host tells the node, on its own connection, which conversation each
+`pi-spawner` it starts serves, before that spawner runs anything, and
+the node takes the word only from the host, of its own `pi-spawner`.
+A command run another way, as pi's own once a spawner is lost, is
+told no conversation. Code running inside the host itself, an
+extension a project brings among it, could still say what it likes.
+
 ## Stopping a Command
 
 Before it moves, Escape stops it as always. After it moves, `/jobs`

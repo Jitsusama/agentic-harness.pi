@@ -80,10 +80,11 @@ export function agentBash(
 			...(settings.shellPath ? { shellPath: settings.shellPath } : {}),
 			...(sharing ? { reap: () => undefined } : {}),
 			...spawner,
-			// The load's own session, which its spawner is started naming;
-			// last, so nothing else given names another. One with no id names
-			// none, so its runs are told no session rather than its bash failing.
-			...(loadSession ? { session: loadSession } : {}),
+			// In a host, the load's own session, which the node is told its
+			// spawners serve; last, so nothing else given names another. A pi
+			// of its own needs none, its process being its session's alone, and
+			// one with no id names none, so its runs are told no session.
+			...(sharing && loadSession ? { session: loadSession } : {}),
 		},
 	);
 	// Each call keeps itself on disk where it can, so a move can hand it
