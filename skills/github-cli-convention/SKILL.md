@@ -47,7 +47,7 @@ the mechanics for that case.
 Use `--body-file -` with a heredoc to pass multi-line bodies:
 
 ```bash
-gh pr create \
+gh pr create --draft \
   --title "Add Token Refresh to Prevent Session Timeouts" \
   --body-file - <<'EOF'
 ### 💡 TL;DR
@@ -72,6 +72,10 @@ EOF
 The single-quoted `'EOF'` delimiter prevents shell variable
 expansion; backticks, dollar signs and special characters
 all pass through literally.
+
+A pull request goes up from the shell as a draft. Marking it
+ready or asking reviewers goes through `review_offer`, which
+waits for our own council; the shell's forms are refused.
 
 **Never use an unquoted heredoc delimiter.** `<<EOF` allows
 shell variable expansion: `$variables`, backticks and

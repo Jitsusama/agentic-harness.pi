@@ -9,16 +9,28 @@
  * After a command has published a description, the audit reads it
  * and tells the model to fix one outside its shape, so the format
  * holds even where the gate was told only to report.
+ *
+ * A second guardian sends a gh pr that would ask people to look
+ * (a create without --draft, ready, a reviewer named) to
+ * review_offer, which waits for our own council first.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerGuardian } from "../../lib/guardian/register.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { auditPublished, PR_AUDIT_MESSAGE } from "./audit.ts";
+import { councilFirstGuardian } from "./council-first.ts";
 import { createPrGuardian } from "./review.ts";
 
 export default function prGuardianExtension(pi: ExtensionAPI) {
 	declareGuards(GUARDS.host, GUARDS.sections, GUARDS.titles, GUARDS.prose);
+	// A refusal needs nobody to read a panel, so it holds headless too.
+	// It goes first, so nobody reviews a description in the panel for a
+	// create this then refuses.
+	registerGuardian(pi, councilFirstGuardian, {
+		declaration: GUARDS.councilFirst,
+		enforceWithoutUI: true,
+	});
 	registerGuardian(pi, createPrGuardian(pi), {
 		declaration: GUARDS.pr,
 		enforceWithoutUI: true,
