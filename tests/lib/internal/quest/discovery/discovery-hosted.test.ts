@@ -67,12 +67,12 @@ vi.mock(
 			>();
 		return {
 			...actual,
-			readTreeOffThread: async (questsRoot: string) => {
+			readTreeOffThread: async (questsRoot: string, wallMs: number) => {
 				// Asked afresh at each step, since a walk an earlier test began
 				// may read on into this one and must not be heard as its own.
 				const ours = () => questsRoot === signing.root;
 				if (ours()) signing.walks += 1;
-				const read = await actual.readTreeOffThread(questsRoot);
+				const read = await actual.readTreeOffThread(questsRoot, wallMs);
 				if (ours()) signing.onRead?.();
 				if (signing.gate) await signing.gate;
 				if (ours()) signing.returned += 1;

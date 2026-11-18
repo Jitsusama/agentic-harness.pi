@@ -415,7 +415,10 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 	const signedAt = Date.now();
 	const writes = questWritesMade();
 	const work = (async (): Promise<SigningEnd> => {
-		const { pass, rootStamp } = await readTreeOffThread(questsRoot);
+		const { pass, rootStamp } = await readTreeOffThread(
+			questsRoot,
+			SIGNING_HUNG_AFTER_MS,
+		);
 		if (memo() !== m || questWritesMade() !== writes) return "dropped";
 		const cached = m.cache.get(questsRoot);
 		if (cached && cached.signedAt > signedAt) return "dropped";

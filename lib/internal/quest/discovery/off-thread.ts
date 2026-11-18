@@ -106,7 +106,16 @@ const LINK = 4;
  */
 const PROGRAM = `
 const { parentPort, workerData } = require("node:worker_threads");
-const { readdirSync, readFileSync, realpathSync, statSync } = require("node:fs");
+const {
+	closeSync,
+	constants,
+	fstatSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	statSync,
+} = require("node:fs");
 const { basename, join } = require("node:path");
 const { root, questId, documentId, kinds, maxDepth, settledNs, known } = workerData;
 const quest = new RegExp(questId);
@@ -162,22 +171,38 @@ const parsedByTheWalk = (path) => {
 	if (name === "README.md") return true;
 	return name.endsWith(".md") && doc.test(name.slice(0, -3));
 };
+const keyOf = (st) => st.size + ":" + st.mtimeNs + ":" + st.ctimeNs + ":" + st.ino;
 const hashed = (path) => {
+	let fd;
 	try {
 		const st = statSync(path, { bigint: true });
 		if (!st.isFile()) {
 			absent.push(path);
 			return;
 		}
-		const key = st.size + ":" + st.mtimeNs + ":" + st.ctimeNs + ":" + st.ino;
 		const stamp = known.get(path);
-		if (stamp && stamp.key === key && (stamp.record || !parsedByTheWalk(path))) {
+		if (stamp && stamp.key === keyOf(st) && (stamp.record || !parsedByTheWalk(path))) {
 			hashes.set(path, stamp.hash);
 			return;
 		}
-		reads.push({ path, key, settled: settled(st), bytes: readFileSync(path) });
+		// Opened without waiting and judged by what was opened, so a path
+		// swapped for a FIFO since its stat can't hold this thread.
+		fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+		const opened = fstatSync(fd, { bigint: true });
+		if (!opened.isFile()) {
+			absent.push(path);
+			return;
+		}
+		reads.push({
+			path,
+			key: keyOf(opened),
+			settled: settled(opened),
+			bytes: readFileSync(fd),
+		});
 	} catch {
 		absent.push(path);
+	} finally {
+		if (fd !== undefined) closeSync(fd);
 	}
 };
 const isFolder = (kind) => (kind & ${DIRECTORY}) !== 0 && (kind & ${LINK}) === 0;
@@ -223,9 +248,15 @@ const walk = () => {
 };
 try {
 	const rootStamp = walk();
-	parentPort.postMessage({ rootStamp, listings, reals, pending, hashes, absent, reads });
+	// Each file's bytes are handed over rather than copied, where they
+	// fill a buffer of their own.
+	const handed = reads
+		.map((read) => read.bytes)
+		.filter((bytes) => bytes.byteOffset === 0 && bytes.buffer.byteLength === bytes.byteLength)
+		.map((bytes) => bytes.buffer);
+	parentPort.postMessage({ rootStamp, listings, reals, pending, hashes, absent, reads }, handed);
 } catch (error) {
-	parentPort.postMessage({ failed: String(error) });
+	parentPort.postMessage({ failed: (error && error.stack) || String(error) });
 }
 `;
 
@@ -254,10 +285,16 @@ function isAnswer(value: unknown): value is Answer {
 
 /**
  * Read everything signing `questsRoot` and walking it would, on a
- * thread of its own. Rejects when the thread fails or ends unanswered;
- * the signing then fails, and the last walk stands.
+ * thread of its own. Rejects when the thread fails, ends unanswered or
+ * hasn't answered in `wallMs`, when it is ended; the signing then fails,
+ * and the last walk stands. A thread held in a read of a hung disk ends
+ * once the read returns, since nothing can interrupt a call in the
+ * kernel; it holds no thread of the pool the host's reads share.
  */
-export function readTreeOffThread(questsRoot: string): Promise<ReadOffThread> {
+export function readTreeOffThread(
+	questsRoot: string,
+	wallMs: number,
+): Promise<ReadOffThread> {
 	return new Promise((resolve, reject) => {
 		const worker = new Worker(PROGRAM, {
 			eval: true,
@@ -273,25 +310,46 @@ export function readTreeOffThread(questsRoot: string): Promise<ReadOffThread> {
 		});
 		// A signing is no reason for a process to stay up.
 		worker.unref();
-		worker.once("message", (answer: unknown) => {
-			// Once it has answered the thread is only freed, and a refusal to
-			// end is no longer this signing's concern.
+		// Ending a thread that has answered only frees it, and one that
+		// won't end is no longer this signing's concern.
+		const end = () => {
+			clearTimeout(clock);
 			worker.terminate().catch(() => undefined);
-			if (isAnswer(answer)) resolve(passOf(answer));
-			else
-				reject(
-					new Error(
-						isRecord(answer) && typeof answer.failed === "string"
-							? answer.failed
-							: "the signing thread answered in no shape it keeps",
-					),
-				);
+		};
+		const clock = setTimeout(() => {
+			end();
+			reject(
+				new Error(`the signing thread hadn't answered after ${wallMs} ms`),
+			);
+		}, wallMs);
+		clock.unref();
+		worker.once("message", (answer: unknown) => {
+			end();
+			try {
+				if (isAnswer(answer)) resolve(passOf(answer));
+				else
+					reject(
+						new Error(
+							isRecord(answer) && typeof answer.failed === "string"
+								? answer.failed
+								: "the signing thread answered in no shape it keeps",
+						),
+					);
+			} catch (error) {
+				// An answer that can't be made a pass fails this signing, never
+				// the host.
+				reject(error);
+			}
 		});
-		worker.once("error", reject);
+		worker.once("error", (error) => {
+			end();
+			reject(error);
+		});
 		// Settles nothing once the answer came, since a promise settles once.
-		worker.once("exit", (code) =>
-			reject(new Error(`the signing thread ended (${code}) without answering`)),
-		);
+		worker.once("exit", (code) => {
+			clearTimeout(clock);
+			reject(new Error(`the signing thread ended (${code}) without answering`));
+		});
 	});
 }
 

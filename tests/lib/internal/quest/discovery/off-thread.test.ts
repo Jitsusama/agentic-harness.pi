@@ -8,7 +8,7 @@
  */
 
 import * as fs from "node:fs";
-import { mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import * as promises from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -20,7 +20,11 @@ import {
 	discoverySignature,
 	newPass,
 } from "../../../../../lib/internal/quest/discovery/discovery-reads.ts";
-import { readTreeOffThread } from "../../../../../lib/internal/quest/discovery/off-thread.ts";
+import {
+	folderStampOf,
+	pendingStampOf,
+	readTreeOffThread,
+} from "../../../../../lib/internal/quest/discovery/off-thread.ts";
 import {
 	ID,
 	readme,
@@ -64,6 +68,9 @@ const hostCalls = [
 
 const NESTED = "QEST-20260604-CCC333";
 
+/** Far longer than a signing of this small tree takes. */
+const WALL_MS = 60_000;
+
 let root: string;
 let readmePath: string;
 let planPath: string;
@@ -90,7 +97,7 @@ afterEach(() => {
 });
 
 it("signs with no filesystem call on the host's own thread", async () => {
-	const { pass, rootStamp } = await readTreeOffThread(root);
+	const { pass, rootStamp } = await readTreeOffThread(root, WALL_MS);
 
 	expect(
 		hostCalls.flatMap((call) =>
@@ -112,27 +119,82 @@ it("signs with no filesystem call on the host's own thread", async () => {
 });
 
 it("reads what the walk on the host would have read", async () => {
-	const { pass } = await readTreeOffThread(root);
+	const { pass } = await readTreeOffThread(root, WALL_MS);
+	for (const call of hostCalls) call.mockClear();
 	const offThread = discoverySignature(root, pass);
-	clearDiscoveryCache();
 
+	expect(
+		hostCalls.flatMap((call) =>
+			call.mock.calls.map((args: readonly unknown[]) => String(args[0])),
+		),
+		"the thread's pass left the signature nothing to read itself",
+	).toEqual([]);
+	clearDiscoveryCache();
 	expect(offThread).toBe(discoverySignature(root, newPass()));
 });
 
+it("stamps the root and each quest folder as the host would", async () => {
+	const bare = join(root, "QEST-20260605-DDD444");
+	mkdirSync(bare);
+	settle(bare);
+	settle(root);
+
+	const { pass, rootStamp } = await readTreeOffThread(root, WALL_MS);
+
+	expect(rootStamp, "the root's stamp").toBe(folderStampOf(root));
+	expect(rootStamp, "the root has a stamp to compare").toBeDefined();
+	for (const dir of [join(root, ID), bare])
+		expect(pass.pending.get(dir), `the pending stamp of ${dir}`).toBe(
+			pendingStampOf(dir),
+		);
+});
+
+it("re-reads a file the walk parses until its record is kept", async () => {
+	await readTreeOffThread(root, WALL_MS);
+
+	const again = await readTreeOffThread(root, WALL_MS);
+
+	expect(
+		[...again.pass.bytes.keys()].sort(),
+		"the README and plan, which have no record yet, but not the notes",
+	).toEqual([readmePath, planPath].sort());
+});
+
+it("re-reads a file each signing while it is still being written", async () => {
+	writeFileSync(readmePath, readme("concluded"));
+	discoverQuests(root);
+
+	const first = await readTreeOffThread(root, WALL_MS);
+	const second = await readTreeOffThread(root, WALL_MS);
+
+	expect([...first.pass.bytes.keys()], "read while unsettled").toEqual([
+		readmePath,
+	]);
+	expect([...second.pass.bytes.keys()], "and read again").toEqual([readmePath]);
+});
+
+it("gives up on a thread that hasn't answered in time", async () => {
+	await expect(readTreeOffThread(root, 1)).rejects.toThrow(
+		"the signing thread hadn't answered after 1 ms",
+	);
+});
+
 it("reads the bytes only of files that changed since the last walk", async () => {
-	const first = await readTreeOffThread(root);
+	const first = await readTreeOffThread(root, WALL_MS);
 	expect(first.pass.bytes.size, "a cold signing reads every file").toBe(3);
 	// The walk keeps each README's and document's record, which a stamp
 	// needs to stand for a file the walk parses.
 	discoverQuests(root);
 
-	const warm = await readTreeOffThread(root);
+	const warm = await readTreeOffThread(root, WALL_MS);
 	expect(
 		[...warm.pass.bytes.keys()],
 		"an unchanged tree's stamps stand for every file",
 	).toEqual([]);
 
-	writeSettled(readmePath, readme("paused"));
-	const changed = await readTreeOffThread(root);
+	// A status of another length, so the size differs even where file
+	// times are coarse.
+	writeSettled(readmePath, readme("concluded"));
+	const changed = await readTreeOffThread(root, WALL_MS);
 	expect([...changed.pass.bytes.keys()]).toEqual([readmePath]);
 });
