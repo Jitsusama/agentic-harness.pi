@@ -24,13 +24,13 @@ import {
 	startSession,
 } from "./support/mesh.ts";
 
-/** What the node holds of `message`, as it said it. */
-function held(message: Message): Said {
+/** What the node holds of `message`, as it said it to `groups`. */
+function held(message: Message, groups = ["outside.github"]): Said {
 	return {
 		from: message.from,
 		text: message.text,
 		at: message.at,
-		groups: ["outside.github"],
+		groups,
 		intent: "fyi",
 	};
 }
@@ -293,6 +293,37 @@ describe("a receptor's signal", () => {
 		expect(read, "mesh_read showed the signal unframed").toContain(
 			RECEPTOR_SIGNAL,
 		);
+	});
+
+	it("is shown to the one cell the node fed it, as a fact to weigh", async () => {
+		const runtime = join(fixture.root, "run");
+		const said = new Map<string, Said>();
+		await nodeServing(runtime, () => said);
+		const { sent, entries } = await startSession(
+			{ MYCELIUM_REALM: "work", XDG_RUNTIME_DIR: runtime },
+			{ isIdle: () => true },
+		);
+
+		const fed = fromElsewhere({
+			from: "github@kestrel",
+			to: ["@7M6JKG"],
+			intent: "fyi",
+			text: "github: your person's review is asked on jsama/tern#12",
+		});
+		said.set(fed.id, held(fed, ["peer.7m6jkg"]));
+
+		await vi.waitFor(() => expect(sent).toHaveLength(1));
+		const shown = sent[0]?.message.content ?? "";
+		expect(shown, "the signal the node fed this cell wasn't shown").toContain(
+			"review is asked on jsama/tern#12",
+		);
+		expect(shown, "the fed signal was shown unframed").toContain(
+			RECEPTOR_SIGNAL,
+		);
+		expect(
+			entries.filter((one) => one.type === UNVOUCHED),
+			"a fed signal was dropped",
+		).toEqual([]);
 	});
 
 	it("is dropped when its words come in an envelope no signal has", async () => {

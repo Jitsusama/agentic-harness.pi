@@ -226,10 +226,21 @@ describe("vouchedOnly", () => {
 			"a signal the node said on its network was shown as fed to one cell",
 		).toEqual([]);
 		for (const to of [["@7M6JKG", "@OSP01"], ["@7M6JKG/x"], ["@"]]) {
+			const why: Unvouched[] = [];
+			const shown = await vouchedOnly(
+				[{ ...fed, to }],
+				async () => new Map([[fed.id, toCell]]),
+				(_, because) => why.push(because),
+				[],
+			);
 			expect(
-				await vouched({ ...fed, to }, toCell),
+				shown,
 				`a signal to ${to.join(", ")} was taken as fed to one cell`,
 			).toEqual([]);
+			expect(
+				why,
+				`a signal to ${to.join(", ")} was dropped for its record, not its shape`,
+			).toEqual(["misshapen"]);
 		}
 	});
 
