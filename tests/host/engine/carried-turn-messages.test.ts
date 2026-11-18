@@ -75,6 +75,18 @@ describe("an extension's message during a turn the host carries on", () => {
 		expect(written).toEqual(["a word", "disposed"]);
 	});
 
+	it("is written as the session is disposed when pi held it through a run it counts", () => {
+		// A host's carried run is pi's own where pi has the seam, so pi holds the word and would drop it as it lets go.
+		const { session, written } = carrying();
+		session.isStreaming = true;
+		const held = ["a word pi held"];
+		Reflect.set(session, "_flushPendingCustomMessages", () => {
+			written.push(...held.splice(0));
+		});
+		session.dispose();
+		expect(written).toEqual(["a word pi held", "disposed"]);
+	});
+
 	it("lets go of the session as it is disposed", async () => {
 		const { session, send, emit, written } = carrying();
 		session.dispose();
