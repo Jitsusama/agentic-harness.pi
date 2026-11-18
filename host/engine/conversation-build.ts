@@ -23,6 +23,7 @@ import type {
 } from "../service/backend.ts";
 import { conversationAuthContext } from "./auth-context.ts";
 import { holdMessagesThroughCarriedTurns } from "./carried-turn-messages.ts";
+import type { Checkpoints } from "./checkpoints.ts";
 import type {
 	ConversationTraits,
 	EngineOptions,
@@ -113,6 +114,8 @@ export interface BuildContext {
 	readonly logs: HeldLogs;
 	readonly requests: KeptRequests;
 	readonly stopping: StopKeeping;
+	/** The host's one checkpointer, which keeps every conversation's store checkpointed off the thread. */
+	readonly checkpoints?: Checkpoints;
 	/** The service's ears, once it set them. */
 	watched(): ConversationEvents | undefined;
 	/** Whether a conversation is held or named for a start already, by id or by file. */
@@ -302,6 +305,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			renewed: requests.renewed,
 			within: (work) => withSession(sessionId, work),
 			report,
+			...(context.checkpoints ? { checkpoints: context.checkpoints } : {}),
 		});
 		record.conversation = conversation;
 		const opening = request?.op === "open" ? request : undefined;

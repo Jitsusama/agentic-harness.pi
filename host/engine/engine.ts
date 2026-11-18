@@ -45,6 +45,7 @@ import type {
 	ResumePhase,
 } from "../service/backend.ts";
 import { carriedShells } from "./carried-shells.ts";
+import { checkpointing } from "./checkpoints.ts";
 import type {
 	ConversationTraits,
 	EngineOptions,
@@ -153,6 +154,8 @@ export async function createEngine(
 		logs,
 		requests,
 		stopping,
+		// One thread for the host's stores, started with the first and ended with the last.
+		checkpoints: checkpointing({ report }),
 		watched: () => watched,
 		held,
 		fileHeld,
