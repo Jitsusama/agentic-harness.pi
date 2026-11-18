@@ -303,16 +303,6 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		} satisfies SendDetails);
 	}
 	const ended = endedOnWord(at, params.endsHold, answersNamed);
-	if (ended.hold) {
-		const refused = at.confirmEnd
-			? await at.confirmEnd(ended.hold, params.text)
-			: "nobody here can confirm it is the person's word.";
-		if (refused !== undefined) {
-			return answer(`Not sent: ${refused}`, {
-				sent: false,
-			} satisfies SendDetails);
-		}
-	}
 	const target = orchestratorNamed(params.to ?? "", at.peer.orchestratedBy);
 	const named = groupsNamed(target.to);
 	// Meant for one recipient that is not there: routed by rule, it would
@@ -391,6 +381,18 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 		return answer(`Not sent: ${done}`, {
 			sent: false,
 		} satisfies SendDetails);
+	}
+	// The person is asked to confirm a hold's end only once nothing else
+	// refuses the send, so his yes is never spent on one that won't go.
+	if (ended.hold) {
+		const refused = at.confirmEnd
+			? await at.confirmEnd(ended.hold, params.text)
+			: "nobody here can confirm it is the person's word.";
+		if (refused !== undefined) {
+			return answer(`Not sent: ${refused}`, {
+				sent: false,
+			} satisfies SendDetails);
+		}
 	}
 	// A replacement goes wherever what it replaces went, so it reaches
 	// everyone who heard that, beside whoever it is now sent to.

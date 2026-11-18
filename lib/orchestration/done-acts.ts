@@ -426,22 +426,37 @@ const HIM = /\b(joel|the person|he|him|his)\b/i;
  * Slack.
  */
 const ACTS: ReadonlyArray<readonly [Act, RegExp]> = [
-	["merge", /\bmerg(e|es|ing)\b/i],
-	["approve", /\bapprov(e|es|ing)\b/i],
-	["review", /\breview(s|ing)?\b(?!\s+(cell|council|round|tool|guide))/i],
+	["merge", /(?<!-)\bmerg(e|es|ing)\b(?!-)/i],
+	["approve", /(?<!-)\bapprov(e|es|ing)\b(?!-)/i],
+	[
+		"review",
+		/(?<!-)\breview(s|ing)?\b(?!-)(?!\s+(cell|council|round|tool|guide))/i,
+	],
 	[
 		"post",
-		/\b(post|posting|publish|publishing)\b(\s+[\w'-]+){0,4}?\s+(draft|message|reply|announcement|update|note|it|that|this)\b/i,
+		/(?<!-)\b(post|posting|publish|publishing)\b(?!-)(\s+[\w'-]+){0,4}?\s+(draft|message|reply|announcement|update|note|it|that|this)\b/i,
 	],
 ];
 
 /**
  * What makes an act's word a noun, told of rather than asked: a
- * possessive or a determiner just before it, as in "Joel's merge" or
- * "the review".
+ * determiner just before it, as in "the review", or a possessive a word
+ * or two before, as in "Joel's merge" or "his earlier review". A
+ * contraction ("it's") is no possessive.
  */
 const NAMED_AS_A_THING =
-	/\b(the|a|an|this|that|his|her|their|its|my|our|your|(?!(it|what|that|he|she|let|there|here|who|where)['\u2019]s\b)[\w-]+['\u2019]s)\s+$/i;
+	/\b((the|a|an|this|that)|(his|her|their|its|my|our|your|(?!(it|what|that|he|she|let|there|here|who|where)['\u2019]s\b)[\w-]+['\u2019]s)(\s+[\w-]+){0,2})\s+$/i;
+
+/**
+ * What makes a gerund tell of an act rather than ask it: a word of its
+ * ending or its time before it, as in "finished reviewing" or "after
+ * merging".
+ */
+const TOLD_GERUND =
+	/\b(finished|done|stopped|started|began|been|was|were|after|before|since|from|by|without|quit)\s+$/i;
+
+/** How far back from an act's word the words that make it a noun are read. */
+const LOOK_BACK = 80;
 
 /**
  * A pull request named as the thing another change answers, as in "the
@@ -457,7 +472,7 @@ const ANOTHER_CHANGE =
  * the condition, not what the act is asked of.
  */
 const CONDITION =
-	/(^|[,;]\s*)(once|after|now that|since|given that|because|as soon as)\b[^,;]*/gi;
+	/(^|[,;]\s*|\s)(once|after|now that|since|given that|because|as soon as)\b[^,;]*/gi;
 
 /** A sentence that asks for a reply, where a message's link is its thread. */
 const REPLY = /\b(repl(y|ies|ying)|answer|respond|in (the|its|that) thread)\b/i;
@@ -472,6 +487,9 @@ const SLACKISH = /\b(slack|channel)\b/i;
 const PULL =
 	/https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)[^\s)\]>"']*/g;
 
+/** Whether a text links a pull request at all. */
+const PULL_IN = new RegExp(PULL.source);
+
 /** A Slack link to a channel, a message in it, or a thread. */
 const SLACK =
 	/https:\/\/[\w-]+\.slack\.com\/archives\/([A-Z0-9]+)(?:\/p(\d{10})(\d{6}))?([^\s)\]>"']*)/g;
@@ -483,7 +501,7 @@ const SLACK =
 const CHANNEL_NAME = /(?<![\w&/])#([a-z0-9][a-z0-9_-]{1,79})(?![\w/-])/g;
 
 /** A link, and where it ends: before the punctuation that ends a sentence. */
-const LINK = /https?:\/\/\S+?(?=[.?!,;:]*(?:\s|$))/g;
+const LINK = /https?:\/\/\S+?(?=[.?!,;:]{0,3}(?:\s|$))/g;
 
 /** A draft's time, as an ask says it: "drafted at 18:40". */
 const DRAFTED = /\bdrafted at (\d{1,2}):(\d{2})\b/i;
@@ -494,6 +512,12 @@ const DRAFTED = /\bdrafted at (\d{1,2}):(\d{2})\b/i;
  * older post of his there is something else.
  */
 export const DRAFT_WINDOW_MS = 3 * 60 * 60_000;
+
+/**
+ * How far ahead of this machine's clock a draft time may be and still be
+ * today's: the asking session's clock, or its rounding, can run ahead.
+ */
+const CLOCKS_APART_MS = 60 * 60_000;
 
 /** The most records one question has read; past it, none are. */
 export const PROBES_AT_MOST = 6;
@@ -522,7 +546,11 @@ function sentencesOf(text: string): string[] {
 function actsIn(sentence: string): Act[] {
 	const words = sentence.replace(/https?:\/\/\S+/g, "URL");
 	if (!HIM.test(words)) return [];
-	const again = AGAIN.test(words);
+	return actsAsked(words, AGAIN.test(words));
+}
+
+/** The acts `words` asks as verbs, all but merge left out when asked again. */
+function actsAsked(words: string, again: boolean): Act[] {
 	return ACTS.filter(
 		([act, pattern]) => asked(words, pattern) && !(again && act !== "merge"),
 	).map(([act]) => act);
@@ -531,13 +559,21 @@ function actsIn(sentence: string): Act[] {
 /** Whether `pattern` finds its act's word anywhere in `words` as a verb. */
 function asked(words: string, pattern: RegExp): boolean {
 	const every = new RegExp(pattern.source, "gi");
-	// A gerund after a possessive is still an ask: "Joel's posting the
-	// draft" is what's left for him to do.
-	return [...words.matchAll(every)].some(
-		(found) =>
-			/^\w+ing\b/i.test(found[0]) ||
-			!NAMED_AS_A_THING.test(words.slice(0, found.index)),
-	);
+	return [...words.matchAll(every)].some((found) => {
+		const before = words.slice(
+			Math.max(0, found.index - LOOK_BACK),
+			found.index,
+		);
+		// A gerund after a possessive is still an ask, as "Joel's posting
+		// the draft" is what's left for him to do; one of a past act
+		// ("finished reviewing", "his posting of the draft") isn't.
+		if (/^\w+ing\b/i.test(found[0]))
+			return (
+				!TOLD_GERUND.test(before) &&
+				!/^\w+ing\s+of\b/i.test(words.slice(found.index))
+			);
+		return !NAMED_AS_A_THING.test(before);
+	});
 }
 
 /** When the draft was made: the time the text gives, the linked message's, or a window back. */
@@ -552,9 +588,13 @@ function draftedSince(
 	if (said) {
 		const at = new Date(now);
 		at.setHours(Number(said[1]), Number(said[2]), 0, 0);
-		// A time later than now was yesterday's.
+		// A time well past now was yesterday's; one just past it is a clock
+		// a little ahead of this one's, so nothing of his before now counts.
+		const ahead = at.getTime() - now;
 		const drafted =
-			at.getTime() > now ? at.getTime() - 86_400_000 : at.getTime();
+			ahead > CLOCKS_APART_MS
+				? at.getTime() - 86_400_000
+				: Math.min(at.getTime(), now);
 		return Math.max(drafted, after);
 	}
 	// A reply of his long before the ask answered something else.
@@ -568,9 +608,32 @@ export interface Asked {
 }
 
 /** What each act asked in `sentence` reads at a pull request it links. */
-function pullsIn(sentence: string, acts: readonly Act[]): Asked[] {
-	const asked = sentence.replace(CONDITION, "$1");
-	return [...asked.matchAll(PULL)].flatMap((found): Asked[] => {
+function pullsIn(sentence: string): Asked[] {
+	const again = AGAIN.test(sentence.replace(/https?:\/\/\S+/g, "URL"));
+	// Each clause's links pair with the acts asked in it and in the
+	// linkless clauses just before it, as in "review, approve and merge
+	// A", or, in a clause that asks none, with the clause's before it, as
+	// in "merge A, B and C"; a link told of before any act ("Joel approved
+	// A this morning, so can he review the docs change?") pairs with
+	// nothing.
+	let acts: Act[] = [];
+	let linkless = false;
+	return sentence
+		.replace(CONDITION, "$1")
+		.split(/,\s+/)
+		.flatMap((clause) => {
+			const own = actsAsked(clause.replace(/https?:\/\/\S+/g, "URL"), again);
+			if (own.length > 0)
+				acts = linkless ? [...new Set([...acts, ...own])] : own;
+			const paired = pullsPaired(clause, acts);
+			linkless = !PULL_IN.test(clause);
+			return paired;
+		});
+}
+
+/** What each of `acts` reads at a pull request `clause` links. */
+function pullsPaired(clause: string, acts: readonly Act[]): Asked[] {
+	return [...clause.matchAll(PULL)].flatMap((found): Asked[] => {
 		const repo = `${found[1]}/${found[2]}`;
 		const number = Number(found[3]);
 		const link = found[0];
@@ -648,11 +711,26 @@ export function doneWhensIn(text: string, now: number): Asked[] {
 		const another = ANOTHER_CHANGE.test(
 			sentence.replace(/https?:\/\/\S+/g, "URL"),
 		);
-		if (!another) asked.push(...pullsIn(sentence, acts));
-		if (acts.includes("post")) asked.push(...postsIn(sentence, text, now));
+		const here = [
+			...(another ? [] : pullsIn(sentence)),
+			...(acts.includes("post") ? postsIn(sentence, text, now) : []),
+		];
+		// An act with no record to read may still be to do, so the text
+		// goes whole.
+		if (!acts.every((act) => here.some((one) => shows(one.when, act))))
+			return [];
+		asked.push(...here);
 	}
 	const once = new Map(asked.map((one) => [JSON.stringify(one.when), one]));
 	return once.size > PROBES_AT_MOST ? [] : [...once.values()];
+}
+
+/** Whether reading `when` can show `act` done. */
+function shows(when: DoneWhen, act: Act): boolean {
+	if (when.probe === "pr-merged") return act === "merge";
+	if (when.probe === "pr-reviewed")
+		return act === (when.approved ? "approve" : "review");
+	return act === "post";
 }
 
 /** Probes that read each pull request once, however many acts ask it. */
@@ -695,5 +773,5 @@ export async function doneAlreadyRefusal(
 		(one, index) => `${one.said} (${asked[index]?.link})`,
 	);
 	const latest = Math.max(...judged.map((one) => one.at ?? 0));
-	return `already done at ${clockOf(latest)}: ${said.join("; ")}. Take the ask back and tell whoever waits on it that it's done. If he must do it again, say so ("again"); if what he did there was something else, say when the draft was made ("drafted at HH:MM"); if a link only says what the act follows from, name the change it's for instead; and ask again.`;
+	return `already done at ${clockOf(latest)}, by his records: ${said.join("; ")}. If that is the act asked for, take the ask back and tell whoever waits on it that it's done. If he must do it again, say so ("again"); if what he did there was something else, say when the draft was made ("drafted at HH:MM"); if a link only says what the act follows from, name the change it's for instead; and ask again.`;
 }

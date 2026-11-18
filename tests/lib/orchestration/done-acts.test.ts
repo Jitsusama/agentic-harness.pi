@@ -129,7 +129,9 @@ describe("a question asking the person for an act he has done", () => {
 			probes({ pull: { mergedAt: at(16, 40), reviews: [] } }),
 			at(17, 0),
 		);
-		expect(merged).toContain("already done at 16:40: it merged at 16:40");
+		expect(merged).toContain(
+			"already done at 16:40, by his records: it merged at 16:40",
+		);
 		const open = await doneAlreadyRefusal(
 			text,
 			probes({ pull: { reviews: [] } }),
@@ -395,6 +397,13 @@ describe("a question asking the person for an act he has done", () => {
 			`Joel's review of ${PULL} asked for a rename. Should I make it?`,
 			`His review of ${PULL} asked for a rename. Should I make it?`,
 			"Joel's post about the draft in Slack's #delta-dev got no replies. Should I nudge?",
+			`Joel's code review of ${PULL} asked for a rename; should I make it?`,
+			`Joel's earlier review of ${PULL} asked for a rename. Should I make it?`,
+			"Joel's Slack post about the draft in #delta-dev got no replies. Should I nudge?",
+			`Joel finished reviewing ${PULL}; should I merge it?`,
+			"Joel is done posting the draft in #delta-dev on Slack, should I close the row?",
+			"Joel's posting of the draft in #delta-dev on Slack got no replies. Should I nudge?",
+			`Joel, the post-merge notes for ${PULL} are up; should I file them?`,
 		]) {
 			expect(await doneAlreadyRefusal(told, done, at(19, 24)), told).toBe(
 				undefined,
@@ -409,6 +418,7 @@ describe("a question asking the person for an act he has done", () => {
 				headOid: "head",
 				reviews: [{ approved: true, at: at(15, 0), oid: "head" }],
 			},
+			posts: [at(16, 30)],
 		});
 		for (const sound of [
 			`Now that ${PULL} has merged, can Joel merge the release branch?`,
@@ -417,6 +427,13 @@ describe("a question asking the person for an act he has done", () => {
 			`Can Joel merge the revert of ${PULL}?`,
 			`${PULL} broke main. Can he merge the fix for ${PULL}?`,
 			`Can Joel review the backport of ${PULL}?`,
+			`Can Joel merge the release branch now that ${PULL} has merged?`,
+			`Can he approve the docs change after ${PULL} merged?`,
+			`Joel approved ${PULL} this morning, so can he review the docs change?`,
+			`Joel merged ${PULL} earlier, can he merge the docs change too?`,
+			// One act done and one with no record to read: the second may be to do.
+			`Can you ask Joel to post the Slack draft in #delta-dev and approve the docs change for ${PULL}'s follow-up?`,
+			`Joel's: posting the Slack draft in #delta-dev. Then he can review the fix for ${PULL}.`,
 		]) {
 			expect(await doneAlreadyRefusal(sound, done, at(17, 0)), sound).toBe(
 				undefined,
@@ -502,7 +519,6 @@ describe("a question asking the person for an act he has done", () => {
 			"Joel, the one thing left: it's posting the top-level draft in Slack's #delta-dev.",
 			"The one thing left is Joel's: posting the follow-up Slack draft in #delta-dev. Can you ask him?",
 			"Joel needs to post the draft about the fix in #delta-dev on Slack.",
-			`Joel's: posting the Slack draft in #delta-dev. Then he can review the fix for ${PULL}.`,
 		]) {
 			expect(await doneAlreadyRefusal(ask, posted, at(19, 24)), ask).toContain(
 				"already done at 19:18",
@@ -781,7 +797,7 @@ describe("the live probes", () => {
 		);
 		const reading = live.posts("C1", undefined, at(19, 0));
 		await vi.advanceTimersByTimeAsync(PROBE_WITHIN_MS);
-		expect(stopped?.aborted).toBe(true);
+		expect(stopped?.aborted, "the read's signal stopped").toBe(true);
 		expect(await reading).toBeUndefined();
 	});
 });
