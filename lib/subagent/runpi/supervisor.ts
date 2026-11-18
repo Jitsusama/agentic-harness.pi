@@ -17,7 +17,6 @@ import type { RunPi, RunPiResult } from "../subagent.ts";
 // same place. This is one hazard a level apart, and holding the
 // measurement twice is how the two came to disagree.
 import { fromScript } from "./fresh.ts";
-// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { STDIO_GRACE_MS } from "./grace.mjs";
 import {
 	DEFAULT_KILL_GRACE_MS,

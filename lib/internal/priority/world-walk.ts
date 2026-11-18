@@ -5,7 +5,6 @@
 
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-// biome-ignore lint/correctness/useImportExtensions: Biome reads the .d.mts beside this .mjs as the module and asks for .mjs.mts, a file that doesn't exist.
 import { mainFetchOf } from "./fetched-git.mjs";
 import type { Walk } from "./needs.ts";
 import { runSteps, shellSteps } from "./steps.ts";
