@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	fenceArgs,
 	fenceRefusesWrite,
@@ -128,6 +128,7 @@ describe("pi's own file tools in the broker's trees", () => {
 describe("the trees a session holds, from the broker's records", () => {
 	let scratch = "";
 	afterEach(() => {
+		vi.useRealTimers();
 		if (scratch) rmSync(scratch, { recursive: true, force: true });
 	});
 
@@ -169,13 +170,15 @@ describe("the trees a session holds, from the broker's records", () => {
 		).toEqual([join(root, "a"), join(root, "c")]);
 	});
 
-	it("reads a record replaced in the tick of the last read", () => {
+	it("reads a record replaced in the tick of the last read, once that read is old enough", () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
 		scratch = realpathSync(mkdtempSync(join(tmpdir(), "broker-trees-")));
 		const root = join(scratch, "trees");
 		const records = join(scratch, "cut");
 		mkdirSync(records, { recursive: true });
 		record(records, "a", join(root, "a"), ["s2"]);
-		const tick = new Date(Math.floor(Date.now()) - 1_000);
+		const now = Date.now();
+		const tick = new Date(now - 1_000);
 		utimesSync(records, tick, tick);
 		expect(brokerTrees("s1", root, records).held, "none yet").toEqual([]);
 
@@ -183,6 +186,7 @@ describe("the trees a session holds, from the broker's records", () => {
 		record(scratch, "a", join(root, "a"), ["s1", "s2"]);
 		renameSync(join(scratch, "a.json"), join(records, "a.json"));
 		utimesSync(records, tick, tick);
+		vi.setSystemTime(now + 2_001);
 
 		expect(
 			brokerTrees("s1", root, records).held,

@@ -135,25 +135,52 @@ describe("the work broker's records", () => {
 	});
 
 	// Git calls such an index entry racily clean.
-	it("aren't kept from a read made just after their folder was written", () => {
+	it("are read again once a read made just after their folder was written is old enough", () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
 		const root = mkdtempSync(join(tmpdir(), "records-"));
 		const dir = join(root, "cut");
 		const one = join(root, "trees", "one");
 		recorded(dir, one, ["s-1"]);
 		// A second ago: a clock a filesystem stamps by can be that coarse,
 		// and a machine that busy, so the rule's window must reach past it.
-		const tick = new Date(Math.floor(Date.now()) - 1_000);
+		const now = Date.now();
+		const tick = new Date(now - 1_000);
 		utimesSync(dir, tick, tick);
 		const stamp = statSync(dir).mtimeMs;
 		expect(treesHeldBy("s-1", dir)).toEqual([one]);
 
 		replaceInTheSameTick(recordOf(dir, one), ["s-2"], tick);
 		expect(statSync(dir).mtimeMs, "the folder's time is as it was").toBe(stamp);
+		expect(
+			treesHeldBy("s-2", dir),
+			"within the window every caller shares the one read",
+		).toEqual([]);
 
+		vi.setSystemTime(now + 2_001);
 		expect(
 			treesHeldBy("s-2", dir),
 			"a record replaced in the tick its listing was read in is read",
 		).toEqual([one]);
+
+		rewriteInPlace(recordOf(dir, one), ["s-3"]);
+		expect(treesHeldBy("s-3", dir), "and kept from then on").toEqual([]);
+	});
+
+	it("are kept when their folder's time is ahead of the clock", () => {
+		const root = mkdtempSync(join(tmpdir(), "records-"));
+		const dir = join(root, "cut");
+		const one = join(root, "trees", "one");
+		recorded(dir, one, ["s-1"]);
+		const ahead = new Date(Date.now() + 60_000);
+		utimesSync(dir, ahead, ahead);
+		expect(treesHeldBy("s-1", dir)).toEqual([one]);
+
+		rewriteInPlace(recordOf(dir, one), ["s-2"]);
+
+		expect(
+			treesHeldBy("s-2", dir),
+			"a listing is read again at every call until the clock catches up",
+		).toEqual([]);
 	});
 
 	it("drop a tree gone from the disk within a minute, its record left", () => {
