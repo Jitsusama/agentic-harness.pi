@@ -13,7 +13,7 @@
  * failing as an unfenced session would.
  */
 
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import {
 	cpSync,
 	existsSync,
@@ -343,6 +343,11 @@ async function waitFor(ready: () => boolean, ms: number): Promise<boolean> {
 /** The longest a case here may take: a grace, and room for a loaded machine. */
 const CASE_MS = 30_000;
 
+/** Whether util-linux's script(1), which gives a run a terminal, is on the PATH. */
+const utilLinuxScript = spawnSync("script", ["--version"], {
+	encoding: "utf8",
+}).stdout?.includes("util-linux");
+
 describe("pi-fence's child", () => {
 	const left: number[] = [];
 	afterEach(() => {
@@ -479,7 +484,7 @@ describe("pi-fence's child", () => {
 
 	// A shell running a script stops it on Ctrl-C only when the command
 	// it waited on died by SIGINT, rather than exiting 130.
-	it.skipIf(process.platform !== "linux")(
+	it.skipIf(!utilLinuxScript)(
 		"stops a calling script on a terminal's Ctrl-C",
 		async () => {
 			const run = `${process.execPath} --disable-warning=MODULE_TYPELESS_PACKAGE_JSON ${STAND_IN} "echo up; exec sleep 30"`;
@@ -498,13 +503,15 @@ describe("pi-fence's child", () => {
 			ran.stdout.on("data", (chunk) => {
 				said += String(chunk);
 			});
-			const ended = new Promise((done) => ran.on("exit", done));
+			// Once its output is all read, not merely once it exits.
+			const ended = new Promise((done) => ran.on("close", done));
 			const up = await waitFor(() => said.includes("up"), 20_000);
 			expect(up, `the run started: ${said}`).toBe(true);
 
 			ran.stdin.write("\u0003");
-			await ended;
 
+			// script -e ends as its shell did: by Ctrl-C, not after it.
+			expect(await ended).toBe(128 + 2);
 			expect(said).not.toContain("after");
 		},
 		CASE_MS,
