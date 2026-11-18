@@ -12,7 +12,7 @@ import {
 	type Look,
 	leaveSeenLooks,
 	type Pointer,
-} from "../../lib/mesh/looks.ts";
+} from "../../lib/mesh/looks/looks.ts";
 
 /**
  * Keep the look list in `dir` current for `owner`, a session and its

@@ -18,7 +18,7 @@ import {
 	pointAt,
 	refusalOf,
 	withdrawLook,
-} from "../../lib/mesh/looks.ts";
+} from "../../lib/mesh/looks/looks.ts";
 import { INTENTS } from "../../lib/mesh/message.ts";
 import { leasesText } from "./leases.ts";
 import { refusedSection } from "./refusals.ts";

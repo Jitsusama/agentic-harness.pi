@@ -31,10 +31,17 @@ import {
 	senderIdentity,
 	shortId,
 } from "../../../lib/mesh/message.ts";
-import { nodeSocket } from "../../../lib/mesh/node.ts";
+import { nodeSocket, servedAt } from "../../../lib/mesh/node.ts";
 import { ASK_AGAIN_MS } from "../../../lib/mesh/owed.ts";
 import { wakeSteered } from "../../../lib/mesh/parked.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
+import {
+	readsAsReceptor,
+	type Unvouched,
+	unvouched,
+	VOUCH_AGAIN_MS,
+	vouchedOnly,
+} from "../../../lib/mesh/receptor.ts";
 import type { Judge } from "../../../lib/mesh/routing.ts";
 import { isStopped } from "../../../lib/mesh/stop.ts";
 import {
@@ -46,7 +53,7 @@ import {
 	sentBy,
 } from "../../../lib/mesh/thread.ts";
 import { dayOf } from "../../../lib/mesh/transport.ts";
-import { NOTED } from "../delivery.ts";
+import { NOTED, UNVOUCHED } from "../delivery.ts";
 import { takenAtNextLook } from "../steer.ts";
 import type { Handing } from "./handing.ts";
 import {
@@ -196,11 +203,44 @@ export function createHearing(m: MeshState, f: Handing) {
 	 * it is a catch-up: nothing takes a turn, and a long one is held to what
 	 * a peer starting can take in.
 	 */
-	const route = async (messages: readonly Message[], starting = false) => {
-		if (messages.length === 0 || !m.ctx || !m.peer) return;
+	const route = async (arrived: readonly Message[], starting = false) => {
+		if (arrived.length === 0 || !m.ctx || !m.peer) return;
 		// The peer this was routed for: a session that ends while it is
 		// judged leaves the rest undone (see session_shutdown).
 		const routedFor = m.peer;
+		// Only the node speaks as a receptor, but anything the account writes
+		// lands in the folder, so one under a receptor's name is shown only
+		// when the node serves it as written, and dropped, said in the log,
+		// otherwise. A batch holding none never waits on the node; one that
+		// does waits as a whole, so its messages keep their order: the node
+		// is asked, then again after each of VOUCH_AGAIN_MS, each ask given
+		// its patience. A catch-up asks again once only, since what it
+		// reads was written before this session started, so the node has
+		// long had it, and a planted file holds back its first turn no
+		// longer than it must. One dropped is handed
+		// over as needing nothing more, or the read marker would stop
+		// behind it for the rest of the session. Drops are said once the
+		// wait is over, and only to the session they were routed for, since
+		// one that ended or switched meanwhile has no log of its own here.
+		const drops: [Message, Unvouched][] = [];
+		const messages = arrived.some((one) => readsAsReceptor(one.from))
+			? await vouchedOnly(
+					arrived,
+					(ids) => servedAt(nodeSocket(m.env), ids),
+					(message, why) => drops.push([message, why]),
+					starting ? VOUCH_AGAIN_MS.slice(0, 1) : VOUCH_AGAIN_MS,
+				)
+			: arrived;
+		if (m.peer !== routedFor) return;
+		for (const [message, why] of drops) {
+			m.pi.appendEntry(UNVOUCHED, {
+				id: message.id,
+				from: message.from,
+				why: unvouched(message.from, message.id, why),
+			});
+		}
+		if (drops.length > 0) f.handedOver(drops.map(([message]) => message));
+		if (messages.length === 0 || !m.ctx) return;
 		m.peer.refresh();
 		identity();
 		// What it changes now tells its business from another's best.
@@ -363,10 +403,14 @@ export function createHearing(m: MeshState, f: Handing) {
 		if (m.caughtUpFrom !== undefined && dayBefore(id, m.caughtUpFrom)) {
 			return undefined;
 		}
-		const message = m.transport.read(id);
+		// As it lies, since route asks the node to vouch for one under a
+		// receptor's name; until then it ends no hold and answers nothing.
+		const written = m.asWritten(id);
 		// A file caught half written reads as nothing: the next look takes
 		// it again rather than counting it seen and losing it for good.
-		if (!message) m.seen.delete(id);
+		if (!written) m.seen.delete(id);
+		const message =
+			written && !readsAsReceptor(written.from) ? written : undefined;
 		// A hold this peer waits on can end in a message to a group it does
 		// not hear, so ends are looked for before what reaches it.
 		const end = message ? m.leasing.ended(message) : undefined;
@@ -380,7 +424,7 @@ export function createHearing(m: MeshState, f: Handing) {
 			m.answered.add(message.re);
 			m.awaiting.answered(message.re, () => addressesOf(message.from));
 		}
-		if (!message || !reaches(message, m.peer.listener, senderIdentity().pid)) {
+		if (!written || !reaches(written, m.peer.listener, senderIdentity().pid)) {
 			return undefined;
 		}
 		// An old copy written back at the top, as a link to another machine
@@ -390,6 +434,8 @@ export function createHearing(m: MeshState, f: Handing) {
 		if (m.caughtUpFrom !== undefined && id <= m.caughtUpFrom) return undefined;
 		// The marker passes it only once it is handed over (see reading.ts).
 		m.front.taken(id);
+		// One under a receptor's name brings nobody into a group either.
+		if (!message) return written;
 		// Brought into a group by another peer: it joins without being
 		// asked, as Joel wants agents to organise themselves, and the note
 		// it gets says how to leave.

@@ -33,7 +33,7 @@ import {
 	type Pointing,
 	pointAt,
 	refusalOf,
-} from "../../lib/mesh/looks.ts";
+} from "../../lib/mesh/looks/looks.ts";
 import { createPresences } from "../../lib/mesh/presence.ts";
 
 /** How long a question stands unanswered on screen before it parks. */

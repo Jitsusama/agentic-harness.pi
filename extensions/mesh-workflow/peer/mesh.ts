@@ -107,7 +107,7 @@ export interface MeshPaths extends QuestRecords {
 	readonly waiting?: string;
 	/**
 	 * What sessions point the person at to look at, where the launcher's
-	 * look list reads it (lib/mesh/looks.ts); none, and show_person keeps
+	 * look list reads it (lib/mesh/looks/looks.ts); none, and show_person keeps
 	 * nothing.
 	 */
 	readonly looks?: string;
@@ -227,7 +227,7 @@ export interface MeshState {
 	front: ReturnType<typeof createReadFront>;
 	lookClock: ReturnType<typeof setInterval> | undefined;
 	// Asking GitHub about the person's looks at pull requests, a turn
-	// across every session (looks-github.ts).
+	// across every session (lib/mesh/looks/github.ts).
 	looksClock: ReturnType<typeof setInterval> | undefined;
 	steering: Steering | undefined;
 	/** Where the steer inboxes are, once the mesh says. */
@@ -242,7 +242,12 @@ export interface MeshState {
 	unhearKeys: (() => void) | undefined;
 	// The host this conversation runs in, by key, read where hosted() knows.
 	hostKey: string | undefined;
+	// Reads a message under a receptor's name as nothing.
 	readonly transport: Transport;
+	// Reads one as it lies, for the readers that ask the node to vouch.
+	readonly asWritten: (id: string) => Message | undefined;
+	// The same, read off the thread, for mesh_read.
+	readonly asWrittenOff: (id: string) => Promise<Message | undefined>;
 	readonly presences: ReturnType<typeof createPresences>;
 	readonly glances: ReturnType<typeof createGlances>;
 	readonly damper: ReturnType<typeof createDamper>;

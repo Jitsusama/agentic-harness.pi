@@ -92,6 +92,19 @@ export type Renderer = (
 	theme: unknown,
 ) => { render: (width: number) => string[] };
 
+/**
+ * A session's environment naming a realm whose node isn't there, for a
+ * test that means no node to answer: an empty one would fall back to the
+ * machine's own realm file and, on a Mac, its temporary folder, and so
+ * reach a real node.
+ */
+export function noNode(): NodeJS.ProcessEnv {
+	return {
+		MYCELIUM_REALM: "work",
+		XDG_RUNTIME_DIR: join(fixture.root, "no-node"),
+	};
+}
+
 /** Start a session on the extension, with just enough of pi to run it. */
 export async function startSession(
 	env: NodeJS.ProcessEnv = {},

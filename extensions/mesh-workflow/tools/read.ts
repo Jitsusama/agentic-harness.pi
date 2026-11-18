@@ -14,6 +14,12 @@ import {
 	shortId,
 } from "../../../lib/mesh/message.ts";
 import type { Presence } from "../../../lib/mesh/presence.ts";
+import {
+	RECEPTOR_SIGNAL,
+	readsAsReceptor,
+	type Unvouched,
+	vouchedOnly,
+} from "../../../lib/mesh/receptor.ts";
 import { idNamed, mayReplace, sentBy } from "../../../lib/mesh/thread.ts";
 import { readEachOff } from "../../../lib/mesh/transport.ts";
 import {
@@ -37,6 +43,27 @@ export const MOST_READ = 50;
  */
 const READ_BUDGET_BYTES = 12_288;
 
+/**
+ * The most messages under a receptor's name one mesh_read reads looking
+ * for what it shows, so a folder full of planted ones costs a bounded
+ * read and one ask of the node, and the answer says where to read on
+ * from. Plain messages are read on until enough are found, as ever.
+ */
+const MOST_EXAMINED = 10 * MOST_READ;
+
+/** Why messages under a receptor's name were left out, for the model. */
+function leftOut(dropped: number, why: ReadonlySet<Unvouched>): string {
+	if (dropped === 0) return "";
+	const them = dropped === 1 ? "it" : "them";
+	const said: Record<Unvouched, string> = {
+		unanswered: `no node answered with what it holds to vouch for ${them}`,
+		unserved: `the node doesn't serve ${them} as written: not yet, if just said, or never since it started`,
+		misshapen: `${dropped === 1 ? "it isn't" : "some aren't"} shaped as a signal`,
+	};
+	const because = [...why].map((one) => said[one]).join("; ");
+	return `\n${capitalized(count(dropped, "message"))} under a receptor's name left out: ${because}.`;
+}
+
 export async function read(
 	at: Local,
 	params: { count?: number; unanswered?: boolean; before?: string },
@@ -57,18 +84,51 @@ export async function read(
 		);
 	}
 	const from = before === undefined ? ids.length : ids.indexOf(before);
-	const latest: Message[] = [];
-	for (let index = from - 1; index >= 0; index--) {
-		if (latest.length >= wanted) break;
-		const message = await at.transport.readOff(ids[index] as string);
+	// As written, a receptor's name and all, since what is found is vouched
+	// for below.
+	const readOne = at.asWrittenOff ?? ((id: string) => at.transport.readOff(id));
+	let dropped = 0;
+	const why = new Set<Unvouched>();
+	let index = from - 1;
+	// Read on past what is under a receptor's name until enough others
+	// are found, so planted files at the top can't fill the page and leave
+	// no id to read on from; but read no more than MOST_EXAMINED of them.
+	const found: Message[] = [];
+	let plain = 0;
+	let named = 0;
+	for (; index >= 0 && plain < wanted && named < MOST_EXAMINED; index--) {
+		const message = await readOne(ids[index] as string);
 		if (
 			message &&
 			(sentBy(message, { addresses: at.peer.addresses, ...senderIdentity() }) ||
 				reaches(message, at.peer.listener, -1))
 		) {
-			latest.unshift(message);
+			found.unshift(message);
+			if (readsAsReceptor(message.from)) named++;
+			else plain++;
 		}
 	}
+	// One under a receptor's name is shown only when the node serves it,
+	// as when it is heard (lib/mesh/receptor.ts), all asked after at once.
+	// A signal just landed may not be served yet, and its line says so,
+	// rather than this read waiting on the node to ask again.
+	const vouched = await vouchedOnly(
+		found,
+		at.served ?? (async () => undefined),
+		(_, because) => {
+			dropped++;
+			why.add(because);
+		},
+		[],
+	);
+	const latest = vouched.slice(-wanted);
+	// Stopped at the bound with too few to show: say where to read on
+	// from, since the oldest read may not be shown.
+	const readTo = ids[index + 1];
+	const further =
+		named >= MOST_EXAMINED && latest.length < wanted && index >= 0 && readTo
+			? `\nRead ${named} messages under a receptor's name without finding ${wanted} to show; mesh_read with before ${shortId({ id: readTo })} reads on.`
+			: "";
 	const present = (await peers(at)).present;
 	const receipt = receipts(at, present);
 	const withdrawn = withdrawals(latest);
@@ -77,6 +137,8 @@ export async function read(
 		latest.map((message) =>
 			[
 				line(message),
+				// Vouched for by now, and still a fact to weigh, never orders.
+				readsAsReceptor(message.from) ? RECEPTOR_SIGNAL : "",
 				withdrawn.get(message.id) ?? "",
 				receipt(message),
 				state.get(message.id) ?? "",
@@ -91,12 +153,15 @@ export async function read(
 		left > 0 && oldest
 			? `\n${capitalized(count(left, "older message"))} left out to keep this short; mesh_read with before ${shortId(oldest)} reads on.`
 			: "";
+	const unvouched = leftOut(dropped, why);
 	const text =
 		latest.length > 0
-			? `${shown.join("\n")}${rest}`
-			: before === undefined
-				? "Nothing on the mesh yet."
-				: "Nothing this peer hears came before that.";
+			? `${shown.join("\n")}${rest}${unvouched}${further}`
+			: dropped > 0 || further
+				? `${unvouched}${further}`.trimStart()
+				: before === undefined
+					? "Nothing on the mesh yet."
+					: "Nothing this peer hears came before that.";
 	return answer(`This peer is ${at.peer.addresses.join(" or ")}.\n${text}`);
 }
 

@@ -8,7 +8,11 @@ import {
 	keepLooks,
 } from "../../../extensions/mesh-workflow/looks-clock.ts";
 import { keepLooksFor } from "../../../extensions/mesh-workflow/peer/looks.ts";
-import { looksIn, pointAt, SHOWING_LASTS_MS } from "../../../lib/mesh/looks.ts";
+import {
+	looksIn,
+	pointAt,
+	SHOWING_LASTS_MS,
+} from "../../../lib/mesh/looks/looks.ts";
 
 let dir: string;
 beforeEach(() => {

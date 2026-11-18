@@ -29,6 +29,10 @@ import {
 	type PlaceAnswer,
 	placedFrom,
 } from "./placement.ts";
+import type { Said } from "./receptor.ts";
+
+/** What a `message` kind's record key opens with, before the id. */
+const MESSAGE_KEY = "message:";
 
 /** What a node says of a session it holds. */
 export type Held = "busy" | "idle" | "ended" | "unreachable";
@@ -509,6 +513,97 @@ export function listAt(
 	patience: number,
 ): Promise<string | undefined> {
 	return askDaemon(socket, { ask: "list", kind, fields }, patience);
+}
+
+/**
+ * What the node serving `socket` serves of the messages `ids`, by id, as
+ * its `message` kind's records: what it took, which for a receptor's
+ * name is only what it said itself (Jitsusama/mycelium #267). Nothing
+ * when no node answers, so a caller vouching for a message vouches for
+ * none.
+ */
+export async function servedAt(
+	socket: string | undefined,
+	ids: readonly string[],
+	patience: number = NODE_PATIENCE_MS,
+): Promise<ReadonlyMap<string, Said> | undefined> {
+	if (ids.length === 0) return new Map();
+	const line = await askDaemon(
+		socket,
+		{ ask: "get", keys: ids.map((id) => `${MESSAGE_KEY}${id}`) },
+		patience,
+	);
+	return line === undefined ? undefined : servedFrom(line);
+}
+
+/**
+ * The messages a node's `get` answer holds, by id, each with its sender,
+ * text and time, and what it asks or answers where its record says, or
+ * nothing for an answer that lists no records, such as a refusal. A
+ * record missing any of the first three is left out, as no message. A
+ * `get` answers records whole (PROTOCOL.md, The Daemon Interface), so
+ * nothing need be asked for by name.
+ */
+export function servedFrom(
+	line: string,
+): ReadonlyMap<string, Said> | undefined {
+	let answer: unknown;
+	try {
+		answer = JSON.parse(line);
+	} catch {
+		// Not an answer this reader knows, so nothing is served.
+		return undefined;
+	}
+	if (!isRecord(answer) || !Array.isArray(answer.records)) return undefined;
+	return new Map(
+		answer.records.flatMap((record: unknown): [string, Said][] => {
+			if (
+				!isRecord(record) ||
+				typeof record.key !== "string" ||
+				!record.key.startsWith(MESSAGE_KEY)
+			) {
+				return [];
+			}
+			const said = saidIn(record);
+			return said ? [[record.key.slice(MESSAGE_KEY.length), said]] : [];
+		}),
+	);
+}
+
+/**
+ * A served message record as what the node holds of it, or nothing for
+ * one without a sender, text and time.
+ */
+function saidIn(record: Record<string, unknown>): Said | undefined {
+	const text = (field: string): string | undefined => {
+		const value = record[field];
+		return typeof value === "string" ? value : undefined;
+	};
+	const from = text("from");
+	const said = text("text");
+	const at = text("at");
+	if (from === undefined || said === undefined || at === undefined) {
+		return undefined;
+	}
+	const groups = record.groups;
+	return {
+		from,
+		text: said,
+		at,
+		...(Array.isArray(groups) &&
+		groups.every((group) => typeof group === "string")
+			? { groups }
+			: {}),
+		...(text("intent") !== undefined ? { intent: text("intent") } : {}),
+		...(text("re") !== undefined ? { re: text("re") } : {}),
+		...(text("supersedes") !== undefined
+			? { supersedes: text("supersedes") }
+			: {}),
+		...(record.endsHold === true ? { endsHold: true } : {}),
+		...(text("fromRealm") !== undefined
+			? { fromRealm: text("fromRealm") }
+			: {}),
+	};
 }
 
 /** Two counts, as a tie says each end's, or nothing for anything else. */

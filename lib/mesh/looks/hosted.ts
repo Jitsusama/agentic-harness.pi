@@ -1,6 +1,6 @@
 /**
  * Asking whichever host holds a change about the person's looks at it,
- * for the changes GitHub's own ask (looks-github.ts) can't name.
+ * for the changes GitHub's own ask (github.ts) can't name.
  *
  * On 11 November, 135 of the looks' pull requests were on a host other
  * than github.com, and 75 of the 116 looks cleared by hand that evening
@@ -14,8 +14,8 @@
  * costs at most {@link MOST_ASKED_ELSEWHERE} calls.
  */
 
+import { pullOf, type Resolved } from "./github.ts";
 import type { Look, LookResolution } from "./looks.ts";
-import { pullOf, type Resolved } from "./looks-github.ts";
 
 /** The most looks one turn asks their hosts about. */
 export const MOST_ASKED_ELSEWHERE = 10;

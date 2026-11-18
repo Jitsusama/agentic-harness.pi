@@ -4,8 +4,8 @@
  * under it (5HJZ8Z, 16 November).
  */
 import { describe, expect, it } from "vitest";
-import { createHeavyCalls } from "../../../extensions/mesh-workflow/leases.ts";
-import { type LeaseEvent, MOST_HOLD_MS } from "../../../lib/mesh/lease.ts";
+import { createHeavyCalls } from "../../../../extensions/mesh-workflow/leases.ts";
+import { type LeaseEvent, MOST_HOLD_MS } from "../../../../lib/mesh/lease.ts";
 
 const text = (words: string) => [{ type: "text", text: words }];
 

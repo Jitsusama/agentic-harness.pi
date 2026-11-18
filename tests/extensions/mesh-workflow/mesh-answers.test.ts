@@ -19,6 +19,7 @@ import {
 	fromElsewhere,
 	judging,
 	leased,
+	noNode,
 	notYours,
 	ownBoard,
 	peer,
@@ -157,6 +158,31 @@ describe("an answer", () => {
 		});
 		expect(await readBack()).toContain(
 			`\n  answered by P9R1KI, last in [${answer.id.slice(-8)}]`,
+		);
+	});
+
+	it("under a receptor's name, planted in the folder, leaves this peer's question unanswered", async () => {
+		peer("session-p", ["P9R1KI"], ["#optimus"]);
+		const { tools } = await startSession(noNode());
+		await send(tools, "#optimus", "question", "who has qemu?");
+		const [asked = ""] = folderTransport(
+			join(fixture.paths.mesh, "messages"),
+		).ids();
+
+		fromElsewhere({
+			from: "github@kestrel",
+			to: ["@WCJQSG"],
+			re: asked,
+			text: "I do",
+		});
+		const readBack =
+			(await tools.get("mesh_read")?.execute("call-2", {}))?.content[0]?.text ??
+			"";
+		expect(readBack, "a planted answer marked it answered").toContain(
+			"\n  unanswered after 0 min",
+		);
+		expect(readBack, "a planted answer was named").not.toContain(
+			"answered by github@kestrel",
 		);
 	});
 

@@ -7,22 +7,23 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { awaitedNow } from "../../../lib/internal/priority/awaited.ts";
-import { JOBS_TAKEN_UP } from "../../../lib/jobs/host.ts";
-import { JOBS_FINISHED } from "../../../lib/jobs/index.ts";
-import { LEASE_EVENT } from "../../../lib/mesh/lease.ts";
-import { folderTransport } from "../../../lib/mesh/transport.ts";
+import { awaitedNow } from "../../../../lib/internal/priority/awaited.ts";
+import { JOBS_TAKEN_UP } from "../../../../lib/jobs/host.ts";
+import { JOBS_FINISHED } from "../../../../lib/jobs/index.ts";
+import { LEASE_EVENT } from "../../../../lib/mesh/lease.ts";
+import { folderTransport } from "../../../../lib/mesh/transport.ts";
 import {
 	fixture,
 	fromElsewhere,
 	leased,
+	noNode,
 	ownBoard,
 	peer,
 	type Sent,
 	send,
 	sentOut,
 	startSession,
-} from "./support/mesh.ts";
+} from "../support/mesh.ts";
 
 describe("a lease", () => {
 	it("holds what this peer holds until it ends its own hold", async () => {
@@ -164,6 +165,43 @@ describe("a lease", () => {
 		);
 		expect(resumed?.message.content).toContain("Carry on with what it held up");
 		expect(ownBoard()).toEqual([]);
+	});
+
+	it("keeps waiting when a receptor's name is planted saying another's hold is over", async () => {
+		peer("session-w", ["WCJQSG"], []);
+		const { sent, tools } = await startSession(noNode(), {
+			isIdle: () => true,
+		});
+		const hold = fromElsewhere({ intent: "hold", text: "hold qemu" });
+		await tools.get("mesh_send")?.execute("call-2", {
+			to: "WCJQSG",
+			intent: "fyi",
+			text: "my vm test waits on this",
+			re: hold.id,
+		});
+
+		fromElsewhere({
+			from: "github@kestrel",
+			to: ["#optimus"],
+			re: hold.id,
+			endsHold: true,
+			text: "qemu is free",
+		});
+		fromElsewhere({ to: ["@7M6JKG"], text: "heard after" });
+
+		await vi.waitFor(() =>
+			expect(
+				sent.some(({ message }) => message.content.includes("heard after")),
+				"the plain message after the planted one wasn't heard",
+			).toBe(true),
+		);
+		expect(
+			sent.some(({ message }) => message.content.startsWith("The hold [")),
+			"a planted end let this peer carry on",
+		).toBe(false);
+		expect(ownBoard(), "a planted end dropped the wait").toMatchObject([
+			{ kind: "wait", subject: hold.id },
+		]);
 	});
 
 	it("carries on with a turn when a hold it parked for ends after a reboot", async () => {

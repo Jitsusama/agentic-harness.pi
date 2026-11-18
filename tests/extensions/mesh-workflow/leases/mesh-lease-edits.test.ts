@@ -8,8 +8,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { createBoard } from "../../../lib/mesh/lease.ts";
-import { endTurn } from "../../support/turn-end.ts";
+import { createBoard } from "../../../../lib/mesh/lease.ts";
+import { endTurn } from "../../../support/turn-end.ts";
 import {
 	fixture,
 	fromElsewhere,
@@ -18,7 +18,7 @@ import {
 	peer,
 	sentOut,
 	startSession,
-} from "./support/mesh.ts";
+} from "../support/mesh.ts";
 
 /** An edit as pi asks the mesh about it before running it. */
 const editing = (path: string) =>

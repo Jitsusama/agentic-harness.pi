@@ -14,8 +14,8 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isRecord } from "../internal/record.ts";
-import { writeWhole } from "../internal/write-whole.ts";
+import { isRecord } from "../../internal/record.ts";
+import { writeWhole } from "../../internal/write-whole.ts";
 import { type Look, type LookResolution, looksIn } from "./looks.ts";
 
 /** How often the looks are asked about, at most, across every session. */

@@ -6,6 +6,19 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { resolveReference } from "../../../lib/core/review/index.ts";
 import {
+	ASK_EVERY_MS,
+	askable,
+	markResolved,
+	queryFor,
+	resolutionsFrom,
+	takeTurnToAsk,
+} from "../../../lib/mesh/looks/github.ts";
+import {
+	askableElsewhere,
+	type HostedState,
+	resolutionsElsewhere,
+} from "../../../lib/mesh/looks/hosted.ts";
+import {
 	heldBy,
 	type Look,
 	type LookResolution,
@@ -14,20 +27,7 @@ import {
 	type Pointer,
 	resolveLooks,
 	resolveLooksOfQuests,
-} from "../../../lib/mesh/looks.ts";
-import {
-	ASK_EVERY_MS,
-	askable,
-	markResolved,
-	queryFor,
-	resolutionsFrom,
-	takeTurnToAsk,
-} from "../../../lib/mesh/looks-github.ts";
-import {
-	askableElsewhere,
-	type HostedState,
-	resolutionsElsewhere,
-} from "../../../lib/mesh/looks-hosted.ts";
+} from "../../../lib/mesh/looks/looks.ts";
 import { expiredText, keepLooks } from "../looks-clock.ts";
 
 /** How often a session looks whether it's its turn to ask GitHub about looks. */

@@ -15,6 +15,7 @@ import type { NeedAsked, NeedRecord } from "../../../lib/mesh/need-route.ts";
 import type { Tie } from "../../../lib/mesh/node.ts";
 import type { Peer } from "../../../lib/mesh/peer.ts";
 import type { Presences } from "../../../lib/mesh/presence.ts";
+import type { Served } from "../../../lib/mesh/receptor.ts";
 import type { Judge } from "../../../lib/mesh/routing.ts";
 import type { Transport } from "../../../lib/mesh/transport.ts";
 import type { DoneProbes } from "../../../lib/orchestration/done-acts.ts";
@@ -44,6 +45,17 @@ export interface Local {
 		asked: NeedAsked,
 		live: (address: string) => boolean,
 	) => Promise<NeedRecord | undefined>;
+	/**
+	 * Which messages the node serves, which vouches for one under a
+	 * receptor's name (lib/mesh/receptor.ts). Without it, none is vouched.
+	 */
+	readonly served?: Served;
+	/**
+	 * One message as it lies, a receptor's name and all, for a reader that
+	 * vouches for what it shows, read off the thread. Without it,
+	 * `transport` reads it.
+	 */
+	readonly asWrittenOff?: (id: string) => Promise<Message | undefined>;
 	/** Hand a message to the node to send into another realm. */
 	readonly cross?: (crossing: Crossing) => Promise<CrossAnswer>;
 	/** Note a message this peer sent, so it is never handed back to it. */
@@ -55,7 +67,7 @@ export interface Local {
 	confirmEnd?(hold: Message, text: string): Promise<string | undefined>;
 	/** Where what waits on the person is kept (see wait.ts). */
 	readonly waiting?: Waiting;
-	/** Where what sessions point the person at is kept (lib/mesh/looks.ts). */
+	/** Where what sessions point the person at is kept (lib/mesh/looks/looks.ts). */
 	readonly looks?: string;
 	/** Ask a session's process to end; pi's own SIGTERM by default. */
 	readonly endProcess?: EndProcess;

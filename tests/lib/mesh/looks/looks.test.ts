@@ -26,8 +26,8 @@ import {
 	resolveLooksOfQuests,
 	SHOWING_LASTS_MS,
 	withdrawLook,
-} from "../../../lib/mesh/looks.ts";
-import { questEnded } from "../../../lib/mesh/presence.ts";
+} from "../../../../lib/mesh/looks/looks.ts";
+import { questEnded } from "../../../../lib/mesh/presence.ts";
 
 let dir: string;
 beforeEach(() => {

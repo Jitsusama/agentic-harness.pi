@@ -8,7 +8,7 @@ import { cross } from "../../../lib/mesh/crossing.ts";
 import { crossAt } from "../../../lib/mesh/flow.ts";
 import { isCurrent, ownerOf } from "../../../lib/mesh/lease.ts";
 import { needAt } from "../../../lib/mesh/need-route.ts";
-import { nodeSocket, tiesAt } from "../../../lib/mesh/node.ts";
+import { nodeSocket, servedAt, tiesAt } from "../../../lib/mesh/node.ts";
 import { wakeParked } from "../../../lib/mesh/parked.ts";
 import {
 	liveProbes,
@@ -57,6 +57,8 @@ export function registerLocal(m: MeshState, f: Waits & Hearing) {
 					ties: () => tiesAt(nodeSocket(m.env), m.peer?.addresses ?? []),
 					need: (asked, live) =>
 						needAt(nodeSocket(m.env), asked, { live, keep: m.paths.mesh }),
+					served: (ids) => servedAt(nodeSocket(m.env), ids),
+					asWrittenOff: m.asWrittenOff,
 					sent: (message) => {
 						m.seen.add(message.id);
 						if (message.re !== undefined) m.owing.paid(message.re);

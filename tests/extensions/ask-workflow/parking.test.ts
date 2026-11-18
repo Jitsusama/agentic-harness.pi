@@ -15,7 +15,7 @@ import {
 } from "../../../extensions/ask-workflow/parking.ts";
 import { resetAway } from "../../../lib/internal/away/state.ts";
 import { stateDir } from "../../../lib/internal/paths.ts";
-import { looksIn, refusalOf } from "../../../lib/mesh/looks.ts";
+import { looksIn, refusalOf } from "../../../lib/mesh/looks/looks.ts";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 
 let scratch: string;
