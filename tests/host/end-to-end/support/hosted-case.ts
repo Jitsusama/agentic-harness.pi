@@ -37,9 +37,22 @@ export async function onHostPi(
 	try {
 		await work(pi);
 	} catch (error) {
+		// A skip thrown by the work is passed on as it is: vitest still skips
+		// one rewrapped, but keeps its reason only from the error it threw.
+		if (skipped(error)) throw error;
 		throw new Error(`${String(error)}\n${said()}`);
 	}
 }
+
+/** Whether `error` is what vitest's skip throws. */
+function skipped(error: unknown): boolean {
+	return (
+		error instanceof Error && "code" in error && error.code === VITEST_SKIPPED
+	);
+}
+
+/** The code vitest's skip gives the error it throws. */
+const VITEST_SKIPPED = "VITEST_PENDING";
 
 /** A session file's text, or nothing while it isn't written yet. */
 export function textOf(file: string | undefined): string {
