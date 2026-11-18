@@ -377,7 +377,7 @@ describe("a need routed by declared subjects", () => {
 		).toBeLessThanOrEqual(SHARED_NEEDS / 2);
 	});
 
-	it("shares needs out over equal subjects one cell hubs", () => {
+	it("shares needs out over equal subjects that one cell hubs", () => {
 		const taken = takenOver(
 			numbered("A", "carry"),
 			equalHubs(
@@ -387,6 +387,19 @@ describe("a need routed by declared subjects", () => {
 		);
 
 		expect([...taken.keys()].sort()).toEqual(["F0", "F1", "F2", "F3"]);
+	});
+
+	it("puts a need to the next equal hub when the one it drew is gone", () => {
+		const reach = equalHubs(
+			(at) => `realm.g${at}:carry`,
+			(at) => `H${at}`,
+		);
+		const taken = takenOver(numbered("A", "carry"), {
+			...reach,
+			live: (address) => !["H0", "H1", "H2"].includes(address),
+		});
+
+		expect([...taken.entries()]).toEqual([["F3", SHARED_NEEDS]]);
 	});
 
 	it("puts a need to the next equal hub when the one it drew has no live fit", () => {
