@@ -1,11 +1,13 @@
 /** The host's checkpointer: a store's log is copied back from another thread, never the one writing it. */
-import { statSync } from "node:fs";
+import { copyFileSync, existsSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	type CheckpointEvent,
+	type CheckpointOptions,
 	type Checkpoints,
 	checkpointing,
 } from "../../../host/engine/checkpoints.ts";
@@ -14,17 +16,36 @@ import { until } from "../../support/until.ts";
 /** How often the test's checkpointer looks, in ms: quick, so a pass is quick. */
 const EVERY_MS = 20;
 
-/** The log's length in pages past which the test's checkpointer copies it back. */
+/** The log's pages not yet copied back past which the test's checkpointer copies it. */
 const PAGES = 8;
 
 /** Rows written, each a page or more, so the log passes PAGES. */
 const ROWS = 40;
 
+/** Looks to let go by before taking it that the checkpointer left a store alone. */
+const LOOKS = 5;
+
 let dir: string;
 let store: string;
 let db: DatabaseSync;
 let reported: unknown[];
+let events: CheckpointEvent[];
 let checkpoints: Checkpoints;
+
+/** A checkpointer reporting and observing into this case's own lists. */
+function checkpointer(options: CheckpointOptions = {}): Checkpoints {
+	// Each case's own lists, so a worker still ending from the last case,
+	// its folder gone, says so there and not here.
+	const mine = reported;
+	const seen = events;
+	return checkpointing({
+		report: (error) => mine.push(error),
+		observe: (event) => seen.push(event),
+		every: EVERY_MS,
+		pages: PAGES,
+		...options,
+	});
+}
 
 beforeEach(async () => {
 	dir = await mkdtemp(join(tmpdir(), "checkpoints-"));
@@ -35,15 +56,9 @@ beforeEach(async () => {
 	db.exec("PRAGMA synchronous = NORMAL");
 	db.exec("PRAGMA wal_autocheckpoint = 0");
 	db.exec("CREATE TABLE entry (id INTEGER PRIMARY KEY, record TEXT)");
-	// Each case's own list, so a worker still ending from the last case,
-	// its folder gone, reports there and not here.
-	const mine: unknown[] = [];
-	reported = mine;
-	checkpoints = checkpointing({
-		report: (error) => mine.push(error),
-		every: EVERY_MS,
-		pages: PAGES,
-	});
+	reported = [];
+	events = [];
+	checkpoints = checkpointer();
 });
 
 afterEach(async () => {
@@ -62,49 +77,108 @@ function storeSize(): number {
 	return statSync(store).size;
 }
 
+/** The rows the database file holds by itself, read from a copy with no log beside it. */
+function rowsCopiedBack(): number {
+	const copy = join(dir, `copy-${events.length}.sqlite`);
+	copyFileSync(store, copy);
+	const alone = new DatabaseSync(copy, { readOnly: true });
+	try {
+		const row = alone.prepare("SELECT count(*) AS n FROM entry").get();
+		return Number(row?.n);
+	} finally {
+		alone.close();
+	}
+}
+
+/** How many checkpoints the worker has made of the store. */
+function checkpointsMade(): number {
+	return events.filter(({ op }) => op === "checkpointed").length;
+}
+
+/** Wait until the worker has looked `looks` more times. */
+async function looksGoBy(looks: number): Promise<void> {
+	const looked = () => events.filter(({ op }) => op === "looked").length;
+	const target = looked() + looks;
+	await until(`${looks} more looks`, () => looked() >= target);
+}
+
 describe("the host's checkpointer", () => {
-	it("copies a kept store's log back once it passes its pages, while the writer never does", async () => {
-		const kept = checkpoints.keep(store);
-		const before = statSync(store).size;
+	it("copies a kept store's log back once it passes its pages, once rather than at each look, while the writer never does", async () => {
+		const before = storeSize();
 		commitPages();
 		// The writer has no checkpoint, so only the checkpointer grows the database itself.
-		expect(statSync(store).size).toBe(before);
-		await until(
-			"the store's log copied back off the thread",
-			() => storeSize() > before,
+		expect(storeSize()).toBe(before);
+
+		const kept = checkpoints.keep(store);
+		await until("the store's log copied back off the thread", () =>
+			events.some(({ op }) => op === "checkpointed"),
 		);
+		expect(rowsCopiedBack(), "every row is in the database file").toBe(ROWS);
+		// The log file keeps its length after a PASSIVE checkpoint; what is left to copy is none.
+		await looksGoBy(LOOKS);
+		expect(checkpointsMade()).toBe(1);
 		kept.release();
-		// Copied, not lost: every row still reads back.
-		const row = db.prepare("SELECT count(*) AS n FROM entry").get();
-		expect(row?.n).toBe(ROWS);
 		expect(reported).toEqual([]);
 	});
 
 	it("leaves a log short of its pages alone", async () => {
-		const kept = checkpoints.keep(store);
-		const before = statSync(store).size;
 		db.prepare("INSERT INTO entry (record) VALUES (?)").run("x");
-		await new Promise((resolve) => setTimeout(resolve, EVERY_MS * 5));
-		expect(statSync(store).size).toBe(before);
+		const before = storeSize();
+		const kept = checkpoints.keep(store);
+		await looksGoBy(LOOKS);
+		expect(checkpointsMade()).toBe(0);
+		expect(storeSize()).toBe(before);
 		kept.release();
 	});
 
-	it("copies the log back as the store closes, whatever its length, so its close finds none", async () => {
-		const mine = reported;
-		const quiet = checkpointing({
-			report: (error) => mine.push(error),
-			// Never looks by itself in the case's time, so only the close copies.
-			every: 60_000,
-			pages: PAGES,
-		});
+	it("copies even a short log back as the store closes, and leaves no log once both have closed", async () => {
+		// Never looks by itself in the case's time, so only the close copies.
+		const quiet = checkpointer({ every: 60_000 });
 		const kept = quiet.keep(store);
-		const before = statSync(store).size;
-		commitPages();
+		db.prepare("INSERT INTO entry (record) VALUES (?)").run("x");
 		await kept.settle();
-		expect(statSync(store).size).toBeGreaterThan(before);
+		expect(rowsCopiedBack()).toBe(1);
 		db.close();
 		kept.release();
+		await until(
+			"the log gone with the last connection",
+			() => !existsSync(`${store}-wal`),
+		);
 		expect(reported).toEqual([]);
+	});
+
+	it("keeps a store two conversations keep until both let it go, each letting go only of its own", async () => {
+		const first = checkpoints.keep(store);
+		const second = checkpoints.keep(store);
+		first.release();
+		first.release();
+		commitPages();
+		await until("the store still checkpointed for the second", () =>
+			events.some(({ op }) => op === "checkpointed"),
+		);
+		second.release();
+		expect(reported).toEqual([]);
+	});
+
+	it("keeps a store again once its last keep has let it go", async () => {
+		checkpoints.keep(store).release();
+		const again = checkpoints.keep(store);
+		commitPages();
+		await until("the store checkpointed by the worker started again", () =>
+			events.some(({ op }) => op === "checkpointed"),
+		);
+		again.release();
+		expect(reported).toEqual([]);
+	});
+
+	it("closes all the same, saying so, when its checkpoint doesn't settle in time", async () => {
+		const hasty = checkpointer({ settleWithin: 0 });
+		const kept = hasty.keep(store);
+		await kept.settle();
+		kept.release();
+		expect(String(reported[0])).toContain(
+			`Closing ${store} without its checkpoint, which didn't settle in 0 s`,
+		);
 	});
 
 	it("says when it can't keep a store, and a close waiting on it still settles", async () => {
@@ -116,5 +190,14 @@ describe("the host's checkpointer", () => {
 		expect(String(reported[0])).toContain(
 			`Couldn't checkpoint ${folder} off the thread`,
 		);
+	});
+
+	it("never makes a store that is gone", async () => {
+		const gone = join(dir, "gone.sqlite");
+		const kept = checkpoints.keep(gone);
+		await kept.settle();
+		kept.release();
+		expect(existsSync(gone)).toBe(false);
+		expect(String(reported[0])).toContain("the store is gone");
 	});
 });

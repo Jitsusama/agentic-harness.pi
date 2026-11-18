@@ -139,8 +139,13 @@ export async function openHostedConversation(options: {
 		},
 		async close() {
 			// Checkpointed first, off the thread, so the store's own TRUNCATE as it closes finds nothing left to copy.
-			await kept?.settle();
 			try {
+				try {
+					await kept?.settle();
+				} catch (error) {
+					// A checkpoint that couldn't be asked for leaves it to the store's own close.
+					options.report?.(error);
+				}
 				await harness.close(context);
 			} finally {
 				kept?.release();
