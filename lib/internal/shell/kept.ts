@@ -17,13 +17,19 @@
  * tail moves to `.old` and `.out` starts again, so at most twice that is
  * on disk. Bytes written in the instant of that move can be lost. The
  * files go when the call ends in its pi, or once a carried call's end is
- * said; any left a week are swept, once an hour for a process.
+ * said; any left a week are swept as a session starts, at most once an
+ * hour for a process.
  *
  * Making, removing and sweeping them go through libuv's pool rather than
  * pi's loop, which in a host every conversation shares: a busy disk held
  * it in these files' openat and unlink 24 times in 287 hold samples on
- * 17 November. Reading a call's status, pid and output stays as it was,
- * since it is done at a move or each 64 KB of output.
+ * 17 November. Reading a call's status, pid and output, marking it
+ * carried and rolling its output stay on the loop: they come when a move
+ * or a job's record asks after a running call, at its hand-off, and each
+ * 64 KB of its output, none of which the samples caught. A removal takes
+ * turns of the loop, so it removes the marks that would have a call taken
+ * up again before its status, and a pi ended partway through leaves no
+ * call that reads as running.
  *
  * A call handed to another process is marked `<path>.carried` until its
  * end is said, so a host that reaps what its conversations started
@@ -98,7 +104,12 @@ const FILE_MODE = 0o600;
 const FOLDER_MODE = 0o700;
 
 /** The files a kept call writes, by the suffix each adds to its path. */
-const SUFFIXES = [".out", ".old", ".end", ".pid", ".carried", ".job"] as const;
+/**
+ * Every file a call keeps, in the order they are removed: the marks that
+ * have it taken up again first, then its status, so whatever a removal
+ * left partway through reads as nothing to take up.
+ */
+const SUFFIXES = [".job", ".carried", ".end", ".pid", ".out", ".old"] as const;
 
 /** The suffix of a call's record as a session's job (kept-jobs.ts). */
 export const JOB_SUFFIX = ".job";
@@ -331,8 +342,10 @@ export async function removeKept(path: string): Promise<void> {
 		try {
 			await rm(`${path}${suffix}`, { force: true });
 		} catch {
-			// Not a file it can remove, as no call leaves: the week's sweep
-			// says nothing of it either, and the call's other files still go.
+			// A folder in its place, or one that refuses it: no call leaves
+			// either, and its callers between processes have no one to tell, so
+			// the call's other files still go and the week's sweep, which says
+			// nothing of one it can't remove either, tries it again.
 		}
 	}
 }
@@ -360,7 +373,7 @@ export async function sweepKept(
 	}
 }
 
-/** How often a process sweeps the kept folder, however many sessions start. */
+/** How often at most a process sweeps the kept folder, however many sessions start. */
 export const SWEEP_EVERY_MS = 60 * 60 * 1000;
 
 // When each folder was last swept, for the whole process and every copy
@@ -374,14 +387,15 @@ const sweptAt = processGlobal(
 /**
  * Sweep `folder` as {@link sweepKept} does, unless this process began a
  * sweep of it within the hour. Marked as it begins, so starts that come
- * while it runs don't begin another.
+ * while it runs don't begin another; a clock stepped back before the
+ * mark sweeps at once rather than waiting out however far it stepped.
  */
 export function sweepKeptNowAndThen(
 	folder: string = keptFolder(),
 	now: number = Date.now(),
 ): Promise<void> {
 	const last = sweptAt.get(folder);
-	if (last !== undefined && now - last < SWEEP_EVERY_MS)
+	if (last !== undefined && now >= last && now - last < SWEEP_EVERY_MS)
 		return Promise.resolve();
 	sweptAt.set(folder, now);
 	return sweepKept(folder, now);

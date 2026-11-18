@@ -203,8 +203,10 @@ describe("a kept call", () => {
 		let removed = false;
 		const left: string[][] = [];
 		const look = () => {
+			// Once removed, the test's folder goes with it.
+			if (removed) return;
 			left.push(readdirSync(where).map((name) => name.slice(-4)));
-			if (!removed) setImmediate(look);
+			setImmediate(look);
 		};
 		const removing = removeKept(path).then(() => {
 			removed = true;
@@ -287,8 +289,9 @@ describe("a kept call", () => {
 		for (const suffix of [".out", ".end", ".pid"])
 			utimesSync(`${path}${suffix}`, weekAgo, weekAgo);
 		await sweepKeptNowAndThen(where, start - 1000);
-		expect(readdirSync(where), "not held off for however far it stepped").toEqual(
-			[],
-		);
+		expect(
+			readdirSync(where),
+			"not held off for however far it stepped",
+		).toEqual([]);
 	});
 });

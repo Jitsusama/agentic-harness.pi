@@ -156,9 +156,14 @@ export function keepsOnDisk(
 				} finally {
 					clearTimeout(timer);
 					call.signal?.removeEventListener("abort", stop);
-					// Waited for, so its files are gone once the call settles, though
-					// not on the loop.
-					if (!kept.handed) await removeKept(path);
+					if (!kept.handed) {
+						// Ended here, so nothing may carry or hand it on while its files
+						// go, which takes turns of the loop.
+						if (call.signal) calls.delete(call.signal);
+						// Waited for, so its files are gone once the call settles, though
+						// not on the loop.
+						await removeKept(path);
+					}
 				}
 			},
 		},
