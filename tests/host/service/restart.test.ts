@@ -1,4 +1,10 @@
-/** When a host restarts itself: only once it would differ and all is settled. */
+/**
+ * When a host restarts itself: only once it would differ and all is
+ * settled. Long because its 33 cases cover restart.ts's three exports,
+ * which decide one restart together: whether all is settled, when a
+ * restart waits for it (each share of the heap, background work held, a
+ * gap between turns), and what a host follows to know it would differ.
+ */
 import {
 	mkdir,
 	mkdtemp,

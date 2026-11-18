@@ -197,7 +197,7 @@ describe("the host's checkpointer", () => {
 		const kept = checkpoints.keep(gone);
 		await kept.settle();
 		kept.release();
-		expect(existsSync(gone)).toBe(false);
+		expect(existsSync(gone), "no store made where one was gone").toBe(false);
 		expect(String(reported[0])).toContain("the store is gone");
 	});
 });
