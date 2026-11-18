@@ -377,7 +377,7 @@ export function routeNeed(said: NeedAsked, reach: Reach): NeedRecord {
 		at: asked.at,
 		cells: reach.foragers.length,
 		...(passed.size > 0 ? { ended: [...passed] } : {}),
-		...(fit === null && refusing.size > 0 ? { stopped: [...refusing] } : {}),
+		...(refusing.size > 0 ? { stopped: [...refusing] } : {}),
 	});
 	const wordsHeld = new Map(
 		reach.foragers.map((cell) => [cell.address, new Set(cell.words)]),

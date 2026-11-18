@@ -210,6 +210,51 @@ describe("sending to a need", () => {
 		);
 	});
 
+	it("finds a need through a cell that stopped this one, which never hears it", async () => {
+		createPresences(join(fixture.paths.mesh, "presence")).publish({
+			session: "session-c",
+			addresses: ["5HJZ8Z"],
+			groups: [],
+			worksOn: "",
+			owns: [],
+			busy: false,
+			stops: [{ address: "7M6JKG", at: new Date().toISOString() }],
+			at: new Date().toISOString(),
+		});
+		peer("session-d", ["0TUD09"], []);
+		const env = await node(
+			[
+				asker,
+				{ key: "cell:5HJZ8Z", title: "Carry a Session" },
+				{ key: "cell:0TUD09", title: "Carry a Tree" },
+			],
+			[
+				{ key: "tie:7M6JKG~5HJZ8Z", strength: 3, heard: Date.now() },
+				{ key: "tie:5HJZ8Z~0TUD09", strength: 3, heard: Date.now() },
+			],
+		);
+		const { tools } = await startSession(env);
+
+		const said = await sending(tools, {
+			to: "need",
+			intent: "question",
+			text: "Does a carry keep its tree's network?",
+			about: "carry",
+		});
+
+		expect(said, "0TUD09, one tie past the stopper").toContain(
+			"went to 0TUD09",
+		);
+		const transport = folderTransport(join(fixture.paths.mesh, "messages"));
+		const [id] = transport.ids();
+		expect(
+			id && transport.read(id),
+			"the stopper is never written to",
+		).toMatchObject({
+			to: ["@0TUD09"],
+		});
+	});
+
 	it("never crosses into another realm", async () => {
 		peer("session-c", ["5HJZ8Z"], []);
 		const env = await node(
