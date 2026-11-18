@@ -8,6 +8,7 @@ import {
 	readdirSync,
 	readFileSync,
 	readlinkSync,
+	renameSync,
 	rmSync,
 	statSync,
 	symlinkSync,
@@ -540,9 +541,12 @@ describe("withQuestLock on the login's runtime folder", () => {
 		await once(swapper, "online");
 		try {
 			for (let round = 0; round < SWAPPED_ROUNDS; round++) {
-				mkdirSync(join(lock, "sub", "a", "b"), { recursive: true });
-				writeFileSync(join(lock, "sub", "a", "f"), "");
-				symlinkSync(marker, join(lock, "link"));
+				// Made whole beside the folder, so the swapper meets it only in place.
+				const made = join(dir, `made-${round}`);
+				mkdirSync(join(made, "sub", "a", "b"), { recursive: true });
+				writeFileSync(join(made, "sub", "a", "f"), "");
+				symlinkSync(marker, join(made, "link"));
+				renameSync(made, lock);
 				withQuestLock(questDir, () => {
 					atomicWriteFile(join(questDir, "ok.txt"), `${round}`);
 				});
