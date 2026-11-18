@@ -26,7 +26,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Owner, ProcessFacts } from "../../../lib/core/process/index.ts";
 import type { HeldTree, TreeProvider } from "../../../lib/core/work/broker.ts";
 import { DEV_SHELL_IDLE_MS } from "../../../lib/core/work/dev-shell-roots.ts";
-import { createTreeMemory } from "../../../lib/core/work/memory.ts";
+import {
+	createTreeMemory,
+	type TreeMemory,
+} from "../../../lib/core/work/memory.ts";
 import type { SweepDeps } from "../../../lib/core/work/sweep.ts";
 import {
 	PUSHED_SETTLE_MS,
@@ -96,6 +99,9 @@ function elsewhere(
 		whyKept: async () => why,
 	};
 }
+
+/** How long the sweeps rest in the test of resting. */
+const REST_MS = 20 * 60 * 1000;
 
 /** A pid no process can have, for a lock whose holder has ended. */
 const NO_SUCH_PID = 2_147_483_646;
@@ -227,6 +233,7 @@ async function setUp() {
 
 	return {
 		main,
+		state,
 		memory,
 		lockPath,
 		cut,
@@ -267,6 +274,33 @@ async function landed(
 	return tree;
 }
 
+/**
+ * Cut a snapshot at a commit no ref holds, as a pull request's head is
+ * left once its branch is pushed again over it, with the broker's record
+ * of a snapshot pinned there.
+ */
+async function pinnedWhereNoRefHolds(
+	main: string,
+	memory: TreeMemory,
+	path: string,
+): Promise<string> {
+	await git(main, "branch", "-q", "before-rebase", "main");
+	await git(main, "checkout", "-q", "before-rebase");
+	// A message of its own, so two snapshots cut in one second differ.
+	await git(main, "commit", "-q", "--allow-empty", "-m", `head of ${path}`);
+	const commit = (await git(main, "rev-parse", "HEAD")).trim();
+	await git(main, "checkout", "-q", "main");
+	await git(main, "branch", "-q", "-D", "before-rebase");
+	await git(main, "worktree", "add", "-q", "--detach", path, commit);
+	memory.remember({
+		identity: { key: `snapshot-local-repo-${commit}`, shareable: true },
+		path,
+		providerId: "git-worktree",
+		owners: [ENDED],
+	});
+	return commit;
+}
+
 /** Put a folder with no git, and its `src`, two days back, as one left alone. */
 function settleFolder(tree: string): void {
 	const then = new Date(Date.now() - 2 * PUSHED_SETTLE_MS);
@@ -305,6 +339,44 @@ describe("sweeping the trees whose sessions have ended", () => {
 		const tree = await cut("snapshot", ["--detach", "@", "main"]);
 
 		expect((await sweep()).taken).toEqual([{ path: tree }]);
+	});
+
+	it("takes a clean snapshot at its pin, though no ref holds the commit", async () => {
+		const { main, state, memory, sweep } = await setUp();
+		const tree = join(state, "pinned");
+		await pinnedWhereNoRefHolds(main, memory, tree);
+		// A build the snapshot made, which git ignores and the removal takes.
+		mkdirSync(join(tree, "target"));
+		writeFileSync(join(tree, "target", "out"), "built");
+
+		const outcome = await sweep();
+
+		expect(outcome.taken).toEqual([{ path: tree }]);
+		expect(existsSync(tree), `${tree} is taken`).toBe(false);
+	});
+
+	it("keeps a snapshot with a new file in it, or moved off its pin", async () => {
+		const { main, state, memory, sweep } = await setUp();
+		const noted = join(state, "noted");
+		await pinnedWhereNoRefHolds(main, memory, noted);
+		writeFileSync(join(noted, "notes.txt"), "written here\n");
+		const moved = join(state, "moved");
+		await pinnedWhereNoRefHolds(main, memory, moved);
+		await git(moved, "commit", "-q", "--allow-empty", "-m", "only here");
+
+		const outcome = await sweep();
+
+		expect(outcome.taken).toEqual([]);
+		expect(outcome.kept.map((one) => one.path).sort()).toEqual(
+			[moved, noted].sort(),
+		);
+		expect(existsSync(noted), `${noted}, with a file of its own, is kept`).toBe(
+			true,
+		);
+		expect(
+			existsSync(moved),
+			`${moved}, with a commit of its own, is kept`,
+		).toBe(true);
 	});
 
 	it("never takes a tree a running session holds, or one claimed", async () => {
@@ -438,6 +510,32 @@ describe("sweeping the trees whose sessions have ended", () => {
 			existsSync(lockPath),
 			`${lockPath} is released once the sweep ends`,
 		).toBe(false);
+	});
+
+	it("rests after any sweep ends, until its rest is over", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const rested = (now: number) =>
+			sweepEndedTrees({
+				exec,
+				memory,
+				claims: [],
+				lockPath,
+				facts: machine,
+				restMs: REST_MS,
+				now: () => now,
+			});
+		expect((await rested(Date.now())).skipped).toBeUndefined();
+		const tree = await cut("done", ["-b", "done", "@", "main"]);
+
+		const soon = await rested(Date.now() + REST_MS / 2);
+		expect(soon.skipped).toContain("a sweep ended");
+		expect(existsSync(tree), `${tree} is kept while the sweeps rest`).toBe(
+			true,
+		);
+
+		const later = await rested(Date.now() + 2 * REST_MS);
+		expect(later.skipped).toBeUndefined();
+		expect(later.taken.map((one) => one.path)).toEqual([tree]);
 	});
 });
 

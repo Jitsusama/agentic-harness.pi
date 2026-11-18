@@ -41,6 +41,7 @@ import {
 	renameSync,
 	rmSync,
 	statSync,
+	writeFileSync,
 	writeSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -58,6 +59,7 @@ import {
 } from "./in-use.ts";
 import type { TreeMemory } from "./memory.ts";
 import { orphanedTrees } from "./tidy.ts";
+import { pinnedCommit } from "./tree.ts";
 
 /** The provider a git worktree's record names. */
 const GIT_WORKTREE = "git-worktree";
@@ -86,6 +88,12 @@ export interface SweepDeps extends UseSigns {
 	claims: readonly string[];
 	/** The file that keeps two sweeps from running at once. */
 	lockPath: string;
+	/**
+	 * How long after any sweep on this machine ends before another runs,
+	 * in milliseconds, told by a stamp beside the lock. Without it a sweep
+	 * runs whenever the lock is free.
+	 */
+	restMs?: number;
 	facts?: ProcessFacts;
 	/**
 	 * Whether a repository that is gone went with work that has finished,
@@ -141,7 +149,8 @@ export interface DroppedRoots {
 /**
  * Take back every git worktree the broker cut whose recorded sessions
  * have all ended and that reclaim's rules would take: clean, and merged
- * into trunk or, detached, at a commit some ref holds. Then every other
+ * into trunk or, detached, at a commit some ref holds or a snapshot
+ * still at the commit it was cut at. Then every other
  * provider's unshareable tree whose provider says it is spent, through
  * that provider. Says what it took, what was refused and what it kept,
  * tree by tree.
@@ -153,6 +162,9 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		kept: [],
 		dropped: [],
 	};
+	const now = deps.now?.() ?? Date.now();
+	const resting = restingSince(deps.lockPath, now, deps.restMs);
+	if (resting !== undefined) return { ...outcome, skipped: resting };
 	const release = sweepLock(deps.lockPath);
 	if (typeof release === "string") return { ...outcome, skipped: release };
 	try {
@@ -195,9 +207,50 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		}
 		await dropIdleRoots(deps, outcome);
 	} finally {
+		markEnded(deps.lockPath);
 		release();
 	}
 	return outcome;
+}
+
+/** The stamp beside a sweep's lock that says when the last sweep ended. */
+function endedStamp(lockPath: string): string {
+	return `${lockPath}.ended`;
+}
+
+/**
+ * Why a sweep should rest, when one ended within `restMs` of `now`.
+ * Every conversation sweeps on its own timer, and one sweep reads every
+ * tree: on 18 November about 120 of them kept one machine sweeping
+ * without a break, each sweep 3 to 12 minutes long and every one taking
+ * nothing, while the rest found the lock held about every 3 seconds.
+ */
+function restingSince(
+	lockPath: string,
+	now: number,
+	restMs: number | undefined,
+): string | undefined {
+	if (restMs === undefined) return undefined;
+	try {
+		const ago = now - statSync(endedStamp(lockPath)).mtimeMs;
+		if (ago >= 0 && ago < restMs) {
+			return `a sweep ended ${Math.round(ago / 1000)} s ago`;
+		}
+	} catch (error) {
+		// No stamp yet: no sweep has ended here, so nothing to rest from.
+		if (!hasCode(error, "ENOENT")) throw error;
+	}
+	return undefined;
+}
+
+/** Stamp that a sweep has just ended, for {@link restingSince}. */
+function markEnded(lockPath: string): void {
+	try {
+		writeFileSync(endedStamp(lockPath), String(process.pid));
+	} catch {
+		// A stamp that can't be written only lets the next sweep come
+		// sooner, which the lock still keeps from overlapping this one.
+	}
 }
 
 /**
@@ -427,6 +480,15 @@ async function sweepRepository(
 	},
 ): Promise<void> {
 	const { outcome } = held;
+	// Only the ended trees' own records say what each snapshot was cut at.
+	const pins = new Map(
+		trees.flatMap((tree) => {
+			const commit = pinnedCommit(tree.identity);
+			return commit === undefined
+				? []
+				: [[resolved(tree.path), commit] as const];
+		}),
+	);
 	let plan: ReturnType<typeof orphanedTrees>;
 	try {
 		const trunk = await trunkOf(deps.exec, main);
@@ -444,6 +506,8 @@ async function sweepRepository(
 			unattributed: held.unattributed,
 			settled: (path) =>
 				headStillSince(path, (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS),
+			stillPinned: (path, commit) =>
+				commit !== undefined && pins.get(path) === commit,
 		});
 	} catch (error) {
 		for (const tree of trees) {

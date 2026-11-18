@@ -127,6 +127,21 @@ export function treeIdentity(request: TreeRequest): TreeIdentity {
 	return { key: `worktree-${repo}-${slug(request.branch)}`, shareable: false };
 }
 
+/** A full commit id, as a snapshot's key ends with one. */
+const FULL_COMMIT = /-([0-9a-f]{40})$/;
+
+/**
+ * The commit a snapshot was cut at, read back from its identity, or
+ * nothing for a worktree or a key that doesn't end in a full commit.
+ * A commit id passes {@link slug} unchanged, so the key holds it whole.
+ */
+export function pinnedCommit(identity: TreeIdentity): string | undefined {
+	if (!identity.shareable || !identity.key.startsWith("snapshot-")) {
+		return undefined;
+	}
+	return FULL_COMMIT.exec(identity.key)?.[1];
+}
+
 /**
  * Whether a tree already held answers a fresh request.
  *
