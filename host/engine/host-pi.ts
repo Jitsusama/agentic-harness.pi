@@ -101,7 +101,7 @@ export const HOST_WANTED_SEAMS: readonly HostSeam[] = [
 	},
 	{
 		patch: "pi-host-runs-through-pi.patch",
-		why: "a run the host carries on reaches the model without its extensions' sections, and no extension hears it settle",
+		why: "a run the host carries on reaches the model without its extensions' sections",
 		present: ({ codingAgent }) =>
 			isRecord(codingAgent.AgentSession) &&
 			codingAgent.AgentSession.hostRuns === true,

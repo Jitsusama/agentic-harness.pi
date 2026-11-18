@@ -153,7 +153,7 @@ it("loads a pi built before the runs-through-pi seam, saying what goes without i
 	});
 	const pi = await loadHostPi(dir);
 	expect(lackingSeams(pi.packageDir, pi.lacking)).toBe(
-		`The pi at ${dir} lacks pi-host-runs-through-pi.patch: without it a run the host carries on reaches the model without its extensions' sections, and no extension hears it settle`,
+		`The pi at ${dir} lacks pi-host-runs-through-pi.patch: without it a run the host carries on reaches the model without its extensions' sections`,
 	);
 });
 

@@ -677,10 +677,14 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				"reopen-prompted-during",
 			);
 			expect(reported, "durable reported nothing").toBe("");
+			// A runtime built before the seam carries the turn on outside pi's run, where the agent queues the words itself.
+			const inPiRun = !observed.lacking?.includes(
+				"pi-host-runs-through-pi.patch",
+			);
 			expect(
 				observed.events.find((event) => event.type === "prompted")?.streaming,
-				"sent into pi's run, so through pi's own queue",
-			).toBe(true);
+				"sent into pi's run where pi has the seam, so through pi's own queue",
+			).toBe(inPiRun);
 			expect(
 				observed.events.filter((event) => event.type === "prompt_refused"),
 				"the prompt was not refused",
