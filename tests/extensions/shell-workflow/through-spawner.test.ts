@@ -77,6 +77,30 @@ async function ran(
 	return { asked, carry };
 }
 
+describe("the agent's bash for a conversation", () => {
+	it("starts its pi-spawner naming that conversation", async () => {
+		const program = spawnerStandIn();
+		const sessions: (string | undefined)[] = [];
+		const bash = agentBash(root, {}, { kind: "none" }, "s-one", {
+			env: { [SPAWNER_VARIABLE]: "on" },
+			program: "/run/pi-spawner",
+			start: (_program, _quest, session) => {
+				sessions.push(session);
+				return program.start();
+			},
+			kill: vi.fn<(pid: number) => void>(),
+			reap: () => undefined,
+			asksKeeps: async () => false,
+		});
+
+		await ran({ program, bash }, new AbortController().signal);
+
+		expect(sessions, "the session its spawner was started naming").toEqual([
+			"s-one",
+		]);
+	});
+});
+
 describe.skipIf(process.platform !== "linux")(
 	"a call through pi-spawner",
 	() => {

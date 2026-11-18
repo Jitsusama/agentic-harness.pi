@@ -36,6 +36,13 @@
  * carried the host's environment, which names no quest, and every
  * hosted session's work was filed as no quest's (VRZKID, 15 November).
  *
+ * Each is started naming, too, the session whose load made it
+ * (`PI_SPAWNER_SESSION`), taken from the load and never from pi's own
+ * environment, which a host's sessions share. A host's sessions share its
+ * process, so a mycelium node tells which asked it for a run by the
+ * spawner its command runs under: only the host makes its own children,
+ * and nothing a command runs can change what its spawner began with.
+ *
  * When pi goes, pi-spawner kills every command it still runs but one kept
  * on disk (shell-workflow's keeping.ts), which a shared host hands to the
  * next. A spawner from before that answers no `keeps`, so through it no
@@ -60,6 +67,7 @@ import {
 import { hosted } from "../../core/session/host.ts";
 import { systemProgram } from "../sandbox/system-program.ts";
 import {
+	type ScopeSetting,
 	sayUnscoped,
 	scopeFailed,
 	settingHere,
@@ -95,6 +103,9 @@ const FAILED = "e".charCodeAt(0);
 /** The variable naming the quest a command's work is for. */
 const QUEST_VARIABLE = "PI_QUEST";
 
+/** The variable naming, in a spawner's own start, the session it serves. */
+const SESSION_VARIABLE = "PI_SPAWNER_SESSION";
+
 /** A frame's kind, id and length, ahead of its payload. */
 const HEAD_BYTES = 9;
 
@@ -128,8 +139,13 @@ export interface SpawnerOptions {
 	program?: string;
 	/** How the program is found, when `program` doesn't say. */
 	find?: (program: string) => string | undefined;
-	/** Start the program, its environment naming `quest`, the work it runs. */
-	start?: (program: string, quest?: string) => Started;
+	/**
+	 * Start the program, its environment naming `quest`, the work it runs,
+	 * and `session`, whose commands it runs.
+	 */
+	start?: (program: string, quest?: string, session?: string) => Started;
+	/** The session whose load this is, which its spawners are started naming. */
+	session?: string;
 	/** Whether the program at a path spares kept commands when pi goes. */
 	asksKeeps?: (program: string) => Promise<boolean>;
 	/** Kill a command's process group, as pi's stop does. */
@@ -237,7 +253,7 @@ export function spawnedBy(
 		try {
 			let made: Link | undefined;
 			made = connect(
-				(options.start ?? startProgram)(program, quest),
+				(options.start ?? startProgram)(program, quest, options.session),
 				kill,
 				() => {
 					// One retired for another quest's ends with no loss to the next.
@@ -513,14 +529,19 @@ function killGroup(pid: number): void {
  * output is read, the first of it kept, so a scope that couldn't be made
  * is said and the spawners after it run unscoped.
  */
-function startProgram(program: string, quest?: string): Started {
-	const start = spawnerStart(program, settingHere(hosted() !== undefined));
+export function startProgram(
+	program: string,
+	quest?: string,
+	session?: string,
+	setting: ScopeSetting = settingHere(hosted() !== undefined),
+): Started {
+	const start = spawnerStart(program, setting);
 	if (start.unscoped !== undefined) sayUnscoped(start.unscoped);
 	const scoped = start.args.length > 0;
 	const child = spawn(start.command, [...start.args], {
 		stdio: ["pipe", "pipe", scoped ? "pipe" : "ignore"],
 		detached: true,
-		env: quest ? { ...process.env, [QUEST_VARIABLE]: quest } : process.env,
+		env: spawnerEnvironment(process.env, quest, session),
 	});
 	child.unref();
 	if (scoped) {
@@ -552,6 +573,25 @@ function startProgram(program: string, quest?: string): Started {
 			child.once("exit", once);
 			child.once("error", once);
 		},
+	};
+}
+
+/**
+ * The environment a spawner starts in: pi's own, naming `quest` and
+ * `session` where given. One inherited naming a session is dropped when
+ * none is given, so a spawner never claims a session its load didn't
+ * name.
+ */
+export function spawnerEnvironment(
+	env: NodeJS.ProcessEnv,
+	quest?: string,
+	session?: string,
+): NodeJS.ProcessEnv {
+	const { [SESSION_VARIABLE]: _inherited, ...rest } = env;
+	return {
+		...rest,
+		...(quest ? { [QUEST_VARIABLE]: quest } : {}),
+		...(session ? { [SESSION_VARIABLE]: session } : {}),
 	};
 }
 

@@ -10,6 +10,7 @@ import {
 	createLocalBashOperations,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
+import { requireSession } from "../../lib/core/session/identity.ts";
 import type { SessionRef } from "../../lib/core/session/index.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { type Sandbox, wrapFor } from "../../lib/internal/sandbox/sandbox.ts";
@@ -72,6 +73,8 @@ export function agentBash(
 		{
 			...(settings.shellPath ? { shellPath: settings.shellPath } : {}),
 			...(sharing ? { reap: () => undefined } : {}),
+			// The load's own session, which its spawner is started naming.
+			...(session !== undefined ? { session: requireSession(session) } : {}),
 			...spawner,
 		},
 	);
