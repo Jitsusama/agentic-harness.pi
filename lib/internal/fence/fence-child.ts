@@ -17,8 +17,13 @@
  * it went, SIGKILL to its process group included, the pipe closes and
  * the watcher kills the group, as bubblewrap's --die-with-parent does
  * on Linux. The watcher ignores the signals passed on, or the first
- * one would end it before what outlasts the shell. So nothing a run started outlives it, the command's own
- * background work included. pi-fence then ends as the command did, or,
+ * one would end it before what outlasts the shell, and is nobody's
+ * child, so a program that waits for all its children never waits on
+ * it. So nothing a run started outlives it, the command's own
+ * background work included, which then ends by SIGKILL as a sandbox's
+ * does on Linux, where bubblewrap's pid namespace ends with its first
+ * process and a passed signal ends the sandbox at once. pi-fence then
+ * ends as the command did, or,
  * ended by a caller's signal, dies by that same signal, so a calling
  * shell sees Ctrl-C as Ctrl-C.
  *
@@ -29,9 +34,9 @@
  * other ending signals go to the shell alone, and SIGINT isn't passed
  * on nor followed by a kill: Ctrl-C already reached the whole group,
  * and a program may take it as cancel. A run whose stdin is piped loses
- * /dev/tty prompts, which agents never answer. This contains accidents,
- * not a hostile command, which can leave its group (setsid) or end the
- * watcher.
+ * /dev/tty prompts, which agents never answer; a SIGINT sent to
+ * pi-fence alone on a terminal run goes unheard. This contains
+ * accidents, not a hostile command, which can leave its group (setsid).
  */
 
 import { spawn } from "node:child_process";
@@ -54,10 +59,19 @@ export const GRACE_MS = 5000;
  * What the shell runs first, outside the sandbox: a watcher that waits
  * for the pipe on descriptor 3 to close, which happens only when
  * pi-fence is gone, and then kills its own process group (`kill 0`).
- * The command itself runs without that descriptor.
+ * The shell ignores the ending signals while it starts the watcher, so
+ * the watcher ignores them from its first instant, and starts it from a
+ * subshell that ends at once, so it is nobody's child; then the shell
+ * takes them back. One passed in that moment is lost, and the grace's
+ * SIGKILL ends the run. The command itself runs without descriptor 3.
  */
-const WATCHER =
-	"{ trap '' TERM HUP ALRM INT; read -r _ <&3; kill -KILL 0; } </dev/null >/dev/null 2>&1 3<&3 &\nexec 3<&-\n";
+const WATCHER = [
+	"trap '' TERM HUP ALRM INT",
+	"( { read -r _ <&3; kill -KILL 0; } </dev/null >/dev/null 2>&1 3<&3 & )",
+	"trap - TERM HUP ALRM INT",
+	"exec 3<&-",
+	"",
+].join("\n");
 
 /** How a fenced command's shell ended, or why it never started. */
 export type ChildEnd =
@@ -90,9 +104,9 @@ export function runForwarding(text: string, folder: string): Promise<ChildEnd> {
 	};
 	const passOn = (sent: NodeJS.Signals) => {
 		if (shell.exitCode !== null || shell.signalCode !== null) return;
-		told ??= sent;
 		// From a terminal, Ctrl-C reached the shell's group already.
 		if (fromTerminal && sent === "SIGINT") return;
+		told ??= sent;
 		signal(sent);
 		grace ??= setTimeout(() => signal("SIGKILL"), GRACE_MS);
 	};
@@ -108,9 +122,8 @@ export function runForwarding(text: string, folder: string): Promise<ChildEnd> {
 		});
 		shell.once("exit", (code, by) => {
 			stopPassing();
-			// What the command left running is told to end; the watcher
-			// kills whatever is left once pi-fence has gone.
-			if (told && !fromTerminal) signal("SIGTERM");
+			// What the command left running ends by the watcher, once
+			// pi-fence has gone.
 			if (told && by) return done({ signal: told });
 			const number = by ? constants.signals[by] : undefined;
 			done({

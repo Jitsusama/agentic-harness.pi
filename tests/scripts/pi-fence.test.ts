@@ -27,6 +27,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { GRACE_MS } from "../../lib/internal/fence/fence-child.ts";
 import { FENCE_RUN_HELP } from "../../lib/internal/fence/fence-run.ts";
 import { KEEPING_STUB } from "../../lib/internal/shell/kept.ts";
 
@@ -317,6 +318,18 @@ function there(pid: number): boolean {
 	}
 }
 
+/** Whether process group `group` still has a process in it. */
+function groupThere(group: number): boolean {
+	if (group <= 1) return false;
+	try {
+		process.kill(-group, 0);
+		return true;
+	} catch {
+		// ESRCH: nothing is left in it.
+		return false;
+	}
+}
+
 /** Waits up to `ms` for `ready`, checking every 50 ms. */
 async function waitFor(ready: () => boolean, ms: number): Promise<boolean> {
 	for (const until = Date.now() + ms; Date.now() < until; ) {
@@ -358,16 +371,39 @@ describe("pi-fence's child", () => {
 		expect(await child("exit 7").ended).toEqual({ code: 7, signal: null });
 	});
 
-	it("ends what its command left running once the command ends", async () => {
-		const pidFile = join(root, "left.pid");
-		const ran = child(`sleep 300 & echo $! > '${pidFile}'`);
-		left.push(ran.pid);
+	it(
+		"ends its whole group once the command ends, its watcher too",
+		async () => {
+			const groupFile = join(root, "group.pid");
+			const ran = child(`sleep 300 & echo $$ > '${groupFile}'`);
+			left.push(ran.pid);
 
-		expect(await ran.ended).toEqual({ code: 0, signal: null });
-		const sleeper = Number(readFileSync(pidFile, "utf8").trim());
-		left.push(sleeper);
-		const gone = await waitFor(() => !there(sleeper), 5000);
-		expect(gone, `the sleeper ${sleeper} ended with pi-fence`).toBe(true);
+			expect(await ran.ended).toEqual({ code: 0, signal: null });
+			// The shell's pid is its group's, in a session of its own.
+			const group = Number(readFileSync(groupFile, "utf8").trim());
+			const gone = await waitFor(() => group > 1 && !groupThere(group), 5000);
+			expect(gone, `the group ${group} ended with pi-fence`).toBe(true);
+		},
+		CASE_MS,
+	);
+
+	// On a Mac the shell execs into sandbox-exec and the command, which
+	// would inherit as a child a watcher it never started.
+	it(
+		"never leaves its watcher for the command to wait on",
+		async () => {
+			const ran = child("exec perl -e '1 while wait() != -1'");
+			left.push(ran.pid);
+			expect(await ran.ended).toEqual({ code: 0, signal: null });
+		},
+		CASE_MS,
+	);
+
+	it("says a shell's own signal as a shell does", async () => {
+		expect(await child("kill -TERM $$").ended).toEqual({
+			code: 128 + 15,
+			signal: null,
+		});
 	});
 
 	it("keeps its watcher's pipe from the command", async () => {
@@ -396,10 +432,14 @@ describe("pi-fence's child", () => {
 		"ends background work that ignores the signal its shell ended by",
 		async () => {
 			const pidFile = join(root, "deaf.pid");
+			// Written once its trap is set, so the signal can't come first.
 			const { ran } = await sleeping(
-				`( trap '' TERM; exec sleep 301 ) & echo $! > '${pidFile}'; `,
+				`( trap '' TERM; exec bash -c "echo \\$\\$ > '${pidFile}'; exec sleep 301" ) & `,
 			);
-			const deaf = Number(readFileSync(pidFile, "utf8").trim());
+			const deafPid = () =>
+				existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8").trim()) : 0;
+			expect(await waitFor(() => deafPid() > 1, 10_000)).toBe(true);
+			const deaf = deafPid();
 			left.push(deaf);
 
 			process.kill(ran.pid, "SIGTERM");
@@ -467,9 +507,11 @@ describe("pi-fence's child", () => {
 		async () => {
 			const { ran, sleeper } = await sleeping("trap '' TERM; ");
 
+			const told = Date.now();
 			process.kill(ran.pid, "SIGTERM");
 
 			expect(await ran.ended).toEqual({ code: null, signal: "SIGTERM" });
+			expect(Date.now() - told).toBeGreaterThanOrEqual(GRACE_MS - 100);
 			const gone = await waitFor(() => !there(sleeper), 5000);
 			expect(gone, `the sleeper ${sleeper} ended with pi-fence`).toBe(true);
 		},
