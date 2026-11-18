@@ -44,6 +44,28 @@ function proposal(over: Partial<Change> = {}): Change {
 	};
 }
 
+describe("where every round's reviewers are told to look", () => {
+	// A reviewer told to check a library and not where walked the whole
+	// Nix store at load 40 with Joel at the screen.
+	const prompts = {
+		council: councilPrompt({ proposal: proposal(), diff }),
+		judge: judgePrompt({ proposal: proposal(), diff, findings: "x" }),
+		critique: critiquePrompt({ proposal: proposal(), diff, findings: "x" }),
+		audit: auditPrompt({ proposal: proposal(), diff, threads: "x" }),
+		stack: stackPrompt({
+			changes: [{ ref: "refs/heads/tip", proposal: proposal(), diff }],
+		}),
+	};
+
+	for (const [round, prompt] of Object.entries(prompts)) {
+		it(`keeps a ${round} round inside the tree, off the store and home`, () => {
+			expect(prompt).toContain("Read within the tree you were given.");
+			expect(prompt).toContain("Never search or list /, /nix/store");
+			expect(prompt).toContain("nix path-info");
+		});
+	}
+});
+
 describe("what a discovery reviewer is told", () => {
 	it("carries the title and body the author wrote", () => {
 		const prompt = councilPrompt({ proposal: proposal(), diff });
