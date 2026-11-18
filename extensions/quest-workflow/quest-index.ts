@@ -22,9 +22,17 @@
  *
  * The concluded and retired quests, which the launcher finds as it is
  * typed in, are kept apart in `ended.json`, with less of each: no
- * documents, sessions or session to reopen, which an ended quest has no
- * more of. They are many more than the open ones and change only as a
- * quest ends or reopens, so a quest action rewrites only the short list
+ * documents or session to reopen, which an ended quest has no more of.
+ * Each still names the sessions it last attached and the orchestrator
+ * above it, as an open quest's record does, since a session it held can
+ * outlive it and the node proves who may end that hold by them (KP0L6A,
+ * 17 November). Only a session whose last quest it was is named, by
+ * the README that holds it attached, else the session registry, else
+ * where it last says it started: one that moved on answers to where it
+ * went, open or ended. They are many
+ * more than the open ones and change mostly as a quest ends or reopens,
+ * or as one above them does, so a quest action rewrites only the short
+ * list
  * of open ones, and the realm's node, which serves both, reads the long
  * one again only when it changed.
  */
@@ -49,6 +57,7 @@ import {
 	type ProcessInspection,
 	probeProcess,
 } from "../../lib/internal/quest/sessions/process-liveness.ts";
+import { questLastOn } from "../../lib/internal/quest/sessions/quest-last-on.ts";
 import {
 	activityFromIndex,
 	buildLivenessSnapshot,
@@ -143,6 +152,10 @@ export interface EndedQuestEntry {
 	readonly "quest.kind": string;
 	readonly status: string;
 	readonly parent?: string;
+	/** The address of the orchestrator it answered to, when one was above it. */
+	readonly orchestrator?: string;
+	/** The sessions it last attached, by id, running or not. */
+	readonly sessions: readonly string[];
 	/** The folder a new session for it opens in. */
 	readonly start: string;
 	readonly updated: string;
@@ -192,18 +205,24 @@ export function keepDesktopListsCurrent(questsRoot: string): Promise<void> {
 				const presences = createPresences(
 					join(stateDir("mesh-workflow"), "presence"),
 				);
+				const records = loadRecords();
 				writeWhenChanged(questIndexPath(), {
 					quests: questsIn(
 						index,
 						snapshot,
 						questsRoot,
 						undefined,
-						lastQuests(),
+						lastQuests(records),
 						(session) => presences.of(session)?.at,
 					),
 				});
 				writeWhenChanged(endedQuestsPath(), {
-					quests: endedQuestsIn(index, questsRoot),
+					quests: endedQuestsIn(
+						index,
+						questsRoot,
+						undefined,
+						whereEachSessionWasLast(records),
+					),
 				});
 			} catch {
 				// The next quest action tries again.
@@ -317,8 +336,11 @@ export function endedQuestsIn(
 	index: QuestIndex,
 	store: string,
 	home?: string,
+	/** The quest each session was on last, by the session registry. */
+	registered: (sessionId: string) => Registered | undefined = () => undefined,
 ): EndedQuestEntry[] {
 	const read = (id: string) => index.quests.get(id)?.doc.frontMatter;
+	const lastOn = holders(index, registered);
 	return [...index.quests.entries()]
 		.filter(([, entry]) => !isOpen(entry.doc.frontMatter.status))
 		.sort(([a], [b]) => a.localeCompare(b))
@@ -337,6 +359,7 @@ export function endedQuestsIn(
 				})),
 				ancestors: ancestorTreesOf(fm.parent ?? undefined, read),
 			}).cwd;
+			const by = orchestrationOf(id, read).by;
 			return {
 				id,
 				address: questAddress(id),
@@ -347,10 +370,76 @@ export function endedQuestsIn(
 				"quest.kind": fm.kind,
 				status: fm.status,
 				...(fm.parent ? { parent: fm.parent } : {}),
+				...(by ? { orchestrator: questAddress(by) } : {}),
+				sessions: fm.sessions
+					.map((session) => session.id)
+					.filter((session) => lastOn(session) === id),
 				start,
 				updated: fm.updated,
 			};
 		});
+}
+
+/** The quest the session registry says a session was on last, and since when it says so. */
+export interface Registered {
+	readonly quest: string;
+	/** ISO: when the session moved onto it or left it, as its record says. */
+	readonly at: string;
+}
+
+/**
+ * Each session's quest as it stands, from three signs, the surest first.
+ * A README that holds it attached: attaching anywhere detaches it from
+ * every other quest (lib/core/quest/sessions.ts), so only the quest it
+ * is on now says so, whoever ran it and however. Else the session
+ * registry's last quest, as long as no README stamps an attach after the
+ * registry says it got there: a session moved without a window or a host
+ * leaves the registry behind (verbs/lifecycle.ts trackOnQuest). Else the
+ * README where it says it started latest, which misses a return, since
+ * going back to a quest keeps the stamp of the first attach there. A
+ * session that never says when counts as the oldest, and two that tie
+ * keep the first quest by id, so the answer never rests on the walk.
+ */
+function holders(
+	index: QuestIndex,
+	registered: (sessionId: string) => Registered | undefined,
+): (sessionId: string) => string | undefined {
+	const attached = new Map<string, { quest: string; at: number }>();
+	const stamped = new Map<string, { quest: string; at: number }>();
+	const later = (
+		into: Map<string, { quest: string; at: number }>,
+		session: string,
+		quest: string,
+		at: number,
+	) => {
+		const was = into.get(session);
+		const wins =
+			was === undefined ||
+			at > was.at ||
+			(at === was.at && quest.localeCompare(was.quest) < 0);
+		if (wins) into.set(session, { quest, at });
+	};
+	for (const [quest, entry] of index.quests)
+		for (const session of entry.doc.frontMatter.sessions) {
+			const at = timeOf(session.started);
+			later(stamped, session.id, quest, at);
+			if (session.status !== "detached") later(attached, session.id, quest, at);
+		}
+	return (session) => {
+		const on = attached.get(session);
+		if (on) return on.quest;
+		const last = stamped.get(session);
+		const record = registered(session);
+		const behind =
+			record !== undefined && last !== undefined && last.at > timeOf(record.at);
+		return record && !behind ? record.quest : last?.quest;
+	};
+}
+
+/** An ISO time in milliseconds, with a missing or unreadable one the oldest of all. */
+function timeOf(iso: string | undefined): number {
+	const ms = iso ? Date.parse(iso) : Number.NaN;
+	return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
 }
 
 /** The later of two ISO times, as ISO; either may be missing or unreadable. */
@@ -378,10 +467,30 @@ function toTheHour(iso: string): string {
 	return at.toISOString();
 }
 
-/** Each recorded session's last quest, read once per pass. */
-function lastQuests(): (sessionId: string) => string | undefined {
+/** The session registry's records, read once per pass for both lists. */
+type Records = ReturnType<typeof loadRecords>;
+
+/**
+ * The quest each session the registry knows was on last, whether it is
+ * on it still or has unloaded since, and since when.
+ */
+function whereEachSessionWasLast(
+	records: Records,
+): (sessionId: string) => Registered | undefined {
+	const quests = new Map<string, Registered>();
+	for (const { record } of records) {
+		const last = questLastOn(record);
+		if (last) quests.set(record.sessionId, last);
+	}
+	return (sessionId) => quests.get(sessionId);
+}
+
+/** Each recorded session's quest now, for the open list. */
+function lastQuests(
+	records: Records,
+): (sessionId: string) => string | undefined {
 	const quests = new Map<string, string>();
-	for (const { record } of loadRecords()) {
+	for (const { record } of records) {
 		if (record.quest) quests.set(record.sessionId, record.quest);
 	}
 	return (sessionId) => quests.get(sessionId);

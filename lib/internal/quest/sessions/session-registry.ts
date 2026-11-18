@@ -39,6 +39,12 @@ export interface SessionRecord {
 	/** The quest the session is on now, absent once it has unloaded. */
 	quest?: string;
 	/**
+	 * When the session moved onto `quest`, absent when it has been on it
+	 * since it opened or when an older install wrote the record. The
+	 * file's own time can't say this: every heartbeat moves it.
+	 */
+	questSince?: string;
+	/**
 	 * Quests the session has since left, each against the moment it
 	 * left. A quest reads its own entry here rather than the session's
 	 * overall recency, so it dates a session by when it was last doing
@@ -193,6 +199,9 @@ export function parseSessionRecord(value: unknown): SessionRecord | undefined {
 	if (!SAFE_SESSION_ID.test(v.sessionId as string)) return undefined;
 	if (v.adopted !== undefined && v.adopted !== true) return undefined;
 	if (v.quest !== undefined && typeof v.quest !== "string") return undefined;
+	if (v.questSince !== undefined && typeof v.questSince !== "string") {
+		return undefined;
+	}
 	if (v.closedAt !== undefined && typeof v.closedAt !== "string") {
 		return undefined;
 	}
@@ -282,8 +291,13 @@ export function switchQuest(
 	if (record.quest) previous[record.quest] = now.toISOString();
 	if (questId) delete previous[questId];
 	const next: SessionRecord = { ...record };
-	if (questId) next.quest = questId;
-	else delete next.quest;
+	if (questId) {
+		next.quest = questId;
+		next.questSince = now.toISOString();
+	} else {
+		delete next.quest;
+		delete next.questSince;
+	}
 	if (Object.keys(previous).length > 0) next.previousQuests = previous;
 	else delete next.previousQuests;
 	return next;

@@ -24,6 +24,7 @@ import {
 	clearDiscoveryCache,
 	discoverQuests,
 } from "../../../../lib/internal/quest/discovery/discovery.ts";
+import { sessionRegistryDir } from "../../../../lib/internal/quest/sessions/loaded.ts";
 import type { LivenessSnapshot } from "../../../../lib/internal/quest/sessions/session-liveness.ts";
 import { settle } from "../../../lib/internal/quest/support/discovery-tree.ts";
 import { installTestHost } from "../../../support/session-host.ts";
@@ -31,6 +32,7 @@ import { installTestHost } from "../../../support/session-host.ts";
 const MISSION = "QEST-20260101-MISSON";
 const CHILD = "QEST-20260101-CHILDQ";
 const OLD = "QEST-20260101-OLDONE";
+const MIDDLE = "QEST-20260101-MIDDLE";
 
 let root: string;
 let elsewhere: string;
@@ -335,32 +337,136 @@ describe("the quests the desktop lists", () => {
 		expect(unnamed).not.toHaveProperty("swarm");
 	});
 
-	it("leave the ended ones to their own list, by id, each starting in its newest session's folder", () => {
+	it("leave the ended ones to their own list, by id, each starting in its newest session's folder and naming who held it", () => {
 		const newer = mkdtempSync(join(tmpdir(), "quest-index-newer-"));
 		try {
-			quest(MISSION, "status: active", "# Bootstrap optimus");
+			quest(
+				MISSION,
+				"status: active\norchestrator: true",
+				"# Bootstrap optimus",
+			);
+			// Between them, a quest that orchestrates nothing. A session moved
+			// on to it from the ended one, and another came from it to the
+			// ended one: each answers to the quest it reached last.
+			quest(
+				MIDDLE,
+				[
+					"status: active",
+					`parent: ${MISSION}`,
+					"sessions:",
+					"  - id: s-moved",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T02:30:00Z",
+					"    status: detached",
+					"  - id: s-back",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:10:00Z",
+					"    status: detached",
+					// Two that went back to a quest they were on before, which
+					// keeps the stamp of their first attach there: only the
+					// registry knows where each is last.
+					"  - id: s-returned",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:40:00Z",
+					"    status: detached",
+					"  - id: s-went-back",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:15:00Z",
+					"    status: detached",
+					// One the registry doesn't know, still attached to the ended
+					// quest it went back to, and one whose registry record fell
+					// behind a later attach it made without a window.
+					"  - id: s-attached",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T02:45:00Z",
+					"    status: detached",
+					"  - id: s-behind",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:50:00Z",
+					"    status: detached",
+				].join("\n"),
+				"# Between",
+			);
 			quest(
 				OLD,
 				[
 					"status: concluded",
 					"short: Old",
-					`parent: ${MISSION}`,
+					`parent: ${MIDDLE}`,
 					"sessions:",
+					"  - id: s-moved",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:30:00Z",
+					"    status: detached",
 					"  - id: s-first",
 					`    cwd: ${elsewhere}`,
 					"    started: 2026-01-01T01:00:00Z",
+					"    status: detached",
+					"  - id: s-back",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T01:30:00Z",
 					"    status: detached",
 					"  - id: s-last",
 					`    cwd: ${newer}`,
 					"    started: 2026-01-01T02:00:00Z",
 					"    status: detached",
+					"  - id: s-returned",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:20:00Z",
+					"    status: detached",
+					"  - id: s-went-back",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T01:45:00Z",
+					"    status: detached",
+					"  - id: s-attached",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:25:00Z",
+					"    status: active",
+					"  - id: s-behind",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T01:50:00Z",
+					"    status: detached",
+					// Stamped the same on two ended quests, with no registry
+					// record: the first by id keeps it, whatever the walk's order.
+					"  - id: s-tied",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:35:00Z",
+					"    status: detached",
 				].join("\n"),
 				"# Old\n\n## 📜 Summary\n\nIt was done.",
 			);
-			quest(CHILD, "kind: sidequest\nstatus: retired", "# A child");
+			// Another ended quest the first session left: it names it no more.
+			quest(
+				CHILD,
+				[
+					"kind: sidequest",
+					"status: retired",
+					"sessions:",
+					"  - id: s-first",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:05:00Z",
+					"    status: detached",
+					"  - id: s-tied",
+					`    cwd: ${elsewhere}`,
+					"    started: 2026-01-01T00:35:00Z",
+					"    status: detached",
+				].join("\n"),
+				"# A child",
+			);
 			const { index } = discoverQuests(root);
 
-			expect(endedQuestsIn(index, root, "/home/someone")).toEqual([
+			const wrote = "2026-01-01T03:00:00Z";
+			const registry = new Map([
+				["s-returned", { quest: OLD, at: wrote }],
+				["s-went-back", { quest: MIDDLE, at: wrote }],
+				["s-behind", { quest: MIDDLE, at: "2026-01-01T01:00:00Z" }],
+			]);
+
+			expect(
+				endedQuestsIn(index, root, "/home/someone", (session) =>
+					registry.get(session),
+				),
+			).toEqual([
 				{
 					id: CHILD,
 					address: "CHILDQ",
@@ -368,7 +474,8 @@ describe("the quests the desktop lists", () => {
 					kind: "sidequest",
 					"quest.kind": "sidequest",
 					status: "retired",
-					start: "/home/someone",
+					sessions: ["s-tied"],
+					start: elsewhere,
 					updated: "2026-01-01T03:00:00Z",
 				},
 				{
@@ -380,13 +487,27 @@ describe("the quests the desktop lists", () => {
 					kind: "quest",
 					"quest.kind": "quest",
 					status: "concluded",
-					parent: MISSION,
+					parent: MIDDLE,
+					// What the node proves a held session's orchestrator by, as
+					// an open quest's record says it (KP0L6A, 17 November): the
+					// orchestrator above, not the parent, and none of the sessions
+					// an open quest now answers for.
+					orchestrator: "MISSON",
+					sessions: [
+						"s-first",
+						"s-back",
+						"s-last",
+						"s-returned",
+						"s-attached",
+						"s-behind",
+					],
 					start: newer,
 					updated: "2026-01-01T03:00:00Z",
 				},
 			]);
 			expect(questsIn(index, nothingKnown, root).map((one) => one.id)).toEqual([
 				MISSION,
+				MIDDLE,
 			]);
 		} finally {
 			rmSync(newer, { recursive: true, force: true });
@@ -398,12 +519,59 @@ describe("the quests the desktop lists", () => {
 		const before = process.env.XDG_STATE_HOME;
 		process.env.XDG_STATE_HOME = state;
 		try {
+			// A session that went back to the ended quest: only the registry
+			// says so, since its README stamps keep its first attach to each.
+			// And one moved to it headless, after the registry last said where
+			// it was: its record's file is fresh from a heartbeat, but the
+			// record says it got to MISSION at 01:00, before OLD's stamp.
+			const stamps = (wired: string, headless: string) =>
+				[
+					"sessions:",
+					...entry("s-wired", wired),
+					...entry("s-headless", headless),
+				].join("\n");
+			const entry = (id: string, started: string) => [
+				`  - id: ${id}`,
+				`    cwd: ${elsewhere}`,
+				`    started: ${started}`,
+				"    status: detached",
+			];
 			quest(
 				MISSION,
-				"status: active\norchestrator: true",
+				`status: active\norchestrator: true\n${stamps("2026-01-01T02:00:00Z", "2026-01-01T00:30:00Z")}`,
 				"# Bootstrap optimus",
 			);
-			quest(OLD, "status: concluded", "# Old");
+			quest(
+				OLD,
+				`status: concluded\n${stamps("2026-01-01T01:00:00Z", "2026-01-01T02:00:00Z")}`,
+				"# Old",
+			);
+			mkdirSync(sessionRegistryDir(), { recursive: true });
+			writeFileSync(
+				join(sessionRegistryDir(), "s-wired.json"),
+				JSON.stringify({
+					sessionId: "s-wired",
+					instanceId: "i-wired",
+					cwd: elsewhere,
+					openedAt: "2026-01-01T00:30:00Z",
+					closedAt: "2026-01-01T02:30:00Z",
+					previousQuests: {
+						[MISSION]: "2026-01-01T02:10:00Z",
+						[OLD]: "2026-01-01T02:30:00Z",
+					},
+				}),
+			);
+			writeFileSync(
+				join(sessionRegistryDir(), "s-headless.json"),
+				JSON.stringify({
+					sessionId: "s-headless",
+					instanceId: "i-headless",
+					cwd: elsewhere,
+					openedAt: "2026-01-01T00:20:00Z",
+					quest: MISSION,
+					questSince: "2026-01-01T01:00:00Z",
+				}),
+			);
 
 			await keepDesktopListsCurrent(root);
 
@@ -415,8 +583,10 @@ describe("the quests the desktop lists", () => {
 				read(questIndexPath()).quests.map((one: { id: string }) => one.id),
 			).toEqual([MISSION]);
 			expect(
-				read(endedQuestsPath()).quests.map((one: { id: string }) => one.id),
-			).toEqual([OLD]);
+				read(endedQuestsPath()).quests.map(
+					(one: { id: string; sessions: string[] }) => [one.id, one.sessions],
+				),
+			).toEqual([[OLD, ["s-wired", "s-headless"]]]);
 		} finally {
 			if (before === undefined) delete process.env.XDG_STATE_HOME;
 			else process.env.XDG_STATE_HOME = before;
