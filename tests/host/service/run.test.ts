@@ -1112,7 +1112,9 @@ describe("runHost", () => {
 	});
 
 	it("keeps asking for each of the resumes that run together until its own ends", async () => {
-		const [, short, long] = await heldSome(3);
+		// The long one begins first, so the short one begins while it asks:
+		// a shared renewal would stop the long one's at the short one's start.
+		const [, long, short] = await heldSome(3);
 		const RENEW_MS = 10;
 		const lasts = new Map([
 			[short, 40],
@@ -1144,17 +1146,17 @@ describe("runHost", () => {
 		});
 		try {
 			const shortEnd =
-				ended.find(({ line }) => line.includes("resumed 2 of 3"))?.at ?? 0;
+				ended.find(({ line }) => line.includes("resumed 3 of 3"))?.at ?? 0;
 			const askedSince = (status: string) =>
 				asked.filter((ask) => ask.status === status && ask.at > shortEnd)
 					.length;
 			expect(shortEnd, "the short one ended").toBeGreaterThan(0);
 			expect(
-				askedSince(`resuming 2 of 3: ${short}`),
+				askedSince(`resuming 3 of 3: ${short}`),
 				"the short one asks no more once it ends",
 			).toBe(0);
 			expect(
-				askedSince(`resuming 3 of 3: ${long}`),
+				askedSince(`resuming 2 of 3: ${long}`),
 				"the long one goes on asking beside it",
 			).toBeGreaterThanOrEqual(3);
 		} finally {

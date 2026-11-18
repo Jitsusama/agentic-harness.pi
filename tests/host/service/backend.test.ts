@@ -425,6 +425,7 @@ describe("hostBackend", () => {
 					running += 1;
 					atBegin.push(running);
 					try {
+						// A real pause, so the resumes after the first overlap.
 						await new Promise((resolve) => setTimeout(resolve, 5));
 						if (entry.sessionId === fails)
 							throw new Error("pi would not open it");
@@ -461,6 +462,7 @@ describe("hostBackend", () => {
 				resume: vi.fn(async (entry) => {
 					running += 1;
 					try {
+						// A real pause, so some are still building when the last ends.
 						await new Promise((resolve) => setTimeout(resolve, 5));
 						register(entry);
 					} finally {
@@ -503,6 +505,7 @@ describe("hostBackend", () => {
 			const restart = engine({
 				resume: vi.fn(async (entry, _adopt, mark) => {
 					mark?.("log");
+					// A real pause, so each one's phases interleave with the others'.
 					await new Promise((resolve) => setTimeout(resolve, 5));
 					mark?.("screen");
 					register(entry);
@@ -513,7 +516,7 @@ describe("hostBackend", () => {
 				roster,
 				engine: restart.fake,
 				mark: (step, phase) => heard.push(`${step.sessionId} ${phase}`),
-				finished: (step) => heard.push(`${step.sessionId} done`),
+				finished: (step, end) => heard.push(`${step.sessionId} ${end}`),
 			});
 			for (const id of held)
 				expect(
@@ -524,8 +527,29 @@ describe("hostBackend", () => {
 					`${id} gate`,
 					`${id} log`,
 					`${id} screen`,
-					`${id} done`,
+					`${id} resumed`,
 				]);
+		});
+
+		it("says how each resume ended: resumed, left parked or not resumed", async () => {
+			const [first, resting, failing] = await holding(3);
+			const restart = engine({
+				restsParked: vi.fn((entry) => entry.sessionId === resting),
+				resume: vi.fn(async (entry) => {
+					if (entry.sessionId === failing)
+						throw new Error("pi would not open it");
+					register(entry);
+				}),
+			});
+			const ends = new Map<string, string>();
+			await resumeHeld({
+				roster,
+				engine: restart.fake,
+				finished: (step, end) => ends.set(step.sessionId, end),
+			});
+			expect([first, resting, failing].map((id) => ends.get(id ?? ""))).toEqual(
+				["resumed", "parked", "unresumed"],
+			);
 		});
 	});
 

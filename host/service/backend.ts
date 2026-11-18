@@ -69,7 +69,9 @@ export interface ConversationEngine {
 	/**
 	 * A start is about to resume `held`, what the host holds: carry on none
 	 * of the runs a restart cut off until resumed says it has resumed them
-	 * all, so they go in the whole start's order, a few at a time.
+	 * all, so they go a few at a time in the whole start's order: the
+	 * order they asked in, which is roughly the order held, since a few
+	 * resume at once.
 	 */
 	resuming?(held: readonly string[]): void;
 	/** The start has resumed everything it holds; the runs it cut off may go. */
@@ -542,6 +544,9 @@ export type ResumePhase =
 	| "screen"
 	| "recovery";
 
+/** How a resume a start began ended: built, left parked, or still held unbuilt. */
+export type ResumeEnd = "resumed" | "parked" | "unresumed";
+
 /** A held conversation a starting host is about to resume, counted from one. */
 export interface Resuming {
 	readonly step: "resume";
@@ -644,7 +649,9 @@ export const RESUME_AT_ONCE = 4;
  * resumed, parked or failed, under its own step, since several run at once.
  * The runs a restart cut off wait until the last has resumed
  * (`resuming`, then `resumed`, also when one throws), so a few go at a
- * time in the whole start's order rather than racing the resumes.
+ * time in the whole start's order rather than racing the resumes; that
+ * order is the one they asked in, roughly the order held, since a few
+ * resume at once.
  * One no longer held when its turn comes, closed while the start ran,
  * is passed over.
  */
@@ -654,7 +661,7 @@ export async function resumeHeld(options: {
 	admitAnother?: AdmitAnother;
 	starting?: (step: Resuming) => Promise<void>;
 	mark?: (step: Resuming, phase: ResumePhase) => void;
-	finished?: (step: Resuming) => void;
+	finished?: (step: Resuming, end: ResumeEnd) => void;
 	order?: HeldOrder;
 }): Promise<HeldResumed> {
 	const resumed: string[] = [];
@@ -675,6 +682,7 @@ export async function resumeHeld(options: {
 		};
 		const mark = (phase: ResumePhase) => options.mark?.(step, phase);
 		let began = false;
+		let end: ResumeEnd = "unresumed";
 		try {
 			if (
 				!options.roster.entries().some((held) => held.sessionId === sessionId)
@@ -691,17 +699,19 @@ export async function resumeHeld(options: {
 			mark("ask");
 			if (options.engine.restsParked?.(entry)) {
 				parked.push(sessionId);
+				end = "parked";
 				return;
 			}
 			if (resumed.length > 0) await options.admitAnother?.();
 			mark("gate");
 			await options.engine.resume(entry, false, mark);
 			resumed.push(sessionId);
+			end = "resumed";
 		} catch (reason) {
 			unresumed.push({ sessionId, reason });
 		} finally {
 			order.settled(sessionId);
-			if (began) options.finished?.(step);
+			if (began) options.finished?.(step, end);
 		}
 	}
 

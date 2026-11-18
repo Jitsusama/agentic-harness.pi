@@ -30,6 +30,7 @@ import {
 	type HostBackend,
 	heldOrder,
 	hostBackend,
+	type ResumeEnd,
 	type ResumePhase,
 	type Resuming,
 	resumeHeld,
@@ -117,7 +118,7 @@ export async function serveHost(options: {
 	/** Hears each phase of a conversation being resumed as it ends. */
 	mark?: (step: Resuming, phase: ResumePhase) => void;
 	/** Hears a resume that `starting` heard end, resumed, parked or failed. */
-	finished?: (step: Resuming) => void;
+	finished?: (step: Resuming, end: ResumeEnd) => void;
 }): Promise<ServingHost> {
 	const admitAnother = options.rollout ?? hostRolloutGate();
 	const key = hostKey(options.realm, options.kind);

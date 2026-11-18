@@ -41,7 +41,12 @@ import { stateDir } from "../../lib/internal/paths.ts";
 import { withPi } from "../../lib/internal/priority/place.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostRealm } from "./address.ts";
-import type { ConversationEngine, ResumePhase, Resuming } from "./backend.ts";
+import type {
+	ConversationEngine,
+	ResumeEnd,
+	ResumePhase,
+	Resuming,
+} from "./backend.ts";
 import { type HoldWatchOptions, watchHolds } from "./hold-watch.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
@@ -223,6 +228,16 @@ export interface HostRun {
 	readonly stopped: Promise<void>;
 }
 
+/**
+ * How the journal says a resume ended, so a failed or parked one isn't
+ * read as resumed; why one failed is said in its own line.
+ */
+const ENDED_AS: Record<ResumeEnd, string> = {
+	resumed: "resumed",
+	parked: "left parked",
+	unresumed: "could not resume",
+};
+
 /** The host's kind from its command line, refusing anything else. */
 export function hostKind(argv: readonly string[]): HostKind {
 	const [kind, ...rest] = argv;
@@ -256,14 +271,14 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const mark = (step: Resuming, phase: ResumePhase) => {
 		resuming.get(step.number)?.phases.push({ phase, at: Date.now() });
 	};
-	const finished = (step: Resuming) => {
+	const finished = (step: Resuming, end: ResumeEnd) => {
 		const under = resuming.get(step.number);
 		if (!under) return;
 		resuming.delete(step.number);
 		under.renewing?.();
 		const now = Date.now();
 		say(
-			`${since()}: resumed ${step.number} of ${step.of} in ${seconds(now - under.at)}${phaseTimes(under.at, under.phases, now)}`,
+			`${since()}: ${ENDED_AS[end]} ${step.number} of ${step.of} in ${seconds(now - under.at)}${phaseTimes(under.at, under.phases, now)}`,
 		);
 	};
 	const ask = async (status: string) => {

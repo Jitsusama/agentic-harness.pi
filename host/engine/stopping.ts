@@ -47,7 +47,8 @@ export interface StopKeeping {
 	 * End what a conversation's tools left running, sparing what is carried
 	 * or kept. Between `resuming` and `resumed`, the first reap of each
 	 * conversation the start holds looks first at what one reading of the
-	 * table, taken at the start's first such reap, named for it.
+	 * table, taken at the start's first such reap, named for it. A close's
+	 * reap in `dropped` always reads the table for itself.
 	 */
 	reap(sessionId: string): Promise<void>;
 	/**
@@ -74,7 +75,11 @@ export interface StopKeeping {
 export function stopKeeping(options: {
 	readonly stateDir: string;
 	readonly report: (error: unknown) => void;
-	/** The process table reaps read; Linux's /proc by default. */
+	/**
+	 * The process table a conversation's reaps read; Linux's /proc by
+	 * default. What an earlier host left and what ended calls left are
+	 * read from /proc as before.
+	 */
 	readonly table?: ProcessTable;
 }): StopKeeping {
 	const { report } = options;
@@ -94,7 +99,24 @@ export function stopKeeping(options: {
 	const handedOn = new Set<string>();
 
 	async function reap(sessionId: string): Promise<void> {
-		const among = await startScanFor(sessionId);
+		await reapAmong(sessionId, await startScanFor(sessionId));
+	}
+
+	/**
+	 * A reap that reads the table for itself, even as the first of a held
+	 * conversation: a close's, once what its parks kept is no longer
+	 * spared, since a kept command may have started more since the
+	 * start's reading.
+	 */
+	async function reapAfresh(sessionId: string): Promise<void> {
+		start?.unreaped.delete(sessionId);
+		await reapAmong(sessionId, undefined);
+	}
+
+	async function reapAmong(
+		sessionId: string,
+		among: readonly number[] | undefined,
+	): Promise<void> {
 		await reapToolChildren(
 			sessionId,
 			table,
@@ -122,7 +144,12 @@ export function stopKeeping(options: {
 			if (!current.failed) {
 				current.failed = true;
 				current.unreaped.clear();
-				report(error);
+				report(
+					new Error(
+						"The start's one reading of the process table failed, so each reap reads it for itself",
+						{ cause: error },
+					),
+				);
 			}
 			return undefined;
 		}
@@ -199,7 +226,7 @@ export function stopKeeping(options: {
 			// as a running one's close ends it; released, it is kept.
 			if (!handedOn.delete(sessionId) && endKept(sessionId))
 				try {
-					await reap(sessionId);
+					await reapAfresh(sessionId);
 				} catch (error) {
 					// The close goes on; what the reap missed runs out the day it was kept for.
 					report(error);

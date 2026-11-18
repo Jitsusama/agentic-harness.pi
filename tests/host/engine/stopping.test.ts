@@ -4,15 +4,17 @@
  * and every other reap (a held one's second, one the start doesn't hold,
  * one after a failed reading, or any outside a start) reads it whole.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { LEFT_FILE } from "../../../host/engine/left-running.ts";
 import { stopKeeping } from "../../../host/engine/stopping.ts";
 import {
 	conversationMarker,
 	type ProcessTable,
 } from "../../../host/engine/tool-children.ts";
+import { CALL_VARIABLE } from "../../../lib/internal/shell/reap.ts";
 
 /** The host the table's processes ran under: pid 1, started at tick 0. */
 const HOST = { key: "test-host", mark: "1:0" };
@@ -57,9 +59,18 @@ describe("a start's reaps", () => {
 	afterEach(() => {
 		for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true });
 	});
-	function keeping(table: ProcessTable, reported: unknown[] = []) {
+	function keeping(
+		table: ProcessTable,
+		reported: unknown[] = [],
+		kept: readonly { session: string; mark: string }[] = [],
+	) {
 		const stateDir = mkdtempSync(join(tmpdir(), "stopping-"));
 		dirs.push(stateDir);
+		if (kept.length > 0)
+			writeFileSync(
+				join(stateDir, LEFT_FILE),
+				JSON.stringify(kept.map((call) => ({ ...call, at: Date.now() }))),
+			);
 		return stopKeeping({
 			stateDir,
 			report: (error) => reported.push(error),
@@ -114,6 +125,19 @@ describe("a start's reaps", () => {
 		]);
 	});
 
+	it("read it whole for a held conversation's close, whose kept command may have started more since", async () => {
+		const kept = { ...conversationMarker("a", HOST), [CALL_VARIABLE]: "k1" };
+		const table = countingTable({ 1: {}, 10: kept });
+		const stopping = keeping(table, [], [{ session: "a", mark: "k1" }]);
+		stopping.resuming(["a", "b"]);
+		await stopping.reap("b");
+		// The kept command started a child after the start's reading, then ended.
+		table.live.set(50, kept);
+		table.live.delete(10);
+		await stopping.dropped("a");
+		expect(table.killed, "the child the reading never saw").toEqual([50]);
+	});
+
 	it("say a failed reading once, and each reap then reads for itself", async () => {
 		const table = countingTable(
 			{
@@ -126,13 +150,27 @@ describe("a start's reaps", () => {
 		const reported: unknown[] = [];
 		const stopping = keeping(table, reported);
 		stopping.resuming(["a", "b", "c"]);
-		await stopping.reap("a");
-		await stopping.reap("b");
-		await stopping.reap("c");
-		expect(reported.map(String), "the failure, once").toEqual([
-			"Error: /proc refused",
+		// Together, so all three hear the one failed reading.
+		await Promise.all([
+			stopping.reap("a"),
+			stopping.reap("b"),
+			stopping.reap("c"),
 		]);
-		expect(table.killed, "each found by its own reading").toEqual([10, 20]);
+		expect(
+			reported.map((error) =>
+				error instanceof Error ? [error.message, String(error.cause)] : error,
+			),
+			"the failure, once, saying what failed",
+		).toEqual([
+			[
+				"The start's one reading of the process table failed, so each reap reads it for itself",
+				"Error: /proc refused",
+			],
+		]);
+		expect(
+			[...table.killed].sort((x, y) => x - y),
+			"each found by its own reading",
+		).toEqual([10, 20]);
 		expect(
 			table.listed,
 			"the failed one, then each its own, and again after each kill",
