@@ -18,12 +18,16 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionHost } from "../../../host/engine/index.ts";
+import { hostKey } from "../../../host/service/address.ts";
 import type { ConversationEngine } from "../../../host/service/backend.ts";
 import { controlRequest } from "../../../host/service/client.ts";
-import type { BeatOptions } from "../../../host/service/hold-watch.ts";
+import type {
+	BeatOptions,
+	ProfileOptions,
+} from "../../../host/service/hold-watch.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
 import { hostKind, runHost, watchdogEvery } from "../../../host/service/run.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
@@ -423,6 +427,7 @@ describe("runHost's watchdog", () => {
 		const serve = async (extra: NodeJS.ProcessEnv) => {
 			const watches = { started: 0, stopped: 0 };
 			const beats: (BeatOptions | undefined)[] = [];
+			const profiles: (ProfileOptions | undefined)[] = [];
 			const signals = new EventEmitter();
 			const run = await runHost({
 				argv: ["background"],
@@ -434,6 +439,7 @@ describe("runHost's watchdog", () => {
 				alive: async () => {},
 				holds: (watch) => {
 					beats.push(watch.beat);
+					profiles.push(watch.profile);
 					watches.started += 1;
 					return () => {
 						watches.stopped += 1;
@@ -446,10 +452,17 @@ describe("runHost's watchdog", () => {
 			const running = { ...watches };
 			signals.emit("SIGTERM");
 			await run.stopped;
-			return { running, stopped: watches, beats };
+			return { running, stopped: watches, beats, profiles };
 		};
 		const socket = { ...WATCHED, NOTIFY_SOCKET: "/run/systemd/notify" };
 		const watched = await serve(socket);
+		const folder = watched.profiles[0]?.folder ?? "";
+		expect(
+			folder.endsWith(
+				["", "host-service", hostKey("work", "background"), "held"].join(sep),
+			),
+			`a spin profiled into the host's own state: ${folder}`,
+		).toBe(true);
 		expect(
 			watched.beats.map((beat) => beat?.every),
 			"beats for a loop in the disk as often as the loop beats",

@@ -11,6 +11,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	openSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	symlinkSync,
@@ -591,6 +592,99 @@ describe("watchHolds", () => {
 				);
 			},
 		);
+	});
+
+	describe("profiling a spin", () => {
+		/** The profiles kept so far, oldest first. */
+		const kept = (folder: string): string[] =>
+			existsSync(folder)
+				? readdirSync(folder)
+						.filter((name) => name.endsWith(".cpuprofile"))
+						.sort()
+				: [];
+
+		/** The lines that say a profile was taken, or couldn't be. */
+		const profiled = (): string[] =>
+			said().filter((line) => /profil/.test(line));
+
+		it("profiles the main thread once a spin's hold is long, saying where it spun", async () => {
+			const folder = join(dir, "held");
+			stop = watchHolds({
+				fd,
+				every: EVERY_MS,
+				after: 300,
+				still: 60_000,
+				profile: { after: 600, for: 500, folder },
+			});
+			// A turn first, so the thread has started and seen the loop move.
+			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+			hold(2500);
+			await vi.waitFor(() => {
+				expect(profiled().join("\n"), "a profile said").toMatch(
+					/profiled the held loop/,
+				);
+			});
+			const lines = profiled();
+			expect(
+				lines,
+				`one profile in one hold: ${lines.join(" | ")}`,
+			).toHaveLength(1);
+			expect(lines[0], "the file it spun in").toContain("hold-watch.test.ts");
+			const files = kept(folder);
+			expect(files, "the profile kept").toHaveLength(1);
+			expect(lines[0], "says where it is kept").toContain(files[0]);
+			const taken: unknown = JSON.parse(
+				readFileSync(join(folder, files[0] ?? ""), "utf8"),
+			);
+			expect(taken, "a CPU profile, with its samples").toMatchObject({
+				nodes: expect.any(Array),
+				samples: expect.any(Array),
+			});
+		});
+
+		it("keeps only the newest profiles", async () => {
+			const folder = join(dir, "held");
+			stop = watchHolds({
+				fd,
+				every: EVERY_MS,
+				after: 300,
+				still: 60_000,
+				profile: { after: 400, for: 300, folder, keep: 2 },
+			});
+			for (let time = 1; time <= 3; time += 1) {
+				// A turn between holds, so each is a hold of its own.
+				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				hold(1500);
+				await vi.waitFor(() => {
+					expect(profiled(), `profile ${time} said`).toHaveLength(time);
+				});
+			}
+			const named = profiled().map(
+				(line) => /(held-[^ ]+\.cpuprofile)/.exec(line)?.[1],
+			);
+			expect(kept(folder), "the newest two").toEqual(named.slice(1));
+		});
+
+		it("keeps no profile past its size, and says so", async () => {
+			const folder = join(dir, "held");
+			stop = watchHolds({
+				fd,
+				every: EVERY_MS,
+				after: 300,
+				still: 60_000,
+				profile: { after: 400, for: 300, folder, most: 10 },
+			});
+			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+			hold(1500);
+			await vi.waitFor(() => {
+				expect(profiled(), "a profile said").toHaveLength(1);
+			});
+			expect(profiled()[0], "where it spun, still").toContain(
+				"hold-watch.test.ts",
+			);
+			expect(profiled()[0], "too large to keep").toMatch(/too large to keep/);
+			expect(kept(folder), "nothing kept").toEqual([]);
+		});
 	});
 
 	it("says nothing while the loop turns, nor once stopped", async () => {

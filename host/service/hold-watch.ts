@@ -186,6 +186,22 @@ export interface HoldWatchOptions {
 	readonly proc?: string;
 	/** Beat the watchdog for a loop asleep in the disk, as this says; none by default. */
 	readonly beat?: BeatOptions;
+	/** Profile the main thread through a long spin, as this says; none by default. */
+	readonly profile?: ProfileOptions;
+}
+
+/** How the thread profiles the main thread through a long spin. */
+export interface ProfileOptions {
+	/** The folder profiles are kept in, made if it is missing. */
+	readonly folder: string;
+	/** How long into a hold it profiles, in ms; PROFILE_AFTER_MS by default. */
+	readonly after?: number;
+	/** How long a profile samples, in ms; PROFILE_FOR_MS by default. */
+	readonly for?: number;
+	/** How many profiles the folder keeps; PROFILES_KEPT by default. */
+	readonly keep?: number;
+	/** The largest profile kept, in bytes; PROFILE_MOST_BYTES by default. */
+	readonly most?: number;
 }
 
 /** How the thread beats systemd's watchdog for a loop asleep in the disk. */
