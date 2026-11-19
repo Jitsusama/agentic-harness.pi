@@ -137,6 +137,10 @@ interface Seen {
 	/** The process's listeners for each event, once pi loaded and once the step was done. */
 	/** Whether an open on a waiting command answered while it still waited. */
 	readonly answeredWhileWaiting?: boolean;
+	/** Whether the open answered while the run its first words met still waited on its answer. */
+	readonly openedWhileRunning?: boolean;
+	/** Whether durable held each word pi queued behind that run, as the open answered. */
+	readonly heldAsOpened?: readonly boolean[];
 	/** Whether an attended open answered while its screen asked whether to trust its folder. */
 	readonly answeredWhileAsking?: boolean;
 	/** The trust question its screen was asked, and whether it named that conversation and folder. */
@@ -803,6 +807,40 @@ describe("the host's engine", () => {
 			expect(seen.logs).toEqual({ resting: ["read"] });
 		},
 		2 * HOST_LIFE_MS,
+	);
+
+	it(
+		"answers an open whose first words an extension took for itself, asking no model",
+		async () => {
+			const seen = await step(hostFolder(), "open-handled");
+			expect(
+				seen.transcript,
+				"the words an extension handled reach no model",
+			).toEqual([]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"answers an open whose first words meet a run under way only once durable holds them, then answers them after it",
+		async () => {
+			const seen = await step(hostFolder(), "open-into-run");
+			expect(
+				seen.openedWhileRunning,
+				"the open answers while the run its words met still waits",
+			).toBe(true);
+			expect(
+				seen.heldAsOpened,
+				"durable holds the queued first words by the time the open answers",
+			).toEqual([true]);
+			expect(seen.transcript, "the run goes first, then the words").toEqual([
+				"user: warm up",
+				"assistant: warmed up",
+				"user: meet a run",
+				"assistant: went on",
+			]);
+		},
+		HOST_LIFE_MS,
 	);
 
 	it(

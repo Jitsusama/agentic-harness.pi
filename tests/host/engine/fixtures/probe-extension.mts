@@ -9,8 +9,11 @@
  * waits, as a command asking a person does, until the host calls what it
  * leaves at WAIT_RELEASE. First words of ASK_ME are held by its input
  * handler until the person answers a select, as an extension asking
- * before a prompt goes on does. It is an .mts, like the
- * programs beside it, because it is copied rather than imported.
+ * before a prompt goes on does. First words of HANDLE_IT its input
+ * handler takes for itself; before first words of MEET_A_RUN go on, it
+ * begins a run of pi's with WARM_UP, so they meet that run under way. It
+ * is an .mts, like the programs beside it, because it is copied rather
+ * than imported.
  */
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -22,6 +25,7 @@ interface ProbeContext {
 		select(title: string, labels: string[]): Promise<string | undefined>;
 	};
 	newSession(): Promise<{ cancelled: boolean }>;
+	isIdle(): boolean;
 }
 
 /** The few of pi's extension calls the probe makes. */
@@ -40,6 +44,7 @@ interface ProbeApi {
 			handler: (args: string, context: ProbeContext) => Promise<void>;
 		},
 	): void;
+	sendUserMessage(content: string): Promise<void>;
 	getAllTools(): readonly { name: string; exposure: string }[];
 	getActiveTools(): readonly string[];
 	readonly events: {
@@ -53,6 +58,21 @@ const AMBIENT = Symbol.for("agentic-harness.session.ambient.v1");
 
 /** First words the probe's input handler asks the person about before they go on. */
 const ASK_ME = "ask me first";
+
+/** First words the probe's input handler takes for itself, so pi calls them handled. */
+const HANDLE_IT = "handle it";
+
+/** First words the probe lets go on only once a run of pi's it began is under way. */
+const MEET_A_RUN = "meet a run";
+
+/** The words that begin that run. */
+const WARM_UP = "warm up";
+
+/** How long the probe waits for the run it began to be under way. */
+const RUN_UNDER_WAY_MOST_MS = 10_000;
+
+/** How often it looks. */
+const RUN_LOOK_MS = 10;
 
 /** Where `/probe-wait` leaves what ends its wait, for the host in the same process. */
 const WAIT_RELEASE = Symbol.for("test-host.probe-wait.release");
@@ -132,6 +152,19 @@ export default function probeExtension(pi: ProbeApi): void {
 	});
 
 	pi.on("input", async (event, context) => {
+		if (event.text === HANDLE_IT) return { action: "handled" };
+		if (event.text === MEET_A_RUN) {
+			pi.sendUserMessage(WARM_UP).catch((error: unknown) =>
+				note({ event: "warm-up-refused", error: String(error) }),
+			);
+			for (let waited = 0; context.isIdle(); waited += RUN_LOOK_MS) {
+				if (waited > RUN_UNDER_WAY_MOST_MS)
+					throw new Error("The run the probe began never got under way");
+				// pi says nothing as a run gets under way, so the probe looks.
+				await new Promise((done) => setTimeout(done, RUN_LOOK_MS));
+			}
+			return { action: "continue" };
+		}
 		if (event.text !== ASK_ME) return { action: "continue" };
 		const answer = await context.ui.select("Go on?", ["Yes", "No"]);
 		note({ event: "input-asked", answer });
