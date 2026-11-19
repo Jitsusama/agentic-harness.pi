@@ -26,6 +26,9 @@
  * machines its sentence names, out of those it is given; none when it
  * names none, or when it also acts on one it doesn't name ("this
  * machine", "your laptop", "here"), so every machine is checked.
+ *
+ * Long because it is one reader: each pattern bounds the cases another
+ * would misread, so they are read and changed together.
  */
 
 import { isMachineName } from "../machine/machine.ts";
@@ -638,6 +641,10 @@ function actsIn(
 	return acts;
 }
 
+/** The acts' words, in any form. */
+const ACT_WORDS =
+	"re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|shut(?:s|ting)?\\s*down|shutdown|shut(?:s|ting)?|power(?:s|ed|ing)?\\s*(?:off|down)|power-?cycle|turn(?:s|ed|ing)?\\s+off|log(?:s|ged|ging)?[\\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\\s-]*out|switch(?:es|ed|ing)?\\s+(?:the\\s+)?users?";
+
 /** Verbs that open a step to take. */
 const STEP_VERBS =
 	"open|reopen|close|quit|pair|re-?pair|check|run|rerun|type|press|click|tap|hit|sign|log|plug|unplug|insert|select|choose|pick|enter|go|come|wait|tell|say|ping|message|start|launch|confirm|verify|test|use|connect|try|set|turn|unlock|make|look|see|switch|hold|keep|leave|put|move|update|upgrade|install|uninstall|reinstall|remove|reset|rebuild|build|pull|push|sync|fetch|restore|save|kill|stop|resume|rejoin|join|enable|disable|add|delete|mount|unmount|charge|copy|paste|edit|change|write|read|scan|apply|accept|approve|allow|grant|give|take|grab|wake|lock|disconnect|reconnect|unpair|find|follow|mark|note|call|answer|reply|refresh|reload|relaunch|return|bring|drag|drop|swipe|scroll|dismiss|remember";
@@ -647,7 +654,7 @@ const STEP_VERBS =
  * imperative of another step before it: "save your work and".
  */
 const OPENING = new RegExp(
-	`^(?:(?:please|then|now|next|so|ok(?:ay)?|first|finally|lastly|also|afterwards?|and|but|just|joel|kindly|let's|let\\s+us|go\\s+ahead\\s+and|(?:when|whenever)\\s+you\\s+can|at\\s+your\\s+convenience|after\\s+that|tonight|step\\s+\\d+)\\s*(?:[,:]|-{1,2})?|try\\s+to|(?:${STEP_VERBS}|finish|wrap\\s+up|commit|park|skip|cancel)\\b[^,;:.!?]{0,60}?\\s+(?:and(?:\\s+then)?|then))\\s+`,
+	`^(?:(?:please|then|now|next|so|ok(?:ay)?|first|finally|lastly|also|afterwards?|and|but|just|joel|kindly|let's|let\\s+us|go\\s+ahead\\s+and|(?:when|whenever)\\s+you\\s+can|at\\s+your\\s+convenience|after\\s+that|tonight|step\\s+\\d+)\\s*(?:[,:]|-{1,2})?|try\\s+to|(?:${STEP_VERBS}|finish|wrap\\s+up|commit|park|skip|cancel)\\b[^,;:.!?]{0,60}?(?<!\\b(?:${ACT_WORDS}))\\s+(?:and(?:\\s+then)?|then))\\s+`,
 );
 
 /**
@@ -694,10 +701,6 @@ const IMPERATIVE = new RegExp(
 /** An act offered to try, which asks for it as an imperative does. */
 const TRY =
 	/^try\s+(?:re-?booting|restarting|shutting\s*down|powering\s*(?:off|down)|logging[\s-]*(?:out|off)|signing[\s-]*out|switching\s+users?)\b/;
-
-/** The acts' words, in any form. */
-const ACT_WORDS =
-	"re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|shut(?:s|ting)?\\s*down|shutdown|shut(?:s|ting)?|power(?:s|ed|ing)?\\s*(?:off|down)|power-?cycle|turn(?:s|ed|ing)?\\s+off|log(?:s|ged|ging)?[\\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\\s-]*out|switch(?:es|ed|ing)?\\s+(?:the\\s+)?users?";
 
 /** Words that turn an act down. */
 const DECLINE =
@@ -810,6 +813,10 @@ const YOURS_LATER = /^you(?:'ll|'d)$/;
 /** What "you'll" says before a step: "you'll need to". */
 const LATER_TO_DO = /^(?:need|have|want)$/;
 
+/** What follows a comma when it only says what ends: "every session ends". */
+const ONLY_ENDS =
+	/,\s+[^.;!?]*\b(?:end|ends|ended|close|closes|closed|stop|stops|stopped|exit|exits|die|dies|quit|quits|lose|loses|lost|go\s+away|goes\s+away)\b/;
+
 /** A log-out said with its log-in after: "once you log out and back in". */
 const AND_BACK_IN =
 	/^(?:once|after|when|as\s+soon\s+as)\s+you\s+(?:log|sign)[\s-]*(?:out|off)\s+and\s+(?:(?:log|sign)\s+)?back\s+in\b/;
@@ -834,7 +841,7 @@ const STEP = new RegExp(`^(?:please|don't|let's|${STEP_VERBS})$`);
 function doneFirstNow(plain: string, words: string): boolean {
 	const machine = new RegExp(`^(?:${words})$`);
 	return openingsOf(plain).some((opening) => {
-		if (AND_BACK_IN.test(opening)) return true;
+		if (AND_BACK_IN.test(opening) && !ONLY_ENDS.test(opening)) return true;
 		const [, next, after = ""] = DONE_FIRST_NOW.exec(opening) ?? [];
 		if (next === undefined) return false;
 		if (STEP.test(next)) return true;
@@ -881,7 +888,7 @@ const LISTED_ACT = new RegExp(`\\b(?:${ACT_WORDS})\\s*$`);
  * rebooting, log out".
  */
 const DECLINING_LEAD = new RegExp(
-	`(?:^|\\s)(?:${DECLINE}|no\\s+need\\s+to|(?:don't|do\\s+not|won't)\\s+(?:need|have)\\s+to|instead\\s+of|rather\\s+than|rather\\s+not)\\s+(?:(?:the|a)\\s+)?(?:${ACT_WORDS})\\s*$`,
+	`(?:^|\\s)(?:${DECLINE}|no\\s+need\\s+to|(?:don't|do\\s+not|won't)\\s+(?:need|have)\\s+to|instead\\s+of|rather\\s+than|rather\\s+not)\\s+(?:(?:the|a)\\s+)?(?:${ACT_WORDS})(?:\\s+[\\w'.-]+){0,3}?\\s*$`,
 );
 
 /** Acts that go on a list after a decline: "log out or restart". */
@@ -912,12 +919,19 @@ function declinedLead(head: string, rest: string): boolean {
 	return DECLINING_LEAD.test(head) && !LIST_GOES_ON.test(rest);
 }
 
-/** A sentence past a lead-in that turns its act down, or as it is. */
+/**
+ * A sentence without the act a lead-in turns down, keeping what the
+ * lead-in asked before it: "log out without rebooting, then pair" reads
+ * as "log out, then pair".
+ */
 function pastDeclinedLead(plain: string): string {
 	const lead = LEAD_IN.exec(plain);
 	if (lead === null) return plain;
+	const head = lead[1] ?? "";
 	const rest = plain.slice(lead[0].length);
-	return declinedLead(lead[1] ?? "", rest) ? rest : plain;
+	const declined = DECLINING_LEAD.exec(head);
+	if (declined === null || LIST_GOES_ON.test(rest)) return plain;
+	return `${head.slice(0, declined.index)}, ${rest}`;
 }
 
 /** Whether a sentence asks, `words` being what names a machine. */

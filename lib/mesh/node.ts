@@ -15,6 +15,9 @@
  * session's own, as `MYCELIUM_REALM` names it, since a machine in two
  * realms runs a node for each; else the one the node last ran in, as it
  * keeps it.
+ *
+ * Long because it is the node's one client: every question asked of its
+ * socket shares the same framing, patience and reading of the answer.
  */
 
 import { readdirSync, readFileSync } from "node:fs";

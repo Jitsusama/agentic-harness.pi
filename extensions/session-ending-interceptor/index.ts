@@ -89,22 +89,26 @@ const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
 };
 
 /**
- * Whether the model has been told of a withheld reply in this run, so
- * however many are withheld it is told once, until the run settles;
+ * How often the model has been told of a withheld reply in this run,
+ * so a rephrase withheld again is said too, up to TELLS_PER_RUN and no
+ * more, lest a model that keeps asking loops until the run settles;
  * which run this is; and the asks it was told of in it, the only ones a
  * reply may override by asking again.
  */
 interface Told {
-	thisRun: boolean;
+	tells: number;
 	run: string;
 	readonly keys: Set<string>;
 }
+
+/** How many withheld replies in a run the model is told of. */
+const TELLS_PER_RUN = 3;
 
 /** The interceptor, reading the node and the machine through `deps`. */
 export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	return (pi: ExtensionAPI): void => {
 		declareGuards(GUARD);
-		const told: Told = { thisRun: false, run: randomUUID(), keys: new Set() };
+		const told: Told = { tells: 0, run: randomUUID(), keys: new Set() };
 		pi.on("tool_call", (event, ctx) =>
 			refuseCall(event.toolName, event.input, ctx, deps),
 		);
@@ -112,7 +116,7 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 			withholdReply(pi, event.message, ctx, deps, told),
 		);
 		pi.on("agent_settled", () => {
-			told.thisRun = false;
+			told.tells = 0;
 			told.run = randomUUID();
 			told.keys.clear();
 		});
@@ -208,7 +212,7 @@ async function withholdReply<M extends { role: string }>(
 	const stopped =
 		"stopReason" in message &&
 		(message.stopReason === "aborted" || message.stopReason === "error");
-	const telling = !stopped && !told.thisRun;
+	const telling = !stopped && told.tells < TELLS_PER_RUN;
 	const mode = guardMode(GUARD.name);
 	const silent =
 		(stopped && mode !== "off") ||
@@ -223,7 +227,7 @@ async function withholdReply<M extends { role: string }>(
 	);
 	if (!verdict) return undefined;
 	if (telling) {
-		told.thisRun = true;
+		told.tells += 1;
 		told.keys.add(refusal.key);
 		const reason = verdict.reason.replace(OVERRIDE_HINT, REPLY_OVERRIDE_HINT);
 		pi.sendMessage(

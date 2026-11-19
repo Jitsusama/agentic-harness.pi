@@ -481,16 +481,18 @@ describe("a reply", () => {
 		).toEqual([]);
 	});
 
-	it("tells the model once a run, however many replies are withheld in it", async () => {
+	it("tells the model of each reply withheld in a run, up to three of them", async () => {
 		await reply(text("Please reboot equilibrius."));
-		const again = await reply(text("Then reboot equilibrius, please."));
-		expect(pi.recorded.sent).toHaveLength(1);
-		expect(JSON.stringify(again)).toContain("(Withheld:");
-		expect(JSON.stringify(again)).not.toContain("The reason follows");
+		await reply(text("Then reboot equilibrius, please."));
+		await reply(text("Reboot equilibrius, please."));
+		const fourth = await reply(text("Reboot equilibrius now, please."));
+		expect(pi.recorded.sent).toHaveLength(3);
+		expect(JSON.stringify(fourth)).toContain("(Withheld:");
+		expect(JSON.stringify(fourth)).not.toContain("The reason follows");
 
 		await settle();
 		await reply(text("Reboot equilibrius now."));
-		expect(pi.recorded.sent).toHaveLength(2);
+		expect(pi.recorded.sent).toHaveLength(4);
 	});
 
 	it("tells the model as a follow-up that doesn't start a run of its own", async () => {
@@ -534,9 +536,11 @@ describe("a reply", () => {
 		expect(await reply(text("Please reboot equilibrius."))).toBeDefined();
 	});
 
-	it("keeps no override, when the guard redirects, for a second ask withheld silently in a run", async () => {
+	it("keeps no override, when the guard redirects, for an ask withheld silently past a run's tells", async () => {
 		setSessionMode(GUARD, "redirect");
 		await reply(text("Please reboot equilibrius."));
+		await reply(text("Please shut down equilibrius."));
+		await reply(text("Please switch users on equilibrius."));
 		await reply(text("Please log out of macOS on equilibrius."));
 
 		expect(
