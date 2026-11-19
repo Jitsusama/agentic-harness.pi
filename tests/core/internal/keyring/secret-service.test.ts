@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type KeyringEntry,
 	secretServiceStore,
+	whatWentWrong,
 } from "../../../../lib/core/internal/keyring/secret-service.ts";
 
 /** Entries in memory, opened as the native module opens them. */
@@ -57,5 +58,38 @@ describe("secretServiceStore", () => {
 		await expect(store.write("slack-credentials", "v")).rejects.toThrow(
 			/prompt dismissed/,
 		);
+	});
+});
+
+describe("whatWentWrong", () => {
+	it("takes the first line that heads an error, not a later one", () => {
+		expect(
+			whatWentWrong(
+				"file:///call.mjs:3\n  ^\n\nTypeError: the headline\n    at x\n  [cause]: RangeError: a later one\n",
+			),
+		).toBe("TypeError: the headline");
+	});
+
+	it("says a Rust panic's message and where it panicked", () => {
+		expect(
+			whatWentWrong(
+				"thread '<unnamed>' panicked at src/lib.rs:4:9:\ncalled `Option::unwrap()` on a `None` value\nnote: run with `RUST_BACKTRACE=1`\n",
+			),
+		).toBe(
+			"called `Option::unwrap()` on a `None` value (panicked at src/lib.rs:4:9)",
+		);
+	});
+
+	it("keeps all of what names no error, on one line and cut short", () => {
+		expect(whatWentWrong("the call\n\ncould not start\n")).toBe(
+			"the call / could not start",
+		);
+		const long = whatWentWrong("x".repeat(400)) ?? "";
+		expect(long).toHaveLength(301);
+		expect(long.endsWith("…")).toBe(true);
+	});
+
+	it("says nothing when stderr was empty", () => {
+		expect(whatWentWrong("\n  \n")).toBeUndefined();
 	});
 });

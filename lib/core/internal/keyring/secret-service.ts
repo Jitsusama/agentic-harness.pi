@@ -82,18 +82,37 @@ function answerIn(line: string): Answered | Error {
 	return typeof parsed.error === "string" ? new Error(parsed.error) : parsed;
 }
 
+/** The longest reason kept from stderr that names no error. */
+const REASON_LENGTH = 300;
+
 /**
- * The one line of what a call left on stderr that says what went wrong:
- * the first that heads an error, `TypeError: …` or `Error [CODE]: …`, as
- * node's own report does under its source line and above its stack,
- * otherwise the first that says anything.
+ * What a call left on stderr, said as one line: the first line that
+ * heads an error, `TypeError: …` or `Error [CODE]: …`, as node's own
+ * report does under its source line and above its stack; else a Rust
+ * panic's message with where it panicked, as the native module would
+ * leave one; else all of it, joined and cut short.
  */
-function whatWentWrong(stderr: string): string | undefined {
+export function whatWentWrong(stderr: string): string | undefined {
 	const lines = stderr
 		.split("\n")
 		.map((line) => line.trim())
 		.filter(Boolean);
-	return lines.find((line) => /^\w*Error( \[\w+\])?: /.test(line)) ?? lines[0];
+	const heading = lines.find((line) => /^\w*Error( \[\w+\])?: /.test(line));
+	if (heading) return heading;
+	const panic = lines.findIndex((line) =>
+		/^thread '.*' panicked at /.test(line),
+	);
+	const message = lines[panic + 1];
+	if (panic >= 0 && message) {
+		const where = (lines[panic] ?? "").replace(
+			/^.* panicked at (.*?):?$/,
+			"$1",
+		);
+		return `${message} (panicked at ${where})`;
+	}
+	const all = lines.join(" / ");
+	if (!all) return undefined;
+	return all.length > REASON_LENGTH ? `${all.slice(0, REASON_LENGTH)}…` : all;
 }
 
 /**

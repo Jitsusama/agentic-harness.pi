@@ -42,13 +42,17 @@ function running(): number {
 	).length;
 }
 
-/** The bytes a pipe gives a reader at once, on Linux and macOS. */
+/**
+ * A size every read of the pipe ends on a multiple of. Linux hands a
+ * reader 65,536 bytes at most and macOS 16,384 or 65,536; all that
+ * matters here is that each is even.
+ */
 const PIPE_READ = 65_536;
 
 /**
- * A long text of two-byte characters that, sent after `before`, has one
- * of them straddle the pipe's first read, so a reader that decodes each
- * read alone breaks it.
+ * A long text of two-byte characters that, sent after `before`, starts
+ * each of them on an odd byte, so one straddles every even read
+ * boundary, and a reader that decodes each read alone breaks it.
  */
 function splitting(before: string): string {
 	const lead = (PIPE_READ - Buffer.byteLength(before)) % 2 === 0 ? "a" : "";
@@ -87,11 +91,16 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 			dirname(process.env.KEYRING_CALL_FILE ?? ""),
 			"lingers.pid",
 		);
-		if (existsSync(lingered)) {
+		// The case that saw it end removes the file, so a number the system
+		// has since given another process is never sent a signal.
+		const pid = existsSync(lingered)
+			? Number(readFileSync(lingered, "utf8"))
+			: 0;
+		if (Number.isInteger(pid) && pid > 1) {
 			try {
-				process.kill(Number(readFileSync(lingered, "utf8")), "SIGKILL");
+				process.kill(pid, "SIGKILL");
 			} catch {
-				// Already ended, as it should be.
+				// Already ended.
 			}
 		}
 		rmSync(dirname(process.env.KEYRING_CALL_FILE ?? ""), {
@@ -125,7 +134,16 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 		await expect(
 			read,
 			"the reason should be the line naming the error, not stderr's last",
-		).rejects.toThrow(/stopped by SIGKILL: Error: the entry faulted$/);
+		).rejects.toThrow(
+			/stopped by SIGKILL: the entry faulted \(panicked at src\/entry\.rs:12:5\)$/,
+		);
+	}, 30_000);
+
+	it("says which signal stopped a call that died saying nothing", async () => {
+		const read = secretServiceStore(callingEntries(call("dies"))).read("x");
+
+		await expect(read).rejects.toBeInstanceOf(KeyringUnavailable);
+		await expect(read).rejects.toThrow(/its keyring call stopped by SIGKILL$/);
 	}, 30_000);
 
 	it("says the one line of node's report that names what went wrong", async () => {
@@ -164,12 +182,11 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 		const store = secretServiceStore(callingEntries(call("lingers")));
 
 		expect(await store.read("x")).toBe("value");
-		const pid = Number(
-			readFileSync(
-				join(dirname(process.env.KEYRING_CALL_FILE ?? ""), "lingers.pid"),
-				"utf8",
-			),
+		const recorded = join(
+			dirname(process.env.KEYRING_CALL_FILE ?? ""),
+			"lingers.pid",
 		);
+		const pid = Number(readFileSync(recorded, "utf8"));
 		await vi.waitFor(
 			() =>
 				expect(
@@ -178,6 +195,7 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 				).toThrow("ESRCH"),
 			{ timeout: 20_000 },
 		);
+		rmSync(recorded);
 	}, 30_000);
 
 	it("brings a long answer back whole across the pipe's reads", async () => {
@@ -210,7 +228,13 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 		});
 	}, 30_000);
 
-	it("loads the real keyring module, with the entry and calls it uses", () => {
+	it("loads the real keyring module, whose entry has the three calls the call makes", async () => {
+		const { AsyncEntry } = await import("@napi-rs/keyring");
+		const calls = ["getPassword", "setPassword", "deleteCredential"] as const;
+		for (const used of calls) {
+			expect(typeof AsyncEntry.prototype[used], used).toBe("function");
+		}
+
 		const ran = spawnSync(process.execPath, [realCall()], {
 			input: JSON.stringify({
 				service: KEYRING_SERVICE,
@@ -228,7 +252,7 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 		).toEqual({ error: "a write needs a value" });
 	}, 30_000);
 
-	it("says what the keyring module lacks, rather than failing as a keyring out of reach", () => {
+	it("gives what the keyring module lacks as the reason it can't be reached", () => {
 		const cases: [string, object, object][] = [
 			[
 				"none",
@@ -239,6 +263,11 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 				"reads",
 				{ act: "write", value: "value" },
 				{ error: "its keyring module's AsyncEntry has no setPassword" },
+			],
+			[
+				"reads",
+				{ act: "remove" },
+				{ error: "its keyring module's AsyncEntry has no deleteCredential" },
 			],
 			["reads", { act: "read" }, { value: null }],
 		];
