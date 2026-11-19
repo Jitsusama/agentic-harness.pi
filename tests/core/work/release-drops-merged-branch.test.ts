@@ -127,7 +127,7 @@ describe("releasing a tree", () => {
 
 		await release("jg/done", path);
 
-		expect(await hasRef("jg/done")).toBe(false);
+		expect(await hasRef("jg/done"), "the merged branch is gone").toBe(false);
 		expect(await sections("jg/done")).toBe("");
 	});
 
@@ -136,7 +136,7 @@ describe("releasing a tree", () => {
 
 		await release("jg/open", path);
 
-		expect(await hasRef("jg/open")).toBe(true);
+		expect(await hasRef("jg/open"), "the unmerged branch is kept").toBe(true);
 		expect(await sections("jg/open")).not.toBe("");
 	});
 
@@ -149,7 +149,10 @@ describe("releasing a tree", () => {
 
 		await release("jg/more", path);
 
-		expect(await hasRef("jg/more")).toBe(true);
+		expect(
+			await hasRef("jg/more"),
+			"the branch with an unpushed commit is kept",
+		).toBe(true);
 	});
 
 	it("touches no branch for a tree that stood on none", async () => {
@@ -161,7 +164,9 @@ describe("releasing a tree", () => {
 
 		await release("jg/kept", path);
 
-		expect(await hasRef("jg/kept")).toBe(true);
+		expect(await hasRef("jg/kept"), "a branch no tree stood on is kept").toBe(
+			true,
+		);
 	});
 });
 
@@ -175,7 +180,7 @@ describe("reclaiming a tree", () => {
 		]);
 
 		expect(outcome.trees[0]?.kind).toBe("reclaimed");
-		expect(await hasRef("jg/spent")).toBe(false);
+		expect(await hasRef("jg/spent"), "the merged branch is gone").toBe(false);
 		expect(await sections("jg/spent")).toBe("");
 	});
 
@@ -186,6 +191,8 @@ describe("reclaiming a tree", () => {
 			{ path, branch: "jg/unmerged" },
 		]);
 
-		expect(await hasRef("jg/unmerged")).toBe(true);
+		expect(await hasRef("jg/unmerged"), "the unmerged branch is kept").toBe(
+			true,
+		);
 	});
 });
