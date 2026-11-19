@@ -228,6 +228,11 @@ interface Ended {
 interface Run {
 	started: Promise<number>;
 	done: Promise<Ended>;
+	/**
+	 * Leave a command given up on: its output goes nowhere, and it no
+	 * longer keeps its spawner open, whose closing ends it.
+	 */
+	forsake(): void;
 }
 
 /** A link to one running pi-spawner. */
@@ -239,13 +244,19 @@ interface Link {
 		env: NodeJS.ProcessEnv,
 		onData: (data: Buffer) => void,
 	): Run;
-	/** Close the program once the commands it runs have ended. */
-	retire(): void;
+	/**
+	 * Close the program once the commands it runs have ended; `silent`
+	 * when it left one unanswered, so even a command already holding it
+	 * is sent elsewhere.
+	 */
+	retire(silent?: boolean): void;
 	/**
 	 * Whether the program was retired, so it takes no more commands and
 	 * its stop is no loss.
 	 */
 	retired(): boolean;
+	/** Whether it was retired for leaving a command unanswered. */
+	silent(): boolean;
 	/**
 	 * Keep the program open, though retired, until what this returns is
 	 * called: a command about to be sent holds it as one running does.
@@ -405,19 +416,20 @@ export function spawnedBy(
 				// leaves it to pi's own spawn, given what time is left; any
 				// other, the one serving now included, may stop without moving
 				// it.
-				const ran = through.stopped()
-					? UNSENT
-					: await runThrough(
-							through,
-							shell,
-							command,
-							cwd,
-							settings,
-							left,
-							kill,
-							options.givenUpGrace ?? GIVEN_UP_GRACE_MS,
-							options.say ?? ((line) => process.stderr.write(line)),
-						);
+				const ran =
+					through.stopped() || through.silent()
+						? UNSENT
+						: await runThrough(
+								through,
+								shell,
+								command,
+								cwd,
+								settings,
+								left,
+								kill,
+								options.givenUpGrace ?? GIVEN_UP_GRACE_MS,
+								options.say ?? ((line) => process.stderr.write(line)),
+							);
 				if (ran !== UNSENT) return ran;
 				const rest =
 					limit === undefined ? undefined : limit - (performance.now() - asked);
@@ -641,8 +653,9 @@ async function runThrough(
 	}
 	// A stop during the check sends nothing.
 	if (signal?.aborted) throw new Error("aborted");
-	// A spawner that stopped during it is pi's own spawn's to replace.
-	if (link.stopped()) return UNSENT;
+	// A spawner that stopped during it, or left another command
+	// unanswered, is pi's own spawn's to replace.
+	if (link.stopped() || link.silent()) return UNSENT;
 	const run = link.run(shell.shell, [...shell.args, command], cwd, env, onData);
 	// The limit and a stop count from the ask, not from STARTED, so a
 	// spawner slow to start the command can't stretch either.
@@ -673,6 +686,8 @@ async function runThrough(
 			throw new Error(first === "aborted" ? "aborted" : `timeout:${timeout}`);
 		}
 		pid = first;
+		// A stop or the limit that came as the start was said is sent now.
+		if (signal?.aborted || timedOut) kill(pid);
 		const ended = await run.done;
 		if (signal?.aborted) throw new Error("aborted");
 		if (timedOut) throw new Error(`timeout:${timeout}`);
@@ -690,8 +705,8 @@ async function runThrough(
  * Only the wait to be told started is bounded: a spawner that says
  * nothing for `grace` is retired, so it takes no more commands and later
  * ones start another, while what it already runs carries on and it
- * closes once that ends. The call then settles; a start said after it is
- * still killed.
+ * closes once that ends, ending this one too. The call then settles and
+ * hears no more of it; a start said after it is still killed.
  */
 async function endOnceStarted(
 	link: Link,
@@ -716,7 +731,8 @@ async function endOnceStarted(
 		if (first === "started") {
 			await run.done.catch(() => undefined);
 		} else if (first === "waited") {
-			link.retire();
+			run.forsake();
+			link.retire(true);
 			say(
 				`pi-spawner didn't say within ${grace} ms whether it started a command given up on, so it takes no more; it is killed if it starts\n`,
 			);
@@ -835,14 +851,17 @@ function connect(
 	let next = 1;
 	let held: Buffer = Buffer.alloc(0);
 	let retiring = false;
+	let quiet = false;
+	// Commands given up on, which keep it open no longer.
+	const forsaken = new Set<number>();
 	// Commands about to be sent, which keep it open as running ones do.
 	let holding = 0;
-	// The end of its input tells pi-spawner to stop; with nothing running,
-	// it kills nothing.
+	// The end of its input tells pi-spawner to stop, killing only what
+	// was given up on.
 	const closeOnceIdle = () => {
 		if (
 			retiring &&
-			pending.size === 0 &&
+			pending.size === forsaken.size &&
 			holding === 0 &&
 			!started.input.writableEnded
 		) {
@@ -873,6 +892,7 @@ function connect(
 		gone();
 		for (const one of pending.values()) one.lost();
 		pending.clear();
+		forsaken.clear();
 	};
 	started.ended(end);
 	return {
@@ -895,11 +915,13 @@ function connect(
 			// One that stopped, or was told to close, hears nothing more.
 			if (over || started.input.writableEnded) {
 				begin?.no(new Error("pi-spawner stopped before the command started"));
-				return { started: startedRun, done };
+				return { started: startedRun, done, forsake: () => undefined };
 			}
+			let heard = true;
 			const finish = () => {
 				clearTimeout(idle);
 				pending.delete(id);
+				forsaken.delete(id);
 				if (closed < STREAMS) send(started.input, ["drop", `${id}`]);
 				if (exited) end?.ok(exited);
 				closeOnceIdle();
@@ -915,10 +937,11 @@ function connect(
 						begin?.ok(pid);
 					} else if (kind === FAILED) {
 						pending.delete(id);
+						forsaken.delete(id);
 						begin?.no(new Error(payload.toString("utf8")));
 						closeOnceIdle();
 					} else if (kind === OUTPUT) {
-						onData(payload.subarray(1));
+						if (heard) onData(payload.subarray(1));
 						if (exited) settleSoon();
 					} else if (kind === CLOSED) {
 						closed += 1;
@@ -962,13 +985,20 @@ function connect(
 				pending.delete(id);
 				throw refused;
 			}
-			return { started: startedRun, done };
+			const forsake = () => {
+				heard = false;
+				if (pending.has(id)) forsaken.add(id);
+				closeOnceIdle();
+			};
+			return { started: startedRun, done, forsake };
 		},
-		retire() {
+		retire(silent = false) {
 			retiring = true;
+			if (silent) quiet = true;
 			closeOnceIdle();
 		},
 		retired: () => retiring,
+		silent: () => quiet,
 		hold() {
 			holding += 1;
 			let released = false;

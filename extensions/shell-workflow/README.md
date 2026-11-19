@@ -289,8 +289,11 @@ Through a Move below). A command stopped, or out of time, before its
 spawner says it started is killed once it does, and its call settles
 once it ends; a spawner that says nothing of it for five seconds is
 retired, said in the host's log, so the next command starts
-another while the commands it already runs carry on, and it kills the
-one given up on if that starts later.
+another, and one not yet sent goes to pi's own spawn, while the
+commands it already runs carry on. The one given up on is killed if
+it starts later, its output goes nowhere, and it keeps the spawner
+open no longer: the spawner closes once its other commands end,
+ending it.
 
 A shared host's conversations share its process, so the machine's
 mycelium node can't tell from that which one asked it for a run. The
