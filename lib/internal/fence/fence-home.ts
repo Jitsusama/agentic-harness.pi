@@ -43,7 +43,10 @@ import { join } from "node:path";
  * last, `.node_modules` and `.node_libraries`, where a module a pi
  * process reaches for and doesn't ship, such as ws's optional
  * `bufferutil`, would be loaded from outside the fence (04TNWT, 19
- * November).
+ * November). And the `node_modules` folders node searches above the
+ * code pi loads from the home folder (its packages, its agent folder
+ * and its state), which it reaches before those two: an empty folder
+ * of the fence's making where there was none.
  *
  * The home folder itself is read-only too, with every other hidden
  * entry in it bound back writable, since a dotfile is often a link into
@@ -94,6 +97,10 @@ export const READ_ONLY = [
 	".pi/agent",
 	".node_modules",
 	".node_libraries",
+	".pi/node_modules",
+	".local/node_modules",
+	".local/share/node_modules",
+	".local/state/node_modules",
 ] as const;
 
 /**

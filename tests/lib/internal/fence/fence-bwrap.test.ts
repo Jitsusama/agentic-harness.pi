@@ -60,9 +60,20 @@ describe.skipIf(bwrap === undefined)(
 		let template: string;
 		let checkout: string;
 
+		let temp: string;
+		/**
+		 * Stand-ins for the real `/tmp`'s code caches, outside the home
+		 * folder as those are, so no run touches the machine's own.
+		 */
+		const caches = () => [join(temp, "compiled"), join(temp, "jiti")];
+
 		/** Whether `script` succeeds as a fenced command in `home`. */
 		function fenced(script: string): boolean {
-			const args = fenceArgs({ home, runtimeDir: undefined });
+			const args = fenceArgs({
+				home,
+				runtimeDir: undefined,
+				tempCaches: caches(),
+			});
 			const ran = spawnSync(
 				bwrap ?? "bwrap",
 				["--unshare-user", ...args, "sh", "-c", script],
@@ -73,6 +84,7 @@ describe.skipIf(bwrap === undefined)(
 
 		beforeAll(async () => {
 			home = realpathSync(mkdtempSync(join(tmpdir(), "fence-bwrap-")));
+			temp = realpathSync(mkdtempSync(join(tmpdir(), "fence-bwrap-tmp-")));
 			template = await freshRepo("fence-bwrap");
 			checkout = join(home, "src", "r");
 			mkdirSync(checkout, { recursive: true });
@@ -81,6 +93,7 @@ describe.skipIf(bwrap === undefined)(
 
 		afterAll(() => {
 			rmSync(home, { recursive: true, force: true });
+			rmSync(temp, { recursive: true, force: true });
 			disposeRepo(template);
 		});
 
@@ -121,6 +134,7 @@ describe.skipIf(bwrap === undefined)(
 				join(state, "node-compile-cache"),
 				join(home, ".node_modules"),
 				join(home, ".node_libraries"),
+				join(home, ".local", "share", "node_modules"),
 			];
 			for (const folder of kept) mkdirSync(folder, { recursive: true });
 			for (const folder of kept) {
@@ -128,14 +142,36 @@ describe.skipIf(bwrap === undefined)(
 					false,
 				);
 			}
+		});
+
+		it("lets a fenced pi read /tmp's code caches, and keeps what it writes there to itself", () => {
+			const [compiled = "", jiti = ""] = caches();
+			// One cache already there, as jiti's is; one not yet, as node's.
+			mkdirSync(jiti, { recursive: true });
+			writeFileSync(join(jiti, "fence.mjs"), "compiled\n");
 			expect(
-				fenced("mkdir -p /tmp/node-compile-cache/x"),
-				"node's default cache was written",
-			).toBe(false);
-			expect(
-				fenced("mv /tmp/node-compile-cache /tmp/node-compile-cache.moved"),
-				"node's default cache was moved",
-			).toBe(false);
+				fenced(`grep -q compiled ${jiti}/fence.mjs`),
+				"the cache read",
+			).toBe(true);
+			for (const folder of [compiled, jiti]) {
+				expect(
+					fenced(
+						`echo planted > ${folder}/fence.mjs && grep -q planted ${folder}/fence.mjs`,
+					),
+					`${folder} took no write inside`,
+				).toBe(true);
+				expect(
+					fenced(`mv ${folder} ${folder}.moved`),
+					`${folder} was moved`,
+				).toBe(false);
+				expect(existsSync(`${folder}.moved`), `${folder} moved outside`).toBe(
+					false,
+				);
+			}
+			expect(readFileSync(join(jiti, "fence.mjs"), "utf8")).toBe("compiled\n");
+			expect(existsSync(join(compiled, "fence.mjs")), "a write came out").toBe(
+				false,
+			);
 		});
 
 		it("still writes what a commit in a worktree writes", () => {

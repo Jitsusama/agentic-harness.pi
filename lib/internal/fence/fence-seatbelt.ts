@@ -255,6 +255,25 @@ export function seatbeltProfile(
 				}
 				break;
 			}
+			case "--overlay-src": {
+				// A folder whose writes go to a tmpfs of the fence's own
+				// (fence-temp-caches.ts). Seatbelt has no overlay, so it is
+				// read-only here: a write fails rather than reaching outside.
+				const [from = "", over = "", to = ""] = values(3);
+				if (over !== "--tmp-overlay" || from !== to) {
+					throw new Error(
+						`the Mac's fence can't say bubblewrap's ${option} ${over}`,
+					);
+				}
+				const rules = [
+					`(allow file-read* (subpath ${path(to)}))`,
+					`(deny file-write* (subpath ${path(to)}))`,
+				];
+				readOnly.push({ to, rules, at: mounts.length });
+				mounts.push(rules[0] ?? "");
+				close(to, rules[1] ?? "");
+				break;
+			}
 			case "--tmpfs": {
 				const [to = ""] = values(1);
 				const hide = `(deny file-read* file-write* (subpath ${path(to)}))`;

@@ -91,6 +91,7 @@ import { fenceNpmrc } from "../fence/fence-npmrc.ts";
 import { seedOwnHomes } from "../fence/fence-seed.ts";
 import { fenceSshConfig } from "../fence/fence-ssh.ts";
 import { askedSandbox, inFirstStage } from "../fence/fence-stage.ts";
+import { setAsidePlanted } from "../fence/fence-temp-caches.ts";
 import {
 	inStore,
 	type Offload,
@@ -595,6 +596,7 @@ export function wrapFor(
 				docker: dockerHoldsCredentials(home),
 			};
 			makeFoldersFirst(home);
+			setAsidePlanted();
 			const own = sandboxFolders(home).cache;
 			// Never waited on: a command started first finds what the own
 			// homes held already.

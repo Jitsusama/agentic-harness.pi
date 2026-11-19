@@ -215,6 +215,21 @@ describe("the fence's mounts as a profile", () => {
 		]);
 	});
 
+	it("keeps a folder bubblewrap overlays from writes, having no overlay", () => {
+		expect(
+			fileRules(["--overlay-src", "/tmp/jiti", "--tmp-overlay", "/tmp/jiti"]),
+		).toEqual([
+			'(allow file-read* (subpath "/tmp/jiti"))',
+			'(deny file-write* (subpath "/tmp/jiti"))',
+		]);
+		expect(() =>
+			seatbeltProfile(["--overlay-src", "/a", "--tmp-overlay", "/b"], {
+				sockets: [],
+				real: same,
+			}),
+		).toThrow(/--overlay-src/);
+	});
+
 	it("hides a file a copy stands in for, and says where the copy is", () => {
 		const seatbelt = seatbeltProfile(
 			["--ro-bind", "/run/pi/npmrc", "/Users/j/.npmrc"],

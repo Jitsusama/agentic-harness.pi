@@ -59,6 +59,7 @@ import {
 	seatbeltProfile,
 	seatbeltText,
 } from "./fence-seatbelt.ts";
+import { setAsidePlanted } from "./fence-temp-caches.ts";
 
 /** The fences a caller may ask for, by the names pi's sessions use. */
 export const FENCE_RUN_KINDS = ["fence", STRICT] as const;
@@ -286,6 +287,7 @@ export function fenceRunText(
 		}),
 		sandbox.landrun,
 	);
+	setAsidePlanted();
 	const root = fenceArgs({
 		home,
 		runtimeDir,

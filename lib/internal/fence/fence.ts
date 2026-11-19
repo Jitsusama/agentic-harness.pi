@@ -86,6 +86,7 @@ import {
 import { NPMRC } from "./fence-npmrc.ts";
 import { type OwnFolders, ownArgs } from "./fence-own.ts";
 import { questLockArgs } from "./fence-quest-locks.ts";
+import { TEMP_CODE_CACHES, tempCacheArgs } from "./fence-temp-caches.ts";
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -120,17 +121,6 @@ export const FENCE = "fence";
  * proxy's old place, now a link into the folder, kept for a machine
  * whose proxy hasn't moved yet.
  */
-/**
- * The folder a pi or node started with no `NODE_COMPILE_CACHE` and the
- * real `/tmp` keeps its compile cache in, read back as compiled code at
- * its next start, outside the fence (04TNWT, 19 November). pi names a
- * folder of its state instead (`compile-cache-place.ts`); this keeps the
- * default out of reach for one that doesn't. It is an empty read-only
- * folder inside, mounted whether or not it is there, since bubblewrap
- * makes a missing one, and a mount can be neither renamed nor removed.
- */
-export const NODE_COMPILE_CACHE_DEFAULT = "/tmp/node-compile-cache";
-
 const LET_THROUGH = [
 	"nix-untrusted.sock",
 	"pi-agent.sock",
@@ -252,6 +242,12 @@ export interface FencePlace extends Worktrees {
 	readonly trees?: BrokerTrees;
 	/** The session's own folder of the GitHub door's (`fence-github.ts`). */
 	readonly githubDoor?: string;
+	/**
+	 * The folders in the real `/tmp` that pi and node outside keep compiled
+	 * code in (`fence-temp-caches.ts`), `TEMP_CODE_CACHES` unless a test
+	 * names its own.
+	 */
+	readonly tempCaches?: readonly string[];
 }
 
 /**
@@ -381,12 +377,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
 		if (exists(folder)) args.push("--tmpfs", folder);
 	}
-	args.push(
-		"--tmpfs",
-		NODE_COMPILE_CACHE_DEFAULT,
-		"--remount-ro",
-		NODE_COMPILE_CACHE_DEFAULT,
-	);
+	args.push(...tempCacheArgs(place.tempCaches ?? TEMP_CODE_CACHES, disk));
 	args.push(...buildersFolderArgs(disk));
 	const settings = systemSshConfig(disk);
 	if (place.sshConfig && exists(place.sshConfig) && settings !== undefined) {
@@ -743,7 +734,8 @@ export function fenceRefusesWrite(
 	const kept = [
 		...readOnlyPaths(place.home),
 		...(place.runtimeDir ? [place.runtimeDir] : []),
-		NODE_COMPILE_CACHE_DEFAULT,
+		// Written inside, but only to a tmpfs that goes with the command.
+		...(place.tempCaches ?? TEMP_CODE_CACHES),
 	];
 	const inside = (folder: string) =>
 		path === folder || path.startsWith(`${folder}/`);
