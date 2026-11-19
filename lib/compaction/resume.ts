@@ -191,10 +191,7 @@ export function owesResume(
 }
 
 /** Whether an entry is the custom entry of the given type. */
-function isCustom(
-	entry: unknown,
-	customType: string,
-): entry is Record<string, unknown> {
+function isCustom(entry: unknown, customType: string): boolean {
 	return (
 		isRecord(entry) &&
 		entry.type === "custom" &&
