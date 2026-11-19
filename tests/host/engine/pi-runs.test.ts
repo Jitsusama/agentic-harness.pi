@@ -103,6 +103,32 @@ describe("the agent's own runs in pi", () => {
 		]);
 	});
 
+	it("settles a run pi failed to prepare, as pi settles none it never began", async () => {
+		// pi ends a run whose preparation threw without agent_settled, so an extension waiting on it would wait for a person (15 November).
+		const settles: boolean[] = [];
+		let next = 0;
+		const runs = new PiRuns(
+			() => false,
+			(say) => say(),
+			() => {
+				next += 1;
+			},
+		);
+		runs.tell({
+			runForHost: () => Promise.reject(new Error("pi failed to prepare")),
+			extensionRunner: {
+				async emit(event) {
+					settles.push(event.aborted);
+				},
+			},
+		});
+
+		await runs.holding(() => runs.opening());
+
+		expect(settles, "one settle said for it").toEqual([false]);
+		expect(next, "what waits goes on").toBe(1);
+	});
+
 	it("says a run pi took too long to prepare, and nothing for a stopped one", async () => {
 		vi.useFakeTimers();
 		try {

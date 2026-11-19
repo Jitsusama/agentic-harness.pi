@@ -11,8 +11,12 @@ import type {
 } from "../../../host/engine/pi-session.ts";
 import type { AgentMessage } from "../../../host/engine/pi-types.ts";
 
-/** A session and agent that note what reached each, the agent running a turn the session counts no run for. */
-function carrying(refusing = false) {
+/**
+ * A session and agent that note what reached each, the agent running a
+ * turn the session counts no run for. Given `piHolds`, the session holds a
+ * no-turn word there while it counts a run, as pi does.
+ */
+function carrying(refusing = false, piHolds?: string[]) {
 	const written: string[] = [];
 	const queued: string[] = [];
 	const reported: unknown[] = [];
@@ -26,7 +30,8 @@ function carrying(refusing = false) {
 		},
 		async sendCustomMessage(message: CustomMessageInput) {
 			if (refusing) throw new Error("the file is closed");
-			written.push(String(message.content));
+			if (piHolds && session.isStreaming) piHolds.push(String(message.content));
+			else written.push(String(message.content));
 		},
 		dispose() {
 			written.push("disposed");
@@ -98,13 +103,33 @@ describe("an extension's message during a turn the host carries on", () => {
 		expect(written).toEqual(["a word pi kept", "disposed"]);
 	});
 
-	it("says nothing lost when an idle pi with no flush is seen to hold nothing", () => {
-		const { session, written, reported } = carrying();
-		Reflect.set(session, "_pendingCustomMessages", []);
+	it("is written by pi's flush when pi began counting a run after it was held here", async () => {
+		// A word held before pi opened the carried run goes to pi as the session lets go, and pi holds it while it counts that run.
+		const piHeld: string[] = [];
+		const { session, send, written } = carrying(false, piHeld);
+		Reflect.set(session, "_flushPendingCustomMessages", () => {
+			written.push(...piHeld.splice(0));
+		});
+		await send("a word", { triggerTurn: false });
+		session.isStreaming = true;
 		session.dispose();
-		expect(written).toEqual(["disposed"]);
-		expect(reported, "nothing was said lost").toEqual([]);
+		expect(written).toEqual(["a word", "disposed"]);
 	});
+
+	it.each([
+		{ which: "idle", streaming: false },
+		{ which: "in a run", streaming: true },
+	])(
+		"says nothing lost when a pi $which with no flush is seen to hold nothing",
+		({ streaming }) => {
+			const { session, written, reported } = carrying();
+			session.isStreaming = streaming;
+			Reflect.set(session, "_pendingCustomMessages", []);
+			session.dispose();
+			expect(written).toEqual(["disposed"]);
+			expect(reported, "nothing was said lost").toEqual([]);
+		},
+	);
 
 	it.each([
 		{ which: "a word it kept", held: ["a word pi kept"] },
