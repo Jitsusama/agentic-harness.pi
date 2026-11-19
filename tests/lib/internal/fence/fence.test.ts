@@ -17,7 +17,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FENCE } from "../../../../lib/internal/fence/fence.ts";
 import {
@@ -176,17 +176,25 @@ describe("what a session asking for the fence is given", () => {
 		// The person's runtime folder is theirs alone, or no copies are made.
 		mkdirSync(join(home, ".config", "dev"), { recursive: true });
 		mkdirSync(runtimeDir, { mode: 0o700 });
+		// This process's pi keeps what it made by session, so this case's
+		// session is its own, whatever others in the file made.
+		const session = basename(base);
 		try {
 			const text =
 				wrapFor(
 					fence,
 					{
 						cwd: home,
-						env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: "s-1" },
+						env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: session },
 					},
 					home,
 				)?.("true") ?? "";
-			const copies = join(runtimeDir, "pi-fence", "dev", `s-1.${process.pid}`);
+			const copies = join(
+				runtimeDir,
+				"pi-fence",
+				"dev",
+				`${session}.${process.pid}`,
+			);
 			expect(text, "dev's copy isn't bound over the person's").toContain(
 				`'--bind' '${join(copies, "dev")}' '${join(home, ".config", "dev")}'`,
 			);

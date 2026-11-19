@@ -32,18 +32,21 @@ let told: string[] = [];
 
 /**
  * A pi process with the id `pid`, which sees running only the processes
- * `running` names, in the pid namespace `ns`, hiding `hidden`.
+ * `running` names, in the pid namespace `ns`, hiding `hidden`, its
+ * processes' mounts read as `mounts`, or unreadable where it's `null`.
  */
 function maker(
 	pid: number,
 	running: readonly number[] = [],
 	ns = "pid:[1]",
 	hidden: readonly string[] = [],
+	mounts: string | null = "",
 ): DevMaker {
 	return {
 		made: new Map(),
 		pid,
 		alive: (other) => running.includes(other),
+		mounts: () => mounts ?? undefined,
 		ns,
 		hidden,
 		tell: (why) => told.push(why),
@@ -172,16 +175,79 @@ describe("the session's copies of dev's and git's settings", () => {
 		).toEqual(["s-1.200"]);
 	});
 
-	it("makes the copies again where this pi's were removed, or a stale folder holds its id", () => {
-		mkdirSync(join(sessions, "s-1.100", "stale"), { recursive: true });
+	it("makes the copies again where this pi's were removed, beside a folder under its id it doesn't know", () => {
+		mkdirSync(join(sessions, "s-1.100", "held"), { recursive: true });
 		const copies = copiesOf("s-1");
 		if (!copies) throw new Error("no copies were made");
-		expect(existsSync(join(sessions, "s-1.100", "stale"))).toBe(false);
-		rmSync(join(sessions, "s-1.100"), { recursive: true });
-		expect(copiesOf("s-1")).toBeDefined();
-		expect(existsSync(join(sessions, "s-1.100", "dev", "gitconfig"))).toBe(
-			true,
+		expect(copies.dev).toBe(join(sessions, "s-1.100.1", "dev"));
+		expect(
+			existsSync(join(sessions, "s-1.100", "held")),
+			"a set this pi made before a reload, which a command may hold, is left be",
+		).toBe(true);
+		rmSync(join(sessions, "s-1.100.1"), { recursive: true });
+		expect(copiesOf("s-1")).toEqual(copies);
+		expect(existsSync(join(copies.dev, "gitconfig"))).toBe(true);
+	});
+
+	it("leaves a reloaded pi's running command its set, making the next beside it", () => {
+		const copies = copiesOf("s-1");
+		if (!copies) throw new Error("no copies were made");
+		writeFileSync(join(copies.dev, "gitconfig"), "[credential] written\n");
+		// The same pi, its module loaded afresh, knows nothing it made.
+		pi = maker(100);
+		const after = copiesOf("s-1");
+		expect(after?.dev).toBe(join(sessions, "s-1.100.1", "dev"));
+		expect(readFileSync(join(copies.dev, "gitconfig"), "utf8")).toBe(
+			"[credential] written\n",
 		);
+	});
+
+	it.skipIf(root)(
+		"keeps the set it has where a fresh one can't be made, and tries again at the next command",
+		() => {
+			const copies = copiesOf("s-1");
+			if (!copies) throw new Error("no copies were made");
+			writeFileSync(join(home, ".gitconfig"), "[core]\n\teditor = nano\n");
+			chmodSync(sessions, 0o500);
+			try {
+				expect(copiesOf("s-1"), "the working set was dropped").toEqual(copies);
+				expect(told).toHaveLength(1);
+			} finally {
+				chmodSync(sessions, 0o700);
+			}
+			const after = copiesOf("s-1");
+			expect(after?.git, "no fresh set once it could be made").not.toBe(
+				copies.git,
+			);
+			if (!after) throw new Error("no copies were made");
+			expect(readFileSync(gitGlobalIn(after.git), "utf8")).toContain("nano");
+		},
+	);
+
+	it("leaves an ended pi's set while a command it left running has it mounted, or mounts can't be read", () => {
+		copiesOf("s-1");
+		const bound = `42 40 0:30 /${join("pi-fence", "dev", "s-1.100", "dev")} /home/p/.config/dev rw - tmpfs tmpfs rw\n`;
+		pi = maker(200, [], "pid:[1]", [], bound);
+		copiesOf("s-1");
+		expect(existsSync(join(sessions, "s-1.100")), "a mounted set").toBe(true);
+		pi = maker(300, [], "pid:[1]", [], null);
+		copiesOf("s-1");
+		expect(existsSync(join(sessions, "s-1.100")), "mounts unread").toBe(true);
+		pi = maker(400);
+		copiesOf("s-1");
+		expect(readdirSync(sessions).sort(), "once none holds them").toEqual([
+			"s-1.400",
+		]);
+	});
+
+	it("copies no socket or pipe from dev's folder", () => {
+		const pipe = join(home, ".config", "dev", "pipe");
+		if (spawnSync("mkfifo", [pipe]).status !== 0)
+			throw new Error("no mkfifo to make a pipe");
+		const copies = copiesOf("s-1");
+		if (!copies) throw new Error("no copies were made");
+		expect(existsSync(join(copies.dev, "pipe"))).toBe(false);
+		expect(existsSync(join(copies.dev, "gitconfig"))).toBe(true);
 	});
 
 	it("never removes copies made in another pid namespace, whose processes it can't see", () => {
@@ -235,8 +301,11 @@ describe("the session's copies of dev's and git's settings", () => {
 	it("removes the copies of a pi that has ended, and nothing else there", () => {
 		copiesOf("s-1");
 		pi = maker(200, [300]);
-		mkdirSync(join(sessions, "s-2.300"));
-		mkdirSync(join(sessions, "kept"));
+		// Each names this pid namespace, so only the process or the name keeps it.
+		for (const other of ["s-2.300", "kept"]) {
+			mkdirSync(join(sessions, other));
+			writeFileSync(join(sessions, other, "ns"), "pid:[1]");
+		}
 		copiesOf("s-1");
 		expect(existsSync(join(sessions, "s-1.100")), "the ended pi's").toBe(false);
 		expect(existsSync(join(sessions, "s-2.300")), "a running pi's").toBe(true);
@@ -254,18 +323,21 @@ describe("the session's copies of dev's and git's settings", () => {
 		expect(readFileSync(join(victim, "kept"), "utf8")).toBe("kept\n");
 	});
 
-	it("includes git's XDG settings ahead of the global file's, as git reads both", () => {
+	it("writes git's XDG settings ahead of the global file's, as git reads both, since --global reads no include", () => {
 		mkdirSync(join(home, ".config", "git"));
-		writeFileSync(join(home, ".config", "git", "config"), "[user]\n");
+		writeFileSync(
+			join(home, ".config", "git", "config"),
+			"[user]\n\tname = p\n[include]\n\tpath = more.inc",
+		);
 		const copies = copiesOf("s-1");
 		if (!copies) throw new Error("no copies were made");
 		expect(readFileSync(gitGlobalIn(copies.git), "utf8")).toBe(
-			`[include]\n\tpath = "${join(home, ".config", "git", "config")}"\n[core]\n\teditor = vi\n`,
+			`[user]\n\tname = p\n[include]\n\tpath = "${join(home, ".config", "git", "more.inc")}"\n[core]\n\teditor = vi\n`,
 		);
 
 		const moved = join(base, "settings");
 		mkdirSync(join(moved, "git"), { recursive: true });
-		writeFileSync(join(moved, "git", "config"), "[user]\n");
+		writeFileSync(join(moved, "git", "config"), "[include]\n\tpath = x.inc\n");
 		pi = maker(200);
 		const elsewhere = copiesOf("s-1", {
 			XDG_RUNTIME_DIR: runtime,
@@ -275,7 +347,30 @@ describe("the session's copies of dev's and git's settings", () => {
 		expect(
 			readFileSync(gitGlobalIn(elsewhere.git), "utf8"),
 			"the XDG folder the environment names",
-		).toContain(`path = "${join(moved, "git", "config")}"`);
+		).toContain(`path = "${join(moved, "git", "x.inc")}"`);
+	});
+
+	it("reads a global file written with CRLF endings as git does", () => {
+		writeFileSync(
+			join(home, ".gitconfig"),
+			"[include]\r\n\tpath = extra.inc\r\n[core]\r\n\teditor = vi\r\n",
+		);
+		const copies = copiesOf("s-1");
+		if (!copies) throw new Error("no copies were made");
+		expect(readFileSync(gitGlobalIn(copies.git), "utf8")).toBe(
+			`[include]\n\tpath = "${join(home, "extra.inc")}"\n[core]\n\teditor = vi\n`,
+		);
+	});
+
+	it("writes out no global file the fence hides, through a link or not", () => {
+		mkdirSync(join(home, ".ssh"));
+		writeFileSync(join(home, ".ssh", "config"), "[secret]\n");
+		rmSync(join(home, ".gitconfig"));
+		symlinkSync(join(home, ".ssh", "config"), join(home, ".gitconfig"));
+		pi = maker(100, [], "pid:[1]", [".ssh/"]);
+		const copies = copiesOf("s-1");
+		if (!copies) throw new Error("no copies were made");
+		expect(readFileSync(gitGlobalIn(copies.git), "utf8")).toBe("");
 	});
 
 	it("names an include's relative path from the home folder, where git found it, and leaves the rest", () => {
@@ -351,9 +446,14 @@ describe("the session's copies of dev's and git's settings", () => {
 			mkdirSync(join(at, ".."), { recursive: true });
 			symlinkSync(victim, at);
 			pi = maker(100);
-			expect(copiesOf("s-1"), at).toBeUndefined();
+			const copies = copiesOf("s-1");
+			if (at.endsWith("s-1.100"))
+				expect(copies?.dev, "a set beside the link").toBe(
+					join(sessions, "s-1.100.1", "dev"),
+				);
+			else expect(copies, at).toBeUndefined();
 			expect(readFileSync(join(victim, "kept"), "utf8")).toBe("kept\n");
-			expect(existsSync(join(victim, "dev")), at).toBe(false);
+			expect(readdirSync(victim), at).toEqual(["kept"]);
 		}
 	});
 
