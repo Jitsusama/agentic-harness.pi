@@ -168,7 +168,9 @@ function byDepth<T extends readonly [string, unknown]>(
 		) {
 			depth++;
 		}
-		(levels[depth] ??= []).push(quest);
+		const level = levels[depth] ?? [];
+		level.push(quest);
+		levels[depth] = level;
 	}
 	return levels.filter((level) => level !== undefined);
 }
