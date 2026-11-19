@@ -110,6 +110,28 @@ describe("the subjects this session's peer says", () => {
 		]);
 	});
 
+	it("owns nothing by its quest's address once it leaves that address to the peer signing with it", () => {
+		write(readme("subjects: [needs]\n"));
+		createPresences(join(root, "presence")).publish({
+			session: "00-holder",
+			addresses: ["QCXZEB"],
+			groups: [],
+			worksOn: "the loop",
+			owns: [],
+			busy: false,
+			at: new Date().toISOString(),
+		});
+		const peer = localPeer({
+			...surroundingsAt(root),
+			owners: () => ["loop.=QCXZEB"],
+		});
+
+		expect([peer.yieldedTo?.session, kept()?.subjects]).toEqual([
+			"00-holder",
+			["needs"],
+		]);
+	});
+
 	it("writes only what the node serves: twelve, plain, each once", () => {
 		const owned = Array.from({ length: 4 }, (_, at) => `owned${at}.=QCXZEB`);
 		const declared = [

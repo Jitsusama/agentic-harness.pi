@@ -11,7 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-
+import { hosted, sessionEnv } from "../../../lib/core/session/index.ts";
 import {
 	getSection,
 	loadPackageConfig,
@@ -127,12 +127,12 @@ function hearingOf(state: QuestState, params: QuestToolParams): QuestResult {
 /**
  * The owner prefixes the machine's config names the quest's address
  * for, which its signing session says first; a session's own address
- * may own more, which only it knows.
+ * may own more, which only it knows. Read through the session's own
+ * environment, as presence reads it, so under a host the two agree.
  */
 function ownedByQuest(questId: string): string[] {
-	return ownedPrefixes(ownerLinesAt(ownersFile(process.env)), [
-		questAddress(questId),
-	]);
+	const env = hosted() ? sessionEnv().snapshot() : process.env;
+	return ownedPrefixes(ownerLinesAt(ownersFile(env)), [questAddress(questId)]);
 }
 
 /**

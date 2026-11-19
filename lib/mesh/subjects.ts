@@ -30,13 +30,7 @@
  * still comes only from the owner named by address.
  */
 
-import {
-	closeSync,
-	constants,
-	fstatSync,
-	openSync,
-	readFileSync,
-} from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
@@ -68,6 +62,13 @@ const OWNERS_UNDER_CONFIG = join("cadence", "owners.txt");
 const NOT_PLAIN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 /**
+ * A surrogate standing alone, with no partner to make a code point:
+ * written into presence as an escape no Rust string can hold, so the
+ * node could not read the presence at all.
+ */
+const LONE_SURROGATE = /\p{Cs}/u;
+
+/**
  * The code points, first and last, the node counts as unseen that
  * aren't format characters: the grapheme joiner, the Hangul and Khmer
  * fillers, the variation selectors, Mongolian or not, and the code
@@ -97,25 +98,28 @@ function unseen(each: string): boolean {
 /**
  * The owners file `env` names, else cadence's under the config folder:
  * `XDG_CONFIG_HOME` when it is absolute, as the XDG rules say, else
- * `.config` under the home folder. An empty `HOME` counts as unset, so
- * the file is never looked for under whatever folder pi started in.
+ * `.config` under the home folder. None when no home folder is known
+ * as an absolute path, since `homedir()` itself gives back an empty
+ * `HOME`, so the file is never looked for under the folder pi started in.
  */
-export function ownersFile(env: NodeJS.ProcessEnv): string {
+export function ownersFile(env: NodeJS.ProcessEnv): string | undefined {
 	const named = env[OWNERS_FILE_ENV];
 	if (named) return named;
 	const xdg = env.XDG_CONFIG_HOME;
-	const config =
-		xdg && isAbsolute(xdg) ? xdg : join(env.HOME || homedir(), ".config");
-	return join(config, OWNERS_UNDER_CONFIG);
+	if (xdg && isAbsolute(xdg)) return join(xdg, OWNERS_UNDER_CONFIG);
+	const home = env.HOME || homedir();
+	if (!isAbsolute(home)) return undefined;
+	return join(home, ".config", OWNERS_UNDER_CONFIG);
 }
 
 /**
  * The owner lines in `file`, each trimmed, the blank left out; none
- * when it can't be read, or isn't a plain file of a few kilobytes, so a
- * pipe or a device named there never stalls a refresh. Read afresh each
- * time, since a switch rewrites it.
+ * when there is no file, it can't be read, or it isn't a plain file of a
+ * few kilobytes, so a pipe or a device named there never stalls a
+ * refresh. Read afresh each time, since a switch rewrites it.
  */
-export function ownerLinesAt(file: string): string[] {
+export function ownerLinesAt(file: string | undefined): string[] {
+	if (file === undefined) return [];
 	let text: string;
 	try {
 		text = readSmallFile(file);
@@ -135,6 +139,9 @@ export function ownerLinesAt(file: string): string[] {
  * no larger than `LARGEST_OWNERS_FILE`; it throws otherwise. Opened
  * first and checked through the descriptor, so what is checked is what
  * is read, and opened without blocking, so a pipe can't hold the open.
+ * The read stops one byte past the limit, whatever the size said, so a
+ * file that grew after the check, or claims none, is refused rather than
+ * read in full.
  */
 function readSmallFile(file: string): string {
 	const fd = openSync(file, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
@@ -143,7 +150,17 @@ function readSmallFile(file: string): string {
 		if (!stat.isFile() || stat.size > LARGEST_OWNERS_FILE) {
 			throw new Error(`${file} is not a small regular file`);
 		}
-		return readFileSync(fd, "utf8");
+		const buffer = Buffer.alloc(LARGEST_OWNERS_FILE + 1);
+		let read = 0;
+		for (;;) {
+			const got = readSync(fd, buffer, read, buffer.length - read, null);
+			if (got === 0) break;
+			read += got;
+			if (read > LARGEST_OWNERS_FILE) {
+				throw new Error(`${file} grew past ${LARGEST_OWNERS_FILE} bytes`);
+			}
+		}
+		return buffer.toString("utf8", 0, read);
 	} finally {
 		closeSync(fd);
 	}
@@ -205,6 +222,7 @@ function isPlainSubject(subject: string): boolean {
 		subject !== "" &&
 		[...subject].length <= LONGEST_SUBJECT &&
 		!NOT_PLAIN.test(subject) &&
+		!LONE_SURROGATE.test(subject) &&
 		![...subject].some(unseen)
 	);
 }

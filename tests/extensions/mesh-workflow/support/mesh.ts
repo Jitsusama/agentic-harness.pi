@@ -116,6 +116,8 @@ export async function startSession(
 	early: (emit: (channel: string, data: unknown) => void) => void = () => {},
 	lookAgainMs = 60_000,
 ) {
+	// No machine's owners file: a test reads only the one it writes.
+	env.PI_OWNERS_FILE ??= join(fixture.root, "no-owners.txt");
 	const sent: Sent[] = [];
 	const emitted: [string, unknown][] = [];
 	const bus = new Map<string, ((data: unknown) => void)[]>();

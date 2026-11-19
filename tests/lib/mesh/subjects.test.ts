@@ -5,7 +5,13 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -122,6 +128,12 @@ describe("a cell's subjects", () => {
 		const holding = unseen.map((point) => `a${String.fromCodePoint(point)}b`);
 		expect(subjectsOf(holding, ["plain"])).toEqual(["plain"]);
 	});
+
+	it("passes over a surrogate standing alone, which no Rust string can hold", () => {
+		expect(
+			subjectsOf(["high\ud83c", "low\udf44"], ["\u{1F344}", "plain"]),
+		).toEqual(["\u{1F344}", "plain"]);
+	});
 });
 
 describe("the owners file", () => {
@@ -146,10 +158,20 @@ describe("the owners file", () => {
 	});
 
 	it("is never looked for under the folder pi started in, for an empty home or a relative config folder", () => {
-		const empty = ownersFile({ HOME: "" });
+		const saved = process.env.HOME;
+		process.env.HOME = "";
+		let empty: string | undefined;
+		try {
+			empty = ownersFile(process.env);
+		} finally {
+			process.env.HOME = saved;
+		}
 		const relative = ownersFile({ HOME: "/h", XDG_CONFIG_HOME: "conf" });
-		expect(empty.startsWith("/")).toBe(true);
-		expect(relative).toBe("/h/.config/cadence/owners.txt");
+		expect(
+			[empty === undefined || empty.startsWith("/"), relative],
+			"none or absolute, then the home's .config",
+		).toEqual([true, "/h/.config/cadence/owners.txt"]);
+		expect(ownerLinesAt(undefined)).toEqual([]);
 	});
 
 	it("gives none for a folder, a pipe or a file too large to be one, so a refresh never stalls", () => {
@@ -161,6 +183,13 @@ describe("the owners file", () => {
 		writeFileSync(large, "health.=80ECO2\n".repeat(10_000));
 		expect([folder, pipe, large].map(ownerLinesAt)).toEqual([[], [], []]);
 	});
+
+	it.runIf(existsSync("/dev/zero"))(
+		"gives none for a device that never ends, which only the regular-file check stops",
+		() => {
+			expect(ownerLinesAt("/dev/zero")).toEqual([]);
+		},
+	);
 
 	it("gives its lines, and none when it is missing", () => {
 		const file = join(root, "owners.txt");

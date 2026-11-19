@@ -158,6 +158,16 @@ describe("the subjects a quest's sessions declare", () => {
 		);
 	});
 
+	it("are reported as left out once owner prefixes given later crowd them out", async () => {
+		const id = await made();
+		const declared = Array.from({ length: 10 }, (_, at) => `s${at}`);
+		await run({ action: "config", id, ref: `subjects=${declared.join(",")}` });
+		const address = questAddress(id);
+		owners(...[0, 1, 2, 3].map((at) => `owned${at}.=${address}`));
+		const report = await run({ action: "config", id });
+		expect(said(report)).toMatch(/leaving out 2 its README declares/);
+	});
+
 	it("come back from the README exactly as said, however YAML would read them bare", async () => {
 		const id = await made();
 		const awkward = ["a: b", "#c", "[d]", "2026", "true", "---", "'q'"];
