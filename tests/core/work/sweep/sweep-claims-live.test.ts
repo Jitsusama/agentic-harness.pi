@@ -7,8 +7,8 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { sweepEndedTrees } from "../../../lib/core/work/sweep.ts";
-import { git } from "../../support/git-fixture.ts";
+import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
+import { git } from "../../../support/git-fixture.ts";
 import {
 	disposeAll,
 	elsewhere,
@@ -18,7 +18,7 @@ import {
 	settle,
 	settleFolder,
 	setUp,
-} from "./support/sweep-live.ts";
+} from "../support/sweep-live.ts";
 
 afterEach(disposeAll);
 

@@ -4,8 +4,8 @@
  * The sweep acts, so a fake git answering whatever it was told would
  * prove only that the sweep believes it. These cut real worktrees,
  * write the broker's records for them, and say which sessions still
- * run through stand-in process facts, which support/sweep-live.ts sets
- * up.
+ * run through stand-in process facts, which ../support/sweep-live.ts
+ * sets up.
  */
 
 import {
@@ -20,11 +20,11 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { TreeProvider } from "../../../lib/core/work/broker.ts";
-import { DEV_SHELL_IDLE_MS } from "../../../lib/core/work/dev-shell-roots.ts";
-import type { createTreeMemory } from "../../../lib/core/work/memory.ts";
-import { sweepEndedTrees } from "../../../lib/core/work/sweep.ts";
-import { git } from "../../support/git-fixture.ts";
+import type { TreeProvider } from "../../../../lib/core/work/broker.ts";
+import { DEV_SHELL_IDLE_MS } from "../../../../lib/core/work/dev-shell-roots.ts";
+import type { createTreeMemory } from "../../../../lib/core/work/memory.ts";
+import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
+import { git } from "../../../support/git-fixture.ts";
 import {
 	disposeAll,
 	ENDED,
@@ -42,7 +42,7 @@ import {
 	settleFolder,
 	setUp,
 	US_STARTED,
-} from "./support/sweep-live.ts";
+} from "../support/sweep-live.ts";
 
 afterEach(disposeAll);
 

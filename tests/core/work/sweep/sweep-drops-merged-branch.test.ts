@@ -12,15 +12,15 @@
 import { rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { PUSHED_SETTLE_MS } from "../../../lib/core/work/sweep.ts";
-import { git } from "../../support/git-fixture.ts";
+import { PUSHED_SETTLE_MS } from "../../../../lib/core/work/sweep.ts";
+import { git } from "../../../support/git-fixture.ts";
 import {
 	disposeAll,
 	exec,
 	landed,
 	RUNNING,
 	setUp,
-} from "./support/sweep-live.ts";
+} from "../support/sweep-live.ts";
 
 afterEach(disposeAll);
 

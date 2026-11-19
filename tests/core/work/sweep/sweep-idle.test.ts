@@ -6,15 +6,15 @@
 import { existsSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { HeldTree } from "../../../lib/core/work/broker.ts";
-import type { SweepDeps } from "../../../lib/core/work/sweep.ts";
-import { sweepEndedTrees } from "../../../lib/core/work/sweep.ts";
+import type { HeldTree } from "../../../../lib/core/work/broker.ts";
+import type { SweepDeps } from "../../../../lib/core/work/sweep.ts";
+import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
 import {
 	IDLE_HELD_MS,
 	IDLE_TAKES_PER_SWEEP,
 	idleSnapshots,
-} from "../../../lib/core/work/sweep-idle.ts";
-import { git } from "../../support/git-fixture.ts";
+} from "../../../../lib/core/work/sweep-idle.ts";
+import { git } from "../../../support/git-fixture.ts";
 import {
 	disposeAll,
 	elsewhere,
@@ -25,7 +25,7 @@ import {
 	RUNNING,
 	settleFolder,
 	setUp,
-} from "./support/sweep-live.ts";
+} from "../support/sweep-live.ts";
 
 afterEach(disposeAll);
 

@@ -32,7 +32,9 @@
  * then asks for the tree finds no record and no folder, and cuts afresh.
  *
  * A tree another provider cut, such as a World dev tree, goes through
- * that provider, and only once it says nothing would be lost.
+ * that provider, and only once it says nothing would be lost. One whose
+ * clone was deleted keeps only its folder, which goes as it is
+ * (`sweep-orphan.ts`). One sweep runs at a time (`sweep-lock.ts`).
  *
  * A snapshot a live session holds goes too, once nothing has used it
  * for hours and it is as it was cut (`sweep-idle.ts`): a session asking
@@ -46,17 +48,6 @@
  */
 
 import { randomBytes } from "node:crypto";
-import {
-	closeSync,
-	existsSync,
-	openSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	statSync,
-	writeSync,
-} from "node:fs";
-import { join, resolve } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { type ProcessFacts, systemFacts } from "../process/index.ts";
 import type { HeldTree, TreeProvider } from "./broker.ts";
@@ -80,18 +71,14 @@ import {
 	lastUsed,
 	mainCheckoutOf,
 } from "./sweep-idle.ts";
+import { sweepLock } from "./sweep-lock.ts";
+import { goneGitDir, takeOrphan } from "./sweep-orphan.ts";
 import { markEnded, restingSince } from "./sweep-rest.ts";
 import { orphanedTrees } from "./tidy.ts";
 import { pinnedCommit } from "./tree.ts";
 
 /** The provider a git worktree's record names. */
 const GIT_WORKTREE = "git-worktree";
-
-/**
- * How old a sweep's lock may be before it is taken over whoever holds
- * it: past any real sweep, so its holder stopped rather than working.
- */
-const SWEEP_STALE_MS = 60 * 60 * 1000;
 
 /**
  * How long a tree whose branch trunk doesn't contain, but its remote
@@ -485,80 +472,6 @@ function covered(path: string, wanted: readonly string[]): boolean {
 }
 
 /**
- * The git folder a worktree's `.git` file points at, when that folder
- * is gone, or nothing for a tree whose repository still stands or that
- * isn't a worktree at all.
- */
-function goneGitDir(path: string): string | undefined {
-	try {
-		const said = /^gitdir: (.+)$/m.exec(
-			readFileSync(join(path, ".git"), "utf8"),
-		)?.[1];
-		if (said === undefined) return undefined;
-		const gitDir = resolve(path, said.trim());
-		return existsSync(gitDir) ? undefined : gitDir;
-	} catch {
-		// No `.git` file, or a `.git` folder: not a worktree of a lost clone.
-		return undefined;
-	}
-}
-
-/**
- * Take a tree whose repository went with finished work: its commits
- * went with the clone, and git can no longer read it, so only its
- * folder is left. Moved aside under its record's lock, as
- * {@link takeBack} does, then removed.
- */
-async function takeOrphan(
-	deps: SweepDeps,
-	facts: ProcessFacts,
-	tree: HeldTree,
-	outcome: SweepOutcome,
-): Promise<void> {
-	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
-	let moveRefused: string | undefined;
-	const forgotten = await deps.memory.whileUnheld(
-		tree.path,
-		async () => {
-			try {
-				renameSync(tree.path, aside);
-				return true;
-			} catch (error) {
-				moveRefused = messageOf(error);
-				return false;
-			}
-		},
-		facts,
-	);
-	if (forgotten === undefined) {
-		if (moveRefused !== undefined) {
-			outcome.refused.push({ path: tree.path, why: moveRefused });
-		} else {
-			outcome.kept.push({ path: tree.path, why: "a session took it up again" });
-		}
-		return;
-	}
-	try {
-		rmSync(aside, { recursive: true, force: true });
-		outcome.taken.push({ path: tree.path });
-	} catch (error) {
-		// Read-only module caches refuse a plain removal. What is left goes
-		// back where it was, with its record, for the next sweep.
-		const why = messageOf(error);
-		try {
-			renameSync(aside, tree.path);
-			deps.memory.remember(forgotten);
-			outcome.refused.push({ path: tree.path, why });
-		} catch (back) {
-			outcome.refused.push({
-				path: tree.path,
-				why: `${why}; what is left is at ${aside}: ${messageOf(back)}`,
-			});
-		}
-	}
-}
-
-/**
  * The snapshots among `trees` whose HEAD never left the commit they were
  * cut at, by resolved path, with that commit. Only a tree's own record
  * says what it was cut at. Its HEAD's reflog says where HEAD has been:
@@ -839,82 +752,6 @@ async function trunkOf(exec: Exec, main: string): Promise<string> {
 		"refs/remotes/origin/main",
 	]);
 	return remote.code === 0 ? "origin/main" : "main";
-}
-
-/**
- * Hold the sweep's lock, answering how to let it go, or why another
- * sweep has it. A lock whose holder has ended, or that has stood past
- * {@link SWEEP_STALE_MS}, is moved aside and taken over. Unlike the
- * record locks this never waits: a second sweep has nothing to add.
- */
-function sweepLock(lockPath: string): (() => void) | string {
-	for (let tries = 0; tries < 2; tries += 1) {
-		try {
-			const fd = openSync(lockPath, "wx");
-			try {
-				writeSync(fd, String(process.pid));
-			} finally {
-				closeSync(fd);
-			}
-			return () => {
-				// Only our own lock: one taken over from us is its new holder's.
-				if (holderOf(lockPath) === process.pid)
-					rmSync(lockPath, { force: true });
-			};
-		} catch (error) {
-			if (!hasCode(error, "EEXIST")) throw error;
-		}
-		const holder = holderOf(lockPath);
-		if (holder !== undefined && isAlive(holder) && !isStale(lockPath)) {
-			return `another sweep is running, pid ${holder}`;
-		}
-		const stale = `${lockPath}.stale-${process.pid}-${randomBytes(4).toString("hex")}`;
-		try {
-			renameSync(lockPath, stale);
-			rmSync(stale, { force: true });
-		} catch (error) {
-			// Somebody else moved it first, which is theirs to hold now.
-			if (!hasCode(error, "ENOENT")) throw error;
-		}
-	}
-	return "another sweep took the lock as this one did";
-}
-
-function holderOf(lockPath: string): number | undefined {
-	try {
-		const pid = Number(readFileSync(lockPath, "utf8").trim());
-		return Number.isInteger(pid) && pid > 0 ? pid : undefined;
-	} catch {
-		// Gone or half-written: nobody this can name holds it.
-		return undefined;
-	}
-}
-
-function isStale(lockPath: string): boolean {
-	try {
-		return Date.now() - statSync(lockPath).mtimeMs > SWEEP_STALE_MS;
-	} catch {
-		// Gone since it was read, so nothing stands in the way.
-		return true;
-	}
-}
-
-function isAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return hasCode(error, "EPERM");
-	}
-}
-
-function hasCode(error: unknown, code: string): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"code" in error &&
-		error.code === code
-	);
 }
 
 /** What git said when it refused, in its own words. */
