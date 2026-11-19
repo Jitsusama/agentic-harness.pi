@@ -33,6 +33,11 @@ refusal leaves in the system's log, and its one exemption.
 - **`compile-cache-place.ts`**: where every pi process keeps node's
   compile cache, a folder of pi's state the fence holds read-only, so
   no fenced command can plant code that node runs outside the fence.
+
+- **`fence-dev.ts`**: the session's own writable copies of dev's
+  settings and git's global settings, one set for each pi process,
+  made outside and bound over the person's, so a fenced `dev up` can
+  write them and the person's stay read-only.
 - **`fence-disk.ts`**: the disk as the fence reads it, what a path
   is and what a folder holds, which a test hands in a disk of its own
   for.

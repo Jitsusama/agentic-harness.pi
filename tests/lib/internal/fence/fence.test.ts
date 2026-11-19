@@ -168,6 +168,35 @@ describe("what a session asking for the fence is given", () => {
 		rmSync(home, { recursive: true, force: true });
 	});
 
+	it("binds the session's copy of dev's settings over the person's, and names its git file to git", () => {
+		const fence = sandboxFor({ PI_SANDBOX: FENCE }, "linux", all);
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "fence-dev-")));
+		const home = join(base, "home");
+		const runtimeDir = join(base, "run");
+		mkdirSync(join(home, ".config", "dev"), { recursive: true });
+		mkdirSync(runtimeDir);
+		try {
+			const text =
+				wrapFor(
+					fence,
+					{
+						cwd: home,
+						env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: "s-1" },
+					},
+					home,
+				)?.("true") ?? "";
+			const copies = join(runtimeDir, "pi-fence", "dev", `s-1.${process.pid}`);
+			expect(text, "dev's copy isn't bound over the person's").toContain(
+				`'--bind' '${join(copies, "dev")}' '${join(home, ".config", "dev")}'`,
+			);
+			expect(text, "git isn't told its global file").toContain(
+				`GIT_CONFIG_GLOBAL=${join(copies, "git", "config")}`,
+			);
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
 	it("fences one asking for a sandbox that isn't there, naming it", () => {
 		const loose = sandboxFor({ PI_SANDBOX: "loose" }, "linux", all);
 		expect(loose.kind, "an unknown name wasn't fenced").toBe("fence");

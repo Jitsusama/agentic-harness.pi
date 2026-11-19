@@ -587,11 +587,7 @@ export function wrapFor(
 			const direnv = fencedDirenv(home, place.env, direnvTrusts());
 			// dev's setup writes its settings and git's global ones on every
 			// call, so the session writes copies of its own (fence-dev.ts).
-			const devCopies = fenceDevCopies(
-				home,
-				place.env.XDG_RUNTIME_DIR,
-				session,
-			);
+			const devCopies = fenceDevCopies(home, place.env, session);
 			const fence = {
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,

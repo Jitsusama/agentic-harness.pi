@@ -401,9 +401,9 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...gitArgs(place, disk),
 		...ownArgs(place.scratch, disk),
 		...ownArgs(place.share, disk),
+		...devArgs(place, disk),
 		...hiddenArgs(place.home, disk),
 		...npmrcArgs(place, disk),
-		...devArgs(place, disk),
 		...(place.docker ? dockerArgs(place.home, disk) : []),
 		...(exists(CGROUPS) ? ["--ro-bind", CGROUPS, CGROUPS] : []),
 	];
@@ -465,8 +465,10 @@ function npmrcArgs(place: FencePlace, disk: Disk): string[] {
 /**
  * bubblewrap's arguments binding the session's copy of dev's settings
  * writable over the person's, and its git folder where it is, so
- * `GIT_CONFIG_GLOBAL` names a file there; last, so no read-only bind
- * of the home folder's covers them, and nothing where the person has no
+ * `GIT_CONFIG_GLOBAL` names a file there; after the home folder's
+ * read-only binds, so none covers them, and before the hidden files are
+ * emptied, so one in dev's folder, or a link into it, stays hidden in
+ * the copy; and nothing where the person has no
  * dev settings folder, since bubblewrap mounts on no link and makes no
  * folder in the read-only home.
  */

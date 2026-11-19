@@ -179,15 +179,20 @@ describe("the fence's arguments", () => {
 		expect(args, "with no copy, nothing is bound").not.toContain(npmrc);
 	});
 
-	it("binds the session's writable copies of dev's settings and git's global folder last", () => {
+	it("binds the session's writable copies of dev's settings and git's global folder, before the hidden entries are emptied", () => {
 		const copies = {
 			dev: "/run/user/1000/pi-fence/dev/s-1/dev",
 			git: "/run/user/1000/pi-fence/dev/s-1/git",
 		};
 		const settings = `${place.home}/.config/dev`;
+		const hiddenFile = `${place.home}/${HIDDEN[0]}`;
+		const folders = diskWith(place.home, [".config", ".gitconfig"]);
 		const given = fenceArgs(
 			{ ...place, devCopies: copies },
-			diskWith(place.home, [".config", ".gitconfig"]),
+			{
+				...folders,
+				kind: (path) => (path === hiddenFile ? "file" : folders.kind(path)),
+			},
 		);
 		const at = given.indexOf(copies.dev);
 		expect(given.slice(at - 1, at + 2)).toEqual([
@@ -195,10 +200,17 @@ describe("the fence's arguments", () => {
 			copies.dev,
 			settings,
 		]);
+		const covering = [settings, `${place.home}/.config`, place.home];
 		expect(
-			given.lastIndexOf(settings),
-			"no later bind makes dev's settings read-only again",
-		).toBe(at + 1);
+			given.slice(at + 2).filter((arg) => covering.includes(arg)),
+			"no later mount of dev's settings, or a folder holding them, covers the copy",
+		).toEqual([]);
+		const hidden = given.indexOf(hiddenFile);
+		expect(hidden, "no hidden entry was emptied").toBeGreaterThan(-1);
+		expect(
+			hidden,
+			"the hidden entries are emptied after the copy, so one in dev's folder stays hidden",
+		).toBeGreaterThan(at);
 		const git = given.indexOf(copies.git);
 		expect(given.slice(git - 1, git + 2)).toEqual([
 			"--bind",
