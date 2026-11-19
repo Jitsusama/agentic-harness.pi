@@ -35,6 +35,7 @@
  */
 
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ambientSession } from "../../lib/core/session/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
@@ -120,6 +121,19 @@ const LATE_BEAT_MS = 5000;
 const HALF = 2;
 
 const MICROSECONDS_PER_MS = 1000;
+
+/**
+ * How long systemd has to take a ready before the host reads the unit's
+ * state, in ms. At 02:09:51 on 19 November a ready went unheard and the
+ * unit sat activating until its start timeout killed the host; reading
+ * the state a second on, and telling it again, mends that whatever lost
+ * the first.
+ */
+const READY_TAKEN_MS = 1000;
+/** How many times the host tells systemd it's ready before it gives up. */
+const READY_TELLINGS = 10;
+/** How long systemctl has to say a unit's state, in ms. */
+const UNIT_STATE_WITHIN_MS = 5000;
 const MS_PER_SECOND = 1000;
 
 /**
@@ -151,8 +165,15 @@ export interface HostRunOptions {
 	rollout?: AdmitAnother;
 	/** Where the process hears its stop signals; the process by default. */
 	signals?: { once(signal: string, listener: () => void): unknown };
-	/** Says the host is ready, with its status; systemd's notify by default. */
+	/**
+	 * Says the host is ready, with its status; by default systemd's notify,
+	 * said again until the unit reads active.
+	 */
 	ready?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
+	/** The systemd unit the host runs as; read from its cgroup by default. */
+	unit?: string;
+	/** How long, in ms, systemd has to take a ready before the host looks; READY_TAKEN_MS by default. */
+	readyTaken?: number;
 	/** Says the host's status once it changes; systemd's notify by default. */
 	status?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
 	/** How often the status is looked at, in ms; STATUS_EVERY_MS by default. */
@@ -449,7 +470,16 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		});
 	});
 	try {
-		await (options.ready ?? notifyReady)(options.env, status());
+		const ready =
+			options.ready ??
+			((env: NodeJS.ProcessEnv, said: string) =>
+				notifyReady(env, said, {
+					unit: options.unit ?? ownUnit(),
+					taken: options.readyTaken ?? READY_TAKEN_MS,
+					say,
+					stopping: () => stopping !== undefined,
+				}));
+		await ready(options.env, status());
 	} catch (error) {
 		// systemd waits for readiness until its own timeout and stops the
 		// unit then; the host keeps serving what it can until it does.
@@ -621,8 +651,110 @@ function uncontained(
  * the last start step: on 12 November attended still read "building the
  * engine" hours after it started.
  */
-function notifyReady(env: NodeJS.ProcessEnv, status: string): Promise<void> {
-	return tellSystemd(env, ["--ready", `STATUS=${status}`]);
+async function notifyReady(
+	env: NodeJS.ProcessEnv,
+	status: string,
+	confirm: ReadyConfirm,
+): Promise<void> {
+	if (!env.NOTIFY_SOCKET) return;
+	const { unit, taken, say, stopping } = confirm;
+	for (let telling = 1; ; telling++) {
+		await tellSystemd(env, ["--ready", `STATUS=${status}`]);
+		if (unit === undefined) return;
+		// systemd takes a notify off its socket in its own time.
+		await new Promise((resolve) => setTimeout(resolve, taken));
+		let state: string;
+		try {
+			state = await unitState(env, unit);
+		} catch (error) {
+			say(
+				`couldn't read whether systemd took the host's ready, so trusting it: ${firstLine(error)}`,
+			);
+			return;
+		}
+		if (state !== "activating") {
+			if (telling > 1)
+				say(`systemd took the host's ready on its ${ordinal(telling)} telling`);
+			return;
+		}
+		if (stopping()) return;
+		if (telling >= READY_TELLINGS)
+			throw new Error(
+				`systemd didn't take the host's ready in ${READY_TELLINGS} tellings: ${unit} still reads ${state}`,
+			);
+		say(
+			`systemd didn't take the host's ready: ${unit} still reads ${state}, so telling it again (${telling + 1} of ${READY_TELLINGS})`,
+		);
+	}
+}
+
+/** What a ready needs to see systemd took it. */
+interface ReadyConfirm {
+	/** The unit whose state says it, or none when the host isn't in one. */
+	readonly unit: string | undefined;
+	/** How long, in ms, systemd has to take each telling. */
+	readonly taken: number;
+	/** Where each miss is journalled. */
+	readonly say: (line: string) => void;
+	/** Whether the host has begun to stop, when a ready no longer matters. */
+	readonly stopping: () => boolean;
+}
+
+/**
+ * The service unit this process runs in, from its cgroup, or none when it
+ * runs in no service: a scope or a test's shell.
+ */
+function ownUnit(): string | undefined {
+	let text: string;
+	try {
+		text = readFileSync("/proc/self/cgroup", "utf8");
+	} catch {
+		// No /proc, as off Linux, where no systemd waits on a ready.
+		return undefined;
+	}
+	const path = text
+		.split("\n")
+		.find((line) => line.startsWith("0::"))
+		?.slice(3);
+	const leaf = path?.split("/").filter(Boolean).at(-1);
+	return leaf?.endsWith(".service") ? leaf : undefined;
+}
+
+/** The unit's ActiveState, as the user's systemd says it. */
+function unitState(env: NodeJS.ProcessEnv, unit: string): Promise<string> {
+	const args = ["--user", "show", "--property=ActiveState", "--value", unit];
+	return new Promise((resolve, reject) => {
+		withPi(() =>
+			execFile(
+				"systemctl",
+				args,
+				{ env, timeout: UNIT_STATE_WITHIN_MS },
+				(error, stdout, stderr) => {
+					if (!error) {
+						resolve(String(stdout).trim());
+						return;
+					}
+					const told = String(stderr).trim().split("\n")[0] ?? "";
+					const code = error.code ?? error.signal ?? "an error";
+					reject(
+						new Error(
+							`systemctl ended with ${code}${told ? `: ${told}` : ""}`,
+							{
+								cause: error,
+							},
+						),
+					);
+				},
+			),
+		);
+	});
+}
+
+/** 2nd, 3rd, 4th: how the journal counts a telling. */
+function ordinal(n: number): string {
+	const tens = n % 100;
+	if (tens >= 11 && tens <= 13) return `${n}th`;
+	return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
 /**
