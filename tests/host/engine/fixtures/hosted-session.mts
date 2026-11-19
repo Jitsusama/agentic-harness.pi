@@ -15,6 +15,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -224,6 +225,11 @@ interface Scenario {
 	 * handler waiting on a slow service would be, noting when it begins.
 	 */
 	stalls?: boolean;
+	/**
+	 * Load an extension that kills the host as pi begins settling a run,
+	 * writing first what the scenario typed, since the run never prints.
+	 */
+	diesAtSettle?: boolean;
 }
 
 /** Two models of different sizes, for a scenario that tells which answered. */
@@ -269,6 +275,14 @@ let preparingBegan = (): void => {};
 const preparing = new Promise<void>((done) => {
 	preparingBegan = done;
 });
+/** Words typed the moment pi sees a carried run end, before pi settles it. */
+const TYPED_AS_IT_ENDS = "typed as it ended";
+/** Where the scenario typing them says what it saw, since it dies before printing; carried-runs.test.ts reads it. */
+const TYPED_AS_IT_ENDS_FILE = "typed-as-it-ends.json";
+/** How long that scenario waits to see the carried run end. */
+const CARRIED_END_WAIT_MS = 20_000;
+/** What that scenario saw as it typed, written as the host dies. */
+let typedAsItEnds: object = { typed: false };
 /** What the session's agent holds queued, once the session is built. */
 let queued = (): boolean => false;
 /** The words pi's screen lists as pending, once the session is built. */
@@ -903,6 +917,51 @@ const scenarios: Record<string, Scenario> = {
 		persist: true,
 		stalls: true,
 	},
+	/**
+	 * As reopen, Joel's words reaching the agent the moment pi sees the
+	 * carried run end, once durable has gone idle, and the host dying as pi
+	 * begins settling the run: what it saw is written to a file, since it
+	 * never prints.
+	 */
+	"reopen-typed-as-it-ends": {
+		responses: () => [say("after the restart"), say("and your words")],
+		// Slow enough that the carried run is still under way once the recovery has begun.
+		tokensPerSecond: 20,
+		tools: echo(async () => noteEffect("ping")),
+		during: async (session) => {
+			const ended = await new Promise<boolean>((done) => {
+				const stop = session.agent.subscribe((event: unknown) => {
+					if (!isRecord(event) || event.type !== "agent_end") return;
+					stop();
+					// Queued as pi's prompt queues words typed into a run under way, at a moment
+					// of the run's own rather than after pi's input handlers, which take a while.
+					session.agent.followUp({
+						role: "user",
+						content: [{ type: "text", text: TYPED_AS_IT_ENDS }],
+						timestamp: Date.now(),
+					});
+					typedAsItEnds = {
+						typed: true,
+						streaming: session.isStreaming,
+						queuedOnceTyped: queued(),
+					};
+					done(true);
+				});
+				// A bound, so a carried run that never ends fails the case in seconds rather than at vitest's timeout.
+				setTimeout(() => done(false), CARRIED_END_WAIT_MS);
+			});
+			typedAsItEnds = { ...typedAsItEnds, ended };
+		},
+		drive: async () => {},
+		persist: true,
+		diesAtSettle: true,
+	},
+	/** Open the kept session again after reopen-typed-as-it-ends, answering any words it kept. */
+	"reopen-after-typed": {
+		responses: () => [say("and your words")],
+		drive: async () => {},
+		persist: true,
+	},
 	/** A host stopping before the provider's first token, the provider paying the park's abort no heed. */
 	"park-slow-first-token": {
 		responses: () => [answerSlowly],
@@ -1097,6 +1156,7 @@ try {
 		...(scenario.listens ? [listeningExtension(builtSession)] : []),
 		...(scenario.sections ? [sectioningExtension] : []),
 		...(scenario.stalls ? [stallingExtension] : []),
+		...(scenario.diesAtSettle ? [settleKillingExtension] : []),
 	];
 	const resourceLoader =
 		extensionFactories.length > 0
@@ -1242,6 +1302,21 @@ function sectioningExtension(pi: ExtensionPi): void {
 		if (!isRecord(options)) return;
 		const sections = isRecord(options.sections) ? options.sections : {};
 		options.sections = { ...sections, [SECTION_NAME]: SECTION };
+	});
+}
+
+/**
+ * An extension that kills the host as pi begins settling a run, writing
+ * first what reopen-typed-as-it-ends saw and whether the agent still
+ * queues its words, which only memory holds then.
+ */
+function settleKillingExtension(pi: ExtensionPi): void {
+	pi.on("agent_settled", () => {
+		writeFileSync(
+			join(folder, TYPED_AS_IT_ENDS_FILE),
+			JSON.stringify({ ...typedAsItEnds, queuedAtSettle: queued() }),
+		);
+		process.kill(process.pid, "SIGKILL");
 	});
 }
 
