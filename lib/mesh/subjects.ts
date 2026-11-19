@@ -7,29 +7,50 @@
  * subjects come from two places, as the routes note settled
  * (FZ9MFJ's routes-into-subjects.md, 17 November):
  *
- * - the owner lines in Joel's config, `prefix=ADDRESS`, the very values
- *   cadence takes as `--owner`, naming one of the cell's addresses: the
- *   prefix as written, longest first, since a longer prefix is the
- *   narrower subject and is never split at colons or dots here;
+ * - the owner lines in the machine's config, `prefix=ADDRESS`, the very
+ *   values cadence takes as `--owner`, naming the address the cell signs
+ *   with or its session's own: the prefix as written, longest first,
+ *   since a longer prefix is the narrower subject and is never split at
+ *   colons or dots here;
  * - its quest's own list, its README's `subjects` front matter.
  *
  * The owner lines are read from a file of them, one a line, which
  * cadence's home module writes from the same list it passes as
  * `--owner`, so the two can't differ. A missing file declares none.
  *
+ * The node's rule is mycelium's `subjects()` in `src/networks/made.rs`:
+ * each string trimmed, the first 12 of at most 120 characters (code
+ * points, `chars().count()`) holding no control, direction mark, unseen
+ * character or line or paragraph separator. The same rule is kept here,
+ * refusing every format character rather than the node's named few, so
+ * a subject this passes is one the node serves and a subject it would
+ * pass over never takes one of the 12 places.
+ *
  * A subject routes a need and grants nothing: a yes, a ruling or a grant
  * still comes only from the owner named by address.
  */
 
-import { readFileSync } from "node:fs";
+import {
+	closeSync,
+	constants,
+	fstatSync,
+	openSync,
+	readFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 /** The most subjects a cell declares, as mycelium's node reads them. */
 export const MOST_SUBJECTS = 12;
 
 /** The most characters one subject holds, as the node reads it. */
 export const LONGEST_SUBJECT = 120;
+
+/**
+ * The largest owners file read: a line per prefix is a few kilobytes, so
+ * anything past this is not one, and isn't read on every refresh.
+ */
+const LARGEST_OWNERS_FILE = 64 * 1024;
 
 /** Where the owners file is, when the environment names another place. */
 export const OWNERS_FILE_ENV = "PI_OWNERS_FILE";
@@ -47,20 +68,23 @@ const OWNERS_UNDER_CONFIG = join("cadence", "owners.txt");
 const NOT_PLAIN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 /**
- * The code points, first and last, that draw as nothing but aren't
- * format characters: the grapheme joiner, the Hangul and Khmer fillers
- * and the variation selectors, Mongolian or not, which the node also
- * passes over. Ranges rather than a character class, since most are
- * combining marks, which a class would join to their neighbours.
+ * The code points, first and last, the node counts as unseen that
+ * aren't format characters: the grapheme joiner, the Hangul and Khmer
+ * fillers, the variation selectors, Mongolian or not, and the code
+ * points left unassigned among the invisible operators and the tags.
+ * Ranges rather than a character class, since most are combining marks,
+ * which a class would join to their neighbours.
  */
 const UNSEEN: readonly (readonly [number, number])[] = [
 	[0x034f, 0x034f],
 	[0x115f, 0x1160],
 	[0x17b4, 0x17b5],
 	[0x180b, 0x180f],
+	[0x2060, 0x2065],
 	[0x3164, 0x3164],
 	[0xfe00, 0xfe0f],
 	[0xffa0, 0xffa0],
+	[0xe0000, 0xe007f],
 	[0xe0100, 0xe01ef],
 ];
 
@@ -70,23 +94,31 @@ function unseen(each: string): boolean {
 	return UNSEEN.some(([first, last]) => point >= first && point <= last);
 }
 
-/** The owners file `env` names, else cadence's under the config folder. */
+/**
+ * The owners file `env` names, else cadence's under the config folder:
+ * `XDG_CONFIG_HOME` when it is absolute, as the XDG rules say, else
+ * `.config` under the home folder. An empty `HOME` counts as unset, so
+ * the file is never looked for under whatever folder pi started in.
+ */
 export function ownersFile(env: NodeJS.ProcessEnv): string {
 	const named = env[OWNERS_FILE_ENV];
 	if (named) return named;
-	const config = env.XDG_CONFIG_HOME || join(env.HOME ?? homedir(), ".config");
+	const xdg = env.XDG_CONFIG_HOME;
+	const config =
+		xdg && isAbsolute(xdg) ? xdg : join(env.HOME || homedir(), ".config");
 	return join(config, OWNERS_UNDER_CONFIG);
 }
 
 /**
  * The owner lines in `file`, each trimmed, the blank left out; none
- * when it can't be read. Read afresh each time, since a switch rewrites
- * it and the file is a few kilobytes.
+ * when it can't be read, or isn't a plain file of a few kilobytes, so a
+ * pipe or a device named there never stalls a refresh. Read afresh each
+ * time, since a switch rewrites it.
  */
 export function ownerLinesAt(file: string): string[] {
 	let text: string;
 	try {
-		text = readFileSync(file, "utf8");
+		text = readSmallFile(file);
 	} catch {
 		// No owners file on this machine, or not one we may read: the cell
 		// declares no owned subjects, which is what it holds without one.
@@ -96,6 +128,25 @@ export function ownerLinesAt(file: string): string[] {
 		.split("\n")
 		.map((line) => line.trim())
 		.filter((line) => line !== "");
+}
+
+/**
+ * The text of `file`, read only once it is known to be a regular file
+ * no larger than `LARGEST_OWNERS_FILE`; it throws otherwise. Opened
+ * first and checked through the descriptor, so what is checked is what
+ * is read, and opened without blocking, so a pipe can't hold the open.
+ */
+function readSmallFile(file: string): string {
+	const fd = openSync(file, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+	try {
+		const stat = fstatSync(fd);
+		if (!stat.isFile() || stat.size > LARGEST_OWNERS_FILE) {
+			throw new Error(`${file} is not a small regular file`);
+		}
+		return readFileSync(fd, "utf8");
+	} finally {
+		closeSync(fd);
+	}
 }
 
 /**

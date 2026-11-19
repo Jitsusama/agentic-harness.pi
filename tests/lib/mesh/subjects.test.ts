@@ -4,7 +4,8 @@
  * as mycelium's node reads them.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -101,6 +102,26 @@ describe("a cell's subjects", () => {
 			),
 		).toEqual(["x".repeat(LONGEST_SUBJECT), "needs"]);
 	});
+
+	it("counts characters as the node does, a code point each, however many units one takes", () => {
+		const astral = "\u{1F344}";
+		expect(
+			subjectsOf(
+				[astral.repeat(LONGEST_SUBJECT + 1)],
+				[astral.repeat(LONGEST_SUBJECT)],
+			),
+		).toEqual([astral.repeat(LONGEST_SUBJECT)]);
+	});
+
+	it("passes over every character the node counts unseen, at each end of its ranges", () => {
+		const unseen = [
+			0x00ad, 0x034f, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180f, 0x200b,
+			0x200d, 0x2060, 0x2065, 0x3164, 0xfe00, 0xfe0f, 0xfeff, 0xffa0, 0xe0000,
+			0xe007f, 0xe0100, 0xe01ef, 0x061c, 0x200e, 0x202a, 0x2069, 0x2028, 0x2029,
+		];
+		const holding = unseen.map((point) => `a${String.fromCodePoint(point)}b`);
+		expect(subjectsOf(holding, ["plain"])).toEqual(["plain"]);
+	});
 });
 
 describe("the owners file", () => {
@@ -122,6 +143,23 @@ describe("the owners file", () => {
 		expect(ownersFile({ HOME: "/h", PI_OWNERS_FILE: "/o/owners" })).toBe(
 			"/o/owners",
 		);
+	});
+
+	it("is never looked for under the folder pi started in, for an empty home or a relative config folder", () => {
+		const empty = ownersFile({ HOME: "" });
+		const relative = ownersFile({ HOME: "/h", XDG_CONFIG_HOME: "conf" });
+		expect(empty.startsWith("/")).toBe(true);
+		expect(relative).toBe("/h/.config/cadence/owners.txt");
+	});
+
+	it("gives none for a folder, a pipe or a file too large to be one, so a refresh never stalls", () => {
+		const folder = join(root, "folder");
+		mkdirSync(folder);
+		const pipe = join(root, "pipe");
+		execFileSync("mkfifo", [pipe]);
+		const large = join(root, "large");
+		writeFileSync(large, "health.=80ECO2\n".repeat(10_000));
+		expect([folder, pipe, large].map(ownerLinesAt)).toEqual([[], [], []]);
 	});
 
 	it("gives its lines, and none when it is missing", () => {

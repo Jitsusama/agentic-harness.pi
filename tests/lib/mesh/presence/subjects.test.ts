@@ -3,7 +3,13 @@
  * serves them on its cell and a need finds it by them: the owner lines
  * naming its address, then its quest's own list.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,6 +17,7 @@ import {
 	parseQuestFrontMatter,
 	serializeQuestFrontMatter,
 } from "../../../../lib/internal/quest/documents/frontmatter.ts";
+import { sessionAddress } from "../../../../lib/mesh/address.ts";
 import { localPeer } from "../../../../lib/mesh/peer.ts";
 import { createPresences } from "../../../../lib/mesh/presence.ts";
 import { session, surroundingsAt } from "./support/presences.ts";
@@ -37,7 +44,16 @@ const write = (text: string) => {
 		JSON.stringify({ quest: LOOP }),
 	);
 };
-const kept = () => createPresences(join(root, "presence")).of(session);
+/** The presence file as the node reads it, not read back through presence. */
+const kept = (): { subjects?: unknown } | undefined => {
+	try {
+		return JSON.parse(
+			readFileSync(join(root, "presence", `${session}.json`), "utf8"),
+		);
+	} catch {
+		return undefined;
+	}
+};
 
 describe("the subjects this session's peer says", () => {
 	it("says its quest's own subjects, as its README lists them", () => {
@@ -65,19 +81,52 @@ describe("the subjects this session's peer says", () => {
 		]);
 	});
 
-	it("says an owner's prefixes with no quest loaded, by the address it signs with", () => {
+	it("says an owner's prefixes with no quest loaded, by its session's own address", () => {
 		mkdirSync(join(root, "sessions"), { recursive: true });
-		const peer = localPeer({
+		localPeer({
 			...surroundingsAt(root),
-			owners: () => ["oom.=80ECO2"],
-		});
-		const own = peer.signature;
-		const again = localPeer({
-			...surroundingsAt(root),
-			owners: () => ["oom.=80ECO2", `pressure.=${own}`],
+			owners: () => ["oom.=80ECO2", `pressure.=${sessionAddress(session)}`],
 		});
 
-		expect([again.signature, kept()?.subjects]).toEqual([own, ["pressure."]]);
+		expect(kept()?.subjects).toEqual(["pressure."]);
+	});
+
+	it("owns nothing by an older quest's address it still answers to", () => {
+		write(readme());
+		const older = "QEST-20261001-OLDQST";
+		mkdirSync(join(root, "quests", older), { recursive: true });
+		writeFileSync(
+			join(root, "quests", older, "README.md"),
+			`---\nid: ${older}\n---\n# ${older}\n\n- ${session}\n`,
+		);
+		const peer = localPeer({
+			...surroundingsAt(root),
+			owners: () => ["old.=OLDQST", "loop.=QCXZEB"],
+		});
+
+		expect([peer.addresses.includes("OLDQST"), kept()?.subjects]).toEqual([
+			true,
+			["loop."],
+		]);
+	});
+
+	it("writes only what the node serves: twelve, plain, each once", () => {
+		const owned = Array.from({ length: 4 }, (_, at) => `owned${at}.=QCXZEB`);
+		const declared = [
+			"owned0.",
+			"zero\u200bwidth",
+			...Array.from({ length: 12 }, (_, at) => `declared${at}`),
+		];
+		write(readme(`subjects: ${JSON.stringify(declared)}\n`));
+		localPeer({ ...surroundingsAt(root), owners: () => owned });
+
+		expect(kept()?.subjects).toEqual([
+			"owned0.",
+			"owned1.",
+			"owned2.",
+			"owned3.",
+			...Array.from({ length: 8 }, (_, at) => `declared${at}`),
+		]);
 	});
 
 	it("leaves the key out while it declares none", () => {

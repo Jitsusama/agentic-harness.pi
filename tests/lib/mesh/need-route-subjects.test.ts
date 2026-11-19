@@ -9,11 +9,11 @@ import {
 	foragersFrom,
 	type Hub,
 	MOST_SUBJECT_WORDS,
-	MOST_SUBJECTS,
 	MOST_WORDS,
 	type NeedAsked,
 	subjectWords,
 } from "../../../lib/mesh/need-route.ts";
+import { MOST_SUBJECTS } from "../../../lib/mesh/subjects.ts";
 import { asked, cells, routeNeed, ties } from "./support/needs.ts";
 
 /** How many needs, each its own id, a sharing out is judged over. */

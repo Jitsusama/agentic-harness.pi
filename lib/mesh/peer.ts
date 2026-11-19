@@ -38,6 +38,7 @@ import {
 	olderAddresses,
 	type QuestRecords,
 	questAddress,
+	sessionAddress,
 	signaturesOfOthers,
 	yieldsTo,
 } from "./address.ts";
@@ -566,8 +567,16 @@ export function localPeer(at: Surroundings): Peer {
 		workspace = work.workspace;
 		questInfo = work.questInfo;
 		standsAtTop = work.standsAtTop;
+		// Owned by the work it does now: the quest it signs for, unless it
+		// yielded that to another live peer, and its session's own address,
+		// never an older quest's it still answers to, or a need about that
+		// quest's prefix would find every session that once ran it.
+		const working = [
+			...(signing && yieldedTo === undefined ? [signing] : []),
+			sessionAddress(at.session),
+		];
 		subjects = subjectsOf(
-			ownedPrefixes(at.owners?.() ?? [], addresses),
+			ownedPrefixes(at.owners?.() ?? [], working),
 			work.subjects ?? [],
 		);
 		repo = work.repo;
