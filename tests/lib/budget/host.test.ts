@@ -118,15 +118,17 @@ describe("the budget host", () => {
 		const events = bus();
 		const host = hostBudgets(events, 20);
 		host.registerProvider({
-			id: "stuck",
+			id: "stuck\nforged line",
 			precedence: 0,
 			resolve: () => new Promise(() => {}),
 		});
 
+		// The reason leaves the id to the answer's provider, which the
+		// notice quotes, so an id with a newline adds no line of its own.
 		expect(await host.draw("delta")).toEqual({
 			kind: "unavailable",
-			provider: "stuck",
-			reason: '"stuck" didn\'t answer within 0.02 s.',
+			provider: "stuck\nforged line",
+			reason: "It didn't answer within 0.02 s.",
 		});
 	});
 

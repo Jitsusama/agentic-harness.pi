@@ -178,9 +178,9 @@ async function askOne(
 			() =>
 				resolve({
 					kind: "unavailable",
-					// Quoted, as every line naming a provider does, so its id
-					// can't add a line of its own to the notice it reaches.
-					reason: `${JSON.stringify(provider.id)} didn't answer within ${deadlineMs / 1000} s.`,
+					// The answer names the provider beside its reason, quoted, so
+					// the reason leaves it out rather than say it twice, or raw.
+					reason: `It didn't answer within ${deadlineMs / 1000} s.`,
 				}),
 			deadlineMs,
 		);

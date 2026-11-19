@@ -656,7 +656,11 @@ describe("a spawn where a budget's work is", () => {
 		// A stand-in for the node, so the test never shares a quest on the
 		// person's own mycelium; it refuses, as a node that isn't there does.
 		const node = join(tmpRoot, "bin", "mycelium");
-		writeFileSync(node, "#!/bin/sh\necho 'no node here' >&2\nexit 1\n");
+		const ran = join(tmpRoot, "mycelium-ran");
+		writeFileSync(
+			node,
+			`#!/bin/sh\necho "$@" >> '${ran}'\necho 'no node here' >&2\nexit 1\n`,
+		);
 		chmodSync(node, 0o755);
 		const { state, id } = await quest();
 		const asked: string[] = [];
@@ -668,6 +672,9 @@ describe("a spawn where a budget's work is", () => {
 			machine: "elsewhere-not-this-one",
 		});
 
+		// The stand-in ran, so the spawn got as far as handing the quest
+		// over, and the person's own node never did.
+		expect(readFileSync(ran, "utf8")).toMatch(/share/);
 		expect(asked).toEqual([]);
 		expect(budgetOf(state, id)).toBeUndefined();
 		expect(result.ok ? result.message : result.guidance).not.toMatch(
