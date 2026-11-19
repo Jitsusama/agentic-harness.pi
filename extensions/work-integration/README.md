@@ -41,8 +41,11 @@ fails leaves the start as it was and, for `branch` and `rebase`,
 says why.
 
 Asked for a branch the tree is already on, as `tree` made it, from a
-remote's branch, `branch` moves it up to the fresh start when every
-commit on it is in that start, keeping uncommitted changes. On 19
+remote's branch, `branch` moves it up to the fresh start by a fast
+forward, when every commit on it is in that start. Staged and unstaged
+changes come along, and one the start would overwrite stops the move
+with nothing changed. A start that isn't a remote's branch moves
+nothing. On 19
 November a World tree's branch, made at a stale main, could never
 reach the fresh one, since git refused a branch that already existed.
 A branch with commits of its own is left where it is, and the answer

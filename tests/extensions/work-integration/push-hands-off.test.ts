@@ -148,6 +148,13 @@ describe("a branch whose fetch is waited on", () => {
 	it(
 		"still fetching after a minute moves to a job, which says where the branch starts",
 		async () => {
+			// Origin's main moves on while this clone's record of it stays
+			// behind, so the branch lands on the new commit only if the fetch
+			// finished behind the job rather than being stopped by it.
+			const behind = await git(clone, "rev-parse", "origin/main");
+			await git(clone, "push", "-q", "origin", "topic:main");
+			await git(clone, "update-ref", "refs/remotes/origin/main", behind);
+			const moved = await git(clone, "rev-parse", "topic");
 			const { started, release } = await holdFetches();
 			const { host, outcomes } = recordingHost();
 			const stub = activateWith(workIntegration);
@@ -195,6 +202,8 @@ describe("a branch whose fetch is waited on", () => {
 			);
 			expect(outcomes[0]?.summary).toContain("is on jg/next");
 			expect(await git(clone, "branch", "--show-current")).toBe("jg/next");
+			expect(await git(clone, "rev-parse", "jg/next")).toBe(moved);
+			expect(outcomes[0]?.summary).toContain(`at ${moved.slice(0, 12)}`);
 		},
 		REAL_GIT_MS,
 	);

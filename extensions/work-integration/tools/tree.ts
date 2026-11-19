@@ -211,7 +211,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 				noun: "background work",
 				filePrefix: "pi-work",
 				stopping: (jobId) =>
-					`To stop it, call the jobs tool's stop with ${jobId} (load it with tool_search), which stops git where it is; a replay stopped part-way is resumed or abandoned with work. The person can stop it with /jobs.`,
+					`To stop it, call the jobs tool's stop with ${jobId} (load it with tool_search), which stops git where it is; a replay stopped part-way is resumed or abandoned with work, and a branch stopped while fetching makes none. The person can stop it with /jobs.`,
 				toolCallId,
 				session: sessionKeyOf(ctx),
 				nested: endsWithItsPrompts(ctx.mode),

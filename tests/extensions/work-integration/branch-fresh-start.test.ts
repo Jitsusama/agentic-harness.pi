@@ -7,7 +7,13 @@
  * is what git's tracking ref says after the fetch.
  */
 
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -191,9 +197,23 @@ describe("refreshing a start point before branching", () => {
 	});
 
 	it("moves a branch the tree is already on, as work tree made it at a stale base, up to the remote's branch", async () => {
-		// work tree made the branch where the last fetch left main.
-		await git(behind, "checkout", "-q", "-b", "jg/topic", "origin/main");
-		writeFileSync(join(behind, "notes.md"), "not yet committed\n");
+		// work tree made the branch where the last fetch left main, and
+		// tracking nothing, so the move is what sets its upstream.
+		await git(
+			behind,
+			"checkout",
+			"-q",
+			"--no-track",
+			"-b",
+			"jg/topic",
+			"origin/main",
+		);
+		const stale = await git(behind, "rev-parse", "HEAD");
+		// A staged change and a different one on top, which a hard or
+		// mixed reset would each lose.
+		writeFileSync(join(behind, "README.md"), "staged\n");
+		await git(behind, "add", "README.md");
+		writeFileSync(join(behind, "README.md"), "still typing\n");
 		const now = await moveOriginOn();
 
 		const answer = await workTool()({
@@ -204,14 +224,80 @@ describe("refreshing a start point before branching", () => {
 		});
 
 		expect(answer.content[0]?.text).toContain(
-			`is on jg/topic, moved up, at ${now.slice(0, 12)} from origin/main.`,
+			`is on jg/topic, moved up from ${stale.slice(0, 12)}, at ${now.slice(0, 12)} from origin/main.`,
 		);
+		expect(answer).toMatchObject({ details: { ok: true, moved: true } });
 		expect(await git(behind, "rev-parse", "jg/topic")).toBe(now);
 		expect(await git(behind, "branch", "--show-current")).toBe("jg/topic");
 		expect(
 			await git(behind, "rev-parse", "--abbrev-ref", "jg/topic@{upstream}"),
 		).toBe("origin/main");
-		expect(await git(behind, "status", "--porcelain")).toBe("?? notes.md");
+		expect(await git(behind, "show", ":README.md")).toBe("staged");
+		expect(readFileSync(join(behind, "README.md"), "utf8")).toBe(
+			"still typing\n",
+		);
+	});
+
+	it("says a branch already at the remote's branch is there, rather than moved", async () => {
+		const now = await moveOriginOn();
+		await git(behind, "fetch", "-q", "origin");
+		await git(behind, "checkout", "-q", "-b", "jg/topic", "origin/main");
+
+		const answer = await workTool()({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "origin/main",
+		});
+
+		expect(answer.content[0]?.text).toContain(
+			`is on jg/topic, already, at ${now.slice(0, 12)} from origin/main.`,
+		);
+		expect(answer).not.toMatchObject({ details: { moved: true } });
+	});
+
+	it("leaves the branch and the change alone when the remote's branch would overwrite it", async () => {
+		await git(behind, "checkout", "-q", "-b", "jg/topic", "origin/main");
+		const stale = await git(behind, "rev-parse", "HEAD");
+		// The start adds later.md, which this tree has as its own.
+		writeFileSync(join(behind, "later.md"), "mine\n");
+		await moveOriginOn();
+
+		const answer = await workTool()({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "origin/main",
+		});
+
+		expect(answer).not.toMatchObject({ details: { ok: true } });
+		expect(answer.content[0]?.text).toMatch(
+			/jg\/topic could not move up to origin\/main, so it was left where it is\. Git said: .*later\.md/,
+		);
+		expect(await git(behind, "rev-parse", "jg/topic")).toBe(stale);
+		expect(readFileSync(join(behind, "later.md"), "utf8")).toBe("mine\n");
+	});
+
+	it("moves nothing for a start that is not a remote's branch", async () => {
+		await git(behind, "checkout", "-q", "-b", "jg/topic", "main");
+		await git(behind, "branch", "jg/ahead", "main");
+		writeFileSync(join(behind, "ahead.md"), "ahead\n");
+		await git(behind, "checkout", "-q", "jg/ahead");
+		await git(behind, "add", "ahead.md");
+		await git(behind, "commit", "-qm", "ahead");
+		await git(behind, "checkout", "-q", "jg/topic");
+		const was = await git(behind, "rev-parse", "jg/topic");
+
+		const answer = await workTool()({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "jg/ahead",
+		});
+
+		expect(answer).not.toMatchObject({ details: { ok: true } });
+		expect(answer.content[0]?.text).toMatch(/already exists/);
+		expect(await git(behind, "rev-parse", "jg/topic")).toBe(was);
 	});
 
 	it("leaves a branch with commits of its own where it is, and says to rebase", async () => {
@@ -249,7 +335,7 @@ describe("refreshing a start point before branching", () => {
 		});
 
 		expect(answer.content[0]?.text).toMatch(
-			/jg\/topic already exists and this tree is not on it/,
+			/jg\/topic already exists and this tree is not on it, so it was left where it is\. Switch this tree to it first, or name a new branch\./,
 		);
 		expect(await git(behind, "rev-parse", "jg/topic")).toBe(was);
 		expect(await git(behind, "branch", "--show-current")).toBe("main");
