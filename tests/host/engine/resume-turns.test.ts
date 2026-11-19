@@ -7,6 +7,7 @@ import type { AgentMessage } from "../../../host/engine/pi-types.ts";
 import {
 	beganWithPersonsWords,
 	type GiveBack,
+	LOOK_AGAIN_MS,
 	RESUMED_RUNS_AT_ONCE,
 	RESUMED_TURN_MS,
 	resumeTurns,
@@ -36,7 +37,10 @@ describe("turns for the runs a restart cut off", () => {
 		turns.hold();
 		const { started, givers } = askTen(turns.take, [6, 8]);
 		await settle();
-		expect(started, "nothing goes while the start still resumes").toEqual([]);
+		expect(
+			started,
+			"only the runs Joel waits on go while the start still resumes",
+		).toEqual([6, 8]);
 		turns.open();
 		await settle();
 		expect(RESUMED_RUNS_AT_ONCE).toBe(4);
@@ -71,6 +75,48 @@ describe("turns for the runs a restart cut off", () => {
 			started,
 			"the run Joel typed into goes next, ahead of those that asked before it",
 		).toEqual([0, 7]);
+	});
+
+	describe("a run Joel types into while the start still resumes", () => {
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("gets its turn within a look, while the rest wait for the start", async () => {
+			// On 19 November Joel's words waited 7 minutes behind a start resuming 84 conversations.
+			vi.useFakeTimers();
+			const turns = resumeTurns();
+			turns.hold();
+			const joels: number[] = [];
+			const { started } = askTen(turns.take, joels);
+			await settle();
+			expect(started).toEqual([]);
+			joels.push(7);
+			vi.advanceTimersByTime(LOOK_AGAIN_MS);
+			await settle();
+			expect(started, "the run Joel typed into goes at once").toEqual([7]);
+			vi.advanceTimersByTime(LOOK_AGAIN_MS * 10);
+			await settle();
+			expect(started, "the rest still wait for the start").toEqual([7]);
+			turns.open();
+			await settle();
+			expect(started).toEqual([7, 0, 1, 2]);
+		});
+
+		it("leaves no look running once nothing waits", async () => {
+			vi.useFakeTimers();
+			const turns = resumeTurns();
+			turns.hold();
+			const stop = new AbortController();
+			const waited = turns.take(() => false, stop.signal);
+			await settle();
+			expect(vi.getTimerCount(), "one look while a run waits").toBe(1);
+			stop.abort();
+			await waited;
+			vi.advanceTimersByTime(LOOK_AGAIN_MS);
+			await settle();
+			expect(vi.getTimerCount(), "none once nothing waits").toBe(0);
+		});
 	});
 
 	describe("a run busy past its turn", () => {
