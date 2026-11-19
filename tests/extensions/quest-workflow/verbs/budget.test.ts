@@ -575,6 +575,30 @@ describe("the session's budget", () => {
 			await keeper.keep(ui().ctx);
 			expect(asked()).toBe(1);
 		});
+
+		it("asks once for a burst of keeps, as when a restart resumes dozens of sessions", async () => {
+			const { keeper, clock, asked } = await onAClock();
+			await keeper.keep(ui().ctx);
+			clock.at += BUDGET_ASKED_AGAIN_MS;
+
+			const seen = ui();
+			await Promise.all(
+				Array.from({ length: 40 }, () => keeper.keep(seen.ctx)),
+			);
+
+			expect(asked(), "the one due, and no more while it's on its way").toBe(2);
+		});
+
+		it("says it couldn't be drawn on once, however often it's asked again", async () => {
+			const { keeper, clock } = await onAClock();
+			const seen = ui();
+			for (let turn = 0; turn < 3; turn++) {
+				await keeper.keep(seen.ctx);
+				clock.at += BUDGET_ASKED_AGAIN_MS;
+			}
+
+			expect(seen.notices).toHaveLength(1);
+		});
 	});
 
 	it("asks again when the budget is named again, as after writing its file", async () => {
