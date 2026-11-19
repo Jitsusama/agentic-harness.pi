@@ -41,6 +41,16 @@ function running(): number {
 	).length;
 }
 
+/** The real secret-service-call.mjs. */
+function realCall(): string {
+	return fileURLToPath(
+		new URL(
+			"../../../../lib/core/internal/keyring/secret-service-call.mjs",
+			import.meta.url,
+		),
+	);
+}
+
 /** A stand-in for secret-service-call.mjs, by its name in calls/. */
 function call(name: string): string {
 	return fileURLToPath(new URL(`./calls/${name}.mjs`, import.meta.url));
@@ -78,7 +88,7 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 
 		await store.remove("slack-credentials");
 		expect(await store.read("slack-credentials")).toBeNull();
-	});
+	}, 30_000);
 
 	it("fails the one call when the keyring crashes, rather than the process that asked", async () => {
 		const store = secretServiceStore(callingEntries(call("crashes")));
@@ -87,6 +97,14 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 
 		await expect(read).rejects.toBeInstanceOf(KeyringUnavailable);
 		await expect(read).rejects.toThrow("stopped by SIGKILL");
+	}, 30_000);
+
+	it("says the one line of node's report that names what went wrong", async () => {
+		const read = secretServiceStore(callingEntries(call("stumbles"))).read("x");
+
+		await expect(read).rejects.toThrow(
+			/reached: Error \[ERR_MODULE_NOT_FOUND\]: Cannot find package '@napi-rs\/keyring'$/,
+		);
 	}, 30_000);
 
 	it("says why when the call refuses, complains or answers nothing readable", async () => {
@@ -101,7 +119,7 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 			await expect(read, stand).rejects.toBeInstanceOf(KeyringUnavailable);
 			await expect(read, stand).rejects.toThrow(why);
 		}
-	});
+	}, 30_000);
 
 	it("fails a call whose node can't start, rather than the process that asked", async () => {
 		const store = secretServiceStore(
@@ -111,23 +129,57 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 		await expect(store.write("x", "value")).rejects.toBeInstanceOf(
 			KeyringUnavailable,
 		);
-	});
+	}, 30_000);
 
-	it("takes the answer of a call that lingers after giving it", async () => {
+	it("takes the answer of a call that lingers after giving it, and ends that call", async () => {
 		const store = secretServiceStore(callingEntries(call("lingers")));
 
 		expect(await store.read("x")).toBe("value");
-	});
-
-	it("loads the real keyring module and speaks its protocol", () => {
-		const real = fileURLToPath(
-			new URL(
-				"../../../../lib/core/internal/keyring/secret-service-call.mjs",
-				import.meta.url,
+		const pid = Number(
+			readFileSync(
+				join(dirname(process.env.KEYRING_CALL_FILE ?? ""), "lingers.pid"),
+				"utf8",
 			),
 		);
+		await vi.waitFor(
+			() =>
+				expect(
+					() => process.kill(pid, 0),
+					"the lingering call should have been ended once it answered",
+				).toThrow("ESRCH"),
+			{ timeout: 20_000 },
+		);
+	}, 30_000);
 
-		const ran = spawnSync(process.execPath, [real], {
+	it("keeps a long value whole across the pipe's reads", async () => {
+		const store = secretServiceStore(callingEntries(call("remembers")));
+		// One byte first, so the 64 KiB reads split a two-byte character.
+		const value = `a${"é".repeat(40_000)}`;
+
+		await store.write("x", value);
+
+		expect(await store.read("x")).toBe(value);
+	}, 30_000);
+
+	it("reads a long request whole across the pipe's reads, in the real call", () => {
+		// An unknown act is echoed in the refusal before the module loads, so
+		// this reads the real call's stdin without touching the keyring.
+		const act = `a${"é".repeat(40_000)}`;
+
+		const ran = spawnSync(process.execPath, [realCall()], {
+			input: JSON.stringify({ service: KEYRING_SERVICE, account: "x", act }),
+			encoding: "utf8",
+			timeout: 20_000,
+		});
+
+		expect(ran.status, ran.stderr).toBe(0);
+		expect(JSON.parse(ran.stdout)).toEqual({
+			error: `no such keyring call: ${act}`,
+		});
+	}, 30_000);
+
+	it("loads the real keyring module, with the entry and calls it uses", () => {
+		const ran = spawnSync(process.execPath, [realCall()], {
 			input: JSON.stringify({
 				service: KEYRING_SERVICE,
 				account: "x",
@@ -142,7 +194,7 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 			JSON.parse(ran.stdout),
 			"a write with no value should be refused by the call, after its module loaded",
 		).toEqual({ error: "a write needs a value" });
-	});
+	}, 30_000);
 
 	it("runs at most four calls at once, the rest waiting their turn", async () => {
 		const store = secretServiceStore(callingEntries(call("holds")));

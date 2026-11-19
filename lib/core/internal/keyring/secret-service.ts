@@ -83,6 +83,20 @@ function answerIn(line: string): Answered | Error {
 }
 
 /**
+ * The one line of what a call left on stderr that says what went wrong:
+ * the last naming an error, as node's own report does under its source
+ * line and above its stack, otherwise the first that says anything.
+ */
+function whatWentWrong(stderr: string): string | undefined {
+	const lines = stderr
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	const naming = lines.filter((line) => /^\w*Error\b/.test(line));
+	return naming.at(-1) ?? lines[0];
+}
+
+/**
  * Runs `script` with `node` for one call, the call going in on stdin so
  * a value never rides on a command line. Settles on the first full line
  * it answers, ending the process if it lingers, since the call is done
@@ -122,8 +136,8 @@ function callOnce(
 			stderr += chunk;
 		});
 		child.on("close", (code, signal) => {
+			const said = whatWentWrong(stderr);
 			if (signal) {
-				const said = stderr.trim().split("\n").at(-1);
 				settle(
 					new Error(
 						`its keyring call stopped by ${signal}${said ? `: ${said}` : ""}`,
@@ -132,7 +146,7 @@ function callOnce(
 			} else if (stdout.trim()) {
 				settle(answerIn(stdout.trim()));
 			} else {
-				settle(new Error(stderr.trim() || `its keyring call exited ${code}`));
+				settle(new Error(said || `its keyring call exited ${code}`));
 			}
 		});
 		child.stdin.end(JSON.stringify({ service: KEYRING_SERVICE, ...asked }));
