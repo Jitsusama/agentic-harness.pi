@@ -133,20 +133,30 @@ export function hostBudgets(
 			const asking = ordered().filter(
 				(p) => typeof p.budgetForWork === "function",
 			);
+			// Aborted once the answer is settled, so the providers after a
+			// sure one stop their classifier calls rather than paying on.
+			const settled = new AbortController();
+			const asked = signal
+				? AbortSignal.any([signal, settled.signal])
+				: settled.signal;
 			const judged = asking.map((provider) =>
-				askWork(provider, work, classify, judgeMs, signal),
+				askWork(provider, work, classify, judgeMs, asked),
 			);
-			// A sure answer from any wins over an unsure one from a provider
-			// before it, which named nothing and only guessed.
-			let guess: WorkBudget | undefined;
-			for (const [at, provider] of asking.entries()) {
-				const judgement = await judged[at];
-				if (!judgement) continue;
-				const said = { ...judgement, provider: provider.id };
-				if (said.sure) return said;
-				guess ??= said;
+			try {
+				// A sure answer from any wins over an unsure one from a
+				// provider before it, which named nothing and only guessed.
+				let guess: WorkBudget | undefined;
+				for (const [at, provider] of asking.entries()) {
+					const judgement = await judged[at];
+					if (!judgement) continue;
+					const said = { ...judgement, provider: provider.id };
+					if (said.sure) return said;
+					guess ??= said;
+				}
+				return guess;
+			} finally {
+				settled.abort();
 			}
-			return guess;
 		},
 	};
 	bus.on(BUDGET_REGISTER_PROVIDER, (data: unknown) => {

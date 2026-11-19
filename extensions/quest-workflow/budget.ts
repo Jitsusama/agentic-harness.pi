@@ -48,6 +48,7 @@ import type { Classify, WorkToBudget } from "../../lib/budget/provider.ts";
 import {
 	BUDGET_ENTRY,
 	BUDGET_SETTLED,
+	BUDGET_VARIABLE,
 	type BudgetRecord,
 	type BudgetSettled,
 	budgetDrawnOn,
@@ -194,6 +195,17 @@ export function keepQuestBudget(
 	let folderAsked: Promise<string | null> | undefined;
 	/** What it asked of its first prompt, once a session. */
 	let promptAsked: Promise<string | null> | undefined;
+	/**
+	 * Its first prompt, kept so a provider registering late judges the
+	 * same words rather than whatever prompt comes next.
+	 */
+	let firstPrompt: string | undefined;
+	/**
+	 * The budget the session was started on, read at its first keep and
+	 * "" for none: a subagent started under its parent's quest budget
+	 * keeps that one rather than being judged on its task.
+	 */
+	let startedOn: string | undefined;
 	/** Bumped as a session is forgotten, so its asks lay nothing after. */
 	let sessions = 0;
 
@@ -212,6 +224,8 @@ export function keepQuestBudget(
 		const session = sessions;
 		folderAsked ??= host.budgetFor(folder).then((taken) => {
 			if (!taken || session !== sessions) return null;
+			// Said once, not again as a late provider has it asked anew.
+			if (taken.name === wanted) return taken.name;
 			ctx.ui.notify(
 				`This session is on no quest, so it draws on budget ${taken.name}, which ${JSON.stringify(taken.provider)} says work in ${JSON.stringify(folder)} draws on.`,
 				"info",
@@ -221,9 +235,10 @@ export function keepQuestBudget(
 		const byFolder = await folderAsked;
 		if (session !== sessions) return null;
 		if (byFolder !== null) return byFolder;
-		const asked = prompt?.trim();
-		if (!(promptAsked || asked)) return null;
-		promptAsked ??= judgeLoose(ctx, folder, asked ?? "", session);
+		if (startedOn) return null;
+		firstPrompt ??= prompt?.trim() || undefined;
+		if (firstPrompt === undefined) return null;
+		promptAsked ??= judgeLoose(ctx, folder, firstPrompt, session);
 		const byPrompt = await promptAsked;
 		return session === sessions ? byPrompt : null;
 	};
@@ -237,10 +252,13 @@ export function keepQuestBudget(
 		const judged = await host.budgetForWork(
 			{ title: folder, folder, prompt: prompt.slice(0, LONGEST_PROMPT) },
 			await classifierOf(ctx),
+			// Pressing Escape stops the wait before the first model call.
+			ctx.signal,
 		);
 		if (!judged?.sure || judged.name === NO_BUDGET || session !== sessions) {
 			return null;
 		}
+		if (judged.name === wanted) return judged.name;
 		ctx.ui.notify(
 			`This session is on no quest, so it draws on budget ${judged.name}, which ${JSON.stringify(judged.provider)} judged from its folder and first prompt${judged.why ? `: ${judged.why}` : ""}.`,
 			"info",
@@ -254,6 +272,7 @@ export function keepQuestBudget(
 		prompt?: string,
 	) => {
 		last = ctx;
+		startedOn ??= sessionEnv(ctx).get(BUDGET_VARIABLE)?.trim() ?? "";
 		const name = state.questId
 			? (budgetInRecord(state.questsRoot, state.questId)?.name ?? null)
 			: await looseName(ctx, prompt);
@@ -317,6 +336,8 @@ export function keepQuestBudget(
 		sessions++;
 		folderAsked = undefined;
 		promptAsked = undefined;
+		firstPrompt = undefined;
+		startedOn = undefined;
 	};
 
 	return {

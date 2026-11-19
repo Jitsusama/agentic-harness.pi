@@ -79,6 +79,7 @@ import {
 	namedBy,
 	namedByJudgement,
 	takenFromFolder,
+	unnamedFrom,
 } from "./budget.ts";
 
 /**
@@ -283,7 +284,7 @@ export async function create(
 	if (parentless) return refuse(parentless);
 	// Born drawing on the budget its folder's work draws on, when nothing
 	// above it names one, so it never starts on the person's own key.
-	const folderBudget = await budgetFromFolder(state, parent, ctx.cwd);
+	const folderAnswer = await budgetFromFolder(state, parent, ctx.cwd);
 	const summaryParts: string[] = [];
 	if (params.note?.trim()) summaryParts.push(params.note.trim());
 	if (seededExcerpt) summaryParts.push(`Source excerpt: ${seededExcerpt}`);
@@ -291,7 +292,7 @@ export async function create(
 		summaryParts.length > 0 ? summaryParts.join("\n\n") : undefined;
 	// No folder names one either: judged from what the work is, named only
 	// when the judgement is sure, and said either way.
-	const judged = folderBudget
+	const judgement = folderAnswer
 		? undefined
 		: await budgetFromWork(
 				state,
@@ -307,6 +308,11 @@ export async function create(
 				},
 				signal,
 			);
+	// Asked again after the wait, up to 20 s, so a budget named above it
+	// meanwhile is the one it draws on, as for a quest made after.
+	const stillUnnamed = unnamedFrom(state, parent);
+	const folderBudget = stillUnnamed ? folderAnswer : undefined;
+	const judged = stillUnnamed ? judgement : undefined;
 	const budgetName =
 		folderBudget?.name ?? (judged ? namedByJudgement(judged) : undefined);
 

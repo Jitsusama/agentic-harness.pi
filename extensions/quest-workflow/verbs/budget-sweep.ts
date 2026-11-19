@@ -61,13 +61,13 @@ const DEEPEST = 8;
 const SEALED: ReadonlySet<string> = new Set(["concluded", "retired"]);
 
 /**
- * How a judgement that named nothing is journaled (verbs/budget.ts's
- * judgedFromWork), so a sweep can tell a quest already judged.
+ * A Journey entry saying a judgement named nothing (verbs/budget.ts's
+ * judgedFromWork), so a sweep can tell a quest already judged. Only an
+ * entry that opens so counts: one quoting it, or a seeded summary that
+ * says it, is no judgement.
  */
-const JUDGED_BEFORE = [
-	"Budget: unsure, so none named.",
-	"Budget: none named, since",
-] as const;
+const JUDGED_BEFORE =
+	/^- \*\*\d{4}-\d{2}-\d{2}\*\*: Budget: (?:unsure, so none named\.|none named, since)/m;
 
 /** What the sweep found for one quest. */
 type Swept =
@@ -111,7 +111,18 @@ export async function budgetSweep(
 			async ([id, entry]): Promise<Swept> => {
 				const coveredBy = coverOf(state, id, parentOf, naming, dry);
 				if (coveredBy) return coveredBy;
-				const one = await sweepOne(state, ctx, id, entry, dry, signal);
+				let one: Swept;
+				try {
+					one = await sweepOne(state, ctx, id, entry, dry, signal);
+				} catch (error) {
+					// One quest's lock or write failing is that quest's, said as
+					// such, so the sweep still ends and says what it did.
+					const why = error instanceof Error ? error.message : String(error);
+					return { id, stood: `its write failed: ${why}` };
+				}
+				// Judged nothing because the sweep was stopped, not for want
+				// of a judge.
+				if ("unjudged" in one && signal?.aborted) return { id, stopped: true };
 				if (nameOf(one)) naming.add(id);
 				return one;
 			},
@@ -144,13 +155,13 @@ export async function budgetSweep(
  * it, personal or unsure, in the README's newest entries or JOURNEY.md.
  */
 function journaledJudged(entry: QuestEntry): boolean {
-	let journey = entry.doc.body;
+	let journey = extractSection(entry.doc.body, "journey").join("\n");
 	try {
-		journey += readFileSync(join(entry.dir, "JOURNEY.md"), "utf8");
+		journey += `\n${readFileSync(join(entry.dir, "JOURNEY.md"), "utf8")}`;
 	} catch {
 		// No JOURNEY.md yet: the README's own entries are all there are.
 	}
-	return JUDGED_BEFORE.some((line) => journey.includes(line));
+	return JUDGED_BEFORE.test(journey);
 }
 
 /** `quests` grouped by how many parents each has, the top first. */
@@ -199,8 +210,10 @@ function coverOf(
 		return undefined;
 	}
 	const found = budgetFoundInRecord(state.questsRoot, id);
-	if (found === "unread")
-		return { id, stood: "a quest above it can't be read" };
+	if (found === "unread") {
+		return { id, stood: "its budget word, or one above it, can't be read" };
+	}
+	if (found?.from === id) return { id, stood: "it was named in between" };
 	return found ? { id, covered: found.from } : undefined;
 }
 
@@ -356,7 +369,7 @@ function said(
 	if (unjudged > 0) {
 		lines.push(
 			"",
-			`${unjudged} had no judgement: no provider judges work, or the session has no classifier.`,
+			`${unjudged} had no judgement: no provider judges work, the session has no classifier, or the judgement failed or ran past its deadline.`,
 		);
 	}
 	if (stopped > 0) {

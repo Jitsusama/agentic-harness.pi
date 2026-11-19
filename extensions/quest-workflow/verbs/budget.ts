@@ -102,7 +102,7 @@ export async function budgetFromFolder(
  * way read. One that can't be read counts as naming one, since a quest
  * named under it might be named against its word.
  */
-function unnamedFrom(state: QuestState, above: string | null): boolean {
+export function unnamedFrom(state: QuestState, above: string | null): boolean {
 	return (
 		above === null || budgetFoundInRecord(state.questsRoot, above) === undefined
 	);
@@ -283,10 +283,14 @@ export async function nameBudgetFromWork(
 	if (name !== undefined) {
 		const written = nameIfUnnamed(state, questDir, name, options);
 		if (written !== true) return { stood: written };
-	} else if (!unnamedFrom(state, quest)) {
-		// Named while it was judged: a line saying it is unsure or the
-		// person's own would contradict the name it now has.
-		return { stood: "it was named in between" };
+	} else {
+		// Named while it was judged, or made unreadable: a line saying it
+		// is unsure or the person's own would contradict what it now says.
+		const now = budgetFoundInRecord(state.questsRoot, quest);
+		if (now === "unread") {
+			return { stood: "its budget word, or one above it, can't be read" };
+		}
+		if (now) return { stood: "it was named in between" };
 	}
 	appendJourneyByPath(questDir, judgedFromWork(judged));
 	return { named: judged };

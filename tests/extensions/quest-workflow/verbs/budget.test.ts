@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	keepQuestBudget,
 	undrawable,
@@ -325,6 +325,8 @@ describe("a quest made where a budget's work is", () => {
 describe("a quest no folder or parent names a budget for", () => {
 	/** What each judgement was handed, in order. */
 	let asked: { work: unknown; state: unknown }[] = [];
+	/** The whole work each judgement was handed, in order. */
+	let handed: unknown[] = [];
 
 	/**
 	 * Quest state with a keeper whose provider judges every quest's work
@@ -338,9 +340,13 @@ describe("a quest no folder or parent names a budget for", () => {
 			folder?: string;
 			registry?: boolean;
 			byTitle?: Record<string, readonly [string, number]>;
+			/** Run as each judgement starts, to change things under it. */
+			during?: (title: string) => void;
+			signal?: AbortSignal;
 		} = {},
 	) {
 		asked = [];
+		handed = [];
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const events = bus();
 		keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
@@ -351,6 +357,8 @@ describe("a quest no folder or parent names a budget for", () => {
 			budgetFor: async (folder) =>
 				folder === options.folder ? "aquifer" : undefined,
 			budgetForWork: async (work, classify) => {
+				handed.push(work);
+				options.during?.(work.title);
 				const result = await classify({
 					state: { title: work.title },
 					questions: {},
@@ -398,8 +406,33 @@ describe("a quest no folder or parent names a budget for", () => {
 			...(options.registry === false ? {} : { modelRegistry: registry }),
 		} as unknown as Parameters<typeof handle>[2];
 		const run = (params: Parameters<typeof handle>[3]) =>
-			handle(state, fakePi(intoTheBranch), ctx, params);
+			handle(state, fakePi(intoTheBranch), ctx, params, options.signal);
 		return { state, run };
+	}
+
+	/** Write `word` as quest `id`'s budget straight into its README. */
+	function sayBudget(questsRoot: string, id: string, word: string) {
+		const readme = join(questsRoot, id, "README.md");
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(/^---\n/, `---\nbudget: ${word}\n`),
+		);
+	}
+
+	/** A top quest and a subquest under it, made with no classifier. */
+	async function parentAndChild() {
+		const plain = judged("none", 0, { registry: false });
+		succeeded(await plain.run({ action: "create", title: "The Top" }));
+		const top = plain.state.questId as string;
+		const child = succeeded(
+			await plain.run({
+				action: "create",
+				title: "The Child",
+				kind: "subquest",
+				parent: top,
+			}),
+		).details?.id as string;
+		return { top, child };
 	}
 
 	it("is named for the budget a sure judgement of its work names, said in its first line and Journey", async () => {
@@ -425,6 +458,13 @@ describe("a quest no folder or parent names a budget for", () => {
 			{
 				work: { title: "Speed Up walgit Pack Writes" },
 				state: { title: "Speed Up walgit Pack Writes" },
+			},
+		]);
+		expect(handed).toEqual([
+			{
+				title: "Speed Up walgit Pack Writes",
+				summary: "Delta's git server.",
+				folder: tmpRoot,
 			},
 		]);
 	});
@@ -478,6 +518,52 @@ describe("a quest no folder or parent names a budget for", () => {
 		const top = state.questId as string;
 		succeeded(await run({ action: "budget", id: top, ref: "none" }));
 		asked = [];
+
+		const made = succeeded(
+			await run({
+				action: "create",
+				title: "Under It",
+				kind: "subquest",
+				parent: top,
+			}),
+		);
+
+		expect(budgetIn(state.questsRoot, made.details?.id as string)).toBe(
+			undefined,
+		);
+		expect(asked).toEqual([]);
+	});
+
+	it("draws on a parent named while it was judged, rather than on the judgement", async () => {
+		const plain = judged("none", 0, { registry: false });
+		succeeded(await plain.run({ action: "create", title: "The Top" }));
+		const top = plain.state.questId as string;
+		const { state, run } = judged("aquifer", 0.99, {
+			during: () => sayBudget(plain.state.questsRoot, top, "delta"),
+		});
+
+		const made = succeeded(
+			await run({
+				action: "create",
+				title: "Under It",
+				kind: "subquest",
+				parent: top,
+			}),
+		);
+
+		const id = made.details?.id as string;
+		expect(handed, "it was judged").toHaveLength(1);
+		expect(budgetIn(state.questsRoot, id)).toBeUndefined();
+		expect(made.message.split("\n")[0]).not.toContain("aquifer");
+		expect(journeyOf(join(state.questsRoot, id))).not.toContain("Budget:");
+	});
+
+	it("takes neither its folder's budget nor a judgement under a parent whose word can't be read", async () => {
+		const plain = judged("none", 0, { registry: false });
+		succeeded(await plain.run({ action: "create", title: "The Top" }));
+		const top = plain.state.questId as string;
+		sayBudget(plain.state.questsRoot, top, '"two words"');
+		const { state, run } = judged("delta", 0.99, { folder: tmpRoot });
 
 		const made = succeeded(
 			await run({
@@ -632,6 +718,78 @@ describe("a quest no folder or parent names a budget for", () => {
 				)?.frontMatter._extra?.budget,
 			).toBe("two words");
 			expect(swept.message).toContain(`can't be read, so left alone: ${id}.`);
+		});
+
+		it("leaves alone a subquest whose parent's budget word can't be read", async () => {
+			const { top, child } = await parentAndChild();
+			sayBudget(join(tmpRoot, "quests"), top, '"two words"');
+			const { state, run } = judged("delta", 0.99);
+
+			const swept = succeeded(await run({ action: "budget-sweep" }));
+
+			expect(asked).toEqual([]);
+			expect(budgetIn(state.questsRoot, child)).toBeUndefined();
+			const [, alone] = swept.message.split("so left alone: ");
+			expect(alone).toContain(top);
+			expect(alone).toContain(child);
+		});
+
+		it("leaves a quest named while it was judged as it was named", async () => {
+			const plain = judged("none", 0, { registry: false });
+			succeeded(
+				await plain.run({ action: "create", title: "Named Meanwhile" }),
+			);
+			const id = plain.state.questId as string;
+			const { state, run } = judged("delta", 0.99, {
+				during: () => sayBudget(plain.state.questsRoot, id, "aquifer"),
+			});
+
+			const swept = succeeded(await run({ action: "budget-sweep" }));
+
+			expect(budgetIn(state.questsRoot, id)).toBe("aquifer");
+			expect(swept.message).toContain(`- ${id}: it was named in between`);
+			expect(journeyOf(join(state.questsRoot, id))).not.toContain("Budget:");
+		});
+
+		it("says the quests a stopped sweep never judged as not reached", async () => {
+			const plain = judged("none", 0, { registry: false });
+			succeeded(await plain.run({ action: "create", title: "One" }));
+			succeeded(await plain.run({ action: "create", title: "Two" }));
+			const stop = new AbortController();
+			const { run } = judged("delta", 0.99, {
+				during: () => stop.abort(),
+				signal: stop.signal,
+			});
+
+			const swept = succeeded(await run({ action: "budget-sweep" }));
+
+			expect(swept.message.split("\n")[0]).toBe(
+				"Swept 2 live quests drawing on no budget: 0 named, 0 judged personal, 0 unsure, 0 unjudged, 2 not reached.",
+			);
+		});
+
+		it("judges a quest whose summary only quotes what a judgement journals", async () => {
+			const plain = judged("none", 0, { registry: false });
+			succeeded(
+				await plain.run({
+					action: "create",
+					title: "Quoting",
+					note: "Budget: unsure, so none named. is what a sweep journals.",
+				}),
+			);
+			const id = plain.state.questId as string;
+			const { state, run } = judged("delta", 0.99);
+
+			succeeded(await run({ action: "budget-sweep" }));
+
+			expect(budgetIn(state.questsRoot, id)).toBe("delta");
+			expect(handed).toEqual([
+				{
+					title: "Quoting",
+					summary: "Budget: unsure, so none named. is what a sweep journals.",
+					folder: tmpRoot,
+				},
+			]);
 		});
 
 		it("takes a quest's budget from the folder its session ran in before judging it", async () => {
@@ -891,7 +1049,7 @@ describe("the budget of a session on no quest", () => {
 				classify: async () => ({ answers: {} }),
 			},
 		} as unknown as Parameters<typeof keeper.keep>[0];
-		return { state, keeper, ctx, judged, notices };
+		return { state, keeper, ctx, judged, notices, events };
 	}
 
 	it("draws on the budget its folder's work draws on, without a judgement", async () => {
@@ -935,13 +1093,71 @@ describe("the budget of a session on no quest", () => {
 			["delta", 0.5],
 			["none", 0.99],
 		] as const) {
-			const { keeper, ctx, notices } = loose(undefined, choice, confidence);
+			const { keeper, ctx, judged, notices } = loose(
+				undefined,
+				choice,
+				confidence,
+			);
 
 			await keeper.keep(ctx, { prompt: "something" });
 
+			expect(judged, choice).toHaveLength(1);
 			expect(process.env[KEY], choice).toBe("personal");
 			expect(notices, choice).toEqual([]);
 		}
+	});
+
+	it("keeps what its first prompt was judged to draw on when a provider registers late, saying it once", async () => {
+		const { keeper, ctx, judged, notices, events } = loose(undefined, "delta");
+		await keeper.keep(ctx, { prompt: "Speed up walgit" });
+
+		registerBudgetProvider(events, {
+			id: "late",
+			precedence: 1,
+			resolve: async () => ({ kind: "unknown" }),
+		});
+		await keeper.keep(ctx);
+
+		expect(process.env[KEY]).toBe("delta");
+		expect(judged.map((work) => (work as { prompt: string }).prompt)).toEqual([
+			"Speed up walgit",
+			"Speed up walgit",
+		]);
+		expect(notices).toHaveLength(1);
+	});
+
+	it("isn't judged when it was started on a budget, as a subagent of a quest is", async () => {
+		process.env.PI_BUDGET = "aquifer";
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+
+		await keeper.keep(ctx, { prompt: "Review this Delta change" });
+
+		expect(judged).toEqual([]);
+		expect(process.env[KEY]).toBe("personal");
+	});
+
+	it("lays nothing from a judgement that lands after the session was forgotten", async () => {
+		const { keeper, ctx, judged, notices } = loose(undefined, "delta");
+		let release: (answer: unknown) => void = () => {};
+		const held = {
+			...ctx,
+			modelRegistry: {
+				...ctx.modelRegistry,
+				classify: () =>
+					new Promise((resolve) => {
+						release = resolve;
+					}),
+			},
+		} as unknown as typeof ctx;
+
+		const keeping = keeper.keep(held, { prompt: "Speed up walgit" });
+		await vi.waitFor(() => expect(judged).toHaveLength(1));
+		keeper.forget();
+		release({ answers: {} });
+		await keeping;
+
+		expect(process.env[KEY]).toBe("personal");
+		expect(notices).toEqual([]);
 	});
 
 	it("gives way to a quest the session loads", async () => {

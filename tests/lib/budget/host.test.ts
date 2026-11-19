@@ -437,6 +437,58 @@ describe("the budget some work draws on, judged from what it is", () => {
 		});
 	});
 
+	it("is the lowest precedence's of two sure providers, whichever answers first", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		registerBudgetProvider(
+			events,
+			judging("later", 10, async () => ({
+				name: "delta",
+				why: "",
+				sure: true,
+			})),
+		);
+		registerBudgetProvider(
+			events,
+			judging("first", 0, async () => {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				return { name: "aquifer", why: "", sure: true };
+			}),
+		);
+
+		expect(await host.budgetForWork(work, noClassifier)).toMatchObject({
+			name: "aquifer",
+			provider: "first",
+		});
+	});
+
+	it("stops the classifier calls of the providers after a sure one", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000, 60_000);
+		const signals: AbortSignal[] = [];
+		registerBudgetProvider(
+			events,
+			judging("first", 0, async () => ({ name: "delta", why: "", sure: true })),
+		);
+		registerBudgetProvider(
+			events,
+			judging("after", 10, async (_work, asks) => {
+				await asks({ state: {}, questions: {} });
+				return { name: "aquifer", why: "", sure: true };
+			}),
+		);
+		const classify: Classify = (_context, signal) => {
+			if (signal) signals.push(signal);
+			return new Promise(() => {});
+		};
+
+		expect(await host.budgetForWork(work, classify)).toMatchObject({
+			provider: "first",
+		});
+		expect(signals).toHaveLength(1);
+		expect(signals[0]?.aborted).toBe(true);
+	});
+
 	it("is the first unsure provider's when none is sure", async () => {
 		const events = bus();
 		const host = hostBudgets(events);
