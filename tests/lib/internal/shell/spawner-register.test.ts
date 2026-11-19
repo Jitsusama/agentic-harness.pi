@@ -222,7 +222,13 @@ describe("a host telling the node a spawner's session", () => {
 		expect(said, "what the host said").toEqual([]);
 	});
 
-	it.each([['{"Ok":"Other"}'], ['{"Err":7}'], ["not an answer"]])(
+	it.each([
+		['{"Ok":"Other"}'],
+		['{"Err":7}'],
+		["7"],
+		["null"],
+		["not an answer"],
+	])(
 		"says an answer that neither takes nor refuses the word, as %s",
 		async (answer) => {
 			const stand = node(answer);
