@@ -4,7 +4,8 @@
  * when it can't say; anything else goes as it was.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -12,6 +13,7 @@ import {
 	nodeDeps,
 	sessionEndingInterceptor,
 } from "../../../extensions/session-ending-interceptor/index.ts";
+import { forgetRedirects } from "../../../lib/guardian/apply.ts";
 import { setSessionMode } from "../../../lib/guardian/policy.ts";
 import type { NodeSession } from "../../../lib/mesh/node.ts";
 import { type FakePi, fakePi } from "../../support/fake-pi.ts";
@@ -46,6 +48,7 @@ beforeEach(() => {
 		send(message, options);
 	};
 	setSessionMode(GUARD, "block");
+	forgetRedirects();
 	sessionEndingInterceptor({
 		onMesh: () => onMesh,
 		sessions: async () => {
@@ -83,6 +86,31 @@ const reply = (...content: object[]) => replyStopping("stop", ...content);
 const settle = () => handler("agent_settled")({ type: "agent_settled" }, ctx);
 
 const text = (said: string) => ({ type: "text", text: said });
+
+/** A node at `socket` holding one idle session on `machine`. */
+async function nodeAnswering(
+	socket: string,
+	address: string,
+	machine: string,
+): Promise<Server> {
+	const server = createServer((client) => {
+		client.setEncoding("utf8");
+		client.on("data", (line: string) => {
+			const asked = line.trim();
+			const answer =
+				asked === '"Machines"'
+					? { Ok: { Machines: [{ name: machine }] } }
+					: {
+							Ok: {
+								Sessions: [{ id: address, address, machine, state: "idle" }],
+							},
+						};
+			client.write(`${JSON.stringify(answer)}\n`);
+		});
+	});
+	await new Promise<void>((listening) => server.listen(socket, listening));
+	return server;
+}
 
 describe("an ask tool call", () => {
 	it("is refused when its prompt asks for a log-out on a machine others are on", async () => {
@@ -208,6 +236,17 @@ describe("a mesh_wait call", () => {
 				steps: ["Save your work", "Restart"],
 			}),
 		).toMatchObject({ block: true });
+	});
+
+	it("goes ahead when a step is the act on a machine with no one else on it", async () => {
+		expect(
+			await call("mesh_wait", {
+				id: "w",
+				title: "Take the new kernel",
+				machine: "optimus",
+				steps: ["Save your work", "Restart"],
+			}),
+		).toBeUndefined();
 	});
 
 	it("is refused when its title names the act as a noun", async () => {
@@ -403,6 +442,46 @@ describe("a reply", () => {
 		).toBeUndefined();
 	});
 
+	it("keeps no override, when the guard redirects, for a reply withheld without a word to the model", async () => {
+		setSessionMode(GUARD, "redirect");
+		await replyStopping("aborted", text("Please reboot equilibrius."));
+
+		expect(await reply(text("Please reboot equilibrius."))).toBeDefined();
+	});
+
+	it("keeps no override, when the guard redirects, for a second ask withheld silently in a run", async () => {
+		setSessionMode(GUARD, "redirect");
+		await reply(text("Please reboot equilibrius."));
+		await reply(text("Please log out of macOS on equilibrius."));
+
+		expect(
+			await reply(text("Please log out of macOS on equilibrius.")),
+		).toBeDefined();
+	});
+
+	it("keeps no override, when the guard redirects, across a reload of the extension", async () => {
+		setSessionMode(GUARD, "redirect");
+		await reply(text("Please reboot equilibrius."));
+		pi = fakePi();
+		sessionEndingInterceptor({
+			onMesh: () => true,
+			sessions: async () => node,
+			machines: async () => undefined,
+			here: () => "optimus",
+		})(pi);
+
+		expect(await reply(text("Please reboot equilibrius."))).toBeDefined();
+	});
+
+	it("keeps an override, when the guard redirects, only for the run it was told in", async () => {
+		setSessionMode(GUARD, "redirect");
+		await reply(text("Please reboot equilibrius."));
+		await settle();
+
+		expect(await reply(text("Please reboot equilibrius."))).toBeDefined();
+		expect(pi.recorded.sent).toHaveLength(2);
+	});
+
 	it("is withheld when the node can't be read", async () => {
 		node = undefined;
 		const answer = await reply(text("Reboot optimus when you can."));
@@ -451,11 +530,52 @@ describe("the node the interceptor reads by default", () => {
 	it("is on the mesh where a realm is named, though no runtime folder says where its socket is", async () => {
 		const state = empty();
 		try {
-			const deps = nodeDeps({ MYCELIUM_REALM: "work", XDG_STATE_HOME: state });
+			const deps = nodeDeps({
+				MYCELIUM_REALM: "work",
+				XDG_STATE_HOME: state,
+				XDG_RUNTIME_DIR: join(state, "run"),
+			});
 
 			expect(deps.onMesh()).toBe(true);
 			expect(await deps.sessions()).toBeUndefined();
 		} finally {
+			rmSync(state, { recursive: true, force: true });
+		}
+	});
+
+	it("reads the sessions of every realm's node on the machine", async () => {
+		const state = empty();
+		const run = join(state, "run");
+		mkdirSync(join(run, "mycelium"), { recursive: true });
+		const servers = await Promise.all([
+			nodeAnswering(join(run, "mycelium", "work.sock"), "BXNMUC", "optimus"),
+			nodeAnswering(
+				join(run, "mycelium", "personal.sock"),
+				"A210QS",
+				"penelope",
+			),
+		]);
+		try {
+			const env = {
+				MYCELIUM_REALM: "work",
+				XDG_STATE_HOME: state,
+				XDG_RUNTIME_DIR: run,
+			};
+			const sessions = await nodeDeps(env).sessions();
+
+			expect(sessions?.map((one) => one.address).sort()).toEqual([
+				"A210QS",
+				"BXNMUC",
+			]);
+			expect([...((await nodeDeps(env).machines()) ?? [])].sort()).toEqual([
+				"optimus",
+				"penelope",
+			]);
+
+			writeFileSync(join(run, "mycelium", "stale.sock"), "");
+			expect(await nodeDeps(env).sessions()).toBeUndefined();
+		} finally {
+			for (const server of servers) server.close();
 			rmSync(state, { recursive: true, force: true });
 		}
 	});

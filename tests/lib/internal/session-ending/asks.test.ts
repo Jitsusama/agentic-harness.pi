@@ -77,6 +77,24 @@ describe("a reply that asks", () => {
 		],
 		['Click "Restart" in the dialog.', "restart"],
 		["Try restarting.", "restart"],
+		["Save your work and log out of macOS on equilibrius.", "log out"],
+		["Choose Restart from the Apple menu.", "restart"],
+		["Choose Shut Down… from the Apple menu.", "shut down"],
+		["Click the Restart button.", "restart"],
+		["Choose Apple menu > Log Out.", "log out"],
+		['Click the "Log Out" button.', "log out"],
+		['Run "sudo reboot" on equilibrius.', "reboot"],
+		["If the restart didn't help, reboot optimus.", "reboot"],
+		["If restarting the shell didn't help, reboot optimus.", "reboot"],
+		["Reboot optimus: the new kernel only loads at boot.", "reboot"],
+		["Reboot optimus: the kernel's in.", "reboot"],
+		[
+			"Log out of macOS on equilibrius: the card only pairs at the login window.",
+			"log out",
+		],
+		["Please log out/in on equilibrius.", "log out"],
+		["Please reboot optimus\u200b now.", "reboot"],
+		["Please re\u00adboot optimus.", "reboot"],
 	])("%s", (text, act) => {
 		expect(mayAsk(text)).toBe(true);
 		expect(acts(text)).toEqual([act]);
@@ -149,6 +167,8 @@ describe("a reply that only mentions one, or warns against one", () => {
 		"Restart the dev server, then restart it again.",
 		"It's not safe to restart the machine yet.",
 		"It doesn't need a reboot.",
+		"It doesn't seem to need a reboot.",
+		"Please restart the dev server after the reboot.",
 	])("%s", (text) => {
 		expect(acts(text)).toEqual([]);
 	});
@@ -176,6 +196,10 @@ describe("a reply that talks about one, as the harness's replies do", () => {
 		'Prose has to be worded as an ask, such as "Reboot optimus" or "needs a reboot".',
 		"Reboot and log-out are still caught and refused.",
 		"Arming is the double Return Joel prefers, the same one Log Out, Reboot and Release It use.",
+		"Reboot handling landed in #1830.",
+		"`restart` now takes a --force flag.",
+		"### Restart",
+		"## Reboot and Log-Out",
 	])("%s", (text) => {
 		expect(acts(text)).toEqual([]);
 	});
@@ -212,6 +236,29 @@ describe("a command in fenced code", () => {
 		["```sh\nsh -c 'reboot'\n```", "reboot"],
 		["```sh\nnohup sudo reboot\n```", "reboot"],
 		["```sh\nenv FOO=1 sudo reboot\n```", "reboot"],
+		["```sh\nsudo /sbin/reboot\n```", "reboot"],
+		["```sh\nsudo /usr/bin/systemctl poweroff\n```", "shut down"],
+		["```sh\nsudo systemctl -i reboot\n```", "reboot"],
+		["```sh\nsystemctl --force poweroff\n```", "shut down"],
+		["```sh\npkexec reboot\n```", "reboot"],
+		["```sh\nsudo su -c reboot\n```", "reboot"],
+		["```sh\nsudo systemctl isolate reboot.target\n```", "reboot"],
+		["```sh\nsudo systemctl start poweroff.target\n```", "shut down"],
+		["```sh\nsystemctl --user restart niri\n```", "log out"],
+		["```sh\nsudo systemctl stop gdm\n```", "log out"],
+		["```sh\nloginctl terminate-seat seat0\n```", "log out"],
+		[
+			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager Reboot b false\n```",
+			"reboot",
+		],
+		["```sh\nxfce4-session-logout --logout\n```", "log out"],
+		["```sh\nqdbus org.kde.Shutdown /Shutdown logout\n```", "log out"],
+		["```sh\ncinnamon-session-quit --logout\n```", "log out"],
+		["```sh\nlxqt-leave --logout\n```", "log out"],
+		[
+			"```sh\nosascript -e 'tell app \"System Events\" to «event aevtrrst»'\n```",
+			"reboot",
+		],
 	])("%s asks", (text, act) => {
 		expect(mayAsk(text)).toBe(true);
 		expect(acts(text)).toEqual([act]);

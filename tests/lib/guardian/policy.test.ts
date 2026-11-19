@@ -318,6 +318,16 @@ describe("a refusal under the policy", () => {
 		).toBeUndefined();
 	});
 
+	it("still tells a changed call from the first by its subject, under a key", () => {
+		setSessionMode("t-prose", "redirect");
+
+		refusalUnder("t-prose", refusal, "Prose", "first", "reboot:optimus");
+
+		expect(
+			refusalUnder("t-prose", refusal, "Prose", "second", "reboot:optimus"),
+		).toBeDefined();
+	});
+
 	it("spends an override once, so the mistake made later is said again", () => {
 		setSessionMode("t-prose", "redirect");
 

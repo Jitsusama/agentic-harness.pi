@@ -16,6 +16,7 @@ import {
 	nodeSessionsAt,
 	nodeSessionsFrom,
 	nodeSocket,
+	nodeSockets,
 	placeAt,
 	placeToStartAt,
 	sessionsAt,
@@ -550,6 +551,8 @@ describe("which machines the realm holds", () => {
 								{ name: "optimus", declared: null },
 								{ name: "penelope" },
 								{ declared: null },
+								{ name: "" },
+								{ name: "two words" },
 							],
 						},
 					}),
@@ -570,6 +573,33 @@ describe("where the node's socket is", () => {
 		mkdirSync(join(root, "state", "mycelium"), { recursive: true });
 		writeFileSync(join(root, "state", "mycelium", "realm"), `${name}\n`);
 	};
+
+	it("is one for each realm the machine runs a node in, the session's own first though it has none yet", () => {
+		const run = join(root, "run");
+		mkdirSync(join(run, "mycelium", "work.held"), { recursive: true });
+		writeFileSync(join(run, "mycelium", "personal.sock"), "");
+		writeFileSync(join(run, "mycelium", "reached.json"), "{}");
+
+		expect(
+			nodeSockets({
+				XDG_RUNTIME_DIR: run,
+				XDG_STATE_HOME: join(root, "state"),
+				MYCELIUM_REALM: "work",
+			}),
+		).toEqual([
+			join(run, "mycelium", "work.sock"),
+			join(run, "mycelium", "personal.sock"),
+		]);
+	});
+
+	it("is none where no realm is named", () => {
+		expect(
+			nodeSockets({
+				XDG_RUNTIME_DIR: join(root, "run"),
+				XDG_STATE_HOME: join(root, "state"),
+			}),
+		).toEqual([]);
+	});
 
 	it("is in the login's runtime folder, for the session's own realm though the node first kept another", () => {
 		// A machine in two realms runs a node for each, and the kept realm

@@ -8,13 +8,16 @@
  * `ask`, a `show_person` look or a reply asking for one is refused while
  * the machine's mycelium node says any session other than the asker's
  * is there in any state but ended, and refused when the node can't be
- * read, under the no-session-ending-ask-while-live guard. So is a
+ * read, under the no-session-ending-ask-while-live guard. Every realm's
+ * node on the machine is read, since a reboot ends the sessions of all
+ * of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that
  * ends sessions. Where no realm is named, as for a consumer without
  * mycelium, there is no node and nothing is refused; where one is named
  * and its node can't be found, that is a node that can't be read.
  * Under redirect, the same ask made again goes through, however the
- * sessions it would end have moved between busy and idle since.
+ * sessions it would end have moved between busy and idle since; for a
+ * reply, only an ask the model was told of, and only in that run.
  *
  * A call is refused before it runs. A reply has already streamed by the
  * time pi finalizes it, so its text is replaced there, which pi shows
@@ -24,19 +27,22 @@
  * one, since the run it would continue was ended on purpose.
  */
 
+import { randomUUID } from "node:crypto";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
+import { guardMode } from "../../lib/guardian/policy.ts";
 import { OVERRIDE_HINT } from "../../lib/guardian/report.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import {
 	machineNamesAt,
+	type NodeSession,
 	nodeSessionsAt,
-	nodeSocket,
+	nodeSockets,
 	realmOf,
 } from "../../lib/mesh/node.ts";
 import {
@@ -80,17 +86,21 @@ const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
 
 /**
  * Whether the model has been told of a withheld reply in this run, so
- * however many are withheld it is told once, until the run settles.
+ * however many are withheld it is told once, until the run settles;
+ * which run this is; and the asks it was told of in it, the only ones a
+ * reply may override by asking again.
  */
 interface Told {
 	thisRun: boolean;
+	run: string;
+	readonly keys: Set<string>;
 }
 
 /** The interceptor, reading the node and the machine through `deps`. */
 export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	return (pi: ExtensionAPI): void => {
 		declareGuards(GUARD);
-		const told: Told = { thisRun: false };
+		const told: Told = { thisRun: false, run: randomUUID(), keys: new Set() };
 		pi.on("tool_call", (event, ctx) =>
 			refuseCall(event.toolName, event.input, ctx, deps),
 		);
@@ -99,24 +109,45 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 		);
 		pi.on("agent_settled", () => {
 			told.thisRun = false;
+			told.run = randomUUID();
+			told.keys.clear();
 		});
 	};
 }
 
 /**
- * The machine's own node, for the realm `env` names. A realm named with
- * no runtime folder to find its socket in is still on the mesh, so its
- * node reads as one that can't be.
+ * The machine's nodes: the one for the realm `env` names, and any other
+ * realm's the machine serves. A realm named with no runtime folder to
+ * find its socket in is still on the mesh, so its node reads as one
+ * that can't be, and so does every node when any one can't be read.
  */
 export function nodeDeps(
 	env: NodeJS.ProcessEnv = process.env,
 ): SessionEndingDeps {
 	return {
 		onMesh: () => realmOf(env) !== undefined,
-		sessions: () => nodeSessionsAt(nodeSocket(env)),
-		machines: () => machineNamesAt(nodeSocket(env)),
+		sessions: () => everyRealmsSessions(nodeSockets(env)),
+		machines: async () => {
+			const each = await Promise.all(
+				nodeSockets(env).map((socket) => machineNamesAt(socket)),
+			);
+			const read = each.filter((names) => names !== undefined);
+			return read.length === 0 ? undefined : [...new Set(read.flat())];
+		},
 		here: () => thisMachine(),
 	};
+}
+
+/** The sessions every socket's node holds, or nothing when any can't say. */
+async function everyRealmsSessions(
+	sockets: readonly string[],
+): Promise<NodeSession[] | undefined> {
+	if (sockets.length === 0) return undefined;
+	const each = await Promise.all(
+		sockets.map((socket) => nodeSessionsAt(socket)),
+	);
+	if (each.some((sessions) => sessions === undefined)) return undefined;
+	return each.flatMap((sessions) => sessions ?? []);
 }
 
 export default sessionEndingInterceptor(nodeDeps());
@@ -144,7 +175,9 @@ async function refuseCall(
  * The reply with its text withheld, when it asks to end sessions the
  * node says are live; nothing, leaving it as it was, otherwise. Under
  * redirect, the override is known by the ask alone, since the model
- * can't say again words it no longer has.
+ * can't say again words it no longer has, and only in the run it was
+ * told in. A reply withheld without a word to the model keeps none, so
+ * an ask it was never told of can't go through as one it chose.
  */
 async function withholdReply<M extends { role: string }>(
 	pi: ExtensionAPI,
@@ -157,20 +190,30 @@ async function withholdReply<M extends { role: string }>(
 	const said = saidInReply(message.content);
 	const refusal = await refusalFor(said, selfOf(ctx), deps);
 	if (!refusal) return undefined;
+	const stopped =
+		"stopReason" in message &&
+		(message.stopReason === "aborted" || message.stopReason === "error");
+	const telling = !stopped && !told.thisRun;
+	const silent =
+		!telling &&
+		!told.keys.has(refusal.key) &&
+		guardMode(GUARD.name) === "redirect";
+	if (silent) {
+		return {
+			message: { ...message, content: withheld(message.content, WITHHELD) },
+		};
+	}
 	const verdict = refusalUnder(
 		GUARD.name,
 		{ block: true, reason: refusal.reason },
 		"A reply asking to end a machine's sessions",
 		undefined,
-		refusal.key,
+		`${refusal.key}@${told.run}`,
 	);
 	if (!verdict) return undefined;
-	const stopped =
-		"stopReason" in message &&
-		(message.stopReason === "aborted" || message.stopReason === "error");
-	const telling = !stopped && !told.thisRun;
 	if (telling) {
 		told.thisRun = true;
+		told.keys.add(refusal.key);
 		const reason = verdict.reason.replace(OVERRIDE_HINT, REPLY_OVERRIDE_HINT);
 		pi.sendMessage(
 			{

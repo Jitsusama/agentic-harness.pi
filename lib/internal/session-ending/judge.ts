@@ -18,6 +18,7 @@
 
 import type { NodeSession } from "../../mesh/node.ts";
 import { GUARDS } from "../guardian/guards.ts";
+import { isMachineName } from "../machine/machine.ts";
 import type { SessionEndingAsk } from "./asks.ts";
 
 /** How many live sessions a refusal names before it counts the rest. */
@@ -44,9 +45,10 @@ export function machinesKnown(
 
 /**
  * Why an ask may not go to the person, and what the refusal is known
- * again by: the ask itself, its act and machines, rather than the
+ * again by: the asks refused, each its act and machines, rather than the
  * reason, whose sessions move between busy and idle in seconds, so an
- * override under redirect holds when the same ask is made again.
+ * override under redirect holds when the same asks are made again, and
+ * only then: an ask added beside them is a new refusal.
  */
 export interface Refusal {
 	readonly reason: string;
@@ -69,34 +71,66 @@ export function refusalOf(
 	const [first] = asks;
 	if (!first) return undefined;
 	if (!sessions) {
-		const reason = `Not asked: this asks the person to ${first.act}${onMachines(first.machines)}, and the machine's mycelium node couldn't be read to say which sessions that would end. Ask again once the node answers; where no node runs at all, the person can turn the ${GUARD_NAME} guard off.`;
-		return { reason, key: keyOf(first, "unread") };
+		const reason = `Not asked: this asks the person to ${first.act}${onMachines(first.machines)}${alsoOf(asks.slice(1))}, and the machine's mycelium node couldn't be read to say which sessions that would end. Ask again once the node answers; where no node runs at all, the person can turn the ${GUARD_NAME} guard off.`;
+		return { reason, key: keyOf(asks, "unread") };
 	}
-	for (const ask of asks) {
-		const unnamed = ask.machines.length === 0;
-		const reach = new Set(ask.machines.map((name) => name.toLowerCase()));
-		const live = sessions.filter(
-			(one) =>
-				(unnamed ||
-					one.machine === undefined ||
-					reach.has(one.machine.toLowerCase())) &&
-				one.state !== "ended" &&
-				one.id !== self,
-		);
-		if (live.length === 0) continue;
-		const where = unnamed
-			? " It names no machine, so every machine the node knows was checked: name the one it means."
-			: "";
-		const reason = `Not asked: this asks the person to ${ask.act}${onMachines(ask.machines)}, which would end the other pi sessions live there: ${named(live, unnamed)}.${where} Ask only once none is left there: tell your orchestrator what needs it, to schedule with the person once those sessions are ended or carried.`;
-		return { reason, key: keyOf(ask, "live") };
-	}
-	return undefined;
+	const refused = asks.flatMap((ask) => {
+		const live = liveFor(ask, sessions, self);
+		return live.length === 0 ? [] : [{ ask, live }];
+	});
+	const [worst] = refused;
+	if (!worst) return undefined;
+	const { ask, live } = worst;
+	const unnamed = ask.machines.length === 0;
+	const where = unnamed
+		? " It names no machine, so every machine the node knows was checked: name the one it means."
+		: "";
+	const also = alsoOf(refused.slice(1).map((one) => one.ask));
+	const reason = `Not asked: this asks the person to ${ask.act}${onMachines(ask.machines)}${also}, which would end the other pi sessions live there: ${named(live, unnamed)}.${where} Ask only once none is left there: tell your orchestrator what needs it, to schedule with the person once those sessions are ended or carried.`;
+	return {
+		reason,
+		key: keyOf(
+			refused.map((one) => one.ask),
+			"live",
+		),
+	};
 }
 
-/** A refusal of `ask` for `why`, as the same ask made again is known. */
-function keyOf(ask: SessionEndingAsk, why: "live" | "unread"): string {
-	const machines = ask.machines.map((name) => name.toLowerCase()).join(",");
-	return `${why}:${ask.act}:${machines}`;
+/** The sessions other than `self` that `ask` would end. */
+function liveFor(
+	ask: SessionEndingAsk,
+	sessions: readonly NodeSession[],
+	self: string | undefined,
+): NodeSession[] {
+	const unnamed = ask.machines.length === 0;
+	const reach = new Set(ask.machines.map((name) => name.toLowerCase()));
+	return sessions.filter(
+		(one) =>
+			(unnamed ||
+				one.machine === undefined ||
+				reach.has(one.machine.toLowerCase())) &&
+			one.state !== "ended" &&
+			one.id !== self,
+	);
+}
+
+/** The other asks refused beside the first, said after it. */
+function alsoOf(asks: readonly SessionEndingAsk[]): string {
+	if (asks.length === 0) return "";
+	const said = asks.map((ask) => `${ask.act}${onMachines(ask.machines)}`);
+	return ` (and to ${said.join(", ")})`;
+}
+
+/** A refusal of `asks` for `why`, as the same asks made again are known. */
+function keyOf(
+	asks: readonly SessionEndingAsk[],
+	why: "live" | "unread",
+): string {
+	const each = asks.map(
+		(ask) =>
+			`${ask.act}:${ask.machines.map((name) => name.toLowerCase()).join(",")}`,
+	);
+	return `${why}:${[...new Set(each)].sort().join("|")}`;
 }
 
 function onMachines(machines: readonly string[]): string {
@@ -106,24 +140,42 @@ function onMachines(machines: readonly string[]): string {
 }
 
 /**
- * A name the node or a reply gave, kept to the characters an address or
- * a machine has, so nothing it holds reads as an instruction.
+ * A machine's name the node or a reply gave, as a machine can have it,
+ * else a plain word, so nothing it holds reads as an instruction.
  */
 function clean(name: string): string {
-	return name.replace(/[^\w.-]/g, "");
+	return isMachineName(name) && name.length <= LONGEST_NAME
+		? name
+		: "a machine";
 }
+
+/** The longest machine name said as it is. */
+const LONGEST_NAME = 32;
+
+/** What a mesh address looks like: a few capitals and digits. */
+const ADDRESS = /^[A-Z0-9]{4,12}$/;
+
+/** What a session's state looks like: a short lowercase word. */
+const STATE = /^[a-z][a-z-]{0,15}$/;
 
 /**
  * Live sessions as their addresses and states, so many by name, with
- * their machines when the ask named none.
+ * their machines when the ask named none. An address or state of a
+ * shape the node doesn't give is said as a plain word, since a session
+ * record from another node could hold anything.
  */
 function named(live: readonly NodeSession[], withMachine: boolean): string {
 	const said = live
 		.slice(0, NAMED)
-		.map(
-			(one) =>
-				`${clean(one.address ?? one.id)} (${clean(one.state)})${withMachine && one.machine ? ` on ${clean(one.machine)}` : ""}`,
-		)
+		.map((one) => {
+			const address =
+				one.address !== undefined && ADDRESS.test(one.address)
+					? one.address
+					: "a session";
+			const state = STATE.test(one.state) ? one.state : "other";
+			const on = withMachine && one.machine ? ` on ${clean(one.machine)}` : "";
+			return `${address} (${state})${on}`;
+		})
 		.join(", ");
 	const more = live.length - NAMED;
 	return more > 0 ? `${said} and ${more} more` : said;

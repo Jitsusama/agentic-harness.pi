@@ -26,14 +26,21 @@ guard, which blocks by default:
   streamed.
 
 Asked again unchanged, a refused call or reply goes through as a
-recorded override. It is known again by the act and the machines it
-asks for, not by the refusal's wording, since sessions move between
-busy and idle in seconds.
+recorded override. It is known again by every act and machine it asks
+for, not by the refusal's wording, since sessions move between busy
+and idle in seconds; an ask added beside a refused one is refused
+afresh. A reply's override holds only for an ask the model was told
+of, and only in the run it was told in, so a reply withheld without a
+word (a second in a run, or one the person stopped) can't go through
+as an ask the model chose.
 
-It is refused while the machine's mycelium node says any session other
-than the asker's is on that machine in any state but ended, idle,
-unreachable and states it doesn't know included, and whenever the node
-can't be read. A session the node names no machine for counts as on
+It is refused while any of the machine's mycelium nodes, one a realm
+(work and personal here), says a session other than the asker's is on
+that machine in any state but ended, idle, unreachable and states it
+doesn't know included, and whenever any of them can't be read. A
+reboot ends every realm's sessions, so each node is asked. The
+addresses, states and machine names a node gives are said in a refusal
+only when they keep to their shapes. A session the node names no machine for counts as on
 every machine. An ask that names no machine is checked against every
 machine the node knows (the sessions' machines and the node's
 `Machines` list), and the refusal asks for the name. This is the
@@ -56,21 +63,29 @@ happened, one a change waits for, or one a request only asks about
 and choices are the ask itself, so the act counts there whenever it is
 named rather than a time ("after the reboot").
 
-What a reply only talks about asks nothing: an act in a heading or
-label ("Restart: the host hasn't restarted"), the subject of a verb
-("reboot passed"), a noun ("one more restart"), a name (`restart.ts`,
-`fix-switch-signed-out-drop`), a list of acts, or a quoted example,
-but for a button to click (`click "Restart"`). These were taken from
-the replies sessions here wrote over two days.
+What a reply only talks about asks nothing: a markdown heading, an
+act in a label ("Restart: the host hasn't restarted", though "Reboot
+optimus: the kernel's in" asks), the subject of a verb ("reboot
+passed", "reboot handling landed"), a noun ("one more restart"), a
+name (`restart.ts`, `fix-switch-signed-out-drop`, a command in inline
+code the sentence doesn't ask to run), a list of acts, a word against
+it a word or two before ("doesn't seem to need a reboot"), or a quoted
+example. A button or menu item to pick is an ask (`click "Restart"`,
+"choose Apple menu > Log Out", "click the Restart button"), and so is
+an act after another step ("save your work and log out"). These were
+taken from the replies sessions here wrote over two days.
 
 A restart, shutdown or power-off counts only of a machine or with no
 object ("restart now"), so restarting the shell or pi is left alone; a
 reboot of another device, as a router, is too, and so is a log-out out
 of something else, as gh. A sentence that names only this machine or
 your laptop names none. A session-ending command (`sudo reboot`,
-`systemctl poweroff`, `loginctl terminate-user`, `niri msg action
-quit`, and macOS's `fdesetup authrestart`, `launchctl reboot` and
-`osascript` restarts) asks on a line of a shell's fenced code, after a
+`systemctl poweroff` with any options or by `.target`, `loginctl
+terminate-user` or `terminate-seat`, logind over `busctl`, stopping
+the display manager or the compositor, `niri msg action quit`, the
+desktops' own log-outs, and macOS's `fdesetup authrestart`,
+`launchctl reboot` and `osascript` restarts, run by path or through
+`sudo`, `pkexec` or `su -c`) asks on a line of a shell's fenced code, after a
 prompt in a console's, or in inline code a sentence asks to run, on
 the machine an `ssh` in front of it names when the node lists it. The reading is in
 `lib/internal/session-ending/asks.ts`, and the verdict in `judge.ts`

@@ -17,10 +17,11 @@
  * keeps it.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isMachineName } from "../internal/machine/machine.ts";
 import { runtimeDir } from "../internal/paths.ts";
 import { isRecord } from "../internal/record.ts";
 import {
@@ -803,6 +804,8 @@ export async function machineNamesAt(
 /**
  * The machines a node's `Machines` answer names, or nothing for an
  * answer naming none, so a refusal is no answer rather than no machine.
+ * A name no machine could have is left out, since an empty one would
+ * match any word a machine's name is looked for in.
  */
 export function machineNamesFrom(line: string): string[] | undefined {
 	let reply: unknown;
@@ -816,7 +819,7 @@ export function machineNamesFrom(line: string): string[] | undefined {
 		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Machines : undefined;
 	if (!Array.isArray(machines)) return undefined;
 	return machines.flatMap((machine: unknown) =>
-		isRecord(machine) && typeof machine.name === "string" ? [machine.name] : [],
+		isRecord(machine) && isMachineName(machine.name) ? [machine.name] : [],
 	);
 }
 
@@ -828,6 +831,31 @@ export function nodeSocket(
 	if (!realm) return undefined;
 	const base = runtimeDir(env);
 	return base ? join(base, "mycelium", `${realm}.sock`) : undefined;
+}
+
+/**
+ * The socket of every realm's node on this machine: the session's own
+ * realm's first, though its node hasn't started, then each other realm
+ * a socket is served for. A machine in two realms runs a node for each,
+ * and a reboot ends the sessions of both. None when no realm is named.
+ */
+export function nodeSockets(env: NodeJS.ProcessEnv = process.env): string[] {
+	const own = nodeSocket(env);
+	if (own === undefined) return [];
+	const base = runtimeDir(env);
+	let others: string[] = [];
+	try {
+		if (base) {
+			const folder = join(base, "mycelium");
+			others = readdirSync(folder)
+				.filter((name) => name.endsWith(".sock"))
+				.sort()
+				.map((name) => join(folder, name));
+		}
+	} catch {
+		// No node has served a socket here yet: only the own realm's is known.
+	}
+	return [own, ...others.filter((socket) => socket !== own)];
 }
 
 /** The realm the machine's node is asked in, or nothing when none is named. */
