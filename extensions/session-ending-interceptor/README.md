@@ -54,7 +54,9 @@ only when they keep to their shapes. A session the node names no machine for cou
 every machine. An ask that names no machine is checked against every
 machine the node knows (the sessions' machines and the node's
 `Machines` list, with this machine standing in for the sessions'
-when they can't be read), and the refusal asks for the name. This is the
+when they can't be read), and the refusal asks for the name. When no
+node can be read, the machines they last named still count, so
+"restart equilibrius" is still read as an ask, and refused. This is the
 rule of EWUL44's `se7_guard_no_live_sessions`, which guards its
 pairing script's log-out the same way.
 

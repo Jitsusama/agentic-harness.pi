@@ -548,6 +548,16 @@ describe("a reply", () => {
 		).toBeDefined();
 	});
 
+	it("still reads an ask of a machine the node named before, once no node can be read", async () => {
+		listed = ["optimus", "penelope"];
+		await reply(text("Please restart the shell."));
+		node = undefined;
+		listed = undefined;
+
+		expect(await reply(text("Please restart equilibrius."))).toBeDefined();
+		expect(await reply(text("Please shut down penelope."))).toBeDefined();
+	});
+
 	it("keeps no override, when the guard redirects, across a reload of the extension", async () => {
 		setSessionMode(GUARD, "redirect");
 		await reply(text("Please reboot equilibrius."));

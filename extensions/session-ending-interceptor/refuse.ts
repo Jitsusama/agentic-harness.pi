@@ -134,6 +134,29 @@ export function saidInReply(content: unknown): Said {
 }
 
 /**
+ * The machines each node last named, kept for when none can be read:
+ * otherwise only this machine is known then, so "restart equilibrius"
+ * reads as restarting something else and goes through, just when the
+ * guard means to refuse. Kept per set of deps, so a reload starts clean.
+ */
+const lastKnown = new WeakMap<SessionEndingDeps, readonly string[]>();
+
+/** The machines `deps`' nodes name now, or last named when they can't. */
+function machinesRemembered(
+	deps: SessionEndingDeps,
+	sessions: readonly NodeSession[] | undefined,
+	listed: readonly string[] | undefined,
+): string[] {
+	const here = deps.here();
+	if (sessions || listed) {
+		const known = machinesKnown(sessions, listed, here);
+		lastKnown.set(deps, known);
+		return known;
+	}
+	return machinesKnown(undefined, lastKnown.get(deps), here);
+}
+
+/**
  * Why what was said may not go to the person, or nothing when it may.
  * The node is asked only when a word in it could open an ask.
  */
@@ -149,7 +172,7 @@ export async function refusalFor(
 		deps.sessions(),
 		deps.machines(),
 	]);
-	const machines = machinesKnown(sessions, listed, deps.here());
+	const machines = machinesRemembered(deps, sessions, listed);
 	const asks: SessionEndingAsk[] = [
 		...said.prose.flatMap((text) => asksInProse(text, machines)),
 		...said.labels.flatMap((text) =>
