@@ -41,6 +41,7 @@ describe("a run the host carries on after a restart", {
 			const observed = await observe("hosted", "reopen-park-preparing", folder);
 			const seen = observed.events.map((event) => event.type);
 			const parking = seen.indexOf("parking");
+			expect(seen, "pi began preparing the carried run").toContain("preparing");
 			expect(
 				parking,
 				"the host parked while pi prepared the run",
