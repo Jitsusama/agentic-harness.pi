@@ -6,6 +6,10 @@ input pipeline or screen. No unit or running host is installed yet.
 
 - address.ts: the host's realm (MYCELIUM_REALM, else PI_HOME_REALM),
   its realm-kind key and its socket in XDG_RUNTIME_DIR.
+- attach-waits.ts: what the journal says of a window's attach that
+  waits past ATTACH_SLOW_MS: the step it is on, each later step that
+  holds it again, how it ended (answered, or refused and why), and the
+  clock server.ts's first-frame lines share.
 - backend.ts: the control backend over the engine's live ownership and
   the roster. Open and adopt hold durably before the engine registers;
   a start that never registered is undone, one that registered and

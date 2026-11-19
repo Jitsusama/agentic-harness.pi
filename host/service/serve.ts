@@ -119,6 +119,11 @@ export async function serveHost(options: {
 	mark?: (step: Resuming, phase: ResumePhase) => void;
 	/** Hears a resume that `starting` heard end, resumed, parked or failed with why. */
 	finished?: (step: Resuming, end: ResumeEnd, reason?: unknown) => void;
+	/**
+	 * How long a window's attach may wait for its answer, or go undrawn
+	 * after it, before the journal says so: attach-waits.ts's ATTACH_SLOW_MS.
+	 */
+	attachSlowMs?: number;
 }): Promise<ServingHost> {
 	const admitAnother = options.rollout ?? hostRolloutGate();
 	const key = hostKey(options.realm, options.kind);
@@ -169,6 +174,10 @@ export async function serveHost(options: {
 		);
 		const order = heldOrder(roster);
 		const identity = { key: host.key, owner: host.owner };
+		const slowAfter =
+			options.attachSlowMs === undefined
+				? {}
+				: { attachSlowMs: options.attachSlowMs };
 		const backend = hostBackend({
 			identity,
 			host,
@@ -177,12 +186,15 @@ export async function serveHost(options: {
 			admitAnother,
 			held: order,
 			...(options.say ? { say: options.say } : {}),
+			...slowAfter,
 		});
 		const control = await listenControl({
 			path,
 			backend,
 			viewer: options.viewer?.(host),
 			report: options.report,
+			...(options.say ? { say: options.say } : {}),
+			...slowAfter,
 		});
 		listener = control;
 		wakes = backend.wake;

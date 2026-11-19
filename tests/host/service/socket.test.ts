@@ -478,6 +478,177 @@ describe("viewer connection lifecycle", () => {
 		});
 		socket.destroy();
 	});
+	it("journals nothing for a window drawn at once, even once its bound has passed or it leaves", async () => {
+		const said: string[] = [];
+		const left = vi.fn();
+		listener = await listenControl({
+			path,
+			backend,
+			report,
+			say: (line) => said.push(line),
+			attachSlowMs: 20,
+			viewer: {
+				attach: (_request, sink) => {
+					sink.write("drawn");
+					return { input: vi.fn(), resize: vi.fn(), detach: left };
+				},
+			},
+		});
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		await messages.next();
+		expect((await messages.next()).value).toEqual({
+			type: "output",
+			data: "drawn",
+		});
+		// A real pause past the bound is the point: a frame that didn't stop
+		// the undrawn timer would let it fire within it.
+		await new Promise((done) => setTimeout(done, 60));
+		expect(said, "a window drawn at once says nothing").toEqual([]);
+		socket.destroy();
+		await vi.waitFor(() => expect(left).toHaveBeenCalled());
+		expect(said, "nor does its leaving").toEqual([]);
+	});
+	it("journals a window it attached that nothing was drawn for, then its late frame and how big", async () => {
+		const said: string[] = [];
+		const left = vi.fn();
+		let draw = (_text: string): void => undefined;
+		listener = await listenControl({
+			path,
+			backend,
+			report,
+			say: (line) => said.push(line),
+			attachSlowMs: 20,
+			viewer: {
+				attach: (_request, sink) => {
+					draw = (text) => sink.write(text);
+					return { input: vi.fn(), resize: vi.fn(), detach: left };
+				},
+			},
+		});
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		await messages.next();
+		await vi.waitFor(() =>
+			expect(said).toEqual([
+				expect.stringMatching(
+					new RegExp(
+						`\\(${a}\\): a window attached [0-9.]+ s ago has been sent nothing to draw$`,
+					),
+				),
+			]),
+		);
+		draw("late");
+		await vi.waitFor(() =>
+			expect(said[1], "and the frame that came late, with its size").toMatch(
+				new RegExp(
+					`\\(${a}\\): a window's first frame, 4 bytes, was queued [0-9.]+ s after its attach was answered$`,
+				),
+			),
+		);
+		socket.destroy();
+		await vi.waitFor(() => expect(left).toHaveBeenCalled());
+		expect(
+			said,
+			"a window drawn, however late, doesn't leave blank",
+		).toHaveLength(2);
+	});
+	it.each([
+		{ bound: 0, slowly: "journals", lines: 1 },
+		{ bound: 60_000, slowly: "says nothing of", lines: 0 },
+	])(
+		"$slowly a window whose attach was answered, inside a bound of $bound ms or past it, after it had left",
+		async ({ bound, lines }) => {
+			const said: string[] = [];
+			let answer = (): void => undefined;
+			let reached = false;
+			const held: ControlBackend = {
+				identity: backend.identity,
+				execute: async () => {
+					reached = true;
+					await new Promise<void>((done) => {
+						answer = done;
+					});
+					return { sessionId: a };
+				},
+			};
+			const attach = vi.fn(() => ({
+				input: vi.fn(),
+				resize: vi.fn(),
+				detach: vi.fn(),
+			}));
+			listener = await listenControl({
+				path,
+				backend: held,
+				report,
+				say: (line) => said.push(line),
+				attachSlowMs: bound,
+				viewer: { attach },
+			});
+			const socket = createConnection(path);
+			const closed = new Promise((done) => socket.on("close", done));
+			socket.write(
+				`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+			);
+			await vi.waitFor(() =>
+				expect(reached, "the attach reached the host").toBe(true),
+			);
+			socket.destroy();
+			await closed;
+			// The client's close has shut its end, so the host reads the end of
+			// its own on the loop's next poll; an immediate runs only after one.
+			await new Promise((done) => setImmediate(done));
+			await new Promise((done) => setImmediate(done));
+			answer();
+			// The answer goes out over promises alone, all settled by an immediate.
+			await new Promise((done) => setImmediate(done));
+			expect(said).toEqual(
+				Array.from({ length: lines }, () =>
+					expect.stringMatching(
+						new RegExp(
+							`\\(${a}\\): a window's attach was answered [0-9.]+ s after it was asked, once the window had left$`,
+						),
+					),
+				),
+			);
+			expect(attach, "and no viewer is attached for it").not.toHaveBeenCalled();
+		},
+	);
+	it("journals a window that left with nothing drawn, and how long it waited", async () => {
+		const said: string[] = [];
+		listener = await listenControl({
+			path,
+			backend,
+			report,
+			say: (line) => said.push(line),
+			attachSlowMs: 20,
+			viewer: {
+				attach: () => ({ input: vi.fn(), resize: vi.fn(), detach: vi.fn() }),
+			},
+		});
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		await messages.next();
+		await vi.waitFor(() => expect(said).toHaveLength(1));
+		socket.destroy();
+		await vi.waitFor(() =>
+			expect(said[1], "its leaving says how long it stayed blank").toMatch(
+				new RegExp(
+					`\\(${a}\\): a window attached [0-9.]+ s ago left with nothing drawn$`,
+				),
+			),
+		);
+		expect(said, "nothing more").toHaveLength(2);
+	});
 	it("bounds output even when a viewer does not read", async () => {
 		const detach = vi.fn();
 		await start({

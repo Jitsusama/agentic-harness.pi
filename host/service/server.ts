@@ -8,6 +8,8 @@ import {
 } from "node:net";
 import { dirname, isAbsolute } from "node:path";
 import { withSession } from "../../lib/core/session/index.ts";
+import { sessionAddress } from "../../lib/mesh/address.ts";
+import { ATTACH_SLOW_MS, secondsSince } from "./attach-waits.ts";
 import { type ControlBackend, dispatchControl } from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
 import { type ControlRequest, parseControl, parseViewer } from "./protocol.ts";
@@ -107,6 +109,15 @@ export async function listenControl(options: {
 	backend: ControlBackend;
 	viewer?: ViewerBridge;
 	report(error: unknown): void;
+	/**
+	 * Writes a line to the host's journal for an attached window sent
+	 * nothing to draw in time: then, its first frame and size when it
+	 * comes, or its leaving with nothing drawn. It also says a slow
+	 * attach answered after its window had left.
+	 */
+	say?: (line: string) => void;
+	/** How long an attached window may go undrawn before the journal says so: ATTACH_SLOW_MS. */
+	attachSlowMs?: number;
 }) {
 	if (!isAbsolute(options.path))
 		throw new Error("Host socket path must be absolute");
@@ -125,9 +136,48 @@ export async function listenControl(options: {
 		let viewer: ViewerConnection | undefined;
 		let sessionId: string | undefined;
 		let ended = false;
+		// Until the window's first frame goes, what it does: nothing, unless
+		// the line saying it was sent nothing in time has gone, when the
+		// frame is journaled too, as is a leaving with nothing drawn.
+		let firstFrame: ((bytes: number) => void) | undefined;
+		let leftUndrawn: (() => void) | undefined;
+		let undrawn: NodeJS.Timeout | undefined;
+		function watchFirstFrame(id: string) {
+			const answered = Date.now();
+			const who = `${sessionAddress(id)} (${id})`;
+			const since = () => secondsSince(answered);
+			let late = false;
+			undrawn = setTimeout(() => {
+				late = true;
+				options.say?.(
+					`${who}: a window attached ${since()} s ago has been sent nothing to draw`,
+				);
+			}, options.attachSlowMs ?? ATTACH_SLOW_MS);
+			// A host stopping never waits on a window's journal line.
+			undrawn.unref();
+			firstFrame = (bytes) => {
+				firstFrame = undefined;
+				leftUndrawn = undefined;
+				clearTimeout(undrawn);
+				if (late)
+					options.say?.(
+						`${who}: a window's first frame, ${bytes} bytes, was queued ${since()} s after its attach was answered`,
+					);
+			};
+			leftUndrawn = () => {
+				if (late)
+					options.say?.(
+						`${who}: a window attached ${since()} s ago left with nothing drawn`,
+					);
+			};
+		}
 		function detach() {
 			if (ended) return;
 			ended = true;
+			clearTimeout(undrawn);
+			firstFrame = undefined;
+			leftUndrawn?.();
+			leftUndrawn = undefined;
 			if (viewer && sessionId) {
 				const attached = viewer;
 				try {
@@ -158,6 +208,7 @@ export async function listenControl(options: {
 			const data = drawn;
 			drawn = "";
 			frame({ type: "output", data });
+			if (!socket.destroyed) firstFrame?.(Buffer.byteLength(data));
 		}
 		/** Send a frame after whatever the screen drew before it. */
 		function send(value: unknown) {
@@ -221,20 +272,24 @@ export async function listenControl(options: {
 				});
 				return;
 			}
+			const asked = Date.now();
 			const reply = await dispatchControl(
 				request,
 				options.backend,
 				options.report,
 			);
 			send(reply);
-			if (
-				reply.ok &&
-				request.op === "attach" &&
-				options.viewer &&
-				!socket.destroyed &&
-				!ended
-			) {
+			const gone = socket.destroyed || ended;
+			const slow =
+				Date.now() - asked >= (options.attachSlowMs ?? ATTACH_SLOW_MS);
+			if (reply.ok && request.op === "attach" && gone && slow)
+				// Otherwise the backend's answered line would read as a window shown.
+				options.say?.(
+					`${sessionAddress(request.sessionId)} (${request.sessionId}): a window's attach was answered ${secondsSince(asked)} s after it was asked, once the window had left`,
+				);
+			if (reply.ok && request.op === "attach" && options.viewer && !gone) {
 				sessionId = request.sessionId;
+				watchFirstFrame(sessionId);
 				viewer = withSession(sessionId, () =>
 					options.viewer?.attach(request, {
 						write: output,

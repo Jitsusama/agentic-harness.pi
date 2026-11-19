@@ -7,6 +7,7 @@
  */
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
+import { attachWaits } from "./attach-waits.ts";
 import type { ControlBackend } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { AdmitAnother } from "./rollout.ts";
@@ -215,6 +216,8 @@ export function hostBackend(options: {
 	 * waits for the start's own resume, so none resumes twice.
 	 */
 	held?: Pick<HeldOrder, "ahead">;
+	/** How long an attach waits before the journal says on what: attach-waits.ts's ATTACH_SLOW_MS. */
+	attachSlowMs?: number;
 }): HostBackend {
 	const { host, roster, engine } = options;
 	const now = options.now ?? (() => new Date());
@@ -277,6 +280,35 @@ export function hostBackend(options: {
 				beginning -= 1;
 			}
 		});
+	}
+
+	// A window's attach: answered once its conversation can be shown, the
+	// journal saying each wait that holds it past the bound, and then when
+	// it is answered. A wait that passes at once says nothing.
+	async function attachment(sessionId: string): Promise<SessionIdentity> {
+		const waits = attachWaits(
+			`${sessionAddress(sessionId)} (${sessionId})`,
+			options.say,
+			options.attachSlowMs,
+		);
+		try {
+			waits.next("the host's start to resume it");
+			await startOwes(sessionId);
+			waits.next("its open to finish");
+			await starts.get(sessionId);
+			waits.next("its park to settle");
+			await engine.parkSettled?.(sessionId);
+			if (host.holds(sessionId) === undefined && rostered(sessionId)) {
+				waits.next("its wake");
+				await wake(sessionId);
+			}
+			const shown = live(sessionId);
+			waits.answered();
+			return shown;
+		} catch (refusal) {
+			waits.refused(refusal);
+			throw refusal;
+		}
 	}
 
 	function live(sessionId: string): SessionIdentity {
@@ -464,15 +496,7 @@ export function hostBackend(options: {
 					// opened on a parked conversation is its person asking for it,
 					// as soon as a park under way has settled. One the host's start
 					// has yet to resume goes next.
-					await startOwes(request.sessionId);
-					await starts.get(request.sessionId);
-					await engine.parkSettled?.(request.sessionId);
-					if (
-						host.holds(request.sessionId) === undefined &&
-						rostered(request.sessionId)
-					)
-						await wake(request.sessionId);
-					live(request.sessionId);
+					await attachment(request.sessionId);
 					return { sessionId: request.sessionId };
 			}
 		},
