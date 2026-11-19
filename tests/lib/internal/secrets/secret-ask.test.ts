@@ -313,7 +313,9 @@ describe("runsPasswords", () => {
 		runs(45, "sleep", "1000\t1000\t1000\t1000");
 		runs(46, "passwords-not", "1000\t1000\t1000\t1000");
 		runs(48, "passwords", "1000\t1000\t1000\t1000", "Z (zombie)");
-		expect(runsPasswords(42, proc, 1000)).toBe(true);
+		expect(runsPasswords(42, proc, 1000), "our own account's daemon").toBe(
+			true,
+		);
 		expect(runsPasswords(43, proc, 1000), "another account's").toBe(false);
 		expect(
 			runsPasswords(44, proc, 1000),
@@ -425,7 +427,10 @@ describe("asksAnswered", () => {
 			const folder = join(runtime, "secret-asks");
 			mkdirSync(folder);
 			writeFileSync(join(folder, "answering"), `${process.pid}\n`);
-			expect(asksAnswered(runtime)).toBe(false);
+			expect(
+				asksAnswered(runtime),
+				"a sign naming this test's own process, which isn't the daemon",
+			).toBe(false);
 			expect(
 				asksAnswered(runtime, {
 					exists: () => false,
@@ -442,7 +447,9 @@ describe("asksAnswered", () => {
 	it("reads no sign as nothing answering", () => {
 		const runtime = mkdtempSync(join(tmpdir(), "answered-"));
 		try {
-			expect(asksAnswered(runtime)).toBe(false);
+			expect(asksAnswered(runtime), "a runtime folder with no sign").toBe(
+				false,
+			);
 		} finally {
 			rmSync(runtime, { recursive: true, force: true });
 		}
