@@ -363,6 +363,9 @@ async function warmed(before: number): Promise<void> {
 	);
 }
 
+/** Lets the warm-up run's answer go, once its request is in. */
+let warmUpAnswer: (() => void) | undefined;
+
 const say =
 	(text: string) =>
 	(
@@ -554,6 +557,56 @@ const scenarios: Record<string, Scenario> = {
 			await idle(engine, id);
 			await host.close(id);
 			return { answeredWhileWaiting };
+		},
+	},
+	/** Open with first words an extension's input handler takes for itself, so pi calls them handled. */
+	"open-handled": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "handle it" });
+			await idle(engine, id);
+			const seen = summary(engine, id);
+			await host.close(id);
+			return seen;
+		},
+	},
+	/** Open with first words that meet a run of pi's an extension began, still waiting on its answer. */
+	"open-into-run": {
+		responses: () => [
+			async (context: unknown, options: { apiKey?: unknown }) => {
+				await new Promise<void>((answer) => {
+					warmUpAnswer = answer;
+				});
+				return say("warmed up")(context, options);
+			},
+			say("went on"),
+		],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "meet a run" });
+			// Its answer is held until the scenario lets it go, so the run is still under way.
+			const openedWhileRunning = !String(
+				summary(engine, id).transcript,
+			).includes("warmed up");
+			const agent = field(engine.view(id)?.runtime.session, "agent");
+			const queue = field(agent, "followUpQueue");
+			const all = field(queue, "all");
+			const queued: unknown =
+				typeof all === "function" ? Reflect.apply(all, queue, []) : [];
+			const heldAsOpened = Array.isArray(queued)
+				? queued.map((item) => field(item, "submissionId") !== undefined)
+				: [];
+			await until(
+				"the warm-up's request is in",
+				() => warmUpAnswer !== undefined,
+			);
+			warmUpAnswer?.();
+			await until("the first words are answered", () =>
+				String(summary(engine, id).transcript).includes("went on"),
+			);
+			await idle(engine, id);
+			const seen = summary(engine, id);
+			await host.close(id);
+			return { ...seen, openedWhileRunning, heldAsOpened };
 		},
 	},
 	/** Open with first words an extension's input handler asks the person about, at a screen nobody has attached to yet. */
