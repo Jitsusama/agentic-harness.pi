@@ -721,6 +721,39 @@ describe("the node told the session a load's pi-spawner serves", () => {
 
 		await expect(ran, "how the command ended").rejects.toThrow("timeout:0.05");
 		expect(program.asked, "what the spawner was asked").toEqual([]);
+		operations.retire();
+		await vi.waitFor(() =>
+			expect(program.hungUp(), "closed, nothing holding it").toBe(true),
+		);
+	});
+
+	it("gives its spawner only the time the wait left", async () => {
+		const program = standIn();
+		const waited = 200;
+		const { operations, kill } = through({
+			start: asProcess(program),
+			session: "s-one",
+			register: () => new Promise((settle) => setTimeout(settle, waited)),
+		});
+		kill.mockImplementation(() => {
+			program.closed(1, 1);
+			program.closed(1, 2);
+			program.exited(1, -1, 9);
+		});
+		const began = performance.now();
+
+		const ran = operations.exec("sleep 9", "/", {
+			onData: () => {},
+			env: {},
+			timeout: 0.3,
+		});
+		await askedFor(program, 1);
+		program.started(1, 66);
+
+		await expect(ran, "how the command ended").rejects.toThrow("timeout:0.3");
+		expect(kill, "what was killed").toHaveBeenCalledWith(66);
+		// With the whole limit it would end about `waited` later, at 500 ms.
+		expect(performance.now() - began, "how long it ran").toBeLessThan(450);
 	});
 
 	it("gives pi's own spawn only the time the wait left, when its spawner stops meanwhile", async () => {

@@ -310,6 +310,19 @@ describe("a host telling the node a spawner's session", () => {
 		);
 	});
 
+	it("says nothing of one late to its name where no node listens", async () => {
+		const said: string[] = [];
+
+		await registerSpawner(SPAWNED, "s-one", {
+			socket: join(folder(), "none.sock"),
+			proc: procWith(SPAWNER, "sh"),
+			namePatience: SHORT_PATIENCE_MS,
+			say: (line: string) => said.push(line),
+		});
+
+		expect(said, "what the host said").toEqual([]);
+	});
+
 	it("says nothing of one /proc doesn't hold, as on a Mac or once it's gone", async () => {
 		const stand = node();
 		await stand.listening;

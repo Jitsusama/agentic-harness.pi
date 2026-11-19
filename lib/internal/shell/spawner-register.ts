@@ -56,8 +56,8 @@ export const NAME_PATIENCE_MS = 2000;
 
 /**
  * How near its patience an unanswered ask counts as the node's silence
- * rather than its hanging up: a timer may fire a little early as the
- * wall clock reads it.
+ * rather than its hanging up: a timer may fire a little before the
+ * monotonic clock says its time is up.
  */
 const SILENCE_SLACK_MS = 50;
 
@@ -112,8 +112,10 @@ export async function registerSpawner(
 	const namePatience = options.namePatience ?? NAME_PATIENCE_MS;
 	const socket = "socket" in options ? options.socket : nodeSocket();
 	if (socket === undefined) return;
-	const named = await namedSpawner(pid, proc, Date.now() + namePatience);
+	const named = await namedSpawner(pid, proc, performance.now() + namePatience);
 	if (named === "gone") return;
+	// A late name is said only where a node listens to be told it.
+	if (named === "late" && !(await listening(socket))) return;
 	const why =
 		named === "late"
 			? `pi-spawner didn't go by its own name within ${namePatience} ms`
@@ -164,11 +166,11 @@ async function refusalOf(
 	spawned: Spawned & { session: string },
 	patience: number,
 ): Promise<string | undefined> {
-	const asked = Date.now();
+	const asked = performance.now();
 	const answer = await askAt(socket, { Spawned: spawned }, patience);
 	if (answer !== undefined) return refusalIn(answer);
 	if (!(await listening(socket))) return undefined;
-	return Date.now() - asked >= patience - SILENCE_SLACK_MS
+	return performance.now() - asked >= patience - SILENCE_SLACK_MS
 		? `the mycelium node didn't answer within ${patience} ms`
 		: "nothing answered at the mycelium node's socket";
 }
@@ -257,7 +259,7 @@ async function namedSpawner(
 		const name = await nameOf(pid, proc);
 		if (name === SPAWNER_NAME) return "named";
 		if (name === undefined) return "gone";
-		if (Date.now() >= until) return "late";
+		if (performance.now() >= until) return "late";
 		await new Promise((settle) => setTimeout(settle, NAME_POLL_MS));
 	}
 }
