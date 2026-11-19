@@ -190,6 +190,71 @@ describe("refreshing a start point before branching", () => {
 		).toBe("origin/main");
 	});
 
+	it("moves a branch the tree is already on, as work tree made it at a stale base, up to the remote's branch", async () => {
+		// work tree made the branch where the last fetch left main.
+		await git(behind, "checkout", "-q", "-b", "jg/topic", "origin/main");
+		writeFileSync(join(behind, "notes.md"), "not yet committed\n");
+		const now = await moveOriginOn();
+
+		const answer = await workTool()({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "origin/main",
+		});
+
+		expect(answer.content[0]?.text).toContain(
+			`is on jg/topic, moved up, at ${now.slice(0, 12)} from origin/main.`,
+		);
+		expect(await git(behind, "rev-parse", "jg/topic")).toBe(now);
+		expect(await git(behind, "branch", "--show-current")).toBe("jg/topic");
+		expect(
+			await git(behind, "rev-parse", "--abbrev-ref", "jg/topic@{upstream}"),
+		).toBe("origin/main");
+		expect(await git(behind, "status", "--porcelain")).toBe("?? notes.md");
+	});
+
+	it("leaves a branch with commits of its own where it is, and says to rebase", async () => {
+		await git(behind, "checkout", "-q", "-b", "jg/topic", "origin/main");
+		writeFileSync(join(behind, "mine.md"), "mine\n");
+		await git(behind, "add", "mine.md");
+		await git(behind, "commit", "-qm", "mine");
+		const mine = await git(behind, "rev-parse", "HEAD");
+		await moveOriginOn();
+
+		const answer = await workTool()({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "origin/main",
+		});
+
+		expect(answer).not.toMatchObject({ details: { ok: true } });
+		expect(answer.content[0]?.text).toMatch(
+			/jg\/topic already exists here with commits origin\/main lacks, so it was not moved.*Rebase it onto origin\/main/,
+		);
+		expect(await git(behind, "rev-parse", "jg/topic")).toBe(mine);
+	});
+
+	it("leaves a branch of that name alone when the tree is on another", async () => {
+		await git(behind, "branch", "jg/topic", "origin/main");
+		const was = await git(behind, "rev-parse", "jg/topic");
+		await moveOriginOn();
+
+		const answer = await workTool()({
+			action: "branch",
+			tree: behind,
+			name: "jg/topic",
+			from: "origin/main",
+		});
+
+		expect(answer.content[0]?.text).toMatch(
+			/jg\/topic already exists and this tree is not on it/,
+		);
+		expect(await git(behind, "rev-parse", "jg/topic")).toBe(was);
+		expect(await git(behind, "branch", "--show-current")).toBe("main");
+	});
+
 	it("starts from the remote's branch even when a local branch shares its short name", async () => {
 		// A local branch called origin/main makes the short name ambiguous.
 		await git(behind, "branch", "origin/main", "HEAD");
