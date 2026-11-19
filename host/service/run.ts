@@ -134,6 +134,19 @@ const READY_TAKEN_MS = 1000;
 const READY_TELLINGS = 10;
 /** How long systemctl has to say a unit's state, in ms. */
 const UNIT_STATE_WITHIN_MS = 5000;
+/**
+ * How long one telling of a ready has, in ms, before its systemd-notify
+ * is killed and the telling counts as missed, so a notifier that hangs
+ * can't hold the ready loop for good.
+ */
+const READY_TOLD_WITHIN_MS = 5000;
+/** The states that say systemd took a ready: the unit is up. */
+const READY_TAKEN_STATES: ReadonlySet<string> = new Set([
+	"active",
+	"reloading",
+]);
+/** The state of a unit still waiting for its ready. */
+const WAITING_STATE = "activating";
 const MS_PER_SECOND = 1000;
 
 /**
@@ -170,8 +183,11 @@ export interface HostRunOptions {
 	 * said again until the unit reads active.
 	 */
 	ready?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
-	/** The systemd unit the host runs as; read from its cgroup by default. */
-	unit?: string;
+	/**
+	 * The systemd unit the host runs as; read from its cgroup by default.
+	 * Null leaves the ready unconfirmed: it is said once, as before.
+	 */
+	unit?: string | null;
 	/** How long, in ms, systemd has to take a ready before the host looks; READY_TAKEN_MS by default. */
 	readyTaken?: number;
 	/** Says the host's status once it changes; systemd's notify by default. */
@@ -474,7 +490,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			options.ready ??
 			((env: NodeJS.ProcessEnv, said: string) =>
 				notifyReady(env, said, {
-					unit: options.unit ?? ownUnit(),
+					unit: options.unit === null ? undefined : (options.unit ?? ownUnit()),
 					taken: options.readyTaken ?? READY_TAKEN_MS,
 					say,
 					stopping: () => stopping !== undefined,
@@ -659,8 +675,21 @@ async function notifyReady(
 	if (!env.NOTIFY_SOCKET) return;
 	const { unit, taken, say, stopping } = confirm;
 	for (let telling = 1; ; telling++) {
-		await tellSystemd(env, ["--ready", `STATUS=${status}`]);
-		if (unit === undefined) return;
+		if (unit === undefined) {
+			await tellSystemd(env, ["--ready", `STATUS=${status}`]);
+			return;
+		}
+		try {
+			await tellSystemd(
+				env,
+				["--ready", `STATUS=${status}`],
+				READY_TOLD_WITHIN_MS,
+			);
+		} catch (error) {
+			// A telling that failed or hung is a miss like any other: the
+			// unit's state still says whether systemd has the ready.
+			say(`telling systemd the host is ready failed: ${firstLine(error)}`);
+		}
 		// systemd takes a notify off its socket in its own time.
 		await new Promise((resolve) => setTimeout(resolve, taken));
 		let state: string;
@@ -672,9 +701,17 @@ async function notifyReady(
 			);
 			return;
 		}
-		if (state !== "activating") {
+		if (READY_TAKEN_STATES.has(state)) {
 			if (telling > 1)
 				say(`systemd took the host's ready on its ${ordinal(telling)} telling`);
+			return;
+		}
+		// Failed, inactive or deactivating: the unit is going or gone, so
+		// telling it again can't help, and nothing says systemd took it.
+		if (state !== WAITING_STATE) {
+			say(
+				`systemd didn't take the host's ready: ${unit} reads ${state || "nothing"}, so the host stops telling it`,
+			);
 			return;
 		}
 		if (stopping()) return;
@@ -712,6 +749,15 @@ function ownUnit(): string | undefined {
 		// No /proc, as off Linux, where no systemd waits on a ready.
 		return undefined;
 	}
+	return serviceOfCgroup(text);
+}
+
+/**
+ * The service a process runs in, from its /proc/<pid>/cgroup text: the
+ * leaf of its unified hierarchy's path, when that is a service; none for
+ * a scope, a slice, or a process with no unified hierarchy.
+ */
+export function serviceOfCgroup(text: string): string | undefined {
 	const path = text
 		.split("\n")
 		.find((line) => line.startsWith("0::"))
@@ -722,7 +768,14 @@ function ownUnit(): string | undefined {
 
 /** The unit's ActiveState, as the user's systemd says it. */
 function unitState(env: NodeJS.ProcessEnv, unit: string): Promise<string> {
-	const args = ["--user", "show", "--property=ActiveState", "--value", unit];
+	const args = [
+		"--user",
+		"show",
+		"--property=ActiveState",
+		"--value",
+		"--",
+		unit,
+	];
 	return new Promise((resolve, reject) => {
 		withPi(() =>
 			execFile(
@@ -750,10 +803,11 @@ function unitState(env: NodeJS.ProcessEnv, unit: string): Promise<string> {
 	});
 }
 
-/** 2nd, 3rd, 4th: how the journal counts a telling. */
+/**
+ * 2nd, 3rd, 4th: how the journal counts a telling, up to READY_TELLINGS,
+ * so never past ten.
+ */
 function ordinal(n: number): string {
-	const tens = n % 100;
-	if (tens >= 11 && tens <= 13) return `${n}th`;
 	return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
