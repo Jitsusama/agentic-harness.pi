@@ -333,7 +333,9 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		holdMessagesThroughCarriedTurns(created.session, agentOf(record), report);
 		// Words the agent queues past the session show as pending, where pi has the seam; the host says at start when it lacks it.
 		// The agent's own runs open as pi's, where pi has the seam, so pi prepares and settles them as it does a prompt's.
-		agentOf(record).joinSession(created.session);
+		agentOf(record).joinSession(created.session, (error) =>
+			report(`Conversation ${sessionId}: ${String(error)}`),
+		);
 		return { ...created, services, diagnostics: said };
 	}
 

@@ -383,10 +383,14 @@ export class HostedAgent {
 	/**
 	 * Join the pi session holding this agent. Words the agent queues past it
 	 * show in its pending list, where pi has the seam, as pi lists only what
-	 * it queued. The agent's own runs open as pi's there (pi-runs.ts).
+	 * it queued. The agent's own runs open as pi's there (pi-runs.ts), and
+	 * one pi fails to prepare, or prepares too late, is said to `report`.
 	 */
-	joinSession(session: QueueShowingSession & HostRunningSession): void {
-		this.piRuns.tell(session);
+	joinSession(
+		session: QueueShowingSession & HostRunningSession,
+		report?: (error: unknown) => void,
+	): void {
+		this.piRuns.tell(session, report);
 		if (typeof session.showQueued !== "function") return;
 		this.pending = (text, mode) => session.showQueued?.(text, mode);
 	}

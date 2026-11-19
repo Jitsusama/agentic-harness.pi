@@ -54,8 +54,14 @@ export interface HostRunningSession {
  */
 export const PREPARING_MS = 30_000;
 
+/** Milliseconds in a second, for saying PREPARING_MS. */
+const MS_PER_SECOND = 1_000;
+
 /** Runs `say` as the conversation's own, whoever scheduled it. */
 export type Within = (say: () => Promise<unknown>) => Promise<unknown>;
+
+/** Where a run pi didn't prepare is said, so a run sent on without its sections isn't silent. */
+export type Report = (error: unknown) => void;
 
 /**
  * An open run of pi's, ended by `end`, settled once `settled` resolves,
@@ -78,6 +84,7 @@ export class PiRuns {
 	private readonly within: Within;
 	private readonly next: () => void;
 	private session: HostRunningSession | undefined;
+	private report: Report = () => {};
 	private holds = 0;
 	private open: OpenRun | undefined;
 	/** The stop signals of runs shown pi with no seam to open them, for the settle owed. */
@@ -98,9 +105,10 @@ export class PiRuns {
 		this.next = next;
 	}
 
-	/** Open runs in `session` from now on. */
-	tell(session: HostRunningSession): void {
+	/** Open runs in `session` from now on, saying to `report` each run pi didn't prepare. */
+	tell(session: HostRunningSession, report?: Report): void {
 		this.session = session;
+		if (report) this.report = report;
 	}
 
 	/**
@@ -184,13 +192,15 @@ export class PiRuns {
 		const prepared = new Promise<readonly AgentMessage[]>((done) => {
 			begun = done;
 		});
+		const report = this.report;
 		const settled = session
 			.runForHost((handed) => {
 				begun(handed ?? []);
 				return ended;
 			})
-			.catch(() => {
-				// pi reports what failed in preparing or settling its run to its own listeners; the host's work goes on either way.
+			.catch((error: unknown) => {
+				// The host's work goes on either way, but a run pi failed to prepare goes without its sections, which is said.
+				report(new Error(`pi's run for the host failed: ${String(error)}`));
 			});
 		let late = () => {};
 		const overdue = new Promise<void>((done) => {
@@ -207,7 +217,15 @@ export class PiRuns {
 				late();
 				done([]);
 			};
-			timer = setTimeout(give, PREPARING_MS);
+			const overdue = () => {
+				report(
+					new Error(
+						`pi took over ${PREPARING_MS / MS_PER_SECOND} s to prepare the host's run, so it goes on without the sections pi adds`,
+					),
+				);
+				give();
+			};
+			timer = setTimeout(overdue, PREPARING_MS);
 			stop = give;
 			if (signal?.aborted) give();
 			else signal?.addEventListener("abort", give, { once: true });
