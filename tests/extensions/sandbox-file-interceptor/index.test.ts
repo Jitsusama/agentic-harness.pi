@@ -16,7 +16,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sandboxFileInterceptor from "../../../extensions/sandbox-file-interceptor/index.ts";
@@ -420,6 +420,38 @@ describe("the interceptor", () => {
 				seat(),
 			);
 			expect(answer, "the write tool refused a held tree").toBeUndefined();
+		});
+
+		it("writes in the quest's own shared folder, even before any command made it", async () => {
+			const answer = await handler(
+				{
+					toolName: "write",
+					input: {
+						path: join(
+							base,
+							"cache/pi/agentic-harness.pi/quest-shares/QEST-1/notes.md",
+						),
+						content: "x",
+					},
+				},
+				seat(),
+			);
+			expect(answer, "the write tool refused its own share").toBeUndefined();
+		});
+
+		it("never writes in another quest's shared folder", async () => {
+			const other = join(
+				base,
+				"cache/pi/agentic-harness.pi/quest-shares/QEST-2/x.txt",
+			);
+			mkdirSync(dirname(other), { recursive: true });
+			const answer = await handler(
+				{ toolName: "write", input: { path: other, content: "x" } },
+				seat(),
+			);
+			expect(answer, "another quest's share took a write").toMatchObject({
+				block: true,
+			});
 		});
 
 		it("never writes in another quest's scratch", async () => {

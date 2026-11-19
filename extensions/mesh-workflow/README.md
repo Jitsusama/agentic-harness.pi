@@ -1053,6 +1053,43 @@ as the person. Presence says `fence` (`none`, `fence` or
 `strict`, as `PI_SANDBOX` asks), which the node matches against
 the machine it carries to.
 
+A quest's shared folder sits beside its scratch, never in it:
+`quest-shares/<id>` in pi's cache, made with its root before a
+session's first command, whatever its sandbox, so no fenced
+command finds the root missing and makes it, or a link, itself.
+Inside Linux's fence it is writable to its own quest's sessions
+and read-only to every other quest's; a fence started before
+this, or a Mac's, still writes every quest's, as it does their
+scratches. A `strict` session says its quest's share, which the
+quest's other sessions on its machine use, but its own commands
+reach none. So a share holds only what is put in it, never a
+`TMPDIR` or a clone, and no `.envrc` a cell on another machine writes
+there runs as a scratch's would. A root that is a link shares
+nothing. A seal leaves the folder where it is, in the cache that
+backups skip, and presence stops saying it; nothing removes a
+sealed quest's share yet.
+
+While a session has a quest that isn't sealed, its quest's
+shared folder is a folder at an absolute path, not a file or a
+link, and the session hasn't ended, its presence says `shares`:
+that folder, keyed `quest:<id>` in lower case alike on every
+machine, the quest's id presence already publishes, titled by
+the quest, or by its id while its README has no heading. Each
+look about itself reads these again, so a folder made or
+removed shows within the minute. A parked session keeps
+saying its share until it wakes, since it is still the quest's
+to wake. Two cells or more saying one key make a mycelium node
+form the network `files.<key>`, which fades once none says it.
+Saying a share names the folder only; the saying itself copies
+nothing. A read keeps only what the node reads: of the first
+sixteen, each that fits, its key in lower case, a key's first
+saying, and its title and folder cleaned as a terminal draws
+them, never refused for it, the title then cut to 120
+characters ([`lib/mesh/presence.ts`](../../lib/mesh/presence.ts)).
+A session says its title cleaned the same way, and says no share
+where cleaning would change its folder's path, since the folder
+said wouldn't be it.
+
 A parked session reads its inbox only as it wakes, and `close`,
 `carry`, `ordered-carry` and `move` wait on it running. So each session, as it looks
 about itself every minute, asks the holder of any parked peer

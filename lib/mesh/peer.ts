@@ -56,6 +56,7 @@ import {
 	type StandsAtTop,
 	workOf,
 } from "./presence.ts";
+import type { Share } from "./presence-shares.ts";
 import { heldTreesOf } from "./scope.ts";
 import { type StepDetail, stepName } from "./step.ts";
 import type { Stop } from "./stop.ts";
@@ -414,6 +415,7 @@ export function localPeer(at: Surroundings): Peer {
 	let questInfo: QuestInfo | undefined;
 	let standsAtTop: StandsAtTop | undefined;
 	let subjects: readonly string[] = [];
+	let shares: readonly Share[] = [];
 	let repo: string | undefined;
 	let workspace: string | undefined;
 	let busy = false;
@@ -508,6 +510,8 @@ export function localPeer(at: Surroundings): Peer {
 			...doingOf(at.records.doing, at.session),
 			...(standsAtTop ? { standsAtTop } : {}),
 			...(subjects.length > 0 ? { subjects } : {}),
+			// An ended session works with nobody, so its last word shares none.
+			...(shares.length > 0 && !ended ? { shares } : {}),
 			cwd: at.cwd,
 			...(repo ? { repo } : {}),
 			...(moving ? { moving } : {}),
@@ -579,6 +583,7 @@ export function localPeer(at: Surroundings): Peer {
 			ownedPrefixes(at.owners?.() ?? [], working),
 			work.subjects ?? [],
 		);
+		shares = work.shares ?? [];
 		repo = work.repo;
 		publish();
 	};

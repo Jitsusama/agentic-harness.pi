@@ -13,6 +13,11 @@
  * A presence also says which process holds it, so whether the peer is
  * still there is asked of the machine rather than of a clock: a peer
  * whose process has ended is gone, however recently it wrote.
+ *
+ * Long because it is one record, written and read back field by field:
+ * each field's reader keeps to what its writer says, and split apart
+ * they would drift. A field with rules of its own, as the shares a
+ * presence says, is read in its own file (presence-shares.ts).
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -62,6 +67,7 @@ import {
 	moveOffFrom,
 	movingFrom,
 } from "./moving.ts";
+import { questShared, type Share, sharesSaid } from "./presence-shares.ts";
 import {
 	checkoutOf,
 	type HeldTree,
@@ -296,6 +302,16 @@ export interface Presence {
 	 * while it declares none, and from an older presence.
 	 */
 	readonly subjects?: readonly string[];
+	/**
+	 * The folders it works in with others, each named alike on every
+	 * machine: its quest's shared folder, beside its scratch, while its
+	 * quest isn't sealed, the folder is there, at a path a node would draw
+	 * as it is, and its session hasn't ended. Two cells or
+	 * more saying one key make a mycelium node form the network
+	 * `files.<key>` (KP0L6A, 18 November); missing from a peer whose
+	 * harness doesn't say.
+	 */
+	readonly shares?: readonly Share[];
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
 }
@@ -410,6 +426,8 @@ export interface PeerWork {
 	readonly standsAtTop?: StandsAtTop;
 	/** The subjects its quest's README lists, which presence says after those it owns. */
 	readonly subjects?: readonly string[];
+	/** The folders it works in with others (see Presence). */
+	readonly shares?: readonly Share[];
 }
 
 /** How far up a quest's parents are followed, against a loop. */
@@ -473,6 +491,10 @@ export function workOf(
 		}),
 		orchestration,
 		workspace: questAddress(windowWorkspaceOf(quest, read) ?? quest),
+		// A quest sealed is done with, its folder left or not, so shares none.
+		...(isSealedStatus(parsed.frontMatter.status)
+			? {}
+			: questShared(quest, parsed.title)),
 		...(parsed.frontMatter.hears ? { hears: parsed.frontMatter.hears } : {}),
 		...standingAtTop(parsed.frontMatter._extra?.["stands-at-top"]),
 		...subjectsSaid(declaredSubjects(parsed.frontMatter._extra?.subjects)),
@@ -731,6 +753,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 			: {}),
 		...standingAtTop(one.standsAtTop),
 		...subjectsSaid(subjectsOf([], declaredSubjects(one.subjects))),
+		...sharesSaid(one.shares),
 		at: typeof one.at === "string" ? one.at : "",
 	};
 }

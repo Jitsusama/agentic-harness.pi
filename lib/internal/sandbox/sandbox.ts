@@ -58,7 +58,7 @@
 
 import { mkdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { join, relative, sep } from "node:path";
 import {
 	agentProxy,
 	FENCE,
@@ -92,7 +92,6 @@ import {
 	offloadedOutside,
 	offloadKeptIn,
 } from "../fence/offload-exemption.ts";
-import { questWorkspacesRoot } from "../quest/workspace/workspace-root.ts";
 import { withSecretNote } from "../secrets/secret-ask.ts";
 import { cutTreeDir } from "../work-records.ts";
 import {
@@ -102,6 +101,7 @@ import {
 	namesTheCloud,
 } from "./gcloud-broker.ts";
 import { brokerTokens, type GitHubTokenSource } from "./github-broker.ts";
+import { direnvTrusts, makeShares, questScratch } from "./quest-folders.ts";
 import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
 import { systemProgram } from "./system-program.ts";
@@ -394,21 +394,6 @@ export function unfencedFolder(cwd: string, home: string, asker = ASKED) {
 }
 
 /**
- * Where quests' scratch folders live, and the one `temporary` (a
- * session's `TMPDIR`, a link into its quest's) lies in, if it does.
- */
-export function questScratch(
-	temporary: string | undefined,
-	root: string = questWorkspacesRoot(),
-): { root: string; own?: string } {
-	const top = real(root);
-	const at = temporary ? relative(top, real(temporary)) : "..";
-	const first = at.split(sep)[0] ?? "";
-	const outside = first === "" || first === ".." || isAbsolute(at);
-	return outside ? { root: top } : { root: top, own: join(top, first) };
-}
-
-/**
  * How a session's commands run: as they are, fenced, or not at all. A
  * fenced command is handed a GitHub token from `github`, and a cloud
  * token and project from `gcloud`, when they give them.
@@ -658,6 +643,10 @@ export function wrapFor(
 			},
 			sandbox.kind === "none" ? undefined : sandbox.logger,
 		)}; ${refusedCommand(reason)}`;
+	// Made for every kind, so a quest shares on a machine whatever fence
+	// its sessions run in, and no fenced command finds the root missing.
+	const scratch = questScratch(place.env.TMPDIR);
+	const share = makeShares(scratch);
 	switch (sandbox.kind) {
 		case "none":
 			return undefined;
@@ -680,17 +669,15 @@ export function wrapFor(
 				sandbox.githubDoor && session && githubFolder
 					? { program: sandbox.githubDoor, session, folder: githubFolder }
 					: undefined;
-			const direnv = fencedDirenv(home, place.env, [
-				real(cutTreeDir()),
-				real(questWorkspacesRoot()),
-			]);
+			const direnv = fencedDirenv(home, place.env, direnvTrusts());
 			const fence = {
 				home,
 				runtimeDir: place.env.XDG_RUNTIME_DIR,
 				...(direnv ? { direnv } : {}),
 				...(githubFolder ? { githubDoor: githubFolder } : {}),
 				...worktrees,
-				scratch: questScratch(place.env.TMPDIR),
+				scratch,
+				share,
 				sshConfig: fenceSshConfig(place.env.XDG_RUNTIME_DIR),
 				npmrc: fenceNpmrc(home, place.env.XDG_RUNTIME_DIR),
 				docker: dockerHoldsCredentials(home),

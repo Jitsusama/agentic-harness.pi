@@ -10,7 +10,8 @@
  * So a fenced command's direnv reads settings of the fence's own,
  * through `DIRENV_CONFIG`: the person's library and `direnvrc` linked
  * in, as they are, and a `direnv.toml` trusting the work trees and the
- * quests' scratch folders. An `.envrc` there runs inside the fence, no
+ * quests' scratch folders, never their shared folders, which a cell on
+ * another machine writes in. An `.envrc` there runs inside the fence, no
  * further than the command that asked for it could go itself, and the
  * person's own direnv never reads these settings. Where the person
  * keeps a `direnv.toml` of their own, theirs stands, and a refusal

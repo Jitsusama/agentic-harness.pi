@@ -23,10 +23,10 @@ import { FENCE, fenceRefusesRead, fenceRefusesWrite } from "../fence/fence.ts";
 import { askedSandbox } from "../fence/fence-stage.ts";
 import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
+import { makeShares, questScratch } from "./quest-folders.ts";
 import {
 	type FileUse,
 	fileReach,
-	questScratch,
 	SANDBOX_NAMES,
 	SANDBOX_VARIABLE,
 	STRICT,
@@ -186,13 +186,17 @@ function fenceRefusal(
 	place: FilePlace,
 ): string | undefined {
 	const trees = brokerTrees(place.env.PI_SESSION_ID);
+	const scratch = questScratch(place.env.TMPDIR);
 	const fence = {
 		home: place.home,
 		runtimeDir: place.env.XDG_RUNTIME_DIR,
 		cwd: place.cwd,
 		ownGitFolder: treeGit(place.cwd, place.home)?.gitDir,
 		heldWorktrees: heldWorktrees(trees.held),
-		scratch: questScratch(place.env.TMPDIR),
+		scratch,
+		// Made as a command's wrap makes them, so a first write before any
+		// command finds the session's own share its own.
+		share: makeShares(scratch),
 		trees,
 	};
 	for (const candidate of candidates) {
@@ -206,7 +210,7 @@ function fenceRefusal(
 			use === "write" &&
 			(fenceRefusesWrite(candidate, fence) || fenceRefusesWrite(real, fence))
 		) {
-			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person, the checkouts under ~/src and ~/world, the work tool's trees but the session's own, the folders the person browses in the home folder but the one the session works in, and other quests' scratch folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Work in a tree the work tool cuts (\`work tree\`), change settings through core and a switch, and another quest's files through its sessions.`;
+			return `${SANDBOX_VARIABLE}=${FENCE} keeps the settings and startup files that run as the person, the checkouts under ~/src and ~/world, the work tool's trees but the session's own, the folders the person browses in the home folder but the one the session works in, and other quests' scratch and shared folders read-only, and the runtime folder out of reach: ${path} leads to ${real}, so ${toolName} didn't run. Work in a tree the work tool cuts (\`work tree\`), change settings through core and a switch, and another quest's files through its sessions.`;
 		}
 		if (fenceRefusesRead(real, fence)) {
 			return `${SANDBOX_VARIABLE}=${FENCE} keeps other processes, the runtime folder and the files holding keys or registry tokens out of reach: ${path} leads to ${real}, so ${toolName} didn't run. ${readRoute(real, place)}`;

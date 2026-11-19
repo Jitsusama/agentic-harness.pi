@@ -12,8 +12,10 @@
 import { execFileSync } from "node:child_process";
 import {
 	chmodSync,
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	realpathSync,
 	rmSync,
 	statSync,
@@ -22,18 +24,27 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { TEMP_LINK_PREFIX as QUESTS_LINK_PREFIX } from "../../../extensions/quest-workflow/scratch.ts";
 import { agentBash } from "../../../extensions/shell-workflow/agent-bash.ts";
+import {
+	direnvTrusts,
+	makeShares,
+	questScratch,
+	questShare,
+	TEMP_LINK_PREFIX,
+} from "../../../lib/internal/sandbox/quest-folders.ts";
 import {
 	askTheCloudAhead,
 	NIX_DOOR,
-	questScratch,
 	type Sandbox,
 	sandboxFolders,
 	sandboxFor,
 	strictRules,
 	unfencedFolder,
+	wrapFor,
 } from "../../../lib/internal/sandbox/sandbox.ts";
+import { quoted } from "../../../lib/internal/sandbox/sandbox-shell.ts";
 import { systemProgram } from "../../../lib/internal/sandbox/system-program.ts";
 import { worktreeRepository } from "../../../lib/internal/sandbox/tree-git.ts";
 
@@ -260,7 +271,7 @@ describe("a worktree's repository", () => {
 });
 
 describe("a session's quest scratch folder", () => {
-	it("is the one its TMPDIR leads into, through a link, and none elsewhere", () => {
+	it("is the quest its TMPDIR's link names, and none elsewhere", () => {
 		const base = realpathSync(mkdtempSync(join(tmpdir(), "sandbox-scratch-")));
 		const root = join(base, "quest-workspace");
 		mkdirSync(join(root, "QEST-1/tmp"), { recursive: true });
@@ -278,6 +289,174 @@ describe("a session's quest scratch folder", () => {
 			expect(questScratch(undefined, root)).toEqual({ root });
 		} finally {
 			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("is the quest its TMPDIR names, wherever a command has pointed its link since", () => {
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "sandbox-scratch-")));
+		const root = join(base, "quest-workspace");
+		mkdirSync(join(root, "QEST-1/tmp"), { recursive: true });
+		mkdirSync(join(root, "QEST-2/tmp"), { recursive: true });
+		// The link lies in /tmp, which a fenced command writes: swapped for
+		// one into another quest's scratch, it would lead the fence there.
+		const link = join(base, "pi-quest-QEST-1");
+		symlinkSync(join(root, "QEST-2/tmp"), link);
+		try {
+			expect(questScratch(link, root)).toEqual({
+				root,
+				own: join(root, "QEST-1"),
+			});
+			expect(
+				questScratch(join(root, "QEST-2/tmp"), root),
+				"a TMPDIR in the scratches as written",
+			).toEqual({ root, own: join(root, "QEST-2") });
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("is the quest its TMPDIR names under scratches reached through a link", () => {
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "sandbox-scratch-")));
+		mkdirSync(join(base, "cache/quest-workspace/QEST-1/tmp"), {
+			recursive: true,
+		});
+		// As where the cache is a link, and the quest workflow, with no link
+		// in /tmp made, hands out the scratch's tmp as written.
+		symlinkSync(join(base, "cache"), join(base, "linked"));
+		const root = join(base, "linked/quest-workspace");
+		try {
+			expect(questScratch(join(root, "QEST-1/tmp"), root)).toEqual({
+				root: join(base, "cache/quest-workspace"),
+				own: join(base, "cache/quest-workspace/QEST-1"),
+			});
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("reads the quest's link by the name the quest workflow gives it", () => {
+		expect(TEMP_LINK_PREFIX).toBe(QUESTS_LINK_PREFIX);
+	});
+
+	it("is none where the quest's own scratch is a link, or not there", () => {
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "sandbox-scratch-")));
+		const root = join(base, "quest-workspace");
+		mkdirSync(join(root, "QEST-2/tmp"), { recursive: true });
+		symlinkSync(join(root, "QEST-2"), join(root, "QEST-1"));
+		try {
+			expect(questScratch(join(base, "pi-quest-QEST-1"), root)).toEqual({
+				root,
+			});
+			expect(
+				questScratch(join(root, "QEST-1/tmp"), root),
+				"through the link, as written",
+			).toEqual({ root });
+			expect(questScratch(join(base, "pi-quest-QEST-3"), root)).toEqual({
+				root,
+			});
+			expect(questScratch(join(base, "pi-quest-.."), root)).toEqual({
+				root,
+			});
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("a session's quest shared folder", () => {
+	it("is made with its root, named as its scratch is, and only the root without a scratch", () => {
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "sandbox-share-")));
+		const root = join(base, "quest-shares");
+		try {
+			expect(makeShares({}, root), "no quest, no own folder").toEqual({
+				root,
+			});
+			expect(lstatSync(root).isDirectory(), "the root made all the same").toBe(
+				true,
+			);
+			expect(statSync(root).mode & 0o777, "the root its owner's alone").toBe(
+				0o700,
+			);
+			expect(
+				makeShares({ own: join(base, "quest-workspace", "QEST-1") }, root),
+			).toEqual({ root, own: join(root, "QEST-1") });
+			expect(statSync(join(root, "QEST-1")).mode & 0o777).toBe(0o700);
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("takes no own folder under a root that is a link, as one into the scratches", () => {
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "sandbox-share-")));
+		const scratches = join(base, "quest-workspace");
+		mkdirSync(scratches, { recursive: true });
+		const root = join(base, "quest-shares");
+		symlinkSync(scratches, root);
+		try {
+			const scratch = { own: join(scratches, "QEST-1") };
+			expect(questShare(scratch, root)).toEqual({ root });
+			expect(makeShares(scratch, root)).toEqual({ root });
+			expect(readdirSync(scratches), "nor made through it").toEqual([]);
+		} finally {
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("is made before a command of any sandbox, so a quest shares unfenced too", () => {
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "sandbox-share-")));
+		vi.stubEnv("XDG_CACHE_HOME", join(base, "cache"));
+		try {
+			const own = join(questScratch(undefined).root, "QEST-20261021-LUQ49E");
+			mkdirSync(join(own, "tmp"), { recursive: true });
+			expect(
+				wrapFor(
+					{ kind: "none" },
+					{ cwd: base, env: { TMPDIR: join(own, "tmp") } },
+					base,
+				),
+			).toBeUndefined();
+			expect(readdirSync(questShare({}).root)).toEqual([
+				"QEST-20261021-LUQ49E",
+			]);
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("is bound into a fenced command writable for its own quest and read-only for every other", () => {
+		const base = realpathSync(mkdtempSync(join(tmpdir(), "sandbox-share-")));
+		vi.stubEnv("XDG_CACHE_HOME", join(base, "cache"));
+		try {
+			const quest = "QEST-20261021-LUQ49E";
+			const own = join(questScratch(undefined).root, quest);
+			mkdirSync(join(own, "tmp"), { recursive: true });
+			const command =
+				wrapFor(
+					{ kind: "fence", bwrap: "bwrap", landrun: "landrun" },
+					{ cwd: base, env: { TMPDIR: join(own, "tmp") } },
+					base,
+				)?.("true") ?? "";
+			const root = questShare({}).root;
+			const bound = (...words: string[]) => words.map(quoted).join(" ");
+			expect(command, "every quest's read-only").toContain(
+				bound("--ro-bind", root, root),
+			);
+			expect(command, "its own writable").toContain(
+				bound("--bind", join(root, quest), join(root, quest)),
+			);
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("lies outside every folder a fenced direnv trusts, as direnv matches a plain prefix", () => {
+		const shares = questShare({}).root;
+		const trusted = direnvTrusts();
+		expect(trusted.length).toBeGreaterThan(0);
+		for (const prefix of trusted) {
+			expect(shares.startsWith(prefix), prefix).toBe(false);
 		}
 	});
 });
