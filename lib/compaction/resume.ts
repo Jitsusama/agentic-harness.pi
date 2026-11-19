@@ -121,6 +121,19 @@ function conversed(entry: unknown): Record<string, unknown> | undefined {
 }
 
 /**
+ * Whether an entry is an answer that ended on its own. One after an
+ * ask means its run ended since, so the ask is spent: the person
+ * carried on past an ask nothing settled, and a compaction of theirs
+ * landing later owes nothing for it.
+ */
+function finishedAnswer(entry: unknown): boolean {
+	const message = conversed(entry);
+	return (
+		message?.role === "assistant" && FINISHED.has(String(message.stopReason))
+	);
+}
+
+/**
  * Whether the newest message in `entries` was written at or after `at`
  * and stops a run partway: a tool's result, a call for tools, or an
  * answer that was aborted or failed. That is a run the compaction cut,
@@ -182,6 +195,7 @@ export function owesResume(
 		if (!isRecord(entry)) continue;
 		if (entry.type === "compaction") return false;
 		if (isCustom(entry, SETTLED_ENTRY)) return false;
+		if (finishedAnswer(entry)) return false;
 		if (!isCustom(entry, ASKED_ENTRY)) continue;
 		const ask = entry.data;
 		if (!isRecord(ask) || typeof ask.at !== "number") return false;
@@ -193,25 +207,28 @@ export function owesResume(
 
 /**
  * The newest ask nothing has answered and no compaction has followed,
- * made within ASK_LANDS_WITHIN_MS of `now`: the ask of a compaction
- * that failed or was cancelled after the runtime that asked was gone,
- * whose onError never ran here. Malformed, it is none.
+ * made within `withinMs` of `now` and with no answer since that ended
+ * on its own: the ask of a compaction that failed or was cancelled
+ * after the runtime that asked was gone, whose onError never ran here,
+ * or of one cut short when pi stopped while it summarised. Malformed,
+ * it is none.
  */
 export function unsettledAsk(
 	branch: readonly unknown[],
 	now: number,
+	withinMs: number = ASK_LANDS_WITHIN_MS,
 ): CompactionAsk | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
 		if (!isRecord(entry)) continue;
 		if (entry.type === "compaction") return undefined;
 		if (isCustom(entry, SETTLED_ENTRY)) return undefined;
+		if (finishedAnswer(entry)) return undefined;
 		if (!isCustom(entry, ASKED_ENTRY)) continue;
 		const ask = entry.data;
 		if (!isRecord(ask) || typeof ask.at !== "number") return undefined;
 		const age = now - ask.at;
-		if (!(age <= ASK_LANDS_WITHIN_MS && age >= -CLOCK_SKEW_MS))
-			return undefined;
+		if (!(age <= withinMs && age >= -CLOCK_SKEW_MS)) return undefined;
 		return { at: ask.at, resume: ask.resume === true };
 	}
 	return undefined;

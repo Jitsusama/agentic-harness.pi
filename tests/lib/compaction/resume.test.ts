@@ -214,6 +214,27 @@ describe("whether a compaction left a run owed", () => {
 		expect(owesResume(branch, T0 + 10_000)).toBe(false);
 	});
 
+	it("credits no compaction with an ask whose run has since finished", () => {
+		// An ask nothing settled, then the person carried on and the run
+		// ended on its own before a /compact of theirs landed.
+		const going = [
+			asked(0, true),
+			user(60_000),
+			answer(70_000, "stop"),
+			compaction(120_000),
+		];
+		const idle = [
+			asked(0, false),
+			user(60_000),
+			answer(70_000, "length"),
+			user(80_000),
+			compaction(120_000),
+		];
+
+		expect(owesResume(going, T0 + 130_000), "its own word").toBe(false);
+		expect(owesResume(idle, T0 + 130_000), "a run since").toBe(false);
+	});
+
 	it("owes nothing with no compaction at all", () => {
 		expect(owesResume([asked(0, true), answer(100, "aborted")], T0)).toBe(
 			false,
@@ -244,6 +265,23 @@ describe("the ask nothing has answered", () => {
 
 		expect(unsettledAsk(branch, T0 + ASK_LANDS_WITHIN_MS + 1)).toBe(undefined);
 		expect(unsettledAsk(branch, T0 + ASK_LANDS_WITHIN_MS)).toEqual({
+			at: T0,
+			resume: true,
+		});
+	});
+
+	it("is none once a run after it has finished", () => {
+		const branch = [asked(0, true), user(1000), answer(2000, "stop")];
+
+		expect(unsettledAsk(branch, T0 + 60_000)).toBe(undefined);
+	});
+
+	it("reaches as far back as it is told", () => {
+		const branch = [asked(0, true), answer(100, "aborted")];
+		const now = T0 + ASK_LANDS_WITHIN_MS + 60_000;
+
+		expect(unsettledAsk(branch, now)).toBe(undefined);
+		expect(unsettledAsk(branch, now, OWED_WITHIN_MS)).toEqual({
 			at: T0,
 			resume: true,
 		});

@@ -34,7 +34,10 @@ const STALE =
 	"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload().";
 
 /** Just enough of pi for the extension to register and be driven. */
-function activate(stale = { now: false }): {
+function activate(
+	stale = { now: false },
+	broken: { append?: Error } = {},
+): {
 	handlers: Map<string, Handler>;
 	calls: Recorded;
 } {
@@ -58,6 +61,7 @@ function activate(stale = { now: false }): {
 		},
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
 		appendEntry: live((...args: unknown[]) => {
+			if (broken.append) throw broken.append;
 			calls.appendEntry.push(args);
 			calls.order.push(String(args[0]));
 		}),
@@ -402,8 +406,9 @@ describe("resuming from the log a run another runtime owed", () => {
 		entries: unknown[],
 		reason = "reload",
 		changes: Record<string, unknown> = {},
+		broken: { append?: Error } = {},
 	) => {
-		const { handlers, calls } = activate();
+		const { handlers, calls } = activate({ now: false }, broken);
 		const ctx = {
 			...context(
 				() => 60_000,
@@ -558,6 +563,128 @@ describe("resuming from the log a run another runtime owed", () => {
 		expect(appended(calls, SETTLED_ENTRY)).toEqual([
 			expect.objectContaining({ resumed: false, by: "successor" }),
 		]);
+	});
+
+	it("resumes on a start after pi stopped while the summary was written", async () => {
+		// The compaction neither landed nor failed, so nothing else answers
+		// its ask: the host was down for twenty minutes.
+		const now = Date.now();
+		const { calls } = await startOn(
+			[
+				askEntry(now - 20 * 60_000, { at: now - 20 * 60_000, resume: true }),
+				aborted(now - 20 * 60_000 + 100),
+			],
+			"startup",
+		);
+
+		expect(calls.sendUserMessage).toHaveLength(1);
+		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/failed/);
+		expect(calls.order, "settled before the send").toEqual([
+			SETTLED_ENTRY,
+			"send",
+		]);
+	});
+
+	it("leaves an unlanded ask to its compaction on a reload", async () => {
+		// The old runtime's compaction may still be summarising, and lands
+		// after this start.
+		const now = Date.now();
+		const { calls } = await startOn([
+			askEntry(now - 8000, { at: now - 8000, resume: true }),
+			aborted(now - 7900),
+		]);
+
+		expect(calls.sendUserMessage).toEqual([]);
+		expect(appended(calls, SETTLED_ENTRY)).toEqual([]);
+	});
+
+	it("settles, resuming nothing, an unlanded ask from an idle turn on a start", async () => {
+		const now = Date.now();
+		const { calls } = await startOn(
+			[
+				finished(now - 8100),
+				askEntry(now - 8000, { at: now - 8000, resume: false }),
+			],
+			"startup",
+		);
+
+		expect(calls.sendUserMessage).toEqual([]);
+		expect(appended(calls, SETTLED_ENTRY)).toEqual([
+			expect.objectContaining({ resumed: false, by: "successor" }),
+		]);
+	});
+
+	it("resumes nothing after a failure once the run since has finished", async () => {
+		// The person took over while pi was busy, and their run ended.
+		const now = Date.now();
+		const entries: unknown[] = [
+			askEntry(now - 8000, { at: now - 8000, resume: true }),
+			aborted(now - 7900),
+		];
+		let idle = false;
+		const { handlers, calls, ctx } = await startOn(entries, "reload", {
+			isIdle: () => idle,
+		});
+
+		await handlers.get("session_compact_failed")?.({ aborted: false }, ctx);
+		await nextTurn();
+		entries.push(finished(Date.now()));
+		idle = true;
+		await nextLook();
+
+		expect(calls.sendUserMessage).toEqual([]);
+	});
+
+	it("says why, rather than taking pi down, when the log can't be written", async () => {
+		const written: string[] = [];
+		const spy = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation((chunk: string | Uint8Array) => {
+				written.push(String(chunk));
+				return true;
+			});
+		try {
+			const { calls } = await startOn(
+				owing(),
+				"reload",
+				{},
+				{
+					append: new Error("ENOSPC: no space left on device"),
+				},
+			);
+
+			expect(calls.sendUserMessage).toEqual([]);
+			expect(written).toEqual([
+				"compaction-workflow: couldn't resume the run a compaction stopped: ENOSPC: no space left on device\n",
+			]);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	it("says so when pi stays busy past the wait", async () => {
+		const written: string[] = [];
+		const spy = vi
+			.spyOn(process.stderr, "write")
+			.mockImplementation((chunk: string | Uint8Array) => {
+				written.push(String(chunk));
+				return true;
+			});
+		vi.useFakeTimers({ toFake: ["setTimeout", "Date"] });
+		try {
+			const { calls } = await startOn(owing(), "reload", {
+				isIdle: () => false,
+			});
+			await vi.advanceTimersByTimeAsync(61_000);
+
+			expect(calls.sendUserMessage).toEqual([]);
+			expect(written).toEqual([
+				"compaction-workflow: pi stayed busy for 60 s, so the run a compaction stopped wasn't resumed\n",
+			]);
+		} finally {
+			vi.useRealTimers();
+			spy.mockRestore();
+		}
 	});
 
 	it("starts nothing with a message waiting to go", async () => {
