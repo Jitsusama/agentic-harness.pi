@@ -195,6 +195,10 @@ export function keepQuestBudget(
 	let folderAsked: Promise<string | null> | undefined;
 	/** What it asked of its first prompt, once a session. */
 	let promptAsked: Promise<string | null> | undefined;
+	/** What that judgement named, once it has answered. */
+	let promptNamed: string | null | undefined;
+	/** Whether a keep asked to draw again, so one overtaking it does. */
+	let redrawOwed = false;
 	/**
 	 * Its first prompt, kept so a provider registering late judges the
 	 * same words rather than whatever prompt comes next.
@@ -203,7 +207,8 @@ export function keepQuestBudget(
 	/**
 	 * The budget the session was started on, read at its first keep and
 	 * "" for none: a subagent started under its parent's quest budget
-	 * keeps that one rather than being judged on its task.
+	 * keeps that one rather than taking its folder's or being judged on
+	 * its task.
 	 */
 	let startedOn: string | undefined;
 	/** Bumped as a session is forgotten, so its asks lay nothing after. */
@@ -218,6 +223,7 @@ export function keepQuestBudget(
 		prompt: string | undefined,
 	): Promise<string | null> => {
 		if (typeof ctx.cwd !== "string" || ctx.cwd === "") return null;
+		if (startedOn) return null;
 		const folder = resolve(ctx.cwd);
 		// The session this ask is for: once forgotten, its answer is no
 		// longer the next session's to keep or to say.
@@ -235,12 +241,14 @@ export function keepQuestBudget(
 		const byFolder = await folderAsked;
 		if (session !== sessions) return null;
 		if (byFolder !== null) return byFolder;
-		if (startedOn) return null;
 		firstPrompt ??= prompt?.trim() || undefined;
 		if (firstPrompt === undefined) return null;
 		promptAsked ??= judgeLoose(ctx, folder, firstPrompt, session);
-		const byPrompt = await promptAsked;
-		return session === sessions ? byPrompt : null;
+		const asked = promptAsked;
+		const byPrompt = await asked;
+		if (session !== sessions) return null;
+		if (asked === promptAsked) promptNamed = byPrompt;
+		return byPrompt;
 	};
 
 	const judgeLoose = async (
@@ -255,9 +263,14 @@ export function keepQuestBudget(
 			// Pressing Escape stops the wait before the first model call.
 			ctx.signal,
 		);
-		if (!judged?.sure || judged.name === NO_BUDGET || session !== sessions) {
+		if (session !== sessions) return null;
+		// A judgement stopped by Escape is no answer: the next prompt asks
+		// again, of the same first words.
+		if (ctx.signal?.aborted) {
+			promptAsked = undefined;
 			return null;
 		}
+		if (!judged?.sure || judged.name === NO_BUDGET) return null;
 		if (judged.name === wanted) return judged.name;
 		ctx.ui.notify(
 			`This session is on no quest, so it draws on budget ${judged.name}, which ${JSON.stringify(judged.provider)} judged from its folder and first prompt${judged.why ? `: ${judged.why}` : ""}.`,
@@ -272,12 +285,14 @@ export function keepQuestBudget(
 		prompt?: string,
 	) => {
 		last = ctx;
-		startedOn ??= sessionEnv(ctx).get(BUDGET_VARIABLE)?.trim() ?? "";
+		if (again) redrawOwed = true;
+		startedOn ??= inheritedBudget(ctx);
 		const name = state.questId
 			? (budgetInRecord(state.questsRoot, state.questId)?.name ?? null)
 			: await looseName(ctx, prompt);
 		if (ctx !== last) return pending;
-		if (name === wanted && !again) return pending;
+		if (name === wanted && !redrawOwed) return pending;
+		redrawOwed = false;
 		wanted = name;
 		const ask = ++asking;
 		pending = settle(ctx, name, ask);
@@ -318,7 +333,9 @@ export function keepQuestBudget(
 	host.onRegistered(() => {
 		if (!state.questId) {
 			folderAsked = undefined;
-			promptAsked = undefined;
+			// A sure judgement stands, rather than a paid one asked again
+			// that a failure or a stop would take it off.
+			if (typeof promptNamed !== "string") promptAsked = undefined;
 		}
 		if (!last || (typeof wanted !== "string" && state.questId)) return;
 		keep(last, true).catch(() => {
@@ -336,6 +353,8 @@ export function keepQuestBudget(
 		sessions++;
 		folderAsked = undefined;
 		promptAsked = undefined;
+		promptNamed = undefined;
+		redrawOwed = false;
 		firstPrompt = undefined;
 		startedOn = undefined;
 	};
@@ -344,6 +363,18 @@ export function keepQuestBudget(
 		keep: (ctx, options) => keep(ctx, options?.again ?? false, options?.prompt),
 		forget,
 	};
+}
+
+/**
+ * The budget the session's environment carried before this keeper laid
+ * one, "" for none: read beneath the overlay, so a budget a reloaded or
+ * earlier session's keeper laid is never taken for one it started on.
+ */
+function inheritedBudget(ctx: ExtensionContext): string {
+	const laid = processOverlay(ctx).laid.get(BUDGET_VARIABLE);
+	const now = sessionEnv(ctx).get(BUDGET_VARIABLE);
+	const under = laid && now === laid.value ? laid.before : now;
+	return under?.trim() ?? "";
 }
 
 /**

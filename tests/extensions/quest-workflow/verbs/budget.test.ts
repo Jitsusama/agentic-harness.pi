@@ -77,9 +77,17 @@ beforeEach(() => {
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "budget-"));
 	written = [];
-	for (const key of ["HOME", "XDG_STATE_HOME", "PI_BUDGET", KEY])
+	for (const key of [
+		"HOME",
+		"XDG_STATE_HOME",
+		"PI_BUDGET",
+		"PI_BUDGET_CLASSIFIER",
+		KEY,
+	])
 		kept[key] = process.env[key];
 	delete process.env.PI_BUDGET;
+	// The person's own choice of classifier, or `off`, is not the tests'.
+	delete process.env.PI_BUDGET_CLASSIFIER;
 	process.env.HOME = tmpRoot;
 	process.env.XDG_STATE_HOME = join(tmpRoot, "state");
 	process.env[KEY] = "personal";
@@ -327,6 +335,8 @@ describe("a quest no folder or parent names a budget for", () => {
 	let asked: { work: unknown; state: unknown }[] = [];
 	/** The whole work each judgement was handed, in order. */
 	let handed: unknown[] = [];
+	/** How many times a judgement looked for the session's classifier. */
+	let lookups = 0;
 
 	/**
 	 * Quest state with a keeper whose provider judges every quest's work
@@ -347,6 +357,7 @@ describe("a quest no folder or parent names a budget for", () => {
 	) {
 		asked = [];
 		handed = [];
+		lookups = 0;
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const events = bus();
 		keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
@@ -373,9 +384,10 @@ describe("a quest no folder or parent names a budget for", () => {
 			},
 		});
 		const registry = {
-			getAvailableOfType: async () => [
-				{ provider: "typesafe", id: "jev-latest" },
-			],
+			getAvailableOfType: async () => {
+				lookups++;
+				return [{ provider: "typesafe", id: "jev-latest" }];
+			},
 			classify: async (
 				_model: unknown,
 				context: { state: { title?: unknown } },
@@ -753,8 +765,9 @@ describe("a quest no folder or parent names a budget for", () => {
 
 		it("says the quests a stopped sweep never judged as not reached", async () => {
 			const plain = judged("none", 0, { registry: false });
-			succeeded(await plain.run({ action: "create", title: "One" }));
-			succeeded(await plain.run({ action: "create", title: "Two" }));
+			for (const title of ["One", "Two", "Three", "Four", "Five", "Six"]) {
+				succeeded(await plain.run({ action: "create", title }));
+			}
 			const stop = new AbortController();
 			const { run } = judged("delta", 0.99, {
 				during: () => stop.abort(),
@@ -764,8 +777,30 @@ describe("a quest no folder or parent names a budget for", () => {
 			const swept = succeeded(await run({ action: "budget-sweep" }));
 
 			expect(swept.message.split("\n")[0]).toBe(
-				"Swept 2 live quests drawing on no budget: 0 named, 0 judged personal, 0 unsure, 0 unjudged, 2 not reached.",
+				"Swept 6 live quests drawing on no budget: 0 named, 0 judged personal, 0 unsure, 0 unjudged, 6 not reached.",
 			);
+			expect(handed, "judged until the stop").toHaveLength(1);
+			expect(lookups, "no quest started after the stop").toBe(4);
+		});
+
+		it("leaves a quest's updated date as it was when it names its budget", async () => {
+			const plain = judged("none", 0, { registry: false });
+			succeeded(await plain.run({ action: "create", title: "Old Work" }));
+			const id = plain.state.questId as string;
+			const readme = join(plain.state.questsRoot, id, "README.md");
+			writeFileSync(
+				readme,
+				readFileSync(readme, "utf8").replace(
+					/^updated: .*$/m,
+					"updated: 2026-01-02",
+				),
+			);
+			const { state, run } = judged("delta", 0.99);
+
+			succeeded(await run({ action: "budget-sweep" }));
+
+			expect(budgetIn(state.questsRoot, id)).toBe("delta");
+			expect(readFileSync(readme, "utf8")).toMatch(/^updated: 2026-01-02$/m);
 		});
 
 		it("judges a quest whose summary only quotes what a judgement journals", async () => {
@@ -1107,7 +1142,7 @@ describe("the budget of a session on no quest", () => {
 		}
 	});
 
-	it("keeps what its first prompt was judged to draw on when a provider registers late, saying it once", async () => {
+	it("keeps what its first prompt was judged to draw on when a provider registers late, without judging again", async () => {
 		const { keeper, ctx, judged, notices, events } = loose(undefined, "delta");
 		await keeper.keep(ctx, { prompt: "Speed up walgit" });
 
@@ -1119,11 +1154,84 @@ describe("the budget of a session on no quest", () => {
 		await keeper.keep(ctx);
 
 		expect(process.env[KEY]).toBe("delta");
+		expect(judged).toHaveLength(1);
+		expect(notices).toHaveLength(1);
+	});
+
+	it("judges its first prompt again when a provider registers late after it named nothing", async () => {
+		const { keeper, ctx, judged, events } = loose(undefined, "delta", 0.5);
+		await keeper.keep(ctx, { prompt: "Speed up walgit" });
+		expect(process.env[KEY]).toBe("personal");
+
+		registerBudgetProvider(events, {
+			id: "late",
+			precedence: 1,
+			resolve: async () => ({ kind: "unknown" }),
+			budgetForWork: async (work) => {
+				judged.push(work);
+				return { name: "aquifer", why: "late", sure: true };
+			},
+		});
+		await keeper.keep(ctx, { prompt: "and another thing" });
+
+		expect(process.env[KEY]).toBe("aquifer");
+		expect(
+			judged.map((work) => (work as { prompt: string }).prompt),
+			"the first prompt each time",
+		).toEqual(["Speed up walgit", "Speed up walgit", "Speed up walgit"]);
+	});
+
+	it("is judged again, not taken as started on it, under a budget an earlier keeper laid", async () => {
+		const first = loose(undefined, "delta");
+		await first.keeper.keep(first.ctx, { prompt: "Speed up walgit" });
+		expect(process.env.PI_BUDGET).toBe("delta");
+
+		// A reload or /new: another keeper, over the same overlay.
+		first.keeper.forget();
+		const next = loose(undefined, "delta");
+		await next.keeper.keep(next.ctx, { prompt: "Speed up walgit again" });
+
+		expect(next.judged).toHaveLength(1);
+		expect(process.env[KEY]).toBe("delta");
+	});
+
+	it("keeps the budget it was started on over its folder's", async () => {
+		process.env.PI_BUDGET = "delta";
+		const { keeper, ctx, judged } = loose(tmpRoot, "delta");
+
+		await keeper.keep(ctx, { prompt: "Review this" });
+
+		expect(judged).toEqual([]);
+		expect(process.env[KEY], "not its folder's aquifer").toBe("personal");
+		expect(process.env.PI_BUDGET).toBe("delta");
+	});
+
+	it("judges its first prompt again after Escape stopped the judgement", async () => {
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+		const pressed = new AbortController();
+		const stopped = {
+			...ctx,
+			signal: pressed.signal,
+			modelRegistry: {
+				...ctx.modelRegistry,
+				classify: async () => {
+					pressed.abort();
+					return { answers: {} };
+				},
+			},
+		} as unknown as typeof ctx;
+
+		await keeper.keep(stopped, { prompt: "Speed up walgit" });
+		expect(process.env[KEY], "nothing from a stopped judgement").toBe(
+			"personal",
+		);
+		await keeper.keep(ctx, { prompt: "try that again" });
+
+		expect(process.env[KEY]).toBe("delta");
 		expect(judged.map((work) => (work as { prompt: string }).prompt)).toEqual([
 			"Speed up walgit",
 			"Speed up walgit",
 		]);
-		expect(notices).toHaveLength(1);
 	});
 
 	it("isn't judged when it was started on a budget, as a subagent of a quest is", async () => {

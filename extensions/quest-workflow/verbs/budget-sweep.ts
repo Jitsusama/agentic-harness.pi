@@ -118,7 +118,14 @@ export async function budgetSweep(
 					// One quest's lock or write failing is that quest's, said as
 					// such, so the sweep still ends and says what it did.
 					const why = error instanceof Error ? error.message : String(error);
-					return { id, stood: `its write failed: ${why}` };
+					// The budget may be written and only its Journey line lost,
+					// so say what it reads as now rather than that nothing was.
+					const now = budgetFoundInRecord(state.questsRoot, id);
+					const reads =
+						typeof now === "object" && now.from === id
+							? `its budget reads ${now.name} now, but a write failed: `
+							: "its write failed: ";
+					return { id, stood: `${reads}${why}` };
 				}
 				// Judged nothing because the sweep was stopped, not for want
 				// of a judge.

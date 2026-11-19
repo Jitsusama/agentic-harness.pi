@@ -146,14 +146,19 @@ export function hostBudgets(
 				// A sure answer from any wins over an unsure one from a
 				// provider before it, which named nothing and only guessed.
 				let guess: WorkBudget | undefined;
+				let cut = false;
 				for (const [at, provider] of asking.entries()) {
 					const judgement = await judged[at];
-					if (!judgement) continue;
+					if (judgement === CUT_OFF) cut = true;
+					if (!judgement || judgement === CUT_OFF) continue;
 					const said = { ...judgement, provider: provider.id };
 					if (said.sure) return said;
 					guess ??= said;
 				}
-				return guess;
+				// A guess is the answer only when no provider that might have
+				// been sure was stopped first: a judgement cut short is none,
+				// and is asked again, rather than an unsure one journaled.
+				return cut ? undefined : guess;
 			} finally {
 				settled.abort();
 			}
@@ -188,10 +193,14 @@ export const BUDGET_JUDGEMENT_DEADLINE_MS = 20_000;
 /** The most of a provider's why a line about it carries. */
 const LONGEST_WHY = 300;
 
+/** What a provider stopped by the deadline or the caller said. */
+const CUT_OFF = "cut off";
+
 /**
- * One provider's judgement of `work`, or undefined when it can't say,
- * fails, names no budget's name, or doesn't within the deadline. Its
- * why is made one line, since every line about it quotes it.
+ * One provider's judgement of `work`, undefined when it can't say,
+ * fails or names no budget's name, or `CUT_OFF` when the deadline or
+ * the caller stopped it first. Its why is made one line, since every
+ * line about it quotes it.
  */
 async function askWork(
 	provider: BudgetProvider,
@@ -199,8 +208,8 @@ async function askWork(
 	classify: Classify,
 	deadlineMs: number,
 	signal: AbortSignal | undefined,
-): Promise<WorkJudgement | undefined> {
-	if (signal?.aborted) return undefined;
+): Promise<WorkJudgement | typeof CUT_OFF | undefined> {
+	if (signal?.aborted) return CUT_OFF;
 	// Aborted at the deadline, so a classifier call nobody waits on any
 	// more stops rather than running, and costing, on.
 	const cutoff = new AbortController();
@@ -224,6 +233,7 @@ async function askWork(
 			provider.budgetForWork?.(work, bounded),
 			late,
 		]);
+		if (stop.aborted) return CUT_OFF;
 		if (
 			typeof judged !== "object" ||
 			judged === null ||
@@ -238,8 +248,9 @@ async function askWork(
 				: "";
 		return { name: judged.name, why, sure: judged.sure === true };
 	} catch {
-		// A provider that can't judge is passed over, as one that won't.
-		return undefined;
+		// A provider that can't judge is passed over, as one that won't;
+		// one that failed because it was stopped was cut off, not wrong.
+		return stop.aborted ? CUT_OFF : undefined;
 	} finally {
 		clearTimeout(timer);
 		// One sweep asks many times under one signal, so each ask takes

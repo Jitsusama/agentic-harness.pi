@@ -489,6 +489,32 @@ describe("the budget some work draws on, judged from what it is", () => {
 		expect(signals[0]?.aborted).toBe(true);
 	});
 
+	it("is nothing, not an unsure guess, when a provider that might have been sure was cut off", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000, 20);
+		registerBudgetProvider(
+			events,
+			judging("hung", 0, () => new Promise(() => {})),
+		);
+		registerBudgetProvider(
+			events,
+			judging("unsure", 10, async () => ({
+				name: "aquifer",
+				why: "a guess",
+				sure: false,
+			})),
+		);
+
+		expect(await host.budgetForWork(work, noClassifier)).toBeUndefined();
+
+		const stop = new AbortController();
+		stop.abort();
+		expect(
+			await host.budgetForWork(work, noClassifier, stop.signal),
+			"a stopped judgement",
+		).toBeUndefined();
+	});
+
 	it("is the first unsure provider's when none is sure", async () => {
 		const events = bus();
 		const host = hostBudgets(events);
