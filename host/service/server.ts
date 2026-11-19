@@ -142,8 +142,7 @@ export async function listenControl(options: {
 		function watchFirstFrame(id: string) {
 			const answered = Date.now();
 			const who = `${sessionAddress(id)} (${id})`;
-			const since = () =>
-				((Date.now() - answered) / MS_PER_SECOND).toFixed(1);
+			const since = () => ((Date.now() - answered) / MS_PER_SECOND).toFixed(1);
 			undrawn = setTimeout(() => {
 				options.say?.(
 					`${who}: a window attached ${since()} s ago has been sent nothing to draw`,
