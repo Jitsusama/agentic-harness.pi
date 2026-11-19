@@ -79,7 +79,7 @@ async function exitListenerOf(run: () => Promise<unknown>) {
 }
 
 /** The code `listener` leaves pi to exit with, put back after. */
-function exitCodeFrom(listener: () => void): number | string | undefined {
+function exitCodeFrom(listener: () => void): typeof process.exitCode {
 	const code = process.exitCode;
 	vi.spyOn(process.stderr, "write").mockReturnValue(true);
 	listener();
