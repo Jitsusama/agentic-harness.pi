@@ -47,6 +47,8 @@ export interface Said {
 	readonly prose: readonly string[];
 	readonly labels: readonly string[];
 	readonly commands?: readonly string[];
+	/** The machine its labels are on when they name none, as a wait's. */
+	readonly on?: string;
 }
 
 const NOTHING: Said = { prose: [], labels: [] };
@@ -56,7 +58,8 @@ const texts = (values: readonly unknown[]): string[] =>
 
 /**
  * What the `ask` tool's questions say: each prompt and option
- * description as prose, each option's label as the ask itself.
+ * description as prose, each question's tab label and each option's
+ * label as the ask itself.
  */
 export function saidByAsk(input: unknown): Said {
 	if (!isRecord(input) || !Array.isArray(input.questions)) return NOTHING;
@@ -65,6 +68,7 @@ export function saidByAsk(input: unknown): Said {
 	for (const question of input.questions) {
 		if (!isRecord(question)) continue;
 		prose.push(question.prompt);
+		labels.push(question.label);
 		const options = Array.isArray(question.options) ? question.options : [];
 		for (const option of options) {
 			if (!isRecord(option)) continue;
@@ -78,10 +82,11 @@ export function saidByAsk(input: unknown): Said {
 /**
  * What a `show_person` look says: its title, why and ask as prose, read
  * for the form of an ask, since a title can name a reboot it only
- * explains, and its choices as the ask itself.
+ * explains, and its choices as the ask itself. Taking a look back asks
+ * nothing, whatever it named.
  */
 export function saidByLook(input: unknown): Said {
-	if (!isRecord(input)) return NOTHING;
+	if (!isRecord(input) || input.withdraw === true) return NOTHING;
 	const choices = Array.isArray(input.choices) ? input.choices : [];
 	return {
 		prose: texts([input.title, input.why, input.ask]),
@@ -100,7 +105,6 @@ export function saidByLook(input: unknown): Said {
 export function saidByWait(input: unknown): Said {
 	if (!isRecord(input) || input.done === true) return NOTHING;
 	const machine = typeof input.machine === "string" ? input.machine : "";
-	const on = machine ? ` on ${machine}` : "";
 	const steps = Array.isArray(input.steps) ? texts(input.steps) : [];
 	const atBoot = isRecord(input.doneWhen) && input.doneWhen.signal === "boot";
 	const checks = [input.doneWhen, input.readyWhen].map((when) =>
@@ -109,11 +113,12 @@ export function saidByWait(input: unknown): Said {
 	return {
 		prose: texts([input.why, input.when]),
 		labels: [
-			...texts([input.title]).map((title) => `${title}${on}`),
-			...steps.map((step) => `${step.replace(/[.!?\s]+$/, "")}${on}`),
-			...(atBoot ? [`Reboot${on}`] : []),
+			...texts([input.title]),
+			...steps.map((step) => step.replace(/[.!?\s]+$/, "")),
+			...(atBoot ? ["Reboot"] : []),
 		],
 		commands: texts(checks),
+		...(machine ? { on: machine } : {}),
 	};
 }
 
@@ -147,8 +152,18 @@ export async function refusalFor(
 	const machines = machinesKnown(sessions, listed, deps.here());
 	const asks: SessionEndingAsk[] = [
 		...said.prose.flatMap((text) => asksInProse(text, machines)),
-		...said.labels.flatMap((text) => asksInLabel(text, machines)),
+		...said.labels.flatMap((text) =>
+			asksInLabel(text, machines).map((ask) => onItsMachine(ask, said.on)),
+		),
 		...commands.flatMap((line) => asksInCommand(line, machines)),
 	];
 	return refusalOf(asks, sessions, self);
+}
+
+/** An ask that names no machine, as on the one it is said for. */
+function onItsMachine(
+	ask: SessionEndingAsk,
+	on: string | undefined,
+): SessionEndingAsk {
+	return on && ask.machines.length === 0 ? { ...ask, machines: [on] } : ask;
 }

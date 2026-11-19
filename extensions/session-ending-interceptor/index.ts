@@ -41,6 +41,7 @@ import { isRecord } from "../../lib/internal/record.ts";
 import {
 	machineNamesAt,
 	type NodeSession,
+	nodeServes,
 	nodeSessionsAt,
 	nodeSockets,
 	realmOf,
@@ -138,14 +139,25 @@ export function nodeDeps(
 	};
 }
 
-/** The sessions every socket's node holds, or nothing when any can't say. */
+/**
+ * The sessions every socket's node holds, or nothing when any can't
+ * say: the session's own realm's first, which must answer, then each
+ * other realm's, of which one whose socket nothing serves any more, as
+ * a node that ended leaves behind, holds none.
+ */
 async function everyRealmsSessions(
 	sockets: readonly string[],
 ): Promise<NodeSession[] | undefined> {
-	if (sockets.length === 0) return undefined;
-	const each = await Promise.all(
-		sockets.map((socket) => nodeSessionsAt(socket)),
-	);
+	const [own, ...others] = sockets;
+	if (own === undefined) return undefined;
+	const each = await Promise.all([
+		nodeSessionsAt(own),
+		...others.map(async (socket) => {
+			const sessions = await nodeSessionsAt(socket);
+			if (sessions !== undefined) return sessions;
+			return (await nodeServes(socket)) ? undefined : [];
+		}),
+	]);
 	if (each.some((sessions) => sessions === undefined)) return undefined;
 	return each.flatMap((sessions) => sessions ?? []);
 }
@@ -194,10 +206,10 @@ async function withholdReply<M extends { role: string }>(
 		"stopReason" in message &&
 		(message.stopReason === "aborted" || message.stopReason === "error");
 	const telling = !stopped && !told.thisRun;
+	const mode = guardMode(GUARD.name);
 	const silent =
-		!telling &&
-		!told.keys.has(refusal.key) &&
-		guardMode(GUARD.name) === "redirect";
+		(stopped && mode !== "off") ||
+		(!telling && !told.keys.has(refusal.key) && mode === "redirect");
 	if (silent) {
 		return {
 			message: { ...message, content: withheld(message.content, WITHHELD) },

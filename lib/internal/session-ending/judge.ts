@@ -34,13 +34,13 @@ export function machinesKnown(
 	listed: readonly string[] | undefined,
 	here: string,
 ): string[] {
-	if (!sessions) return [here];
+	if (!sessions) return [here].filter(isMachineName);
 	return [
 		...new Set([
 			...sessions.flatMap((one) => one.machine ?? []),
 			...(listed ?? []),
 		]),
-	];
+	].filter(isMachineName);
 }
 
 /**

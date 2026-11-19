@@ -858,6 +858,34 @@ export function nodeSockets(env: NodeJS.ProcessEnv = process.env): string[] {
 	return [own, ...others.filter((socket) => socket !== own)];
 }
 
+/** What a socket nothing serves answers a connection with. */
+const NOTHING_SERVES = new Set(["ECONNREFUSED", "ENOENT", "ENOTSOCK"]);
+
+/**
+ * Whether a node serves `socket`: false only when the socket refuses
+ * the connection, as one a node left behind when it ended does; true
+ * when one connects, or when the socket can't say, so a node that is
+ * there but slow still counts as one.
+ */
+export function nodeServes(
+	socket: string,
+	patience: number = NODE_PATIENCE_MS,
+): Promise<boolean> {
+	return new Promise((resolve) => {
+		const trying = connect(socket);
+		const settle = (serves: boolean) => {
+			clearTimeout(waiting);
+			trying.destroy();
+			resolve(serves);
+		};
+		const waiting = setTimeout(() => settle(true), patience);
+		trying.on("connect", () => settle(true));
+		trying.on("error", (error: NodeJS.ErrnoException) =>
+			settle(!NOTHING_SERVES.has(error.code ?? "")),
+		);
+	});
+}
+
 /** The realm the machine's node is asked in, or nothing when none is named. */
 export function realmOf(
 	env: NodeJS.ProcessEnv = process.env,

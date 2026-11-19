@@ -28,6 +28,8 @@
  * machine", "your laptop", "here"), so every machine is checked.
  */
 
+import { isMachineName } from "../machine/machine.ts";
+
 /** A session-ending act, as the refusal names it. */
 export type Act =
 	| "log out"
@@ -84,7 +86,7 @@ export function asksInCommand(
 }
 
 const FIRST_LOOK =
-	/\b(?:re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|authrestart|shut(?:s|ting)?[\s-]*down|shutdown|shut\s+\S+(?:\s+\S+)?\s+down|power(?:s|ed|ing)?[\s-]*(?:off|down|cycle)|poweroff|turn(?:s|ed|ing)?\s+(?:\S+\s+){0,2}off|log(?:s|ged|ging)?[\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\s-]*out|switch(?:es|ed|ing)?\s+(?:the\s+)?users?|switch(?:es|ed|ing)?\s+to\s+(?:another|a\s+different|the\s+other)\s+user|user\s+switch(?:ing)?|loginctl|halt|kexec|pkill|killall|kill\s+(?:-\S+\s+)*-1|niri\s+msg|(?:gnome|cinnamon|mate)-session-quit|bootout|loginwindow|windowserver|(?:tel)?init\s+[0-6]|swaymsg\s+exit|hyprctl\s+dispatch\s+exit|display-manager|gdm3?|sddm|lightdm|greetd|lxqt-leave|aevtr(?:rst|sdn|lgo))\b/i;
+	/\b(?:re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|authrestart|shut(?:s|ting)?[\s-]*down|shutdown|shut\s+\S+(?:\s+\S+)?\s+down|power(?:s|ed|ing)?[\s-]*(?:off|down|cycle)|poweroff|turn(?:s|ed|ing)?\s+(?:\S+\s+){0,2}off|log(?:s|ged|ging)?[\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\s-]*out|switch(?:es|ed|ing)?\s+(?:the\s+)?users?|switch(?:es|ed|ing)?\s+to\s+(?:another|a\s+different|the\s+other)\s+user|user\s+switch(?:ing)?|loginctl|halt|kexec|pkill|killall|kill\s+(?:-\S+\s+)*-1|niri\s+msg|(?:gnome|cinnamon|mate)-session-quit|bootout|loginwindow|windowserver|(?:tel)?init\s+[0-6]|swaymsg\s+exit|hyprctl\s+dispatch\s+exit|display-manager|gdm3?|sddm|lightdm|greetd|lxqt-leave|aevtr(?:rst|sdn|lgo)|systemctl\s[^\n]*\b(?:niri|sway|hyprland|gnome-shell|plasma|graphical-session)|login1|terminate(?:user|session|seat))\b/i;
 
 /**
  * A text with its typography folded to what the patterns read: every
@@ -108,10 +110,27 @@ const UI_VERB =
  * button or menu item it says to pick, or a command to run: `click
  * "Restart"`, `click the "Log Out" button`, `run "sudo reboot"`.
  */
-const QUOTED = new RegExp(
-	`(?<!\\b(?:${UI_VERB}|run|type|paste|execute|enter)\\s+(?:the\\s+)?)"[^"]*"`,
-	"g",
+const QUOTED = /"[^"]*"/g;
+
+/** What a quote kept as what it says to pick or run comes after. */
+const PICKED_BEFORE = new RegExp(
+	`\\b(?:${UI_VERB}|run|type|paste|execute|enter)\\s+(?:the\\s+)?$`,
+	"i",
 );
+
+/** Prose with each quote a quote, but what it says to pick or run. */
+function withoutQuotes(plain: string): string {
+	return plain.replace(QUOTED, (quote, at: number) =>
+		PICKED_BEFORE.test(plain.slice(0, at)) ? quote : '""',
+	);
+}
+
+/**
+ * What follows a button or menu item that is the act, so the item is
+ * the act alone, not "Restart Kernel" or "restart on the server".
+ */
+const UI_ITEM_ENDS =
+	"(?=\\s*$|\\s*[\"'.,;!?)\\u2026]|\\s+(?:button|item|option|from|in\\s+the|and|then|now|to|when|once|first)\\b)";
 
 /** What a button or menu item that is the act may be named. */
 const UI_ACT =
@@ -122,7 +141,7 @@ const UI_ACT =
  * "choose Apple menu > Log Out", "click the Restart button".
  */
 const UI_ASK = new RegExp(
-	`\\b${UI_VERB}\\s+(?:(?:the|apple\\s+menu|[\\w-]+(?:\\s+[\\w-]+)?\\s*[>\\u203a\\u2192])\\s*)*"?${UI_ACT}`,
+	`(?<![-\\w])${UI_VERB}\\s+(?:(?:the|apple\\s+menu|[\\w-]+(?:\\s+[\\w-]+)?\\s*[>\\u203a\\u2192])\\s*)*"?${UI_ACT}${UI_ITEM_ENDS}`,
 );
 
 /**
@@ -131,8 +150,10 @@ const UI_ASK = new RegExp(
  * command is read as one where the sentence asks to run it.
  */
 function withoutActsInCode(sentence: string): string {
-	return sentence.replace(/`([^`]+)`/g, (span, code: string) =>
-		FIRST_LOOK.test(code) ? "code" : span,
+	return sentence.replace(/`([^`]+)`/g, (span, code: string, at: number) =>
+		FIRST_LOOK.test(code) && !PICKED_BEFORE.test(sentence.slice(0, at))
+			? "code"
+			: span,
 	);
 }
 
@@ -174,7 +195,9 @@ function sentenceAsks(
 ): SessionEndingAsk[] {
 	const plain =
 		reading === "prose"
-			? plainOf(withoutActsInCode(sentence)).replace(QUOTED, '""')
+			? withoutQuotes(
+					plainOf(withoutActsInCode(withoutBoldLabel(sentence, words))),
+				)
 			: plainOf(sentence);
 	const context =
 		namesMachine(plain, machines) ||
@@ -186,7 +209,7 @@ function sentenceAsks(
 	const asks =
 		reading === "prose"
 			? readsAsAsk(plain, words)
-			: LABEL_ACT.test(plain) || DO_NOUN.test(plain);
+			: LABEL_ACT.test(plain) || DO_NOUN.test(plain) || UI_ASK.test(plain);
 	const nouns = UI_ASK.test(plain)
 		? "named"
 		: reading === "label" || DO_NOUN.test(plain);
@@ -207,9 +230,39 @@ function sentenceAsks(
 	return [...byAct.values()];
 }
 
-/** The spans of inline code in a sentence, or quoted, as written. */
+/**
+ * A bold head closed by a colon, as a list item's "**Reboot at 22:29:**",
+ * which labels what follows, however many words it has.
+ */
+const BOLD_LABEL =
+	/^(\s*(?:[-+*>\u2022]\s+|\d+[.)]\s+)*)\*\*([^*]+?)(?::\*\*|\*\*:)\s*/;
+
+/**
+ * A sentence without a bold label heading it, unless the label names a
+ * machine, as "**Reboot optimus:**" does, so what follows is read.
+ */
+function withoutBoldLabel(sentence: string, words: string): string {
+	const label = BOLD_LABEL.exec(sentence);
+	if (label === null) return sentence;
+	const names = new RegExp(`\\b(?:${words})\\b`).test(
+		(label[2] ?? "").toLowerCase(),
+	);
+	return names
+		? sentence
+		: `${label[1] ?? ""}${sentence.slice(label[0].length)}`;
+}
+
+/**
+ * What a sentence asks to run: each span of inline code, or quote,
+ * right after a word asking to run it ("run `sudo reboot`", "type this
+ * in a terminal: `sudo reboot`"), not one it only names.
+ */
+const RUN_SPAN =
+	/\b(?:run|type|paste|execute|enter)\s+(?:(?:this|that|the|following|these|command|commands|line|in|a|terminal|shell|as|root|there|it|on\s+[\w.-]+)\s*)*?:?\s*(?:`([^`]+)`|"([^"]+)")/gi;
+
+/** The spans a sentence asks to run, as written. */
 function inlineCode(sentence: string): string[] {
-	return [...sentence.matchAll(/`([^`]+)`|"([^"]+)"/g)].flatMap(
+	return [...sentence.matchAll(RUN_SPAN)].flatMap(
 		(one) => one[1] ?? one[2] ?? [],
 	);
 }
@@ -304,6 +357,18 @@ function parts(text: string): Part[] {
 const PROMPT = /^\s*(?:[$#%>]\s+)?/;
 const PROMPTED = /^\s*[$#%>]\s+\S/;
 
+/** A shell's comment, which runs nothing. */
+const SHELL_COMMENT = /^\s*#/;
+
+/**
+ * A line that ends a sentence, after any closing marks, which in code
+ * with no prompts is prose, not a command.
+ */
+const ENDS_SENTENCE = /[.!?:;]["')\]*_`]*\s*$/;
+
+/** A line that opens with a capital, as a new sentence does. */
+const OPENS_CAPITAL = /^\s*(?:[-+*>#|\u2022]+\s*|\d+[.)]\s*)*["'`*_]*[A-Z]/;
+
 /** A line `last` prints of a boot or a shutdown, which asks nothing. */
 const BOOT_RECORD = /^\s*(?:reboot|shutdown)\s+system\s+(?:boot|down)\b/i;
 
@@ -314,10 +379,13 @@ const BOOT_RECORD = /^\s*(?:reboot|shutdown)\s+system\s+(?:boot|down)\b/i;
  */
 function commandLines(part: Part): string[] {
 	const lines = part.lines.filter((line) => !BOOT_RECORD.test(line));
-	if (part.commands === "every") return lines;
+	if (part.commands === "every") {
+		return lines.filter((line) => !SHELL_COMMENT.test(line));
+	}
 	if (part.commands === "prompted") {
 		const prompted = lines.filter((line) => PROMPTED.test(line));
-		return prompted.length > 0 ? prompted : lines;
+		if (prompted.length > 0) return prompted;
+		return lines.filter((line) => !ENDS_SENTENCE.test(line));
 	}
 	if (!part.prose) return [];
 	return lines.filter((line) => /^(?: {4}|\t)\s*\S/.test(line));
@@ -326,13 +394,25 @@ function commandLines(part: Part): string[] {
 /**
  * The sentences of some prose lines, in runs whose order says which
  * came before which: each line's (a table's cells each a line), and,
- * for a paragraph wrapped over lines, the paragraph's as one.
+ * for a paragraph wrapped over lines, the paragraph's as one. A line of
+ * a paragraph is read on its own only where a sentence could open it:
+ * the paragraph's first, one after a line that ends a sentence, or one
+ * that opens with a capital, so the rest of a wrapped sentence ("goes
+ * on / reboot handling and more") isn't read as one of its own.
  */
 function sentenceRuns(lines: readonly string[]): string[][] {
 	const kept = lines.filter(
 		(line) => !BOOT_RECORD.test(line) && !HEADING.test(line),
 	);
-	const byLine = kept.flatMap(cellsOf).flatMap(sentencesOf);
+	const alone = paragraphsOf(kept).flatMap((paragraph) =>
+		paragraph.filter(
+			(line, at) =>
+				at === 0 ||
+				ENDS_SENTENCE.test(paragraph[at - 1] ?? "") ||
+				OPENS_CAPITAL.test(line),
+		),
+	);
+	const byLine = alone.flatMap(cellsOf).flatMap(sentencesOf);
 	const wrapped = paragraphsOf(kept)
 		.filter((paragraph) => paragraph.length > 1)
 		.map((paragraph) => sentencesOf(paragraph.join(" ")));
@@ -414,7 +494,9 @@ const MACHINE_WORDS = [
 
 /** What can be the machine a restart, shutdown or power-off is of. */
 function machineWords(machines: readonly string[]): string {
-	const names = machines.map((name) => escaped(name.toLowerCase()));
+	const names = machines
+		.filter(isMachineName)
+		.map((name) => escaped(name.toLowerCase()));
 	return [...MACHINE_WORDS, ...names].join("|");
 }
 
@@ -496,7 +578,9 @@ function actsIn(
 		nouns === "named"
 			? [`${WORD_START}re-?start\\b${WORD_END}`]
 			: nouns
-				? [`${WORD_START}restart(?:s|ed|ing)?${WORD_END}${NO_OBJECT}`]
+				? [
+						`(?<!\\bfor\\s+(?:[\\w'-]+\\s+){1,4}to\\s+)${WORD_START}restart(?:s|ed|ing)?${WORD_END}${NO_OBJECT}`,
+					]
 				: [
 						`${A_NOUN}${WORD_START}restart${WORD_END}${NO_OBJECT}`,
 						`(?<=\\b(?:try|consider|suggest|recommend|mind|start)\\s+)restarting${NO_OBJECT}`,
@@ -558,12 +642,21 @@ const DO_NOUN =
 	/\b(?:do|give|run|schedule|perform|try|go\s+with|go\s+for|approve)\s+(?:(?!(?:after|before|since|until|till|during|from|following)\b)[\w'-]+\s+){0,2}?(?:a|an|the|another|one\s+more)\s+(?:(?:quick|full|clean|cold|hard)\s+)?(?:re-?boot|restart|log-?\s?out|logout|shutdown|power-?cycle)\b/;
 
 /**
+ * A noun after an act word that the act only qualifies: "the reboot
+ * check", "log-out handling", "the restart limit". Not "button", which
+ * names what to press.
+ */
+const QUALIFIES =
+	"(?!\\s+(?:check|checks|guard|detection|detector|handling|handler|fix|fixes|test|tests|loop|path|script|hold|record|log|logs|count|limit|flag|logic|bug|issue|step|steps|timer|notice|prompt|race|code|banner|dialog|reason|support|policy|hook|helper|marker|signal|state|status)\\b)";
+
+/**
  * What after an act word makes it the subject, not an imperative: a
  * verb ("reboot didn't help", "reboot passed", "reboot and log-out
  * are"), or a verb after the noun it qualifies ("reboot handling
  * landed").
  */
 const NOT_IMPERATIVE =
+	`${QUALIFIES}` +
 	"(?!\\s+(?:didn't|did|doesn't|does|wasn't|was|isn't|is|won't|will|would|should|might|may|can|could|must|has|had|fixes|helps|works|fails|breaks|seems|makes|takes|ends|kills|clears|stops|came|went|means|[\\w-]+ed)\\b)(?!\\s+and\\s+\\S+\\s+(?:are|were)\\b)(?!\\s+(?!(?:the|a|an|your|this|that|my|our|it|them|both|all|on|of|out|off|down|now|to|and|once|when)\\b)[\\w-]+\\s+(?:[\\w-]+ed|is|was|are|were|has|had)\\b)";
 
 /**
@@ -571,7 +664,7 @@ const NOT_IMPERATIVE =
  * "Restart:" or "Reboot hold:", unless they name a machine, as
  * "Reboot optimus: the kernel only loads at boot" does.
  */
-const LABEL_HEAD = /^([^\s:.,;!?]+(?:\s+[^\s:.,;!?]+){0,5}):/;
+const LABEL_HEAD = /^([^\s:.,;!?]+(?:\s+[^\s:.,;!?]+)?):/;
 
 const IMPERATIVE = new RegExp(
 	`^(?:(?:re-?boot|restart|shut\\s*down|shut|power\\s*(?:off|down)|power-?cycle|power\\s+\\S+\\s+(?:off|down)|turn\\s+(?:\\S+\\s+)?off|log[\\s-]*(?:out|off)|logout|sign[\\s-]*out|switch\\s+(?:the\\s+)?users?|switch\\s+to\\s+(?:another|a\\s+different|the\\s+other)\\s+user)\\b${WORD_END}${NOT_IMPERATIVE}|${DO_NOUN.source.replace(/^\\b/, "")})`,
@@ -597,7 +690,7 @@ const ACT_VERB =
  * tonight" asks for one, "after the reboot" only says when.
  */
 const LABEL_ACT = new RegExp(
-	`(?<!\\b(?:after|before|since|until|till|during|from|following)\\s+(?:(?:the|a|an|that|this|your|my|its|our|each|every)\\s+)?(?:(?:last|next|previous|recent|latest|first)\\s+)?|\\b(?:last|next|previous|recent|latest)\\s+)\\b(?:${ACT_WORDS})\\b`,
+	`(?<!\\b(?:after|before|since|until|till|during|from|following)\\s+(?:(?:the|a|an|that|this|your|my|its|our|each|every)\\s+)?(?:(?:last|next|previous|recent|latest|first)\\s+)?|\\b(?:last|next|previous|recent|latest)\\s+)\\b(?:${ACT_WORDS})\\b${QUALIFIES}`,
 );
 
 /** Words that make a sentence a request of the person, when an act follows. */
@@ -736,13 +829,13 @@ const COMMANDS: readonly (readonly [RegExp, Act])[] = [
 	],
 	[
 		new RegExp(
-			String.raw`^(?:(?:shutdown|poweroff|halt)(?=\s|$)|${SYSTEMCTL}(?:poweroff|halt)(?=\s|$)|${SYSTEMCTL}(?:isolate|start)\s+(?:poweroff|halt)\.target|(?:tel)?init\s+0(?=\s|$)|osascript\s.*\b(?:shut\s*down|aevtrsdn)\b|${LOGIN1}\b(?:power-?off|halt)\b|qdbus\s.*\blogoutandshutdown\b)`,
+			String.raw`^(?:(?:shutdown(?![^|;&]*\s-c\b)|poweroff|halt)(?=\s|$)|${SYSTEMCTL}(?:poweroff|halt)(?=\s|$)|${SYSTEMCTL}(?:isolate|start)\s+(?:poweroff|halt)\.target|(?:tel)?init\s+0(?=\s|$)|osascript\s.*\b(?:shut\s*down|aevtrsdn)\b|${LOGIN1}\b(?:power-?off|halt)\b|qdbus\s.*\blogoutandshutdown\b)`,
 		),
 		"shut down",
 	],
 	[
 		new RegExp(
-			String.raw`^(?:loginctl\s+(?:terminate|kill)-(?:user|session|seat)(?=\s|$)|niri\s+msg\s+action\s+quit(?=\s|$)|(?:gnome|cinnamon|mate)-session-quit(?=\s|$)|xfce4-session-logout(?=\s|$)|lxqt-leave(?=\s|$)|qdbus\s.*\bshutdown\s.*\blogout\b|launchctl\s+bootout\s+(?:gui|user)\/|launchctl\s+reboot\s+logout|osascript\s.*\b(?:log\s*out|aevtrlgo)\b|(?:pkill|killall)\s.*\b(?:loginwindow|windowserver|niri|gnome-shell|sway|hyprland|kwin\w*|plasmashell)\b|(?:pkill|killall)\s(?:.*\s)?-u(?=\s|$)|kill\s+(?:-\S+\s+)*-1(?=\s|$)|${SYSTEMCTL}(?:restart|stop|kill)\s+(?:display-manager|gdm3?|sddm|lightdm|greetd|niri|sway|hyprland|gnome-shell\S*|plasma-\S+|graphical-session\.target)(?:\.service)?(?=\s|$)|${LOGIN1}\bterminate(?:user|session|seat)\b|swaymsg\s+exit(?=\s|$)|hyprctl\s+dispatch\s+exit(?=\s|$))`,
+			String.raw`^(?:loginctl\s+(?:terminate|kill)-(?:user|session|seat)(?=\s|$)|niri\s+msg\s+action\s+quit(?=\s|$)|(?:gnome|cinnamon|mate)-session-quit(?=\s|$)|xfce4-session-logout(?=\s|$)|lxqt-leave(?=\s|$)|qdbus\s.*\bshutdown\s.*\blogout\b|launchctl\s+bootout\s+(?:gui|user)\/|launchctl\s+reboot\s+logout|osascript\s.*\b(?:log\s*out|aevtrlgo)\b|(?:pkill|killall)\s.*\b(?:loginwindow|windowserver|niri|gnome-shell|sway|hyprland|kwin\w*|plasmashell)\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*\s*$|kill\s+(?:-\S+\s+)*-1(?=\s|$)|${SYSTEMCTL}(?:restart|stop|kill)\s+(?:display-manager|gdm3?|sddm|lightdm|greetd|niri|sway|hyprland|gnome-shell\S*|plasma-\S+|graphical-session\.target)(?:\.service)?(?=\s|$)|${LOGIN1}\bterminate(?:user|session|seat)\b|swaymsg\s+exit(?=\s|$)|hyprctl\s+dispatch\s+exit(?=\s|$))`,
 		),
 		"log out",
 	],
@@ -762,6 +855,11 @@ const WRAPPERS: readonly RegExp[] = [
 	/^(?:nohup|exec|command|time|setsid|nice(?:\s+-n\s*\S+)?)\s+/,
 	/^\w+=\S*\s+/,
 	/^(?:sh|bash|zsh|dash)\s+-c\s+/,
+	/^timeout(?:\s+-\S+)*\s+\S+\s+/,
+	/^systemd-run(?:\s+(?:-[pE]\s+\S+|--[\w-]+(?:=\S+)?|-\w+))*\s+/,
+	/^xargs(?:\s+-\S+)*\s+/,
+	/^(?:then|do|else)\s+/,
+	/^[({]\s*|\s*[)}]$/g,
 ];
 
 /** A command without what wraps it. */

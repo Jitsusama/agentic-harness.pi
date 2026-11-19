@@ -95,6 +95,12 @@ describe("a reply that asks", () => {
 		["Please log out/in on equilibrius.", "log out"],
 		["Please reboot optimus\u200b now.", "reboot"],
 		["Please re\u00adboot optimus.", "reboot"],
+		["Log out of macOS: the card only pairs at the login window.", "log out"],
+		["Log out and back in: the group only applies at login.", "log out"],
+		["- **Next step:** reboot optimus.", "reboot"],
+		["- **Reboot optimus:** the kernel only loads at boot.", "reboot"],
+		['Click "Save", then click "Restart".', "restart"],
+		["Choose `Log Out` from the Apple menu.", "log out"],
 	])("%s", (text, act) => {
 		expect(mayAsk(text)).toBe(true);
 		expect(acts(text)).toEqual([act]);
@@ -169,6 +175,12 @@ describe("a reply that only mentions one, or warns against one", () => {
 		"It doesn't need a reboot.",
 		"It doesn't seem to need a reboot.",
 		"Please restart the dev server after the reboot.",
+		"Click Restart on the VS Code notification.",
+		"Hit restart on the language server.",
+		"Choose Restart Kernel from the Kernel menu.",
+		"Cherry-pick the restart fix onto main.",
+		"We hit the restart limit again.",
+		"Run the tests, which now cover `sudo reboot`.",
 	])("%s", (text) => {
 		expect(acts(text)).toEqual([]);
 	});
@@ -200,6 +212,11 @@ describe("a reply that talks about one, as the harness's replies do", () => {
 		"`restart` now takes a --force flag.",
 		"### Restart",
 		"## Reboot and Log-Out",
+		"Reboot detection works now.",
+		"Log-out handling works too.",
+		"- **Reboot at 22:29:** someone else did it.",
+		"- **Restart and IDs:** does anything restart programs after a fork?",
+		"The guard reads each line as it wraps, so a sentence that goes on\nreboot handling and more stays whole.",
 	])("%s", (text) => {
 		expect(acts(text)).toEqual([]);
 	});
@@ -259,9 +276,29 @@ describe("a command in fenced code", () => {
 			"```sh\nosascript -e 'tell app \"System Events\" to «event aevtrrst»'\n```",
 			"reboot",
 		],
+		["```sh\nsystemctl --user stop niri\n```", "log out"],
+		[
+			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager TerminateUser u 1000\n```",
+			"log out",
+		],
+		["```sh\ntimeout 5 sudo reboot\n```", "reboot"],
+		[
+			"```sh\nsystemd-run --user --on-active=60 systemctl reboot\n```",
+			"reboot",
+		],
+		["```sh\necho | xargs sudo reboot\n```", "reboot"],
+		["```sh\nif true; then sudo reboot; fi\n```", "reboot"],
+		["```sh\n(sudo reboot)\n```", "reboot"],
 	])("%s asks", (text, act) => {
 		expect(mayAsk(text)).toBe(true);
 		expect(acts(text)).toEqual([act]);
+	});
+
+	it("asks nothing of a command that ends no session", () => {
+		expect(acts("```sh\nsudo shutdown -c\n```")).toEqual([]);
+		expect(acts("```sh\npkill -u $USER -f vitest\n```")).toEqual([]);
+		expect(acts("```sh\n# reboot once this lands\nls\n```")).toEqual([]);
+		expect(acts("```\nshutdown of the old node is done.\n```")).toEqual([]);
 	});
 
 	it("reads a fence of prose, or of no shell it knows, as prose too", () => {
@@ -341,6 +378,15 @@ describe("a label, choice or title, which is the ask itself", () => {
 
 	it("still asks nothing of a restart that ends no machine", () => {
 		expect(asksInLabel("Restart the shell", MACHINES)).toEqual([]);
+	});
+
+	it("asks nothing where the act only qualifies a thing", () => {
+		expect(asksInLabel("Keep the reboot check", MACHINES)).toEqual([]);
+		expect(asksInLabel("Fix log-out handling", MACHINES)).toEqual([]);
+	});
+
+	it("asks nothing of a machine name no machine could have", () => {
+		expect(asksInProse("Restart the shell now.", ["", "optimus"])).toEqual([]);
 	});
 
 	it("asks nothing where the act only names a time", () => {

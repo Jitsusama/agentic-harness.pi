@@ -128,6 +128,21 @@ describe("an ask tool call", () => {
 		expect(JSON.stringify(verdict)).toContain("EWUL44 (idle)");
 	});
 
+	it("is refused when a question's tab label is the act itself", async () => {
+		const verdict = await call("ask", {
+			questions: [
+				{
+					id: "q",
+					label: "Reboot equilibrius",
+					prompt: "When suits you?",
+					options: [{ value: "now", label: "Now" }],
+				},
+			],
+		});
+
+		expect(verdict).toMatchObject({ block: true });
+	});
+
 	it("is refused when an option is the act itself", async () => {
 		const verdict = await call("ask", {
 			questions: [
@@ -309,6 +324,16 @@ describe("a mesh_wait call", () => {
 		).toBeUndefined();
 	});
 
+	it("goes ahead for a title on a machine that only waits for something else to restart", async () => {
+		expect(
+			await call("mesh_wait", {
+				id: "w",
+				title: "Wait for the dev server to restart",
+				machine: "equilibrius",
+			}),
+		).toBeUndefined();
+	});
+
 	it("goes ahead for a wait that ends nothing", async () => {
 		expect(
 			await call("mesh_wait", {
@@ -352,6 +377,17 @@ describe("a show_person call", () => {
 			title: "The mic",
 			why: "It stopped after the last reboot.",
 			ask: "Nothing, just to see",
+		});
+
+		expect(verdict).toBeUndefined();
+	});
+
+	it("goes ahead when it takes a look back, whatever it named", async () => {
+		const verdict = await call("show_person", {
+			kind: "page",
+			target: "https://example.com",
+			title: "Reboot equilibrius",
+			withdraw: true,
 		});
 
 		expect(verdict).toBeUndefined();
@@ -473,6 +509,16 @@ describe("a reply", () => {
 		expect(await reply(text("Please reboot equilibrius."))).toBeDefined();
 	});
 
+	it("keeps the override, when the guard redirects, for a reply the person stopped", async () => {
+		setSessionMode(GUARD, "redirect");
+		await reply(text("Please reboot equilibrius."));
+
+		expect(
+			await replyStopping("aborted", text("Please reboot equilibrius.")),
+		).toBeDefined();
+		expect(await reply(text("Please reboot equilibrius."))).toBeUndefined();
+	});
+
 	it("keeps an override, when the guard redirects, only for the run it was told in", async () => {
 		setSessionMode(GUARD, "redirect");
 		await reply(text("Please reboot equilibrius."));
@@ -573,6 +619,15 @@ describe("the node the interceptor reads by default", () => {
 			]);
 
 			writeFileSync(join(run, "mycelium", "stale.sock"), "");
+			expect(
+				(await nodeDeps(env).sessions())?.map((one) => one.address).sort(),
+			).toEqual(["A210QS", "BXNMUC"]);
+
+			const silent = createServer(() => {});
+			await new Promise<void>((listening) =>
+				silent.listen(join(run, "mycelium", "quiet.sock"), listening),
+			);
+			servers.push(silent);
 			expect(await nodeDeps(env).sessions()).toBeUndefined();
 		} finally {
 			for (const server of servers) server.close();
