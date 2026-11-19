@@ -12,6 +12,7 @@
 import { rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { dropSettledMergedBranches } from "../../../../lib/core/work/merged-branch.ts";
 import { PUSHED_SETTLE_MS } from "../../../../lib/core/work/sweep.ts";
 import { git } from "../../../support/git-fixture.ts";
 import {
@@ -109,13 +110,34 @@ describe("branches with no tree on them", () => {
 		await git(main, "branch", "jg/old", "main");
 		await git(main, "config", "branch.jg/old.remote", "origin");
 		settleBranch(main, "jg/old");
+		const commit = (await git(main, "rev-parse", "jg/old")).trim();
 
 		const outcome = await sweep();
 
-		expect(outcome.branches).toEqual([{ checkout: main, gone: 1 }]);
+		expect(outcome.branches).toEqual([
+			{ checkout: main, went: [{ branch: "jg/old", commit }] },
+		]);
 		expect(await branchesOf(main)).not.toContain("jg/old");
 		expect(await sectionOf(main, "jg/old")).toBe("");
 		expect(await branchesOf(main)).toContain("live");
+	});
+
+	it("drops one whose own commits trunk took in after its tree went", async () => {
+		const { main, state, cut, sweep } = await setUp();
+		await cut("live", ["-b", "live", "@", "main"], [RUNNING]);
+		await ahead(main, state, "jg/merged");
+		const commit = (await git(main, "rev-parse", "jg/merged")).trim();
+		await git(main, "merge", "-q", "--no-ff", "-m", "land it", "jg/merged");
+		await git(main, "push", "-q", "origin", "main");
+		await git(main, "fetch", "-q", "origin");
+		settleBranch(main, "jg/merged");
+
+		const outcome = await sweep();
+
+		expect(outcome.branches).toEqual([
+			{ checkout: main, went: [{ branch: "jg/merged", commit }] },
+		]);
+		expect(await branchesOf(main)).not.toContain("jg/merged");
 	});
 
 	it("keeps every one that could still be somebody's work", async () => {
@@ -153,5 +175,53 @@ describe("branches with no tree on them", () => {
 				"unpushed",
 			].sort(),
 		);
+	});
+});
+
+describe("a checkout holding hundreds", () => {
+	/** Make `count` settled branches at main, named `many/0` on. */
+	async function many(main: string, count: number): Promise<string[]> {
+		const names = Array.from({ length: count }, (_, at) => `many/${at}`);
+		const commit = (await git(main, "rev-parse", "main")).trim();
+		// One git run for them all, as a checkout's hundreds would cost.
+		const made = await exec("bash", [
+			"-c",
+			'main=$1 commit=$2; shift 2; for name in "$@"; do echo "create refs/heads/$name $commit"; done | git -C "$main" update-ref --create-reflog --stdin',
+			"many",
+			main,
+			commit,
+			...names,
+		]);
+		expect(made.code, made.stderr).toBe(0);
+		for (const name of names) settleBranch(main, name);
+		return names;
+	}
+
+	it("drops them in batches, keeping one a tree has out", async () => {
+		const { main, cut } = await setUp();
+		await cut("held", ["-b", "held", "@", "main"], [RUNNING]);
+		settleBranch(main, "held");
+		const names = await many(main, 150);
+
+		const went = await dropSettledMergedBranches(
+			exec,
+			main,
+			Date.now() - PUSHED_SETTLE_MS,
+		);
+
+		expect(went.map(({ branch }) => branch).sort()).toEqual(names.sort());
+		expect((await branchesOf(main)).sort()).toEqual(["held", "main"]);
+	});
+
+	it("takes at most 500 a call, leaving the rest for the next", async () => {
+		const { main } = await setUp();
+		await many(main, 501);
+		const settledBefore = Date.now() - PUSHED_SETTLE_MS;
+
+		const first = await dropSettledMergedBranches(exec, main, settledBefore);
+		const second = await dropSettledMergedBranches(exec, main, settledBefore);
+
+		expect([first.length, second.length]).toEqual([500, 1]);
+		expect(await branchesOf(main)).toEqual(["main"]);
 	});
 });

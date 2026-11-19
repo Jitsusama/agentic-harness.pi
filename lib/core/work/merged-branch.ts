@@ -27,6 +27,20 @@ const BRANCH_REFS = "refs/heads/";
 const DELETE_BATCH = 100;
 
 /**
+ * The most branches one sweep takes from one checkout. Git rewrites the
+ * config for each branch it deletes, so 4,762 from core.nix's 518 KB
+ * config would have written gigabytes under its lock; a cap keeps each
+ * sweep short, and the next takes the rest.
+ */
+const MOST_A_SWEEP = 500;
+
+/** A branch a sweep deleted, with the commit it pointed at. */
+export interface WentBranch {
+	branch: string;
+	commit: string;
+}
+
+/**
  * The remote's trunk as a ref, or nothing when the checkout has no
  * remote trunk to judge by. A local trunk is not asked, since a commit
  * on it may never have been pushed.
@@ -139,32 +153,33 @@ export async function dropMergedBranch(
 }
 
 /**
- * Delete every branch in `checkout` that the remote's trunk holds and
+ * Delete the branches in `checkout` that the remote's trunk holds and
  * nobody has moved since `settledBefore`, in milliseconds since the
- * epoch, with its config section, answering how many went.
+ * epoch, with their config sections, answering each that went and the
+ * commit it pointed at, so a wrong one can be put back by name.
  *
  * This is for a branch whose tree went before its pull request merged,
  * which release kept since trunk lacked it then. A branch is kept by
  * every rule {@link dropMergedBranch} keeps one by, and also when its
  * reflog moved within the settling time, since a session may have made
  * it moments ago to cut a tree at, or when it has no reflog to say when
- * it last moved, as in a reftable checkout. All of trunk's merged
- * branches are listed at once and handed to git in batches, so the cost
- * stays a few git runs whatever the count: core.nix's checkout held
- * 4,762 merged ones on 19 November.
+ * it last moved, as in a reftable checkout. Trunk's merged branches are
+ * listed at once and handed to git in batches, at most
+ * {@link MOST_A_SWEEP} a call, the rest left for the next: core.nix's
+ * checkout held 4,762 merged ones on 19 November.
  */
 export async function dropSettledMergedBranches(
 	exec: Exec,
 	checkout: string,
 	settledBefore: number,
-): Promise<number> {
+): Promise<WentBranch[]> {
 	const trunk = await remoteTrunk(exec, checkout);
-	if (trunk === undefined) return 0;
+	if (trunk === undefined) return [];
 	const git = (...args: string[]) => exec("git", ["-C", checkout, ...args]);
 	const merged = await git(
 		"for-each-ref",
 		`--merged=${trunk}`,
-		"--format=%(refname)",
+		"--format=%(objectname) %(refname)",
 		BRANCH_REFS,
 	);
 	const common = await git(
@@ -174,28 +189,41 @@ export async function dropSettledMergedBranches(
 	);
 	const parents = await stackParents(exec, checkout);
 	if (merged.code !== 0 || common.code !== 0 || parents === undefined) {
-		return 0;
+		return [];
 	}
 	const logs = join(common.stdout.trim(), "logs");
 	const going = merged.stdout
 		.split("\n")
-		.filter((ref) => ref.startsWith(BRANCH_REFS))
-		.filter((ref) => settled(join(logs, ref), settledBefore))
-		.map((ref) => ref.slice(BRANCH_REFS.length))
+		.map((line) => line.split(" "))
 		.filter(
-			(name) =>
-				deletable(name) && !trunk.endsWith(`/${name}`) && !parents.has(name),
-		);
-	if (going.length === 0) return 0;
+			(fields): fields is [string, string] =>
+				fields.length === 2 && fields[1]?.startsWith(BRANCH_REFS) === true,
+		)
+		.filter(([, ref]) => settled(join(logs, ref), settledBefore))
+		.map(([commit, ref]) => ({
+			branch: ref.slice(BRANCH_REFS.length),
+			commit,
+		}))
+		.filter(
+			({ branch }) =>
+				deletable(branch) &&
+				!trunk.endsWith(`/${branch}`) &&
+				!parents.has(branch),
+		)
+		.slice(0, MOST_A_SWEEP);
+	if (going.length === 0) return [];
 	for (let at = 0; at < going.length; at += DELETE_BATCH) {
 		// Git deletes each it can and refuses, saying why, any some checkout
-		// has out; what is left is counted below, not read from its words.
-		await git("branch", "-D", ...going.slice(at, at + DELETE_BATCH));
+		// has out; what is left is read below, not from its words.
+		const batch = going.slice(at, at + DELETE_BATCH);
+		await git("branch", "-D", ...batch.map(({ branch }) => branch));
 	}
 	const left = await git("for-each-ref", "--format=%(refname)", BRANCH_REFS);
-	if (left.code !== 0) return 0;
+	// Unreadable after the deletes: what went can't be told from what
+	// stayed, and claiming any would name branches that may stand.
+	if (left.code !== 0) return [];
 	const standing = new Set(left.stdout.split("\n"));
-	return going.filter((name) => !standing.has(`${BRANCH_REFS}${name}`)).length;
+	return going.filter(({ branch }) => !standing.has(`${BRANCH_REFS}${branch}`));
 }
 
 /**

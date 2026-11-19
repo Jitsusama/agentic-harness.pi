@@ -48,6 +48,8 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { type ProcessFacts, systemFacts } from "../process/index.ts";
 import type { HeldTree, TreeProvider } from "./broker.ts";
@@ -64,6 +66,7 @@ import type { TreeMemory } from "./memory.ts";
 import {
 	dropMergedBranch,
 	dropSettledMergedBranches,
+	type WentBranch,
 } from "./merged-branch.ts";
 import {
 	type IdleSnapshot,
@@ -174,7 +177,7 @@ export interface SweepOutcome {
 	dropped: DroppedRoots[];
 	/**
 	 * Checkouts whose branches with no tree went, origin's trunk holding
-	 * them and nobody having moved them for a day, and how many.
+	 * them and nobody having moved them for a day, and which.
 	 */
 	branches: DroppedBranches[];
 	/**
@@ -185,10 +188,14 @@ export interface SweepOutcome {
 	idleUnjudged?: string;
 }
 
-/** A checkout whose settled, merged branches the sweep dropped, and how many. */
+/**
+ * A checkout whose settled, merged branches the sweep dropped, each with
+ * the commit it pointed at, so `git branch <name> <commit>` puts one
+ * back.
+ */
 export interface DroppedBranches {
 	checkout: string;
-	gone: number;
+	went: WentBranch[];
 }
 
 /** A tree whose dev shell's Nix roots the sweep dropped, and how many. */
@@ -347,16 +354,42 @@ async function dropSettledBranches(
 	for (const tree of held) {
 		if (tree.providerId !== GIT_WORKTREE || asked.has(tree.path)) continue;
 		asked.add(tree.path);
-		const main = await mainCheckoutOf(deps.exec, tree.path);
+		const main =
+			checkoutNamedBy(tree.path) ??
+			(await mainCheckoutOf(deps.exec, tree.path));
 		if (main !== undefined) mains.add(main);
 	}
 	for (const main of mains) {
-		const gone = await dropSettledMergedBranches(
+		const went = await dropSettledMergedBranches(
 			deps.exec,
 			main,
 			now - PUSHED_SETTLE_MS,
 		);
-		if (gone > 0) outcome.branches.push({ checkout: main, gone });
+		if (went.length > 0) outcome.branches.push({ checkout: main, went });
+	}
+}
+
+/**
+ * The main checkout a worktree was cut from, as its `.git` file and its
+ * git folder's `commondir` say, or nothing where they can't be read.
+ * Read from the files rather than asked of git, since every sweep asks
+ * it of every held tree, hundreds on a busy machine.
+ */
+function checkoutNamedBy(tree: string): string | undefined {
+	try {
+		const said = /^gitdir: (.+)$/m.exec(
+			readFileSync(join(tree, ".git"), "utf8"),
+		)?.[1];
+		if (said === undefined) return undefined;
+		const gitDir = resolve(tree, said.trim());
+		const common = resolve(
+			gitDir,
+			readFileSync(join(gitDir, "commondir"), "utf8").trim(),
+		);
+		return basename(common) === ".git" ? dirname(common) : common;
+	} catch {
+		// No `.git` file or no `commondir`: git is asked instead.
+		return undefined;
 	}
 }
 

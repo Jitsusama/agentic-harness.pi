@@ -378,8 +378,10 @@ branches and 518 KB of config from released trees, read by every git
 command there, the host's presence publish among them. A branch
 whose tree went before it merged goes later, when a sweep finds
 trunk holding it, no tree on it and its reflog unmoved for a day.
-One another branch is stacked on, or with no reflog, stays. Each
-sweep's line counts what went from each checkout, under `branches`.
+One another branch is stacked on, or with no reflog, stays. A sweep
+takes at most 500 a checkout, the next the rest, and its line names
+each that went with its commit, under `branches`, so
+`git branch <name> <commit>` puts one back.
 
 **It will not record nothing.** `record` reads the tree first and
 refuses when it is clean. Committing nothing succeeds at the git
