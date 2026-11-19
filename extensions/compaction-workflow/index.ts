@@ -113,6 +113,7 @@ import {
 	RESUME_TEXT,
 	SETTLED_ENTRY,
 	type SettledBy,
+	unsettledAsk,
 } from "../../lib/compaction/resume.ts";
 import {
 	type CompactionCost,
@@ -212,6 +213,40 @@ function resumeRun(pi: ExtensionAPI, text: string): void {
 function settleAsk(pi: ExtensionAPI, resumed: boolean, by: SettledBy): void {
 	const settled: CompactionSettled = { at: Date.now(), resumed, by };
 	pi.appendEntry(SETTLED_ENTRY, settled);
+}
+
+/** How often a check waiting for pi to be idle looks again, in ms. */
+const IDLE_LOOKS_EVERY_MS = 250;
+
+/**
+ * How long a check waits for pi to be idle, in ms. pi clears its
+ * compacting state once every extension's session_compact handler has
+ * returned, so one that awaits the disk holds it seconds, not minutes;
+ * a run another resumer started is still going after this, and leaves
+ * nothing owed by its end.
+ */
+const IDLE_LOOKS_FOR_MS = 60_000;
+
+/**
+ * Run `then` once pi is idle: on the next turn of the loop, and again
+ * every IDLE_LOOKS_EVERY_MS until IDLE_LOOKS_FOR_MS has passed, after
+ * which it gives up. A context a reload replaced ends it quietly.
+ */
+function whenIdle(
+	ctx: ExtensionContext,
+	then: () => void,
+	until: number = Date.now() + IDLE_LOOKS_FOR_MS,
+	looked = false,
+): void {
+	const look = whileCurrent(() => {
+		if (ctx.isIdle()) then();
+		else if (Date.now() < until) whenIdle(ctx, then, until, true);
+	});
+	// The first look waits only for this turn of the loop to finish, as
+	// pi's own state settles once the handler that asked returns.
+	if (!looked) setImmediate(look);
+	// Later looks are spaced, so a long wait costs the loop little.
+	else setTimeout(look, IDLE_LOOKS_EVERY_MS);
 }
 
 /** The starts after which a compaction's owed run is still this session's. */
@@ -393,6 +428,13 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			compacting = false;
 			askOpen = false;
 			asked = null;
+			// An ask that never started is settled, so no later compaction
+			// inherits it; a stale pi can't write, and has nothing to settle.
+			try {
+				settleAsk(pi, false, "asker");
+			} catch {
+				// The throw below says what went wrong; this one adds nothing.
+			}
 			throw error;
 		}
 	};
@@ -474,9 +516,6 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		compactNow(ctx, tokens, false);
 	}
 
-	// Seeded from the session's own log, not from this process: a resumed
-	// session's first turn here is its whole resumed context, which read
-	// as the fixed prompt made nothing look droppable.
 	/**
 	 * The context of a start that may owe a run, checked once every
 	 * extension's start is done (resources_discover, below).
@@ -488,6 +527,9 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		// A fork, a /resume or a new session is somebody choosing a log, not
 		// a runtime coming back to its own: none of them owes a run.
 		startOwing = OWING_STARTS.has(event.reason) ? ctx : undefined;
+		// Seeded from the session's own log, not from this process: a resumed
+		// session's first turn here is its whole resumed context, which read
+		// as the fixed prompt made nothing look droppable.
 		const history = compactionHistory(ctx.sessionManager.getBranch());
 		firstTurnTokens = history.firstPromptTokens;
 		// The log names only the last compaction's keep; an outsized one
@@ -524,7 +566,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	pi.on("resources_discover", () => {
 		const ctx = startOwing;
 		startOwing = undefined;
-		if (ctx) setImmediate(whileCurrent(() => resumeOwed(ctx)));
+		if (ctx) resumeOwed(ctx);
 	});
 
 	/**
@@ -536,11 +578,41 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	 */
 	function resumeOwed(ctx: ExtensionContext): void {
 		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
-		if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
-		if (!owesResume(ctx.sessionManager.getBranch(), Date.now())) return;
-		settleAsk(pi, true, "successor");
-		resumeRun(pi, RESUME_TEXT);
+		whenIdle(ctx, () => {
+			if (ctx.hasPendingMessages()) return;
+			if (!owesResume(ctx.sessionManager.getBranch(), Date.now())) return;
+			settleAsk(pi, true, "successor");
+			resumeRun(pi, RESUME_TEXT);
+		});
 	}
+
+	/**
+	 * Answer an ask whose compaction failed after the runtime that asked
+	 * was gone, as its onError would have: a cancel was somebody stopping
+	 * it, so it resumes nothing; otherwise a run it cut is resumed. Read
+	 * from the log once pi is idle, so an ask another resumer answered
+	 * meanwhile is left alone.
+	 */
+	function answerFailed(ctx: ExtensionContext, cancelled: boolean): void {
+		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
+		whenIdle(ctx, () => {
+			const branch = ctx.sessionManager.getBranch();
+			const ask = unsettledAsk(branch, Date.now());
+			if (ask === undefined) return;
+			const resume =
+				!cancelled &&
+				!ctx.hasPendingMessages() &&
+				(ask.resume || cutSince(branch, ask.at));
+			settleAsk(pi, resume, "successor");
+			if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
+		});
+	}
+
+	pi.on("session_compact_failed", async (event, ctx) => {
+		// One this runtime asked for is its onError's to answer, which pi
+		// calls after this event.
+		if (!askOpen) answerFailed(ctx, event.aborted);
+	});
 
 	pi.on("session_shutdown", async () => {
 		idle.cancel();
@@ -548,11 +620,10 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 
 	pi.on("session_compact", async (event, ctx) => {
 		// A compaction another runtime asked for, landing after this one
-		// started: a reload while it summarised. Checked on the next turn
-		// of the loop, once pi is idle again, since it is still compacting
-		// while this handler runs. One this runtime asked for is its
-		// onComplete's to answer.
-		if (!askOpen) setImmediate(whileCurrent(() => resumeOwed(ctx)));
+		// started: a reload while it summarised. Checked once pi is idle
+		// again, since it is still compacting while this handler runs. One
+		// this runtime asked for is its onComplete's to answer.
+		if (!askOpen) resumeOwed(ctx);
 		rentPaid = 0;
 		compacting = false;
 		asked = null;

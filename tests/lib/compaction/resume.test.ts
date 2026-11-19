@@ -10,6 +10,7 @@ import {
 	OWED_WITHIN_MS,
 	owesResume,
 	SETTLED_ENTRY,
+	unsettledAsk,
 } from "../../../lib/compaction/resume.ts";
 
 const T0 = Date.parse("2026-11-19T13:39:23.000Z");
@@ -180,6 +181,39 @@ describe("whether a compaction left a run owed", () => {
 		expect(owesResume(branch, T0 + 10_000)).toBe(false);
 	});
 
+	it("is owed when a run begun after the ask was cut before its first answer", () => {
+		const branch = [asked(0, false), user(1000), compaction(8000)];
+
+		expect(owesResume(branch, T0 + 10_000)).toBe(true);
+	});
+
+	it("is still owed past a tool's result logged after the landing", () => {
+		// A tool the abort cut may write its result once the summary is in.
+		const branch = [
+			asked(0, true),
+			answer(100, "aborted"),
+			compaction(500),
+			toolResult(600),
+		];
+
+		expect(owesResume(branch, T0 + 10_000)).toBe(true);
+	});
+
+	it("owes nothing on an ask it can't read", () => {
+		const malformed = {
+			...asked(0, true),
+			data: { resume: true },
+		};
+
+		expect(owesResume([malformed, compaction(500)], T0 + 10_000)).toBe(false);
+	});
+
+	it("owes nothing when an earlier settle lies between the ask and the landing", () => {
+		const branch = [asked(0, true), settled(200), compaction(500)];
+
+		expect(owesResume(branch, T0 + 10_000)).toBe(false);
+	});
+
 	it("owes nothing with no compaction at all", () => {
 		expect(owesResume([asked(0, true), answer(100, "aborted")], T0)).toBe(
 			false,
@@ -187,7 +221,46 @@ describe("whether a compaction left a run owed", () => {
 	});
 });
 
+describe("the ask nothing has answered", () => {
+	it("is the newest ask with no landing or settle after it", () => {
+		const branch = [asked(0, false), user(1000), answer(2000, "aborted")];
+
+		expect(unsettledAsk(branch, T0 + 60_000)).toEqual({
+			at: T0,
+			resume: false,
+		});
+	});
+
+	it("is none once its compaction landed or it was settled", () => {
+		const now = T0 + 60_000;
+		expect(unsettledAsk([asked(0, true), compaction(500)], now)).toBe(
+			undefined,
+		);
+		expect(unsettledAsk([asked(0, true), settled(500)], now)).toBe(undefined);
+	});
+
+	it("is none past the window an ask's compaction lands in", () => {
+		const branch = [asked(0, true)];
+
+		expect(unsettledAsk(branch, T0 + ASK_LANDS_WITHIN_MS + 1)).toBe(undefined);
+		expect(unsettledAsk(branch, T0 + ASK_LANDS_WITHIN_MS)).toEqual({
+			at: T0,
+			resume: true,
+		});
+	});
+
+	it("is none when it is stamped ahead of the clock, or malformed", () => {
+		expect(unsettledAsk([asked(5 * 60_000, true)], T0)).toBe(undefined);
+		expect(unsettledAsk([{ ...asked(0, true), data: {} }], T0)).toBe(undefined);
+	});
+});
+
 describe("whether a run was cut since a moment", () => {
+	it("counts a prompt with no answer after it as cut", () => {
+		expect(cutSince([user(10)], T0)).toBe(true);
+		expect(cutSince([user(10), answer(20, "stop")], T0)).toBe(false);
+	});
+
 	it("counts a tool's result or a call for tools as cut", () => {
 		expect(cutSince([toolResult(10)], T0)).toBe(true);
 		expect(cutSince([answer(10, "toolUse")], T0)).toBe(true);

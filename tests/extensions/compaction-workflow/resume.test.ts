@@ -155,8 +155,22 @@ function compactionEntry(ms: number) {
 	return { type: "compaction", timestamp: new Date(ms).toISOString() };
 }
 
+/** An answer that ended on its own, as pi logs it. */
+function finished(ms: number) {
+	return {
+		type: "message",
+		timestamp: new Date(ms).toISOString(),
+		message: { role: "assistant", stopReason: "stop", content: [] },
+	};
+}
+
 /** One turn of the loop, after which a deferred check has run. */
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+
+/** Long enough for a check waiting on pi's idle to look again. */
+const nextLook = () =>
+	// A check that found pi busy looks again a quarter-second on.
+	new Promise((resolve) => setTimeout(resolve, 400));
 
 /** The entries of a type a runtime appended. */
 const appended = (calls: Recorded, type: string) =>
@@ -197,6 +211,36 @@ describe("resuming the run a compaction interrupted", () => {
 		}
 
 		expect(attempts).toBe(2);
+	});
+
+	it("settles an ask whose compaction couldn't start", async () => {
+		const { handlers, calls } = activate();
+		let size = 60_000;
+		let thrown = false;
+		const ctx = context(
+			() => size,
+			() => {
+				thrown = true;
+				throw new Error("compaction refused");
+			},
+		);
+		await handlers.get("session_start")?.({}, ctx);
+		const turnEnd = (turn: object) =>
+			endTurn((name, event, at) => handlers.get(name)?.(event, at), turn, ctx);
+		await turnEnd({ toolResults: [{}] });
+		size = 900_000;
+		for (let turn = 0; turn < 200 && !thrown; turn++) {
+			try {
+				await turnEnd({ toolResults: [{}] });
+			} catch {
+				// pi catches a handler's throw; so does this stand-in.
+			}
+		}
+
+		expect(calls.order).toEqual([ASKED_ENTRY, SETTLED_ENTRY]);
+		expect(appended(calls, SETTLED_ENTRY)).toEqual([
+			expect.objectContaining({ resumed: false, by: "asker" }),
+		]);
 	});
 
 	it("ends quietly when a reload replaced it before the compaction ended", async () => {
@@ -302,6 +346,10 @@ describe("resuming the run a compaction interrupted", () => {
 
 		expect(calls.sendUserMessage).toHaveLength(1);
 		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/failed/);
+		expect(calls.order.slice(-2), "settled before the send").toEqual([
+			SETTLED_ENTRY,
+			"send",
+		]);
 	});
 
 	it("answers its own landing once, though pi awaits between the two", async () => {
@@ -438,12 +486,78 @@ describe("resuming from the log a run another runtime owed", () => {
 		expect(calls.sendUserMessage).toHaveLength(1);
 	});
 
-	it("starts nothing while a run is under way", async () => {
-		const { calls } = await startOn(owing(), "reload", {
-			isIdle: () => false,
+	it("waits for pi to be idle after a landing, however long its handlers take", async () => {
+		// pi is compacting until every session_compact handler returns, and
+		// one that awaits the disk holds it past the next turn of the loop.
+		const now = Date.now();
+		const entries: unknown[] = [
+			askEntry(now - 8000, { at: now - 8000, resume: true }),
+			aborted(now - 7900),
+		];
+		let idle = true;
+		const { handlers, calls, ctx } = await startOn(entries, "reload", {
+			isIdle: () => idle,
 		});
 
+		idle = false;
+		entries.push(compactionEntry(now));
+		await handlers.get("session_compact")?.({ compactionEntry: {} }, ctx);
+		await nextTurn();
+		expect(calls.sendUserMessage, "nothing while compacting").toEqual([]);
+		idle = true;
+		await nextLook();
+
+		expect(calls.sendUserMessage).toHaveLength(1);
+	});
+
+	it("starts nothing once a run under way has answered", async () => {
+		const entries = owing();
+		let idle = false;
+		const { calls } = await startOn(entries, "reload", {
+			isIdle: () => idle,
+		});
+		expect(calls.sendUserMessage, "nothing while it runs").toEqual([]);
+
+		entries.push(finished(Date.now()));
+		idle = true;
+		await nextLook();
+
 		expect(calls.sendUserMessage).toEqual([]);
+	});
+
+	it("resumes a run cut by a compaction that failed after the asker was gone", async () => {
+		const now = Date.now();
+		const entries = [
+			askEntry(now - 8000, { at: now - 8000, resume: false }),
+			aborted(now - 7900),
+		];
+		const { handlers, calls, ctx } = await startOn(entries);
+
+		await handlers.get("session_compact_failed")?.({ aborted: false }, ctx);
+		await nextTurn();
+
+		expect(calls.sendUserMessage).toHaveLength(1);
+		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/failed/);
+		expect(calls.order).toEqual([SETTLED_ENTRY, "send"]);
+		expect(appended(calls, SETTLED_ENTRY)).toEqual([
+			expect.objectContaining({ resumed: true, by: "successor" }),
+		]);
+	});
+
+	it("settles, resuming nothing, a compaction cancelled after the asker was gone", async () => {
+		const now = Date.now();
+		const { handlers, calls, ctx } = await startOn([
+			askEntry(now - 8000, { at: now - 8000, resume: true }),
+			aborted(now - 7900),
+		]);
+
+		await handlers.get("session_compact_failed")?.({ aborted: true }, ctx);
+		await nextTurn();
+
+		expect(calls.sendUserMessage).toEqual([]);
+		expect(appended(calls, SETTLED_ENTRY)).toEqual([
+			expect.objectContaining({ resumed: false, by: "successor" }),
+		]);
 	});
 
 	it("starts nothing with a message waiting to go", async () => {

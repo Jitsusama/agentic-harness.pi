@@ -127,7 +127,9 @@ function conversed(entry: unknown): Record<string, unknown> | undefined {
  * which began after the turn that asked for it, so the ask's own word
  * on resuming doesn't cover it. On 19 November a job's result started
  * a run a second after a finished turn asked, the compaction's abort
- * cut it, and nothing resumed it.
+ * cut it, and nothing resumed it. A prompt written after the ask with
+ * no answer after it is a run cut before its first answer: pi refuses a
+ * prompt while it compacts, so one in the log was begun.
  */
 export function cutSince(entries: readonly unknown[], at: number): boolean {
 	for (let i = entries.length - 1; i >= 0; i--) {
@@ -135,8 +137,7 @@ export function cutSince(entries: readonly unknown[], at: number): boolean {
 		const message = conversed(entry);
 		if (message === undefined || !isRecord(entry)) continue;
 		if (!(timeOf(entry) >= at)) return false;
-		if (message.role === "user") return false;
-		if (message.role === "toolResult") return true;
+		if (message.role !== "assistant") return true;
 		return !FINISHED.has(String(message.stopReason));
 	}
 	return false;
@@ -188,6 +189,32 @@ export function owesResume(
 		return ask.resume === true || cutSince(before, ask.at);
 	}
 	return false;
+}
+
+/**
+ * The newest ask nothing has answered and no compaction has followed,
+ * made within ASK_LANDS_WITHIN_MS of `now`: the ask of a compaction
+ * that failed or was cancelled after the runtime that asked was gone,
+ * whose onError never ran here. Malformed, it is none.
+ */
+export function unsettledAsk(
+	branch: readonly unknown[],
+	now: number,
+): CompactionAsk | undefined {
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i];
+		if (!isRecord(entry)) continue;
+		if (entry.type === "compaction") return undefined;
+		if (isCustom(entry, SETTLED_ENTRY)) return undefined;
+		if (!isCustom(entry, ASKED_ENTRY)) continue;
+		const ask = entry.data;
+		if (!isRecord(ask) || typeof ask.at !== "number") return undefined;
+		const age = now - ask.at;
+		if (!(age <= ASK_LANDS_WITHIN_MS && age >= -CLOCK_SKEW_MS))
+			return undefined;
+		return { at: ask.at, resume: ask.resume === true };
+	}
+	return undefined;
 }
 
 /** Whether an entry is the custom entry of the given type. */
