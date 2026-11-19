@@ -70,9 +70,11 @@ export async function sessionsAt(
 /**
  * How long a start has to answer: its holder says it holds the program
  * within 10 s, and a start on another machine is answered over its link
- * within 30 s, so this outlasts both with a few seconds to spare.
+ * within 30 s, but a loaded node took over 45 s to reach either on 19
+ * November, and the start still landed. A start not answered in this
+ * may still land, so it is asked again under its name.
  */
-export const START_PATIENCE_MS = 45_000;
+export const START_PATIENCE_MS = 120_000;
 
 /**
  * How long a placement has to answer: the node measures its own machine
@@ -152,6 +154,13 @@ export interface NodeStart {
 	readonly folder?: string;
 	/** The program and its words, run through the login shell there. */
 	readonly command: readonly string[];
+	/**
+	 * The asker's name for this one start, at most 64 characters, given
+	 * again when asking again after no answer came, so the node answers
+	 * the start already landing rather than starting another. A node that
+	 * knows no such name starts each ask.
+	 */
+	readonly once?: string;
 }
 
 /** A program the node started held, and how to join it. */
@@ -168,7 +177,15 @@ export interface NodeStarted {
 /** What a start comes to: started, or why not, as the node says it. */
 export type StartAnswer =
 	| { readonly ok: true; readonly started: NodeStarted }
-	| { readonly ok: false; readonly reason: string };
+	| {
+			readonly ok: false;
+			readonly reason: string;
+			/**
+			 * The node took the ask and answered nothing in time, so the
+			 * start may still land, and asking again under its name joins it.
+			 */
+			readonly mayLand?: true;
+	  };
 
 /**
  * Asks the node serving `socket` to start `start` held, answering where
@@ -197,13 +214,21 @@ export async function startAt(
 			},
 			...(start.folder !== undefined ? { folder: start.folder } : {}),
 			command: start.command,
+			...(start.once !== undefined ? { once: start.once } : {}),
 		},
 	};
-	const line = await askAt(socket, asked, patience);
-	if (line === undefined) {
+	const heard = await hearAt(socket, asked, patience);
+	if (heard.kind === "silent") {
+		return {
+			ok: false,
+			reason: `the node at ${socket} took the ask and answered nothing within ${patience / 1000} s`,
+			mayLand: true,
+		};
+	}
+	if (heard.kind === "unreached") {
 		return { ok: false, reason: `no mycelium node answered at ${socket}` };
 	}
-	return startedFrom(line);
+	return startedFrom(heard.line);
 }
 
 /** A start's answer read: started, or the node's reason it didn't. */
@@ -246,34 +271,65 @@ export function startedFrom(line: string): StartAnswer {
  * Asks the node serving `socket` one request, answering its one line, or
  * nothing when none answers there within `patience`.
  */
-export function askAt(
+export async function askAt(
 	socket: string | undefined,
 	request: unknown,
 	patience: number,
 ): Promise<string | undefined> {
-	if (socket === undefined) return Promise.resolve(undefined);
+	const heard = await hearAt(socket, request, patience);
+	return heard.kind === "answered" ? heard.line : undefined;
+}
+
+/**
+ * What asking a node comes to: its line, silence once it took the ask, or
+ * no node reached.
+ */
+type Heard =
+	| { readonly kind: "answered"; readonly line: string }
+	| { readonly kind: "silent" }
+	| { readonly kind: "unreached" };
+
+/**
+ * Asks the node serving `socket` one request, as {@link askAt} does,
+ * telling a node that took the ask and said nothing within `patience`
+ * from none there: what it was asked may still be done.
+ */
+function hearAt(
+	socket: string | undefined,
+	request: unknown,
+	patience: number,
+): Promise<Heard> {
+	if (socket === undefined) return Promise.resolve({ kind: "unreached" });
 	return new Promise((resolve) => {
 		let said = "";
 		let settled = false;
+		let sent = false;
 		const asking = connect(socket);
-		const settle = (answer: string | undefined) => {
+		const settle = (heard: Heard) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(waiting);
 			asking.destroy();
-			resolve(answer);
+			resolve(heard);
 		};
-		const waiting = setTimeout(() => settle(undefined), patience);
+		const waiting = setTimeout(
+			() => settle({ kind: sent ? "silent" : "unreached" }),
+			patience,
+		);
 		asking.setEncoding("utf8");
-		asking.on("connect", () => asking.write(`${JSON.stringify(request)}\n`));
+		asking.on("connect", () => {
+			asking.write(`${JSON.stringify(request)}\n`);
+			sent = true;
+		});
 		asking.on("data", (chunk: string) => {
 			said += chunk;
 			const end = said.indexOf("\n");
-			if (end >= 0) settle(said.slice(0, end));
+			if (end >= 0) settle({ kind: "answered", line: said.slice(0, end) });
 		});
-		// No node there, or one that went away: either way none answers.
-		asking.on("error", () => settle(undefined));
-		asking.on("close", () => settle(undefined));
+		// No node there, or one that went away before it answered: one that
+		// hung up after taking the ask may still have done it.
+		asking.on("error", () => settle({ kind: sent ? "silent" : "unreached" }));
+		asking.on("close", () => settle({ kind: sent ? "silent" : "unreached" }));
 	});
 }
 

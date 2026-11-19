@@ -221,6 +221,29 @@ describe("asking the node to start a session held", () => {
 		});
 	});
 
+	it("sends the asker's name for the start, under which an ask again joins it", async () => {
+		const asked: unknown[] = [];
+		const socket = await serving((line) => {
+			asked.push(JSON.parse(line));
+			return '{"Err":"refused"}';
+		});
+
+		await startAt(socket, { ...start, once: "01JSTART" });
+
+		expect(asked).toMatchObject([{ Start: { once: "01JSTART" } }]);
+	});
+
+	it("says a start the node took and never answered may still land", async () => {
+		const socket = await serving(() => undefined);
+
+		const answer = await startAt(socket, start, 50);
+
+		expect(answer).toMatchObject({ ok: false, mayLand: true });
+		expect(answer.ok || answer.reason).toContain(
+			"took the ask and answered nothing within",
+		);
+	});
+
 	it("says why when no node answers, or none is named", async () => {
 		const none = join(root, "none.sock");
 		expect(await startAt(none, start)).toEqual({
