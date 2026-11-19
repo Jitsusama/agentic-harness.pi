@@ -45,6 +45,9 @@ async function repoWithTree(
 
 describe("taking back a tree nothing owns", () => {
 	it("removes the directory and leaves the branch behind", async () => {
+		// This repo has no remote, so no trunk vouches for the branch and it
+		// stays; a branch origin's trunk has goes with its tree, which
+		// release-drops-merged-branch.test.ts holds.
 		const { local, tree } = await repoWithTree("spent");
 		// The commit that must survive, so this asks the question that
 		// matters rather than only whether a directory went away.

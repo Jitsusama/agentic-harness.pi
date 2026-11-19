@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../lib/core/exec/index.ts";
+import { dropMergedBranch } from "../../../lib/core/work/merged-branch.ts";
 import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
 import { reclaimTrees } from "../../../lib/core/work/reclaim.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
@@ -108,16 +109,27 @@ const hasRef = async (branch: string) =>
 			`refs/heads/${branch}`,
 		])
 	).code === 0;
-const sections = async (branch: string) =>
-	(
-		await exec("git", [
-			"-C",
-			checkout,
-			"config",
-			"--get-regexp",
-			`^branch\\.${branch.replace("/", "\\/")}\\.`,
-		])
-	).stdout.trim();
+/**
+ * The config keys set under `branch`'s section, or "" when there are
+ * none. Any answer from git but "no key matched" throws, so a broken
+ * query can't pass for an empty section.
+ */
+const sections = async (branch: string) => {
+	const answer = await exec("git", [
+		"-C",
+		checkout,
+		"config",
+		"--get-regexp",
+		`^branch\\.${branch.replaceAll("/", "\\/").replaceAll(".", "\\.")}\\.`,
+	]);
+	if (answer.code === 1) return "";
+	if (answer.code !== 0) throw new Error(`git config said ${answer.stderr}`);
+	return answer.stdout.trim();
+};
+
+/** Point origin/HEAD at `ref`, by hand, as a rename or a person might. */
+const originHeadAt = (ref: string) =>
+	git(checkout, "symbolic-ref", "refs/remotes/origin/HEAD", ref);
 
 describe("releasing a tree", () => {
 	it("leaves no ref and no config section for a branch trunk has merged", async () => {
@@ -131,13 +143,89 @@ describe("releasing a tree", () => {
 		expect(await sections("jg/done")).toBe("");
 	});
 
-	it("keeps a branch whose commits trunk lacks, pushed or not", async () => {
+	it("keeps a pushed branch whose commits trunk lacks", async () => {
 		const path = await workOn("jg/open");
 
 		await release("jg/open", path);
 
 		expect(await hasRef("jg/open"), "the unmerged branch is kept").toBe(true);
 		expect(await sections("jg/open")).not.toBe("");
+	});
+
+	it("keeps a branch nobody pushed", async () => {
+		const provider = createGitTreeProvider({
+			exec,
+			stateDir: trees,
+			subvolumes: async () => false,
+		});
+		const { path } = await provider.ensure(request("jg/local"));
+		writeFileSync(join(path, "local.md"), "only here\n");
+		await git(path, "add", ".");
+		await git(path, "commit", "-qm", "only here");
+
+		await release("jg/local", path);
+
+		expect(await hasRef("jg/local"), "the unpushed branch is kept").toBe(true);
+	});
+
+	it("judges by origin/main when origin/HEAD is not set", async () => {
+		const path = await workOn("jg/nohead");
+		await mergeOnOrigin("jg/nohead");
+		await git(checkout, "remote", "set-head", "origin", "-d");
+
+		await release("jg/nohead", path);
+
+		expect(await hasRef("jg/nohead"), "the merged branch is gone").toBe(false);
+	});
+
+	it("judges by origin/main when origin/HEAD names a branch that is gone", async () => {
+		const path = await workOn("jg/renamed");
+		await mergeOnOrigin("jg/renamed");
+		await originHeadAt("refs/remotes/origin/master");
+
+		await release("jg/renamed", path);
+
+		expect(await hasRef("jg/renamed"), "the merged branch is gone").toBe(false);
+	});
+
+	it("never judges by a local branch origin/HEAD was pointed at", async () => {
+		const path = await workOn("jg/unlanded");
+		// A local branch holding the work, which origin's trunk does not.
+		await git(checkout, "branch", "jg/local-trunk", "jg/unlanded");
+		await originHeadAt("refs/heads/jg/local-trunk");
+
+		await release("jg/unlanded", path);
+
+		expect(
+			await hasRef("jg/unlanded"),
+			"the branch origin's trunk lacks is kept",
+		).toBe(true);
+	});
+
+	it("takes a merged branch that shares its name with a tag", async () => {
+		const path = await workOn("jg/tagged");
+		await mergeOnOrigin("jg/tagged");
+		// Its short name is now heads/jg/tagged, which is not the branch.
+		// Written as a ref, since a person's config may sign every tag.
+		await git(checkout, "update-ref", "refs/tags/jg/tagged", "main");
+
+		await release("jg/tagged", path);
+
+		expect(await hasRef("jg/tagged"), "the merged branch is gone").toBe(false);
+	});
+
+	it("keeps a merged branch another branch is stacked on", async () => {
+		const path = await workOn("jg/base");
+		await mergeOnOrigin("jg/base");
+		await git(checkout, "branch", "jg/child", "jg/base");
+		await git(checkout, "config", "branch.jg/child.workparent", "jg/base");
+
+		await release("jg/base", path);
+
+		expect(
+			await hasRef("jg/base"),
+			"the branch a stack names as parent is kept",
+		).toBe(true);
 	});
 
 	it("keeps a merged branch that has gained a commit nobody pushed", async () => {
@@ -170,6 +258,31 @@ describe("releasing a tree", () => {
 	});
 });
 
+describe("dropping a merged branch", () => {
+	it("keeps trunk's own branch, merged though it is", async () => {
+		// Detached, so no checkout has main out and git itself would let
+		// it go: only the trunk's-name rule keeps it.
+		await git(checkout, "checkout", "-q", "--detach");
+
+		const gone = await dropMergedBranch(exec, checkout, "main");
+
+		expect(gone, "dropMergedBranch answers that main stayed").toBe(false);
+		expect(await hasRef("main"), "main is kept").toBe(true);
+	});
+
+	it("keeps a merged branch a checkout still has out", async () => {
+		await workOn("jg/busy");
+		await mergeOnOrigin("jg/busy");
+
+		const gone = await dropMergedBranch(exec, checkout, "jg/busy");
+
+		expect(gone, "git refused, so it answers the branch stayed").toBe(false);
+		expect(await hasRef("jg/busy"), "the branch out in a tree is kept").toBe(
+			true,
+		);
+	});
+});
+
 describe("reclaiming a tree", () => {
 	it("leaves no ref and no config section for a branch trunk has merged", async () => {
 		const path = await workOn("jg/spent");
@@ -179,7 +292,12 @@ describe("reclaiming a tree", () => {
 			{ path, branch: "jg/spent" },
 		]);
 
-		expect(outcome.trees[0]?.kind).toBe("reclaimed");
+		expect(outcome.trees[0]).toEqual({
+			kind: "reclaimed",
+			path,
+			branch: "jg/spent",
+			branchGone: true,
+		});
 		expect(await hasRef("jg/spent"), "the merged branch is gone").toBe(false);
 		expect(await sections("jg/spent")).toBe("");
 	});
@@ -187,12 +305,18 @@ describe("reclaiming a tree", () => {
 	it("keeps a branch whose commits trunk lacks", async () => {
 		const path = await workOn("jg/unmerged");
 
-		await reclaimTrees({ exec, mainPath: checkout }, [
+		const outcome = await reclaimTrees({ exec, mainPath: checkout }, [
 			{ path, branch: "jg/unmerged" },
 		]);
 
+		expect(outcome.trees[0]).toEqual({
+			kind: "reclaimed",
+			path,
+			branch: "jg/unmerged",
+		});
 		expect(await hasRef("jg/unmerged"), "the unmerged branch is kept").toBe(
 			true,
 		);
+		expect(await sections("jg/unmerged")).not.toBe("");
 	});
 });
