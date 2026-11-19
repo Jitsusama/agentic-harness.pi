@@ -61,23 +61,25 @@ describe("trees a live quest claims until spent", () => {
 		expect(existsSync(hosted), `${hosted}, worked in, is kept`).toBe(true);
 	});
 
-	it("keeps a claimed tree a session takes up after the sweep's first census", async () => {
+	it("keeps a claimed tree a session takes up while the sweep takes another", async () => {
 		const { cut, sweep } = await setUp();
-		const back = await cut("back", ["-b", "back", "@", "main"]);
-		let asked = 0;
-		// Nobody there when the sweep begins, and a conversation there by the
-		// time it comes to take the tree.
-		const outcome = await sweep(untilSpent(back), undefined, {
+		const first = await cut("first", ["-b", "first", "@", "main"]);
+		const second = await cut("second", ["-b", "second", "@", "main"]);
+		// Nobody in either while both stand, and a conversation in whichever
+		// is left once the sweep has taken one, so a look before the takes
+		// began can't keep it.
+		const outcome = await sweep(untilSpent(first, second), undefined, {
 			sessionFolders: async () => {
-				asked += 1;
-				return asked > 1 ? [back] : [];
+				const left = [first, second].filter((path) => existsSync(path));
+				return left.length === 2 ? [] : left;
 			},
 		});
 
-		expect(outcome.taken, "what the sweep took").toEqual([]);
+		expect(outcome.taken, "what the sweep took").toHaveLength(1);
+		const back = [first, second].find((path) => existsSync(path));
+		expect(back, "the tree taken up is still there").toBeDefined();
 		const why = outcome.kept.find((one) => one.path === back)?.why;
 		expect(why, "why the tree was kept").toMatch(/took it up/);
-		expect(existsSync(back), `${back}, taken up again, is kept`).toBe(true);
 	});
 
 	it("keeps an ended session's claimed tree holding one untracked file", async () => {

@@ -476,6 +476,9 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 			// walked once for them all, as `held` does.
 			const histories = new Map<string, string[] | undefined>();
 			for (const tree of claimed) {
+				// A tree on a branch is left out knowingly: its HEAD's reflog
+				// also names every commit a rebase replaced, which no remote
+				// holds, so reading it would keep every rebased branch's tree.
 				if (tree.branch !== undefined) continue;
 				if (dirty.has(tree.path) || unread.has(tree.path)) continue;
 				histories.set(tree.path, await headHistory(deps.exec, tree.path));
