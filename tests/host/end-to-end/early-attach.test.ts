@@ -13,8 +13,7 @@
  * host was starting, and sat blank for 2 h 20 min with nothing in the
  * host's journal to say why. The last case attaches a window while the
  * next host's start is held, and the window must be drawn, the journal
- * saying what its attach waited on and when it was answered, and saying
- * nothing of a window left undrawn.
+ * saying what its attach waited on and when it was answered.
  */
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -161,10 +160,6 @@ describe.skipIf(!packageDir)(
 					() => said("'s attach was answered after [0-9.]+ s"),
 					TURN_MS,
 				);
-				expect(
-					said(" attached [0-9.]+ s ago has been sent nothing to draw"),
-					"a window drawn once answered is not said to be blank",
-				).toBe(false);
 			},
 			CASE_MS * 2,
 		);

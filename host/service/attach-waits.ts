@@ -24,11 +24,10 @@ export function secondsSince(began: number): string {
 export interface AttachWaits {
 	/** Begins the step named `waiting`, ending the one before. */
 	next(waiting: string): void;
-	/**
-	 * Ends the attach, saying how if it was slow: answered, or refused
-	 * with `refusal`'s reason.
-	 */
-	done(refusal?: unknown): void;
+	/** Ends the attach answered, saying so if it was slow. */
+	answered(): void;
+	/** Ends the attach refused for `refusal`, saying so if it was slow. */
+	refused(refusal: unknown): void;
 }
 
 /**
@@ -57,28 +56,52 @@ export function attachWaits(
 		// A host stopping never waits on a window's journal line.
 		timer.unref();
 	};
+	// Ends the attach, saying how it ended if it was slow.
+	const end = (how: string, why = "") => {
+		clearTimeout(timer);
+		if (slow)
+			say?.(
+				`${who}: a window's attach was ${how} after ${secondsSince(began)} s${why}`,
+			);
+	};
 	return {
 		next(waiting) {
 			waitingOn = waiting;
 			if (timer === undefined || slow) arm();
 		},
-		done(refusal) {
-			clearTimeout(timer);
-			if (!slow) return;
-			if (refusal === undefined)
-				say?.(
-					`${who}: a window's attach was answered after ${secondsSince(began)} s`,
-				);
-			else
-				say?.(
-					`${who}: a window's attach was refused after ${secondsSince(began)} s: ${reasonOf(refusal)}`,
-				);
+		answered() {
+			end("answered");
+		},
+		refused(refusal) {
+			end("refused", `: ${reasonOf(refusal)}`);
 		},
 	};
 }
 
-// A refusal's reason on one line, as the journal keeps one line a wait.
+/** The first character past C0's controls, which move or colour a terminal. */
+const FIRST_PRINTABLE = 0x20;
+/** DEL and C1's controls, which a terminal may act on too. */
+const DEL = 0x7f;
+const LAST_C1 = 0x9f;
+
+// Whether `character` would show as itself rather than act on a terminal.
+function printable(character: string): boolean {
+	const code = character.codePointAt(0) ?? 0;
+	return code >= FIRST_PRINTABLE && (code < DEL || code > LAST_C1);
+}
+
+// A refusal's reason on one plain line, as the journal keeps one line a
+// wait: its whitespace one space, its control characters dropped.
 function reasonOf(refusal: unknown): string {
-	const text = refusal instanceof Error ? refusal.message : String(refusal);
-	return text.replace(/\s+/g, " ").trim();
+	const text =
+		refusal instanceof Error
+			? refusal.message
+			: refusal === undefined || refusal === null
+				? ""
+				: String(refusal);
+	const plain = [...text.replace(/\s+/g, " ")]
+		.filter(printable)
+		.join("")
+		.trim();
+	return plain === "" ? "no reason given" : plain;
 }

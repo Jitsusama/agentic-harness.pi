@@ -303,10 +303,10 @@ export function hostBackend(options: {
 				await wake(sessionId);
 			}
 			const shown = live(sessionId);
-			waits.done();
+			waits.answered();
 			return shown;
 		} catch (refusal) {
-			waits.done(refusal);
+			waits.refused(refusal);
 			throw refusal;
 		}
 	}

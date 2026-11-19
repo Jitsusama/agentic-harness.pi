@@ -112,7 +112,8 @@ export async function listenControl(options: {
 	/**
 	 * Writes a line to the host's journal for an attached window sent
 	 * nothing to draw in time: then, its first frame and size when it
-	 * comes, or its leaving with nothing drawn.
+	 * comes, or its leaving with nothing drawn. It also says an attach
+	 * answered after its window had left.
 	 */
 	say?: (line: string) => void;
 	/** How long an attached window may go undrawn before the journal says so: ATTACH_SLOW_MS. */
@@ -160,7 +161,7 @@ export async function listenControl(options: {
 				clearTimeout(undrawn);
 				if (late)
 					options.say?.(
-						`${who}: a window's first frame, ${bytes} bytes, went ${since()} s after its attach was answered`,
+						`${who}: a window's first frame, ${bytes} bytes, was queued ${since()} s after its attach was answered`,
 					);
 			};
 			leftUndrawn = () => {
@@ -277,13 +278,13 @@ export async function listenControl(options: {
 				options.report,
 			);
 			send(reply);
-			if (
-				reply.ok &&
-				request.op === "attach" &&
-				options.viewer &&
-				!socket.destroyed &&
-				!ended
-			) {
+			const gone = socket.destroyed || ended;
+			if (reply.ok && request.op === "attach" && gone)
+				// Otherwise the backend's answered line would read as a window shown.
+				options.say?.(
+					`${sessionAddress(request.sessionId)} (${request.sessionId}): a window's attach was answered after the window had left`,
+				);
+			if (reply.ok && request.op === "attach" && options.viewer && !gone) {
 				sessionId = request.sessionId;
 				watchFirstFrame(sessionId);
 				viewer = withSession(sessionId, () =>
