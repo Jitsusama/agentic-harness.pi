@@ -222,8 +222,22 @@ When the turn that tripped the decision made tool calls, so the run was
 going to carry on, a message resumes it once the compaction lands,
 unless a message of yours is already queued. Tested end to end in RPC
 mode: a run compacted between tool turns resumed and finished its task.
-A compaction applied while the session is idle interrupts nothing and
-resumes nothing.
+A compaction applied while the session is idle interrupts nothing, so
+it resumes only a run begun after it was asked for, such as one a job's
+result started, which its abort cut.
+
+The runtime that asked may be gone by the time its compaction lands: a
+reload replaced it, or the host or pi stopped. On 19 November 64 of
+109 stalled compactions had a reload between the abort and the next
+message. So each ask is written to the session log first, as a
+`compaction-asked` entry saying when and whether the run was going on,
+and whoever answers it writes a `compaction-settled` entry before any
+resume is sent. A runtime that comes back to the session, at a reload
+or a start, reads an unsettled ask once every extension's start is
+done, and again when a compaction it didn't ask for lands, and resumes
+the run it owes. An ask counts only for the first compaction after it,
+landing within 15 minutes, and only for an hour after that; a fork, a
+`/resume` or a new session owes nothing.
 
 That message is sent as a user message, opening with the header every
 turn the harness starts carries, `[Automated message, no human input:

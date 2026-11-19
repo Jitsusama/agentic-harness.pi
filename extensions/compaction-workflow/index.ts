@@ -67,6 +67,15 @@
  * (`turnsBeforeRetry`). A cancelled compaction holds off the same way
  * but is not resumed, since somebody stopped it on purpose.
  *
+ * Resumed from the log too: each ask is written (`ASKED_ENTRY`) before
+ * the compaction starts, and settled (`SETTLED_ENTRY`) by whichever
+ * runtime answers it. The one that asked may be gone by the time its
+ * compaction lands: a reload replaced it, or the host or pi stopped.
+ * Then the runtime after it reads the ask and resumes the run it owes,
+ * once its start is done, or once the compaction lands when that is
+ * later. An idle compaction asks with no run going on, so it resumes
+ * only a run begun after its ask, which its abort cut.
+ *
  * Completed turns only: a turn whose request failed is where pi
  * retries, and compacting there aborts the run it was about to retry.
  * One that was stopped is somebody pressing Escape. Neither triggers a
@@ -95,8 +104,17 @@ import {
 import { compactionHistory } from "../../lib/compaction/history.ts";
 import { emitOutcome } from "../../lib/compaction/outcome.ts";
 import {
+	ASKED_ENTRY,
+	type CompactionAsk,
+	type CompactionSettled,
+	cutSince,
 	FAILED_RESUME_TEXT,
+	OWED_WITHIN_MS,
+	owesResume,
 	RESUME_TEXT,
+	SETTLED_ENTRY,
+	type SettledBy,
+	unsettledAsk,
 } from "../../lib/compaction/resume.ts";
 import {
 	type CompactionCost,
@@ -107,7 +125,10 @@ import {
 	idleCompactionPays,
 } from "../../lib/compaction/trigger.ts";
 import { cachePrices } from "../../lib/internal/cache/cache-prices.ts";
-import { whileCurrent } from "../../lib/internal/errors/stale.ts";
+import {
+	isStaleContext,
+	whileCurrent,
+} from "../../lib/internal/errors/stale.ts";
 import { contextUsageOf } from "../../lib/internal/session/context-usage.ts";
 import { onTurnEnd } from "../../lib/internal/session/turn-end.ts";
 import { conversationProvider } from "./conversation.ts";
@@ -187,6 +208,73 @@ const LONG_CACHE_LIFETIME_MS = 60 * 60_000;
 function resumeRun(pi: ExtensionAPI, text: string): void {
 	pi.sendUserMessage(text, { deliverAs: "followUp" });
 }
+
+/**
+ * Write that a compaction's ask is answered, before any resume is sent,
+ * so a runtime that replaces this one before the resume is logged
+ * doesn't send it again.
+ */
+function settleAsk(pi: ExtensionAPI, resumed: boolean, by: SettledBy): void {
+	const settled: CompactionSettled = { at: Date.now(), resumed, by };
+	pi.appendEntry(SETTLED_ENTRY, settled);
+}
+
+/** How often a check waiting for pi to be idle looks again, in ms. */
+const IDLE_LOOKS_EVERY_MS = 250;
+
+/**
+ * How long a check waits for pi to be idle, in ms. pi clears its
+ * compacting state once every extension's session_compact handler has
+ * returned, so one that awaits the disk holds it seconds, not minutes;
+ * a run another resumer started is still going after this, and leaves
+ * nothing owed by its end.
+ */
+const IDLE_LOOKS_FOR_MS = 60_000;
+
+/**
+ * Run `then` once pi is idle: on the next turn of the loop, and again
+ * every IDLE_LOOKS_EVERY_MS until IDLE_LOOKS_FOR_MS has passed, after
+ * which it gives up and says so. A context a reload replaced ends it
+ * quietly. Any other failure is said rather than thrown, since a throw
+ * from a timer has nobody above it to catch and takes pi down.
+ */
+function whenIdle(
+	ctx: ExtensionContext,
+	then: () => void,
+	until: number = Date.now() + IDLE_LOOKS_FOR_MS,
+	looked = false,
+): void {
+	const look = () => {
+		try {
+			if (ctx.isIdle()) then();
+			else if (Date.now() < until) whenIdle(ctx, then, until, true);
+			else
+				say(
+					`pi stayed busy for ${IDLE_LOOKS_FOR_MS / 1000} s, so the run a compaction stopped wasn't resumed`,
+				);
+		} catch (error) {
+			if (isStaleContext(error)) return;
+			const why = error instanceof Error ? error.message : String(error);
+			say(`couldn't resume the run a compaction stopped: ${why}`);
+		}
+	};
+	// The first look waits only for this turn of the loop to finish, as
+	// pi's own state settles once the handler that asked returns.
+	if (!looked) setImmediate(look);
+	// Later looks are spaced, so a long wait costs the loop little.
+	else setTimeout(look, IDLE_LOOKS_EVERY_MS);
+}
+
+/**
+ * Say something on standard error, where a host journals it and an
+ * interactive pi's stray-output keeps it off the screen.
+ */
+function say(line: string): void {
+	process.stderr.write(`compaction-workflow: ${line}\n`);
+}
+
+/** The starts after which a compaction's owed run is still this session's. */
+const OWING_STARTS: ReadonlySet<string> = new Set(["startup", "reload"]);
 
 function enabled(): boolean {
 	return process.env.PI_COMPACTION_POLICY !== "off";
@@ -276,6 +364,10 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	// The compaction asked of pi and not yet landed or failed, until a
 	// run that overtook it has been logged.
 	let asked: { at: number; tokens: number } | null = null;
+	// Whether this runtime asked for a compaction it hasn't yet answered,
+	// so its own landing is left to its onComplete rather than resumed
+	// from the log too: pi awaits the work item's end between the two.
+	let askOpen = false;
 	let failures = 0;
 	let holdTurns = 0;
 
@@ -345,15 +437,28 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		resume: boolean,
 	) => {
 		compacting = true;
-		asked = { at: Date.now(), tokens };
+		askOpen = true;
+		const ask: CompactionAsk = { at: Date.now(), resume };
+		asked = { at: ask.at, tokens };
 		// A compaction that cannot start (a context the session replaced
 		// throws on first use) ends here, or the flag would stay set and
 		// keep every later compaction off for the session.
 		try {
-			startCompaction(ctx, tokens, resume);
+			// Written first, so a runtime that replaces this one before the
+			// compaction lands can tell from the log whether a run is owed.
+			pi.appendEntry(ASKED_ENTRY, ask);
+			startCompaction(ctx, tokens, ask);
 		} catch (error) {
 			compacting = false;
+			askOpen = false;
 			asked = null;
+			// An ask that never started is settled, so no later compaction
+			// inherits it; a stale pi can't write, and has nothing to settle.
+			try {
+				settleAsk(pi, false, "asker");
+			} catch {
+				// The throw below says what went wrong; this one adds nothing.
+			}
 			throw error;
 		}
 	};
@@ -361,17 +466,26 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	const startCompaction = (
 		ctx: ExtensionContext,
 		tokens: number,
-		resume: boolean,
+		ask: CompactionAsk,
 	) => {
+		// A run begun after the ask, which the compaction's abort cut, is
+		// owed one too, whatever the turn that asked said.
+		const owed = () =>
+			ask.resume || cutSince(ctx.sessionManager.getBranch(), ask.at);
 		// pi calls these when the compaction ends, which can be after a
 		// reload replaced this runtime: on 22 October onError wrote through
 		// the stale pi, and the throw, with nothing above it, took pi down.
+		// The runtime that replaced it resumes from the log instead (see
+		// session_start).
 		ctx.compact({
 			onComplete: whileCurrent(() => {
-				if (!resume || ctx.hasPendingMessages()) return;
-				resumeRun(pi, RESUME_TEXT);
+				askOpen = false;
+				const resume = !ctx.hasPendingMessages() && owed();
+				settleAsk(pi, resume, "asker");
+				if (resume) resumeRun(pi, RESUME_TEXT);
 			}),
 			onError: whileCurrent((error: Error) => {
+				askOpen = false;
 				compacting = false;
 				asked = null;
 				failures += 1;
@@ -389,10 +503,10 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 						"warning",
 					);
 				}
-				if (!resume || wasCancelled(error) || ctx.hasPendingMessages()) {
-					return;
-				}
-				resumeRun(pi, FAILED_RESUME_TEXT);
+				const resume =
+					!wasCancelled(error) && !ctx.hasPendingMessages() && owed();
+				settleAsk(pi, resume, "asker");
+				if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
 			}),
 		});
 	};
@@ -426,11 +540,22 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		compactNow(ctx, tokens, false);
 	}
 
-	// Seeded from the session's own log, not from this process: a resumed
-	// session's first turn here is its whole resumed context, which read
-	// as the fixed prompt made nothing look droppable.
-	pi.on("session_start", async (_event, ctx) => {
+	/**
+	 * The context of a start that may owe a run, checked once every
+	 * extension's start is done (resources_discover, below).
+	 */
+	let startOwing: { ctx: ExtensionContext; reason: string } | undefined;
+
+	pi.on("session_start", async (event, ctx) => {
 		idle.cancel();
+		// A fork, a /resume or a new session is somebody choosing a log, not
+		// a runtime coming back to its own: none of them owes a run.
+		startOwing = OWING_STARTS.has(event.reason)
+			? { ctx, reason: event.reason }
+			: undefined;
+		// Seeded from the session's own log, not from this process: a resumed
+		// session's first turn here is its whole resumed context, which read
+		// as the fixed prompt made nothing look droppable.
 		const history = compactionHistory(ctx.sessionManager.getBranch());
 		firstTurnTokens = history.firstPromptTokens;
 		// The log names only the last compaction's keep; an outsized one
@@ -443,6 +568,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		turnOverhead = history.turnOverhead;
 		awaitingRetained = false;
 		compacting = false;
+		askOpen = false;
 		asked = null;
 		failures = 0;
 		holdTurns = 0;
@@ -459,11 +585,83 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		warming.resume(ctx);
 	});
 
+	// Sent once every extension's start has finished, as quest-workflow's
+	// first words are: a prompt sent from session_start goes out before
+	// later extensions settle their tools, and the tool set declared again
+	// after the first turn cost about 21,700 tokens a turn in November.
+	pi.on("resources_discover", () => {
+		const start = startOwing;
+		startOwing = undefined;
+		if (start) resumeOwed(start.ctx, start.reason);
+	});
+
+	/**
+	 * Resume a run the last compaction stopped when the runtime that asked
+	 * for it is gone: a reload between the abort and the landing drops
+	 * that runtime's resume, and so does a host or pi that stopped. The
+	 * ask is settled first, so a reload before the resume is logged can't
+	 * send it twice. On a start after pi stopped, an ask whose compaction
+	 * neither landed nor failed was cut short with it, and nothing else
+	 * will answer it; after a reload its compaction may still land, and
+	 * session_compact answers it then.
+	 */
+	function resumeOwed(ctx: ExtensionContext, reason?: string): void {
+		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
+		whenIdle(ctx, () => {
+			if (ctx.hasPendingMessages()) return;
+			const branch = ctx.sessionManager.getBranch();
+			if (owesResume(branch, Date.now())) {
+				settleAsk(pi, true, "successor");
+				resumeRun(pi, RESUME_TEXT);
+				return;
+			}
+			if (reason !== "startup") return;
+			const ask = unsettledAsk(branch, Date.now(), OWED_WITHIN_MS);
+			if (ask === undefined) return;
+			const resume = ask.resume || cutSince(branch, ask.at);
+			settleAsk(pi, resume, "successor");
+			if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
+		});
+	}
+
+	/**
+	 * Answer an ask whose compaction failed after the runtime that asked
+	 * was gone, as its onError would have: a cancel was somebody stopping
+	 * it, so it resumes nothing; otherwise a run it cut is resumed. Read
+	 * from the log once pi is idle, so an ask another resumer answered
+	 * meanwhile is left alone.
+	 */
+	function answerFailed(ctx: ExtensionContext, cancelled: boolean): void {
+		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
+		whenIdle(ctx, () => {
+			const branch = ctx.sessionManager.getBranch();
+			const ask = unsettledAsk(branch, Date.now());
+			if (ask === undefined) return;
+			const resume =
+				!cancelled &&
+				!ctx.hasPendingMessages() &&
+				(ask.resume || cutSince(branch, ask.at));
+			settleAsk(pi, resume, "successor");
+			if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
+		});
+	}
+
+	pi.on("session_compact_failed", async (event, ctx) => {
+		// One this runtime asked for is its onError's to answer, which pi
+		// calls after this event.
+		if (!askOpen) answerFailed(ctx, event.aborted);
+	});
+
 	pi.on("session_shutdown", async () => {
 		idle.cancel();
 	});
 
-	pi.on("session_compact", async (event) => {
+	pi.on("session_compact", async (event, ctx) => {
+		// A compaction another runtime asked for, landing after this one
+		// started: a reload while it summarised. Checked once pi is idle
+		// again, since it is still compacting while this handler runs. One
+		// this runtime asked for is its onComplete's to answer.
+		if (!askOpen) resumeOwed(ctx);
 		rentPaid = 0;
 		compacting = false;
 		asked = null;
