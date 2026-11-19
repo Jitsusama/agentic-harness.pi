@@ -82,37 +82,46 @@ function answerIn(line: string): Answered | Error {
 	return typeof parsed.error === "string" ? new Error(parsed.error) : parsed;
 }
 
-/** The longest reason kept from stderr that names no error. */
+/** The longest reason kept from what a call left on stderr. */
 const REASON_LENGTH = 300;
 
 /**
- * What a call left on stderr, said as one line: the first line that
- * heads an error, `TypeError: …` or `Error [CODE]: …`, as node's own
- * report does under its source line and above its stack; else a Rust
- * panic's message with where it panicked, as the native module would
- * leave one; else all of it, joined and cut short.
+ * What a call left on stderr, said as one line and cut short: the
+ * first line that heads an error, `TypeError: …`, `Error [CODE]: …` or
+ * node's own `FATAL ERROR: …`, as node's report puts one under its
+ * source line and above its stack; else a Rust panic's message with
+ * where it panicked, as the native module would leave one, however its
+ * Rust names the thread; else all of it, joined.
  */
 export function whatWentWrong(stderr: string): string | undefined {
 	const lines = stderr
 		.split("\n")
 		.map((line) => line.trim())
 		.filter(Boolean);
-	const heading = lines.find((line) => /^\w*Error( \[\w+\])?: /.test(line));
-	if (heading) return heading;
-	const panic = lines.findIndex((line) =>
-		/^thread '.*' panicked at /.test(line),
+	return cut(
+		lines.find((line) => /^(\w*Error( \[\w+\])?|FATAL ERROR): /.test(line)) ??
+			panicked(lines) ??
+			lines.join(" / "),
 	);
-	const message = lines[panic + 1];
-	if (panic >= 0 && message) {
-		const where = (lines[panic] ?? "").replace(
-			/^.* panicked at (.*?):?$/,
-			"$1",
-		);
-		return `${message} (panicked at ${where})`;
-	}
-	const all = lines.join(" / ");
-	if (!all) return undefined;
-	return all.length > REASON_LENGTH ? `${all.slice(0, REASON_LENGTH)}…` : all;
+}
+
+/** A Rust panic's message and where it panicked, if `lines` hold one. */
+function panicked(lines: string[]): string | undefined {
+	const at = lines.findIndex((line) => /^thread .* panicked at /.test(line));
+	if (at < 0) return undefined;
+	const where = (lines[at] ?? "").replace(/^.* panicked at (.*?):?$/, "$1");
+	const message = lines[at + 1];
+	return message && !message.startsWith("note: ")
+		? `${message} (panicked at ${where})`
+		: `panicked at ${where}`;
+}
+
+/** `reason` cut to REASON_LENGTH, or nothing when it says nothing. */
+function cut(reason: string): string | undefined {
+	if (!reason) return undefined;
+	return reason.length > REASON_LENGTH
+		? `${reason.slice(0, REASON_LENGTH)}…`
+		: reason;
 }
 
 /**

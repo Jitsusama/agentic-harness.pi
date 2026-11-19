@@ -222,6 +222,7 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 			timeout: 20_000,
 		});
 
+		expect(ran.error, "the call should end within its time").toBeUndefined();
 		expect(ran.status, ran.stderr).toBe(0);
 		expect(JSON.parse(ran.stdout)).toEqual({
 			error: `no such keyring call: ${act}`,
@@ -245,6 +246,7 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 			timeout: 20_000,
 		});
 
+		expect(ran.error, "the call should end within its time").toBeUndefined();
 		expect(ran.status, ran.stderr).toBe(0);
 		expect(
 			JSON.parse(ran.stdout),
@@ -252,7 +254,7 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 		).toEqual({ error: "a write needs a value" });
 	}, 30_000);
 
-	it("gives what the keyring module lacks as the reason it can't be reached", () => {
+	it("gives what the keyring module lacks as the reason it can't be reached, and makes each act's own call", () => {
 		const cases: [string, object, object][] = [
 			[
 				"none",
@@ -270,6 +272,10 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 				{ error: "its keyring module's AsyncEntry has no deleteCredential" },
 			],
 			["reads", { act: "read" }, { value: null }],
+			["whole", { act: "read" }, { value: "kept" }],
+			["whole", { act: "write", value: "value" }, {}],
+			["whole", { act: "remove" }, {}],
+			["whole", { act: ["remove"] }, { error: "no such keyring call: remove" }],
 		];
 		for (const [shape, asked, answered] of cases) {
 			const ran = spawnSync(
@@ -287,6 +293,10 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 				},
 			);
 
+			expect(
+				ran.error,
+				`${shape}: the call should end within its time`,
+			).toBeUndefined();
 			expect(ran.status, ran.stderr).toBe(0);
 			expect(
 				JSON.parse(ran.stdout),

@@ -1,4 +1,4 @@
-// Not a call but a loader for the real one, given to node with --import: it answers `@napi-rs/keyring` with a module shaped as KEYRING_MODULE says, so the real call meets a module lacking its entry ("none") or every call but getPassword ("reads").
+// Not a call but a loader for the real one, given to node with --import: it answers `@napi-rs/keyring` with a module shaped as KEYRING_MODULE says, so the real call meets a module lacking its entry ("none"), every call but getPassword ("reads"), or one whose entry answers every call without a keyring ("whole").
 import { register } from "node:module";
 
 const NONE = "export const nothing = 1;";
@@ -7,6 +7,8 @@ const NONE = "export const nothing = 1;";
 const SHAPES = {
 	none: NONE,
 	reads: "export class AsyncEntry { async getPassword() { return null; } }",
+	whole:
+		'export class AsyncEntry { async getPassword() { return "kept"; } async setPassword() {} async deleteCredential() { return true; } }',
 };
 
 if (new URL(import.meta.url).search !== "?hooks") {
