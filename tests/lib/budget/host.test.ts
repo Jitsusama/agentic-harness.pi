@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { hostBudgets } from "../../../lib/budget/host.ts";
 import {
 	BUDGET_READY,
@@ -271,7 +271,7 @@ describe("the budget a folder's work draws on", () => {
 			{
 				provider: "late",
 				folder: "/src/delta",
-				why: "it didn't answer within 20 ms",
+				why: "it didn't answer within 0.02 s",
 			},
 		]);
 	});
@@ -393,7 +393,8 @@ describe("the budget a folder's work draws on", () => {
 				name: "delta",
 				provider: "names",
 			});
-			// Past the late failure, for a leak to surface.
+			// Past the late failure, at 40 ms, for a leak to surface: a rejection
+			// nobody handles is said once the microtasks after it drain.
 			await new Promise((settle) => setTimeout(settle, 100));
 			expect(leaked).toEqual([]);
 		} finally {
@@ -425,12 +426,43 @@ describe("the budget a folder's work draws on", () => {
 				name: "delta",
 				provider: "names",
 			});
-			await new Promise((settle) => setTimeout(settle, 100));
-			expect(told).toEqual(["late"]);
+			await vi.waitFor(() => expect(told).toEqual(["late"]));
+			// A rejection nobody handles is said before the next macrotask.
+			await new Promise((settle) => setImmediate(settle));
 			expect(leaked).toEqual([]);
 		} finally {
 			process.off("unhandledRejection", catchLeak);
 		}
+	});
+
+	it("says a failure whose words can't be had, rather than throw from its catch", async () => {
+		const events = bus();
+		const told: string[] = [];
+		const host = hostBudgets(events, 1_000, (trouble) =>
+			told.push(trouble.why),
+		);
+		const wordless = {
+			toString(): string {
+				throw new Error("no words");
+			},
+		};
+		registerBudgetProvider(events, {
+			...provider("wordless", 0, {}),
+			resolve: async () => {
+				throw wordless;
+			},
+			budgetFor: async () => {
+				throw wordless;
+			},
+		});
+
+		expect(await host.budgetFor("/anywhere")).toBeUndefined();
+		expect(told).toEqual(["it failed: something that can't be said"]);
+		expect(await host.draw("delta")).toEqual({
+			kind: "unavailable",
+			reason: "something that can't be said",
+			provider: "wordless",
+		});
 	});
 
 	it("answers as soon as the first to name one and every provider before it have said", async () => {

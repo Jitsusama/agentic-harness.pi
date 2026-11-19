@@ -104,7 +104,8 @@ export interface BudgetRecord {
 	/**
 	 * The budget the session's quest names but it couldn't draw on, and
 	 * why, so a reader can count sessions that fell to the default
-	 * against their quest's word. Absent when it drew what was named.
+	 * against their quest's word. Present only then: absent when the
+	 * session drew what was named, or nothing was named.
 	 */
 	readonly unresolved?: UnresolvedBudget;
 }

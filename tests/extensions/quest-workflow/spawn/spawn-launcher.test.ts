@@ -598,7 +598,9 @@ describe("a spawn where a budget's work is", () => {
 			},
 			emit: (channel: string, data?: unknown) => events.emit(channel, data),
 		};
-		keepQuestBudget(fakePi({ events: bus }), state);
+		keepQuestBudget(fakePi({ events: bus }), state, {
+			journal: () => undefined,
+		});
 		registerBudgetProvider(bus, {
 			id: "places",
 			precedence: 0,

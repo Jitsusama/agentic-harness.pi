@@ -191,7 +191,7 @@ async function askFolder(
 	try {
 		const name = await Promise.race([provider.budgetFor?.(folder), late]);
 		if (name === LATE) {
-			return { why: `it didn't answer within ${deadlineMs} ms` };
+			return { why: `it didn't answer within ${deadlineMs / 1000} s` };
 		}
 		return typeof name === "string" &&
 			isBudgetName(name) &&
@@ -200,9 +200,7 @@ async function askFolder(
 			: undefined;
 	} catch (error) {
 		// Passed over, as one that names none, and said why.
-		return {
-			why: `it failed: ${error instanceof Error ? error.message : String(error)}`,
-		};
+		return { why: `it failed: ${whatFailed(error)}` };
 	} finally {
 		clearTimeout(timer);
 	}
@@ -233,11 +231,21 @@ async function askOne(
 	try {
 		return await Promise.race([provider.resolve(name), late]);
 	} catch (error) {
-		return {
-			kind: "unavailable" as const,
-			reason: error instanceof Error ? error.message : String(error),
-		};
+		return { kind: "unavailable" as const, reason: whatFailed(error) };
 	} finally {
 		clearTimeout(timer);
+	}
+}
+
+/**
+ * What a provider's failure says, whatever it threw: a catch that
+ * threw in turn would leave the rejection an unawaited ask must not.
+ */
+function whatFailed(error: unknown): string {
+	try {
+		return error instanceof Error ? String(error.message) : String(error);
+	} catch {
+		// A thrown thing whose words throw in turn still failed; say only that.
+		return "something that can't be said";
 	}
 }
