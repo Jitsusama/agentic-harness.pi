@@ -25,7 +25,7 @@ import {
 	type BudgetProvider,
 	isBudgetName,
 } from "./provider.ts";
-import { VARIABLE_NAME as VARIABLE } from "./record.ts";
+import { VARIABLE_NAME } from "./record.ts";
 
 const run = promisify(execFile);
 
@@ -56,7 +56,7 @@ export function parseBudgetFile(text: string): BudgetFile {
 		const assignment = line.replace(/^export\s+/, "");
 		const at = assignment.indexOf("=");
 		const key = at > 0 ? assignment.slice(0, at).trim() : "";
-		if (!VARIABLE.test(key)) {
+		if (!VARIABLE_NAME.test(key)) {
 			unread.push(index + 1);
 			return;
 		}
