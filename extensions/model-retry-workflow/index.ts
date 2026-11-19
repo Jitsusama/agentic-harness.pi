@@ -51,6 +51,14 @@ export default function modelRetryWorkflow(pi: ExtensionAPI) {
 		return { action: "continue" };
 	});
 
+	// An Escape that closes a dialog or a panel is meant for it alone.
+	pi.on("ui_prompt_start", async () => {
+		retrier.prompting(true);
+	});
+	pi.on("ui_prompt_end", async () => {
+		retrier.prompting(false);
+	});
+
 	pi.on("session_shutdown", async () => {
 		retrier.stop();
 	});

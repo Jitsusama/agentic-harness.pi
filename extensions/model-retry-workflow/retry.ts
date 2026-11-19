@@ -9,7 +9,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey } from "@earendil-works/pi-tui";
+import { isKeyRelease, Key, matchesKey } from "@earendil-works/pi-tui";
 import {
 	FIRST_WAIT_MS,
 	failedForAMoment,
@@ -19,7 +19,12 @@ import {
 import { whileCurrent } from "../../lib/internal/errors/stale.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
 import { footerMark } from "../../lib/ui/footer-mark.ts";
-import { RETRY_ENTRY, type RetryMark, unfinishedWait } from "./record.ts";
+import {
+	RETRY_ENTRY,
+	type RetryMark,
+	TRY_LABEL,
+	unfinishedWait,
+} from "./record.ts";
 
 /** The footer key the waiting mark is written under. */
 const STATUS_KEY = "model-retry";
@@ -41,6 +46,8 @@ export interface Retrier {
 	started(): void;
 	/** The person typed: whatever came before is theirs to judge. */
 	typed(): void;
+	/** A dialog or panel opened (true) or closed (false). */
+	prompting(open: boolean): void;
 	/** The session is going away. */
 	stop(): void;
 }
@@ -53,6 +60,8 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 	let shown: ExtensionContext | undefined;
 	let unlisten: (() => void) | undefined;
 	let unsaid: Job | undefined;
+	// An Escape while a dialog or panel is open closes it, not the wait.
+	let prompts = false;
 
 	// The mark goes in the session's branch, so the load after a reload or
 	// a restart knows what this one was waiting on (record.ts).
@@ -96,10 +105,7 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 			);
 			return;
 		}
-		const job = host.start({
-			kind: JOB_KIND,
-			label: "try the failed model call again",
-		});
+		const job = host.start({ kind: JOB_KIND, label: TRY_LABEL });
 		unsaid = job;
 		job.onDelivered(() => {
 			if (unsaid === job) unsaid = undefined;
@@ -121,16 +127,22 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 			STATUS_KEY,
 			footerMark("retrying", "warning", ctx.ui.theme, attempt),
 		);
+		// pi's Escape stops a run, and while this waits there is none, so
+		// the wait hears the key itself, where the window lets it: a host
+		// may give a UI with no raw keys, whatever pi's types say.
+		const hears = typeof ctx.ui.onTerminalInput === "function";
+		if (hears) {
+			unlisten = ctx.ui.onTerminalInput((data) => {
+				if (prompts || isKeyRelease(data)) return undefined;
+				if (matchesKey(data, Key.escape)) whileCurrent(escaped)(ctx);
+				return undefined;
+			});
+		}
+		const stopWith = hears ? "Press Escape or type to stop." : "Type to stop.";
 		ctx.ui.notify(
-			`The model call failed: ${line}. Trying again in ${Math.round(delay / MS_PER_SECOND)} s (try ${attempt}). Press Escape to stop.`,
+			`The model call failed: ${line}. Trying again in ${Math.round(delay / MS_PER_SECOND)} s (try ${attempt}). ${stopWith}`,
 			"warning",
 		);
-		// pi's Escape stops a run, and while this waits there is none, so
-		// the wait hears the key itself.
-		unlisten = ctx.ui.onTerminalInput?.((data) => {
-			if (matchesKey(data, Key.escape)) whileCurrent(escaped)(ctx);
-			return undefined;
-		});
 		timer = setTimeout(
 			whileCurrent(() => tryAgain(ctx, attempt, line)),
 			delay,
@@ -149,6 +161,9 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 	return {
 		resumed(ctx) {
 			stopWaiting();
+			tries = 0;
+			// A run under way settles on its own, and its settling decides.
+			if (!ctx.isIdle()) return;
 			const now = Date.now();
 			const left = unfinishedWait(
 				ctx.sessionManager.getBranch(),
@@ -156,8 +171,14 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 				now,
 			);
 			if (!left) return;
-			// Never sooner than the first wait, so a try job-workflow carried
-			// over the reload starts its run first, which ends this wait.
+			// A try the last load kept unsaid as its host restarted is said by
+			// job-workflow in this one; the count goes on from it.
+			if (left.carried) {
+				tries = left.attempt;
+				return;
+			}
+			// Never sooner than the first wait, so the person sees the notice
+			// and can stop it before a try left overdue goes out.
 			const delay = Math.max(left.due - now, FIRST_WAIT_MS);
 			mark({ attempt: left.attempt, due: now + delay });
 			wait(ctx, left.attempt, delay, left.reply);
@@ -169,11 +190,18 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 			const reply = last;
 			last = undefined;
 			stopWaiting();
-			if (aborted || !reply) {
+			const failed =
+				reply !== undefined &&
+				failedForAMoment(reply, ctx.model?.contextWindow ?? 0);
+			// Escape on a run, pi's own retry among them, stops the count for
+			// good, and the record says so for the loads that follow.
+			if (aborted) {
+				const counting = tries > 0 || failed;
 				tries = 0;
+				if (counting) mark({ attempt: 0 });
 				return;
 			}
-			if (!failedForAMoment(reply, ctx.model?.contextWindow ?? 0)) {
+			if (!reply || !failed) {
 				tries = 0;
 				return;
 			}
@@ -187,6 +215,9 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 		},
 		typed() {
 			handBack();
+		},
+		prompting(open) {
+			prompts = open;
 		},
 		stop() {
 			stopWaiting();

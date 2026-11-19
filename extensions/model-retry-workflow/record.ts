@@ -13,6 +13,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
 	failedForAMoment,
+	LONGEST_WAIT_MS,
 	lastReply,
 	waitBefore,
 } from "../../lib/internal/errors/model-failure.ts";
@@ -29,10 +30,24 @@ export interface RetryMark {
 	readonly due?: number;
 }
 
-/** A wait a fresh load takes up: try `attempt`, due at `due`. */
+/**
+ * The label a try is said under through job-workflow, which is how a
+ * try the last load kept unsaid is known in the record it leaves.
+ */
+export const TRY_LABEL = "try the failed model call again";
+
+/** The entry job-workflow keeps a closing session's unsaid results in. */
+const CARRIED_ENTRY = "job-carried";
+
+/**
+ * A wait a fresh load takes up: try `attempt`, due at `due`. When
+ * `carried`, the last load's try was kept unsaid as it closed, and
+ * job-workflow says it in this one, so there is nothing to wait for.
+ */
 export interface UnfinishedWait {
 	readonly attempt: number;
 	readonly due: number;
+	readonly carried: boolean;
 	readonly reply: AssistantMessage;
 }
 
@@ -58,14 +73,38 @@ export function unfinishedWait(
 	if (last === undefined) return undefined;
 	const reply = lastReply([messageOf(branch[last])]);
 	if (!reply || !failedForAMoment(reply, contextWindow)) return undefined;
-	const failedAt = reply.timestamp || now;
-	const mark = streakMark(branch);
+	// A failure of no known age may be any age, so it is left alone; one
+	// stamped later than now is taken as now.
+	if (!Number.isFinite(reply.timestamp) || reply.timestamp <= 0) {
+		return undefined;
+	}
+	const failedAt = Math.min(reply.timestamp, now);
+	const mark = streakMark(branch, contextWindow);
 	const wait = waitFrom(mark, last, failedAt);
 	if (!wait) return undefined;
 	// A wait last heard of an hour ago: the pending try's due time, or
 	// the failure itself when no try was set.
 	if (now - wait.since > TAKEN_UP_WITHIN_MS) return undefined;
-	return { attempt: wait.attempt, due: wait.due, reply };
+	return {
+		attempt: wait.attempt,
+		// No wait is longer than the longest, whatever a mark says.
+		due: Math.min(wait.due, now + LONGEST_WAIT_MS),
+		carried: carriedTry(branch, last),
+		reply,
+	};
+}
+
+/** Whether a record after the last message keeps a try unsaid. */
+function carriedTry(branch: readonly unknown[], last: number): boolean {
+	return branch.slice(last + 1).some((entry) => {
+		if (field(entry, "type") !== "custom") return false;
+		if (field(entry, "customType") !== CARRIED_ENTRY) return false;
+		const results = field(field(entry, "data"), "results");
+		return (
+			Array.isArray(results) &&
+			results.some((result) => field(result, "label") === TRY_LABEL)
+		);
+	});
 }
 
 /**
@@ -84,28 +123,27 @@ function waitFrom(
 		return { attempt: mark.mark.attempt, due, since: due };
 	}
 	const attempt = (mark?.mark.attempt ?? 0) + 1;
-	const due = failedAt + (waitBefore(attempt) ?? 0);
-	return { attempt, due, since: failedAt };
+	const wait = waitBefore(attempt);
+	if (wait === undefined) return undefined;
+	return { attempt, due: failedAt + wait, since: failedAt };
 }
 
 /**
  * The latest mark of the streak the branch ends in, walking back until
- * a reply that did not fail, which ends a streak.
+ * a reply that did not fail for a moment, which ends a streak as it
+ * ends the live count: one that finished, was stopped, or failed in a
+ * way no try gets past.
  */
 function streakMark(
 	branch: readonly unknown[],
+	contextWindow: number,
 ): { at: number; mark: RetryMark } | undefined {
 	for (let at = branch.length - 1; at >= 0; at--) {
 		const entry = branch[at];
 		const mark = markOf(entry);
 		if (mark) return { at, mark };
-		const message = messageOf(entry);
-		if (
-			field(message, "role") === "assistant" &&
-			field(message, "stopReason") !== "error"
-		) {
-			return undefined;
-		}
+		const reply = lastReply([messageOf(entry)]);
+		if (reply && !failedForAMoment(reply, contextWindow)) return undefined;
 	}
 	return undefined;
 }
