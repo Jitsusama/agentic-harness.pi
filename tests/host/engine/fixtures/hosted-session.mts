@@ -1281,7 +1281,8 @@ try {
 	}
 	const recovery = await hosted?.recover(
 		scenario.turns
-			? async (first) => {
+			? async (waits) => {
+					const first = () => waits() !== "not";
 					if (scenario.typed !== undefined) {
 						note({ type: "turn asked", first: first() });
 						// A turn comes free only once the agent has the words, as one would after Joel typed.

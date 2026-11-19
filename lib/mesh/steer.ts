@@ -118,6 +118,31 @@ export interface OrderedCarry {
  */
 export const FROM_PERSON = "person";
 
+/** How the words a session is given for the machine's own steer open. */
+export const MACHINE_SAYS = "[Said by this machine's ";
+
+/** What follows the asker in the words a session is given for a steer from outside its window. */
+export const ASKING_FROM_OUTSIDE = " is asking from outside this window";
+
+/** The askers the person's own steers read as, unnamed or by name. */
+const PERSON_ASKERS = new Set(["The person", "Joel"]);
+
+/**
+ * Whether `text`, as a session is given it, is a steer someone other
+ * than the person wrote: the machine's, or a peer agent's asking from
+ * outside the window, as extensions/mesh-workflow/steer.ts frames them.
+ * Neither carries the automated header, so without this both read as
+ * the person's words.
+ */
+export function isOthersSteerText(text: string): boolean {
+	if (text.startsWith(MACHINE_SAYS)) return true;
+	if (!text.startsWith("[")) return false;
+	const at = text.indexOf(ASKING_FROM_OUTSIDE);
+	const closed = text.indexOf("]");
+	if (at < 0 || (closed >= 0 && closed < at)) return false;
+	return !PERSON_ASKERS.has(text.slice(1, at));
+}
+
 /**
  * Whether a steer's writer is the person: one who names nobody, Joel, or
  * the node writing on the person's word.

@@ -34,7 +34,7 @@ export interface RecoverySide {
 	readonly parking: AbortSignal;
 	active(): ActiveRun | undefined;
 	parked(): boolean;
-	/** Whether words Joel typed have come in. */
+	/** Whether words Joel typed have come in since the restart. */
 	joelTyped(): boolean;
 	pending(): ShowQueued | undefined;
 	runWithLifecycle(start: (run: Run) => Promise<void>): Promise<Run>;
@@ -113,7 +113,7 @@ export class Recovery {
 				resumed();
 				const began = beganWithPersonsWords(side.state.messages);
 				giveBack = await turn(
-					() => began || side.joelTyped(),
+					() => (side.joelTyped() ? "typing" : began ? "began" : "not"),
 					AbortSignal.any([run.controller.signal, side.parking]),
 				);
 				this.answered = giveBack;

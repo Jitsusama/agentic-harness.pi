@@ -16,7 +16,7 @@
  * scatter one contract across files that change together.
  */
 import { randomUUID } from "node:crypto";
-import { isPersonWords } from "../../lib/internal/session/driven.ts";
+
 import type {
 	Conversation,
 	DurableModels,
@@ -76,7 +76,7 @@ import type {
 	StreamFn,
 } from "./pi-types.ts";
 import { MessageQueue, type QueuedMessage } from "./queue.ts";
-import type { TakeTurn } from "./resume-turns.ts";
+import { isJoelsWords, type TakeTurn } from "./resume-turns.ts";
 import { ToolRound } from "./tool-round.ts";
 
 export type {
@@ -831,10 +831,13 @@ export class HostedAgent {
 		return item;
 	}
 
-	/** Note that Joel typed, should any of `messages` be his words. */
+	/**
+	 * Note that Joel typed, should any of `messages` be his words: a
+	 * person's, and not a steer a peer agent or the machine wrote, which
+	 * must not move a run ahead of his.
+	 */
 	private noteTyped(messages: readonly AgentMessage[]): void {
-		if (messages.some((message) => isPersonWords({ type: "message", message })))
-			this.joelTyped = true;
+		if (messages.some(isJoelsWords)) this.joelTyped = true;
 	}
 
 	// Events.

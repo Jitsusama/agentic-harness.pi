@@ -9,18 +9,23 @@
  * it on, and keeps it until its first answer after the restart ends, or
  * RESUMED_TURN_MS at most, so the start's burst is spread over minutes
  * while no long run holds back the ones behind it, nor the words sent to
- * them. A start holds every turn until its last conversation has resumed,
- * so the order is the whole start's rather than whichever resumed first:
- * a run begun by words Joel typed goes first, since he is waiting on its
- * answer, and so does one he types into while it waits; then the rest in
- * the order they asked, which is roughly the order the host held them
- * in, since a few resume at once. Only a run Joel waits on goes while the
- * start still holds the turns: on 19 November his words into a carried
- * turn waited seven minutes behind a start resuming 84 conversations.
- * Outside a start the turns are open, so a wake or an open waits on
- * nothing but the cap.
+ * them. A start holds back every run Joel doesn't wait on until its last
+ * conversation has resumed, so the order is the whole start's rather than
+ * whichever resumed first. A run he types into while it waits goes first,
+ * since he is at its window now; then one begun by words he typed before
+ * the restart, since he waits on its answer; then the rest in the order
+ * they asked, which is roughly the order the host held them in, since a
+ * few resume at once. The runs Joel waits on go even while the start
+ * still holds the rest, up to the cap: on 19 November his words into a
+ * carried turn waited seven minutes behind a start resuming 84
+ * conversations. Outside a start the turns are open, so a wake or an open
+ * waits on nothing but the cap.
  */
-import { isPersonWords } from "../../lib/internal/session/driven.ts";
+import {
+	isPersonWords,
+	userTextOf,
+} from "../../lib/internal/session/driven.ts";
+import { isOthersSteerText } from "../../lib/mesh/steer.ts";
 import type { AgentMessage } from "./pi-types.ts";
 
 /** How many cut-off runs a host carries on at once as it comes back. */
@@ -45,31 +50,53 @@ export const LOOK_AGAIN_MS = 1_000;
 export type GiveBack = () => void;
 
 /**
- * Wait for a turn to carry a cut-off run on, `first` saying whether Joel
- * waits on it: read each time a turn comes free rather than once as the
- * run asks, so a run he types into while it waits moves up. An abort ends
- * the wait at once with a turn that counts for nothing, since an aborted
- * run ends without going on.
+ * How Joel waits on a cut-off run: typing into it since the restart,
+ * waiting on the answer to words he typed before it, or not at all.
+ */
+export type JoelWaits = "typing" | "began" | "not";
+
+/** Joel's ways of waiting, the one that goes first first. */
+const WAITS_FIRST: readonly JoelWaits[] = ["typing", "began"];
+
+/**
+ * Wait for a turn to carry a cut-off run on, `waits` saying how Joel
+ * waits on it: asked again at each look and each turn that comes free
+ * rather than once as the run asks, so a run he types into while it waits
+ * moves up. An abort ends the wait at once with a turn that counts for
+ * nothing, since an aborted run ends without going on.
  */
 export type TakeTurn = (
-	first: () => boolean,
+	waits: () => JoelWaits,
 	signal?: AbortSignal,
 ) => Promise<GiveBack>;
 
 /** The turns one host gives its cut-off runs. */
 export interface ResumeTurns {
 	readonly take: TakeTurn;
-	/** Hold every turn as a start begins resuming what it holds. */
+	/**
+	 * Hold back every run Joel doesn't wait on as a start begins resuming
+	 * what it holds; the ones he waits on still go, up to the cap.
+	 */
 	hold(): void;
-	/** Let the turns go once the start has resumed everything it holds. */
+	/** Let every run go once the start has resumed everything it holds. */
 	open(): void;
 	/** How many runs hold a turn now. */
 	going(): number;
 }
 
 interface Waiting {
-	readonly first: () => boolean;
+	readonly waits: () => JoelWaits;
 	readonly grant: () => void;
+}
+
+/** Where in `waiting` the run to go next is, or -1 while `held` keeps every one back. */
+function nextAt(waiting: readonly Waiting[], held: boolean): number {
+	const ways = waiting.map((each) => each.waits());
+	for (const way of WAITS_FIRST) {
+		const at = ways.indexOf(way);
+		if (at >= 0) return at;
+	}
+	return held ? -1 : 0;
 }
 
 /**
@@ -100,9 +127,9 @@ export function resumeTurns(
 	};
 	const next = () => {
 		while (going < atOnce && waiting.length > 0) {
-			const firstAt = waiting.findIndex((each) => each.first());
-			if (held && firstAt < 0) break;
-			const [chosen] = waiting.splice(Math.max(firstAt, 0), 1);
+			const at = nextAt(waiting, held);
+			if (at < 0) break;
+			const [chosen] = waiting.splice(at, 1);
 			going++;
 			chosen?.grant();
 		}
@@ -122,11 +149,11 @@ export function resumeTurns(
 		}
 	};
 	return {
-		take(first, signal) {
+		take(waits, signal) {
 			if (signal?.aborted) return Promise.resolve(() => {});
 			return new Promise<GiveBack>((resolve) => {
 				const each: Waiting = {
-					first,
+					waits,
 					grant: () => {
 						signal?.removeEventListener("abort", aborted);
 						resolve(giveBack());
@@ -168,8 +195,18 @@ export function beganWithPersonsWords(
 ): boolean {
 	for (let index = messages.length - 1; index >= 0; index--) {
 		const message = messages[index];
-		if (message?.role === "user")
-			return isPersonWords({ type: "message", message });
+		if (message?.role === "user") return isJoelsWords(message);
 	}
 	return false;
+}
+
+/**
+ * Whether `message` is words Joel wrote: a person's, by having no
+ * harness header, and no steer a peer agent or the machine wrote, which
+ * reaches a session as a user's words without that header too.
+ */
+export function isJoelsWords(message: AgentMessage): boolean {
+	const entry = { type: "message", message };
+	if (!isPersonWords(entry)) return false;
+	return !isOthersSteerText(userTextOf(entry) ?? "");
 }
