@@ -15,6 +15,7 @@
  * side importing the other.
  */
 
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -26,8 +27,12 @@ import {
 import { everyRealmsDir } from "../../lib/internal/paths.ts";
 import {
 	discoverQuests,
+	type QuestEntry,
+	signingHeldBack,
 	signQuestsNow,
 } from "../../lib/internal/quest/discovery/discovery.ts";
+import { threadsLetGo } from "../../lib/internal/quest/discovery/off-thread.ts";
+import { parseQuestDoc } from "../../lib/internal/quest/documents/quest-doc.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 import {
 	removeTreeFromQuest,
@@ -83,6 +88,23 @@ export function forgetSweptTrees(pi: ExtensionAPI, questsRoot: string): void {
 }
 
 /**
+ * `entry` with its README read again from disk, or as walked when it
+ * can't be read or parsed now.
+ */
+function asItStands(entry: QuestEntry): QuestEntry {
+	try {
+		const doc = parseQuestDoc(
+			readFileSync(join(entry.dir, "README.md"), "utf8"),
+		);
+		return doc ? { ...entry, doc } : entry;
+	} catch {
+		// Gone or unreadable since the walk: the walk's reading still holds
+		// its trees, which claims more, never less.
+		return entry;
+	}
+}
+
+/**
  * Every unsealed quest in every realm. Trees are the machine's, so a
  * sweep in one realm would otherwise take another's as nobody's.
  */
@@ -95,11 +117,15 @@ function* liveQuests(questsRoot: string) {
 	]);
 	for (const store of stores) {
 		// What the sweep writes rests on which quests list a tree now.
-		// Not awaited: a sweep runs on its thread, so it signs there itself
-		// when nothing holds signing back, and reads the last walk when it is.
-		void signQuestsNow(store);
+		signQuestsNow(store);
+		// Held back, the last walk answers, which misses a tree a quest
+		// recorded since: a fresh one, clean at trunk, a sweep would take.
+		// So each quest's README is read again, unless a thread let go
+		// still hangs on the disk, where a read would hang the host too.
+		const afresh = signingHeldBack(store) && threadsLetGo().length === 0;
 		const { index } = discoverQuests(store);
-		for (const entry of index.quests.values()) {
+		for (const walked of index.quests.values()) {
+			const entry = afresh ? asItStands(walked) : walked;
 			if (!isSealedStatus(entry.doc.frontMatter.status)) yield entry;
 		}
 	}

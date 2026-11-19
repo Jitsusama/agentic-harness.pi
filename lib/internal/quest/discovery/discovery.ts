@@ -239,25 +239,57 @@ export function discoverQuests(
 }
 
 /**
- * On a host, sign the tree now, so the asks that follow in the next few
- * seconds answer as it stands: the quest tool does it before each
- * action, whose reads decide what it writes, and a session as it
- * starts. Signed on the thread unless it holds back (`holdsBack`); a
- * walk under way then walks again once it ends, and what this answers
- * resolves once that walk is kept, or `SIGNING_GIVES_UP_MS` on, so a
- * caller that awaits it reads the tree as it stood after it asked.
- * Paused, or on a disk a thread let go still hangs on, it resolves at
- * once and the asks answer from the last walk. Plain pi signs every
- * ask already, so this does nothing there.
+ * On a host, sign the tree now on the thread, so the asks that follow
+ * in the next few seconds answer as it stands: a session does it as it
+ * starts. Held back (`holdsBack`), it signs nothing and the asks answer
+ * from the last walk, not even this process's own writes, which is why
+ * one whose reads decide what it writes waits with `signQuestsSettled`
+ * instead. Plain pi signs every ask already, so this does nothing there.
  */
-export async function signQuestsNow(questsRoot: string): Promise<void> {
+export function signQuestsNow(questsRoot: string): void {
+	if (hosted() && !holdsBack(questsRoot)) discoverQuestsSigned(questsRoot, {});
+}
+
+/**
+ * Whether a host answers `questsRoot` from its last walk, however old,
+ * rather than signing it on the thread (`holdsBack`): a walk of it is
+ * under way, a thread let go still hangs, or the person paused signing.
+ * False in plain pi, which signs every ask.
+ */
+export function signingHeldBack(questsRoot: string): boolean {
+	return hosted() !== undefined && holdsBack(questsRoot);
+}
+
+/**
+ * `signQuestsNow` for a caller that can wait, as the quest tool before
+ * each action, whose reads decide what it writes: where a walk is under
+ * way, it walks again once that ends, and this resolves once that walk
+ * is kept, `SIGNING_GIVES_UP_MS` on, or when `signal` aborts, so the
+ * action reads the tree as it stood after it asked unless the disk
+ * hangs. Paused, or on a disk a thread let go still hangs on, it
+ * resolves at once and the action reads the last walk.
+ */
+export async function signQuestsSettled(
+	questsRoot: string,
+	signal?: AbortSignal,
+): Promise<void> {
 	if (!hosted()) return;
 	if (!holdsBack(questsRoot)) {
 		discoverQuestsSigned(questsRoot, {});
 		return;
 	}
 	if (signingPaused() || !memo().signing.has(questsRoot)) return;
-	await walkSince(questsRoot);
+	if (signal?.aborted) return;
+	let stop: (() => void) | undefined;
+	const aborted = new Promise<void>((resolve) => {
+		stop = resolve;
+		signal?.addEventListener("abort", stop, { once: true });
+	});
+	try {
+		await Promise.race([walkSince(questsRoot), aborted]);
+	} finally {
+		if (stop) signal?.removeEventListener("abort", stop);
+	}
 }
 
 /**
@@ -379,7 +411,7 @@ function sayHeldBack(questsRoot: string): void {
 		return;
 	m.heldBackSaidAt = now;
 	sayOnHost(
-		`signing ${questsRoot} is held back by a thread let go on a disk that hung, so each ask answers from the last walk; restart the host once the disk answers`,
+		`signing ${questsRoot} is held back by a thread let go on a disk that hung, so each ask answers from the last walk until that thread stops, which the host says`,
 	);
 }
 

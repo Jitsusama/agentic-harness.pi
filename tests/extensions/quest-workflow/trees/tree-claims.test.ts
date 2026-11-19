@@ -12,12 +12,14 @@
 import {
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	renameSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	answerTreeClaims,
@@ -29,6 +31,12 @@ import {
 	WORK_TREE_CLAIMS,
 	WORK_TREES_SWEPT,
 } from "../../../../lib/core/work/index.ts";
+import {
+	clearDiscoveryCache,
+	discoverQuests,
+	signingPausedPath,
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
+import { installTestHost } from "../../../support/session-host.ts";
 
 /** Just enough of pi's bus for a listener to be reached over it. */
 function bus() {
@@ -169,6 +177,52 @@ describe("answering who holds a tree", () => {
 				recursive: true,
 				force: true,
 			});
+		}
+	});
+
+	it("claims a tree a quest recorded since the last walk while a host holds signing back", () => {
+		// Held back, a host answers from its last walk, which misses a tree
+		// cut since: clean at trunk, a sweep would take it from under the
+		// quest that just cut it.
+		const host = installTestHost();
+		const paused = signingPausedPath();
+		mkdirSync(dirname(paused), { recursive: true });
+		writeFileSync(paused, "");
+		try {
+			clearDiscoveryCache();
+			const root = questsRootHolding("/src/repo/.worktrees/mine");
+			const quest = join(root, "QEST-20260731-AAAAAA");
+			const readme = join(quest, "README.md");
+			// Settled long since, so the walk stands for the asks after it.
+			const hourAgo = new Date(Date.now() - 3_600_000);
+			for (const path of [readme, quest, root]) {
+				utimesSync(path, hourAgo, hourAgo);
+			}
+			discoverQuests(root);
+			writeFileSync(
+				readme,
+				readFileSync(readme, "utf8").replace(
+					"trees:\n",
+					"trees:\n  - path: /src/repo/.worktrees/fresh\n" +
+						"    providerId: git-worktree\n" +
+						"    repoRoot: /src/repo/.worktrees/fresh\n    origin: cut\n",
+				),
+			);
+			utimesSync(readme, hourAgo, hourAgo);
+			const pi = bus();
+			answerTreeClaims(pi as never, root);
+
+			const claims: TreeClaims = { paths: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+
+			expect(claims.paths).toEqual([
+				"/src/repo/.worktrees/fresh",
+				"/src/repo/.worktrees/mine",
+			]);
+		} finally {
+			rmSync(paused, { force: true });
+			clearDiscoveryCache();
+			host.dispose();
 		}
 	});
 

@@ -88,13 +88,28 @@ export interface ReadOffThread {
 	readonly rootStamp: string | undefined;
 }
 
+/** The process-wide key for the threads let go. */
+const LET_GO = Symbol.for("agentic-harness.pi/quest-signing/threads-let-go");
+
 /**
  * Threads ended past their wall that haven't stopped yet, each with
  * how it stopped. A thread in a read of a hung disk stops only when
  * the read returns, so while one stands no other starts: a disk that
- * hangs holds one thread, never one more every wall.
+ * hangs holds one thread, never one more every wall. Kept on the
+ * process, as the memo is, so every copy of this module (one an
+ * extension loads, one a reload makes) counts the same threads; and
+ * apart from the memo, which a reset lets go while the thread hangs on.
  */
-const letGo = new Map<Worker, Promise<number>>();
+const letGo: Map<Worker, Promise<number>> = threadsOfProcess();
+
+/** Where the process keeps the threads let go, made on first use. */
+function threadsOfProcess(): Map<Worker, Promise<number>> {
+	const global = globalThis as {
+		[LET_GO]?: Map<Worker, Promise<number>>;
+	};
+	global[LET_GO] ??= new Map();
+	return global[LET_GO];
+}
 
 /** How each signing thread ended past its wall but not yet stopped will stop. */
 export function threadsLetGo(): readonly Promise<number>[] {
@@ -348,7 +363,13 @@ export function readTreeOffThread(
 			worker.removeAllListeners("message");
 			const stopped = worker.terminate().catch(() => -1);
 			letGo.set(worker, stopped);
-			void stopped.then(() => letGo.delete(worker));
+			void stopped.then(() => {
+				letGo.delete(worker);
+				// Said, since a host held back by it signs again from here on.
+				process.stderr.write(
+					`[quest-workflow] discovery: the signing thread let go on ${questsRoot} stopped, so signing goes on\n`,
+				);
+			});
 			reject(
 				new Error(
 					`the signing thread hadn't answered after ${wallMs} ms, so its disk is taken to hang`,
