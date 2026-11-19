@@ -432,8 +432,11 @@ describe("createGitTreeProvider", () => {
 		// the process happened to sit in. git then says the path is not
 		// a working tree, which is true of that repo and beside the
 		// point. A loose assertion about argv cannot catch a missing
-		// scope flag, and scope is most of what a git argv says.
-		expect(calls[0]?.args).toEqual([
+		// scope flag, and scope is most of what a git argv says. It is
+		// found rather than taken first, since the branch the tree stands
+		// on is read before it goes.
+		const removal = calls.find((call) => call.args.includes("remove"));
+		expect(removal?.args).toEqual([
 			"-C",
 			"/state/snapshot-github-Shopify-world-abc123",
 			"worktree",

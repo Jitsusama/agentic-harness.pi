@@ -226,7 +226,8 @@ async function surveyRepo(
 		// branch, so the commits stay reachable and re-cutting the
 		// tree at the same branch puts a person back where they were.
 		// That is what a branch deletion cannot offer, and why tidy
-		// refuses to act while this does not.
+		// refuses to act while this does not. A branch origin's trunk
+		// already has all of goes too, which loses nothing.
 		if (orphans.reclaimable.length === 0) {
 			// Said as a no-op rather than as a success, and it names
 			// what was considered so the answer is not mistaken for
@@ -248,18 +249,29 @@ async function surveyRepo(
 			orphans.reclaimable,
 		);
 		const took = outcome.trees.filter((t) => t.kind === "reclaimed");
+		const kept = took.some((t) => t.branch && !t.branchGone);
+		const branchOf = (tree: (typeof took)[number]) =>
+			tree.branch === undefined
+				? ""
+				: tree.branchGone
+					? `, ${tree.branch} gone, since origin's trunk has all of it`
+					: `, ${tree.branch} kept`;
 		return say(
 			[
 				// Past tense, because this one did something.
 				`${GLYPH.named} Took back ${count(took.length, "tree", "trees")} beside ${named}.`,
 				...outcome.trees.map((tree) =>
 					tree.kind === "reclaimed"
-						? `   ${GLYPH.named} ${displayPath(tree.path)}${tree.branch ? `, ${tree.branch} kept` : ""}`
+						? `   ${GLYPH.named} ${displayPath(tree.path)}${branchOf(tree)}`
 						: `   ${GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
 				),
-				"",
-				"Every branch is still where it was. Cut a tree at one again",
-				"to pick that work back up.",
+				...(kept
+					? [
+							"",
+							"Every branch kept is still where it was. Cut a tree at one",
+							"again to pick that work back up.",
+						]
+					: []),
 			].join("\n"),
 			{ ok: true, reclaimed: took.length },
 		);

@@ -78,7 +78,7 @@ describe("reclaim", () => {
 		expect(answer.text).toContain(
 			`   ${GLYPH.named} ${displayPath(spare)}, spare kept`,
 		);
-		expect(answer.text).toContain("Every branch is still where it was.");
+		expect(answer.text).toContain("Every branch kept is still where it was.");
 		expect(answer.details).toEqual({ ok: true, reclaimed: 1 });
 		expect(existsSync(spare), "the tree is gone").toBe(false);
 		expect(await git(checkout(), "branch", "--list", "spare")).toContain(
