@@ -45,6 +45,15 @@
  * the busiest one's callers, and keeps the profile itself, up to `most`
  * bytes and the newest `keep`, for a closer look in a browser's
  * profiler. It profiles once a hold, since one spin's profile says it.
+ *
+ * A main thread spinning in native code never answers the inspector: at
+ * 01:59 on 19 November the background host's thread ran 89 s of 95 on a
+ * CPU, didn't answer Profiler.enable in 10 s, and the watchdog killed it
+ * with nothing said of where it spun. So when the inspector gives up, the
+ * thread samples the main thread from outside with perf, which needs
+ * nothing of it, and journals the native functions that took the most
+ * samples: a collection, a JSON parse or a regular expression each name
+ * themselves there. Where perf is missing or not allowed, it says why.
  */
 
 import { homedir } from "node:os";
@@ -90,6 +99,9 @@ const PROFILE_MOST_BYTES = 16 * 1024 * 1024;
  * in native code, as a synchronous spawn, answers only once it is back.
  */
 const PROFILE_ANSWER_MS = 10_000;
+
+/** The perf a main thread that doesn't answer is sampled with, found on PATH. */
+const PERF_COMMAND: readonly string[] = ["perf"];
 
 /** How a beat is told to systemd: as the loop's own are. */
 const BEAT_COMMAND: readonly string[] = ["systemd-notify", "WATCHDOG=1"];
@@ -234,6 +246,8 @@ export interface ProfileOptions {
 	readonly most?: number;
 	/** How long the main thread has to answer each message, in ms; PROFILE_ANSWER_MS by default. */
 	readonly answer?: number;
+	/** The perf that samples a main thread which doesn't answer; perf on PATH by default. */
+	readonly perf?: readonly string[];
 }
 
 /** How the thread beats systemd's watchdog for a loop asleep in the disk. */
@@ -578,13 +592,86 @@ const kept = async (taken) => {
 	}
 	return said;
 };
+// Sample a main thread that doesn't answer the inspector from outside,
+// with perf, as the header of hold-watch.ts says. Its samples are kept
+// only until perf has named their functions.
+const NATIVE_HZ = 499;
+const NATIVE_PAGES = 16;
+const NATIVE_GRACE_MS = 10_000;
+const HEARD_MOST = 65_536;
+const ran = (args, within) =>
+	new Promise((done) => {
+		let out = "";
+		let err = "";
+		let child;
+		try {
+			child = spawn(profile.perf[0], [...profile.perf.slice(1), ...args], { stdio: ["ignore", "pipe", "pipe"], timeout: within, killSignal: "SIGKILL" });
+		} catch (error) {
+			done({ code: undefined, out, err: failure(error) });
+			return;
+		}
+		child.stdout.setEncoding("utf8");
+		child.stderr.setEncoding("utf8");
+		child.stdout.on("data", (chunk) => {
+			if (out.length < HEARD_MOST) out += chunk;
+		});
+		child.stderr.on("data", (chunk) => {
+			if (err.length < HEARD_MOST) err += chunk;
+		});
+		child.once("error", (error) => done({ code: undefined, out, err: failure(error) }));
+		child.once("close", (code, signal) => done({ code: signal ?? code, out, err }));
+	});
+// Why perf failed, in its own words where it gave some.
+const why = (run) => {
+	if (run.code === undefined) return shortened(run.err);
+	const lines = run.err.split("\\n").map((line) => line.trim()).filter(Boolean);
+	const told = lines.find((line) => /error|denied|not permitted|no such|permission|failed/i.test(line)) ?? lines[0];
+	return "it ended with " + run.code + (told ? ": " + shortened(told) : "");
+};
+// The functions perf's report gives the most samples, by name: an
+// address alone is the kernel's, or JavaScript V8 compiled, which perf
+// can't name.
+const natively = (report) => {
+	const shares = new Map();
+	let total = 0;
+	for (const line of report.split("\\n")) {
+		const row = /^\\s*([\\d.]+)%\\s+\\[([.k])\\]\\s+(.+?)\\s*$/.exec(line);
+		if (!row) continue;
+		const share = Number(row[1]);
+		const address = /^0x[0-9a-f]+$/i.test(row[3]);
+		const name = address ? (row[2] === "k" ? "the kernel" : "code perf can't name, as JavaScript V8 compiled") : plain(row[3]).slice(0, LONGEST);
+		shares.set(name, (shares.get(name) ?? 0) + share);
+		total += share;
+	}
+	if (total === 0) return "no samples";
+	const top = [...shares].sort((a, b) => b[1] - a[1]).slice(0, TOP);
+	return "most in " + top.map(([name, share]) => name + " " + Math.round(share) + "%").join(", ");
+};
+const sampled = async (into) => {
+	const file = join(profile.folder, "held-" + Date.now() + "-" + pid + ".perf");
+	try {
+		await mkdir(profile.folder, { recursive: true, mode: 0o700 });
+		const record = await ran(["record", "-q", "-m", String(NATIVE_PAGES), "-F", String(NATIVE_HZ), "-g", "-t", String(pid), "-o", file, "--", "sleep", seconds(profile.for)], profile.for + NATIVE_GRACE_MS);
+		if (record.code !== 0) return "couldn't sample the held loop's main thread with perf: " + why(record);
+		const report = await ran(["report", "-i", file, "--stdio", "--no-children", "-q", "-g", "none", "--sort", "sym"], NATIVE_GRACE_MS);
+		if (report.code !== 0) return "couldn't read perf's samples of the held loop's main thread: " + why(report);
+		return "sampled the held loop's main thread with perf for " + seconds(profile.for) + " s, " + seconds(into) + " s into the hold: " + natively(report.out);
+	} finally {
+		// Samples left behind cost only disk; what was found is said already.
+		await rm(file, { force: true }).catch(() => undefined);
+	}
+};
 const profileFor = (held, into) => {
 	if (!profile || held.profiled || !held.running || into < profile.after) return;
 	held.profiled = true;
 	let session;
+	let unanswered = false;
 	const post = (method, params) =>
 		new Promise((ok, fail) => {
-			const late = setTimeout(() => fail(new Error("the main thread didn't answer " + method + " in " + seconds(profile.answer) + " s")), profile.answer);
+			const late = setTimeout(() => {
+				unanswered = true;
+				fail(new Error("the main thread didn't answer " + method + " in " + seconds(profile.answer) + " s"));
+			}, profile.answer);
 			session.post(method, params ?? {}, (error, answer) => {
 				clearTimeout(late);
 				if (error) fail(error);
@@ -619,6 +706,13 @@ const profileFor = (held, into) => {
 			}
 		} catch (error) {
 			say("couldn't profile the held loop's main thread: " + failure(error));
+			if (unanswered) {
+				try {
+					say(await sampled(into + profile.answer));
+				} catch (failed) {
+					say("couldn't sample the held loop's main thread with perf: " + failure(failed));
+				}
+			}
 		} finally {
 			try {
 				session?.disconnect();
@@ -697,6 +791,7 @@ export function watchHolds(options: HoldWatchOptions = {}): () => void {
 			keep: options.profile.keep ?? PROFILES_KEPT,
 			most: options.profile.most ?? PROFILE_MOST_BYTES,
 			answer: options.profile.answer ?? PROFILE_ANSWER_MS,
+			perf: options.profile.perf ?? PERF_COMMAND,
 		},
 	};
 	const thread = new Worker(PROGRAM, { eval: true, workerData: watched });
