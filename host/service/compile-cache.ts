@@ -19,7 +19,7 @@ import {
 } from "node:fs";
 import { constants, enableCompileCache } from "node:module";
 import { isAbsolute, join } from "node:path";
-import { cacheDir } from "../../lib/internal/paths.ts";
+import { stateDir } from "../../lib/internal/paths.ts";
 import { hostKey, hostRealm } from "./address.ts";
 
 /** How many hex characters of the install's hash name its folder. */
@@ -39,7 +39,11 @@ export interface CompileCacheOptions {
 	readonly env: Readonly<Record<string, string | undefined>>;
 	/** The harness the host runs from, reached through any link. */
 	readonly harnessRoot: string;
-	/** Where every host's folder sits; the harness's cache by default. */
+	/**
+	 * Where every host's folder sits; the harness's state by default,
+	 * which the fence holds read-only: node runs what it reads back
+	 * from here outside the fence, so no fenced command may write it.
+	 */
 	readonly root?: string;
 	/** Enables node's cache in a folder; node's own by default. */
 	readonly enable?: (directory: string) => Enabled;
@@ -87,7 +91,7 @@ export function startCompileCache(options: CompileCacheOptions): CompileCache {
 	try {
 		const key = keyOf(options);
 		if (!key) return { state: "unkeyed" };
-		const root = options.root ?? cacheDir("host-compile");
+		const root = options.root ?? stateDir("host-compile");
 		const name = `${key.host}-${key.install}`;
 		mkdirSync(root, { recursive: true });
 		for (const entry of readdirSync(root))

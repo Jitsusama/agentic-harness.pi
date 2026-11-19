@@ -114,6 +114,30 @@ describe.skipIf(bwrap === undefined)(
 			expect(fenced(`touch ${home}/src/new-file`), "a file in src").toBe(false);
 		});
 
+		it("writes no compile cache and no module node loads outside the fence", () => {
+			const state = join(home, ".local", "state", "pi", "agentic-harness.pi");
+			const kept = [
+				join(state, "host-compile", "work-background-0"),
+				join(state, "node-compile-cache"),
+				join(home, ".node_modules"),
+				join(home, ".node_libraries"),
+			];
+			for (const folder of kept) mkdirSync(folder, { recursive: true });
+			for (const folder of kept) {
+				expect(fenced(`touch ${folder}/planted`), `${folder} was written`).toBe(
+					false,
+				);
+			}
+			expect(
+				fenced("mkdir -p /tmp/node-compile-cache/x"),
+				"node's default cache was written",
+			).toBe(false);
+			expect(
+				fenced("mv /tmp/node-compile-cache /tmp/node-compile-cache.moved"),
+				"node's default cache was moved",
+			).toBe(false);
+		});
+
 		it("still writes what a commit in a worktree writes", () => {
 			const objects = join(checkout, ".git", "objects");
 			expect(

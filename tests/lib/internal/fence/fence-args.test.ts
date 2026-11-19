@@ -850,3 +850,48 @@ describe("what the fence keeps from the person's own keys, devices and repositor
 		expect(settings > back, "the own settings are writable").toBe(true);
 	});
 });
+
+describe("what node reads back as compiled code outside the fence", () => {
+	// A cache entry, or a module node's require finds last, runs at the
+	// next start of a host or pi, unfenced (04TNWT, 19 November).
+	const home = "/home/someone";
+	const place = { home, runtimeDir: undefined };
+	const disk = diskWith(home, [".local", ".cache", ".node_modules"]);
+	const args = fenceArgs(place, disk);
+
+	it("keeps node's default cache an empty read-only folder, there or not", () => {
+		const at = args.indexOf("/tmp/node-compile-cache");
+		expect(args.slice(at - 1, at + 3)).toEqual([
+			"--tmpfs",
+			"/tmp/node-compile-cache",
+			"--remount-ro",
+			"/tmp/node-compile-cache",
+		]);
+		const bare = fenceArgs(place, { kind: () => undefined, entries: () => [] });
+		expect(bare).toContain("/tmp/node-compile-cache");
+	});
+
+	it("binds neither of node's home module folders back writable", () => {
+		expect(READ_ONLY).toEqual(
+			expect.arrayContaining([".node_modules", ".node_libraries"]),
+		);
+		const bound = args.flatMap((arg, at) =>
+			arg === "--bind" ? [args[at + 1]] : [],
+		);
+		expect(bound).not.toContain(`${home}/.node_modules`);
+	});
+
+	it("refuses pi's file tools every cache and module folder", () => {
+		for (const path of [
+			"/tmp/node-compile-cache/v22/entry",
+			`${home}/.local/state/pi/agentic-harness.pi/host-compile/work-1/entry`,
+			`${home}/.local/state/pi/agentic-harness.pi/node-compile-cache/entry`,
+			`${home}/.node_modules/bufferutil.js`,
+			`${home}/.node_libraries/bufferutil.js`,
+		]) {
+			expect(fenceRefusesWrite(path, place, disk), `${path} was writable`).toBe(
+				true,
+			);
+		}
+	});
+});

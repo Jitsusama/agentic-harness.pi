@@ -37,7 +37,13 @@ import { join } from "node:path";
  * Joel and the sessions reopened after a reboot (85PKB2, 14 November).
  * pi itself, the launcher and the node write it from outside the fence;
  * the work broker's trees are bound back as `fence-broker-trees.ts`
- * says, so a session still writes its own.
+ * says, so a session still writes its own. pi's state holds node's
+ * compile caches too, whose entries run as compiled code at the next
+ * start of a host or pi. And the two folders node's `require` searches
+ * last, `.node_modules` and `.node_libraries`, where a module a pi
+ * process reaches for and doesn't ship, such as ws's optional
+ * `bufferutil`, would be loaded from outside the fence (04TNWT, 19
+ * November).
  *
  * The home folder itself is read-only too, with every other hidden
  * entry in it bound back writable, since a dotfile is often a link into
@@ -86,6 +92,8 @@ export const READ_ONLY = [
 	".local/state/tec/toolchain",
 	".local/state/pi",
 	".pi/agent",
+	".node_modules",
+	".node_libraries",
 ] as const;
 
 /**
