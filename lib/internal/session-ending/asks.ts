@@ -691,18 +691,25 @@ const TRY =
 const ACT_WORDS =
 	"re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|shut(?:s|ting)?\\s*down|shutdown|shut(?:s|ting)?|power(?:s|ed|ing)?\\s*(?:off|down)|power-?cycle|turn(?:s|ed|ing)?\\s+off|log(?:s|ged|ging)?[\\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\\s-]*out|switch(?:es|ed|ing)?\\s+(?:the\\s+)?users?";
 
+/** Words that turn an act down. */
+const DECLINE =
+	"(?:skip|no|not|don't|do\\s+not|never|avoid|cancel|postpone|defer|delay|hold\\s+off(?:\\s+on)?|without)";
+
+/** The act a decline turns down: the act itself, or after a determiner. */
+const DECLINED_ACT = `(?:(?:the|a|an|any|another|this|that|tonight's|today's|your|my|our)\\s+)?(?:${ACT_WORDS})\\b`;
+
 /**
  * A label that turns the act down rather than picking it: "Skip the
  * reboot", "No restart tonight", "Hold off on the restart". The act
- * has to be what is turned down, within three words and with no comma,
- * dash, "and", "then" or "but" between, so "Cancel the backup and
- * reboot" and "No, reboot now" still ask; and a decline of a decline
- * ("Don't forget to log out", "Don't skip the reboot") asks for it. Only
- * the act turned down is passed over: "Don't reboot, just log out" asks
- * for the log-out.
+ * has to be what is turned down, next to the decline or after a
+ * determiner, so "Cancel the backup and reboot", "No, reboot now",
+ * "Don't hesitate to reboot" and "Don't skip the reboot" still ask. A
+ * decline carries across "or" and "and" ("Don't reboot or log out"),
+ * and only the acts turned down are passed over: "Don't reboot, just
+ * log out" asks for the log-out.
  */
 const DECLINED = new RegExp(
-	`^(?:skip|no|not|don't|do\\s+not|never|avoid|cancel|postpone|defer|delay|hold\\s+off(?:\\s+on)?|without)\\s+(?!(?:forget|skip|miss|neglect|ignore|wait|delay|postpone|defer|put\\s+off|hold\\s+off|avoid|cancel)\\b)(?:(?!(?:and|then|but)\\b)[\\w'][\\w'-]*\\s+){0,3}?(?:${ACT_WORDS})\\b`,
+	`^${DECLINE}\\s+${DECLINED_ACT}(?:\\s*,?\\s+(?:or|nor|and)\\s+(?:${DECLINE}\\s+)?${DECLINED_ACT})*`,
 );
 
 /**
@@ -740,7 +747,7 @@ const GAP = `(?:(?!${AGAINST})[\\w'-]+,?\\s+){0,4}?`;
  * "isn't it time to", "nothing needs", "doesn't seem to need".
  */
 const NOT_BEFORE =
-	"(?<!\\b(?:not|never|no|nothing|nobody|none)\\s+(?:[\\w']+\\s+){0,2}|n't\\s+(?:[\\w']+\\s+){0,2})";
+	"(?<!\\b(?:not|never|no|nothing|nobody|none)\\s+(?:(?!(?:but|and|so|then|yet)\\b)[\\w']+\\s+){0,2}|n't\\s+(?:(?!(?:but|and|so|then|yet)\\b)[\\w']+\\s+){0,2})";
 
 /**
  * A request, then the act as the verb it governs; or a button or menu
@@ -770,17 +777,21 @@ const SUBJECT =
 
 /** A word that, after a clause's first, makes that first its subject. */
 const MODAL =
-	/^(?:will|would|can|could|may|might|should|must|is|are|was|were|has|have|had|does|did)$/;
+	/^(?:will|would|can|could|may|might|should|must|is|are|was|were|has|have|had|does|did|won't|wouldn't|can't|cannot|couldn't|shouldn't|mustn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|doesn't|didn't|and|or)$/;
+
+/** What "you" says before a step it is told to take: "you can pair". */
+const YOURS_TO_DO = /^(?:can|could|should|must|need|may|might|ought|have)$/;
 
 /** A verb ending in -s, as a clause's after its subject. */
-const SAYS = /^[\w-]*[^s\W]s$/;
+const SAYS =
+	/^(?!(?:this|its|his|hers|ours|yours|theirs|us|thus|plus|yes|always|perhaps|across|less|unless|besides|sometimes|whereas|afterwards|towards)$)[\w-]*[^s\W]s$/;
 
 /** A contraction that ends a subject: "they'll", "it's", "pi's". */
 const SUBJECT_CONTRACTED = /^(?!let's$)[\w-]+'(?:ll|d|re|ve|m|s)$/;
 
 /** Words that open a step, whatever follows them. */
 const STEP =
-	/^(?:please|don't|let's|open|reopen|close|quit|pair|re-?pair|check|run|rerun|type|press|click|tap|hit|sign|log|plug|unplug|insert|select|choose|pick|enter|go|come|wait|tell|say|ping|message|start|launch|confirm|verify|test|use|connect|try|set|turn|unlock|make|look|see|switch)$/;
+	/^(?:please|don't|let's|open|reopen|close|quit|pair|re-?pair|check|run|rerun|type|press|click|tap|hit|sign|log|plug|unplug|insert|select|choose|pick|enter|go|come|wait|tell|say|ping|message|start|launch|confirm|verify|test|use|connect|try|set|turn|unlock|make|look|see|switch|hold|keep|leave|put|move|update|upgrade|install|uninstall|reinstall|remove|reset|rebuild|build|pull|push|sync|fetch|restore|save|kill|stop|resume|rejoin|join|enable|disable|add|delete|mount|unmount|charge|copy|paste|edit|change|write|read|scan|apply|accept|approve|allow|grant|give|take|grab|wake|lock|disconnect|reconnect|unpair|find|follow|mark|note|call|answer|reply|refresh|reload|relaunch|return|bring|drag|drop|swipe|scroll|dismiss|remember)$/;
 
 /**
  * Whether a sentence asks for an act before a step after it. What
@@ -795,6 +806,7 @@ function doneFirstNow(plain: string, words: string): boolean {
 		const [, next, after = ""] = DONE_FIRST_NOW.exec(opening) ?? [];
 		if (next === undefined) return false;
 		if (STEP.test(next)) return true;
+		if (next === "you" && YOURS_TO_DO.test(after)) return true;
 		const clause =
 			SUBJECT_CONTRACTED.test(next) || MODAL.test(after) || SAYS.test(after);
 		return !clause && !SUBJECT.test(next) && !machine.test(next);

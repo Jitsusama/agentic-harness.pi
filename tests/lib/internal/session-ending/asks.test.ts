@@ -426,6 +426,7 @@ describe("an ask said as a hedge or a suggestion", () => {
 		["Could we reboot optimus after the run?", "reboot"],
 		["We should reboot optimus once it lands.", "reboot"],
 		["So we should reboot optimus.", "reboot"],
+		["There's no rush but please reboot optimus.", "reboot"],
 		["The kernel's in, so we should reboot optimus.", "reboot"],
 		["Feel free to reboot optimus tonight.", "reboot"],
 		["Let me know once you log out of macOS on equilibrius.", "log out"],
@@ -434,6 +435,9 @@ describe("an ask said as a hedge or a suggestion", () => {
 		["Once you log out, open settings and pair the card.", "log out"],
 		["Once you log out, don't forget to pair the card.", "log out"],
 		["Once you log out, let's pair the card.", "log out"],
+		["Once you log out, you can pair the card.", "log out"],
+		["Once you log out, hold this key.", "log out"],
+		["When you reboot, update packages.", "reboot"],
 	])("%s asks", (text, act) => {
 		expect(acts(text)).toEqual([act]);
 	});
@@ -449,6 +453,8 @@ describe("an ask said as a hedge or a suggestion", () => {
 		"When you reboot, niri picks them up again.",
 		"When you log out, pi resumes where it was.",
 		"When you log out, pi exits.",
+		"When you reboot, pi won't come back.",
+		"When you reboot, niri and waybar restart.",
 	])("%s only says what would follow one", (text) => {
 		expect(acts(text)).toEqual([]);
 	});
@@ -498,6 +504,8 @@ describe("a label of the fifth round's shapes", () => {
 		"Postpone the reboot",
 		"Hold off on the restart",
 		"Without a reboot",
+		"Don't reboot or log out",
+		"No reboot and no log-out",
 	])("%s asks nothing", (text) => {
 		expect(asksInLabel(text, MACHINES)).toEqual([]);
 	});
@@ -516,6 +524,10 @@ describe("a label of the fifth round's shapes", () => {
 		["Never skip the reboot", "reboot"],
 		["Don't reboot, just log out", "log out"],
 		["No reboot \u2014 log out instead", "log out"],
+		["Don't ever forget to log out", "log out"],
+		["No skipping the reboot", "reboot"],
+		["Cancel the backup to reboot now", "reboot"],
+		["Don't hesitate to reboot equilibrius", "reboot"],
 	])("%s still asks, since what it turns down isn't the act", (text, act) => {
 		expect(asksInLabel(text, MACHINES).map((a) => a.act)).toEqual([act]);
 	});
