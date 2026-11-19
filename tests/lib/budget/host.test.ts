@@ -288,7 +288,7 @@ describe("the budget a folder's work draws on", () => {
 		});
 	});
 
-	it("keeps a provider whose budgetFor isn't a function for its names, and asks it about no folder", async () => {
+	it("keeps a provider whose budgetFor isn't a function for its names, and takes no folder's budget from it", async () => {
 		const events = bus();
 		const host = hostBudgets(events);
 
@@ -332,7 +332,9 @@ describe("the budget a folder's work draws on", () => {
 		process.on("unhandledRejection", catchLeak);
 		try {
 			const events = bus();
-			const host = hostBudgets(events, 20);
+			// Longer than the late failure takes, so the failure isn't
+			// soaked up by a deadline that has already won its race.
+			const host = hostBudgets(events, 1_000);
 			registerBudgetProvider(events, {
 				...provider("throws-at-once", 0, {}),
 				budgetFor: () => {
@@ -359,7 +361,7 @@ describe("the budget a folder's work draws on", () => {
 				name: "delta",
 				provider: "names",
 			});
-			// Past the deadline and the late failure, for a leak to surface.
+			// Past the late failure, for a leak to surface.
 			await new Promise((settle) => setTimeout(settle, 100));
 			expect(leaked).toEqual([]);
 		} finally {

@@ -31,9 +31,11 @@ import { createEnvGuard } from "../_helpers.ts";
 
 // The launcher is asked through `qs` on PATH, so a stand-in `qs` writes
 // down what it was asked and answers what the test tells it to. Asked
-// whether the lock is up, it says what QS_LOCKED says, else no.
+// whether the lock is up, it says what QS_LOCKED says, else no. Told a
+// README in QS_README, it keeps a copy of it as it stood at hand-off.
 const FAKE_QS = `#!/bin/sh
 if [ "$3" = lock ]; then printf '%s\\n' "\${QS_LOCKED:-false}"; exit 0; fi
+if [ -n "$QS_README" ]; then cp "$QS_README" "$QS_ASKED.readme"; fi
 printf '%s\\n' "$@" > "$QS_ASKED"
 printf '%s\\n' "$QS_SAYS"
 `;
@@ -48,6 +50,7 @@ const KEPT = [
 	"QS_ASKED",
 	"QS_SAYS",
 	"QS_LOCKED",
+	"QS_README",
 	"PI_SESSIONS_KITTY",
 	"XDG_RUNTIME_DIR",
 ];
@@ -705,6 +708,7 @@ describe("a spawn where a budget's work is", () => {
 	it("names the budget before the session starts, and opens by saying so", async () => {
 		const { state, id } = await quest();
 		placeDelta(state);
+		process.env.QS_README = join(state.questsRoot, id, "README.md");
 
 		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
 			action: "spawn",
@@ -712,10 +716,8 @@ describe("a spawn where a budget's work is", () => {
 		});
 		if (!result.ok) throw new Error(result.guidance);
 
-		const readme = readFileSync(
-			join(state.questsRoot, id, "README.md"),
-			"utf8",
-		);
+		// The README as the launcher found it, when the session was handed on.
+		const readme = readFileSync(`${process.env.QS_ASKED}.readme`, "utf8");
 		expect(parseQuestFrontMatter(readme)?.frontMatter._extra?.budget).toBe(
 			"delta",
 		);

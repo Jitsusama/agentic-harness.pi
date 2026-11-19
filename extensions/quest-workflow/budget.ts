@@ -197,15 +197,18 @@ function recordDrawn(
 	pi.appendEntry(BUDGET_ENTRY, record);
 }
 
-/** Why a budget could not be drawn on, in words for the person. */
+/**
+ * Why a budget could not be drawn on, in words for the person. Provider
+ * ids are quoted, so an id can't add a line of its own.
+ */
 export function undrawable(
 	name: string,
 	drawing: Exclude<BudgetDrawing, { kind: "drawn" }>,
 ): string {
 	if (drawing.kind === "unavailable") {
-		return `Budget ${name} can't be drawn on yet (${drawing.provider}): ${drawing.reason} Model calls use the session's default until then.`;
+		return `Budget ${name} can't be drawn on yet (${JSON.stringify(drawing.provider)}): ${drawing.reason} Model calls use the session's default until then.`;
 	}
 	return drawing.asked.length === 0
 		? `No budget provider is installed, so budget ${name} means nothing yet; model calls use the session's default.`
-		: `No budget provider knows ${name} (asked ${drawing.asked.join(", ")}), so model calls use the session's default.`;
+		: `No budget provider knows ${name} (asked ${drawing.asked.map((id) => JSON.stringify(id)).join(", ")}), so model calls use the session's default.`;
 }
