@@ -24,7 +24,7 @@
  * attention it gives.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { isRecord } from "../internal/record.ts";
@@ -263,14 +263,35 @@ function mainCheckoutName(checkout: string): string {
 		: basename(common).replace(/\.git$/, "");
 }
 
-/** The URL of a checkout's origin remote, read from git's own config. */
+/** An origin read from a git config, with the config's stamp when it was read. */
+interface ReadOrigin {
+	readonly stamp: string;
+	readonly url: string | undefined;
+}
+
+/** Origins already read, by config file. */
+const origins = new Map<string, ReadOrigin>();
+
+/**
+ * The URL of a checkout's origin remote, read from git's own config, and
+ * read again only once that config's time or size moves. Every presence
+ * publish asks this of each held tree, and core.nix's config is half a
+ * megabyte of branch sections, about 5 ms a read: rereading it each time
+ * held the host's loop busy (19 November).
+ */
 function originUrl(checkout: string): string | undefined {
 	try {
-		const config = readFileSync(join(commonGitDir(checkout), "config"), "utf8");
-		const origin = config
+		const file = join(commonGitDir(checkout), "config");
+		const { mtimeMs, size } = statSync(file);
+		const stamp = `${mtimeMs}:${size}`;
+		const known = origins.get(file);
+		if (known?.stamp === stamp) return known.url;
+		const origin = readFileSync(file, "utf8")
 			.split(/^\[/m)
 			.find((section) => section.startsWith('remote "origin"]'));
-		return origin?.match(/^\s*url\s*=\s*(\S+)\s*$/m)?.[1];
+		const url = origin?.match(/^\s*url\s*=\s*(\S+)\s*$/m)?.[1];
+		origins.set(file, { stamp, url });
+		return url;
 	} catch {
 		return undefined;
 	}
