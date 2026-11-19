@@ -4,8 +4,14 @@
  * when it can't say; anything else goes as it was.
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { sessionEndingInterceptor } from "../../../extensions/session-ending-interceptor/index.ts";
+import {
+	nodeDeps,
+	sessionEndingInterceptor,
+} from "../../../extensions/session-ending-interceptor/index.ts";
 import { setSessionMode } from "../../../lib/guardian/policy.ts";
 import type { NodeSession } from "../../../lib/mesh/node.ts";
 import { type FakePi, fakePi } from "../../support/fake-pi.ts";
@@ -21,6 +27,7 @@ const someoneOn = (machine: string, state: NodeSession["state"] = "idle") => [
 ];
 
 let node: NodeSession[] | undefined;
+let listed: string[] | undefined;
 let asked: number;
 let onMesh: boolean;
 let pi: FakePi;
@@ -28,6 +35,7 @@ let sentWith: unknown[];
 
 beforeEach(() => {
 	node = someoneOn("equilibrius");
+	listed = undefined;
 	asked = 0;
 	onMesh = true;
 	sentWith = [];
@@ -44,6 +52,7 @@ beforeEach(() => {
 			asked++;
 			return node;
 		},
+		machines: async () => listed,
 		here: () => "optimus",
 	})(pi);
 });
@@ -137,6 +146,29 @@ describe("an ask tool call", () => {
 		expect(asked).toBe(0);
 	});
 
+	it("goes ahead for a machine the realm lists that no one is on", async () => {
+		listed = ["optimus", "equilibrius", "penelope"];
+		const verdict = await call("ask", {
+			questions: [{ id: "q", prompt: "Please reboot penelope.", options: [] }],
+		});
+
+		expect(verdict).toBeUndefined();
+	});
+
+	it("goes ahead, under redirect, when asked again after a session's state moved", async () => {
+		setSessionMode(GUARD, "redirect");
+		const input = {
+			questions: [
+				{ id: "q", prompt: "Please reboot equilibrius.", options: [] },
+			],
+		};
+		expect(await call("ask", input)).toMatchObject({ block: true });
+
+		node = someoneOn("equilibrius", "busy");
+
+		expect(await call("ask", input)).toBeUndefined();
+	});
+
 	it("goes ahead where no realm is named, so there is no node to ask", async () => {
 		onMesh = false;
 		const verdict = await call("ask", {
@@ -178,15 +210,62 @@ describe("a mesh_wait call", () => {
 		).toMatchObject({ block: true });
 	});
 
-	it("goes ahead for a boot on a machine nobody else is on", async () => {
-		node = someoneOn("equilibrius", "ended");
-
+	it("is refused when its title names the act as a noun", async () => {
 		expect(
 			await call("mesh_wait", {
 				id: "w",
-				title: "Take the new kernel",
+				title: "Equilibrius log-out to pair the card",
+			}),
+		).toMatchObject({ block: true });
+	});
+
+	it("is refused when a step is a menu path to the act", async () => {
+		expect(
+			await call("mesh_wait", {
+				id: "w",
+				title: "Pair the card",
 				machine: "equilibrius",
-				doneWhen: { signal: "boot" },
+				steps: ["Apple menu \u2192 Log Out", "Pair at the login window"],
+			}),
+		).toMatchObject({ block: true });
+	});
+
+	it("is refused when the check it is done by ends sessions", async () => {
+		expect(
+			await call("mesh_wait", {
+				id: "w",
+				title: "Pair the card",
+				doneWhen: { check: "loginctl terminate-user $USER" },
+			}),
+		).toMatchObject({ block: true });
+	});
+
+	it("goes ahead for a step or a boot on a machine nobody else is on, though others are elsewhere", async () => {
+		node = someoneOn("optimus");
+		listed = ["optimus", "equilibrius"];
+		const wait = {
+			id: "w",
+			title: "Take the new kernel",
+			machine: "equilibrius",
+		};
+
+		expect(
+			await call("mesh_wait", {
+				...wait,
+				steps: ["Save your work", "Restart"],
+			}),
+		).toBeUndefined();
+		expect(
+			await call("mesh_wait", { ...wait, doneWhen: { signal: "boot" } }),
+		).toBeUndefined();
+	});
+
+	it("goes ahead when it settles an item, whatever its title", async () => {
+		expect(
+			await call("mesh_wait", {
+				id: "kernel",
+				title: "Reboot equilibrius",
+				done: true,
 			}),
 		).toBeUndefined();
 	});
@@ -280,8 +359,10 @@ describe("a reply", () => {
 
 	it("tells the model once a run, however many replies are withheld in it", async () => {
 		await reply(text("Please reboot equilibrius."));
-		await reply(text("Then reboot equilibrius, please."));
+		const again = await reply(text("Then reboot equilibrius, please."));
 		expect(pi.recorded.sent).toHaveLength(1);
+		expect(JSON.stringify(again)).toContain("(Withheld:");
+		expect(JSON.stringify(again)).not.toContain("The reason follows");
 
 		await settle();
 		await reply(text("Reboot equilibrius now."));
@@ -294,23 +375,32 @@ describe("a reply", () => {
 		expect(sentWith).toEqual([{ deliverAs: "followUp" }]);
 	});
 
-	it("is withheld without a word to the model when it was stopped", async () => {
-		const answer = await replyStopping(
-			"aborted",
-			text("Please reboot equilibrius."),
-		);
+	it.each(["aborted", "error"])(
+		"is withheld without a word to the model when it ended %s",
+		async (stopReason) => {
+			const answer = await replyStopping(
+				stopReason,
+				text("Please reboot equilibrius."),
+			);
 
-		expect(answer).toBeDefined();
-		expect(pi.recorded.sent).toEqual([]);
-	});
+			expect(JSON.stringify(answer)).toContain("(Withheld:");
+			expect(JSON.stringify(answer)).not.toContain("The reason follows");
+			expect(pi.recorded.sent).toEqual([]);
+		},
+	);
 
-	it("says, when the guard redirects, that the reply may be said again", async () => {
+	it("goes through, when the guard redirects, once the ask is said again after a session's state moved", async () => {
 		setSessionMode(GUARD, "redirect");
-		await reply(text("Please reboot equilibrius."));
-
+		expect(await reply(text("Please reboot equilibrius."))).toBeDefined();
 		const said = JSON.stringify(pi.recorded.sent);
-		expect(said).toContain("say it again, unchanged");
+		expect(said).toContain("ask it again");
 		expect(said).not.toContain("make the same call again");
+
+		node = someoneOn("equilibrius", "busy");
+
+		expect(
+			await reply(text("As I said: please reboot equilibrius.")),
+		).toBeUndefined();
 	});
 
 	it("is withheld when the node can't be read", async () => {
@@ -336,6 +426,12 @@ describe("a reply", () => {
 		).toBeUndefined();
 	});
 
+	it("says in its place that the reason follows, when it does", async () => {
+		const answer = await reply(text("Please reboot equilibrius."));
+
+		expect(JSON.stringify(answer)).toContain("The reason follows");
+	});
+
 	it("leaves the person's and the tools' messages alone", async () => {
 		const answer = await handler("message_end")(
 			{
@@ -346,5 +442,30 @@ describe("a reply", () => {
 		);
 
 		expect(answer).toBeUndefined();
+	});
+});
+
+describe("the node the interceptor reads by default", () => {
+	const empty = () => mkdtempSync(join(tmpdir(), "session-ending-"));
+
+	it("is on the mesh where a realm is named, though no runtime folder says where its socket is", async () => {
+		const state = empty();
+		try {
+			const deps = nodeDeps({ MYCELIUM_REALM: "work", XDG_STATE_HOME: state });
+
+			expect(deps.onMesh()).toBe(true);
+			expect(await deps.sessions()).toBeUndefined();
+		} finally {
+			rmSync(state, { recursive: true, force: true });
+		}
+	});
+
+	it("is off the mesh where no realm is named", () => {
+		const state = empty();
+		try {
+			expect(nodeDeps({ XDG_STATE_HOME: state }).onMesh()).toBe(false);
+		} finally {
+			rmSync(state, { recursive: true, force: true });
+		}
 	});
 });

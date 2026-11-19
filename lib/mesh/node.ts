@@ -788,6 +788,38 @@ function answerId(line: string): unknown {
 	}
 }
 
+/**
+ * Every machine the node's realm holds, by name, whether or not any
+ * session is on it; nothing when no node answers.
+ */
+export async function machineNamesAt(
+	socket: string | undefined,
+	patience: number = NODE_PATIENCE_MS,
+): Promise<string[] | undefined> {
+	const line = await askAt(socket, "Machines", patience);
+	return line === undefined ? undefined : machineNamesFrom(line);
+}
+
+/**
+ * The machines a node's `Machines` answer names, or nothing for an
+ * answer naming none, so a refusal is no answer rather than no machine.
+ */
+export function machineNamesFrom(line: string): string[] | undefined {
+	let reply: unknown;
+	try {
+		reply = JSON.parse(line);
+	} catch {
+		// Not an answer this reader knows: it names no machine.
+		return undefined;
+	}
+	const machines =
+		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Machines : undefined;
+	if (!Array.isArray(machines)) return undefined;
+	return machines.flatMap((machine: unknown) =>
+		isRecord(machine) && typeof machine.name === "string" ? [machine.name] : [],
+	);
+}
+
 /** The socket the machine's node serves, or nothing when no realm is named. */
 export function nodeSocket(
 	env: NodeJS.ProcessEnv = process.env,

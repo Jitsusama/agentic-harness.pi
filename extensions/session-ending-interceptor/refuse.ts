@@ -6,6 +6,7 @@
 
 import { isRecord } from "../../lib/internal/record.ts";
 import {
+	asksInCommand,
 	asksInLabel,
 	asksInProse,
 	mayAsk,
@@ -13,6 +14,7 @@ import {
 } from "../../lib/internal/session-ending/asks.ts";
 import {
 	machinesKnown,
+	type Refusal,
 	refusalOf,
 } from "../../lib/internal/session-ending/judge.ts";
 import type { NodeSession } from "../../lib/mesh/node.ts";
@@ -27,17 +29,24 @@ export interface SessionEndingDeps {
 	readonly onMesh: () => boolean;
 	/** Every session the node holds, or nothing when it can't be read. */
 	readonly sessions: () => Promise<readonly NodeSession[] | undefined>;
+	/**
+	 * Every machine the realm holds, sessions on it or not, so an ask of
+	 * an empty one reads as naming it; nothing when the node can't say.
+	 */
+	readonly machines: () => Promise<readonly string[] | undefined>;
 	/** This machine's name, for an ask read while the node can't be. */
 	readonly here: () => string;
 }
 
 /**
  * What a call or reply says to the person: prose, read for the form of
- * an ask, and labels, which are the ask itself.
+ * an ask; labels, which are the ask itself; and commands that will run
+ * for them, which end sessions as surely as one they type.
  */
 export interface Said {
 	readonly prose: readonly string[];
 	readonly labels: readonly string[];
+	readonly commands?: readonly string[];
 }
 
 const NOTHING: Said = { prose: [], labels: [] };
@@ -81,23 +90,30 @@ export function saidByLook(input: unknown): Said {
 }
 
 /**
- * What a `mesh_wait` says waits on the person: its title, why, when and
- * steps as prose, each step on the machine it names; and, when it is
- * done at the next boot, a reboot of that machine as the ask itself.
+ * What a `mesh_wait` says waits on the person. Its title and steps are
+ * what they are to do, so the ask itself, each on the machine the wait
+ * names; its why and when are prose. When it is done at the next boot,
+ * a reboot of that machine is asked too, and the checks it is done or
+ * ready by are commands run for the person. Settling an item asks
+ * nothing, whatever its title.
  */
 export function saidByWait(input: unknown): Said {
-	if (!isRecord(input)) return NOTHING;
+	if (!isRecord(input) || input.done === true) return NOTHING;
 	const machine = typeof input.machine === "string" ? input.machine : "";
 	const on = machine ? ` on ${machine}` : "";
 	const steps = Array.isArray(input.steps) ? texts(input.steps) : [];
 	const atBoot = isRecord(input.doneWhen) && input.doneWhen.signal === "boot";
-	const title = typeof input.title === "string" ? `: ${input.title}` : "";
+	const checks = [input.doneWhen, input.readyWhen].map((when) =>
+		isRecord(when) ? when.check : undefined,
+	);
 	return {
-		prose: [
-			...texts([input.title, input.why, input.when]),
-			...steps.map((step) => `${step.replace(/[.!?\s]+$/, "")}${on}.`),
+		prose: texts([input.why, input.when]),
+		labels: [
+			...texts([input.title]).map((title) => `${title}${on}`),
+			...steps.map((step) => `${step.replace(/[.!?\s]+$/, "")}${on}`),
+			...(atBoot ? [`Reboot${on}`] : []),
 		],
-		labels: atBoot ? [`Reboot${on}${title}`] : [],
+		commands: texts(checks),
 	};
 }
 
@@ -120,14 +136,19 @@ export async function refusalFor(
 	said: Said,
 	self: string | undefined,
 	deps: SessionEndingDeps,
-): Promise<string | undefined> {
-	const all = [...said.prose, ...said.labels];
+): Promise<Refusal | undefined> {
+	const commands = said.commands ?? [];
+	const all = [...said.prose, ...said.labels, ...commands];
 	if (!all.some(mayAsk) || !deps.onMesh()) return undefined;
-	const sessions = await deps.sessions();
-	const machines = machinesKnown(sessions, deps.here());
+	const [sessions, listed] = await Promise.all([
+		deps.sessions(),
+		deps.machines(),
+	]);
+	const machines = machinesKnown(sessions, listed, deps.here());
 	const asks: SessionEndingAsk[] = [
 		...said.prose.flatMap((text) => asksInProse(text, machines)),
 		...said.labels.flatMap((text) => asksInLabel(text, machines)),
+		...commands.flatMap((line) => asksInCommand(line, machines)),
 	];
 	return refusalOf(asks, sessions, self);
 }

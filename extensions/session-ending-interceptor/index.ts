@@ -9,9 +9,12 @@
  * the machine's mycelium node says any session other than the asker's
  * is there in any state but ended, and refused when the node can't be
  * read, under the no-session-ending-ask-while-live guard. So is a
- * `mesh_wait` putting one on the person's list. Where no realm is named,
- * as for a consumer without mycelium, there is no node and nothing is
- * refused.
+ * `mesh_wait` putting one on the person's list, or done by a check that
+ * ends sessions. Where no realm is named, as for a consumer without
+ * mycelium, there is no node and nothing is refused; where one is named
+ * and its node can't be found, that is a node that can't be read.
+ * Under redirect, the same ask made again goes through, however the
+ * sessions it would end have moved between busy and idle since.
  *
  * A call is refused before it runs. A reply has already streamed by the
  * time pi finalizes it, so its text is replaced there, which pi shows
@@ -30,7 +33,12 @@ import { OVERRIDE_HINT } from "../../lib/guardian/report.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { isRecord } from "../../lib/internal/record.ts";
-import { nodeSessionsAt, nodeSocket } from "../../lib/mesh/node.ts";
+import {
+	machineNamesAt,
+	nodeSessionsAt,
+	nodeSocket,
+	realmOf,
+} from "../../lib/mesh/node.ts";
 import {
 	refusalFor,
 	type Said,
@@ -48,13 +56,20 @@ const GUARD = GUARDS.noSessionEndingAskWhileLive;
 /** What the refusal of a reply is sent as, after the withheld reply. */
 export const WITHHELD_MESSAGE = "session-ending-withheld";
 
-/** What stands in a withheld reply's place. */
-const WITHHELD =
+/** What stands in a withheld reply's place, when the model is told why. */
+const WITHHELD_TOLD =
 	"(Withheld: this asked the person to end a machine's sessions. The reason follows.)";
 
-/** How a redirected reply's refusal says it may go through as it was. */
+/** What stands in its place when it isn't: stopped, or told already. */
+const WITHHELD =
+	"(Withheld: this asked the person to end a machine's sessions.)";
+
+/**
+ * How a redirected reply's refusal says it may go through: the model no
+ * longer has the withheld text, so the same ask, not the same words.
+ */
 const REPLY_OVERRIDE_HINT =
-	"If this is right as it is, say it again, unchanged, and it will go through as a recorded override.";
+	"If this is right as it is, ask it again and it will go through as a recorded override.";
 
 /** What reads the tool calls that say something to the person. */
 const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
@@ -88,11 +103,23 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	};
 }
 
-export default sessionEndingInterceptor({
-	onMesh: () => nodeSocket() !== undefined,
-	sessions: () => nodeSessionsAt(nodeSocket()),
-	here: () => thisMachine(),
-});
+/**
+ * The machine's own node, for the realm `env` names. A realm named with
+ * no runtime folder to find its socket in is still on the mesh, so its
+ * node reads as one that can't be.
+ */
+export function nodeDeps(
+	env: NodeJS.ProcessEnv = process.env,
+): SessionEndingDeps {
+	return {
+		onMesh: () => realmOf(env) !== undefined,
+		sessions: () => nodeSessionsAt(nodeSocket(env)),
+		machines: () => machineNamesAt(nodeSocket(env)),
+		here: () => thisMachine(),
+	};
+}
+
+export default sessionEndingInterceptor(nodeDeps());
 
 async function refuseCall(
 	toolName: string,
@@ -102,19 +129,22 @@ async function refuseCall(
 ) {
 	const read = READERS[toolName];
 	if (!read) return undefined;
-	const reason = await refusalFor(read(input), selfOf(ctx), deps);
-	if (!reason) return undefined;
+	const refusal = await refusalFor(read(input), selfOf(ctx), deps);
+	if (!refusal) return undefined;
 	return refusalUnder(
 		GUARD.name,
-		{ block: true, reason },
+		{ block: true, reason: refusal.reason },
 		"An ask to end a machine's sessions",
 		JSON.stringify(input),
+		refusal.key,
 	);
 }
 
 /**
  * The reply with its text withheld, when it asks to end sessions the
- * node says are live; nothing, leaving it as it was, otherwise.
+ * node says are live; nothing, leaving it as it was, otherwise. Under
+ * redirect, the override is known by the ask alone, since the model
+ * can't say again words it no longer has.
  */
 async function withholdReply<M extends { role: string }>(
 	pi: ExtensionAPI,
@@ -125,19 +155,21 @@ async function withholdReply<M extends { role: string }>(
 ): Promise<{ message: M } | undefined> {
 	if (message.role !== "assistant" || !("content" in message)) return undefined;
 	const said = saidInReply(message.content);
-	const reason = await refusalFor(said, selfOf(ctx), deps);
-	if (!reason) return undefined;
+	const refusal = await refusalFor(said, selfOf(ctx), deps);
+	if (!refusal) return undefined;
 	const verdict = refusalUnder(
 		GUARD.name,
-		{ block: true, reason },
+		{ block: true, reason: refusal.reason },
 		"A reply asking to end a machine's sessions",
-		said.prose.join("\n"),
+		undefined,
+		refusal.key,
 	);
 	if (!verdict) return undefined;
 	const stopped =
 		"stopReason" in message &&
 		(message.stopReason === "aborted" || message.stopReason === "error");
-	if (!stopped && !told.thisRun) {
+	const telling = !stopped && !told.thisRun;
+	if (telling) {
 		told.thisRun = true;
 		const reason = verdict.reason.replace(OVERRIDE_HINT, REPLY_OVERRIDE_HINT);
 		pi.sendMessage(
@@ -149,18 +181,21 @@ async function withholdReply<M extends { role: string }>(
 			{ deliverAs: "followUp" },
 		);
 	}
-	return { message: { ...message, content: withheld(message.content) } };
+	const notice = telling ? WITHHELD_TOLD : WITHHELD;
+	return {
+		message: { ...message, content: withheld(message.content, notice) },
+	};
 }
 
 /** A reply's content with its text in one notice, the rest kept. */
-function withheld(content: unknown): unknown[] {
+function withheld(content: unknown, notice: string): unknown[] {
 	const blocks: unknown[] = Array.isArray(content) ? content : [];
 	let noted = false;
 	return blocks.flatMap((block) => {
 		if (!isRecord(block) || block.type !== "text") return [block];
 		if (noted) return [];
 		noted = true;
-		return [{ type: "text", text: WITHHELD }];
+		return [{ type: "text", text: notice }];
 	});
 }
 

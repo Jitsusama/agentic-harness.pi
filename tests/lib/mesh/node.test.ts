@@ -11,6 +11,8 @@ import {
 	agentsFrom,
 	heldWindowAt,
 	heldWindowFrom,
+	machineNamesAt,
+	machineNamesFrom,
 	nodeSessionsAt,
 	nodeSessionsFrom,
 	nodeSocket,
@@ -534,6 +536,32 @@ describe("what starts an agent session on each machine", () => {
 		});
 		expect([...agentsFrom(line)]).toEqual([["optimus", "pi-claude"]]);
 		expect(agentsFrom("not json").size).toBe(0);
+	});
+});
+
+describe("which machines the realm holds", () => {
+	it("is every machine the node names, sessions on it or not", async () => {
+		const socket = await serving((line) =>
+			line !== '"Machines"'
+				? undefined
+				: JSON.stringify({
+						Ok: {
+							Machines: [
+								{ name: "optimus", declared: null },
+								{ name: "penelope" },
+								{ declared: null },
+							],
+						},
+					}),
+		);
+
+		expect(await machineNamesAt(socket)).toEqual(["optimus", "penelope"]);
+	});
+
+	it("is nothing where no node answers, or its answer names none", async () => {
+		expect(await machineNamesAt(undefined)).toBeUndefined();
+		expect(machineNamesFrom("not json")).toBeUndefined();
+		expect(machineNamesFrom('{"Err":"no"}')).toBeUndefined();
 	});
 });
 

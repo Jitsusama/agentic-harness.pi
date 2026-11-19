@@ -304,6 +304,20 @@ describe("a refusal under the policy", () => {
 		).toBeDefined();
 	});
 
+	it("knows a call again by the key it is given, when its reason moves between tries", () => {
+		// A reason naming who is busy changes in seconds, while the call
+		// and what it was refused for stay the same.
+		setSessionMode("t-prose", "redirect");
+		const busy = { block: true as const, reason: "EWUL44 (busy) is there" };
+		const idle = { block: true as const, reason: "EWUL44 (idle) is there" };
+
+		refusalUnder("t-prose", busy, "Prose", "same", "reboot:optimus");
+
+		expect(
+			refusalUnder("t-prose", idle, "Prose", "same", "reboot:optimus"),
+		).toBeUndefined();
+	});
+
 	it("spends an override once, so the mistake made later is said again", () => {
 		setSessionMode("t-prose", "redirect");
 

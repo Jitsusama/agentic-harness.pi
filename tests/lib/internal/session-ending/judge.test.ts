@@ -8,11 +8,15 @@ import { describe, expect, it } from "vitest";
 import type { SessionEndingAsk } from "../../../../lib/internal/session-ending/asks.ts";
 import {
 	machinesKnown,
-	refusalOf,
+	refusalOf as refusal,
 } from "../../../../lib/internal/session-ending/judge.ts";
 import type { NodeSession } from "../../../../lib/mesh/node.ts";
 
 const SELF = "self-id";
+
+/** Why the asks are refused, or nothing when they aren't. */
+const refusalOf = (...args: Parameters<typeof refusal>) =>
+	refusal(...args)?.reason;
 
 const ask = (
 	act: SessionEndingAsk["act"],
@@ -141,6 +145,34 @@ describe("an ask naming no machine", () => {
 	});
 });
 
+describe("what a refusal is known again by", () => {
+	it("is the ask, not the states of the sessions it would end", () => {
+		const busy = refusal(
+			[ask("reboot", "optimus")],
+			[on("optimus", "busy", "LR3WMN")],
+			SELF,
+		);
+		const idle = refusal(
+			[ask("reboot", "optimus")],
+			[on("optimus", "idle", "LR3WMN"), on("optimus", "idle", "NEW001")],
+			SELF,
+		);
+
+		expect(busy?.reason).not.toEqual(idle?.reason);
+		expect(busy?.key).toEqual(idle?.key);
+	});
+
+	it("differs for another act or machine", () => {
+		const live = [on("optimus", "busy", "LR3WMN")];
+		const reboot = refusal([ask("reboot", "optimus")], live, SELF)?.key;
+
+		expect(refusal([ask("log out", "optimus")], live, SELF)?.key).not.toEqual(
+			reboot,
+		);
+		expect(refusal([ask("reboot")], live, SELF)?.key).not.toEqual(reboot);
+	});
+});
+
 describe("a node that can't be read", () => {
 	it("refuses, since nothing says who would be ended", () => {
 		expect(refusalOf([ask("log out", "equilibrius")], undefined, SELF)).toMatch(
@@ -160,9 +192,20 @@ describe("the machines an ask can name", () => {
 		expect(
 			machinesKnown(
 				[on("optimus", "busy", "A00001"), on("equilibrius", "idle", "B00001")],
+				undefined,
 				"optimus",
 			),
 		).toEqual(["optimus", "equilibrius"]);
-		expect(machinesKnown(undefined, "optimus")).toEqual(["optimus"]);
+		expect(machinesKnown(undefined, undefined, "optimus")).toEqual(["optimus"]);
+	});
+
+	it("include the realm's machines that no session is on", () => {
+		expect(
+			machinesKnown(
+				[on("optimus", "busy", "A00001")],
+				["optimus", "penelope"],
+				"optimus",
+			),
+		).toEqual(["optimus", "penelope"]);
 	});
 });

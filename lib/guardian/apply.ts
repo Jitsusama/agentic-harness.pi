@@ -57,13 +57,16 @@ function signature(guard: string, reason: string, subject = ""): string {
  * names what was refused in the report. The subject is the call itself,
  * such as the command, so that a changed call is a new one even when
  * the guard would say the same thing about it; without one the reason
- * stands for the call.
+ * stands for the call. The key, when given, stands for the reason in
+ * that, for a reason that names something moving between tries, as who
+ * is busy, so the same refusal is known again.
  */
 export function refusalUnder<R extends GuardianResult>(
 	guard: string,
 	verdict: R,
 	title: string,
 	subject?: string,
+	key?: string,
 ): R | undefined {
 	if (!verdict || !("block" in verdict)) return verdict;
 	const mode = guardMode(guard);
@@ -73,12 +76,12 @@ export function refusalUnder<R extends GuardianResult>(
 		return undefined;
 	}
 	const said = redirects();
-	const key = signature(guard, verdict.reason, subject);
-	if (said.delete(key)) {
+	const known = signature(guard, key ?? verdict.reason, subject);
+	if (said.delete(known)) {
 		reportGuard({ guard, kind: "overridden", title, body: verdict.reason });
 		return undefined;
 	}
-	said.add(key);
+	said.add(known);
 	if (said.size > REMEMBERED) {
 		const oldest = said.values().next().value;
 		if (oldest !== undefined) said.delete(oldest);

@@ -2,11 +2,12 @@
  * What reads as asking the person to end a machine's sessions: a log
  * out, a reboot, a restart or shutdown of a machine, or a switch of
  * users, said as an ask, and which machines it names. A mention of one
- * that already happened, or will, asks nothing.
+ * that already happened, or will, or a word against one, asks nothing.
  */
 
 import { describe, expect, it } from "vitest";
 import {
+	asksInCommand,
 	asksInLabel,
 	asksInProse,
 	mayAsk,
@@ -42,8 +43,52 @@ describe("a reply that asks", () => {
 		["Run `sudo reboot` on equilibrius.", "reboot"],
 		["Run `systemctl poweroff` there.", "shut down"],
 		["Restart on equilibrius.", "restart"],
+		["Once you've logged out, pair the card.", "log out"],
+		["Could you try signing out of macOS on equilibrius?", "log out"],
+		["To pair the card, log out of macOS on equilibrius.", "log out"],
+		["Let's reboot optimus.", "reboot"],
+		["Make sure you log out of macOS on equilibrius first.", "log out"],
+		["Don't forget to restart your laptop.", "restart"],
+		["Next steps: reboot optimus.", "reboot"],
+		["Last step: reboot optimus.", "reboot"],
+		["I'd suggest rebooting optimus.", "reboot"],
+		["I recommend a reboot of optimus.", "reboot"],
+		["Mic's dead again, so reboot optimus.", "reboot"],
+		["Mind rebooting optimus?", "reboot"],
+		["We'll need to reboot equilibrius.", "reboot"],
+		["Equilibrius needs to be rebooted.", "reboot"],
+		["Could you do a reboot of equilibrius?", "reboot"],
+		["Can you give equilibrius a restart?", "restart"],
+		["Do a reboot now.", "reboot"],
+		["Please restart the iMac.", "restart"],
+		["Log out of the current session.", "log out"],
+		["* [ ] Reboot optimus", "reboot"],
+		["> - Reboot optimus", "reboot"],
+		["\u2022 Reboot optimus", "reboot"],
+		["| Reboot optimus | tonight |", "reboot"],
+		["Please log\u2011out of macOS on equilibrius.", "log out"],
+		["You'll\nneed to log out of macOS.", "log out"],
+		["On equilibrius, run `sudo reboot`.", "reboot"],
+		["You can run `sudo reboot` there.", "reboot"],
+		["Choose Log Out from the Apple menu.", "log out"],
+		[
+			"- **If the BIOS waits:** log out and back in once after that update.",
+			"log out",
+		],
+		['Click "Restart" in the dialog.', "restart"],
+		["Try restarting.", "restart"],
 	])("%s", (text, act) => {
+		expect(mayAsk(text)).toBe(true);
 		expect(acts(text)).toEqual([act]);
+	});
+
+	it("reads a pronoun as the machine the sentence or the one before names", () => {
+		expect(
+			acts("Equilibrius has the new kernel. Could you restart it tonight?"),
+		).toEqual(["restart"]);
+		expect(acts("Shut it down when you're done with equilibrius.")).toEqual([
+			"shut down",
+		]);
 	});
 
 	it("names the machines its sentence names, and none when it names none", () => {
@@ -56,12 +101,24 @@ describe("a reply that asks", () => {
 		expect(named("Please reboot. Optimus is fine.")).toEqual([[]]);
 	});
 
+	it("names none when it also acts on a machine it doesn't name, so every one is checked", () => {
+		expect(named("Once equilibrius has finished, reboot your laptop.")).toEqual(
+			[[]],
+		);
+		expect(
+			named("Log out of macOS here, then check equilibrius picked it up."),
+		).toEqual([[]]);
+		expect(named("Once equilibrius is free, reboot this machine.")).toEqual([
+			[],
+		]);
+	});
+
 	it("reads a machine named in another case", () => {
 		expect(named("Reboot Optimus now.")).toEqual([["optimus"]]);
 	});
 });
 
-describe("a reply that only mentions one", () => {
+describe("a reply that only mentions one, or warns against one", () => {
 	it.each([
 		"A log-out on equilibrius ended five sessions.",
 		"After the next reboot, the launcher takes the new theme.",
@@ -78,6 +135,47 @@ describe("a reply that only mentions one", () => {
 		"Please reboot the router.",
 		"Restart the shell now.",
 		"The command `reboot` ended them.",
+		"Please don't reboot optimus while the runs finish.",
+		"You must not restart equilibrius yet.",
+		"Could you hold off on rebooting optimus until the run ends?",
+		"Please avoid logging out of macOS on equilibrius.",
+		"Could you check whether rebooting fixed the mic?",
+		"Can you tell me if restarting the machine helped?",
+		"Could you confirm logging out fixed the keyring?",
+		"You should not log out on equilibrius.",
+		"Edit the unit, then restart it.",
+		"Reboot didn't help either.",
+		"If you reboot, five sessions end.",
+		"Restart the dev server, then restart it again.",
+		"It's not safe to restart the machine yet.",
+		"It doesn't need a reboot.",
+	])("%s", (text) => {
+		expect(acts(text)).toEqual([]);
+	});
+});
+
+describe("a reply that talks about one, as the harness's replies do", () => {
+	// Each as a session here wrote it in the two days before 19 November.
+	it.each([
+		"- **Restart:** the background host hasn't restarted yet.",
+		"Reboot hold: optimus reboots in about 15 minutes.",
+		"Now restart.ts.",
+		"Now restart-carry, which restarts a host mid-run:",
+		"Once it merges, it needs one more restart.",
+		"The session needs restarting, or another session can pick up the steps above.",
+		"The hosts pick it up the next time they restart.",
+		"Try this after the restart: open several conversations at once.",
+		"A test can open both, list one in the stage folder, restart the host so both reload.",
+		"It refuses a call that asks Joel to log out, reboot, restart, shut down or switch users on a machine.",
+		"Reboot passed on staging-6.",
+		"First reboot forced onto the retry.",
+		"Nothing needs a reboot sooner.",
+		"A Mac key signs with the screen locked, but not once you've logged out.",
+		"- **Switch fix (branch fix-switch-signed-out-drop):** written.",
+		"Switch 1023 at 00:18 restarted both too.",
+		'Prose has to be worded as an ask, such as "Reboot optimus" or "needs a reboot".',
+		"Reboot and log-out are still caught and refused.",
+		"Arming is the double Return Joel prefers, the same one Log Out, Reboot and Release It use.",
 	])("%s", (text) => {
 		expect(acts(text)).toEqual([]);
 	});
@@ -89,12 +187,50 @@ describe("a command in fenced code", () => {
 		["```\n$ systemctl poweroff\n```", "shut down"],
 		["```\nloginctl terminate-user jitsusama\n```", "log out"],
 		["```\nniri msg action quit\n```", "log out"],
+		["````sh\nsudo reboot\n````", "reboot"],
+		["```shell-session\n$ sudo reboot\n```", "reboot"],
+		["Then:\n\n    sudo reboot\n", "reboot"],
+		["```sh\nsudo init 6\n```", "reboot"],
+		[
+			"```sh\nosascript -e 'tell app \"System Events\" to restart'\n```",
+			"reboot",
+		],
+		[
+			"```sh\nosascript -e 'tell app \"System Events\" to shut down'\n```",
+			"shut down",
+		],
+		["```sh\nsudo launchctl reboot\n```", "reboot"],
+		["```sh\nsudo fdesetup authrestart\n```", "reboot"],
+		["```sh\nsudo pkill -KILL -u joel\n```", "log out"],
+		["```sh\nkill -9 -1\n```", "log out"],
+		["```sh\nsudo systemctl restart display-manager\n```", "log out"],
+		["```sh\nswaymsg exit\n```", "log out"],
+		["```sh\nhyprctl dispatch exit\n```", "log out"],
+		["```sh\nsudo launchctl bootout user/501\n```", "log out"],
+		["```sh\nsudo -u root reboot\n```", "reboot"],
+		["```sh\nsleep 5 & sudo reboot\n```", "reboot"],
+		["```sh\nsh -c 'reboot'\n```", "reboot"],
+		["```sh\nnohup sudo reboot\n```", "reboot"],
+		["```sh\nenv FOO=1 sudo reboot\n```", "reboot"],
 	])("%s asks", (text, act) => {
+		expect(mayAsk(text)).toBe(true);
 		expect(acts(text)).toEqual([act]);
+	});
+
+	it("reads a fence of prose, or of no shell it knows, as prose too", () => {
+		expect(
+			acts("```markdown\n1. Log out of macOS on equilibrius\n```"),
+		).toEqual(["log out"]);
+		expect(
+			acts("```text\nPlease log out of macOS on equilibrius.\n```"),
+		).toEqual(["log out"]);
 	});
 
 	it("names the machine an ssh in front of it reaches", () => {
 		expect(named("```\nssh equilibrius sudo shutdown -r now\n```")).toEqual([
+			["equilibrius"],
+		]);
+		expect(named("```\nssh equilibrius -t sudo reboot\n```")).toEqual([
 			["equilibrius"],
 		]);
 	});
@@ -109,6 +245,17 @@ describe("a command in fenced code", () => {
 		expect(acts("```ts\nshutdown();\n```")).toEqual([]);
 	});
 
+	it("asks nothing of pasted output that only names one", () => {
+		expect(
+			acts(
+				"```\nreboot   system boot  6.6.1  Tue Nov 18 09:12   still running\nshutdown system down  6.6.1  Mon Nov 17 23:01\n```",
+			),
+		).toEqual([]);
+		expect(
+			acts("```console\n$ last -x reboot\nreboot   system boot  6.6.1\n```"),
+		).toEqual([]);
+	});
+
 	it("asks nothing for code that only names one", () => {
 		expect(acts("```ts\nconst reboot = false;\n```")).toEqual([]);
 	});
@@ -120,6 +267,15 @@ describe("a command in fenced code", () => {
 	});
 });
 
+describe("a command given on its own", () => {
+	it("asks when it ends sessions, and not otherwise", () => {
+		expect(
+			asksInCommand("loginctl terminate-user joel", MACHINES).map((a) => a.act),
+		).toEqual(["log out"]);
+		expect(asksInCommand("test -e /run/booted", MACHINES)).toEqual([]);
+	});
+});
+
 describe("a label, choice or title, which is the ask itself", () => {
 	it.each([
 		["Reboot now", "reboot"],
@@ -127,6 +283,11 @@ describe("a label, choice or title, which is the ask itself", () => {
 		["Restart now", "restart"],
 		["Shut down", "shut down"],
 		["Restart the laptop now", "restart"],
+		["Do a reboot now", "reboot"],
+		["Yes, a restart tonight", "restart"],
+		["Go with the reboot", "reboot"],
+		["Kernel reboot on equilibrius", "reboot"],
+		["Apple menu \u2192 Log Out", "log out"],
 	])("%s asks", (text, act) => {
 		expect(asksInLabel(text, MACHINES).map((a) => a.act)).toEqual([act]);
 	});
@@ -144,9 +305,14 @@ describe("a label, choice or title, which is the ask itself", () => {
 describe("the cheap first look", () => {
 	it("passes text with no act word in it without a closer read", () => {
 		expect(mayAsk("Landed #1824; nothing to try.")).toBe(false);
+		expect(mayAsk("PowerShell is powerful, and the shuttle is halting.")).toBe(
+			false,
+		);
 		expect(mayAsk("Please reboot.")).toBe(true);
 		expect(mayAsk("```\nloginctl terminate-session 3\n```")).toBe(true);
 		expect(mayAsk("```\nsystemctl kexec\n```")).toBe(true);
 		expect(mayAsk("```\npkill niri\n```")).toBe(true);
+		expect(mayAsk("Once you've logged out, say so.")).toBe(true);
+		expect(mayAsk("Then telinit 0.")).toBe(true);
 	});
 });
