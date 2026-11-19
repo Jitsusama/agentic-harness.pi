@@ -54,6 +54,22 @@ export interface BudgetHost extends BudgetHostApi {
 	 * on, and opting out stays the person's word on a quest.
 	 */
 	budgetFor(folder: string): Promise<FolderBudget | undefined>;
+	/**
+	 * Which budget `work` draws on, as the first provider, lowest
+	 * precedence first, that judges it says, and which it was. Asked at
+	 * once under the one deadline, as `budgetFor` is, though a longer
+	 * one, since a judgement waits on a model. One that fails, answers
+	 * late or names something that can't be a budget is passed over.
+	 */
+	budgetForWork(
+		work: WorkToBudget,
+		classify: Classify,
+	): Promise<WorkBudget | undefined>;
+}
+
+/** A provider's judgement of which budget some work draws on. */
+export interface WorkBudget extends WorkJudgement {
+	readonly provider: string;
 }
 
 /** The budget a provider says a folder's work draws on. */
@@ -69,6 +85,7 @@ export interface FolderBudget {
 export function hostBudgets(
 	bus: Pick<EventBus, "emit" | "on">,
 	deadlineMs: number = BUDGET_ANSWER_DEADLINE_MS,
+	judgeMs: number = BUDGET_JUDGEMENT_DEADLINE_MS,
 ): BudgetHost {
 	const providers = new Map<string, BudgetProvider>();
 	const listeners: (() => void)[] = [];
@@ -106,6 +123,19 @@ export function hostBudgets(
 			}
 			return undefined;
 		},
+		async budgetForWork(work, classify) {
+			const asking = ordered().filter(
+				(p) => typeof p.budgetForWork === "function",
+			);
+			const judged = asking.map((provider) =>
+				askWork(provider, work, classify, judgeMs),
+			);
+			for (const [at, provider] of asking.entries()) {
+				const judgement = await judged[at];
+				if (judgement) return { ...judgement, provider: provider.id };
+			}
+			return undefined;
+		},
 	};
 	bus.on(BUDGET_REGISTER_PROVIDER, (data: unknown) => {
 		if (isBudgetProvider(data)) host.registerProvider(data);
@@ -125,6 +155,57 @@ export function hostBudgets(
  * prompt must not hold them.
  */
 export const BUDGET_ANSWER_DEADLINE_MS = 5_000;
+
+/**
+ * How long a provider may take to judge work. A classifier answers in
+ * a few seconds and a create waits on it only once, when nothing else
+ * names its budget; past this, the quest is made unjudged.
+ */
+export const BUDGET_JUDGEMENT_DEADLINE_MS = 20_000;
+
+/** The most of a provider's why a line about it carries. */
+const LONGEST_WHY = 300;
+
+/**
+ * One provider's judgement of `work`, or undefined when it can't say,
+ * fails, names no budget's name, or doesn't within the deadline. Its
+ * why is made one line, since every line about it quotes it.
+ */
+async function askWork(
+	provider: BudgetProvider,
+	work: WorkToBudget,
+	classify: Classify,
+	deadlineMs: number,
+): Promise<WorkJudgement | undefined> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<undefined>((resolve) => {
+		timer = setTimeout(() => resolve(undefined), deadlineMs);
+	});
+	try {
+		const judged = await Promise.race([
+			provider.budgetForWork?.(work, classify),
+			late,
+		]);
+		if (
+			typeof judged !== "object" ||
+			judged === null ||
+			typeof judged.name !== "string" ||
+			!isBudgetName(judged.name)
+		) {
+			return undefined;
+		}
+		const why =
+			typeof judged.why === "string"
+				? judged.why.replace(/\s+/g, " ").trim().slice(0, LONGEST_WHY)
+				: "";
+		return { name: judged.name, why, sure: judged.sure === true };
+	} catch {
+		// A provider that can't judge is passed over, as one that won't.
+		return undefined;
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 /**
  * The word a quest opts out of budgets with, which a folder's answer

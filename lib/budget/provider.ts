@@ -23,6 +23,10 @@
  * id, so registering again replaces.
  */
 
+import type {
+	ClassifierContext,
+	ClassifierResult,
+} from "@earendil-works/pi-ai";
 import type { EventBus } from "@earendil-works/pi-coding-agent";
 
 /**
@@ -101,6 +105,51 @@ export interface BudgetProvider {
 	 * Optional, since a provider may only know what names mean.
 	 */
 	budgetFor?(folder: string): Promise<string | undefined>;
+	/**
+	 * Which budget `work` draws on, judged from what the work is, when
+	 * neither a quest above it nor its folder names one; or undefined
+	 * when this provider can't judge. `classify` asks the session's own
+	 * classifier model, so the person's model config decides where it is
+	 * served and with what credentials. `none` is a judgement too: work
+	 * that is the person's own. Optional, as `budgetFor` is.
+	 */
+	budgetForWork?(
+		work: WorkToBudget,
+		classify: Classify,
+	): Promise<WorkJudgement | undefined>;
+}
+
+/** Asks the session's classifier model one question set. */
+export type Classify = (
+	context: ClassifierContext,
+	signal?: AbortSignal,
+) => Promise<ClassifierResult>;
+
+/** What a provider is told of work it judges the budget of. */
+export interface WorkToBudget {
+	/** The quest's title, or for a session with none, its folder. */
+	readonly title: string;
+	/** What the quest says it is about, when it says. */
+	readonly summary?: string;
+	/** The absolute folder the work happens in, when there is one. */
+	readonly folder?: string;
+	/** Its branches, changes and links, as `type:value`. */
+	readonly names?: readonly string[];
+	/** For a session with no quest, the first thing the person asked. */
+	readonly prompt?: string;
+}
+
+/** A provider's judgement of which budget some work draws on. */
+export interface WorkJudgement {
+	/** The budget, or `none` for the person's own work. */
+	readonly name: string;
+	/** Why, in a short clause a person can check. */
+	readonly why: string;
+	/**
+	 * Whether it is sure enough to name the budget. One that isn't
+	 * names nothing, and the work is said to be unsure instead.
+	 */
+	readonly sure: boolean;
 }
 
 /** What the host hands out over {@link BUDGET_READY}. */
