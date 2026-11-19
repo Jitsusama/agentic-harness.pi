@@ -25,18 +25,21 @@ import { type Answer, refuse, say } from "./shared.ts";
  * One whose dating is refused is still listed, since it is still held
  * and a listing never fails for its dating.
  *
- * Only this session's own are dated. The broker lists every tree
- * recorded on the machine, and dating one holds it, so dating them all
- * made the lister an owner of every tree, which no sweep could then
- * take; and each dating reads the whole record folder.
+ * Only this session's own are dated: those it cut, and those whose
+ * records name it, as a session resumed after a restart holds its
+ * own. The broker lists every tree recorded on the machine, and dating
+ * one holds it, so dating them all made the lister an owner of every
+ * tree, which no sweep could then take; and each dating reads the
+ * whole record folder.
  */
 export async function datedHeld(
-	broker: Pick<TreeBroker, "used" | "cutHere">,
+	broker: Pick<TreeBroker, "used" | "heldHere">,
 	held: readonly HeldTree[],
 ): Promise<HeldTree[]> {
+	const ours = await broker.heldHere(held).catch(() => new Set<string>());
 	const standing = await Promise.all(
 		held.map(async (tree) => {
-			if (!broker.cutHere(tree.path)) return tree;
+			if (!ours.has(tree.path)) return tree;
 			try {
 				return (await broker.used(tree)) ? tree : undefined;
 			} catch {

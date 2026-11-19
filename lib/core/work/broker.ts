@@ -173,6 +173,12 @@ export interface TreeBroker {
 	/** Whether this session is the one that cut a tree, for a listing to say so. */
 	cutHere(path: string): boolean;
 	/**
+	 * The paths of those trees this session holds: the ones it cut or
+	 * took up, and the ones whose records name it, as a session resumed
+	 * after a restart holds its own though this process cut none.
+	 */
+	heldHere(trees: readonly HeldTree[]): Promise<ReadonlySet<string>>;
+	/**
 	 * Date a use of a tree this session is sent to without asking for
 	 * it, as attaching a change that names a held snapshot does, and hold
 	 * it as asking would. A sweep takes a snapshot left unused four hours
@@ -468,6 +474,16 @@ export function createTreeBroker(
 		held: () => everything(),
 
 		cutHere: (path) => trees.some((tree) => tree.path === path),
+
+		async heldHere(asked) {
+			const named = (await memory?.heldByUs(asked)) ?? new Set<string>();
+			const mine = new Set(trees.map((tree) => tree.path));
+			return new Set(
+				asked
+					.map((tree) => tree.path)
+					.filter((path) => mine.has(path) || named.has(path)),
+			);
+		},
 
 		async used(held) {
 			if (!trees.some((tree) => tree.path === held.path)) trees.push(held);

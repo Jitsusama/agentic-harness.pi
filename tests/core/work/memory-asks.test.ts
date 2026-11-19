@@ -197,3 +197,21 @@ it("answers a use as gone, and leaves no record on disk, once a sweep took the t
 		"a taken tree is still listed as this session's",
 	).toBe(false);
 });
+
+it("finds this session's own trees by their records, as a resumed session's are", async () => {
+	// A broker made afresh, as after a restart, cut none of them, so
+	// only the records can say which are ours; another process's,
+	// started at another time, isn't.
+	const memory = memoryAt();
+	const us = { alive: () => true, startedAt: async () => 5000 };
+	const them = { alive: () => true, startedAt: async () => 9000 };
+	await memory.rememberHeldByUs(tree("ours"), us);
+	await memory.rememberHeldByUs(tree("theirs"), them);
+	memory.remember(tree("nobody"));
+
+	const ours = await memory.heldByUs(memory.recall(), us);
+
+	expect([...ours], "a record naming us wasn't found, or another was").toEqual([
+		tree("ours").path,
+	]);
+});

@@ -98,6 +98,17 @@ export interface TreeMemory {
 	 * only another live session is a reason not to.
 	 */
 	otherHolders(path: string, facts?: ProcessFacts): Promise<readonly Owner[]>;
+	/**
+	 * The paths of those trees whose records name this session as a
+	 * holder, read from the trees as given rather than from disk, so a
+	 * listing pays one identity probe however long it is. A session
+	 * resumed after a restart is named again by `reownSession`, so its
+	 * own trees are found here though this process cut none of them.
+	 */
+	heldByUs(
+		trees: readonly HeldTree[],
+		facts?: ProcessFacts,
+	): Promise<ReadonlySet<string>>;
 	/** Take this session off a tree's record, leaving the record. */
 	forgetUsAsHolder(path: string, facts?: ProcessFacts): Promise<void>;
 	/**
@@ -448,6 +459,16 @@ export function createTreeMemory(
 				if ((await tickedStanding(owner, once)) !== "gone") others.push(owner);
 			}
 			return others;
+		},
+
+		async heldByUs(trees, facts = systemFacts) {
+			const us = await holderNow(facts);
+			if (us === undefined) return new Set();
+			return new Set(
+				trees
+					.filter((tree) => named(tree).some((one) => sameOwner(one, us)))
+					.map((tree) => tree.path),
+			);
 		},
 
 		async forgetUsAsHolder(path, facts = systemFacts) {

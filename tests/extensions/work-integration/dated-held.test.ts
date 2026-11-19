@@ -11,7 +11,7 @@ import type { HeldTree } from "../../../lib/core/work/broker.ts";
 /** A held tree at `path`, cut by the test's provider. */
 function tree(path: string): HeldTree {
 	return {
-		identity: { key: path.split("/").pop() ?? path } as HeldTree["identity"],
+		identity: { key: path.split("/").pop() ?? path, shareable: true },
 		path,
 		providerId: "copying",
 	};
@@ -29,7 +29,12 @@ function brokerHolding(
 	const dated: string[] = [];
 	return {
 		dated,
-		cutHere: (path: string) => ours.includes(path),
+		heldHere: (trees: readonly HeldTree[]) =>
+			Promise.resolve(
+				new Set(
+					trees.map((one) => one.path).filter((path) => ours.includes(path)),
+				),
+			),
 		used: (held: HeldTree) => {
 			if (refused) return Promise.reject(new Error("the lock is held"));
 			dated.push(held.path);

@@ -68,6 +68,7 @@ function remembering(held: HeldTree, others: number[]): TreeMemory {
 		heldNow: async () => [held],
 		unattributed: () => [],
 		otherHolders: async (path) => (path === held.path ? owners : []),
+		heldByUs: async () => new Set(),
 		forgetUsAsHolder: async () => {},
 		whileUnheld: async () => undefined,
 		holdWhileUnheld: async () => undefined,
