@@ -256,6 +256,216 @@ describe("this session's peer", () => {
 	});
 });
 
+describe("a presence's shares, read back", () => {
+	const share = (key: string, over: Record<string, unknown> = {}) => ({
+		key,
+		for: "A Stable Substrate",
+		folder: `/scratch/${key}`,
+		...over,
+	});
+
+	const saying = (shares: unknown[]) => {
+		writeFileSync(
+			join(root, "s-1.json"),
+			JSON.stringify({ ...presence(), shares }),
+		);
+		return createPresences(root).of("s-1")?.shares;
+	};
+
+	it("skip each misfit alone", () => {
+		const fits = share("quest:qest-20261021-luq49e");
+		const longest = share(`k:${"9".repeat(94)}`);
+		const widest = share("wide:folder", { folder: `/${"f".repeat(1023)}` });
+		expect(
+			saying([
+				fits,
+				share(":starts-with-a-mark"),
+				share("no-colon"),
+				share("nothing:"),
+				share("has space:x"),
+				share(`k:${"9".repeat(95)}`),
+				share("blank:folder", { folder: " \n\u202e" }),
+				share("long:folder", { folder: `/${"é".repeat(512)}` }),
+				share("no:folder", { folder: "" }),
+				share("not:text", { folder: 3 }),
+				{ key: 5, for: "five", folder: "/five" },
+				null,
+				"quest:a",
+				longest,
+				share("two:colons:x"),
+			]),
+		).toEqual([fits, longest, share("two:colons:x")]);
+		expect(saying([widest])).toEqual([widest]);
+	});
+
+	it("keep a title or folder cleaned as a terminal draws it, and one untitled", () => {
+		expect(
+			saying([
+				share("no:for", { for: "" }),
+				share("null:for", { for: null }),
+				share("unsaid:for", { for: undefined }),
+				share("control:for", { for: "a\nb" }),
+				share("delete:for", { for: "a\u007fb" }),
+				share("c1:for", { for: "a\u0085b" }),
+				share("turned:for", { for: "a\u202eb" }),
+				share("line:for", { for: " a\u2028b\t" }),
+				share("control:folder", { folder: "/a\nb" }),
+				share("padded:folder", { folder: " /a\u202e " }),
+				share("bom:for", { for: "\ufeffa\ufeff" }),
+				share("relative:folder", { folder: "a/b" }),
+				share("cleaned:long", { folder: `/${"é".repeat(511)}x  ` }),
+			]),
+		).toEqual([
+			share("no:for", { for: "" }),
+			share("null:for", { for: "" }),
+			share("unsaid:for", { for: "" }),
+			share("control:for", { for: "a b" }),
+			share("delete:for", { for: "a b" }),
+			share("c1:for", { for: "a b" }),
+			share("turned:for", { for: "ab" }),
+			share("line:for", { for: "a b" }),
+			share("control:folder", { folder: "/a b" }),
+			share("padded:folder", { folder: "/a" }),
+			// Not one of Unicode's blanks, so a node keeps it where `trim` wouldn't.
+			share("bom:for", { for: "\ufeffa\ufeff" }),
+			share("relative:folder", { folder: "a/b" }),
+			// 1024 bytes once cleaned, as a node measures it.
+			share("cleaned:long", { folder: `/${"é".repeat(511)}x` }),
+		]);
+	});
+
+	it("skip shares that aren't a list, keeping the presence, and read a title that isn't text as none", () => {
+		writeFileSync(
+			join(root, "s-1.json"),
+			JSON.stringify({ ...presence(), shares: { key: "quest:x" } }),
+		);
+		const said = createPresences(root).of("s-1");
+		expect(said?.session, "the presence kept").toBe("s-1");
+		expect(said, "not a list").not.toHaveProperty("shares");
+		expect(
+			saying([
+				share("number:for", { for: 5 }),
+				share("list:for", { for: [1] }),
+			]),
+			"a title that isn't text",
+		).toEqual([
+			share("number:for", { for: "" }),
+			share("list:for", { for: "" }),
+		]);
+	});
+
+	it("drop every turning mark, space every control letter and line break, and keep each letter beside them", () => {
+		const dropped = [
+			0x061c, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066,
+			0x2067, 0x2068, 0x2069,
+		];
+		const spaced = [0x00, 0x1f, 0x7f, 0x85, 0x9f, 0x2028, 0x2029];
+		const kept = [
+			0x20, 0x7e, 0xa0, 0x061b, 0x061d, 0x200d, 0x202f, 0x2065, 0x206a,
+		];
+		for (const field of ["for", "folder"] as const) {
+			const said = (code: number) =>
+				saying([
+					share("quest:a", { [field]: `/a${String.fromCodePoint(code)}b` }),
+				])?.[0]?.[field];
+			const missed = (codes: number[], as: (code: number) => string) =>
+				codes
+					.filter((code) => said(code) !== as(code))
+					.map((code) => code.toString(16));
+			expect(
+				missed(dropped, () => "/ab"),
+				`dropped in its ${field}`,
+			).toEqual([]);
+			expect(
+				missed(spaced, () => "/a b"),
+				`spaced in its ${field}`,
+			).toEqual([]);
+			expect(
+				missed(kept, (code) => `/a${String.fromCodePoint(code)}b`),
+				`kept in its ${field}`,
+			).toEqual([]);
+		}
+	});
+
+	it("read the key in lower case, keeping a key's first however it's cased", () => {
+		expect(
+			saying([
+				share("Quest:QEST-20261021-LUQ49E"),
+				share("quest:qest-20261021-luq49e", { for: "said again" }),
+			]),
+		).toEqual([
+			share("quest:qest-20261021-luq49e", {
+				folder: "/scratch/Quest:QEST-20261021-LUQ49E",
+			}),
+		]);
+	});
+
+	it("keep a key's first that fits, a misfit saying it as though unsaid", () => {
+		const fits = share("quest:a", { for: "ok" });
+		expect(saying([share("quest:a", { folder: "" }), fits])).toEqual([fits]);
+	});
+
+	it("cut a for to its first 120 characters, counting each as one", () => {
+		const wide = "😀".repeat(121);
+		expect(saying([share("emoji:for", { for: wide })])).toEqual([
+			share("emoji:for", { for: "😀".repeat(120) }),
+		]);
+	});
+
+	it("clean a for before its cut, so the cut counts what is drawn, then end it in no blank", () => {
+		expect(
+			saying([
+				share("marked:for", { for: `\u202e${"f".repeat(121)}` }),
+				share("spaced:for", { for: `${"f".repeat(119)} g` }),
+				share("emoji:for", { for: `a${"😀".repeat(130)}` }),
+			]),
+		).toEqual([
+			share("marked:for", { for: "f".repeat(120) }),
+			share("spaced:for", { for: "f".repeat(119) }),
+			share("emoji:for", { for: `a${"😀".repeat(119)}` }),
+		]);
+	});
+
+	it("keep only what a node reads", () => {
+		const fits = share("quest:a");
+		expect(saying([{ ...fits, more: "not read" }])).toEqual([fits]);
+	});
+
+	it("count a misfit among the first sixteen read", () => {
+		const misfits = Array.from({ length: 15 }, () => share("no-colon"));
+		expect(saying([share("quest:a"), ...misfits, share("quest:b")])).toEqual([
+			share("quest:a"),
+		]);
+		expect(
+			saying([
+				share("quest:a"),
+				...misfits.slice(1),
+				share("quest:a"),
+				share("quest:b"),
+			]),
+		).toEqual([share("quest:a")]);
+	});
+
+	it("read only the first sixteen, and none when none fits", () => {
+		const many = Array.from({ length: 20 }, (_, at) => share(`key:${at}`));
+		writeFileSync(
+			join(root, "s-1.json"),
+			JSON.stringify({ ...presence(), shares: many }),
+		);
+		writeFileSync(
+			join(root, "s-2.json"),
+			JSON.stringify({
+				...presence({ session: "s-2" }),
+				shares: [share("")],
+			}),
+		);
+
+		const presences = createPresences(root);
+		expect(presences.of("s-1")?.shares).toEqual(many.slice(0, 16));
+		expect(presences.of("s-2")).not.toHaveProperty("shares");
+	});
+});
+
 describe("a presence's landings, read back", () => {
 	it("keep the well-formed ones and drop what isn't one", () => {
 		const good = {

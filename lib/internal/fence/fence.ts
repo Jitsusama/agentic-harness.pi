@@ -84,6 +84,7 @@ import {
 	readOnlyPaths,
 } from "./fence-home.ts";
 import { NPMRC } from "./fence-npmrc.ts";
+import { type OwnFolders, ownArgs } from "./fence-own.ts";
 import { questLockArgs } from "./fence-quest-locks.ts";
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
 
@@ -211,7 +212,12 @@ export interface FencePlace extends Worktrees {
 	/** `XDG_RUNTIME_DIR`, which the fence empties. */
 	readonly runtimeDir: string | undefined;
 	/** Where quests' scratch folders live, and this session's quest's own. */
-	readonly scratch?: { readonly root: string; readonly own?: string };
+	readonly scratch?: OwnFolders;
+	/**
+	 * Where quests' shared folders live, and this session's quest's own,
+	 * kept as the scratch folders are.
+	 */
+	readonly share?: OwnFolders;
 	/**
 	 * A copy of the system's SSH settings with the files they include
 	 * written in, bound over them (`fence-ssh.ts`): ssh refuses an
@@ -375,7 +381,8 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...brokerTreeArgs(place.trees, place.cwd, disk),
 		...sshArgs(place.home, disk),
 		...gitArgs(place, disk),
-		...scratchArgs(place, disk),
+		...ownArgs(place.scratch, disk),
+		...ownArgs(place.share, disk),
 		...hiddenArgs(place.home, disk),
 		...npmrcArgs(place, disk),
 		...(place.docker ? dockerArgs(place.home, disk) : []),
@@ -453,22 +460,6 @@ function hiddenArgs(home: string, disk: Disk): string[] {
 		}
 		return kind === "file" ? ["--ro-bind", "/dev/null", over] : [];
 	});
-}
-
-/**
- * bubblewrap's arguments for quests' scratch folders: every one
- * read-only, this session's quest's own bound back writable. Other
- * quests keep clones there, whose settings pi's git, and their own
- * sessions', run outside the fence.
- */
-function scratchArgs(place: FencePlace, disk: Disk): string[] {
-	const scratch = place.scratch;
-	if (!scratch || disk.kind(scratch.root) !== "folder") return [];
-	const own =
-		scratch.own && disk.kind(scratch.own) === "folder"
-			? ["--bind", scratch.own, scratch.own]
-			: [];
-	return ["--ro-bind", scratch.root, scratch.root, ...own];
 }
 
 /** The files in `~/.ssh` a command may read: public keys, settings and known hosts. */
@@ -720,7 +711,7 @@ export function nixDoor(runtimeDir: string | undefined): string | undefined {
 /**
  * Whether an absolute path lies where the fence keeps pi's own file
  * tools from writing: a read-only path, the runtime folder, another
- * quest's scratch folder, `src` and `world` but the session's own tree
+ * quest's scratch or shared folder, `src` and `world` but the session's own tree
  * there (its `.git` file aside), the work broker's trees and records
  * but the trees the session may write (their `.git` files aside), a
  * browsed entry of the home folder but the one the session works in, or
@@ -748,9 +739,10 @@ export function fenceRefusesWrite(
 		return true;
 	}
 	if (inBuildersFolder(path)) return true;
-	const scratch = place.scratch;
-	if (scratch && inside(scratch.root)) {
-		return !(scratch.own && inside(scratch.own));
+	for (const folders of [place.scratch, place.share]) {
+		if (folders && inside(folders.root)) {
+			return !(folders.own && inside(folders.own));
+		}
 	}
 	if (keptHomes(place.home, disk).some(inside)) {
 		return !writtenWorktrees(place).some(

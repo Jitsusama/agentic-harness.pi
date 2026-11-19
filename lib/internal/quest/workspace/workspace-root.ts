@@ -14,3 +14,13 @@ import { cacheDir } from "../../paths.ts";
 export function questWorkspacesRoot(): string {
 	return cacheDir("quest-workspace");
 }
+
+/**
+ * Where quests' shared folders live, honouring `XDG_CACHE_HOME`: beside
+ * the workspaces, never in them, so a share holds only what is put in
+ * it, never a `TMPDIR` or a clone, and lies outside the folders a
+ * fenced direnv trusts, since a cell on another machine writes in it.
+ */
+export function questSharesRoot(): string {
+	return cacheDir("quest-shares");
+}

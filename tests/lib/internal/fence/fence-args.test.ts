@@ -341,6 +341,36 @@ describe("the fence's arguments", () => {
 		).toBe(false);
 	});
 
+	it("keeps every quest's shared folder read-only but the session's own, as its scratches are", () => {
+		const share = {
+			root: "/home/someone/.cache/pi/quest-shares",
+			own: "/home/someone/.cache/pi/quest-shares/QEST-1",
+		};
+		const given = fenceArgs(
+			{ ...place, share },
+			diskWith(place.home, [".cache"]),
+		);
+		const root = given.lastIndexOf(share.root);
+		const own = given.lastIndexOf(share.own);
+		expect(given[root - 2]).toBe("--ro-bind");
+		expect(given[own - 2]).toBe("--bind");
+		expect(
+			root > given.lastIndexOf("/home/someone/.cache"),
+			"the shared folders are bound over the cache's writable bind",
+		).toBe(true);
+		expect(own > root, "the session's own is bound back after").toBe(true);
+
+		const at = { ...place, share };
+		expect(
+			fenceRefusesWrite(`${share.root}/QEST-2/.envrc`, at),
+			"another quest's shared folder is read-only to pi's file tools too",
+		).toBe(true);
+		expect(
+			fenceRefusesWrite(`${share.own}/notes.md`, at),
+			"the session's own shared folder stays writable",
+		).toBe(false);
+	});
+
 	it("binds nothing that isn't there", () => {
 		const none = fenceArgs(place, { kind: () => undefined, entries: () => [] });
 		const bound = none.flatMap((arg, at) =>
