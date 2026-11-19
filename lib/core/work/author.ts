@@ -145,6 +145,100 @@ export function namingComplaints(name: string): string[] {
 	return said;
 }
 
+/** What came of asking for a branch this tree already has. */
+export type Repointed = { moved: true } | { moved: false; why: string };
+
+/**
+ * Move a branch that already exists up to a fresh start, when the move
+ * loses nothing; nothing when no branch of that name exists here, so it
+ * is made as new.
+ *
+ * `work tree` on a new branch makes it at the start a recent fetch left,
+ * and on 19 November one so made on World sat at a stale main. Asking
+ * `work branch` for the same name from `origin/main` then failed on git's
+ * "a branch named ... already exists" however fresh the fetch, so the
+ * branch could never reach the new base. Asking for a branch by a name
+ * the tree is already on, from a start, says where it should start, so
+ * it moves there, but only when its head is an ancestor of the start:
+ * then every commit on it is in the start too, and moving it is a fast
+ * forward. A branch with commits of its own is left alone and the answer
+ * says to rebase, which keeps them. The move is `reset --keep`, which
+ * carries uncommitted changes along and refuses rather than overwrite
+ * one the start also changes. A branch of that name another tree has
+ * checked out is left alone too, since git would refuse to move it.
+ * `asked` is the start as the caller named it, for the answer, when
+ * `start` is its full spelling.
+ */
+export async function repointBranch(
+	exec: Exec,
+	treePath: string,
+	name: string,
+	start: string,
+	asked: string = start,
+): Promise<Repointed | undefined> {
+	const safe = safeBranchName(name);
+	const from = safeBranchName(start);
+	// An unusable name is the new-branch path's to refuse, in its words.
+	if (safe === undefined || from === undefined) return undefined;
+	const local = `refs/heads/${safe}`;
+	const exists = await exec("git", [
+		"-C",
+		treePath,
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		local,
+	]);
+	if (exists.code !== 0) return undefined;
+	const current = await exec("git", [
+		"-C",
+		treePath,
+		"symbolic-ref",
+		"--quiet",
+		"HEAD",
+	]);
+	if (current.code !== 0 || current.stdout.trim() !== local) {
+		return {
+			moved: false,
+			why: `${safe} already exists and this tree is not on it, so it was left where it is. Name a new branch, or move ${safe} from the tree that has it checked out.`,
+		};
+	}
+	const contained = await exec("git", [
+		"-C",
+		treePath,
+		"merge-base",
+		"--is-ancestor",
+		local,
+		from,
+	]);
+	if (contained.code !== 0) {
+		const said = contained.stderr.trim().split("\n")[0]?.trim() ?? "";
+		return {
+			moved: false,
+			why:
+				said === ""
+					? `${safe} already exists here with commits ${asked} lacks, so it was not moved, which would drop them. Rebase it onto ${asked} to bring it up.`
+					: `${safe} already exists here, and git could not say whether ${asked} holds its commits (${said}), so it was not moved.`,
+		};
+	}
+	await run(
+		exec,
+		"git",
+		["-C", treePath, "reset", "-q", "--keep", from],
+		`Moving ${safe} to ${asked} in ${displayPath(treePath)}`,
+	);
+	// As `checkout -b` from a remote's branch would have set it.
+	if (from.startsWith("refs/remotes/")) {
+		await run(
+			exec,
+			"git",
+			["-C", treePath, "branch", "-q", `--set-upstream-to=${from}`, safe],
+			`Tracking ${asked} from ${safe} in ${displayPath(treePath)}`,
+		);
+	}
+	return { moved: true };
+}
+
 /** Write to a tree with plain git. */
 export function createGitAuthor(deps: { exec: Exec }): WorkAuthor {
 	return {

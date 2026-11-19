@@ -81,7 +81,7 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 			"Always say what the tree is for. The purpose names it, which is how it is recognised later and how a second caller avoids cutting a duplicate.",
 			"Read status before repointing or discarding a tree. An untracked file is work, and overwriting one cannot be undone.",
 			"Never call git worktree yourself. A tree cut outside the broker is one nothing will clean up.",
-			"A push, rebase, resume, restack or sync still running after a minute moves to the background, its result arriving later as a message of its own; do not repeat it, or change that tree, until then.",
+			"A branch, push, rebase, resume, restack or sync still running after a minute moves to the background, its result arriving later as a message of its own; do not repeat it, or change that tree, until then.",
 		],
 		parameters: Type.Object({
 			// An enum rather than a union of literals: the same choices, said in
@@ -237,9 +237,12 @@ export function registerWorkTool(pi: ExtensionAPI): void {
 /**
  * The actions that wait on git and the network, which a call hands off
  * once it has run a minute. A record is left out, since its gate can wait
- * on the person, and a panel left open behind a job answers nobody.
+ * on the person, and a panel left open behind a job answers nobody. A
+ * branch from a remote's branch fetches it first, which on World held a
+ * turn for two minutes on 19 November before the fetch ran out of time.
  */
 const WAITS_ON_GIT: ReadonlySet<string> = new Set([
+	"branch",
 	"push",
 	"rebase",
 	"resume",
