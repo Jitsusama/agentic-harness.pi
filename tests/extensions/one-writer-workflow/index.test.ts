@@ -1,15 +1,23 @@
 /**
  * Plain pi refuses a conversation a host holds, open or kept for its
  * next start: it says which host and how to reach it, takes no prompt,
- * and ends with HELD_ELSEWHERE_EXIT.
+ * and ends with HELD_ELSEWHERE_EXIT; or, in a window its holder runs
+ * itself, hands that window to the host's view and ends as a park.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { oneWriterWorkflow } from "../../../extensions/one-writer-workflow/index.ts";
 import type { TickedOwner } from "../../../lib/internal/process-ticks.ts";
 import { HELD_ELSEWHERE_EXIT } from "../../../lib/internal/session/one-writer.ts";
+import { PARKED_EXIT } from "../../../lib/internal/session/park.ts";
 
 const held = "01a1be5c-fff0-70a1-9301-f505d5634bf6";
 
@@ -24,7 +32,12 @@ function loaded(
 	{
 		keeping = holding,
 		host = "running",
-	}: { keeping?: string[]; host?: "running" | "gone" } = {},
+		process: own = { env: {}, pid: 1, args: [] },
+	}: {
+		keeping?: string[];
+		host?: "running" | "gone";
+		process?: { env: NodeJS.ProcessEnv; pid: number; args: string[] };
+	} = {},
 ) {
 	const handlers = new Map<string, Handler>();
 	const pi = {
@@ -35,8 +48,45 @@ function loaded(
 		rosters: rosterDir(keeping),
 		standing: async (_owner: TickedOwner) => host,
 		settleMs: 300,
+		...own,
 	})(pi as never);
 	return handlers;
+}
+
+/**
+ * A holder's files for a pi it runs itself as `pid`: its record, and
+ * where that pi names what starts next and writes its wake.
+ */
+function holderFor(pid: number) {
+	const dir = mkdtempSync(join(tmpdir(), "one-writer-holder-"));
+	dirs.push(dir);
+	writeFileSync(join(dir, "s.json"), JSON.stringify({ pid }));
+	return {
+		wake: join(dir, "s.wake"),
+		again: join(dir, "s.again"),
+		env: {
+			MYCELIUM_WAKE: join(dir, "s.wake"),
+			MYCELIUM_AGAIN: join(dir, "s.again"),
+		},
+	};
+}
+
+/** The exit listener `run` adds, which pi's own end would call. */
+async function exitListenerOf(run: () => Promise<unknown>) {
+	const before = process.listeners("exit");
+	await run();
+	return process.listeners("exit").filter((one) => !before.includes(one));
+}
+
+/** The code `listener` leaves pi to exit with, put back after. */
+function exitCodeFrom(listener: () => void): number | string | undefined {
+	const code = process.exitCode;
+	vi.spyOn(process.stderr, "write").mockReturnValue(true);
+	listener();
+	const left = process.exitCode;
+	process.exitCode = code;
+	process.off("exit", listener);
+	return left;
 }
 
 /** A roster folder whose work-background host keeps `keeping`. */
@@ -145,6 +195,79 @@ describe("a plain pi on a conversation a live host holds", () => {
 		expect(write).toHaveBeenCalledWith(
 			expect.stringContaining("open in the work-background host"),
 		);
+	});
+});
+
+describe("a plain pi its holder runs, on a conversation a host holds", () => {
+	const log = `/home/someone/.pi/sessions/${held}.jsonl`;
+
+	it("hands its window to the host's view and ends as a park", async () => {
+		const holder = holderFor(4242);
+		const handlers = loaded([held], {
+			process: { env: holder.env, pid: 4242, args: ["--session", log] },
+		});
+		const { ctx } = context(held, "tui");
+
+		const added = await exitListenerOf(async () =>
+			handlers.get("session_start")?.({ reason: "startup" }, ctx),
+		);
+
+		expect(existsSync(holder.again), "it names what starts next").toBe(true);
+		const next: string[] = JSON.parse(readFileSync(holder.again, "utf8"));
+		expect(next[2]).toMatch(/\/scripts\/host-join\.ts$/);
+		expect(next.slice(3)).toEqual([
+			"--view",
+			"--session",
+			held,
+			"--",
+			"pi",
+			"--session",
+			log,
+		]);
+		expect(JSON.parse(readFileSync(holder.wake, "utf8"))).toMatchObject({
+			session: held,
+		});
+		expect(ctx.shutdown).toHaveBeenCalledOnce();
+		expect(handlers.get("input")?.({ text: "hello" })).toEqual({
+			action: "handled",
+		});
+		expect(added, "one exit listener sets the code").toHaveLength(1);
+		expect(exitCodeFrom(added[0] as () => void)).toBe(PARKED_EXIT);
+	});
+
+	it("refuses as ever when a shell runs it, naming nothing next", async () => {
+		const holder = holderFor(4242);
+		const handlers = loaded([held], {
+			process: { env: holder.env, pid: 4243, args: ["--session", log] },
+		});
+		const { ctx } = context(held, "tui");
+
+		const added = await exitListenerOf(async () =>
+			handlers.get("session_start")?.({ reason: "startup" }, ctx),
+		);
+
+		expect(existsSync(holder.again)).toBe(false);
+		expect(existsSync(holder.wake)).toBe(false);
+		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
+	});
+
+	it("refuses as ever with flags plain pi would drop", async () => {
+		const holder = holderFor(4242);
+		const handlers = loaded([held], {
+			process: {
+				env: holder.env,
+				pid: 4242,
+				args: ["--session", log, "--offline"],
+			},
+		});
+		const { ctx } = context(held, "tui");
+
+		const added = await exitListenerOf(async () =>
+			handlers.get("session_start")?.({ reason: "startup" }, ctx),
+		);
+
+		expect(existsSync(holder.again)).toBe(false);
+		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 });
 
