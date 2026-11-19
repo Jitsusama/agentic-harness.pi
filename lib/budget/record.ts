@@ -30,6 +30,41 @@ export const BUDGET_ENTRY = "budget";
 export const BUDGET_VARIABLE = "PI_BUDGET";
 
 /**
+ * The variable naming, comma-separated, the variables a budget laid
+ * (its credentials, never {@link BUDGET_VARIABLE} or this one), so
+ * whatever sends a request for the process (a shared host's engine,
+ * which keeps its own key) can tell the budget's key from one that
+ * merely sits in the environment, and send it. It travels with the
+ * environment, into a parked conversation's kept snapshot and into
+ * what the process starts.
+ */
+export const BUDGET_KEYS_VARIABLE = "PI_BUDGET_KEYS";
+
+/** A name a shell would take as a variable's. */
+const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * The variables the budget a process draws on laid, from
+ * {@link BUDGET_KEYS_VARIABLE}: none when no budget is named in
+ * {@link BUDGET_VARIABLE}, and never a name that isn't a variable's
+ * or is one of the two that say the budget.
+ */
+export function budgetKeysOf(
+	env: Readonly<Record<string, string | undefined>>,
+): string[] {
+	if (budgetDrawnOn(env) === null) return [];
+	return (env[BUDGET_KEYS_VARIABLE] ?? "")
+		.split(",")
+		.map((name) => name.trim())
+		.filter(
+			(name) =>
+				VARIABLE_NAME.test(name) &&
+				name !== BUDGET_VARIABLE &&
+				name !== BUDGET_KEYS_VARIABLE,
+		);
+}
+
+/**
  * The bus event said each time the session settles which budget it
  * draws on, with `{ name }` (null for the default), so whatever tells
  * the person (the footer) needn't watch the environment.

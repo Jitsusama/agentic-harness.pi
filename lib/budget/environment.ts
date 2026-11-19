@@ -18,7 +18,7 @@ import {
 	type SessionRef,
 	sessionSlot,
 } from "../core/session/index.ts";
-import { BUDGET_VARIABLE } from "./record.ts";
+import { BUDGET_KEYS_VARIABLE, BUDGET_VARIABLE } from "./record.ts";
 
 /** One variable a budget set, and what it replaced. */
 interface Laid {
@@ -74,8 +74,10 @@ function isSessionEnvironment(
 /**
  * Lay a budget's variables over `env`, in place of whatever budget was
  * on before, with its name in `PI_BUDGET` so what the process starts
- * knows which budget it inherited. A variable the earlier budget set
- * and this one does not is put back first.
+ * knows which budget it inherited, and the variables it laid in
+ * `PI_BUDGET_KEYS` (when it laid any) so whatever sends a request can
+ * tell its key from one that only sits there. A variable the earlier
+ * budget set and this one does not is put back first.
  */
 export function layBudget(
 	env: NodeJS.ProcessEnv | SessionEnvironment,
@@ -87,7 +89,15 @@ export function layBudget(
 	overlay: BudgetOverlay = processOverlay(),
 ): void {
 	const target = mutableEnvironment(env);
-	const laying = { ...budget.env, [BUDGET_VARIABLE]: budget.name };
+	const keys = Object.keys(budget.env)
+		.filter((key) => key !== BUDGET_VARIABLE && key !== BUDGET_KEYS_VARIABLE)
+		.sort();
+	const laying: Record<string, string> = {
+		...budget.env,
+		[BUDGET_VARIABLE]: budget.name,
+	};
+	delete laying[BUDGET_KEYS_VARIABLE];
+	if (keys.length > 0) laying[BUDGET_KEYS_VARIABLE] = keys.join(",");
 	for (const key of [...overlay.laid.keys()]) {
 		if (!(key in laying)) restore(target, overlay, key);
 	}

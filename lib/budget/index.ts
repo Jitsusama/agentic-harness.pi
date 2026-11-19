@@ -20,10 +20,12 @@ export {
 } from "./provider.ts";
 export {
 	BUDGET_ENTRY,
+	BUDGET_KEYS_VARIABLE,
 	BUDGET_SETTLED,
 	BUDGET_VARIABLE,
 	type BudgetRecord,
 	type BudgetSettled,
 	budgetDrawnOn,
+	budgetKeysOf,
 	lastRecorded,
 } from "./record.ts";
