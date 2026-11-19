@@ -608,19 +608,37 @@ async function runThrough(
 		);
 	}
 	const run = link.run(shell.shell, [...shell.args, command], cwd, env, onData);
-	const pid = await run.started;
+	// The limit and a stop count from the ask, not from STARTED, so a
+	// spawner slow to start the command can't stretch either.
+	let pid: number | undefined;
 	let timedOut = false;
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	const stop = () => kill(pid);
+	let gaveUp: ((why: "expired" | "aborted") => void) | undefined;
+	const givenUp = new Promise<"expired" | "aborted">((settle) => {
+		gaveUp = settle;
+	});
+	const stop = () => {
+		if (pid !== undefined) kill(pid);
+		gaveUp?.("aborted");
+	};
 	try {
 		if (limit !== undefined) {
 			timer = setTimeout(() => {
 				timedOut = true;
-				stop();
+				if (pid !== undefined) kill(pid);
+				gaveUp?.("expired");
 			}, limit);
 		}
 		if (signal?.aborted) stop();
 		else signal?.addEventListener("abort", stop, { once: true });
+		const first = await Promise.race([run.started, givenUp]);
+		if (typeof first !== "number") {
+			// It ended before the spawner said it started: kill it once it has.
+			run.started.then(kill, () => undefined);
+			run.done.catch(() => undefined);
+			throw new Error(first === "aborted" ? "aborted" : `timeout:${timeout}`);
+		}
+		pid = first;
 		const ended = await run.done;
 		if (signal?.aborted) throw new Error("aborted");
 		if (timedOut) throw new Error(`timeout:${timeout}`);

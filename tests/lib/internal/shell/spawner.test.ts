@@ -240,6 +240,48 @@ describe("the agent's commands through pi-spawner", () => {
 		expect(kill).toHaveBeenCalledWith(55);
 	});
 
+	it("ends a command at its limit though its spawner never says it started, killing it once it does", async () => {
+		const { program, operations, kill } = through();
+
+		const ran = operations.exec("sleep 9", "/", {
+			onData: () => {},
+			env: {},
+			timeout: 0.05,
+		});
+		const ended = expect(ran, "how the command ended").rejects.toThrow(
+			"timeout:0.05",
+		);
+		await askedFor(program, 1);
+
+		await ended;
+		program.started(1, 88);
+		await vi.waitFor(() =>
+			expect(kill, "what was killed").toHaveBeenCalledWith(88),
+		);
+	});
+
+	it("ends a command stopped before its spawner says it started, killing it once it does", async () => {
+		const { program, operations, kill } = through();
+		const stopping = new AbortController();
+
+		const ran = operations.exec("sleep 9", "/", {
+			onData: () => {},
+			env: {},
+			signal: stopping.signal,
+		});
+		const ended = expect(ran, "how the command ended").rejects.toThrow(
+			"aborted",
+		);
+		await askedFor(program, 1);
+		stopping.abort();
+
+		await ended;
+		program.started(1, 89);
+		await vi.waitFor(() =>
+			expect(kill, "what was killed").toHaveBeenCalledWith(89),
+		);
+	});
+
 	it("kills the command's group at its time limit, and says so as pi does", async () => {
 		const { program, operations, kill } = through();
 		kill.mockImplementation(() => {
@@ -251,12 +293,13 @@ describe("the agent's commands through pi-spawner", () => {
 		const ran = operations.exec("sleep 9", "/", {
 			onData: () => {},
 			env: {},
-			timeout: 0.05,
+			timeout: 0.3,
 		});
+		const ended = expect(ran).rejects.toThrow("timeout:0.3");
 		await askedFor(program, 1);
 		program.started(1, 66);
 
-		await expect(ran).rejects.toThrow("timeout:0.05");
+		await ended;
 		expect(kill).toHaveBeenCalledWith(66);
 	});
 
@@ -729,7 +772,7 @@ describe("the node told the session a load's pi-spawner serves", () => {
 
 	it("gives its spawner only the time the wait left", async () => {
 		const program = standIn();
-		const waited = 200;
+		const waited = 400;
 		const { operations, kill } = through({
 			start: asProcess(program),
 			session: "s-one",
@@ -745,15 +788,15 @@ describe("the node told the session a load's pi-spawner serves", () => {
 		const ran = operations.exec("sleep 9", "/", {
 			onData: () => {},
 			env: {},
-			timeout: 0.3,
+			timeout: 0.6,
 		});
 		await askedFor(program, 1);
 		program.started(1, 66);
 
-		await expect(ran, "how the command ended").rejects.toThrow("timeout:0.3");
+		await expect(ran, "how the command ended").rejects.toThrow("timeout:0.6");
 		expect(kill, "what was killed").toHaveBeenCalledWith(66);
-		// With the whole limit it would end about `waited` later, at 500 ms.
-		expect(performance.now() - began, "how long it ran").toBeLessThan(450);
+		// With the whole limit it would end about `waited` later, at 1000 ms.
+		expect(performance.now() - began, "how long it ran").toBeLessThan(850);
 	});
 
 	it("gives pi's own spawn only the time the wait left, when its spawner stops meanwhile", async () => {
