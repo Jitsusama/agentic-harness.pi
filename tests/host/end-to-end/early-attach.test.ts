@@ -184,7 +184,8 @@ async function attachOnceListening(
 		} catch (error) {
 			// Only a socket nobody listens on yet is tried again: a host that
 			// refuses the attach fails the case.
-			const unbound = UNBOUND.includes(String(Reflect.get(Object(error), "code")));
+			const code = error instanceof Error ? Reflect.get(error, "code") : "";
+			const unbound = UNBOUND.includes(String(code));
 			if (!unbound || Date.now() > deadline) throw error;
 			// Nothing outside the host says when it binds its socket, so the
 			// attach tries again every REACH_EVERY_MS, as a window's loop does.
