@@ -8,7 +8,12 @@ import {
 	type ConversationRegistration,
 	SessionHost,
 } from "../../../host/engine/index.ts";
+import { pinSubagentKey } from "../../../host/engine/subagent-install.ts";
 import { sessionEnv, withSession } from "../../../lib/core/session/index.ts";
+import {
+	pinnedChildEnvironment,
+	unpinChildEnvironment,
+} from "../../../lib/subagent/child-env.ts";
 
 const owner = { pid: 123, startedAt: 1000, bootId: "boot", startTicks: 20 };
 const own = process.env;
@@ -275,13 +280,44 @@ it("serves a proxy key from a conversation's env where its budget laid it, and t
 			process.env.SHOPIFY_PROXY_KEY,
 			process.env.PI_PROXY_API_KEY,
 		]),
-	).toEqual(["team-key", "host-api-key"]);
+	).toEqual(["team-key", "team-key"]);
 	expect(
 		started.run("team", () => ({ ...process.env }).SHOPIFY_PROXY_KEY),
 	).toBe("team-key");
 	expect(started.run("keyless", () => process.env.SHOPIFY_PROXY_KEY)).toBe(
 		"host-key",
 	);
+	// Listed for the conversation whose budget laid it, though the host holds none.
+	delete own.SHOPIFY_PROXY_KEY;
+	expect(started.run("team", () => Object.keys(process.env))).toContain(
+		"SHOPIFY_PROXY_KEY",
+	);
+	expect(started.run("keyless", () => Object.keys(process.env))).not.toContain(
+		"SHOPIFY_PROXY_KEY",
+	);
+});
+
+it("hands a budget conversation's subagents its budget's key, read through its view", async () => {
+	const started = start();
+	started.register(
+		registration("team", {
+			PI_BUDGET: "team",
+			PI_BUDGET_KEYS: "SHOPIFY_PROXY_KEY",
+			SHOPIFY_PROXY_KEY: "team-key",
+		}),
+	);
+	started.register(registration("personal", {}));
+	pinSubagentKey({ current: async () => "host-key" }, ["SHOPIFY_PROXY_KEY"]);
+	try {
+		expect(await started.run("team", pinnedChildEnvironment)).toEqual({
+			SHOPIFY_PROXY_KEY: "team-key",
+		});
+		expect(await started.run("personal", pinnedChildEnvironment)).toEqual({
+			SHOPIFY_PROXY_KEY: "host-key",
+		});
+	} finally {
+		unpinChildEnvironment();
+	}
 });
 
 it("keeps a conversation's view across an await", async () => {

@@ -2,7 +2,7 @@
 import { realpathSync } from "node:fs";
 import { pinChildEnvironment } from "../../lib/subagent/child-env.ts";
 import type { PiInstall } from "../../lib/subagent/install.ts";
-import { laidKeys } from "./budget-keys.ts";
+import { budgetKey } from "./budget-keys.ts";
 import type { EngineKey } from "./contract.ts";
 import type { HostPi } from "./host-pi.ts";
 
@@ -56,15 +56,14 @@ export function pinSubagentKey(
 	env: () => Readonly<Record<string, string | undefined>> = () => process.env,
 ): void {
 	pinChildEnvironment(async () => {
-		const laid = laidKeys(env());
-		const current = await key.current().catch((error: unknown) => {
-			throw new Error(
-				`The host couldn't resolve its gateway key for a subagent: ${error instanceof Error ? error.message : String(error)}`,
-				{ cause: error },
-			);
-		});
-		return Object.fromEntries(
-			names.map((name) => [name, laid[name] ?? current]),
-		);
+		const current =
+			budgetKey(env()) ??
+			(await key.current().catch((error: unknown) => {
+				throw new Error(
+					`The host couldn't resolve its gateway key for a subagent: ${error instanceof Error ? error.message : String(error)}`,
+					{ cause: error },
+				);
+			}));
+		return Object.fromEntries(names.map((name) => [name, current]));
 	});
 }

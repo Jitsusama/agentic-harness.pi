@@ -24,10 +24,13 @@ started with no env of its own. Outside any conversation it is the
 host's own. Work a released conversation left running reads the host's
 env, and its writes and deletes are dropped, so a late write never
 reaches what every other conversation falls back on. The proxy keys
-(SHOPIFY_PROXY_KEY, PI_PROXY_API_KEY, PI_PROXY_AUTH_HEADER) always read
-from the host's environment, since the engine resolves credentials per
-request. A conversation that writes one keeps it in its own
-environment, though its reads still come from the host. What only the
+(SHOPIFY_PROXY_KEY, PI_PROXY_API_KEY, PI_PROXY_AUTH_HEADER) read from
+the host's environment, since the engine resolves credentials per
+request, except where a conversation's budget laid one (PI_BUDGET_KEYS
+names it, budget-keys.ts): that one is the conversation's own, in its
+reads, its requests and its subagents. A conversation that writes one
+keeps it in its own environment, though its reads still come from the
+host. What only the
 host's process is (HOST_READS: the runtime's AI_PROXY_HEADERS_BIN and
 WORKTRAIL_BIN, and the viewers' PI_IMAGE_PROTOCOL, PI_TRUE_COLOR and
 PI_HYPERLINKS) is read from the host's environment, and sent with each
@@ -173,7 +176,7 @@ what contract.ts declares. engine.ts holds a conversation's steps in the
 order each relies on (register, begin, end, release) and its answers to
 the service. How pi builds, replaces and loses a conversation's session
 is conversation-build.ts. What its requests need (its environment, on
-the host's key) and keep past a park (its agent folder and providers) is
+its budget's key or the host's) and keep past a park (its agent folder and providers) is
 kept-requests.ts. What a stop keeps, a close ends and a restart would
 end is stopping.ts. resources.ts turns the resources pi's flags would
 choose into pi's loader options, and requests.ts reads what an open

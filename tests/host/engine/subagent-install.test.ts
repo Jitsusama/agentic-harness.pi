@@ -93,7 +93,7 @@ it("replaces a capture already taken, which in a host names the host's script", 
 	expect(getParentPiInstall()).toEqual(install);
 });
 
-it("hands a subagent the key its conversation's budget laid, and the host's for the rest", async () => {
+it("hands a subagent the key its conversation's budget laid under every name, and the host's off a budget", async () => {
 	let env: Record<string, string | undefined> = {
 		PI_BUDGET: "team",
 		PI_BUDGET_KEYS: "SHOPIFY_PROXY_KEY",
@@ -108,7 +108,7 @@ it("hands a subagent the key its conversation's budget laid, and the host's for 
 	try {
 		expect(await pinnedChildEnvironment()).toEqual({
 			SHOPIFY_PROXY_KEY: "team-key",
-			PI_PROXY_API_KEY: "host-key",
+			PI_PROXY_API_KEY: "team-key",
 		});
 		env = { SHOPIFY_PROXY_KEY: "launch-key" };
 		expect(await pinnedChildEnvironment()).toEqual({

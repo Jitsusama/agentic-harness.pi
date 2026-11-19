@@ -41,7 +41,12 @@ import {
 	type Host,
 	type SessionEnvironment,
 } from "../../lib/core/session/index.ts";
-import { laidKeys } from "./budget-keys.ts";
+import { budgetKey, KEY_VARIABLES, laidKeys } from "./budget-keys.ts";
+
+/** Whether `name` is one of the variables the gateway key goes under. */
+function isKeyVariable(name: string): boolean {
+	return KEY_VARIABLES.some((each) => each === name);
+}
 
 /** Keys the engine owns, which no conversation's env serves. */
 const CREDENTIALS: ReadonlySet<string> = new Set([
@@ -79,12 +84,16 @@ export function installConversationEnv(host: Host): () => void {
 		return id !== undefined && host.holds(id) === undefined;
 	};
 	/** A credential the conversation's budget laid, which it reads as its own. */
-	const laid = (env: SessionEnvironment, name: string): string | undefined =>
-		laidKeys({
+	const laid = (env: SessionEnvironment, name: string): string | undefined => {
+		const budget: Record<string, string | undefined> = {
 			[BUDGET_VARIABLE]: env.get(BUDGET_VARIABLE),
 			[BUDGET_KEYS_VARIABLE]: env.get(BUDGET_KEYS_VARIABLE),
-			[name]: env.get(name),
-		})[name];
+		};
+		if (!isKeyVariable(name))
+			return laidKeys({ ...budget, [name]: env.get(name) })[name];
+		for (const each of KEY_VARIABLES) budget[each] = env.get(each);
+		return budgetKey(budget);
+	};
 	const read = (name: string): string | undefined => {
 		const env = current();
 		if (!env) return own[name];
