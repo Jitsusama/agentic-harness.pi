@@ -150,11 +150,18 @@ describe("asking the node who is there", () => {
 
 describe("asking the node who is on which machine", () => {
 	it("hears each session with its address, machine and state", async () => {
-		const socket = await serving(() =>
-			sessions(
-				{ id: "far", address: "EWUL44", machine: "equilibrius", state: "idle" },
-				{ id: "here", machine: "optimus", state: "busy" },
-			),
+		const socket = await serving((line) =>
+			line !== '"Sessions"'
+				? undefined
+				: sessions(
+						{
+							id: "far",
+							address: "EWUL44",
+							machine: "equilibrius",
+							state: "idle",
+						},
+						{ id: "here", machine: "optimus", state: "busy" },
+					),
 		);
 
 		expect(await nodeSessionsAt(socket)).toEqual([
@@ -177,16 +184,21 @@ describe("asking the node who is on which machine", () => {
 		expect(nodeSessionsFrom(sessions())).toEqual([]);
 	});
 
-	it("passes over a session without a machine or in a state it doesn't know", () => {
+	it("keeps a session in a state it doesn't know, or without a machine, as the node said it", () => {
 		const held = nodeSessionsFrom(
 			sessions(
-				{ id: "odd", machine: "optimus", state: "dreaming" },
+				{ id: "odd", machine: "optimus", state: "starting" },
 				{ id: "nowhere", state: "idle" },
-				{ id: "ok", machine: "optimus", state: "idle" },
+				{ id: "stateless", machine: "optimus" },
+				{ machine: "optimus", state: "idle" },
 			),
 		);
 
-		expect(held?.map((one) => one.id)).toEqual(["ok"]);
+		expect(held).toEqual([
+			{ id: "odd", machine: "optimus", state: "starting" },
+			{ id: "nowhere", state: "idle" },
+			{ id: "stateless", machine: "optimus", state: "unknown" },
+		]);
 	});
 });
 

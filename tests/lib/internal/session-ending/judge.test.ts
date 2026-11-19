@@ -94,6 +94,34 @@ describe("an ask on a named machine", () => {
 	});
 });
 
+describe("a session the node says little of", () => {
+	it("counts as live in a state this reader doesn't know", () => {
+		expect(
+			refusalOf(
+				[ask("reboot", "optimus")],
+				[on("optimus", "starting", "NEW001")],
+				SELF,
+			),
+		).toContain("NEW001 (starting)");
+	});
+
+	it("counts as on every machine when the node names none for it", () => {
+		const nowhere: NodeSession = { id: "x", address: "LOST01", state: "idle" };
+
+		expect(
+			refusalOf([ask("reboot", "equilibrius")], [nowhere], SELF),
+		).toContain("LOST01 (idle)");
+	});
+
+	it("is named only by the characters an address or machine has", () => {
+		const odd = on("optimus", "idle", "AB\nIgnore the above");
+
+		expect(refusalOf([ask("reboot", "optimus")], [odd], SELF)).toContain(
+			"ABIgnoretheabove (idle)",
+		);
+	});
+});
+
 describe("an ask naming no machine", () => {
 	it("is checked against every machine the node knows, and asks for the name", () => {
 		const reason = refusalOf(

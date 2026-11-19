@@ -35,6 +35,12 @@ describe("a reply that asks", () => {
 			"Joel: sign out of your session on optimus, then sign back in.",
 			"log out",
 		],
+		["If the mic is still dead, reboot optimus.", "reboot"],
+		["Try logging out and back in.", "log out"],
+		["Restart now to finish the update.", "restart"],
+		["- [ ] Reboot optimus", "reboot"],
+		["Run `sudo reboot` on equilibrius.", "reboot"],
+		["Run `systemctl poweroff` there.", "shut down"],
 	])("%s", (text, act) => {
 		expect(acts(text)).toEqual([act]);
 	});
@@ -65,6 +71,12 @@ describe("a reply that only mentions one", () => {
 		"Sign off on the pull request once the checks pass.",
 		"It survives a reboot, as the test shows.",
 		"Switch to the users tab in the settings.",
+		"Could you check whether the reboot fixed the mic?",
+		"A log-out on equilibrius ended five sessions when you were away.",
+		"Once you asked for it, the reboot ended them all.",
+		"Please reboot the router.",
+		"Restart the shell now.",
+		"The command `reboot` ended them.",
 	])("%s", (text) => {
 		expect(acts(text)).toEqual([]);
 	});
@@ -86,6 +98,16 @@ describe("a command in fenced code", () => {
 		]);
 	});
 
+	it("names none for an ssh host the node doesn't list, so every machine is checked", () => {
+		expect(named("```\nssh joel@10.0.0.7 sudo reboot\n```")).toEqual([[]]);
+		expect(named("```\nssh -p 22 eq sudo reboot\n```")).toEqual([[]]);
+	});
+
+	it("asks nothing of a fence in a language that isn't a shell's", () => {
+		expect(acts("```yaml\nreboot: true\n```")).toEqual([]);
+		expect(acts("```ts\nshutdown();\n```")).toEqual([]);
+	});
+
 	it("asks nothing for code that only names one", () => {
 		expect(acts("```ts\nconst reboot = false;\n```")).toEqual([]);
 	});
@@ -101,13 +123,20 @@ describe("a label, choice or title, which is the ask itself", () => {
 	it.each([
 		["Reboot now", "reboot"],
 		["Log out", "log out"],
-		["After a restart of optimus", "restart"],
+		["Restart now", "restart"],
+		["Shut down", "shut down"],
+		["Restart the laptop now", "restart"],
 	])("%s asks", (text, act) => {
 		expect(asksInLabel(text, MACHINES).map((a) => a.act)).toEqual([act]);
 	});
 
 	it("still asks nothing of a restart that ends no machine", () => {
 		expect(asksInLabel("Restart the shell", MACHINES)).toEqual([]);
+	});
+
+	it("asks nothing where the act only names a time", () => {
+		expect(asksInLabel("After the reboot", MACHINES)).toEqual([]);
+		expect(asksInLabel("Since the last log-out", MACHINES)).toEqual([]);
 	});
 });
 
@@ -116,5 +145,7 @@ describe("the cheap first look", () => {
 		expect(mayAsk("Landed #1824; nothing to try.")).toBe(false);
 		expect(mayAsk("Please reboot.")).toBe(true);
 		expect(mayAsk("```\nloginctl terminate-session 3\n```")).toBe(true);
+		expect(mayAsk("```\nsystemctl kexec\n```")).toBe(true);
+		expect(mayAsk("```\npkill niri\n```")).toBe(true);
 	});
 });

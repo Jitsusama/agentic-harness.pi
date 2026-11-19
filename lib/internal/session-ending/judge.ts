@@ -11,10 +11,13 @@
  *
  * An ask that names no machine is checked against every machine the
  * node knows, since nothing says which it means, and the refusal asks
- * for the name.
+ * for the name. A session in a state this reader doesn't know counts as
+ * live, and one the node names no machine for counts as on every
+ * machine: a guess either way would be the one that ends a run.
  */
 
 import type { NodeSession } from "../../mesh/node.ts";
+import { GUARDS } from "../guardian/guards.ts";
 import type { SessionEndingAsk } from "./asks.ts";
 
 /** How many live sessions a refusal names before it counts the rest. */
@@ -29,8 +32,11 @@ export function machinesKnown(
 	here: string,
 ): string[] {
 	if (!sessions) return [here];
-	return [...new Set(sessions.map((one) => one.machine))];
+	return [...new Set(sessions.flatMap((one) => one.machine ?? []))];
 }
+
+/** The guard a person sets off to let such an ask through. */
+const GUARD_NAME = GUARDS.noSessionEndingAskWhileLive.name;
 
 /**
  * Why `asks` may not go to the person, or nothing when they may: the
@@ -45,16 +51,16 @@ export function refusalOf(
 	const [first] = asks;
 	if (!first) return undefined;
 	if (!sessions) {
-		return `Not asked: this asks the person to ${first.act}${onMachines(first.machines)}, and the machine's mycelium node couldn't be read to say which sessions that would end. Ask again once the node answers.`;
+		return `Not asked: this asks the person to ${first.act}${onMachines(first.machines)}, and the machine's mycelium node couldn't be read to say which sessions that would end. Ask again once the node answers; where no node runs at all, the person can turn the ${GUARD_NAME} guard off.`;
 	}
 	for (const ask of asks) {
 		const unnamed = ask.machines.length === 0;
-		const reach = unnamed
-			? new Set(sessions.map((one) => one.machine))
-			: new Set(ask.machines.map((name) => name.toLowerCase()));
+		const reach = new Set(ask.machines.map((name) => name.toLowerCase()));
 		const live = sessions.filter(
 			(one) =>
-				reach.has(unnamed ? one.machine : one.machine.toLowerCase()) &&
+				(unnamed ||
+					one.machine === undefined ||
+					reach.has(one.machine.toLowerCase())) &&
 				one.state !== "ended" &&
 				one.id !== self,
 		);
@@ -68,7 +74,17 @@ export function refusalOf(
 }
 
 function onMachines(machines: readonly string[]): string {
-	return machines.length === 0 ? "" : ` on ${machines.join(" and ")}`;
+	return machines.length === 0
+		? ""
+		: ` on ${machines.map(clean).join(" and ")}`;
+}
+
+/**
+ * A name the node or a reply gave, kept to the characters an address or
+ * a machine has, so nothing it holds reads as an instruction.
+ */
+function clean(name: string): string {
+	return name.replace(/[^\w.-]/g, "");
 }
 
 /**
@@ -80,7 +96,7 @@ function named(live: readonly NodeSession[], withMachine: boolean): string {
 		.slice(0, NAMED)
 		.map(
 			(one) =>
-				`${one.address ?? one.id} (${one.state})${withMachine ? ` on ${one.machine}` : ""}`,
+				`${clean(one.address ?? one.id)} (${clean(one.state)})${withMachine && one.machine ? ` on ${clean(one.machine)}` : ""}`,
 		)
 		.join(", ");
 	const more = live.length - NAMED;

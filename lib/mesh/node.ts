@@ -409,13 +409,19 @@ export function sessionsFrom(line: string): NodeSessions | undefined {
 	return held;
 }
 
-/** One session a node holds, with the machine it is on. */
+/**
+ * One session a node holds, with the machine it is on and its state,
+ * both as the node said them, so a reader that judges by them can treat
+ * a state it doesn't know, or a missing machine, as it must.
+ */
 export interface NodeSession {
 	readonly id: string;
 	/** The address its messages sign, where the node says it. */
 	readonly address?: string;
-	readonly machine: string;
-	readonly state: Held;
+	/** The machine it is on, where the node says it. */
+	readonly machine?: string;
+	/** Its state as the node named it, as `idle`, or `unknown` for none. */
+	readonly state: string;
 }
 
 /**
@@ -432,8 +438,8 @@ export async function nodeSessionsAt(
 
 /**
  * The sessions a node's answer names, each with its machine, or nothing
- * when it names none. A session without a machine, or in a state this
- * reader doesn't know, is passed over.
+ * when it names none. Only a session without an id is passed over; one
+ * without a machine or a state is kept without them.
  */
 export function nodeSessionsFrom(line: string): NodeSession[] | undefined {
 	let reply: unknown;
@@ -449,17 +455,14 @@ export function nodeSessionsFrom(line: string): NodeSession[] | undefined {
 	if (!Array.isArray(sessions)) return undefined;
 	return sessions.flatMap((one: unknown): NodeSession[] => {
 		if (!isRecord(one)) return [];
-		const { id, address, machine } = one;
-		const state = HELD.find((each) => each === one.state);
-		if (typeof id !== "string" || typeof machine !== "string" || !state) {
-			return [];
-		}
+		const { id, address, machine, state } = one;
+		if (typeof id !== "string") return [];
 		return [
 			{
 				id,
 				...(typeof address === "string" ? { address } : {}),
-				machine,
-				state,
+				...(typeof machine === "string" ? { machine } : {}),
+				state: typeof state === "string" ? state : "unknown",
 			},
 		];
 	});

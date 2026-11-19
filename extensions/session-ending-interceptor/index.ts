@@ -8,13 +8,17 @@
  * `ask`, a `show_person` look or a reply asking for one is refused while
  * the machine's mycelium node says any session other than the asker's
  * is there in any state but ended, and refused when the node can't be
- * read, under the no-session-ending-ask-while-live guard.
+ * read, under the no-session-ending-ask-while-live guard. So is a
+ * `mesh_wait` putting one on the person's list. Where no realm is named,
+ * as for a consumer without mycelium, there is no node and nothing is
+ * refused.
  *
  * A call is refused before it runs. A reply has already streamed by the
  * time pi finalizes it, so its text is replaced there, which pi shows
  * in its place and keeps in the session, with its tool calls left as
- * they were; the reason follows as a message that keeps the run going,
- * so the model says something else.
+ * they were; the reason follows once a run as a follow-up, so the model
+ * says something else. A reply the person stopped is withheld without
+ * one, since the run it would continue was ended on purpose.
  */
 
 import type {
@@ -22,6 +26,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
+import { OVERRIDE_HINT } from "../../lib/guardian/report.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { isRecord } from "../../lib/internal/record.ts";
@@ -32,6 +37,7 @@ import {
 	type SessionEndingDeps,
 	saidByAsk,
 	saidByLook,
+	saidByWait,
 	saidInReply,
 } from "./refuse.ts";
 
@@ -46,26 +52,44 @@ export const WITHHELD_MESSAGE = "session-ending-withheld";
 const WITHHELD =
 	"(Withheld: this asked the person to end a machine's sessions. The reason follows.)";
 
-/** What reads the tool calls and replies that say something to the person. */
+/** How a redirected reply's refusal says it may go through as it was. */
+const REPLY_OVERRIDE_HINT =
+	"If this is right as it is, say it again, unchanged, and it will go through as a recorded override.";
+
+/** What reads the tool calls that say something to the person. */
 const READERS: Readonly<Record<string, (input: unknown) => Said>> = {
 	ask: saidByAsk,
 	show_person: saidByLook,
+	mesh_wait: saidByWait,
 };
+
+/**
+ * Whether the model has been told of a withheld reply in this run, so
+ * however many are withheld it is told once, until the run settles.
+ */
+interface Told {
+	thisRun: boolean;
+}
 
 /** The interceptor, reading the node and the machine through `deps`. */
 export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 	return (pi: ExtensionAPI): void => {
 		declareGuards(GUARD);
+		const told: Told = { thisRun: false };
 		pi.on("tool_call", (event, ctx) =>
 			refuseCall(event.toolName, event.input, ctx, deps),
 		);
 		pi.on("message_end", (event, ctx) =>
-			withholdReply(pi, event.message, ctx, deps),
+			withholdReply(pi, event.message, ctx, deps, told),
 		);
+		pi.on("agent_settled", () => {
+			told.thisRun = false;
+		});
 	};
 }
 
 export default sessionEndingInterceptor({
+	onMesh: () => nodeSocket() !== undefined,
 	sessions: () => nodeSessionsAt(nodeSocket()),
 	here: () => thisMachine(),
 });
@@ -97,6 +121,7 @@ async function withholdReply<M extends { role: string }>(
 	message: M,
 	ctx: ExtensionContext,
 	deps: SessionEndingDeps,
+	told: Told,
 ): Promise<{ message: M } | undefined> {
 	if (message.role !== "assistant" || !("content" in message)) return undefined;
 	const said = saidInReply(message.content);
@@ -112,14 +137,16 @@ async function withholdReply<M extends { role: string }>(
 	const stopped =
 		"stopReason" in message &&
 		(message.stopReason === "aborted" || message.stopReason === "error");
-	if (!stopped) {
+	if (!stopped && !told.thisRun) {
+		told.thisRun = true;
+		const reason = verdict.reason.replace(OVERRIDE_HINT, REPLY_OVERRIDE_HINT);
 		pi.sendMessage(
 			{
 				customType: WITHHELD_MESSAGE,
-				content: `Your last reply was withheld from the person. ${verdict.reason} Say what you meant without the ask.`,
+				content: `Your last reply was withheld from the person. ${reason} Say what you meant without the ask.`,
 				display: true,
 			},
-			{ deliverAs: "followUp", triggerTurn: true },
+			{ deliverAs: "followUp" },
 		);
 	}
 	return { message: { ...message, content: withheld(message.content) } };

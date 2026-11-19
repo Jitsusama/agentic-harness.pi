@@ -19,6 +19,12 @@ import type { NodeSession } from "../../lib/mesh/node.ts";
 
 /** Where the interceptor reads the node and names this machine. */
 export interface SessionEndingDeps {
+	/**
+	 * Whether a realm is named for a node to serve: with none, as for a
+	 * consumer without mycelium, there is no node to ask and nothing is
+	 * refused.
+	 */
+	readonly onMesh: () => boolean;
 	/** Every session the node holds, or nothing when it can't be read. */
 	readonly sessions: () => Promise<readonly NodeSession[] | undefined>;
 	/** This machine's name, for an ask read while the node can't be. */
@@ -61,15 +67,31 @@ export function saidByAsk(input: unknown): Said {
 }
 
 /**
- * What a `show_person` look says: its why as prose, and its title, ask
- * and choices as the ask itself.
+ * What a `show_person` look says: its title, why and ask as prose, read
+ * for the form of an ask, since a title can name a reboot it only
+ * explains, and its choices as the ask itself.
  */
 export function saidByLook(input: unknown): Said {
 	if (!isRecord(input)) return NOTHING;
 	const choices = Array.isArray(input.choices) ? input.choices : [];
 	return {
-		prose: texts([input.why]),
-		labels: texts([input.title, input.ask, ...choices]),
+		prose: texts([input.title, input.why, input.ask]),
+		labels: texts(choices),
+	};
+}
+
+/**
+ * What a `mesh_wait` says waits on the person: its title and why as
+ * prose, and, when it is done at the next boot, a reboot of what its
+ * title names as the ask itself.
+ */
+export function saidByWait(input: unknown): Said {
+	if (!isRecord(input)) return NOTHING;
+	const title = typeof input.title === "string" ? input.title : undefined;
+	const atBoot = isRecord(input.doneWhen) && input.doneWhen.signal === "boot";
+	return {
+		prose: texts([title, input.why]),
+		labels: atBoot ? [title ? `Reboot (${title})` : "Reboot"] : [],
 	};
 }
 
@@ -94,7 +116,7 @@ export async function refusalFor(
 	deps: SessionEndingDeps,
 ): Promise<string | undefined> {
 	const all = [...said.prose, ...said.labels];
-	if (!all.some(mayAsk)) return undefined;
+	if (!all.some(mayAsk) || !deps.onMesh()) return undefined;
 	const sessions = await deps.sessions();
 	const machines = machinesKnown(sessions, deps.here());
 	const asks: SessionEndingAsk[] = [

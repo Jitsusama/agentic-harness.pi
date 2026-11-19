@@ -22,14 +22,24 @@ const someoneOn = (machine: string, state: NodeSession["state"] = "idle") => [
 
 let node: NodeSession[] | undefined;
 let asked: number;
+let onMesh: boolean;
 let pi: FakePi;
+let sentWith: unknown[];
 
 beforeEach(() => {
 	node = someoneOn("equilibrius");
 	asked = 0;
+	onMesh = true;
+	sentWith = [];
 	pi = fakePi();
+	const send = pi.sendMessage;
+	pi.sendMessage = (message, options) => {
+		sentWith.push(options);
+		send(message, options);
+	};
 	setSessionMode(GUARD, "block");
 	sessionEndingInterceptor({
+		onMesh: () => onMesh,
 		sessions: async () => {
 			asked++;
 			return node;
@@ -50,14 +60,18 @@ const call = (toolName: string, input: unknown) =>
 		ctx,
 	);
 
-const reply = (...content: object[]) =>
+const replyStopping = (stopReason: string, ...content: object[]) =>
 	handler("message_end")(
 		{
 			type: "message_end",
-			message: { role: "assistant", content, stopReason: "stop" },
+			message: { role: "assistant", content, stopReason },
 		},
 		ctx,
 	);
+
+const reply = (...content: object[]) => replyStopping("stop", ...content);
+
+const settle = () => handler("agent_settled")({ type: "agent_settled" }, ctx);
 
 const text = (said: string) => ({ type: "text", text: said });
 
@@ -95,7 +109,16 @@ describe("an ask tool call", () => {
 	});
 
 	it("goes ahead when only the asker is on the machine", async () => {
-		node = someoneOn("equilibrius", "ended");
+		node = [
+			{
+				id: "other",
+				address: "EWUL44",
+				machine: "equilibrius",
+				state: "ended",
+			},
+			{ id: SELF, address: "0IM95G", machine: "equilibrius", state: "busy" },
+			{ id: "far", address: "FAR001", machine: "optimus", state: "idle" },
+		];
 		const verdict = await call("ask", {
 			questions: [
 				{ id: "q", prompt: "Please reboot equilibrius.", options: [] },
@@ -112,6 +135,46 @@ describe("an ask tool call", () => {
 
 		expect(verdict).toBeUndefined();
 		expect(asked).toBe(0);
+	});
+
+	it("goes ahead where no realm is named, so there is no node to ask", async () => {
+		onMesh = false;
+		const verdict = await call("ask", {
+			questions: [
+				{ id: "q", prompt: "Please reboot equilibrius.", options: [] },
+			],
+		});
+
+		expect(verdict).toBeUndefined();
+		expect(asked).toBe(0);
+	});
+});
+
+describe("a mesh_wait call", () => {
+	it("is refused when what waits on the person is the act", async () => {
+		expect(
+			await call("mesh_wait", { id: "w", title: "Reboot equilibrius" }),
+		).toMatchObject({ block: true });
+	});
+
+	it("is refused when it is done at the next boot", async () => {
+		expect(
+			await call("mesh_wait", {
+				id: "w",
+				title: "Take the new kernel on equilibrius",
+				doneWhen: { signal: "boot" },
+			}),
+		).toMatchObject({ block: true });
+	});
+
+	it("goes ahead for a wait that ends nothing", async () => {
+		expect(
+			await call("mesh_wait", {
+				id: "w",
+				title: "Pick the theme",
+				why: "It's a matter of taste.",
+			}),
+		).toBeUndefined();
 	});
 });
 
@@ -151,6 +214,17 @@ describe("a show_person call", () => {
 
 		expect(verdict).toBeUndefined();
 	});
+
+	it("goes ahead when its title only names a reboot", async () => {
+		const verdict = await call("show_person", {
+			kind: "page",
+			target: "https://example.com",
+			title: "Why the reboot broke the mic",
+			ask: "Nothing, just to see",
+		});
+
+		expect(verdict).toBeUndefined();
+	});
 });
 
 describe("another tool's call", () => {
@@ -172,10 +246,47 @@ describe("a reply", () => {
 		);
 
 		const message = (answer as { message: { content: object[] } }).message;
-		expect(JSON.stringify(message.content)).not.toContain("log out of macOS");
-		expect(message.content).toContainEqual(call);
+		expect(message.content).toEqual([
+			{ type: "text", text: expect.stringContaining("(Withheld:") },
+			call,
+		]);
 		const [note] = pi.recorded.sent;
 		expect(JSON.stringify(note)).toContain("EWUL44 (idle)");
+	});
+
+	it("tells the model once a run, however many replies are withheld in it", async () => {
+		await reply(text("Please reboot equilibrius."));
+		await reply(text("Then reboot equilibrius, please."));
+		expect(pi.recorded.sent).toHaveLength(1);
+
+		await settle();
+		await reply(text("Reboot equilibrius now."));
+		expect(pi.recorded.sent).toHaveLength(2);
+	});
+
+	it("tells the model as a follow-up that doesn't start a run of its own", async () => {
+		await reply(text("Please reboot equilibrius."));
+
+		expect(sentWith).toEqual([{ deliverAs: "followUp" }]);
+	});
+
+	it("is withheld without a word to the model when it was stopped", async () => {
+		const answer = await replyStopping(
+			"aborted",
+			text("Please reboot equilibrius."),
+		);
+
+		expect(answer).toBeDefined();
+		expect(pi.recorded.sent).toEqual([]);
+	});
+
+	it("says, when the guard redirects, that the reply may be said again", async () => {
+		setSessionMode(GUARD, "redirect");
+		await reply(text("Please reboot equilibrius."));
+
+		const said = JSON.stringify(pi.recorded.sent);
+		expect(said).toContain("say it again, unchanged");
+		expect(said).not.toContain("make the same call again");
 	});
 
 	it("is withheld when the node can't be read", async () => {
