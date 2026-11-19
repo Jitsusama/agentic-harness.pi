@@ -33,7 +33,8 @@ import {
 	type BudgetAnswer,
 	registerBudgetProvider,
 } from "../../../../lib/budget/provider.ts";
-import { BUDGET_SETTLED } from "../../../../lib/budget/record.ts";
+import { BUDGET_ENTRY, BUDGET_SETTLED } from "../../../../lib/budget/record.ts";
+import { automatedText } from "../../../../lib/internal/automated.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "../_helpers.ts";
@@ -1084,9 +1085,11 @@ describe("the budget of a session on no quest", () => {
 			},
 		});
 		const notices: string[] = [];
+		// Bound as the host binds a conversation: RPC, with no screen.
 		const ctx = {
 			cwd: tmpRoot,
-			hasUI: true,
+			mode: "rpc",
+			hasUI: false,
 			ui: { notify: (message: string) => notices.push(message) },
 			sessionManager: { getBranch: () => written },
 			modelRegistry: {
@@ -1223,9 +1226,77 @@ describe("the budget of a session on no quest", () => {
 		expect(process.env[KEY]).toBe("delta");
 	});
 
+	it("judges a person's first words, not what the harness said before them", async () => {
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+		for (const content of [
+			automatedText("a job finished", "Deploy aquifer's walgit"),
+			"Speed up walgit",
+		])
+			written.push({
+				type: "message",
+				message: { role: "user", content },
+			} as unknown as (typeof written)[number]);
+
+		await keeper.keep(ctx, { prompt: "yes, go on" });
+
+		expect(judged.map((work) => (work as { prompt: string }).prompt)).toEqual([
+			"Speed up walgit",
+		]);
+	});
+
+	it("isn't judged on what the harness sends as its first prompt", async () => {
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+
+		await keeper.keep(ctx, {
+			prompt: automatedText("a job finished", "Deploy delta"),
+		});
+
+		expect(judged).toEqual([]);
+		expect(process.env[KEY]).toBe("personal");
+	});
+
+	it("keeps the budget recorded before a reload, without judging again", async () => {
+		// Unsure now, so a judgement asked again would take delta off.
+		const { keeper, ctx, judged } = loose(undefined, "delta", 0.5);
+		written.push(
+			{
+				type: "message",
+				message: { role: "user", content: "Speed up walgit" },
+			} as unknown as (typeof written)[number],
+			{
+				type: "custom",
+				customType: BUDGET_ENTRY,
+				data: { v: 1, name: "delta" },
+			} as unknown as (typeof written)[number],
+		);
+
+		await keeper.keep(ctx);
+
+		expect(judged).toEqual([]);
+		expect(process.env[KEY]).toBe("delta");
+	});
+
+	it("waits for a prompt's run to judge a reloaded conversation, so Escape can stop it", async () => {
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+		written.push({
+			type: "message",
+			message: { role: "user", content: "Speed up walgit" },
+		} as unknown as (typeof written)[number]);
+
+		await keeper.keep(ctx);
+		expect(judged, "nothing at the session's start").toEqual([]);
+
+		const run = { ...ctx, signal: new AbortController().signal } as typeof ctx;
+		await keeper.keep(run, { prompt: "yes, go on" });
+		expect(judged.map((work) => (work as { prompt: string }).prompt)).toEqual([
+			"Speed up walgit",
+		]);
+		expect(process.env[KEY]).toBe("delta");
+	});
+
 	it("isn't judged on its prompt when it runs headless, as a subagent of a quest on no budget does", async () => {
 		const { keeper, ctx, judged } = loose(undefined, "delta");
-		const headless = { ...ctx, hasUI: false } as typeof ctx;
+		const headless = { ...ctx, mode: "json" } as typeof ctx;
 
 		await keeper.keep(headless, { prompt: "Review this Delta change" });
 
@@ -1235,7 +1306,7 @@ describe("the budget of a session on no quest", () => {
 
 	it("still draws on its folder's budget when it runs headless", async () => {
 		const { keeper, ctx, judged } = loose(tmpRoot, "delta");
-		const headless = { ...ctx, hasUI: false } as typeof ctx;
+		const headless = { ...ctx, mode: "print" } as typeof ctx;
 
 		await keeper.keep(headless, { prompt: "Review this" });
 

@@ -60,7 +60,11 @@ import {
 	budgetInRecord,
 	NO_BUDGET,
 } from "../../lib/internal/quest/fields/budget.ts";
-import { userTextOf } from "../../lib/internal/session/driven.ts";
+import {
+	isPersonText,
+	isPersonWords,
+	userTextOf,
+} from "../../lib/internal/session/driven.ts";
 import type { QuestState } from "./state.ts";
 
 /** What keeps the session on its quest's budget. */
@@ -243,11 +247,29 @@ export function keepQuestBudget(
 		if (session !== sessions) return null;
 		if (byFolder !== null) return byFolder;
 		// Only a person's session is judged on its prompt: a subagent or a
-		// job runs headless, and its task is no word on whose work it is,
-		// so it keeps what it inherited or its folder's, unasked and unpaid.
-		if (!ctx.hasUI) return null;
-		firstPrompt ??= firstPromptOf(ctx) ?? (prompt?.trim() || undefined);
+		// job runs in print or JSON mode, and its task is no word on whose
+		// work it is, so it keeps what it inherited or its folder's, unasked
+		// and unpaid. A hosted conversation is bound as RPC with no screen,
+		// so pi says it has no UI; its mode is what tells it from a job.
+		if (ctx.mode === "print" || ctx.mode === "json") return null;
+		const said = prompt?.trim();
+		firstPrompt ??=
+			firstPromptOf(ctx) ?? (said && isPersonText(said) ? said : undefined);
 		if (firstPrompt === undefined) return null;
+		// A keeper reloaded into a conversation keeps the budget the one
+		// before it recorded, rather than paying to judge again, which a
+		// miss or an unsure answer would take off without a word.
+		if (promptAsked === undefined && wanted === undefined) {
+			const recorded = lastRecorded(ctx.sessionManager?.getBranch?.() ?? []);
+			if (typeof recorded === "string" && firstPromptOf(ctx) !== undefined) {
+				promptNamed = recorded;
+				promptAsked = Promise.resolve(recorded);
+			}
+		}
+		// Started only with a run to stop it, so Escape can end the wait: a
+		// keep at a session's start has none, and the prompt's keep asks.
+		if (promptAsked === undefined && prompt === undefined && !ctx.signal)
+			return null;
 		promptAsked ??= judgeLoose(ctx, folder, firstPrompt, session);
 		const asked = promptAsked;
 		const byPrompt = await asked;
@@ -386,12 +408,14 @@ function inheritedBudget(ctx: ExtensionContext): string {
 }
 
 /**
- * The first words the session's conversation holds from its user, so a
+ * The first words a person wrote in the session's conversation, so a
  * keeper reloaded mid-conversation judges them again rather than a
- * follow-up like "go on"; nothing before the first prompt is logged.
+ * follow-up like "go on", and never what the harness said under its
+ * header, such as a job's report.
  */
 function firstPromptOf(ctx: ExtensionContext): string | undefined {
 	for (const entry of ctx.sessionManager?.getBranch?.() ?? []) {
+		if (!isPersonWords(entry)) continue;
 		const text = userTextOf(entry)?.trim();
 		if (text) return text;
 	}
