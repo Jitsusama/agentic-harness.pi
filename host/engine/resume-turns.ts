@@ -2,8 +2,8 @@
  * Turns for the runs a restart cut off, so a host coming back carries a
  * few on at once rather than every one.
  *
- * A host resumes its conversations one at a time, but each resumed
- * conversation's run then went at once: with fifteen held after a
+ * A host resumes its conversations a few at a time, and each resumed
+ * conversation's run used to go at once: with fifteen held after a
  * restart, every cut-off run asked its model and ran its tools together
  * (WCJQSG, 15 November). A run now waits for a turn before durable carries
  * it on, and keeps it until its first answer after the restart ends, or
@@ -13,7 +13,8 @@
  * so the order is the whole start's rather than whichever resumed first:
  * a run begun by words Joel typed goes first, since he is waiting on its
  * answer, and so does one he types into while it waits; then the rest in
- * the order they asked, which is the order the host held them in.
+ * the order they asked, which is roughly the order the host held them
+ * in, since a few resume at once.
  * Outside a start the turns are open, so a wake or an open waits on
  * nothing but the cap.
  */

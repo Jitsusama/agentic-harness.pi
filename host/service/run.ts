@@ -41,8 +41,14 @@ import { stateDir } from "../../lib/internal/paths.ts";
 import { withPi } from "../../lib/internal/priority/place.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostRealm } from "./address.ts";
-import type { ConversationEngine, ResumePhase } from "./backend.ts";
+import type {
+	ConversationEngine,
+	ResumeEnd,
+	ResumePhase,
+	Resuming,
+} from "./backend.ts";
 import { type HoldWatchOptions, watchHolds } from "./hold-watch.ts";
+import type { AdmitAnother } from "./rollout.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
 import type { ViewerBridge } from "./server.ts";
 import {
@@ -141,6 +147,8 @@ export interface HostRunOptions {
 	engine: (host: SessionHost) => Promise<ConversationEngine>;
 	/** The screens viewers attach to; without one, attach is refused. */
 	viewer?: (host: SessionHost) => ViewerBridge;
+	/** What a second conversation must pass; serve's rollout gate by default. */
+	rollout?: AdmitAnother;
 	/** Where the process hears its stop signals; the process by default. */
 	signals?: { once(signal: string, listener: () => void): unknown };
 	/** Says the host is ready, with its status; systemd's notify by default. */
@@ -220,6 +228,16 @@ export interface HostRun {
 	readonly stopped: Promise<void>;
 }
 
+/**
+ * How the journal says a resume ended, so a failed or parked one isn't
+ * read as resumed; one that failed says why at its end.
+ */
+const ENDED_AS: Record<ResumeEnd, string> = {
+	resumed: "resumed",
+	parked: "left parked",
+	unresumed: "could not resume",
+};
+
 /** The host's kind from its command line, refusing anything else. */
 export function hostKind(argv: readonly string[]): HostKind {
 	const [kind, ...rest] = argv;
@@ -240,25 +258,29 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const lastStop = unparked.read();
 	const seconds = (ms: number) => `${(ms / MS_PER_SECOND).toFixed(1)} s`;
 	const since = () => seconds(Date.now() - began);
-	// The conversation being resumed, when it began and when each of its
-	// phases ended, so each says how long it took and where, and a restart
-	// of thirty can be sized from one.
-	let resuming:
-		| {
-				readonly step: StartStep;
-				readonly at: number;
-				readonly phases: PhaseEnd[];
-		  }
-		| undefined;
-	const mark = (phase: ResumePhase) => {
-		resuming?.phases.push({ phase, at: Date.now() });
+	// Each conversation being resumed, by its step's number: when it began,
+	// when each of its phases ended and how it stops asking for more time,
+	// so each says how long it took and where, and a restart of thirty can
+	// be sized from one. A few resume at once, so each keeps its own.
+	interface UnderWay {
+		readonly at: number;
+		readonly phases: PhaseEnd[];
+		renewing?: () => void;
+	}
+	const resuming = new Map<number, UnderWay>();
+	const mark = (step: Resuming, phase: ResumePhase) => {
+		resuming.get(step.number)?.phases.push({ phase, at: Date.now() });
 	};
-	const resumed = () => {
-		if (resuming?.step.step !== "resume") return;
-		const { number, of } = resuming.step;
+	const finished = (step: Resuming, end: ResumeEnd, reason?: unknown) => {
+		const under = resuming.get(step.number);
+		if (!under) return;
+		resuming.delete(step.number);
+		under.renewing?.();
 		const now = Date.now();
+		const told = end === "unresumed" ? firstLine(reason) : "";
+		const why = told ? `: ${told}` : "";
 		say(
-			`${since()}: resumed ${number} of ${of} in ${seconds(now - resuming.at)}${phaseTimes(resuming.at, resuming.phases, now)}`,
+			`${since()}: ${ENDED_AS[end]} ${step.number} of ${step.of} in ${seconds(now - under.at)}${phaseTimes(under.at, under.phases, now)}${why}`,
 		);
 	};
 	const ask = async (status: string) => {
@@ -270,12 +292,17 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			report(error);
 		}
 	};
-	// Stops the current step asking again, once the next begins or the start ends.
+	// Stops the roster's or the engine's step asking again, once the next
+	// step begins or the start ends; each resume stops its own as it ends.
 	let renewing: (() => void) | undefined;
 	const starting = async (step: StartStep) => {
-		resumed();
 		renewing?.();
-		resuming = { step, at: Date.now(), phases: [] };
+		renewing = undefined;
+		let under: UnderWay | undefined;
+		if (step.step === "resume") {
+			under = { at: Date.now(), phases: [] };
+			resuming.set(step.number, under);
+		}
 		const status = describeStep(step);
 		const left =
 			step.step === "resume" && lastStop?.ids.includes(step.sessionId)
@@ -283,11 +310,28 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 				: "";
 		say(`${since()}: ${status}${left}`);
 		await ask(status);
-		renewing = askWhileUnderWay({
+		const renewal = askWhileUnderWay({
 			ask: () => ask(status),
 			every: options.stepRenewEvery ?? STEP_RENEW_MS,
 			ceiling: options.stepCeiling ?? STEP_CEILING_MS,
+			// Resumes overlap, so the journal's tail no longer names one that
+			// hangs: it names itself as it stops asking.
+			passed: under
+				? (ceiling) =>
+						say(
+							`${since()}: still ${status} after ${seconds(ceiling)}; asking no more, and the start waits on it`,
+						)
+				: undefined,
 		});
+		// A resume's end is said only once its start has resolved, so it
+		// is still under way here.
+		if (under) under.renewing = renewal;
+		else renewing = renewal;
+	};
+	// Whatever still asks once the start ends, ended or not, stops asking.
+	const stopRenewing = () => {
+		renewing?.();
+		for (const under of resuming.values()) under.renewing?.();
 	};
 	let serving: ServingHost;
 	try {
@@ -297,14 +341,16 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			kind,
 			engine: options.engine,
 			...(options.viewer ? { viewer: options.viewer } : {}),
+			...(options.rollout ? { rollout: options.rollout } : {}),
 			report,
 			say,
 			starting,
 			mark,
+			finished,
 			runtimeDir: options.env.XDG_RUNTIME_DIR,
 		});
 	} finally {
-		renewing?.();
+		stopRenewing();
 	}
 	const status = () => readyStatus(readyCount(serving));
 	const tell = (now: string) =>
@@ -417,7 +463,6 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			every: options.statusEvery ?? STATUS_EVERY_MS,
 			report,
 		});
-	resumed();
 	// Every conversation the last stop left is resumed by now, so its
 	// mark has said all it can.
 	if (lastStop) unparked.clear();
@@ -445,18 +490,21 @@ export function watchdogEvery(
 /**
  * Ask again every `every` ms from the host's own loop, until `ceiling` ms
  * after the step began or the answer is called, whichever comes first.
- * An ask still on its way when the next is due is let be.
+ * An ask still on its way when the next is due is let be. `passed` hears
+ * the ceiling once, if it is reached before the answer is called.
  */
 function askWhileUnderWay(options: {
 	ask: () => Promise<void>;
 	every: number;
 	ceiling: number;
+	passed?: (ceiling: number) => void;
 }): () => void {
 	const began = performance.now();
 	let asking = false;
 	const again = setInterval(() => {
 		if (performance.now() - began >= options.ceiling) {
 			clearInterval(again);
+			options.passed?.(options.ceiling);
 			return;
 		}
 		if (asking) return;
@@ -467,6 +515,28 @@ function askWhileUnderWay(options: {
 	}, options.every);
 	again.unref();
 	return () => clearInterval(again);
+}
+
+/**
+ * The first line of why something failed that says anything, to keep a
+ * journal entry on one line, or nothing for a reason with no message;
+ * the start's report says the rest, stack and all.
+ */
+function firstLine(reason: unknown): string {
+	let text: unknown;
+	try {
+		text = reason instanceof Error ? reason.message : reason;
+	} catch {
+		// A message getter that throws says nothing; the report still has the reason.
+		text = "";
+	}
+	if (typeof text !== "string") return "";
+	return (
+		text
+			.split(/\r?\n|\r/)
+			.map((line) => line.trim())
+			.find((line) => line.length > 0) ?? ""
+	);
 }
 
 /**

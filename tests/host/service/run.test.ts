@@ -95,6 +95,16 @@ function slowResume(ms: number) {
 
 /** Leave one conversation held, as a stopped host leaves it, answering its id. */
 async function heldOne(): Promise<string> {
+	const [sessionId] = await heldSome(1);
+	if (!sessionId) throw new Error("nothing held");
+	return sessionId;
+}
+
+/** Lets every conversation after the first in, as a current install would. */
+const admitting = async () => {};
+
+/** Open `count` conversations and stop, so the next start holds them. */
+async function heldSome(count: number): Promise<string[]> {
 	const signals = new EventEmitter();
 	const seeded = await runHost({
 		argv: ["background"],
@@ -106,18 +116,26 @@ async function heldOne(): Promise<string> {
 		say: () => {},
 		report: () => {},
 		places: places(),
+		rollout: admitting,
 	});
-	const reply = await controlRequest(seeded.serving.path, {
-		v: 1,
-		id: "o",
-		op: "open",
-		cwd: dir,
-		attended: false,
-	});
-	if (!reply.ok) throw new Error(reply.error.message);
-	signals.emit("SIGTERM");
-	await seeded.stopped;
-	return parseOpenResult(reply.result).sessionId;
+	const held: string[] = [];
+	try {
+		for (let n = 0; n < count; n++) {
+			const reply = await controlRequest(seeded.serving.path, {
+				v: 1,
+				id: `o${n}`,
+				op: "open",
+				cwd: dir,
+				attended: false,
+			});
+			if (!reply.ok) throw new Error(reply.error.message);
+			held.push(parseOpenResult(reply.result).sessionId);
+		}
+	} finally {
+		signals.emit("SIGTERM");
+		await seeded.stopped;
+	}
+	return held;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -1036,6 +1054,256 @@ describe("runHost", () => {
 			await run.stopped;
 		}
 	});
+
+	// The background host on 18 November resumed 81 one at a time in 479 s.
+	it("says each of the resumes that run together under its own step, with its own phases", async () => {
+		await heldSome(3);
+		const PHASE_MS = 60;
+		const said: string[] = [];
+		const second = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => ({
+				...(await engine(host)),
+				resume: async (_entry, _woken, mark) => {
+					mark?.("log");
+					// A real pause, so the two after the first overlap.
+					await new Promise((done) => setTimeout(done, PHASE_MS));
+				},
+			}),
+			signals: second,
+			ready: async () => {},
+			progress: async () => {},
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+			rollout: admitting,
+		});
+		try {
+			const steps = said
+				.map((line) => line.replace(/^\d+\.\d s: /, ""))
+				.filter((line) => /^resum/.test(line))
+				.map((line) => line.replace(/ in .*|: .*/, ""));
+			expect(
+				steps.slice(0, 4),
+				"the second and third begin before either ends",
+			).toEqual([
+				"resuming 1 of 3",
+				"resumed 1 of 3",
+				"resuming 2 of 3",
+				"resuming 3 of 3",
+			]);
+			expect(steps.slice(4).sort(), "then each ends, in either order").toEqual([
+				"resumed 2 of 3",
+				"resumed 3 of 3",
+			]);
+			for (const number of [2, 3])
+				expect(
+					said.find((line) => line.includes(`resumed ${number} of 3`)),
+					"its phases alone",
+				).toMatch(
+					/ \(ask \d+\.\d s, gate \d+\.\d s, log \d+\.\d s, rest \d+\.\d s\)$/,
+				);
+		} finally {
+			second.emit("SIGTERM");
+			await run.stopped;
+		}
+	});
+
+	it("says a resume that failed as one it could not resume, with why, and a parked one as left parked", async () => {
+		const [, parked, failing, unsaid] = await heldSome(4);
+		const said: string[] = [];
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host) => ({
+				...(await engine(host)),
+				restsParked: (entry) => entry.sessionId === parked,
+				resume: async (entry) => {
+					if (entry.sessionId === failing)
+						throw new Error("\n  its log is gone\r\npid 12 still holds it");
+					// A message that isn't text says nothing, rather than failing the start.
+					if (entry.sessionId === unsaid)
+						throw Object.assign(new Error("replaced below"), { message: 12 });
+				},
+			}),
+			signals,
+			ready: async () => {},
+			progress: async () => {},
+			say: (line) => said.push(line),
+			report: () => {},
+			places: places(),
+			rollout: admitting,
+		});
+		try {
+			const ends = said
+				.map((line) => line.replace(/^\d+\.\d s: /, ""))
+				.filter((line) => / \d of 4 in /.test(line))
+				.map((line) => line.replace(/ in \d+\.\d s \([^)]*\)/, ""))
+				.sort();
+			expect(ends).toEqual([
+				"could not resume 3 of 4: its log is gone",
+				"could not resume 4 of 4",
+				"left parked 2 of 4",
+				"resumed 1 of 4",
+			]);
+		} finally {
+			signals.emit("SIGTERM");
+			await run.stopped;
+		}
+	});
+
+	// The cases below end their resumes on what they see, or past GIVE_UP_MS
+	// once it is clear they won't see it, so the checks say what broke; each
+	// case's own time sits well past that, seeding included.
+	const GIVE_UP_MS = 5_000;
+	const CASE_MS = 20_000;
+
+	it(
+		"keeps asking for each of the resumes that run together until its own ends",
+		async () => {
+			// Each resume ends only once the test has seen what it checks, so a
+			// stalled machine can't merge two ends: the short one once the long
+			// one asks beside it, the long one once it has asked three times
+			// since, and the tail, still running, once it has asked three times
+			// since the long one ended. A shared renewal would stop the long
+			// one's asks at the short one's end, or keep them past its own.
+			const [, short = "", long = "", tail = ""] = await heldSome(4);
+			const RENEW_MS = 10;
+			const ending = new Map<string, () => void>();
+			const ends = new Map(
+				[short, long, tail].map((id) => [
+					id,
+					new Promise<void>((end) => ending.set(id, end)),
+				]),
+			);
+			const asked: { status: string; at: number }[] = [];
+			const ended: { line: string; at: number }[] = [];
+			const endOf = (step: string) =>
+				ended.find(({ line }) => line.includes(`resumed ${step}`))?.at ?? 0;
+			const askedSince = (status: string, since: number) =>
+				asked.filter((ask) => ask.status === status && ask.at > since).length;
+			const longAsks = `resuming 3 of 4: ${long}`;
+			const tailAsks = `resuming 4 of 4: ${tail}`;
+			const endWhatIsSeen = () => {
+				const shortEnd = endOf("2 of 4");
+				const longEnd = endOf("3 of 4");
+				if (askedSince(longAsks, 0) >= 1) ending.get(short)?.();
+				if (shortEnd > 0 && askedSince(longAsks, shortEnd) >= 3)
+					ending.get(long)?.();
+				if (longEnd > 0 && askedSince(tailAsks, longEnd) >= 3)
+					ending.get(tail)?.();
+			};
+			// Past this a renewal is broken: every resume ends, so the checks say how.
+			const giveUp = setTimeout(() => {
+				for (const end of ending.values()) end();
+			}, GIVE_UP_MS);
+			const signals = new EventEmitter();
+			const run = await runHost({
+				argv: ["background"],
+				env: env(),
+				engine: async (host) => ({
+					...(await engine(host)),
+					resume: async (entry) => {
+						await ends.get(entry.sessionId);
+					},
+				}),
+				signals,
+				ready: async () => {},
+				progress: async (_env, status) => {
+					asked.push({ status, at: performance.now() });
+					endWhatIsSeen();
+				},
+				stepRenewEvery: RENEW_MS,
+				say: (line) => ended.push({ line, at: performance.now() }),
+				report: () => {},
+				places: places(),
+				rollout: admitting,
+			});
+			clearTimeout(giveUp);
+			try {
+				const shortEnd = endOf("2 of 4");
+				const longEnd = endOf("3 of 4");
+				const tailEnd = endOf("4 of 4");
+				expect(shortEnd, "the short one ended").toBeGreaterThan(0);
+				expect(longEnd, "after the short one").toBeGreaterThan(shortEnd);
+				expect(tailEnd, "the tail after the long one").toBeGreaterThan(longEnd);
+				expect(
+					askedSince(`resuming 2 of 4: ${short}`, shortEnd),
+					"the short one asks no more once it ends",
+				).toBe(0);
+				expect(
+					askedSince(longAsks, shortEnd),
+					"the long one goes on asking beside it",
+				).toBeGreaterThanOrEqual(3);
+				expect(
+					askedSince(longAsks, longEnd),
+					"nor the long one once it ends, while the tail still runs",
+				).toBe(0);
+				expect(
+					askedSince(tailAsks, longEnd),
+					"the tail goes on asking",
+				).toBeGreaterThanOrEqual(3);
+			} finally {
+				signals.emit("SIGTERM");
+				await run.stopped;
+			}
+		},
+		CASE_MS,
+	);
+
+	it(
+		"names a resume that runs past its ceiling as it stops asking",
+		async () => {
+			const sessionId = await heldOne();
+			const RENEW_MS = 10;
+			let passed: () => void = () => {};
+			const ceilingSaid = new Promise<void>((said) => {
+				passed = said;
+			});
+			// Past this the ceiling was never said: the resume ends, so the check says so.
+			const giveUp = setTimeout(() => passed(), GIVE_UP_MS);
+			const said: string[] = [];
+			const signals = new EventEmitter();
+			const run = await runHost({
+				argv: ["background"],
+				env: env(),
+				engine: async (host) => ({
+					...(await engine(host)),
+					resume: async () => {
+						await ceilingSaid;
+					},
+				}),
+				signals,
+				ready: async () => {},
+				progress: async () => {},
+				stepRenewEvery: RENEW_MS,
+				stepCeiling: 20 * RENEW_MS,
+				say: (line) => {
+					said.push(line);
+					if (line.includes("asking no more")) passed();
+				},
+				report: () => {},
+				places: places(),
+				rollout: admitting,
+			});
+			clearTimeout(giveUp);
+			try {
+				const stillSaid = said
+					.filter((line) => line.includes("asking no more"))
+					.map((line) => line.replace(/^\d+\.\d s: /, ""));
+				expect(stillSaid).toEqual([
+					`still resuming 1 of 1: ${sessionId} after 0.2 s; asking no more, and the start waits on it`,
+				]);
+			} finally {
+				signals.emit("SIGTERM");
+				await run.stopped;
+			}
+		},
+		CASE_MS,
+	);
 
 	// The background host on 13 November: resumes took 80 to 135 s each,
 	// past the 120 s one ask gave, so the start outlived its time.

@@ -67,11 +67,13 @@ export interface ConversationEngine {
 	 */
 	lost?(entry: RosterEntry): boolean;
 	/**
-	 * A start is about to resume what the host holds: carry on none of the
-	 * runs a restart cut off until resumed says it has resumed them all, so
-	 * they go in the whole start's order, a few at a time.
+	 * A start is about to resume `held`, what the host holds: carry on none
+	 * of the runs a restart cut off until resumed says it has resumed them
+	 * all, so they go a few at a time in the whole start's order: the
+	 * order they asked in, which is roughly the order held, since a few
+	 * resume at once.
 	 */
-	resuming?(): void;
+	resuming?(held: readonly string[]): void;
 	/** The start has resumed everything it holds; the runs it cut off may go. */
 	resumed?(): void;
 	abort(sessionId: string): Promise<void>;
@@ -542,6 +544,9 @@ export type ResumePhase =
 	| "screen"
 	| "recovery";
 
+/** How a resume a start began ended: built, left parked, or still held unbuilt. */
+export type ResumeEnd = "resumed" | "parked" | "unresumed";
+
 /** A held conversation a starting host is about to resume, counted from one. */
 export interface Resuming {
 	readonly step: "resume";
@@ -617,8 +622,17 @@ export function heldOrder(roster: HostRoster): HeldOrder {
 }
 
 /**
- * Resume every held conversation at start, one at a time in the order
- * they were held, or as `order` brings one forward, apart from one that parked before the start and
+ * How many conversations a start resumes together once one has resumed
+ * alone. On 18 November a start of 81, one at a time, took 479 s, each
+ * resume mostly waiting, its host's thread busy 43% of the time; more
+ * than a few at once would only queue on that thread.
+ */
+export const RESUME_AT_ONCE = 4;
+
+/**
+ * Resume every held conversation at start, in the order they were held,
+ * or as `order` brings one forward: alone until one has resumed, then
+ * RESUME_AT_ONCE at a time, each taking the next as it ends. One that parked before the start and
  * rests parked (`restsParked`), which builds nothing, so passes no gate
  * and counts as parked rather than resumed. One whose session file is
  * gone (`lost`) can never resume, so it is dropped from the roster and
@@ -631,9 +645,17 @@ export function heldOrder(roster: HostRoster): HeldOrder {
  * `starting` hears each one before it begins, so whoever waits on the
  * start knows it still moves; if it throws, that conversation stays held
  * and is reported like one that couldn't resume, and the rest go on.
+ * `mark` hears each phase as it ends and `finished` each one's end,
+ * resumed, parked or failed with why, under its own step, since several
+ * run at once. A throw from `mark` at the phases this marks itself (ask
+ * and gate) fails that conversation's resume; the engine's build hears it
+ * too, so it must not throw there. One from `finished` fails the start,
+ * once no resume is still building.
  * The runs a restart cut off wait until the last has resumed
  * (`resuming`, then `resumed`, also when one throws), so a few go at a
- * time in the whole start's order rather than racing the resumes.
+ * time in the whole start's order rather than racing the resumes; that
+ * order is the one they asked in, roughly the order held, since a few
+ * resume at once.
  * One no longer held when its turn comes, closed while the start ran,
  * is passed over.
  */
@@ -642,7 +664,8 @@ export async function resumeHeld(options: {
 	engine: ConversationEngine;
 	admitAnother?: AdmitAnother;
 	starting?: (step: Resuming) => Promise<void>;
-	mark?: (phase: ResumePhase) => void;
+	mark?: (step: Resuming, phase: ResumePhase) => void;
+	finished?: (step: Resuming, end: ResumeEnd, reason?: unknown) => void;
 	order?: HeldOrder;
 }): Promise<HeldResumed> {
 	const resumed: string[] = [];
@@ -651,43 +674,79 @@ export async function resumeHeld(options: {
 	const unresumed: Unresumed[] = [];
 	const order = options.order ?? heldOrder(options.roster);
 	let number = 0;
-	options.engine.resuming?.();
-	try {
-		for (let entry = order.next(); entry; entry = order.next()) {
-			number += 1;
-			const { sessionId } = entry;
-			try {
-				if (
-					!options.roster.entries().some((held) => held.sessionId === sessionId)
-				)
-					continue;
-				// Dropped before it is said as resuming, since nothing resumes.
-				if (options.engine.lost?.(entry)) {
-					await options.roster.drop(sessionId);
-					dropped.push(sessionId);
-					continue;
-				}
-				await options.starting?.({
-					step: "resume",
-					number,
-					of: order.total,
-					sessionId,
-				});
-				options.mark?.("ask");
-				if (options.engine.restsParked?.(entry)) {
-					parked.push(sessionId);
-					continue;
-				}
-				if (resumed.length > 0) await options.admitAnother?.();
-				options.mark?.("gate");
-				await options.engine.resume(entry, false, options.mark);
-				resumed.push(sessionId);
-			} catch (reason) {
-				unresumed.push({ sessionId, reason });
-			} finally {
-				order.settled(sessionId);
+
+	async function resumeOne(entry: RosterEntry): Promise<void> {
+		number += 1;
+		const { sessionId } = entry;
+		const step: Resuming = {
+			step: "resume",
+			number,
+			of: order.total,
+			sessionId,
+		};
+		const mark = (phase: ResumePhase) => options.mark?.(step, phase);
+		let began = false;
+		let end: ResumeEnd = "unresumed";
+		let failure: unknown;
+		try {
+			if (
+				!options.roster.entries().some((held) => held.sessionId === sessionId)
+			)
+				return;
+			// Dropped before it is said as resuming, since nothing resumes.
+			if (options.engine.lost?.(entry)) {
+				await options.roster.drop(sessionId);
+				dropped.push(sessionId);
+				return;
 			}
+			began = true;
+			await options.starting?.(step);
+			mark("ask");
+			if (options.engine.restsParked?.(entry)) {
+				parked.push(sessionId);
+				end = "parked";
+				return;
+			}
+			if (resumed.length > 0) await options.admitAnother?.();
+			mark("gate");
+			await options.engine.resume(entry, false, mark);
+			resumed.push(sessionId);
+			end = "resumed";
+		} catch (reason) {
+			unresumed.push({ sessionId, reason });
+			failure = reason;
+		} finally {
+			order.settled(sessionId);
+			if (began) options.finished?.(step, end, failure);
 		}
+	}
+
+	/** Take the next as each ends, until the order owes no more. */
+	async function resumeRest(): Promise<void> {
+		for (let entry = order.next(); entry; entry = order.next())
+			await resumeOne(entry);
+	}
+
+	options.engine.resuming?.(
+		options.roster.entries().map((entry) => entry.sessionId),
+	);
+	try {
+		// Alone until one resumes, so the rollout gate's first runs by itself.
+		while (resumed.length === 0) {
+			const entry = order.next();
+			if (!entry) break;
+			await resumeOne(entry);
+		}
+		// Every worker ends before the start does, so one that throws (a
+		// listener's fault, since each resume's own is caught) leaves none
+		// still building as the runs a restart cut off are let go.
+		const rest = await Promise.allSettled(
+			Array.from({ length: RESUME_AT_ONCE }, () => resumeRest()),
+		);
+		const failed = rest.find(
+			(worker): worker is PromiseRejectedResult => worker.status === "rejected",
+		);
+		if (failed) throw failed.reason;
 	} finally {
 		order.end();
 		options.engine.resumed?.();
@@ -697,7 +756,7 @@ export async function resumeHeld(options: {
 
 /** What a start did with each conversation the host held. */
 export interface HeldResumed {
-	/** Built and running again, in the order they went. */
+	/** Built and running again, in the order they finished. */
 	readonly resumed: string[];
 	/** Left parked as their last process parked them, building nothing. */
 	readonly parked: string[];
