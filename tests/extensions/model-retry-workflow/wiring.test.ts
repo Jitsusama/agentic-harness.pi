@@ -57,6 +57,22 @@ function reply(
 	};
 }
 
+/**
+ * A timeout after the provider read the whole input, as a request too
+ * big to finish in time gives: billed, and the same again each try.
+ */
+function billed(): AssistantMessage {
+	const failed = reply("error", "Request timed out.");
+	return {
+		...failed,
+		usage: {
+			...failed.usage,
+			input: 150_000,
+			cost: { ...failed.usage.cost, input: 0.45, total: 0.45 },
+		},
+	};
+}
+
 /** What the session shows and holds, shared by every load of it. */
 interface Session {
 	branch: Entry[];
@@ -254,7 +270,7 @@ describe("a turn that keeps failing for a moment", () => {
 		expect(
 			held.notices.at(-1)?.text,
 			"the seventh waits the longest wait",
-		).toMatch(/Trying again in 300 s \(try 7\)/);
+		).toMatch(/Trying again in 270 s \(try 7\)/);
 		await passes(LONGEST_WAIT_MS - 1);
 		expect(held.tries, "not before the longest wait").toHaveLength(6);
 		await passes(1);
@@ -267,6 +283,50 @@ describe("a turn that keeps failing for a moment", () => {
 		expect(held.tries[7], "the eighth try says it is the eighth").toContain(
 			"try 8",
 		);
+	});
+
+	it("stops after three tries when each failure was billed", async () => {
+		const held = session();
+		const pi = loaded(held);
+		await pi.started();
+		for (let attempt = 1; attempt <= 3; attempt++) {
+			await pi.ran(billed());
+			await passes(LONGEST_WAIT_MS);
+		}
+		expect(held.tries).toHaveLength(3);
+		await pi.ran(billed());
+		expect(
+			held.notices.at(-1)?.text,
+			"the window says why it stopped and how to go on",
+		).toMatch(/billed.*Type to try again\./);
+		expect(held.status.get("model-retry")).toBeUndefined();
+		await passes(2 * LONGEST_WAIT_MS);
+		expect(held.tries, "no fourth try of a billed failure").toHaveLength(3);
+	});
+
+	it("counts billed failures across a reload", async () => {
+		const held = session();
+		const before = loaded(held);
+		await before.started();
+		await before.ran(billed());
+		await passes(FIRST_WAIT_MS);
+		await before.ran(billed());
+		await passes(2 * FIRST_WAIT_MS);
+		await before.ran(billed());
+		await before.shutdown();
+		const after = loaded(held);
+		await after.started("reload");
+		await passes(4 * FIRST_WAIT_MS);
+		expect(held.tries).toHaveLength(3);
+		await after.ran(billed());
+		await after.shutdown();
+		const again = loaded(held);
+		await again.started("reload");
+		await passes(2 * LONGEST_WAIT_MS);
+		expect(
+			held.tries,
+			"a reload does not start the count of billed tries again",
+		).toHaveLength(3);
 	});
 
 	it("leaves the wait to a run that starts during it", async () => {

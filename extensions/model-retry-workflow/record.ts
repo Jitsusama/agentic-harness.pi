@@ -15,7 +15,9 @@ import {
 	failedForAMoment,
 	LONGEST_WAIT_MS,
 	lastReply,
+	MOST_BILLED_TRIES,
 	waitBefore,
+	wasBilled,
 } from "../../lib/internal/errors/model-failure.ts";
 
 /** The custom entry type a wait's mark is kept under. */
@@ -40,13 +42,15 @@ export const TRY_LABEL = "try the failed model call again";
 const CARRIED_ENTRY = "job-carried";
 
 /**
- * A wait a fresh load takes up: try `attempt`, due at `due`. When
- * `carried`, the last load's try was kept unsaid as it closed, and
- * job-workflow says it in this one, so there is nothing to wait for.
+ * A wait a fresh load takes up: try `attempt`, due at `due`, with
+ * `billed` of the streak's failures billed so far. When `carried`, the
+ * last load's try was kept unsaid as it closed, and job-workflow says
+ * it in this one, so there is nothing to wait for.
  */
 export interface UnfinishedWait {
 	readonly attempt: number;
 	readonly due: number;
+	readonly billed: number;
 	readonly carried: boolean;
 	readonly reply: AssistantMessage;
 }
@@ -62,7 +66,8 @@ export const TAKEN_UP_WITHIN_MS = 3_600_000;
  * The wait the branch was left in, when its last message is a reply
  * that failed for a moment, no older than {@link TAKEN_UP_WITHIN_MS}:
  * the pending try a mark after that reply names, or else the try after
- * the streak's last mark, or else the first.
+ * the streak's last mark, or else the first. None once more of the
+ * streak's failures were billed than {@link MOST_BILLED_TRIES} allows.
  */
 export function unfinishedWait(
 	branch: readonly unknown[],
@@ -79,6 +84,8 @@ export function unfinishedWait(
 		return undefined;
 	}
 	const failedAt = Math.min(reply.timestamp, now);
+	const billed = billedInStreak(branch, contextWindow);
+	if (billed > MOST_BILLED_TRIES) return undefined;
 	const mark = streakMark(branch, contextWindow);
 	const wait = waitFrom(mark, last, failedAt);
 	if (!wait) return undefined;
@@ -89,9 +96,31 @@ export function unfinishedWait(
 		attempt: wait.attempt,
 		// No wait is longer than the longest, whatever a mark says.
 		due: Math.min(wait.due, now + LONGEST_WAIT_MS),
+		billed,
 		carried: carriedTry(branch, last),
 		reply,
 	};
+}
+
+/**
+ * How many of the failures in the streak the branch ends in were
+ * billed, walking back until a reply that did not fail for a moment or
+ * a stop, either of which starts the live count again too.
+ */
+function billedInStreak(
+	branch: readonly unknown[],
+	contextWindow: number,
+): number {
+	let billed = 0;
+	for (let at = branch.length - 1; at >= 0; at--) {
+		const entry = branch[at];
+		if (markOf(entry)?.attempt === 0) break;
+		const reply = lastReply([messageOf(entry)]);
+		if (!reply) continue;
+		if (!failedForAMoment(reply, contextWindow)) break;
+		if (wasBilled(reply)) billed++;
+	}
+	return billed;
 }
 
 /** Whether a record after the last message keeps a try unsaid. */

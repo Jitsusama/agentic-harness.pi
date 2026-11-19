@@ -27,12 +27,19 @@ allowed.
   usage limit, a malformed request and a context too long for the
   model are never retried; compaction answers the last.
 - **When.** Once the run has settled with no try of pi's left: 30
-  seconds after the first failure, doubling to 5 minutes, then every
-  5 minutes for as long as the call fails. Each try is a short message
-  the model reads, saying the call failed and to carry on. There is no
-  last try, so a session left alone through a long outage adds one of
-  these every 5 minutes; a failed call bills nothing, and compaction
-  takes what they add to the context.
+  seconds after the first failure, doubling to 4.5 minutes, then every
+  4.5 minutes for as long as the call fails. That is just inside the
+  5 minutes a provider keeps a prompt cached, so a try that is billed
+  reads its input from cache. Each try is a short message the model
+  reads, saying the call failed and to carry on.
+- **How many.** A failure the provider never read, such as a 502, an
+  overloaded provider or a refused connection, bills nothing and has
+  no last try, so a session left alone through a long outage adds a
+  try every 4.5 minutes, and compaction takes what they add to the
+  context. A failure that carries usage or cost was billed: a timeout
+  after the whole input was read, as a request too big to finish in
+  time gives, fails so every try at full price. A streak gets 3 tries
+  of those, then stops, says so and leaves you to type to try again.
 - **What you see.** A notice saying what failed, when the next try is
   and how to stop it, and a ↻ mark in the footer while it waits, with
   the try's number from the second on. Where the window gives no raw

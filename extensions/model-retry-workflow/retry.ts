@@ -14,7 +14,9 @@ import {
 	FIRST_WAIT_MS,
 	failedForAMoment,
 	failureLine,
+	MOST_BILLED_TRIES,
 	waitBefore,
+	wasBilled,
 } from "../../lib/internal/errors/model-failure.ts";
 import { whileCurrent } from "../../lib/internal/errors/stale.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
@@ -56,6 +58,12 @@ export interface Retrier {
 export function createRetrier(pi: ExtensionAPI): Retrier {
 	let last: AssistantMessage | undefined;
 	let tries = 0;
+	// How many of the streak's failures were billed, which caps its tries.
+	let billed = 0;
+	const countAfresh = () => {
+		tries = 0;
+		billed = 0;
+	};
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let shown: ExtensionContext | undefined;
 	let unlisten: (() => void) | undefined;
@@ -85,7 +93,7 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 	const handBack = () => {
 		const counting = tries > 0 || timer !== undefined;
 		stopWaiting();
-		tries = 0;
+		countAfresh();
 		if (counting) mark({ attempt: 0 });
 	};
 
@@ -161,7 +169,7 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 	return {
 		resumed(ctx) {
 			stopWaiting();
-			tries = 0;
+			countAfresh();
 			// A run under way settles on its own, and its settling decides.
 			if (!ctx.isIdle()) return;
 			const now = Date.now();
@@ -171,6 +179,7 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 				now,
 			);
 			if (!left) return;
+			billed = left.billed;
 			// A try the last load kept unsaid as its host restarted is said by
 			// job-workflow in this one; the count goes on from it.
 			if (left.carried) {
@@ -197,12 +206,24 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 			// good, and the record says so for the loads that follow.
 			if (aborted) {
 				const counting = tries > 0 || failed;
-				tries = 0;
+				countAfresh();
 				if (counting) mark({ attempt: 0 });
 				return;
 			}
 			if (!reply || !failed) {
-				tries = 0;
+				countAfresh();
+				return;
+			}
+			// A failure the provider billed may fail so every try, at full
+			// price, so a streak of them gets only a few.
+			if (wasBilled(reply)) billed++;
+			if (billed > MOST_BILLED_TRIES) {
+				countAfresh();
+				mark({ attempt: 0 });
+				ctx.ui.notify(
+					`The model call failed again: ${failureLine(reply)}. Its failures were billed, so the harness stopped after ${MOST_BILLED_TRIES} tries. Type to try again.`,
+					"warning",
+				);
 				return;
 			}
 			const attempt = tries + 1;

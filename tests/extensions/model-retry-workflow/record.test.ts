@@ -26,6 +26,7 @@ function reply(
 	stopReason: StopReason,
 	errorMessage: string | undefined,
 	timestamp: number,
+	input = 0,
 ): unknown {
 	const message: AssistantMessage = {
 		role: "assistant",
@@ -34,7 +35,7 @@ function reply(
 		provider: "anthropic",
 		model: "claude-test",
 		usage: {
-			input: 0,
+			input,
 			output: 0,
 			cacheRead: 0,
 			cacheWrite: 0,
@@ -49,6 +50,8 @@ function reply(
 }
 
 const failed = (timestamp = NOW) => reply("error", RELAY_502, timestamp);
+/** A timeout after the provider read the input, so billed. */
+const billed = () => reply("error", "Request timed out.", NOW, 150_000);
 const user = (content = "carry on") => ({
 	type: "message",
 	message: { role: "user", content },
@@ -166,6 +169,31 @@ describe("the wait a branch was left in", () => {
 			NOW,
 		);
 		expect(wait).toMatchObject({ due: NOW + LONGEST_WAIT_MS });
+	});
+
+	it("is the third try of a streak billed each time", () => {
+		const wait = unfinishedWait(
+			[billed(), mark(1), user(), billed(), mark(2), user(), billed()],
+			WINDOW,
+			NOW,
+		);
+		expect(wait).toMatchObject({ attempt: 3, billed: 3 });
+	});
+
+	it("is none once three tries of billed failures have failed too", () => {
+		const branch = [billed()];
+		for (let attempt = 1; attempt <= 3; attempt++)
+			branch.push(mark(attempt), user(), billed());
+		expect(unfinishedWait(branch, WINDOW, NOW)).toBeUndefined();
+	});
+
+	it("counts no failure the provider never read", () => {
+		const wait = unfinishedWait(
+			[failed(), mark(1), user(), failed(), mark(2), user(), failed()],
+			WINDOW,
+			NOW,
+		);
+		expect(wait).toMatchObject({ attempt: 3, billed: 0 });
 	});
 
 	it("is carried when job-workflow kept its try unsaid", () => {
