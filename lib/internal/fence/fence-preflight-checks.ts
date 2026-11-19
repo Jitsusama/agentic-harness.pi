@@ -444,8 +444,13 @@ export const CHECKS: readonly Check[] = [
 			const socket = join(runtime(), "daemons", "secret-asks.sock");
 			const asks = join(runtime(), "secret-asks");
 			if (!asksAnswered(runtime())) {
-				return failed(`nothing answers the asks in ${asks}`);
+				return failed(
+					`nothing answers the asks in ${asks}: no secret-asks socket at ${socket}, and no answering sign there naming a running passwords daemon`,
+				);
 			}
+			const by = existsSync(socket)
+				? "the secret-asks daemon's socket"
+				: "the passwords daemon's answering sign";
 			if (!existsSync(asks)) return failed(`no asks folder at ${asks}`);
 			const inside = await fenced(
 				`test -e '${socket}' || test -e '${asks}'`,
@@ -454,7 +459,7 @@ export const CHECKS: readonly Check[] = [
 			);
 			return inside.code === 0
 				? failed("a fenced command reaches the daemon or its asks")
-				: passed("its socket and asks are there for pi, and not inside");
+				: passed(`${by} and the asks are there for pi, and not inside`);
 		},
 	},
 	{

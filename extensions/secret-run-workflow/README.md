@@ -19,7 +19,9 @@ The tool writes an ask into `$XDG_RUNTIME_DIR/secret-asks/`, in the shape
 core's passwords daemon reads, as the secret-asks daemon before it did
 (`lib/internal/secrets/secret-ask.ts`). It's filed only where one of them
 answers: the secret-asks daemon's socket, or the passwords daemon's
-`answering` sign beside the asks, naming a pid that runs. The daemon
+`answering` sign beside the asks, naming a pid that runs core's
+`passwords` program as Joel, so a sign a killed daemon left, its pid
+since reused, answers nothing. The daemon
 draws it as a line in the launcher's Asks; Joel's key there
 says yes or no. On a yes the daemon reads the item and runs the command
 with it, then writes an answer beside the ask, which the tool reads for
@@ -42,4 +44,4 @@ or its session ends, and once its answer is read.
 - Anything the daemon would refuse, before it's written: a variable a
   command's start reads, an empty command, more than 30 minutes, a why
   longer than one line.
-- Any ask on a machine where secret-asks doesn't run.
+- Any ask on a machine where neither daemon answers asks.

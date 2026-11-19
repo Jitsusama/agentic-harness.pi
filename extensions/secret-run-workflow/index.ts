@@ -253,7 +253,7 @@ export default function secretRunWorkflow(pi: ExtensionAPI) {
 						}
 						if (waited.kind === "unanswered") {
 							return said(
-								"Nobody answered the ask, so it was taken back: the secret-asks daemon may not be running. Nothing ran.",
+								"Nobody answered the ask, so it was taken back: core's passwords daemon, or the secret-asks daemon, may have stopped answering asks. Nothing ran.",
 								true,
 							);
 						}

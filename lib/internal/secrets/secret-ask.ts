@@ -1,6 +1,6 @@
 /**
- * An agent's ask for one work secret, as core's secret-asks daemon reads
- * it: a file `<id>.ask.json` in the asks folder (the shape's version 1),
+ * An agent's ask for one work secret, as core's passwords daemon reads it,
+ * and the secret-asks daemon before it: a file `<id>.ask.json` in the asks folder (the shape's version 1),
  * and the answer the daemon writes beside it, `<id>.answer.json`, once
  * Joel says yes or no in the launcher or the ask runs out.
  *
@@ -21,9 +21,10 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	readlinkSync,
 	rmSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { quoted } from "../sandbox/sandbox-shell.ts";
 import { writeWhole } from "../write-whole.ts";
 
@@ -126,8 +127,26 @@ export interface RouteReads {
 	readonly exists: (path: string) => boolean;
 	/** A file's text, or nothing when it can't be read. */
 	readonly read: (path: string) => string | undefined;
-	/** Whether a process with this pid is running. */
-	readonly alive: (pid: number) => boolean;
+	/** Whether the process with this pid is core's passwords daemon, as this account. */
+	readonly daemon: (pid: number) => boolean;
+}
+
+/**
+ * Whether the process with this pid runs core's passwords program, by the
+ * file the kernel says it runs. Only a process of this account's own
+ * gives its program, so another account's, which a reused pid could
+ * be, never reads as the daemon, and nor does any other program of
+ * Joel's that a reused pid now names. Where there's no /proc, as on a
+ * Mac, nothing does, which is right: the daemon runs only on Linux.
+ */
+export function runsPasswords(pid: number, proc = "/proc"): boolean {
+	try {
+		const program = readlinkSync(join(proc, String(pid), "exe"));
+		return basename(program.replace(/ \(deleted\)$/, "")) === "passwords";
+	} catch {
+		// Gone, another account's, or no /proc: none is the daemon.
+		return false;
+	}
 }
 
 const MACHINE: RouteReads = {
@@ -140,25 +159,16 @@ const MACHINE: RouteReads = {
 			return undefined;
 		}
 	},
-	alive: (pid) => {
-		try {
-			process.kill(pid, 0);
-			return true;
-		} catch (error) {
-			// EPERM is a process that runs as someone else, so it runs.
-			return (
-				error instanceof Error && "code" in error && error.code === "EPERM"
-			);
-		}
-	},
+	daemon: (pid) => runsPasswords(pid),
 };
 
 /**
  * Whether something answers the asks filed in the runtime folder: core's
  * secret-asks daemon, by its socket, or core's passwords daemon, by the
  * sign it leaves in the asks folder while it answers them, `answering`,
- * holding its pid (core's passwords `main.rs`). A sign whose pid runs no
- * more is one a killed daemon left behind, and says nothing.
+ * holding its pid (core's passwords `main.rs`). A sign whose pid isn't
+ * the passwords program now is one a killed daemon left behind, its pid
+ * since gone or reused, and says nothing.
  */
 export function asksAnswered(
 	runtime: string,
@@ -168,7 +178,7 @@ export function asksAnswered(
 	const sign = reads.read(join(runtime, "secret-asks", "answering"));
 	const pid = sign?.trim();
 	if (!(pid && /^[1-9][0-9]*$/.test(pid))) return false;
-	return reads.alive(Number(pid));
+	return reads.daemon(Number(pid));
 }
 
 /**
