@@ -174,6 +174,8 @@ describe("a reply that only mentions one, or warns against one", () => {
 		"It's not safe to restart the machine yet.",
 		"It doesn't need a reboot.",
 		"It doesn't seem to need a reboot.",
+		"If it doesn't need a reboot, leave it running.",
+		"Don't reboot, log out or restart anything while the call runs.",
 		"Please restart the dev server after the reboot.",
 		"Click Restart on the VS Code notification.",
 		"Hit restart on the language server.",
@@ -427,6 +429,17 @@ describe("an ask said as a hedge or a suggestion", () => {
 		["We should reboot optimus once it lands.", "reboot"],
 		["So we should reboot optimus.", "reboot"],
 		["There's no rush but please reboot optimus.", "reboot"],
+		["If that doesn't work you'll need to reboot optimus.", "reboot"],
+		["If that doesn't help please reboot optimus.", "reboot"],
+		["If that doesn't work you may need to reboot optimus.", "reboot"],
+		["Don't hesitate to reboot optimus if the mic stays dead.", "reboot"],
+		["You could reboot optimus to pick up the kernel.", "reboot"],
+		["Wait for the backup to finish and then reboot optimus.", "reboot"],
+		["Stop the dev server and reboot optimus.", "reboot"],
+		["No need to reboot, just log out and back in.", "log out"],
+		["Instead of rebooting, log out of macOS on equilibrius.", "log out"],
+		["Don't reboot, just log out.", "log out"],
+		["If you'd rather not reboot, log out and back in.", "log out"],
 		["The kernel's in, so we should reboot optimus.", "reboot"],
 		["Feel free to reboot optimus tonight.", "reboot"],
 		["Let me know once you log out of macOS on equilibrius.", "log out"],
@@ -436,6 +449,9 @@ describe("an ask said as a hedge or a suggestion", () => {
 		["Once you log out, don't forget to pair the card.", "log out"],
 		["Once you log out, let's pair the card.", "log out"],
 		["Once you log out, you can pair the card.", "log out"],
+		["Once you log out, you'll need to re-pair the card.", "log out"],
+		["Once you reboot, you'd have to pair the card.", "reboot"],
+		["Once you log out and back in, the docker group applies.", "log out"],
 		["Once you log out, hold this key.", "log out"],
 		["When you reboot, update packages.", "reboot"],
 	])("%s asks", (text, act) => {
@@ -454,6 +470,7 @@ describe("an ask said as a hedge or a suggestion", () => {
 		"When you log out, pi resumes where it was.",
 		"When you log out, pi exits.",
 		"When you reboot, pi won't come back.",
+		"When you log out, you might lose unsaved windows.",
 		"When you reboot, niri and waybar restart.",
 	])("%s only says what would follow one", (text) => {
 		expect(acts(text)).toEqual([]);
@@ -528,6 +545,8 @@ describe("a label of the fifth round's shapes", () => {
 		["No skipping the reboot", "reboot"],
 		["Cancel the backup to reboot now", "reboot"],
 		["Don't hesitate to reboot equilibrius", "reboot"],
+		["Postpone the reboot and log out now", "log out"],
+		["Skip the reboot and log out instead", "log out"],
 	])("%s still asks, since what it turns down isn't the act", (text, act) => {
 		expect(asksInLabel(text, MACHINES).map((a) => a.act)).toEqual([act]);
 	});

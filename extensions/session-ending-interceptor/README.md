@@ -82,8 +82,11 @@ act down ("Skip the reboot", "No restart tonight", "Don't reboot or
 log out"). The act has to come right after the decline, or after a
 word like "the": "Cancel the backup and reboot", "No, reboot now",
 "Don't forget to log out", "Don't hesitate to reboot" and "Don't
-skip the reboot" still ask, and "Don't reboot, just log out" asks for
-the log-out.
+skip the reboot" still ask. A decline carries across "and" only when
+it is said again, so "Skip the reboot and log out instead" asks for the
+log-out. In a label or in prose, "Don't reboot, just log out", "No need
+to reboot, just log out" and "Instead of rebooting, log out" ask for
+the log-out alone.
 
 What a reply only talks about asks nothing: a markdown heading that
 names no machine ("### 2. Reboot optimus" asks), a ticked task box, an
