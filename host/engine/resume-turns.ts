@@ -14,7 +14,9 @@
  * a run begun by words Joel typed goes first, since he is waiting on its
  * answer, and so does one he types into while it waits; then the rest in
  * the order they asked, which is roughly the order the host held them
- * in, since a few resume at once.
+ * in, since a few resume at once. Only a run Joel waits on goes while the
+ * start still holds the turns: on 19 November his words into a carried
+ * turn waited seven minutes behind a start resuming 84 conversations.
  * Outside a start the turns are open, so a wake or an open waits on
  * nothing but the cap.
  */
@@ -31,6 +33,13 @@ export const RESUMED_RUNS_AT_ONCE = 4;
  * the burst of a start, so the last runs go minutes later, not hours.
  */
 export const RESUMED_TURN_MS = 60_000;
+
+/**
+ * How often a start that holds the turns looks again at the runs
+ * waiting, since whether Joel waits on one is a question asked of it,
+ * not something it says: words he types move it up within a second.
+ */
+export const LOOK_AGAIN_MS = 1_000;
 
 /** Give back a turn; giving it back again does nothing. */
 export type GiveBack = () => void;
@@ -74,6 +83,7 @@ export function resumeTurns(
 	let held = false;
 	let going = 0;
 	const waiting: Waiting[] = [];
+	let looking: ReturnType<typeof setInterval> | undefined;
 	const giveBack = (): GiveBack => {
 		let given = false;
 		const back = () => {
@@ -89,11 +99,26 @@ export function resumeTurns(
 		return back;
 	};
 	const next = () => {
-		while (!held && going < atOnce && waiting.length > 0) {
+		while (going < atOnce && waiting.length > 0) {
 			const firstAt = waiting.findIndex((each) => each.first());
+			if (held && firstAt < 0) break;
 			const [chosen] = waiting.splice(Math.max(firstAt, 0), 1);
 			going++;
 			chosen?.grant();
+		}
+		lookWhileHeld();
+	};
+	// Looks again only while a start holds the turns and a run waits on one.
+	const lookWhileHeld = () => {
+		const wanted = held && waiting.length > 0;
+		if (wanted && looking === undefined) {
+			// Paced at LOOK_AGAIN_MS, so Joel's words move a run up within a second.
+			looking = setInterval(next, LOOK_AGAIN_MS);
+			// A look keeps no host alive that has nothing else to do.
+			looking.unref?.();
+		} else if (!wanted && looking !== undefined) {
+			clearInterval(looking);
+			looking = undefined;
 		}
 	};
 	return {
@@ -111,6 +136,7 @@ export function resumeTurns(
 					const at = waiting.indexOf(each);
 					if (at < 0) return;
 					waiting.splice(at, 1);
+					lookWhileHeld();
 					resolve(() => {});
 				};
 				signal?.addEventListener("abort", aborted, { once: true });
@@ -120,6 +146,7 @@ export function resumeTurns(
 		},
 		hold() {
 			held = true;
+			lookWhileHeld();
 		},
 		open() {
 			held = false;

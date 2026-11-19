@@ -337,8 +337,7 @@ export class HostedAgent {
 	): Promise<void> {
 		const messages = normalizePromptInput(input, images);
 		this.admissions.given(messages);
-		if (messages.some((message) => isPersonWords({ type: "message", message })))
-			this.joelTyped = true;
+		this.noteTyped(messages);
 		if (this.active) {
 			// pi begins a run only while it holds none, so one under way is durable's. The words
 			// queue behind it as an early prompt's do; refused, pi, idle by its own account, let
@@ -826,8 +825,16 @@ export class HostedAgent {
 		const item: QueuedMessage = { hostId: randomUUID(), message };
 		queue.enqueue(item);
 		this.admissions.given([message]);
+		// pi's editor steers while it shows a run going, as a carried one waiting for its turn.
+		this.noteTyped([message]);
 		if (this.active?.run.admitting) this.admissions.admitQueued(item, mode);
 		return item;
+	}
+
+	/** Note that Joel typed, should any of `messages` be his words. */
+	private noteTyped(messages: readonly AgentMessage[]): void {
+		if (messages.some((message) => isPersonWords({ type: "message", message })))
+			this.joelTyped = true;
 	}
 
 	// Events.
