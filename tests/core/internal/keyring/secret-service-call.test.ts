@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -41,6 +42,19 @@ function running(): number {
 	).length;
 }
 
+/** The bytes a pipe gives a reader at once, on Linux and macOS. */
+const PIPE_READ = 65_536;
+
+/**
+ * A long text of two-byte characters that, sent after `before`, has one
+ * of them straddle the pipe's first read, so a reader that decodes each
+ * read alone breaks it.
+ */
+function splitting(before: string): string {
+	const lead = (PIPE_READ - Buffer.byteLength(before)) % 2 === 0 ? "a" : "";
+	return `${lead}${"é".repeat(40_000)}`;
+}
+
 /** The real secret-service-call.mjs. */
 function realCall(): string {
 	return fileURLToPath(
@@ -68,6 +82,18 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 	afterEach(() => {
 		// A held call left by a failed case answers and ends, rather than waiting on.
 		letThemGo();
+		// And a lingering call the store failed to end is ended here.
+		const lingered = join(
+			dirname(process.env.KEYRING_CALL_FILE ?? ""),
+			"lingers.pid",
+		);
+		if (existsSync(lingered)) {
+			try {
+				process.kill(Number(readFileSync(lingered, "utf8")), "SIGKILL");
+			} catch {
+				// Already ended, as it should be.
+			}
+		}
 		rmSync(dirname(process.env.KEYRING_CALL_FILE ?? ""), {
 			recursive: true,
 			force: true,
@@ -96,14 +122,17 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 		const read = store.read("slack-credentials");
 
 		await expect(read).rejects.toBeInstanceOf(KeyringUnavailable);
-		await expect(read).rejects.toThrow("stopped by SIGKILL");
+		await expect(
+			read,
+			"the reason should be the line naming the error, not stderr's last",
+		).rejects.toThrow(/stopped by SIGKILL: Error: the entry faulted$/);
 	}, 30_000);
 
 	it("says the one line of node's report that names what went wrong", async () => {
 		const read = secretServiceStore(callingEntries(call("stumbles"))).read("x");
 
 		await expect(read).rejects.toThrow(
-			/reached: Error \[ERR_MODULE_NOT_FOUND\]: Cannot find package '@napi-rs\/keyring'$/,
+			/reached: Error \[ERR_MODULE_NOT_FOUND\]: Cannot find package '@napi-rs\/no-such-keyring' imported from [^\n]+$/,
 		);
 	}, 30_000);
 
@@ -151,10 +180,11 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 		);
 	}, 30_000);
 
-	it("keeps a long value whole across the pipe's reads", async () => {
+	it("brings a long answer back whole across the pipe's reads", async () => {
+		// The answer is the stand-in's; what this holds is the store's own
+		// decoding of what comes back, split where its line is.
 		const store = secretServiceStore(callingEntries(call("remembers")));
-		// One byte first, so the 64 KiB reads split a two-byte character.
-		const value = `a${"é".repeat(40_000)}`;
+		const value = splitting('{"value":"');
 
 		await store.write("x", value);
 
@@ -164,7 +194,9 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 	it("reads a long request whole across the pipe's reads, in the real call", () => {
 		// An unknown act is echoed in the refusal before the module loads, so
 		// this reads the real call's stdin without touching the keyring.
-		const act = `a${"é".repeat(40_000)}`;
+		const act = splitting(
+			`{"service":"${KEYRING_SERVICE}","account":"x","act":"`,
+		);
 
 		const ran = spawnSync(process.execPath, [realCall()], {
 			input: JSON.stringify({ service: KEYRING_SERVICE, account: "x", act }),
@@ -194,6 +226,44 @@ describe("the Secret Service's calls, each in a process of its own", () => {
 			JSON.parse(ran.stdout),
 			"a write with no value should be refused by the call, after its module loaded",
 		).toEqual({ error: "a write needs a value" });
+	}, 30_000);
+
+	it("says what the keyring module lacks, rather than failing as a keyring out of reach", () => {
+		const cases: [string, object, object][] = [
+			[
+				"none",
+				{ act: "read" },
+				{ error: "its keyring module has no AsyncEntry" },
+			],
+			[
+				"reads",
+				{ act: "write", value: "value" },
+				{ error: "its keyring module's AsyncEntry has no setPassword" },
+			],
+			["reads", { act: "read" }, { value: null }],
+		];
+		for (const [shape, asked, answered] of cases) {
+			const ran = spawnSync(
+				process.execPath,
+				["--import", call("swaps-the-module"), realCall()],
+				{
+					input: JSON.stringify({
+						service: KEYRING_SERVICE,
+						account: "x",
+						...asked,
+					}),
+					encoding: "utf8",
+					env: { ...process.env, KEYRING_MODULE: shape },
+					timeout: 20_000,
+				},
+			);
+
+			expect(ran.status, ran.stderr).toBe(0);
+			expect(
+				JSON.parse(ran.stdout),
+				`${shape}: ${JSON.stringify(asked)}`,
+			).toEqual(answered);
+		}
 	}, 30_000);
 
 	it("runs at most four calls at once, the rest waiting their turn", async () => {

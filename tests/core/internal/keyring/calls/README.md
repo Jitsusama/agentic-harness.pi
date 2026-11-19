@@ -1,7 +1,10 @@
 # Keyring Call Stand-Ins
 
-Programs that take the place of `lib/core/internal/keyring/secret-service-call.mjs`
-in `secret-service-call.test.ts`, each answering one call the way the real one
-might: remembering values in a file, crashing, refusing, complaining on stderr,
-leaving node's own several-line report, answering nothing readable, lingering
-after its answer, or holding until the test lets it go. Each says in its first line what it does.
+Programs that take the place of
+`lib/core/internal/keyring/secret-service-call.mjs` in
+`secret-service-call.test.ts`, each answering one call the way the real one
+might: remembering values in a file, crashing, refusing, complaining on
+stderr, leaving node's own several-line report, answering nothing readable,
+lingering after its answer, or holding until the test lets it go. One,
+`swaps-the-module.mjs`, is a loader instead, handing the real call a keyring
+module that lacks what it uses. Each says in its first line what it does.

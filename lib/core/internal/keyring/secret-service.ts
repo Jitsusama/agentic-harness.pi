@@ -84,16 +84,16 @@ function answerIn(line: string): Answered | Error {
 
 /**
  * The one line of what a call left on stderr that says what went wrong:
- * the last naming an error, as node's own report does under its source
- * line and above its stack, otherwise the first that says anything.
+ * the first that heads an error, `TypeError: …` or `Error [CODE]: …`, as
+ * node's own report does under its source line and above its stack,
+ * otherwise the first that says anything.
  */
 function whatWentWrong(stderr: string): string | undefined {
 	const lines = stderr
 		.split("\n")
 		.map((line) => line.trim())
 		.filter(Boolean);
-	const naming = lines.filter((line) => /^\w*Error\b/.test(line));
-	return naming.at(-1) ?? lines[0];
+	return lines.find((line) => /^\w*Error( \[\w+\])?: /.test(line)) ?? lines[0];
 }
 
 /**
