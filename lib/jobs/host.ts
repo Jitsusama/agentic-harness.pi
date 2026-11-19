@@ -52,6 +52,13 @@ export interface JobHold {
 	readonly label: string;
 }
 
+/** A job whose work is still under way, named as the job list names it. */
+export interface RunningJob {
+	readonly id: string;
+	readonly kind: string;
+	readonly label: string;
+}
+
 /** How a job ended, bounded, with the path or handle for the rest. */
 export interface JobOutcome {
 	readonly summary: string;
@@ -118,6 +125,12 @@ export interface JobHost {
 	 * `pending`.
 	 */
 	holds?(carriable?: (work: CarriedWork) => boolean): readonly JobHold[];
+	/**
+	 * The jobs whose work is still under way, oldest first: not those
+	 * finished with results waiting to be said. Optional, so a host from
+	 * before it reads as running none.
+	 */
+	running?(): readonly RunningJob[];
 }
 
 /**

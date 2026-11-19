@@ -143,6 +143,16 @@ from `agentic-harness.pi/jobs` hears it. The mesh uses it to release
 the heavy-work lease a bash call took, the moment the command handed
 to a job ends rather than when the lease runs out.
 
+## Asking What Runs
+
+`host.running()` names the jobs whose work is still under way, oldest
+first, by id, kind and label; a job finished with its result not yet
+said is not among them. Away mode reads it at the end of each run: a
+reply that only says it waits on one of them, such as "waiting on
+j27", is sent back once to say where things stand
+([away-workflow](../away-workflow/)). It is optional on `JobHost`, so
+a host from before it reads as running none.
+
 ## Through a Reload
 
 A reload is not the session ending, and nothing a job runs notices
