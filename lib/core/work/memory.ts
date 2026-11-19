@@ -98,6 +98,17 @@ export interface TreeMemory {
 	 * only another live session is a reason not to.
 	 */
 	otherHolders(path: string, facts?: ProcessFacts): Promise<readonly Owner[]>;
+	/**
+	 * The paths of those trees whose records name this session as a
+	 * holder, read from the trees as given rather than from disk, so a
+	 * listing pays one identity probe however long it is. A session
+	 * resumed after a restart is named again by `reownSession`, so its
+	 * own trees are found here though this process cut none of them.
+	 */
+	heldByUs(
+		trees: readonly HeldTree[],
+		facts?: ProcessFacts,
+	): Promise<ReadonlySet<string>>;
 	/** Take this session off a tree's record, leaving the record. */
 	forgetUsAsHolder(path: string, facts?: ProcessFacts): Promise<void>;
 	/**
@@ -136,6 +147,37 @@ export interface TreeMemory {
 		path: string,
 		facts?: ProcessFacts,
 	): Promise<HeldTree | undefined>;
+	/**
+	 * Run `take` on a tree whatever sessions hold it, but only while none
+	 * has asked for it since `since`, in milliseconds since the epoch, and
+	 * forget the record once `take` says the tree is out of the way.
+	 *
+	 * For a snapshot a live session pinned and left: judged under the
+	 * record's lock, where a session asking for the tree writes its use,
+	 * so one that asked since the caller looked is seen and the tree is
+	 * left alone, and one asking after finds no record and cuts afresh.
+	 * Its use is the later of its `usedAt` and when its record was last
+	 * written (see {@link askedAt}), since code from before the dating
+	 * carries a stale `usedAt` but rewrites the record on every ask.
+	 * `take` must be quick, as for {@link whileUnheld}. Answers the record
+	 * it forgot, or nothing when `take` didn't run or didn't take it.
+	 */
+	whileUnusedSince(
+		path: string,
+		since: number,
+		take: () => Promise<boolean>,
+	): Promise<HeldTree | undefined>;
+	/**
+	 * When the record of the tree at `path` was last written, in
+	 * milliseconds since the epoch: every session's every ask rewrites
+	 * it, on whatever code it runs. Nothing when there is no record, or
+	 * its file can't be read. Given the tree's `key`, its record's own
+	 * file is read and no other: a sweep dates every held snapshot, and
+	 * listing every record for each read the folder hundreds of
+	 * thousands of times on the host's thread. A record written under
+	 * another name then reads as undated, which keeps its tree.
+	 */
+	askedAt(path: string, key?: string): number | undefined;
 	/**
 	 * Make `session` the holder of every tree a record says it holds, as
 	 * the process it runs in now, and answer how many records changed.
@@ -349,7 +391,11 @@ export function createTreeMemory(
 				// without one is right: it reads as unattributable, which is
 				// held, and a tree wrongly held costs disk where a tree
 				// wrongly reclaimed costs work.
-				this.remember({ ...held, ...sessionsWith(held) });
+				// Under the lock all the same, since a sweep judges a record's
+				// use under it.
+				await underLock(held.identity.key, async () => {
+					this.remember({ ...held, ...sessionsWith(held), usedAt: Date.now() });
+				});
 				return;
 			}
 			// Added to whoever else holds it rather than replacing them. A
@@ -369,6 +415,7 @@ export function createTreeMemory(
 					...rest,
 					owners: [...before, us],
 					...sessionsWith(found ?? held),
+					usedAt: Date.now(),
 				});
 			});
 		},
@@ -414,6 +461,16 @@ export function createTreeMemory(
 			return others;
 		},
 
+		async heldByUs(trees, facts = systemFacts) {
+			const us = await holderNow(facts);
+			if (us === undefined) return new Set();
+			return new Set(
+				trees
+					.filter((tree) => named(tree).some((one) => sameOwner(one, us)))
+					.map((tree) => tree.path),
+			);
+		},
+
 		async forgetUsAsHolder(path, facts = systemFacts) {
 			const found = this.recall().find((one) => one.path === path);
 			if (found === undefined) return;
@@ -445,6 +502,40 @@ export function createTreeMemory(
 				taken = tree;
 			});
 			return taken;
+		},
+
+		async whileUnusedSince(path, since, take) {
+			const found = this.recall().find((one) => one.path === path);
+			if (found === undefined) return undefined;
+			let taken: HeldTree | undefined;
+			await underLock(found.identity.key, async () => {
+				const tree = this.recall().find((one) => one.path === path);
+				const asked = this.askedAt(path, found.identity.key);
+				if (
+					tree === undefined ||
+					asked === undefined ||
+					Math.max(asked, tree.usedAt ?? 0) > since
+				)
+					return;
+				if (!(await take())) return;
+				this.forget(path);
+				taken = tree;
+			});
+			return taken;
+		},
+
+		askedAt(path, key) {
+			const at =
+				key === undefined
+					? all().find(({ held }) => held.path === path)?.at
+					: fileFor(key);
+			if (at === undefined) return undefined;
+			try {
+				return statSync(at).mtimeMs;
+			} catch {
+				// Gone since the listing: a take or a release forgot it.
+				return undefined;
+			}
 		},
 
 		async holdWhileUnheld(path, facts = systemFacts) {

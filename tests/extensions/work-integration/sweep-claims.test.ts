@@ -2,11 +2,15 @@
  * The unattended sweep holds every live quest's trees for good, and
  * tells holders what it took.
  */
+import { spawn } from "node:child_process";
 import {
+	closeSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	openSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -17,6 +21,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { answerTreeClaims } from "../../../extensions/quest-workflow/claims.ts";
 import {
 	registerTreeSweeps,
+	seesEveryProcess,
 	useSigns,
 } from "../../../extensions/work-integration/sweep.ts";
 import {
@@ -162,6 +167,39 @@ it("counts a hosted conversation's folder as in use, though its host stands else
 
 	expect(folders, "the folders live sessions work in").toContain(folder);
 });
+
+// Only where every process is seen, as the fence's own namespace isn't,
+// nor a /proc that hides the machine's first process.
+it.runIf((await seesEveryProcess()) && existsSync("/proc/1"))(
+	"says which trees a process works in or holds a file open in, from the kernel's own links",
+	async () => {
+		// The kernel names real paths, so the trees are named by theirs.
+		const trees = realpathSync(root);
+		const [worked, opened, free] = ["worked", "opened", "free"].map((name) => {
+			const tree = join(trees, name);
+			mkdirSync(tree);
+			return tree;
+		});
+		writeFileSync(join(opened ?? "", "held.txt"), "open\n");
+		const held = openSync(join(opened ?? "", "held.txt"), "r");
+		const sitting = spawn("sleep", ["60"], { cwd: worked, stdio: "ignore" });
+		try {
+			const busy = await useSigns().busyAmong?.([
+				worked ?? "",
+				opened ?? "",
+				free ?? "",
+			]);
+
+			expect(
+				[...(busy ?? [])].sort(),
+				"the trees a process works in or holds a file open in",
+			).toEqual([opened, worked].sort());
+		} finally {
+			sitting.kill();
+			closeSync(held);
+		}
+	},
+);
 
 it("asks every sweep to rest 20 minutes after any sweep ends", async () => {
 	await sweepOn(createEventBus());

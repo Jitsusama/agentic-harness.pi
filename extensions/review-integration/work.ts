@@ -29,6 +29,7 @@ import type { RepoLocator, TreeRead } from "../../lib/core/review/index.ts";
 import { checkoutFor, whatItRead } from "../../lib/core/review/index.ts";
 import { sessionSlot } from "../../lib/core/session/index.ts";
 import { treeRequestFrom } from "../../lib/core/work/ask.ts";
+import type { HeldTree, TreeBroker } from "../../lib/core/work/broker.ts";
 import {
 	WORK_READY,
 	WORK_REQUEST,
@@ -136,6 +137,29 @@ export type TreeStanding =
 	| { kind: "unknown"; why: string };
 
 /**
+ * Whether a held tree still stands and its use is dated. Dating takes
+ * the record's lock and writes it, which a held lock or a full disk
+ * refuses. The change is attached by then, so a refusal never fails
+ * the attach; it answers that no tree can be named, which names the
+ * call that cuts one instead. Answering by the folder would name the
+ * one tree a sweep may be taking: the likeliest holder of a record's
+ * lock for seconds is another process's sweep judging that very
+ * tree, and an undated use leaves it nothing to keep it by. The
+ * named call dates the tree under the lock, reusing or recutting it.
+ */
+async function standsDated(
+	broker: Pick<TreeBroker, "used">,
+	tree: HeldTree,
+): Promise<boolean> {
+	try {
+		return await broker.used(tree);
+	} catch {
+		// Undated, so not safe to name: see above.
+		return false;
+	}
+}
+
+/**
  * Whether a tree is already cut for this change, cutting nothing.
  *
  * Attaching a change must not build a tree. A World tree costs
@@ -177,11 +201,17 @@ export async function treeStandingFor(
 	});
 	if ("refusal" in asked) return { kind: "unknown", why: asked.refusal };
 
-	const already = work
-		.broker()
+	const broker = work.broker();
+	const already = broker
 		.held()
 		.find((tree) => satisfies(tree.identity, asked.request));
-	if (already) return { kind: "cut", path: already.path };
+	// Dated as an ask, since the reader sent there reads by path and
+	// leaves no other sign: a snapshot last asked for nearly four hours
+	// ago was otherwise taken by a sweep while a review read it. One
+	// taken meanwhile answers as none, naming the call that cuts it.
+	if (already && (await standsDated(broker, already))) {
+		return { kind: "cut", path: already.path };
+	}
 
 	// The call itself, spelled out. A reader told only that no tree
 	// exists has to go and work out which of nineteen actions makes

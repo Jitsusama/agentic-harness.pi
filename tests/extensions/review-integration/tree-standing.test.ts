@@ -10,6 +10,9 @@
  * out which of nineteen actions makes one.
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	forgetWorkLayer,
@@ -44,10 +47,18 @@ function bus() {
  * A working layer holding exactly these trees.
  *
  * `ensure` throws rather than returning, so a test cannot pass by
- * cutting one: the whole claim is that nothing here provisions.
+ * cutting one: the whole claim is that nothing here provisions. What
+ * `used` was told is kept in `dated`, and those in `taken` answer as
+ * gone, as a tree a sweep took meanwhile does. While `refused` is set,
+ * dating throws, as a held lock or a full disk makes it.
  */
 function workLayerHolding(...held: HeldTree[]) {
-	return {
+	const dated: string[] = [];
+	const taken = new Set<string>();
+	const layer = {
+		dated,
+		taken,
+		refused: false,
 		registerTreeProvider() {},
 		listTreeProviders: () => [],
 		broker: () => ({
@@ -59,8 +70,16 @@ function workLayerHolding(...held: HeldTree[]) {
 				throw new Error("not for this test");
 			},
 			cutHere: () => false,
+			used(tree: HeldTree) {
+				if (layer.refused) {
+					return Promise.reject(new Error("the record's lock is held"));
+				}
+				dated.push(tree.path);
+				return Promise.resolve(!taken.has(tree.path));
+			},
 		}),
 	};
+	return layer;
 }
 
 /** Announce a working layer to the module under test. */
@@ -111,6 +130,84 @@ describe("where a change's tree stands", () => {
 			kind: "cut",
 			path: "/src/widgets/.worktrees/snap",
 		});
+	});
+
+	// A reader sent to a snapshot by path leaves no sign a sweep can
+	// see, and one last asked for nearly four hours ago was taken while
+	// a review read it, so naming it dates it as an ask would.
+	it("dates the use of the tree it names", async () => {
+		forgetWorkLayer();
+		const layer = workLayerHolding({
+			identity: treeIdentity({
+				intent: "snapshot",
+				repo: REPO,
+				purpose: "review",
+				commit: COMMIT,
+			}),
+			path: "/src/widgets/.worktrees/snap",
+			providerId: "git-worktree",
+		});
+		announce(layer);
+
+		await treeStandingFor(REPO, COMMIT);
+
+		expect(layer.dated, "naming a tree didn't date its use").toEqual([
+			"/src/widgets/.worktrees/snap",
+		]);
+	});
+
+	it("names the call that cuts one, when a sweep took the tree meanwhile", async () => {
+		forgetWorkLayer();
+		const layer = workLayerHolding({
+			identity: treeIdentity({
+				intent: "snapshot",
+				repo: REPO,
+				purpose: "review",
+				commit: COMMIT,
+			}),
+			path: "/src/widgets/.worktrees/snap",
+			providerId: "git-worktree",
+		});
+		layer.taken.add("/src/widgets/.worktrees/snap");
+		announce(layer);
+
+		const standing = await treeStandingFor(REPO, COMMIT);
+
+		expect(standing.kind).toBe("none");
+	});
+
+	// The change is attached by the time its tree's use is dated, so a
+	// lock that can't be got or a full disk must not fail the attach.
+	// Nor may it name the tree: a lock held that long is most likely a
+	// sweep taking it, and an undated use gives the sweep nothing to
+	// keep it by.
+	it("names the call that cuts one when its use can't be dated", async () => {
+		forgetWorkLayer();
+		const folder = mkdtempSync(join(tmpdir(), "tree-standing-"));
+		try {
+			const layer = workLayerHolding({
+				identity: treeIdentity({
+					intent: "snapshot",
+					repo: REPO,
+					purpose: "review",
+					commit: COMMIT,
+				}),
+				path: folder,
+				providerId: "git-worktree",
+			});
+			layer.refused = true;
+			announce(layer);
+
+			const standing = await treeStandingFor(REPO, COMMIT);
+
+			expect(
+				standing.kind,
+				"a standing tree whose use couldn't be dated was named",
+			).toBe("none");
+			expect(standing.kind === "none" && standing.would).toContain(COMMIT);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
 	});
 
 	it("does not mistake another commit's tree for this one's", async () => {

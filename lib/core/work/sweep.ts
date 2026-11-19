@@ -25,6 +25,10 @@
  * A tree another provider cut, such as a World dev tree, goes through
  * that provider, and only once it says nothing would be lost.
  *
+ * A snapshot a live session holds goes too, once nothing has used it
+ * for hours and it is as it was cut (`sweep-idle.ts`): a session asking
+ * for it again gets it cut afresh.
+ *
  * Every tree it keeps, held or not, gives up its dev shell's Nix roots
  * once nobody has entered it for a while (`dev-shell-roots.ts`): they
  * are a cache direnv rebuilds on the next entry, and left alone they
@@ -41,11 +45,9 @@ import {
 	renameSync,
 	rmSync,
 	statSync,
-	utimesSync,
-	writeFileSync,
 	writeSync,
 } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { type ProcessFacts, systemFacts } from "../process/index.ts";
 import type { HeldTree, TreeProvider } from "./broker.ts";
@@ -59,6 +61,13 @@ import {
 	type UseSigns,
 } from "./in-use.ts";
 import type { TreeMemory } from "./memory.ts";
+import {
+	type IdleSnapshot,
+	idleSnapshots,
+	lastUsed,
+	mainCheckoutOf,
+} from "./sweep-idle.ts";
+import { markEnded, restingSince } from "./sweep-rest.ts";
 import { orphanedTrees } from "./tidy.ts";
 import { pinnedCommit } from "./tree.ts";
 
@@ -127,6 +136,10 @@ export interface SweptTree {
 	remote?: string;
 	/** The sessions its record named, so one reopened can recut it. */
 	sessions?: string[];
+	/** The commit a snapshot taken from a live session was pinned at. */
+	commit?: string;
+	/** Why a tree a live session held was taken. */
+	why?: string;
 }
 
 /** A tree the sweep left, and why. */
@@ -148,6 +161,12 @@ export interface SweepOutcome {
 	kept: LeftTree[];
 	/** Trees whose dev-shell roots went, nobody having entered them. */
 	dropped: DroppedRoots[];
+	/**
+	 * Why the snapshots open sessions hold went unjudged this sweep, all
+	 * of them kept: a record's lock held too long, or the machine unable
+	 * to say which processes hold trees.
+	 */
+	idleUnjudged?: string;
 }
 
 /** A tree whose dev shell's Nix roots the sweep dropped, and how many. */
@@ -211,6 +230,19 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				outcome,
 			});
 		}
+		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
+		try {
+			const askedAt = (path: string, key?: string) =>
+				deps.memory.askedAt(path, key);
+			const choice = { ...deps, claims, now, askedAt };
+			for (const idle of await idleSnapshots(live, choice)) {
+				await takeIdle(deps, facts, idle, now, outcome);
+			}
+		} catch (error) {
+			// A record's lock held too long or a census failing leaves the
+			// other providers' trees and the dev shells' roots to go as before.
+			outcome.idleUnjudged = messageOf(error);
+		}
 		const others = deps.memory
 			.recall()
 			.filter(
@@ -225,56 +257,6 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		release();
 	}
 	return outcome;
-}
-
-/** The stamp beside a sweep's lock that says when the last sweep ended. */
-function endedStamp(lockPath: string): string {
-	return `${lockPath}.ended`;
-}
-
-/**
- * Why a sweep should rest, when one ended within `restMs` of `now`.
- * Every conversation sweeps on its own timer, and one sweep reads every
- * tree: on 18 November about 120 of them kept one machine sweeping
- * without a break, each sweep 3 to 12 minutes long and every one taking
- * nothing, while the rest found the lock held about every 3 seconds.
- */
-function restingSince(
-	lockPath: string,
-	now: number,
-	restMs: number | undefined,
-): string | undefined {
-	if (restMs === undefined) return undefined;
-	let ended: number;
-	try {
-		ended = statSync(endedStamp(lockPath)).mtimeMs;
-	} catch {
-		// No stamp, or none to read: rest from nothing, as a stamp that
-		// couldn't be written does. The lock still keeps sweeps apart.
-		return undefined;
-	}
-	const ago = now - ended;
-	// A stamp from the future, as a clock set back leaves, rests nobody.
-	return ago >= 0 && ago < restMs
-		? `a sweep ended ${Math.round(ago / 1000)} s ago`
-		: undefined;
-}
-
-/**
- * Stamp that a sweep has just ended, for {@link restingSince}, dated by
- * the sweep's own clock rather than the file system's, so the two
- * readings of the rest are of one clock. Only its time is read, so it
- * holds nothing.
- */
-function markEnded(lockPath: string, at: number): void {
-	const stamp = endedStamp(lockPath);
-	try {
-		writeFileSync(stamp, "");
-		utimesSync(stamp, at / 1000, at / 1000);
-	} catch {
-		// A stamp that can't be written only lets the next sweep come
-		// sooner, which the lock still keeps from overlapping this one.
-	}
 }
 
 /**
@@ -310,14 +292,8 @@ async function byRepository(
 	const repositories = new Map<string, HeldTree[]>();
 	const orphans: HeldTree[] = [];
 	for (const tree of trees) {
-		const common = await deps.exec("git", [
-			"-C",
-			tree.path,
-			"rev-parse",
-			"--path-format=absolute",
-			"--git-common-dir",
-		]);
-		if (common.code !== 0) {
+		const main = await mainCheckoutOf(deps.exec, tree.path);
+		if (main === undefined) {
 			const gitDir = goneGitDir(tree.path);
 			if (gitDir !== undefined && deps.wentWithFinishedWork?.(gitDir)) {
 				orphans.push(tree);
@@ -326,8 +302,6 @@ async function byRepository(
 			}
 			continue;
 		}
-		const dir = common.stdout.trim();
-		const main = basename(dir) === ".git" ? dirname(dir) : dir;
 		repositories.set(main, [...(repositories.get(main) ?? []), tree]);
 	}
 	return { byMain: repositories, orphans };
@@ -616,8 +590,58 @@ async function remoteHolding(
 }
 
 /**
+ * Take a snapshot a live session holds and nothing has used since
+ * `idle.usedAt`, as {@link takeBack} does, unless a session asks for it
+ * meanwhile. Logged with its sessions and commit, so the session that
+ * asks for it again can be told why it is cut afresh.
+ */
+async function takeIdle(
+	deps: SweepDeps,
+	facts: ProcessFacts,
+	idle: IdleSnapshot,
+	now: number,
+	outcome: SweepOutcome,
+): Promise<void> {
+	const { tree, commit, usedAt } = idle;
+	const main = await mainCheckoutOf(deps.exec, tree.path);
+	if (main === undefined) return;
+	const hours = Math.floor((now - usedAt) / 3_600_000);
+	const sessions = tree.sessions?.length
+		? { sessions: [...tree.sessions] }
+		: {};
+	const why = `unused for ${hours} h while its session stayed open`;
+	await takeBack(
+		deps,
+		facts,
+		main,
+		tree,
+		{ path: tree.path, ...sessions, commit, why },
+		outcome,
+		// Who works in it, then its git and folder, are read again under the
+		// lock just before the move, since the takes before it may have
+		// taken minutes. A reading that can't say keeps it. The walk of
+		// every process holds the lock for under a second, where an ask
+		// waits ten.
+		(take) =>
+			deps.memory.whileUnusedSince(tree.path, usedAt, async () => {
+				const path = resolved(tree.path);
+				const busy = await deps.busyAmong?.([path]);
+				return (
+					busy !== undefined &&
+					!busy.has(path) &&
+					lastUsed(tree, deps.memory.askedAt(tree.path, tree.identity.key)) <=
+						usedAt &&
+					take()
+				);
+			}),
+	);
+}
+
+/**
  * Move a tree aside under its record's lock, then remove it. A removal
- * git refuses puts the tree and its record back as they were.
+ * git refuses puts the tree and its record back as they were. `guard`
+ * runs the move only while the tree may go: by default, while every
+ * session its record names has ended.
  */
 async function takeBack(
 	deps: SweepDeps,
@@ -626,19 +650,18 @@ async function takeBack(
 	tree: HeldTree,
 	taken: SweptTree,
 	outcome: SweepOutcome,
+	guard: (take: () => Promise<boolean>) => Promise<HeldTree | undefined> = (
+		take,
+	) => deps.memory.whileUnheld(tree.path, take, facts),
 ): Promise<void> {
 	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
 	const git = (...args: string[]) => deps.exec("git", ["-C", main, ...args]);
 	let moveRefused: string | undefined;
-	const forgotten = await deps.memory.whileUnheld(
-		tree.path,
-		async () => {
-			const moved = await git("worktree", "move", tree.path, aside);
-			if (moved.code !== 0) moveRefused = said(moved);
-			return moved.code === 0;
-		},
-		facts,
-	);
+	const forgotten = await guard(async () => {
+		const moved = await git("worktree", "move", tree.path, aside);
+		if (moved.code !== 0) moveRefused = said(moved);
+		return moved.code === 0;
+	});
 	if (forgotten === undefined) {
 		if (moveRefused !== undefined) {
 			outcome.refused.push({ path: tree.path, why: moveRefused });

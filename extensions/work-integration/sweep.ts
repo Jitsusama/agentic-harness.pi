@@ -14,7 +14,7 @@
 
 import { appendFileSync, mkdirSync } from "node:fs";
 import { readdir, readlink } from "node:fs/promises";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { sessionSlot, withSession } from "../../lib/core/session/index.ts";
 import {
@@ -23,7 +23,7 @@ import {
 	WORK_TREE_CLAIMS,
 	WORK_TREES_SWEPT,
 } from "../../lib/core/work/events.ts";
-import type { UseSigns } from "../../lib/core/work/in-use.ts";
+import { resolvedPath, type UseSigns } from "../../lib/core/work/in-use.ts";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
 import { listTreeProviders } from "../../lib/core/work/register.ts";
 import {
@@ -152,26 +152,30 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 	} catch (error) {
 		line = { failed: error instanceof Error ? error.message : String(error) };
 	}
-	try {
-		mkdirSync(dir, { recursive: true });
-		appendFileSync(
-			join(dir, "sweep.log"),
-			`${JSON.stringify({
-				at: new Date(started).toISOString(),
-				pid: process.pid,
-				ms: Date.now() - started,
-				...line,
-			})}\n`,
-		);
-	} catch {
-		// The log is for reading afterwards; a sweep that can't write it
-		// has still done what it did, and a timer has nobody to tell.
-	}
+	logSweep({ ms: Date.now() - started, ...line }, started);
 	// Whoever listed a tree it took stops listing a folder that is gone.
 	// pi's bus reports a listener's error itself, never to the emitter.
 	if (taken.length > 0) {
 		const swept: SweptTrees = { paths: taken };
 		pi.events.emit(WORK_TREES_SWEPT, swept);
+	}
+}
+
+/**
+ * Write one line to the sweep's log, dated `at`, in milliseconds since
+ * the epoch: a sweep's outcome, or a tree a sweep took being cut afresh.
+ */
+export function logSweep(line: Record<string, unknown>, at = Date.now()): void {
+	const dir = stateDir("work");
+	try {
+		mkdirSync(dir, { recursive: true });
+		appendFileSync(
+			join(dir, "sweep.log"),
+			`${JSON.stringify({ at: new Date(at).toISOString(), pid: process.pid, ...line })}\n`,
+		);
+	} catch {
+		// The log is for reading afterwards; a sweep that can't write it
+		// has still done what it did, and a timer has nobody to tell.
 	}
 }
 
@@ -216,6 +220,7 @@ export function useSigns(): UseSigns {
 			standing ??= standingIn();
 			return standing;
 		},
+		busyAmong,
 		...bootedAt(),
 	};
 }
@@ -307,6 +312,150 @@ async function standingIn(): Promise<string[]> {
 	return folders.filter((folder) => folder !== undefined);
 }
 
+/**
+ * How many processes' links are read at once. Each read waits its turn
+ * on libuv's few threads, which a shared host's other conversations need
+ * too, and a machine's processes hold tens of thousands of descriptors.
+ */
+const PROCESSES_AT_ONCE = 64;
+
+/**
+ * The link the kernel gives the machine's own process namespace, which
+ * it numbers the same on every boot.
+ */
+const HOST_PID_NAMESPACE = "pid:[4026531836]";
+
+/**
+ * Whether this process sees the machine's own processes, rather than a
+ * namespace's share of them as in a container or the fence.
+ */
+export async function seesEveryProcess(
+	link: (path: string) => Promise<string> = readlink,
+): Promise<boolean> {
+	try {
+		return (await link("/proc/self/ns/pid")) === HOST_PID_NAMESPACE;
+	} catch {
+		// No /proc, as on macOS.
+		return false;
+	}
+}
+
+/**
+ * Errors that mean a process has nothing to read: it ended since the
+ * listing, or it is another user's or keeps itself unreadable, as an
+ * agent holding keys does. Any other, such as running out of files or
+ * memory, means the reading can't be trusted.
+ */
+const NOTHING_TO_READ = new Set(["ENOENT", "ESRCH", "EACCES", "EPERM"]);
+
+/** The error a read of a process's links can't trust, or nothing. */
+function untrusted(error: unknown): unknown {
+	const code =
+		error instanceof Error && "code" in error ? error.code : undefined;
+	return typeof code === "string" && NOTHING_TO_READ.has(code)
+		? undefined
+		: error;
+}
+
+/**
+ * Which of `paths` a process running now works in or holds a file open
+ * in, or a live session's folder lies in, read afresh from the kernel's
+ * links (its folder, its program and its open files; not its mapped
+ * files) and the sessions' records. Nothing when there is no `/proc`, as
+ * on macOS, when this process sees only a namespace's share of it, as in
+ * a container, or when a read fails for any reason but its process having
+ * nothing to read, so a tree a session still open holds is never taken
+ * on a reading that may have missed what holds it.
+ */
+function busyAmong(
+	paths: readonly string[],
+): Promise<ReadonlySet<string> | undefined> {
+	return busyAmongBy(paths, {
+		readlink,
+		readdir: (path) => readdir(path),
+		sessionFolders: () => sessionFolders(presentNow),
+	});
+}
+
+/** Where {@link busyAmongBy} reads the kernel's links and the sessions. */
+export interface ProcessReads {
+	readlink(path: string): Promise<string>;
+	readdir(path: string): Promise<string[]>;
+	sessionFolders(): Promise<readonly string[]>;
+}
+
+/**
+ * {@link busyAmong}, reading through `reads`, so a test can hand it a
+ * machine whose reads fail as a real one's can.
+ */
+export async function busyAmongBy(
+	paths: readonly string[],
+	reads: ProcessReads,
+): Promise<ReadonlySet<string> | undefined> {
+	const { readlink, readdir } = reads;
+	let pids: string[];
+	try {
+		if (!(await seesEveryProcess(readlink))) return undefined;
+		pids = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
+	} catch {
+		return undefined;
+	}
+	// A /proc mounted to hide other users' processes leaves them out of
+	// the listing without an error, so the reading would count as whole
+	// when it isn't. The machine's first process is listed to a reader
+	// who sees everyone, and hidden from one who doesn't. This says only
+	// that the listing is whole: another user's links still refuse to be
+	// read on any /proc, and are passed over, as the sweep's notes say.
+	if (!pids.includes("1")) return undefined;
+	const asked = new Set(paths);
+	const busy = new Set<string>();
+	// Up a link's folders rather than across every path, since a sweep
+	// asks of hundreds of trees and a machine holds tens of thousands.
+	const mark = (link: string) => {
+		for (let at = link; at.startsWith("/"); at = dirname(at)) {
+			if (asked.has(at)) busy.add(at);
+			if (at === "/") break;
+		}
+	};
+	// A read failing for any other reason than the process having nothing
+	// to read makes the whole reading unknown, so a tree is never taken
+	// on a walk that missed what held it.
+	let failed: unknown;
+	const read = async <T>(what: Promise<T>, none: T): Promise<T> => {
+		try {
+			return await what;
+		} catch (error) {
+			failed ??= untrusted(error);
+			return none;
+		}
+	};
+	let next = 0;
+	const reader = async () => {
+		while (
+			next < pids.length &&
+			busy.size < asked.size &&
+			failed === undefined
+		) {
+			const proc = join("/proc", pids[next++] ?? "");
+			mark(await read(readlink(join(proc, "cwd")), ""));
+			mark(await read(readlink(join(proc, "exe")), ""));
+			const fds = join(proc, "fd");
+			for (const fd of await read(readdir(fds), [] as string[])) {
+				mark(await read(readlink(join(fds, fd)), ""));
+			}
+		}
+	};
+	await Promise.all(
+		Array.from({ length: Math.min(PROCESSES_AT_ONCE, pids.length) }, reader),
+	);
+	if (failed !== undefined) return undefined;
+	// A session's folder may name a link; the kernel's are real paths.
+	for (const folder of await reads.sessionFolders()) {
+		mark(resolvedPath(folder));
+	}
+	return busy;
+}
+
 /** When this boot began, where the machine will say. */
 function bootedAt(): { bootedAt?: number } {
 	const at = machineBooted();
@@ -322,6 +471,9 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		kept: outcome.kept.length,
 		keptFor: commonest(outcome.kept.map((one) => one.why)),
 		dropped: outcome.dropped,
+		...(outcome.idleUnjudged === undefined
+			? {}
+			: { idleUnjudged: outcome.idleUnjudged }),
 	};
 }
 

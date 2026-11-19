@@ -68,9 +68,12 @@ function remembering(held: HeldTree, others: number[]): TreeMemory {
 		heldNow: async () => [held],
 		unattributed: () => [],
 		otherHolders: async (path) => (path === held.path ? owners : []),
+		heldByUs: async () => new Set(),
 		forgetUsAsHolder: async () => {},
 		whileUnheld: async () => undefined,
 		holdWhileUnheld: async () => undefined,
+		whileUnusedSince: async () => undefined,
+		askedAt: () => undefined,
 		reownSession: async () => 0,
 	};
 }
@@ -162,16 +165,164 @@ describe("a worktree somebody else is working in", () => {
 			},
 			recall: () => (writes === 1 ? [] : [shared]),
 		};
-		const broker = createTreeBroker({ providers: [provider], memory });
+		const recut: string[] = [];
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory,
+			recut: (was) => recut.push(was.path),
+		});
 
 		const held = await broker.ensure(commit);
 
 		expect(held.path).toBe("/trees/shared");
+		expect(recut, "the fresh cut isn't said").toEqual(["/trees/shared"]);
 		expect(
 			cuts,
 			"the provider is asked once to find it, once to cut it",
 		).toHaveLength(2);
 		expect(writes, "the fresh cut is written down as ours").toBe(2);
+	});
+
+	it("cuts afresh a snapshot this session cut when a sweep took it as it was asked again", async () => {
+		// A sweep takes a snapshot its own session left unused, so the
+		// race above reaches this session's own trees too.
+		const commit = snapshot("abc123");
+		const { provider, cuts } = fakeProvider("git-worktree");
+		let writes = 0;
+		let cut: HeldTree | undefined;
+		const memory: TreeMemory = {
+			...remembering(
+				{ identity: treeIdentity(commit), path: "", providerId: "" },
+				[],
+			),
+			rememberHeldByUs: async (tree) => {
+				writes += 1;
+				cut = tree;
+			},
+			// Written once, then taken between the provider finding it
+			// again and the second write.
+			recall: () => (writes === 1 && cut ? [cut] : []),
+		};
+		const recut: string[] = [];
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory,
+			recut: (was) => recut.push(was.path),
+		});
+
+		const first = await broker.ensure(commit);
+		await broker.ensure(commit);
+
+		expect(recut, "the fresh cut isn't said").toEqual([first.path]);
+		expect(cuts, "it isn't cut afresh").toHaveLength(3);
+	});
+
+	it("lists no tree of its own whose folder has gone, and says it is cut afresh", async () => {
+		// A sweep tells no broker what it took, so this session's own list
+		// named a gone folder as cut, and attaching a change again sent its
+		// readers to a missing directory.
+		const commit = snapshot("abc123");
+		const { provider, cuts } = fakeProvider("git-worktree");
+		const gone = new Set<string>();
+		const recut: string[] = [];
+		const broker = createTreeBroker({
+			providers: [provider],
+			recut: (was) => recut.push(was.path),
+			stands: (path) => !gone.has(path),
+		});
+
+		const first = await broker.ensure(commit);
+		gone.add(first.path);
+		const listed = broker.held().map((tree) => tree.path);
+		await broker.ensure(commit);
+
+		expect(listed, "a gone folder is listed as held").toEqual([]);
+		expect(recut, "the fresh cut isn't said").toEqual([first.path]);
+		expect(cuts, "it isn't cut afresh").toHaveLength(2);
+	});
+
+	// Attaching a change sends a reader to a held snapshot by path, and
+	// a sweep judges a snapshot's use by its last ask.
+	it("dates a use it is told of as an ask, asking no provider, and holds the tree", async () => {
+		const theirs: HeldTree = {
+			identity: treeIdentity(snapshot("abc123")),
+			path: "/trees/theirs",
+			providerId: "git-worktree",
+		};
+		const { provider, cuts } = fakeProvider("git-worktree");
+		const dated: string[] = [];
+		const memory: TreeMemory = {
+			...remembering(theirs, []),
+			rememberHeldByUs: async (tree) => {
+				dated.push(tree.path);
+			},
+		};
+		const broker = createTreeBroker({ providers: [provider], memory });
+
+		const stands = await broker.used(theirs);
+
+		expect(stands, "a standing tree reads as gone").toBe(true);
+		expect(dated, "its use isn't dated").toEqual(["/trees/theirs"]);
+		expect(cuts, "a provider was asked").toHaveLength(0);
+		expect(broker.cutHere("/trees/theirs"), "it isn't held here").toBe(true);
+	});
+
+	it("says a tree a sweep took before its use was dated is gone, and drops it", async () => {
+		const theirs: HeldTree = {
+			identity: treeIdentity(snapshot("abc123")),
+			path: "/trees/theirs",
+			providerId: "git-worktree",
+		};
+		const { provider } = fakeProvider("git-worktree");
+		const memory: TreeMemory = {
+			...remembering(theirs, []),
+			rememberHeldByUs: async () => {},
+			recall: () => [],
+		};
+		const broker = createTreeBroker({ providers: [provider], memory });
+
+		const stands = await broker.used(theirs);
+
+		expect(stands, "a taken tree reads as standing").toBe(false);
+		expect(broker.cutHere("/trees/theirs"), "a taken tree is held here").toBe(
+			false,
+		);
+	});
+
+	it("reads whether a tree stands only once its use is written, so a take meanwhile is seen", async () => {
+		// The sweep judges under the record's lock, so only a reading after
+		// the write sees a take made while the write waited for it.
+		const theirs: HeldTree = {
+			identity: treeIdentity(snapshot("abc123")),
+			path: "/trees/theirs",
+			providerId: "git-worktree",
+		};
+		const { provider } = fakeProvider("git-worktree");
+		let written = false;
+		const memory: TreeMemory = {
+			...remembering(theirs, []),
+			rememberHeldByUs: async () => {
+				written = true;
+			},
+			recall: () => (written ? [] : [theirs]),
+		};
+		const recut: string[] = [];
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory,
+			recut: (was) => recut.push(was.path),
+		});
+
+		const stands = await broker.used(theirs);
+		await broker.ensure(snapshot("abc123"));
+
+		expect(
+			stands,
+			"a tree taken while its use was written reads as standing",
+		).toBe(false);
+		expect(recut, "asking again for a tree found gone isn't said").toEqual([
+			"/trees/theirs",
+		]);
 	});
 });
 

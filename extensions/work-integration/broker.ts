@@ -14,6 +14,7 @@
  * own first version.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Exec, spawnExec } from "../../lib/core/exec/index.ts";
@@ -43,6 +44,7 @@ import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
 import { unattendedExec } from "../../lib/internal/sandbox/unattended-exec.ts";
 import { cutTreeDir, treeRecordDir } from "../../lib/internal/work-records.ts";
 import { createFleetLedger } from "../../lib/subagent/fleet.ts";
+import { logSweep } from "./sweep.ts";
 
 /** Where trees this package cuts are put. */
 export function treeDir(): string {
@@ -151,6 +153,17 @@ export function treeBroker(): TreeBroker {
 			memory: createTreeMemory(treeRecordDir(), {
 				sessions: () => ours.sessions,
 			}),
+			// Said where the sweep says what it took, so whoever reads why a
+			// snapshot moved finds both halves in one place. Worded for what
+			// is known: a sweep's take, a release or a hand all leave this.
+			recut: (was) =>
+				logSweep({
+					recut: was.path,
+					key: was.identity.key,
+					sessions: ours.sessions,
+					why: "its record or folder was gone when asked for again, so it is cut afresh",
+				}),
+			stands: (path) => existsSync(path),
 		});
 	}
 	return ours.broker;
