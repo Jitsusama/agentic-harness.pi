@@ -195,7 +195,7 @@ export const QUEST_PARAMETERS = Type.Object({
 	dryRun: Type.Optional(
 		Type.Boolean({
 			description:
-				"Say what would change, doing nothing: reparent, spawn, reopen-sessions, budget-sweep, and conclude/retire of quests not loaded here. Other actions refuse it.",
+				"Say what would change, doing nothing: reparent, spawn, reopen-sessions, budget-sweep, conclude/retire of quests not loaded here. Others refuse it.",
 		}),
 	),
 	limit: Type.Optional(
