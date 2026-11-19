@@ -16,6 +16,8 @@
  * carries none, so nothing here may import pi.
  */
 
+import { isRecord } from "../../lib/internal/record.ts";
+
 /** The variable Shopify's launcher and ai-proxy-headers share. */
 export const HARNESS_SETTINGS_VARIABLE = "SHOPIFY_HARNESS_SETTINGS";
 
@@ -85,10 +87,6 @@ function parsed(base: string | undefined): Record<string, unknown> {
 		// own traits still say how it was launched.
 		return {};
 	}
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Keys in order, as the launcher writes them, so equal settings read alike. */
