@@ -159,7 +159,8 @@ describe("a conversation's store", () => {
 					}
 					static async open(database: { name: string }) {
 						said.push(`class storage on ${database.name}`);
-						return new Storage(database);
+						// As pi-durable's does: only a call bound to the class builds one.
+						return new this(database);
 					}
 				},
 			},

@@ -84,8 +84,8 @@ export async function openHostedConversation(options: {
 	try {
 		storage = await openStorage(database);
 	} catch (error) {
-		// The storage's failure is the one said; the store is let go either way.
-		await database.close().catch(() => {});
+		// The storage's failure is the one thrown; the store is let go either way.
+		await database.close().catch((closeError) => options.report?.(closeError));
 		throw error;
 	}
 	const registry = durable.createRegistry();
@@ -111,9 +111,11 @@ export async function openHostedConversation(options: {
 		);
 		root = await harness.root(context);
 	} catch (error) {
-		// The opening's failure is the one said; the store is let go either way.
-		await harness?.close(context).catch(() => {});
-		await database.close().catch(() => {});
+		// The opening's failure is the one thrown; the store is let go either way.
+		await harness
+			?.close(context)
+			.catch((closeError) => options.report?.(closeError));
+		await database.close().catch((closeError) => options.report?.(closeError));
 		throw error;
 	}
 	const opened: Harness = harness;

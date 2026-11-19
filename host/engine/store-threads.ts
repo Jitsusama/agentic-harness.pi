@@ -20,11 +20,14 @@
  * the caller names, and a close checkpoints TRUNCATE, as chord's does.
  *
  * A thread that dies fails every call it held and is started again with
- * each of its stores opened anew, at most a few times; SQLite rolls back a
- * transaction its connection took with it, and that transaction's handle
- * refuses from then on, so none of it is written outside it. After that,
- * its stores refuse and no store is put on it. A call that has waited long
- * on its thread is said, once.
+ * each of its stores opened anew, but not one it was closing; SQLite rolls
+ * back a transaction its connection took with it, and that transaction's
+ * handle refuses from then on, so none of it is written outside it. One
+ * that died as its transaction committed says it can't tell whether it
+ * was written. A thread that dies a fourth time within ten minutes gives
+ * its stores up, each refusing from then on, as does a store that can't
+ * open again, and takes no store for ten minutes. A thread's stalled call
+ * is said once, until the thread answers again.
  */
 
 import { Worker } from "node:worker_threads";
@@ -38,8 +41,11 @@ const BUSY_TIMEOUT_MS = 5000;
 /** SQLite's own checkpoint threshold, in pages, for a store nothing else checkpoints. */
 const CHECKPOINT_PAGES = 1000;
 
-/** How many times a thread that died is started again before its stores refuse. */
+/** How many times a thread that died is started again within `RESTART_WINDOW_MS` before it gives its stores up. */
 const RESTARTS = 3;
+
+/** How long a thread's deaths are counted, and how long one that gave its stores up takes none, in ms. */
+const RESTART_WINDOW_MS = 10 * 60_000;
 
 /** How long a call waits on its thread before it is said to be stalled, in ms. */
 const STALLED_MS = 30_000;
@@ -54,6 +60,8 @@ const { parentPort } = require("node:worker_threads");
 const { DatabaseSync } = require("node:sqlite");
 const LIMIT = 256;
 const stores = new Map();
+// Why each store that failed to open did, for the calls already sent behind it.
+const refused = new Map();
 function statement(store, sql) {
 	const statements = store.statements;
 	let prepared = statements.get(sql);
@@ -93,9 +101,24 @@ function closed(key, store) {
 	}
 }
 function answer(message) {
-	if (message.op === "open") return opened(message);
+	if (message.op === "open") {
+		try {
+			return opened(message);
+		} catch (error) {
+			refused.set(message.store, error instanceof Error ? error.message : String(error));
+			throw error;
+		}
+	}
 	const store = stores.get(message.store);
-	if (!store) throw new Error("The store isn't open on its thread");
+	if (!store) {
+		const why = refused.get(message.store);
+		if (message.op === "close") refused.delete(message.store);
+		throw new Error(
+			why === undefined
+				? "The store isn't open on its thread"
+				: "The store couldn't open again on its thread: " + why,
+		);
+	}
 	if (message.op === "close") return closed(message.store, store);
 	const { kind, sql, params } = message;
 	if (kind === "exec") {
@@ -172,6 +195,8 @@ export interface StoreThreadOptions {
 	readonly worker?: (program: string) => Worker;
 	/** How long a call waits before it is said, in ms; a test may shorten it. */
 	readonly stalledMs?: number;
+	/** The time, in ms; a test may move it on past a thread's rest. */
+	readonly now?: () => number;
 }
 
 /** A call the thread is asked to make. */
@@ -228,16 +253,24 @@ interface Pin {
 	start?: number;
 }
 
+/** How a store is opened, kept to open it again. */
+type Open = Extract<Asked, { op: "open" }>;
+
 /** One worker thread and the stores it holds. */
 interface Thread {
 	worker: Worker | undefined;
 	/** Counts the thread's workers, each start a new one. */
 	start: number;
-	restarts: number;
-	/** It died past its restarts: its stores refuse, and none is put on it. */
-	spent: boolean;
+	/** When it died under its stores, within the last `RESTART_WINDOW_MS`. */
+	deaths: number[];
+	/** When it gave its stores up; it takes none until `RESTART_WINDOW_MS` on. */
+	resting: number | undefined;
+	/** Whether a stalled call has been said since it last answered. */
+	stallSaid: boolean;
 	/** Each store it holds, by key, with how to open it again. */
-	readonly stores: Map<number, Extract<Asked, { op: "open" }>>;
+	readonly stores: Map<number, Open>;
+	/** Each store whose close it was asked, never opened again. */
+	readonly closing: Map<number, Open>;
 	/** Each call it was asked and hasn't answered. */
 	readonly waiting: Map<
 		number,
@@ -261,12 +294,17 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 		() => ({
 			worker: undefined,
 			start: 0,
-			restarts: 0,
-			spent: false,
+			deaths: [],
+			resting: undefined,
+			stallSaid: false,
 			stores: new Map(),
+			closing: new Map(),
 			waiting: new Map(),
 		}),
 	);
+	const now = options.now ?? Date.now;
+	/** Each store a thread gave up, with why it refuses. */
+	const givenUp = new Map<number, string>();
 	const startWorker =
 		options.worker ?? ((program) => new Worker(program, { eval: true }));
 	const stalledMs = options.stalledMs ?? STALLED_MS;
@@ -282,6 +320,7 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 	function failAll(thread: Thread, error: Error): void {
 		const waiting = [...thread.waiting.values()];
 		thread.waiting.clear();
+		thread.stallSaid = false;
 		for (const one of waiting) {
 			clearTimeout(one.stalled);
 			one.reject(error);
@@ -298,6 +337,7 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 			if (!one) return;
 			thread.waiting.delete(message.id);
 			clearTimeout(one.stalled);
+			thread.stallSaid = false;
 			holding(thread);
 			if (message.error) one.reject(errorFrom(message.error));
 			else one.resolve(message.value);
@@ -312,25 +352,53 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 		return worker;
 	}
 
-	/** A worker ended under its stores: start it again, or, past its restarts, give its stores up. */
+	/** A worker ended under its stores: start it again, or, dying too often, give its stores up. */
 	function died(thread: Thread, worker: Worker): void {
 		if (thread.worker !== worker) return;
 		thread.worker = undefined;
 		failAll(thread, new Error("The store's thread ended under the call"));
 		if (thread.stores.size === 0) return;
-		if (thread.restarts >= RESTARTS) {
-			thread.spent = true;
+		const at = now();
+		thread.deaths = thread.deaths.filter(
+			(death) => at - death < RESTART_WINDOW_MS,
+		);
+		if (thread.deaths.length >= RESTARTS) {
+			const count = thread.stores.size;
+			for (const store of thread.stores.keys())
+				givenUp.set(
+					store,
+					`The store's thread died ${RESTARTS + 1} times in ${RESTART_WINDOW_MS / 60_000} minutes and gave it up`,
+				);
+			thread.stores.clear();
+			thread.deaths = [];
+			thread.resting = at;
 			report(
 				new Error(
-					`A store thread died ${RESTARTS + 1} times; its ${thread.stores.size} stores refuse every call`,
+					`A store thread died ${RESTARTS + 1} times in ${RESTART_WINDOW_MS / 60_000} minutes; its ${count} stores refuse every call`,
 				),
 			);
 			return;
 		}
-		thread.restarts++;
-		// Opened anew, in the order they were first opened; a call that fails says so itself.
-		for (const [store, open] of thread.stores)
-			ask(thread, store, open).catch(report);
+		thread.deaths.push(at);
+		// Opened anew, in the order they were first opened.
+		for (const [store, open] of thread.stores) {
+			const pin: Pin = {};
+			ask(thread, store, open, pin).catch((error: unknown) => {
+				// A later start opens it again, or the thread has given it up.
+				if (pin.start !== thread.start || !thread.stores.has(store)) return;
+				thread.stores.delete(store);
+				const said = error instanceof Error ? error.message : String(error);
+				givenUp.set(
+					store,
+					`The store couldn't open again on its thread: ${said}`,
+				);
+				report(
+					new Error(
+						`The store at ${open.path} couldn't open again on its thread: ${said}`,
+					),
+				);
+			});
+		}
 	}
 
 	/**
@@ -344,9 +412,17 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 		asked: Asked,
 		pin?: Pin,
 	): Promise<unknown> {
-		if (thread.spent)
-			return Promise.reject(new Error("The store's thread is gone"));
-		const open = asked.op === "open" ? asked : thread.stores.get(store);
+		const gone = givenUp.get(store);
+		// A store given up has nothing open, so its close has nothing to do.
+		if (gone)
+			return asked.op === "close"
+				? Promise.resolve(undefined)
+				: Promise.reject(new Error(gone));
+		const open =
+			asked.op === "open"
+				? asked
+				: (thread.stores.get(store) ??
+					(asked.op === "close" ? thread.closing.get(store) : undefined));
 		if (!open) return Promise.reject(new Error("The store is closed"));
 		const worker = started(thread);
 		if (pin) {
@@ -362,6 +438,8 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 		return new Promise((resolve, reject) => {
 			// Said once, and the call still waits: a read stalled on the disk can't be ended.
 			const stalled = setTimeout(() => {
+				if (thread.stallSaid) return;
+				thread.stallSaid = true;
 				report(
 					new Error(
 						`A call to the store at ${open.path} has waited ${stalledMs / 1000} s on its thread, with ${thread.waiting.size} waiting there`,
@@ -375,25 +453,48 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 		});
 	}
 
-	/** The thread still taking stores that holds fewest. */
+	/** Whether a thread takes stores: one that gave its stores up rests a while first. */
+	function taking(thread: Thread): boolean {
+		if (thread.resting === undefined) return true;
+		if (now() - thread.resting < RESTART_WINDOW_MS) return false;
+		thread.resting = undefined;
+		return true;
+	}
+
+	/** The thread taking stores that holds fewest. */
 	function fewest(): Thread {
 		let chosen: Thread | undefined;
 		for (const thread of threads)
-			if (!thread.spent && (!chosen || thread.stores.size < chosen.stores.size))
+			if (
+				taking(thread) &&
+				(!chosen || thread.stores.size < chosen.stores.size)
+			)
 				chosen = thread;
 		if (!chosen)
 			throw new Error(
-				`Every store thread died ${RESTARTS + 1} times, so no store can be opened`,
+				`Every store thread died ${RESTARTS + 1} times in ${RESTART_WINDOW_MS / 60_000} minutes, so no store can be opened`,
 			);
 		return chosen;
 	}
 
+	/** Close a store from now on: a thread that dies under its close doesn't open it again. */
+	function closing(thread: Thread, store: number): void {
+		const open = thread.stores.get(store);
+		if (!open) return;
+		thread.stores.delete(store);
+		thread.closing.set(store, open);
+	}
+
 	function ended(thread: Thread, store: number): void {
 		thread.stores.delete(store);
-		if (thread.stores.size > 0 || !thread.worker) return;
+		thread.closing.delete(store);
+		givenUp.delete(store);
+		if (thread.stores.size > 0 || thread.closing.size > 0 || !thread.worker)
+			return;
 		const worker = thread.worker;
 		thread.worker = undefined;
 		// Its last store closed: nothing is left for it to answer.
+		failAll(thread, new Error("The store's thread was let go under the call"));
 		void worker.terminate();
 	}
 
@@ -413,6 +514,7 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 			} catch (error) {
 				// A thread that died under the open opened it again; this close
 				// follows that, so nothing stays open for a store nobody holds.
+				closing(thread, store);
 				if (thread.worker)
 					await ask(thread, store, { op: "close" }).catch(() => {
 						// Nothing was open, as when the open itself failed.
@@ -422,7 +524,10 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 			}
 			return storeDatabase({
 				ask: (asked, pin) => ask(thread, store, asked, pin),
-				moved: (pin) => pin.start !== undefined && pin.start !== thread.start,
+				moved: (pin) =>
+					pin.start !== undefined &&
+					(pin.start !== thread.start || !thread.worker),
+				closing: () => closing(thread, store),
 				ended: () => ended(thread, store),
 			});
 		},
@@ -445,8 +550,10 @@ function serially(): <T>(operation: () => Promise<T>) => Promise<T> {
 /** How a store's database reaches its thread. */
 interface StoreLink {
 	readonly ask: (asked: Asked, pin?: Pin) => Promise<unknown>;
-	/** Whether the thread has started again since the pin was taken. */
+	/** Whether the worker the pin was taken on has ended. */
 	readonly moved: (pin: Pin) => boolean;
+	/** Close the store from now on, so no new thread opens it again. */
+	readonly closing: () => void;
 	/** Let the store go, once it has closed. */
 	readonly ended: () => void;
 }
@@ -480,7 +587,7 @@ function executor(
 
 /** A store's database: its calls in order, its transactions holding it, its close ending it. */
 function storeDatabase(link: StoreLink): StoreDatabase {
-	const { ask, moved, ended } = link;
+	const { ask, moved, closing, ended } = link;
 	const order = serially();
 	let closed = false;
 	const direct = <T>(operation: () => Promise<T>) => operation();
@@ -505,9 +612,11 @@ function storeDatabase(link: StoreLink): StoreDatabase {
 						);
 					return direct(operation);
 				});
+				let committing = false;
 				try {
 					const result = await callback(inside);
 					active = false;
+					committing = !moved(pin);
 					await pinned({
 						op: "call",
 						kind: "exec",
@@ -517,8 +626,15 @@ function storeDatabase(link: StoreLink): StoreDatabase {
 					return result;
 				} catch (error) {
 					active = false;
-					// The connection it began on went with its thread, and SQLite rolled it back.
-					if (moved(pin)) throw error;
+					// The connection it began on went with its thread: SQLite rolled it
+					// back, unless the thread ended once its COMMIT had been sent.
+					if (moved(pin)) {
+						if (!committing) throw error;
+						throw new Error(
+							"The store's thread ended as its transaction committed, so whether it was written is unknown",
+							{ cause: error },
+						);
+					}
 					try {
 						await pinned({
 							op: "call",
@@ -540,6 +656,7 @@ function storeDatabase(link: StoreLink): StoreDatabase {
 			return order(async () => {
 				if (closed) return;
 				closed = true;
+				closing();
 				try {
 					await ask({ op: "close" });
 				} finally {

@@ -502,6 +502,11 @@ describe("the hosted agent resuming a turn a restart cut off", {
 		expect(turnsOf(fresh)).toEqual(["agent_end"]);
 	});
 
+	it("lets its store's thread go once it closes, durable's close closing the store", async () => {
+		const closed = await observe("hosted", "plain");
+		expect(closed.storeLetGo).toBe(true);
+	});
+
 	it("shows the answer pi never saw without showing again a result it held under another time", async () => {
 		// Another held its first result 1 ms off durable's, and not the answer after it; the resume showed the result again and broke that answer's round.
 		const folder = mkdtempSync(join(tmpdir(), "hosted-second-tool-"));

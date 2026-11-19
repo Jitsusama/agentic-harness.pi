@@ -20,6 +20,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import {
 	createOutbox,
 	type Outbox,
@@ -246,6 +247,10 @@ const noteEffect = (text: string): void =>
 
 /** How long an answer waits for the agent to hold queued words before it answers anyway. */
 const QUEUED_WAIT_MS = 3_000;
+/** How long a closed conversation's store thread has to end, in ms. */
+const STORE_LET_GO_MS = 5_000;
+/** Each store thread's end, once it has one. */
+const storeExits: Promise<void>[] = [];
 /** How often that answer looks again. */
 const QUEUED_POLL_MS = 20;
 /** How long an outbox scenario waits for its result to be seen. */
@@ -1155,7 +1160,16 @@ try {
 					modules: pi.modules,
 					library: piLibrary(pi.modules),
 					storePath: join(folder, "durable", "store.sqlite"),
-					stores: storeThreads({ threads: 1 }),
+					stores: storeThreads({
+						threads: 1,
+						worker: (program) => {
+							const worker = new Worker(program, { eval: true });
+							storeExits.push(
+								new Promise((ended) => worker.once("exit", () => ended())),
+							);
+							return worker;
+						},
+					}),
 					env: async () => ({}),
 					report: (error) =>
 						process.stderr.write(`durable reported: ${String(error)}\n`),
@@ -1294,6 +1308,7 @@ try {
 	const pendingAtEnd = [...session.getFollowUpMessages()];
 	session.dispose();
 	if (!storeClosed) await conversation?.close();
+	const storeLetGo = conversation ? await storeThreadsEnded() : undefined;
 	const ran = existsSync(effects())
 		? readFileSync(effects(), "utf8").split("\n").filter(Boolean).length
 		: 0;
@@ -1304,6 +1319,7 @@ try {
 			pendingAtEnd,
 			lacking: pi.lacking.map((seam) => seam.patch),
 			...(scenario.persist ? { ran } : {}),
+			...(storeLetGo === undefined ? {} : { storeLetGo }),
 		})}\n`,
 	);
 } finally {
@@ -1353,6 +1369,21 @@ function stallingExtension(pi: ExtensionPi): void {
 		// A handler waiting on a slow service, as PREPARING_MS allows for.
 		await new Promise((done) => setTimeout(done, STALL_MS));
 	});
+}
+
+/** Whether every store thread the conversation started has ended, given a few seconds. */
+async function storeThreadsEnded(): Promise<boolean> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<false>((given) => {
+		// A thread a closed store let go ends in milliseconds; one still held never does.
+		timer = setTimeout(() => given(false), STORE_LET_GO_MS);
+	});
+	const ended = Promise.all(storeExits).then((): true => true);
+	try {
+		return await Promise.race([ended, late]);
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 /** The session file under the folder, opened if a run before left one. */
