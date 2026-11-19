@@ -876,21 +876,18 @@ describe("what node reads back as compiled code outside the fence", () => {
 		}
 	});
 
-	it("makes a missing cache a tmpfs of its own, and leaves a link alone", () => {
+	it("makes a missing cache a tmpfs of its own, and refuses a link left there", () => {
 		const missing = fenceArgs(place, {
 			kind: () => undefined,
 			entries: () => [],
 		});
 		const at = missing.indexOf("/tmp/jiti");
 		expect(missing.slice(at - 1, at + 1)).toEqual(["--tmpfs", "/tmp/jiti"]);
-		const linked = fenceArgs(
-			place,
-			diskWith(home, [".local"], ["/tmp/jiti", "/tmp/node-compile-cache"]),
-		);
-		// bubblewrap refuses to mount on a link, which would stop every
-		// fenced command; one of ours is set aside before (setAsidePlanted).
-		expect(linked).not.toContain("/tmp/jiti");
-		expect(linked).not.toContain("/tmp/node-compile-cache");
+		// One of ours is set aside before (setAsidePlanted); one still there
+		// would lead node and jiti outside wherever it points.
+		expect(() =>
+			fenceArgs(place, diskWith(home, [".local"], ["/tmp/jiti"])),
+		).toThrow(/\/tmp\/jiti is a link/);
 	});
 
 	it("binds each node_modules node searches above pi's code read-only", () => {

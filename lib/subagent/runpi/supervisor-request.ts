@@ -134,15 +134,23 @@ export function withSessionPersistence(
  * on the supervisor rather than in its request, since the reviewer takes
  * the supervisor's environment and a request on disk outlives the run
  * that wrote it.
+ *
+ * All but the quest's `TMPDIR`: a supervisor runs outside the fence,
+ * and jiti there would read the compiled code it runs from that
+ * folder's `jiti`, which lies in the quest's scratch, where a fenced
+ * command writes. It keeps pi's own, whose `jiti` the fence holds
+ * (`fence-temp-caches.ts`); its commands still get the quest's, offered
+ * to them by its own session.
  */
 export async function supervisorEnvironment(
 	config: SupervisorRunPiConfig,
 	given: Readonly<Record<string, string>> | undefined,
 ): Promise<NodeJS.ProcessEnv> {
+	const { TMPDIR: _questTemp, ...offered } = offeredShellEnvironment();
 	return {
 		// A session set off is so alone, never its subagents (fence-stage.ts).
 		...withoutOff(process.env),
-		...offeredShellEnvironment(),
+		...offered,
 		...(config.cacheRetention === undefined
 			? {}
 			: { PI_CACHE_RETENTION: config.cacheRetention }),

@@ -46,7 +46,9 @@ import { join } from "node:path";
  * November). And the `node_modules` folders node searches above the
  * code pi loads from the home folder (its packages, its agent folder
  * and its state), which it reaches before those two: an empty folder
- * of the fence's making where there was none.
+ * of the fence's making where there was none. The home folder's own
+ * `node_modules`, last of them, is made by nobody: the read-only home
+ * keeps one from being made, and keeps one already there read-only.
  *
  * The home folder itself is read-only too, with every other hidden
  * entry in it bound back writable, since a dotfile is often a link into
@@ -101,6 +103,7 @@ export const READ_ONLY = [
 	".local/node_modules",
 	".local/share/node_modules",
 	".local/state/node_modules",
+	"node_modules",
 ] as const;
 
 /**

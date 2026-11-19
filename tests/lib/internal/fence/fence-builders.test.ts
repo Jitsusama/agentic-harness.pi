@@ -143,7 +143,11 @@ describe("the lenders' folders in the fence's arguments", () => {
 	});
 
 	it("is part of every fenced command's arguments", () => {
-		const args = fenceArgs({ home: "/home/u", runtimeDir: undefined }, disk);
+		// No code caches: this disk calls them files, which refuse the fence.
+		const args = fenceArgs(
+			{ home: "/home/u", runtimeDir: undefined, tempCaches: [] },
+			disk,
+		);
 		expect(args.join(" "), "the folder isn't covered").toContain(
 			"--tmpfs /run/nix-offload-more",
 		);
