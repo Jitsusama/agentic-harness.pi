@@ -185,11 +185,19 @@ input pipeline or screen. No unit or running host is installed yet.
   since on 18 November a host whose councils held its restart ran out
   of heap and ended everything anyway. The heap is read as the last
   major collection left it, so garbage not yet collected never ends a
-  turn. Only once
+  turn. Any restart but one at three-quarters also waits while the
+  probes the unit names in PI_HOST_RESTART_WAITS_ON say a call is on
+  or a meeting is near (quiet.ts), or can't tell, looking each minute
+  and saying once why it waits. Only once
   systemctl has queued it does the stop tell
   each viewer `restarting`, just before it closes on them, so a
   refused restart says nothing. A unit file systemd hasn't reloaded
   yet asks nothing, since a restart would start the old one.
+- quiet.ts: the probes a host's restart waits on, from the unit's
+  PI_HOST_RESTART_WAITS_ON, a JSON list of `{ "while", "run" }`. A
+  probe exiting 1 is clear, as a-call-is-on and a-meeting-is-near
+  exit; any other exit holds the restart, and one that won't run or
+  answer within 15 s means it can't tell, which holds it too.
 - proof.ts: a runtime's proof, which `scripts/host-prove.ts` writes
   once `pnpm test:host` has passed on that runtime with no case
   skipped. The program refuses a pi that PI_HOST_PROOF doesn't prove,
