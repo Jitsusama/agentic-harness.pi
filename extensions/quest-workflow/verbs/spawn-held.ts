@@ -125,35 +125,46 @@ export interface StartNames {
 	heard(name: string, answer: StartAnswer): void;
 }
 
-/** A start as spawn asks it, as a key for one just like it. */
+/**
+ * A start as spawn asks it, as a key for one just like it. The key a
+ * spawn here leaves its first words under is new each time, so it is left
+ * out: a start asked again is told as the first was.
+ */
 function likeness(start: Omit<NodeStart, "once">): string {
 	return JSON.stringify([
 		start.machine,
 		start.needs ?? [],
 		start.folder ?? null,
-		start.command,
+		start.command.filter(
+			(word) => !word.startsWith(`${FIRST_WORDS_VARIABLE}=`),
+		),
 	]);
 }
 
 /** Start names kept in memory, judged by the clock `now`. */
 export function startNames(now: () => number = Date.now): StartNames {
+	// Each start still being asked, by name, with its likeness; a start
+	// just like one in flight is another start, so it is named afresh.
+	const asking = new Map<string, string>();
+	// Each start the node took and never answered, by likeness, till it
+	// is asked again or its time is up.
 	const unanswered = new Map<string, { name: string; at: number }>();
 	return {
 		nameFor(start) {
-			const like = likeness(start);
-			const before = unanswered.get(like);
-			if (before && now() - before.at < UNANSWERED_FOR_MS) {
-				return before.name;
+			for (const [like, one] of unanswered) {
+				if (now() - one.at >= UNANSWERED_FOR_MS) unanswered.delete(like);
 			}
-			const name = randomUUID();
-			unanswered.set(like, { name, at: now() });
+			const like = likeness(start);
+			const name = unanswered.get(like)?.name ?? randomUUID();
+			unanswered.delete(like);
+			asking.set(name, like);
 			return name;
 		},
 		heard(name, answer) {
-			for (const [like, one] of unanswered) {
-				if (one.name !== name) continue;
-				if (!answer.ok && answer.mayLand) unanswered.set(like, one);
-				else unanswered.delete(like);
+			const like = asking.get(name);
+			asking.delete(name);
+			if (like !== undefined && !answer.ok && answer.mayLand) {
+				unanswered.set(like, { name, at: now() });
 			}
 		},
 	};
@@ -467,7 +478,7 @@ export async function spawnHeld(
 	if (!answer.ok && answer.mayLand) {
 		return {
 			ok: false,
-			refusal: `No answer came from ${asked.machine}'s start: ${answer.reason}. It may still start there; spawning it again joins that start rather than starting another.${unshared}`,
+			refusal: `No answer came from ${asked.machine}'s start: ${answer.reason}. It may still start there, so look for it there before spawning it again. Spawned again within ten minutes, it is asked under the same name, which a node that knows start names answers with that start rather than starting another; an older node starts another.${unshared}`,
 		};
 	}
 	if (!answer.ok) {

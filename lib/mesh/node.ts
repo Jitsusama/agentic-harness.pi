@@ -221,7 +221,9 @@ export async function startAt(
 	if (heard.kind === "silent") {
 		return {
 			ok: false,
-			reason: `the node at ${socket} took the ask and answered nothing within ${patience / 1000} s`,
+			reason: heard.hungUp
+				? `the node at ${socket} took the ask and hung up before it answered`
+				: `the node at ${socket} took the ask and answered nothing within ${patience / 1000} s`,
 			mayLand: true,
 		};
 	}
@@ -286,7 +288,7 @@ export async function askAt(
  */
 type Heard =
 	| { readonly kind: "answered"; readonly line: string }
-	| { readonly kind: "silent" }
+	| { readonly kind: "silent"; readonly hungUp: boolean }
 	| { readonly kind: "unreached" };
 
 /**
@@ -312,10 +314,9 @@ function hearAt(
 			asking.destroy();
 			resolve(heard);
 		};
-		const waiting = setTimeout(
-			() => settle({ kind: sent ? "silent" : "unreached" }),
-			patience,
-		);
+		const unanswered = (hungUp: boolean): Heard =>
+			sent ? { kind: "silent", hungUp } : { kind: "unreached" };
+		const waiting = setTimeout(() => settle(unanswered(false)), patience);
 		asking.setEncoding("utf8");
 		asking.on("connect", () => {
 			asking.write(`${JSON.stringify(request)}\n`);
@@ -328,8 +329,8 @@ function hearAt(
 		});
 		// No node there, or one that went away before it answered: one that
 		// hung up after taking the ask may still have done it.
-		asking.on("error", () => settle({ kind: sent ? "silent" : "unreached" }));
-		asking.on("close", () => settle({ kind: sent ? "silent" : "unreached" }));
+		asking.on("error", () => settle(unanswered(true)));
+		asking.on("close", () => settle(unanswered(true)));
 	});
 }
 

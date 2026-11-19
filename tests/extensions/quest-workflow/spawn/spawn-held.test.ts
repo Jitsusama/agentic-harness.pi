@@ -236,11 +236,21 @@ describe("a start asked again after the node answered nothing", () => {
 		const kitty = fakeDriver("kitty");
 		const names = startNames();
 		const { asked: starts, start } = answering(silent, equilibrius);
-		const first = await spawnHeld(asked(kitty), start, shares, names);
-		expect(first.ok || first.refusal).toContain(
-			"It may still start there; spawning it again joins that start rather than starting another.",
+		const first = await spawnHeld(
+			{ ...asked(kitty), firstWords: "01JFIRST" },
+			start,
+			shares,
+			names,
 		);
-		const again = await spawnHeld(asked(kitty), start, shares, names);
+		expect(first.ok || first.refusal).toContain(
+			"It may still start there, so look for it there before spawning it again.",
+		);
+		const again = await spawnHeld(
+			{ ...asked(kitty), firstWords: "01JAGAIN" },
+			start,
+			shares,
+			names,
+		);
 		expect(again.ok, "asked again, it is the start that landed").toBe(true);
 		expect(starts[0]?.once).toMatch(/^\S{1,64}$/);
 		expect(starts[1]?.once).toBe(starts[0]?.once);
@@ -275,10 +285,46 @@ describe("a start asked again after the node answered nothing", () => {
 			shares,
 			names,
 		);
+		await spawnHeld(
+			{ ...asked(kitty), machine: "penelope" },
+			start,
+			shares,
+			names,
+		);
+		await spawnHeld(
+			{ ...asked(kitty), cwd: "/home/joel/src/other" },
+			start,
+			shares,
+			names,
+		);
 		now = 10 * 60_000;
 		await spawnHeld(asked(kitty), start, shares, names);
 		const once = new Set(starts.map((one) => one.once));
-		expect(once.size).toBe(3);
+		expect(once.size, "each a start of its own").toBe(5);
+	});
+
+	it("names afresh a start just like one still being asked", async () => {
+		const kitty = fakeDriver("kitty");
+		const names = startNames();
+		const asked1: NodeStart[] = [];
+		let answer: (() => void) | undefined;
+		const start: StartOnNode = async (one) => {
+			asked1.push(one);
+			if (asked1.length === 1) {
+				await new Promise<void>((answered) => {
+					answer = answered;
+				});
+			}
+			return equilibrius;
+		};
+		const first = spawnHeld(asked(kitty), start, shares, names);
+		await spawnHeld(asked(kitty), start, shares, names);
+		answer?.();
+		await first;
+		expect(asked1).toHaveLength(2);
+		expect(asked1[1]?.once, "two spawns at once are two starts").not.toBe(
+			asked1[0]?.once,
+		);
 	});
 });
 
