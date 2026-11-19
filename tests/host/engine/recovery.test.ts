@@ -24,8 +24,27 @@ function side(start: RecoverySide["runWithLifecycle"]) {
 	return { side: stub as unknown as RecoverySide, holds };
 }
 
-/** A side that carries a turn on, letting pi's run go as `release` does. */
-function carrying(release: () => Promise<void>) {
+/**
+ * Letting pi's run go as PiRuns' release does: the first call does the
+ * work, and fails as `refused` does; any later call does nothing.
+ */
+function releasingOnce(refused: Error): () => Promise<void> {
+	let released = false;
+	return async () => {
+		if (released) return;
+		released = true;
+		throw refused;
+	};
+}
+
+/**
+ * A side that carries a turn on, letting pi's run go as `release` does,
+ * its carried run ending as `ended` says once it has started.
+ */
+function carrying(
+	release: () => Promise<void>,
+	ended: () => Promise<void> = async () => {},
+) {
 	const stub = {
 		active: () => undefined,
 		parked: () => false,
@@ -42,6 +61,7 @@ function carrying(release: () => Promise<void>) {
 		runWithLifecycle: async (start: (run: unknown) => Promise<void>) => {
 			const run = { controller: new AbortController() };
 			await start(run);
+			await ended();
 			return run;
 		},
 	};
@@ -49,15 +69,22 @@ function carrying(release: () => Promise<void>) {
 }
 
 describe("a recovery", () => {
-	it("gives the carried run's turn back though letting pi's run go fails", async () => {
+	it("gives the carried run's turn back though its run fails and letting pi's run go fails too", async () => {
 		const refused = new Error("pi's settle threw");
 		let givenBack = 0;
-		const recovery = new Recovery(carrying(() => Promise.reject(refused)));
+		const recovery = new Recovery(
+			carrying(releasingOnce(refused), () =>
+				Promise.reject(new Error("the model failed")),
+			),
+		);
 
 		const { settled } = await recovery.recover(async () => () => {
 			givenBack += 1;
 		});
-		await expect(settled).rejects.toBe(refused);
+		await expect(
+			settled,
+			"the settle's failure reaches the caller",
+		).rejects.toBe(refused);
 
 		expect(
 			givenBack,

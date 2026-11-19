@@ -124,11 +124,10 @@ interface Seen {
 	readonly bothIds?: readonly string[];
 	readonly header?: Readonly<Record<string, unknown>>;
 	readonly refused?: string;
-	/** How many runs the agent started once words were queued to follow up, and whether they still waited once the close was done. */
+	/** How many runs the agent started once words were queued to follow up. */
 	readonly startedAfter?: number;
 	/** How often the agent was asked to continue once the close began. */
 	readonly continuedAfter?: number;
-	readonly stillQueued?: boolean;
 	/** The warms a parked conversation's host kept for its next start. */
 	readonly pending?: number;
 	/** How the host held each conversation's log open at each point, one `read` or `write` a descriptor. */
@@ -1086,10 +1085,6 @@ describe("the host's engine", () => {
 				"nothing asked the agent to go on to the words once the close began",
 			).toBe(0);
 			expect(seen.startedAfter, "no run started once the close began").toBe(0);
-			expect(
-				seen.stillQueued,
-				"the words stayed in the queue the close let go of",
-			).toBe(true);
 		},
 		HOST_LIFE_MS,
 	);

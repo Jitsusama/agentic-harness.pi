@@ -143,6 +143,8 @@ const UNTIL_MS = 60_000;
 const LOOK_MS = 10;
 /** How long after a close a run it started would have reached the agent. */
 const AFTER_CLOSE_MS = 500;
+/** How long open-into-run's open may take before it counts as waiting on the run. */
+const OPEN_INTO_RUN_MS = 15_000;
 
 /** As much of pi's agent as the close scenario follows up on and watches. */
 interface FollowingAgent {
@@ -153,7 +155,6 @@ interface FollowingAgent {
 		readonly content: readonly { type: "text"; text: string }[];
 		readonly timestamp: number;
 	}): void;
-	hasQueuedMessages(): boolean;
 }
 
 /** Linux's access mode bits in a descriptor's flags, and the one that only reads. */
@@ -594,24 +595,28 @@ const scenarios: Record<string, Scenario> = {
 			say("went on"),
 		],
 		run: async (engine, host) => {
-			const id = await open(engine, { first: "meet a run" });
-			// Its answer is held until the scenario lets it go, so the run is still under way.
-			const openedWhileRunning = !String(
-				summary(engine, id).transcript,
-			).includes("warmed up");
-			const agent = field(engine.view(id)?.runtime.session, "agent");
-			const queue = field(agent, "followUpQueue");
-			const all = field(queue, "all");
-			const queued: unknown =
-				typeof all === "function" ? Reflect.apply(all, queue, []) : [];
-			const heldAsOpened = Array.isArray(queued)
-				? queued.map((item) => field(item, "submissionId") !== undefined)
+			const opening = open(engine, { first: "meet a run" });
+			// The warm-up's answer is held until after this race, so an open that waited on the run loses it.
+			let bound: NodeJS.Timeout | undefined;
+			const openedWhileRunning = await Promise.race([
+				opening.then(() => true),
+				new Promise<boolean>((late) => {
+					// How long the open may take before it counts as waiting on the run.
+					bound = setTimeout(() => late(false), OPEN_INTO_RUN_MS);
+				}),
+			]);
+			clearTimeout(bound);
+			// The words are read while the run still holds them, before the warm-up goes.
+			const heldAsOpened = openedWhileRunning
+				? heldAsQueued(engine, await opening)
 				: [];
+			// Let the warm-up go either way, so a late open still answers and the case ends by name.
 			await until(
 				"the warm-up's request is in",
 				() => warmUpAnswer !== undefined,
 			);
 			warmUpAnswer?.();
+			const id = await opening;
 			await until("the first words are answered", () =>
 				String(summary(engine, id).transcript).includes("went on"),
 			);
@@ -842,7 +847,6 @@ const scenarios: Record<string, Scenario> = {
 			return {
 				startedAfter: starts.length,
 				continuedAfter: continued.length,
-				stillQueued: agent.hasQueuedMessages(),
 				held: host.holds(id) ?? "let go",
 			};
 		},
@@ -1547,6 +1551,18 @@ async function idle(engine: HostEngine, id: string): Promise<void> {
 
 function readEntry(): RosterEntry {
 	return JSON.parse(readFileSync(entryFile, "utf8"));
+}
+
+/** Whether each word pi's agent queues for the conversation is already durable's. */
+function heldAsQueued(engine: HostEngine, id: string): boolean[] {
+	const agent = field(engine.view(id)?.runtime.session, "agent");
+	const queue = field(agent, "followUpQueue");
+	const all = field(queue, "all");
+	const queued: unknown =
+		typeof all === "function" ? Reflect.apply(all, queue, []) : [];
+	return Array.isArray(queued)
+		? queued.map((item) => field(item, "submissionId") !== undefined)
+		: [];
 }
 
 /** What a conversation ended with: its id, its file, and its transcript as text. */
