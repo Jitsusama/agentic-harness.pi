@@ -5,26 +5,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-	foragersFrom,
-	type NeedAsked,
-	subjectWords,
-} from "../../../lib/mesh/need-route.ts";
-import { asked, cells, routeNeed, ties } from "./support/needs.ts";
-
-/**
- * How many needs, each its own id, a depth ranking is judged over: two
- * hubs as deep are shared out among needs by a hash, so one need alone
- * can't tell a deeper hub from a tie.
- */
-const SHARED_NEEDS = 40;
-
-/** `SHARED_NEEDS` needs from `asker` about `words`, each its own id. */
-const numbered = (asker: string, ...words: string[]): NeedAsked[] =>
-	Array.from({ length: SHARED_NEEDS }, (_, at) => ({
-		...asked(asker, ...words),
-		need: `${asker}/${at}`,
-	}));
+import { foragersFrom, subjectWords } from "../../../lib/mesh/need-route.ts";
+import { asked, cells, numbered, routeNeed, ties } from "./support/needs.ts";
 
 /** The node's list of one cell declaring two service units, as it says it. */
 const NODE_CELL = JSON.stringify({
@@ -62,6 +44,7 @@ describe("the words a subject naming a service unit gives", () => {
 		// Only a name's own .service is a type: alone after a break it is
 		// the subject, as is any other ending, and a namespace's last part.
 		expect(subjectWords("unit:.service")).toEqual(["service"]);
+		expect(subjectWords("github:mycelium/.service")).toEqual(["service"]);
 		expect(subjectWords("health.service.")).toEqual(["service"]);
 		expect(subjectWords("agents.service-mesh")).toEqual(["service", "mesh"]);
 		expect(subjectWords("agents.servicex")).toEqual(["servicex"]);

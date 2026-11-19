@@ -14,23 +14,20 @@ import {
 	subjectWords,
 } from "../../../lib/mesh/need-route.ts";
 import { MOST_SUBJECTS } from "../../../lib/mesh/subjects.ts";
-import { asked, cells, routeNeed, ties } from "./support/needs.ts";
-
-/** How many needs, each its own id, a sharing out is judged over. */
-const SHARED_NEEDS = 40;
+import {
+	asked,
+	cells,
+	numbered,
+	routeNeed,
+	SHARED_NEEDS,
+	ties,
+} from "./support/needs.ts";
 
 /**
  * The fits `equalHubs` draws for `A/0` to `A/3`, as sha256 orders them
  * in bytes; a change here means needs reach other hubs than before.
  */
 const DRAWN = ["F3", "F0", "F1", "F1"];
-
-/** `SHARED_NEEDS` needs from `asker` about `words`, each its own id. */
-const numbered = (asker: string, ...words: string[]): NeedAsked[] =>
-	Array.from({ length: SHARED_NEEDS }, (_, at) => ({
-		...asked(asker, ...words),
-		need: `${asker}/${at}`,
-	}));
 
 /**
  * Four hubs that rank the same for `carry`, each naming its own fit
