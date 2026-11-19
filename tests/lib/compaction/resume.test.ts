@@ -4,10 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	ASK_LANDS_WITHIN_MS,
 	ASKED_ENTRY,
 	cutSince,
 	OWED_WITHIN_MS,
 	owesResume,
+	SETTLED_ENTRY,
 } from "../../../lib/compaction/resume.ts";
 
 const T0 = Date.parse("2026-11-19T13:39:23.000Z");
@@ -51,6 +53,15 @@ function user(ms: number) {
 
 function compaction(ms: number) {
 	return { type: "compaction", timestamp: at(ms), summary: "s" };
+}
+
+function settled(ms: number) {
+	return {
+		type: "custom",
+		customType: SETTLED_ENTRY,
+		timestamp: at(ms),
+		data: { at: T0 + ms, resumed: false, by: "asker" },
+	};
 }
 
 function mesh(ms: number) {
@@ -123,6 +134,50 @@ describe("whether a compaction left a run owed", () => {
 
 		expect(owesResume(branch, T0 + 500 + OWED_WITHIN_MS + 1)).toBe(false);
 		expect(owesResume(branch, T0 + 500 + OWED_WITHIN_MS)).toBe(true);
+	});
+
+	it("owes nothing once the ask is settled after the compaction", () => {
+		// The runtime that asked answered it, or one after it resumed.
+		const branch = [asked(0, true), compaction(500), settled(600)];
+
+		expect(owesResume(branch, T0 + 10_000)).toBe(false);
+	});
+
+	it("credits no later compaction with an ask its runtime settled", () => {
+		// An ask whose compaction failed, then a /compact typed later.
+		const branch = [asked(0, true), settled(4000), compaction(60_000)];
+
+		expect(owesResume(branch, T0 + 70_000)).toBe(false);
+	});
+
+	it("credits no compaction landing long after an unsettled ask", () => {
+		// An ask whose compaction failed in a runtime a reload replaced, so
+		// nothing settled it, then a /compact typed twenty minutes on.
+		const late = [asked(0, true), compaction(ASK_LANDS_WITHIN_MS + 1)];
+		const onTime = [asked(0, true), compaction(ASK_LANDS_WITHIN_MS)];
+		const now = T0 + ASK_LANDS_WITHIN_MS + 10_000;
+
+		expect(owesResume(late, now)).toBe(false);
+		expect(owesResume(onTime, now)).toBe(true);
+	});
+
+	it("owes nothing to a compaction stamped ahead of the clock", () => {
+		const branch = [asked(0, true), compaction(5 * 60_000)];
+
+		expect(owesResume(branch, T0)).toBe(false);
+		expect(owesResume(branch, T0 + 5 * 60_000 - 30_000)).toBe(true);
+	});
+
+	it("owes nothing to a run stopped after the compaction landed", () => {
+		// Escape after the landing is somebody stopping a run of their own.
+		const branch = [
+			asked(0, false),
+			compaction(500),
+			user(1000),
+			answer(2000, "aborted"),
+		];
+
+		expect(owesResume(branch, T0 + 10_000)).toBe(false);
 	});
 
 	it("owes nothing with no compaction at all", () => {

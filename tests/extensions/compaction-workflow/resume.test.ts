@@ -14,9 +14,9 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import compactionWorkflow from "../../../extensions/compaction-workflow/index.ts";
-import { ASKED_ENTRY } from "../../../lib/compaction/resume.ts";
+import { ASKED_ENTRY, SETTLED_ENTRY } from "../../../lib/compaction/resume.ts";
 import { endTurn } from "../../support/turn-end.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
@@ -25,6 +25,8 @@ interface Recorded {
 	sendMessage: unknown[][];
 	sendUserMessage: unknown[][];
 	appendEntry: unknown[][];
+	/** Each entry type appended and each send, in the order they came. */
+	order: string[];
 }
 
 /** What pi throws from a pi or ctx a reload or a session switch replaced. */
@@ -41,6 +43,7 @@ function activate(stale = { now: false }): {
 		sendMessage: [],
 		sendUserMessage: [],
 		appendEntry: [],
+		order: [],
 	};
 	const live =
 		<T extends unknown[]>(act: (...args: T) => unknown) =>
@@ -54,12 +57,16 @@ function activate(stale = { now: false }): {
 			emit: live(() => {}),
 		},
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
-		appendEntry: live((...args: unknown[]) => calls.appendEntry.push(args)),
+		appendEntry: live((...args: unknown[]) => {
+			calls.appendEntry.push(args);
+			calls.order.push(String(args[0]));
+		}),
 		registerCommand: () => {},
 		sendMessage: live((...args: unknown[]) => calls.sendMessage.push(args)),
-		sendUserMessage: live((...args: unknown[]) =>
-			calls.sendUserMessage.push(args),
-		),
+		sendUserMessage: live((...args: unknown[]) => {
+			calls.sendUserMessage.push(args);
+			calls.order.push("send");
+		}),
 	};
 	compactionWorkflow(pi as unknown as ExtensionAPI);
 	return { handlers, calls };
@@ -130,9 +137,30 @@ function aborted(ms: number) {
 	return {
 		type: "message",
 		timestamp: new Date(ms).toISOString(),
-		message: { role: "assistant", stopReason: "error", content: [] },
+		message: { role: "assistant", stopReason: "aborted", content: [] },
 	};
 }
+
+/** The ask a runtime wrote, as the log holds it. */
+function askEntry(ms: number, data: unknown) {
+	return {
+		type: "custom",
+		customType: ASKED_ENTRY,
+		timestamp: new Date(ms).toISOString(),
+		data,
+	};
+}
+
+function compactionEntry(ms: number) {
+	return { type: "compaction", timestamp: new Date(ms).toISOString() };
+}
+
+/** One turn of the loop, after which a deferred check has run. */
+const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+
+/** The entries of a type a runtime appended. */
+const appended = (calls: Recorded, type: string) =>
+	calls.appendEntry.filter(([written]) => written === type).map(([, d]) => d);
 
 describe("resuming the run a compaction interrupted", () => {
 	it("resumes after a compaction through the prompt path", async () => {
@@ -240,44 +268,93 @@ describe("resuming the run a compaction interrupted", () => {
 		expect(asks[0]?.[1]).toMatchObject({ resume: true });
 	});
 
-	it("resumes on starting again when the runtime that asked is gone", async () => {
-		// 19 November, 08:08: a reload landed between the compaction's
-		// abort and its end, and the stale runtime's resume went nowhere.
-		const now = Date.now();
-		const entries = [
-			{
-				type: "custom",
-				customType: ASKED_ENTRY,
-				timestamp: new Date(now - 8000).toISOString(),
-				data: { at: now - 8000, resume: true },
-			},
-			aborted(now - 7900),
-			{ type: "compaction", timestamp: new Date(now - 7800).toISOString() },
-		];
-		const { handlers, calls } = activate();
-		const ctx = context(
-			() => 60_000,
-			() => {},
-			() => entries,
+	it("settles each ask it answers, resumed or not", async () => {
+		const resumed = await runUntilCompaction((options) =>
+			options.onComplete?.(),
+		);
+		const cancelled = await runUntilCompaction((options) =>
+			options.onError?.(new Error("Compaction cancelled")),
 		);
 
-		await handlers.get("session_start")?.({ reason: "reload" }, ctx);
-
-		expect(calls.sendUserMessage).toHaveLength(1);
-		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/compacted/);
+		expect(appended(resumed, SETTLED_ENTRY)).toEqual([
+			expect.objectContaining({ resumed: true, by: "asker" }),
+		]);
+		expect(resumed.order.slice(-2), "settled before the send").toEqual([
+			SETTLED_ENTRY,
+			"send",
+		]);
+		expect(appended(cancelled, SETTLED_ENTRY)).toEqual([
+			expect.objectContaining({ resumed: false, by: "asker" }),
+		]);
+		expect(cancelled.sendUserMessage).toEqual([]);
 	});
 
-	it("starts nothing on starting again while a run is under way", async () => {
-		const now = Date.now();
-		const entries = [
-			{
-				type: "custom",
-				customType: ASKED_ENTRY,
-				timestamp: new Date(now - 8000).toISOString(),
-				data: { at: now - 8000, resume: true },
+	it("resumes a run begun after the ask that a failed compaction cut", async () => {
+		const entries: unknown[] = [];
+		const calls = await runUntilCompaction(
+			(options) => {
+				entries.push(aborted(Date.now() + 1000));
+				options.onError?.(new Error("Summarization failed"));
 			},
-			{ type: "compaction", timestamp: new Date(now - 7800).toISOString() },
+			() => entries,
+			[],
+		);
+
+		expect(calls.sendUserMessage).toHaveLength(1);
+		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/failed/);
+	});
+
+	it("answers its own landing once, though pi awaits between the two", async () => {
+		// pi emits session_compact, awaits the work item's end, and only
+		// then calls onComplete: a check from the log meanwhile would see
+		// the ask unsettled and resume it a second time.
+		const { handlers, calls } = activate();
+		const ended: Array<{ onComplete?: () => void }> = [];
+		let size = 60_000;
+		const branch = () => [
+			...appended(calls, ASKED_ENTRY).map((data) => askEntry(Date.now(), data)),
+			compactionEntry(Date.now()),
 		];
+		const ctx = context(
+			() => size,
+			(options) => ended.push(options),
+			branch,
+		);
+		await handlers.get("session_start")?.({ reason: "startup" }, ctx);
+		const turnEnd = (turn: object) =>
+			endTurn((name, event, at) => handlers.get(name)?.(event, at), turn, ctx);
+		await turnEnd({ toolResults: [{}] });
+		size = 900_000;
+		for (let turn = 0; turn < 200 && ended.length === 0; turn++) {
+			await turnEnd({ toolResults: [{}] });
+		}
+
+		await handlers.get("session_compact")?.({ compactionEntry: {} }, ctx);
+		await nextTurn();
+		ended[0]?.onComplete?.();
+
+		expect(calls.sendUserMessage).toHaveLength(1);
+	});
+});
+
+describe("resuming from the log a run another runtime owed", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	/** A log whose last compaction stopped a run going on, eight seconds ago. */
+	const owing = (now = Date.now()) => [
+		askEntry(now - 8000, { at: now - 8000, resume: true }),
+		aborted(now - 7900),
+		compactionEntry(now - 7800),
+	];
+
+	/** Start a runtime on `entries` and let its start finish. */
+	const startOn = async (
+		entries: unknown[],
+		reason = "reload",
+		changes: Record<string, unknown> = {},
+	) => {
 		const { handlers, calls } = activate();
 		const ctx = {
 			...context(
@@ -285,14 +362,113 @@ describe("resuming the run a compaction interrupted", () => {
 				() => {},
 				() => entries,
 			),
-			isIdle: () => false,
+			...changes,
 		};
+		await handlers.get("session_start")?.({ reason }, ctx);
+		const duringStart = calls.sendUserMessage.length;
+		await handlers.get("resources_discover")?.({ reason }, ctx);
+		await nextTurn();
+		return { handlers, calls, ctx, duringStart };
+	};
 
-		await handlers.get("session_start")?.({ reason: "reload" }, ctx);
+	it("resumes once its start is done when the runtime that asked is gone", async () => {
+		// 19 November, 08:08: a reload landed between the compaction's
+		// abort and its end, and the stale runtime's resume went nowhere.
+		const { calls, duringStart } = await startOn(owing());
+
+		expect(duringStart, "nothing sent from session_start").toBe(0);
+		expect(calls.sendUserMessage).toHaveLength(1);
+		expect(String(calls.sendUserMessage[0]?.[0])).toMatch(/compacted/);
+		expect(calls.order, "settled before the send").toEqual([
+			SETTLED_ENTRY,
+			"send",
+		]);
+		expect(appended(calls, SETTLED_ENTRY)).toEqual([
+			expect.objectContaining({ resumed: true, by: "successor" }),
+		]);
+	});
+
+	it("resumes on a host's or pi's start after it stopped", async () => {
+		const { calls } = await startOn(owing(), "startup");
+
+		expect(calls.sendUserMessage).toHaveLength(1);
+	});
+
+	it.each(["fork", "resume", "new"])(
+		"starts nothing on a %s, which chose the log rather than came back to it",
+		async (reason) => {
+			const { calls } = await startOn(owing(), reason);
+
+			expect(calls.sendUserMessage).toEqual([]);
+		},
+	);
+
+	it("reads the ask the asking runtime wrote", async () => {
+		// The asker's compaction never ends here, as when a reload replaced
+		// it: what it wrote is all the next runtime has.
+		const asker = await runUntilCompaction(() => {});
+		const [ask] = appended(asker, ASKED_ENTRY);
+		const now = Date.now();
+
+		const { calls } = await startOn([
+			askEntry(now, ask),
+			aborted(now + 100),
+			compactionEntry(now + 200),
+		]);
+
+		expect(calls.sendUserMessage).toHaveLength(1);
+	});
+
+	it("resumes once a compaction another runtime asked for lands after its start", async () => {
+		// The reload ran while the compaction summarised, so its start saw
+		// nothing owed yet.
+		const now = Date.now();
+		const entries: unknown[] = [
+			askEntry(now - 8000, { at: now - 8000, resume: true }),
+			aborted(now - 7900),
+		];
+		const { handlers, calls, ctx } = await startOn(entries);
+		expect(calls.sendUserMessage, "nothing owed at start").toEqual([]);
+
+		entries.push(compactionEntry(now));
+		await handlers.get("session_compact")?.({ compactionEntry: {} }, ctx);
+		expect(calls.sendUserMessage, "nothing while compacting").toEqual([]);
+		await nextTurn();
+
+		expect(calls.sendUserMessage).toHaveLength(1);
+	});
+
+	it("starts nothing while a run is under way", async () => {
+		const { calls } = await startOn(owing(), "reload", {
+			isIdle: () => false,
+		});
 
 		expect(calls.sendUserMessage).toEqual([]);
 	});
 
+	it("starts nothing with a message waiting to go", async () => {
+		const { calls } = await startOn(owing(), "reload", {
+			hasPendingMessages: () => true,
+		});
+
+		expect(calls.sendUserMessage).toEqual([]);
+	});
+
+	it("starts nothing in a mode that is never resumed", async () => {
+		const { calls } = await startOn(owing(), "reload", { mode: "json" });
+
+		expect(calls.sendUserMessage).toEqual([]);
+	});
+
+	it("starts nothing with the policy off", async () => {
+		vi.stubEnv("PI_COMPACTION_POLICY", "off");
+		const { calls } = await startOn(owing());
+
+		expect(calls.sendUserMessage).toEqual([]);
+	});
+});
+
+describe("resuming after a failed compaction", () => {
 	it("resumes after a failed compaction through the prompt path", async () => {
 		const calls = await runUntilCompaction((options) =>
 			options.onError?.(new Error("Summarization failed")),

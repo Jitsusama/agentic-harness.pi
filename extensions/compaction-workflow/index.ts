@@ -67,6 +67,15 @@
  * (`turnsBeforeRetry`). A cancelled compaction holds off the same way
  * but is not resumed, since somebody stopped it on purpose.
  *
+ * Resumed from the log too: each ask is written (`ASKED_ENTRY`) before
+ * the compaction starts, and settled (`SETTLED_ENTRY`) by whichever
+ * runtime answers it. The one that asked may be gone by the time its
+ * compaction lands: a reload replaced it, or the host or pi stopped.
+ * Then the runtime after it reads the ask and resumes the run it owes,
+ * once its start is done, or once the compaction lands when that is
+ * later. An idle compaction asks with no run going on, so it resumes
+ * only a run begun after its ask, which its abort cut.
+ *
  * Completed turns only: a turn whose request failed is where pi
  * retries, and compacting there aborts the run it was about to retry.
  * One that was stopped is somebody pressing Escape. Neither triggers a
@@ -97,10 +106,13 @@ import { emitOutcome } from "../../lib/compaction/outcome.ts";
 import {
 	ASKED_ENTRY,
 	type CompactionAsk,
+	type CompactionSettled,
 	cutSince,
 	FAILED_RESUME_TEXT,
 	owesResume,
 	RESUME_TEXT,
+	SETTLED_ENTRY,
+	type SettledBy,
 } from "../../lib/compaction/resume.ts";
 import {
 	type CompactionCost,
@@ -192,6 +204,19 @@ function resumeRun(pi: ExtensionAPI, text: string): void {
 	pi.sendUserMessage(text, { deliverAs: "followUp" });
 }
 
+/**
+ * Write that a compaction's ask is answered, before any resume is sent,
+ * so a runtime that replaces this one before the resume is logged
+ * doesn't send it again.
+ */
+function settleAsk(pi: ExtensionAPI, resumed: boolean, by: SettledBy): void {
+	const settled: CompactionSettled = { at: Date.now(), resumed, by };
+	pi.appendEntry(SETTLED_ENTRY, settled);
+}
+
+/** The starts after which a compaction's owed run is still this session's. */
+const OWING_STARTS: ReadonlySet<string> = new Set(["startup", "reload"]);
+
 function enabled(): boolean {
 	return process.env.PI_COMPACTION_POLICY !== "off";
 }
@@ -280,6 +305,10 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	// The compaction asked of pi and not yet landed or failed, until a
 	// run that overtook it has been logged.
 	let asked: { at: number; tokens: number } | null = null;
+	// Whether this runtime asked for a compaction it hasn't yet answered,
+	// so its own landing is left to its onComplete rather than resumed
+	// from the log too: pi awaits the work item's end between the two.
+	let askOpen = false;
 	let failures = 0;
 	let holdTurns = 0;
 
@@ -349,6 +378,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		resume: boolean,
 	) => {
 		compacting = true;
+		askOpen = true;
 		const ask: CompactionAsk = { at: Date.now(), resume };
 		asked = { at: ask.at, tokens };
 		// A compaction that cannot start (a context the session replaced
@@ -361,6 +391,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 			startCompaction(ctx, tokens, ask);
 		} catch (error) {
 			compacting = false;
+			askOpen = false;
 			asked = null;
 			throw error;
 		}
@@ -382,10 +413,13 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		// session_start).
 		ctx.compact({
 			onComplete: whileCurrent(() => {
-				if (ctx.hasPendingMessages() || !owed()) return;
-				resumeRun(pi, RESUME_TEXT);
+				askOpen = false;
+				const resume = !ctx.hasPendingMessages() && owed();
+				settleAsk(pi, resume, "asker");
+				if (resume) resumeRun(pi, RESUME_TEXT);
 			}),
 			onError: whileCurrent((error: Error) => {
+				askOpen = false;
 				compacting = false;
 				asked = null;
 				failures += 1;
@@ -403,10 +437,10 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 						"warning",
 					);
 				}
-				if (wasCancelled(error) || ctx.hasPendingMessages() || !owed()) {
-					return;
-				}
-				resumeRun(pi, FAILED_RESUME_TEXT);
+				const resume =
+					!wasCancelled(error) && !ctx.hasPendingMessages() && owed();
+				settleAsk(pi, resume, "asker");
+				if (resume) resumeRun(pi, FAILED_RESUME_TEXT);
 			}),
 		});
 	};
@@ -443,8 +477,17 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	// Seeded from the session's own log, not from this process: a resumed
 	// session's first turn here is its whole resumed context, which read
 	// as the fixed prompt made nothing look droppable.
-	pi.on("session_start", async (_event, ctx) => {
+	/**
+	 * The context of a start that may owe a run, checked once every
+	 * extension's start is done (resources_discover, below).
+	 */
+	let startOwing: ExtensionContext | undefined;
+
+	pi.on("session_start", async (event, ctx) => {
 		idle.cancel();
+		// A fork, a /resume or a new session is somebody choosing a log, not
+		// a runtime coming back to its own: none of them owes a run.
+		startOwing = OWING_STARTS.has(event.reason) ? ctx : undefined;
 		const history = compactionHistory(ctx.sessionManager.getBranch());
 		firstTurnTokens = history.firstPromptTokens;
 		// The log names only the last compaction's keep; an outsized one
@@ -457,6 +500,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		turnOverhead = history.turnOverhead;
 		awaitingRetained = false;
 		compacting = false;
+		askOpen = false;
 		asked = null;
 		failures = 0;
 		holdTurns = 0;
@@ -468,21 +512,33 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 					0,
 				)
 			: 0;
-		resumeOwed(ctx);
 		// Last, since it may start the idle timer cancelled above: a reload
 		// or a restart carries an idle session's warming on (see warm.ts).
 		warming.resume(ctx);
 	});
 
+	// Sent once every extension's start has finished, as quest-workflow's
+	// first words are: a prompt sent from session_start goes out before
+	// later extensions settle their tools, and the tool set declared again
+	// after the first turn cost about 21,700 tokens a turn in November.
+	pi.on("resources_discover", () => {
+		const ctx = startOwing;
+		startOwing = undefined;
+		if (ctx) setImmediate(whileCurrent(() => resumeOwed(ctx)));
+	});
+
 	/**
 	 * Resume a run the last compaction stopped when the runtime that asked
 	 * for it is gone: a reload between the abort and the landing drops
-	 * that runtime's resume, and so does a host or pi that stopped.
+	 * that runtime's resume, and so does a host or pi that stopped. The
+	 * ask is settled first, so a reload before the resume is logged can't
+	 * send it twice.
 	 */
 	function resumeOwed(ctx: ExtensionContext): void {
 		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
 		if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
 		if (!owesResume(ctx.sessionManager.getBranch(), Date.now())) return;
+		settleAsk(pi, true, "successor");
 		resumeRun(pi, RESUME_TEXT);
 	}
 
@@ -490,7 +546,13 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		idle.cancel();
 	});
 
-	pi.on("session_compact", async (event) => {
+	pi.on("session_compact", async (event, ctx) => {
+		// A compaction another runtime asked for, landing after this one
+		// started: a reload while it summarised. Checked on the next turn
+		// of the loop, once pi is idle again, since it is still compacting
+		// while this handler runs. One this runtime asked for is its
+		// onComplete's to answer.
+		if (!askOpen) setImmediate(whileCurrent(() => resumeOwed(ctx)));
 		rentPaid = 0;
 		compacting = false;
 		asked = null;

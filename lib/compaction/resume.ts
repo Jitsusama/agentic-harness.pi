@@ -60,6 +60,39 @@ export interface CompactionAsk {
 }
 
 /**
+ * Custom entry type written once a compaction's ask is answered: by the
+ * runtime that asked, when its compaction lands or fails, or by the one
+ * that sends the owed run in its place. An ask with one after it is
+ * spent, so nothing sends its run twice, nor credits it to a later
+ * compaction nobody asked for.
+ */
+export const SETTLED_ENTRY = "compaction-settled";
+
+/** Who settled an ask: the runtime that asked, or one that came after. */
+export type SettledBy = "asker" | "successor";
+
+/** What a settled ask records. */
+export interface CompactionSettled {
+	/** When it was settled, in milliseconds since the epoch. */
+	readonly at: number;
+	/** Whether a run was resumed. */
+	readonly resumed: boolean;
+	/** Who settled it. */
+	readonly by: SettledBy;
+}
+
+/**
+ * How long a compaction may take to land and still be the one its ask
+ * asked for. A summary takes a minute or two; a compaction landing
+ * later than this is another, such as a /compact typed after the asked
+ * one failed in a runtime a reload had replaced.
+ */
+export const ASK_LANDS_WITHIN_MS = 15 * 60_000;
+
+/** How far ahead of the clock a compaction may be stamped and still count. */
+const CLOCK_SKEW_MS = 60_000;
+
+/**
  * How long after a compaction its owed run is still sent. A host comes
  * back within twenty minutes of a crash; a session opened days later
  * would start work nobody is waiting on.
@@ -112,7 +145,9 @@ export function cutSince(entries: readonly unknown[], at: number): boolean {
 /**
  * Whether the session's newest compaction stopped a run that nothing
  * has resumed: its ask said the run was going on, or a run begun after
- * the ask was cut, and no message has followed it. Read from the log,
+ * the ask was cut, no message has followed it, and nobody settled the
+ * ask. Only the compaction an ask asked for counts: the first after it,
+ * landing within ASK_LANDS_WITHIN_MS. Read from the log,
  * since the runtime that asked may be gone: on 19 November 64 of 109
  * stalled compactions were followed by a reload before any message,
  * which dropped the resume the asking runtime would have sent.
@@ -129,20 +164,40 @@ export function owesResume(
 			compaction = i;
 			break;
 		}
+		if (isCustom(entry, SETTLED_ENTRY)) return false;
 		const message = conversed(entry);
 		if (message !== undefined && message.role !== "toolResult") return false;
 	}
 	const landed = branch[compaction];
-	if (!isRecord(landed) || !(now - timeOf(landed) <= withinMs)) return false;
+	if (!isRecord(landed)) return false;
+	const landedAt = timeOf(landed);
+	const age = now - landedAt;
+	// A stamp from the future, by a skewed clock or a written log, is no
+	// reason to start a run.
+	if (!(age <= withinMs && age >= -CLOCK_SKEW_MS)) return false;
 	const before = branch.slice(0, compaction);
 	for (let i = before.length - 1; i >= 0; i--) {
 		const entry = before[i];
 		if (!isRecord(entry)) continue;
 		if (entry.type === "compaction") return false;
-		if (entry.type !== "custom" || entry.customType !== ASKED_ENTRY) continue;
+		if (isCustom(entry, SETTLED_ENTRY)) return false;
+		if (!isCustom(entry, ASKED_ENTRY)) continue;
 		const ask = entry.data;
 		if (!isRecord(ask) || typeof ask.at !== "number") return false;
+		if (!(landedAt - ask.at <= ASK_LANDS_WITHIN_MS)) return false;
 		return ask.resume === true || cutSince(before, ask.at);
 	}
 	return false;
+}
+
+/** Whether an entry is the custom entry of the given type. */
+function isCustom(
+	entry: unknown,
+	customType: string,
+): entry is Record<string, unknown> {
+	return (
+		isRecord(entry) &&
+		entry.type === "custom" &&
+		entry.customType === customType
+	);
 }
