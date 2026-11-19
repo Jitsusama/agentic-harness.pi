@@ -121,15 +121,66 @@ function refusal(ask: SecretAsk): string | undefined {
 	return undefined;
 }
 
+/** What the route reads of the machine, given so a test can say it. */
+export interface RouteReads {
+	readonly exists: (path: string) => boolean;
+	/** A file's text, or nothing when it can't be read. */
+	readonly read: (path: string) => string | undefined;
+	/** Whether a process with this pid is running. */
+	readonly alive: (pid: number) => boolean;
+}
+
+const MACHINE: RouteReads = {
+	exists: existsSync,
+	read: (path) => {
+		try {
+			return readFileSync(path, "utf8");
+		} catch {
+			// A sign that can't be read says nothing is answering.
+			return undefined;
+		}
+	},
+	alive: (pid) => {
+		try {
+			process.kill(pid, 0);
+			return true;
+		} catch (error) {
+			// EPERM is a process that runs as someone else, so it runs.
+			return (
+				error instanceof Error && "code" in error && error.code === "EPERM"
+			);
+		}
+	},
+};
+
+/**
+ * Whether something answers the asks filed in the runtime folder: core's
+ * secret-asks daemon, by its socket, or core's passwords daemon, by the
+ * sign it leaves in the asks folder while it answers them, `answering`,
+ * holding its pid (core's passwords `main.rs`). A sign whose pid runs no
+ * more is one a killed daemon left behind, and says nothing.
+ */
+export function asksAnswered(
+	runtime: string,
+	reads: RouteReads = MACHINE,
+): boolean {
+	if (reads.exists(join(runtime, "daemons", "secret-asks.sock"))) return true;
+	const sign = reads.read(join(runtime, "secret-asks", "answering"));
+	const pid = sign?.trim();
+	if (!(pid && /^[1-9][0-9]*$/.test(pid))) return false;
+	return reads.alive(Number(pid));
+}
+
 /**
  * Where secret_run files its asks, or why it can't from here: only from a
  * session whose commands are fenced, since only the fence keeps them from
- * the asks, and only where the daemon runs. Nothing is filed, so the
- * pre-flight checks the whole route without asking Joel.
+ * the asks, and only where something answers them (`asksAnswered`).
+ * Nothing is filed, so the pre-flight checks the whole route without
+ * asking Joel.
  */
 export function askRoute(
 	place: { readonly fenced: boolean; readonly runtimeDir: string | undefined },
-	exists: (path: string) => boolean = existsSync,
+	reads: RouteReads = MACHINE,
 ): { readonly folder: string } | { readonly refused: string } {
 	if (!place.fenced) {
 		return {
@@ -138,10 +189,10 @@ export function askRoute(
 		};
 	}
 	const runtime = place.runtimeDir;
-	if (!runtime || !exists(join(runtime, "daemons", "secret-asks.sock"))) {
+	if (!(runtime && asksAnswered(runtime, reads))) {
 		return {
 			refused:
-				"secret_run needs core's secret-asks daemon, which doesn't run on this machine. Ask Joel in words instead.",
+				"secret_run needs core's passwords or secret-asks daemon answering asks, and neither does on this machine. Ask Joel in words instead.",
 		};
 	}
 	return { folder: join(runtime, "secret-asks") };

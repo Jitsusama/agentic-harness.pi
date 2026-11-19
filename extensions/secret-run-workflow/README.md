@@ -16,8 +16,11 @@ hears only how it ended.
 ## How It Works
 
 The tool writes an ask into `$XDG_RUNTIME_DIR/secret-asks/`, in the shape
-core's secret-asks daemon reads (`lib/internal/secrets/secret-ask.ts`).
-The daemon draws it as a line in the launcher's Asks; Joel's key there
+core's passwords daemon reads, as the secret-asks daemon before it did
+(`lib/internal/secrets/secret-ask.ts`). It's filed only where one of them
+answers: the secret-asks daemon's socket, or the passwords daemon's
+`answering` sign beside the asks, naming a pid that runs. The daemon
+draws it as a line in the launcher's Asks; Joel's key there
 says yes or no. On a yes the daemon reads the item and runs the command
 with it, then writes an answer beside the ask, which the tool reads for
 its state, exit code, why and masked output alone.

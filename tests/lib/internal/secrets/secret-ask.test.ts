@@ -1,4 +1,5 @@
 import {
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -12,8 +13,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	answerOf,
 	askRoute,
+	asksAnswered,
 	mayBeGiven,
 	putAsk,
+	type RouteReads,
 	type SecretAsk,
 	takeAsk,
 	withSecretNote,
@@ -197,39 +200,104 @@ describe("a variable's name", () => {
 });
 
 describe("askRoute", () => {
+	const runtimeDir = "/run/user/1000";
 	const socket = "/run/user/1000/daemons/secret-asks.sock";
+	const sign = "/run/user/1000/secret-asks/answering";
+
+	/** A machine with only these files, and only these pids running. */
+	function machine(
+		files: Readonly<Record<string, string>>,
+		running: readonly number[] = [],
+	): RouteReads {
+		return {
+			exists: (path) => path in files,
+			read: (path) => files[path],
+			alive: (pid) => running.includes(pid),
+		};
+	}
 
 	it("files in the runtime folder's asks from a fenced session where the daemon runs", () => {
 		const route = askRoute(
-			{ fenced: true, runtimeDir: "/run/user/1000" },
-			(path) => path === socket,
+			{ fenced: true, runtimeDir },
+			machine({ [socket]: "" }),
 		);
 		expect(route).toEqual({ folder: "/run/user/1000/secret-asks" });
 	});
 
+	it("files there where the passwords daemon's sign names a running pid", () => {
+		const route = askRoute(
+			{ fenced: true, runtimeDir },
+			machine({ [sign]: "4242\n" }, [4242]),
+		);
+		expect(route).toEqual({ folder: "/run/user/1000/secret-asks" });
+	});
+
+	it("refuses where the sign was left by a daemon that runs no more", () => {
+		const route = askRoute(
+			{ fenced: true, runtimeDir },
+			machine({ [sign]: "4242\n" }, [17]),
+		);
+		expect("refused" in route && route.refused).toMatch(
+			/neither does on this machine/,
+		);
+	});
+
+	it("refuses a sign that holds no pid", () => {
+		for (const text of ["", "0\n", "-1\n", "4242 4243\n", "pid\n"]) {
+			const route = askRoute(
+				{ fenced: true, runtimeDir },
+				machine({ [sign]: text }, [0, -1, 4242]),
+			);
+			expect("refused" in route, JSON.stringify(text)).toBe(true);
+		}
+	});
+
 	it("refuses a session whose commands run outside the fence", () => {
 		const route = askRoute(
-			{ fenced: false, runtimeDir: "/run/user/1000" },
-			() => true,
+			{ fenced: false, runtimeDir },
+			machine({ [socket]: "" }),
 		);
 		expect("refused" in route && route.refused).toMatch(
 			/outside the agent fence/,
 		);
 	});
 
-	it("refuses where the daemon's socket isn't there", () => {
-		const route = askRoute(
-			{ fenced: true, runtimeDir: "/run/user/1000" },
-			() => false,
-		);
+	it("refuses where nothing answers asks", () => {
+		const route = askRoute({ fenced: true, runtimeDir }, machine({}));
 		expect("refused" in route && route.refused).toMatch(
-			/doesn't run on this machine/,
+			/neither does on this machine/,
 		);
 	});
 
 	it("refuses with no runtime folder", () => {
-		const route = askRoute({ fenced: true, runtimeDir: undefined }, () => true);
+		const route = askRoute(
+			{ fenced: true, runtimeDir: undefined },
+			machine({ [socket]: "" }),
+		);
 		expect("refused" in route, "no folder to file in").toBe(true);
+	});
+});
+
+describe("asksAnswered", () => {
+	it("reads a running process's pid as running", () => {
+		const runtime = mkdtempSync(join(tmpdir(), "answered-"));
+		try {
+			const folder = join(runtime, "secret-asks");
+			mkdirSync(folder);
+			writeFileSync(join(folder, "answering"), `${process.pid}\n`);
+			expect(asksAnswered(runtime)).toBe(true);
+		} finally {
+			rmSync(runtime, { recursive: true, force: true });
+		}
+	});
+
+	it("reads no sign as nothing answering", () => {
+		const runtime = mkdtempSync(join(tmpdir(), "answered-"));
+		try {
+			expect(asksAnswered(runtime)).toBe(false);
+		} finally {
+			rmSync(runtime, { recursive: true, force: true });
+		}
 	});
 });
 
