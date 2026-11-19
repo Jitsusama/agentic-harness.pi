@@ -6,7 +6,6 @@ import {
 	failureLine,
 	LONGEST_WAIT_MS,
 	lastReply,
-	MOST_TRIES,
 	waitBefore,
 } from "../../../../lib/internal/errors/model-failure.ts";
 
@@ -88,12 +87,19 @@ describe("the wait before each try", () => {
 	});
 
 	it("never passes the longest wait", () => {
-		expect(waitBefore(MOST_TRIES)).toBe(LONGEST_WAIT_MS);
+		expect(waitBefore(6)).toBe(LONGEST_WAIT_MS);
 	});
 
-	it("ends once the tries are spent", () => {
-		expect(waitBefore(MOST_TRIES + 1)).toBeUndefined();
+	// On 18 November relay 502s came and went for an hour, and six tries
+	// gave up at about 17 minutes with the work still in hand.
+	it("goes on at the longest wait however many tries came before", () => {
+		expect(waitBefore(7)).toBe(LONGEST_WAIT_MS);
+		expect(waitBefore(100)).toBe(LONGEST_WAIT_MS);
+	});
+
+	it("has no wait before a try that is not one", () => {
 		expect(waitBefore(0)).toBeUndefined();
+		expect(waitBefore(1.5)).toBeUndefined();
 	});
 });
 

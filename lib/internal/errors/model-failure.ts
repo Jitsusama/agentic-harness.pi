@@ -23,14 +23,13 @@ const TRANSIENT_ERROR =
 /** The first wait after pi's own retries run out. */
 export const FIRST_WAIT_MS = 30_000;
 
-/** The longest wait between two tries. */
-export const LONGEST_WAIT_MS = 300_000;
-
 /**
- * How many times the harness asks again before it leaves the turn
- * ended: about 17 minutes of waiting in all.
+ * The longest wait between two tries, and the wait between every try
+ * once the doubling reaches it. There is no last try: on 18 November
+ * relay 502s came and went for an hour, and a count that gave up at
+ * about 17 minutes left turns idle with their work in hand.
  */
-export const MOST_TRIES = 6;
+export const LONGEST_WAIT_MS = 300_000;
 
 /** Whether a failed reply is one a second call could get past. */
 export function isTransientFailure(reply: AssistantMessage): boolean {
@@ -61,15 +60,17 @@ export function failedForAMoment(
 
 /**
  * How long to wait before try `attempt` (1 for the first): doubling
- * from {@link FIRST_WAIT_MS} up to {@link LONGEST_WAIT_MS}, or
- * undefined once {@link MOST_TRIES} are spent.
+ * from {@link FIRST_WAIT_MS} up to {@link LONGEST_WAIT_MS}, then that
+ * for every try after, or undefined for a number that is no try.
  */
 export function waitBefore(attempt: number): number | undefined {
-	if (!Number.isInteger(attempt) || attempt < 1 || attempt > MOST_TRIES) {
-		return undefined;
-	}
+	if (!Number.isInteger(attempt) || attempt < 1) return undefined;
+	if (attempt > DOUBLINGS) return LONGEST_WAIT_MS;
 	return Math.min(FIRST_WAIT_MS * 2 ** (attempt - 1), LONGEST_WAIT_MS);
 }
+
+/** Past this many tries the doubling has long reached the longest wait. */
+const DOUBLINGS = 32;
 
 /** The last assistant reply among a run's messages, if it has one. */
 export function lastReply(
