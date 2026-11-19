@@ -145,8 +145,9 @@ export interface TreeMemory {
 	 * record's lock, where a session asking for the tree writes its use,
 	 * so one that asked since the caller looked is seen and the tree is
 	 * left alone, and one asking after finds no record and cuts afresh.
-	 * A record whose use is undated, or that an owner's asks don't date
-	 * (see {@link everyAskDated}), is left alone too.
+	 * Its use is the later of its `usedAt` and when its record was last
+	 * written (see {@link askedAt}), since code from before the dating
+	 * carries a stale `usedAt` but rewrites the record on every ask.
 	 * `take` must be quick, as for {@link whileUnheld}. Answers the record
 	 * it forgot, or nothing when `take` didn't run or didn't take it.
 	 */
@@ -155,6 +156,13 @@ export interface TreeMemory {
 		since: number,
 		take: () => Promise<boolean>,
 	): Promise<HeldTree | undefined>;
+	/**
+	 * When the record of the tree at `path` was last written, in
+	 * milliseconds since the epoch: every session's every ask rewrites
+	 * it, on whatever code it runs. Nothing when there is no record, or
+	 * its file can't be read.
+	 */
+	askedAt(path: string): number | undefined;
 	/**
 	 * Make `session` the holder of every tree a record says it holds, as
 	 * the process it runs in now, and answer how many records changed.
@@ -226,27 +234,6 @@ function sameOwner(one: Owner, two: Owner): boolean {
 		sameProcess(one.startedAt, two.startedAt) &&
 		one.host === two.host &&
 		one.session === two.session
-	);
-}
-
-/**
- * Whether a tree's `usedAt` says when it was last asked for: it has one,
- * it names owners, and each is among those whose asks date it. A session
- * on code from before the dating leaves a stale date, or none, when it
- * asks again, so a tree it holds is never judged by that date.
- */
-export function everyAskDated(tree: HeldTree): boolean {
-	const { owners, datedBy } = tree;
-	return (
-		typeof tree.usedAt === "number" &&
-		Array.isArray(owners) &&
-		owners.length > 0 &&
-		Array.isArray(datedBy) &&
-		owners.every(
-			(one) =>
-				isOwner(one) &&
-				datedBy.some((dated) => isOwner(dated) && sameOwner(one, dated)),
-		)
 	);
 }
 
@@ -409,17 +396,11 @@ export function createTreeMemory(
 					(one) => isOwner(one) && !sameOwner(one, us),
 				);
 				const { sessions: _, ...rest } = held;
-				// Only owners still holding it stay named as dating their asks.
-				const dated = (found?.datedBy ?? held.datedBy ?? []).filter(
-					(one) =>
-						isOwner(one) && before.some((holder) => sameOwner(holder, one)),
-				);
 				this.remember({
 					...rest,
 					owners: [...before, us],
 					...sessionsWith(found ?? held),
 					usedAt: Date.now(),
-					datedBy: [...dated, us],
 				});
 			});
 		},
@@ -504,10 +485,11 @@ export function createTreeMemory(
 			let taken: HeldTree | undefined;
 			await underLock(found.identity.key, async () => {
 				const tree = this.recall().find((one) => one.path === path);
+				const asked = this.askedAt(path);
 				if (
 					tree === undefined ||
-					!everyAskDated(tree) ||
-					(tree.usedAt ?? Number.POSITIVE_INFINITY) > since
+					asked === undefined ||
+					Math.max(asked, tree.usedAt ?? 0) > since
 				)
 					return;
 				if (!(await take())) return;
@@ -515,6 +497,17 @@ export function createTreeMemory(
 				taken = tree;
 			});
 			return taken;
+		},
+
+		askedAt(path) {
+			const found = all().find(({ held }) => held.path === path);
+			if (found === undefined) return undefined;
+			try {
+				return statSync(found.at).mtimeMs;
+			} catch {
+				// Gone since the listing: a take or a release forgot it.
+				return undefined;
+			}
 		},
 
 		async holdWhileUnheld(path, facts = systemFacts) {

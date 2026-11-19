@@ -194,6 +194,22 @@ as the sign of a sweep that holds the lock and never ends.
 A session that joins a snapshot as a sweep takes it finds it gone
 once its own claim is written, and cuts it afresh.
 
+A snapshot a session still open holds goes too, once nothing has
+used it for four hours: clean, with no untracked file, at its pin,
+not locked and holding no submodules. Its use is the latest of its
+record's own file, which every ask rewrites on any version of this
+code, the record's date, git's HEAD, index and log, and the folder.
+A claimed snapshot, or one a process works in, runs from or holds a
+file open in, is kept. That reading comes from `/proc`, before
+choosing and again for each under its record's lock, and only from
+the machine's own process namespace; where it can't be read, or a
+process's files can't for a reason other than permission, nothing is
+taken, and the sweep's line says why in `idleUnjudged`. A reader that
+opens files by path and keeps none open leaves no sign, so four hours
+is its protection. At most 20 go a sweep, oldest first, each logged
+with its sessions and commit. A session that asks for one again gets
+it cut afresh, with a line in `sweep.log` saying why.
+
 A tree cut from a clone in a quest's scratch folder outlives the
 clone, which goes when the quest concludes or retires, and git can
 no longer read it. Once that quest has finished and the tree's

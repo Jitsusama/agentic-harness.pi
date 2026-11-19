@@ -6,16 +6,24 @@
 import { existsSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { HeldTree } from "../../../lib/core/work/broker.ts";
 import type { SweepDeps } from "../../../lib/core/work/sweep.ts";
 import { sweepEndedTrees } from "../../../lib/core/work/sweep.ts";
-import { IDLE_HELD_MS } from "../../../lib/core/work/sweep-idle.ts";
+import {
+	IDLE_HELD_MS,
+	IDLE_TAKES_PER_SWEEP,
+	idleSnapshots,
+} from "../../../lib/core/work/sweep-idle.ts";
 import { git } from "../../support/git-fixture.ts";
 import {
 	disposeAll,
+	elsewhere,
 	exec,
 	machine,
+	machineWithUs,
 	pinnedWhereNoRefHolds,
 	RUNNING,
+	settleFolder,
 	setUp,
 } from "./support/sweep-live.ts";
 
@@ -52,10 +60,21 @@ async function leftAlone(
 		...record,
 		sessions: [OPEN_SESSION],
 		usedAt: Date.now() - ago,
-		datedBy: record.owners,
 	});
+	recordWritten(setup, record, ago);
 	await untouchedFor(tree, ago);
 	return { tree, commit };
+}
+
+/** Date a tree's record file `ago` milliseconds back, as its last ask. */
+function recordWritten(setup: Setup, record: HeldTree, ago: number): void {
+	const file = join(
+		setup.state,
+		"cut",
+		`${record.identity.key.replaceAll("/", "-")}.json`,
+	);
+	const then = new Date(Date.now() - ago);
+	utimesSync(file, then, then);
 }
 
 /** The files git moves in a tree as it is used. */
@@ -73,7 +92,10 @@ async function untouchedFor(tree: string, ago: number): Promise<void> {
 	utimesSync(tree, then, then);
 }
 
-/** Change a tree's record as `change` says. */
+/**
+ * Change a tree's record as `change` says, leaving its file dated as it
+ * was, as no ask wrote it.
+ */
 function rewrite(
 	setup: Setup,
 	tree: string,
@@ -81,7 +103,9 @@ function rewrite(
 ): void {
 	const record = find(setup, tree);
 	if (record === undefined) throw new Error(`${tree} has no record`);
+	const asked = setup.memory.askedAt(tree) ?? Date.now();
 	setup.memory.remember({ ...record, ...change(record) });
+	recordWritten(setup, record, Date.now() - asked);
 }
 
 /** A tree's record, if it has one. */
@@ -251,8 +275,8 @@ describe("taking the snapshots a live session pinned and left", () => {
 		const asked: string[][] = [];
 
 		const outcome = await sweepWhileOpen(setup, {
-			// Free at the first reading, so its git is read; busy at the
-			// second, just before the take.
+			// Free at the first reading, so its git is read; busy at its own
+			// reading, just before its take.
 			busyAmong: async (paths) => {
 				asked.push([...paths].sort());
 				return new Set(
@@ -262,9 +286,9 @@ describe("taking the snapshots a live session pinned and left", () => {
 		});
 
 		expect(
-			asked,
-			"what processes hold wasn't read of every aged tree, then again of those chosen",
-		).toEqual([[free, worked].sort(), [free, worked].sort()]);
+			[asked[0], asked.slice(1).sort()],
+			"what processes hold wasn't read of every aged tree, then of each just before its take",
+		).toEqual([[free, worked].sort(), [[free], [worked]]]);
 		expect(outcome.taken.map((one) => one.path)).toEqual([free]);
 		expect(existsSync(worked), "a tree a process works in went").toBe(true);
 		expect(
@@ -287,9 +311,9 @@ describe("taking the snapshots a live session pinned and left", () => {
 		});
 
 		expect(
-			asked[1],
+			asked.slice(1),
 			"a tree busy at the first reading was among those chosen",
-		).toEqual([free]);
+		).toEqual([[free]]);
 		expect(outcome.taken.map((one) => one.path)).toEqual([free]);
 		expect(existsSync(worked), "a tree a process works in went").toBe(true);
 	});
@@ -300,7 +324,7 @@ describe("taking the snapshots a live session pinned and left", () => {
 		let readings = 0;
 
 		const outcome = await sweepWhileOpen(setup, {
-			// Something works there between the last reading and the take.
+			// Something works there as its own reading runs, under the lock.
 			busyAmong: async () => {
 				readings += 1;
 				if (readings === 2) {
@@ -333,20 +357,110 @@ describe("taking the snapshots a live session pinned and left", () => {
 			existsSync(tree),
 			"a tree went with nothing to say it was free",
 		).toBe(true);
+		expect(
+			outcome.idleUnjudged,
+			"the sweep didn't say why it judged no open session's snapshot",
+		).toContain("can't say which processes hold");
 	});
 
-	it("keeps one held by a session whose asks don't date its use, as one on older code", async () => {
+	it("takes none whose own reading, just before its take, can't say what processes hold", async () => {
+		const setup = await setUp();
+		const { tree } = await leftAlone(setup, "unread", IDLE);
+		let readings = 0;
+
+		const outcome = await sweepWhileOpen(setup, {
+			busyAmong: async () => {
+				readings += 1;
+				return readings === 1 ? new Set() : undefined;
+			},
+		});
+
+		expect(outcome.taken, "a snapshot was taken on a blind reading").toEqual(
+			[],
+		);
+		expect(existsSync(tree), "a tree went on a blind reading").toBe(true);
+	});
+
+	it("keeps one a session asked for again while the sweep chose", async () => {
+		const setup = await setUp();
+		const { tree } = await leftAlone(setup, "asked-again", IDLE);
+		let readings = 0;
+
+		const outcome = await sweepWhileOpen(setup, {
+			// The ask lands between the choosing and the take's lock.
+			busyAmong: async () => {
+				readings += 1;
+				const record = find(setup, tree);
+				if (readings === 1 && record !== undefined) {
+					await setup.memory.rememberHeldByUs(record, machine);
+				}
+				return new Set();
+			},
+		});
+
+		expect(
+			outcome.taken,
+			"a snapshot asked for while the sweep chose was taken",
+		).toEqual([]);
+		expect(existsSync(tree), "a snapshot asked for again went").toBe(true);
+	});
+
+	it("keeps one git would refuse to remove, as a locked one, from the takes", async () => {
+		const setup = await setUp();
+		const { tree } = await leftAlone(setup, "locked", IDLE);
+		await git(setup.main, "worktree", "lock", tree);
+		await untouchedFor(tree, IDLE);
+
+		const outcome = await sweepWhileOpen(setup);
+
+		expect(outcome.taken, "a locked snapshot was taken").toEqual([]);
+		expect(
+			outcome.refused,
+			"a locked snapshot filled a take, refused only by git",
+		).toEqual([]);
+	});
+
+	it("takes another provider's spent tree and drops roots though judging open sessions' snapshots fails", async () => {
+		const setup = await setUp();
+		await leftAlone(setup, "idle", IDLE);
+		const spent = setup.elsewhereTree("spent");
+		settleFolder(spent);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory: setup.memory,
+			claims: [],
+			lockPath: setup.lockPath,
+			// The take holds the tree as this process meanwhile.
+			facts: machineWithUs,
+			liveSessions: async () => new Set([OPEN_SESSION]),
+			providers: () => [elsewhere(undefined)],
+			busyAmong: async () => {
+				throw new Error("no reading today");
+			},
+		});
+
+		expect(
+			outcome.taken.map((one) => one.path),
+			"another provider's spent tree stayed when the idle phase failed",
+		).toEqual([spent]);
+		expect(outcome.idleUnjudged, "the failure went unsaid").toBe(
+			"no reading today",
+		);
+	});
+
+	it("keeps one a session on older code asked for, its date stale but its record rewritten", async () => {
 		// Older code writes back the record it read, its date stale or
-		// gone, and adds itself as an owner without saying its asks date it.
+		// gone, adding itself as an owner, as a reload back onto it does.
 		const setup = await setUp();
 		const joined = (await leftAlone(setup, "joined", IDLE)).tree;
-		rewrite(setup, joined, (record) => ({
-			owners: [...(record.owners ?? []), { pid: 4003, startedAt: 3000 }],
-		}));
+		const before = find(setup, joined);
+		if (before === undefined) throw new Error(`${joined} has no record`);
+		setup.memory.remember(before);
 		const undated = (await leftAlone(setup, "undated", IDLE)).tree;
 		const record = find(setup, undated);
 		if (record === undefined) throw new Error(`${undated} has no record`);
-		const { datedBy: _, ...withoutDating } = record;
+		const { usedAt: _, ...withoutDating } = record;
 		setup.memory.remember(withoutDating);
 
 		const outcome = await sweepWhileOpen(setup);
@@ -360,6 +474,60 @@ describe("taking the snapshots a live session pinned and left", () => {
 		);
 		expect(existsSync(undated), "a tree whose use went undated went").toBe(
 			true,
+		);
+	});
+});
+
+describe("choosing the snapshots to take", () => {
+	it("chooses at most a sweep's takes, oldest first, none of them busy, though the busy are older", async () => {
+		const commit = "a".repeat(40);
+		const now = Date.now();
+		// Paths nothing stands at, so only the asks date them: the busy
+		// ones oldest, so a cap read before busy would hold only them.
+		const snapshot = (name: string, ago: number): HeldTree => ({
+			identity: { key: `snapshot-${name}-${commit}`, shareable: true },
+			path: `/nowhere/${name}`,
+			providerId: "git-worktree",
+			owners: [RUNNING],
+			usedAt: now - ago,
+		});
+		const count = IDLE_TAKES_PER_SWEEP + 1;
+		const busy = Array.from({ length: count }, (_, at) =>
+			snapshot(`busy-${at}`, IDLE + (count + at) * HOUR),
+		);
+		const free = Array.from({ length: count }, (_, at) =>
+			snapshot(`free-${at}`, IDLE + at * HOUR),
+		);
+		const asked = new Map(
+			[...busy, ...free].map((tree) => [tree.path, tree.usedAt]),
+		);
+		const answers: Record<string, string> = {
+			"rev-parse HEAD": commit,
+			"reflog --format=%H HEAD": commit,
+			"rev-parse --absolute-git-dir": "/nowhere/.git",
+			"status --porcelain=v1 --untracked-files=all": "",
+		};
+
+		const chosen = await idleSnapshots([...busy, ...free], {
+			exec: async (_command, args) => ({
+				code: 0,
+				stdout: answers[args.slice(3).join(" ")] ?? "unasked",
+				stderr: "",
+			}),
+			claims: [],
+			now,
+			askedAt: (path) => asked.get(path),
+			busyAmong: async () => new Set(busy.map((tree) => tree.path)),
+		});
+
+		expect(
+			chosen.map((one) => one.tree.path),
+			"not the oldest free snapshots, up to a sweep's takes",
+		).toEqual(
+			free
+				.slice(count - IDLE_TAKES_PER_SWEEP)
+				.reverse()
+				.map((tree) => tree.path),
 		);
 	});
 });

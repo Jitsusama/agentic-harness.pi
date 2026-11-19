@@ -72,6 +72,7 @@ function remembering(held: HeldTree, others: number[]): TreeMemory {
 		whileUnheld: async () => undefined,
 		holdWhileUnheld: async () => undefined,
 		whileUnusedSince: async () => undefined,
+		askedAt: () => undefined,
 		reownSession: async () => 0,
 	};
 }

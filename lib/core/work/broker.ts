@@ -59,17 +59,11 @@ export interface HeldTree {
 	 * since the epoch. A snapshot is read, which leaves no mark on a disk
 	 * that keeps no access times, so this is how the sweep tells one a
 	 * live session still uses from one it pinned hours ago and left.
-	 * Absent from a record written before this existed.
+	 * Absent from a record written before this existed, and carried stale
+	 * by a session on such code, which keeps the fields it read; the
+	 * record's own file, rewritten on every ask, dates those.
 	 */
 	usedAt?: number;
-	/**
-	 * The owners whose every ask dates {@link usedAt}. A session on code
-	 * from before the dating keeps the fields it read when it asks again,
-	 * a stale `usedAt` among them, and adds itself to `owners` but not
-	 * here, so a tree one of its owners isn't named in may be in use
-	 * whatever its date says.
-	 */
-	datedBy?: Owner[];
 }
 
 /**
@@ -307,8 +301,9 @@ export function createTreeBroker(
 			// trees that needed it. The provider is asked either way, and
 			// every provider treats already-there as the ordinary case,
 			// which is what makes `ensure` mean what the word says.
-			const again = askedAgain(request);
-			if (again) deps.recut?.(again);
+			// Said only once it is cut afresh, since a tree caught mid-move
+			// by a sweep that put it back is found again below.
+			let again = askedAgain(request);
 			const reusable = everything().find((tree) =>
 				satisfies(tree.identity, request),
 			);
@@ -371,11 +366,12 @@ export function createTreeBroker(
 						.recall()
 						.some((tree) => tree.identity.key === taken.identity.key);
 				if (!gone) return taken;
-				deps.recut?.(taken);
+				again = taken;
 				const stale = trees.findIndex((tree) => tree.path === taken.path);
 				if (stale >= 0) trees.splice(stale, 1);
 			}
 
+			if (again) deps.recut?.(again);
 			const choice = chooseTreeProvider(roster(), request.repo);
 			if (choice.kind === "none") {
 				throw new Error(

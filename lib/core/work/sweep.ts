@@ -161,6 +161,12 @@ export interface SweepOutcome {
 	kept: LeftTree[];
 	/** Trees whose dev-shell roots went, nobody having entered them. */
 	dropped: DroppedRoots[];
+	/**
+	 * Why the snapshots open sessions hold went unjudged this sweep, all
+	 * of them kept: a record's lock held too long, or the machine unable
+	 * to say which processes hold trees.
+	 */
+	idleUnjudged?: string;
 }
 
 /** A tree whose dev shell's Nix roots the sweep dropped, and how many. */
@@ -226,13 +232,15 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		}
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
 		try {
-			for (const idle of await idleSnapshots(live, { ...deps, claims, now })) {
+			const askedAt = (path: string) => deps.memory.askedAt(path);
+			const choice = { ...deps, claims, now, askedAt };
+			for (const idle of await idleSnapshots(live, choice)) {
 				await takeIdle(deps, facts, idle, now, outcome);
 			}
 		} catch (error) {
 			// A record's lock held too long or a census failing leaves the
 			// other providers' trees and the dev shells' roots to go as before.
-			outcome.kept.push({ path: "idle snapshots", why: messageOf(error) });
+			outcome.idleUnjudged = messageOf(error);
 		}
 		const others = deps.memory
 			.recall()
@@ -608,14 +616,22 @@ async function takeIdle(
 		tree,
 		{ path: tree.path, ...sessions, commit, why },
 		outcome,
-		// Its git and folder are read again under the lock too, since a
-		// session may have worked in it since it was chosen.
+		// Who works in it, then its git and folder, are read again under the
+		// lock just before the move, since the takes before it may have
+		// taken minutes. A reading that can't say keeps it. The walk of
+		// every process holds the lock for under a second, where an ask
+		// waits ten.
 		(take) =>
-			deps.memory.whileUnusedSince(
-				tree.path,
-				usedAt,
-				async () => lastUsed(tree) <= usedAt && take(),
-			),
+			deps.memory.whileUnusedSince(tree.path, usedAt, async () => {
+				const path = resolved(tree.path);
+				const busy = await deps.busyAmong?.([path]);
+				return (
+					busy !== undefined &&
+					!busy.has(path) &&
+					lastUsed(tree, deps.memory.askedAt(tree.path)) <= usedAt &&
+					take()
+				);
+			}),
 	);
 }
 

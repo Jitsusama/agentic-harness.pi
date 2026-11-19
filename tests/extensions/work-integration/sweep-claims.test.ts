@@ -21,6 +21,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { answerTreeClaims } from "../../../extensions/quest-workflow/claims.ts";
 import {
 	registerTreeSweeps,
+	seesEveryProcess,
 	useSigns,
 } from "../../../extensions/work-integration/sweep.ts";
 import {
@@ -167,7 +168,8 @@ it("counts a hosted conversation's folder as in use, though its host stands else
 	expect(folders, "the folders live sessions work in").toContain(folder);
 });
 
-it.runIf(existsSync("/proc/self/fd"))(
+// Only where every process is seen, as the fence's own namespace isn't.
+it.runIf(await seesEveryProcess())(
 	"says which trees a process works in or holds a file open in, from the kernel's own links",
 	async () => {
 		// The kernel names real paths, so the trees are named by theirs.

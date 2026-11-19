@@ -14,13 +14,17 @@
  * it was pinned at and never left it. Never one a process works in or
  * holds a file open in, one a session's folder lies in, one something
  * claims, or one whose record names nobody, since nothing can say whose
- * that is. Nothing at all where the machine can't say what processes
- * hold, and never one held by a session whose asks don't date its use,
- * as one on older code, until that session ends or asks on newer code.
+ * that is; nor one git would refuse to remove, locked or holding
+ * submodules, which would fill the takes every sweep. Nothing at all
+ * where the machine can't say what processes hold.
+ *
+ * A session's ask is dated by its record's own file as well as its
+ * `usedAt`, since every session on any code rewrites the record on every
+ * ask, and one on code from before the dating carries a stale `usedAt`.
  */
 
-import { statSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import type { HeldTree } from "./broker.ts";
 import {
@@ -28,7 +32,6 @@ import {
 	resolvedPath as resolved,
 	type UseSigns,
 } from "./in-use.ts";
-import { everyAskDated } from "./memory.ts";
 import { pinnedCommit } from "./tree.ts";
 
 /**
@@ -40,9 +43,9 @@ export const IDLE_HELD_MS = 4 * 60 * 60 * 1000;
 
 /**
  * How many such snapshots one sweep takes at most, oldest first, so a
- * sweep's last take is seconds behind the second reading of who works
- * where, and a sweep holds the lock and the host's time for no longer
- * than that many removals.
+ * sweep holds the lock and the host's time for no longer than that many
+ * removals. Who works where is read again for each, just before its
+ * take.
  */
 export const IDLE_TAKES_PER_SWEEP = 20;
 
@@ -61,28 +64,34 @@ export interface IdleChoice extends UseSigns {
 	claims: readonly string[];
 	/** The time now, in milliseconds since the epoch. */
 	now: number;
+	/** When a tree's record was last written, as the memory says. */
+	askedAt(path: string): number | undefined;
 }
 
 /**
- * When a tree was last used: the later of a session last asking for it,
- * its git last moving, and its folder last changing. Reading leaves no
- * mark on a disk that keeps no access times, so a session asking for the
- * tree is the mark a reader leaves.
+ * When a tree was last used: the latest of a session last asking for it,
+ * by its `usedAt` or `asked`, when its record was last written, its git
+ * last moving, and its folder last changing. Reading leaves no mark on a
+ * disk that keeps no access times, so a session asking for the tree is
+ * the mark a reader leaves. A record nobody can date reads as used now.
  */
-export function lastUsed(tree: HeldTree): number {
+export function lastUsed(tree: HeldTree, asked: number | undefined): number {
+	if (asked === undefined) return Number.POSITIVE_INFINITY;
 	let folder = 0;
 	try {
 		folder = statSync(tree.path).mtimeMs;
 	} catch {
 		// Gone from disk: nothing in it to have changed.
 	}
-	return Math.max(tree.usedAt ?? 0, gitMovedAt(tree.path), folder);
+	return Math.max(tree.usedAt ?? 0, asked, gitMovedAt(tree.path), folder);
 }
 
 /**
  * The snapshots among `held`, which live sessions hold, that nothing has
  * used within {@link IDLE_HELD_MS} and that lose nothing by going, at
  * most {@link IDLE_TAKES_PER_SWEEP} of them, least recently used first.
+ * Throws when there are some to judge and the machine can't say which
+ * processes hold them, so the sweep says why it took none.
  */
 export async function idleSnapshots(
 	held: readonly HeldTree[],
@@ -95,15 +104,14 @@ export async function idleSnapshots(
 				tree.providerId === "git-worktree" &&
 				Array.isArray(tree.owners) &&
 				tree.owners.length > 0 &&
-				pinnedCommit(tree.identity) !== undefined &&
-				everyAskDated(tree) &&
-				lastUsed(tree) <= since,
+				pinnedCommit(tree.identity) !== undefined,
 		)
 		.map((tree) => ({
 			tree,
-			usedAt: lastUsed(tree),
+			usedAt: lastUsed(tree, choice.askedAt(tree.path)),
 			path: resolved(tree.path),
 		}))
+		.filter(({ usedAt }) => usedAt <= since)
 		.sort((a, b) => a.usedAt - b.usedAt);
 	const claimed = choice.claims.map(resolved);
 	const unclaimed = aged.filter(({ path }) => {
@@ -116,7 +124,8 @@ export async function idleSnapshots(
 	const busyBefore = await choice.busyAmong?.(
 		unclaimed.map(({ path }) => path),
 	);
-	if (busyBefore === undefined) return [];
+	if (busyBefore === undefined)
+		throw new Error("the machine can't say which processes hold its trees");
 	const chosen: IdleSnapshot[] = [];
 	for (const { tree, usedAt, path } of unclaimed) {
 		if (chosen.length >= IDLE_TAKES_PER_SWEEP) break;
@@ -130,22 +139,16 @@ export async function idleSnapshots(
 		}
 		chosen.push({ tree, commit, usedAt });
 	}
-	if (chosen.length === 0) return [];
-	// Read again once the choosing is done, so it is seconds old at each
-	// take.
-	const busy = await choice.busyAmong?.(
-		chosen.map(({ tree }) => resolved(tree.path)),
-	);
-	if (busy === undefined) return [];
-	return chosen.filter(({ tree }) => !busy.has(resolved(tree.path)));
+	return chosen;
 }
 
 /**
  * Whether a snapshot is as it was cut: no change, staged or not, no
  * untracked file, and its HEAD at its pin with a reflog naming nothing
  * else, since a commit made there and left is held by that reflog alone.
- * The status takes no optional locks, so it leaves the index as it was
- * rather than marking the tree used.
+ * Not one git refuses to remove: locked, or holding submodules. The
+ * status, read last as the dearest, takes no optional locks, so it
+ * leaves the index as it was rather than marking the tree used.
  */
 async function untouched(
 	exec: Exec,
@@ -154,17 +157,27 @@ async function untouched(
 ): Promise<boolean> {
 	const git = (...args: string[]) =>
 		exec("git", ["-C", path, "--no-optional-locks", ...args]);
-	const status = await git("status", "--porcelain=v1", "--untracked-files=all");
-	if (status.code !== 0 || status.stdout.trim() !== "") return false;
 	const head = await git("rev-parse", "HEAD");
 	if (head.code !== 0 || head.stdout.trim() !== commit) return false;
 	const reflog = await git("reflog", "--format=%H", "HEAD");
 	const been = reflog.stdout.split("\n").filter((line) => line !== "");
-	return (
-		reflog.code === 0 &&
-		been.length > 0 &&
-		been.every((line) => line === commit)
-	);
+	if (
+		reflog.code !== 0 ||
+		been.length === 0 ||
+		been.some((line) => line !== commit)
+	) {
+		return false;
+	}
+	const own = await git("rev-parse", "--absolute-git-dir");
+	if (
+		own.code !== 0 ||
+		existsSync(join(own.stdout.trim(), "locked")) ||
+		existsSync(join(path, ".gitmodules"))
+	) {
+		return false;
+	}
+	const status = await git("status", "--porcelain=v1", "--untracked-files=all");
+	return status.code === 0 && status.stdout.trim() === "";
 }
 
 /** The main checkout of the repository a tree was cut from, when git can say. */
