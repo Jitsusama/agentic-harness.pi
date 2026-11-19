@@ -11,9 +11,18 @@
  *
  * It is narrower than reclaim on purpose. A worktree the broker has no
  * record of may be anybody's, and a record that names nobody can't say
- * it is spent, so neither is touched. A branch is never deleted: the
- * commits stay where they were, and cutting the tree again at the same
- * branch puts a session back where it left off.
+ * it is spent, so neither is touched. A tree's branch stays, so cutting
+ * the tree again at the same branch puts a session back where it left
+ * off, unless origin's trunk holds every commit on it: then there is
+ * nothing to come back to, and it goes with its config section, as it
+ * does when a tree is released (`merged-branch.ts`).
+ *
+ * A branch whose tree went before its pull request merged is left by
+ * that, so each checkout the records name is also searched for
+ * branches trunk holds that nobody has moved for
+ * {@link PUSHED_SETTLE_MS}, which go the same way. On 19 November
+ * core.nix's checkout held 5,734 branches and 518 KB of config, which
+ * every git command there read.
  *
  * A session can take a spent tree up again at any moment, so the last
  * look happens under the record's own lock, where that session writes
@@ -61,6 +70,10 @@ import {
 	type UseSigns,
 } from "./in-use.ts";
 import type { TreeMemory } from "./memory.ts";
+import {
+	dropMergedBranch,
+	dropSettledMergedBranches,
+} from "./merged-branch.ts";
 import {
 	type IdleSnapshot,
 	idleSnapshots,
@@ -141,6 +154,8 @@ export type SweepClaims =
 export interface SweptTree {
 	path: string;
 	branch?: string;
+	/** Set when its branch went too, origin's trunk holding all of it. */
+	branchGone?: true;
 	/** The remote-tracking branch that holds its commit, when trunk didn't. */
 	remote?: string;
 	/** The sessions its record named, so one reopened can recut it. */
@@ -171,11 +186,22 @@ export interface SweepOutcome {
 	/** Trees whose dev-shell roots went, nobody having entered them. */
 	dropped: DroppedRoots[];
 	/**
+	 * Checkouts whose branches with no tree went, origin's trunk holding
+	 * them and nobody having moved them for a day, and how many.
+	 */
+	branches: DroppedBranches[];
+	/**
 	 * Why the snapshots open sessions hold went unjudged this sweep, all
 	 * of them kept: a record's lock held too long, or the machine unable
 	 * to say which processes hold trees.
 	 */
 	idleUnjudged?: string;
+}
+
+/** A checkout whose settled, merged branches the sweep dropped, and how many. */
+export interface DroppedBranches {
+	checkout: string;
+	gone: number;
 }
 
 /** A tree whose dev shell's Nix roots the sweep dropped, and how many. */
@@ -199,6 +225,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		refused: [],
 		kept: [],
 		dropped: [],
+		branches: [],
 	};
 	const now = deps.now?.() ?? Date.now();
 	const resting = restingSince(deps.lockPath, now, deps.restMs);
@@ -243,6 +270,13 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				outcome,
 			});
 		}
+		await dropSettledBranches(
+			deps,
+			[...repositories.byMain.keys()],
+			held,
+			now,
+			outcome,
+		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
 		try {
 			const askedAt = (path: string, key?: string) =>
@@ -305,6 +339,37 @@ async function dropIdleRoots(
 		}
 		const roots = dropIdleDevShellRoots(tree.path, now);
 		if (roots > 0) outcome.dropped.push({ path: tree.path, roots });
+	}
+}
+
+/**
+ * Drop the settled branches origin's trunk holds in every checkout a
+ * record names: those whose trees this sweep judged, and those of trees
+ * still held, whose checkouts gather branches from trees released
+ * before their pull request merged.
+ */
+async function dropSettledBranches(
+	deps: SweepDeps,
+	judged: readonly string[],
+	held: readonly HeldTree[],
+	now: number,
+	outcome: SweepOutcome,
+): Promise<void> {
+	const mains = new Set(judged);
+	const asked = new Set<string>();
+	for (const tree of held) {
+		if (tree.providerId !== GIT_WORKTREE || asked.has(tree.path)) continue;
+		asked.add(tree.path);
+		const main = await mainCheckoutOf(deps.exec, tree.path);
+		if (main !== undefined) mains.add(main);
+	}
+	for (const main of mains) {
+		const gone = await dropSettledMergedBranches(
+			deps.exec,
+			main,
+			now - PUSHED_SETTLE_MS,
+		);
+		if (gone > 0) outcome.branches.push({ checkout: main, gone });
 	}
 }
 
@@ -737,7 +802,10 @@ async function takeBack(
 	}
 	const removed = await git("worktree", "remove", aside);
 	if (removed.code === 0) {
-		outcome.taken.push(taken);
+		const gone =
+			taken.branch !== undefined &&
+			(await dropMergedBranch(deps.exec, main, taken.branch));
+		outcome.taken.push(gone ? { ...taken, branchGone: true } : taken);
 		return;
 	}
 	const back = await git("worktree", "move", aside, tree.path);

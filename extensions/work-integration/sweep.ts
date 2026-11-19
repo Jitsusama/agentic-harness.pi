@@ -474,6 +474,8 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		kept: outcome.kept.length,
 		keptFor: commonest(outcome.kept.map((one) => one.why)),
 		dropped: outcome.dropped,
+		// Counted, not named: a checkout's first sweep can drop hundreds.
+		...(outcome.branches.length === 0 ? {} : { branches: outcome.branches }),
 		...(outcome.idleUnjudged === undefined
 			? {}
 			: { idleUnjudged: outcome.idleUnjudged }),

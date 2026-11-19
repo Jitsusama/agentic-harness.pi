@@ -48,7 +48,13 @@ vi.mock("../../../lib/core/work/sweep.ts", () => ({
 		restMs?: number;
 	}) => {
 		rests.push(deps.restMs);
-		const none = { taken: [], refused: [], kept: [], dropped: [] };
+		const none = {
+			taken: [],
+			refused: [],
+			kept: [],
+			dropped: [],
+			branches: [],
+		};
 		// As the library does: claims are asked only by a sweep that runs.
 		if (idle.rested !== undefined) return { ...none, rested: idle.rested };
 		if (idle.skipped !== undefined) return { ...none, skipped: idle.skipped };
