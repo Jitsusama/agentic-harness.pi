@@ -84,22 +84,37 @@ const FIRST_PRINTABLE = 0x20;
 const DEL = 0x7f;
 const LAST_C1 = 0x9f;
 
-// Whether `character` would show as itself rather than act on a terminal.
+/** The marks that reorder how the text around them reads, as bidi runs. */
+const BIDI = [
+	[0x200e, 0x200f],
+	[0x202a, 0x202e],
+	[0x2066, 0x2069],
+] as const;
+
+// Whether `character` would show as itself rather than act on a terminal
+// or reorder the line it sits in.
 function printable(character: string): boolean {
 	const code = character.codePointAt(0) ?? 0;
-	return code >= FIRST_PRINTABLE && (code < DEL || code > LAST_C1);
+	if (code < FIRST_PRINTABLE || (code >= DEL && code <= LAST_C1)) return false;
+	return !BIDI.some(([first, last]) => code >= first && code <= last);
+}
+
+// A refusal as text, or none when it has none or can't say one: the
+// journal never replaces the refusal a window gets with its own error.
+function textOf(refusal: unknown): string {
+	try {
+		if (refusal instanceof Error) return String(refusal.message);
+		return refusal === undefined || refusal === null ? "" : String(refusal);
+	} catch {
+		// A refusal whose text throws is said as one with no reason.
+		return "";
+	}
 }
 
 // A refusal's reason on one plain line, as the journal keeps one line a
 // wait: its whitespace one space, its control characters dropped.
 function reasonOf(refusal: unknown): string {
-	const text =
-		refusal instanceof Error
-			? refusal.message
-			: refusal === undefined || refusal === null
-				? ""
-				: String(refusal);
-	const plain = [...text.replace(/\s+/g, " ")]
+	const plain = [...textOf(refusal).replace(/\s+/g, " ")]
 		.filter(printable)
 		.join("")
 		.trim();

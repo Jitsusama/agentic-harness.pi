@@ -554,11 +554,18 @@ describe("viewer connection lifecycle", () => {
 		);
 		socket.destroy();
 		await vi.waitFor(() => expect(left).toHaveBeenCalled());
-		expect(said, "a window drawn, however late, doesn't leave blank").toHaveLength(
-			2,
-		);
+		expect(
+			said,
+			"a window drawn, however late, doesn't leave blank",
+		).toHaveLength(2);
 	});
-	it("journals a window whose attach was answered after it had left", async () => {
+	it.each([
+		{ bound: 0, slowly: "journals", lines: 1 },
+		{ bound: 60_000, slowly: "says nothing of", lines: 0 },
+	])("$slowly a window whose attach was answered, inside a bound of $bound ms or past it, after it had left", async ({
+		bound,
+		lines,
+	}) => {
 		const said: string[] = [];
 		let answer = (): void => undefined;
 		let reached = false;
@@ -582,7 +589,7 @@ describe("viewer connection lifecycle", () => {
 			backend: held,
 			report,
 			say: (line) => said.push(line),
-			attachSlowMs: 20,
+			attachSlowMs: bound,
 			viewer: { attach },
 		});
 		const socket = createConnection(path);
@@ -595,18 +602,21 @@ describe("viewer connection lifecycle", () => {
 		);
 		socket.destroy();
 		await closed;
-		// A real pause: nothing outside the host says when it has heard the
-		// close, which comes on its own end of the socket after the client's.
-		await new Promise((done) => setTimeout(done, 50));
+		// The client's close has shut its end, so the host reads the end of
+		// its own on the loop's next poll; an immediate runs only after one.
+		await new Promise((done) => setImmediate(done));
+		await new Promise((done) => setImmediate(done));
 		answer();
-		await vi.waitFor(() =>
-			expect(said).toEqual([
+		// The answer goes out over promises alone, all settled by an immediate.
+		await new Promise((done) => setImmediate(done));
+		expect(said).toEqual(
+			Array.from({ length: lines }, () =>
 				expect.stringMatching(
 					new RegExp(
-						`\\(${a}\\): a window's attach was answered after the window had left$`,
+						`\\(${a}\\): a window's attach was answered [0-9.]+ s after it was asked, once the window had left$`,
 					),
 				),
-			]),
+			),
 		);
 		expect(attach, "and no viewer is attached for it").not.toHaveBeenCalled();
 	});

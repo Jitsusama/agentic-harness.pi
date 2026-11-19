@@ -40,9 +40,10 @@ describe("an attach's waits", () => {
 		waits.next("its open to finish");
 		waits.next("its park to settle");
 		vi.advanceTimersByTime(BOUND_MS - 1);
-		expect(said, "the quick open, and the park so far, say nothing").toHaveLength(
-			1,
-		);
+		expect(
+			said,
+			"the quick open, and the park so far, say nothing",
+		).toHaveLength(1);
 		vi.advanceTimersByTime(1);
 		expect(said[1]).toBe(
 			`${WHO}: a window's attach has waited 0.2 s, now on its park to settle`,
@@ -80,6 +81,32 @@ describe("an attach's waits", () => {
 		);
 		expect(said[3], "no line breaks or escapes reach the journal").toBe(
 			`${WHO}: a window's attach was refused after 0.1 s: not hosted[2J here`,
+		);
+	});
+
+	it("keeps DEL, C1 and bidi marks out of a reason, and says one that can't be read as none", () => {
+		const said: string[] = [];
+		const refuse = (refusal: unknown) => {
+			const waits = attachWaits(WHO, (line) => said.push(line), BOUND_MS);
+			waits.next("its open to finish");
+			vi.advanceTimersByTime(BOUND_MS);
+			waits.refused(refusal);
+			return said.at(-1);
+		};
+		const refused = `${WHO}: a window's attach was refused after 0.1 s:`;
+		expect(refuse("not\u007f\u009b hosted"), "DEL and C1 go").toBe(
+			`${refused} not hosted`,
+		);
+		expect(refuse("\u202eereh\u2066 hosted\u200f"), "bidi marks go").toBe(
+			`${refused} ereh hosted`,
+		);
+		const unreadable = {
+			toString(): string {
+				throw new Error("no text");
+			},
+		};
+		expect(refuse(unreadable), "a refusal whose text throws").toBe(
+			`${refused} no reason given`,
 		);
 	});
 });

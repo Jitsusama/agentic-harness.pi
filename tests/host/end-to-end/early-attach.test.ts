@@ -166,6 +166,9 @@ describe.skipIf(!packageDir)(
 	},
 );
 
+/** What connecting says of a host's socket before the host listens on it. */
+const UNBOUND = ["ENOENT", "ECONNREFUSED"];
+
 /**
  * A viewer attached through `path` once a host listens there, as a
  * window's attach is when it starts before the next host has bound it.
@@ -179,7 +182,10 @@ async function attachOnceListening(
 		try {
 			return await attach(path, sessionId, ROWS, COLUMNS);
 		} catch (error) {
-			if (Date.now() > deadline) throw error;
+			// Only a socket nobody listens on yet is tried again: a host that
+			// refuses the attach fails the case.
+			const unbound = UNBOUND.includes(String(Reflect.get(Object(error), "code")));
+			if (!unbound || Date.now() > deadline) throw error;
 			// Nothing outside the host says when it binds its socket, so the
 			// attach tries again every REACH_EVERY_MS, as a window's loop does.
 			await new Promise((done) => setTimeout(done, REACH_EVERY_MS));
