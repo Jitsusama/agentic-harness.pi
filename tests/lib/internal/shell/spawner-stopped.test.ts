@@ -19,13 +19,15 @@ vi.mock("node:fs/promises", async (actual) => ({
 		}),
 }));
 
-/** pi's own spawn, which this case never reaches. */
-const own: BashOperations = {
-	exec: async () => ({ exitCode: 0 }),
-};
-
 describe("a command whose pi-spawner stops before it is sent", () => {
-	it("is told the spawner stopped, rather than waiting for a start", async () => {
+	it("runs through pi's own spawn, rather than failing or waiting for a start", async () => {
+		const started: string[] = [];
+		const own: BashOperations = {
+			exec: async (command) => {
+				started.push(command);
+				return { exitCode: 3 };
+			},
+		};
 		const program = spawnerStandIn();
 		const operations = spawnedBy(own, {
 			env: { [SPAWNER_VARIABLE]: "on" },
@@ -45,8 +47,10 @@ describe("a command whose pi-spawner stops before it is sent", () => {
 		await new Promise((done) => setImmediate(done));
 		checks.waiting?.();
 
-		await expect(ran, "how the command ended").rejects.toThrow(
-			"pi-spawner stopped before the command started",
-		);
+		await expect(ran, "how the command ended").resolves.toEqual({
+			exitCode: 3,
+		});
+		expect(program.asked, "what reached the stopped spawner").toEqual([]);
+		expect(started, "what pi's own spawn started").toEqual(["true"]);
 	});
 });

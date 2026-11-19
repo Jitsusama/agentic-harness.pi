@@ -103,10 +103,13 @@ const SAID_MOST = 1024;
 const EXIT_STDIO_GRACE_MS = 100;
 
 /**
- * How long a command given up on before it started is waited for, to be
- * killed and seen to end, before its spawner is stopped whole.
+ * How long a command given up on before it started waits for its spawner
+ * to say it started, before the spawner is retired and the call settles.
  */
 const GIVEN_UP_GRACE_MS = 5000;
+
+/** What runThrough answers when its spawner stopped before it was sent. */
+const UNSENT = Symbol("unsent");
 
 /** The longest time limit pi takes, which is setTimeout's. */
 export const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -179,10 +182,12 @@ export interface SpawnerOptions {
 	/** How often a running spawner's session is said again (RESAY_MS). */
 	resay?: number;
 	/**
-	 * How long a command given up on before it started is waited for
-	 * before its spawner is stopped (GIVEN_UP_GRACE_MS).
+	 * How long a command given up on before it started waits to be told
+	 * started, before its spawner is retired (GIVEN_UP_GRACE_MS).
 	 */
 	givenUpGrace?: number;
+	/** Write a line to the host's log; by default to standard error. */
+	say?: (line: string) => void;
 	/** Whether the program at a path spares kept commands when pi goes. */
 	asksKeeps?: (program: string) => Promise<boolean>;
 	/** Kill a command's process group, as pi's stop does. */
@@ -237,10 +242,10 @@ interface Link {
 	/** Close the program once the commands it runs have ended. */
 	retire(): void;
 	/**
-	 * Stop the program now, with whatever it runs, as one that left a
-	 * command unanswered: it is gone, as one that stopped on its own.
+	 * Whether the program was retired, so it takes no more commands and
+	 * its stop is no loss.
 	 */
-	abandon(): void;
+	retired(): boolean;
 	/**
 	 * Keep the program open, though retired, until what this returns is
 	 * called: a command about to be sent holds it as one running does.
@@ -291,7 +296,7 @@ export function spawnedBy(
 	let keeps: Promise<boolean> | undefined;
 	const linked = (quest: string | undefined): Link | undefined => {
 		if (lost) return undefined;
-		if (link && linkQuest === quest) return link;
+		if (link && linkQuest === quest && !link.retired()) return link;
 		// Another quest's work: the one running closes once its own commands
 		// end, and the next is filed under this quest from its start.
 		link?.retire();
@@ -309,8 +314,13 @@ export function spawnedBy(
 			made = connect(begun, kill, () => {
 				ended = true;
 				clearInterval(resaying);
-				// One retired for another quest's ends with no loss to the next.
+				// One retired, for another quest's or for a command it left
+				// unanswered, ends with no loss to the next.
 				if (link !== made) return;
+				if (made?.retired() === true) {
+					link = undefined;
+					return;
+				}
 				lost = true;
 				link = undefined;
 			});
@@ -391,39 +401,42 @@ export function spawnedBy(
 				if (waited === "expired" || (left !== undefined && left <= 0)) {
 					throw new Error(`timeout:${settings.timeout}`);
 				}
-				// Only its own spawner stopping while it waited leaves it to
-				// pi's own spawn, given what time is left; any other, the one
-				// serving now included, may stop without moving it.
-				if (through.stopped()) {
-					if (left === undefined) {
-						return await fallback.exec(command, cwd, settings);
-					}
-					try {
-						return await fallback.exec(command, cwd, {
-							...settings,
-							timeout: left / 1000,
-						});
-					} catch (error) {
-						// It ran out of the time asked for, not of what was left.
-						if (
-							error instanceof Error &&
-							error.message.startsWith("timeout:")
-						) {
-							throw new Error(`timeout:${settings.timeout}`);
-						}
-						throw error;
-					}
+				// Only its own spawner stopping before the command reached it
+				// leaves it to pi's own spawn, given what time is left; any
+				// other, the one serving now included, may stop without moving
+				// it.
+				const ran = through.stopped()
+					? UNSENT
+					: await runThrough(
+							through,
+							shell,
+							command,
+							cwd,
+							settings,
+							left,
+							kill,
+							options.givenUpGrace ?? GIVEN_UP_GRACE_MS,
+							options.say ?? ((line) => process.stderr.write(line)),
+						);
+				if (ran !== UNSENT) return ran;
+				const rest =
+					limit === undefined ? undefined : limit - (performance.now() - asked);
+				if (rest === undefined) {
+					return await fallback.exec(command, cwd, settings);
 				}
-				return await runThrough(
-					through,
-					shell,
-					command,
-					cwd,
-					settings,
-					left,
-					kill,
-					options.givenUpGrace ?? GIVEN_UP_GRACE_MS,
-				);
+				if (rest <= 0) throw new Error(`timeout:${settings.timeout}`);
+				try {
+					return await fallback.exec(command, cwd, {
+						...settings,
+						timeout: rest / 1000,
+					});
+				} catch (error) {
+					// It ran out of the time asked for, not of what was left.
+					if (error instanceof Error && error.message.startsWith("timeout:")) {
+						throw new Error(`timeout:${settings.timeout}`);
+					}
+					throw error;
+				}
 			} finally {
 				release();
 			}
@@ -615,7 +628,8 @@ async function runThrough(
 	limit: number | undefined,
 	kill: (pid: number) => void,
 	grace: number,
-): Promise<{ exitCode: number }> {
+	say: (line: string) => void,
+): Promise<{ exitCode: number } | typeof UNSENT> {
 	const { onData, signal, timeout, env = {} } = settings;
 	if (signal?.aborted) throw new Error("aborted");
 	try {
@@ -627,6 +641,8 @@ async function runThrough(
 	}
 	// A stop during the check sends nothing.
 	if (signal?.aborted) throw new Error("aborted");
+	// A spawner that stopped during it is pi's own spawn's to replace.
+	if (link.stopped()) return UNSENT;
 	const run = link.run(shell.shell, [...shell.args, command], cwd, env, onData);
 	// The limit and a stop count from the ask, not from STARTED, so a
 	// spawner slow to start the command can't stretch either.
@@ -653,7 +669,7 @@ async function runThrough(
 		else signal?.addEventListener("abort", stop, { once: true });
 		const first = await Promise.race([run.started, givenUp]);
 		if (typeof first !== "number") {
-			await endOnceStarted(link, run, kill, grace);
+			await endOnceStarted(link, run, kill, grace, say);
 			throw new Error(first === "aborted" ? "aborted" : `timeout:${timeout}`);
 		}
 		pid = first;
@@ -669,32 +685,42 @@ async function runThrough(
 
 /**
  * Ends a command given up on before its spawner said it started: killed
- * once it starts, and waited for, so the call settles after it is gone,
- * as pi's own spawn settles after its child closes. A spawner that says
- * nothing for `grace` is stopped whole, so the command can't start after
- * its call has settled, and later commands go to pi's own spawn.
+ * whenever it starts, and once started waited for, so the call settles
+ * after it is gone, as pi's own spawn settles after its child closes.
+ * Only the wait to be told started is bounded: a spawner that says
+ * nothing for `grace` is retired, so it takes no more commands and later
+ * ones start another, while what it already runs carries on and it
+ * closes once that ends. The call then settles; a start said after it is
+ * still killed.
  */
 async function endOnceStarted(
 	link: Link,
 	run: Run,
 	kill: (pid: number) => void,
 	grace: number,
+	say: (line: string) => void,
 ): Promise<void> {
-	const ended = run.started
-		.then((pid) => {
+	const started = run.started.then(
+		(pid) => {
 			kill(pid);
-			return run.done;
-		})
-		.then(
-			() => undefined,
-			() => undefined,
-		);
+			return "started" as const;
+		},
+		() => "lost" as const,
+	);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const waited = new Promise<"waited">((settle) => {
 		timer = setTimeout(() => settle("waited"), grace);
 	});
 	try {
-		if ((await Promise.race([ended, waited])) === "waited") link.abandon();
+		const first = await Promise.race([started, waited]);
+		if (first === "started") {
+			await run.done.catch(() => undefined);
+		} else if (first === "waited") {
+			link.retire();
+			say(
+				`pi-spawner didn't say within ${grace} ms whether it started a command given up on, so it takes no more; it is killed if it starts\n`,
+			);
+		}
 	} finally {
 		clearTimeout(timer);
 	}
@@ -942,14 +968,7 @@ function connect(
 			retiring = true;
 			closeOnceIdle();
 		},
-		abandon() {
-			retiring = true;
-			// Started detached, its group is its own, and what it runs is
-			// killed as it is lost below.
-			if (started.pid !== undefined) kill(started.pid);
-			if (!started.input.writableEnded) started.input.end();
-			end();
-		},
+		retired: () => retiring,
 		hold() {
 			holding += 1;
 			let released = false;

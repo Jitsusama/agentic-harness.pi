@@ -285,7 +285,12 @@ pi that ran one earlier and runs without it now would keep that one
 idle until it ends. A shared host running `pi-spawner` stops none,
 since there they are other conversations'. When pi goes, its
 `pi-spawner` kills every command still running but a kept one (see
-Through a Move below).
+Through a Move below). A command stopped, or out of time, before its
+spawner says it started is killed once it does, and its call settles
+once it ends; a spawner that says nothing of it for five seconds is
+retired, said in the host's log, so the next command starts
+another while the commands it already runs carry on, and it kills the
+one given up on if that starts later.
 
 A shared host's conversations share its process, so the machine's
 mycelium node can't tell from that which one asked it for a run. The
@@ -308,8 +313,9 @@ node keeps the word only while it runs, so the host says each running
 `pi-spawner` again every 30 seconds, with the start it read when the
 spawner began. A command run another way, as pi's own once a spawner
 is lost, or kept through a host's restart under a
-spawner the next host didn't start, is told no conversation. A
-spawner counts as lost once it ends, so a command that kills its own
+spawner the next host didn't start, is told its host's conversation
+only where the host holds just one, and otherwise none. A spawner
+not retired counts as lost once it ends, so a command that kills its own
 leaves its conversation's later commands told none until the
 conversation starts again. An unfenced command can do the same to
 every conversation's, since it can see and signal every process of

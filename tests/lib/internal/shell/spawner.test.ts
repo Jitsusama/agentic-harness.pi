@@ -312,12 +312,26 @@ describe("the agent's commands through pi-spawner", () => {
 		await ended;
 	});
 
-	it("stops a spawner that never says a command given up on started, and leaves later ones to pi's own spawn", async () => {
-		const program = standIn();
+	it("retires a spawner that never says a command given up on started, its other commands running on, and starts another for the next", async () => {
+		const first = standIn();
+		const second = standIn();
+		const programs = [first, second];
+		const said: string[] = [];
 		const { own, operations, kill } = through({
 			givenUpGrace: 20,
-			start: () => ({ ...program.start(), pid: 4242 }),
+			say: (line) => said.push(line),
+			start: () => {
+				const next = programs.shift();
+				if (next === undefined) throw new Error("started too often");
+				return { ...next.start(), pid: 4242 };
+			},
 		});
+		const sibling = operations.exec("sleep 60", "/", {
+			onData: () => {},
+			env: {},
+		});
+		await askedFor(first, 1);
+		first.started(1, 80);
 		const stopping = new AbortController();
 
 		const ran = operations.exec("sleep 9", "/", {
@@ -325,17 +339,68 @@ describe("the agent's commands through pi-spawner", () => {
 			env: {},
 			signal: stopping.signal,
 		});
-		await askedFor(program, 1);
+		await askedFor(first, 2);
 		stopping.abort();
 
 		await expect(ran, "how the command ended").rejects.toThrow("aborted");
-		expect(program.hungUp(), "the spawner was told to stop").toBe(true);
-		expect(kill, "the spawner was killed").toHaveBeenCalledWith(4242);
+		expect(said, "what the host's log was told").toEqual([
+			expect.stringContaining("takes no more"),
+		]);
+		expect(kill, "the spawner and its other command").not.toHaveBeenCalled();
+		expect(first.hungUp(), "closed under its other command").toBe(false);
+		first.started(2, 90);
+		await vi.waitFor(() =>
+			expect(kill, "a start after it was given up on").toHaveBeenCalledWith(90),
+		);
+		expect(kill, "only the one given up on").toHaveBeenCalledTimes(1);
+
+		const next = operations.exec("true", "/", { onData: () => {}, env: {} });
+		await askedFor(second, 1);
+		second.ends(1, 21);
+		await expect(next, "the next command").resolves.toEqual({ exitCode: 0 });
+		expect(own.calls, "what pi's own spawn started").toEqual([]);
+
+		first.ends(1, 0);
+		await expect(sibling, "the other command").resolves.toEqual({
+			exitCode: 0,
+		});
+		first.ends(2, 137);
+		await vi.waitFor(() =>
+			expect(first.hungUp(), "closed once its commands ended").toBe(true),
+		);
+	});
+
+	it("waits for a command given up on that its spawner says started late but within the grace, until it ends", async () => {
+		const program = standIn();
+		const { operations, kill } = through({
+			givenUpGrace: 20,
+			start: () => ({ ...program.start(), pid: 4242 }),
+		});
+		const stopping = new AbortController();
+		let settled = false;
+
+		const ran = operations
+			.exec("sleep 9", "/", {
+				onData: () => {},
+				env: {},
+				signal: stopping.signal,
+			})
+			.finally(() => {
+				settled = true;
+			});
+		await askedFor(program, 1);
+		stopping.abort();
 		program.started(1, 90);
-		await delivered();
-		expect(kill, "a start after it was stopped").not.toHaveBeenCalledWith(90);
-		await operations.exec("true", "/", { onData: () => {}, env: {} });
-		expect(own.calls, "what pi's own spawn started").toEqual(["true"]);
+		await vi.waitFor(() =>
+			expect(kill, "the command once started").toHaveBeenCalledWith(90),
+		);
+		// Past the grace, a started command is still waited for.
+		await new Promise((done) => setTimeout(done, 60));
+		expect(settled, "settled before the command ended").toBe(false);
+		expect(program.hungUp(), "the spawner, retired").toBe(false);
+
+		program.ends(1, 137);
+		await expect(ran, "how the command ended").rejects.toThrow("aborted");
 	});
 
 	it("kills the command's group at its time limit, and says so as pi does", async () => {
