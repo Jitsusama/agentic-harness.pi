@@ -12,7 +12,7 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { headFromFiles } from "./head.ts";
 
 /**
@@ -55,6 +55,27 @@ const VERSION_FOLDERS: ReadonlySet<string> = new Set(["versions", "releases"]);
 export function installOfVersion(root: string): string | undefined {
 	const parent = dirname(root);
 	return VERSION_FOLDERS.has(basename(parent)) ? dirname(parent) : undefined;
+}
+
+/**
+ * A path to `file` that outlives the version it sits in: the same file
+ * through the install's `current` link, for a file in an installed
+ * version that the link's version also holds; `file` itself otherwise.
+ * Words a window keeps for days name this, since an install keeps only
+ * the versions a live pi loaded, and on 19 November three windows closed
+ * as a host died because their words named a version since removed.
+ */
+export function lastingPath(
+	file: string,
+	exists: (path: string) => boolean = existsSync,
+): string {
+	for (let root = dirname(file); root !== dirname(root); root = dirname(root)) {
+		const install = installOfVersion(root);
+		if (install === undefined) continue;
+		const lasting = join(install, "current", relative(root, file));
+		return exists(lasting) ? lasting : file;
+	}
+	return file;
 }
 
 /**

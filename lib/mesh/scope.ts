@@ -24,7 +24,7 @@
  * attention it gives.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { isRecord } from "../internal/record.ts";
@@ -119,25 +119,20 @@ export function checkoutOf(cwd: string): string | undefined {
 	return found;
 }
 
-/** Repository names already read, by checkout; they never change. */
-const repositories = new Map<string, string>();
-
 /**
  * The name of the repository checked out here, as people write it
  * (agentic-harness.pi), rather than the folder it sits in, which for a
  * worktree is a name only the tree broker uses. Read from the origin
  * remote in git's own config, without running git, since presence is
- * worked out often. With no such remote, the main checkout's folder,
+ * worked out often, and following it as the key does (originUrl reads
+ * the config again only once it moves). With no such remote, the main
+ * checkout's folder,
  * so every worktree of a local repository shares one group rather than
  * each making its own (71 `#repo/worktree-local-acceluary-*` on 15
  * November).
  */
 export function repositoryName(checkout: string): string {
-	const known = repositories.get(checkout);
-	if (known !== undefined) return known;
-	const name = originName(checkout) ?? mainCheckoutName(checkout);
-	repositories.set(checkout, name);
-	return name;
+	return originName(checkout) ?? mainCheckoutName(checkout);
 }
 
 function originName(checkout: string): string | undefined {
@@ -263,14 +258,40 @@ function mainCheckoutName(checkout: string): string {
 		: basename(common).replace(/\.git$/, "");
 }
 
-/** The URL of a checkout's origin remote, read from git's own config. */
+/** An origin read from a git config, with the config's stamp as it was read. */
+interface ReadOrigin {
+	readonly stamp: string;
+	readonly url: string | undefined;
+}
+
+/** Origins already read, by config file. */
+const origins = new Map<string, ReadOrigin>();
+
+/**
+ * The URL of a checkout's origin remote, read from git's own config, and
+ * read again only once that config's file, time or size moves: git
+ * writes its config to a lock file and renames it over, so each write
+ * makes a new file. Every presence publish asks this of each held tree,
+ * and core.nix's config was half a megabyte of branch sections, about
+ * 5 ms a read: rereading it each time held the host's loop busy
+ * (19 November). Any credentials in the URL are left out, so the copy
+ * kept for the life of the host holds none.
+ */
 function originUrl(checkout: string): string | undefined {
 	try {
-		const config = readFileSync(join(commonGitDir(checkout), "config"), "utf8");
-		const origin = config
+		const file = join(commonGitDir(checkout), "config");
+		const { ino, mtimeMs, size } = statSync(file);
+		const stamp = `${ino}:${mtimeMs}:${size}`;
+		const known = origins.get(file);
+		if (known?.stamp === stamp) return known.url;
+		const origin = readFileSync(file, "utf8")
 			.split(/^\[/m)
 			.find((section) => section.startsWith('remote "origin"]'));
-		return origin?.match(/^\s*url\s*=\s*(\S+)\s*$/m)?.[1];
+		const url = origin
+			?.match(/^\s*url\s*=\s*(\S+)\s*$/m)?.[1]
+			?.replace(/^([a-z+]+:\/\/)[^@/]+@/, "$1");
+		origins.set(file, { stamp, url });
+		return url;
 	} catch {
 		return undefined;
 	}

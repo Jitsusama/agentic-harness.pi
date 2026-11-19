@@ -24,6 +24,12 @@
  * which says so and looks again, waiting longer the more `--failures`
  * its words count. Under none, a view or a release runs it itself,
  * ending as it ends.
+ *
+ * The words a window keeps name this script through the install's
+ * `current` link, so they still run once the version that wrote them is
+ * removed, which closed three windows as a host died on 19 November. So
+ * these words are read by later versions than the one that wrote them:
+ * keep every flag above accepted, and add new ones as optional.
  */
 
 import { spawnSync } from "node:child_process";
@@ -36,6 +42,7 @@ import {
 	joinRelease,
 	joinView,
 } from "../host/service/join.ts";
+import { lastingPath } from "../lib/internal/reload/loaded.ts";
 import {
 	ATTACH_FAILED_ENV,
 	hostHold,
@@ -122,11 +129,13 @@ const joined = await joining();
 // Released, the window carries on as this join again, which waits for the
 // host to let the log go before plain pi takes it up; after a failed
 // attach, it carries on as this join too, which looks again, counting
-// this failure with those before it, so the next waits longer.
+// this failure with those before it, so the next waits longer. It names
+// this script through the install's link, since the version node resolved
+// it to may be gone by the time a host dies under the window.
 const released = [
 	process.execPath,
 	JOIN_QUIET,
-	fileURLToPath(import.meta.url),
+	lastingPath(fileURLToPath(import.meta.url)),
 	"--released",
 	...(failed === "" ? [] : ["--failures", String(failures + 1)]),
 	"--session",

@@ -24,6 +24,7 @@
 
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { lastingPath } from "../../lib/internal/reload/loaded.ts";
 import { JOIN_QUIET } from "../../lib/internal/session/host-holds.ts";
 import {
 	AGAIN_ENV,
@@ -35,10 +36,20 @@ import {
 } from "../../lib/internal/session/park.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
 
-/** The join a window's pi hands it to, beside this package's scripts. */
+/**
+ * The join a window's pi hands it to, beside this package's scripts, in
+ * the version this pi loaded: its holder starts it at once, while that
+ * version is still on disk, so the hand-over runs one version throughout.
+ */
 export const JOIN_SCRIPT = fileURLToPath(
 	new URL("../../scripts/host-join.ts", import.meta.url),
 );
+
+/**
+ * The join named through the install's link, for words a launcher may
+ * run days later, once the version this pi loaded has been removed.
+ */
+export const LASTING_JOIN_SCRIPT = lastingPath(JOIN_SCRIPT);
 
 /** What a pi needs to hand its window over. */
 export interface InPlaceFacts {
@@ -145,7 +156,7 @@ export function hostedPresence(
 					view: [
 						process.execPath,
 						JOIN_QUIET,
-						JOIN_SCRIPT,
+						LASTING_JOIN_SCRIPT,
 						"--view",
 						"--session",
 						session,
