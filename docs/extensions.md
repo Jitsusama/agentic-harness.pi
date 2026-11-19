@@ -53,10 +53,14 @@ folder. All but `advisor`, `convention-context` and
 
   `model-retry-workflow` asks the model again when a call failed
   for a moment and pi's own retries, 14 seconds of them, ran out:
-  30 seconds later, doubling to 5 minutes, for 6 tries. It uses
-  pi's own judgement of what is worth retrying, and says each try
-  through job-workflow. A session left on a timed-out turn sat idle
-  until somebody noticed.
+  30 seconds later, doubling to 4.5 minutes, then every 4.5 minutes
+  until a call answers or the person types or presses Escape; a
+  streak whose failures were billed gets 3 tries. It
+  uses pi's own judgement of what is worth retrying, says each try
+  through job-workflow, and keeps each wait in the session so a
+  reload or a host restart takes it up. A session left on a
+  timed-out turn sat idle until somebody noticed, and on 18 November
+  a reload between runs left three idle for hours after relay 502s.
 
   `stray-output-workflow` keeps writes off pi's screen while its TUI
   holds the terminal. pi guards neither stream in interactive mode, and

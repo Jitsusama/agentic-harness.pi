@@ -2,7 +2,9 @@
  * Model Retry Workflow: when a model call fails for a moment (a
  * timeout, a server error, an overloaded provider) and pi's own quick
  * retries run out, the session waits and asks again on a slower
- * schedule, rather than resting on an error nobody may see.
+ * schedule, rather than resting on an error nobody may see. It goes
+ * on until a call answers, the person types or presses Escape, and a
+ * reload or a host restart in the middle of a wait does not end it.
  *
  * Only a session somebody sits at retries: a subagent's run and a
  * print run end with their job, and whoever started them judges a
@@ -17,6 +19,13 @@ import { createRetrier } from "./retry.ts";
 export default function modelRetryWorkflow(pi: ExtensionAPI) {
 	if (isSubagent()) return;
 	const retrier = createRetrier(pi);
+
+	// A reload or a restart ends the last load's timer; the session's own
+	// record says whether it was waiting (record.ts).
+	pi.on("session_start", async (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		retrier.resumed(ctx);
+	});
 
 	// A run can end more than once before it settles (pi's own retry, a
 	// queued follow-up), so the last reply is kept until it does.
@@ -40,6 +49,14 @@ export default function modelRetryWorkflow(pi: ExtensionAPI) {
 	pi.on("input", async (event) => {
 		if (event.source !== "extension") retrier.typed();
 		return { action: "continue" };
+	});
+
+	// An Escape that closes a dialog or a panel is meant for it alone.
+	pi.on("ui_prompt_start", async () => {
+		retrier.prompting(true);
+	});
+	pi.on("ui_prompt_end", async () => {
+		retrier.prompting(false);
 	});
 
 	pi.on("session_shutdown", async () => {

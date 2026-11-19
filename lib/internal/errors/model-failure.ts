@@ -23,14 +23,40 @@ const TRANSIENT_ERROR =
 /** The first wait after pi's own retries run out. */
 export const FIRST_WAIT_MS = 30_000;
 
-/** The longest wait between two tries. */
-export const LONGEST_WAIT_MS = 300_000;
+/**
+ * The longest wait between two tries, and the wait between every try
+ * once the doubling reaches it. There is no last try for a failure
+ * nothing billed: on 18 November relay 502s came and went for an hour,
+ * and a count that gave up at about 17 minutes left turns idle with
+ * their work in hand. It is under the five minutes a provider keeps a
+ * prompt cached, so a try that is billed reads its input from cache.
+ */
+export const LONGEST_WAIT_MS = 270_000;
 
 /**
- * How many times the harness asks again before it leaves the turn
- * ended: about 17 minutes of waiting in all.
+ * The most tries of a streak whose failures were billed. A timeout
+ * can come after the provider read the whole input, and a request too
+ * big to finish in time fails so every try, at full price.
  */
-export const MOST_TRIES = 6;
+export const MOST_BILLED_TRIES = 3;
+
+/**
+ * Whether a failed reply was billed: the provider read its input, or
+ * says it cost something. A 502 or an overloaded provider never read
+ * it, and bills nothing.
+ */
+export function wasBilled(reply: AssistantMessage): boolean {
+	// A reply read back from a session's log may carry no usage at all.
+	const usage: Partial<AssistantMessage["usage"]> = reply.usage ?? {};
+	const spent = [
+		usage.input,
+		usage.cacheRead,
+		usage.cacheWrite,
+		usage.output,
+		usage.cost?.total,
+	];
+	return spent.some((count) => typeof count === "number" && count > 0);
+}
 
 /** Whether a failed reply is one a second call could get past. */
 export function isTransientFailure(reply: AssistantMessage): boolean {
@@ -61,15 +87,17 @@ export function failedForAMoment(
 
 /**
  * How long to wait before try `attempt` (1 for the first): doubling
- * from {@link FIRST_WAIT_MS} up to {@link LONGEST_WAIT_MS}, or
- * undefined once {@link MOST_TRIES} are spent.
+ * from {@link FIRST_WAIT_MS} up to {@link LONGEST_WAIT_MS}, then that
+ * for every try after, or undefined for a number that is no try.
  */
 export function waitBefore(attempt: number): number | undefined {
-	if (!Number.isInteger(attempt) || attempt < 1 || attempt > MOST_TRIES) {
-		return undefined;
-	}
+	if (!Number.isInteger(attempt) || attempt < 1) return undefined;
+	if (attempt > DOUBLINGS) return LONGEST_WAIT_MS;
 	return Math.min(FIRST_WAIT_MS * 2 ** (attempt - 1), LONGEST_WAIT_MS);
 }
+
+/** Past this many tries the doubling has long reached the longest wait. */
+const DOUBLINGS = 32;
 
 /** The last assistant reply among a run's messages, if it has one. */
 export function lastReply(

@@ -1,7 +1,7 @@
 /**
  * The wait between a run that ended on a passing model failure and
  * the next try: when it starts, what the person sees while it runs,
- * and what ends it early.
+ * what ends it early, and how a fresh load takes it up.
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -9,15 +9,24 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { isKeyRelease, Key, matchesKey } from "@earendil-works/pi-tui";
 import {
+	FIRST_WAIT_MS,
 	failedForAMoment,
 	failureLine,
-	MOST_TRIES,
+	MOST_BILLED_TRIES,
 	waitBefore,
+	wasBilled,
 } from "../../lib/internal/errors/model-failure.ts";
 import { whileCurrent } from "../../lib/internal/errors/stale.ts";
 import { findJobHost, type Job } from "../../lib/jobs/index.ts";
 import { footerMark } from "../../lib/ui/footer-mark.ts";
+import {
+	RETRY_ENTRY,
+	type RetryMark,
+	TRY_LABEL,
+	unfinishedWait,
+} from "./record.ts";
 
 /** The footer key the waiting mark is written under. */
 const STATUS_KEY = "model-retry";
@@ -29,6 +38,8 @@ const MS_PER_SECOND = 1000;
 
 /** The retry state of one session, and what moves it. */
 export interface Retrier {
+	/** A load started: take up a wait the last one left, if any. */
+	resumed(ctx: ExtensionContext): void;
 	/** A run ended: its last reply, when it had one. */
 	ended(reply: AssistantMessage | undefined): void;
 	/** The run settled: wait and try again, or let it rest. */
@@ -37,6 +48,8 @@ export interface Retrier {
 	started(): void;
 	/** The person typed: whatever came before is theirs to judge. */
 	typed(): void;
+	/** A dialog or panel opened (true) or closed (false). */
+	prompting(open: boolean): void;
 	/** The session is going away. */
 	stop(): void;
 }
@@ -45,13 +58,30 @@ export interface Retrier {
 export function createRetrier(pi: ExtensionAPI): Retrier {
 	let last: AssistantMessage | undefined;
 	let tries = 0;
+	// How many of the streak's failures were billed, which caps its tries.
+	let billed = 0;
+	const countAfresh = () => {
+		tries = 0;
+		billed = 0;
+	};
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let shown: ExtensionContext | undefined;
+	let unlisten: (() => void) | undefined;
 	let unsaid: Job | undefined;
+	// An Escape while a dialog or panel is open closes it, not the wait.
+	let prompts = false;
+
+	// The mark goes in the session's branch, so the load after a reload or
+	// a restart knows what this one was waiting on (record.ts).
+	const mark = whileCurrent((said: RetryMark) => {
+		pi.appendEntry(RETRY_ENTRY, said);
+	});
 
 	const stopWaiting = () => {
 		if (timer) clearTimeout(timer);
 		timer = undefined;
+		unlisten?.();
+		unlisten = undefined;
 		if (shown) whileCurrent(clearMark)(shown);
 		shown = undefined;
 		// A try not yet said would start a run on top of one already going.
@@ -59,10 +89,20 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 		unsaid = undefined;
 	};
 
+	/** Stop the count for good: the person has it now. */
+	const handBack = () => {
+		const counting = tries > 0 || timer !== undefined;
+		stopWaiting();
+		countAfresh();
+		if (counting) mark({ attempt: 0 });
+	};
+
 	// The try is said through job-workflow, the one thing that starts a
 	// turn nobody typed, at a moment no run or prompt is under way.
 	const tryAgain = (ctx: ExtensionContext, attempt: number, line: string) => {
 		timer = undefined;
+		unlisten?.();
+		unlisten = undefined;
 		clearMark(ctx);
 		shown = undefined;
 		const host = findJobHost(pi.events);
@@ -73,10 +113,7 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 			);
 			return;
 		}
-		const job = host.start({
-			kind: JOB_KIND,
-			label: "try the failed model call again",
-		});
+		const job = host.start({ kind: JOB_KIND, label: TRY_LABEL });
 		unsaid = job;
 		job.onDelivered(() => {
 			if (unsaid === job) unsaid = undefined;
@@ -84,7 +121,77 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 		job.finish({ summary: retryText(attempt, line) });
 	};
 
+	/** Wait `delay` before try `attempt`, saying so in the window. */
+	const wait = (
+		ctx: ExtensionContext,
+		attempt: number,
+		delay: number,
+		reply: AssistantMessage,
+	) => {
+		const line = failureLine(reply);
+		tries = attempt;
+		shown = ctx;
+		ctx.ui.setStatus(
+			STATUS_KEY,
+			footerMark("retrying", "warning", ctx.ui.theme, attempt),
+		);
+		// pi's Escape stops a run, and while this waits there is none, so
+		// the wait hears the key itself, where the window lets it: a host
+		// may give a UI with no raw keys, whatever pi's types say.
+		const hears = typeof ctx.ui.onTerminalInput === "function";
+		if (hears) {
+			unlisten = ctx.ui.onTerminalInput((data) => {
+				if (prompts || isKeyRelease(data)) return undefined;
+				if (matchesKey(data, Key.escape)) whileCurrent(escaped)(ctx);
+				return undefined;
+			});
+		}
+		const stopWith = hears ? "Press Escape or type to stop." : "Type to stop.";
+		ctx.ui.notify(
+			`The model call failed: ${line}. Trying again in ${Math.round(delay / MS_PER_SECOND)} s (try ${attempt}). ${stopWith}`,
+			"warning",
+		);
+		timer = setTimeout(
+			whileCurrent(() => tryAgain(ctx, attempt, line)),
+			delay,
+		);
+		timer.unref?.();
+	};
+
+	const escaped = (ctx: ExtensionContext) => {
+		handBack();
+		ctx.ui.notify(
+			"Stopped trying the model call again. Type to carry on.",
+			"info",
+		);
+	};
+
 	return {
+		resumed(ctx) {
+			stopWaiting();
+			countAfresh();
+			// A run under way settles on its own, and its settling decides.
+			if (!ctx.isIdle()) return;
+			const now = Date.now();
+			const left = unfinishedWait(
+				ctx.sessionManager.getBranch(),
+				ctx.model?.contextWindow ?? 0,
+				now,
+			);
+			if (!left) return;
+			billed = left.billed;
+			// A try the last load kept unsaid as its host restarted is said by
+			// job-workflow in this one; the count goes on from it.
+			if (left.carried) {
+				tries = left.attempt;
+				return;
+			}
+			// Never sooner than the first wait, so the person sees the notice
+			// and can stop it before a try left overdue goes out.
+			const delay = Math.max(left.due - now, FIRST_WAIT_MS);
+			mark({ attempt: left.attempt, due: now + delay });
+			wait(ctx, left.attempt, delay, left.reply);
+		},
 		ended(reply) {
 			if (reply) last = reply;
 		},
@@ -92,47 +199,46 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 			const reply = last;
 			last = undefined;
 			stopWaiting();
-			if (aborted || !reply) {
-				tries = 0;
+			const failed =
+				reply !== undefined &&
+				failedForAMoment(reply, ctx.model?.contextWindow ?? 0);
+			// Escape on a run, pi's own retry among them, stops the count for
+			// good, and the record says so for the loads that follow.
+			if (aborted) {
+				const counting = tries > 0 || failed;
+				countAfresh();
+				if (counting) mark({ attempt: 0 });
 				return;
 			}
-			if (!failedForAMoment(reply, ctx.model?.contextWindow ?? 0)) {
-				tries = 0;
+			if (!reply || !failed) {
+				countAfresh();
 				return;
 			}
-			const attempt = tries + 1;
-			const wait = waitBefore(attempt);
-			const line = failureLine(reply);
-			if (wait === undefined) {
-				tries = 0;
+			// A failure the provider billed may fail so every try, at full
+			// price, so a streak of them gets only a few.
+			if (wasBilled(reply)) billed++;
+			if (billed > MOST_BILLED_TRIES) {
+				countAfresh();
+				mark({ attempt: 0 });
 				ctx.ui.notify(
-					`The model call still fails after ${MOST_TRIES} more tries: ${line}. Type to try again.`,
-					"error",
+					`The model call failed again: ${failureLine(reply)}. Its failures were billed, so the harness stopped after ${MOST_BILLED_TRIES} tries. Type to try again.`,
+					"warning",
 				);
 				return;
 			}
-			tries = attempt;
-			shown = ctx;
-			ctx.ui.setStatus(
-				STATUS_KEY,
-				footerMark("retrying", "warning", ctx.ui.theme, attempt),
-			);
-			ctx.ui.notify(
-				`The model call failed: ${line}. Trying again in ${Math.round(wait / MS_PER_SECOND)} s (${attempt} of ${MOST_TRIES}).`,
-				"warning",
-			);
-			timer = setTimeout(
-				whileCurrent(() => tryAgain(ctx, attempt, line)),
-				wait,
-			);
-			timer.unref?.();
+			const attempt = tries + 1;
+			const delay = waitBefore(attempt) ?? FIRST_WAIT_MS;
+			mark({ attempt, due: Date.now() + delay });
+			wait(ctx, attempt, delay, reply);
 		},
 		started() {
 			stopWaiting();
 		},
 		typed() {
-			stopWaiting();
-			tries = 0;
+			handBack();
+		},
+		prompting(open) {
+			prompts = open;
 		},
 		stop() {
 			stopWaiting();
@@ -142,7 +248,7 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 
 /** What the model reads as the try begins. */
 function retryText(attempt: number, line: string): string {
-	return `The last model call failed (${line}) after pi's own retries. The harness waited and is trying again (${attempt} of ${MOST_TRIES}): carry on from where you left off.`;
+	return `The last model call failed (${line}) after pi's own retries. The harness waited and is trying again (try ${attempt}): carry on from where you left off.`;
 }
 
 function clearMark(ctx: ExtensionContext): void {

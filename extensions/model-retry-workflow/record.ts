@@ -1,0 +1,211 @@
+/**
+ * The retry's own record in the session, so a wait that a reload or a
+ * host restart cuts short is taken up by the load that follows.
+ *
+ * A wait lives in a timer, and a timer dies with its load. On 18
+ * November a reload between runs came seconds after the last relay
+ * 502 in three sessions, which then sat idle for hours, and a host
+ * restart took a pending try from two more. Each wait now leaves a
+ * mark in the session's branch, and a fresh load reads the branch's
+ * end to see whether a turn was left on a passing failure.
+ */
+
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import {
+	failedForAMoment,
+	LONGEST_WAIT_MS,
+	lastReply,
+	MOST_BILLED_TRIES,
+	waitBefore,
+	wasBilled,
+} from "../../lib/internal/errors/model-failure.ts";
+
+/** The custom entry type a wait's mark is kept under. */
+export const RETRY_ENTRY = "model-retry";
+
+/**
+ * A wait's mark: try `attempt` was due at `due`. An attempt of 0 says
+ * the person stopped the count, by typing or with Escape.
+ */
+export interface RetryMark {
+	readonly attempt: number;
+	readonly due?: number;
+}
+
+/**
+ * The label a try is said under through job-workflow, which is how a
+ * try the last load kept unsaid is known in the record it leaves.
+ */
+export const TRY_LABEL = "try the failed model call again";
+
+/** The entry job-workflow keeps a closing session's unsaid results in. */
+const CARRIED_ENTRY = "job-carried";
+
+/**
+ * A wait a fresh load takes up: try `attempt`, due at `due`, with
+ * `billed` of the streak's failures billed so far. When `carried`, the
+ * last load's try was kept unsaid as it closed, and job-workflow says
+ * it in this one, so there is nothing to wait for.
+ */
+export interface UnfinishedWait {
+	readonly attempt: number;
+	readonly due: number;
+	readonly billed: number;
+	readonly carried: boolean;
+	readonly reply: AssistantMessage;
+}
+
+/**
+ * How long a turn left on a failure is still taken up. An old session
+ * opened again, whose last call failed yesterday, is not set trying on
+ * its own; its person types to carry on.
+ */
+export const TAKEN_UP_WITHIN_MS = 3_600_000;
+
+/**
+ * The wait the branch was left in, when its last message is a reply
+ * that failed for a moment, no older than {@link TAKEN_UP_WITHIN_MS}:
+ * the pending try a mark after that reply names, or else the try after
+ * the streak's last mark, or else the first. None once more of the
+ * streak's failures were billed than {@link MOST_BILLED_TRIES} allows.
+ */
+export function unfinishedWait(
+	branch: readonly unknown[],
+	contextWindow: number,
+	now: number,
+): UnfinishedWait | undefined {
+	const last = lastMessageAt(branch);
+	if (last === undefined) return undefined;
+	const reply = lastReply([messageOf(branch[last])]);
+	if (!reply || !failedForAMoment(reply, contextWindow)) return undefined;
+	// A failure of no known age may be any age, so it is left alone; one
+	// stamped later than now is taken as now.
+	if (!Number.isFinite(reply.timestamp) || reply.timestamp <= 0) {
+		return undefined;
+	}
+	const failedAt = Math.min(reply.timestamp, now);
+	const billed = billedInStreak(branch, contextWindow);
+	if (billed > MOST_BILLED_TRIES) return undefined;
+	const mark = streakMark(branch, contextWindow);
+	const wait = waitFrom(mark, last, failedAt);
+	if (!wait) return undefined;
+	// A wait last heard of an hour ago: the pending try's due time, or
+	// the failure itself when no try was set.
+	if (now - wait.since > TAKEN_UP_WITHIN_MS) return undefined;
+	return {
+		attempt: wait.attempt,
+		// No wait is longer than the longest, whatever a mark says.
+		due: Math.min(wait.due, now + LONGEST_WAIT_MS),
+		billed,
+		carried: carriedTry(branch, last),
+		reply,
+	};
+}
+
+/**
+ * How many of the failures in the streak the branch ends in were
+ * billed, walking back until a reply that did not fail for a moment or
+ * a stop, either of which starts the live count again too.
+ */
+function billedInStreak(
+	branch: readonly unknown[],
+	contextWindow: number,
+): number {
+	let billed = 0;
+	for (let at = branch.length - 1; at >= 0; at--) {
+		const entry = branch[at];
+		if (markOf(entry)?.attempt === 0) break;
+		const reply = lastReply([messageOf(entry)]);
+		if (!reply) continue;
+		if (!failedForAMoment(reply, contextWindow)) break;
+		if (wasBilled(reply)) billed++;
+	}
+	return billed;
+}
+
+/** Whether a record after the last message keeps a try unsaid. */
+function carriedTry(branch: readonly unknown[], last: number): boolean {
+	return branch.slice(last + 1).some((entry) => {
+		if (field(entry, "type") !== "custom") return false;
+		if (field(entry, "customType") !== CARRIED_ENTRY) return false;
+		const results = field(field(entry, "data"), "results");
+		return (
+			Array.isArray(results) &&
+			results.some((result) => field(result, "label") === TRY_LABEL)
+		);
+	});
+}
+
+/**
+ * The try a mark leads to, given where the last message sits, and
+ * when the wait was last heard of.
+ */
+function waitFrom(
+	mark: { at: number; mark: RetryMark } | undefined,
+	last: number,
+	failedAt: number,
+): { attempt: number; due: number; since: number } | undefined {
+	const after = mark !== undefined && mark.at > last;
+	if (after && mark.mark.attempt === 0) return undefined;
+	if (after) {
+		const due = mark.mark.due ?? failedAt;
+		return { attempt: mark.mark.attempt, due, since: due };
+	}
+	const attempt = (mark?.mark.attempt ?? 0) + 1;
+	const wait = waitBefore(attempt);
+	if (wait === undefined) return undefined;
+	return { attempt, due: failedAt + wait, since: failedAt };
+}
+
+/**
+ * The latest mark of the streak the branch ends in, walking back until
+ * a reply that did not fail for a moment, which ends a streak as it
+ * ends the live count: one that finished, was stopped, or failed in a
+ * way no try gets past.
+ */
+function streakMark(
+	branch: readonly unknown[],
+	contextWindow: number,
+): { at: number; mark: RetryMark } | undefined {
+	for (let at = branch.length - 1; at >= 0; at--) {
+		const entry = branch[at];
+		const mark = markOf(entry);
+		if (mark) return { at, mark };
+		const reply = lastReply([messageOf(entry)]);
+		if (reply && !failedForAMoment(reply, contextWindow)) return undefined;
+	}
+	return undefined;
+}
+
+function lastMessageAt(branch: readonly unknown[]): number | undefined {
+	for (let at = branch.length - 1; at >= 0; at--) {
+		if (messageOf(branch[at]) !== undefined) return at;
+	}
+	return undefined;
+}
+
+/** A branch entry's message, when it is a message entry. */
+function messageOf(entry: unknown): unknown {
+	if (field(entry, "type") !== "message") return undefined;
+	return field(entry, "message");
+}
+
+/** A branch entry's retry mark, when it is one. */
+function markOf(entry: unknown): RetryMark | undefined {
+	if (field(entry, "type") !== "custom") return undefined;
+	if (field(entry, "customType") !== RETRY_ENTRY) return undefined;
+	const data = field(entry, "data");
+	const attempt = field(data, "attempt");
+	const due = field(data, "due");
+	if (typeof attempt !== "number" || !Number.isInteger(attempt)) {
+		return undefined;
+	}
+	return typeof due === "number" ? { attempt, due } : { attempt };
+}
+
+/** A field of a value read from the session's log, which may be anything. */
+function field(value: unknown, key: string): unknown {
+	return typeof value === "object" && value !== null
+		? Reflect.get(value, key)
+		: undefined;
+}

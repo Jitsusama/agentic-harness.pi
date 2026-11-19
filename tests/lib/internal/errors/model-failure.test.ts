@@ -6,9 +6,12 @@ import {
 	failureLine,
 	LONGEST_WAIT_MS,
 	lastReply,
-	MOST_TRIES,
 	waitBefore,
+	wasBilled,
 } from "../../../../lib/internal/errors/model-failure.ts";
+
+/** How long a provider keeps a prompt cached between calls. */
+const PROMPT_CACHE_MS = 300_000;
 
 const WINDOW = 200_000;
 
@@ -88,12 +91,49 @@ describe("the wait before each try", () => {
 	});
 
 	it("never passes the longest wait", () => {
-		expect(waitBefore(MOST_TRIES)).toBe(LONGEST_WAIT_MS);
+		expect(waitBefore(6)).toBe(LONGEST_WAIT_MS);
 	});
 
-	it("ends once the tries are spent", () => {
-		expect(waitBefore(MOST_TRIES + 1)).toBeUndefined();
+	it("lands the slow tries inside the prompt cache", () => {
+		expect(
+			LONGEST_WAIT_MS,
+			"a try past the cache pays its whole input again",
+		).toBeLessThan(PROMPT_CACHE_MS);
+		expect(LONGEST_WAIT_MS).toBe(270_000);
+	});
+
+	// On 18 November relay 502s came and went for an hour, and six tries
+	// gave up at about 17 minutes with the work still in hand.
+	it("goes on at the longest wait however many tries came before", () => {
+		expect(waitBefore(7)).toBe(LONGEST_WAIT_MS);
+		expect(waitBefore(100)).toBe(LONGEST_WAIT_MS);
+	});
+
+	it("has no wait before a try that is not one", () => {
 		expect(waitBefore(0)).toBeUndefined();
+		expect(waitBefore(1.5)).toBeUndefined();
+	});
+});
+
+describe("a failed reply that was billed", () => {
+	const failed = (input: number, total: number): AssistantMessage => {
+		const billed = reply("error", "Request timed out.");
+		return {
+			...billed,
+			usage: { ...billed.usage, input, cost: { ...billed.usage.cost, total } },
+		};
+	};
+
+	it("is one that read its input", () => {
+		expect(wasBilled(failed(120_000, 0))).toBe(true);
+	});
+
+	it("is one that cost something", () => {
+		expect(wasBilled(failed(0, 0.42))).toBe(true);
+	});
+
+	it("is never one the provider never read, as a 502 is", () => {
+		expect(wasBilled(reply("error", "502 Bad Gateway"))).toBe(false);
 	});
 });
 
