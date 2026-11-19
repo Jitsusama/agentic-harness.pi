@@ -9,6 +9,7 @@
  */
 
 import { automatedHeader, automatedText } from "../internal/automated.ts";
+import { isRecord } from "../internal/record.ts";
 
 const CARRY_ON =
 	"Carry on with what you were working on, from where you left off.";
@@ -41,4 +42,107 @@ const OPENINGS = [
 export function isResumeText(text: string): boolean {
 	const opening = text.trimStart();
 	return OPENINGS.some((sentence) => opening.startsWith(sentence));
+}
+
+/**
+ * Custom entry type written as a compaction is asked for, saying when
+ * and whether the run that asked was going on, so whichever runtime
+ * sees the compaction land can tell whether a run is owed.
+ */
+export const ASKED_ENTRY = "compaction-asked";
+
+/** What a compaction's ask records. */
+export interface CompactionAsk {
+	/** When it was asked, in milliseconds since the epoch. */
+	readonly at: number;
+	/** Whether the turn that asked was going on to another. */
+	readonly resume: boolean;
+}
+
+/**
+ * How long after a compaction its owed run is still sent. A host comes
+ * back within twenty minutes of a crash; a session opened days later
+ * would start work nobody is waiting on.
+ */
+export const OWED_WITHIN_MS = 60 * 60_000;
+
+/** An answer that ended on its own rather than being cut short. */
+const FINISHED = new Set(["stop", "length"]);
+
+function timeOf(entry: Record<string, unknown>): number {
+	return typeof entry.timestamp === "string"
+		? Date.parse(entry.timestamp)
+		: Number.NaN;
+}
+
+/** The user or assistant message an entry holds, if it holds one. */
+function conversed(entry: unknown): Record<string, unknown> | undefined {
+	if (!isRecord(entry) || entry.type !== "message") return undefined;
+	const { message } = entry;
+	if (!isRecord(message)) return undefined;
+	return message.role === "user" ||
+		message.role === "assistant" ||
+		message.role === "toolResult"
+		? message
+		: undefined;
+}
+
+/**
+ * Whether the newest message in `entries` was written at or after `at`
+ * and stops a run partway: a tool's result, a call for tools, or an
+ * answer that was aborted or failed. That is a run the compaction cut,
+ * which began after the turn that asked for it, so the ask's own word
+ * on resuming doesn't cover it. On 19 November a job's result started
+ * a run a second after a finished turn asked, the compaction's abort
+ * cut it, and nothing resumed it.
+ */
+export function cutSince(entries: readonly unknown[], at: number): boolean {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		const message = conversed(entry);
+		if (message === undefined || !isRecord(entry)) continue;
+		if (!(timeOf(entry) >= at)) return false;
+		if (message.role === "user") return false;
+		if (message.role === "toolResult") return true;
+		return !FINISHED.has(String(message.stopReason));
+	}
+	return false;
+}
+
+/**
+ * Whether the session's newest compaction stopped a run that nothing
+ * has resumed: its ask said the run was going on, or a run begun after
+ * the ask was cut, and no message has followed it. Read from the log,
+ * since the runtime that asked may be gone: on 19 November 64 of 109
+ * stalled compactions were followed by a reload before any message,
+ * which dropped the resume the asking runtime would have sent.
+ */
+export function owesResume(
+	branch: readonly unknown[],
+	now: number,
+	withinMs: number = OWED_WITHIN_MS,
+): boolean {
+	let compaction = -1;
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i];
+		if (isRecord(entry) && entry.type === "compaction") {
+			compaction = i;
+			break;
+		}
+		const message = conversed(entry);
+		if (message !== undefined && message.role !== "toolResult") return false;
+	}
+	const landed = branch[compaction];
+	if (!isRecord(landed) || !(now - timeOf(landed) <= withinMs)) return false;
+	const before = branch.slice(0, compaction);
+	for (let i = before.length - 1; i >= 0; i--) {
+		const entry = before[i];
+		if (!isRecord(entry)) continue;
+		if (entry.type === "compaction") return false;
+		if (entry.type !== "custom" || entry.customType !== ASKED_ENTRY) continue;
+		const ask = entry.data;
+		if (!isRecord(ask) || typeof ask.at !== "number") return false;
+		return ask.resume === true || cutSince(before, ask.at);
+	}
+	return false;
 }

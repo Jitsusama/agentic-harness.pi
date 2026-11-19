@@ -95,7 +95,11 @@ import {
 import { compactionHistory } from "../../lib/compaction/history.ts";
 import { emitOutcome } from "../../lib/compaction/outcome.ts";
 import {
+	ASKED_ENTRY,
+	type CompactionAsk,
+	cutSince,
 	FAILED_RESUME_TEXT,
+	owesResume,
 	RESUME_TEXT,
 } from "../../lib/compaction/resume.ts";
 import {
@@ -345,12 +349,16 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 		resume: boolean,
 	) => {
 		compacting = true;
-		asked = { at: Date.now(), tokens };
+		const ask: CompactionAsk = { at: Date.now(), resume };
+		asked = { at: ask.at, tokens };
 		// A compaction that cannot start (a context the session replaced
 		// throws on first use) ends here, or the flag would stay set and
 		// keep every later compaction off for the session.
 		try {
-			startCompaction(ctx, tokens, resume);
+			// Written first, so a runtime that replaces this one before the
+			// compaction lands can tell from the log whether a run is owed.
+			pi.appendEntry(ASKED_ENTRY, ask);
+			startCompaction(ctx, tokens, ask);
 		} catch (error) {
 			compacting = false;
 			asked = null;
@@ -361,14 +369,20 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 	const startCompaction = (
 		ctx: ExtensionContext,
 		tokens: number,
-		resume: boolean,
+		ask: CompactionAsk,
 	) => {
+		// A run begun after the ask, which the compaction's abort cut, is
+		// owed one too, whatever the turn that asked said.
+		const owed = () =>
+			ask.resume || cutSince(ctx.sessionManager.getBranch(), ask.at);
 		// pi calls these when the compaction ends, which can be after a
 		// reload replaced this runtime: on 22 October onError wrote through
 		// the stale pi, and the throw, with nothing above it, took pi down.
+		// The runtime that replaced it resumes from the log instead (see
+		// session_start).
 		ctx.compact({
 			onComplete: whileCurrent(() => {
-				if (!resume || ctx.hasPendingMessages()) return;
+				if (ctx.hasPendingMessages() || !owed()) return;
 				resumeRun(pi, RESUME_TEXT);
 			}),
 			onError: whileCurrent((error: Error) => {
@@ -389,7 +403,7 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 						"warning",
 					);
 				}
-				if (!resume || wasCancelled(error) || ctx.hasPendingMessages()) {
+				if (wasCancelled(error) || ctx.hasPendingMessages() || !owed()) {
 					return;
 				}
 				resumeRun(pi, FAILED_RESUME_TEXT);
@@ -454,10 +468,23 @@ export default function compactionWorkflow(pi: ExtensionAPI) {
 					0,
 				)
 			: 0;
+		resumeOwed(ctx);
 		// Last, since it may start the idle timer cancelled above: a reload
 		// or a restart carries an idle session's warming on (see warm.ts).
 		warming.resume(ctx);
 	});
+
+	/**
+	 * Resume a run the last compaction stopped when the runtime that asked
+	 * for it is gone: a reload between the abort and the landing drops
+	 * that runtime's resume, and so does a host or pi that stopped.
+	 */
+	function resumeOwed(ctx: ExtensionContext): void {
+		if (!enabled() || !RESUMABLE_MODES.has(ctx.mode)) return;
+		if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
+		if (!owesResume(ctx.sessionManager.getBranch(), Date.now())) return;
+		resumeRun(pi, RESUME_TEXT);
+	}
 
 	pi.on("session_shutdown", async () => {
 		idle.cancel();
