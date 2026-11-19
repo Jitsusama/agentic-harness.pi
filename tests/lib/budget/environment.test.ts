@@ -73,7 +73,7 @@ describe("a budget laid over an environment", () => {
 		expect(budgetKeysOf(env)).toEqual(["KEY", "Z_KEY"]);
 
 		liftBudget(env, overlay);
-		expect("PI_BUDGET_KEYS" in env).toBe(false);
+		expect(Object.keys(env)).not.toContain("PI_BUDGET_KEYS");
 		expect(budgetKeysOf(env)).toEqual([]);
 	});
 
