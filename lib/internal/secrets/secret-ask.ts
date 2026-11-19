@@ -10,10 +10,11 @@
  * here. An ask the daemon would refuse is refused before it's written, so
  * an agent learns why at once rather than after Joel has seen a line.
  *
- * Only pi asks, from outside the fence: the daemon takes a yes from
- * anything that reaches its socket (core's secret-asks `daemon.rs`), so
- * no fenced command reaches it or the asks, and one naming the daemon's
- * program is told to use secret_run instead.
+ * Only pi asks, from outside the fence: the secret-asks daemon takes a
+ * yes from anything that reaches its socket (core's secret-asks
+ * `daemon.rs`), and either daemon runs what an ask in its folder names,
+ * so the fence keeps every fenced command from both sockets and the asks,
+ * and one naming the daemon's program is told to use secret_run instead.
  */
 
 import { randomBytes } from "node:crypto";
@@ -189,7 +190,11 @@ const MACHINE: RouteReads = {
  * sign it leaves in the asks folder while it answers them, `answering`,
  * holding its pid (core's passwords `main.rs`). A sign whose pid isn't
  * the passwords program now is one a killed daemon left behind, its pid
- * since gone or reused, and says nothing.
+ * since gone or reused, and says nothing. The socket is only looked for:
+ * systemd leaves it in place when its unit stops, until the login ends,
+ * so an ask filed then waits out its deadline with nobody to answer it.
+ * Core runs the passwords daemon as its package's `bin/passwords`, the
+ * name its status gives (core's passwords `checks.nix`).
  */
 export function asksAnswered(
 	runtime: string,
