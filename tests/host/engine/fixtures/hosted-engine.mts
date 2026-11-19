@@ -141,6 +141,8 @@ const TRUST_THIS_SESSION = "Trust (this session only)";
 /** How long a condition the fixture waits on may take, and how often it looks. */
 const UNTIL_MS = 60_000;
 const LOOK_MS = 10;
+/** How long after a close a run it started would have reached the agent. */
+const AFTER_CLOSE_MS = 500;
 
 /** Linux's access mode bits in a descriptor's flags, and the one that only reads. */
 const ACCESS_MODE = 0o3;
@@ -723,6 +725,58 @@ const scenarios: Record<string, Scenario> = {
 			engine.handsOn?.(id);
 			await host.close(id, "released, asked by a test");
 			return { held: host.holds(id) ?? "let go" };
+		},
+	},
+	/**
+	 * Words queued to follow up while a tool runs, then the service closes
+	 * the conversation, which aborts pi's run but leaves pi's queue as it
+	 * stands. Notes each run the agent starts, and whether the words are
+	 * still queued once the close is done.
+	 */
+	"close-with-followed": {
+		responses: () => [
+			compat.fauxAssistantMessage(
+				[
+					compat.fauxToolCall(
+						"bash",
+						{ command: `echo started > ${effects}; sleep 300` },
+						{ id: "call-1" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+			say("followed it up"),
+		],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "run it" });
+			await until("the tool ran", () => existsSync(effects));
+			const agent = engine.view(id)?.runtime.session.agent;
+			if (!agent) throw new Error("no agent to follow up");
+			const starts: string[] = [];
+			agent.subscribe((event) => {
+				if (event.type === "agent_start") starts.push("started");
+			});
+			// Whether a run starts on them races the close's dispose, so the ask itself is counted.
+			const continued: string[] = [];
+			const proceed = agent.continue.bind(agent);
+			agent.continue = async () => {
+				continued.push("continued");
+				return await proceed();
+			};
+			agent.followUp({
+				role: "user",
+				content: [{ type: "text", text: "and then this" }],
+				timestamp: Date.now(),
+			});
+			await host.close(id, "closed, asked by a test");
+			// A run the close started would reach the agent a turn or two after it.
+			await new Promise((later) => setTimeout(later, AFTER_CLOSE_MS));
+			return {
+				startedAfter: starts.length,
+				continuedAfter: continued.length,
+				stillQueued: agent.hasQueuedMessages(),
+				held: host.holds(id) ?? "let go",
+			};
 		},
 	},
 	/** The next host closes for good the conversation the last one parked, as the service closes one held but not running. */

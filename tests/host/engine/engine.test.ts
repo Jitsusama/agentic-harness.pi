@@ -124,6 +124,11 @@ interface Seen {
 	readonly bothIds?: readonly string[];
 	readonly header?: Readonly<Record<string, unknown>>;
 	readonly refused?: string;
+	/** How many runs the agent started once words were queued to follow up, and whether they still waited once the close was done. */
+	readonly startedAfter?: number;
+	/** How often the agent was asked to continue once the close began. */
+	readonly continuedAfter?: number;
+	readonly stillQueued?: boolean;
 	/** The warms a parked conversation's host kept for its next start. */
 	readonly pending?: number;
 	/** How the host held each conversation's log open at each point, one `read` or `write` a descriptor. */
@@ -1027,6 +1032,25 @@ describe("the host's engine", () => {
 			expect(released.reported, "said as one line, not an error").toEqual([
 				expect.stringMatching(/stop what 1 ended command left$/),
 			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"starts no run on words queued to follow up once it closes their conversation mid-run",
+		async () => {
+			// pi's abort leaves its queue, so a close that went on to the words started a run it then cut off.
+			const seen = await step(hostFolder(), "close-with-followed");
+			expect(seen.held, "the close let it go").toBe("let go");
+			expect(
+				seen.continuedAfter,
+				"nothing asked the agent to go on to the words once the close began",
+			).toBe(0);
+			expect(seen.startedAfter, "no run started once the close began").toBe(0);
+			expect(
+				seen.stillQueued,
+				"the words stayed in the queue the close let go of",
+			).toBe(true);
 		},
 		HOST_LIFE_MS,
 	);
