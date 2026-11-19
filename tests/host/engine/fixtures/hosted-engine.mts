@@ -144,6 +144,18 @@ const LOOK_MS = 10;
 /** How long after a close a run it started would have reached the agent. */
 const AFTER_CLOSE_MS = 500;
 
+/** As much of pi's agent as the close scenario follows up on and watches. */
+interface FollowingAgent {
+	subscribe(listener: (event: { readonly type: string }) => void): void;
+	continue(): Promise<void>;
+	followUp(message: {
+		readonly role: "user";
+		readonly content: readonly { type: "text"; text: string }[];
+		readonly timestamp: number;
+	}): void;
+	hasQueuedMessages(): boolean;
+}
+
 /** Linux's access mode bits in a descriptor's flags, and the one that only reads. */
 const ACCESS_MODE = 0o3;
 const READ_ONLY = 0o0;
@@ -803,7 +815,10 @@ const scenarios: Record<string, Scenario> = {
 		run: async (engine, host) => {
 			const id = await open(engine, { first: "run it" });
 			await until("the tool ran", () => existsSync(effects));
-			const agent = engine.view(id)?.runtime.session.agent;
+			const session = engine.view(id)?.runtime.session as unknown as
+				| { readonly agent?: FollowingAgent }
+				| undefined;
+			const agent = session?.agent;
 			if (!agent) throw new Error("no agent to follow up");
 			const starts: string[] = [];
 			agent.subscribe((event) => {
