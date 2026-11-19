@@ -44,10 +44,16 @@ function bus() {
  * A working layer holding exactly these trees.
  *
  * `ensure` throws rather than returning, so a test cannot pass by
- * cutting one: the whole claim is that nothing here provisions.
+ * cutting one: the whole claim is that nothing here provisions. What
+ * `used` was told is kept in `dated`, and those in `taken` answer as
+ * gone, as a tree a sweep took meanwhile does.
  */
 function workLayerHolding(...held: HeldTree[]) {
+	const dated: string[] = [];
+	const taken = new Set<string>();
 	return {
+		dated,
+		taken,
 		registerTreeProvider() {},
 		listTreeProviders: () => [],
 		broker: () => ({
@@ -59,6 +65,10 @@ function workLayerHolding(...held: HeldTree[]) {
 				throw new Error("not for this test");
 			},
 			cutHere: () => false,
+			used(tree: HeldTree) {
+				dated.push(tree.path);
+				return Promise.resolve(!taken.has(tree.path));
+			},
 		}),
 	};
 }
@@ -111,6 +121,50 @@ describe("where a change's tree stands", () => {
 			kind: "cut",
 			path: "/src/widgets/.worktrees/snap",
 		});
+	});
+
+	// A reader sent to a snapshot by path leaves no sign a sweep can
+	// see, and one last asked for nearly four hours ago was taken while
+	// a review read it, so naming it dates it as an ask would.
+	it("dates the use of the tree it names", async () => {
+		forgetWorkLayer();
+		const layer = workLayerHolding({
+			identity: treeIdentity({
+				intent: "snapshot",
+				repo: REPO,
+				purpose: "review",
+				commit: COMMIT,
+			}),
+			path: "/src/widgets/.worktrees/snap",
+			providerId: "git-worktree",
+		});
+		announce(layer);
+
+		await treeStandingFor(REPO, COMMIT);
+
+		expect(layer.dated, "naming a tree didn't date its use").toEqual([
+			"/src/widgets/.worktrees/snap",
+		]);
+	});
+
+	it("names the call that cuts one, when a sweep took the tree meanwhile", async () => {
+		forgetWorkLayer();
+		const layer = workLayerHolding({
+			identity: treeIdentity({
+				intent: "snapshot",
+				repo: REPO,
+				purpose: "review",
+				commit: COMMIT,
+			}),
+			path: "/src/widgets/.worktrees/snap",
+			providerId: "git-worktree",
+		});
+		layer.taken.add("/src/widgets/.worktrees/snap");
+		announce(layer);
+
+		const standing = await treeStandingFor(REPO, COMMIT);
+
+		expect(standing.kind).toBe("none");
 	});
 
 	it("does not mistake another commit's tree for this one's", async () => {

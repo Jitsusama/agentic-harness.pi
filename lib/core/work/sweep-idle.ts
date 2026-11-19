@@ -64,8 +64,11 @@ export interface IdleChoice extends UseSigns {
 	claims: readonly string[];
 	/** The time now, in milliseconds since the epoch. */
 	now: number;
-	/** When a tree's record was last written, as the memory says. */
-	askedAt(path: string): number | undefined;
+	/**
+	 * When a tree's record was last written, as the memory says, read
+	 * from the record `key` names when it is given.
+	 */
+	askedAt(path: string, key?: string): number | undefined;
 }
 
 /**
@@ -108,7 +111,7 @@ export async function idleSnapshots(
 		)
 		.map((tree) => ({
 			tree,
-			usedAt: lastUsed(tree, choice.askedAt(tree.path)),
+			usedAt: lastUsed(tree, choice.askedAt(tree.path, tree.identity.key)),
 			path: resolved(tree.path),
 		}))
 		.filter(({ usedAt }) => usedAt <= since)

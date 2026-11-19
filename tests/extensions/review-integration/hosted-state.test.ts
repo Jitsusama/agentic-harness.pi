@@ -81,6 +81,7 @@ function layerHolding(path: string) {
 			},
 			release() {},
 			cutHere: () => false,
+			used: () => Promise.resolve(true),
 		}),
 	};
 }

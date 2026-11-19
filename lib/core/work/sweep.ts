@@ -232,7 +232,8 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		}
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
 		try {
-			const askedAt = (path: string) => deps.memory.askedAt(path);
+			const askedAt = (path: string, key?: string) =>
+				deps.memory.askedAt(path, key);
 			const choice = { ...deps, claims, now, askedAt };
 			for (const idle of await idleSnapshots(live, choice)) {
 				await takeIdle(deps, facts, idle, now, outcome);
@@ -628,7 +629,8 @@ async function takeIdle(
 				return (
 					busy !== undefined &&
 					!busy.has(path) &&
-					lastUsed(tree, deps.memory.askedAt(tree.path)) <= usedAt &&
+					lastUsed(tree, deps.memory.askedAt(tree.path, tree.identity.key)) <=
+						usedAt &&
 					take()
 				);
 			}),

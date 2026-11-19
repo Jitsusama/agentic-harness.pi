@@ -329,9 +329,11 @@ const HOST_PID_NAMESPACE = "pid:[4026531836]";
  * Whether this process sees the machine's own processes, rather than a
  * namespace's share of them as in a container or the fence.
  */
-export async function seesEveryProcess(): Promise<boolean> {
+export async function seesEveryProcess(
+	link: (path: string) => Promise<string> = readlink,
+): Promise<boolean> {
 	try {
-		return (await readlink("/proc/self/ns/pid")) === HOST_PID_NAMESPACE;
+		return (await link("/proc/self/ns/pid")) === HOST_PID_NAMESPACE;
 	} catch {
 		// No /proc, as on macOS.
 		return false;
@@ -365,12 +367,35 @@ function untrusted(error: unknown): unknown {
  * nothing to read, so a tree a session still open holds is never taken
  * on a reading that may have missed what holds it.
  */
-async function busyAmong(
+function busyAmong(
 	paths: readonly string[],
 ): Promise<ReadonlySet<string> | undefined> {
+	return busyAmongBy(paths, {
+		readlink,
+		readdir: (path) => readdir(path),
+		sessionFolders: () => sessionFolders(presentNow),
+	});
+}
+
+/** Where {@link busyAmongBy} reads the kernel's links and the sessions. */
+export interface ProcessReads {
+	readlink(path: string): Promise<string>;
+	readdir(path: string): Promise<string[]>;
+	sessionFolders(): Promise<readonly string[]>;
+}
+
+/**
+ * {@link busyAmong}, reading through `reads`, so a test can hand it a
+ * machine whose reads fail as a real one's can.
+ */
+export async function busyAmongBy(
+	paths: readonly string[],
+	reads: ProcessReads,
+): Promise<ReadonlySet<string> | undefined> {
+	const { readlink, readdir } = reads;
 	let pids: string[];
 	try {
-		if (!(await seesEveryProcess())) return undefined;
+		if (!(await seesEveryProcess(readlink))) return undefined;
 		pids = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
 	} catch {
 		return undefined;
@@ -418,7 +443,7 @@ async function busyAmong(
 	);
 	if (failed !== undefined) return undefined;
 	// A session's folder may name a link; the kernel's are real paths.
-	for (const folder of await sessionFolders(presentNow)) {
+	for (const folder of await reads.sessionFolders()) {
 		mark(resolvedPath(folder));
 	}
 	return busy;

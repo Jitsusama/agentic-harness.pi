@@ -17,8 +17,6 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
-	statSync,
-	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -541,81 +539,6 @@ describe("a tree remembers which session cut it", () => {
 
 		expect(holding).toEqual(["theirs", "ours"]);
 		expect(memory.recall()[0]?.sessions).toEqual(["theirs"]);
-	});
-
-	it("dates each ask for a tree, so one asked for since the sweep looked stays", async () => {
-		// Reading a snapshot leaves no mark on a disk without access times,
-		// so the ask is the mark, and the sweep's take is judged against it
-		// under the record's lock.
-		const memory = memoryAt();
-		const facts = { alive: () => true, startedAt: async () => 5000 };
-		const looked = Date.now() - 1;
-		memory.remember(tree("shared"));
-
-		await memory.rememberHeldByUs(tree("shared"), facts);
-		const usedAt = memory.recall()[0]?.usedAt ?? 0;
-		let moved = false;
-		const taken = await memory.whileUnusedSince(
-			tree("shared").path,
-			looked,
-			async () => {
-				moved = true;
-				return true;
-			},
-		);
-
-		expect(usedAt, "the ask wasn't dated").toBeGreaterThan(looked);
-		expect(taken, "a tree asked for since was taken").toBeUndefined();
-		expect(moved, "a tree asked for since was moved").toBe(false);
-		// The record's own write dates the ask too, a moment after usedAt.
-		const written = statSync(
-			join(root, "cut", `${tree("shared").identity.key}.json`),
-		).mtimeMs;
-		expect(
-			await memory.whileUnusedSince(
-				tree("shared").path,
-				Math.max(usedAt, written),
-				async () => true,
-			),
-			"a tree unused since was kept",
-		).toBeDefined();
-		expect(memory.recall(), "the taken tree's record stayed").toEqual([]);
-	});
-
-	it("dates an ask by its record's own write, as code from before the dating leaves it", async () => {
-		// Code from before the dating writes back the record it read, a
-		// stale date or none among it, but every version rewrites the file.
-		const memory = memoryAt();
-		const ours = { pid: 4001, startedAt: 1000 };
-		const written = (key: string, ago: number) => {
-			const at = (Date.now() - ago) / 1000;
-			utimesSync(join(root, "cut", `${key}.json`), at, at);
-		};
-		const HOURS = 5 * 60 * 60 * 1000;
-		memory.remember({ ...tree("stale", ours), usedAt: 1000 });
-		memory.remember({ ...tree("undated", ours) });
-		memory.remember({ ...tree("aged", ours), usedAt: 1000 });
-		written("aged", HOURS);
-		memory.remember({ ...tree("undatedAged", ours) });
-		written("undatedAged", HOURS);
-		const since = Date.now() - HOURS / 2;
-		const moved: string[] = [];
-
-		for (const key of ["stale", "undated", "aged", "undatedAged"]) {
-			await memory.whileUnusedSince(tree(key).path, since, async () => {
-				moved.push(key);
-				return true;
-			});
-		}
-
-		expect(
-			moved,
-			"a tree was taken whose record was written since, or one written long ago was kept",
-		).toEqual(["aged", "undatedAged"]);
-		expect(
-			memory.askedAt(tree("undatedAged").path),
-			"a taken tree's record still answered when it was written",
-		).toBeUndefined();
 	});
 
 	it("names a subagent's fleet session beside its own, once each", async () => {

@@ -160,9 +160,13 @@ export interface TreeMemory {
 	 * When the record of the tree at `path` was last written, in
 	 * milliseconds since the epoch: every session's every ask rewrites
 	 * it, on whatever code it runs. Nothing when there is no record, or
-	 * its file can't be read.
+	 * its file can't be read. Given the tree's `key`, its record's own
+	 * file is read and no other: a sweep dates every held snapshot, and
+	 * listing every record for each read the folder hundreds of
+	 * thousands of times on the host's thread. A record written under
+	 * another name then reads as undated, which keeps its tree.
 	 */
-	askedAt(path: string): number | undefined;
+	askedAt(path: string, key?: string): number | undefined;
 	/**
 	 * Make `session` the holder of every tree a record says it holds, as
 	 * the process it runs in now, and answer how many records changed.
@@ -485,7 +489,7 @@ export function createTreeMemory(
 			let taken: HeldTree | undefined;
 			await underLock(found.identity.key, async () => {
 				const tree = this.recall().find((one) => one.path === path);
-				const asked = this.askedAt(path);
+				const asked = this.askedAt(path, found.identity.key);
 				if (
 					tree === undefined ||
 					asked === undefined ||
@@ -499,11 +503,14 @@ export function createTreeMemory(
 			return taken;
 		},
 
-		askedAt(path) {
-			const found = all().find(({ held }) => held.path === path);
-			if (found === undefined) return undefined;
+		askedAt(path, key) {
+			const at =
+				key === undefined
+					? all().find(({ held }) => held.path === path)?.at
+					: fileFor(key);
+			if (at === undefined) return undefined;
 			try {
-				return statSync(found.at).mtimeMs;
+				return statSync(at).mtimeMs;
 			} catch {
 				// Gone since the listing: a take or a release forgot it.
 				return undefined;

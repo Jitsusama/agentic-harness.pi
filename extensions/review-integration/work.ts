@@ -177,11 +177,17 @@ export async function treeStandingFor(
 	});
 	if ("refusal" in asked) return { kind: "unknown", why: asked.refusal };
 
-	const already = work
-		.broker()
+	const broker = work.broker();
+	const already = broker
 		.held()
 		.find((tree) => satisfies(tree.identity, asked.request));
-	if (already) return { kind: "cut", path: already.path };
+	// Dated as an ask, since the reader sent there reads by path and
+	// leaves no other sign: a snapshot last asked for nearly four hours
+	// ago was otherwise taken by a sweep while a review read it. One
+	// taken meanwhile answers as none, naming the call that cuts it.
+	if (already && (await broker.used(already))) {
+		return { kind: "cut", path: already.path };
+	}
 
 	// The call itself, spelled out. A reader told only that no tree
 	// exists has to go and work out which of nineteen actions makes

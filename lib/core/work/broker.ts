@@ -172,6 +172,16 @@ export interface TreeBroker {
 	unattributed(): readonly HeldTree[];
 	/** Whether this session is the one that cut a tree, for a listing to say so. */
 	cutHere(path: string): boolean;
+	/**
+	 * Date a use of a tree this session is sent to without asking for
+	 * it, as attaching a change that names a held snapshot does, and hold
+	 * it as asking would. A sweep takes a snapshot left unused four hours
+	 * while its session stays open, judged by when it was last asked
+	 * for, and a reader sent to one by path leaves no other sign. Cheaper
+	 * than `ensure`, since it asks no provider and never cuts. Answers
+	 * whether it still stands: a sweep may have taken it meanwhile.
+	 */
+	used(held: HeldTree): Promise<boolean>;
 }
 
 /** What a broker needs beyond its providers. */
@@ -458,6 +468,22 @@ export function createTreeBroker(
 		held: () => everything(),
 
 		cutHere: (path) => trees.some((tree) => tree.path === path),
+
+		async used(held) {
+			if (!trees.some((tree) => tree.path === held.path)) trees.push(held);
+			if (memory === undefined) return true;
+			await memory.rememberHeldByUs(held);
+			// Written under the record's lock, as a sweep judges, so a tree
+			// taken before that write has no record the memory recalls, the
+			// same test `ensure` makes of a reused tree.
+			const stands = memory
+				.recall()
+				.some((tree) => tree.identity.key === held.identity.key);
+			if (stands) return true;
+			const gone = trees.findIndex((tree) => tree.path === held.path);
+			if (gone >= 0) trees.splice(gone, 1);
+			return false;
+		},
 	};
 
 	// Cuts of one tree take turns. Two at once both miss the tree the
