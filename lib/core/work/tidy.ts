@@ -36,11 +36,24 @@ export interface WorktreeOnDisk {
 	 */
 	commitKept?: boolean;
 	/**
-	 * For a tree on a branch trunk doesn't contain, whether a
-	 * remote-tracking branch holds the commit it sits at, as one a
-	 * squash merge landed still does.
+	 * For a tree with no branch, or on a branch trunk doesn't contain,
+	 * whether a remote-tracking branch holds the commit it sits at, as
+	 * one a squash merge landed still does.
 	 */
 	pushed?: boolean;
+	/**
+	 * Whether a stash in its repository was made on its branch or at the
+	 * commit it sits at. Stashes live in no tree, so this is never dirt;
+	 * only a quest's claim asks it.
+	 */
+	stashed?: boolean;
+	/**
+	 * For a tree with no branch, whether its own HEAD's history names a
+	 * commit no remote holds, as one a session made and then moved off
+	 * does, which goes with the tree's reflog. Only a quest's claim asks
+	 * it, and a history that can't be read says yes.
+	 */
+	leftUnpushed?: boolean;
 }
 
 /** What is known when asking which trees were left behind. */
@@ -78,6 +91,14 @@ export interface OrphanAsk {
 	 * cut from now on carries an owner.
 	 */
 	unattributed?: readonly string[];
+	/**
+	 * Paths a quest claims only while they are still work, comparable
+	 * with the worktree paths as {@link remembered} is. Once nothing
+	 * else holds one, reclaim's rules take it, but never while a stash
+	 * was made on it, and a detached one only once a remote holds its
+	 * commit: a quest's tree may hold work its session never pushed.
+	 */
+	spendable?: readonly string[];
 	/**
 	 * Whether a clean tree whose branch is on its remote has sat long
 	 * enough to take, given its path. Without it such a tree is a
@@ -139,6 +160,7 @@ export interface OrphanPlan {
 export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 	const held = new Set(ask.remembered);
 	const unattributed = new Set(ask.unattributed ?? []);
+	const spendable = new Set(ask.spendable ?? []);
 	const reclaimable: Reclaimable[] = [];
 	const retained: Retained[] = [];
 
@@ -178,6 +200,15 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			);
 			continue;
 		}
+		const claimed = spendable.has(tree.path);
+		if (claimed && tree.stashed) {
+			// Beside the dirty check and for its reason, though a stash lives
+			// in no tree: its quest may come back for it, and here it shows.
+			keep(
+				"its quest claims it and a stash was made on it, which exists nowhere else",
+			);
+			continue;
+		}
 		if (unattributed.has(tree.path)) {
 			// Third, and each step of the order is a safety. Above a claim
 			// it downgraded somebody saying they want this now to nobody
@@ -214,7 +245,15 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			// holds any more is left to the main checkout's reflog, as an
 			// amended commit is. Files the commit under review tells git to
 			// ignore are taken like build output, as only a reader wrote them.
-			if (tree.commitKept || ask.stillPinned?.(tree.path, tree.commit)) {
+			// A quest's tree may sit at a commit its session made and never
+			// pushed, which a local ref or the pin alone would let go.
+			if (claimed && !tree.pushed) {
+				keep("its quest claims it, and no remote holds the commit it sits at");
+			} else if (claimed && tree.leftUnpushed) {
+				keep(
+					"its quest claims it, and its history holds a commit no remote holds",
+				);
+			} else if (tree.commitKept || ask.stillPinned?.(tree.path, tree.commit)) {
 				reclaimable.push({ path: tree.path });
 			} else {
 				keep(

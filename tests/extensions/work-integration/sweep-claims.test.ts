@@ -1,6 +1,6 @@
 /**
- * The unattended sweep holds every live quest's trees for good, and
- * tells holders what it took.
+ * The unattended sweep holds every live quest's trees only until spent,
+ * what else claims a tree for good, and tells holders what it took.
  */
 import { spawn } from "node:child_process";
 import {
@@ -30,10 +30,11 @@ import {
 	WORK_TREE_CLAIMS,
 	WORK_TREES_SWEPT,
 } from "../../../lib/core/work/index.ts";
+import type { SweepClaims } from "../../../lib/core/work/sweep.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
 /** The claims each sweep was given. */
-const given: (readonly string[])[] = [];
+const given: SweepClaims[] = [];
 
 /** The rest each sweep was asked to keep. */
 const rests: (number | undefined)[] = [];
@@ -43,7 +44,7 @@ const idle: { rested?: string; skipped?: string } = {};
 
 vi.mock("../../../lib/core/work/sweep.ts", () => ({
 	sweepEndedTrees: async (deps: {
-		claims: readonly string[] | (() => readonly string[]);
+		claims: SweepClaims | (() => SweepClaims);
 		restMs?: number;
 	}) => {
 		rests.push(deps.restMs);
@@ -51,9 +52,7 @@ vi.mock("../../../lib/core/work/sweep.ts", () => ({
 		// As the library does: claims are asked only by a sweep that runs.
 		if (idle.rested !== undefined) return { ...none, rested: idle.rested };
 		if (idle.skipped !== undefined) return { ...none, skipped: idle.skipped };
-		given.push([
-			...(typeof deps.claims === "function" ? deps.claims() : deps.claims),
-		]);
+		given.push(typeof deps.claims === "function" ? deps.claims() : deps.claims);
 		return {
 			...none,
 			taken: [{ path: "/src/repo/.worktrees/spent", branch: "spent" }],
@@ -121,17 +120,18 @@ function liveQuestListing(path: string): string {
 	return quests;
 }
 
-it("holds a live quest's tree for good, though no process sits in it", async () => {
-	// A hosted conversation's folder is no process's working folder, so
-	// only its quest's claim keeps its tree: offered as held until spent,
-	// one sweep on 11 November took a hosted conversation's tree.
+it("holds a live quest's tree only until spent", async () => {
+	// A hosted conversation's folder counts as in use by the host's
+	// roster, below, so its quest's claim needn't hold its tree for good.
 	const events = createEventBus();
 	const tree = "/src/repo/.worktrees/hosted";
 	answerTreeClaims({ events } as never, liveQuestListing(tree));
 
 	await sweepOn(events);
 
-	expect(given, "the claims the sweep held for good").toEqual([[tree]]);
+	expect(given, "the claims the sweep was given").toEqual([
+		{ held: [], untilSpent: [tree] },
+	]);
 });
 
 it("counts a hosted conversation's folder as in use, though its host stands elsewhere", async () => {
@@ -260,8 +260,8 @@ it("says what it took to whoever listed it", async () => {
 
 	await sweepOn(events);
 
-	expect(given, "the claims the sweep held for good").toEqual([
-		["/src/repo/.worktrees/kept"],
+	expect(given, "the claims the sweep was given").toEqual([
+		{ held: ["/src/repo/.worktrees/kept"], untilSpent: [] },
 	]);
 	expect(heard, "what holders heard was taken").toEqual([
 		"/src/repo/.worktrees/spent",

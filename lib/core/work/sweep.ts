@@ -95,14 +95,14 @@ export interface SweepDeps extends UseSigns {
 	exec: Exec;
 	memory: TreeMemory;
 	/**
-	 * Paths something else says it wants, such as a quest's trees, or how
-	 * to ask for them. Asked only once the sweep holds its lock and isn't
+	 * Paths something else says it wants, such as a quest's trees, held
+	 * for good or only until spent, or how to ask for them. Asked only once the sweep holds its lock and isn't
 	 * resting, since asking can be dear: a quest answers by signing its
 	 * whole tree, on a host's shared thread, and sixty conversations'
 	 * first sweeps asking at once held a host's thread past its watchdog
 	 * on 18 November, though all but one of them then skipped.
 	 */
-	claims: readonly string[] | (() => readonly string[]);
+	claims: SweepClaims | (() => SweepClaims);
 	/** The file that keeps two sweeps from running at once. */
 	lockPath: string;
 	/**
@@ -127,6 +127,15 @@ export interface SweepDeps extends UseSigns {
 	/** The time now, in milliseconds since the epoch; the clock's own by default. */
 	now?: () => number;
 }
+
+/**
+ * What holders claim: paths held for good, or those and the paths held
+ * only while they are still work, which reclaim's rules may take once
+ * nothing else holds them, as `orphanedTrees` says under `spendable`.
+ */
+export type SweepClaims =
+	| readonly string[]
+	| { held: readonly string[]; untilSpent: readonly string[] };
 
 /** A tree the sweep took back, with the branch it leaves behind. */
 export interface SweptTree {
@@ -199,8 +208,10 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	try {
 		// Asked at once, before any wait, so a conversation that closes
 		// while the sweep runs has already said what its quests hold.
-		const claims =
+		const asked =
 			typeof deps.claims === "function" ? deps.claims() : deps.claims;
+		const claims = "held" in asked ? asked.held : asked;
+		const untilSpent = "held" in asked ? asked.untilSpent : [];
 		const facts = deps.facts ?? systemFacts;
 		const inUse = await treesInUse(deps, deps.memory.recall());
 		const held = [...(await deps.memory.heldNow(facts)), ...inUse];
@@ -219,6 +230,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				.map((tree) => tree.path),
 			...claims,
 		].map(resolved);
+		const spendable = untilSpent.map(resolved);
 		const repositories = await byRepository(deps, ended, outcome);
 		for (const tree of repositories.orphans) {
 			await takeOrphan(deps, facts, tree, outcome);
@@ -226,6 +238,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		for (const [main, trees] of repositories.byMain) {
 			await sweepRepository(deps, facts, main, trees, {
 				remembered,
+				spendable,
 				unattributed: [...unattributed].map(resolved),
 				outcome,
 			});
@@ -234,7 +247,14 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		try {
 			const askedAt = (path: string, key?: string) =>
 				deps.memory.askedAt(path, key);
-			const choice = { ...deps, claims, now, askedAt };
+			// A snapshot a quest claims stays, spent or not, as its session
+			// stands open and may come back to it.
+			const choice = {
+				...deps,
+				claims: [...claims, ...untilSpent],
+				now,
+				askedAt,
+			};
 			for (const idle of await idleSnapshots(live, choice)) {
 				await takeIdle(deps, facts, idle, now, outcome);
 			}
@@ -249,7 +269,15 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				(tree) => tree.providerId !== GIT_WORKTREE && !heldPaths.has(tree.path),
 			);
 		for (const tree of others) {
-			await releaseThroughProvider(deps, facts, tree, remembered, outcome);
+			// Other providers' rules know nothing of a quest's claim, so it
+			// holds their trees for good.
+			await releaseThroughProvider(
+				deps,
+				facts,
+				tree,
+				[...remembered, ...spendable],
+				outcome,
+			);
 		}
 		await dropIdleRoots(deps, outcome);
 	} finally {
@@ -505,6 +533,7 @@ async function sweepRepository(
 	trees: readonly HeldTree[],
 	held: {
 		remembered: readonly string[];
+		spendable: readonly string[];
 		unattributed: readonly string[];
 		outcome: SweepOutcome;
 	},
@@ -514,9 +543,11 @@ async function sweepRepository(
 	let plan: ReturnType<typeof orphanedTrees>;
 	try {
 		const trunk = await trunkOf(deps.exec, main);
+		const spendable = new Set(held.spendable);
 		const worktrees = await createGitHistory({ exec: deps.exec }).worktrees(
 			main,
 			trunk,
+			{ claimed: (path) => spendable.has(resolved(path)) },
 		);
 		plan = orphanedTrees({
 			mainPath: resolved(main),
@@ -525,6 +556,7 @@ async function sweepRepository(
 				path: resolved(tree.path),
 			})),
 			remembered: held.remembered,
+			spendable: held.spendable,
 			unattributed: held.unattributed,
 			settled: (path) =>
 				headStillSince(path, (deps.now?.() ?? Date.now()) - PUSHED_SETTLE_MS),
@@ -537,10 +569,13 @@ async function sweepRepository(
 		}
 		return;
 	}
+	const offered = (tree: HeldTree) =>
+		plan.reclaimable.find((one) => one.path === resolved(tree.path));
+	const claimedPaths = new Set(held.spendable);
 	for (const tree of trees) {
 		const path = resolved(tree.path);
-		const offered = plan.reclaimable.find((one) => one.path === path);
-		if (offered === undefined) {
+		const offer = offered(tree);
+		if (offer === undefined) {
 			const retained = plan.retained.find((one) => one.path === path);
 			outcome.kept.push({
 				path: tree.path,
@@ -548,7 +583,7 @@ async function sweepRepository(
 			});
 			continue;
 		}
-		const remote = offered.pushed
+		const remote = offer.pushed
 			? await remoteHolding(deps.exec, tree.path)
 			: undefined;
 		await takeBack(
@@ -558,13 +593,40 @@ async function sweepRepository(
 			tree,
 			{
 				path: tree.path,
-				...(offered.branch ? { branch: offered.branch } : {}),
+				...(offer.branch ? { branch: offer.branch } : {}),
 				...(remote ? { remote } : {}),
 				...(tree.sessions?.length ? { sessions: [...tree.sessions] } : {}),
 			},
 			outcome,
+			// A claimed tree is one a session comes back to, and the takes
+			// before it may have taken minutes, so who works in it is asked
+			// again under its record's lock, just before the move, as an idle
+			// snapshot's is.
+			claimedPaths.has(path)
+				? (take) =>
+						deps.memory.whileUnheld(
+							tree.path,
+							async () => !(await takenUpAgain(deps, tree)) && take(),
+							facts,
+						)
+				: undefined,
 		);
 	}
+}
+
+/**
+ * Whether a live session works in a tree a quest claims, asked again
+ * just before it goes: the sessions' records and hosts' rosters are read
+ * afresh, and so are the processes when the machine has a reader for
+ * them. A reader that can't say keeps the tree; with no reader at all,
+ * the records and rosters alone decide.
+ */
+async function takenUpAgain(deps: SweepDeps, tree: HeldTree): Promise<boolean> {
+	if ((await treesInUse(deps, [tree])).length > 0) return true;
+	if (deps.busyAmong === undefined) return false;
+	const path = resolved(tree.path);
+	const busy = await deps.busyAmong([path]);
+	return busy === undefined || busy.has(path);
 }
 
 /**
