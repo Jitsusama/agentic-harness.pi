@@ -34,7 +34,11 @@ import {
 	liftBudget,
 	processOverlay,
 } from "../../lib/budget/environment.ts";
-import { type BudgetDrawing, hostBudgets } from "../../lib/budget/host.ts";
+import {
+	type BudgetDrawing,
+	type FolderBudget,
+	hostBudgets,
+} from "../../lib/budget/host.ts";
 import {
 	BUDGET_ENTRY,
 	BUDGET_SETTLED,
@@ -66,12 +70,34 @@ export interface BudgetKeeper {
 	forget(): void;
 }
 
+/**
+ * The providers' answer to which budget a folder's work draws on, by
+ * the quest state whose keeper hosts them, so a verb asks without the
+ * keeper threaded through every call.
+ */
+const folderBudgets = new WeakMap<
+	QuestState,
+	(folder: string) => Promise<FolderBudget | undefined>
+>();
+
+/**
+ * The budget the providers say work in `folder` draws on, or undefined
+ * when none names one or no keeper hosts them for `state`.
+ */
+export function budgetOfFolder(
+	state: QuestState,
+	folder: string,
+): Promise<FolderBudget | undefined> {
+	return folderBudgets.get(state)?.(folder) ?? Promise.resolve(undefined);
+}
+
 /** Host budget providers and keep the session on its quest's budget. */
 export function keepQuestBudget(
 	pi: ExtensionAPI,
 	state: QuestState,
 ): BudgetKeeper {
 	const host = hostBudgets(pi.events);
+	folderBudgets.set(state, (folder) => host.budgetFor(folder));
 	/** The name last drawn on or asked for, null for none. */
 	let wanted: string | null | undefined;
 	/** Bumped on every ask, so an answer overtaken by another is dropped. */
@@ -171,15 +197,18 @@ function recordDrawn(
 	pi.appendEntry(BUDGET_ENTRY, record);
 }
 
-/** Why a budget could not be drawn on, in words for the person. */
+/**
+ * Why a budget could not be drawn on, in words for the person. Provider
+ * ids are quoted, so an id can't add a line of its own.
+ */
 export function undrawable(
 	name: string,
 	drawing: Exclude<BudgetDrawing, { kind: "drawn" }>,
 ): string {
 	if (drawing.kind === "unavailable") {
-		return `Budget ${name} can't be drawn on yet (${drawing.provider}): ${drawing.reason} Model calls use the session's default until then.`;
+		return `Budget ${name} can't be drawn on yet (${JSON.stringify(drawing.provider)}): ${drawing.reason} Model calls use the session's default until then.`;
 	}
 	return drawing.asked.length === 0
 		? `No budget provider is installed, so budget ${name} means nothing yet; model calls use the session's default.`
-		: `No budget provider knows ${name} (asked ${drawing.asked.join(", ")}), so model calls use the session's default.`;
+		: `No budget provider knows ${name} (asked ${drawing.asked.map((id) => JSON.stringify(id)).join(", ")}), so model calls use the session's default.`;
 }

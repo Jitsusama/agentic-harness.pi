@@ -4,7 +4,7 @@ import {
 	modelOf,
 	resolveSpawnCommand,
 	resumeMessage,
-} from "../../../../extensions/quest-workflow/verbs/session.ts";
+} from "../../../../extensions/quest-workflow/verbs/spawn-command.ts";
 import {
 	formatRelativeAge,
 	type SessionView,

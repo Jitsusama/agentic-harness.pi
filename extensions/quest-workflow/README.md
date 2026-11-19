@@ -380,6 +380,15 @@ shipped and tested.
   answer still on its way when it lands is dropped, laying and
   writing nothing, rather than read with a context that now
   throws, and the next load asks again.
+  A quest made, or spawned, with no budget named anywhere above
+  it (`none` counts as named) takes the one a provider's
+  optional `budgetFor` says the folder's work draws on: the
+  creating session's folder for `create`, the folder a spawn
+  starts in for `spawn`, which names it before the session
+  starts. The answer's first line says which budget and whose
+  word it was, and the Journey says it too; `quest budget`
+  names another. A dry run names nothing, and a provider that
+  fails or takes more than 5 s is passed over.
 - **The realm's own agent**: a spawn that runs pi, fresh or
   resuming, runs instead the command the chosen machine's node
   declares for the session's realm (`declared.agents`), here or

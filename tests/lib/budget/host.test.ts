@@ -118,15 +118,17 @@ describe("the budget host", () => {
 		const events = bus();
 		const host = hostBudgets(events, 20);
 		host.registerProvider({
-			id: "stuck",
+			id: "stuck\nforged line",
 			precedence: 0,
 			resolve: () => new Promise(() => {}),
 		});
 
+		// The reason leaves the id to the answer's provider, which the
+		// notice quotes, so an id with a newline adds no line of its own.
 		expect(await host.draw("delta")).toEqual({
 			kind: "unavailable",
-			provider: "stuck",
-			reason: "stuck didn't answer within 0.02 s.",
+			provider: "stuck\nforged line",
+			reason: "It didn't answer within 0.02 s.",
 		});
 	});
 
@@ -176,5 +178,216 @@ describe("the budget host", () => {
 		registerBudgetProvider(events, provider("late", 0, {}));
 
 		expect(told).toBe(1);
+	});
+});
+
+/** A provider that names budgets for folders, by `answer`. */
+function placing(
+	id: string,
+	precedence: number,
+	answer: (folder: string) => Promise<string | undefined>,
+): BudgetProvider {
+	return { ...provider(id, precedence, {}), budgetFor: answer };
+}
+
+describe("the budget a folder's work draws on", () => {
+	it("is the first provider's, lowest precedence first, that names one", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		registerBudgetProvider(
+			events,
+			placing("company", 10, async () => "worldtree"),
+		);
+		registerBudgetProvider(
+			events,
+			placing("files", 0, async (folder) =>
+				folder.startsWith("/src/delta") ? "delta" : undefined,
+			),
+		);
+		registerBudgetProvider(events, provider("names-only", 5, {}));
+
+		expect(await host.budgetFor("/src/delta/server")).toEqual({
+			name: "delta",
+			provider: "files",
+		});
+		expect(await host.budgetFor("/src/worldtree")).toEqual({
+			name: "worldtree",
+			provider: "company",
+		});
+	});
+
+	it("passes over a provider that fails, is late or names no budget's name", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 20);
+		registerBudgetProvider(
+			events,
+			placing("throws", 0, async () => {
+				throw new Error("no map");
+			}),
+		);
+		registerBudgetProvider(
+			events,
+			placing("late", 1, () => new Promise(() => {})),
+		);
+		registerBudgetProvider(
+			events,
+			placing("bad", 2, async () => "../escape"),
+		);
+
+		expect(await host.budgetFor("/anywhere")).toBeUndefined();
+
+		registerBudgetProvider(
+			events,
+			placing("good", 3, async () => "aquifer"),
+		);
+		expect(await host.budgetFor("/anywhere")).toEqual({
+			name: "aquifer",
+			provider: "good",
+		});
+	});
+
+	it("asks every provider at once, so the wait is one deadline however many are late", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 200);
+		for (const id of ["one", "two", "three"]) {
+			registerBudgetProvider(
+				events,
+				placing(id, 0, () => new Promise(() => {})),
+			);
+		}
+		registerBudgetProvider(
+			events,
+			placing("last", 9, async () => "delta"),
+		);
+
+		const began = Date.now();
+		const found = await host.budgetFor("/anywhere");
+		const waited = Date.now() - began;
+
+		expect(found).toEqual({ name: "delta", provider: "last" });
+		expect(waited, `waited ${waited} ms for three late providers`).toBeLessThan(
+			500,
+		);
+	});
+
+	it("passes over a provider that names none, since a folder never opts a quest out", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		registerBudgetProvider(
+			events,
+			placing("opts-out", 0, async () => "none"),
+		);
+
+		expect(await host.budgetFor("/anywhere")).toBeUndefined();
+
+		registerBudgetProvider(
+			events,
+			placing("names", 1, async () => "aquifer"),
+		);
+		expect(await host.budgetFor("/anywhere")).toEqual({
+			name: "aquifer",
+			provider: "names",
+		});
+	});
+
+	it("keeps a provider whose budgetFor isn't a function for its names, and takes no folder's budget from it", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+
+		events.emit(BUDGET_REGISTER_PROVIDER, {
+			...provider("odd", 0, {
+				delta: { kind: "drawn", env: { K: "v" }, label: "Delta" },
+			}),
+			budgetFor: "delta",
+		});
+
+		expect(host.listProviders()).toEqual(["odd"]);
+		expect((await host.draw("delta")).kind).toBe("drawn");
+		expect(await host.budgetFor("/anywhere")).toBeUndefined();
+	});
+
+	it("is the earlier provider's when a later one answers first", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000);
+		registerBudgetProvider(
+			events,
+			placing(
+				"slow",
+				0,
+				() => new Promise((answer) => setTimeout(() => answer("delta"), 50)),
+			),
+		);
+		registerBudgetProvider(
+			events,
+			placing("quick", 1, async () => "aquifer"),
+		);
+
+		expect(await host.budgetFor("/anywhere")).toEqual({
+			name: "delta",
+			provider: "slow",
+		});
+	});
+
+	it("leaves no rejection behind from a provider that throws at once, or fails after the answer", async () => {
+		const leaked: unknown[] = [];
+		const catchLeak = (reason: unknown) => leaked.push(reason);
+		process.on("unhandledRejection", catchLeak);
+		try {
+			const events = bus();
+			// Longer than the late failure takes, so the failure isn't
+			// soaked up by a deadline that has already won its race.
+			const host = hostBudgets(events, 1_000);
+			registerBudgetProvider(events, {
+				...provider("throws-at-once", 0, {}),
+				budgetFor: () => {
+					throw new Error("not even a promise");
+				},
+			});
+			registerBudgetProvider(
+				events,
+				placing("names", 1, async () => "delta"),
+			);
+			registerBudgetProvider(
+				events,
+				placing(
+					"fails-later",
+					2,
+					() =>
+						new Promise((_, fail) =>
+							setTimeout(() => fail(new Error("after the answer")), 40),
+						),
+				),
+			);
+
+			expect(await host.budgetFor("/anywhere")).toEqual({
+				name: "delta",
+				provider: "names",
+			});
+			// Past the late failure, for a leak to surface.
+			await new Promise((settle) => setTimeout(settle, 100));
+			expect(leaked).toEqual([]);
+		} finally {
+			process.off("unhandledRejection", catchLeak);
+		}
+	});
+
+	it("answers as soon as the first to name one and every provider before it have said", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000);
+		registerBudgetProvider(
+			events,
+			placing("first", 0, async () => "delta"),
+		);
+		registerBudgetProvider(
+			events,
+			placing("hung", 1, () => new Promise(() => {})),
+		);
+
+		const started = Date.now();
+		expect(await host.budgetFor("/anywhere")).toEqual({
+			name: "delta",
+			provider: "first",
+		});
+		expect(Date.now() - started).toBeLessThan(1_000);
 	});
 });

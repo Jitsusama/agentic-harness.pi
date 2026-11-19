@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import {
 	chmodSync,
 	existsSync,
@@ -11,8 +12,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { keepQuestBudget } from "../../../../extensions/quest-workflow/budget.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { registerBudgetProvider } from "../../../../lib/budget/provider.ts";
+import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import {
 	FIRST_WORDS_VARIABLE,
 	firstWordsDir,
@@ -27,9 +31,11 @@ import { createEnvGuard } from "../_helpers.ts";
 
 // The launcher is asked through `qs` on PATH, so a stand-in `qs` writes
 // down what it was asked and answers what the test tells it to. Asked
-// whether the lock is up, it says what QS_LOCKED says, else no.
+// whether the lock is up, it says what QS_LOCKED says, else no. Told a
+// README in QS_README, it keeps a copy of it as it stood at hand-off.
 const FAKE_QS = `#!/bin/sh
 if [ "$3" = lock ]; then printf '%s\\n' "\${QS_LOCKED:-false}"; exit 0; fi
+if [ -n "$QS_README" ]; then cp "$QS_README" "$QS_ASKED.readme"; fi
 printf '%s\\n' "$@" > "$QS_ASKED"
 printf '%s\\n' "$QS_SAYS"
 `;
@@ -44,6 +50,7 @@ const KEPT = [
 	"QS_ASKED",
 	"QS_SAYS",
 	"QS_LOCKED",
+	"QS_README",
 	"PI_SESSIONS_KITTY",
 	"XDG_RUNTIME_DIR",
 ];
@@ -564,5 +571,248 @@ describe("spawn through the desktop's launcher", () => {
 			existsSync(firstWordsDir()),
 			`${firstWordsDir()} is never made`,
 		).toBe(false);
+	});
+});
+
+describe("a spawn where a budget's work is", () => {
+	/** Host a provider on `state` that names delta for work in `where`. */
+	function placeDelta(
+		state: ReturnType<typeof createQuestState>,
+		where: string = tmpRoot,
+		asked: string[] = [],
+	) {
+		const events = new EventEmitter();
+		const bus = {
+			on: (channel: string, handler: (data: unknown) => void) => {
+				events.on(channel, handler);
+				return () => events.off(channel, handler);
+			},
+			emit: (channel: string, data?: unknown) => events.emit(channel, data),
+		};
+		keepQuestBudget(fakePi({ events: bus }), state);
+		registerBudgetProvider(bus, {
+			id: "places",
+			precedence: 0,
+			resolve: async () => ({ kind: "unknown" }),
+			budgetFor: async (folder) => {
+				asked.push(folder);
+				return folder === where ? "delta" : undefined;
+			},
+		});
+	}
+
+	/** The budget quest `id`'s README names, if any. */
+	function budgetOf(state: ReturnType<typeof createQuestState>, id: string) {
+		const readme = readFileSync(
+			join(state.questsRoot, id, "README.md"),
+			"utf8",
+		);
+		return parseQuestFrontMatter(readme)?.frontMatter._extra?.budget;
+	}
+
+	it("asks for the folder the session starts in, not the spawner's", async () => {
+		const { state, id } = await quest();
+		const work = join(tmpRoot, "work");
+		mkdirSync(work);
+		const asked: string[] = [];
+		placeDelta(state, work, asked);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			cwd: work,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(asked).toEqual([work]);
+		expect(budgetOf(state, id)).toBe("delta");
+	});
+
+	it("asks for the folder a reopened session ran in, not the one the call named", async () => {
+		const { state, id } = await quest();
+		const ranThere = join(tmpRoot, "ran-there");
+		mkdirSync(ranThere);
+		const log = join(tmpRoot, "old.jsonl");
+		writeFileSync(
+			log,
+			`${JSON.stringify({ type: "session", version: 3, id: "old", timestamp: "2026-11-19T00:00:00.000Z", cwd: ranThere })}\n`,
+		);
+		const asked: string[] = [];
+		placeDelta(state, ranThere, asked);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			cwd: tmpRoot,
+			command: `pi --session ${log}`,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(asked).toEqual([ranThere]);
+		expect(budgetOf(state, id)).toBe("delta");
+	});
+
+	it("names nothing for a spawn on another machine, whose folders this one's providers don't know", async () => {
+		// A stand-in for the node, so the test never shares a quest on the
+		// person's own mycelium; it refuses, as a node that isn't there does.
+		const node = join(tmpRoot, "bin", "mycelium");
+		const ran = join(tmpRoot, "mycelium-ran");
+		writeFileSync(
+			node,
+			`#!/bin/sh\necho "$@" >> '${ran}'\necho 'no node here' >&2\nexit 1\n`,
+		);
+		chmodSync(node, 0o755);
+		const { state, id } = await quest();
+		const asked: string[] = [];
+		placeDelta(state, tmpRoot, asked);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			machine: "elsewhere-not-this-one",
+		});
+
+		// The stand-in ran, so the spawn got as far as handing the quest
+		// over, and the person's own node never did.
+		expect(readFileSync(ran, "utf8")).toMatch(/share/);
+		expect(asked).toEqual([]);
+		expect(budgetOf(state, id)).toBeUndefined();
+		expect(result.ok ? result.message : result.guidance).not.toMatch(
+			/budget delta/i,
+		);
+	});
+
+	it("names nothing for a quest whose parent names a budget, which it draws on", async () => {
+		const { state, id: parent } = await quest();
+		const named = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "budget",
+			ref: "aquifer",
+		});
+		if (!named.ok) throw new Error(named.guidance);
+		const child = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "create",
+			kind: "subquest",
+			parent,
+			title: "Beta",
+		});
+		if (!child.ok) throw new Error(child.guidance);
+		const id = (child.details as { id: string }).id;
+		const asked: string[] = [];
+		placeDelta(state, tmpRoot, asked);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(id).not.toBe(parent);
+		expect(asked).toEqual([]);
+		expect(budgetOf(state, id)).toBeUndefined();
+	});
+
+	it("leaves a quest that names its own budget as it is", async () => {
+		const { state, id } = await quest();
+		const named = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "budget",
+			ref: "aquifer",
+		});
+		if (!named.ok) throw new Error(named.guidance);
+		placeDelta(state);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(budgetOf(state, id)).toBe("aquifer");
+		expect(result.message).not.toContain("Budget delta");
+	});
+
+	it("says so when a spawn is refused after naming the budget", async () => {
+		process.env.QS_SAYS = "refused: no session with an id and a folder";
+		const { state, id } = await quest();
+		placeDelta(state);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			terminal: "no-such-terminal",
+		});
+		if (result.ok) throw new Error(`opened: ${result.message}`);
+
+		expect(budgetOf(state, id)).toBe("delta");
+		expect(result.guidance).toContain(
+			"The quest was still named for budget delta",
+		);
+	});
+
+	it("names the budget before the session starts, and opens by saying so", async () => {
+		const { state, id } = await quest();
+		placeDelta(state);
+		process.env.QS_README = join(state.questsRoot, id, "README.md");
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		// The README as the launcher found it, when the session was handed on.
+		const readme = readFileSync(`${process.env.QS_ASKED}.readme`, "utf8");
+		expect(parseQuestFrontMatter(readme)?.frontMatter._extra?.budget).toBe(
+			"delta",
+		);
+		expect(result.message).toMatch(/^Budget delta named, which "places" says/);
+		expect(
+			readFileSync(join(state.questsRoot, id, "JOURNEY.md"), "utf8"),
+		).toContain(
+			`Budget: delta, which "places" says work in ${JSON.stringify(tmpRoot)}`,
+		);
+		expect(handed()).toBeDefined();
+	});
+
+	it("leaves a budget typed by hand as it is, even one no budget could be named", async () => {
+		const { state, id } = await quest();
+		const readme = join(state.questsRoot, id, "README.md");
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(
+				/^---\n/,
+				"---\nbudget: Delta Team\n",
+			),
+		);
+		placeDelta(state);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(budgetOf(state, id)).toBe("Delta Team");
+		expect(result.message).not.toContain("Budget delta");
+	});
+
+	it("names nothing on a dry run", async () => {
+		const { state, id } = await quest();
+		placeDelta(state);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			dryRun: true,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		const readme = readFileSync(
+			join(state.questsRoot, id, "README.md"),
+			"utf8",
+		);
+		expect(parseQuestFrontMatter(readme)?.frontMatter._extra?.budget).toBe(
+			undefined,
+		);
+		expect(result.message).not.toContain("Budget delta");
 	});
 });

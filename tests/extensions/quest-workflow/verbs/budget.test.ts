@@ -2,7 +2,10 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { keepQuestBudget } from "../../../../extensions/quest-workflow/budget.ts";
+import {
+	keepQuestBudget,
+	undrawable,
+} from "../../../../extensions/quest-workflow/budget.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import {
@@ -56,9 +59,9 @@ function recorded(): unknown[] {
 		.filter((entry) => entry.customType === "budget")
 		.map((entry) => entry.data);
 }
-function fakeCtx() {
+function fakeCtx(cwd = tmpRoot) {
 	return {
-		cwd: tmpRoot,
+		cwd,
 		sessionManager: { getSessionId: () => "s", isPersisted: () => true },
 	} as unknown as Parameters<typeof handle>[2];
 }
@@ -178,6 +181,138 @@ describe("the budget verb", () => {
 		expect(readFileSync(join(state.questsRoot, top, "README.md"), "utf8")).toBe(
 			before,
 		);
+	});
+});
+
+describe("a quest made where a budget's work is", () => {
+	/** Quest state with a keeper whose provider `id` names delta for `folder`. */
+	function placed(folder: () => string, id = "places") {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const events = bus();
+		keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
+		registerBudgetProvider(events, {
+			id,
+			precedence: 0,
+			resolve: async () => ({ kind: "unknown" }),
+			budgetFor: async (asked) => (asked === folder() ? "delta" : undefined),
+		});
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(state, fakePi(intoTheBranch), fakeCtx(), params);
+		return { state, run };
+	}
+
+	it("is born on that budget, and its first line says which", async () => {
+		const { state, run } = placed(() => tmpRoot);
+
+		const made = succeeded(
+			await run({ action: "create", title: "An Incident" }),
+		);
+
+		const id = state.questId as string;
+		expect(budgetIn(state.questsRoot, id)).toBe("delta");
+		expect(made.message.split("\n")[0]).toContain(
+			'drawing on budget delta, which "places" says',
+		);
+		expect(journeyOf(join(state.questsRoot, id))).toContain(
+			`Budget: delta, which "places" says work in "${tmpRoot}" draws on`,
+		);
+	});
+
+	it("quotes a provider whose id would break the line, in the first line and the Journey", async () => {
+		const { state, run } = placed(() => tmpRoot, "two\nlines");
+
+		const made = succeeded(
+			await run({ action: "create", title: "An Incident" }),
+		);
+
+		const id = state.questId as string;
+		expect(made.message.split("\n")[0]).toContain(
+			'drawing on budget delta, which "two\\nlines" says',
+		);
+		expect(journeyOf(join(state.questsRoot, id))).toContain(
+			'Budget: delta, which "two\\nlines" says work in',
+		);
+	});
+
+	it("asks about a relative folder as the absolute one it names", async () => {
+		const { state } = placed(() => process.cwd());
+
+		succeeded(
+			await handle(state, fakePi(intoTheBranch), fakeCtx("."), {
+				action: "create",
+				title: "Here",
+			}),
+		);
+
+		expect(budgetIn(state.questsRoot, state.questId as string)).toBe("delta");
+	});
+
+	it("names a subquest whose ancestors name nothing for its folder too", async () => {
+		const { state, run } = placed(() => "/elsewhere");
+		succeeded(await run({ action: "create", title: "Unnamed" }));
+		const top = state.questId as string;
+		const here = placed(() => tmpRoot);
+
+		const made = succeeded(
+			await here.run({
+				action: "create",
+				title: "Under It",
+				kind: "subquest",
+				parent: top,
+			}),
+		);
+
+		expect(budgetIn(state.questsRoot, made.details?.id as string)).toBe(
+			"delta",
+		);
+		expect(budgetIn(state.questsRoot, top)).toBeUndefined();
+	});
+
+	it("quotes the folder in the Journey, so its name can't add a line", async () => {
+		const odd = join(tmpRoot, "two\nlines");
+		const { state } = placed(() => odd);
+		const ctx = { ...fakeCtx(), cwd: odd } as Parameters<typeof handle>[2];
+
+		succeeded(
+			await handle(state, fakePi(intoTheBranch), ctx, {
+				action: "create",
+				title: "Odd",
+			}),
+		);
+
+		const journey = journeyOf(join(state.questsRoot, state.questId as string));
+		expect(journey).toContain(JSON.stringify(odd));
+		expect(journey).not.toContain("\nlines");
+	});
+
+	it("keeps what a parent names, none included, rather than the folder's", async () => {
+		const { state, run } = placed(() => "/elsewhere");
+		succeeded(await run({ action: "create", title: "Personal" }));
+		const top = state.questId as string;
+		succeeded(await run({ action: "budget", id: top, ref: "none" }));
+		const here = placed(() => tmpRoot);
+
+		const made = succeeded(
+			await here.run({
+				action: "create",
+				title: "Under It",
+				kind: "subquest",
+				parent: top,
+			}),
+		);
+
+		const child = made.details?.id as string;
+		expect(budgetIn(state.questsRoot, child)).toBeUndefined();
+		expect(made.message).not.toContain("drawing on budget");
+	});
+
+	it("names nothing where no provider names the folder's budget", async () => {
+		const { state, run } = placed(() => "/elsewhere");
+
+		const made = succeeded(await run({ action: "create", title: "Mine" }));
+
+		expect(budgetIn(state.questsRoot, state.questId as string)).toBeUndefined();
+		expect(made.message).not.toContain("drawing on budget");
 	});
 });
 
@@ -447,5 +582,23 @@ describe("the budget in the session's log", () => {
 		await keeper.keep(ctx());
 
 		expect(recorded()).toHaveLength(1);
+	});
+});
+
+describe("why a budget can't be drawn on", () => {
+	it("quotes each provider it names, so an id can't add a line", () => {
+		const said = [
+			undrawable("delta", {
+				kind: "unavailable",
+				provider: "a\nb",
+				reason: "Locked.",
+			}),
+			undrawable("delta", { kind: "unknown", asked: ["a\nb", "c"] }),
+		];
+		expect(said).toEqual([
+			expect.stringContaining('("a\\nb"): Locked.'),
+			expect.stringContaining('(asked "a\\nb", "c")'),
+		]);
+		expect(said.join("").split("\n")).toHaveLength(1);
 	});
 });

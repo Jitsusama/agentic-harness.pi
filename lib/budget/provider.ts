@@ -91,6 +91,16 @@ export interface BudgetProvider {
 	 * rejecting: a provider that fails says so as `unavailable`.
 	 */
 	resolve(name: string): Promise<BudgetAnswer>;
+	/**
+	 * The budget work in `folder`, an absolute path, draws on when no
+	 * quest names one, or undefined when this provider can't say. The
+	 * folder is the caller's choice and may hold anyone's files, so match
+	 * it by whole path segments, never as a bare string prefix. A quest
+	 * made or spawned there with no budget above it is named this one, so
+	 * a project's work stops drawing on the person's own key by default.
+	 * Optional, since a provider may only know what names mean.
+	 */
+	budgetFor?(folder: string): Promise<string | undefined>;
 }
 
 /** What the host hands out over {@link BUDGET_READY}. */
@@ -101,7 +111,12 @@ export interface BudgetHostApi {
 	listProviders(): readonly string[];
 }
 
-/** Whether a bus payload is a budget provider. */
+/**
+ * Whether a bus payload is a budget provider. Its optional `budgetFor`
+ * isn't judged here: one that isn't a function is never asked about a
+ * folder, and the provider still answers for names, since losing those
+ * too would put its quests on the person's own key.
+ */
 export function isBudgetProvider(data: unknown): data is BudgetProvider {
 	if (typeof data !== "object" || data === null) return false;
 	const p = data as Record<string, unknown>;

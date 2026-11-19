@@ -9,10 +9,18 @@
  * on any quest, loaded or not, since the person naming budgets for a
  * project names them at the top of its tree.
  *
+ * A quest made, or given a session, with no budget named anywhere above
+ * it takes the one its providers say the session's folder draws on
+ * (`budgetFromFolder`), so a project's work stops drawing on the
+ * person's own key: nine work quests did so on 18 Nov, one spending
+ * $251 in its first hour, until each was named by hand.
+ *
  * The field is the harness's own, so both parsers keep it among the
  * extras, and core's verbs write it back untouched.
  */
 
+import { resolve } from "node:path";
+import type { FolderBudget } from "../../../lib/budget/host.ts";
 import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
 import {
 	budgetInRecord,
@@ -22,6 +30,7 @@ import {
 } from "../../../lib/internal/quest/fields/budget.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
+import { budgetOfFolder } from "../budget.ts";
 import type { QuestState } from "../state.ts";
 import { addressOf } from "./address.ts";
 import {
@@ -66,6 +75,63 @@ export function budget(
 				: `Budget: ${word}, which its model calls and those of the quests under it draw on.`,
 	);
 	return report(state, target.questId, true);
+}
+
+/**
+ * The budget a quest under `above` (its parent, or the quest itself,
+ * or null for a new quest at the top) should be named for work in
+ * `folder`: the one the providers say the folder draws on, only when
+ * nothing from `above` up names one, `none` included.
+ */
+export async function budgetFromFolder(
+	state: QuestState,
+	above: string | null,
+	folder: string | undefined,
+): Promise<FolderBudget | undefined> {
+	if (!folder) return undefined;
+	if (above !== null && budgetInRecord(state.questsRoot, above)) return;
+	// Providers are promised an absolute path, and a call's cwd may not be.
+	return budgetOfFolder(state, resolve(folder));
+}
+
+/**
+ * The provider that named a folder's budget, as every line about it
+ * says it: quoted, so its id can't add a line of its own.
+ */
+export function namedBy(taken: FolderBudget): string {
+	return JSON.stringify(taken.provider);
+}
+
+/** The Journey's line for a budget a quest took from its folder. */
+export function takenFromFolder(taken: FolderBudget, folder: string): string {
+	// The folder is quoted too, so its name can't add a line either.
+	return `Budget: ${taken.name}, which ${namedBy(taken)} says work in ${JSON.stringify(resolve(folder))} draws on, since nothing above it named one.`;
+}
+
+/**
+ * Name the budget quest `quest` in `questDir` takes for work in
+ * `folder`, when nothing above it names one, and journal why. Answers
+ * the budget named, or undefined when it named none.
+ */
+export async function nameBudgetFromFolder(
+	state: QuestState,
+	quest: string,
+	questDir: string,
+	folder: string | undefined,
+): Promise<FolderBudget | undefined> {
+	const taken = await budgetFromFolder(state, quest, folder);
+	if (!taken || !folder) return undefined;
+	let named = false;
+	const result = mutateQuestFrontMatter(questDir, (fm) => {
+		// Named by someone else in between, or by hand with a word that
+		// can't be a budget: theirs stands, to be read and put right.
+		if (fm._extra?.budget !== undefined) return undefined;
+		named = true;
+		return withBudget(fm, taken.name);
+	});
+	if (!result.ok || !named) return undefined;
+	appendJourneyByPath(questDir, takenFromFolder(taken, folder));
+	return taken;
 }
 
 /** Front matter saying `word` as its budget, or none of its own. */
