@@ -1,9 +1,10 @@
 /**
  * A quest spawn through the desktop's launcher: what `qs` is asked and
  * the session it starts, in a folder pi asks to trust, and where a
- * budget's work is. Long because every case stands on one fake `qs`, one
- * fake starter, one kept environment and one quest made before each, so
- * a second file would copy that setup rather than share it.
+ * budget's work is. Long because its cases are one subject standing on
+ * one setup: a fake `qs`, a fake starter and a kept environment made
+ * before each, and the quest helper each case calls. A split would only
+ * move that setup into a support module these cases alone use.
  */
 
 import { EventEmitter } from "node:events";
