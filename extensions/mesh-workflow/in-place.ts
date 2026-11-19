@@ -24,6 +24,7 @@
 
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { lastingPath } from "../../lib/internal/reload/loaded.ts";
 import { JOIN_QUIET } from "../../lib/internal/session/host-holds.ts";
 import {
 	AGAIN_ENV,
@@ -35,9 +36,13 @@ import {
 } from "../../lib/internal/session/park.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
 
-/** The join a window's pi hands it to, beside this package's scripts. */
-export const JOIN_SCRIPT = fileURLToPath(
-	new URL("../../scripts/host-join.ts", import.meta.url),
+/**
+ * The join a window's pi hands it to, beside this package's scripts,
+ * named through the install's link so the window's words still run once
+ * the version this pi loaded is removed.
+ */
+export const JOIN_SCRIPT = lastingPath(
+	fileURLToPath(new URL("../../scripts/host-join.ts", import.meta.url)),
 );
 
 /** What a pi needs to hand its window over. */
