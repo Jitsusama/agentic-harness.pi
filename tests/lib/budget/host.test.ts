@@ -6,6 +6,7 @@ import {
 	BUDGET_REQUEST,
 	type BudgetAnswer,
 	type BudgetProvider,
+	type Classify,
 	registerBudgetProvider,
 } from "../../../lib/budget/provider.ts";
 
@@ -389,5 +390,156 @@ describe("the budget a folder's work draws on", () => {
 			provider: "first",
 		});
 		expect(Date.now() - started).toBeLessThan(1_000);
+	});
+});
+
+function judging(
+	id: string,
+	precedence: number,
+	answer: BudgetProvider["budgetForWork"],
+): BudgetProvider {
+	return { ...provider(id, precedence, {}), budgetForWork: answer };
+}
+
+/** A classifier nothing should reach, for providers that never call it. */
+const noClassifier: Classify = () => {
+	throw new Error("not asked");
+};
+
+describe("the budget some work draws on, judged from what it is", () => {
+	const work = { title: "Speed up walgit's pack writes" };
+
+	it("is the first provider's, lowest precedence first, that judges it, sure or not", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		registerBudgetProvider(
+			events,
+			judging("company", 10, async () => ({
+				name: "delta",
+				why: "walgit is Delta's",
+				sure: true,
+			})),
+		);
+		registerBudgetProvider(
+			events,
+			judging("unsure", 0, async () => ({
+				name: "aquifer",
+				why: "a guess",
+				sure: false,
+			})),
+		);
+
+		expect(await host.budgetForWork(work, noClassifier)).toEqual({
+			name: "aquifer",
+			why: "a guess",
+			sure: false,
+			provider: "unsure",
+		});
+	});
+
+	it("hands each provider the work and the session's classifier", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		const seen: unknown[] = [];
+		const classify: Classify = async () => ({
+			api: "typesafe-system-one",
+			provider: "typesafe",
+			model: "jev-latest",
+			answers: {},
+			stopReason: "stop",
+			timestamp: 0,
+		});
+		registerBudgetProvider(
+			events,
+			judging("company", 0, async (given, asks) => {
+				seen.push(given, await asks({ state: {}, questions: {} }));
+				return { name: "none", why: "Joel's laptop", sure: true };
+			}),
+		);
+
+		expect(await host.budgetForWork(work, classify)).toEqual({
+			name: "none",
+			why: "Joel's laptop",
+			sure: true,
+			provider: "company",
+		});
+		expect(seen[0]).toEqual(work);
+		expect(seen[1]).toMatchObject({ model: "jev-latest" });
+	});
+
+	it("passes over a provider that fails, is late, can't judge or names no budget's name", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000, 20);
+		registerBudgetProvider(
+			events,
+			judging("throws", 0, async () => {
+				throw new Error("no classifier");
+			}),
+		);
+		registerBudgetProvider(
+			events,
+			judging("late", 1, () => new Promise(() => {})),
+		);
+		registerBudgetProvider(
+			events,
+			judging("bad", 2, async () => ({
+				name: "../escape",
+				why: "",
+				sure: true,
+			})),
+		);
+		registerBudgetProvider(
+			events,
+			judging("silent", 3, async () => undefined),
+		);
+		registerBudgetProvider(events, provider("names-only", 4, {}));
+
+		expect(await host.budgetForWork(work, noClassifier)).toBeUndefined();
+	});
+
+	it("makes a provider's why one line of at most 300 characters, and reads only true as sure", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		const notTrue: unknown = "yes";
+		registerBudgetProvider(events, {
+			...provider("wordy", 0, {}),
+			budgetForWork: async () =>
+				({
+					name: "delta",
+					why: `first line\n\nsecond ${"x".repeat(400)}`,
+					sure: notTrue,
+				}) as never,
+		});
+
+		const judged = await host.budgetForWork(work, noClassifier);
+		expect(judged?.why.startsWith("first line second x")).toBe(true);
+		expect(judged?.why).toHaveLength(300);
+		expect(judged?.sure, "only true is sure").toBe(false);
+	});
+
+	it("waits one judging deadline however many providers are late", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000, 200);
+		for (const id of ["one", "two", "three"]) {
+			registerBudgetProvider(
+				events,
+				judging(id, 0, () => new Promise(() => {})),
+			);
+		}
+		registerBudgetProvider(
+			events,
+			judging("last", 9, async () => ({
+				name: "worldtree",
+				why: "leafd",
+				sure: true,
+			})),
+		);
+
+		const started = Date.now();
+		expect(await host.budgetForWork(work, noClassifier)).toMatchObject({
+			name: "worldtree",
+			provider: "last",
+		});
+		expect(Date.now() - started).toBeLessThan(500);
 	});
 });
