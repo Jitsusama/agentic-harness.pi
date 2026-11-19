@@ -146,6 +146,82 @@ describe("a conversation's store", () => {
 		]);
 	});
 
+	it("opens on durable's storage when it is a class, as pi-durable ships it", async () => {
+		const said: Said = [];
+		const modules = modulesSaying(said);
+		const asClass: HostPiModules = {
+			...modules,
+			sqlite: {
+				SqliteStorage: class Storage {
+					readonly database: { name: string };
+					constructor(database: { name: string }) {
+						this.database = database;
+					}
+					static async open(database: { name: string }) {
+						said.push(`class storage on ${database.name}`);
+						return new Storage(database);
+					}
+				},
+			},
+		};
+		await opened(asClass, checkpointsSaying(said), path, said);
+		expect(said).toContain("class storage on the store's thread");
+	});
+
+	it("lets the store's thread go when durable's harness can't open on it", async () => {
+		const said: Said = [];
+		const modules = modulesSaying(said);
+		const refusing: HostPiModules = {
+			...modules,
+			durable: {
+				...modules.durable,
+				Harness: {
+					open: async () => {
+						throw new Error("the harness refused");
+					},
+				},
+			},
+		};
+		await expect(
+			opened(refusing, checkpointsSaying(said), path, said),
+		).rejects.toThrow("the harness refused");
+		expect(said).toEqual([
+			`open ${path} {"walAutoCheckpointPages":0}`,
+			"storage on the store's thread",
+			"close the store's thread",
+		]);
+	});
+
+	it("closes the harness, then the store's thread, when its root can't be read", async () => {
+		const said: Said = [];
+		const modules = modulesSaying(said);
+		const rootless: HostPiModules = {
+			...modules,
+			durable: {
+				...modules.durable,
+				Harness: {
+					open: async () => ({
+						root: async () => {
+							throw new Error("no root");
+						},
+						close: async () => {
+							said.push("close the store");
+						},
+					}),
+				},
+			},
+		};
+		await expect(
+			opened(rootless, checkpointsSaying(said), path, said),
+		).rejects.toThrow("no root");
+		expect(said).toEqual([
+			`open ${path} {"walAutoCheckpointPages":0}`,
+			"storage on the store's thread",
+			"close the store",
+			"close the store's thread",
+		]);
+	});
+
 	it("is checkpointed before it closes, and let go once closed", async () => {
 		const said: Said = [];
 		const conversation = await opened(

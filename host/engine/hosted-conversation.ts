@@ -95,17 +95,28 @@ export async function openHostedConversation(options: {
 			throw new Error("Durable asked for the host's agent before pi built it");
 		return agent;
 	};
-	const harness = await durable.Harness.open(
-		storage,
-		{
-			models: () => built().models,
-			registry,
-			settings: () => agent?.settings(),
-			onReport: (report: { error: unknown }) => options.report?.(report.error),
-		},
-		context,
-	);
-	const root: Conversation = await harness.root(context);
+	let harness: Harness | undefined;
+	let root: Conversation;
+	try {
+		harness = await durable.Harness.open(
+			storage,
+			{
+				models: () => built().models,
+				registry,
+				settings: () => agent?.settings(),
+				onReport: (report: { error: unknown }) =>
+					options.report?.(report.error),
+			},
+			context,
+		);
+		root = await harness.root(context);
+	} catch (error) {
+		// The opening's failure is the one said; the store is let go either way.
+		await harness?.close(context).catch(() => {});
+		await database.close().catch(() => {});
+		throw error;
+	}
+	const opened: Harness = harness;
 	// Kept once open, so a store that failed to open leaves nothing kept.
 	const kept = options.checkpoints?.keep(options.storePath);
 	return {
@@ -118,12 +129,12 @@ export async function openHostedConversation(options: {
 				conversation: root,
 				registry,
 				context,
-				abortSubmission: (id) => harness.abortSubmission(id, context),
-				resume: () => harness.resume(),
+				abortSubmission: (id) => opened.abortSubmission(id, context),
+				resume: () => opened.resume(),
 				runFailure: async () =>
-					failureIn(await harness.snapshot(durable.LiveDoc, root.id, context)),
+					failureIn(await opened.snapshot(durable.LiveDoc, root.id, context)),
 				carrying: async () =>
-					busyIn(await harness.snapshot(durable.LiveDoc, root.id, context)),
+					busyIn(await opened.snapshot(durable.LiveDoc, root.id, context)),
 				extension: (
 					tools: readonly ToolRegistration[],
 					hooks: GenerationHooks,
@@ -155,7 +166,7 @@ export async function openHostedConversation(options: {
 					// A checkpoint that couldn't be asked for leaves it to the store's own close.
 					options.report?.(error);
 				}
-				await harness.close(context);
+				await opened.close(context);
 			} finally {
 				kept?.release();
 			}

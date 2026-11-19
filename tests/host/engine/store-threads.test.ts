@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type StoreDatabase,
@@ -16,6 +17,43 @@ const STALL_MS = 1500;
 
 /** How often the host's thread ticks while a store is stalled, in ms. */
 const TICK_MS = 50;
+
+/** Store threads whose workers this case keeps, to end one under its stores. */
+function keptThreads(threads = 1): {
+	readonly threads: StoreThreads;
+	readonly workers: Worker[];
+	readonly reported: unknown[];
+} {
+	const workers: Worker[] = [];
+	const kept: unknown[] = [];
+	return {
+		threads: storeThreads({
+			threads,
+			report: (error) => kept.push(error),
+			worker: (program) => {
+				const worker = new Worker(program, { eval: true });
+				workers.push(worker);
+				return worker;
+			},
+		}),
+		workers,
+		reported: kept,
+	};
+}
+
+/** End a thread's newest worker, as a crash would, once it has gone. */
+async function kill(workers: readonly Worker[]): Promise<void> {
+	const worker = workers.at(-1);
+	if (!worker) throw new Error("No worker to end");
+	await worker.terminate();
+}
+
+/** Once the worker has ended, at once if it has already. */
+function exited(worker: Worker | undefined): Promise<unknown> {
+	if (!worker) throw new Error("No worker to wait on");
+	if (worker.threadId === -1) return Promise.resolve();
+	return new Promise((done) => worker.once("exit", done));
+}
 
 let dir: string;
 let reported: unknown[];
@@ -96,7 +134,7 @@ describe("a store on its own thread", () => {
 		expect(failed.code).toBe("ERR_SQLITE_ERROR");
 	});
 
-	it("leaves the host's thread free while a read waits on a lock", async () => {
+	it("leaves the host's thread free while its BEGIN waits on another's write lock", async () => {
 		const path = join(dir, "durable.sqlite");
 		const db = await store("durable.sqlite", { busyTimeoutMs: STALL_MS });
 		await db.exec("CREATE TABLE entry (id INTEGER PRIMARY KEY)");
@@ -126,15 +164,125 @@ describe("a store on its own thread", () => {
 		const path = join(dir, "durable.sqlite");
 		const db = await threads.open(path, { walAutoCheckpointPages: 0 });
 		await db.exec("CREATE TABLE entry (id INTEGER PRIMARY KEY, text TEXT)");
-		for (let row = 0; row < 20; row++)
-			await db.run("INSERT INTO entry (text) VALUES (?)", "x".repeat(4096));
-		expect(statSync(`${path}-wal`).size).toBeGreaterThan(0);
-		await db.close();
+		// Another connection stays open and has read the log's index, so SQLite's own last close can't remove the log.
+		const other = new DatabaseSync(path);
+		other.prepare("SELECT count(*) FROM entry").get();
+		try {
+			for (let row = 0; row < 20; row++)
+				await db.run("INSERT INTO entry (text) VALUES (?)", "x".repeat(4096));
+			expect(statSync(`${path}-wal`).size).toBeGreaterThan(0);
+			await db.close();
+			expect(statSync(`${path}-wal`).size).toBe(0);
+		} finally {
+			other.close();
+		}
 		expect(
 			!existsSync(`${path}-wal`) || statSync(`${path}-wal`).size === 0,
 		).toBe(true);
 		// Closed twice is closed once.
 		await db.close();
+	});
+
+	it("refuses a call once closed, starting no thread for it", async () => {
+		const kept = keptThreads();
+		const db = await kept.threads.open(join(dir, "durable.sqlite"));
+		await db.close();
+		await expect(db.get("SELECT 1 AS one")).rejects.toThrow(/closed/);
+		expect(kept.workers).toHaveLength(1);
+	});
+
+	it("says a call that has waited long on its thread, once, and still answers it", async () => {
+		const said: unknown[] = [];
+		const slow = storeThreads({
+			threads: 1,
+			stalledMs: STALL_MS / 3,
+			report: (error) => said.push(error),
+		});
+		const path = join(dir, "durable.sqlite");
+		const db = await slow.open(path, { busyTimeoutMs: STALL_MS });
+		await db.exec("CREATE TABLE entry (id INTEGER PRIMARY KEY)");
+		const other = new DatabaseSync(path);
+		other.exec("BEGIN IMMEDIATE");
+		try {
+			await expect(db.transaction(async () => undefined)).rejects.toThrow(
+				/database is locked/,
+			);
+		} finally {
+			other.exec("ROLLBACK");
+			other.close();
+			await db.close();
+		}
+		expect(said).toHaveLength(1);
+		expect(String(said[0])).toMatch(/has waited 0\.5 s on its thread/);
+	});
+});
+
+describe("a store whose thread dies", () => {
+	it("fails the call it held, then answers again on a thread started anew, its rows kept", async () => {
+		const kept = keptThreads();
+		const db = await kept.threads.open(join(dir, "durable.sqlite"));
+		opened.push(db);
+		await db.exec("CREATE TABLE entry (id INTEGER PRIMARY KEY)");
+		await db.run("INSERT INTO entry (id) VALUES (?)", 1);
+		// Long enough that its answer can't come before the thread ends.
+		const held = db.get(
+			"WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 3000000) SELECT count(*) AS n FROM c",
+		);
+		await kill(kept.workers);
+		await expect(held).rejects.toThrow(/ended under the call/);
+		expect(await db.all("SELECT id FROM entry")).toEqual([{ id: 1 }]);
+		expect(kept.workers).toHaveLength(2);
+		expect(kept.reported).toEqual([]);
+	});
+
+	it("refuses the rest of a transaction it took, and writes none of it", async () => {
+		const kept = keptThreads();
+		const db = await kept.threads.open(join(dir, "durable.sqlite"));
+		opened.push(db);
+		await db.exec("CREATE TABLE entry (id INTEGER PRIMARY KEY)");
+		const failed = await db
+			.transaction(async (transaction) => {
+				await transaction.run("INSERT INTO entry (id) VALUES (?)", 1);
+				await kill(kept.workers);
+				await transaction.run("INSERT INTO entry (id) VALUES (?)", 2);
+			})
+			.catch((error) => error);
+		expect(failed.message).toMatch(/started again under its transaction/);
+		expect(await db.all("SELECT id FROM entry")).toEqual([]);
+	});
+
+	it("is started again three times, and past that its stores refuse and new ones go elsewhere", async () => {
+		const kept = keptThreads(2);
+		const db = await kept.threads.open(join(dir, "dying.sqlite"));
+		opened.push(db);
+		const dying = kept.workers.length - 1;
+		for (let restart = 1; restart <= 3; restart++) {
+			await kept.workers.at(-1)?.terminate();
+			expect(await db.get("SELECT 1 AS one")).toEqual({ one: 1 });
+		}
+		expect(kept.workers.length - dying).toBe(4);
+		await kept.workers.at(-1)?.terminate();
+		await expect(db.get("SELECT 1 AS one")).rejects.toThrow(/thread is gone/);
+		expect(String(kept.reported)).toMatch(/died 4 times/);
+		const after = await kept.threads.open(join(dir, "after.sqlite"));
+		opened.push(after);
+		expect(await after.get("SELECT 1 AS one")).toEqual({ one: 1 });
+	});
+
+	it("leaves nothing open for a store whose open it ended", async () => {
+		const kept = keptThreads();
+		const first = await kept.threads.open(join(dir, "first.sqlite"));
+		opened.push(first);
+		const second = join(dir, "second.sqlite");
+		const opening = kept.threads.open(second);
+		await kill(kept.workers);
+		await expect(opening).rejects.toThrow(/ended under the call/);
+		// An open connection keeps its log and shared memory; SQLite removes both at the last close.
+		expect(existsSync(`${second}-wal`) || existsSync(`${second}-shm`)).toBe(
+			false,
+		);
+		expect(await first.get("SELECT 1 AS one")).toEqual({ one: 1 });
+		expect(kept.reported).toEqual([]);
 	});
 });
 
@@ -250,8 +398,12 @@ describe("the threads the stores are spread across", () => {
 	});
 
 	it("opens nothing for a store that can't be opened, and says why", async () => {
+		const kept = keptThreads();
 		await expect(
-			threads.open(join(dir, "no-folder", "durable.sqlite")),
+			kept.threads.open(join(dir, "no-folder", "durable.sqlite")),
 		).rejects.toThrow(/unable to open database file/);
+		// It held no other store, so its thread ends.
+		await exited(kept.workers[0]);
+		expect(kept.reported).toEqual([]);
 	});
 });
