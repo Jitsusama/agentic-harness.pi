@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	NAME_PATIENCE_MS,
 	REGISTER_PATIENCE_MS,
@@ -30,6 +30,19 @@ const SHORT_PATIENCE_MS = 300;
 
 const made: string[] = [];
 const serving: Server[] = [];
+
+/** What the host says before each reason, for the line's shape. */
+const LINE =
+	"pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: ";
+
+// Each test starts with the process's once-only reasons empty, so none
+// passes for a reason an earlier one used up.
+beforeEach(() => {
+	Reflect.deleteProperty(
+		globalThis,
+		Symbol.for("agentic-harness.shell/spawner-register-said"),
+	);
+});
 
 afterEach(() => {
 	for (const server of serving.splice(0)) server.close();
@@ -66,8 +79,11 @@ function statOf(proc: string, pid: number, name: string, started: number) {
 	);
 }
 
-/** A stand-in node: what each connection says, answered with `answer`. */
-function node(answer: string | false = '{"Ok":"Spawned"}') {
+/**
+ * A stand-in node: what each connection says, answered with `answer`,
+ * never answered for false, or hung up on once heard for "hang up".
+ */
+function node(answer: string | false | "hang up" = '{"Ok":"Spawned"}') {
 	const socket = join(folder(), "node.sock");
 	const heard: unknown[] = [];
 	const connections: Socket[] = [];
@@ -80,7 +96,8 @@ function node(answer: string | false = '{"Ok":"Spawned"}') {
 			const end = said.indexOf("\n");
 			if (end < 0) return;
 			heard.push(JSON.parse(said.slice(0, end)));
-			if (answer !== false) connection.write(`${answer}\n`);
+			if (answer === "hang up") connection.destroy();
+			else if (answer !== false) connection.write(`${answer}\n`);
 		});
 	});
 	serving.push(server);
@@ -122,6 +139,28 @@ describe("a host telling the node a spawner's session", () => {
 		expect(said, "what the host said").toEqual([
 			`pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: ${why}\n`,
 		]);
+	});
+
+	it("says a reason once for the process, though pi loads the module afresh for each conversation", async () => {
+		const why = "this host's Node.js can open its inspector";
+		const stand = node(JSON.stringify({ Err: why }));
+		await stand.listening;
+		const said: string[] = [];
+		const options = {
+			socket: stand.socket,
+			proc: procWith(SPAWNER, "pi-spawner"),
+			say: (line: string) => said.push(line),
+		};
+
+		for (const session of ["s-one", "s-two"]) {
+			vi.resetModules();
+			const loaded = await import(
+				"../../../../lib/internal/shell/spawner-register.ts"
+			);
+			await loaded.registerSpawner(SPAWNED, session, options);
+		}
+
+		expect(said, "what the host said").toEqual([`${LINE}${why}\n`]);
 	});
 
 	it("says another reason too, but not one only a pid or session sets apart", async () => {
@@ -220,18 +259,23 @@ describe("a host telling the node a spawner's session", () => {
 		]);
 	});
 
-	it("says nothing of one that never goes by pi-spawner's name, once its patience is spent", async () => {
+	it("tells nothing of one that never goes by pi-spawner's name, once its patience is spent, and says so", async () => {
 		const stand = node();
 		await stand.listening;
+		const said: string[] = [];
 		const began = Date.now();
 
 		await registerSpawner(SPAWNED, "s-one", {
 			socket: stand.socket,
 			proc: procWith(SPAWNER, "sh"),
 			namePatience: SHORT_PATIENCE_MS,
+			say: (line: string) => said.push(line),
 		});
 
 		expect(stand.heard, "what the node heard").toEqual([]);
+		expect(said, "what the host said").toEqual([
+			`${LINE}pi-spawner didn't go by its own name within ${SHORT_PATIENCE_MS} ms\n`,
+		]);
 		expect(Date.now() - began, "how long it waited").toBeGreaterThanOrEqual(
 			SHORT_PATIENCE_MS - TIMER_SLACK_MS,
 		);
@@ -265,24 +309,42 @@ describe("a host telling the node a spawner's session", () => {
 		const stand = node(false);
 		await stand.listening;
 		const said: string[] = [];
-		const began = Date.now();
-
-		await registerSpawner(SPAWNED, "s-one", {
+		const options = {
 			socket: stand.socket,
 			proc: procWith(SPAWNER, "pi-spawner"),
 			patience: SHORT_PATIENCE_MS,
 			say: (line: string) => said.push(line),
-		});
+		};
+		const began = Date.now();
 
-		expect(said, "what the host said").toEqual([
-			`pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: the mycelium node didn't answer within ${SHORT_PATIENCE_MS} ms\n`,
+		await registerSpawner(SPAWNED, "s-one", options);
+		const waited = Date.now() - began;
+		await registerSpawner(SPAWNED, "s-two", options);
+
+		expect(said, "what the host said, once for both").toEqual([
+			`${LINE}the mycelium node didn't answer within ${SHORT_PATIENCE_MS} ms\n`,
 		]);
-		expect(Date.now() - began, "how long it waited").toBeGreaterThanOrEqual(
+		expect(waited, "how long it waited").toBeGreaterThanOrEqual(
 			SHORT_PATIENCE_MS - TIMER_SLACK_MS,
 		);
-		expect(Date.now() - began, "how long it waited").toBeLessThan(
-			REGISTER_PATIENCE_MS,
-		);
+		expect(waited, "how long it waited").toBeLessThan(REGISTER_PATIENCE_MS);
+	});
+
+	it("says nothing answered, not that the node was slow, when it hangs up", async () => {
+		const stand = node("hang up");
+		await stand.listening;
+		const said: string[] = [];
+
+		await registerSpawner(SPAWNED, "s-one", {
+			socket: stand.socket,
+			proc: procWith(SPAWNER, "pi-spawner"),
+			say: (line: string) => said.push(line),
+		});
+
+		expect(stand.heard, "what the node heard").toHaveLength(1);
+		expect(said, "what the host said").toEqual([
+			`${LINE}nothing answered at the mycelium node's socket\n`,
+		]);
 	});
 
 	it("gives up at once where nothing serves the socket, saying nothing", async () => {

@@ -122,7 +122,8 @@ describe("the agent's bash for a conversation", () => {
 		vi.stubEnv(SPAWNER_VARIABLE, "on");
 		const { program, bash, register } = tellingBash({ session: "s-given" });
 
-		await withSession("s-one", () =>
+		// Run under another conversation's id, so only the load's own names it.
+		await withSession("s-elsewhere", () =>
 			ran({ program, bash }, new AbortController().signal),
 		);
 

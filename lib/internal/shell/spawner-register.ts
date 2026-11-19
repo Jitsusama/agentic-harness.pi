@@ -15,7 +15,8 @@
  * ended and left its id to another is never named: the node refuses a
  * pid whose start differs. The word waits for the spawner's own name,
  * since one started in a scope goes by systemd-run's until that hands
- * over to it, and a spawner that never gets its name is never named.
+ * over to it, and a spawner that never gets its name is never named,
+ * which is said like a refusal.
  *
  * It stops a command claiming another session's spawner; it doesn't stop
  * code running inside the host itself, as an extension a project brings
@@ -23,9 +24,10 @@
  * command that rewrites the harness's files and restarts the host, whose
  * next start runs that code, or writes pi's host records and starts a
  * Node.js of its own that passes the node's checks; only a fence round
- * every conversation's commands does. A refusal, or a node that
- * listens yet never answers, is said once for each reason on the host's
- * error output, as the node logs each refusal. The
+ * every conversation's commands does. A refusal, a node that listens
+ * yet never answers or hangs up, or a spawner late to its name, is said
+ * once for each reason on the host's error output, as the node logs
+ * each refusal. The
  * node keeps the word only while it runs, so spawner.ts says it again
  * every 30 seconds while the spawner runs. Where the
  * node isn't there, nothing is said and the spawner's commands are told
@@ -38,6 +40,7 @@
 
 import { readFile, stat } from "node:fs/promises";
 import { askAt, nodeSocket } from "../../mesh/node.ts";
+import { processGlobal } from "../process/process-global.ts";
 
 /** How long the host waits on the node's answer, at most. */
 export const REGISTER_PATIENCE_MS = 2000;
@@ -48,6 +51,13 @@ export const REGISTER_PATIENCE_MS = 2000;
  * busy machine slows, and the node's answer gets its own time after.
  */
 export const NAME_PATIENCE_MS = 2000;
+
+/**
+ * How near its patience an unanswered ask counts as the node's silence
+ * rather than its hanging up: a timer may fire a little early as the
+ * wall clock reads it.
+ */
+const SILENCE_SLACK_MS = 50;
 
 /** How often the spawner's name is read while it isn't yet its own. */
 const NAME_POLL_MS = 5;
@@ -85,8 +95,9 @@ export interface RegisterOptions {
 /**
  * Tell the node that `spawned`, a pi-spawner this process started,
  * serves `session`. It settles once the node answers, or patience runs
- * out, whatever is said. A refusal, or a node listening that never
- * answers, is said once for each reason on the host's error output.
+ * out, whatever is said. A refusal, a node listening that never answers
+ * or hangs up, or a spawner late to its name, is said once for each
+ * reason on the host's error output.
  */
 export async function registerSpawner(
 	spawned: Spawned,
@@ -99,18 +110,12 @@ export async function registerSpawner(
 	const namePatience = options.namePatience ?? NAME_PATIENCE_MS;
 	const socket = "socket" in options ? options.socket : nodeSocket();
 	if (socket === undefined) return;
-	if (!(await namedSpawner(pid, proc, Date.now() + namePatience))) return;
-	const answer = await askAt(
-		socket,
-		{ Spawned: { pid, started, session } },
-		patience,
-	);
+	const named = await namedSpawner(pid, proc, Date.now() + namePatience);
+	if (named === "gone") return;
 	const why =
-		answer === undefined
-			? (await listening(socket))
-				? `the mycelium node didn't answer within ${patience} ms`
-				: undefined
-			: refusalIn(answer);
+		named === "late"
+			? `pi-spawner didn't go by its own name within ${namePatience} ms`
+			: await refusalOf(socket, { pid, started, session }, patience);
 	if (why === undefined) return;
 	// A spawner's pid, or the session, makes no reason of its own, and a
 	// reason is kept only as far as it's said.
@@ -146,6 +151,26 @@ function cut(text: string): string {
 		: text;
 }
 
+/**
+ * Why the node at `socket` didn't take the word, or nothing once it did
+ * or no node is there: its refusal; its silence, when patience ran out;
+ * or, when it hung up or refused the connection sooner, as a node that
+ * ended and left its socket behind does, that nothing answered.
+ */
+async function refusalOf(
+	socket: string,
+	spawned: Spawned & { session: string },
+	patience: number,
+): Promise<string | undefined> {
+	const asked = Date.now();
+	const answer = await askAt(socket, { Spawned: spawned }, patience);
+	if (answer !== undefined) return refusalIn(answer);
+	if (!(await listening(socket))) return undefined;
+	return Date.now() - asked >= patience - SILENCE_SLACK_MS
+		? `the mycelium node didn't answer within ${patience} ms`
+		: "nothing answered at the mycelium node's socket";
+}
+
 /** Whether something stands at `socket` to answer, as a node would. */
 async function listening(socket: string): Promise<boolean> {
 	try {
@@ -161,9 +186,14 @@ async function listening(socket: string): Promise<boolean> {
  * error output, as the node says each once in its own log. A reason is
  * kept without its numbers or the session, so refusals of one spawner
  * after another, or of one conversation after another, count as one,
- * and the node's few reasons never fill REFUSALS_SAID.
+ * and the node's few reasons never fill REFUSALS_SAID. It is the
+ * process's, not this module's, since pi loads the extension afresh for
+ * each conversation a host opens and each reload.
  */
-const saidRefusals = new Set<string>();
+const saidRefusals = processGlobal(
+	"agentic-harness.shell/spawner-register-said",
+	() => new Set<string>(),
+);
 
 /**
  * How many reasons a host says at most, so one running for weeks never
@@ -208,16 +238,21 @@ export async function startOf(
 	}
 }
 
-/** Whether `pid` goes by pi-spawner's name before `until`. */
+/**
+ * Whether `pid` goes by pi-spawner's name before `until`: named; gone,
+ * once it has ended or /proc doesn't hold it; or late, still going by
+ * another name when `until` comes.
+ */
 async function namedSpawner(
 	pid: number,
 	proc: string,
 	until: number,
-): Promise<boolean> {
+): Promise<"named" | "gone" | "late"> {
 	for (;;) {
 		const name = await nameOf(pid, proc);
-		if (name === SPAWNER_NAME) return true;
-		if (name === undefined || Date.now() >= until) return false;
+		if (name === SPAWNER_NAME) return "named";
+		if (name === undefined) return "gone";
+		if (Date.now() >= until) return "late";
 		await new Promise((settle) => setTimeout(settle, NAME_POLL_MS));
 	}
 }
