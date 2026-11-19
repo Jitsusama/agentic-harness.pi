@@ -152,6 +152,20 @@ function stillHeard(
 	return last >= kept;
 }
 
+/** What begins a run a host carries on, which pi's runForHost names it. */
+const CARRIED_ON = "continue";
+
+/** A turn's ledger with what was said kept as before, for a run whose message isn't given. */
+function unsaid(
+	turn: StandingContextLedger,
+	before: StandingContextLedger,
+): StandingContextLedger {
+	return {
+		frozen: turn.frozen,
+		delivered: before.delivered === undefined ? turn.frozen : before.delivered,
+	};
+}
+
 /**
  * Wire a standing context into a session: restore its ledger on start,
  * contribute to every prompt, and reset what was said at compaction.
@@ -171,12 +185,18 @@ export function registerStandingContext(
 	const section = sectionName(wording.customType);
 	pi.on("before_agent_start", async (event) => {
 		const turn = standingContextTurn(wording, ledger, current());
-		if (!sameLedger(turn.ledger, ledger)) pi.appendEntry(entry, turn.ledger);
-		ledger = turn.ledger;
+		// pi holds a run a host carries on's message in memory for the next
+		// prompt, where a stop before it drops it, so that prompt says the
+		// change and records it said; the carried run keeps the section.
+		const trigger: string = event.messageType;
+		const carried = trigger === CARRIED_ON;
+		const next = carried ? unsaid(turn.ledger, ledger) : turn.ledger;
+		if (!sameLedger(next, ledger)) pi.appendEntry(entry, next);
+		ledger = next;
 		if (turn.section !== undefined) {
 			event.systemPromptOptions.sections[section] = turn.section;
 		}
-		return turn.message ? { message: turn.message } : undefined;
+		return turn.message && !carried ? { message: turn.message } : undefined;
 	});
 
 	// Offer the state to a summary the harness writes, so a compaction

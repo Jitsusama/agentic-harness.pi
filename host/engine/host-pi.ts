@@ -99,6 +99,13 @@ export const HOST_WANTED_SEAMS: readonly HostSeam[] = [
 			isRecord(codingAgent.AgentSession) &&
 			codingAgent.AgentSession.hostQueueDisplay === true,
 	},
+	{
+		patch: "pi-host-runs-through-pi.patch",
+		why: "a run the host carries on reaches the model without its extensions' sections",
+		present: ({ codingAgent }) =>
+			isRecord(codingAgent.AgentSession) &&
+			codingAgent.AgentSession.hostRuns === true,
+	},
 ];
 
 /** What a pi lacking wanted seams goes without, each patch named once, for the host's report. */

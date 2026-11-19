@@ -26,6 +26,7 @@ import {
 } from "../../../../extensions/job-workflow/outbox.ts";
 import { holdMessagesThroughCarriedTurns } from "../../../../host/engine/carried-turn-messages.ts";
 import { loadHostPi } from "../../../../host/engine/host-pi.ts";
+import type { HostedAgent } from "../../../../host/engine/hosted-agent.ts";
 import { openHostedConversation } from "../../../../host/engine/hosted-conversation.ts";
 import { piLibrary } from "../../../../host/engine/pi-library.ts";
 import {
@@ -36,7 +37,13 @@ import { isRecord } from "../../../../lib/internal/record.ts";
 
 /** What the fixture drives of a pi session. */
 interface Session {
-	prompt(text: string): Promise<void>;
+	prompt(
+		text: string,
+		options?: {
+			streamingBehavior?: "steer" | "followUp";
+			preflightResult?: (disposition: "handled" | "queued" | "started") => void;
+		},
+	): Promise<void>;
 	steer(text: string): Promise<void>;
 	followUp(text: string): Promise<void>;
 	sendCustomMessage(
@@ -125,8 +132,12 @@ interface Coding {
 /** What the fixture's extension uses of pi's extension API. */
 interface ExtensionPi {
 	on(
-		event: "agent_start" | "agent_settled" | "message_end",
-		handler: (event: Record<string, unknown>) => void,
+		event:
+			| "agent_start"
+			| "agent_settled"
+			| "message_end"
+			| "before_agent_start",
+		handler: (event: Record<string, unknown>) => void | Promise<void>,
 	): void;
 }
 
@@ -183,7 +194,7 @@ interface Scenario {
 	/** What the session is sent before the agent recovers, as an extension's start may send it. */
 	early?: (session: Session) => Promise<void>;
 	/** What the session is sent once the recovery has begun carrying a turn on, as an extension may send it then. */
-	during?: (session: Session) => Promise<void>;
+	during?: (session: Session, agent?: HostedAgent) => Promise<void>;
 	/** Keep the session in a file under the folder, to be opened again by a later run. */
 	persist?: boolean;
 	/** Recover as a start's resume does, noting each turn the run takes and gives back. */
@@ -202,6 +213,17 @@ interface Scenario {
 	 * the extensions hear.
 	 */
 	listens?: boolean;
+	/**
+	 * Load an extension that adds a section to every run pi prepares, as
+	 * the harness's resident block and standing context do, noting each
+	 * run it prepares.
+	 */
+	sections?: boolean;
+	/**
+	 * Load an extension slow to prepare a run the host carries on, as a
+	 * handler waiting on a slow service would be, noting when it begins.
+	 */
+	stalls?: boolean;
 }
 
 /** Two models of different sizes, for a scenario that tells which answered. */
@@ -239,6 +261,14 @@ let asked = (): void => {};
 const askedOnce = new Promise<void>((done) => {
 	asked = done;
 });
+/** How long the stalling extension takes to prepare a carried run: twice what a parked close may take. */
+const STALL_MS = 10_000;
+/** Resolve preparing, once the stalling extension begins preparing a carried run. */
+let preparingBegan = (): void => {};
+/** Settles once the stalling extension begins preparing a carried run. */
+const preparing = new Promise<void>((done) => {
+	preparingBegan = done;
+});
 /** What the session's agent holds queued, once the session is built. */
 let queued = (): boolean => false;
 /** The words pi's screen lists as pending, once the session is built. */
@@ -252,10 +282,17 @@ let note = (_event: {
 	readonly waiting?: number;
 	readonly ms?: number;
 	readonly first?: boolean;
-	/** Whether the agent still counted a run under way once the step returned. */
+	/**
+	 * Whether a run was under way at the event: the agent's, once a step
+	 * returned, or pi's, as words were sent.
+	 */
 	readonly streaming?: boolean;
 	/** The signal a command started now would stop with: none, one still live, or one already aborted. */
 	readonly signal?: "none" | "live" | "aborted";
+	readonly trigger?: unknown;
+	readonly sectioned?: boolean;
+	readonly prompt?: string;
+	readonly paired?: boolean;
 }): void => {};
 
 /** Answer only after SLOW_FIRST_TOKEN_MS, as a provider that pays an abort no heed does. */
@@ -294,6 +331,48 @@ function continuedWith(session: Session): Promise<string> {
 		(refused: unknown) =>
 			refused instanceof Error ? refused.message : String(refused),
 	);
+}
+
+/** The section the fixture's sectioning extension adds to every run pi prepares. */
+const SECTION = "Kept for every run of this conversation.";
+
+/** The name the fixture's sectioning extension gives its section. */
+const SECTION_NAME = "host-carried-run";
+
+/**
+ * The sections in force at a request's end: its system messages folded in
+ * order, each replacing sections by name and a null removing one, as pi's
+ * transcript says they do.
+ */
+function sectionsInForce(messages: readonly unknown[]): Record<string, string> {
+	const sections: Record<string, string> = {};
+	for (const message of messages) {
+		if (!isRecord(message) || message.role !== "system") continue;
+		if (!isRecord(message.sections)) continue;
+		for (const [name, value] of Object.entries(message.sections)) {
+			if (typeof value === "string") sections[name] = value;
+			else delete sections[name];
+		}
+	}
+	return sections;
+}
+
+/**
+ * Answer `text`, noting the sections the request carried, whether the
+ * extension's is among them, and whether pi's prepared messages left each
+ * tool result after its call.
+ */
+function sectionedAnswer(text: string) {
+	return (context: { readonly messages: readonly unknown[] }): unknown => {
+		const sections = sectionsInForce(context.messages);
+		note({
+			type: "request",
+			sectioned: (sections[SECTION_NAME] ?? "").includes(SECTION),
+			prompt: JSON.stringify(sections),
+			paired: firstUnpaired(context.messages) === undefined,
+		});
+		return say(text);
+	};
 }
 
 /**
@@ -585,6 +664,17 @@ const scenarios: Record<string, Scenario> = {
 		turns: true,
 		typed: "are you back?",
 	},
+	/** As reopen, with an extension adding a section to each run, and words typed once the carried run ends. */
+	"reopen-sectioned": {
+		responses: () => [
+			sectionedAnswer("after the restart"),
+			sectionedAnswer("and your words"),
+		],
+		tools: echo(async () => noteEffect("ping")),
+		drive: (session) => session.prompt("typed once it was back"),
+		persist: true,
+		sections: true,
+	},
 	/** A fresh conversation recovering as a start's resume does: nothing carried, so no turn. */
 	"fresh-taking-turns": {
 		responses: () => [say("hello")],
@@ -603,16 +693,36 @@ const scenarios: Record<string, Scenario> = {
 		drive: async () => {},
 		persist: true,
 	},
-	/** Reopen with a prompt sent while the recovery carries the cut-off turn on, as job-workflow said a cut-off notice on 14 November. */
+	/** Reopen with a prompt sent while the recovery carries the cut-off turn on, queued as pi's editor queues words typed into a run under way. */
 	"reopen-prompted-during": {
 		responses: () => [
 			() => answerOnceQueued("after the restart"),
 			say("and the prompt"),
 		],
 		tools: echo(async () => noteEffect("ping")),
-		during: async (session) => {
+		during: async (session, agent) => {
+			const by = Date.now() + QUEUED_WAIT_MS;
+			while (!session.isStreaming && Date.now() < by) {
+				// Polled: typed once the carried turn shows as pi's run under way.
+				await new Promise((done) => setTimeout(done, QUEUED_POLL_MS));
+			}
+			note({ type: "prompted", streaming: session.isStreaming });
+			// As an open waits for its first words: held once durable has them, which commits no prompt here.
+			const watch = agent?.watchWords();
+			void watch?.held.then(
+				() => note({ type: "words_held" }),
+				(error: unknown) =>
+					note({ type: "words_refused", error: String(error) }),
+			);
 			try {
-				await session.prompt("sent during the turn");
+				// The carried turn is pi's own run, so pi refuses words that
+				// don't say how to wait, as it does in any run; its editor
+				// sends them as a follow-up.
+				await session.prompt("sent during the turn", {
+					streamingBehavior: session.isStreaming ? "followUp" : undefined,
+					// As an open tells its watch what pi did with its first words.
+					preflightResult: (disposition) => watch?.told(disposition),
+				});
 			} catch (error) {
 				// Noted rather than thrown, so the test sees what pi's caller was told.
 				note({ type: "prompt_refused", error: String(error) });
@@ -779,6 +889,19 @@ const scenarios: Record<string, Scenario> = {
 				streaming: session.agent.state.isStreaming,
 			});
 		},
+	},
+	/** As reopen, the host stopping while an extension is slow to prepare the carried run. */
+	"reopen-park-preparing": {
+		responses: () => [say("after the restart")],
+		tools: echo(async () => noteEffect("ping")),
+		during: async () => {
+			await preparing;
+			note({ type: "parking" });
+			await parkAndClose();
+		},
+		drive: async () => {},
+		persist: true,
+		stalls: true,
 	},
 	/** A host stopping before the provider's first token, the provider paying the park's abort no heed. */
 	"park-slow-first-token": {
@@ -970,14 +1093,20 @@ try {
 		...scenario.settings,
 	});
 	// pi's own loader, as createAgentSession builds it, with the fixture's extension beside.
-	const resourceLoader = scenario.listens
-		? new coding.DefaultResourceLoader({
-				cwd: folder,
-				agentDir,
-				settingsManager,
-				extensionFactories: [listeningExtension(builtSession)],
-			})
-		: undefined;
+	const extensionFactories = [
+		...(scenario.listens ? [listeningExtension(builtSession)] : []),
+		...(scenario.sections ? [sectioningExtension] : []),
+		...(scenario.stalls ? [stallingExtension] : []),
+	];
+	const resourceLoader =
+		extensionFactories.length > 0
+			? new coding.DefaultResourceLoader({
+					cwd: folder,
+					agentDir,
+					settingsManager,
+					extensionFactories,
+				})
+			: undefined;
 	await resourceLoader?.reload();
 	const { session } = await coding.createAgentSession({
 		cwd: folder,
@@ -1073,7 +1202,7 @@ try {
 	);
 	const during =
 		scenario.typed === undefined
-			? scenario.during?.(session)
+			? scenario.during?.(session, hosted)
 			: session.prompt(scenario.typed);
 	await recovery?.settled;
 	await early;
@@ -1099,6 +1228,35 @@ try {
 } finally {
 	faux.unregister();
 	if (!keptFolder) rmSync(folder, { recursive: true, force: true });
+}
+
+/**
+ * An extension that adds a section to every run pi prepares, as the
+ * harness's resident block does, and notes what began each run it
+ * prepares: a person's words, a custom message or a run carried on.
+ */
+function sectioningExtension(pi: ExtensionPi): void {
+	pi.on("before_agent_start", (event) => {
+		note({ type: "prepared", trigger: event.messageType });
+		const options = event.systemPromptOptions;
+		if (!isRecord(options)) return;
+		const sections = isRecord(options.sections) ? options.sections : {};
+		options.sections = { ...sections, [SECTION_NAME]: SECTION };
+	});
+}
+
+/**
+ * An extension that takes STALL_MS to prepare each run the host carries
+ * on, noting when it begins.
+ */
+function stallingExtension(pi: ExtensionPi): void {
+	pi.on("before_agent_start", async (event) => {
+		if (event.messageType !== "continue") return;
+		note({ type: "preparing" });
+		preparingBegan();
+		// A handler waiting on a slow service, as PREPARING_MS allows for.
+		await new Promise((done) => setTimeout(done, STALL_MS));
+	});
 }
 
 /** The session file under the folder, opened if a run before left one. */

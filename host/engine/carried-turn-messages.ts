@@ -11,7 +11,11 @@
  * own whenever the agent runs and the session counts no run. A host stops
  * in the middle of such turns, so what is held is written as the session
  * is disposed, even mid-round: a peer's lost words cost more than their
- * place, which the request's pairing mends (paired-results.ts).
+ * place, which the request's pairing mends (paired-results.ts). Where pi
+ * has the seam, a carried turn is pi's own run, so pi holds the message
+ * and drops it as it lets go; pi's own flush writes it first. pi keeps
+ * what it held past a run whose work failed, counting no run by then, so
+ * the flush is asked for at every dispose.
  */
 
 import type {
@@ -74,8 +78,10 @@ export function holdMessagesThroughCarriedTurns(
 	};
 	session.dispose = () => {
 		undo();
-		// pi writes a no-turn message at once while it counts no run, so it is in the file before pi lets go of it.
+		// pi writes a no-turn message at once while it counts no run, and holds it
+		// while it counts one, so what is held here goes first, for pi's flush.
 		flush();
+		writeWhatPiHolds(session, report);
 		dispose();
 	};
 	session.sendCustomMessage = async (message, options) => {
@@ -91,6 +97,41 @@ export function holdMessagesThroughCarriedTurns(
 	};
 	return undo;
 }
+
+/**
+ * Write what pi holds, through a run it counts or kept past one whose
+ * work failed, as it would once a turn ends; it writes nothing when it
+ * holds nothing. pi keeps that flush to itself, so it is found by name; a
+ * pi that moves it drops what it holds, as pi does, and that loss is
+ * reported unless pi's list of held messages is seen to be empty.
+ */
+function writeWhatPiHolds(
+	session: MessagingSession,
+	report: (error: unknown) => void,
+): void {
+	const flush: unknown = Reflect.get(session, PI_FLUSH);
+	if (typeof flush !== "function") {
+		// pi keeps words in a run and past a failed one, so only a pi seen to hold none is quiet.
+		const held: unknown = Reflect.get(session, PI_HELD);
+		if (Array.isArray(held) && held.length === 0) return;
+		report(
+			new Error(`pi has no ${PI_FLUSH}, so what it held is lost as it lets go`),
+		);
+		return;
+	}
+	try {
+		flush.call(session);
+	} catch (error) {
+		// The session still lets go: a word pi fails to write is reported, as one held here is.
+		report(error);
+	}
+}
+
+/** pi's own name for writing the messages it held through a turn. */
+const PI_FLUSH = "_flushPendingCustomMessages";
+
+/** pi's own name for the messages it holds until that flush. */
+const PI_HELD = "_pendingCustomMessages";
 
 /** The message as pi's session hands it to its agent. */
 function asAgentMessage(message: CustomMessageInput): AgentMessage {

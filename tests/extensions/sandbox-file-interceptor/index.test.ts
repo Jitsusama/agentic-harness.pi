@@ -266,6 +266,7 @@ describe("the interceptor", () => {
 		},
 	) => Promise<unknown>;
 	type Starting = (event: {
+		messageType?: string;
 		systemPromptOptions: { skills: Array<{ baseDir: string }> };
 	}) => Promise<unknown>;
 	let handler: Handler;
@@ -337,6 +338,22 @@ describe("the interceptor", () => {
 		mkdirSync(skill, { recursive: true });
 		writeFileSync(join(skill, "SKILL.md"), "# Format\n");
 		await starting({ systemPromptOptions: { skills: [{ baseDir: skill }] } });
+		const answer = await handler(
+			{ toolName: "read", input: { path: join(skill, "SKILL.md") } },
+			seat(),
+		);
+		expect(answer).toBeUndefined();
+	});
+
+	it("reads the skills pi offered a run a host carried on after a restart", async () => {
+		process.env.PI_SANDBOX = "strict";
+		const skill = join(home, "skills/review-format");
+		mkdirSync(skill, { recursive: true });
+		writeFileSync(join(skill, "SKILL.md"), "# Format\n");
+		await starting({
+			messageType: "continue",
+			systemPromptOptions: { skills: [{ baseDir: skill }] },
+		});
 		const answer = await handler(
 			{ toolName: "read", input: { path: join(skill, "SKILL.md") } },
 			seat(),

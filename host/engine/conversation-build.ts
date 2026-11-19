@@ -330,10 +330,14 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		});
 		// A turn durable carries on is no run of pi's session, which would write an extension's message mid-round.
 		// The hold ends with the session's dispose, writing what it held, so nothing here keeps its undo.
-		holdMessagesThroughCarriedTurns(created.session, agentOf(record), report);
+		holdMessagesThroughCarriedTurns(created.session, agentOf(record), (error) =>
+			report(`Conversation ${sessionId}: ${String(error)}`),
+		);
 		// Words the agent queues past the session show as pending, where pi has the seam; the host says at start when it lacks it.
-		// pi settles only runs it began, so the agent tells the session's extensions when one of its own settles.
-		agentOf(record).joinSession(created.session);
+		// The agent's own runs open as pi's, where pi has the seam, so pi prepares and settles them as it does a prompt's.
+		agentOf(record).joinSession(created.session, (error) =>
+			report(`Conversation ${sessionId}: ${String(error)}`),
+		);
 		return { ...created, services, diagnostics: said };
 	}
 
@@ -474,24 +478,36 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		first: string,
 	): Promise<void> {
 		const session = view(record.traits.sessionId, record).runtime.session;
-		const admitted = agent.whenAdmitted();
-		// Once the race is decided, a later rejection says only what the race already said, or concerns a later prompt.
-		admitted.catch(() => undefined);
+		const stopping = new AbortController();
+		const words = agent.watchWords(stopping.signal);
+		// Once the race is decided, a later rejection says only what the race already said.
+		words.held.catch(() => undefined);
 		let handled = () => {};
 		const taken = new Promise<void>((done) => {
 			handled = done;
 		});
 		const prompting = session.prompt(first, {
 			source: "rpc",
+			// An extension may begin a run of pi's as the carried one settles, and pi refuses words that don't say how to queue behind it, as its editor's do.
+			streamingBehavior: "followUp",
+			// What pi says it did tells the watch which words are these.
 			preflightResult: (disposition) => {
 				if (disposition === "handled") handled();
+				words.told(disposition);
 			},
 		});
 		// pi runs an extension command inside prompt and calls it handled only
 		// once its handler returns, which may wait on a person at a panel; the
 		// command was taken the moment it started, which prompt has done by now.
 		if (namesCommand(session, first)) handled();
-		await Promise.race([admitted, taken, prompting]);
+		// pi answers at once for words it only queued behind a run under way, or
+		// put off while a run settled, so its answer alone says nothing: durable
+		// holds them once the run takes them or a later prompt carries them.
+		try {
+			await Promise.race([words.held, taken, prompting.then(() => words.held)]);
+		} finally {
+			stopping.abort();
+		}
 		prompting.catch((error: unknown) => failedAfterStart(record, error));
 	}
 

@@ -209,7 +209,10 @@ export interface AgentSession {
 		text: string,
 		options?: {
 			source?: "interactive" | "rpc" | "extension";
-			preflightResult?: (disposition: string) => void;
+			/** How words sent while a run is under way queue; pi refuses them without it. */
+			streamingBehavior?: "steer" | "followUp";
+			/** What pi did with the words: ran a command, queued them, or started a run. */
+			preflightResult?: (disposition: "handled" | "queued" | "started") => void;
 		},
 	): Promise<void>;
 	abort(): Promise<void>;

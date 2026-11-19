@@ -15,7 +15,6 @@ import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import {
 	HOST_SEAMS,
-	HOST_WANTED_SEAMS,
 	HostPiRefused,
 	hostPiFiles,
 	lackingSeams,
@@ -41,6 +40,8 @@ interface FakeSeams {
 	readonly quit?: boolean;
 	/** Whether the agent-interface patch shows the agent's queued words; it does unless said. */
 	readonly queue?: boolean;
+	/** Whether the runs-through-pi patch lets the host run its own turns as pi's; it does with the agent interface unless said. */
+	readonly runs?: boolean;
 	readonly auth?: boolean;
 }
 
@@ -59,8 +60,10 @@ function fakeInstall(
 		seams.agent && seams.queue !== false
 			? " static hostQueueDisplay = true;"
 			: "";
+	const runs =
+		seams.agent && seams.runs !== false ? " static hostRuns = true;" : "";
 	const agent = seams.agent
-		? `static hostAgentInterfaceVersion = 1;${queue}`
+		? `static hostAgentInterfaceVersion = 1;${queue}${runs}`
 		: "";
 	const lifecycle = seams.screen ? "static hostedLifecycleVersion = 1;" : "";
 	const quit =
@@ -132,9 +135,25 @@ it("loads a pi built before the queued-words seam, saying what goes without it",
 		auth: true,
 	});
 	const pi = await loadHostPi(dir);
-	expect(pi.lacking).toEqual(HOST_WANTED_SEAMS);
+	expect(pi.lacking.map((seam) => seam.patch)).toEqual([
+		"pi-host-agent-interface.patch",
+	]);
 	expect(lackingSeams(pi.packageDir, pi.lacking)).toBe(
 		`The pi at ${dir} lacks pi-host-agent-interface.patch: without it words sent as a conversation reopens show nowhere until their turn starts`,
+	);
+});
+
+it("loads a pi built before the runs-through-pi seam, saying what goes without it", async () => {
+	const dir = fakeInstall({
+		agent: true,
+		turn: true,
+		screen: true,
+		runs: false,
+		auth: true,
+	});
+	const pi = await loadHostPi(dir);
+	expect(lackingSeams(pi.packageDir, pi.lacking)).toBe(
+		`The pi at ${dir} lacks pi-host-runs-through-pi.patch: without it a run the host carries on reaches the model without its extensions' sections`,
 	);
 });
 

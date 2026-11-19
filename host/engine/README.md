@@ -98,13 +98,15 @@ whose own retry stays off, ends that run as interrupted, and the
 recovery then continues the conversation, unless durable ended it for
 being cut off again and again.
 
-pi tells its extensions agent_settled only when a run it began ends, so
-the agent tells them itself when one of its own ends
-(hosted-agent/settles.ts): the recovery's, once any ask again is over
-too, and a run durable carries on alone. It says nothing while a run of
-pi's is under way, which settles as pi's run ends, nor for a run pi was
-never shown. Without it, job-workflow's outbox held a job's result from
-a carried run until a person typed.
+A run the agent begins itself opens as a run of pi's
+(hosted-agent/pi-runs.ts), through the runtime's runForHost seam, the
+moment pi is first shown it: the recovery's, held open across any ask
+again, and a run durable carries on alone. pi prepares it as a prompt's,
+so every extension adds its sections at before_agent_start, and settles
+it once it ends. Inside a run of pi's, the agent's run joins it; a run
+pi is never shown opens nothing. Before it, a carried turn reached the
+model without the harness's resident block, and job-workflow's outbox
+held a job's result from a carried run until a person typed.
 
 A start drops a hold whose session file is gone for good, as the
 engine's `lost` says (pi-session.ts): only a file missing from a

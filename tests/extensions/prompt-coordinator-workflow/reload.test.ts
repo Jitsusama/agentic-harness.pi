@@ -38,9 +38,10 @@ function activate() {
 	const fire = (name: string, event: unknown) =>
 		handlers.get(name)?.(event, ctx);
 	/** The resident section a prompt renders, and what the hook returned. */
-	const run = async () => {
+	const run = async (messageType = "user") => {
 		const sections: Record<string, string> = {};
 		const returned = await fire("before_agent_start", {
+			messageType,
 			systemPrompt: "BASE",
 			systemPromptOptions: { sections },
 		});
@@ -83,6 +84,24 @@ describe("the resident block across a reload", () => {
 		await prompt();
 		await prompt();
 
+		expect(entries).toHaveLength(1);
+	});
+
+	it("gives a run a host carries on after a restart the block a typed prompt gets", async () => {
+		registerPromptContributor({
+			id: "memory",
+			order: 10,
+			contribute: () => "- fact",
+		});
+		const { fire, run, entries } = activate();
+		await fire("session_start", { reason: "startup" });
+
+		const carried = await run("continue");
+		const typed = await run();
+
+		expect(carried.section).toBe("- fact");
+		expect(typed.section).toBe(carried.section);
+		expect(carried.returned).toBeUndefined();
 		expect(entries).toHaveLength(1);
 	});
 

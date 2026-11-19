@@ -319,6 +319,11 @@ describe("what stops warming", () => {
 	const realEvents: [string, string, unknown][] = [
 		["a typed prompt", "input", { text: "hi", source: "interactive" }],
 		["a run starting", "before_agent_start", { prompt: "hi" }],
+		[
+			"a run a host carries on after a restart",
+			"before_agent_start",
+			{ messageType: "continue" },
+		],
 		["a run started", "agent_start", {}],
 		["a finished compaction", "session_compact", { compactionEntry: {} }],
 		["a model change", "model_select", { source: "set" }],

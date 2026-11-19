@@ -280,6 +280,29 @@ describe("an act", () => {
 		expect(sent).toEqual([]);
 	});
 
+	it("waits through a run carried on after a restart, whose message pi holds for the next prompt", async () => {
+		// A host's carried run begins with nobody's words, and pi gives its handlers' messages only to the prompt after it: taken then, an act was handed over and never seen.
+		const { fire } = await startSession({}, { isIdle: () => true }, [], {
+			settleMs: 400,
+			spreadMs: 0,
+		});
+
+		fromElsewhere({ intent: "question", text: "7M6JKG: your bug?" });
+		// Long enough for the question to be waiting, well short of its 400 ms settle.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		const carried = await fire("before_agent_start", {
+			messageType: "continue",
+		});
+		const typed = (await fire("before_agent_start", {
+			messageType: "user",
+			prompt: "hello",
+		})) as { message?: Sent["message"] } | undefined;
+
+		expect(carried, "the carried run took nothing").toBeUndefined();
+		expect(typed?.message?.customType).toBe(NOTED);
+		expect(typed?.message?.content).toContain("your bug");
+	});
+
 	it("starts no turn for a group's question another peer answered meanwhile", async () => {
 		const { sent } = await startSession({}, { isIdle: () => true });
 

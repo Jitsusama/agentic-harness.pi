@@ -25,7 +25,7 @@ import type {
 	Submission,
 	ToolRegistration,
 } from "./durable-types.ts";
-import { Admissions } from "./hosted-agent/admissions.ts";
+import { Admissions, type WordsWatch } from "./hosted-agent/admissions.ts";
 import type {
 	DurableBinding,
 	QueueShowingSession,
@@ -37,6 +37,7 @@ import {
 	normalizePromptInput,
 	userContent,
 } from "./hosted-agent/messages.ts";
+import { type HostRunningSession, PiRuns } from "./hosted-agent/pi-runs.ts";
 import {
 	durableModels,
 	isPayloadHook,
@@ -52,7 +53,6 @@ import {
 	type Run,
 	unansweredMessage,
 } from "./hosted-agent/run.ts";
-import { OwnSettles, type SettlingSession } from "./hosted-agent/settles.ts";
 import {
 	createState,
 	type HostedAgentState,
@@ -131,7 +131,14 @@ export class HostedAgent {
 	private readonly recovery: Recovery;
 	/** Where words this agent queues past pi's session show as pending, once the host gives it. */
 	private pending: ShowQueued | undefined;
-	private readonly settles: OwnSettles;
+	private readonly piRuns = new PiRuns(
+		() => this.parked,
+		(say) => this.within(say),
+		() => {
+			// Words left queued once pi's run settled run next, as after pi's own; a run's failure shows in it.
+			if (this.hasQueuedMessages()) void this.continue().catch(() => undefined);
+		},
+	);
 
 	constructor(
 		options: AgentOptions,
@@ -184,7 +191,6 @@ export class HostedAgent {
 			stream: (options) => this.stream(options),
 			admitted: () => this.admissions.settled(),
 		});
-		this.settles = new OwnSettles(durable, () => this.parked);
 		this.recovery = new Recovery({
 			durable,
 			state: this.state,
@@ -198,7 +204,7 @@ export class HostedAgent {
 			pending: () => this.pending,
 			runWithLifecycle: (start) => this.runWithLifecycle(start),
 			continueRun: () => this.continueRun(),
-			settled: (runs) => this.settles.settled(runs),
+			holdPiRun: () => this.piRuns.hold(),
 			startRound: (run, assistant, options) =>
 				this.startRound(run, assistant, options),
 			queue: (queue, message, mode) => this.queue(queue, message, mode),
@@ -321,23 +327,19 @@ export class HostedAgent {
 		images?: readonly ContentBlock[],
 	): Promise<void> {
 		const messages = normalizePromptInput(input, images);
+		this.admissions.given(messages);
 		if (messages.some((message) => isPersonWords({ type: "message", message })))
 			this.joelTyped = true;
 		if (this.active) {
-			// pi begins a run only while it holds none, so one under way here is
-			// durable's: the recovery carrying a turn on, or durable's own work.
-			// The words queue behind it as an early prompt's do. Refused, pi,
-			// idle by its own account, let job-workflow say its cut-off notice
-			// again at once, 335 times in one conversation, and two resumes
-			// took 72 s each (14 November).
+			// pi begins a run only while it holds none, so one under way is durable's. The words
+			// queue behind it as an early prompt's do; refused, pi, idle by its own account, let
+			// job-workflow say its cut-off notice 335 times; two resumes took 72 s (14 November).
 			if (await this.recovery.followCarriedOn(messages)) return;
 		} else if (!this.recovery.begun) {
-			// A prompt before the recovery, as an extension's start sends, begins
-			// it: durable refuses new words as busy while it holds a turn a
-			// restart cut off, and the words were lost (13 November).
-			await this.recover().catch(() => {
-				// The host reports the recovery's failure where it began it; the words go on.
-			});
+			// A prompt before the recovery, as an extension's start sends, begins it: durable refuses
+			// new words while it holds a turn a restart cut off, and they were lost (13 November).
+			// The host reports the recovery's failure where it began it; the words go on.
+			await this.recover().catch(() => undefined);
 			if (await this.recovery.followCarriedOn(messages)) return;
 		}
 		await this.runPromptMessages(messages);
@@ -345,11 +347,9 @@ export class HostedAgent {
 
 	async continue(): Promise<void> {
 		if (this.active) {
-			// pi continues only once its own prompt has ended, so a run under way
-			// here is durable's: the ask again for a request a restart cut off,
-			// begun as the recovery that held pi's words ended. Refused, words
-			// typed while the run waited for its turn failed as the agent already
-			// processing (15 November); followed, its answer is what pi continues to.
+			// pi continues only once its prompt ended, so a run under way is durable's: the ask
+			// again for a request a restart cut off. Refused, words typed meanwhile failed as the
+			// agent already processing (15 November); followed, pi continues to its answer.
 			while (this.active) await this.active.promise;
 			if (
 				this.state.messages.at(-1)?.role === "assistant" &&
@@ -383,10 +383,14 @@ export class HostedAgent {
 	/**
 	 * Join the pi session holding this agent. Words the agent queues past it
 	 * show in its pending list, where pi has the seam, as pi lists only what
-	 * it queued. Its extensions hear the agent's own runs settle (settles.ts).
+	 * it queued. The agent's own runs open as pi's there (pi-runs.ts), and
+	 * one pi fails to prepare, or prepares too late, is said to `report`.
 	 */
-	joinSession(session: QueueShowingSession & SettlingSession): void {
-		this.settles.tell(session);
+	joinSession(
+		session: QueueShowingSession & HostRunningSession,
+		report?: (error: unknown) => void,
+	): void {
+		this.piRuns.tell(session, report);
 		if (typeof session.showQueued !== "function") return;
 		this.pending = (text, mode) => session.showQueued?.(text, mode);
 	}
@@ -430,13 +434,9 @@ export class HostedAgent {
 
 	// Runs.
 
-	/**
-	 * Settle once the next prompt is committed to durable, or reject with
-	 * why it was not. The host's start waits on it to say a conversation's
-	 * first words are safe.
-	 */
-	whenAdmitted(): Promise<void> {
-		return this.admissions.whenAdmitted();
+	/** Watch for words pi gives until `signal` stops it, settled once durable holds them: an open's first words wait on it. */
+	watchWords(signal?: AbortSignal): WordsWatch {
+		return this.admissions.watch(signal);
 	}
 
 	/**
@@ -473,11 +473,11 @@ export class HostedAgent {
 					entry: { kind: INPUT_KINDS.prompt, data },
 				});
 			} catch (error) {
-				this.admissions.settleAdmission(error);
+				this.admissions.committed(prompts, error);
 				refusedBy?.(error);
 				throw error;
 			}
-			this.admissions.settleAdmission();
+			this.admissions.committed(prompts);
 			for (const message of messages) {
 				await this.emit({ type: "message_start", message });
 				await this.emit({ type: "message_end", message });
@@ -527,7 +527,7 @@ export class HostedAgent {
 	}
 
 	private runWithLifecycle(start: (run: Run) => Promise<void>): Promise<Run> {
-		return this.within(() => this.lifecycle(start));
+		return this.within(() => this.piRuns.holding(() => this.lifecycle(start)));
 	}
 
 	private within<T>(work: () => T): T {
@@ -683,7 +683,8 @@ export class HostedAgent {
 
 	/** Open a run for what durable does on its own; it ends once durable is idle. */
 	private carryOn(): void {
-		this.settles.after(this.runWithLifecycle(async () => {}));
+		// A failure is shown to pi as the run's end, and pi settles it as its own.
+		this.runWithLifecycle(async () => {}).catch(() => undefined);
 	}
 
 	private currentRun(): Run {
@@ -815,6 +816,7 @@ export class HostedAgent {
 	): QueuedMessage {
 		const item: QueuedMessage = { hostId: randomUUID(), message };
 		queue.enqueue(item);
+		this.admissions.given([message]);
 		if (this.active?.run.admitting) this.admissions.admitQueued(item, mode);
 		return item;
 	}
@@ -834,6 +836,14 @@ export class HostedAgent {
 		const run = this.active?.run;
 		if (run && !run.opened) {
 			run.opened = true;
+			// Pi's prepared messages go in the next request, after any owed tool result (pi-runs.ts).
+			// A park stops the wait too, so a stopping host's close waits on no preparation it abandoned.
+			const stopped = AbortSignal.any([
+				run.controller.signal,
+				this.parking.signal,
+			]);
+			run.placed.push(...(await this.piRuns.opening(stopped)));
+			if (this.parked) return;
 			if (event.type !== "agent_start") {
 				// A recovering run shows pi the run and the turn it carries on before its first event.
 				await this.emit({ type: "agent_start" });

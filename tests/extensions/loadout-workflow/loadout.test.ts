@@ -149,9 +149,10 @@ describe("the index of tools that load on demand", () => {
 
 	it("is a prompt section of its own, the same on every run", async () => {
 		const { fire } = activate(["bash"]);
-		const run = async () => {
+		const run = async (messageType = "user") => {
 			const sections: Record<string, string> = {};
 			const returned = await fire("before_agent_start", {
+				messageType,
 				systemPromptOptions: { sections },
 			});
 			return { section: sections[INDEX_SECTION], returned };
@@ -159,10 +160,14 @@ describe("the index of tools that load on demand", () => {
 
 		const first = await run();
 		const second = await run();
+		// A run a host carries on after a restart has no prompt of its own.
+		const carried = await run("continue");
 
 		expect(first.section).toContain("browser_go");
 		expect(second.section).toBe(first.section);
+		expect(carried.section).toBe(first.section);
 		expect(first.returned).toBeUndefined();
+		expect(carried.returned).toBeUndefined();
 	});
 });
 

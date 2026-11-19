@@ -82,6 +82,7 @@ const PROCESS_TESTS = [
 	"tests/host/service/stop-backstop.test.ts",
 	"tests/host/engine/hosted-agent.test.ts",
 	"tests/host/engine/call-signal.test.ts",
+	"tests/host/engine/carried-runs.test.ts",
 	"tests/host/engine/engine.test.ts",
 	"tests/host/parity/parity.test.ts",
 	"tests/host/soak/soak.test.ts",

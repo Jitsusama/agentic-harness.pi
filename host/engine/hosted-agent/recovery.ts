@@ -40,8 +40,11 @@ export interface RecoverySide {
 	runWithLifecycle(start: (run: Run) => Promise<void>): Promise<Run>;
 	/** Run pi's continue: a run asking the model again on what it holds. */
 	continueRun(): Promise<Run>;
-	/** Tell pi's extensions that these runs, begun by the agent itself, have settled. */
-	settled(runs: readonly Run[]): Promise<void>;
+	/**
+	 * Hold the run of pi's that the agent's own runs open until the answer
+	 * is called, which resolves once pi settled it.
+	 */
+	holdPiRun(): () => Promise<void>;
 	startRound(
 		run: Run,
 		assistant: AssistantMessage,
@@ -102,6 +105,8 @@ export class Recovery {
 		const started = new Promise<void>((done) => {
 			resumed = done;
 		});
+		// One run of pi's for the carried run and its ask again, as pi's own run settles once its continues are: settled between them, an extension's prompt would race the ask again.
+		const release = side.holdPiRun();
 		const settled = side.runWithLifecycle(async (run) => {
 			if (waits) {
 				// Words said meanwhile queue behind this run, as behind any other.
@@ -120,19 +125,26 @@ export class Recovery {
 			side.durable.resume();
 			resumed();
 		});
-		await Promise.race([started, settled]);
-		return {
-			settled: settled
-				.then(async (carried) => {
-					const asked = await this.askAgainIfCutOff(before);
-					// Settled once both are over, as pi's own run settles once its continues are: settled between them, an extension's prompt would race the ask again.
-					await side.settled(asked ? [carried, asked] : [carried]);
-				})
-				.finally(() => {
-					this.answered = undefined;
-					giveBack();
-				}),
-		};
+		// Chained before the race, so a run that fails before it starts still lets pi's run go.
+		const over = settled
+			.then(async () => {
+				await this.askAgainIfCutOff(before);
+				await release();
+			})
+			.finally(async () => {
+				await release();
+				this.answered = undefined;
+				giveBack();
+			});
+		try {
+			await Promise.race([started, settled]);
+		} catch (error) {
+			over.catch(() => {
+				// The same failure, thrown to this recovery's caller just below.
+			});
+			throw error;
+		}
+		return { settled: over };
 	}
 
 	/**

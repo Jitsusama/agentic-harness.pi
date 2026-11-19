@@ -64,10 +64,14 @@ function harness(state: { current: string | null }) {
 		last: () => ({ sections, returned }),
 		start: () => handlers.get("session_start")?.({}, ctx),
 		/** Run a prompt, recording any message it sends, as pi would. */
-		async prompt(): Promise<string | undefined> {
+		async prompt(messageType = "user"): Promise<string | undefined> {
 			sections = {};
 			const turn = (await handlers.get("before_agent_start")?.(
-				{ systemPrompt: "base", systemPromptOptions: { sections } },
+				{
+					messageType,
+					systemPrompt: "base",
+					systemPromptOptions: { sections },
+				},
 				ctx,
 			)) as
 				| {
@@ -132,6 +136,23 @@ describe("a standing context in the prompt", () => {
 
 		expect(h.last().sections).toEqual({ "probe-context": "[Probe] A" });
 		expect(h.last().returned?.systemPrompt).toBeUndefined();
+	});
+
+	it("keeps its section in a run a host carries on, and leaves a change for the next prompt to say", async () => {
+		// pi holds a carried run's message in memory for the next prompt, so one given there is lost to a stop before it.
+		const state = { current: "A" as string | null };
+		const h = harness(state);
+		await h.start();
+		await h.prompt();
+		state.current = "B";
+
+		expect(await h.prompt("continue"), "the carried run says nothing").toBe(
+			undefined,
+		);
+		expect(h.last().sections).toEqual({ "probe-context": "[Probe] A" });
+		await h.start();
+		expect(await h.prompt(), "the next prompt says it").toBe("[Probe] Now: B.");
+		expect(await h.prompt(), "said once").toBeUndefined();
 	});
 });
 
