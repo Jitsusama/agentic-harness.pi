@@ -235,6 +235,12 @@ folder. All but `advisor`, `convention-context` and
   reviewer's cache write is one the rest can read; it is
   loaded for any reviewer given a lens of its own.
 
+  `packs/budget-entry` registers no tool either. It writes the
+  budget a subagent inherited into the subagent's own log, as
+  the quest workflow does in a person's session, so spend read
+  from the logs bills a reviewer's run to its budget; it is
+  loaded into every subagent.
+
   A verifier is the other kind, a tool a subagent calls to
   validate its structured output against a schema before
   finishing. None ship; the `subagent` tool's `verify` option

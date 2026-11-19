@@ -74,9 +74,24 @@ const SHARED_BRIEF_PACK = join(
 );
 
 /**
+ * The pack that writes the budget a subagent inherited into its own
+ * log, since `--no-extensions` keeps out the quest workflow that
+ * writes it in a person's session.
+ */
+const BUDGET_ENTRY_PACK = join(
+	dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"..",
+	"packs",
+	"budget-entry",
+	"index.ts",
+);
+
+/**
  * The extensions and skills a reviewer loads: the engine-wide
- * defaults, the caller's own, and, for a reviewer with an ask of its
- * own, the pack that lets it share the brief before it.
+ * defaults, the caller's own, the pack that says its budget in its
+ * log, and, for a reviewer with an ask of its own, the pack that lets
+ * it share the brief before it.
  *
  * Defaults first and deduplicated, so a path registered as a default
  * and passed again by a caller loads once.
@@ -92,6 +107,7 @@ export function reviewerLoadout(
 		extraExtensions: dedupePaths([
 			...defaults.extensions,
 			...(options.extraExtensions ?? []),
+			BUDGET_ENTRY_PACK,
 			...(options.ask === undefined ? [] : [SHARED_BRIEF_PACK]),
 		]),
 		extraSkills: dedupePaths([

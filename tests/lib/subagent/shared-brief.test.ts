@@ -109,11 +109,14 @@ describe("a brief several reviewers share", () => {
 		const packs = (args: readonly string[]) =>
 			args.filter((_, at) => args[at - 1] === "--extension");
 		expect(packs(calls[0] ?? [])).toEqual([
+			expect.stringMatching(/packs\/budget-entry\/index\.ts$/),
 			expect.stringMatching(/packs\/shared-brief\/index\.ts$/),
 		]);
-		const pack = packs(calls[0] ?? [])[0] ?? "";
+		const pack = packs(calls[0] ?? [])[1] ?? "";
 		expect(existsSync(pack), `${pack} exists`).toBe(true);
-		expect(calls[1]).not.toContain("--extension");
+		expect(packs(calls[1] ?? [])).toEqual([
+			expect.stringMatching(/packs\/budget-entry\/index\.ts$/),
+		]);
 	});
 
 	it("stays on disk until the last reviewer reading it is done", async () => {

@@ -222,6 +222,7 @@ describe("runReviewer + defaults integration", () => {
 			"/abs/auth.ts",
 			"/abs/telemetry.ts",
 			"/abs/verify.ts",
+			expect.stringMatching(/packs\/budget-entry\/index\.ts$/),
 		]);
 	});
 
@@ -242,11 +243,12 @@ describe("runReviewer + defaults integration", () => {
 		expect(at(calls, 0).args.join(" ")).toContain("--extension /abs/auth.ts");
 	});
 
-	it("emits no --extension / --skill flags when nothing is registered or passed", async () => {
+	it("emits only the budget pack, and no --skill, when nothing is registered or passed", async () => {
 		// With an empty registry and no per-call extras pi
 		// should see a clean argv, with no spurious flag pairs
 		// that would force pi to consume the next token as
-		// a path.
+		// a path. The budget pack goes to every subagent, so
+		// its log says the budget it spends on.
 		const { runPi, calls } = recordingRunPi();
 		await runReviewer({
 			reviewer: { id: "r" },
@@ -255,7 +257,13 @@ describe("runReviewer + defaults integration", () => {
 			runPi,
 		});
 		const args = at(calls, 0).args;
-		expect(args).not.toContain("--extension");
+		const extensions = args.filter(
+			(_, i) => i > 0 && args[i - 1] === "--extension",
+		);
+		expect(extensions).toEqual([
+			expect.stringMatching(/packs\/budget-entry\/index\.ts$/),
+		]);
+		expect(args.filter((arg) => arg === "--extension")).toHaveLength(1);
 		expect(args).not.toContain("--skill");
 	});
 
