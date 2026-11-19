@@ -303,10 +303,11 @@ starts it, since a command that could trace the host or open its
 inspector could speak for it. A host without them is refused, and each
 of its conversations' commands told none; the node logs why, once, as
 it does every refusal, and the host says each reason once on its own
-error output, its printable characters only. The node keeps the word
-only while it runs, so the host says each running `pi-spawner` again
-every 30 seconds, with the start it read when the spawner began. A command run another way, as pi's own
-once a spawner is lost, or kept through a host's restart under a
+error output, its printable characters only, up to 32 reasons. The
+node keeps the word only while it runs, so the host says each running
+`pi-spawner` again every 30 seconds, with the start it read when the
+spawner began. A command run another way, as pi's own once a spawner
+is lost, or kept through a host's restart under a
 spawner the next host didn't start, is told no conversation. A
 spawner counts as lost once it ends, so a command that kills its own
 leaves its conversation's later commands told none until the

@@ -107,12 +107,24 @@ export async function registerSpawner(
 	if (why === undefined) return;
 	// A spawner's pid, or the session, makes no reason of its own.
 	const reason = why.split(session).join("").replace(/\d+/g, "");
-	if (saidRefusals.has(reason) || saidRefusals.size >= REFUSALS_SAID) return;
+	if (saidRefusals.has(reason) || saidRefusals.size > REFUSALS_SAID) return;
 	saidRefusals.add(reason);
-	// Whoever answers on the socket wrote it, so only its printable
-	// characters reach the host's journal, and only so many of them.
-	const said = why.replace(/\p{Cc}/gu, "?").slice(0, REFUSAL_CHARS);
-	(options.say ?? ((line) => process.stderr.write(line)))(
+	const say = options.say ?? ((line) => process.stderr.write(line));
+	if (saidRefusals.size > REFUSALS_SAID) {
+		say(
+			`pi-spawner's host has said ${REFUSALS_SAID} reasons the mycelium node refused, and says no more until it restarts\n`,
+		);
+		return;
+	}
+	// Whoever answers on the socket wrote it, so no control, format or
+	// line-breaking character reaches the host's journal, and only so many
+	// characters, a cut marked.
+	const printable = why.replace(/[\p{C}\p{Zl}\p{Zp}]/gu, "?");
+	const said =
+		printable.length > REFUSAL_CHARS
+			? `${printable.slice(0, REFUSAL_CHARS)}...`
+			: printable;
+	say(
 		`pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: ${said}\n`,
 	);
 }

@@ -149,7 +149,11 @@ describe("a host telling the node a spawner's session", () => {
 	});
 
 	it("says a reason's printable characters only", async () => {
-		const stand = node(JSON.stringify({ Err: "a node\u001b[2J\nwrites" }));
+		const stand = node(
+			JSON.stringify({
+				Err: "a node\u001b[2J\nwrites\u202eback\u2028and\u200bon",
+			}),
+		);
 		await stand.listening;
 		const said: string[] = [];
 
@@ -160,7 +164,7 @@ describe("a host telling the node a spawner's session", () => {
 		});
 
 		expect(said, "what the host said").toEqual([
-			"pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: a node?[2J?writes\n",
+			"pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: a node?[2J?writes?back?and?on\n",
 		]);
 	});
 
