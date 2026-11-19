@@ -125,15 +125,18 @@ describe("a failed reply that was billed", () => {
 	};
 
 	it("is one that read its input", () => {
-		expect(wasBilled(failed(120_000, 0))).toBe(true);
+		expect(wasBilled(failed(120_000, 0)), "billed for its input").toBe(true);
 	});
 
 	it("is one that cost something", () => {
-		expect(wasBilled(failed(0, 0.42))).toBe(true);
+		expect(wasBilled(failed(0, 0.42)), "billed for its cost").toBe(true);
 	});
 
 	it("is never one the provider never read, as a 502 is", () => {
-		expect(wasBilled(reply("error", "502 Bad Gateway"))).toBe(false);
+		expect(
+			wasBilled(reply("error", "502 Bad Gateway")),
+			"a 502 is not billed",
+		).toBe(false);
 	});
 });
 
