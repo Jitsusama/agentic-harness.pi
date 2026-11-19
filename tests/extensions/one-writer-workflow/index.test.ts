@@ -246,8 +246,10 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			handlers.get("session_start")?.({ reason: "startup" }, ctx),
 		);
 
-		expect(existsSync(holder.again)).toBe(false);
-		expect(existsSync(holder.wake)).toBe(false);
+		expect(existsSync(holder.again), "it names nothing to start next").toBe(
+			false,
+		);
+		expect(existsSync(holder.wake), "it writes no wake").toBe(false);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
@@ -266,7 +268,10 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			handlers.get("session_start")?.({ reason: "startup" }, ctx),
 		);
 
-		expect(existsSync(holder.again)).toBe(false);
+		expect(
+			existsSync(holder.again),
+			"it names nothing to start next, which would drop the flag",
+		).toBe(false);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 });
