@@ -7,7 +7,10 @@
  * loaded quest draws on (its own, or its nearest ancestor's), asks
  * the providers what that name means and lays the answer over
  * the session's environment, putting back what was there when the quest draws on
- * none or the session puts it down. Model providers read their keys
+ * none or the session puts it down. A session on no quest draws on the
+ * budget its folder's work draws on, else on one a sure judgement of
+ * its folder and first prompt names, asked before that prompt's model
+ * call and said to the person either way it is named. Model providers read their keys
  * from the environment as each request is made, so the next request
  * draws on it; commands and subagents started afterwards inherit it.
  * A session started for another quest does not: the terminal it opens
@@ -25,6 +28,7 @@
  * the model's to reason about.
  */
 
+import { resolve } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -51,7 +55,10 @@ import {
 } from "../../lib/budget/record.ts";
 import { findClassifier } from "../../lib/classifier/jev.ts";
 import { sessionEnv } from "../../lib/core/session/index.ts";
-import { budgetInRecord } from "../../lib/internal/quest/fields/budget.ts";
+import {
+	budgetInRecord,
+	NO_BUDGET,
+} from "../../lib/internal/quest/fields/budget.ts";
 import type { QuestState } from "./state.ts";
 
 /** What keeps the session on its quest's budget. */
@@ -60,8 +67,14 @@ export interface BudgetKeeper {
 	 * Draw on the budget the loaded quest names, if it changed. With
 	 * `again`, ask the providers even when it didn't: naming a budget
 	 * once more is how a person takes up one whose file they just wrote.
+	 * A session on no quest draws on what its folder names, else, once it
+	 * has a `prompt`, on what a sure judgement of its folder and that
+	 * first prompt names; each is asked once a session.
 	 */
-	keep(ctx: ExtensionContext, options?: { again?: boolean }): Promise<void>;
+	keep(
+		ctx: ExtensionContext,
+		options?: { again?: boolean; prompt?: string },
+	): Promise<void>;
 	/**
 	 * The session has ended or been replaced: forget its context, so an
 	 * answer still on its way acts for nothing. A provider has seconds to
@@ -105,6 +118,9 @@ const workBudgets = new WeakMap<
 		ctx: Pick<ExtensionContext, "modelRegistry">,
 	) => Promise<WorkBudget | undefined>
 >();
+
+/** The most of a first prompt a judgement is handed. */
+const LONGEST_PROMPT = 1500;
 
 /**
  * The environment variable naming the classifier budgets are judged
@@ -161,11 +177,64 @@ export function keepQuestBudget(
 	/** The ask still on its way, so a second keep can wait on it. */
 	let pending: Promise<void> = Promise.resolve();
 
-	const keep = async (ctx: ExtensionContext, again = false) => {
+	/** What a session on no quest asked of its folder, once a session. */
+	let folderAsked: Promise<string | null> | undefined;
+	/** What it asked of its first prompt, once a session. */
+	let promptAsked: Promise<string | null> | undefined;
+
+	/**
+	 * The budget a session on no quest draws on: its folder's, else a
+	 * sure judgement's of its folder and first prompt, or null for none.
+	 */
+	const looseName = async (
+		ctx: ExtensionContext,
+		prompt: string | undefined,
+	): Promise<string | null> => {
+		if (typeof ctx.cwd !== "string" || ctx.cwd === "") return null;
+		const folder = resolve(ctx.cwd);
+		folderAsked ??= host.budgetFor(folder).then((taken) => {
+			if (!taken) return null;
+			ctx.ui.notify(
+				`This session is on no quest, so it draws on budget ${taken.name}, which ${JSON.stringify(taken.provider)} says work in ${JSON.stringify(folder)} draws on.`,
+				"info",
+			);
+			return taken.name;
+		});
+		const byFolder = await folderAsked;
+		if (byFolder !== null) return byFolder;
+		const asked = prompt?.trim();
+		if (!(promptAsked || asked)) return null;
+		promptAsked ??= judgeLoose(ctx, folder, asked ?? "");
+		return promptAsked;
+	};
+
+	const judgeLoose = async (
+		ctx: ExtensionContext,
+		folder: string,
+		prompt: string,
+	): Promise<string | null> => {
+		const judged = await host.budgetForWork(
+			{ title: folder, folder, prompt: prompt.slice(0, LONGEST_PROMPT) },
+			await classifierOf(ctx),
+		);
+		if (!judged?.sure || judged.name === NO_BUDGET) return null;
+		ctx.ui.notify(
+			`This session is on no quest, so it draws on budget ${judged.name}, which ${JSON.stringify(judged.provider)} judged from its folder and first prompt${judged.why ? `: ${judged.why}` : ""}.`,
+			"info",
+		);
+		return judged.name;
+	};
+
+	const keep = async (
+		ctx: ExtensionContext,
+		again = false,
+		prompt?: string,
+	) => {
 		last = ctx;
 		const name = state.questId
 			? (budgetInRecord(state.questsRoot, state.questId)?.name ?? null)
-			: null;
+			: await looseName(ctx, prompt);
+		if (ctx !== last) return pending;
 		if (name === wanted && !again) return pending;
 		wanted = name;
 		const ask = ++asking;
@@ -217,10 +286,12 @@ export function keepQuestBudget(
 		// answer still on its way is overtaken, so it lays nothing.
 		wanted = undefined;
 		asking++;
+		folderAsked = undefined;
+		promptAsked = undefined;
 	};
 
 	return {
-		keep: (ctx, options) => keep(ctx, options?.again ?? false),
+		keep: (ctx, options) => keep(ctx, options?.again ?? false, options?.prompt),
 		forget,
 	};
 }

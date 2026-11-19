@@ -27,10 +27,10 @@ import type { QuestState } from "../state.ts";
 import {
 	budgetFromFolder,
 	budgetFromWork,
-	namedBy,
-	namedByJudgement,
 	nameBudgetFromFolder,
 	nameBudgetFromWork,
+	namedBy,
+	namedByJudgement,
 } from "./budget.ts";
 import { ok, type QuestResult, type QuestToolParams } from "./shared.ts";
 

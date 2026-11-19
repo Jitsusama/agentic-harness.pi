@@ -48,7 +48,12 @@ export function keepTurnsCurrent(
 	// The budget is asked for at start without waiting, so a slow
 	// provider never holds the screen, and waited on here, so the first
 	// model call draws on it. Once drawn, this returns at once.
-	pi.on("before_agent_start", async (_event, ctx) => {
-		await budgets.keep(ctx);
+	// A session on no quest may be judged from its first prompt, here,
+	// before that prompt's model call.
+	pi.on("before_agent_start", async (event, ctx) => {
+		await budgets.keep(
+			ctx,
+			event.messageType === "user" ? { prompt: event.prompt } : {},
+		);
 	});
 }

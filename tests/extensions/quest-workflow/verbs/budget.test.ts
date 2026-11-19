@@ -450,10 +450,10 @@ describe("a quest no folder or parent names a budget for", () => {
 		const id = state.questId as string;
 		expect(budgetIn(state.questsRoot, id)).toBeUndefined();
 		expect(made.message.split("\n")[0]).toContain(
-			"drawing on no budget, since \"judge\" judged it the person's own work",
+			'drawing on no budget, since "judge" judged it the person\'s own work',
 		);
 		expect(journeyOf(join(state.questsRoot, id))).toContain(
-			"Budget: none named, since \"judge\" judged its work the person's own",
+			'Budget: none named, since "judge" judged its work the person\'s own',
 		);
 	});
 
@@ -462,9 +462,7 @@ describe("a quest no folder or parent names a budget for", () => {
 
 		succeeded(await run({ action: "create", title: "In Aquifer's Folder" }));
 
-		expect(budgetIn(state.questsRoot, state.questId as string)).toBe(
-			"aquifer",
-		);
+		expect(budgetIn(state.questsRoot, state.questId as string)).toBe("aquifer");
 		expect(asked).toEqual([]);
 	});
 
@@ -559,9 +557,7 @@ describe("a quest no folder or parent names a budget for", () => {
 			expect(budgetIn(state.questsRoot, walgit)).toBeUndefined();
 			expect(swept.message).toContain("Dry run, nothing written.");
 			expect(swept.message).toContain("Would name:");
-			expect(journeyOf(join(state.questsRoot, vague))).not.toContain(
-				"unsure",
-			);
+			expect(journeyOf(join(state.questsRoot, vague))).not.toContain("unsure");
 		});
 
 		it("takes a quest's budget from the folder its session ran in before judging it", async () => {
@@ -583,9 +579,7 @@ describe("a quest no folder or parent names a budget for", () => {
 			await run({ action: "create", title: "Speed Up walgit" }),
 		);
 
-		expect(budgetIn(state.questsRoot, state.questId as string)).toBe(
-			undefined,
-		);
+		expect(budgetIn(state.questsRoot, state.questId as string)).toBe(undefined);
 		expect(made.message).not.toContain("budget");
 	});
 });
@@ -783,6 +777,117 @@ describe("the session's budget", () => {
 		await run({ action: "budget", id: top, ref: "delta" });
 		await keeper.keep(ui().ctx, { again: true });
 		expect(process.env[KEY]).toBe("file");
+	});
+});
+
+describe("the budget of a session on no quest", () => {
+	/**
+	 * A keeper on no quest whose provider draws delta and aquifer, names
+	 * aquifer for `folder`, and judges a prompt at `confidence`; and a
+	 * session's ctx in tmpRoot whose registry serves Jev.
+	 */
+	function loose(folder: string | undefined, choice: string, confidence = 0.9) {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const events = bus();
+		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
+		const judged: unknown[] = [];
+		registerBudgetProvider(events, {
+			id: "judge",
+			precedence: 0,
+			resolve: async (name) =>
+				name === "delta" || name === "aquifer"
+					? { kind: "drawn", env: { [KEY]: name }, label: name }
+					: { kind: "unknown" },
+			budgetFor: async (asked) => (asked === folder ? "aquifer" : undefined),
+			budgetForWork: async (work, classify) => {
+				judged.push(work);
+				await classify({ state: {}, questions: {} });
+				return { name: choice, why: "its prompt", sure: confidence >= 0.8 };
+			},
+		});
+		const notices: string[] = [];
+		const ctx = {
+			cwd: tmpRoot,
+			ui: { notify: (message: string) => notices.push(message) },
+			sessionManager: { getBranch: () => written },
+			modelRegistry: {
+				getAvailableOfType: async () => [
+					{ provider: "typesafe", id: "jev-latest" },
+				],
+				classify: async () => ({ answers: {} }),
+			},
+		} as unknown as Parameters<typeof keeper.keep>[0];
+		return { state, keeper, ctx, judged, notices };
+	}
+
+	it("draws on the budget its folder's work draws on, without a judgement", async () => {
+		const { keeper, ctx, judged, notices } = loose(tmpRoot, "delta");
+
+		await keeper.keep(ctx);
+		await keeper.keep(ctx, { prompt: "fix walgit" });
+
+		expect(process.env[KEY]).toBe("aquifer");
+		expect(judged).toEqual([]);
+		expect(notices).toEqual([
+			`This session is on no quest, so it draws on budget aquifer, which "judge" says work in ${JSON.stringify(tmpRoot)} draws on.`,
+		]);
+	});
+
+	it("draws on what a sure judgement of its folder and first prompt names, asked once", async () => {
+		const { keeper, ctx, judged, notices } = loose(undefined, "delta");
+
+		await keeper.keep(ctx);
+		expect(process.env[KEY], "nothing before its first prompt").toBe(
+			"personal",
+		);
+		await keeper.keep(ctx, { prompt: "Speed up walgit's pack writes" });
+		await keeper.keep(ctx, { prompt: "and another thing" });
+
+		expect(process.env[KEY]).toBe("delta");
+		expect(judged).toEqual([
+			{
+				title: tmpRoot,
+				folder: tmpRoot,
+				prompt: "Speed up walgit's pack writes",
+			},
+		]);
+		expect(notices).toEqual([
+			'This session is on no quest, so it draws on budget delta, which "judge" judged from its folder and first prompt: its prompt.',
+		]);
+	});
+
+	it("stays on the default when the judgement is unsure or personal", async () => {
+		for (const [choice, confidence] of [
+			["delta", 0.5],
+			["none", 0.99],
+		] as const) {
+			const { keeper, ctx, notices } = loose(undefined, choice, confidence);
+
+			await keeper.keep(ctx, { prompt: "something" });
+
+			expect(process.env[KEY], choice).toBe("personal");
+			expect(notices, choice).toEqual([]);
+		}
+	});
+
+	it("gives way to a quest the session loads", async () => {
+		const { state, keeper, ctx } = loose(undefined, "delta");
+		await keeper.keep(ctx, { prompt: "walgit" });
+		expect(process.env[KEY]).toBe("delta");
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(state, fakePi(intoTheBranch), fakeCtx("/elsewhere"), params);
+		succeeded(await run({ action: "create", title: "Aquifer Work" }));
+		succeeded(
+			await run({
+				action: "budget",
+				id: state.questId as string,
+				ref: "aquifer",
+			}),
+		);
+
+		await keeper.keep(ctx);
+
+		expect(process.env[KEY]).toBe("aquifer");
 	});
 });
 
