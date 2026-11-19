@@ -199,7 +199,8 @@ export const NEVER_THROUGH = [
 	// eero's session among them (IDEGAT, 13 November).
 	"/run/systemd/io.systemd.Credentials",
 	// The secret-asks daemon takes a yes from anything reaching its socket,
-	// so only pi asks, from outside (../secrets/secret-ask.ts).
+	// and core's passwords daemon answers whatever ask lands in the asks
+	// folder, so only pi asks, from outside (../secrets/secret-ask.ts).
 	"daemons/secret-asks.sock",
 	"secret-asks",
 ] as const;

@@ -21,10 +21,9 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
-	readlinkSync,
 	rmSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { quoted } from "../sandbox/sandbox-shell.ts";
 import { writeWhole } from "../write-whole.ts";
 
@@ -132,21 +131,31 @@ export interface RouteReads {
 }
 
 /**
- * Whether the process with this pid runs core's passwords program, by the
- * file the kernel says it runs. Only a process of this account's own
- * gives its program, so another account's, which a reused pid could
- * be, never reads as the daemon, and nor does any other program of
- * Joel's that a reused pid now names. Where there's no /proc, as on a
- * Mac, nothing does, which is right: the daemon runs only on Linux.
+ * Whether the process with this pid is core's passwords program, run by
+ * this account, by the name and real uid its status gives. The daemon
+ * turns its dumpable flag off before it leaves its sign, which hides its
+ * exe link even from its own account, while its status stays readable.
+ * The name is the one the kernel took from the program's file at exec, so
+ * another program of Joel's that a reused pid now names doesn't read as
+ * the daemon, and nor does another account's. Where there's no /proc, as
+ * on a Mac, nothing does, which is right: the daemon runs only on Linux.
  */
-export function runsPasswords(pid: number, proc = "/proc"): boolean {
+export function runsPasswords(
+	pid: number,
+	proc = "/proc",
+	// Where there's no account to compare, no status names -1.
+	uid: number = process.getuid?.() ?? -1,
+): boolean {
+	let status: string;
 	try {
-		const program = readlinkSync(join(proc, String(pid), "exe"));
-		return basename(program.replace(/ \(deleted\)$/, "")) === "passwords";
+		status = readFileSync(join(proc, String(pid), "status"), "utf8");
 	} catch {
-		// Gone, another account's, or no /proc: none is the daemon.
+		// Gone, or no /proc: none is the daemon.
 		return false;
 	}
+	const name = /^Name:\t(.*)$/m.exec(status)?.[1];
+	const real = /^Uid:\t(\d+)\t/m.exec(status)?.[1];
+	return name === "passwords" && real === String(uid);
 }
 
 const MACHINE: RouteReads = {

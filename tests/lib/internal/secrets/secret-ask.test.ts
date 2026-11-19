@@ -9,7 +9,6 @@ import {
 	realpathSync,
 	rmSync,
 	statSync,
-	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -293,21 +292,30 @@ describe("askRoute", () => {
 });
 
 describe("runsPasswords", () => {
-	it("reads the program the kernel names, a deleted one's too", () => {
+	it("reads the name and the real uid the kernel gives", () => {
 		const proc = join(dir, "proc");
-		const runs = (pid: number, program: string) => {
+		const runs = (pid: number, name: string, uids: string) => {
 			mkdirSync(join(proc, String(pid)), { recursive: true });
-			symlinkSync(program, join(proc, String(pid), "exe"));
+			writeFileSync(
+				join(proc, String(pid), "status"),
+				`Name:\t${name}\nUmask:\t0077\nState:\tS (sleeping)\nUid:\t${uids}\n`,
+			);
 		};
-		runs(42, "/nix/store/a-passwords-0.1.0/bin/passwords");
-		runs(43, "/nix/store/a-passwords-0.1.0/bin/passwords (deleted)");
-		runs(44, "/nix/store/b-coreutils/bin/sleep");
-		runs(45, "/nix/store/c-passwords-0.1.0/bin/passwords-not");
-		expect(runsPasswords(42, proc)).toBe(true);
-		expect(runsPasswords(43, proc)).toBe(true);
-		expect(runsPasswords(44, proc), "another program").toBe(false);
-		expect(runsPasswords(45, proc), "a name like it").toBe(false);
-		expect(runsPasswords(46, proc), "no such pid").toBe(false);
+		runs(42, "passwords", "1000\t1000\t1000\t1000");
+		runs(43, "passwords", "1001\t1001\t1001\t1001");
+		runs(44, "passwords", "1001\t1000\t1000\t1000");
+		runs(45, "sleep", "1000\t1000\t1000\t1000");
+		runs(46, "passwords-not", "1000\t1000\t1000\t1000");
+		expect(runsPasswords(42, proc, 1000)).toBe(true);
+		expect(runsPasswords(43, proc, 1000), "another account's").toBe(false);
+		expect(
+			runsPasswords(44, proc, 1000),
+			"another account's, with ours effective",
+		).toBe(false);
+		expect(runsPasswords(45, proc, 1000), "another program").toBe(false);
+		expect(runsPasswords(46, proc, 1000), "a name like it").toBe(false);
+		expect(runsPasswords(47, proc, 1000), "no such pid").toBe(false);
+		expect(runsPasswords(42, proc, -1), "no account to compare").toBe(false);
 	});
 
 	it.runIf(process.platform === "linux")(
@@ -316,23 +324,32 @@ describe("runsPasswords", () => {
 			const program = join(dir, "passwords");
 			copyFileSync(realpathSync("/bin/sh"), program);
 			chmodSync(program, 0o755);
-			// The colon keeps the shell from exec'ing sleep in its place.
-			const daemon = spawn(program, ["-c", "sleep 30; :"], { stdio: "ignore" });
+			// The shell waits on its own read, so it starts no child to
+			// outlive it.
+			const daemon = spawn(program, ["-c", "read -r line"], {
+				stdio: ["pipe", "ignore", "ignore"],
+			});
+			const runtime = mkdtempSync(join(tmpdir(), "answered-"));
 			try {
 				const pid = daemon.pid ?? 0;
 				await expect.poll(() => runsPasswords(pid)).toBe(true);
 				expect(runsPasswords(process.pid), "this process, node").toBe(false);
+				mkdirSync(join(runtime, "secret-asks"));
+				writeFileSync(join(runtime, "secret-asks", "answering"), `${pid}\n`);
+				expect(asksAnswered(runtime), "its sign, read from the machine").toBe(
+					true,
+				);
 			} finally {
 				daemon.kill();
+				rmSync(runtime, { recursive: true, force: true });
 			}
 		},
 	);
 
 	it.runIf(process.platform === "linux")(
-		"reads another account's process and a pid gone as no daemon",
+		"reads a pid gone as no daemon",
 		() => {
 			const ended = spawnSync("true");
-			expect(runsPasswords(1), "pid 1, root's").toBe(false);
 			expect(runsPasswords(ended.pid), "a process that ended").toBe(false);
 		},
 	);

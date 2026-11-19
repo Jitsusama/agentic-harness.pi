@@ -3,8 +3,9 @@
  * one command, and never holds the value.
  *
  * The tool writes an ask for core's passwords daemon, or the secret-asks
- * daemon before it, which draws it as a line in the launcher's Asks: the session, the quest, the item,
- * why, the whole command and the folder it runs in. Only Joel's key
+ * daemon before it, which draws it as a line in the launcher's Asks: the
+ * session, the quest, the item, why, the whole command and the folder it
+ * runs in. Only Joel's key
  * there says yes; the daemon then reads the item from 1Password and runs
  * the command with it, and the agent hears only how it ended and the
  * command's output, masked. An ask goes as soon as its call is stopped,

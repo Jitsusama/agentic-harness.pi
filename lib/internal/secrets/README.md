@@ -9,7 +9,8 @@ scrubber, the stored results and the secret-run tool.
   a file that doesn't hold them, where they would replace the
   credentials they stand for, and why such a call is refused.
 - **`secret-ask.ts`**: an agent's ask for one work secret as core's
-  secret-asks daemon reads it, and the answer it writes beside it; only
+  passwords daemon, or the secret-asks daemon before it, reads it, and
+  the answer it writes beside it; only
   pi asks, from outside the fence, and an ask the daemon would refuse is
   refused before it's written.
 - **`saved-output.ts`**: the file pi or pi-durable saved a long
