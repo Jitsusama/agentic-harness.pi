@@ -100,11 +100,12 @@ function unseen(each: string): boolean {
  * `XDG_CONFIG_HOME` when it is absolute, as the XDG rules say, else
  * `.config` under the home folder. None when no home folder is known
  * as an absolute path, since `homedir()` itself gives back an empty
- * `HOME`, so the file is never looked for under the folder pi started in.
+ * `HOME`, so the file is never looked for under the folder pi started in;
+ * a relative `PI_OWNERS_FILE` names none, for the same reason.
  */
 export function ownersFile(env: NodeJS.ProcessEnv): string | undefined {
 	const named = env[OWNERS_FILE_ENV];
-	if (named) return named;
+	if (named) return isAbsolute(named) ? named : undefined;
 	const xdg = env.XDG_CONFIG_HOME;
 	if (xdg && isAbsolute(xdg)) return join(xdg, OWNERS_UNDER_CONFIG);
 	const home = env.HOME || homedir();

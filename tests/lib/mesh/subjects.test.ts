@@ -158,20 +158,25 @@ describe("the owners file", () => {
 	});
 
 	it("is never looked for under the folder pi started in, for an empty home or a relative config folder", () => {
+		// homedir() reads the process's own HOME, so that is what is emptied.
 		const saved = process.env.HOME;
 		process.env.HOME = "";
 		let empty: string | undefined;
 		try {
-			empty = ownersFile(process.env);
+			empty = ownersFile({ HOME: "" });
 		} finally {
-			process.env.HOME = saved;
+			if (saved === undefined) delete process.env.HOME;
+			else process.env.HOME = saved;
 		}
-		const relative = ownersFile({ HOME: "/h", XDG_CONFIG_HOME: "conf" });
 		expect(
-			[empty === undefined || empty.startsWith("/"), relative],
-			"none or absolute, then the home's .config",
-		).toEqual([true, "/h/.config/cadence/owners.txt"]);
-		expect(ownerLinesAt(undefined)).toEqual([]);
+			[
+				empty,
+				ownersFile({ HOME: "/h", XDG_CONFIG_HOME: "conf" }),
+				ownersFile({ HOME: "/h", PI_OWNERS_FILE: "owners.txt" }),
+				ownerLinesAt(undefined),
+			],
+			"none, the home's .config, none, no lines",
+		).toEqual([undefined, "/h/.config/cadence/owners.txt", undefined, []]);
 	});
 
 	it("gives none for a folder, a pipe or a file too large to be one, so a refresh never stalls", () => {
