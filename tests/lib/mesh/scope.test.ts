@@ -5,7 +5,6 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
-	statSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -121,20 +120,22 @@ describe("a checkout's repository key", () => {
 	it("reads a checkout's config once, until the config changes", () => {
 		const at = checkoutWith("https://github.com/Jitsusama/mycelium.git");
 		const config = join(at, ".git", "config");
+		// A whole second, since a Date can't carry a file's finer time back.
+		const stood = new Date("2026-11-19T12:00:00Z");
 		try {
+			utimesSync(config, stood, stood);
 			expect(repositoryKey(at)).toBe("github:Jitsusama/mycelium");
-			const { atime, mtime } = statSync(config);
 			// Another origin of the same length, so only the file's time can say it moved.
 			writeFileSync(
 				config,
 				'[core]\n\tbare = false\n[remote "origin"]\n\turl = https://github.com/Jitsusama/mycelia2.git\n',
 			);
-			utimesSync(config, atime, mtime);
+			utimesSync(config, stood, stood);
 			expect(
 				repositoryKey(at),
 				"a config whose time stands is not read again",
 			).toBe("github:Jitsusama/mycelium");
-			utimesSync(config, atime, new Date(mtime.getTime() + 1_000));
+			utimesSync(config, stood, new Date(stood.getTime() + 1_000));
 			expect(repositoryKey(at), "a config that changed is read again").toBe(
 				"github:Jitsusama/mycelia2",
 			);
