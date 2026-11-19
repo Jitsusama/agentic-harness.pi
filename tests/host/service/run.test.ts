@@ -833,7 +833,7 @@ describe("runHost's ready before its resumes", () => {
 		await run.stopped;
 		const [first] = resumes.begun;
 		expect(
-			marks.read()?.ids.sort(),
+			[...(marks.read()?.ids ?? [])].sort(),
 			"the one resumed and parked is off it",
 		).toEqual(held.filter((id) => id !== first).sort());
 	});
