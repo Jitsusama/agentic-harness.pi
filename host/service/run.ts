@@ -136,6 +136,31 @@ const READY_TELLINGS = 10;
 const UNIT_STATE_WITHIN_MS = 5000;
 const MS_PER_SECOND = 1000;
 
+/** How long perf's own unit may run before systemd ends it, in s. */
+const PERF_UNIT_MAX_S = 300;
+
+/**
+ * The command perf runs through: a transient unit of the user's manager,
+ * out of the host's control group, so a watchdog's kill of the host
+ * leaves it recording, and journalling its report as pi-host-spin. It
+ * starts with the host's PATH alone, so it finds perf and no secret.
+ */
+export function perfLauncher(env: NodeJS.ProcessEnv): readonly string[] {
+	return [
+		"systemd-run",
+		"--user",
+		"--quiet",
+		"--collect",
+		"--expand-environment=no",
+		"-p",
+		`RuntimeMaxSec=${PERF_UNIT_MAX_S}`,
+		"-p",
+		"SyslogIdentifier=pi-host-spin",
+		...(env.PATH ? [`--setenv=PATH=${env.PATH}`] : []),
+		"--",
+	];
+}
+
 /**
  * The folder, in a host's own state folder, keeping its spins' profiles.
  */
@@ -391,9 +416,13 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	// A host systemd watches also says what holds its loop, from a thread
 	// beside it, since the beats can say only how long; that thread beats
 	// for a loop asleep in the disk, which no kill would mend, and profiles
-	// one that spins into the host's own state, so the code is named.
+	// one that spins into the host's own state, so the code is named. A
+	// spin too tight to answer the inspector is recorded by perf as well,
+	// in a unit of its own that outlives a watchdog's kill of the host,
+	// and journals its report as pi-host-spin.
 	const profile = {
 		folder: join(stateDir("host-service"), hostKey(realm, kind), HELD),
+		outside: { launcher: perfLauncher(options.env) },
 	};
 	const unwatchHolds =
 		every === undefined
