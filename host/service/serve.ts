@@ -6,8 +6,12 @@
  * lets a window or a wake for one still to resume bring it forward, rather
  * than wait behind every other the host held.
  *
- * The start is done, and the host ready, only once the last has resumed. Stopping parks every
- * conversation as signalled and keeps every hold for the next start.
+ * The host answers once it listens, and resumes what it holds only when
+ * asked (`resume`), so whoever runs it can say it is ready first: on 19
+ * November a resume of 95 under load outran systemd's start timeout at 90
+ * of 95. Stopping begins no resume still to come, ends those under way,
+ * parks every conversation as signalled and keeps every hold for the next
+ * start.
  *
  * A host is one process for many conversations, so a stale-context
  * rejection left by one conversation's reload must not end the rest:
@@ -34,6 +38,7 @@ import {
 	type ResumePhase,
 	type Resuming,
 	resumeHeld,
+	STOPPING_REFUSAL,
 	type Unresumed,
 } from "./backend.ts";
 import type { ControlBackend } from "./dispatch.ts";
@@ -57,6 +62,14 @@ export type StartStep =
 export interface ServingHost {
 	readonly identity: ControlBackend["identity"];
 	readonly path: string;
+	/**
+	 * Resume what the host holds, once; each later call answers the same.
+	 * It rejects only as the start would fail, after every resume under
+	 * way has ended, and the caller stops the host then.
+	 */
+	resume(): Promise<void>;
+	/** The held conversations whose resume hasn't ended, by id. */
+	resuming(): ReadonlySet<string>;
 	/** Holds the engine could not resume at start, still held. */
 	readonly unresumed: readonly Unresumed[];
 	/** Holds dropped at start, by id, since their session files are gone. */
@@ -83,12 +96,32 @@ export interface ServingHost {
 	restartComing(coming: boolean): void;
 	/** Whether a stop has begun, after which nothing it holds runs a turn. */
 	stopping(): boolean;
+	/**
+	 * Begin no resume still to come, at once: a stop does it first, before
+	 * anything it says, and `stop` does it too.
+	 */
+	halt(): void;
 	/** Close the socket, park every conversation and release the lock. */
 	stop(): Promise<void>;
 }
 
-/** Start a realm-kind host, refusing at the first step that can't be trusted. */
-export async function serveHost(options: {
+/**
+ * Start a realm-kind host and resume what it holds, refusing at the first
+ * step that can't be trusted; a resume that fails the start stops it.
+ */
+export async function serveHost(options: HostOptions): Promise<ServingHost> {
+	const serving = await listenHost(options);
+	try {
+		await serving.resume();
+	} catch (error) {
+		await serving.stop().catch(options.report);
+		throw error;
+	}
+	return serving;
+}
+
+/** How a host starts, what it serves and who hears its steps. */
+export interface HostOptions {
 	realm: string;
 	kind: HostKind;
 	engine: (host: SessionHost) => Promise<ConversationEngine>;
@@ -124,7 +157,13 @@ export async function serveHost(options: {
 	 * after it, before the journal says so: attach-waits.ts's ATTACH_SLOW_MS.
 	 */
 	attachSlowMs?: number;
-}): Promise<ServingHost> {
+}
+
+/**
+ * Start a realm-kind host as far as listening, refusing at the first step
+ * that can't be trusted; it resumes what it holds once asked (`resume`).
+ */
+export async function listenHost(options: HostOptions): Promise<ServingHost> {
 	const admitAnother = options.rollout ?? hostRolloutGate();
 	const key = hostKey(options.realm, options.kind);
 	spareStaleRejections(
@@ -199,24 +238,51 @@ export async function serveHost(options: {
 		listener = control;
 		wakes = backend.wake;
 		listening(backend.wake);
-		const { unresumed, dropped } = await resumeHeld({
-			roster,
-			engine,
-			admitAnother,
-			starting: options.starting,
-			mark: options.mark,
-			finished: options.finished,
-			order,
-		});
-		for (const { reason } of unresumed) options.report(reason);
 		const running = host;
 		let stopping: Promise<void> | undefined;
+		let halted = false;
 		let restarting = false;
+		let unresumed: readonly Unresumed[] = [];
+		let dropped: readonly string[] = [];
+		// Every hold is still to resume until its turn ends, so none is
+		// counted as parked before its resume has looked at it.
+		const pending = new Set(roster.entries().map((e) => e.sessionId));
+		let resumes: Promise<void> | undefined;
+		const resume = () => {
+			resumes ??= resumeHeld({
+				roster,
+				engine,
+				admitAnother,
+				halted: () => halted,
+				settled: (sessionId) => pending.delete(sessionId),
+				starting: options.starting,
+				mark: options.mark,
+				finished: options.finished,
+				order,
+			}).then(
+				(held) => {
+					unresumed = held.unresumed;
+					dropped = held.dropped;
+					for (const { reason } of held.unresumed) options.report(reason);
+				},
+				(error: unknown) => {
+					pending.clear();
+					throw error;
+				},
+			);
+			return resumes;
+		};
 		return {
 			identity,
 			path,
-			unresumed,
-			dropped,
+			resume,
+			resuming: () => pending,
+			get unresumed() {
+				return unresumed;
+			},
+			get dropped() {
+				return dropped;
+			},
 			stillUnresumed: () => {
 				const live = new Map(running.list().map((c) => [c.id, c.state]));
 				const held = new Set(roster.entries().map((e) => e.sessionId));
@@ -231,7 +297,10 @@ export async function serveHost(options: {
 				return roster
 					.entries()
 					.filter(
-						({ sessionId }) => !live.has(sessionId) && !failed.has(sessionId),
+						({ sessionId }) =>
+							!live.has(sessionId) &&
+							!failed.has(sessionId) &&
+							!pending.has(sessionId),
 					).length;
 			},
 			held: () => running.list(),
@@ -239,16 +308,19 @@ export async function serveHost(options: {
 				restarting = coming;
 			},
 			stopping: () => stopping !== undefined,
+			halt: () => {
+				halted = true;
+			},
 			stop() {
+				halted = true;
 				stopping ??= (async () => {
-					wakes = () =>
-						Promise.reject(
-							new Error(
-								"the host is stopping, and takes the conversation up again as it starts",
-							),
-						);
+					wakes = () => Promise.reject(new Error(STOPPING_REFUSAL));
 					if (restarting) await control.restarting();
 					await control.close();
+					// Those under way end first, so each is parked with the rest
+					// rather than built in a host disposed under it; a resume's own
+					// failure is the start's to say, not the stop's.
+					await resumes?.catch(() => undefined);
 					// A wake already resuming finishes first, so it is parked with
 					// the rest rather than left running in a host disposed under it.
 					await backend.settled();

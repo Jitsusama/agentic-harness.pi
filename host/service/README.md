@@ -56,7 +56,10 @@ input pipeline or screen. No unit or running host is installed yet.
   the start has yet to resume brings it forward and waits for that
   resume (backend.ts's `heldOrder`), so a person's conversation is back
   first and none resumes twice; a list shows those still to come as
-  parked. The host is ready only once the last has resumed. Stop closes
+  parked. The host is ready once it listens, before its resumes, which
+  `listenHost` starts and `resumeHeld` then runs; a stop halts them, so
+  none begins once it comes and each still to come stays held, while a
+  window or wake waiting on one is refused as the host stops. Stop closes
   the socket, parks every conversation as signalled and releases the
   lock, keeping holds. It watches the engine before resuming, so no end
   or replacement is missed. The engine's wakes reach the backend only
@@ -72,7 +75,8 @@ input pipeline or screen. No unit or running host is installed yet.
   from the unit's environment, ready (systemd-notify, so the unit needs
   NotifyAccess=all) only once it listens, and parked on SIGTERM or
   SIGINT. Its unit's status says each start step, then "ready: loaded
-  N, parked M, dropped K" and any held but not resumed (one whose
+  N, parked M, dropped K", with ", resuming N" while its resumes run,
+  and any held but not resumed (one whose
   resume failed counts there, never as parked), looked at every 15 s
   and told only when it changes. When the unit sets
   WatchdogSec, a ready host pings it from its own loop four times in

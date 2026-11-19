@@ -24,11 +24,36 @@ describe("describeStep", () => {
 
 describe("readyStatus", () => {
 	it("says how many it loaded, left parked and dropped, and any held but not resumed", () => {
-		const none = { loaded: 0, parked: 0, dropped: 0, unresumed: 0 };
+		const none = {
+			loaded: 0,
+			parked: 0,
+			dropped: 0,
+			unresumed: 0,
+			resuming: 0,
+		};
 		expect(readyStatus(none)).toBe("ready: loaded 0, parked 0, dropped 0");
-		const some = { loaded: 3, parked: 2, dropped: 32, unresumed: 1 };
+		const some = {
+			loaded: 3,
+			parked: 2,
+			dropped: 32,
+			unresumed: 1,
+			resuming: 0,
+		};
 		expect(readyStatus(some)).toBe(
 			"ready: loaded 3, parked 2, dropped 32, 1 held but not resumed",
+		);
+	});
+
+	it("says how many it is still resuming, last", () => {
+		const coming = {
+			loaded: 1,
+			parked: 0,
+			dropped: 0,
+			unresumed: 0,
+			resuming: 94,
+		};
+		expect(readyStatus(coming)).toBe(
+			"ready: loaded 1, parked 0, dropped 0, resuming 94",
 		);
 	});
 });
@@ -54,8 +79,37 @@ describe("readyCount", () => {
 			dropped: ["gone"],
 			resting: () => 2,
 			stillUnresumed: () => 1,
+			resuming: () => new Set(),
 		});
-		expect(count).toEqual({ loaded: 1, parked: 3, dropped: 1, unresumed: 1 });
+		expect(count).toEqual({
+			loaded: 1,
+			parked: 3,
+			dropped: 1,
+			unresumed: 1,
+			resuming: 0,
+		});
+	});
+
+	it("counts one whose resume is under way as resuming, never as loaded or parked", () => {
+		const since = "2026-11-19T13:22:00.000Z";
+		const count = readyCount({
+			held: () => [
+				{ id: "awake", state: "idle", since },
+				{ id: "building", state: "idle", since },
+			],
+			unresumed: [],
+			dropped: [],
+			resting: () => 0,
+			stillUnresumed: () => 0,
+			resuming: () => new Set(["building", "waiting"]),
+		});
+		expect(count).toEqual({
+			loaded: 1,
+			parked: 0,
+			dropped: 0,
+			unresumed: 0,
+			resuming: 2,
+		});
 	});
 });
 

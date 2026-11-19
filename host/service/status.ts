@@ -21,6 +21,8 @@ export interface ReadyCount {
 	readonly dropped: number;
 	/** Holds it keeps but could not resume. */
 	readonly unresumed: number;
+	/** Holds its start has yet to finish resuming, counted as none of the rest. */
+	readonly resuming: number;
 }
 
 /**
@@ -31,10 +33,11 @@ export interface ReadyCount {
 export function readyCount(
 	serving: Pick<
 		ServingHost,
-		"held" | "unresumed" | "dropped" | "resting" | "stillUnresumed"
+		"held" | "unresumed" | "dropped" | "resting" | "stillUnresumed" | "resuming"
 	>,
 ): ReadyCount {
-	const held = serving.held();
+	const resuming = serving.resuming();
+	const held = serving.held().filter(({ id }) => !resuming.has(id));
 	const failed = new Set(serving.unresumed.map(({ sessionId }) => sessionId));
 	const parkedFailed = held.filter(
 		({ id, state }) => state === "parked" && failed.has(id),
@@ -46,6 +49,7 @@ export function readyCount(
 		parked: asleep + serving.resting(),
 		dropped: serving.dropped.length,
 		unresumed: serving.stillUnresumed(),
+		resuming: resuming.size,
 	};
 }
 
@@ -55,9 +59,10 @@ export function readyCount(
  * not resumed.
  */
 export function readyStatus(count: ReadyCount): string {
-	const { loaded, parked, dropped, unresumed } = count;
+	const { loaded, parked, dropped, unresumed, resuming } = count;
 	const held = unresumed > 0 ? `, ${unresumed} held but not resumed` : "";
-	return `ready: loaded ${loaded}, parked ${parked}, dropped ${dropped}${held}`;
+	const coming = resuming > 0 ? `, resuming ${resuming}` : "";
+	return `ready: loaded ${loaded}, parked ${parked}, dropped ${dropped}${held}${coming}`;
 }
 
 /**

@@ -1250,6 +1250,37 @@ describe("the order a start resumes what it held", () => {
 		expect(host.holds(a), "the close came after its resume").toBeUndefined();
 		expect(roster.entries().map(({ sessionId }) => sessionId)).toEqual([b, c]);
 	});
+
+	it("refuses a wake still waiting when a stop halts the start, building none it left", async () => {
+		const { a, b, go, resumes, restart } = await heldThree();
+		const order = heldOrder(roster);
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: restart,
+			held: order,
+		});
+		let halted = false;
+		const started = resumeHeld({
+			roster,
+			engine: restart,
+			order,
+			halted: () => halted,
+		});
+		await until("the start to resume its first", () => resumes.length === 1);
+		const woke = backend.wake(b);
+		halted = true;
+		go();
+		await started;
+		await expect(woke, "refused as the host stops").rejects.toThrow(
+			/the host is stopping/,
+		);
+		expect(
+			resumes.map(([id]) => id),
+			"only the one under way as the stop came",
+		).toEqual([a]);
+	});
 });
 
 describe("conversationEvents", () => {

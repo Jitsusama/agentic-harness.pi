@@ -6,17 +6,16 @@
  * no socket; and a stop signal parks every conversation and keeps every
  * hold before the process ends.
  *
- * A host resumes everything it holds before it is ready, which takes as
- * long as the machine lets it: on 11 November three restarts each spent
- * over 96 s on 13 s of work while some sixty pis reloaded, and systemd's
- * start timeout killed each. So each step of the start asks systemd for
- * more time from that moment and says where it is, and the journal keeps
- * how long each step took. A step asks again every STEP_RENEW_MS while
- * the loop turns, until STEP_CEILING_MS: on 13 November nineteen resumes
- * took 80 to 135 s each while the ones before them took up their turns,
- * past the single allowance one ask gave, and only a drop-in raising the
- * unit's start timeout kept the host alive. A loop that stops turning asks
- * no more, so systemd still ends a wedged start within the allowance.
+ * A host is ready once it listens, and resumes what it holds after: on
+ * 19 November a resume of 95 under load ran 15 min, systemd's extensions
+ * stopped landing from a loop at 90%, and its start timeout ended the
+ * host at 90 of 95. Each step before ready (a last host's lock, the
+ * engine) asks systemd for more time from that moment and says where it
+ * is, and asks again every STEP_RENEW_MS while the loop turns, until
+ * STEP_CEILING_MS; a loop that stops turning asks no more, so systemd
+ * still ends a wedged start within the allowance. Each resume only says
+ * itself, and the journal keeps how long each step took and its status
+ * how many are still resuming.
  *
  * Once ready, when the unit sets a watchdog, the host pings it from its
  * own loop, so a host whose loop stops turning is restarted with what it
@@ -56,7 +55,12 @@ import type {
 } from "./backend.ts";
 import { type HoldWatchOptions, watchHolds } from "./hold-watch.ts";
 import type { AdmitAnother } from "./rollout.ts";
-import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
+import {
+	type HostOptions,
+	listenHost,
+	type ServingHost,
+	type StartStep,
+} from "./serve.ts";
 import type { ViewerBridge } from "./server.ts";
 import {
 	describeStep,
@@ -90,8 +94,8 @@ export const STEP_ALLOWANCE_MS = 120_000;
 export const STEP_RENEW_MS = 30_000;
 
 /**
- * How long one step may go on asking: over six times the slowest resume
- * yet seen (135 s), so only a step that will never end runs out.
+ * How long one step may go on asking: over six times the slowest step
+ * yet seen (a 135 s resume), so only a step that will never end runs out.
  */
 export const STEP_CEILING_MS = 15 * 60_000;
 
@@ -256,11 +260,11 @@ export interface HostRunOptions {
 	 */
 	contain?: (sessionId: string, error: unknown) => boolean;
 	/**
-	 * Passed on to serveHost, for tests: a host run from a tree is given
+	 * Passed on to listenHost, for tests: a host run from a tree is given
 	 * its rollout gate, since it has no install to read one from.
 	 */
 	places?: Pick<
-		Parameters<typeof serveHost>[0],
+		HostOptions,
 		| "rosterDir"
 		| "registryDir"
 		| "rejectionLog"
@@ -315,14 +319,14 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const lastStop = unparked.read();
 	const seconds = (ms: number) => `${(ms / MS_PER_SECOND).toFixed(1)} s`;
 	const since = () => seconds(Date.now() - began);
-	// Each conversation being resumed, by its step's number: when it began,
-	// when each of its phases ended and how it stops asking for more time,
-	// so each says how long it took and where, and a restart of thirty can
-	// be sized from one. A few resume at once, so each keeps its own.
+	// Each conversation being resumed, by its step's number: when it began
+	// and when each of its phases ended, so each says how long it took and
+	// where, and a restart of thirty can be sized from one. A few resume at
+	// once, so each keeps its own.
 	interface UnderWay {
 		readonly at: number;
 		readonly phases: PhaseEnd[];
-		renewing?: () => void;
+		overdue?: ReturnType<typeof setTimeout>;
 	}
 	const resuming = new Map<number, UnderWay>();
 	const mark = (step: Resuming, phase: ResumePhase) => {
@@ -332,7 +336,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		const under = resuming.get(step.number);
 		if (!under) return;
 		resuming.delete(step.number);
-		under.renewing?.();
+		clearTimeout(under.overdue);
 		const now = Date.now();
 		const told = end === "unresumed" ? firstLine(reason) : "";
 		const why = told ? `: ${told}` : "";
@@ -350,49 +354,50 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		}
 	};
 	// Stops the roster's or the engine's step asking again, once the next
-	// step begins or the start ends; each resume stops its own as it ends.
+	// step begins or the start ends.
 	let renewing: (() => void) | undefined;
+	// Once ready, systemd times no start, so a step only says itself: a
+	// notify spawned for each of 95 resumes is work the loop is short of.
+	let readied = false;
 	const starting = async (step: StartStep) => {
 		renewing?.();
 		renewing = undefined;
-		let under: UnderWay | undefined;
-		if (step.step === "resume") {
-			under = { at: Date.now(), phases: [] };
-			resuming.set(step.number, under);
-		}
 		const status = describeStep(step);
+		if (step.step === "resume") {
+			const ceiling = options.stepCeiling ?? STEP_CEILING_MS;
+			resuming.set(step.number, {
+				at: Date.now(),
+				phases: [],
+				// Resumes overlap and systemd times none once ready, so one that
+				// never ends names itself, once, rather than hold the runs a
+				// restart cut off unsaid.
+				overdue: setTimeout(
+					() =>
+						say(
+							`${since()}: still ${status} after ${seconds(ceiling)}; the runs a restart cut off wait on it`,
+						),
+					ceiling,
+				).unref(),
+			});
+		}
 		const left =
 			step.step === "resume" && lastStop?.ids.includes(step.sessionId)
 				? ` (not parked at the ${clockTime(lastStop.at)} stop)`
 				: "";
 		say(`${since()}: ${status}${left}`);
+		if (readied) return;
 		await ask(status);
-		const renewal = askWhileUnderWay({
+		renewing = askWhileUnderWay({
 			ask: () => ask(status),
 			every: options.stepRenewEvery ?? STEP_RENEW_MS,
 			ceiling: options.stepCeiling ?? STEP_CEILING_MS,
-			// Resumes overlap, so the journal's tail no longer names one that
-			// hangs: it names itself as it stops asking.
-			passed: under
-				? (ceiling) =>
-						say(
-							`${since()}: still ${status} after ${seconds(ceiling)}; asking no more, and the start waits on it`,
-						)
-				: undefined,
 		});
-		// A resume's end is said only once its start has resolved, so it
-		// is still under way here.
-		if (under) under.renewing = renewal;
-		else renewing = renewal;
 	};
 	// Whatever still asks once the start ends, ended or not, stops asking.
-	const stopRenewing = () => {
-		renewing?.();
-		for (const under of resuming.values()) under.renewing?.();
-	};
+	const stopRenewing = () => renewing?.();
 	let serving: ServingHost;
 	try {
-		serving = await serveHost({
+		serving = await listenHost({
 			...options.places,
 			realm,
 			kind,
@@ -448,14 +453,30 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	};
 	let following: (() => void) | undefined;
 	let stopping: Promise<void> | undefined;
+	let overran = false;
+	// Those the last stop left unparked whose resume hasn't ended: a stop
+	// during resumes leaves them as they were.
+	const stillAsLeft = () =>
+		lastStop?.ids.filter((id) => serving.resuming().has(id)) ?? [];
 	const stop = () => {
 		if (stopping) return stopping;
+		// First, before the telling: systemd-notify may take its ten seconds,
+		// and no resume begins meanwhile.
+		serving.halt();
 		following?.();
 		// Parking many can take a while; the status says so meanwhile, and
 		// the watchdog hears the loop still turns until every one is parked.
 		const parked = tell(stoppingStatus(serving.held().length))
 			.catch(report)
-			.then(() => serving.stop());
+			.then(() => serving.stop())
+			.then(() => {
+				// Parked in time, so only those a stop during resumes never began
+				// are still as the last stop left them.
+				if (overran || !lastStop) return;
+				const still = stillAsLeft();
+				if (still.length > 0) unparked.write(still);
+				else unparked.clear();
+			});
 		const bound = options.stopWithin ?? stopWithin(options.env);
 		const unparkedIds = () => serving.held().map(({ id }) => id);
 		// The bound is a timer on this loop, which a loop held on a CPU never
@@ -478,9 +499,12 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		);
 		telling.unref();
 		stopping = endWithin(parked, bound, (waited) => {
+			overran = true;
 			const held = serving.held();
 			say(unparkedLine(bound, waited, held));
-			unparked.write(held.map(({ id }) => id));
+			unparked.write([
+				...new Set([...held.map(({ id }) => id), ...stillAsLeft()]),
+			]);
 		}).finally(() => {
 			// The host exits as its stop ends, so nothing is left to end.
 			clearInterval(telling);
@@ -507,6 +531,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			});
 		});
 	});
+	let resumes: Promise<void> | undefined;
 	try {
 		const ready =
 			options.ready ??
@@ -518,7 +543,16 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 					say,
 					stopping: () => stopping !== undefined,
 				}));
-		await ready(options.env, status());
+		// Ready as it listens, and the resumes begin beside the telling, so a
+		// start of many resumes is never timed by systemd and none waits on it.
+		const said = status();
+		readied = true;
+		// Said first, so the journal reads ready before the first resume.
+		say(`${since()}: ${said}, listening on ${serving.path}`);
+		resumes = serving.resume();
+		// Awaited below, once ready is told; a failure meanwhile waits for it.
+		resumes.catch(() => undefined);
+		await ready(options.env, said);
 	} catch (error) {
 		// systemd waits for readiness until its own timeout and stops the
 		// unit then; the host keeps serving what it can until it does.
@@ -532,11 +566,34 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			every: options.statusEvery ?? STATUS_EVERY_MS,
 			report,
 		});
+	try {
+		await (resumes ?? serving.resume());
+	} catch (error) {
+		// A stop already under way ends the host as it would; this is only
+		// said. Otherwise the host stops, parking what it built, and the run
+		// fails: systemd has its ready, so the unit ends as a crash would.
+		if (stopping !== undefined) report(error);
+		else {
+			await stop().catch(report);
+			throw error;
+		}
+	} finally {
+		stopRenewing();
+	}
+	// A stop under way began no resume still to come, and writes its own
+	// mark of what it left unparked.
+	if (stopping !== undefined) {
+		const left = serving.resuming().size;
+		say(
+			`${since()}: stopping with ${left} still to resume; each stays held for the next start`,
+		);
+		return { serving, stopped };
+	}
 	// Every conversation the last stop left is resumed by now, so its
 	// mark has said all it can.
 	if (lastStop) unparked.clear();
 	const named = droppedNames(serving.dropped);
-	say(`${since()}: ${status()}${named}, listening on ${serving.path}`);
+	say(`${since()}: resumed what it held: ${status()}${named}`);
 	return { serving, stopped };
 }
 
@@ -559,21 +616,18 @@ export function watchdogEvery(
 /**
  * Ask again every `every` ms from the host's own loop, until `ceiling` ms
  * after the step began or the answer is called, whichever comes first.
- * An ask still on its way when the next is due is let be. `passed` hears
- * the ceiling once, if it is reached before the answer is called.
+ * An ask still on its way when the next is due is let be.
  */
 function askWhileUnderWay(options: {
 	ask: () => Promise<void>;
 	every: number;
 	ceiling: number;
-	passed?: (ceiling: number) => void;
 }): () => void {
 	const began = performance.now();
 	let asking = false;
 	const again = setInterval(() => {
 		if (performance.now() - began >= options.ceiling) {
 			clearInterval(again);
-			options.passed?.(options.ceiling);
 			return;
 		}
 		if (asking) return;
