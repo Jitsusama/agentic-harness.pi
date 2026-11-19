@@ -5,7 +5,8 @@
  * mycelium's node knows the window is the hosted session's, and plain
  * pi's words after `--`:
  *
- *   node scripts/host-join.ts [--released [--failures N]|--view] --session ID -- pi --session LOG [FLAGS]
+ *   node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/host-join.ts \
+ *     [--released [--failures N]|--view] --session ID -- pi --session LOG [FLAGS]
  *
  * It draws nothing, unless a host holding the conversation is slow to
  * come back, when it says so in one line. Once the host has the
@@ -38,6 +39,7 @@ import {
 import {
 	ATTACH_FAILED_ENV,
 	hostHold,
+	JOIN_QUIET,
 	viewingWords,
 } from "../lib/internal/session/host-holds.ts";
 import {
@@ -123,6 +125,7 @@ const joined = await joining();
 // this failure with those before it, so the next waits longer.
 const released = [
 	process.execPath,
+	JOIN_QUIET,
 	fileURLToPath(import.meta.url),
 	"--released",
 	...(failed === "" ? [] : ["--failures", String(failures + 1)]),

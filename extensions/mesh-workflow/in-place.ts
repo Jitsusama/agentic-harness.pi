@@ -24,6 +24,7 @@
 
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { JOIN_QUIET } from "../../lib/internal/session/host-holds.ts";
 import {
 	AGAIN_ENV,
 	flagsLost,
@@ -97,9 +98,11 @@ export function handOverOf(facts: InPlaceFacts): HandOver | undefined {
 }
 
 /**
- * The words that start the join for `session`: `--session` and its id
- * first, which is how mycelium's node knows the window the join holds
- * is the hosted session's, then plain pi's words should it fall back.
+ * The words that start the join for `session`: node with the flag that
+ * keeps its module-type warning out of the window ({@link JOIN_QUIET}),
+ * then `--session` and its id, which is how mycelium's node knows the
+ * window the join holds is the hosted session's, then plain pi's words
+ * should it fall back.
  */
 export function joinCommand(
 	session: string,
@@ -107,6 +110,7 @@ export function joinCommand(
 ): string[] {
 	return [
 		process.execPath,
+		JOIN_QUIET,
 		JOIN_SCRIPT,
 		"--session",
 		session,
@@ -140,6 +144,7 @@ export function hostedPresence(
 			: {
 					view: [
 						process.execPath,
+						JOIN_QUIET,
 						JOIN_SCRIPT,
 						"--view",
 						"--session",

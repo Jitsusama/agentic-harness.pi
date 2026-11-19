@@ -22,12 +22,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { ATTACH_FAILED_ENV } from "../../lib/internal/session/host-holds.ts";
+import {
+	ATTACH_FAILED_ENV,
+	JOIN_QUIET,
+} from "../../lib/internal/session/host-holds.ts";
 import { PARKED_EXIT } from "../../lib/internal/session/park.ts";
 
 const run = promisify(execFile);
 const SCRIPT = join(import.meta.dirname, "..", "..", "scripts", "host-join.ts");
 const PLAIN_PI = ["sh", "-c", "echo carried on as plain pi; exit 4"];
+/** The flag that keeps node's module-type warning out of a window's join. */
+const QUIET = "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON";
+/** A conversation a host keeps on its roster, by pi's stable id. */
+const KEPT = "01a1ecc3-3a52-76e8-8e98-0c71415e1697";
 
 const made: string[] = [];
 afterEach(() => {
@@ -63,13 +70,15 @@ function home(): string {
 /**
  * host-join's output and exit code, run by node under a sealed `env` in
  * `at`, under `holder`'s variables when given and `more` of them, through
- * `sh` so the shell can name its own pid before it becomes node.
+ * `sh` so the shell can name its own pid before it becomes node, which
+ * starts with `flags`: the join's own, as every window's words give it.
  */
 async function hostJoin(
 	args: readonly string[],
 	at: string = home(),
 	holder?: { readonly files: Holder; readonly recordsSelf: boolean },
 	more: Readonly<Record<string, string>> = {},
+	flags: readonly string[] = [JOIN_QUIET],
 ) {
 	const env = {
 		PATH: process.env.PATH,
@@ -97,7 +106,7 @@ async function hostJoin(
 			`${names}exec "$@"`,
 			holder?.files.record ?? "sh",
 			process.execPath,
-			"--disable-warning=MODULE_TYPELESS_PACKAGE_JSON",
+			...flags,
 			SCRIPT,
 			...args,
 		],
@@ -167,6 +176,19 @@ describe("host-join under no holder", () => {
 		expect(Date.now() - began).toBeGreaterThanOrEqual(4_000);
 	});
 
+	it("prints no module-type warning, started as every window's words start it", async () => {
+		const view = ["--view", "--session", "01a1", "--", ...PLAIN_PI];
+		const bare = await hostJoin(view, home(), undefined, {}, []);
+		expect(bare.stderr, "node warns without the flag").toContain(
+			"MODULE_TYPELESS_PACKAGE_JSON",
+		);
+		const quiet = await hostJoin(view);
+		expect(quiet.stderr, "the join's own flag keeps it out").not.toContain(
+			"MODULE_TYPELESS_PACKAGE_JSON",
+		);
+		expect(quiet.code, "it still ran plain pi").toBe(4);
+	});
+
 	it("refuses a move, which only a holder carries on past", async () => {
 		const joined = await hostJoin(["--session", "01a1", "--", ...PLAIN_PI]);
 		expect(joined.code).not.toBe(0);
@@ -194,5 +216,46 @@ describe("host-join under its own holder", () => {
 			existsSync(files.wake),
 			"its wake tells the holder to start it at once",
 		).toBe(true);
+	});
+
+	it("names the join again, started with no module-type warning, should the host's attach end", async () => {
+		const at = home();
+		const files = holderIn(at);
+		const rosters = join(
+			at,
+			"state",
+			"pi",
+			"agentic-harness.pi",
+			"host-rosters",
+		);
+		mkdirSync(rosters, { recursive: true });
+		writeFileSync(
+			join(rosters, "work-background.json"),
+			JSON.stringify({
+				v: 1,
+				key: "work-background",
+				sessions: [
+					{
+						sessionId: KEPT,
+						file: "/logs/kept.jsonl",
+						cwd: "/work",
+						attended: false,
+						since: "2026-11-18T14:25:00.000Z",
+					},
+				],
+			}),
+		);
+		const joined = await hostJoin(
+			["--view", "--session", KEPT, "--", ...PLAIN_PI],
+			at,
+			{ files, recordsSelf: true },
+		);
+		expect(joined.code, "it exited as a park does").toBe(PARKED_EXIT);
+		const next: unknown = JSON.parse(readFileSync(files.again, "utf8"));
+		const joinAt = Array.isArray(next) ? next.indexOf(process.execPath) : -1;
+		expect(
+			Array.isArray(next) ? next.slice(joinAt, joinAt + 4) : next,
+			"after the attach, node starts the join quietly",
+		).toEqual([process.execPath, QUIET, SCRIPT, "--released"]);
 	});
 });
