@@ -248,7 +248,11 @@ export function hostBackend(options: {
 	// Asked as the call comes, not in its turn, so the start resumes those
 	// asked for in the order they were.
 	function startOwes(sessionId: string): Promise<void> {
-		return options.held?.ahead(sessionId) ?? Promise.resolve();
+		const owed = options.held?.ahead(sessionId) ?? Promise.resolve();
+		// A stop refuses it, perhaps before its turn awaits it: the turn's
+		// await still hears the refusal, so this one only keeps it handled.
+		owed.catch(() => undefined);
+		return owed;
 	}
 
 	function wake(sessionId: string): Promise<void> {
@@ -598,9 +602,16 @@ export interface HeldOrder {
 	next(): RosterEntry | undefined;
 	/** The start is done with it, resumed or not. */
 	settled(sessionId: string): void;
-	/** The start is over: whoever still waits is answered. */
-	end(): void;
+	/**
+	 * The start is over: whoever still waits is answered, refused with
+	 * `refusal` when a stop ended it, so none builds what the stop left.
+	 */
+	end(refusal?: Error): void;
 }
+
+/** Why a wake or attach is refused while the host stops. */
+export const STOPPING_REFUSAL =
+	"the host is stopping, and takes the conversation up again as it starts";
 
 /** The order a start resumes what `roster` holds now. */
 export function heldOrder(roster: HostRoster): HeldOrder {
@@ -609,12 +620,18 @@ export function heldOrder(roster: HostRoster): HeldOrder {
 	const owed = new Set(rest.map(({ sessionId }) => sessionId));
 	const waiting = new Map<
 		string,
-		{ done: Promise<void>; settle: () => void }
+		{
+			done: Promise<void>;
+			settle: () => void;
+			refuse: (refusal: Error) => void;
+		}
 	>();
 
-	function settled(sessionId: string): void {
+	function settled(sessionId: string, refusal?: Error): void {
 		owed.delete(sessionId);
-		waiting.get(sessionId)?.settle();
+		const wait = waiting.get(sessionId);
+		if (refusal) wait?.refuse(refusal);
+		else wait?.settle();
 		waiting.delete(sessionId);
 	}
 
@@ -627,18 +644,20 @@ export function heldOrder(roster: HostRoster): HeldOrder {
 			let wait = waiting.get(sessionId);
 			if (!wait) {
 				let settle = (): void => undefined;
-				const done = new Promise<void>((resolve) => {
+				let refuse = (_refusal: Error): void => undefined;
+				const done = new Promise<void>((resolve, reject) => {
 					settle = resolve;
+					refuse = reject;
 				});
-				wait = { done, settle };
+				wait = { done, settle, refuse };
 				waiting.set(sessionId, wait);
 			}
 			return wait.done;
 		},
 		next: () => asked.shift() ?? rest.shift(),
-		settled,
-		end() {
-			for (const sessionId of [...owed]) settled(sessionId);
+		settled: (sessionId) => settled(sessionId),
+		end(refusal) {
+			for (const sessionId of [...owed]) settled(sessionId, refusal);
 			rest.length = 0;
 			asked.length = 0;
 		},
@@ -780,7 +799,7 @@ export async function resumeHeld(options: {
 		);
 		if (failed) throw failed.reason;
 	} finally {
-		order.end();
+		order.end(halted() ? new Error(STOPPING_REFUSAL) : undefined);
 		options.engine.resumed?.();
 	}
 	return { resumed, parked, dropped, unresumed };

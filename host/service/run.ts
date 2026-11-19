@@ -326,6 +326,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	interface UnderWay {
 		readonly at: number;
 		readonly phases: PhaseEnd[];
+		overdue?: ReturnType<typeof setTimeout>;
 	}
 	const resuming = new Map<number, UnderWay>();
 	const mark = (step: Resuming, phase: ResumePhase) => {
@@ -335,6 +336,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		const under = resuming.get(step.number);
 		if (!under) return;
 		resuming.delete(step.number);
+		clearTimeout(under.overdue);
 		const now = Date.now();
 		const told = end === "unresumed" ? firstLine(reason) : "";
 		const why = told ? `: ${told}` : "";
@@ -360,9 +362,24 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const starting = async (step: StartStep) => {
 		renewing?.();
 		renewing = undefined;
-		if (step.step === "resume")
-			resuming.set(step.number, { at: Date.now(), phases: [] });
 		const status = describeStep(step);
+		if (step.step === "resume") {
+			const ceiling = options.stepCeiling ?? STEP_CEILING_MS;
+			resuming.set(step.number, {
+				at: Date.now(),
+				phases: [],
+				// Resumes overlap and systemd times none once ready, so one that
+				// never ends names itself, once, rather than hold the runs a
+				// restart cut off unsaid.
+				overdue: setTimeout(
+					() =>
+						say(
+							`${since()}: still ${status} after ${seconds(ceiling)}; the runs a restart cut off wait on it`,
+						),
+					ceiling,
+				).unref(),
+			});
+		}
 		const left =
 			step.step === "resume" && lastStop?.ids.includes(step.sessionId)
 				? ` (not parked at the ${clockTime(lastStop.at)} stop)`
@@ -436,14 +453,30 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	};
 	let following: (() => void) | undefined;
 	let stopping: Promise<void> | undefined;
+	let overran = false;
+	// Those the last stop left unparked whose resume hasn't ended: a stop
+	// during resumes leaves them as they were.
+	const stillAsLeft = () =>
+		lastStop?.ids.filter((id) => serving.resuming().has(id)) ?? [];
 	const stop = () => {
 		if (stopping) return stopping;
+		// First, before the telling: systemd-notify may take its ten seconds,
+		// and no resume begins meanwhile.
+		serving.halt();
 		following?.();
 		// Parking many can take a while; the status says so meanwhile, and
 		// the watchdog hears the loop still turns until every one is parked.
 		const parked = tell(stoppingStatus(serving.held().length))
 			.catch(report)
-			.then(() => serving.stop());
+			.then(() => serving.stop())
+			.then(() => {
+				// Parked in time, so only those a stop during resumes never began
+				// are still as the last stop left them.
+				if (overran || !lastStop) return;
+				const still = stillAsLeft();
+				if (still.length > 0) unparked.write(still);
+				else unparked.clear();
+			});
 		const bound = options.stopWithin ?? stopWithin(options.env);
 		const unparkedIds = () => serving.held().map(({ id }) => id);
 		// The bound is a timer on this loop, which a loop held on a CPU never
@@ -466,9 +499,12 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		);
 		telling.unref();
 		stopping = endWithin(parked, bound, (waited) => {
+			overran = true;
 			const held = serving.held();
 			say(unparkedLine(bound, waited, held));
-			unparked.write(held.map(({ id }) => id));
+			unparked.write([
+				...new Set([...held.map(({ id }) => id), ...stillAsLeft()]),
+			]);
 		}).finally(() => {
 			// The host exits as its stop ends, so nothing is left to end.
 			clearInterval(telling);
@@ -533,15 +569,26 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	try {
 		await (resumes ?? serving.resume());
 	} catch (error) {
-		// As a start that failed: it stops, parking what it built, and says why.
-		await stop().catch(report);
-		throw error;
+		// A stop already under way ends the host as it would; this is only
+		// said. Otherwise the host stops, parking what it built, and the run
+		// fails: systemd has its ready, so the unit ends as a crash would.
+		if (stopping !== undefined) report(error);
+		else {
+			await stop().catch(report);
+			throw error;
+		}
 	} finally {
 		stopRenewing();
 	}
 	// A stop under way began no resume still to come, and writes its own
 	// mark of what it left unparked.
-	if (stopping !== undefined) return { serving, stopped };
+	if (stopping !== undefined) {
+		const left = serving.resuming().size;
+		say(
+			`${since()}: stopping with ${left} still to resume; each stays held for the next start`,
+		);
+		return { serving, stopped };
+	}
 	// Every conversation the last stop left is resumed by now, so its
 	// mark has said all it can.
 	if (lastStop) unparked.clear();

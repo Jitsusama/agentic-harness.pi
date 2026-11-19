@@ -38,6 +38,7 @@ import {
 	type ResumePhase,
 	type Resuming,
 	resumeHeld,
+	STOPPING_REFUSAL,
 	type Unresumed,
 } from "./backend.ts";
 import type { ControlBackend } from "./dispatch.ts";
@@ -95,6 +96,11 @@ export interface ServingHost {
 	restartComing(coming: boolean): void;
 	/** Whether a stop has begun, after which nothing it holds runs a turn. */
 	stopping(): boolean;
+	/**
+	 * Begin no resume still to come, at once: a stop does it first, before
+	 * anything it says, and `stop` does it too.
+	 */
+	halt(): void;
 	/** Close the socket, park every conversation and release the lock. */
 	stop(): Promise<void>;
 }
@@ -234,6 +240,7 @@ export async function listenHost(options: HostOptions): Promise<ServingHost> {
 		listening(backend.wake);
 		const running = host;
 		let stopping: Promise<void> | undefined;
+		let halted = false;
 		let restarting = false;
 		let unresumed: readonly Unresumed[] = [];
 		let dropped: readonly string[] = [];
@@ -246,7 +253,7 @@ export async function listenHost(options: HostOptions): Promise<ServingHost> {
 				roster,
 				engine,
 				admitAnother,
-				halted: () => stopping !== undefined,
+				halted: () => halted,
 				settled: (sessionId) => pending.delete(sessionId),
 				starting: options.starting,
 				mark: options.mark,
@@ -301,14 +308,13 @@ export async function listenHost(options: HostOptions): Promise<ServingHost> {
 				restarting = coming;
 			},
 			stopping: () => stopping !== undefined,
+			halt: () => {
+				halted = true;
+			},
 			stop() {
+				halted = true;
 				stopping ??= (async () => {
-					wakes = () =>
-						Promise.reject(
-							new Error(
-								"the host is stopping, and takes the conversation up again as it starts",
-							),
-						);
+					wakes = () => Promise.reject(new Error(STOPPING_REFUSAL));
 					if (restarting) await control.restarting();
 					await control.close();
 					// Those under way end first, so each is parked with the rest

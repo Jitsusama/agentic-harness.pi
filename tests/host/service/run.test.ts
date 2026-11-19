@@ -36,6 +36,7 @@ import {
 	serviceOfCgroup,
 	watchdogEvery,
 } from "../../../host/service/run.ts";
+import { unparkedMarks } from "../../../host/service/stop.ts";
 import type { BackstopOptions } from "../../../host/service/stop-backstop.ts";
 import { heldSessionStatus } from "../../../lib/core/session/roster.ts";
 import { placeChildren } from "../../../lib/internal/priority/place.ts";
@@ -706,6 +707,28 @@ describe("runHost's ready before its resumes", () => {
 		const held = await heldSome(3);
 		const resumes = heldResumes();
 		const signals = new EventEmitter();
+		const said: string[] = [];
+		const parked: string[] = [];
+		// Built only once released, so a stop that didn't wait for it would
+		// leave it running in a host disposed under it, never parked.
+		const building = async (host: SessionHost): Promise<ConversationEngine> => {
+			const base = await resumes.engine(host);
+			return {
+				...base,
+				resume: async (entry, woken) => {
+					await base.resume(entry, woken);
+					host.register({
+						id: entry.sessionId,
+						file: entry.file,
+						cwd: entry.cwd,
+						env: {},
+						close: () => {
+							parked.push(entry.sessionId);
+						},
+					});
+				},
+			};
+		};
 		let readied = (): void => undefined;
 		const ready = new Promise<void>((resolve) => {
 			readied = resolve;
@@ -713,11 +736,11 @@ describe("runHost's ready before its resumes", () => {
 		const running = runHost({
 			argv: ["background"],
 			env: env(),
-			engine: resumes.engine,
+			engine: building,
 			signals,
 			ready: async () => readied(),
 			progress: async () => {},
-			say: () => {},
+			say: (line) => said.push(line),
 			report: () => {},
 			places: places(),
 			rollout: admitting,
@@ -726,15 +749,125 @@ describe("runHost's ready before its resumes", () => {
 		// The first resumes alone, so the stop comes while it is under way.
 		await vi.waitFor(() => expect(resumes.begun).toHaveLength(1));
 		signals.emit("SIGTERM");
+		// Long enough for a stop that didn't wait on the resume to end.
+		await new Promise((resolve) => setTimeout(resolve, 50));
 		resumes.release();
 		const run = await running;
 		await run.stopped;
 		expect(resumes.begun, "none begun once the stop came").toHaveLength(1);
+		expect(parked, "the one under way, parked once built").toEqual(
+			resumes.begun,
+		);
 		for (const sessionId of held)
 			expect(
 				await heldSessionStatus(sessionId, { dir: join(dir, "rosters") }),
 				"each kept for the next start",
 			).toBe("held");
+		expect(said, "it says what it left").toContainEqual(
+			expect.stringMatching(
+				/: stopping with 2 still to resume; each stays held for the next start$/,
+			),
+		);
+		expect(
+			said.filter((line) => line.includes("resumed what it held")),
+			"a halted start never says it resumed what it held",
+		).toEqual([]);
+	});
+
+	it("begins no resume while the stop's own telling is still on its way", async () => {
+		await heldSome(3);
+		const resumes = heldResumes();
+		const signals = new EventEmitter();
+		let told = (): void => undefined;
+		const telling = new Promise<void>((resolve) => {
+			told = resolve;
+		});
+		const running = runHost({
+			argv: ["background"],
+			env: env(),
+			engine: resumes.engine,
+			signals,
+			ready: async () => {},
+			progress: async () => {},
+			// Every status after ready, the stop's included, waits as a
+			// systemd-notify under load may for its ten seconds.
+			status: () => telling,
+			say: () => {},
+			report: () => {},
+			places: places(),
+			rollout: admitting,
+		});
+		await vi.waitFor(() => expect(resumes.begun).toHaveLength(1));
+		signals.emit("SIGTERM");
+		resumes.release();
+		const run = await running;
+		expect(resumes.begun, "none begun while the stop told").toHaveLength(1);
+		told();
+		await run.stopped;
+		expect(resumes.begun, "none begun after").toHaveLength(1);
+	});
+
+	it("keeps the last stop's mark only for those a stop during resumes never began", async () => {
+		const held = await heldSome(3);
+		const marks = unparkedMarks("work", "background", () => {});
+		marks.write(held);
+		const resumes = heldResumes();
+		const signals = new EventEmitter();
+		const running = runHost({
+			argv: ["background"],
+			env: env(),
+			engine: resumes.engine,
+			signals,
+			ready: async () => {},
+			progress: async () => {},
+			status: async () => {},
+			say: () => {},
+			report: () => {},
+			places: places(),
+			rollout: admitting,
+		});
+		await vi.waitFor(() => expect(resumes.begun).toHaveLength(1));
+		signals.emit("SIGTERM");
+		resumes.release();
+		const run = await running;
+		await run.stopped;
+		const [first] = resumes.begun;
+		expect(
+			marks.read()?.ids.sort(),
+			"the one resumed and parked is off it",
+		).toEqual(held.filter((id) => id !== first).sort());
+	});
+
+	it("stops and fails the run when its resumes fail after ready", async () => {
+		await heldOne();
+		const signals = new EventEmitter();
+		let readied = false;
+		const failing = new Error("a listener's fault");
+		const running = runHost({
+			argv: ["background"],
+			env: env(),
+			engine: async (host: SessionHost): Promise<ConversationEngine> => ({
+				...(await engine(host)),
+				resumed: () => {
+					throw failing;
+				},
+			}),
+			signals,
+			ready: async () => {
+				readied = true;
+			},
+			progress: async () => {},
+			status: async () => {},
+			say: () => {},
+			report: () => {},
+			places: places(),
+		});
+		await expect(running, "the run fails as it says").rejects.toBe(failing);
+		expect(readied, "after systemd had its ready").toBe(true);
+		await expect(
+			controlRequest(socket(), { v: 1, id: "l", op: "list" }),
+			"the host stopped, so nothing answers",
+		).rejects.toThrow();
 	});
 });
 
@@ -1163,8 +1296,8 @@ describe("runHost", () => {
 			expect(said[1]).toMatch(
 				/^\d+\.\d s: ready: loaded 0, parked 0, dropped 0, resuming 1, listening on /,
 			);
-			expect(said[2]).toBe(
-				`${said[2]?.match(/^\d+\.\d s: /)?.[0]}resuming 1 of 1: ${sessionId}`,
+			expect(said[2]).toMatch(
+				new RegExp(`^\\d+\\.\\d s: resuming 1 of 1: ${sessionId}$`),
 			);
 			expect(said[3]).toMatch(
 				/^\d+\.\d s: resumed 1 of 1 in \d+\.\d s \(ask \d+\.\d s, gate \d+\.\d s, rest \d+\.\d s\)$/,
@@ -1344,15 +1477,18 @@ describe("runHost", () => {
 				env: env(),
 				engine: slowBuild(BUILD_MS),
 				signals,
-				ready: async () => {
-					readyAt = performance.now();
-				},
+				ready: async () => {},
 				progress: async (_env, status) => {
 					asked.push({ status, at: performance.now() });
 				},
 				stepRenewEvery: RENEW_MS,
 				stepCeiling: ceiling,
-				say: () => {},
+				// Ready is said before the resumes begin, so an ask from any of
+				// them would land after this.
+				say: (line) => {
+					if (/ s: ready: /.test(line))
+						readyAt = Math.min(readyAt, performance.now());
+				},
 				report: () => {},
 				places: places(),
 			});
