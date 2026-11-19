@@ -32,6 +32,11 @@
  * server's writer threw on its closed pipe, the host stopped mid-turn
  * for it, and the stop systemd asked for a moment later exited 1. The
  * engine is passed in, so the program that starts this names which.
+ *
+ * Long because it still holds how the host tells systemd, its notify,
+ * ready read-back, watchdog and unit state, beside how it runs; that
+ * telling is a reason of its own to change, and moves to systemd.ts
+ * beside this.
  */
 
 import { type ExecFileException, execFile } from "node:child_process";
