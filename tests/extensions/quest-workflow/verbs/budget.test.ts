@@ -606,21 +606,59 @@ describe("the budget in the session's log", () => {
 		]);
 	});
 
-	it("says it again when only what's missing changes, as when a provider registers that can't draw on it", async () => {
-		const { run, top, events, keeper } = await deltaKept();
+	it("says it again, in the log and the journal, when only what's missing changes on asking again", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const events = bus();
+		const lines: string[] = [];
+		const keeper = keepQuestBudget(
+			fakePi({ ...intoTheBranch, events }),
+			state,
+			{ journal: (line) => lines.push(line) },
+		);
 		await run({ action: "load", id: top });
 		await keeper.keep(ctx());
 
 		provide(events, "vault", async () => ({
 			kind: "unavailable",
-			reason: "Locked.",
+			reason: "Locked\nfor now.",
 		}));
 		await keeper.keep(ctx(), { again: true });
 
 		expect(recorded().map((record) => JSON.stringify(record))).toEqual([
 			expect.stringContaining("no budget provider is installed"),
-			expect.stringContaining("Locked."),
+			expect.stringContaining("Locked for now."),
 		]);
+		expect(lines).toEqual([
+			expect.stringContaining("no budget provider is installed"),
+			expect.stringContaining("Locked for now."),
+		]);
+	});
+
+	it("says a provider's reason on one line in the notice", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const events = bus();
+		provide(events, "vault", async () => ({
+			kind: "unavailable",
+			reason: "Locked\nfor now.",
+		}));
+		const notices: string[] = [];
+		const keeper = keepQuestBudget(
+			fakePi({ ...intoTheBranch, events }),
+			state,
+			quiet,
+		);
+		const seen = {
+			...ctx(),
+			ui: { notify: (message: string) => notices.push(message) },
+		} as unknown as ReturnType<typeof ctx>;
+
+		await run({ action: "load", id: top });
+		await keeper.keep(seen);
+
+		expect(notices).toEqual([expect.stringContaining("Locked for now.")]);
+		expect(notices[0]).not.toContain("\n");
 	});
 
 	it("says the default once a budget it missed gives way to none", async () => {
@@ -657,10 +695,51 @@ describe("the budget in the session's log", () => {
 		const missing = String(
 			(recorded()[0] as { unresolved: { missing: string } }).unresolved.missing,
 		);
-		expect(missing.split("\n")).toHaveLength(1);
-		expect(missing).toContain("first\\nsecond");
-		expect(missing).toMatch(/x \(cut short\)"$/);
-		expect(missing.length).toBeLessThan(250);
+		// Its break a space, and the first 200 characters of its words kept.
+		const kept = `first second ${"x".repeat(400)}`.slice(0, 200);
+		expect(missing).toBe(`"vault": ${JSON.stringify(`${kept} (cut short)`)}`);
+	});
+
+	it("keeps a provider's words whole at 200 characters", async () => {
+		const { run, top, events, keeper } = await deltaKept();
+		const words = "y".repeat(200);
+		provide(events, "vault", async () => ({
+			kind: "unavailable",
+			reason: words,
+		}));
+
+		await run({ action: "load", id: top });
+		await keeper.keep(ctx());
+
+		expect(recorded()).toEqual([
+			{
+				v: 1,
+				name: null,
+				unresolved: { budget: "delta", missing: `"vault": "${words}"` },
+			},
+		]);
+	});
+
+	it("says a provider gave no reason, rather than fail, when its reason isn't words", async () => {
+		const { run, top, events, keeper } = await deltaKept();
+		provide(events, "vault", async () => ({
+			kind: "unavailable",
+			reason: 7 as unknown as string,
+		}));
+
+		await run({ action: "load", id: top });
+		await keeper.keep(ctx());
+
+		expect(recorded()).toEqual([
+			{
+				v: 1,
+				name: null,
+				unresolved: {
+					budget: "delta",
+					missing: '"vault": "(no reason given)"',
+				},
+			},
+		]);
 	});
 
 	it("names the budget the session was started on as what model calls use, when it misses the quest's", async () => {
@@ -701,6 +780,28 @@ describe("the budget in the session's log", () => {
 		expect(
 			budgetEntryView(recorded()[0], theme)?.render(300).join("\n"),
 		).toContain(`model calls use ${started}.`);
+	});
+
+	it("misses nothing when the session was started on the very budget the quest names", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		process.env.PI_BUDGET = "delta";
+		const lines: string[] = [];
+		const notices: string[] = [];
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state, {
+			journal: (line) => lines.push(line),
+		});
+		const seen = {
+			...ctx(),
+			ui: { notify: (message: string) => notices.push(message) },
+		} as unknown as ReturnType<typeof ctx>;
+
+		await run({ action: "load", id: top });
+		await keeper.keep(seen);
+
+		expect(recorded()).toEqual([{ v: 1, name: "delta" }]);
+		expect(lines).toEqual([]);
+		expect(notices).toEqual([]);
 	});
 
 	it("says it again when a resumed branch's default was its own word, not a budget it missed", async () => {

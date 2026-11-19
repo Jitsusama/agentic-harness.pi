@@ -402,7 +402,35 @@ describe("the budget a folder's work draws on", () => {
 		}
 	});
 
-	it("leaves no rejection behind when telling a trouble throws, once the answer is in", async () => {
+	it("says nothing of a provider ranked below the one that answered, which couldn't change it", async () => {
+		const events = bus();
+		const troubles: unknown[] = [];
+		const host = hostBudgets(events, 20, (trouble) => troubles.push(trouble));
+		registerBudgetProvider(
+			events,
+			placing("names", 0, async () => "delta"),
+		);
+		registerBudgetProvider(
+			events,
+			placing("throws", 1, async () => {
+				throw new Error("no map");
+			}),
+		);
+		registerBudgetProvider(
+			events,
+			placing("late", 2, () => new Promise(() => {})),
+		);
+
+		expect(await host.budgetFor("/src/delta")).toEqual({
+			name: "delta",
+			provider: "names",
+		});
+		// Past the late one's deadline, so a word it would have had is in.
+		await new Promise((settle) => setTimeout(settle, 60));
+		expect(troubles).toEqual([]);
+	});
+
+	it("leaves no rejection behind when telling a trouble throws", async () => {
 		const leaked: unknown[] = [];
 		const catchLeak = (reason: unknown) => leaked.push(reason);
 		process.on("unhandledRejection", catchLeak);
@@ -415,11 +443,11 @@ describe("the budget a folder's work draws on", () => {
 			});
 			registerBudgetProvider(
 				events,
-				placing("names", 0, async () => "delta"),
+				placing("late", 0, () => new Promise(() => {})),
 			);
 			registerBudgetProvider(
 				events,
-				placing("late", 1, () => new Promise(() => {})),
+				placing("names", 1, async () => "delta"),
 			);
 
 			expect(await host.budgetFor("/anywhere")).toEqual({
@@ -458,6 +486,27 @@ describe("the budget a folder's work draws on", () => {
 
 		expect(await host.budgetFor("/anywhere")).toBeUndefined();
 		expect(told).toEqual(["it failed: something that can't be said"]);
+
+		// An Error too, whose message is a getter that throws.
+		const unreadable = new Error("hidden");
+		Object.defineProperty(unreadable, "message", {
+			get(): string {
+				throw new Error("no words");
+			},
+		});
+		const second = bus();
+		const saidOfError: string[] = [];
+		const errorHost = hostBudgets(second, 1_000, (trouble) =>
+			saidOfError.push(trouble.why),
+		);
+		registerBudgetProvider(second, {
+			...provider("unreadable", 0, {}),
+			budgetFor: async () => {
+				throw unreadable;
+			},
+		});
+		expect(await errorHost.budgetFor("/anywhere")).toBeUndefined();
+		expect(saidOfError).toEqual(["it failed: something that can't be said"]);
 		expect(await host.draw("delta")).toEqual({
 			kind: "unavailable",
 			reason: "something that can't be said",

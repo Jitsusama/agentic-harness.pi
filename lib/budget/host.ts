@@ -112,18 +112,18 @@ export function hostBudgets(
 			const asking = ordered().filter((p) => typeof p.budgetFor === "function");
 			// All asked at once, and read in order, so the answer comes as
 			// soon as every provider before the first to name one has said.
-			// One that fails or answers late is told to troubled even when
-			// an earlier one has already answered.
-			const names = asking.map(async (provider) => {
-				const said = await askFolder(provider, folder, deadlineMs);
-				if (typeof said === "string") return said;
+			// One that fails or answers late is told to troubled only when
+			// it ranks above the answer, since only then could it have
+			// changed it; one below is passed over without a word.
+			const answers = asking.map((provider) =>
+				askFolder(provider, folder, deadlineMs),
+			);
+			for (const [at, provider] of asking.entries()) {
+				const said = await answers[at];
+				if (typeof said === "string")
+					return { name: said, provider: provider.id };
 				if (said)
 					tell(troubled, { provider: provider.id, folder, why: said.why });
-				return undefined;
-			});
-			for (const [at, provider] of asking.entries()) {
-				const name = await names[at];
-				if (name !== undefined) return { name, provider: provider.id };
 			}
 			return undefined;
 		},

@@ -83,6 +83,22 @@ describe("the file provider", () => {
 		expect(answer.kind === "unavailable" && answer.reason).toContain(program);
 	});
 
+	it("says once which program failed, then how and what it wrote to stderr", async () => {
+		const program = join(folder, "locked");
+		writeFileSync(
+			program,
+			"#!/bin/sh\necho 'the vault is locked' >&2\nexit 3\n",
+		);
+		chmodSync(program, 0o755);
+
+		const answer = await budgetFileProvider(folder).resolve("locked");
+
+		expect(answer).toEqual({
+			kind: "unavailable",
+			reason: `${program} failed (exit 3): the vault is locked.`,
+		});
+	});
+
 	it("never makes a path of a name that could leave its folder", async () => {
 		const outside = join(folder, "..", `${folder.split("/").pop()}-escape`);
 		writeFileSync(`${outside}.env`, "KEY=stolen\n");

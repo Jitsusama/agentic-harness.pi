@@ -105,7 +105,7 @@ async function resolveIn(folder: string, name: string): Promise<BudgetAnswer> {
 		} catch (error) {
 			return {
 				kind: "unavailable",
-				reason: `${program} failed: ${error instanceof Error ? error.message : String(error)}.`,
+				reason: `${program} failed${howItFailed(error)}.`,
 			};
 		}
 	}
@@ -124,6 +124,30 @@ async function resolveIn(folder: string, name: string): Promise<BudgetAnswer> {
 	}
 	return { kind: "drawn", env: read.env, label: read.label ?? name };
 }
+
+/**
+ * How a budget program failed, after its path: its exit or the clock,
+ * then what it wrote to stderr. Not execFile's message, which names
+ * the path again and leaves little of the stderr once a reader cuts
+ * it short.
+ */
+function howItFailed(error: unknown): string {
+	if (!(error instanceof Error)) return `: ${String(error)}`;
+	const code: unknown = Reflect.get(error, "code");
+	const stderr: unknown = Reflect.get(error, "stderr");
+	const said = typeof stderr === "string" ? stderr.trim() : "";
+	const how =
+		Reflect.get(error, "killed") === true
+			? ` (stopped after ${PROGRAM_TIMEOUT_MS / MS_PER_SECOND} s)`
+			: typeof code === "number"
+				? ` (exit ${code})`
+				: "";
+	// Neither exit nor stderr: a spawn that never ran, said by its message.
+	if (how === "" && said === "") return `: ${error.message}`;
+	return said === "" ? how : `${how}: ${said}`;
+}
+
+const MS_PER_SECOND = 1000;
 
 async function executable(path: string): Promise<boolean> {
 	try {
