@@ -167,6 +167,30 @@ describe("a mesh_wait call", () => {
 		).toMatchObject({ block: true });
 	});
 
+	it("is refused when a step is the act, on the machine the wait names", async () => {
+		expect(
+			await call("mesh_wait", {
+				id: "w",
+				title: "Take the new kernel",
+				machine: "equilibrius",
+				steps: ["Save your work", "Restart"],
+			}),
+		).toMatchObject({ block: true });
+	});
+
+	it("goes ahead for a boot on a machine nobody else is on", async () => {
+		node = someoneOn("equilibrius", "ended");
+
+		expect(
+			await call("mesh_wait", {
+				id: "w",
+				title: "Take the new kernel",
+				machine: "equilibrius",
+				doneWhen: { signal: "boot" },
+			}),
+		).toBeUndefined();
+	});
+
 	it("goes ahead for a wait that ends nothing", async () => {
 		expect(
 			await call("mesh_wait", {

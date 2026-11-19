@@ -12,8 +12,9 @@ guard, which blocks by default:
 
 - **An `ask`, `show_person` or `mesh_wait` call** is refused before it
   runs when its prose asks for one (a prompt, a look's title, why or
-  ask, a wait's title or why), when an option or choice is one, or when
-  a wait is done at the next boot.
+  ask, a wait's title, why, when or steps, each step on the wait's
+  machine), when an option or choice is one, or when a wait is done at
+  the next boot.
 - **A reply** that asks for one has its text withheld as pi finalizes
   it, which pi shows in its place and keeps in the session. Its tool
   calls stay. The reason follows once a run as a follow-up, so the run

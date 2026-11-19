@@ -241,7 +241,7 @@ function actsIn(plain: string, words: string): Act[] {
 	if (reboot.test(plain)) acts.push("reboot");
 	const restart = [
 		`\\brestart(?:s|ed|ing)?${NO_OBJECT}`,
-		`\\brestart(?:s|ed|ing)?\\s+${DETERMINERS}${machine}`,
+		`\\brestart(?:s|ed|ing)?\\s+(?:on\\s+)?${DETERMINERS}${machine}`,
 		`\\brestart\\s+of\\s+${DETERMINERS}${machine}`,
 		`\\b${machine}\\s+(?:needs|requires|wants|will\\s+need|has\\s+to|must|should)\\s+(?:a\\s+restart|to\\s+(?:be\\s+)?restart(?:ed)?)`,
 	];
@@ -249,7 +249,7 @@ function actsIn(plain: string, words: string): Act[] {
 		acts.push("restart");
 	}
 	const shutDown = [
-		`\\b(?:shut(?:s|ting)?\\s*down|shutdown|power(?:s|ed|ing)?\\s*(?:off|down)|power-?cycle|turn(?:s|ed|ing)?\\s+off)\\s+${DETERMINERS}${machine}`,
+		`\\b(?:shut(?:s|ting)?\\s*down|shutdown|power(?:s|ed|ing)?\\s*(?:off|down)|power-?cycle|turn(?:s|ed|ing)?\\s+off)\\s+(?:on\\s+)?${DETERMINERS}${machine}`,
 		`\\bshut(?:s|ting)?\\s+${DETERMINERS}${machine}\\s+down\\b`,
 		`\\b(?:shut(?:s|ting)?\\s*down|shutdown|power(?:s|ed|ing)?\\s*(?:off|down))${NO_OBJECT}`,
 	];

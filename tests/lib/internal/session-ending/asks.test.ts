@@ -41,6 +41,7 @@ describe("a reply that asks", () => {
 		["- [ ] Reboot optimus", "reboot"],
 		["Run `sudo reboot` on equilibrius.", "reboot"],
 		["Run `systemctl poweroff` there.", "shut down"],
+		["Restart on equilibrius.", "restart"],
 	])("%s", (text, act) => {
 		expect(acts(text)).toEqual([act]);
 	});

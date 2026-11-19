@@ -81,17 +81,23 @@ export function saidByLook(input: unknown): Said {
 }
 
 /**
- * What a `mesh_wait` says waits on the person: its title and why as
- * prose, and, when it is done at the next boot, a reboot of what its
- * title names as the ask itself.
+ * What a `mesh_wait` says waits on the person: its title, why, when and
+ * steps as prose, each step on the machine it names; and, when it is
+ * done at the next boot, a reboot of that machine as the ask itself.
  */
 export function saidByWait(input: unknown): Said {
 	if (!isRecord(input)) return NOTHING;
-	const title = typeof input.title === "string" ? input.title : undefined;
+	const machine = typeof input.machine === "string" ? input.machine : "";
+	const on = machine ? ` on ${machine}` : "";
+	const steps = Array.isArray(input.steps) ? texts(input.steps) : [];
 	const atBoot = isRecord(input.doneWhen) && input.doneWhen.signal === "boot";
+	const title = typeof input.title === "string" ? `: ${input.title}` : "";
 	return {
-		prose: texts([title, input.why]),
-		labels: atBoot ? [title ? `Reboot (${title})` : "Reboot"] : [],
+		prose: [
+			...texts([input.title, input.why, input.when]),
+			...steps.map((step) => `${step.replace(/[.!?\s]+$/, "")}${on}.`),
+		],
+		labels: atBoot ? [`Reboot${on}${title}`] : [],
 	};
 }
 
