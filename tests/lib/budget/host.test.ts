@@ -401,6 +401,38 @@ describe("the budget a folder's work draws on", () => {
 		}
 	});
 
+	it("leaves no rejection behind when telling a trouble throws, once the answer is in", async () => {
+		const leaked: unknown[] = [];
+		const catchLeak = (reason: unknown) => leaked.push(reason);
+		process.on("unhandledRejection", catchLeak);
+		try {
+			const events = bus();
+			const told: string[] = [];
+			const host = hostBudgets(events, 20, (trouble) => {
+				told.push(trouble.provider);
+				throw new Error("the journal is shut");
+			});
+			registerBudgetProvider(
+				events,
+				placing("names", 0, async () => "delta"),
+			);
+			registerBudgetProvider(
+				events,
+				placing("late", 1, () => new Promise(() => {})),
+			);
+
+			expect(await host.budgetFor("/anywhere")).toEqual({
+				name: "delta",
+				provider: "names",
+			});
+			await new Promise((settle) => setTimeout(settle, 100));
+			expect(told).toEqual(["late"]);
+			expect(leaked).toEqual([]);
+		} finally {
+			process.off("unhandledRejection", catchLeak);
+		}
+	});
+
 	it("answers as soon as the first to name one and every provider before it have said", async () => {
 		const events = bus();
 		const host = hostBudgets(events, 5_000);

@@ -117,7 +117,8 @@ export function hostBudgets(
 			const names = asking.map(async (provider) => {
 				const said = await askFolder(provider, folder, deadlineMs);
 				if (typeof said === "string") return said;
-				if (said) tell(troubled, { provider: provider.id, folder, why: said.why });
+				if (said)
+					tell(troubled, { provider: provider.id, folder, why: said.why });
 				return undefined;
 			});
 			for (const [at, provider] of asking.entries()) {
