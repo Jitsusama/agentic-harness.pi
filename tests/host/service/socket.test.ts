@@ -478,8 +478,9 @@ describe("viewer connection lifecycle", () => {
 		});
 		socket.destroy();
 	});
-	it("journals nothing for a window drawn at once, even once its bound has passed", async () => {
+	it("journals nothing for a window drawn at once, even once its bound has passed or it leaves", async () => {
 		const said: string[] = [];
+		const left = vi.fn();
 		listener = await listenControl({
 			path,
 			backend,
@@ -489,7 +490,7 @@ describe("viewer connection lifecycle", () => {
 			viewer: {
 				attach: (_request, sink) => {
 					sink.write("drawn");
-					return { input: vi.fn(), resize: vi.fn(), detach: vi.fn() };
+					return { input: vi.fn(), resize: vi.fn(), detach: left };
 				},
 			},
 		});
@@ -508,9 +509,12 @@ describe("viewer connection lifecycle", () => {
 		await new Promise((done) => setTimeout(done, 60));
 		expect(said, "a window drawn at once says nothing").toEqual([]);
 		socket.destroy();
+		await vi.waitFor(() => expect(left).toHaveBeenCalled());
+		expect(said, "nor does its leaving").toEqual([]);
 	});
 	it("journals a window it attached that nothing was drawn for, then its late frame and how big", async () => {
 		const said: string[] = [];
+		const left = vi.fn();
 		let draw = (_text: string): void => undefined;
 		listener = await listenControl({
 			path,
@@ -521,7 +525,7 @@ describe("viewer connection lifecycle", () => {
 			viewer: {
 				attach: (_request, sink) => {
 					draw = (text) => sink.write(text);
-					return { input: vi.fn(), resize: vi.fn(), detach: vi.fn() };
+					return { input: vi.fn(), resize: vi.fn(), detach: left };
 				},
 			},
 		});
@@ -544,11 +548,67 @@ describe("viewer connection lifecycle", () => {
 		await vi.waitFor(() =>
 			expect(said[1], "and the frame that came late, with its size").toMatch(
 				new RegExp(
-					`\\(${a}\\): a window's first frame, 4 bytes, went [0-9.]+ s after its attach was answered$`,
+					`\\(${a}\\): a window's first frame, 4 bytes, was queued [0-9.]+ s after its attach was answered$`,
 				),
 			),
 		);
 		socket.destroy();
+		await vi.waitFor(() => expect(left).toHaveBeenCalled());
+		expect(said, "a window drawn, however late, doesn't leave blank").toHaveLength(
+			2,
+		);
+	});
+	it("journals a window whose attach was answered after it had left", async () => {
+		const said: string[] = [];
+		let answer = (): void => undefined;
+		let reached = false;
+		const held: ControlBackend = {
+			identity: backend.identity,
+			execute: async () => {
+				reached = true;
+				await new Promise<void>((done) => {
+					answer = done;
+				});
+				return { sessionId: a };
+			},
+		};
+		const attach = vi.fn(() => ({
+			input: vi.fn(),
+			resize: vi.fn(),
+			detach: vi.fn(),
+		}));
+		listener = await listenControl({
+			path,
+			backend: held,
+			report,
+			say: (line) => said.push(line),
+			attachSlowMs: 20,
+			viewer: { attach },
+		});
+		const socket = createConnection(path);
+		const closed = new Promise((done) => socket.on("close", done));
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		await vi.waitFor(() =>
+			expect(reached, "the attach reached the host").toBe(true),
+		);
+		socket.destroy();
+		await closed;
+		// A real pause: nothing outside the host says when it has heard the
+		// close, which comes on its own end of the socket after the client's.
+		await new Promise((done) => setTimeout(done, 50));
+		answer();
+		await vi.waitFor(() =>
+			expect(said).toEqual([
+				expect.stringMatching(
+					new RegExp(
+						`\\(${a}\\): a window's attach was answered after the window had left$`,
+					),
+				),
+			]),
+		);
+		expect(attach, "and no viewer is attached for it").not.toHaveBeenCalled();
 	});
 	it("journals a window that left with nothing drawn, and how long it waited", async () => {
 		const said: string[] = [];
