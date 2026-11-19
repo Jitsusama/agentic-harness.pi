@@ -62,8 +62,9 @@ function lettered(count: number): string {
 }
 
 describe("how much a host says of the node's refusals", () => {
-	// One test, since the once-only set is the module's: each reason
-	// counts towards the cap, so the cut's cases are the first said.
+	// One test, since the once-only set is the process's, which only
+	// vitest's file isolation starts empty and nothing here clears: each
+	// reason counts towards the cap, so the cut's cases are the first said.
 	it("cuts a reason past its characters, by character, then says no more past its reasons, and says so once", async () => {
 		const said: string[] = [];
 		const folder = proc();

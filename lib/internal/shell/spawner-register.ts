@@ -23,7 +23,9 @@
  * or a reload onto another tree, which can say what it likes, nor a
  * command that rewrites the harness's files and restarts the host, whose
  * next start runs that code, or writes pi's host records and starts a
- * Node.js of its own that passes the node's checks; only a fence round
+ * Node.js of its own that passes the node's checks, nor one that opens
+ * the host's pipe to another session's spawner through /proc and
+ * writes a run into it; only a fence round
  * every conversation's commands does. A refusal, a node that listens
  * yet never answers or hangs up, or a spawner late to its name, is said
  * once for each reason on the host's error output, as the node logs

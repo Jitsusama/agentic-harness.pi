@@ -333,7 +333,9 @@ among it, could still say what it likes. So could a command able to
 rewrite the harness and restart the host, or to write pi's host
 records and start a Node.js of its own that passes the same checks,
 or one that reaches the host's control socket and types into another
-conversation, which the host then honestly says. The word tells a
+conversation, which the host then honestly says, or that opens the
+host's pipe to another conversation's spawner through /proc and writes
+a run into it. The word tells a
 conversation apart from mistakes, then, and from a command only where
 every conversation the host serves has its commands fenced from the
 harness's files, pi's records, the host's socket and its processes.

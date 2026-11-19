@@ -1241,8 +1241,7 @@ describe("the node told the session a load's pi-spawner serves", () => {
 		});
 		// The command is asked for only once the telling's `waited` is up.
 		await vi.waitFor(
-			() =>
-				expect(program.asked.length, "requests the stand-in read").toBe(1),
+			() => expect(program.asked.length, "requests the stand-in read").toBe(1),
 			{ timeout: 2 * waited },
 		);
 		program.started(1, 66);
