@@ -79,8 +79,9 @@ fixed it"). Options
 and choices are the ask itself, so the act counts there whenever it is
 named rather than a time ("after the reboot"), unless it turns the
 act down ("Skip the reboot", "No restart tonight"). The decline has
-to govern the act: "Cancel the backup and reboot", "No, reboot now"
-and "Don't forget to log out" still ask.
+to govern the act: "Cancel the backup and reboot", "No, reboot now",
+"Don't forget to log out" and "Don't skip the reboot" still ask, and
+"Don't reboot, just log out" asks for the log-out.
 
 What a reply only talks about asks nothing: a markdown heading that
 names no machine ("### 2. Reboot optimus" asks), a ticked task box, an

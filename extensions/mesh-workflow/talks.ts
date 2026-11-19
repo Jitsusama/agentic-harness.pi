@@ -126,11 +126,23 @@ export function createTalks(host: TalksHost): Talks {
 	let open: Open[] = [];
 	let answered: Answered[] = [];
 	/**
-	 * The talks replied last, newest last, kept apart from `answered`,
-	 * which a new talk empties, so a reply withheld after a talk had it
-	 * still finds that talk.
+	 * The talks the run under way replied, newest last, kept apart from
+	 * `answered`, which a new talk empties, so a reply withheld after a
+	 * talk had it still finds that talk. A run's end empties it, so a
+	 * later run's reply never rewrites an earlier one's talk.
 	 */
 	let recent: Open[] = [];
+	/**
+	 * What stands in the run's withheld replies, so the run's text
+	 * written as one, when pi hands the mesh the stand-in rather than
+	 * the reply, leaves a talk open for the text the run writes next.
+	 */
+	const standIns = new Set<string>();
+	/** The run is over: what it replied and withheld is no longer matched. */
+	const runOver = () => {
+		recent = [];
+		standIns.clear();
+	};
 	/** Whether the run under way has stepped or written yet. */
 	let working = false;
 	const taken = () => open.filter((talk) => talk.taken);
@@ -261,9 +273,10 @@ export function createTalks(host: TalksHost): Talks {
 			working = true;
 			const first = taken().filter((talk) => talk.intoWork);
 			for (const talk of first) reply(talk, said);
-			if (first.length > 0) close(first);
+			// A stand-in answers for now; what the run writes next replies.
+			if (first.length > 0 && !standIns.has(said)) close(first);
 			for (const talk of taken()) {
-				if (!talk.reply) reply(talk, said);
+				if (!talk.reply && !first.includes(talk)) reply(talk, said);
 				talk.reply = said;
 			}
 		},
@@ -271,6 +284,7 @@ export function createTalks(host: TalksHost): Talks {
 			const text = was.trim();
 			const now = instead.trim();
 			if (text === "" || now === "") return;
+			standIns.add(now);
 			for (const talk of new Set([...open, ...recent])) {
 				if (talk.said === text) talk.said = now;
 				if (talk.reply === text) talk.reply = now;
@@ -290,7 +304,10 @@ export function createTalks(host: TalksHost): Talks {
 			working = false;
 			const closing = taken();
 			// A talk its run never took waits for the run pi starts for it.
-			if (closing.length === 0) return;
+			if (closing.length === 0) {
+				runOver();
+				return;
+			}
 			for (const talk of closing) {
 				if (aborted) say(talk, { stage: "failed", why: "stopped" });
 				else if (talk.reply) {
@@ -300,6 +317,7 @@ export function createTalks(host: TalksHost): Talks {
 				} else say(talk, { stage: "failed", why: "the run wrote no reply" });
 			}
 			close(closing);
+			runOver();
 		},
 		came(what, ref) {
 			const moment = now();

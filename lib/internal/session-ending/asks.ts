@@ -206,16 +206,17 @@ function sentenceAsks(
 	const named = GENERIC_MACHINE.test(plain) ? [] : namedIn(plain, machines);
 	const said = sentence.trim();
 	const byAct = new Map<Act, SessionEndingAsk>();
+	// A label reads past the act it turns down, for one it picks after.
+	const read = reading === "prose" ? plain : plain.replace(DECLINED, " ");
 	const asks =
 		reading === "prose"
 			? readsAsAsk(plain, words)
-			: !DECLINED.test(plain) &&
-				(LABEL_ACT.test(plain) || DO_NOUN.test(plain) || UI_ASK.test(plain));
-	const nouns = UI_ASK.test(plain)
+			: LABEL_ACT.test(read) || DO_NOUN.test(read) || UI_ASK.test(read);
+	const nouns = UI_ASK.test(read)
 		? "named"
-		: reading === "label" || DO_NOUN.test(plain);
+		: reading === "label" || DO_NOUN.test(read);
 	if (asks) {
-		for (const act of actsIn(plain, objects, nouns)) {
+		for (const act of actsIn(read, objects, nouns)) {
 			byAct.set(act, { act, machines: named, said });
 		}
 	}
@@ -694,11 +695,14 @@ const ACT_WORDS =
  * A label that turns the act down rather than picking it: "Skip the
  * reboot", "No restart tonight", "Hold off on the restart". The act
  * has to be what is turned down, within three words and with no comma,
- * "and", "then" or "but" between, so "Cancel the backup and reboot",
- * "No, reboot now" and "Don't forget to log out" still ask.
+ * dash, "and", "then" or "but" between, so "Cancel the backup and
+ * reboot" and "No, reboot now" still ask; and a decline of a decline
+ * ("Don't forget to log out", "Don't skip the reboot") asks for it. Only
+ * the act turned down is passed over: "Don't reboot, just log out" asks
+ * for the log-out.
  */
 const DECLINED = new RegExp(
-	`^(?:skip|no|not|don't|do\\s+not|never|avoid|cancel|postpone|defer|delay|hold\\s+off(?:\\s+on)?|without)\\s+(?!forget\\b)(?:(?!(?:and|then|but)\\b)[\\w'-]+\\s+){0,3}?(?:${ACT_WORDS})\\b`,
+	`^(?:skip|no|not|don't|do\\s+not|never|avoid|cancel|postpone|defer|delay|hold\\s+off(?:\\s+on)?|without)\\s+(?!(?:forget|skip|miss|neglect|ignore|wait|delay|postpone|defer|put\\s+off|hold\\s+off|avoid|cancel)\\b)(?:(?!(?:and|then|but)\\b)[\\w'][\\w'-]*\\s+){0,3}?(?:${ACT_WORDS})\\b`,
 );
 
 /**
@@ -718,7 +722,7 @@ const LABEL_ACT = new RegExp(
 
 /** Words that make a sentence a request of the person, when an act follows. */
 const REQUEST =
-	/\b(?:please|pls|kindly|could\s+you|can\s+you|would\s+you|will\s+you|you\s+can|(?:you|we)(?:'ll|\s+will|'d|\s+would)?(?:\s+(?:may|might|probably|likely|also|just|really|still))?\s+(?:need|have|want)\s+to|(?:can|could|should)\s+we|(?<!\b(?:until|till|unless|if|before|after|when|once|whether|so|because|since|than)\s+)we\s+(?:should|could|can|must)|feel\s+free\s+to|you\s+must|you\s+should|you\s+ought\s+to|need\s+you\s+to|i(?:'m|\s+am)?\s+ask(?:ing)?\s+(?:you|joel)\s+to|i'?d\s+like\s+you\s+to|want\s+you\s+to|time\s+to|ready\s+to|go\s+ahead\s+and|do\s+you\s+want\s+to|shall\s+(?:we|i)|may\s+i|can\s+i|could\s+i|ok(?:ay)?\s+to|fine\s+to|safe\s+to|best\s+to|is\s+it\s+(?:ok|okay|alright|fine)\s+to|let\s+me\s+know\s+(?:when|once|after|as\s+soon\s+as)\s+you|let's|let\s+us|make\s+sure(?:\s+(?:you|to))?|be\s+sure\s+to|remember\s+to|don't\s+forget\s+to|(?:i'?d\s+|i\s+)?(?:suggest|recommend|advise)|(?:^|would\s+you\s+|do\s+you\s+)mind|consider)\b/;
+	/\b(?:please|pls|kindly|could\s+you|can\s+you|would\s+you|will\s+you|you\s+can|(?:you|we)(?:'ll|\s+will|'d|\s+would)?(?:\s+(?:may|might|probably|likely|also|just|really|still))?\s+(?:need|have|want)\s+to|(?:can|could|should)\s+we|(?<!\b(?:until|till|unless|if|before|after|when|once|whether|because|since|than)\s+)we\s+(?:should|could|can|must)|feel\s+free\s+to|you\s+must|you\s+should|you\s+ought\s+to|need\s+you\s+to|i(?:'m|\s+am)?\s+ask(?:ing)?\s+(?:you|joel)\s+to|i'?d\s+like\s+you\s+to|want\s+you\s+to|time\s+to|ready\s+to|go\s+ahead\s+and|do\s+you\s+want\s+to|shall\s+(?:we|i)|may\s+i|can\s+i|could\s+i|ok(?:ay)?\s+to|fine\s+to|safe\s+to|best\s+to|is\s+it\s+(?:ok|okay|alright|fine)\s+to|let\s+me\s+know\s+(?:when|once|after|as\s+soon\s+as)\s+you|let's|let\s+us|make\s+sure(?:\s+(?:you|to))?|be\s+sure\s+to|remember\s+to|don't\s+forget\s+to|(?:i'?d\s+|i\s+)?(?:suggest|recommend|advise)|(?:^|would\s+you\s+|do\s+you\s+)mind|consider)\b/;
 
 /**
  * Words between a request and an act that turn it from asking for the
@@ -758,7 +762,7 @@ const DONE_FIRST = new RegExp(
  * sessions end"), and "if" only says what would follow.
  */
 const DONE_FIRST_NOW =
-	/^(?:once|after|when|as\s+soon\s+as)\s+you\s+(?:re-?boot|restart|log[\s-]*(?:out|off)|sign[\s-]*out|shut\s*down|power\s*(?:off|down)|switch\s+users?)\b[^,;:.!?]{0,60}?,\s+([\w'-]+)(?:\s+([\w'-]+))?(?:\s+([\w'-]+))?/;
+	/^(?:once|after|when|as\s+soon\s+as)\s+you\s+(?:re-?boot|restart|log[\s-]*(?:out|off)|sign[\s-]*out|shut\s*down|power\s*(?:off|down)|switch\s+users?)\b[^,;:.!?]{0,60}?,\s+([\w'-]+)(?:\s+([\w'-]+))?/;
 
 /** Words that open a clause's subject, not a step's verb. */
 const SUBJECT =
@@ -768,28 +772,31 @@ const SUBJECT =
 const MODAL =
 	/^(?:will|would|can|could|may|might|should|must|is|are|was|were|has|have|had|does|did)$/;
 
-/** A verb ending in -s, when what follows it is its object. */
+/** A verb ending in -s, as a clause's after its subject. */
 const SAYS = /^[\w-]*[^s\W]s$/;
 
-/** Words that open an object after a verb. */
-const OBJECT = /^(?:the|a|an|its|their|his|her|your|every|all|each)$/;
+/** A contraction that ends a subject: "they'll", "it's", "pi's". */
+const SUBJECT_CONTRACTED = /^(?!let's$)[\w-]+'(?:ll|d|re|ve|m|s)$/;
+
+/** Words that open a step, whatever follows them. */
+const STEP =
+	/^(?:please|don't|let's|open|reopen|close|quit|pair|re-?pair|check|run|rerun|type|press|click|tap|hit|sign|log|plug|unplug|insert|select|choose|pick|enter|go|come|wait|tell|say|ping|message|start|launch|confirm|verify|test|use|connect|try|set|turn|unlock|make|look|see|switch)$/;
 
 /**
  * Whether a sentence asks for an act before a step after it. What
- * follows the comma is a clause, not the step, when its first word is
- * a subject ("they'll", "pi's") or the next is a modal or a verb taking
- * an object ("niri restores the windows"); "open settings and" stays a
- * step.
+ * follows the comma is a step when it opens with a step's word ("open
+ * settings and", "don't forget to"); otherwise it is a clause, not the
+ * step, when its first word is a subject ("they'll", "pi's") or the
+ * next is a modal or a verb in -s ("niri restores", "pi exits").
  */
 function doneFirstNow(plain: string, words: string): boolean {
 	const machine = new RegExp(`^(?:${words})$`);
 	return openingsOf(plain).some((opening) => {
-		const [, next, after = "", then = ""] = DONE_FIRST_NOW.exec(opening) ?? [];
+		const [, next, after = ""] = DONE_FIRST_NOW.exec(opening) ?? [];
 		if (next === undefined) return false;
+		if (STEP.test(next)) return true;
 		const clause =
-			next.includes("'") ||
-			MODAL.test(after) ||
-			(SAYS.test(after) && OBJECT.test(then));
+			SUBJECT_CONTRACTED.test(next) || MODAL.test(after) || SAYS.test(after);
 		return !clause && !SUBJECT.test(next) && !machine.test(next);
 	});
 }

@@ -397,6 +397,47 @@ describe("a reply withheld after a talk had it", () => {
 		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: INSTEAD });
 	});
 
+	it("keeps a talk open in either order, the guard's or the mesh's first", () => {
+		const following = talks();
+		following.step("bash");
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.withheld(ASK, INSTEAD);
+		following.wrote(INSTEAD);
+		following.wrote("I've asked the orchestrator to schedule it.");
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "replied",
+			text: "I've asked the orchestrator to schedule it.",
+		});
+	});
+
+	it("leaves a talk an earlier run replied as it was, though this run writes the same", () => {
+		const following = talks();
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		following.settled(false);
+		following.wrote(ASK);
+		following.withheld(ASK, INSTEAD);
+		following.wrote("other");
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: ASK });
+	});
+
+	it("never ends a newer talk its session replied, as it replies the older one again", () => {
+		const following = talks();
+		following.step("bash");
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		take(following, { text: "and then?", id: "t2", file: "f2" });
+		following.wrote("Then the docs.");
+		following.withheld(ASK, INSTEAD);
+
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: INSTEAD });
+		expect(stages("t2").map((one) => one.stage)).not.toContain("over");
+	});
+
 	it("keeps a talk taken into work open, so the run's next text replies it", () => {
 		const following = talks();
 		following.step("bash");

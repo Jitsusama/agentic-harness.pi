@@ -425,11 +425,15 @@ describe("an ask said as a hedge or a suggestion", () => {
 		["Can we restart equilibrius tonight?", "restart"],
 		["Could we reboot optimus after the run?", "reboot"],
 		["We should reboot optimus once it lands.", "reboot"],
+		["So we should reboot optimus.", "reboot"],
+		["The kernel's in, so we should reboot optimus.", "reboot"],
 		["Feel free to reboot optimus tonight.", "reboot"],
 		["Let me know once you log out of macOS on equilibrius.", "log out"],
 		["Once you log out, pair the card at the login window.", "log out"],
 		["When you reboot optimus, check the mic.", "reboot"],
 		["Once you log out, open settings and pair the card.", "log out"],
+		["Once you log out, don't forget to pair the card.", "log out"],
+		["Once you log out, let's pair the card.", "log out"],
 	])("%s asks", (text, act) => {
 		expect(acts(text)).toEqual([act]);
 	});
@@ -440,6 +444,11 @@ describe("an ask said as a hedge or a suggestion", () => {
 		"When you reboot, niri restores the windows.",
 		"When you log out, pi's sessions end.",
 		"Until we can reboot optimus, the kernel waits.",
+		"When you reboot, niri restarts.",
+		"When you reboot, niri restores windows.",
+		"When you reboot, niri picks them up again.",
+		"When you log out, pi resumes where it was.",
+		"When you log out, pi exits.",
 	])("%s only says what would follow one", (text) => {
 		expect(acts(text)).toEqual([]);
 	});
@@ -498,6 +507,15 @@ describe("a label of the fifth round's shapes", () => {
 		["Don't forget to log out", "log out"],
 		["No, reboot now", "reboot"],
 		["Skip the backup, then restart", "restart"],
+		["No \u2014 reboot now", "reboot"],
+		["Skip the backup \u2014 reboot now", "reboot"],
+		["Not now - reboot tonight", "reboot"],
+		["Don't skip the reboot", "reboot"],
+		["Don't delay the reboot", "reboot"],
+		["Don't wait to reboot", "reboot"],
+		["Never skip the reboot", "reboot"],
+		["Don't reboot, just log out", "log out"],
+		["No reboot \u2014 log out instead", "log out"],
 	])("%s still asks, since what it turns down isn't the act", (text, act) => {
 		expect(asksInLabel(text, MACHINES).map((a) => a.act)).toEqual([act]);
 	});
