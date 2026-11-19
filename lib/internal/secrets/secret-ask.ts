@@ -13,7 +13,7 @@
  * Only pi asks, from outside the fence: the secret-asks daemon takes a
  * yes from anything that reaches its socket (core's secret-asks
  * `daemon.rs`), and either daemon runs what an ask in its folder names,
- * so the fence keeps every fenced command from both sockets and the asks,
+ * so the fence keeps every fenced command from that socket and the asks,
  * and one naming the daemon's program is told to use secret_run instead.
  */
 
