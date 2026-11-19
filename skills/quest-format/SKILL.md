@@ -185,6 +185,12 @@ Field semantics:
   hear in full only what the mesh puts to them, glancing at
   the rest. Set with the quest tool's `config` (`ref`
   `hears=addressed`, cleared with `hears=all`), never by hand.
+- `subjects`: optional list, at most 12, such as
+  `[mycelium:hubs, needs]`: what the quest's sessions say they
+  work on, after any owner prefixes Joel's config names them
+  for, so a need on the mesh finds them by those. Set with the
+  quest tool's `config` (`ref` `subjects=a,b`, cleared with
+  `subjects=`), never by hand.
 - `stands-at-top`: optional, `{name: The Void, keywords:
   [void]}` when the quest's session stands at the top of the
   launcher's Agents under that name, never folded, found by

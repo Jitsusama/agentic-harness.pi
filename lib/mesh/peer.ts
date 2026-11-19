@@ -58,6 +58,7 @@ import {
 import { heldTreesOf } from "./scope.ts";
 import { type StepDetail, stepName } from "./step.ts";
 import type { Stop } from "./stop.ts";
+import { ownedPrefixes, subjectsOf } from "./subjects.ts";
 import { carriedUsage, type SessionUsage } from "./usage.ts";
 import {
 	longestStanding,
@@ -221,6 +222,12 @@ export interface Surroundings {
 	readonly fence?: FenceKind;
 	/** What its harness leases, when it says (see Presence's `leases`). */
 	readonly leases?: PresenceLeases;
+	/**
+	 * The owner lines in Joel's config, `prefix=ADDRESS` each, read at
+	 * each refresh so a switch that rewrites them is said with the next
+	 * (see subjects.ts). Left out, it owns no subjects by them.
+	 */
+	readonly owners?: () => readonly string[];
 }
 
 /** How long a step said stands before a newer one is said. */
@@ -405,6 +412,7 @@ export function localPeer(at: Surroundings): Peer {
 	let quest: string | undefined;
 	let questInfo: QuestInfo | undefined;
 	let standsAtTop: StandsAtTop | undefined;
+	let subjects: readonly string[] = [];
 	let repo: string | undefined;
 	let workspace: string | undefined;
 	let busy = false;
@@ -498,6 +506,7 @@ export function localPeer(at: Surroundings): Peer {
 			...(questInfo ? { questInfo } : {}),
 			...doingOf(at.records.doing, at.session),
 			...(standsAtTop ? { standsAtTop } : {}),
+			...(subjects.length > 0 ? { subjects } : {}),
 			cwd: at.cwd,
 			...(repo ? { repo } : {}),
 			...(moving ? { moving } : {}),
@@ -557,6 +566,10 @@ export function localPeer(at: Surroundings): Peer {
 		workspace = work.workspace;
 		questInfo = work.questInfo;
 		standsAtTop = work.standsAtTop;
+		subjects = subjectsOf(
+			ownedPrefixes(at.owners?.() ?? [], addresses),
+			work.subjects ?? [],
+		);
 		repo = work.repo;
 		publish();
 	};

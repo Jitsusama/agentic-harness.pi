@@ -27,11 +27,11 @@ describe("the prefixes the owner lines name a cell for", () => {
 		"switch.=16V6F4",
 	];
 
-	it("keeps those naming any of its addresses, longest first, each as written", () => {
+	it("keeps those naming any of its addresses, longest first, as long in the order written", () => {
 		expect(ownedPrefixes(lines, ["85PKB2", "01A1ECC0"])).toEqual([
 			"health.agents.",
-			"unit:pi-host-",
 			"crashes:biome",
+			"unit:pi-host-",
 		]);
 	});
 
@@ -50,9 +50,9 @@ describe("the prefixes the owner lines name a cell for", () => {
 	});
 
 	it("keeps a prefix once though two lines name it", () => {
-		expect(ownedPrefixes(["oom.=5FWIUS", "oom.=5FWIUS"], ["5FWIUS"])).toEqual(
-			["oom."],
-		);
+		expect(ownedPrefixes(["oom.=5FWIUS", "oom.=5FWIUS"], ["5FWIUS"])).toEqual([
+			"oom.",
+		]);
 	});
 });
 
@@ -72,7 +72,10 @@ describe("the subjects a quest's README declares", () => {
 describe("a cell's subjects", () => {
 	it("puts the owned prefixes first, then the README's, each once", () => {
 		expect(
-			subjectsOf(["health.agents.", "unit:pi-host-"], ["needs", "unit:pi-host-"]),
+			subjectsOf(
+				["health.agents.", "unit:pi-host-"],
+				["needs", "unit:pi-host-"],
+			),
 		).toEqual(["health.agents.", "unit:pi-host-", "needs"]);
 	});
 
@@ -87,7 +90,13 @@ describe("a cell's subjects", () => {
 		const long = "x".repeat(LONGEST_SUBJECT + 1);
 		expect(
 			subjectsOf(
-				[long, "bad\u202eturn", "zero\u200bwidth"],
+				[
+					long,
+					"bad\u202eturn",
+					"zero\u200bwidth",
+					"var\ufe0fsel",
+					"fill\u3164er",
+				],
 				["line\nbreak", "tab\tbed", "x".repeat(LONGEST_SUBJECT), "needs"],
 			),
 		).toEqual(["x".repeat(LONGEST_SUBJECT), "needs"]);

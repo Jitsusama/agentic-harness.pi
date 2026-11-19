@@ -5,8 +5,8 @@
  * effective values, marking each as set in the file or fallen
  * back to a built-in default, so the user can see and trust what
  * the harness is doing without guessing paths. Given a `ref`, it sets a
- * quest's own setting instead: how its sessions hear the mesh; given
- * only an `id`, it says how that quest's sessions hear.
+ * quest's own setting instead: how its sessions hear the mesh, or the
+ * subjects they say they work on; given only an `id`, it says both.
  */
 
 import { readFileSync } from "node:fs";
@@ -20,6 +20,12 @@ import { dataDir, packageConfigPath } from "../../../lib/internal/paths.ts";
 import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
 import { parseQuestFrontMatter } from "../../../lib/internal/quest/documents/frontmatter.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
+import {
+	declaredSubjects,
+	LONGEST_SUBJECT,
+	MOST_SUBJECTS,
+	subjectsOf,
+} from "../../../lib/mesh/subjects.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
 import {
 	parseQuestWorkflowConfig,
@@ -40,6 +46,12 @@ import {
 const HEARS_USAGE =
 	"config with id and ref hears=addressed or hears=all sets how a quest's sessions hear the mesh: addressed hears in full only what is put to them, all as every peer does.";
 
+/** How the report says a quest's subjects are set, and the refusal too. */
+const SUBJECTS_USAGE = `config with id and ref subjects=a,b sets the subjects a quest's sessions say they work on, at most ${MOST_SUBJECTS}, so a need on the mesh finds them by those; subjects= clears them.`;
+
+/** The ref that sets a quest's subjects, before its list. */
+const SUBJECTS_REF = "subjects=";
+
 /** How a quest's hearing reads, said as its sessions doing it. */
 const ONLY_PUT = "only what is put to them, glancing at the rest";
 const AS_EVERY_PEER = "as every peer does";
@@ -52,6 +64,9 @@ export async function config(
 	state: QuestState,
 	params: QuestToolParams,
 ): Promise<QuestResult> {
+	if (params.ref?.trim().startsWith(SUBJECTS_REF)) {
+		return setSubjects(state, params);
+	}
 	if (params.ref?.trim()) return setHearing(state, params);
 	if (params.id?.trim()) return hearingOf(state, params);
 	return configReport();
@@ -98,7 +113,54 @@ function hearingOf(state: QuestState, params: QuestToolParams): QuestResult {
 		);
 	}
 	const how = fm.hears === "addressed" ? ONLY_PUT : AS_EVERY_PEER;
-	return ok(`${target.questId}'s sessions hear ${how}. ${HEARS_USAGE}`);
+	const subjects = declaredSubjects(fm._extra?.subjects);
+	const declare =
+		subjects.length > 0
+			? `They say they work on ${subjects.join(", ")}.`
+			: "They declare no subjects of their own.";
+	return ok(
+		`${target.questId}'s sessions hear ${how}. ${declare} ${HEARS_USAGE} ${SUBJECTS_USAGE}`,
+	);
+}
+
+/**
+ * Set the subjects the quest `id` names (else the loaded one) says its
+ * sessions work on, on its front matter, so every session on it declares
+ * the same; an empty list clears them. Refused, changing nothing, when
+ * the node would read fewer than were said.
+ */
+function setSubjects(state: QuestState, params: QuestToolParams): QuestResult {
+	const listed = (params.ref ?? "").trim().slice(SUBJECTS_REF.length);
+	const said = [...new Set(declaredSubjects(listed.split(",")))];
+	const subjects = subjectsOf([], said);
+	if (subjects.length < said.length) {
+		const dropped = said.filter((one) => !subjects.includes(one));
+		return refuse(
+			`Nothing changed: mycelium's node reads at most ${MOST_SUBJECTS} subjects, each plain text of at most ${LONGEST_SUBJECT} characters, and would pass over ${dropped.length} of these. ${SUBJECTS_USAGE}`,
+		);
+	}
+	const target = questNamed(state, params);
+	if ("refusal" in target) return refuse(target.refusal);
+	let changed = false;
+	const outcome = mutateQuestFrontMatter(target.questDir, (fm) => {
+		const before = JSON.stringify(fm._extra?.subjects ?? []);
+		if (before === JSON.stringify(subjects)) return undefined;
+		changed = true;
+		const { subjects: _dropped, ...others } = fm._extra ?? {};
+		const extra = subjects.length > 0 ? { ...others, subjects } : others;
+		const { _extra: _old, ...rest } = fm;
+		return Object.keys(extra).length > 0 ? { ...rest, _extra: extra } : rest;
+	});
+	if (!outcome.ok) return refuse(outcome.guidance);
+	const what =
+		subjects.length > 0
+			? `say they work on ${subjects.join(", ")}`
+			: "declare no subjects of their own";
+	if (!changed) return ok(`${target.questId}'s sessions already ${what}.`);
+	appendJourneyByPath(target.questDir, `Its sessions now ${what}.`);
+	return ok(
+		`${target.questId}'s sessions now ${what}, from their next refresh, so a need on the mesh about those finds them.`,
+	);
 }
 
 /**
@@ -168,7 +230,7 @@ async function configReport(): Promise<QuestResult> {
 		`Start into a host: ${summary.startHost} (${summary.startHostSource})`,
 	];
 	if (section.warning) lines.push(`Warning: ${section.warning}`);
-	lines.push(`A quest's own: ${HEARS_USAGE}`);
+	lines.push(`A quest's own: ${HEARS_USAGE} ${SUBJECTS_USAGE}`);
 
 	return ok(lines.join("\n"), { summary, warning: section.warning });
 }
