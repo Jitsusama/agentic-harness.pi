@@ -17,6 +17,7 @@ import {
 	type JobOutcome,
 	type JobSpec,
 	jobStopReason,
+	type RunningJob,
 } from "../../lib/jobs/index.ts";
 import type { JobResult } from "./outbox.ts";
 
@@ -71,6 +72,8 @@ export interface Jobs extends JobHost {
 	 * whose work `carriable` refuses.
 	 */
 	holds(carriable?: (work: CarriedWork) => boolean): readonly JobHold[];
+	/** The jobs whose work is still under way, oldest first. */
+	running(): readonly RunningJob[];
 }
 
 /** What came of an agent's stop. */
@@ -197,6 +200,14 @@ export function createJobs(
 				})),
 		// Held covers both: a job leaves only once its result is said.
 		pending: () => held.size,
+		running: () =>
+			[...held]
+				.filter(([, job]) => !job.finished)
+				.map(([id, job]) => ({
+					id,
+					kind: job.spec.kind,
+					label: job.spec.label,
+				})),
 		list: () =>
 			[...held].map(([id, job]) => ({
 				id,

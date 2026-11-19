@@ -119,6 +119,27 @@ stopped with Escape; if you asked it to stop, it is told to rest.
 Anything you type resets it. Saying
 you are away hands over to away mode. `PI_CARRY_ON=off` turns it off.
 
+## When a Run Ends on a Job
+
+A turn that ends while background work runs is what you read until
+that work reports, which can be an hour. "Waiting on the eval tests
+(j27)." tells you nothing you can act on: not what j27 is, how far it
+has got, when it reports or what happens after. So, whether or not you
+are away, a reply of 30 words or fewer that names a job or says it
+waits, while one of its jobs is running, is sent back once. The
+send-back names each running job and asks for where things stand,
+what each is doing, when it reports and what follows, keeping any
+`Done:` or `Blocked:` line. From 18 to 19 November one session's bare
+endings ran 6 to 23 words, and the ones that said where things stood
+33 and more.
+
+The reply that answers is never sent back, so a model that answers
+bare again rests. Away mode and carrying on then judge that answer,
+with the bare run's tool calls counted in it, as one run. A reply
+that asks you something, a run you stopped, a session nobody is at and
+one a move waits for are left alone. Anything you type withdraws a
+send-back not yet said and starts afresh.
+
 ## Coming Back
 
 Type anything. Your message goes through at once, since it might be

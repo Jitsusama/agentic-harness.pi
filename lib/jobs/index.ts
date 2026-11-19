@@ -27,4 +27,5 @@ export {
 	jobStopOf,
 	jobStopReason,
 	onJobFinished,
+	type RunningJob,
 } from "./host.ts";

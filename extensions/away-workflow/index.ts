@@ -37,6 +37,11 @@
  * nobody answers for a quiet stretch, the session takes the next item,
  * and a question it asked reaches the desktop. `PI_CARRY_ON=off` turns
  * that off.
+ *
+ * Whether or not the person is away, a run that ends only naming a
+ * background job still running, such as "waiting on j27", is sent back
+ * once to say where things stand (`job-wait.ts`). It speaks for that
+ * run alone; keep-going and carrying on judge the run that answers.
  */
 
 import { basename } from "node:path";
@@ -101,6 +106,7 @@ import {
 	movedOn,
 	moveWaits,
 } from "./held-back.ts";
+import { afterJobWait, freshJobWait } from "./job-wait.ts";
 import {
 	afterRun,
 	combine,
@@ -183,6 +189,8 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 	const wanting = ownWants("away-workflow");
 	let quiet: ReturnType<typeof setTimeout> | undefined;
 	let pendingCarry: Job | undefined;
+	const jobWait = freshJobWait();
+	let pendingJobWait: Job | undefined;
 
 	/** Stop waiting out a quiet stretch: something answered it. */
 	const stopWaiting = () => {
@@ -509,6 +517,32 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		job.finish({ summary: carryOnText(progress, asked) });
 	};
 
+	/**
+	 * A run that ended only naming a job still running is sent back to say
+	 * where things stand, and answers nothing; any other goes on to be
+	 * judged, counting the bare run it answers. Only where somebody reads
+	 * the session: a subagent's last word goes to the session that ran it.
+	 * Never while a move waits for the session, which a run would hold up.
+	 */
+	const answerJobWait = (
+		ctx: ExtensionContext,
+		finished: RunSummary,
+	): RunSummary | undefined => {
+		if (!ctx.hasUI && !hosted()) return finished;
+		if (moveWaits(ctx.sessionManager.getSessionId())) return finished;
+		const running = findJobHost(pi.events)?.running?.() ?? [];
+		const verdict = afterJobWait(finished, running, jobWait);
+		if (verdict.kind === "go-on") return verdict.run;
+		const job = startJob("job-wait", "say where things stand while jobs run");
+		if (!job) return finished;
+		pendingJobWait = job;
+		job.onDelivered(() => {
+			if (pendingJobWait === job) pendingJobWait = undefined;
+		});
+		job.finish({ summary: verdict.text });
+		return undefined;
+	};
+
 	/** A run settled with the person here: wait for them, then carry on. */
 	const waitForAnswer = (ctx: ExtensionContext, finished: RunSummary) => {
 		stopWaiting();
@@ -580,6 +614,8 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		pendingNudge = undefined;
 		pendingCarry?.withdraw();
 		pendingCarry = undefined;
+		pendingJobWait?.withdraw();
+		pendingJobWait = undefined;
 		latest = undefined;
 	});
 
@@ -598,6 +634,10 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 		pendingCarry?.withdraw();
 		pendingCarry = undefined;
 		Object.assign(carrying, freshCarryOn());
+		// Their run is theirs, no answer to a send-back of ours.
+		pendingJobWait?.withdraw();
+		pendingJobWait = undefined;
+		Object.assign(jobWait, freshJobWait());
 		if (isAway()) endAway(ctx);
 		publishHere(ctx, "typed");
 		if (readsLikeDeparture(event.text)) {
@@ -621,11 +661,13 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 
 	pi.on("agent_settled", async (event, ctx) => {
 		latest = ctx;
-		const finished = run;
+		const ran = run;
 		run = NOTHING_RUN;
 		const fromOutside = takeStoppedFromOutside();
 		if (!isAway()) {
 			if (settledAborted(event)) return;
+			const finished = answerJobWait(ctx, ran);
+			if (!finished) return;
 			const asked = lastLine(finished.lastText);
 			if ((ctx.hasUI || hosted()) && asked && endsAsking(asked)) {
 				wanting.say("question", asked);
@@ -633,7 +675,7 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			waitForAnswer(ctx, finished);
 			return;
 		}
-		if (settledAborted(event) || finished.aborted) {
+		if (settledAborted(event) || ran.aborted) {
 			// A steer stopped it, not the person: they are still away, and
 			// the run stays stopped, as the steer asked.
 			if (fromOutside) return;
@@ -643,7 +685,8 @@ export default function awayWorkflow(pi: ExtensionAPI) {
 			ctx.ui.notify("Away mode ended: you stopped the run.", "info");
 			return;
 		}
-		keepGoing(finished);
+		const finished = answerJobWait(ctx, ran);
+		if (finished) keepGoing(finished);
 	});
 
 	pi.registerCommand("away", {

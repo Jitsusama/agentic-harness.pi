@@ -210,6 +210,25 @@ describe("a background job's result", () => {
 	});
 });
 
+describe("the jobs running", () => {
+	// A run that ends only naming a job is sent back while that job runs
+	// (away-workflow), so the host says which do, and nothing finished.
+	it("are the jobs whose work is under way, oldest first", async () => {
+		const { host, session } = await started();
+		session.busy = true;
+		const tests = host.start({ kind: "shell", label: "the eval tests" });
+		host.start({ kind: "council", label: "our council" });
+		const push = host.start({ kind: "shell", label: "git push" });
+
+		tests.finish({ summary: "all green" });
+
+		expect(host.running?.()).toEqual([
+			{ id: "j2", kind: "council", label: "our council" },
+			{ id: push.id, kind: "shell", label: "git push" },
+		]);
+	});
+});
+
 describe("when the session ends", () => {
 	it("stops its jobs, says nothing more and stops answering", async () => {
 		const { host, said, fire, events } = await started();
