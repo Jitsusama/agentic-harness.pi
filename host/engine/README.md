@@ -81,7 +81,11 @@ changes: pi's createAgentSession builds it through the agent-interface
 patch's createAgent option. The agent is HostedAgent (hosted-agent.ts),
 shaped as pi's Agent and run by the conversation's own durable harness,
 which openHostedConversation (hosted-conversation.ts) opens on a SQLite
-store of its own. A store's commits never checkpoint its log: one worker
+store of its own. Every read and write of a store runs on one of four
+store threads (store-threads.ts), each store on the thread holding
+fewest, never on the host's own: a read waiting on the disk or on a lock
+then holds only the stores beside it, never the loop. A store's commits
+never checkpoint its log: one worker
 per host does, PASSIVE, once the log passes 1,000 pages and again as the
 store closes (checkpoints.ts), since a checkpoint's syncs wait on /home's
 btrfs commits and would hold the host's one thread. What a run holds, the agent's state, the provider

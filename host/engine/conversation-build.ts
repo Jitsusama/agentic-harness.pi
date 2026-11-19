@@ -57,6 +57,7 @@ import { namesCommand, requireModel } from "./requests.ts";
 import { loaderOptions } from "./resources.ts";
 import type { TakeTurn } from "./resume-turns.ts";
 import type { StopKeeping } from "./stopping.ts";
+import type { StoreThreads } from "./store-threads.ts";
 
 /** The durable store's file inside a conversation's folder. */
 const STORE_FILE = "durable.sqlite";
@@ -116,6 +117,8 @@ export interface BuildContext {
 	readonly stopping: StopKeeping;
 	/** The host's one checkpointer, which keeps every conversation's store checkpointed off the thread. */
 	readonly checkpoints?: Checkpoints;
+	/** The host's store threads, which every conversation's store is read and written on. */
+	readonly stores: StoreThreads;
 	/** The service's ears, once it set them. */
 	watched(): ConversationEvents | undefined;
 	/** Whether a conversation is held or named for a start already, by id or by file. */
@@ -306,6 +309,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			within: (work) => withSession(sessionId, work),
 			report,
 			...(context.checkpoints ? { checkpoints: context.checkpoints } : {}),
+			stores: context.stores,
 		});
 		record.conversation = conversation;
 		const opening = request?.op === "open" ? request : undefined;

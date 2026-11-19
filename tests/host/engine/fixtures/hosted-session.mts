@@ -30,6 +30,7 @@ import { loadHostPi } from "../../../../host/engine/host-pi.ts";
 import type { HostedAgent } from "../../../../host/engine/hosted-agent.ts";
 import { openHostedConversation } from "../../../../host/engine/hosted-conversation.ts";
 import { piLibrary } from "../../../../host/engine/pi-library.ts";
+import { storeThreads } from "../../../../host/engine/store-threads.ts";
 import {
 	callSignal,
 	withCallSignal,
@@ -1154,6 +1155,7 @@ try {
 					modules: pi.modules,
 					library: piLibrary(pi.modules),
 					storePath: join(folder, "durable", "store.sqlite"),
+					stores: storeThreads({ threads: 1 }),
 					env: async () => ({}),
 					report: (error) =>
 						process.stderr.write(`durable reported: ${String(error)}\n`),

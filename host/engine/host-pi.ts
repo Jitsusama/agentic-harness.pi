@@ -31,7 +31,10 @@ export interface HostPiModules {
 	readonly tui: Readonly<Record<string, unknown>>;
 	/** `@earendil-works/pi-durable`'s main entry. */
 	readonly durable: Readonly<Record<string, unknown>>;
-	/** `@earendil-works/pi-durable/storage/sqlite/node`. */
+	/**
+	 * `@earendil-works/pi-durable/storage/sqlite`, whose `SqliteStorage.open`
+	 * takes the host's own database, read and written off the host's thread.
+	 */
 	readonly sqlite: Readonly<Record<string, unknown>>;
 	/** `@earendil-works/pi-durable/env/node`. */
 	readonly nodeEnv: Readonly<Record<string, unknown>>;
@@ -190,7 +193,7 @@ export function hostPiFiles(
 		sqlite: libraryEntry(
 			packageDir,
 			"pi-durable",
-			join("storage", "sqlite", "node.js"),
+			join("storage", "sqlite", "index.js"),
 		),
 		nodeEnv: libraryEntry(packageDir, "pi-durable", join("env", "node.js")),
 		context: libraryEntry(packageDir, "chord", join("context", "index.js")),

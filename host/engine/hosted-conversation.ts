@@ -24,6 +24,7 @@ import type { HostPiModules } from "./host-pi.ts";
 import { HostedAgent } from "./hosted-agent.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import type { AgentOptions, AssistantMessage } from "./pi-types.ts";
+import type { StoreDatabase, StoreThreads } from "./store-threads.ts";
 
 /** The durable extension's name; one per conversation's registry. */
 export const HOSTED_EXTENSION = "pi-host";
@@ -68,17 +69,25 @@ export async function openHostedConversation(options: {
 	readonly report?: (error: unknown) => void;
 	/** The host's checkpointer, which keeps the store's checkpoints off the host's thread. */
 	readonly checkpoints?: Checkpoints;
+	/** The host's store threads, which read and write the store off the host's thread. */
+	readonly stores: StoreThreads;
 }): Promise<HostedConversation> {
 	const durable = durableModule(options.modules);
 	const context = backgroundContext(options.modules);
-	const openStorage = options.modules.sqlite.openNodeSqliteStorage;
-	if (typeof openStorage !== "function")
-		throw new Error("The host's pi-durable has no SQLite storage for Node");
+	const openStorage = storageOpener(options.modules);
 	await mkdir(dirname(options.storePath), { recursive: true });
-	const storage: unknown = await openStorage(
+	const database = await options.stores.open(
 		options.storePath,
 		options.checkpoints?.storeOptions,
 	);
+	let storage: unknown;
+	try {
+		storage = await openStorage(database);
+	} catch (error) {
+		// The storage's failure is the one said; the store is let go either way.
+		await database.close().catch(() => {});
+		throw error;
+	}
 	const registry = durable.createRegistry();
 	let agent: HostedAgent | undefined;
 	const built = (): HostedAgent => {
@@ -166,6 +175,24 @@ function failureIn(live: unknown): RunFailure | undefined {
 /** Whether a conversation's `pi.live` document holds a run, as it does exactly while busy. */
 function busyIn(live: unknown): boolean {
 	return isRecord(live) && isRecord(live.run);
+}
+
+/**
+ * pi-durable's `SqliteStorage.open`, which takes any database keeping
+ * chord's contract, as the host's store threads do.
+ */
+function storageOpener(
+	modules: HostPiModules,
+): (database: StoreDatabase) => Promise<unknown> {
+	const { SqliteStorage } = modules.sqlite;
+	// pi-durable's is a class, so a function, whose static open is read off it.
+	const open: unknown =
+		typeof SqliteStorage === "function" || isRecord(SqliteStorage)
+			? Reflect.get(SqliteStorage, "open")
+			: undefined;
+	if (typeof open !== "function")
+		throw new Error("The host's pi-durable has no SQLite storage");
+	return async (database) => Reflect.apply(open, SqliteStorage, [database]);
 }
 
 function durableModule(modules: HostPiModules): DurableModule {
