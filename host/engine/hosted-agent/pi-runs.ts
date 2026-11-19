@@ -178,7 +178,8 @@ export class PiRuns {
 	private async carryOnWaiting(): Promise<void> {
 		const stopped = () => this.shown.some((signal) => signal?.aborted === true);
 		while (!this.parked() && !stopped()) {
-			const before = this.waiting.ids();
+			// A copy, since a queue may answer with the list its run then changes.
+			const before = [...this.waiting.ids()];
 			if (before.length === 0) return;
 			// A run carried on shows its own failure, and this hold still ends.
 			const ran = await this.waiting.run().then(
