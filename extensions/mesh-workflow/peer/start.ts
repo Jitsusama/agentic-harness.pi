@@ -183,7 +183,7 @@ export function onSessionStart(
 			// Its background commands hold heavy leases (leases/heavy-calls.ts),
 			// so a node can tell an idle session from one an older harness runs.
 			leases: { background: true },
-			// The subjects it owns by Joel's config, read at each refresh so
+			// The subjects it owns by the machine's config, read at each refresh so
 			// a switch rewriting them is said with the next (subjects.ts).
 			owners: () => ownerLinesAt(ownersFile(m.env)),
 		});
