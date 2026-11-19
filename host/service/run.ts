@@ -523,18 +523,14 @@ function askWhileUnderWay(options: {
  * the start's report says the rest, stack and all.
  */
 function firstLine(reason: unknown): string {
-	let text: string;
+	let text: unknown;
 	try {
-		text =
-			reason instanceof Error
-				? reason.message
-				: typeof reason === "string"
-					? reason
-					: "";
+		text = reason instanceof Error ? reason.message : reason;
 	} catch {
 		// A message getter that throws says nothing; the report still has the reason.
 		text = "";
 	}
+	if (typeof text !== "string") return "";
 	return (
 		text
 			.split(/\r?\n|\r/)

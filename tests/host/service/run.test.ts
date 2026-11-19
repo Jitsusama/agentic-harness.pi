@@ -1112,7 +1112,7 @@ describe("runHost", () => {
 	});
 
 	it("says a resume that failed as one it could not resume, with why, and a parked one as left parked", async () => {
-		const [, parked, failing] = await heldSome(3);
+		const [, parked, failing, unsaid] = await heldSome(4);
 		const said: string[] = [];
 		const signals = new EventEmitter();
 		const run = await runHost({
@@ -1123,7 +1123,10 @@ describe("runHost", () => {
 				restsParked: (entry) => entry.sessionId === parked,
 				resume: async (entry) => {
 					if (entry.sessionId === failing)
-						throw new Error("its log is gone\npid 12 still holds it");
+						throw new Error("\n  its log is gone\r\npid 12 still holds it");
+					// A message that isn't text says nothing, rather than failing the start.
+					if (entry.sessionId === unsaid)
+						throw Object.assign(new Error("replaced below"), { message: 12 });
 				},
 			}),
 			signals,
@@ -1137,13 +1140,14 @@ describe("runHost", () => {
 		try {
 			const ends = said
 				.map((line) => line.replace(/^\d+\.\d s: /, ""))
-				.filter((line) => / \d of 3 in /.test(line))
+				.filter((line) => / \d of 4 in /.test(line))
 				.map((line) => line.replace(/ in \d+\.\d s \([^)]*\)/, ""))
 				.sort();
 			expect(ends).toEqual([
-				"could not resume 3 of 3: its log is gone",
-				"left parked 2 of 3",
-				"resumed 1 of 3",
+				"could not resume 3 of 4: its log is gone",
+				"could not resume 4 of 4",
+				"left parked 2 of 4",
+				"resumed 1 of 4",
 			]);
 		} finally {
 			signals.emit("SIGTERM");
