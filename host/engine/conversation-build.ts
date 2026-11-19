@@ -302,7 +302,7 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			library,
 			storePath: join(options.stateDir, sessionId, STORE_FILE),
 			env,
-			renewed: requests.renewed,
+			renewed: (error) => requests.renewed(error, sessionId),
 			within: (work) => withSession(sessionId, work),
 			report,
 			...(context.checkpoints ? { checkpoints: context.checkpoints } : {}),
