@@ -625,6 +625,46 @@ describe("a spawn where a budget's work is", () => {
 		expect(budgetOf(state, id)).toBe("delta");
 	});
 
+	it("asks for the folder a reopened session ran in, not the one the call named", async () => {
+		const { state, id } = await quest();
+		const ranThere = join(tmpRoot, "ran-there");
+		mkdirSync(ranThere);
+		const log = join(tmpRoot, "old.jsonl");
+		writeFileSync(
+			log,
+			`${JSON.stringify({ type: "session", version: 3, id: "old", timestamp: "2026-11-19T00:00:00.000Z", cwd: ranThere })}\n`,
+		);
+		const asked: string[] = [];
+		placeDelta(state, ranThere, asked);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			cwd: tmpRoot,
+			command: `pi --session ${log}`,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(asked).toEqual([ranThere]);
+		expect(budgetOf(state, id)).toBe("delta");
+	});
+
+	it("names nothing for a spawn on another machine, whose folders this one's providers don't know", async () => {
+		const { state, id } = await quest();
+		const asked: string[] = [];
+		placeDelta(state, tmpRoot, asked);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			machine: "elsewhere-not-this-one",
+		});
+
+		expect(asked).toEqual([]);
+		expect(budgetOf(state, id)).toBeUndefined();
+		if (result.ok) expect(result.message).not.toContain("Budget delta");
+	});
+
 	it("leaves a quest that names its own budget as it is", async () => {
 		const { state, id } = await quest();
 		const named = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {

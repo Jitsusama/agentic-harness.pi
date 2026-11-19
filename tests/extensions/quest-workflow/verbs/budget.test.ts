@@ -211,7 +211,7 @@ describe("a quest made where a budget's work is", () => {
 			"drawing on budget delta, which places says",
 		);
 		expect(journeyOf(join(state.questsRoot, id))).toContain(
-			`Budget: delta, which places says work in "${tmpRoot}" draws on`,
+			`Budget: delta, which "places" says work in "${tmpRoot}" draws on`,
 		);
 	});
 

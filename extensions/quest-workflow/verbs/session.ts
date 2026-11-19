@@ -416,7 +416,8 @@ async function spawnNaming(
 	if (resuming && hold) return reachedInHost(resuming, hold);
 	// Named before the session starts, so it starts drawing on it, once
 	// where it runs is settled: a reopen runs where its session ran, below.
-	if (!params.dryRun) {
+	// Only for this machine: its providers know its folders, not another's.
+	if (!params.dryRun && (machine === undefined || isThisMachine(machine))) {
 		const reopening = reopenedCwd({
 			command: resolveSpawnCommand(params.command, resume).command,
 			sessions,

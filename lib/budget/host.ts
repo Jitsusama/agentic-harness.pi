@@ -93,16 +93,17 @@ export function hostBudgets(
 			return { kind: "unknown", asked };
 		},
 		async budgetFor(folder) {
-			const asking = ordered().filter((p) => p.budgetFor !== undefined);
-			const names = await Promise.all(
-				asking.map((provider) => askFolder(provider, folder, deadlineMs)),
+			const asking = ordered().filter((p) => typeof p.budgetFor === "function");
+			// All asked at once, and read in order, so the answer comes as
+			// soon as every provider before the first to name one has said.
+			const names = asking.map((provider) =>
+				askFolder(provider, folder, deadlineMs),
 			);
-			const at = names.findIndex((name) => name !== undefined);
-			const name = names[at];
-			const provider = asking[at];
-			return name !== undefined && provider
-				? { name, provider: provider.id }
-				: undefined;
+			for (const [at, provider] of asking.entries()) {
+				const name = await names[at];
+				if (name !== undefined) return { name, provider: provider.id };
+			}
+			return undefined;
 		},
 	};
 	bus.on(BUDGET_REGISTER_PROVIDER, (data: unknown) => {

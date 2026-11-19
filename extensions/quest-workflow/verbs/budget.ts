@@ -96,8 +96,9 @@ export async function budgetFromFolder(
 
 /** The Journey's line for a budget a quest took from its folder. */
 export function takenFromFolder(taken: FolderBudget, folder: string): string {
-	// Quoted, so a folder's name can't add a line of its own.
-	return `Budget: ${taken.name}, which ${taken.provider} says work in ${JSON.stringify(resolve(folder))} draws on, since nothing above it named one.`;
+	// Quoted, so a folder's name or a provider's id can't add a line of
+	// its own.
+	return `Budget: ${taken.name}, which ${JSON.stringify(taken.provider)} says work in ${JSON.stringify(resolve(folder))} draws on, since nothing above it named one.`;
 }
 
 /**

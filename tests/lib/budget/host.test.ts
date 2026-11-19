@@ -288,15 +288,39 @@ describe("the budget a folder's work draws on", () => {
 		});
 	});
 
-	it("takes a payload whose budgetFor isn't a function as no provider", () => {
+	it("keeps a provider whose budgetFor isn't a function for its names, and asks it about no folder", async () => {
 		const events = bus();
 		const host = hostBudgets(events);
 
 		events.emit(BUDGET_REGISTER_PROVIDER, {
-			...provider("odd", 0, {}),
+			...provider("odd", 0, {
+				delta: { kind: "drawn", env: { K: "v" }, label: "Delta" },
+			}),
 			budgetFor: "delta",
 		});
 
-		expect(host.listProviders()).toEqual([]);
+		expect(host.listProviders()).toEqual(["odd"]);
+		expect((await host.draw("delta")).kind).toBe("drawn");
+		expect(await host.budgetFor("/anywhere")).toBeUndefined();
+	});
+
+	it("answers as soon as the first to name one and every provider before it have said", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000);
+		registerBudgetProvider(
+			events,
+			placing("first", 0, async () => "delta"),
+		);
+		registerBudgetProvider(
+			events,
+			placing("hung", 1, () => new Promise(() => {})),
+		);
+
+		const started = Date.now();
+		expect(await host.budgetFor("/anywhere")).toEqual({
+			name: "delta",
+			provider: "first",
+		});
+		expect(Date.now() - started).toBeLessThan(1_000);
 	});
 });
