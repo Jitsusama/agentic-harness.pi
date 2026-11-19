@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const file = process.env.KEYRING_CALL_FILE ?? "";
 let text = "";
+process.stdin.setEncoding("utf8");
 for await (const chunk of process.stdin) text += chunk;
 const asked = JSON.parse(text);
 const kept = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
