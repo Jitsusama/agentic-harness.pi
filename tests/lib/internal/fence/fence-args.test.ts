@@ -179,6 +179,52 @@ describe("the fence's arguments", () => {
 		expect(args, "with no copy, nothing is bound").not.toContain(npmrc);
 	});
 
+	it("binds the session's writable copies of dev's settings and git's global folder last", () => {
+		const copies = {
+			dev: "/run/user/1000/pi-fence/dev/s-1/dev",
+			git: "/run/user/1000/pi-fence/dev/s-1/git",
+		};
+		const settings = `${place.home}/.config/dev`;
+		const given = fenceArgs(
+			{ ...place, devCopies: copies },
+			diskWith(place.home, [".config", ".gitconfig"]),
+		);
+		const at = given.indexOf(copies.dev);
+		expect(given.slice(at - 1, at + 2)).toEqual([
+			"--bind",
+			copies.dev,
+			settings,
+		]);
+		expect(
+			given.lastIndexOf(settings),
+			"no later bind makes dev's settings read-only again",
+		).toBe(at + 1);
+		const git = given.indexOf(copies.git);
+		expect(given.slice(git - 1, git + 2)).toEqual([
+			"--bind",
+			copies.git,
+			copies.git,
+		]);
+		expect(
+			git,
+			"git's folder is bound after the runtime folder is emptied",
+		).toBeGreaterThan(given.indexOf("/run/user/1000"));
+		expect(
+			fenceRefusesWrite(settings, place),
+			"pi's own tools still never write the person's dev settings",
+		).toBe(true);
+		expect(args, "with no copies, nothing is bound").not.toContain(copies.dev);
+
+		const none: Disk = {
+			kind: (path) => (path === settings ? undefined : "folder"),
+			entries: () => [],
+		};
+		expect(
+			fenceArgs({ ...place, devCopies: copies }, none),
+			"no mount over dev's settings where the person has none",
+		).not.toContain(copies.dev);
+	});
+
 	it("binds the npm copy over the file its settings link to, and nothing where there are none", () => {
 		const npmrc = "/run/user/1000/pi-fence/npmrc";
 		const settings = `${place.home}/.npmrc`;

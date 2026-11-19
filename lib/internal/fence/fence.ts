@@ -51,6 +51,10 @@
  *   lines (`fence-npmrc.ts`), and pi's own file tools are refused it.
  * - **No GitHub token:** gh reaches GitHub through the GitHub door,
  *   holding a placeholder for it (`fence-github.ts`).
+ * - **dev's settings, the session's own:** dev's setup rewrites
+ *   `~/.config/dev` and git's global settings on every call, so the
+ *   session writes copies of its own, bound in their place, and the
+ *   person's stay read-only (`fence-dev.ts`).
  * - **No new privileges:** bubblewrap and Landlock both set
  *   NoNewPrivs, so a setgid wrapper such as 1Password's `op` gains
  *   nothing, and 1Password refuses it.
@@ -72,6 +76,7 @@ import {
 	buildersSecret,
 	inBuildersFolder,
 } from "./fence-builders.ts";
+import { DEV_SETTINGS, type DevCopies } from "./fence-dev.ts";
 import { DISK, type Disk } from "./fence-disk.ts";
 import { DOCKER_CONFIG, dockerArgs } from "./fence-docker.ts";
 import { githubDoorArgs } from "./fence-github.ts";
@@ -248,6 +253,11 @@ export interface FencePlace extends Worktrees {
 	 * a test names its own.
 	 */
 	readonly tempCaches?: readonly string[];
+	/**
+	 * The session's writable copies of dev's settings and git's global
+	 * folder, bound in their place (`fence-dev.ts`).
+	 */
+	readonly devCopies?: DevCopies;
 }
 
 /**
@@ -393,6 +403,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...ownArgs(place.share, disk),
 		...hiddenArgs(place.home, disk),
 		...npmrcArgs(place, disk),
+		...devArgs(place, disk),
 		...(place.docker ? dockerArgs(place.home, disk) : []),
 		...(exists(CGROUPS) ? ["--ro-bind", CGROUPS, CGROUPS] : []),
 	];
@@ -449,6 +460,22 @@ function npmrcArgs(place: FencePlace, disk: Disk): string[] {
 	const over = kind === "link" ? disk.real?.(path) : path;
 	if (kind === undefined || over === undefined) return [];
 	return ["--ro-bind", place.npmrc, over];
+}
+
+/**
+ * bubblewrap's arguments binding the session's copy of dev's settings
+ * writable over the person's, and its git folder where it is, so
+ * `GIT_CONFIG_GLOBAL` names a file there; last, so no read-only bind
+ * of the home folder's covers them, and nothing where the person has no
+ * dev settings folder, since bubblewrap mounts on no link and makes no
+ * folder in the read-only home.
+ */
+function devArgs(place: FencePlace, disk: Disk): string[] {
+	if (!place.devCopies) return [];
+	const settings = join(place.home, DEV_SETTINGS);
+	if (disk.kind(settings) !== "folder") return [];
+	const { dev, git } = place.devCopies;
+	return ["--bind", dev, settings, "--bind", git, git];
 }
 
 /**
