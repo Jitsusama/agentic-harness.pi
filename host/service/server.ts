@@ -9,7 +9,7 @@ import {
 import { dirname, isAbsolute } from "node:path";
 import { withSession } from "../../lib/core/session/index.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
-import { ATTACH_SLOW_MS } from "./backend.ts";
+import { ATTACH_SLOW_MS, secondsSince } from "./attach-waits.ts";
 import { type ControlBackend, dispatchControl } from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
 import { type ControlRequest, parseControl, parseViewer } from "./protocol.ts";
@@ -23,7 +23,6 @@ const SOCKET_MODE = 0o600;
  */
 const RESTART_FLUSH_MS = 2_000;
 const DIRECTORY_MODE = 0o700;
-const MS_PER_SECOND = 1_000;
 
 /** One viewer's connection to a persistent Terminal, not the session itself. */
 export interface ViewerConnection {
@@ -142,7 +141,7 @@ export async function listenControl(options: {
 		function watchFirstFrame(id: string) {
 			const answered = Date.now();
 			const who = `${sessionAddress(id)} (${id})`;
-			const since = () => ((Date.now() - answered) / MS_PER_SECOND).toFixed(1);
+			const since = () => secondsSince(answered);
 			undrawn = setTimeout(() => {
 				options.say?.(
 					`${who}: a window attached ${since()} s ago has been sent nothing to draw`,

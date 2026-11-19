@@ -173,6 +173,8 @@ async function attachOnceListening(
 			return await attach(path, sessionId, ROWS, COLUMNS);
 		} catch (error) {
 			if (Date.now() > deadline) throw error;
+			// Nothing outside the host says when it binds its socket, so the
+			// attach tries again every REACH_EVERY_MS, as a window's loop does.
 			await new Promise((done) => setTimeout(done, REACH_EVERY_MS));
 		}
 	}

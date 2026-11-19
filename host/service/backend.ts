@@ -7,6 +7,7 @@
  */
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
+import { attachWaits } from "./attach-waits.ts";
 import type { ControlBackend } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { AdmitAnother } from "./rollout.ts";
@@ -162,21 +163,6 @@ function endedLine(sessionId: string, why: string): string {
 	return `${sessionAddress(sessionId)} (${sessionId}) ended: ${why}`;
 }
 
-/**
- * How long a window's attach may wait for its answer before the journal
- * says what it waits on. Six windows attached during a host's start on
- * 18 November sat blank for 2 h 20 min, and nothing kept could say
- * which wait never settled.
- */
-export const ATTACH_SLOW_MS = 5_000;
-
-const MS_PER_SECOND = 1_000;
-
-// Seconds since `began`, to a tenth, as the journal says a wait.
-function secondsSince(began: number): string {
-	return ((Date.now() - began) / MS_PER_SECOND).toFixed(1);
-}
-
 // Who sent a control request, as it named itself; a name is only a
 // caller's word, so it is kept to one plain line.
 function askedBy(by: string | undefined): string {
@@ -230,7 +216,7 @@ export function hostBackend(options: {
 	 * waits for the start's own resume, so none resumes twice.
 	 */
 	held?: Pick<HeldOrder, "ahead">;
-	/** How long an attach waits before the journal says on what: ATTACH_SLOW_MS. */
+	/** How long an attach waits before the journal says on what: attach-waits.ts's ATTACH_SLOW_MS. */
 	attachSlowMs?: number;
 }): HostBackend {
 	const { host, roster, engine } = options;
@@ -300,39 +286,25 @@ export function hostBackend(options: {
 	// journal saying each wait that holds it past the bound, and then when
 	// it is answered. A wait that passes at once says nothing.
 	async function attachment(sessionId: string): Promise<SessionIdentity> {
-		const began = Date.now();
-		const who = `${sessionAddress(sessionId)} (${sessionId})`;
-		let slow = false;
-		let timer: NodeJS.Timeout | undefined;
-		const next = (waiting: string) => {
-			clearTimeout(timer);
-			timer = setTimeout(() => {
-				slow = true;
-				options.say?.(
-					`${who}: a window's attach has waited ${secondsSince(began)} s on ${waiting}`,
-				);
-			}, options.attachSlowMs ?? ATTACH_SLOW_MS);
-			// A host stopping never waits on a window's journal line.
-			timer.unref();
-		};
+		const waits = attachWaits(
+			`${sessionAddress(sessionId)} (${sessionId})`,
+			options.say,
+			options.attachSlowMs,
+		);
 		try {
-			next("the host's start to resume it");
+			waits.next("the host's start to resume it");
 			await startOwes(sessionId);
-			next("its open to finish");
+			waits.next("its open to finish");
 			await starts.get(sessionId);
-			next("its park to settle");
+			waits.next("its park to settle");
 			await engine.parkSettled?.(sessionId);
 			if (host.holds(sessionId) === undefined && rostered(sessionId)) {
-				next("its wake");
+				waits.next("its wake");
 				await wake(sessionId);
 			}
 			return live(sessionId);
 		} finally {
-			clearTimeout(timer);
-			if (slow)
-				options.say?.(
-					`${who}: a window's attach was answered after ${secondsSince(began)} s`,
-				);
+			waits.done();
 		}
 	}
 

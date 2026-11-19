@@ -121,7 +121,7 @@ export async function serveHost(options: {
 	finished?: (step: Resuming, end: ResumeEnd, reason?: unknown) => void;
 	/**
 	 * How long a window's attach may wait for its answer, or go undrawn
-	 * after it, before the journal says so: backend.ts's ATTACH_SLOW_MS.
+	 * after it, before the journal says so: attach-waits.ts's ATTACH_SLOW_MS.
 	 */
 	attachSlowMs?: number;
 }): Promise<ServingHost> {
