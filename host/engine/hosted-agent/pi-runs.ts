@@ -87,6 +87,7 @@ export class PiRuns {
 	private readonly parked: () => boolean;
 	private readonly within: Within;
 	private readonly next: () => void;
+	private readonly carryOn: () => Promise<void>;
 	private session: HostRunningSession | undefined;
 	private report: Report = () => {};
 	private holds = 0;
@@ -96,17 +97,23 @@ export class PiRuns {
 
 	/**
 	 * Runs whose host is stopping once `parked` says so, each settle said
-	 * `within`, going on to `next` once pi's run settled, as pi's own run
-	 * goes on to words that wait: pi starts none for them after a host's.
+	 * `within`. Before the last hold ends a run pi opened, `carryOn` runs
+	 * the words that wait inside it, as pi's own run continues on queued
+	 * words before it settles: they waited, in memory alone, through every
+	 * settle handler, and a host dying then lost them. Words queued after
+	 * that go on to `next` once pi's run settled, since pi starts no run
+	 * for them after a host's.
 	 */
 	constructor(
 		parked: () => boolean,
 		within: Within = (say) => say(),
 		next: () => void = () => {},
+		carryOn: () => Promise<void> = async () => {},
 	) {
 		this.parked = parked;
 		this.within = within;
 		this.next = next;
+		this.carryOn = carryOn;
 	}
 
 	/** Open runs in `session` from now on, saying to `report` each run pi didn't prepare. */
@@ -125,6 +132,11 @@ export class PiRuns {
 		return async () => {
 			if (released) return;
 			released = true;
+			// Still held, so the runs carried on join pi's open run, which settles once after them; pi's own run goes on to none once stopped.
+			const carrying = this.holds === 1 ? this.open : undefined;
+			if (carrying && !this.parked() && carrying.signal?.aborted !== true)
+				// A run carried on shows its own failure, and this hold still ends.
+				await this.carryOn().catch(() => undefined);
 			this.holds -= 1;
 			if (this.holds > 0) return;
 			const open = this.open;
@@ -140,7 +152,7 @@ export class PiRuns {
 			open.end();
 			// pi settles a run it never finished preparing only once it has, which a
 			// handler that never answers puts off for good: the run ends without it.
-			// What waits goes on only once pi settles, so no run hears that settle.
+			// Words queued since go on only once pi settles, so no run hears that settle.
 			// pi settles no run it failed to prepare, so that settle is said here, as
 			// on a pi with no seam.
 			const done = open.settled.then(async (piSettled) => {

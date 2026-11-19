@@ -138,6 +138,11 @@ export class HostedAgent {
 			// Words left queued once pi's run settled run next, as after pi's own; a run's failure shows in it.
 			if (this.hasQueuedMessages()) void this.continue().catch(() => undefined);
 		},
+		async () => {
+			// Words queued as the agent's last run ended run inside pi's run, as pi's own run goes on to them before it settles.
+			// That run takes whatever is typed during it, so once is enough.
+			if (this.hasQueuedMessages() && !this.parked) await this.continue();
+		},
 	);
 
 	constructor(
