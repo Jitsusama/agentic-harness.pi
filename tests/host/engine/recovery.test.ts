@@ -24,7 +24,47 @@ function side(start: RecoverySide["runWithLifecycle"]) {
 	return { side: stub as unknown as RecoverySide, holds };
 }
 
+/** A side that carries a turn on, letting pi's run go as `release` does. */
+function carrying(release: () => Promise<void>) {
+	const stub = {
+		active: () => undefined,
+		parked: () => false,
+		joelTyped: () => false,
+		parking: new AbortController().signal,
+		state: { messages: [] },
+		transcript: { placeAtSession: async () => {} },
+		durable: {
+			runFailure: async () => undefined,
+			carrying: async () => true,
+			resume: () => {},
+		},
+		holdPiRun: () => release,
+		runWithLifecycle: async (start: (run: unknown) => Promise<void>) => {
+			const run = { controller: new AbortController() };
+			await start(run);
+			return run;
+		},
+	};
+	return stub as unknown as RecoverySide;
+}
+
 describe("a recovery", () => {
+	it("gives the carried run's turn back though letting pi's run go fails", async () => {
+		const refused = new Error("pi's settle threw");
+		let givenBack = 0;
+		const recovery = new Recovery(carrying(() => Promise.reject(refused)));
+
+		const { settled } = await recovery.recover(async () => () => {
+			givenBack += 1;
+		});
+		await expect(settled).rejects.toBe(refused);
+
+		expect(
+			givenBack,
+			"the turn the carried run took is given back once, whatever letting pi's run go did",
+		).toBe(1);
+	});
+
 	it("lets pi's run go when its run fails before it starts", async () => {
 		const failed = new Error("durable refused the run");
 		const { side: agent, holds } = side(() => Promise.reject(failed));
