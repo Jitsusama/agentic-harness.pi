@@ -64,14 +64,25 @@ export type Within = (say: () => Promise<unknown>) => Promise<unknown>;
 /** Where a run pi didn't prepare is said, so a run sent on without its sections isn't silent. */
 export type Report = (error: unknown) => void;
 
+/** The words waiting in pi's queue, by the host's ids, and a run of them. */
+export interface WaitingWords {
+	ids(): readonly string[];
+	run(): Promise<void>;
+}
+
+/** No words wait, as for a host that queues none. */
+const NONE_WAITING: WaitingWords = { ids: () => [], run: async () => {} };
+
 /**
  * An open run of pi's, ended by `end`, done once `settled` resolves, true
  * when pi settled it and false when pi failed to prepare it, or given up
  * on once `overdue` does, as pi never prepared it in time. `signal` is the
- * run's stop, for a settle said here.
+ * run's stop, for a settle said here, and `began` whether pi has prepared
+ * it and begun the host's work.
  */
 interface OpenRun {
 	readonly end: () => void;
+	readonly began: () => boolean;
 	readonly settled: Promise<boolean>;
 	readonly overdue: Promise<void>;
 	readonly signal: AbortSignal | undefined;
@@ -87,26 +98,38 @@ export class PiRuns {
 	private readonly parked: () => boolean;
 	private readonly within: Within;
 	private readonly next: () => void;
+	private readonly waiting: WaitingWords;
 	private session: HostRunningSession | undefined;
 	private report: Report = () => {};
 	private holds = 0;
 	private open: OpenRun | undefined;
 	/** The stop signals of runs shown pi with no seam to open them, for the settle owed. */
 	private unseamed: (AbortSignal | undefined)[] | undefined;
+	/** The stop signals of every run shown pi while held, since a stop of any ends pi's run going on. */
+	private shown: (AbortSignal | undefined)[] = [];
 
 	/**
 	 * Runs whose host is stopping once `parked` says so, each settle said
-	 * `within`, going on to `next` once pi's run settled, as pi's own run
-	 * goes on to words that wait: pi starts none for them after a host's.
+	 * `within`. Before the last hold ends a run pi opened, it runs the
+	 * `waiting` words inside it, again for as long as words wait, some went
+	 * and no run shown was stopped, as pi's own run continues on queued
+	 * words before it settles: they waited, in memory alone, through every
+	 * settle handler, and a host dying then lost them. A run pi failed to
+	 * prepare, or hasn't yet, carries nothing on, since what ran inside it
+	 * would go without pi's sections. Words queued after that, as during
+	 * pi's settle handlers, wait in memory alone until they go on to `next`
+	 * once pi's run settled, since pi starts no run for them after a host's.
 	 */
 	constructor(
 		parked: () => boolean,
 		within: Within = (say) => say(),
 		next: () => void = () => {},
+		waiting: WaitingWords = NONE_WAITING,
 	) {
 		this.parked = parked;
 		this.within = within;
 		this.next = next;
+		this.waiting = waiting;
 	}
 
 	/** Open runs in `session` from now on, saying to `report` each run pi didn't prepare. */
@@ -125,8 +148,11 @@ export class PiRuns {
 		return async () => {
 			if (released) return;
 			released = true;
+			// Still held, so the runs carried on join pi's open run, which settles once after them.
+			if (this.holds === 1 && this.open?.began()) await this.carryOnWaiting();
 			this.holds -= 1;
 			if (this.holds > 0) return;
+			this.shown = [];
 			const open = this.open;
 			this.open = undefined;
 			const unseamed = this.unseamed;
@@ -140,7 +166,7 @@ export class PiRuns {
 			open.end();
 			// pi settles a run it never finished preparing only once it has, which a
 			// handler that never answers puts off for good: the run ends without it.
-			// What waits goes on only once pi settles, so no run hears that settle.
+			// Words queued since go on only once pi settles, so no run hears that settle.
 			// pi settles no run it failed to prepare, so that settle is said here, as
 			// on a pi with no seam.
 			const done = open.settled.then(async (piSettled) => {
@@ -150,6 +176,25 @@ export class PiRuns {
 			});
 			await Promise.race([done, open.overdue]);
 		};
+	}
+
+	/** Run what waits in pi's queue until none does, as pi's own run goes on to none once stopped or parked. */
+	private async carryOnWaiting(): Promise<void> {
+		const stopped = () => this.shown.some((signal) => signal?.aborted === true);
+		while (!this.parked() && !stopped()) {
+			// A copy, since a queue may answer with the list its run then changes.
+			const before = [...this.waiting.ids()];
+			if (before.length === 0) return;
+			// A run carried on shows its own failure, and this hold still ends.
+			const ran = await this.waiting.run().then(
+				() => true,
+				() => false,
+			);
+			if (!ran) return;
+			const after = new Set(this.waiting.ids());
+			// None of the words went, so going on again would only go round.
+			if (before.every((id) => after.has(id))) return;
+		}
 	}
 
 	/** Tell pi's extensions the runs shown settled, unless pi's own run under way settles them. */
@@ -185,6 +230,7 @@ export class PiRuns {
 	 */
 	async opening(signal?: AbortSignal): Promise<readonly AgentMessage[]> {
 		const session = this.session;
+		if (this.holds > 0) this.shown.push(signal);
 		if (this.open || this.holds === 0 || !session) return [];
 		if (session.isStreaming) return [];
 		if (!session.runForHost) {
@@ -201,8 +247,10 @@ export class PiRuns {
 			begun = done;
 		});
 		const report = this.report;
+		let began = false;
 		const settled = session
 			.runForHost((handed) => {
+				began = true;
 				begun(handed ?? []);
 				return ended;
 			})
@@ -218,7 +266,7 @@ export class PiRuns {
 		const overdue = new Promise<void>((done) => {
 			late = done;
 		});
-		this.open = { end, settled, overdue, signal };
+		this.open = { end, began: () => began, settled, overdue, signal };
 		// A run pi failed to prepare, took too long over, or that was stopped
 		// meanwhile, hands nothing over, and the work goes on; one prepared late
 		// ends with it as any other.
