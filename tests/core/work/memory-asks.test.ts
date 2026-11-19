@@ -4,12 +4,22 @@
  * reading a snapshot leaves none on a disk without access times.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, statSync, utimesSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	renameSync,
+	rmSync,
+	statSync,
+	utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type { Owner } from "../../../lib/core/process/index.ts";
-import type { HeldTree } from "../../../lib/core/work/broker.ts";
+import {
+	createTreeBroker,
+	type HeldTree,
+} from "../../../lib/core/work/broker.ts";
 import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 
 let root: string;
@@ -117,7 +127,8 @@ it("dates an ask given its key by that record alone, not by the listing", () => 
 	const memory = memoryAt();
 	const ours = { pid: 4001, startedAt: 1000 };
 	memory.remember({ ...tree("filed", ours) });
-	const at = (Date.now() - 60 * 60 * 1000) / 1000;
+	// Whole seconds, which a file's time holds exactly.
+	const at = Math.floor((Date.now() - 60 * 60 * 1000) / 1000);
 	utimesSync(join(root, "cut", "filed.json"), at, at);
 
 	expect(
@@ -128,4 +139,55 @@ it("dates an ask given its key by that record alone, not by the listing", () => 
 		memory.askedAt(tree("filed").path, "renamed"),
 		"a record under another name dated the ask, so every record was listed",
 	).toBeUndefined();
+});
+
+it("keeps a tree whose record, filed under another name, can't date its ask", async () => {
+	// Undated is not unused: a record its own file can't be found for
+	// says nothing of when it was last asked for.
+	const memory = memoryAt();
+	const ours = { pid: 4001, startedAt: 1000 };
+	memory.remember({ ...tree("misfiled", ours), usedAt: 1000 });
+	renameSync(
+		join(root, "cut", "misfiled.json"),
+		join(root, "cut", "other.json"),
+	);
+	expect(
+		memory.recall().map((one) => one.identity.key),
+		"the misfiled record isn't recalled, so this case tests nothing",
+	).toEqual(["misfiled"]);
+	let moved = false;
+
+	const taken = await memory.whileUnusedSince(
+		tree("misfiled").path,
+		Date.now(),
+		async () => {
+			moved = true;
+			return true;
+		},
+	);
+
+	expect(taken, "an undated tree was taken").toBeUndefined();
+	expect(moved, "an undated tree was moved").toBe(false);
+});
+
+it("answers a use as gone, and leaves no record, once a sweep took the tree", async () => {
+	// The broker dates a reader's use by writing the record, which must
+	// not bring back the record of a tree the sweep just took.
+	const memory = memoryAt();
+	const held = tree("snap");
+	memory.remember(held);
+	const broker = createTreeBroker({ providers: [], memory });
+	await memory.whileUnusedSince(held.path, Date.now() + 1000, async () => {
+		rmSync(held.path, { recursive: true });
+		return true;
+	});
+
+	const stands = await broker.used(held);
+
+	expect(stands, "a taken tree's use reads as standing").toBe(false);
+	expect(memory.recall(), "dating the use brought its record back").toEqual([]);
+	expect(
+		broker.cutHere(held.path),
+		"a taken tree is still listed as this session's",
+	).toBe(false);
 });

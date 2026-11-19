@@ -530,4 +530,43 @@ describe("choosing the snapshots to take", () => {
 				.map((tree) => tree.path),
 		);
 	});
+
+	it("keeps one whose record can't date its last ask, however old its own date", async () => {
+		// A record filed under another name, or unreadable, says nothing
+		// of when it was last asked for, so it reads as used now.
+		const commit = "a".repeat(40);
+		const now = Date.now();
+		const snapshot = (name: string): HeldTree => ({
+			identity: { key: `snapshot-${name}-${commit}`, shareable: true },
+			path: `/nowhere/${name}`,
+			providerId: "git-worktree",
+			owners: [RUNNING],
+			usedAt: now - IDLE - 10 * HOUR,
+		});
+		const dated = snapshot("dated");
+		const undated = snapshot("undated");
+		const answers: Record<string, string> = {
+			"rev-parse HEAD": commit,
+			"reflog --format=%H HEAD": commit,
+			"rev-parse --absolute-git-dir": "/nowhere/.git",
+			"status --porcelain=v1 --untracked-files=all": "",
+		};
+
+		const chosen = await idleSnapshots([undated, dated], {
+			exec: async (_command, args) => ({
+				code: 0,
+				stdout: answers[args.slice(3).join(" ")] ?? "unasked",
+				stderr: "",
+			}),
+			claims: [],
+			now,
+			askedAt: (path) => (path === dated.path ? dated.usedAt : undefined),
+			busyAmong: async () => new Set(),
+		});
+
+		expect(
+			chosen.map((one) => one.tree.path),
+			"an undated snapshot was chosen, or the dated one beside it wasn't",
+		).toEqual([dated.path]);
+	});
 });

@@ -10,6 +10,9 @@
  * out which of nineteen actions makes one.
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	forgetWorkLayer,
@@ -46,14 +49,16 @@ function bus() {
  * `ensure` throws rather than returning, so a test cannot pass by
  * cutting one: the whole claim is that nothing here provisions. What
  * `used` was told is kept in `dated`, and those in `taken` answer as
- * gone, as a tree a sweep took meanwhile does.
+ * gone, as a tree a sweep took meanwhile does. While `refused` is set,
+ * dating throws, as a held lock or a full disk makes it.
  */
 function workLayerHolding(...held: HeldTree[]) {
 	const dated: string[] = [];
 	const taken = new Set<string>();
-	return {
+	const layer = {
 		dated,
 		taken,
+		refused: false,
 		registerTreeProvider() {},
 		listTreeProviders: () => [],
 		broker: () => ({
@@ -66,11 +71,15 @@ function workLayerHolding(...held: HeldTree[]) {
 			},
 			cutHere: () => false,
 			used(tree: HeldTree) {
+				if (layer.refused) {
+					return Promise.reject(new Error("the record's lock is held"));
+				}
 				dated.push(tree.path);
 				return Promise.resolve(!taken.has(tree.path));
 			},
 		}),
 	};
+	return layer;
 }
 
 /** Announce a working layer to the module under test. */
@@ -165,6 +174,39 @@ describe("where a change's tree stands", () => {
 		const standing = await treeStandingFor(REPO, COMMIT);
 
 		expect(standing.kind).toBe("none");
+	});
+
+	// The change is attached by the time its tree's use is dated, so a
+	// lock that can't be got or a full disk must not fail the attach.
+	it("answers by the folder when its use can't be dated", async () => {
+		forgetWorkLayer();
+		const folder = mkdtempSync(join(tmpdir(), "tree-standing-"));
+		try {
+			const layer = workLayerHolding({
+				identity: treeIdentity({
+					intent: "snapshot",
+					repo: REPO,
+					purpose: "review",
+					commit: COMMIT,
+				}),
+				path: folder,
+				providerId: "git-worktree",
+			});
+			layer.refused = true;
+			announce(layer);
+
+			expect(
+				await treeStandingFor(REPO, COMMIT),
+				"a standing tree whose use couldn't be dated wasn't named",
+			).toEqual({ kind: "cut", path: folder });
+			rmSync(folder, { recursive: true });
+			expect(
+				(await treeStandingFor(REPO, COMMIT)).kind,
+				"a gone tree whose use couldn't be dated was named",
+			).toBe("none");
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
 	});
 
 	it("does not mistake another commit's tree for this one's", async () => {

@@ -24,11 +24,13 @@
  * stand refuses instead of degrading.
  */
 
+import { existsSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RepoLocator, TreeRead } from "../../lib/core/review/index.ts";
 import { checkoutFor, whatItRead } from "../../lib/core/review/index.ts";
 import { sessionSlot } from "../../lib/core/session/index.ts";
 import { treeRequestFrom } from "../../lib/core/work/ask.ts";
+import type { HeldTree, TreeBroker } from "../../lib/core/work/broker.ts";
 import {
 	WORK_READY,
 	WORK_REQUEST,
@@ -136,6 +138,25 @@ export type TreeStanding =
 	| { kind: "unknown"; why: string };
 
 /**
+ * Whether a held tree still stands, dating its use when that can be
+ * done. Dating takes the record's lock and writes it, which a held
+ * lock or a full disk refuses; the change is attached by then, so a
+ * refusal answers by the folder alone, as attach did before it dated
+ * anything, rather than failing an attach that went through.
+ */
+async function usedOrStanding(
+	broker: Pick<TreeBroker, "used">,
+	tree: HeldTree,
+): Promise<boolean> {
+	try {
+		return await broker.used(tree);
+	} catch {
+		// Undated, which only leaves it to the sweep's other signs of use.
+		return existsSync(tree.path);
+	}
+}
+
+/**
  * Whether a tree is already cut for this change, cutting nothing.
  *
  * Attaching a change must not build a tree. A World tree costs
@@ -185,7 +206,7 @@ export async function treeStandingFor(
 	// leaves no other sign: a snapshot last asked for nearly four hours
 	// ago was otherwise taken by a sweep while a review read it. One
 	// taken meanwhile answers as none, naming the call that cuts it.
-	if (already && (await broker.used(already))) {
+	if (already && (await usedOrStanding(broker, already))) {
 		return { kind: "cut", path: already.path };
 	}
 

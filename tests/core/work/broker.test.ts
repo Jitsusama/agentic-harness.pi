@@ -287,6 +287,42 @@ describe("a worktree somebody else is working in", () => {
 			false,
 		);
 	});
+
+	it("reads whether a tree stands only once its use is written, so a take meanwhile is seen", async () => {
+		// The sweep judges under the record's lock, so only a reading after
+		// the write sees a take made while the write waited for it.
+		const theirs: HeldTree = {
+			identity: treeIdentity(snapshot("abc123")),
+			path: "/trees/theirs",
+			providerId: "git-worktree",
+		};
+		const { provider } = fakeProvider("git-worktree");
+		let written = false;
+		const memory: TreeMemory = {
+			...remembering(theirs, []),
+			rememberHeldByUs: async () => {
+				written = true;
+			},
+			recall: () => (written ? [] : [theirs]),
+		};
+		const recut: string[] = [];
+		const broker = createTreeBroker({
+			providers: [provider],
+			memory,
+			recut: (was) => recut.push(was.path),
+		});
+
+		const stands = await broker.used(theirs);
+		await broker.ensure(snapshot("abc123"));
+
+		expect(
+			stands,
+			"a tree taken while its use was written reads as standing",
+		).toBe(false);
+		expect(recut, "asking again for a tree found gone isn't said").toEqual([
+			"/trees/theirs",
+		]);
+	});
 });
 
 describe("createTreeBroker", () => {

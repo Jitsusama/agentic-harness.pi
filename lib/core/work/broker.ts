@@ -482,6 +482,9 @@ export function createTreeBroker(
 			if (stands) return true;
 			const gone = trees.findIndex((tree) => tree.path === held.path);
 			if (gone >= 0) trees.splice(gone, 1);
+			// Fallen as a gone folder is, so asking for it again says the
+			// tree was cut afresh rather than recutting it without a word.
+			fallen.push(held);
 			return false;
 		},
 	};
