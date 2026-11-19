@@ -195,7 +195,8 @@ the tree's record lock before acting, so a session that took the
 tree up since is seen. Under that lock it only moves the tree aside
 and forgets its record; the removal comes after. A tree claimed
 over `work:tree-claims:v1`, one whose record names nobody, and one
-the broker never cut are left alone, and no branch is deleted.
+the broker never cut are left alone. A taken tree's branch stays,
+unless origin's trunk holds every commit on it, as on release.
 One sweep runs at a time on a machine, and none starts within 20
 minutes of one ending, told by `sweep.lock.ended` beside the lock:
 each session sweeps on its own timer, and on 18 November about 120
@@ -374,7 +375,13 @@ fetched, since trunk then holds all of it. A branch with any commit
 trunk lacks, pushed or not, stays, and so does one another checkout
 has out. On 19 November core.nix's checkout held 5,734 local
 branches and 518 KB of config from released trees, read by every git
-command there, the host's presence publish among them.
+command there, the host's presence publish among them. A branch
+whose tree went before it merged goes later, when a sweep finds
+trunk holding it, no tree on it and its reflog unmoved for a day.
+One another branch is stacked on, or with no reflog, stays. A sweep
+takes at most 500 a checkout, the next the rest, and its line names
+each that went with its commit, under `branches`, so
+`git branch <name> <commit>` puts one back.
 
 **It will not record nothing.** `record` reads the tree first and
 refuses when it is clean. Committing nothing succeeds at the git

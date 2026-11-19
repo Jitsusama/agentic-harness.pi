@@ -11,9 +11,18 @@
  *
  * It is narrower than reclaim on purpose. A worktree the broker has no
  * record of may be anybody's, and a record that names nobody can't say
- * it is spent, so neither is touched. A branch is never deleted: the
- * commits stay where they were, and cutting the tree again at the same
- * branch puts a session back where it left off.
+ * it is spent, so neither is touched. A tree's branch stays, so cutting
+ * the tree again at the same branch puts a session back where it left
+ * off, unless origin's trunk holds every commit on it: then there is
+ * nothing to come back to, and it goes with its config section, as it
+ * does when a tree is released (`merged-branch.ts`).
+ *
+ * A branch whose tree went before its pull request merged is left by
+ * that, so each checkout the records name is also searched for
+ * branches trunk holds that nobody has moved for
+ * {@link PUSHED_SETTLE_MS}, which go the same way. On 19 November
+ * core.nix's checkout held 5,734 branches and 518 KB of config, which
+ * every git command there read.
  *
  * A session can take a spent tree up again at any moment, so the last
  * look happens under the record's own lock, where that session writes
@@ -23,7 +32,9 @@
  * then asks for the tree finds no record and no folder, and cuts afresh.
  *
  * A tree another provider cut, such as a World dev tree, goes through
- * that provider, and only once it says nothing would be lost.
+ * that provider, and only once it says nothing would be lost. One whose
+ * clone was deleted keeps only its folder, which goes as it is
+ * (`sweep-orphan.ts`). One sweep runs at a time (`sweep-lock.ts`).
  *
  * A snapshot a live session holds goes too, once nothing has used it
  * for hours and it is as it was cut (`sweep-idle.ts`): a session asking
@@ -37,17 +48,8 @@
  */
 
 import { randomBytes } from "node:crypto";
-import {
-	closeSync,
-	existsSync,
-	openSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	statSync,
-	writeSync,
-} from "node:fs";
-import { join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { type ProcessFacts, systemFacts } from "../process/index.ts";
 import type { HeldTree, TreeProvider } from "./broker.ts";
@@ -62,23 +64,24 @@ import {
 } from "./in-use.ts";
 import type { TreeMemory } from "./memory.ts";
 import {
+	dropMergedBranch,
+	dropSettledMergedBranches,
+	type WentBranch,
+} from "./merged-branch.ts";
+import {
 	type IdleSnapshot,
 	idleSnapshots,
 	lastUsed,
 	mainCheckoutOf,
 } from "./sweep-idle.ts";
+import { sweepLock } from "./sweep-lock.ts";
+import { goneGitDir, takeOrphan } from "./sweep-orphan.ts";
 import { markEnded, restingSince } from "./sweep-rest.ts";
 import { orphanedTrees } from "./tidy.ts";
 import { pinnedCommit } from "./tree.ts";
 
 /** The provider a git worktree's record names. */
 const GIT_WORKTREE = "git-worktree";
-
-/**
- * How old a sweep's lock may be before it is taken over whoever holds
- * it: past any real sweep, so its holder stopped rather than working.
- */
-const SWEEP_STALE_MS = 60 * 60 * 1000;
 
 /**
  * How long a tree whose branch trunk doesn't contain, but its remote
@@ -141,6 +144,8 @@ export type SweepClaims =
 export interface SweptTree {
 	path: string;
 	branch?: string;
+	/** Set when its branch went too, origin's trunk holding all of it. */
+	branchGone?: true;
 	/** The remote-tracking branch that holds its commit, when trunk didn't. */
 	remote?: string;
 	/** The sessions its record named, so one reopened can recut it. */
@@ -171,11 +176,26 @@ export interface SweepOutcome {
 	/** Trees whose dev-shell roots went, nobody having entered them. */
 	dropped: DroppedRoots[];
 	/**
+	 * Checkouts whose branches with no tree went, origin's trunk holding
+	 * them and nobody having moved them for a day, and which.
+	 */
+	branches: DroppedBranches[];
+	/**
 	 * Why the snapshots open sessions hold went unjudged this sweep, all
 	 * of them kept: a record's lock held too long, or the machine unable
 	 * to say which processes hold trees.
 	 */
 	idleUnjudged?: string;
+}
+
+/**
+ * A checkout whose settled, merged branches the sweep dropped, each with
+ * the commit it pointed at, so `git branch <name> <commit>` puts one
+ * back.
+ */
+export interface DroppedBranches {
+	checkout: string;
+	went: WentBranch[];
 }
 
 /** A tree whose dev shell's Nix roots the sweep dropped, and how many. */
@@ -199,6 +219,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		refused: [],
 		kept: [],
 		dropped: [],
+		branches: [],
 	};
 	const now = deps.now?.() ?? Date.now();
 	const resting = restingSince(deps.lockPath, now, deps.restMs);
@@ -243,6 +264,13 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 				outcome,
 			});
 		}
+		await dropSettledBranches(
+			deps,
+			[...repositories.byMain.keys()],
+			held,
+			now,
+			outcome,
+		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
 		try {
 			const askedAt = (path: string, key?: string) =>
@@ -305,6 +333,63 @@ async function dropIdleRoots(
 		}
 		const roots = dropIdleDevShellRoots(tree.path, now);
 		if (roots > 0) outcome.dropped.push({ path: tree.path, roots });
+	}
+}
+
+/**
+ * Drop the settled branches origin's trunk holds in every checkout a
+ * record names: those whose trees this sweep judged, and those of trees
+ * still held, whose checkouts gather branches from trees released
+ * before their pull request merged.
+ */
+async function dropSettledBranches(
+	deps: SweepDeps,
+	judged: readonly string[],
+	held: readonly HeldTree[],
+	now: number,
+	outcome: SweepOutcome,
+): Promise<void> {
+	const mains = new Set(judged);
+	const asked = new Set<string>();
+	for (const tree of held) {
+		if (tree.providerId !== GIT_WORKTREE || asked.has(tree.path)) continue;
+		asked.add(tree.path);
+		const main =
+			checkoutNamedBy(tree.path) ??
+			(await mainCheckoutOf(deps.exec, tree.path));
+		if (main !== undefined) mains.add(main);
+	}
+	for (const main of mains) {
+		const went = await dropSettledMergedBranches(
+			deps.exec,
+			main,
+			now - PUSHED_SETTLE_MS,
+		);
+		if (went.length > 0) outcome.branches.push({ checkout: main, went });
+	}
+}
+
+/**
+ * The main checkout a worktree was cut from, as its `.git` file and its
+ * git folder's `commondir` say, or nothing where they can't be read.
+ * Read from the files rather than asked of git, since every sweep asks
+ * it of every held tree, hundreds on a busy machine.
+ */
+function checkoutNamedBy(tree: string): string | undefined {
+	try {
+		const said = /^gitdir: (.+)$/m.exec(
+			readFileSync(join(tree, ".git"), "utf8"),
+		)?.[1];
+		if (said === undefined) return undefined;
+		const gitDir = resolve(tree, said.trim());
+		const common = resolve(
+			gitDir,
+			readFileSync(join(gitDir, "commondir"), "utf8").trim(),
+		);
+		return basename(common) === ".git" ? dirname(common) : common;
+	} catch {
+		// No `.git` file or no `commondir`: git is asked instead.
+		return undefined;
 	}
 }
 
@@ -417,80 +502,6 @@ function covered(path: string, wanted: readonly string[]): boolean {
 		(one) =>
 			one === path || one.startsWith(`${path}/`) || path.startsWith(`${one}/`),
 	);
-}
-
-/**
- * The git folder a worktree's `.git` file points at, when that folder
- * is gone, or nothing for a tree whose repository still stands or that
- * isn't a worktree at all.
- */
-function goneGitDir(path: string): string | undefined {
-	try {
-		const said = /^gitdir: (.+)$/m.exec(
-			readFileSync(join(path, ".git"), "utf8"),
-		)?.[1];
-		if (said === undefined) return undefined;
-		const gitDir = resolve(path, said.trim());
-		return existsSync(gitDir) ? undefined : gitDir;
-	} catch {
-		// No `.git` file, or a `.git` folder: not a worktree of a lost clone.
-		return undefined;
-	}
-}
-
-/**
- * Take a tree whose repository went with finished work: its commits
- * went with the clone, and git can no longer read it, so only its
- * folder is left. Moved aside under its record's lock, as
- * {@link takeBack} does, then removed.
- */
-async function takeOrphan(
-	deps: SweepDeps,
-	facts: ProcessFacts,
-	tree: HeldTree,
-	outcome: SweepOutcome,
-): Promise<void> {
-	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
-	let moveRefused: string | undefined;
-	const forgotten = await deps.memory.whileUnheld(
-		tree.path,
-		async () => {
-			try {
-				renameSync(tree.path, aside);
-				return true;
-			} catch (error) {
-				moveRefused = messageOf(error);
-				return false;
-			}
-		},
-		facts,
-	);
-	if (forgotten === undefined) {
-		if (moveRefused !== undefined) {
-			outcome.refused.push({ path: tree.path, why: moveRefused });
-		} else {
-			outcome.kept.push({ path: tree.path, why: "a session took it up again" });
-		}
-		return;
-	}
-	try {
-		rmSync(aside, { recursive: true, force: true });
-		outcome.taken.push({ path: tree.path });
-	} catch (error) {
-		// Read-only module caches refuse a plain removal. What is left goes
-		// back where it was, with its record, for the next sweep.
-		const why = messageOf(error);
-		try {
-			renameSync(aside, tree.path);
-			deps.memory.remember(forgotten);
-			outcome.refused.push({ path: tree.path, why });
-		} catch (back) {
-			outcome.refused.push({
-				path: tree.path,
-				why: `${why}; what is left is at ${aside}: ${messageOf(back)}`,
-			});
-		}
-	}
 }
 
 /**
@@ -737,7 +748,10 @@ async function takeBack(
 	}
 	const removed = await git("worktree", "remove", aside);
 	if (removed.code === 0) {
-		outcome.taken.push(taken);
+		const gone =
+			taken.branch !== undefined &&
+			(await dropMergedBranch(deps.exec, main, taken.branch));
+		outcome.taken.push(gone ? { ...taken, branchGone: true } : taken);
 		return;
 	}
 	const back = await git("worktree", "move", aside, tree.path);
@@ -771,82 +785,6 @@ async function trunkOf(exec: Exec, main: string): Promise<string> {
 		"refs/remotes/origin/main",
 	]);
 	return remote.code === 0 ? "origin/main" : "main";
-}
-
-/**
- * Hold the sweep's lock, answering how to let it go, or why another
- * sweep has it. A lock whose holder has ended, or that has stood past
- * {@link SWEEP_STALE_MS}, is moved aside and taken over. Unlike the
- * record locks this never waits: a second sweep has nothing to add.
- */
-function sweepLock(lockPath: string): (() => void) | string {
-	for (let tries = 0; tries < 2; tries += 1) {
-		try {
-			const fd = openSync(lockPath, "wx");
-			try {
-				writeSync(fd, String(process.pid));
-			} finally {
-				closeSync(fd);
-			}
-			return () => {
-				// Only our own lock: one taken over from us is its new holder's.
-				if (holderOf(lockPath) === process.pid)
-					rmSync(lockPath, { force: true });
-			};
-		} catch (error) {
-			if (!hasCode(error, "EEXIST")) throw error;
-		}
-		const holder = holderOf(lockPath);
-		if (holder !== undefined && isAlive(holder) && !isStale(lockPath)) {
-			return `another sweep is running, pid ${holder}`;
-		}
-		const stale = `${lockPath}.stale-${process.pid}-${randomBytes(4).toString("hex")}`;
-		try {
-			renameSync(lockPath, stale);
-			rmSync(stale, { force: true });
-		} catch (error) {
-			// Somebody else moved it first, which is theirs to hold now.
-			if (!hasCode(error, "ENOENT")) throw error;
-		}
-	}
-	return "another sweep took the lock as this one did";
-}
-
-function holderOf(lockPath: string): number | undefined {
-	try {
-		const pid = Number(readFileSync(lockPath, "utf8").trim());
-		return Number.isInteger(pid) && pid > 0 ? pid : undefined;
-	} catch {
-		// Gone or half-written: nobody this can name holds it.
-		return undefined;
-	}
-}
-
-function isStale(lockPath: string): boolean {
-	try {
-		return Date.now() - statSync(lockPath).mtimeMs > SWEEP_STALE_MS;
-	} catch {
-		// Gone since it was read, so nothing stands in the way.
-		return true;
-	}
-}
-
-function isAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (error) {
-		return hasCode(error, "EPERM");
-	}
-}
-
-function hasCode(error: unknown, code: string): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"code" in error &&
-		error.code === code
-	);
 }
 
 /** What git said when it refused, in its own words. */

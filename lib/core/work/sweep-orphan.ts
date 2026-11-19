@@ -1,0 +1,94 @@
+/**
+ * Taking the trees whose repository went with finished work.
+ *
+ * A worktree of a clone that was deleted keeps only its folder: its
+ * commits went with the clone, and git can no longer read it, so there
+ * is nothing to remove through git and nothing left to lose. Its
+ * `.git` file still names the git folder it was cut from, which is how
+ * one is told apart from a tree whose repository stands.
+ */
+
+import { randomBytes } from "node:crypto";
+import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import type { ProcessFacts } from "../process/index.ts";
+import type { HeldTree } from "./broker.ts";
+import type { SweepDeps, SweepOutcome } from "./sweep.ts";
+
+/**
+ * The git folder a worktree's `.git` file points at, when that folder
+ * is gone, or nothing for a tree whose repository still stands or that
+ * isn't a worktree at all.
+ */
+export function goneGitDir(path: string): string | undefined {
+	try {
+		const said = /^gitdir: (.+)$/m.exec(
+			readFileSync(join(path, ".git"), "utf8"),
+		)?.[1];
+		if (said === undefined) return undefined;
+		const gitDir = resolve(path, said.trim());
+		return existsSync(gitDir) ? undefined : gitDir;
+	} catch {
+		// No `.git` file, or a `.git` folder: not a worktree of a lost clone.
+		return undefined;
+	}
+}
+
+/**
+ * Take a tree whose repository went with finished work: its commits
+ * went with the clone, and git can no longer read it, so only its
+ * folder is left. Moved aside under its record's lock, as the sweep
+ * takes any tree, then removed.
+ */
+export async function takeOrphan(
+	deps: SweepDeps,
+	facts: ProcessFacts,
+	tree: HeldTree,
+	outcome: SweepOutcome,
+): Promise<void> {
+	const aside = `${tree.path}.going-${randomBytes(4).toString("hex")}`;
+	let moveRefused: string | undefined;
+	const forgotten = await deps.memory.whileUnheld(
+		tree.path,
+		async () => {
+			try {
+				renameSync(tree.path, aside);
+				return true;
+			} catch (error) {
+				moveRefused = messageOf(error);
+				return false;
+			}
+		},
+		facts,
+	);
+	if (forgotten === undefined) {
+		if (moveRefused !== undefined) {
+			outcome.refused.push({ path: tree.path, why: moveRefused });
+		} else {
+			outcome.kept.push({ path: tree.path, why: "a session took it up again" });
+		}
+		return;
+	}
+	try {
+		rmSync(aside, { recursive: true, force: true });
+		outcome.taken.push({ path: tree.path });
+	} catch (error) {
+		// Read-only module caches refuse a plain removal. What is left goes
+		// back where it was, with its record, for the next sweep.
+		const why = messageOf(error);
+		try {
+			renameSync(aside, tree.path);
+			deps.memory.remember(forgotten);
+			outcome.refused.push({ path: tree.path, why });
+		} catch (back) {
+			outcome.refused.push({
+				path: tree.path,
+				why: `${why}; what is left is at ${aside}: ${messageOf(back)}`,
+			});
+		}
+	}
+}
+
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}

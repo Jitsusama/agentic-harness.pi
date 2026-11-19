@@ -474,6 +474,10 @@ function said(outcome: SweepOutcome): Record<string, unknown> {
 		kept: outcome.kept.length,
 		keptFor: commonest(outcome.kept.map((one) => one.why)),
 		dropped: outcome.dropped,
+		// Each named with its commit, so a wrong one can be put back; a
+		// sweep takes at most 500 a checkout, so a first one's line is long
+		// once, not every time.
+		...(outcome.branches.length === 0 ? {} : { branches: outcome.branches }),
 		...(outcome.idleUnjudged === undefined
 			? {}
 			: { idleUnjudged: outcome.idleUnjudged }),

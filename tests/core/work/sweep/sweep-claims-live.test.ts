@@ -7,8 +7,8 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { sweepEndedTrees } from "../../../lib/core/work/sweep.ts";
-import { git } from "../../support/git-fixture.ts";
+import { sweepEndedTrees } from "../../../../lib/core/work/sweep.ts";
+import { git } from "../../../support/git-fixture.ts";
 import {
 	disposeAll,
 	elsewhere,
@@ -18,7 +18,7 @@ import {
 	settle,
 	settleFolder,
 	setUp,
-} from "./support/sweep-live.ts";
+} from "../support/sweep-live.ts";
 
 afterEach(disposeAll);
 
@@ -33,8 +33,9 @@ describe("trees a live quest claims until spent", () => {
 
 		const outcome = await sweep({ held: [kept], untilSpent: [spent] });
 
+		// Its branch is at origin's trunk, so it goes with the tree.
 		expect(outcome.taken, "what the sweep took").toEqual([
-			{ path: spent, branch: "spent" },
+			{ path: spent, branch: "spent", branchGone: true },
 		]);
 		expect(existsSync(spent), `${spent}, spent, is taken`).toBe(false);
 		expect(existsSync(kept), `${kept}, held for good, is kept`).toBe(true);
