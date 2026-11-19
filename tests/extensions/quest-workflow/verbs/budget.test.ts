@@ -88,9 +88,16 @@ beforeEach(() => {
 	envGuard.enter();
 	tmpRoot = mkdtempSync(join(tmpdir(), "budget-"));
 	written = [];
-	for (const key of ["HOME", "XDG_STATE_HOME", "PI_BUDGET", KEY])
+	for (const key of [
+		"HOME",
+		"XDG_STATE_HOME",
+		"PI_BUDGET",
+		"PI_BUDGET_KEYS",
+		KEY,
+	])
 		kept[key] = process.env[key];
 	delete process.env.PI_BUDGET;
+	delete process.env.PI_BUDGET_KEYS;
 	process.env.HOME = tmpRoot;
 	process.env.XDG_STATE_HOME = join(tmpRoot, "state");
 	process.env[KEY] = "personal";
@@ -611,11 +618,25 @@ describe("the session's budget", () => {
 
 		it("isn't asked again when the session was started on the quest's budget", async () => {
 			process.env.PI_BUDGET = "delta";
+			process.env.PI_BUDGET_KEYS = KEY;
 			const { keeper, clock, asked } = await onAClock();
 			await keeper.keep(ui().ctx);
 			clock.at += BUDGET_ASKED_AGAIN_MS * 3;
 			await keeper.keep(ui().ctx);
 			expect(asked()).toBe(1);
+		});
+
+		it("is asked again when the session was started on the quest's budget's name without its keys", async () => {
+			process.env.PI_BUDGET = "delta";
+			delete process.env.PI_BUDGET_KEYS;
+			const { keeper, clock, asked } = await onAClock();
+			const seen = ui();
+			await keeper.keep(seen.ctx);
+			await keeper.keep(seen.ctx);
+			clock.at += BUDGET_ASKED_AGAIN_MS;
+			await keeper.keep(seen.ctx);
+			expect(asked(), "the host's key bills a name with no keys").toBe(3);
+			expect(seen.notices).toHaveLength(1);
 		});
 
 		it("keeps no control characters from a provider's words", () => {
@@ -637,7 +658,7 @@ describe("the session's budget", () => {
 			expect(asked()).toBe(1);
 		});
 
-		it("asks once for a burst of keeps, as when a restart resumes dozens of sessions", async () => {
+		it("asks once for a burst of keeps on one session, as its turns start at once", async () => {
 			const { keeper, clock, asked } = await onAClock();
 			await keeper.keep(ui().ctx);
 			clock.at += BUDGET_ASKED_AGAIN_MS;
@@ -945,6 +966,7 @@ describe("the budget in the session's log", () => {
 		const { state, run, top } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });
 		process.env.PI_BUDGET = "delta";
+		process.env.PI_BUDGET_KEYS = KEY;
 		const lines: string[] = [];
 		const notices: string[] = [];
 		const keeper = keepQuestBudget(fakePi(intoTheBranch), state, {

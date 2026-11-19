@@ -368,7 +368,9 @@ shipped and tested.
   system's journal at warning, and in the log's `budget` entry
   (`"unresolved": {"budget": "delta", "missing": ...}`), which
   draws a line in the session. Started on the very budget the quest
-  names, nothing is missed and nothing is said. A missed budget is
+  names, with its keys listed in `PI_BUDGET_KEYS`, nothing is missed
+  and nothing is said; its name alone bills the host's key, so that
+  is a miss. A missed budget is
   asked for again at the next keep, since a restart's load has mostly
   passed by then; a retry that misses waits a minute before the next,
   doubling each miss to 16 minutes, and says nothing new. Each retry

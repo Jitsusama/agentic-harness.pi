@@ -55,6 +55,7 @@ import {
 	type BudgetRecord,
 	type BudgetSettled,
 	budgetDrawnOn,
+	budgetKeysOf,
 	lastRecordOn,
 	recordIn,
 	type UnresolvedBudget,
@@ -211,10 +212,13 @@ export function keepQuestBudget(
 			return;
 		}
 		liftBudget(sessionEnv(ctx), processOverlay(ctx));
-		const inherited = budgetDrawnOn(sessionEnv(ctx).snapshot());
-		// Started on the very budget the quest names, the calls draw on it
-		// still: nothing is missed, so nothing is said or asked again.
-		if (inherited === name) {
+		const started = sessionEnv(ctx).snapshot();
+		const inherited = budgetDrawnOn(started);
+		// Started on the very budget the quest names, with its keys, the
+		// calls draw on it still: nothing is missed, so nothing is said or
+		// asked again. Named without its keys listed, the host's key bills
+		// them (host/engine/kept-requests.ts), so that is a miss.
+		if (inherited === name && carriesItsKeys(started)) {
 			told.delete(name);
 			recordDrawn(pi, ctx);
 			return;
@@ -301,6 +305,14 @@ function recordDrawn(
 			: { v: 1, name, ...(unresolved ? { unresolved } : {}) };
 	pi.appendEntry(BUDGET_ENTRY, record);
 	return true;
+}
+
+/** Whether the budget an environment names comes with every key it listed. */
+function carriesItsKeys(
+	env: Readonly<Record<string, string | undefined>>,
+): boolean {
+	const keys = budgetKeysOf(env);
+	return keys.length > 0 && keys.every((key) => env[key] !== undefined);
 }
 
 /** The wait after a retry missed, given the wait it came after. */
