@@ -182,8 +182,16 @@ export function keepQuestBudget(
 			return;
 		}
 		liftBudget(sessionEnv(ctx), processOverlay(ctx));
+		const inherited = budgetDrawnOn(sessionEnv(ctx).snapshot());
+		// Started on the very budget the quest names, the calls draw on it
+		// still: nothing is missed, so nothing is said.
+		if (inherited === name) {
+			told.delete(name);
+			recordDrawn(pi, ctx);
+			return;
+		}
 		const unresolved = { budget: name, missing: missingFrom(drawing) };
-		const fallback = fallbackOf(budgetDrawnOn(sessionEnv(ctx).snapshot()));
+		const fallback = fallbackOf(inherited);
 		if (recordDrawn(pi, ctx, undefined, unresolved)) {
 			const quest = state.questId ? `quest ${state.questId}` : "the quest";
 			journal(
@@ -270,14 +278,27 @@ function missingFrom(
 }
 
 /**
- * A provider's words, on one line and cut to `SAID_KEPT` characters:
- * a credential program's stderr is the provider's reason, and the
- * journal and the session's log keep it long after the notice.
+ * A provider's words, on one line and cut to `SAID_KEPT` characters
+ * before they are quoted: a credential program's stderr is the
+ * provider's reason, and the journal and the session's log keep it
+ * long after the notice. Its line breaks become spaces first, so what
+ * is kept is the words rather than their escapes.
  */
-function quoted(said: string): string {
+function quoted(said: unknown): string {
+	const line = oneLine(said);
 	const kept =
-		said.length > SAID_KEPT ? `${said.slice(0, SAID_KEPT)} (cut short)` : said;
+		line.length > SAID_KEPT ? `${line.slice(0, SAID_KEPT)} (cut short)` : line;
 	return JSON.stringify(kept);
+}
+
+/**
+ * What a provider said, as one line of text: a reason that isn't a
+ * string, which a provider on the bus may send, is said to be missing
+ * rather than failing the ask that reads it.
+ */
+function oneLine(said: unknown): string {
+	if (typeof said !== "string") return "(no reason given)";
+	return said.replace(/\s+/g, " ").trim();
 }
 
 /** How much of a provider's words the journal and the log keep. */
@@ -330,7 +351,7 @@ export function undrawable(
 	fallback = fallbackOf(null),
 ): string {
 	if (drawing.kind === "unavailable") {
-		return `Budget ${name} can't be drawn on yet (${JSON.stringify(drawing.provider)}): ${drawing.reason} Model calls use ${fallback} until then.`;
+		return `Budget ${name} can't be drawn on yet (${JSON.stringify(drawing.provider)}): ${oneLine(drawing.reason)} Model calls use ${fallback} until then.`;
 	}
 	return drawing.asked.length === 0
 		? `No budget provider is installed, so budget ${name} means nothing yet; model calls use ${fallback}.`
