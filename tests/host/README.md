@@ -8,6 +8,10 @@ host/.
 - `screen/`: mirrors host/screen/.
 - `service/`: socket contract tests.
 - `end-to-end/`: runs a whole host as its own process under a sealed HOME.
+- `fenced/`: whole-host cases that need the agent fence's programs in the
+  system's own profile. The lent builder `pnpm test:host` runs on has none,
+  so they run on a machine with the fence, with `pnpm test:fenced`, before
+  merging a change to the fence or to how the host loads a conversation.
 - `parity/`: records six scenarios on plain pi and on the host, from one
   install with this package's extensions, and fails on any difference beyond
   the host's durable journal. It needs a pi built with the host's patches, and

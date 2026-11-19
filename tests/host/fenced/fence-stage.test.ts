@@ -16,7 +16,10 @@
  * session, and the host's own command line names none. The proof reads
  * the kernel's word, never a socket or a path the fence hides. Runs on
  * the host's pi, as support/host-pi.ts finds it, and skipped saying why
- * without one, off Linux, or where the fence can't be laid.
+ * without one, off Linux, or where the fence can't be laid. It stays out
+ * of `pnpm test:host`, whose lent builder has no fence in its system's
+ * profile, so every run there would skip it and fail (18 Nov); run it
+ * where the fence is, with `pnpm test:fenced`.
  */
 
 import { spawnSync } from "node:child_process";
@@ -27,7 +30,10 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { listForStage } from "../../../lib/internal/fence/fence-stage.ts";
 import { sandboxFor } from "../../../lib/internal/sandbox/sandbox.ts";
 import { sessionAddress } from "../../../lib/mesh/address.ts";
-import { type HostProcess, startHost } from "./support/host-process.ts";
+import {
+	type HostProcess,
+	startHost,
+} from "../end-to-end/support/host-process.ts";
 import {
 	onHostPi,
 	ROUND_TRIP_MS,
@@ -36,11 +42,14 @@ import {
 	toolAnswer,
 	turnEnded,
 	untilAnswered,
-} from "./support/hosted-case.ts";
-import { FENCED, SCRIPTED } from "./support/scripted-model.ts";
-import { type Seal, seal } from "./support/seal.ts";
+} from "../end-to-end/support/hosted-case.ts";
+import { FENCED, SCRIPTED } from "../end-to-end/support/scripted-model.ts";
+import { type Seal, seal } from "../end-to-end/support/seal.ts";
 
-const PI_ENGINE = resolve(import.meta.dirname, "support/pi-engine.ts");
+const PI_ENGINE = resolve(
+	import.meta.dirname,
+	"../end-to-end/support/pi-engine.ts",
+);
 
 /** The kernel's line on whether a process may gain privileges. */
 const NO_NEW_PRIVS = /^NoNewPrivs:\s*(\d)$/m;
