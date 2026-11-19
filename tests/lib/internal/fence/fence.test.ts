@@ -173,8 +173,9 @@ describe("what a session asking for the fence is given", () => {
 		const base = realpathSync(mkdtempSync(join(tmpdir(), "fence-dev-")));
 		const home = join(base, "home");
 		const runtimeDir = join(base, "run");
+		// The person's runtime folder is theirs alone, or no copies are made.
 		mkdirSync(join(home, ".config", "dev"), { recursive: true });
-		mkdirSync(runtimeDir);
+		mkdirSync(runtimeDir, { mode: 0o700 });
 		try {
 			const text =
 				wrapFor(

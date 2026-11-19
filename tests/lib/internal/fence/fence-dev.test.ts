@@ -3,12 +3,14 @@
  * which a fenced `dev up` writes in place of the person's.
  */
 
+import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	statSync,
@@ -22,12 +24,34 @@ import {
 	type DevMaker,
 	fenceDevCopies,
 	gitGlobalIn,
+	running,
 } from "../../../../lib/internal/fence/fence-dev.ts";
 
-/** A pi process with the id `pid`, which sees running only the processes `running` names. */
-function maker(pid: number, running: readonly number[] = []): DevMaker {
-	return { made: new Map(), pid, alive: (other) => running.includes(other) };
+/** What each case's pi has said of copies it couldn't make. */
+let told: string[] = [];
+
+/**
+ * A pi process with the id `pid`, which sees running only the processes
+ * `running` names, in the pid namespace `ns`, hiding `hidden`.
+ */
+function maker(
+	pid: number,
+	running: readonly number[] = [],
+	ns = "pid:[1]",
+	hidden: readonly string[] = [],
+): DevMaker {
+	return {
+		made: new Map(),
+		pid,
+		alive: (other) => running.includes(other),
+		ns,
+		hidden,
+		tell: (why) => told.push(why),
+	};
 }
+
+/** Whether this process is root, which no folder's mode stops. */
+const root = process.getuid?.() === 0;
 
 describe("the session's copies of dev's and git's settings", () => {
 	let base: string;
@@ -46,12 +70,13 @@ describe("the session's copies of dev's and git's settings", () => {
 
 	beforeEach(() => {
 		pi = maker(100);
+		told = [];
 		base = mkdtempSync(join(tmpdir(), "fd-"));
 		home = join(base, "home");
 		runtime = join(base, "run");
 		sessions = join(runtime, "pi-fence", "dev");
 		mkdirSync(join(home, ".config", "dev"), { recursive: true });
-		mkdirSync(runtime);
+		mkdirSync(runtime, { mode: 0o700 });
 		writeFileSync(join(home, ".config", "dev", "gitconfig"), "[credential]\n");
 		writeFileSync(join(base, "elsewhere"), "[user]\n");
 		symlinkSync(
@@ -121,6 +146,92 @@ describe("the session's copies of dev's and git's settings", () => {
 		).toBe("[credential] written\n");
 	});
 
+	it("makes a fresh set once the person's files change, leaving the set a running command holds", () => {
+		const copies = copiesOf("s-1");
+		if (!copies) throw new Error("no copies were made");
+		writeFileSync(join(copies.dev, "gitconfig"), "[credential] written\n");
+		writeFileSync(join(home, ".gitconfig"), "[core]\n\teditor = nano\n");
+		const after = copiesOf("s-1");
+		if (!after) throw new Error("no copies were made");
+		expect(after.git, "a set of its own").not.toBe(copies.git);
+		expect(readFileSync(gitGlobalIn(after.git), "utf8")).toContain("nano");
+		expect(
+			readFileSync(join(copies.dev, "gitconfig"), "utf8"),
+			"the set a command may still hold is left as it wrote it",
+		).toBe("[credential] written\n");
+		writeFileSync(join(home, ".config", "dev", "config"), "[dev]\n");
+		const again = copiesOf("s-1");
+		expect(again?.dev, "a new file in dev's folder").not.toBe(after.dev);
+		expect(copiesOf("s-1"), "and kept while nothing changes").toEqual(again);
+
+		pi = maker(200, [], "pid:[1]");
+		copiesOf("s-1");
+		expect(
+			readdirSync(sessions).sort(),
+			"every set of the ended pi goes",
+		).toEqual(["s-1.200"]);
+	});
+
+	it("makes the copies again where this pi's were removed, or a stale folder holds its id", () => {
+		mkdirSync(join(sessions, "s-1.100", "stale"), { recursive: true });
+		const copies = copiesOf("s-1");
+		if (!copies) throw new Error("no copies were made");
+		expect(existsSync(join(sessions, "s-1.100", "stale"))).toBe(false);
+		rmSync(join(sessions, "s-1.100"), { recursive: true });
+		expect(copiesOf("s-1")).toBeDefined();
+		expect(existsSync(join(sessions, "s-1.100", "dev", "gitconfig"))).toBe(
+			true,
+		);
+	});
+
+	it("never removes copies made in another pid namespace, whose processes it can't see", () => {
+		copiesOf("s-1");
+		// A pi-fence inside a fence sees none of the processes outside it.
+		pi = maker(7, [], "pid:[2]");
+		copiesOf("s-1");
+		expect(existsSync(join(sessions, "s-1.100", "git", "config"))).toBe(true);
+	});
+
+	it.skipIf(root)(
+		"makes its copies though an ended pi's folder can't be removed",
+		() => {
+			mkdirSync(join(sessions, "s-2.300", "held"), { recursive: true });
+			writeFileSync(join(sessions, "s-2.300", "held", "file"), "");
+			writeFileSync(join(sessions, "s-2.300", "ns"), "pid:[1]");
+			chmodSync(join(sessions, "s-2.300", "held"), 0o500);
+			try {
+				expect(copiesOf("s-1")).toBeDefined();
+			} finally {
+				chmodSync(join(sessions, "s-2.300", "held"), 0o700);
+			}
+		},
+	);
+
+	it("copies nothing the fence hides from dev's folder", () => {
+		mkdirSync(join(home, ".config", "dev", "keys"));
+		writeFileSync(join(home, ".config", "dev", "keys", "k"), "secret\n");
+		writeFileSync(join(home, ".config", "dev", "token"), "secret\n");
+		pi = maker(100, [], "pid:[1]", [".config/dev/keys/", ".config/dev/token"]);
+		const copies = copiesOf("s-1");
+		if (!copies) throw new Error("no copies were made");
+		expect(existsSync(join(copies.dev, "keys"))).toBe(false);
+		expect(existsSync(join(copies.dev, "token"))).toBe(false);
+		expect(existsSync(join(copies.dev, "gitconfig"))).toBe(true);
+	});
+
+	it("makes none in a runtime folder others can reach, and says why", () => {
+		chmodSync(runtime, 0o755);
+		expect(copiesOf("s-1")).toBeUndefined();
+		expect(told).toHaveLength(1);
+		expect(told[0]).toContain(runtime);
+	});
+
+	it("tells a process that has ended from one still running", () => {
+		expect(running(process.pid)).toBe(true);
+		const ended = spawnSync("true").pid;
+		expect(running(ended)).toBe(false);
+	});
+
 	it("removes the copies of a pi that has ended, and nothing else there", () => {
 		copiesOf("s-1");
 		pi = maker(200, [300]);
@@ -178,6 +289,11 @@ describe("the session's copies of dev's and git's settings", () => {
 				"\tpath = ~/tilde.inc",
 				'[includeIf "gitdir:~/work/"]',
 				"\tpath = work.inc",
+				"\tpath = commented.inc ; a note",
+				'\tpath = "sp ace.inc" # a note',
+				"\tpath = %(prefix)/etc/kept.inc",
+				'[includeIf "gitdir:./src/"] path = here.inc',
+				'[includeIf "gitdir/i:./Src/"]',
 				"[core]",
 				"\tpath = not-an-include",
 				"",
@@ -194,6 +310,11 @@ describe("the session's copies of dev's and git's settings", () => {
 				"\tpath = ~/tilde.inc",
 				'[includeIf "gitdir:~/work/"]',
 				`\tpath = "${join(home, "work.inc")}"`,
+				`\tpath = "${join(home, "commented.inc")}"`,
+				`\tpath = "${join(home, "sp ace.inc")}"`,
+				"\tpath = %(prefix)/etc/kept.inc",
+				`[includeIf "gitdir:${home}/src/"] path = "${join(home, "here.inc")}"`,
+				`[includeIf "gitdir/i:${home}/Src/"]`,
 				"[core]",
 				"\tpath = not-an-include",
 				"",
@@ -236,15 +357,18 @@ describe("the session's copies of dev's and git's settings", () => {
 		}
 	});
 
-	it("tries no more once the copies couldn't be made, so each command runs as before", () => {
-		mkdirSync(join(runtime, "pi-fence"), { mode: 0o500 });
-		expect(copiesOf("s-1")).toBeUndefined();
-		chmodSync(join(runtime, "pi-fence"), 0o700);
-		expect(
-			copiesOf("s-1"),
-			"a later command in the same pi tried again",
-		).toBeUndefined();
-		pi = maker(200);
-		expect(copiesOf("s-1"), "the next pi tries afresh").toBeDefined();
-	});
+	it.skipIf(root)(
+		"tries no more once the copies couldn't be made, so each command runs as before",
+		() => {
+			mkdirSync(join(runtime, "pi-fence"), { mode: 0o500 });
+			expect(copiesOf("s-1")).toBeUndefined();
+			chmodSync(join(runtime, "pi-fence"), 0o700);
+			expect(
+				copiesOf("s-1"),
+				"a later command in the same pi tried again",
+			).toBeUndefined();
+			pi = maker(200);
+			expect(copiesOf("s-1"), "the next pi tries afresh").toBeDefined();
+		},
+	);
 });

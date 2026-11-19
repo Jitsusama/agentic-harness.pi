@@ -9,24 +9,29 @@
  * when its fence is laid, bound writable in their place: dev's folder
  * over `~/.config/dev`, and git's global file through
  * `GIT_CONFIG_GLOBAL`, in a folder of its own, since git writes it by a
- * lock file beside it and a rename.
+ * lock file beside it and a rename. Nothing the fence hides is copied.
  *
  * Each pi process makes its own, at the session's first fenced command,
- * in a folder named for the session and the process, and keeps them for
- * the rest of its life, since a command still running, a `dev up` in the
- * background, holds them bound. So a second process laying a fence for
- * the same session, `pi-fence` or another pi, never touches a running
- * command's copies, and the next pi starts from the person's files
- * again. A folder whose process has ended is removed by the next one
- * made, and the runtime folder goes at logout.
+ * in a folder named for the session and the process, and keeps them
+ * while the person's files stay as they were, since a command still
+ * running, a `dev up` in the background, holds them bound. Once the
+ * person's files change, the next command gets a fresh set in a folder
+ * of its own, leaving the last one to whatever holds it. So a second
+ * process laying a fence for the same session, `pi-fence` or another pi,
+ * never touches a running command's copies, and the next pi starts from
+ * the person's files again. A folder whose process has ended is removed
+ * by the next one made, but only by a process in the same pid namespace,
+ * which each folder names, since one in another, a `pi-fence` inside a
+ * fence, sees none of the processes outside it; the runtime folder goes
+ * at logout. None is made in a runtime folder others can reach.
  *
  * `GIT_CONFIG_GLOBAL` takes the place of both global files git reads,
  * `~/.gitconfig` and `$XDG_CONFIG_HOME/git/config`, so git's copy
  * includes the second by its path ahead of the first's settings, in the
  * order git reads them, and an include the first names by a relative
- * path is named from the home folder, where git would have found it.
- * `~/.gitconfig` includes dev's settings by their path, which inside
- * leads to the copy.
+ * path, or an `includeIf` whose `gitdir` starts `./`, is named from the
+ * home folder, where git would have found it. `~/.gitconfig` includes
+ * dev's settings by their path, which inside leads to the copy.
  *
  * `XDG_CONFIG_HOME` is never moved instead: dev's installer carries it
  * into the units it writes when it differs from the default, so a moved
@@ -42,11 +47,15 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	readlinkSync,
 	rmSync,
+	statSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { PLAIN_SESSION } from "./fence-github.ts";
+import { FENCE_HIDDEN } from "./fence-hidden.ts";
 
 /** dev's settings folder, as a path from the home folder. */
 export const DEV_SETTINGS = join(".config", "dev");
@@ -57,15 +66,24 @@ const GIT_GLOBAL = ".gitconfig";
 /** pi's folder in the runtime folder, and the sessions' copies in it. */
 const FOLDER = join("pi-fence", "dev");
 
-/** A copies folder's name: the session's id, a dot, and its process's id. */
-const OWNED = /^[A-Za-z0-9_-]{1,64}\.(\d+)$/;
+/**
+ * A copies folder's name: the session's id, a dot, its process's id, and
+ * for each set after the first, a dot and the set's number.
+ */
+const OWNED = /^[A-Za-z0-9_-]{1,64}\.(\d+)(?:\.\d+)?$/;
 
-/** A section's opening line in git's settings, and whether it is an include. */
-const SECTION = /^\s*\[([^\]]*)\]/;
+/** The file in each copies folder naming the pid namespace that made it. */
+const NAMESPACE = "ns";
+
+/** A section's opening line in git's settings: its name, and what follows it. */
+const SECTION = /^(\s*)\[((?:[^\]"\\]|"(?:[^"\\]|\\.)*")*)\](.*)$/;
 const INCLUDE = /^(include|includeif)\b/i;
 
-/** An include's path line: what comes before the value, and the value. */
-const PATH_LINE = /^(\s*path\s*=\s*)(.*?)\s*$/i;
+/** An includeIf on a `gitdir` the file's own folder starts, `./`. */
+const HERE = /^(includeif\s+")(gitdir(?:\/i)?:)\.\/((?:[^"\\]|\\.)*)"$/i;
+
+/** An include's path setting: what comes before the value, and the value. */
+const PATH_SETTING = /^(\s*path\s*=\s*)(.*)$/i;
 
 /** A session's copies: dev's settings folder, and the folder holding git's global file. */
 export interface DevCopies {
@@ -74,14 +92,29 @@ export interface DevCopies {
 }
 
 /**
- * The pi process making copies: the folders it has made, or `null` for
- * one it couldn't make, its id, and how it tells whether another
- * process is still running.
+ * What a pi process has made for a session: its copies, or `null` where
+ * they couldn't be made; what the person's files were when it made them;
+ * and which set they are.
+ */
+export interface DevMade {
+	readonly copies: DevCopies | null;
+	readonly source: string;
+	readonly generation: number;
+}
+
+/**
+ * The pi process making copies: what it has made for each session, its
+ * id, how it tells whether another process is still running, its pid
+ * namespace (empty where it can't be read), what the fence hides, as
+ * paths from the home folder, and how it says why it made none.
  */
 export interface DevMaker {
-	readonly made: Map<string, DevCopies | null>;
+	readonly made: Map<string, DevMade>;
 	readonly pid: number;
 	readonly alive: (pid: number) => boolean;
+	readonly ns: string;
+	readonly hidden: readonly string[];
+	readonly tell: (why: string) => void;
 }
 
 /** This pi process, as it makes copies. */
@@ -89,6 +122,9 @@ const THIS_PI: DevMaker = {
 	made: new Map(),
 	pid: process.pid,
 	alive: running,
+	ns: pidNamespace(),
+	hidden: FENCE_HIDDEN.home,
+	tell: (why) => process.emitWarning(`pi-fence: ${why}`),
 };
 
 /** The global settings file in a session's git folder, for `GIT_CONFIG_GLOBAL`. */
@@ -99,7 +135,8 @@ export function gitGlobalIn(folder: string): string {
 /**
  * The session `session`'s copies of dev's and git's settings from the
  * home folder `home`, in pi's folder in the runtime folder `env` names:
- * made the first time this pi asks and kept after; or nothing without a
+ * made the first time this pi asks, kept while the person's files stay
+ * as they were, and made afresh once they change; or nothing without a
  * runtime folder, a session id naming one folder, or dev's settings, or
  * when they can't be made, which isn't tried again, so the command runs
  * as it did before, with both read-only.
@@ -113,14 +150,67 @@ export function fenceDevCopies(
 	const runtimeDir = env.XDG_RUNTIME_DIR;
 	if (!runtimeDir || !session || !PLAIN_SESSION.test(session)) return undefined;
 	if (!isFolder(join(home, DEV_SETTINGS))) return undefined;
-	const folder = join(runtimeDir, FOLDER, `${session}.${pi.pid}`);
-	const kept = pi.made.get(folder);
-	if (kept === null) return undefined;
-	if (kept && isFolder(kept.dev) && isFolder(kept.git)) return kept;
+	const kept = pi.made.get(session);
+	if (kept && kept.copies === null) return undefined;
 	const configHome = env.XDG_CONFIG_HOME || join(home, ".config");
+	const source = sourceOf(home, configHome);
+	if (
+		kept?.copies &&
+		kept.source === source &&
+		isFolder(kept.copies.dev) &&
+		isFolder(kept.copies.git)
+	)
+		return kept.copies;
+	const generation = !kept
+		? 0
+		: kept.source === source
+			? kept.generation
+			: kept.generation + 1;
+	const name = `${session}.${pi.pid}`;
+	const folder = join(
+		runtimeDir,
+		FOLDER,
+		generation === 0 ? name : `${name}.${generation}`,
+	);
 	const copies = freshCopies(home, configHome, runtimeDir, folder, pi);
-	pi.made.set(folder, copies ?? null);
+	pi.made.set(session, { copies: copies ?? null, source, generation });
 	return copies;
+}
+
+/**
+ * What the person's files are now, as each one's identity, size and
+ * times: git's two global files and everything in dev's folder, so a
+ * change to any of them reads differently.
+ */
+function sourceOf(home: string, configHome: string): string {
+	const dev = join(home, DEV_SETTINGS);
+	let inDev: string[] = [];
+	try {
+		inDev = readdirSync(dev, { recursive: true, encoding: "utf8" }).sort();
+	} catch {
+		// Read as gone: the copy then fails and says nothing is made.
+	}
+	return [
+		join(home, GIT_GLOBAL),
+		join(configHome, "git", "config"),
+		...inDev.map((entry) => join(dev, entry)),
+	]
+		.map(
+			(path) =>
+				`${path}\0${statOf(path, lstatSync)}\0${statOf(path, statSync)}`,
+		)
+		.join("\n");
+}
+
+/** `path`'s identity, size and times as `stat` reads them, or `-` where it can't. */
+function statOf(path: string, stat: typeof lstatSync): string {
+	try {
+		const { ino, size, mode, mtimeMs, ctimeMs } = stat(path);
+		return `${ino}:${size}:${mode}:${mtimeMs}:${ctimeMs}`;
+	} catch {
+		// Gone, or a link leading nowhere.
+		return "-";
+	}
 }
 
 /**
@@ -136,12 +226,20 @@ function freshCopies(
 	pi: DevMaker,
 ): DevCopies | undefined {
 	const sessions = join(runtimeDir, FOLDER);
+	// A runtime folder another account can reach would let it read the
+	// copies' settings, or swap pi's folders as they're made.
+	if (!isPrivateFolder(runtimeDir)) {
+		pi.tell(
+			`${runtimeDir} isn't a folder for this account alone, so dev's settings stay read-only in the fence`,
+		);
+		return undefined;
+	}
 	try {
 		// Only pi's folders are made, never the runtime folder (fence-copy.ts
 		// says why), and each is checked to be the person's own folder, not
 		// a link a command left for the copy to follow.
 		for (const made of [join(runtimeDir, "pi-fence"), sessions]) {
-			if (!existsSync(made)) mkdirSync(made, { mode: 0o700 });
+			makeFolder(made);
 			if (!isOwnFolder(made)) return undefined;
 		}
 		removeEnded(sessions, pi);
@@ -151,26 +249,63 @@ function freshCopies(
 			rmSync(folder, { recursive: true, force: true });
 		}
 		mkdirSync(folder, { mode: 0o700 });
+		writeFileSync(join(folder, NAMESPACE), pi.ns, { mode: 0o600 });
 		const dev = join(folder, "dev");
 		const git = join(folder, "git");
 		// A link stays a link, leading where the person's does, so a file
-		// the fence hides stays hidden rather than copied where it reads.
-		cpSync(join(home, DEV_SETTINGS), dev, { recursive: true });
+		// the fence hides stays hidden rather than copied where it reads;
+		// what the fence hides in dev's folder isn't copied at all.
+		const hidden = hiddenIn(pi.hidden);
+		cpSync(join(home, DEV_SETTINGS), dev, {
+			recursive: true,
+			filter: (from) => !hidden(relative(home, from), isFolder(from)),
+		});
 		chmodSync(dev, 0o700);
 		mkdirSync(git, { mode: 0o700 });
 		writeFileSync(gitGlobalIn(git), globalSettings(home, configHome), {
 			mode: 0o600,
 		});
 		return { dev, git };
-	} catch {
+	} catch (error) {
 		// No copies to bind: dev's settings stay read-only, as before.
+		const said = error instanceof Error ? error.message : String(error);
+		pi.tell(
+			`dev's settings couldn't be copied (${said}), so they stay read-only in the fence`,
+		);
 		return undefined;
 	}
 }
 
 /**
- * Removes each folder in `sessions` whose process has ended; a link
- * there is removed as a link, never followed.
+ * Whether a path from the home folder is one the fence hides, given the
+ * fence's list `hidden`: a path ending in `/` hides a folder and all in it.
+ */
+function hiddenIn(
+	hidden: readonly string[],
+): (path: string, folder: boolean) => boolean {
+	return (path, folder) =>
+		hidden.some((entry) =>
+			entry.endsWith("/")
+				? (folder && `${path}/` === entry) || path.startsWith(entry)
+				: path === entry,
+		);
+}
+
+/** Makes the folder `path` for this account alone, where no one has yet. */
+function makeFolder(path: string): void {
+	try {
+		mkdirSync(path, { mode: 0o700 });
+	} catch (error) {
+		// Another pi made it first, which isOwnFolder then judges.
+		if (!(error instanceof Error && "code" in error && error.code === "EEXIST"))
+			throw error;
+	}
+}
+
+/**
+ * Removes each folder in `sessions` whose process has ended, where this
+ * process's pid namespace made it; a link there is removed as a link,
+ * never followed. One that can't be removed is left for the next.
  */
 function removeEnded(sessions: string, pi: DevMaker): void {
 	for (const name of readdirSync(sessions)) {
@@ -178,7 +313,34 @@ function removeEnded(sessions: string, pi: DevMaker): void {
 		if (owner === undefined) continue;
 		const pid = Number(owner);
 		if (pid === pi.pid || pi.alive(pid)) continue;
-		rmSync(join(sessions, name), { recursive: true, force: true });
+		const path = join(sessions, name);
+		try {
+			if (isLink(path)) unlinkSync(path);
+			else if (pi.ns !== "" && namespaceOf(path) === pi.ns)
+				rmSync(path, { recursive: true, force: true });
+		} catch {
+			// Held by something this process can't remove; the next one tries.
+		}
+	}
+}
+
+/** The pid namespace a copies folder names, or nothing where it names none. */
+function namespaceOf(folder: string): string | undefined {
+	try {
+		return readFileSync(join(folder, NAMESPACE), "utf8");
+	} catch {
+		// Not made by this code, or not readable: never removed.
+		return undefined;
+	}
+}
+
+/** This process's pid namespace, or empty where it can't be read. */
+function pidNamespace(): string {
+	try {
+		return readlinkSync("/proc/self/ns/pid");
+	} catch {
+		// No /proc, as on a Mac: nothing is removed by namespace.
+		return "";
 	}
 }
 
@@ -196,32 +358,111 @@ function globalSettings(home: string, configHome: string): string {
 	].join("");
 }
 
-/** git settings `text`, read from `home`, with its includes' relative paths named from there. */
+/**
+ * git settings `text`, read from `home`, with its includes' relative
+ * paths, and the `gitdir` an `includeIf` names from the file's own
+ * folder, named from there.
+ */
 function fromHome(text: string, home: string): string {
 	let including = false;
 	return text
 		.split("\n")
 		.map((line) => {
-			const section = SECTION.exec(line)?.[1];
-			if (section !== undefined) including = INCLUDE.test(section.trim());
-			const path = including ? PATH_LINE.exec(line) : null;
-			if (!path) return line;
-			const [, before = "", raw = ""] = path;
-			const value = raw.replace(/^"(.*)"$/, "$1");
-			if (value === "" || isAbsolute(value) || value.startsWith("~"))
-				return line;
-			return `${before}${quotedValue(join(home, value))}`;
+			const section = SECTION.exec(line);
+			if (!section) return including ? withPath(line, home) : line;
+			const [, indent = "", name = "", rest = ""] = section;
+			including = INCLUDE.test(name.trim());
+			const header = `${indent}[${hereFromHome(name, home)}]`;
+			return `${header}${including ? withPath(rest, home) : rest}`;
 		})
 		.join("\n");
 }
 
+/** A section's name, with an `includeIf`'s `gitdir:./` named from `home`. */
+function hereFromHome(name: string, home: string): string {
+	const here = HERE.exec(name.trim());
+	if (!here) return name;
+	const [, opening = "", kind = "", raw = ""] = here;
+	const pattern = raw.replace(/\\(.)/g, "$1");
+	let path = join(home, pattern);
+	if ((pattern === "" || pattern.endsWith("/")) && !path.endsWith("/"))
+		path += "/";
+	return `${opening}${kind}${escaped(path)}"`;
+}
+
+/**
+ * The setting `line` with a relative include path named from `home`;
+ * an absolute path, one from `~`, one git expands, `%(prefix)`, an empty
+ * one, or one this can't read, is left as it was.
+ */
+function withPath(line: string, home: string): string {
+	const setting = PATH_SETTING.exec(line);
+	if (!setting) return line;
+	const [, before = "", raw = ""] = setting;
+	const value = gitValue(raw);
+	if (
+		value === undefined ||
+		value === "" ||
+		isAbsolute(value) ||
+		value.startsWith("~") ||
+		value.startsWith("%(")
+	)
+		return line;
+	return `${before}${quotedValue(join(home, value))}`;
+}
+
+/**
+ * A git settings value as git reads it from `raw`: quotes joined, the
+ * escapes git knows turned into what they stand for, an unquoted `;` or
+ * `#` ending it, and unquoted space at its end trimmed; or nothing where
+ * it runs on to the next line, or an escape git refuses.
+ */
+function gitValue(raw: string): string | undefined {
+	const ESCAPES: Record<string, string> = {
+		'"': '"',
+		"\\": "\\",
+		n: "\n",
+		t: "\t",
+		b: "\b",
+	};
+	let value = "";
+	let kept = 0;
+	let quoted = false;
+	for (let at = 0; at < raw.length; at++) {
+		const char = raw.charAt(at);
+		if (char === "\\") {
+			const next = raw.charAt(at + 1);
+			const meant = ESCAPES[next];
+			if (meant === undefined) return undefined;
+			value += meant;
+			kept = value.length;
+			at++;
+		} else if (char === '"') {
+			quoted = !quoted;
+			kept = value.length;
+		} else if (!quoted && (char === ";" || char === "#")) {
+			break;
+		} else {
+			value += char;
+			if (quoted || !/\s/.test(char)) kept = value.length;
+		}
+	}
+	if (quoted) return undefined;
+	return value.slice(0, kept);
+}
+
 /** `value` as a quoted git settings value. */
 function quotedValue(value: string): string {
-	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+	return `"${escaped(value)}"`;
+}
+
+/** `value` with what ends or escapes a quoted git value escaped. */
+function escaped(value: string): string {
+	return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 /** Whether the process `pid` is still running, as far as this one can tell. */
-function running(pid: number): boolean {
+export function running(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return true;
@@ -247,6 +488,16 @@ function isOwnFolder(path: string): boolean {
 		const stat = lstatSync(path);
 		const uid = process.getuid?.();
 		return stat.isDirectory() && (uid === undefined || stat.uid === uid);
+	} catch {
+		// Not there.
+		return false;
+	}
+}
+
+/** Whether `path` is this account's own folder, which no other may reach. */
+function isPrivateFolder(path: string): boolean {
+	try {
+		return isOwnFolder(path) && (lstatSync(path).mode & 0o077) === 0;
 	} catch {
 		// Not there.
 		return false;
