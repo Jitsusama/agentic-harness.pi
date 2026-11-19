@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import {
 	chmodSync,
 	existsSync,
@@ -11,8 +12,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { keepQuestBudget } from "../../../../extensions/quest-workflow/budget.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { registerBudgetProvider } from "../../../../lib/budget/provider.ts";
+import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
 import {
 	FIRST_WORDS_VARIABLE,
 	firstWordsDir,
@@ -564,5 +568,68 @@ describe("spawn through the desktop's launcher", () => {
 			existsSync(firstWordsDir()),
 			`${firstWordsDir()} is never made`,
 		).toBe(false);
+	});
+});
+
+describe("a spawn where a budget's work is", () => {
+	/** Host a provider on `state` that names delta for work in tmpRoot. */
+	function placeDelta(state: ReturnType<typeof createQuestState>) {
+		const events = new EventEmitter();
+		const bus = {
+			on: (channel: string, handler: (data: unknown) => void) => {
+				events.on(channel, handler);
+				return () => events.off(channel, handler);
+			},
+			emit: (channel: string, data?: unknown) => events.emit(channel, data),
+		};
+		keepQuestBudget(fakePi({ events: bus }), state);
+		registerBudgetProvider(bus, {
+			id: "places",
+			precedence: 0,
+			resolve: async () => ({ kind: "unknown" }),
+			budgetFor: async (folder) => (folder === tmpRoot ? "delta" : undefined),
+		});
+	}
+
+	it("names the budget before the session starts, and opens by saying so", async () => {
+		const { state, id } = await quest();
+		placeDelta(state);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		const readme = readFileSync(
+			join(state.questsRoot, id, "README.md"),
+			"utf8",
+		);
+		expect(parseQuestFrontMatter(readme)?.frontMatter._extra?.budget).toBe(
+			"delta",
+		);
+		expect(result.message).toMatch(/^Budget delta named, which places says/);
+		expect(handed()).toBeDefined();
+	});
+
+	it("names nothing on a dry run", async () => {
+		const { state, id } = await quest();
+		placeDelta(state);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			dryRun: true,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		const readme = readFileSync(
+			join(state.questsRoot, id, "README.md"),
+			"utf8",
+		);
+		expect(parseQuestFrontMatter(readme)?.frontMatter._extra?.budget).toBe(
+			undefined,
+		);
+		expect(result.message).not.toContain("Budget delta");
 	});
 });

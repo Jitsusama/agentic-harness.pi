@@ -71,6 +71,7 @@ import {
 } from "../lookup.ts";
 import { livePeers, peersSaid } from "../peers.ts";
 import { startedWith, trackSession } from "../session-registry.ts";
+import { budgetFromFolder, takenFromFolder } from "./budget.ts";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -272,6 +273,9 @@ export async function create(
 				)
 			: undefined;
 	if (parentless) return refuse(parentless);
+	// Born drawing on the budget its folder's work draws on, when nothing
+	// above it names one, so it never starts on the person's own key.
+	const folderBudget = await budgetFromFolder(state, parent, ctx.cwd);
 
 	// The realm it was made in, so a reader across realms can tell: its
 	// parent's when the parent has one, since that is where a reader
@@ -292,6 +296,7 @@ export async function create(
 		updated: nowYmd(),
 		aliases: seededAlias ? [seededAlias] : [],
 		sessions: [],
+		...(folderBudget ? { _extra: { budget: folderBudget.name } } : {}),
 	};
 	const summaryParts: string[] = [];
 	if (params.note?.trim()) summaryParts.push(params.note.trim());
@@ -346,8 +351,20 @@ export async function create(
 				: `Created from ${seededUrl}.`,
 		);
 	}
-	const made = `Created ${kind} ${id} at ${displayPath(path)}`;
-	const details = { id, path, kind };
+	if (folderBudget && ctx.cwd) {
+		appendJourneyByPath(dir, takenFromFolder(folderBudget, ctx.cwd));
+	}
+	const made = `Created ${kind} ${id} at ${displayPath(path)}${
+		folderBudget
+			? `, drawing on budget ${folderBudget.name}, which ${folderBudget.provider} says this folder's work draws on (\`quest budget\` names another)`
+			: ""
+	}`;
+	const details = {
+		id,
+		path,
+		kind,
+		...(folderBudget ? { budget: folderBudget.name } : {}),
+	};
 	// A session already on a quest is usually filing a follow-up or a
 	// subquest for later, or for another session, so it stays on its
 	// own work. Loading it moved the session off its quest and recorded

@@ -7,6 +7,7 @@
 import { homedir, hostname } from "node:os";
 import { resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { FolderBudget } from "../../../lib/budget/host.ts";
 import { sessionEnv } from "../../../lib/core/session/index.ts";
 import { STAGE_VARIABLE } from "../../../lib/internal/fence/fence-stage.ts";
 import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
@@ -31,11 +32,7 @@ import {
 	leaveFirstWords,
 	spawnedWords,
 } from "../../../lib/internal/quest/sessions/first-words.ts";
-import {
-	deriveLiveness,
-	formatRelativeAge,
-	type SessionView,
-} from "../../../lib/internal/quest/sessions/session-liveness.ts";
+import { deriveLiveness } from "../../../lib/internal/quest/sessions/session-liveness.ts";
 import { hostHold } from "../../../lib/internal/session/host-holds.ts";
 import { uuidv7 } from "../../../lib/internal/session/uuidv7.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
@@ -70,6 +67,7 @@ import {
 	windowPlaceFor,
 } from "../window-place.ts";
 import { addressOf } from "./address.ts";
+import { nameBudgetFromFolder } from "./budget.ts";
 import { needsOf } from "./needs.ts";
 import {
 	currentSessionId,
@@ -78,6 +76,12 @@ import {
 	type QuestToolParams,
 	refuse,
 } from "./shared.ts";
+import {
+	carryingModel,
+	modelOf,
+	resolveSpawnCommand,
+	resumeMessage,
+} from "./spawn-command.ts";
 import {
 	agentCommand,
 	isThisMachine,
@@ -292,84 +296,30 @@ export function sessionRename(
 }
 
 /**
- * Decide the command the spawned terminal runs. An explicit command
- * wins outright. Otherwise, when exactly one resumable session was
- * picked, resume it with `pi --session <id>`; with no resumable
- * session (none or several), start a fresh `pi`.
+ * Give a quest a session of its own, first naming the budget its folder
+ * draws on when nothing above it names one, so the session starts on
+ * it; the answer opens by saying so.
  */
-export function resolveSpawnCommand(
-	explicitCommand: string | undefined,
-	resume: ReturnType<typeof pickResumeSession>,
-): { command: string; resumedSessionId?: string } {
-	if (explicitCommand?.trim()) return { command: explicitCommand.trim() };
-	if (resume && "id" in resume) {
-		return {
-			command: `pi --session ${resume.id}`,
-			resumedSessionId: resume.id,
-		};
-	}
-	return { command: "pi" };
-}
-
-/**
- * The model a session runs on, as `pi --model` takes it: provider, id
- * and thinking level, as `anthropic/claude-opus-5-5:high`. Undefined
- * when the session has no model yet.
- */
-export function modelOf(
-	ctx: Pick<ExtensionContext, "model" | "thinkingLevel">,
-): string | undefined {
-	const { model, thinkingLevel } = ctx;
-	if (!model) return undefined;
-	const named = `${model.provider}/${model.id}`;
-	return thinkingLevel ? `${named}:${thinkingLevel}` : named;
-}
-
-/**
- * The command a spawn runs with the model of the session asking for it,
- * so the new one runs on the same model rather than on whatever pi's
- * default says: on 9 November a launcher pi is wrapped in changed that
- * default, and every session spawned after ran on another model. A
- * command already naming a model keeps its own.
- */
-export function carryingModel(
-	command: string,
-	model: string | undefined,
-): string {
-	if (!model || /(^| )--model( |=)/.test(command)) return command;
-	return `${command} --model ${model}`;
-}
-
-/**
- * The resume fragment appended to the spawn message. A live resume
- * reads plainly; an idle resume is flagged as such and carries its
- * last-active age so a day-old session is not silently presented as
- * current. Several live sessions report the count; nothing
- * resumable yields no fragment.
- */
-export function resumeMessage(
-	resume: ReturnType<typeof pickResumeSession>,
-	sessions: SessionView[],
-	now: Date,
-): string | undefined {
-	if (resume && "id" in resume) {
-		const picked = sessions.find((s) => s.id === resume.id);
-		if (picked?.liveness === "idle") {
-			const age = formatRelativeAge(picked.lastActivity, now);
-			return `Resuming idle session ${resume.id}${age ? `, last active ${age}` : ""}.`;
-		}
-		return `Resuming session ${resume.id}.`;
-	}
-	if (resume && "ambiguous" in resume) {
-		return `${resume.ambiguous.length} live sessions; started fresh, resume one explicitly if needed.`;
-	}
-	return undefined;
-}
-
 export async function spawn(
 	state: QuestState,
 	ctx: ExtensionContext,
 	params: QuestToolParams,
+): Promise<QuestResult> {
+	const said: { budget?: FolderBudget } = {};
+	const result = await spawnNaming(state, ctx, params, said);
+	if (!result.ok || !said.budget) return result;
+	return {
+		...result,
+		message: `Budget ${said.budget.name} named, which ${said.budget.provider} says its folder's work draws on. ${result.message}`,
+		details: { ...result.details, budget: said.budget.name },
+	};
+}
+
+async function spawnNaming(
+	state: QuestState,
+	ctx: ExtensionContext,
+	params: QuestToolParams,
+	said: { budget?: FolderBudget },
 ): Promise<QuestResult> {
 	// A suffixed verb names its layout; a bare spawn leaves it to the
 	// terminal settings unless the call gives one.
@@ -424,6 +374,16 @@ export async function spawn(
 	let chosenBy = given
 		? "the folder the call named"
 		: describeCwdSource(resolved.source);
+	// Named before the session starts, so it starts drawing on it.
+	if (!params.dryRun) {
+		const named = await nameBudgetFromFolder(
+			state,
+			questIdForSpawn,
+			entry.dir,
+			cwd,
+		);
+		if (named) said.budget = named;
+	}
 
 	// The session to resume, not the spawning one: a live one, else the
 	// newest idle; several live start a fresh pi and say the choice.

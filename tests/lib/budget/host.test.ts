@@ -178,3 +178,81 @@ describe("the budget host", () => {
 		expect(told).toBe(1);
 	});
 });
+
+/** A provider that names budgets for folders, by `answer`. */
+function placing(
+	id: string,
+	precedence: number,
+	answer: (folder: string) => Promise<string | undefined>,
+): BudgetProvider {
+	return { ...provider(id, precedence, {}), budgetFor: answer };
+}
+
+describe("the budget a folder's work draws on", () => {
+	it("is the first provider's, lowest precedence first, that names one", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		registerBudgetProvider(
+			events,
+			placing("company", 10, async () => "worldtree"),
+		);
+		registerBudgetProvider(
+			events,
+			placing("files", 0, async (folder) =>
+				folder.startsWith("/src/delta") ? "delta" : undefined,
+			),
+		);
+		registerBudgetProvider(events, provider("names-only", 5, {}));
+
+		expect(await host.budgetFor("/src/delta/server")).toEqual({
+			name: "delta",
+			provider: "files",
+		});
+		expect(await host.budgetFor("/src/worldtree")).toEqual({
+			name: "worldtree",
+			provider: "company",
+		});
+	});
+
+	it("passes over a provider that fails, is late or names no budget's name", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 20);
+		registerBudgetProvider(
+			events,
+			placing("throws", 0, async () => {
+				throw new Error("no map");
+			}),
+		);
+		registerBudgetProvider(
+			events,
+			placing("late", 1, () => new Promise(() => {})),
+		);
+		registerBudgetProvider(
+			events,
+			placing("bad", 2, async () => "../escape"),
+		);
+
+		expect(await host.budgetFor("/anywhere")).toBeUndefined();
+
+		registerBudgetProvider(
+			events,
+			placing("good", 3, async () => "aquifer"),
+		);
+		expect(await host.budgetFor("/anywhere")).toEqual({
+			name: "aquifer",
+			provider: "good",
+		});
+	});
+
+	it("takes a payload whose budgetFor isn't a function as no provider", () => {
+		const events = bus();
+		const host = hostBudgets(events);
+
+		events.emit(BUDGET_REGISTER_PROVIDER, {
+			...provider("odd", 0, {}),
+			budgetFor: "delta",
+		});
+
+		expect(host.listProviders()).toEqual([]);
+	});
+});

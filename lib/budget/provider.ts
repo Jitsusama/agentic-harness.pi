@@ -91,6 +91,14 @@ export interface BudgetProvider {
 	 * rejecting: a provider that fails says so as `unavailable`.
 	 */
 	resolve(name: string): Promise<BudgetAnswer>;
+	/**
+	 * The budget work in `folder`, an absolute path, draws on when no
+	 * quest names one, or undefined when this provider can't say. A quest
+	 * made or spawned there with no budget above it is named this one, so
+	 * a project's work stops drawing on the person's own key by default.
+	 * Optional, since a provider may only know what names mean.
+	 */
+	budgetFor?(folder: string): Promise<string | undefined>;
 }
 
 /** What the host hands out over {@link BUDGET_READY}. */
@@ -109,7 +117,8 @@ export function isBudgetProvider(data: unknown): data is BudgetProvider {
 		typeof p.id === "string" &&
 		p.id.length > 0 &&
 		typeof p.precedence === "number" &&
-		typeof p.resolve === "function"
+		typeof p.resolve === "function" &&
+		(p.budgetFor === undefined || typeof p.budgetFor === "function")
 	);
 }
 

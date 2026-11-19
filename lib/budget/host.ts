@@ -14,6 +14,7 @@ import {
 	type BudgetAnswer,
 	type BudgetHostApi,
 	type BudgetProvider,
+	isBudgetName,
 	isBudgetProvider,
 } from "./provider.ts";
 
@@ -42,6 +43,19 @@ export interface BudgetHost extends BudgetHostApi {
 	draw(name: string): Promise<BudgetDrawing>;
 	/** Be told each time a provider registers, as a late one may answer. */
 	onRegistered(listener: () => void): void;
+	/**
+	 * The budget work in `folder` draws on, from the first provider,
+	 * lowest precedence first, that names one, and which it was. A
+	 * provider that fails, answers late or names something that can't
+	 * be a budget is passed over.
+	 */
+	budgetFor(folder: string): Promise<FolderBudget | undefined>;
+}
+
+/** The budget a provider says a folder's work draws on. */
+export interface FolderBudget {
+	readonly name: string;
+	readonly provider: string;
 }
 
 /**
@@ -75,6 +89,14 @@ export function hostBudgets(
 			}
 			return { kind: "unknown", asked };
 		},
+		async budgetFor(folder) {
+			for (const provider of ordered()) {
+				if (!provider.budgetFor) continue;
+				const name = await askFolder(provider, folder, deadlineMs);
+				if (name !== undefined) return { name, provider: provider.id };
+			}
+			return undefined;
+		},
 	};
 	bus.on(BUDGET_REGISTER_PROVIDER, (data: unknown) => {
 		if (isBudgetProvider(data)) host.registerProvider(data);
@@ -94,6 +116,31 @@ export function hostBudgets(
  * prompt must not hold them.
  */
 export const BUDGET_ANSWER_DEADLINE_MS = 5_000;
+
+/**
+ * The budget one provider says `folder` draws on, or undefined when it
+ * names none, fails, names no budget's name, or doesn't answer within
+ * the deadline: a create waits on this, so it can't wait for long.
+ */
+async function askFolder(
+	provider: BudgetProvider,
+	folder: string,
+	deadlineMs: number,
+): Promise<string | undefined> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<undefined>((resolve) => {
+		timer = setTimeout(() => resolve(undefined), deadlineMs);
+	});
+	try {
+		const name = await Promise.race([provider.budgetFor?.(folder), late]);
+		return typeof name === "string" && isBudgetName(name) ? name : undefined;
+	} catch {
+		// A provider that can't say is passed over, as one that names none.
+		return undefined;
+	} finally {
+		clearTimeout(timer);
+	}
+}
 
 /**
  * One provider's answer, with a rejection, or no answer within the

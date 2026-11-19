@@ -181,6 +181,71 @@ describe("the budget verb", () => {
 	});
 });
 
+describe("a quest made where a budget's work is", () => {
+	/** Quest state with a keeper whose provider names delta for `folder`. */
+	function placed(folder: () => string) {
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const events = bus();
+		keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
+		registerBudgetProvider(events, {
+			id: "places",
+			precedence: 0,
+			resolve: async () => ({ kind: "unknown" }),
+			budgetFor: async (asked) => (asked === folder() ? "delta" : undefined),
+		});
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(state, fakePi(intoTheBranch), fakeCtx(), params);
+		return { state, run };
+	}
+
+	it("is born on that budget, and its first line says which", async () => {
+		const { state, run } = placed(() => tmpRoot);
+
+		const made = succeeded(
+			await run({ action: "create", title: "An Incident" }),
+		);
+
+		const id = state.questId as string;
+		expect(budgetIn(state.questsRoot, id)).toBe("delta");
+		expect(made.message.split("\n")[0]).toContain(
+			"drawing on budget delta, which places says",
+		);
+		expect(journeyOf(join(state.questsRoot, id))).toContain(
+			`Budget: delta, which places says work in ${tmpRoot} draws on`,
+		);
+	});
+
+	it("keeps what a parent names, none included, rather than the folder's", async () => {
+		const { state, run } = placed(() => "/elsewhere");
+		succeeded(await run({ action: "create", title: "Personal" }));
+		const top = state.questId as string;
+		succeeded(await run({ action: "budget", id: top, ref: "none" }));
+		const here = placed(() => tmpRoot);
+
+		const made = succeeded(
+			await here.run({
+				action: "create",
+				title: "Under It",
+				kind: "subquest",
+				parent: top,
+			}),
+		);
+
+		const child = made.details?.id as string;
+		expect(budgetIn(state.questsRoot, child)).toBeUndefined();
+		expect(made.message).not.toContain("drawing on budget");
+	});
+
+	it("names nothing where no provider names the folder's budget", async () => {
+		const { state, run } = placed(() => "/elsewhere");
+
+		const made = succeeded(await run({ action: "create", title: "Mine" }));
+
+		expect(budgetIn(state.questsRoot, state.questId as string)).toBeUndefined();
+		expect(made.message).not.toContain("budget");
+	});
+});
+
 describe("the session's budget", () => {
 	function ui() {
 		const notices: string[] = [];
