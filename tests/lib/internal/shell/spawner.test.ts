@@ -449,6 +449,77 @@ describe("the agent's commands through pi-spawner", () => {
 		expect(own.calls, "what pi's own spawn started").toEqual([]);
 	});
 
+	it("never kills a silent spawner closed once its process has exited, since its pid may be another's", async () => {
+		const first = standIn();
+		const { operations, kill } = through({
+			givenUpGrace: 20,
+			say: () => undefined,
+			start: () => ({ ...first.start(), pid: 4242 }),
+		});
+		const stopping = new AbortController();
+
+		const ran = operations.exec("sleep 9", "/", {
+			onData: () => {},
+			env: {},
+			signal: stopping.signal,
+		});
+		await askedFor(first, 1);
+		stopping.abort();
+		await expect(ran, "how the command ended").rejects.toThrow("aborted");
+		await vi.waitFor(() =>
+			expect(first.hungUp(), "closed, though it never answered").toBe(true),
+		);
+		first.exits();
+		// A real pause, three times the 20 ms grace: a kill held back says
+		// nothing, so there is no event to wait on.
+		await new Promise((done) => setTimeout(done, 60));
+
+		expect(kill, "a process already reaped").not.toHaveBeenCalledWith(4242);
+	});
+
+	it("kills a silent spawner already retired for another quest once it closes", async () => {
+		const first = standIn();
+		const second = standIn();
+		const programs = [first, second];
+		const { operations, kill } = through({
+			givenUpGrace: 20,
+			say: () => undefined,
+			start: () => {
+				const next = programs.shift();
+				if (next === undefined) throw new Error("started too often");
+				return { ...next.start(), pid: 4242 };
+			},
+		});
+		const stopping = new AbortController();
+
+		const ran = operations.exec("sleep 9", "/", {
+			onData: () => {},
+			env: { PI_QUEST: "QEST-20261119-AAAAAA" },
+			signal: stopping.signal,
+		});
+		await askedFor(first, 1);
+		const other = operations.exec("true", "/", {
+			onData: () => {},
+			env: { PI_QUEST: "QEST-20261119-BBBBBB" },
+		});
+		await askedFor(second, 1);
+		second.ends(1, 21);
+		await expect(other, "the other quest's command").resolves.toEqual({
+			exitCode: 0,
+		});
+		stopping.abort();
+
+		await expect(ran, "how the command ended").rejects.toThrow("aborted");
+		await vi.waitFor(() =>
+			expect(first.hungUp(), "closed, though it never answered").toBe(true),
+		);
+		await vi.waitFor(() =>
+			expect(kill, "killed, still running once closed").toHaveBeenCalledWith(
+				4242,
+			),
+		);
+	});
+
 	it("waits for a command given up on that its spawner says started late but within the grace, until it ends", async () => {
 		const program = standIn();
 		const said: string[] = [];
@@ -673,6 +744,42 @@ describe("asking a pi-spawner whether it keeps", () => {
 			await spawnerKeeps("/no/such/pi-spawner"),
 			"no program at that path",
 		).toBe(false);
+	});
+});
+
+describe("a pi-spawner started as a process of its own", () => {
+	const made: string[] = [];
+	afterEach(() => {
+		for (const dir of made.splice(0))
+			rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("is heard to its output's end, so a start it says after its process exits is not lost", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "spawner-late-"));
+		made.push(dir);
+		const program = join(dir, "pi-spawner");
+		// It reads the request's length, then exits, leaving a child that
+		// holds its output to say command 1 started as process 57.
+		const saidStarted =
+			"p\\001\\000\\000\\000\\004\\000\\000\\000\\071\\000\\000\\000";
+		writeFileSync(
+			program,
+			`#!/bin/sh\nhead -c 4 >/dev/null\n( sleep 0.2; printf '${saidStarted}' ) &\nexit 0\n`,
+		);
+		chmodSync(program, 0o755);
+		const { own, kill, operations } = through({
+			start: undefined,
+			program,
+			asksKeeps: async () => false,
+		});
+
+		const ran = operations.exec("sleep 9", "/", { onData: () => {}, env: {} });
+
+		await expect(ran, "how the command ended").rejects.toThrow(
+			"stopped before the command ended",
+		);
+		expect(kill, "the command it said it started").toHaveBeenCalledWith(57);
+		expect(own.calls, "what pi's own spawn started").toEqual([]);
 	});
 });
 

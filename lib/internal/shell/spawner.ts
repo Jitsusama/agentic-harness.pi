@@ -149,6 +149,11 @@ export interface Started {
 	output: Readable;
 	/** Its process, where it started as one. */
 	pid?: number;
+	/**
+	 * Whether its process still runs or awaits reaping, so its pid is still
+	 * its own, where it started as one.
+	 */
+	running?(): boolean;
 	/** Call back once, when the program has stopped or failed to start. */
 	ended(listener: () => void): void;
 }
@@ -432,6 +437,9 @@ export function spawnedBy(
 								options.say ?? ((line) => process.stderr.write(line)),
 							);
 				if (ran !== UNSENT) return ran;
+				// Run elsewhere, it keeps the spawner it never reached open no
+				// longer.
+				release();
 				const rest =
 					limit === undefined ? undefined : limit - (performance.now() - asked);
 				if (rest === undefined) {
@@ -732,8 +740,10 @@ async function endOnceStarted(
 		if (first === "started") {
 			await run.done.catch(() => undefined);
 		} else if (first === "waited") {
-			run.forsake();
+			// Retired first, so the close forsaking it may bring knows to kill
+			// a spawner that reads nothing.
 			link.retire(grace);
+			run.forsake();
 			say(
 				`pi-spawner didn't say within ${grace} ms whether it started a command given up on, so it takes no more; it is killed if it starts\n`,
 			);
@@ -823,6 +833,7 @@ function startProgram(program: string, quest?: string): Started {
 		input: child.stdin,
 		output: child.stdout,
 		...(child.pid !== undefined ? { pid: child.pid } : {}),
+		running: () => child.exitCode === null && child.signalCode === null,
 		ended: (listener) => {
 			let told = false;
 			const once = () => {
@@ -864,6 +875,18 @@ function connect(
 	// was given up on. One that left a command unanswered may not be
 	// reading it, so it is killed if it still runs as long again; what it
 	// started that this never heard of then runs on.
+	let killing = false;
+	const killOnceQuiet = () => {
+		const { pid } = started;
+		if (killing || quiet === undefined || pid === undefined) return;
+		if (!started.input.writableEnded) return;
+		killing = true;
+		setTimeout(() => {
+			// Only while its pid is still its own: once reaped, it may be
+			// another's.
+			if (started.running?.() ?? !over) kill(pid);
+		}, quiet).unref();
+	};
 	const closeOnceIdle = () => {
 		if (
 			retiring &&
@@ -872,13 +895,8 @@ function connect(
 			!started.input.writableEnded
 		) {
 			started.input.end();
-			const { pid } = started;
-			if (quiet !== undefined && pid !== undefined) {
-				setTimeout(() => {
-					if (!over) kill(pid);
-				}, quiet).unref();
-			}
 		}
+		killOnceQuiet();
 	};
 	started.input.on("error", () => {
 		// A program that stopped says so through ended, below.

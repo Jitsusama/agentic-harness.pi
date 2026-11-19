@@ -308,9 +308,9 @@ proving the conversation as its host in pi's records, of its own
 `pi-spawner`, and checks for itself that the kernel lets no process
 trace any but its own descendants and that the host's Node.js started
 with `--disable-sigusr1` as its first option and no inspector on its
-command line, and with none of `NODE_OPTIONS`, `LD_PRELOAD`,
-`LD_AUDIT`, `LD_LIBRARY_PATH`, `OPENSSL_CONF` or `OPENSSL_MODULES` in
-its environment, as core.nix's unit for a host starts it, since a
+command line, and with none of `NODE_OPTIONS`, `NODE_PATH`,
+`LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`, `OPENSSL_CONF` or
+`OPENSSL_MODULES` in its environment, as core.nix's unit for a host starts it, since a
 command that could trace the host, open its inspector or load code
 into it could speak for it. A host without them is refused, and each
 of its conversations' commands told none; the node logs why, once, as
