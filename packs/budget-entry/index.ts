@@ -5,13 +5,15 @@
  * auto-discovered, which is why it lives outside `extensions/`: a
  * person's session already has the quest workflow writing this entry.
  *
- * A subagent starts with `--no-extensions`, so the quest workflow that
- * writes the entry in a person's session never runs in it, while it
- * still inherits the parent's budget and key and spends on them. Spend
- * read from the logs then found no budget in those runs: in one hour,
- * 294 reviewer logs carried none, and their cost went unbilled to any
- * budget. The entry is read back from the environment the subagent
- * was started with, exactly as the quest workflow reads its own.
+ * A reviewer, and any isolated subagent, starts with `--no-extensions`,
+ * so the quest workflow that writes the entry in a person's session
+ * never runs in it, while it still inherits the parent's budget and key
+ * and spends on them. Spend read from the logs then found no budget in
+ * those runs: in one hour, 294 reviewer logs carried none, and their
+ * cost went unbilled to any budget. The entry is read from the
+ * environment the subagent was started with, which the supervisor
+ * builds from the parent's session environment, so it names what the
+ * parent's own entry named when the child was started.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

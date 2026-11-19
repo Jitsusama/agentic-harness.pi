@@ -73,6 +73,21 @@ describe("a subagent's budget entry", () => {
 		expect(started(branch)).toEqual([]);
 	});
 
+	it("says the new budget when a resumed log ends on another", () => {
+		process.env.PI_BUDGET = "aquifer";
+		const branch = [
+			{
+				type: "custom",
+				customType: BUDGET_ENTRY,
+				data: { v: 1, name: "delta" },
+			},
+		];
+
+		expect(started(branch)).toEqual([
+			{ type: BUDGET_ENTRY, data: { v: 1, name: "aquifer" } },
+		]);
+	});
+
 	it("is loaded into every reviewer", async () => {
 		const runs: string[][] = [];
 		const answer = JSON.stringify({
