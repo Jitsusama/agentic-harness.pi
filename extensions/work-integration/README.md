@@ -367,6 +367,15 @@ that guards a repoint. An untracked file counts: overwriting a
 modified file is bad and recoverable, and overwriting an untracked
 one is neither.
 
+**It will not keep a branch trunk already has.** Releasing or
+reclaiming a tree deletes its branch, and the `[branch]` section a
+push wrote, when every commit on it is on the remote's trunk as last
+fetched, since trunk then holds all of it. A branch with any commit
+trunk lacks, pushed or not, stays, and so does one another checkout
+has out. On 19 November core.nix's checkout held 5,734 local
+branches and 518 KB of config from released trees, read by every git
+command there, the host's presence publish among them.
+
 **It will not record nothing.** `record` reads the tree first and
 refuses when it is clean. Committing nothing succeeds at the git
 level and leaves the caller believing work was saved, which is the

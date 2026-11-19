@@ -98,8 +98,16 @@ async function release(branch: string, path: string): Promise<void> {
 }
 
 const hasRef = async (branch: string) =>
-	(await exec("git", ["-C", checkout, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]))
-		.code === 0;
+	(
+		await exec("git", [
+			"-C",
+			checkout,
+			"rev-parse",
+			"--verify",
+			"--quiet",
+			`refs/heads/${branch}`,
+		])
+	).code === 0;
 const sections = async (branch: string) =>
 	(
 		await exec("git", [

@@ -23,6 +23,7 @@ import { withoutCredentials } from "../../remote/index.ts";
 import { fullRefRefusal } from "../author.ts";
 import type { TreeProvider } from "../broker.ts";
 import { FETCHED_LATELY_MS, refreshStart } from "../fresh-start.ts";
+import { dropMergedBranch } from "../merged-branch.ts";
 import { type TreeRequest, treeIdentity, treeSource } from "../tree.ts";
 
 /**
@@ -148,6 +149,36 @@ export async function onBtrfs(dir: string): Promise<boolean> {
 			if (dirname(at) === at) return false;
 		}
 	}
+}
+
+/**
+ * The branch a tree stands on and the checkout that holds it, or
+ * nothing for a tree on a bare commit. Read before the tree goes, since
+ * after it there is nothing left to ask.
+ */
+async function standsOn(
+	exec: Exec,
+	tree: string,
+): Promise<{ name: string; checkout: string } | undefined> {
+	const on = await exec("git", [
+		"-C",
+		tree,
+		"symbolic-ref",
+		"--quiet",
+		"--short",
+		"HEAD",
+	]);
+	const name = on.code === 0 ? on.stdout.trim() : "";
+	if (name === "") return undefined;
+	const common = await exec("git", [
+		"-C",
+		tree,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	]);
+	if (common.code !== 0 || common.stdout.trim() === "") return undefined;
+	return { name, checkout: common.stdout.trim() };
 }
 
 /** The built-in provider's id, and the general case's specificity. */
@@ -334,12 +365,17 @@ export function createGitTreeProvider(deps: {
 			// of that repo and beside the point. A worktree's .git file
 			// names its main repo, so asking from inside is enough and
 			// needs no source path carried on the held tree.
+			const exec = execOf(options?.signal);
+			const branch = await standsOn(exec, held.path);
 			await run(
-				execOf(options?.signal),
+				exec,
 				"git",
 				["-C", held.path, "worktree", "remove", held.path],
 				`Releasing the tree at ${displayPath(held.path)}`,
 			);
+			// Its branch goes too once trunk has every commit on it, with the
+			// config section a push wrote; anything else keeps it.
+			if (branch) await dropMergedBranch(exec, branch.checkout, branch.name);
 		},
 	};
 }

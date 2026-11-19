@@ -18,6 +18,7 @@
 
 import { displayPath } from "../../ui/path.ts";
 import { type Exec, run } from "../exec/index.ts";
+import { dropMergedBranch } from "./merged-branch.ts";
 import type { Reclaimable } from "./tidy.ts";
 
 /** What became of one tree. */
@@ -47,10 +48,12 @@ export interface ReclaimDeps {
 /**
  * Take back each tree offered, and say what happened to every one.
  *
- * The branch is never touched. `git worktree remove` takes the
- * directory and the administrative files; whatever was checked out
- * there is still a branch afterwards, which is what makes this
- * recoverable and therefore allowed to act.
+ * `git worktree remove` takes the directory and the administrative
+ * files; whatever was checked out there is still a branch afterwards,
+ * which is what makes this recoverable and therefore allowed to act.
+ * The one exception keeps that true: a branch whose every commit is on
+ * the remote's trunk goes with its tree, since trunk holds all of it
+ * (merged-branch.ts).
  */
 export async function reclaimTrees(
 	deps: ReclaimDeps,
@@ -66,6 +69,9 @@ export async function reclaimTrees(
 				["-C", deps.mainPath, "worktree", "remove", tree.path],
 				`Taking back ${displayPath(tree.path)}`,
 			);
+			if (tree.branch) {
+				await dropMergedBranch(deps.exec, deps.mainPath, tree.branch);
+			}
 			trees.push({
 				kind: "reclaimed",
 				path: tree.path,
