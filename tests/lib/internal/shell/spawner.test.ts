@@ -275,7 +275,7 @@ describe("the agent's commands through pi-spawner", () => {
 		await ended;
 		program.said(1, 1, "after\n");
 		await delivered();
-		expect(heard, "nothing reaches the call once it settled").toEqual([
+		expect(heard, "nothing reaches the call once its command is gone").toEqual([
 			"late\n",
 		]);
 	});
@@ -310,6 +310,32 @@ describe("the agent's commands through pi-spawner", () => {
 		program.exited(1, -1, 9);
 
 		await ended;
+	});
+
+	it("stops a spawner that never says a command given up on started, and leaves later ones to pi's own spawn", async () => {
+		const program = standIn();
+		const { own, operations, kill } = through({
+			givenUpGrace: 20,
+			start: () => ({ ...program.start(), pid: 4242 }),
+		});
+		const stopping = new AbortController();
+
+		const ran = operations.exec("sleep 9", "/", {
+			onData: () => {},
+			env: {},
+			signal: stopping.signal,
+		});
+		await askedFor(program, 1);
+		stopping.abort();
+
+		await expect(ran, "how the command ended").rejects.toThrow("aborted");
+		expect(program.hungUp(), "the spawner was told to stop").toBe(true);
+		expect(kill, "the spawner was killed").toHaveBeenCalledWith(4242);
+		program.started(1, 90);
+		await delivered();
+		expect(kill, "a start after it was stopped").not.toHaveBeenCalledWith(90);
+		await operations.exec("true", "/", { onData: () => {}, env: {} });
+		expect(own.calls, "what pi's own spawn started").toEqual(["true"]);
 	});
 
 	it("kills the command's group at its time limit, and says so as pi does", async () => {

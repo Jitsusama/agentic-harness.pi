@@ -62,12 +62,27 @@ function says(line: string): boolean {
 	);
 }
 
-/** Whether some source fakes setTimeout: fake timers given no list, or a list naming it. */
+/** What a call opening at `from`, just past its `(`, is given, up to its own `)`. */
+function givenFrom(text: string, from: number): string {
+	let depth = 1;
+	for (let at = from; at < text.length; at++) {
+		if (text[at] === "(") depth++;
+		else if (text[at] === ")" && --depth === 0) return text.slice(from, at);
+	}
+	return text.slice(from);
+}
+
+/**
+ * Whether some source fakes setTimeout: fake timers given no list, or a
+ * list naming it or held in a name of its own, which is taken to.
+ */
 function fakesSleeps(text: string): boolean {
-	return [...text.matchAll(/useFakeTimers\(([^)]*)\)/g)].some(
-		([, given = ""]) =>
-			!given.includes("toFake") || given.includes("setTimeout"),
-	);
+	return [...text.matchAll(/useFakeTimers\(/g)].some((call) => {
+		const given = givenFrom(text, call.index + call[0].length);
+		const list = /toFake\s*:\s*(\[[^\]]*\]|\w+)/.exec(given)?.[1];
+		if (list === undefined) return !given.includes("toFake");
+		return !list.startsWith("[") || list.includes("setTimeout");
+	});
 }
 
 /** How many sleeps in some source carry no comment on their line or the line above. */
@@ -158,6 +173,22 @@ describe("the package's tests", () => {
 			),
 			"a file faking only other timers still sleeps on real ones",
 		).toBe(1);
+		expect(
+			uncommentedSleeps(
+				`vi.useFakeTimers({ now: Date.parse("2026-01-01"), toFake: ["Date"] });\n${pause}`,
+			),
+			"a list after a call of its own is still read",
+		).toBe(1);
+		expect(
+			uncommentedSleeps(
+				`vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });\n${pause}`,
+			),
+			"a file faking setTimeout by name sleeps on none",
+		).toBe(0);
+		expect(
+			uncommentedSleeps(`vi.useFakeTimers({ toFake: FAKED });\n${pause}`),
+			"a list held in a name is taken to fake setTimeout",
+		).toBe(0);
 	});
 
 	it("sleep a fixed time only where a comment says why", () => {
