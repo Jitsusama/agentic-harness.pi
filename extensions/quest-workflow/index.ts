@@ -38,6 +38,7 @@ import { registerBatchingTrial } from "./batching-trial.ts";
 import { budgetEntryView, keepQuestBudget } from "./budget.ts";
 import { answerTreeClaims, forgetSweptTrees } from "./claims.ts";
 import {
+	budgetWhenCappedSetting,
 	parseQuestWorkflowConfig,
 	QUEST_WORKFLOW_SLUG,
 	resolveQuestsRoot,
@@ -103,7 +104,11 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 
 	// The model calls draw on the budget the loaded quest names, and what
 	// a name means is asked of the budget providers registered here.
-	const budgets = keepQuestBudget(pi, state);
+	// A session on the person's own key that the cap refuses moves to the
+	// budget the config names for it (lib/budget/capped.ts).
+	const budgets = keepQuestBudget(pi, state, {
+		whenCapped: budgetWhenCappedSetting,
+	});
 	// A budget the quest named but the session couldn't draw on is a line
 	// in the session; any other budget entry is the log's alone.
 	pi.registerEntryRenderer?.(BUDGET_ENTRY, (entry, _options, theme) =>

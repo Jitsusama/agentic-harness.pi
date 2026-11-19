@@ -6,7 +6,10 @@
  * ends the turn. A provider that is down or slow for minutes outlasts
  * that, so the harness asks again on a slower schedule. Both use pi's
  * own judgement of what is worth retrying, so a usage limit or a bad
- * request is never asked twice.
+ * request is never asked twice on the same key. A proxy refusing the
+ * person's own key for its cap is the one exception, and not this
+ * module's: model-retry moves such a session onto a budget, if one is
+ * named for it, and tries at once (lib/budget/capped.ts).
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";

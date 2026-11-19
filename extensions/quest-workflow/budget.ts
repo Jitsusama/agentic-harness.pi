@@ -39,6 +39,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { onBudgetCapped } from "../../lib/budget/capped.ts";
 import {
 	layBudget,
 	liftBudget,
@@ -113,7 +114,20 @@ export interface BudgetKeeperOptions {
 	readonly journal?: (line: string) => void;
 	/** The clock a missed budget's wait is read on; the machine's unless a test says. */
 	readonly now?: () => number;
+	/**
+	 * The budget named for a session whose own key the cap refuses, read
+	 * as it refuses; none moves such a session nowhere.
+	 */
+	readonly whenCapped?: () => Promise<string | undefined>;
 }
+
+/**
+ * How long a session the cap moved stays on the budget named for it
+ * before its own key is drawn on again: the cap lifts when its week
+ * turns or the person claims more, and a call refused once more costs
+ * nothing but the move back.
+ */
+export const CAPPED_HOLD_MS = 60 * 60_000;
 
 /**
  * How long a budget that couldn't be drawn on waits, once a retry has
@@ -172,6 +186,28 @@ export function keepQuestBudget(
 	let missedAt: number | undefined;
 	/** How long the name wanted waits since its last miss: none at first. */
 	let missedWait = 0;
+	/** The budget laid for a capped key, and when, while it holds. */
+	let capped:
+		| {
+				readonly name: string;
+				readonly label: string;
+				readonly env: Readonly<Record<string, string>>;
+				readonly at: number;
+		  }
+		| undefined;
+	/** Whether the session was told its capped key moved it, said once. */
+	let saidCapped = false;
+
+	/** Lay the capped key's budget again, while its hour holds. */
+	const layCapped = (ctx: ExtensionContext): boolean => {
+		if (!capped) return false;
+		if (now() - capped.at >= CAPPED_HOLD_MS) {
+			capped = undefined;
+			return false;
+		}
+		layBudget(sessionEnv(ctx), capped, processOverlay(ctx));
+		return true;
+	};
 
 	const keep = async (ctx: ExtensionContext, again = false) => {
 		last = ctx;
@@ -179,7 +215,11 @@ export function keepQuestBudget(
 			? (budgetInRecord(state.questsRoot, state.questId)?.name ?? null)
 			: null;
 		const due = missedAt !== undefined && now() - missedAt >= missedWait;
-		if (name === wanted && !again && !due) return pending;
+		// Its hour out, a capped key is drawn on again, so settle afresh.
+		const cappedOut =
+			capped !== undefined && now() - capped.at >= CAPPED_HOLD_MS;
+		if (cappedOut) capped = undefined;
+		if (name === wanted && !again && !due && !cappedOut) return pending;
 		const retrying = name === wanted && due && !again;
 		wanted = name;
 		missedAt = undefined;
@@ -196,6 +236,7 @@ export function keepQuestBudget(
 	) => {
 		if (name === null) {
 			liftBudget(sessionEnv(ctx), processOverlay(ctx));
+			layCapped(ctx);
 			recordDrawn(pi, ctx);
 			return;
 		}
@@ -226,13 +267,15 @@ export function keepQuestBudget(
 		missedAt = now();
 		missedWait = retrying ? waitAfter(missedWait) : 0;
 		const unresolved = { budget: name, missing: missingFrom(drawing) };
-		const fallback = fallbackOf(inherited);
+		const fallback = layCapped(ctx)
+			? cappedFallback(capped?.name ?? "")
+			: fallbackOf(inherited);
 		// A retry that misses again says nothing new, even when the
 		// provider's words differ, so a provider that stays down writes no
 		// line a minute.
 		if (retrying && lastRecordOn(branchOf(ctx))?.unresolved?.budget === name) {
 			pi.events.emit(BUDGET_SETTLED, {
-				name: inherited,
+				name: budgetDrawnOn(sessionEnv(ctx).snapshot()),
 			} satisfies BudgetSettled);
 			return;
 		}
@@ -246,6 +289,47 @@ export function keepQuestBudget(
 		told.add(name);
 		ctx.ui.notify(undrawable(name, drawing, fallback), "warning");
 	};
+
+	// The person's own key refused for its cap: move to the budget named
+	// for that, if the session draws on none (lib/budget/capped.ts).
+	const takeCapped = async (because: string): Promise<string | null> => {
+		const ctx = last;
+		if (!ctx || !options.whenCapped) return null;
+		if (budgetDrawnOn(sessionEnv(ctx).snapshot()) !== null) return null;
+		const name = await options.whenCapped();
+		if (!name || last !== ctx) return null;
+		const drawing = await host.draw(name);
+		if (last !== ctx) return null;
+		const why = `the person's own key is over its cap: ${quoted(because)}`;
+		if (drawing.kind !== "drawn") {
+			journal(
+				`${questOf()} can't move to budget ${name}, though ${why}: ${missingFrom(drawing)}`,
+			);
+			return null;
+		}
+		// A budget laid while the draw was on its way stands.
+		if (budgetDrawnOn(sessionEnv(ctx).snapshot()) !== null) return null;
+		capped = { name, label: drawing.label, env: drawing.env, at: now() };
+		layCapped(ctx);
+		recordDrawn(pi, ctx, drawing, undefined, why);
+		journal(`${questOf()} moves to budget ${name}, since ${why}`);
+		if (!saidCapped) {
+			saidCapped = true;
+			ctx.ui.notify(
+				`Your own key is over its cap, so this session's model calls draw on budget ${name} for the next hour.`,
+				"warning",
+			);
+		}
+		return name;
+	};
+	const questOf = () =>
+		state.questId ? `quest ${state.questId}` : "a session with no quest";
+	onBudgetCapped(pi.events, (because) =>
+		takeCapped(because).catch(() => {
+			// A context gone stale mid-draw moves nothing; the turn ends as it did.
+			return null;
+		}),
+	);
 
 	// A provider that registers late may know the name nothing did.
 	host.onRegistered(() => {
@@ -263,6 +347,8 @@ export function keepQuestBudget(
 		wanted = undefined;
 		missedAt = undefined;
 		missedWait = 0;
+		capped = undefined;
+		saidCapped = false;
 		asking++;
 	};
 
@@ -288,6 +374,7 @@ function recordDrawn(
 	ctx: ExtensionContext,
 	drawing?: { readonly provider: string; readonly label: string },
 	unresolved?: UnresolvedBudget,
+	because?: string,
 ): boolean {
 	const name = budgetDrawnOn(sessionEnv(ctx).snapshot());
 	const settled: BudgetSettled = { name };
@@ -296,12 +383,19 @@ function recordDrawn(
 	if (
 		last?.name === name &&
 		last.unresolved?.budget === unresolved?.budget &&
-		last.unresolved?.missing === unresolved?.missing
+		last.unresolved?.missing === unresolved?.missing &&
+		(because === undefined || last.because === because)
 	)
 		return false;
 	const record: BudgetRecord =
 		drawing && name !== null
-			? { v: 1, name, label: drawing.label, provider: drawing.provider }
+			? {
+					v: 1,
+					name,
+					label: drawing.label,
+					provider: drawing.provider,
+					...(because ? { because } : {}),
+				}
 			: { v: 1, name, ...(unresolved ? { unresolved } : {}) };
 	pi.appendEntry(BUDGET_ENTRY, record);
 	return true;
@@ -377,6 +471,11 @@ function fallbackOf(inherited: string | null): string {
 	return inherited === null
 		? "the session's default"
 		: `budget ${inherited}, which this session was started on`;
+}
+
+/** What model calls draw on once a capped key moved them to `name`. */
+function cappedFallback(name: string): string {
+	return `budget ${name}, since the person's own key is over its cap`;
 }
 
 /** The colours a budget line is drawn in. */

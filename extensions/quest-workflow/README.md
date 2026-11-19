@@ -590,9 +590,14 @@ is `~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/`
 (per XDG); override it by setting `questsRoot` in the
 `quest-workflow` section of the package config file at
 `~/.config/pi/agentic-harness.pi/config.json`. The same section
-takes `spawnHost` (see Spawn into a host by default) and
-`startHost` (see Start into a host):
+takes `spawnHost` (see Spawn into a host by default),
+`startHost` (see Start into a host) and `budgetWhenCapped`: the
+budget a session drawing on none moves to when the person's own key
+is refused for its cap. The move lasts an hour, then the session
+draws on its own key again, and moves back if the cap still refuses.
+It is written into the log's `budget` entry with a `because`, and
+said once in the session. Unset, a cap refusal ends the turn.
 
 ```json
-{ "sections": { "quest-workflow": { "spawnHost": "background", "startHost": "attended" } } }
+{ "sections": { "quest-workflow": { "spawnHost": "background", "startHost": "attended", "budgetWhenCapped": "worldtree" } } }
 ```

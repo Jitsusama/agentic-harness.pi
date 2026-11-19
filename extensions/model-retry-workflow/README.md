@@ -25,7 +25,12 @@ allowed.
 - **Which failures.** Those pi itself would retry: a timeout, a server
   error, an overloaded or rate-limited provider, a dropped stream. A
   usage limit, a malformed request and a context too long for the
-  model are never retried; compaction answers the last.
+  model are never retried; compaction answers the last. The one
+  exception is a 403 refusing the person's own key for its cap: it
+  asks quest-workflow's budget keeper, over the bus, to move the
+  session onto the budget `budgetWhenCapped` names, and tries at once
+  once one is laid. With none named, or the session already on a
+  budget, the turn ends as before.
 - **When.** Once the run has settled with no try of pi's left: 30
   seconds after the first failure, doubling to 4.5 minutes, then every
   4.5 minutes for as long as the call fails. That is just inside the

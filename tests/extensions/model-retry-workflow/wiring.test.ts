@@ -8,6 +8,7 @@
 import type { AssistantMessage, StopReason } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import modelRetryWorkflow from "../../../extensions/model-retry-workflow/index.ts";
+import { onBudgetCapped } from "../../../lib/budget/capped.ts";
 import {
 	FIRST_WAIT_MS,
 	LONGEST_WAIT_MS,
@@ -17,6 +18,9 @@ import { fakePi } from "../../support/fake-pi.ts";
 
 const RELAY_502 = "502 this relay's request to its origin failed";
 const BAD_REQUEST = "400 invalid_request_error: the request is malformed";
+/** The proxy's refusal of the person's own key, as seen on 19 November. */
+const CAPPED =
+	'403 {"type":"error","error":{"type":"permission_error","message":"Personal token usage is over your weekly cap, so access is temporarily restricted."}}';
 const ESCAPE = "\u001b";
 /** Escape as the Kitty keyboard protocol sends it, pressed and let go. */
 const KITTY_ESCAPE = "\u001b[27u";
@@ -123,6 +127,8 @@ function deliver(held: Session): void {
 interface LoadOptions {
 	/** A window with no raw key input, as some hosts give. */
 	keyless?: boolean;
+	/** A budget keeper answering for a capped key, as quest-workflow's does. */
+	capped?: (because: string) => Promise<string | null>;
 }
 
 /** One load of the workflow into `held`, as pi loads it at a start or reload. */
@@ -170,6 +176,7 @@ function loaded(held: Session, options: LoadOptions = {}) {
 	pi.events.on(JOBS_ASK, (answer) => {
 		if (typeof answer === "function") answer(host);
 	});
+	if (options.capped) onBudgetCapped(pi.events, options.capped);
 	modelRetryWorkflow(pi);
 	const onTerminalInput = (listener: (data: string) => unknown) => {
 		keys.push(listener);
@@ -255,6 +262,84 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.useRealTimers();
+});
+
+describe("a call refused because the person's own key is over its cap", () => {
+	it("is tried at once on the budget the keeper moves the session to", async () => {
+		const held = session();
+		const because: string[] = [];
+		const pi = loaded(held, {
+			capped: async (line) => {
+				because.push(line);
+				return "worldtree";
+			},
+		});
+		await pi.started();
+		await pi.ran(reply("error", CAPPED));
+		await passes(0);
+
+		expect(because, "asked with the refusal's words").toEqual([
+			expect.stringContaining("Personal token usage is over"),
+		]);
+		expect(held.tries).toEqual([
+			expect.stringContaining("now draws on budget worldtree"),
+		]);
+	});
+
+	it("ends the turn as any usage limit does when nothing keeps a budget", async () => {
+		const held = session();
+		const pi = loaded(held);
+		await pi.started();
+		await pi.ran(reply("error", CAPPED));
+		await passes(HOUR_MS);
+
+		expect(held.tries).toEqual([]);
+	});
+
+	it("ends the turn when the keeper has no budget to move to", async () => {
+		const held = session();
+		const pi = loaded(held, { capped: async () => null });
+		await pi.started();
+		await pi.ran(reply("error", CAPPED));
+		await passes(HOUR_MS);
+
+		expect(held.tries).toEqual([]);
+	});
+
+	it("tries nothing once the person typed while the budget was laid", async () => {
+		const held = session();
+		let lay: (name: string) => void = () => undefined;
+		const pi = loaded(held, {
+			capped: () =>
+				new Promise((resolve) => {
+					lay = resolve;
+				}),
+		});
+		await pi.started();
+		await pi.ran(reply("error", CAPPED));
+		await pi.typed();
+		lay("worldtree");
+		await passes(0);
+
+		expect(held.tries).toEqual([]);
+	});
+
+	it("waits as for any passing failure on a rate limit, which is no cap", async () => {
+		const held = session();
+		const asked: string[] = [];
+		const pi = loaded(held, {
+			capped: async (line) => {
+				asked.push(line);
+				return "worldtree";
+			},
+		});
+		await pi.started();
+		await pi.ran(reply("error", "429 rate_limit_error: TPM Limit Hit"));
+		await passes(FIRST_WAIT_MS);
+
+		expect(asked).toEqual([]);
+		expect(held.tries).toEqual([expect.stringContaining("try 1")]);
+	});
 });
 
 describe("a turn that keeps failing for a moment", () => {

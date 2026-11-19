@@ -82,6 +82,21 @@ describe("parseQuestWorkflowConfig", () => {
 		}
 	});
 
+	it("accepts the budget named for a capped key, trimmed", () => {
+		expect(
+			parseQuestWorkflowConfig({ budgetWhenCapped: " worldtree " }),
+		).toEqual({ ok: true, value: { budgetWhenCapped: "worldtree" } });
+	});
+
+	it("rejects a budget for a capped key that names none", () => {
+		for (const budgetWhenCapped of ["", "  ", 7]) {
+			expect(parseQuestWorkflowConfig({ budgetWhenCapped })).toEqual({
+				ok: false,
+				error: "budgetWhenCapped must be a budget's name",
+			});
+		}
+	});
+
 	it("rejects a non-boolean autoloadFromCwd", () => {
 		const result = parseQuestWorkflowConfig({ autoloadFromCwd: "no" });
 		expect(result).toMatchObject({ ok: false });

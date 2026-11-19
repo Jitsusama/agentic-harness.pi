@@ -17,7 +17,9 @@ barrel, never from a file behind it.
   registers over the bus to say what a quest's budget means: the
   variables a session drawing on it runs with, and a label; and
   the `budget` entry a session writes into its log, saying which
-  budget its requests drew on.
+  budget its requests drew on; and the bus ask (`capped.ts`) a
+  session makes for a budget when the person's own key is refused
+  for its cap.
 - **[`clock/`](clock/)**: what a duration bounding a child process
   may be. The rules belong to the runner, but a roster read from a
   config file needs them first, so one definition serves both.
