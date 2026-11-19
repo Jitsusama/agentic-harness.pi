@@ -137,7 +137,7 @@ interface ExtensionPi {
 			| "agent_settled"
 			| "message_end"
 			| "before_agent_start",
-		handler: (event: Record<string, unknown>) => void,
+		handler: (event: Record<string, unknown>) => void | Promise<void>,
 	): void;
 }
 
@@ -219,6 +219,11 @@ interface Scenario {
 	 * run it prepares.
 	 */
 	sections?: boolean;
+	/**
+	 * Load an extension slow to prepare a run the host carries on, as a
+	 * handler waiting on a slow service would be, noting when it begins.
+	 */
+	stalls?: boolean;
 }
 
 /** Two models of different sizes, for a scenario that tells which answered. */
@@ -255,6 +260,14 @@ let asked = (): void => {};
 /** Settles once the slow provider is asked for an answer. */
 const askedOnce = new Promise<void>((done) => {
 	asked = done;
+});
+/** How long the stalling extension takes to prepare a carried run: twice what a parked close may take. */
+const STALL_MS = 10_000;
+/** Resolve preparing, once the stalling extension begins preparing a carried run. */
+let preparingBegan = (): void => {};
+/** Settles once the stalling extension begins preparing a carried run. */
+const preparing = new Promise<void>((done) => {
+	preparingBegan = done;
 });
 /** What the session's agent holds queued, once the session is built. */
 let queued = (): boolean => false;
@@ -877,6 +890,19 @@ const scenarios: Record<string, Scenario> = {
 			});
 		},
 	},
+	/** As reopen, the host stopping while an extension is slow to prepare the carried run. */
+	"reopen-park-preparing": {
+		responses: () => [say("after the restart")],
+		tools: echo(async () => noteEffect("ping")),
+		during: async () => {
+			await preparing;
+			note({ type: "parking" });
+			await parkAndClose();
+		},
+		drive: async () => {},
+		persist: true,
+		stalls: true,
+	},
 	/** A host stopping before the provider's first token, the provider paying the park's abort no heed. */
 	"park-slow-first-token": {
 		responses: () => [answerSlowly],
@@ -1070,6 +1096,7 @@ try {
 	const extensionFactories = [
 		...(scenario.listens ? [listeningExtension(builtSession)] : []),
 		...(scenario.sections ? [sectioningExtension] : []),
+		...(scenario.stalls ? [stallingExtension] : []),
 	];
 	const resourceLoader =
 		extensionFactories.length > 0
@@ -1215,6 +1242,20 @@ function sectioningExtension(pi: ExtensionPi): void {
 		if (!isRecord(options)) return;
 		const sections = isRecord(options.sections) ? options.sections : {};
 		options.sections = { ...sections, [SECTION_NAME]: SECTION };
+	});
+}
+
+/**
+ * An extension that takes STALL_MS to prepare each run the host carries
+ * on, noting when it begins.
+ */
+function stallingExtension(pi: ExtensionPi): void {
+	pi.on("before_agent_start", async (event) => {
+		if (event.messageType !== "continue") return;
+		note({ type: "preparing" });
+		preparingBegan();
+		// A handler waiting on a slow service, as PREPARING_MS allows for.
+		await new Promise((done) => setTimeout(done, STALL_MS));
 	});
 }
 

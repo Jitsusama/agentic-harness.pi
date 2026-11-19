@@ -21,10 +21,38 @@ beforeEach(({ skip }) => {
 const { observe, killed } = sessionRuns(() => packageDir);
 /** Two sessions in two processes, each loading pi's whole package. */
 const SESSION_PAIR_MS = 60_000;
+/** The longest a park may hold a stopping host's close, as hosted-agent.test.ts holds it; the fixture's slow handler takes twice that. */
+const PARKED_CLOSE_MOST_MS = 5_000;
 
 describe("a run the host carries on after a restart", {
 	timeout: SESSION_PAIR_MS,
 }, () => {
+	it("lets its stopping host close at once while pi still prepares it", async () => {
+		// A park left a stopping host's close waiting on a slow handler's preparation of a carried run, up to 30 s.
+		const folder = mkdtempSync(join(tmpdir(), "carried-park-"));
+		try {
+			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
+			const observed = await observe("hosted", "reopen-park-preparing", folder);
+			const seen = observed.events.map((event) => event.type);
+			const parking = seen.indexOf("parking");
+			expect(
+				parking,
+				"the host parked while pi prepared the run",
+			).toBeGreaterThan(seen.indexOf("preparing"));
+			expect(
+				seen.slice(parking + 1),
+				"pi was shown nothing once the host parked",
+			).toEqual(["closed"]);
+			const closed = observed.events.find((event) => event.type === "closed");
+			expect(
+				closed?.ms,
+				"the close waited on no preparation the park had abandoned",
+			).toBeLessThan(PARKED_CLOSE_MOST_MS);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
 	it("reaches the model with the sections a typed prompt's run has", async () => {
 		// Until pi prepared the host's own runs, a carried turn went out without the harness's resident block and standing context, 271 times in one probe on 16 November.
 		const folder = mkdtempSync(join(tmpdir(), "carried-sections-"));
