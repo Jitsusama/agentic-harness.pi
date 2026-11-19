@@ -50,6 +50,7 @@ import {
 	writeParked,
 } from "../../../../lib/internal/session/park.ts";
 import { watchSpawns } from "../../../support/spawns.ts";
+import { until } from "../../../support/until.ts";
 
 /** What the fixture uses of pi-ai's scripted provider. */
 interface Compat {
@@ -138,9 +139,8 @@ const projects = join(folder, "projects");
 const projectLoads = join(folder, "project-loads.jsonl");
 /** The label pi's trust question offers for trusting a folder for this session alone. */
 const TRUST_THIS_SESSION = "Trust (this session only)";
-/** How long a condition the fixture waits on may take, and how often it looks. */
+/** How long a condition the fixture waits on may take. */
 const UNTIL_MS = 60_000;
-const LOOK_MS = 10;
 
 /** Linux's access mode bits in a descriptor's flags, and the one that only reads. */
 const ACCESS_MODE = 0o3;
@@ -296,15 +296,6 @@ function field(value: unknown, key: string): unknown {
 		: undefined;
 }
 
-/** Wait until a condition holds, refusing the run once it has waited too long. */
-async function until(what: string, condition: () => boolean): Promise<void> {
-	const deadline = Date.now() + UNTIL_MS;
-	while (!condition()) {
-		if (Date.now() > deadline) throw new Error(`Gave up waiting until ${what}`);
-		await new Promise((later) => setTimeout(later, LOOK_MS));
-	}
-}
-
 /** A cache carry for the conversation, last read a warming delay ago, so its warm is due as it parks. */
 function writeDueCarry(sessionId: string): void {
 	const lastRead =
@@ -352,12 +343,14 @@ function writeMarker(host: SessionHost, id: string): void {
 async function warmed(before: number): Promise<void> {
 	const failed = () => reported.some((line) => line.includes("Parked warm"));
 	await until(
-		"its warm went out or failed",
+		"its warm to go out or fail",
 		() => keysSeen.length > before || failed(),
+		UNTIL_MS,
 	);
 	await until(
-		"its warm was kept or failed",
+		"its warm to be kept or fail",
 		() => existsSync(pendingWarmsDir()) || failed(),
+		UNTIL_MS,
 	);
 }
 
@@ -487,7 +480,11 @@ const scenarios: Record<string, Scenario> = {
 			const opened = logHolds(firstFile);
 			await host.run(first, () => prompt(engine, first, "/probe-new"));
 			const next = readEntry();
-			await until("the first conversation ends", () => !host.holds(first));
+			await until(
+				"the first conversation to end",
+				() => !host.holds(first),
+				UNTIL_MS,
+			);
 			const afterNew = {
 				first: logHolds(firstFile),
 				next: logHolds(next.file),
@@ -567,8 +564,10 @@ const scenarios: Record<string, Scenario> = {
 			const answeredWhileAsking =
 				selectAnswer !== undefined && lines(probe).every(notAsked);
 			selectAnswer?.("Yes");
-			await until("the first words are answered", () =>
-				String(summary(engine, id).transcript).includes("went on"),
+			await until(
+				"the first words to be answered",
+				() => String(summary(engine, id).transcript).includes("went on"),
+				UNTIL_MS,
 			);
 			await idle(engine, id);
 			const seen = { ...summary(engine, id), answeredWhileAsking };
@@ -587,8 +586,10 @@ const scenarios: Record<string, Scenario> = {
 				throw new Error("The lost conversation has no agent state");
 			Reflect.set(state, "model", undefined);
 			selectAnswer?.("Yes");
-			await until("the lost conversation's screen is told", () =>
-				screenFailures.some(({ sessionId }) => sessionId === lost),
+			await until(
+				"the lost conversation's screen to be told",
+				() => screenFailures.some(({ sessionId }) => sessionId === lost),
+				UNTIL_MS,
 			);
 			await host.close(lost);
 			return {
@@ -870,8 +871,9 @@ const scenarios: Record<string, Scenario> = {
 					refused = error instanceof Error ? error.message : String(error);
 				});
 			await until(
-				`the conversation it was is let go (${refused})`,
+				`the conversation it was to be let go (${refused})`,
 				() => host.holds(first) === undefined,
+				UNTIL_MS,
 			);
 			return {
 				firstId: first,
@@ -889,8 +891,9 @@ const scenarios: Record<string, Scenario> = {
 			await idle(engine, first);
 			await host.run(first, () => prompt(engine, first, "/probe-new"));
 			await until(
-				"the conversation it was is let go",
+				"the conversation it was to be let go",
 				() => host.holds(first) === undefined,
+				UNTIL_MS,
 			);
 			const seen = { firstId: first, rebounds };
 			for (const conversation of host.list()) await host.stop(conversation.id);
@@ -1067,8 +1070,10 @@ const scenarios: Record<string, Scenario> = {
 				engine.view(asked) === undefined && trustAsked.length === 1;
 			const question = trustAsked[0];
 			question?.answer(TRUST_THIS_SESSION);
-			await until("the answered conversation is built", () =>
-				screensOpened.has(asked),
+			await until(
+				"the answered conversation to be built",
+				() => screensOpened.has(asked),
+				UNTIL_MS,
 			);
 			const closing = await open(
 				engine,
@@ -1076,8 +1081,11 @@ const scenarios: Record<string, Scenario> = {
 				{ cwd: closingDir, attended: true },
 			);
 			await host.close(closing);
-			await until("the closed conversation's build ends", () =>
-				reported.some((said) => said.includes("closed before it was built")),
+			await until(
+				"the closed conversation's build to end",
+				() =>
+					reported.some((said) => said.includes("closed before it was built")),
+				UNTIL_MS,
 			);
 			const seen = {
 				answeredWhileAsking,

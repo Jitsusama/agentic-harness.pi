@@ -72,7 +72,7 @@ export const HOST_SEAMS: readonly HostSeam[] = [
 		why: "a quit typed while other windows watch would end the conversation without asking the one who typed it",
 		// Added to the lifecycle patch as hosted.quit, after its version 1.
 		present: ({ codingAgent }) =>
-			isRecord(codingAgent.InteractiveMode) &&
+			hasFields(codingAgent.InteractiveMode) &&
 			codingAgent.InteractiveMode.hostedQuit === true,
 	},
 	{
@@ -96,14 +96,14 @@ export const HOST_WANTED_SEAMS: readonly HostSeam[] = [
 		why: "words sent as a conversation reopens show nowhere until their turn starts",
 		// Added to the agent-interface patch as hostQueueDisplay, after its version 1.
 		present: ({ codingAgent }) =>
-			isRecord(codingAgent.AgentSession) &&
+			hasFields(codingAgent.AgentSession) &&
 			codingAgent.AgentSession.hostQueueDisplay === true,
 	},
 	{
 		patch: "pi-host-runs-through-pi.patch",
 		why: "a run the host carries on reaches the model without its extensions' sections",
 		present: ({ codingAgent }) =>
-			isRecord(codingAgent.AgentSession) &&
+			hasFields(codingAgent.AgentSession) &&
 			codingAgent.AgentSession.hostRuns === true,
 	},
 ];
@@ -249,8 +249,8 @@ function piCommand(packageDir: string): string {
 	const parsed: unknown = existsSync(manifest)
 		? JSON.parse(readFileSync(manifest, "utf8"))
 		: undefined;
-	const bin = isRecord(parsed) ? parsed.bin : undefined;
-	const entry = isRecord(bin) ? bin.pi : undefined;
+	const bin = hasFields(parsed) ? parsed.bin : undefined;
+	const entry = hasFields(bin) ? bin.pi : undefined;
 	const command =
 		typeof entry === "string" ? resolve(packageDir, entry) : undefined;
 	if (command === undefined || !existsSync(command))
@@ -262,12 +262,19 @@ async function importModule(
 	file: string,
 ): Promise<Readonly<Record<string, unknown>>> {
 	const loaded: unknown = await import(pathToFileURL(file).href);
-	if (!isRecord(loaded))
+	if (!hasFields(loaded))
 		throw new Error(`${file} exports nothing the host can read`);
 	return loaded;
 }
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+/**
+ * Whether a value's fields can be read by name: any object, or a
+ * function. The library's `isRecord` refuses both arrays and functions.
+ * A function must pass, since what pi exports as a class, such as
+ * `InteractiveMode`, carries the seams the host checks for. An array
+ * passes too, and the fields the host asks for read as undefined on it.
+ */
+function hasFields(value: unknown): value is Readonly<Record<string, unknown>> {
 	return (
 		(typeof value === "object" || typeof value === "function") && value !== null
 	);
@@ -275,16 +282,16 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 
 /** A class's static number, read without trusting its type. */
 function staticNumber(owner: unknown, name: string): number | undefined {
-	if (!isRecord(owner)) return undefined;
+	if (!hasFields(owner)) return undefined;
 	const value = owner[name];
 	return typeof value === "number" ? value : undefined;
 }
 
 /** Whether a GenerationTask holds the committed-turn phases at the version that introduced them. */
 function committedTurnGeneration(task: unknown): boolean {
-	if (!isRecord(task) || !isRecord(task.definition)) return false;
+	if (!hasFields(task) || !hasFields(task.definition)) return false;
 	const { version, phases } = task.definition;
-	if (version !== COMMITTED_TURN_VERSION || !isRecord(phases)) return false;
+	if (version !== COMMITTED_TURN_VERSION || !hasFields(phases)) return false;
 	return COMMITTED_TURN_PHASES.every(
 		(phase) => typeof phases[phase] === "function",
 	);
