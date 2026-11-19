@@ -300,7 +300,7 @@ let note = (_event: {
 	readonly sends?: number;
 	readonly waiting?: number;
 	readonly ms?: number;
-	readonly first?: boolean;
+	readonly waits?: string;
 	/**
 	 * Whether a run was under way at the event: the agent's, once a step
 	 * returned, or pi's, as words were sent.
