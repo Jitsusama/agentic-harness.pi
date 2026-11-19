@@ -653,6 +653,11 @@ describe("a spawn where a budget's work is", () => {
 	});
 
 	it("names nothing for a spawn on another machine, whose folders this one's providers don't know", async () => {
+		// A stand-in for the node, so the test never shares a quest on the
+		// person's own mycelium; it refuses, as a node that isn't there does.
+		const node = join(tmpRoot, "bin", "mycelium");
+		writeFileSync(node, "#!/bin/sh\necho 'no node here' >&2\nexit 1\n");
+		chmodSync(node, 0o755);
 		const { state, id } = await quest();
 		const asked: string[] = [];
 		placeDelta(state, tmpRoot, asked);
@@ -665,7 +670,38 @@ describe("a spawn where a budget's work is", () => {
 
 		expect(asked).toEqual([]);
 		expect(budgetOf(state, id)).toBeUndefined();
-		if (result.ok) expect(result.message).not.toContain("Budget delta");
+		expect(result.ok ? result.message : result.guidance).not.toMatch(
+			/budget delta/i,
+		);
+	});
+
+	it("names nothing for a quest whose parent names a budget, which it draws on", async () => {
+		const { state, id: parent } = await quest();
+		const named = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "budget",
+			ref: "aquifer",
+		});
+		if (!named.ok) throw new Error(named.guidance);
+		const child = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "create",
+			kind: "subquest",
+			parent,
+			title: "Beta",
+		});
+		if (!child.ok) throw new Error(child.guidance);
+		const id = (child.details as { id: string }).id;
+		const asked: string[] = [];
+		placeDelta(state, tmpRoot, asked);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(id).not.toBe(parent);
+		expect(asked).toEqual([]);
+		expect(budgetOf(state, id)).toBeUndefined();
 	});
 
 	it("leaves a quest that names its own budget as it is", async () => {

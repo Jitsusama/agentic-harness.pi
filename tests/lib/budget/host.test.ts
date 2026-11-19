@@ -126,7 +126,7 @@ describe("the budget host", () => {
 		expect(await host.draw("delta")).toEqual({
 			kind: "unavailable",
 			provider: "stuck",
-			reason: "stuck didn't answer within 0.02 s.",
+			reason: '"stuck" didn\'t answer within 0.02 s.',
 		});
 	});
 
