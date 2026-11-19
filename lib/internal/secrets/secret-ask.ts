@@ -146,7 +146,10 @@ export interface RouteReads {
  * from writing a sign, not from that, and a pose gains nothing but an ask
  * filed with nobody to answer it, which waits out its deadline. Where
  * there's no /proc, as on a Mac, nothing reads as the daemon, which is
- * right: it runs only on Linux.
+ * right: it runs only on Linux. Where /proc hides processes (hidepid, or a
+ * unit's ProtectProc), the kernel hides a non-dumpable one even from its
+ * own account, so the daemon reads as gone and every ask is refused: the
+ * safe way to be wrong.
  */
 export function runsPasswords(
 	pid: number,

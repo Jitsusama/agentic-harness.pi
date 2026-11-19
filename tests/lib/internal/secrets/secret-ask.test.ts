@@ -349,28 +349,32 @@ describe("runsPasswords", () => {
 			// as core's daemon makes itself, so its exe can't be read even by
 			// this account and only its status says what it is.
 			chmodSync(program, 0o111);
-			// The shell waits on its own read, so it starts no child to
-			// outlive it.
-			const daemon = spawn(program, ["-c", "read -r line"], {
-				stdio: ["pipe", "ignore", "ignore"],
-			});
 			// The same shell from a file it can read stays dumpable, so its
 			// exe reads: the control that shows the copy's mode alone hides it.
 			const readable = join(dir, "readable");
 			copyFileSync(realpathSync("/bin/sh"), readable);
 			chmodSync(readable, 0o755);
-			const other = spawn(readable, ["-c", "read -r line"], {
-				stdio: ["pipe", "ignore", "ignore"],
-			});
-			let failed: Error | undefined;
-			daemon.on("error", (why) => {
-				failed = why;
-			});
-			other.on("error", (why) => {
-				failed = why;
-			});
 			const runtime = mkdtempSync(join(tmpdir(), "answered-"));
+			let failed: Error | undefined;
+			// Each shell waits on its own read, so it starts no child to
+			// outlive it. Both start inside the try, whose finally kills
+			// whichever did.
+			const started: ReturnType<typeof spawn>[] = [];
+			const start = (file: string) => {
+				const shell = spawn(file, ["-c", "read -r line"], {
+					stdio: ["pipe", "ignore", "ignore"],
+				});
+				started.push(shell);
+				shell.on("error", (why) => {
+					failed = why;
+				});
+				// Listened for at once, so an exit can't come before the wait.
+				const exited = new Promise((done) => shell.once("exit", done));
+				return { shell, exited };
+			};
 			try {
+				const { shell: daemon, exited } = start(program);
+				const { shell: other } = start(readable);
 				const pid = daemon.pid ?? 0;
 				await expect
 					.poll(() => failed ?? runsPasswords(pid), { timeout: 5000 })
@@ -393,21 +397,20 @@ describe("runsPasswords", () => {
 					() => readlinkSync(`/proc/${pid}/exe`),
 					"a non-dumpable process's exe",
 				).toThrow(expect.objectContaining({ code: "EACCES" }));
+				expect(runsPasswords(control), "the readable control").toBe(false);
 				expect(runsPasswords(process.pid), "this process, node").toBe(false);
 				mkdirSync(join(runtime, "secret-asks"));
 				writeFileSync(join(runtime, "secret-asks", "answering"), `${pid}\n`);
 				expect(asksAnswered(runtime), "its sign, read from the machine").toBe(
 					true,
 				);
-				const exited = new Promise((done) => daemon.once("exit", done));
 				daemon.kill("SIGKILL");
 				await exited;
 				expect(asksAnswered(runtime), "the sign a killed daemon left").toBe(
 					false,
 				);
 			} finally {
-				daemon.kill();
-				other.kill();
+				for (const shell of started) shell.kill("SIGKILL");
 				rmSync(runtime, { recursive: true, force: true });
 			}
 		},
