@@ -38,7 +38,9 @@ import {
 	type BudgetDrawing,
 	type FolderBudget,
 	hostBudgets,
+	type WorkBudget,
 } from "../../lib/budget/host.ts";
+import type { Classify, WorkToBudget } from "../../lib/budget/provider.ts";
 import {
 	BUDGET_ENTRY,
 	BUDGET_SETTLED,
@@ -47,6 +49,7 @@ import {
 	budgetDrawnOn,
 	lastRecorded,
 } from "../../lib/budget/record.ts";
+import { findClassifier } from "../../lib/classifier/jev.ts";
 import { sessionEnv } from "../../lib/core/session/index.ts";
 import { budgetInRecord } from "../../lib/internal/quest/fields/budget.ts";
 import type { QuestState } from "./state.ts";
@@ -91,6 +94,53 @@ export function budgetOfFolder(
 	return folderBudgets.get(state)?.(folder) ?? Promise.resolve(undefined);
 }
 
+/**
+ * The providers' judgement of which budget some work draws on, by the
+ * quest state whose keeper hosts them, as {@link folderBudgets} is.
+ */
+const workBudgets = new WeakMap<
+	QuestState,
+	(
+		work: WorkToBudget,
+		ctx: Pick<ExtensionContext, "modelRegistry">,
+	) => Promise<WorkBudget | undefined>
+>();
+
+/**
+ * The environment variable naming the classifier budgets are judged
+ * with, as `provider/model`, or `off` for none.
+ */
+export const BUDGET_CLASSIFIER_ENV = "PI_BUDGET_CLASSIFIER";
+
+/**
+ * The budget the providers judge `work` draws on, with the session's
+ * classifier, or undefined when none judges it or no keeper hosts them.
+ */
+export function budgetOfWork(
+	state: QuestState,
+	work: WorkToBudget,
+	ctx: Pick<ExtensionContext, "modelRegistry">,
+): Promise<WorkBudget | undefined> {
+	return workBudgets.get(state)?.(work, ctx) ?? Promise.resolve(undefined);
+}
+
+/**
+ * The session's classifier, found through its model registry, or one
+ * that fails saying why there is none, so a provider that needs it is
+ * passed over rather than every provider going unasked.
+ */
+export async function classifierOf(
+	ctx: Pick<ExtensionContext, "modelRegistry">,
+): Promise<Classify> {
+	const found = await findClassifier(
+		ctx,
+		process.env[BUDGET_CLASSIFIER_ENV],
+		BUDGET_CLASSIFIER_ENV,
+	);
+	if (found.ok) return found.classify;
+	return () => Promise.reject(new Error(found.reason));
+}
+
 /** Host budget providers and keep the session on its quest's budget. */
 export function keepQuestBudget(
 	pi: ExtensionAPI,
@@ -98,6 +148,9 @@ export function keepQuestBudget(
 ): BudgetKeeper {
 	const host = hostBudgets(pi.events);
 	folderBudgets.set(state, (folder) => host.budgetFor(folder));
+	workBudgets.set(state, async (work, ctx) =>
+		host.budgetForWork(work, await classifierOf(ctx)),
+	);
 	/** The name last drawn on or asked for, null for none. */
 	let wanted: string | null | undefined;
 	/** Bumped on every ask, so an answer overtaken by another is dropped. */

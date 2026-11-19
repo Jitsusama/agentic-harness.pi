@@ -20,7 +20,9 @@
  */
 
 import { resolve } from "node:path";
-import type { FolderBudget } from "../../../lib/budget/host.ts";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { FolderBudget, WorkBudget } from "../../../lib/budget/host.ts";
+import type { WorkToBudget } from "../../../lib/budget/provider.ts";
 import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
 import {
 	budgetInRecord,
@@ -30,7 +32,7 @@ import {
 } from "../../../lib/internal/quest/fields/budget.ts";
 import { mutateQuestFrontMatter } from "../../../lib/internal/quest/fields/mutate.ts";
 import type { QuestFrontMatter } from "../../../lib/quest/types.ts";
-import { budgetOfFolder } from "../budget.ts";
+import { budgetOfFolder, budgetOfWork } from "../budget.ts";
 import type { QuestState } from "../state.ts";
 import { addressOf } from "./address.ts";
 import {
@@ -98,7 +100,7 @@ export async function budgetFromFolder(
  * The provider that named a folder's budget, as every line about it
  * says it: quoted, so its id can't add a line of its own.
  */
-export function namedBy(taken: FolderBudget): string {
+export function namedBy(taken: Pick<FolderBudget, "provider">): string {
 	return JSON.stringify(taken.provider);
 }
 
@@ -132,6 +134,86 @@ export async function nameBudgetFromFolder(
 	if (!result.ok || !named) return undefined;
 	appendJourneyByPath(questDir, takenFromFolder(taken, folder));
 	return taken;
+}
+
+/**
+ * The budget the providers judge a quest under `above` (as for
+ * {@link budgetFromFolder}) draws on from what its work is, only when
+ * nothing from `above` up names one. Asked once no folder names one.
+ */
+export async function budgetFromWork(
+	state: QuestState,
+	ctx: Pick<ExtensionContext, "modelRegistry">,
+	above: string | null,
+	work: WorkToBudget,
+): Promise<WorkBudget | undefined> {
+	if (above !== null && budgetInRecord(state.questsRoot, above)) return;
+	return budgetOfWork(state, work, ctx);
+}
+
+/**
+ * The budget a judgement names on a quest: only a sure one, and never
+ * `none`, which would stop the folder's answer for every quest under it.
+ */
+export function namedByJudgement(judged: WorkBudget): string | undefined {
+	return judged.sure && judged.name !== NO_BUDGET ? judged.name : undefined;
+}
+
+/** The Journey's line for a judgement of a quest's work. */
+export function judgedFromWork(judged: WorkBudget): string {
+	const by = namedBy(judged);
+	const why = judged.why ? `: ${judged.why}` : "";
+	if (!judged.sure) {
+		return `Budget: unsure, so none named. ${by}'s best guess from its work is ${judged.name}${why}. \`quest budget\` names one.`;
+	}
+	if (judged.name === NO_BUDGET) {
+		return `Budget: none named, since ${by} judged its work the person's own${why}.`;
+	}
+	return `Budget: ${judged.name}, which ${by} judged from its work, since nothing above it or its folder named one${why}.`;
+}
+
+/** What a create's first line says of a judgement of its work. */
+export function judgedClause(judged: WorkBudget): string {
+	const by = namedBy(judged);
+	const why = judged.why ? `: ${judged.why}` : "";
+	if (!judged.sure) {
+		return `, drawing on no budget, since ${by} was unsure (best guess ${judged.name}${why}; \`quest budget\` names one)`;
+	}
+	if (judged.name === NO_BUDGET) {
+		return `, drawing on no budget, since ${by} judged it the person's own work${why}`;
+	}
+	return `, drawing on budget ${judged.name}, which ${by} judged from its work${why} (\`quest budget\` names another)`;
+}
+
+/**
+ * Judge which budget quest `quest` in `questDir` draws on from `work`,
+ * when nothing on or above it names one, naming it only when the
+ * judgement is sure, and journal what was judged either way. Answers
+ * the judgement, or undefined when none was made or the quest was named
+ * in between.
+ */
+export async function nameBudgetFromWork(
+	state: QuestState,
+	ctx: Pick<ExtensionContext, "modelRegistry">,
+	quest: string,
+	questDir: string,
+	work: WorkToBudget,
+): Promise<WorkBudget | undefined> {
+	const judged = await budgetFromWork(state, ctx, quest, work);
+	if (!judged) return undefined;
+	const name = namedByJudgement(judged);
+	if (name !== undefined) {
+		let named = false;
+		const result = mutateQuestFrontMatter(questDir, (fm) => {
+			// Named in between, by hand or by its folder: that one stands.
+			if (fm._extra?.budget !== undefined) return undefined;
+			named = true;
+			return withBudget(fm, name);
+		});
+		if (!result.ok || !named) return undefined;
+	}
+	appendJourneyByPath(questDir, judgedFromWork(judged));
+	return judged;
 }
 
 /** Front matter saying `word` as its budget, or none of its own. */

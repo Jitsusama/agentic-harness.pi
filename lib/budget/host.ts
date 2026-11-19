@@ -15,8 +15,11 @@ import {
 	type BudgetAnswer,
 	type BudgetHostApi,
 	type BudgetProvider,
+	type Classify,
 	isBudgetName,
 	isBudgetProvider,
+	type WorkJudgement,
+	type WorkToBudget,
 } from "./provider.ts";
 
 /** What asking the providers about one name came to. */

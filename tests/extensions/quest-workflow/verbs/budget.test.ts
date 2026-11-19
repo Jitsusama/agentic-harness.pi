@@ -316,6 +316,184 @@ describe("a quest made where a budget's work is", () => {
 	});
 });
 
+describe("a quest no folder or parent names a budget for", () => {
+	/** What each judgement was handed, in order. */
+	let asked: { work: unknown; state: unknown }[] = [];
+
+	/**
+	 * Quest state with a keeper whose provider judges every quest's work
+	 * through the session's classifier, which answers `choice` at
+	 * `confidence`; and a ctx whose registry serves Jev.
+	 */
+	function judged(
+		choice: string,
+		confidence: number,
+		options: { folder?: string; registry?: boolean } = {},
+	) {
+		asked = [];
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		const events = bus();
+		keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
+		registerBudgetProvider(events, {
+			id: "judge",
+			precedence: 0,
+			resolve: async () => ({ kind: "unknown" }),
+			budgetFor: async (folder) =>
+				folder === options.folder ? "aquifer" : undefined,
+			budgetForWork: async (work, classify) => {
+				const result = await classify({
+					state: { title: work.title },
+					questions: {},
+				});
+				const answer = result.answers.budget;
+				if (answer?.type !== "choice") return undefined;
+				return {
+					name: answer.choice,
+					why: `Jev judged it ${answer.choice}`,
+					sure: answer.confidence >= 0.8,
+				};
+			},
+		});
+		const registry = {
+			getAvailableOfType: async () => [
+				{ provider: "typesafe", id: "jev-latest" },
+			],
+			classify: async (_model: unknown, context: { state: unknown }) => {
+				asked.push({ work: context.state, state: context.state });
+				return {
+					api: "typesafe-system-one",
+					provider: "typesafe",
+					model: "jev-latest",
+					answers: {
+						budget: {
+							type: "choice",
+							choice,
+							probabilities: { [choice]: confidence },
+							confidence,
+						},
+					},
+					stopReason: "stop",
+					timestamp: 0,
+				};
+			},
+		};
+		const ctx = {
+			...fakeCtx(),
+			...(options.registry === false ? {} : { modelRegistry: registry }),
+		} as unknown as Parameters<typeof handle>[2];
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(state, fakePi(intoTheBranch), ctx, params);
+		return { state, run };
+	}
+
+	it("is named for the budget a sure judgement of its work names, said in its first line and Journey", async () => {
+		const { state, run } = judged("delta", 0.93);
+
+		const made = succeeded(
+			await run({
+				action: "create",
+				title: "Speed Up walgit Pack Writes",
+				note: "Delta's git server.",
+			}),
+		);
+
+		const id = state.questId as string;
+		expect(budgetIn(state.questsRoot, id)).toBe("delta");
+		expect(made.message.split("\n")[0]).toContain(
+			'drawing on budget delta, which "judge" judged from its work: Jev judged it delta',
+		);
+		expect(journeyOf(join(state.questsRoot, id))).toContain(
+			'Budget: delta, which "judge" judged from its work',
+		);
+		expect(asked).toEqual([
+			{
+				work: { title: "Speed Up walgit Pack Writes" },
+				state: { title: "Speed Up walgit Pack Writes" },
+			},
+		]);
+	});
+
+	it("names nothing on an unsure judgement, and says its best guess and that it was unsure", async () => {
+		const { state, run } = judged("aquifer", 0.6);
+
+		const made = succeeded(
+			await run({ action: "create", title: "Something Vague" }),
+		);
+
+		const id = state.questId as string;
+		expect(budgetIn(state.questsRoot, id)).toBeUndefined();
+		expect(made.message.split("\n")[0]).toContain(
+			'drawing on no budget, since "judge" was unsure (best guess aquifer',
+		);
+		expect(journeyOf(join(state.questsRoot, id))).toContain(
+			'Budget: unsure, so none named. "judge"\'s best guess from its work is aquifer',
+		);
+	});
+
+	it("names nothing on a sure judgement that it is the person's own, so its children still ask their folders", async () => {
+		const { state, run } = judged("none", 0.97);
+
+		const made = succeeded(
+			await run({ action: "create", title: "Tune the Laptop's Fans" }),
+		);
+
+		const id = state.questId as string;
+		expect(budgetIn(state.questsRoot, id)).toBeUndefined();
+		expect(made.message.split("\n")[0]).toContain(
+			"drawing on no budget, since \"judge\" judged it the person's own work",
+		);
+		expect(journeyOf(join(state.questsRoot, id))).toContain(
+			"Budget: none named, since \"judge\" judged its work the person's own",
+		);
+	});
+
+	it("takes its folder's budget without asking for a judgement", async () => {
+		const { state, run } = judged("delta", 0.99, { folder: tmpRoot });
+
+		succeeded(await run({ action: "create", title: "In Aquifer's Folder" }));
+
+		expect(budgetIn(state.questsRoot, state.questId as string)).toBe(
+			"aquifer",
+		);
+		expect(asked).toEqual([]);
+	});
+
+	it("asks for no judgement under a parent that names a budget, none included", async () => {
+		const { state, run } = judged("delta", 0.99);
+		succeeded(await run({ action: "create", title: "Personal" }));
+		const top = state.questId as string;
+		succeeded(await run({ action: "budget", id: top, ref: "none" }));
+		asked = [];
+
+		const made = succeeded(
+			await run({
+				action: "create",
+				title: "Under It",
+				kind: "subquest",
+				parent: top,
+			}),
+		);
+
+		expect(budgetIn(state.questsRoot, made.details?.id as string)).toBe(
+			undefined,
+		);
+		expect(asked).toEqual([]);
+	});
+
+	it("is made unjudged when the session has no classifier, saying nothing of a budget", async () => {
+		const { state, run } = judged("delta", 0.99, { registry: false });
+
+		const made = succeeded(
+			await run({ action: "create", title: "Speed Up walgit" }),
+		);
+
+		expect(budgetIn(state.questsRoot, state.questId as string)).toBe(
+			undefined,
+		);
+		expect(made.message).not.toContain("budget");
+	});
+});
+
 describe("the session's budget", () => {
 	function ui() {
 		const notices: string[] = [];

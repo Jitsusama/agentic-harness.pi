@@ -7,7 +7,7 @@
  */
 
 import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -71,7 +71,15 @@ import {
 } from "../lookup.ts";
 import { livePeers, peersSaid } from "../peers.ts";
 import { startedWith, trackSession } from "../session-registry.ts";
-import { budgetFromFolder, namedBy, takenFromFolder } from "./budget.ts";
+import {
+	budgetFromFolder,
+	budgetFromWork,
+	judgedClause,
+	judgedFromWork,
+	namedBy,
+	namedByJudgement,
+	takenFromFolder,
+} from "./budget.ts";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -276,6 +284,25 @@ export async function create(
 	// Born drawing on the budget its folder's work draws on, when nothing
 	// above it names one, so it never starts on the person's own key.
 	const folderBudget = await budgetFromFolder(state, parent, ctx.cwd);
+	const summaryParts: string[] = [];
+	if (params.note?.trim()) summaryParts.push(params.note.trim());
+	if (seededExcerpt) summaryParts.push(`Source excerpt: ${seededExcerpt}`);
+	const summary =
+		summaryParts.length > 0 ? summaryParts.join("\n\n") : undefined;
+	// No folder names one either: judged from what the work is, named only
+	// when the judgement is sure, and said either way.
+	const judged = folderBudget
+		? undefined
+		: await budgetFromWork(state, ctx, parent, {
+				title: seededTitle,
+				...(summary ? { summary } : {}),
+				...(ctx.cwd ? { folder: resolve(ctx.cwd) } : {}),
+				...(seededAlias
+					? { names: [`${seededAlias.type}:${seededAlias.value}`] }
+					: {}),
+			});
+	const budgetName =
+		folderBudget?.name ?? (judged ? namedByJudgement(judged) : undefined);
 
 	// The realm it was made in, so a reader across realms can tell: its
 	// parent's when the parent has one, since that is where a reader
@@ -296,13 +323,8 @@ export async function create(
 		updated: nowYmd(),
 		aliases: seededAlias ? [seededAlias] : [],
 		sessions: [],
-		...(folderBudget ? { _extra: { budget: folderBudget.name } } : {}),
+		...(budgetName ? { _extra: { budget: budgetName } } : {}),
 	};
-	const summaryParts: string[] = [];
-	if (params.note?.trim()) summaryParts.push(params.note.trim());
-	if (seededExcerpt) summaryParts.push(`Source excerpt: ${seededExcerpt}`);
-	const summary =
-		summaryParts.length > 0 ? summaryParts.join("\n\n") : undefined;
 
 	const castEntries = seededOriginator
 		? [
@@ -354,16 +376,28 @@ export async function create(
 	if (folderBudget && ctx.cwd) {
 		appendJourneyByPath(dir, takenFromFolder(folderBudget, ctx.cwd));
 	}
+	if (judged) appendJourneyByPath(dir, judgedFromWork(judged));
 	const made = `Created ${kind} ${id} at ${displayPath(path)}${
 		folderBudget
 			? `, drawing on budget ${folderBudget.name}, which ${namedBy(folderBudget)} says this folder's work draws on (\`quest budget\` names another)`
-			: ""
+			: judged
+				? judgedClause(judged)
+				: ""
 	}`;
 	const details = {
 		id,
 		path,
 		kind,
-		...(folderBudget ? { budget: folderBudget.name } : {}),
+		...(budgetName ? { budget: budgetName } : {}),
+		...(judged
+			? {
+					judged: {
+						name: judged.name,
+						sure: judged.sure,
+						provider: judged.provider,
+					},
+				}
+			: {}),
 	};
 	// A session already on a quest is usually filing a follow-up or a
 	// subquest for later, or for another session, so it stays on its
