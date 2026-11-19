@@ -368,7 +368,11 @@ shipped and tested.
   system's journal at warning, and in the log's `budget` entry
   (`"unresolved": {"budget": "delta", "missing": ...}`), which
   draws a line in the session. Started on the very budget the quest
-  names, nothing is missed and nothing is said. An unresolved entry
+  names, nothing is missed and nothing is said. A missed budget is
+  asked for again at the next keep, since a restart's load has mostly
+  passed by then; a retry that misses waits a minute before the next,
+  doubling each miss to 16 minutes, and says nothing new. Each retry
+  holds its turn for up to the providers' 5 s. An unresolved entry
   doesn't always mean the person's key: its `name` says what the
   calls drew on, so spend-watch counts by `name` and reads
   `unresolved` as which budget was missed. A provider ranked above

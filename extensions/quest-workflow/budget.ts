@@ -115,14 +115,21 @@ export interface BudgetKeeperOptions {
 }
 
 /**
- * How long a budget that couldn't be drawn on waits before the next
- * keep asks for it again. A provider can miss once and answer the next
- * time, as its credential program does under the load of a restart, and
- * a session that never asked again drew on the default for the rest of
- * its life; a provider that stays down costs a turn its deadline once
- * a minute, rather than every turn.
+ * How long a budget that couldn't be drawn on waits, once a retry has
+ * missed it too, before the next keep asks for it again. A provider can
+ * miss once and answer the next time, as its credential program does
+ * under the load of a restart, and a session that never asked again drew
+ * on the default for the rest of its life. So the first miss is asked
+ * again at the very next keep, since a restart's load has mostly passed
+ * by then and every call before it bills the default; each miss after
+ * that doubles the wait from this, up to `BUDGET_ASKED_AGAIN_MOST_MS`,
+ * so a provider that stays down, or one that prompts to unlock, costs a
+ * turn its deadline ever more rarely.
  */
 export const BUDGET_ASKED_AGAIN_MS = 60_000;
+
+/** The longest a missed budget waits before it is asked for again. */
+export const BUDGET_ASKED_AGAIN_MOST_MS = 16 * 60_000;
 
 /** Write a line to the system's journal at warning. */
 function warnInJournal(line: string): void {
@@ -136,7 +143,8 @@ export function keepQuestBudget(
 	options: BudgetKeeperOptions = {},
 ): BudgetKeeper {
 	const sink = options.journal ?? warnInJournal;
-	const now = options.now ?? Date.now;
+	// A monotonic clock, so a wall clock stepped back holds no retry off.
+	const now = options.now ?? (() => performance.now());
 	const journal = (line: string): void => {
 		try {
 			sink(line);
@@ -161,19 +169,21 @@ export function keepQuestBudget(
 	let pending: Promise<void> = Promise.resolve();
 	/** When the name wanted was last missed, so a later keep asks again. */
 	let missedAt: number | undefined;
+	/** How long the name wanted waits since its last miss: none at first. */
+	let missedWait = 0;
 
 	const keep = async (ctx: ExtensionContext, again = false) => {
 		last = ctx;
 		const name = state.questId
 			? (budgetInRecord(state.questsRoot, state.questId)?.name ?? null)
 			: null;
-		const due =
-			missedAt !== undefined && now() - missedAt >= BUDGET_ASKED_AGAIN_MS;
+		const due = missedAt !== undefined && now() - missedAt >= missedWait;
 		if (name === wanted && !again && !due) return pending;
+		const retrying = name === wanted && due && !again;
 		wanted = name;
 		missedAt = undefined;
 		const ask = ++asking;
-		pending = settle(ctx, name, ask);
+		pending = settle(ctx, name, ask, retrying);
 		return pending;
 	};
 
@@ -181,6 +191,7 @@ export function keepQuestBudget(
 		ctx: ExtensionContext,
 		name: string | null,
 		ask: number,
+		retrying = false,
 	) => {
 		if (name === null) {
 			liftBudget(sessionEnv(ctx), processOverlay(ctx));
@@ -199,18 +210,28 @@ export function keepQuestBudget(
 			recordDrawn(pi, ctx, drawing);
 			return;
 		}
-		missedAt = now();
 		liftBudget(sessionEnv(ctx), processOverlay(ctx));
 		const inherited = budgetDrawnOn(sessionEnv(ctx).snapshot());
 		// Started on the very budget the quest names, the calls draw on it
-		// still: nothing is missed, so nothing is said.
+		// still: nothing is missed, so nothing is said or asked again.
 		if (inherited === name) {
 			told.delete(name);
 			recordDrawn(pi, ctx);
 			return;
 		}
+		missedAt = now();
+		missedWait = retrying ? waitAfter(missedWait) : 0;
 		const unresolved = { budget: name, missing: missingFrom(drawing) };
 		const fallback = fallbackOf(inherited);
+		// A retry that misses again says nothing new, even when the
+		// provider's words differ, so a provider that stays down writes no
+		// line a minute.
+		if (retrying && lastRecordOn(branchOf(ctx))?.unresolved?.budget === name) {
+			pi.events.emit(BUDGET_SETTLED, {
+				name: inherited,
+			} satisfies BudgetSettled);
+			return;
+		}
 		if (recordDrawn(pi, ctx, undefined, unresolved)) {
 			const quest = state.questId ? `quest ${state.questId}` : "the quest";
 			journal(
@@ -237,6 +258,7 @@ export function keepQuestBudget(
 		// answer still on its way is overtaken, so it lays nothing.
 		wanted = undefined;
 		missedAt = undefined;
+		missedWait = 0;
 		asking++;
 	};
 
@@ -266,8 +288,7 @@ function recordDrawn(
 	const name = budgetDrawnOn(sessionEnv(ctx).snapshot());
 	const settled: BudgetSettled = { name };
 	pi.events.emit(BUDGET_SETTLED, settled);
-	const branch = ctx.sessionManager?.getBranch?.() ?? [];
-	const last = lastRecordOn(branch);
+	const last = lastRecordOn(branchOf(ctx));
 	if (
 		last?.name === name &&
 		last.unresolved?.budget === unresolved?.budget &&
@@ -280,6 +301,17 @@ function recordDrawn(
 			: { v: 1, name, ...(unresolved ? { unresolved } : {}) };
 	pi.appendEntry(BUDGET_ENTRY, record);
 	return true;
+}
+
+/** The wait after a retry missed, given the wait it came after. */
+function waitAfter(wait: number): number {
+	if (wait < BUDGET_ASKED_AGAIN_MS) return BUDGET_ASKED_AGAIN_MS;
+	return Math.min(wait * 2, BUDGET_ASKED_AGAIN_MOST_MS);
+}
+
+/** The session's branch, or none where its manager can't say. */
+function branchOf(ctx: ExtensionContext): Parameters<typeof lastRecordOn>[0] {
+	return ctx.sessionManager?.getBranch?.() ?? [];
 }
 
 /**
@@ -318,7 +350,8 @@ function quoted(said: unknown): string {
  */
 function oneLine(said: unknown): string {
 	if (typeof said !== "string") return "(no reason given)";
-	return said.replace(/\s+/g, " ").trim();
+	// Control characters go too, so a program's escapes reach no terminal.
+	return said.replace(/[\s\p{Cc}]+/gu, " ").trim();
 }
 
 /** How much of a provider's words the journal and the log keep. */

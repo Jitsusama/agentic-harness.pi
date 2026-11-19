@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	BUDGET_ASKED_AGAIN_MOST_MS,
 	BUDGET_ASKED_AGAIN_MS,
 	budgetEntryView,
 	budgetOfFolder,
@@ -554,17 +555,77 @@ describe("the session's budget", () => {
 			});
 		});
 
-		it("isn't asked again before the wait is out, so a provider that's down costs no turn", async () => {
+		it("is asked again at the next keep, as a restart's load passes", async () => {
+			const { keeper, asked } = await onAClock();
+			await keeper.keep(ui().ctx);
+			await keeper.keep(ui().ctx);
+			expect(asked()).toBe(2);
+		});
+
+		it("isn't asked again before the wait is out once a retry missed, so a provider that's down costs few turns", async () => {
 			const { keeper, clock, asked } = await onAClock();
+			await keeper.keep(ui().ctx);
 			await keeper.keep(ui().ctx);
 			clock.at += BUDGET_ASKED_AGAIN_MS - 1;
 			await keeper.keep(ui().ctx);
-			expect(asked()).toBe(1);
+			expect(asked()).toBe(2);
 
 			clock.at += 1;
 			await keeper.keep(ui().ctx);
 			await keeper.keep(ui().ctx);
-			expect(asked(), "once more, then waits again").toBe(2);
+			expect(asked(), "once more, then waits again").toBe(3);
+
+			clock.at += BUDGET_ASKED_AGAIN_MS;
+			await keeper.keep(ui().ctx);
+			expect(asked(), "the wait doubles once it misses again").toBe(3);
+			clock.at += BUDGET_ASKED_AGAIN_MS;
+			await keeper.keep(ui().ctx);
+			expect(asked()).toBe(4);
+
+			for (let miss = 0; miss < 5; miss++) {
+				clock.at += BUDGET_ASKED_AGAIN_MOST_MS;
+				await keeper.keep(ui().ctx);
+			}
+			expect(asked()).toBe(9);
+			clock.at += BUDGET_ASKED_AGAIN_MOST_MS - 1;
+			await keeper.keep(ui().ctx);
+			expect(asked(), "the wait stops growing at its longest").toBe(9);
+			clock.at += 1;
+			await keeper.keep(ui().ctx);
+			expect(asked()).toBe(10);
+		});
+
+		it("says nothing new when a retry misses again, though the provider's words change", async () => {
+			const { keeper, clock, answers } = await onAClock();
+			const seen = ui();
+			await keeper.keep(seen.ctx);
+			const entries = recorded().length;
+
+			answers({ kind: "unavailable", reason: "It said something else." });
+			clock.at += BUDGET_ASKED_AGAIN_MS;
+			await keeper.keep(seen.ctx);
+
+			expect(recorded().length, "no entry a minute").toBe(entries);
+			expect(seen.notices).toHaveLength(1);
+		});
+
+		it("isn't asked again when the session was started on the quest's budget", async () => {
+			process.env.PI_BUDGET = "delta";
+			const { keeper, clock, asked } = await onAClock();
+			await keeper.keep(ui().ctx);
+			clock.at += BUDGET_ASKED_AGAIN_MS * 3;
+			await keeper.keep(ui().ctx);
+			expect(asked()).toBe(1);
+		});
+
+		it("keeps no control characters from a provider's words", () => {
+			expect(
+				undrawable("delta", {
+					kind: "unavailable",
+					provider: "plane",
+					reason: "bad\u001b]0;owned\u0007 key",
+				}),
+			).not.toMatch(/\p{Cc}/u);
 		});
 
 		it("isn't asked again once it's drawn", async () => {
@@ -587,12 +648,13 @@ describe("the session's budget", () => {
 		);
 		await run({ action: "load", id: top });
 		await keeper.keep(ui().ctx);
+		await keeper.keep(ui().ctx);
 
 		answers.delta = { kind: "drawn", env: { [KEY]: "file" }, label: "x" };
 		await keeper.keep(ui().ctx);
 		expect(
 			process.env[KEY],
-			"an unchanged name isn't asked on every tool call",
+			"an unchanged name isn't asked on every tool call once retried",
 		).toBe("personal");
 
 		await run({ action: "budget", id: top, ref: "delta" });
