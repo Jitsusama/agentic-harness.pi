@@ -277,10 +277,8 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		resuming.delete(step.number);
 		under.renewing?.();
 		const now = Date.now();
-		const why =
-			end === "unresumed" && reason !== undefined
-				? `: ${firstLine(reason)}`
-				: "";
+		const told = end === "unresumed" ? firstLine(reason) : "";
+		const why = told ? `: ${told}` : "";
 		say(
 			`${since()}: ${ENDED_AS[end]} ${step.number} of ${step.of} in ${seconds(now - under.at)}${phaseTimes(under.at, under.phases, now)}${why}`,
 		);
@@ -321,7 +319,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			passed: under
 				? (ceiling) =>
 						say(
-							`${since()}: still ${status} after ${seconds(ceiling)}; asking no more`,
+							`${since()}: still ${status} after ${seconds(ceiling)}; asking no more, and the start waits on it`,
 						)
 				: undefined,
 		});
@@ -520,12 +518,29 @@ function askWhileUnderWay(options: {
 }
 
 /**
- * The first line of why something failed, to keep a journal entry on one
- * line; the start's report says the rest, stack and all.
+ * The first line of why something failed that says anything, to keep a
+ * journal entry on one line, or nothing for a reason with no message;
+ * the start's report says the rest, stack and all.
  */
 function firstLine(reason: unknown): string {
-	const text = reason instanceof Error ? reason.message : String(reason);
-	return text.split("\n", 1)[0] ?? text;
+	let text: string;
+	try {
+		text =
+			reason instanceof Error
+				? reason.message
+				: typeof reason === "string"
+					? reason
+					: "";
+	} catch {
+		// A message getter that throws says nothing; the report still has the reason.
+		text = "";
+	}
+	return (
+		text
+			.split(/\r?\n|\r/)
+			.map((line) => line.trim())
+			.find((line) => line.length > 0) ?? ""
+	);
 }
 
 /**

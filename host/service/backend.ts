@@ -647,8 +647,10 @@ export const RESUME_AT_ONCE = 4;
  * and is reported like one that couldn't resume, and the rest go on.
  * `mark` hears each phase as it ends and `finished` each one's end,
  * resumed, parked or failed with why, under its own step, since several
- * run at once. A throw from `mark` fails that conversation's resume; one
- * from `finished` fails the start, once no resume is still building.
+ * run at once. A throw from `mark` at the phases this marks itself (ask
+ * and gate) fails that conversation's resume; the engine's build hears it
+ * too, so it must not throw there. One from `finished` fails the start,
+ * once no resume is still building.
  * The runs a restart cut off wait until the last has resumed
  * (`resuming`, then `resumed`, also when one throws), so a few go at a
  * time in the whole start's order rather than racing the resumes; that
