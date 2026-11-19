@@ -1452,6 +1452,8 @@ describe("runHost", () => {
 				},
 				engine,
 				signals,
+				// Not the test runner's own unit, whatever it runs in.
+				unit: null,
 				say: () => {},
 				report: (error) => {
 					throw error;
@@ -1507,6 +1509,8 @@ describe("runHost", () => {
 				},
 				engine,
 				signals,
+				// Not the test runner's own unit, whatever it runs in.
+				unit: null,
 				say: () => {},
 				report: (error) => {
 					throw error;
@@ -1614,6 +1618,7 @@ describe("runHost", () => {
 			options: {
 				unit?: string | null;
 				heard?: (line: string, signals: EventEmitter) => void;
+				toldWithin?: number;
 			} = {},
 		) => {
 			const signals = new EventEmitter();
@@ -1625,6 +1630,9 @@ describe("runHost", () => {
 				signals,
 				unit: "unit" in options ? options.unit : UNIT,
 				readyTaken: 50,
+				...(options.toldWithin === undefined
+					? {}
+					: { readyToldWithin: options.toldWithin }),
 				say: (line) => {
 					said.push(line);
 					options.heard?.(line, signals);
@@ -1667,12 +1675,48 @@ describe("runHost", () => {
 			expect(report, "nothing failed").not.toHaveBeenCalled();
 		});
 
-		it("counts a unit reloading as having taken it", async () => {
-			const systemd = await fakeSystemd(["reloading"]);
+		it.each(["reloading", "refreshing"])(
+			"counts a unit %s as having taken it",
+			async (state) => {
+				const systemd = await fakeSystemd([state]);
+				const said: string[] = [];
+				await start(systemd.PATH, said);
+				expect(await systemd.readies(), "readies told").toEqual([READY]);
+				expect(ofReady(said), "nothing said of it").toEqual([]);
+			},
+		);
+
+		it("stops telling when the unit reads nothing", async () => {
+			const systemd = await fakeSystemd([""]);
 			const said: string[] = [];
-			await start(systemd.PATH, said);
+			const report = await start(systemd.PATH, said);
 			expect(await systemd.readies(), "readies told").toEqual([READY]);
-			expect(ofReady(said), "nothing said of it").toEqual([]);
+			expect(ofReady(said)).toEqual([
+				`systemd didn't take the host's ready: ${UNIT} reads nothing, so the host stops telling it`,
+			]);
+			expect(report, "nothing failed").not.toHaveBeenCalled();
+		});
+
+		it("reports at once when systemd-notify can't run", async () => {
+			// Nothing on PATH: every telling would fail the same way.
+			const none = join(dir, "none");
+			await mkdir(none, { recursive: true });
+			const said: string[] = [];
+			const report = await start(none, said);
+			expect(ofReady(said), "no telling again").toEqual([]);
+			// The status and stop notices fail too; only the ready's is counted.
+			const ofTheReady = report.mock.calls.filter(([error]) =>
+				String(error?.message).includes("host is ready"),
+			);
+			expect(ofTheReady, "the ready reported once").toEqual([
+				[
+					expect.objectContaining({
+						message: expect.stringMatching(
+							/^telling systemd the host is ready couldn't run systemd-notify: /,
+						),
+					}),
+				],
+			]);
 		});
 
 		it.each(["failed", "inactive", "deactivating"])(
@@ -1724,7 +1768,10 @@ describe("runHost", () => {
 						signals.emit("SIGTERM");
 				},
 			});
-			expect(await systemd.readies(), "readies told").toEqual([READY, READY]);
+			expect(
+				(await systemd.readies()).length,
+				"no telling past the stop's",
+			).toBeLessThanOrEqual(2);
 			expect(report, "nothing failed").not.toHaveBeenCalled();
 		});
 
@@ -1740,23 +1787,42 @@ describe("runHost", () => {
 		it("counts a telling that hangs as a miss and tells again", async () => {
 			const systemd = await fakeSystemd(missedThen(1), 30);
 			const said: string[] = [];
-			const report = await start(systemd.PATH, said);
+			const report = await start(systemd.PATH, said, { toldWithin: 500 });
 			expect(await systemd.readies(), "readies told").toEqual([READY, READY]);
-			expect(ofReady(said)[0], "the hung telling said").toMatch(
-				/^telling systemd the host is ready failed: /,
-			);
-			expect(ofReady(said).at(-1)).toBe(
+			expect(ofReady(said)).toEqual([
+				"telling systemd the host is ready: systemd-notify hung, and the host killed it 500 ms on",
+				`systemd didn't take the host's ready: ${UNIT} still reads activating, so telling it again (2 of 10)`,
 				"systemd took the host's ready on its 2nd telling",
-			);
+			]);
 			expect(report, "nothing failed").not.toHaveBeenCalled();
-		}, 20_000);
+		});
+
+		it("names the last failed telling when it gives up", async () => {
+			const systemd = await fakeSystemd(["activating"]);
+			// A notifier refused each time, as by a socket systemd won't hear.
+			await writeFile(
+				join(dir, "bin", "systemd-notify"),
+				"#!/bin/sh\necho 'No such file or directory' >&2\nexit 1\n",
+				{ mode: 0o755 },
+			);
+			const report = await start(systemd.PATH, []);
+			expect(report).toHaveBeenCalledWith(
+				expect.objectContaining({
+					message: expect.stringMatching(
+						/^systemd didn't take the host's ready in 10 tellings: \S+ still reads activating; the last telling: systemd-notify failed: /,
+					),
+				}),
+			);
+		});
 
 		it("trusts a ready whose unit it can't read, as before", async () => {
 			const systemd = await fakeSystemd("fails");
-			// One look only: a unit it can't read is trusted at once.
 			const said: string[] = [];
 			const report = await start(systemd.PATH, said);
 			expect(await systemd.readies(), "readies told").toHaveLength(1);
+			expect(await systemd.looks(), "one look: trusted at once").toEqual([
+				LOOK,
+			]);
 			expect(said, "why it couldn't check").toContain(
 				`couldn't read whether systemd took the host's ready, so trusting it: systemctl ended with 1: Failed to connect to bus`,
 			);

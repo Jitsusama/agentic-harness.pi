@@ -40,6 +40,7 @@ import { join } from "node:path";
 import { ambientSession } from "../../lib/core/session/index.ts";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { withPi } from "../../lib/internal/priority/place.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostRealm } from "./address.ts";
 import type {
@@ -137,14 +138,18 @@ const UNIT_STATE_WITHIN_MS = 5000;
 /**
  * How long one telling of a ready has, in ms, before its systemd-notify
  * is killed and the telling counts as missed, so a notifier that hangs
- * can't hold the ready loop for good.
+ * can't hold the start for good. Twice systemd-notify's own wait for
+ * the manager's barrier, so a slow manager answers before the kill.
  */
-const READY_TOLD_WITHIN_MS = 5000;
+const READY_TOLD_WITHIN_MS = 10_000;
 /** The states that say systemd took a ready: the unit is up. */
 const READY_TAKEN_STATES: ReadonlySet<string> = new Set([
 	"active",
 	"reloading",
+	"refreshing",
 ]);
+/** The errors that say systemd-notify can't run at all, so no telling can. */
+const CANNOT_RUN: ReadonlySet<unknown> = new Set(["ENOENT", "EACCES"]);
 /** The state of a unit still waiting for its ready. */
 const WAITING_STATE = "activating";
 const MS_PER_SECOND = 1000;
@@ -190,6 +195,8 @@ export interface HostRunOptions {
 	unit?: string | null;
 	/** How long, in ms, systemd has to take a ready before the host looks; READY_TAKEN_MS by default. */
 	readyTaken?: number;
+	/** How long, in ms, each telling of a ready has; READY_TOLD_WITHIN_MS by default. */
+	readyToldWithin?: number;
 	/** Says the host's status once it changes; systemd's notify by default. */
 	status?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
 	/** How often the status is looked at, in ms; STATUS_EVERY_MS by default. */
@@ -492,6 +499,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 				notifyReady(env, said, {
 					unit: options.unit === null ? undefined : (options.unit ?? ownUnit()),
 					taken: options.readyTaken ?? READY_TAKEN_MS,
+					toldWithin: options.readyToldWithin ?? READY_TOLD_WITHIN_MS,
 					say,
 					stopping: () => stopping !== undefined,
 				}));
@@ -673,22 +681,28 @@ async function notifyReady(
 	confirm: ReadyConfirm,
 ): Promise<void> {
 	if (!env.NOTIFY_SOCKET) return;
-	const { unit, taken, say, stopping } = confirm;
+	const { unit, taken, toldWithin, say, stopping } = confirm;
+	const args = ["--ready", `STATUS=${status}`];
+	// With no unit to read, a hung telling still can't hold the start.
+	if (unit === undefined) return tellSystemd(env, args, toldWithin);
+	let lastFailed: string | undefined;
 	for (let telling = 1; ; telling++) {
-		if (unit === undefined) {
-			await tellSystemd(env, ["--ready", `STATUS=${status}`]);
-			return;
-		}
+		lastFailed = undefined;
 		try {
-			await tellSystemd(
-				env,
-				["--ready", `STATUS=${status}`],
-				READY_TOLD_WITHIN_MS,
-			);
+			await tellSystemd(env, args, toldWithin);
 		} catch (error) {
-			// A telling that failed or hung is a miss like any other: the
-			// unit's state still says whether systemd has the ready.
-			say(`telling systemd the host is ready failed: ${firstLine(error)}`);
+			// A notifier that can't run at all fails every telling the same.
+			if (isRecord(error) && CANNOT_RUN.has(error.code))
+				throw new Error(
+					`telling systemd the host is ready couldn't run systemd-notify: ${firstLine(error)}`,
+				);
+			// One that failed or hung is a miss like any other: the unit's
+			// state still says whether systemd has the ready.
+			lastFailed =
+				isRecord(error) && error.killed === true
+					? `systemd-notify hung, and the host killed it ${toldWithin} ms on`
+					: `systemd-notify failed: ${firstLine(error)}`;
+			say(`telling systemd the host is ready: ${lastFailed}`);
 		}
 		// systemd takes a notify off its socket in its own time.
 		await new Promise((resolve) => setTimeout(resolve, taken));
@@ -706,6 +720,9 @@ async function notifyReady(
 				say(`systemd took the host's ready on its ${ordinal(telling)} telling`);
 			return;
 		}
+		// A host that has begun to stop needs no ready, whatever its unit
+		// reads: deactivating is its own stop.
+		if (stopping()) return;
 		// Failed, inactive or deactivating: the unit is going or gone, so
 		// telling it again can't help, and nothing says systemd took it.
 		if (state !== WAITING_STATE) {
@@ -714,10 +731,9 @@ async function notifyReady(
 			);
 			return;
 		}
-		if (stopping()) return;
 		if (telling >= READY_TELLINGS)
 			throw new Error(
-				`systemd didn't take the host's ready in ${READY_TELLINGS} tellings: ${unit} still reads ${state}`,
+				`systemd didn't take the host's ready in ${READY_TELLINGS} tellings: ${unit} still reads ${state}${lastFailed ? `; the last telling: ${lastFailed}` : ""}`,
 			);
 		say(
 			`systemd didn't take the host's ready: ${unit} still reads ${state}, so telling it again (${telling + 1} of ${READY_TELLINGS})`,
@@ -731,6 +747,8 @@ interface ReadyConfirm {
 	readonly unit: string | undefined;
 	/** How long, in ms, systemd has to take each telling. */
 	readonly taken: number;
+	/** How long, in ms, each telling has before it's killed as hung. */
+	readonly toldWithin: number;
 	/** Where each miss is journalled. */
 	readonly say: (line: string) => void;
 	/** Whether the host has begun to stop, when a ready no longer matters. */
@@ -803,11 +821,10 @@ function unitState(env: NodeJS.ProcessEnv, unit: string): Promise<string> {
 	});
 }
 
-/**
- * 2nd, 3rd, 4th: how the journal counts a telling, up to READY_TELLINGS,
- * so never past ten.
- */
+/** 2nd, 3rd, 4th, 11th: how the journal counts a telling. */
 function ordinal(n: number): string {
+	const tens = n % 100;
+	if (tens >= 11 && tens <= 13) return `${n}th`;
 	return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
