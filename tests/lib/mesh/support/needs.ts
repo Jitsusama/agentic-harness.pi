@@ -1,6 +1,7 @@
 /**
  * Needs, cells and ties as the need-routing tests build them, shared by
- * the tests of routing in general and of routing by declared subjects.
+ * the tests of routing in general, of routing by declared subjects and
+ * of subjects naming a service unit.
  */
 
 import {
@@ -21,6 +22,20 @@ export const asked = (asker: string, ...words: string[]): NeedAsked => ({
 	words,
 	at: AT,
 });
+
+/**
+ * How many needs, each its own id, a sharing out is judged over: hubs
+ * as deep and as telling are shared among needs by a hash, so one need
+ * alone can't tell a hub chosen from a tie.
+ */
+export const SHARED_NEEDS = 40;
+
+/** `SHARED_NEEDS` needs from `asker` about `words`, each its own id. */
+export const numbered = (asker: string, ...words: string[]): NeedAsked[] =>
+	Array.from({ length: SHARED_NEEDS }, (_, at) => ({
+		...asked(asker, ...words),
+		need: `${asker}/${at}`,
+	}));
 
 /** A need routed where every cell is there unless `live` says not. */
 export const routeNeed = (
