@@ -240,7 +240,7 @@ async function dispatch(
 		case "budget":
 			return budget(state, params);
 		case "budget-sweep":
-			return budgetSweep(state, ctx, params);
+			return budgetSweep(state, ctx, params, signal);
 		case "orchestrate":
 			return orchestrate(state, params, true);
 		case "unorchestrate":

@@ -293,14 +293,20 @@ export async function create(
 	// when the judgement is sure, and said either way.
 	const judged = folderBudget
 		? undefined
-		: await budgetFromWork(state, ctx, parent, {
-				title: seededTitle,
-				...(summary ? { summary } : {}),
-				...(ctx.cwd ? { folder: resolve(ctx.cwd) } : {}),
-				...(seededAlias
-					? { names: [`${seededAlias.type}:${seededAlias.value}`] }
-					: {}),
-			});
+		: await budgetFromWork(
+				state,
+				ctx,
+				parent,
+				{
+					title: seededTitle,
+					...(summary ? { summary } : {}),
+					...(ctx.cwd ? { folder: resolve(ctx.cwd) } : {}),
+					...(seededAlias
+						? { names: [`${seededAlias.type}:${seededAlias.value}`] }
+						: {}),
+				},
+				signal,
+			);
 	const budgetName =
 		folderBudget?.name ?? (judged ? namedByJudgement(judged) : undefined);
 

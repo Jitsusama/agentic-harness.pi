@@ -11,9 +11,19 @@
  * names the budget; a sure personal one and an unsure one name nothing
  * and are journaled, as a create journals them. With `dryRun` it says
  * what it would name and writes nothing.
+ *
+ * It goes from the top of each tree down, a level at a time, so a
+ * subquest whose parent it names is left to draw on the parent's
+ * rather than named apart, as a create under that parent would be. A
+ * quest already journaled personal or unsure is left as journaled
+ * rather than judged and journaled again each sweep, and a quest whose
+ * own word or a parent's can't be read is left alone, since a name
+ * written under it might go against what it says. Naming leaves
+ * `updated` as it was: the quest's work didn't change.
  */
 
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { FolderBudget, WorkBudget } from "../../../lib/budget/host.ts";
 import type { WorkToBudget } from "../../../lib/budget/provider.ts";
@@ -22,12 +32,13 @@ import {
 	type QuestEntry,
 } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { extractSection } from "../../../lib/internal/quest/documents/quest-doc.ts";
-import { budgetInRecord } from "../../../lib/internal/quest/fields/budget.ts";
+import { budgetFoundInRecord } from "../../../lib/internal/quest/fields/budget.ts";
 import type { QuestState } from "../state.ts";
 import {
 	budgetFromFolder,
 	budgetFromWork,
-	nameBudgetFromFolder,
+	folderNaming,
+	type Naming,
 	nameBudgetFromWork,
 	namedBy,
 	namedByJudgement,
@@ -43,32 +54,75 @@ const LONGEST_SUMMARY = 1500;
 /** The most names a judgement is handed. */
 const MOST_NAMES = 12;
 
+/** How far up a quest's parents its depth is counted, against a loop. */
+const DEEPEST = 8;
+
 /** Statuses a quest is no longer worked on in. */
 const SEALED: ReadonlySet<string> = new Set(["concluded", "retired"]);
+
+/**
+ * How a judgement that named nothing is journaled (verbs/budget.ts's
+ * judgedFromWork), so a sweep can tell a quest already judged.
+ */
+const JUDGED_BEFORE = [
+	"Budget: unsure, so none named.",
+	"Budget: none named, since",
+] as const;
 
 /** What the sweep found for one quest. */
 type Swept =
 	| { readonly id: string; readonly folder: FolderBudget }
 	| { readonly id: string; readonly judged: WorkBudget }
-	| { readonly id: string; readonly unjudged: true };
+	| { readonly id: string; readonly unjudged: true }
+	| { readonly id: string; readonly covered: string }
+	| { readonly id: string; readonly stood: string }
+	| { readonly id: string; readonly stopped: true };
 
 /** Sweep the live quests that draw on no budget for want of a name. */
 export async function budgetSweep(
 	state: QuestState,
 	ctx: Pick<ExtensionContext, "modelRegistry">,
 	params: QuestToolParams,
+	signal?: AbortSignal,
 ): Promise<QuestResult> {
 	const dry = params.dryRun === true;
 	const { index } = discoverQuests(state.questsRoot);
-	const unnamed = [...index.quests.entries()].filter(
-		([id, entry]) =>
-			!SEALED.has(entry.doc.frontMatter.status) &&
-			budgetInRecord(state.questsRoot, id) === undefined,
-	);
-	const swept = await inTurn(unnamed, AT_ONCE, ([id, entry]) =>
-		sweepOne(state, ctx, id, entry, dry),
-	);
-	return ok(said(swept, dry), {
+	const unnamed: [string, QuestEntry][] = [];
+	const unread: string[] = [];
+	const judgedBefore: string[] = [];
+	for (const [id, entry] of index.quests) {
+		if (SEALED.has(entry.doc.frontMatter.status)) continue;
+		const found = budgetFoundInRecord(state.questsRoot, id);
+		if (found === "unread") unread.push(id);
+		else if (found !== undefined) continue;
+		else if (journaledJudged(entry)) judgedBefore.push(id);
+		else unnamed.push([id, entry]);
+	}
+	const parentOf = (id: string) =>
+		index.quests.get(id)?.doc.frontMatter.parent ?? null;
+	// What this run named, or in a dry run would, so a dry run says what
+	// a real one would leave to a parent.
+	const naming = new Set<string>();
+	const swept: Swept[] = [];
+	for (const level of byDepth(unnamed, parentOf)) {
+		const results = await inTurn(
+			level,
+			AT_ONCE,
+			async ([id, entry]): Promise<Swept> => {
+				const coveredBy = coverOf(state, id, parentOf, naming, dry);
+				if (coveredBy) return coveredBy;
+				const one = await sweepOne(state, ctx, id, entry, dry, signal);
+				if (nameOf(one)) naming.add(id);
+				return one;
+			},
+			signal,
+		);
+		for (const [at, one] of results.entries()) {
+			const [id] = level[at] as [string, QuestEntry];
+			swept.push(one ?? { id, stopped: true });
+		}
+	}
+	return ok(said(swept, dry, unread, judgedBefore), {
 		dryRun: dry,
 		swept: swept.length,
 		named: swept.flatMap((one) => {
@@ -80,7 +134,72 @@ export async function budgetSweep(
 				? [{ id: one.id, guess: one.judged.name }]
 				: [],
 		),
+		...(unread.length > 0 ? { unread } : {}),
+		...(judgedBefore.length > 0 ? { judgedBefore } : {}),
 	});
+}
+
+/**
+ * Whether a quest's Journey already says a judgement named nothing for
+ * it, personal or unsure, in the README's newest entries or JOURNEY.md.
+ */
+function journaledJudged(entry: QuestEntry): boolean {
+	let journey = entry.doc.body;
+	try {
+		journey += readFileSync(join(entry.dir, "JOURNEY.md"), "utf8");
+	} catch {
+		// No JOURNEY.md yet: the README's own entries are all there are.
+	}
+	return JUDGED_BEFORE.some((line) => journey.includes(line));
+}
+
+/** `quests` grouped by how many parents each has, the top first. */
+function byDepth<T extends readonly [string, unknown]>(
+	quests: readonly T[],
+	parentOf: (id: string) => string | null,
+): T[][] {
+	const levels: T[][] = [];
+	for (const quest of quests) {
+		let depth = 0;
+		for (
+			let at = parentOf(quest[0]);
+			at !== null && depth < DEEPEST;
+			at = parentOf(at)
+		) {
+			depth++;
+		}
+		(levels[depth] ??= []).push(quest);
+	}
+	return levels.filter((level) => level !== undefined);
+}
+
+/**
+ * Why quest `id` is left to what is above it, when a quest above it was
+ * named this run (or in a dry run would be), or has been since the sweep
+ * began; undefined when nothing above it names one yet.
+ */
+function coverOf(
+	state: QuestState,
+	id: string,
+	parentOf: (id: string) => string | null,
+	naming: ReadonlySet<string>,
+	dry: boolean,
+): Swept | undefined {
+	if (dry) {
+		let depth = 0;
+		for (
+			let at = parentOf(id);
+			at !== null && depth < DEEPEST;
+			at = parentOf(at), depth++
+		) {
+			if (naming.has(at)) return { id, covered: at };
+		}
+		return undefined;
+	}
+	const found = budgetFoundInRecord(state.questsRoot, id);
+	if (found === "unread")
+		return { id, stood: "a quest above it can't be read" };
+	return found ? { id, covered: found.from } : undefined;
 }
 
 async function sweepOne(
@@ -89,17 +208,36 @@ async function sweepOne(
 	id: string,
 	entry: QuestEntry,
 	dry: boolean,
+	signal: AbortSignal | undefined,
 ): Promise<Swept> {
 	const folder = folderOf(entry);
-	const taken = dry
-		? await budgetFromFolder(state, id, folder)
-		: await nameBudgetFromFolder(state, id, entry.dir, folder);
-	if (taken) return { id, folder: taken };
-	const work = workOf(entry, folder);
-	const judged = dry
-		? await budgetFromWork(state, ctx, id, work)
-		: await nameBudgetFromWork(state, ctx, id, entry.dir, work);
-	return judged ? { id, judged } : { id, unjudged: true };
+	const options = { stampUpdated: false, ...(signal ? { signal } : {}) };
+	if (dry) {
+		const taken = await budgetFromFolder(state, id, folder);
+		if (taken) return { id, folder: taken };
+		const judged = await budgetFromWork(
+			state,
+			ctx,
+			id,
+			workOf(entry, folder),
+			signal,
+		);
+		return judged ? { id, judged } : { id, unjudged: true };
+	}
+	const byFolder = await folderNaming(state, id, entry.dir, folder, options);
+	if ("named" in byFolder) return { id, folder: byFolder.named };
+	if ("stood" in byFolder) return { id, stood: byFolder.stood };
+	const byWork: Naming<WorkBudget> = await nameBudgetFromWork(
+		state,
+		ctx,
+		id,
+		entry.dir,
+		workOf(entry, folder),
+		options,
+	);
+	if ("named" in byWork) return { id, judged: byWork.named };
+	if ("stood" in byWork) return { id, stood: byWork.stood };
+	return { id, unjudged: true };
 }
 
 /** The folder a quest's work happened in: its newest session's, else a tree's. */
@@ -141,17 +279,31 @@ function nameOf(one: Swept): string | undefined {
 }
 
 /** The sweep's answer: what it named, judged personal, was unsure of. */
-function said(swept: readonly Swept[], dry: boolean): string {
-	if (swept.length === 0) {
+function said(
+	swept: readonly Swept[],
+	dry: boolean,
+	unread: readonly string[],
+	judgedBefore: readonly string[],
+): string {
+	if (swept.length === 0 && unread.length === 0 && judgedBefore.length === 0) {
 		return "Every live quest draws on a budget named on it or above it, so there was nothing to sweep.";
 	}
 	const named: string[] = [];
 	const personal: string[] = [];
 	const unsure: string[] = [];
+	const covered: string[] = [];
+	const stood: string[] = [];
 	let unjudged = 0;
+	let stopped = 0;
 	for (const one of swept) {
 		if ("unjudged" in one) {
 			unjudged++;
+		} else if ("stopped" in one) {
+			stopped++;
+		} else if ("covered" in one) {
+			covered.push(`${one.id} (by ${one.covered})`);
+		} else if ("stood" in one) {
+			stood.push(`- ${one.id}: ${one.stood}`);
 		} else if ("folder" in one) {
 			named.push(
 				`- ${one.id}: ${one.folder.name}, as ${namedBy(one.folder)} says of its folder`,
@@ -169,8 +321,17 @@ function said(swept: readonly Swept[], dry: boolean): string {
 		}
 	}
 	const verb = dry ? "Would name" : "Named";
+	const counts = [
+		`${named.length} named`,
+		`${personal.length} judged personal`,
+		`${unsure.length} unsure`,
+		`${unjudged} unjudged`,
+		...(covered.length > 0 ? [`${covered.length} left to a parent`] : []),
+		...(stood.length > 0 ? [`${stood.length} left as they stood`] : []),
+		...(stopped > 0 ? [`${stopped} not reached`] : []),
+	];
 	const lines = [
-		`${dry ? "Dry run, nothing written. " : ""}Swept ${swept.length} live quests drawing on no budget: ${named.length} named, ${personal.length} judged personal, ${unsure.length} unsure, ${unjudged} unjudged.`,
+		`${dry ? "Dry run, nothing written. " : ""}Swept ${swept.length} live quests drawing on no budget: ${counts.join(", ")}.`,
 	];
 	if (named.length > 0) lines.push("", `${verb}:`, ...named);
 	if (unsure.length > 0) {
@@ -183,25 +344,51 @@ function said(swept: readonly Swept[], dry: boolean): string {
 	if (personal.length > 0) {
 		lines.push("", `Judged personal: ${personal.join(", ")}.`);
 	}
+	if (covered.length > 0) {
+		lines.push(
+			"",
+			`${dry ? "Would be left" : "Left"} to draw on a parent's: ${covered.join(", ")}.`,
+		);
+	}
+	if (stood.length > 0) lines.push("", "Left as they stood:", ...stood);
 	if (unjudged > 0) {
 		lines.push(
 			"",
 			`${unjudged} had no judgement: no provider judges work, or the session has no classifier.`,
 		);
 	}
+	if (stopped > 0) {
+		lines.push("", `${stopped} not reached: the sweep was stopped.`);
+	}
+	if (judgedBefore.length > 0) {
+		lines.push(
+			"",
+			`Already journaled personal or unsure, so not judged again: ${judgedBefore.join(", ")}.`,
+		);
+	}
+	if (unread.length > 0) {
+		lines.push(
+			"",
+			`Its own budget word, or one above it, can't be read, so left alone: ${unread.join(", ")}.`,
+		);
+	}
 	return lines.join("\n");
 }
 
-/** Map `items` through `each`, at most `width` at a time, in order. */
+/**
+ * Map `items` through `each`, at most `width` at a time, in order. Once
+ * `signal` aborts no more are started, and those left read undefined.
+ */
 async function inTurn<T, R>(
 	items: readonly T[],
 	width: number,
 	each: (item: T) => Promise<R>,
-): Promise<R[]> {
-	const results: R[] = new Array(items.length);
+	signal?: AbortSignal,
+): Promise<(R | undefined)[]> {
+	const results: (R | undefined)[] = new Array(items.length).fill(undefined);
 	let next = 0;
 	const lane = async () => {
-		while (next < items.length) {
+		while (next < items.length && !signal?.aborted) {
 			const at = next++;
 			results[at] = await each(items[at] as T);
 		}

@@ -81,6 +81,41 @@ export function budgetOf(
 }
 
 /**
+ * What a walk for a writer finds: a budget named on or above the
+ * quest, nothing anywhere, or `unread` where it can't tell: a README
+ * missing or unparsable on the way, a parent chain that loops or runs
+ * past {@link MOST_PARENTS}, or a budget word that can't be a name.
+ * {@link budgetOf} reads each of those as nothing, which is right for
+ * drawing; a writer that named a budget on that ground would name it
+ * under a quest whose own word it never read.
+ */
+export type BudgetFound = QuestBudget | "unread" | undefined;
+
+/** {@link budgetOf}, telling a walk that found nothing from one that couldn't read. */
+export function budgetFound(
+	quest: string,
+	read: (
+		quest: string,
+	) => Pick<QuestFrontMatter, "_extra" | "parent"> | undefined,
+): BudgetFound {
+	const seen = new Set<string>();
+	let at: string | null = quest;
+	while (at) {
+		if (seen.has(at) || seen.size > MOST_PARENTS) return "unread";
+		seen.add(at);
+		const frontMatter = read(at);
+		if (!frontMatter) return "unread";
+		if (frontMatter._extra?.budget !== undefined) {
+			const said = budgetSaid(frontMatter);
+			if (said === undefined) return "unread";
+			return { name: said === NO_BUDGET ? null : said, from: at };
+		}
+		at = frontMatter.parent;
+	}
+	return undefined;
+}
+
+/**
  * Each README's front matter, parsed again only once it changes, since
  * the budget is asked for before every model call. It is copied out of
  * the text, since a value the YAML parser cut from it can be a slice
@@ -98,12 +133,24 @@ export function budgetInRecord(
 	questsRoot: string,
 	quest: string,
 ): QuestBudget | undefined {
-	return budgetOf(quest, (id) => {
+	return budgetOf(quest, recordReader(questsRoot));
+}
+
+/** {@link budgetFound} over the quest records under `questsRoot`. */
+export function budgetFoundInRecord(
+	questsRoot: string,
+	quest: string,
+): BudgetFound {
+	return budgetFound(quest, recordReader(questsRoot));
+}
+
+function recordReader(questsRoot: string) {
+	return (id: string) => {
 		try {
 			return frontMatterOf(join(questsRoot, id, "README.md"));
 		} catch {
 			// No README, no quest: the walk stops there.
 			return undefined;
 		}
-	});
+	};
 }

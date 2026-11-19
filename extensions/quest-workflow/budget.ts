@@ -116,6 +116,7 @@ const workBudgets = new WeakMap<
 	(
 		work: WorkToBudget,
 		ctx: Pick<ExtensionContext, "modelRegistry">,
+		signal?: AbortSignal,
 	) => Promise<WorkBudget | undefined>
 >();
 
@@ -136,8 +137,11 @@ export function budgetOfWork(
 	state: QuestState,
 	work: WorkToBudget,
 	ctx: Pick<ExtensionContext, "modelRegistry">,
+	signal?: AbortSignal,
 ): Promise<WorkBudget | undefined> {
-	return workBudgets.get(state)?.(work, ctx) ?? Promise.resolve(undefined);
+	return (
+		workBudgets.get(state)?.(work, ctx, signal) ?? Promise.resolve(undefined)
+	);
 }
 
 /**
@@ -148,13 +152,22 @@ export function budgetOfWork(
 export async function classifierOf(
 	ctx: Pick<ExtensionContext, "modelRegistry">,
 ): Promise<Classify> {
-	const found = await findClassifier(
-		ctx,
-		process.env[BUDGET_CLASSIFIER_ENV],
-		BUDGET_CLASSIFIER_ENV,
-	);
-	if (found.ok) return found.classify;
-	return () => Promise.reject(new Error(found.reason));
+	const failing =
+		(reason: string): Classify =>
+		() =>
+			Promise.reject(new Error(reason));
+	try {
+		const found = await findClassifier(
+			ctx,
+			process.env[BUDGET_CLASSIFIER_ENV],
+			BUDGET_CLASSIFIER_ENV,
+		);
+		return found.ok ? found.classify : failing(found.reason);
+	} catch (error) {
+		// A registry that throws is no classifier, said as one: a create
+		// or keep that awaited it would otherwise fail over a judgement.
+		return failing(error instanceof Error ? error.message : String(error));
+	}
 }
 
 /** Host budget providers and keep the session on its quest's budget. */
@@ -164,8 +177,8 @@ export function keepQuestBudget(
 ): BudgetKeeper {
 	const host = hostBudgets(pi.events);
 	folderBudgets.set(state, (folder) => host.budgetFor(folder));
-	workBudgets.set(state, async (work, ctx) =>
-		host.budgetForWork(work, await classifierOf(ctx)),
+	workBudgets.set(state, async (work, ctx, signal) =>
+		host.budgetForWork(work, await classifierOf(ctx), signal),
 	);
 	/** The name last drawn on or asked for, null for none. */
 	let wanted: string | null | undefined;
@@ -181,6 +194,8 @@ export function keepQuestBudget(
 	let folderAsked: Promise<string | null> | undefined;
 	/** What it asked of its first prompt, once a session. */
 	let promptAsked: Promise<string | null> | undefined;
+	/** Bumped as a session is forgotten, so its asks lay nothing after. */
+	let sessions = 0;
 
 	/**
 	 * The budget a session on no quest draws on: its folder's, else a
@@ -192,8 +207,11 @@ export function keepQuestBudget(
 	): Promise<string | null> => {
 		if (typeof ctx.cwd !== "string" || ctx.cwd === "") return null;
 		const folder = resolve(ctx.cwd);
+		// The session this ask is for: once forgotten, its answer is no
+		// longer the next session's to keep or to say.
+		const session = sessions;
 		folderAsked ??= host.budgetFor(folder).then((taken) => {
-			if (!taken) return null;
+			if (!taken || session !== sessions) return null;
 			ctx.ui.notify(
 				`This session is on no quest, so it draws on budget ${taken.name}, which ${JSON.stringify(taken.provider)} says work in ${JSON.stringify(folder)} draws on.`,
 				"info",
@@ -201,23 +219,28 @@ export function keepQuestBudget(
 			return taken.name;
 		});
 		const byFolder = await folderAsked;
+		if (session !== sessions) return null;
 		if (byFolder !== null) return byFolder;
 		const asked = prompt?.trim();
 		if (!(promptAsked || asked)) return null;
-		promptAsked ??= judgeLoose(ctx, folder, asked ?? "");
-		return promptAsked;
+		promptAsked ??= judgeLoose(ctx, folder, asked ?? "", session);
+		const byPrompt = await promptAsked;
+		return session === sessions ? byPrompt : null;
 	};
 
 	const judgeLoose = async (
 		ctx: ExtensionContext,
 		folder: string,
 		prompt: string,
+		session: number,
 	): Promise<string | null> => {
 		const judged = await host.budgetForWork(
 			{ title: folder, folder, prompt: prompt.slice(0, LONGEST_PROMPT) },
 			await classifierOf(ctx),
 		);
-		if (!judged?.sure || judged.name === NO_BUDGET) return null;
+		if (!judged?.sure || judged.name === NO_BUDGET || session !== sessions) {
+			return null;
+		}
 		ctx.ui.notify(
 			`This session is on no quest, so it draws on budget ${judged.name}, which ${JSON.stringify(judged.provider)} judged from its folder and first prompt${judged.why ? `: ${judged.why}` : ""}.`,
 			"info",
@@ -271,9 +294,14 @@ export function keepQuestBudget(
 		ctx.ui.notify(undrawable(name, drawing), "warning");
 	};
 
-	// A provider that registers late may know the name nothing did.
+	// A provider that registers late may know the name nothing did, or,
+	// for a session on no quest, the folder nothing named.
 	host.onRegistered(() => {
-		if (!last || typeof wanted !== "string") return;
+		if (!state.questId) {
+			folderAsked = undefined;
+			promptAsked = undefined;
+		}
+		if (!last || (typeof wanted !== "string" && state.questId)) return;
 		keep(last, true).catch(() => {
 			// Nothing awaits this ask, and an unwatched rejection ends pi;
 			// the next keep, before the next model call, asks again.
@@ -286,6 +314,7 @@ export function keepQuestBudget(
 		// answer still on its way is overtaken, so it lays nothing.
 		wanted = undefined;
 		asking++;
+		sessions++;
 		folderAsked = undefined;
 		promptAsked = undefined;
 	};

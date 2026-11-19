@@ -59,14 +59,17 @@ export interface BudgetHost extends BudgetHostApi {
 	budgetFor(folder: string): Promise<FolderBudget | undefined>;
 	/**
 	 * Which budget `work` draws on, as the first provider, lowest
-	 * precedence first, that judges it says, and which it was. Asked at
-	 * once under the one deadline, as `budgetFor` is, though a longer
-	 * one, since a judgement waits on a model. One that fails, answers
-	 * late or names something that can't be a budget is passed over.
+	 * precedence first, that judges it surely says, else the first that
+	 * judges it at all, and which it was. Asked at once under the one
+	 * deadline, as `budgetFor` is, though a longer one, since a
+	 * judgement waits on a model. One that fails, answers late or names
+	 * something that can't be a budget is passed over. The classifier
+	 * each is handed aborts at the deadline, or with `signal`.
 	 */
 	budgetForWork(
 		work: WorkToBudget,
 		classify: Classify,
+		signal?: AbortSignal,
 	): Promise<WorkBudget | undefined>;
 }
 
@@ -126,18 +129,24 @@ export function hostBudgets(
 			}
 			return undefined;
 		},
-		async budgetForWork(work, classify) {
+		async budgetForWork(work, classify, signal) {
 			const asking = ordered().filter(
 				(p) => typeof p.budgetForWork === "function",
 			);
 			const judged = asking.map((provider) =>
-				askWork(provider, work, classify, judgeMs),
+				askWork(provider, work, classify, judgeMs, signal),
 			);
+			// A sure answer from any wins over an unsure one from a provider
+			// before it, which named nothing and only guessed.
+			let guess: WorkBudget | undefined;
 			for (const [at, provider] of asking.entries()) {
 				const judgement = await judged[at];
-				if (judgement) return { ...judgement, provider: provider.id };
+				if (!judgement) continue;
+				const said = { ...judgement, provider: provider.id };
+				if (said.sure) return said;
+				guess ??= said;
 			}
-			return undefined;
+			return guess;
 		},
 	};
 	bus.on(BUDGET_REGISTER_PROVIDER, (data: unknown) => {
@@ -179,14 +188,30 @@ async function askWork(
 	work: WorkToBudget,
 	classify: Classify,
 	deadlineMs: number,
+	signal: AbortSignal | undefined,
 ): Promise<WorkJudgement | undefined> {
+	if (signal?.aborted) return undefined;
+	// Aborted at the deadline, so a classifier call nobody waits on any
+	// more stops rather than running, and costing, on.
+	const cutoff = new AbortController();
+	const stop = signal
+		? AbortSignal.any([signal, cutoff.signal])
+		: cutoff.signal;
+	const bounded: Classify = (context, own) =>
+		classify(context, own ? AbortSignal.any([own, stop]) : stop);
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let end: (() => void) | undefined;
 	const late = new Promise<undefined>((resolve) => {
-		timer = setTimeout(() => resolve(undefined), deadlineMs);
+		end = () => {
+			cutoff.abort();
+			resolve(undefined);
+		};
+		timer = setTimeout(end, deadlineMs);
+		signal?.addEventListener("abort", end, { once: true });
 	});
 	try {
 		const judged = await Promise.race([
-			provider.budgetForWork?.(work, classify),
+			provider.budgetForWork?.(work, bounded),
 			late,
 		]);
 		if (
@@ -207,6 +232,9 @@ async function askWork(
 		return undefined;
 	} finally {
 		clearTimeout(timer);
+		// One sweep asks many times under one signal, so each ask takes
+		// its listener away again.
+		if (end) signal?.removeEventListener("abort", end);
 	}
 }
 

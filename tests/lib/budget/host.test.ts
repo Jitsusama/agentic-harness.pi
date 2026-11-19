@@ -409,7 +409,7 @@ const noClassifier: Classify = () => {
 describe("the budget some work draws on, judged from what it is", () => {
 	const work = { title: "Speed up walgit's pack writes" };
 
-	it("is the first provider's, lowest precedence first, that judges it, sure or not", async () => {
+	it("is the first sure provider's, lowest precedence first, over an unsure one before it", async () => {
 		const events = bus();
 		const host = hostBudgets(events);
 		registerBudgetProvider(
@@ -430,11 +430,71 @@ describe("the budget some work draws on, judged from what it is", () => {
 		);
 
 		expect(await host.budgetForWork(work, noClassifier)).toEqual({
-			name: "aquifer",
-			why: "a guess",
-			sure: false,
-			provider: "unsure",
+			name: "delta",
+			why: "walgit is Delta's",
+			sure: true,
+			provider: "company",
 		});
+	});
+
+	it("is the first unsure provider's when none is sure", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		for (const [id, precedence, name] of [
+			["later", 10, "delta"],
+			["first", 0, "aquifer"],
+		] as const) {
+			registerBudgetProvider(
+				events,
+				judging(id, precedence, async () => ({ name, why: "", sure: false })),
+			);
+		}
+
+		expect(await host.budgetForWork(work, noClassifier)).toMatchObject({
+			name: "aquifer",
+			provider: "first",
+		});
+	});
+
+	it("aborts the classifier it handed a provider at the deadline, or with the caller's signal", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000, 20);
+		const signals: AbortSignal[] = [];
+		const classify: Classify = (_context, signal) => {
+			if (signal) signals.push(signal);
+			return new Promise(() => {});
+		};
+		registerBudgetProvider(
+			events,
+			judging("slow", 0, async (_work, asks) => {
+				await asks({ state: {}, questions: {} });
+				return { name: "delta", why: "", sure: true };
+			}),
+		);
+
+		expect(await host.budgetForWork(work, classify)).toBeUndefined();
+		expect(signals[0]?.aborted).toBe(true);
+
+		const stop = new AbortController();
+		const slow = hostBudgets(bus(), 5_000, 60_000);
+		const stopped: AbortSignal[] = [];
+		slow.registerProvider(
+			judging("slow", 0, async (_work, asks) => {
+				await asks({ state: {}, questions: {} });
+				return { name: "delta", why: "", sure: true };
+			}),
+		);
+		const asked = slow.budgetForWork(
+			work,
+			(_context, signal) => {
+				if (signal) stopped.push(signal);
+				return new Promise(() => {});
+			},
+			stop.signal,
+		);
+		stop.abort();
+		expect(await asked).toBeUndefined();
+		expect(stopped[0]?.aborted).toBe(true);
 	});
 
 	it("hands each provider the work and the session's classifier", async () => {

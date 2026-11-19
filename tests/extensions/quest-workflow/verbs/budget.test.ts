@@ -1,4 +1,10 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -530,12 +536,9 @@ describe("a quest no folder or parent names a budget for", () => {
 			for (const id of [fans, vague, sealed, under]) {
 				expect(budgetIn(state.questsRoot, id), id).toBeUndefined();
 			}
-			expect(asked.map((one) => one.state)).toEqual(
-				expect.not.arrayContaining([
-					{ title: "Old Delta Work" },
-					{ title: "Delta Under Mine" },
-				]),
-			);
+			const titles = asked.map((one) => one.state);
+			expect(titles).not.toContainEqual({ title: "Old Delta Work" });
+			expect(titles).not.toContainEqual({ title: "Delta Under Mine" });
 			expect(swept.message.split("\n")[0]).toBe(
 				"Swept 3 live quests drawing on no budget: 1 named, 1 judged personal, 1 unsure, 0 unjudged.",
 			);
@@ -558,6 +561,77 @@ describe("a quest no folder or parent names a budget for", () => {
 			expect(swept.message).toContain("Dry run, nothing written.");
 			expect(swept.message).toContain("Would name:");
 			expect(journeyOf(join(state.questsRoot, vague))).not.toContain("unsure");
+		});
+
+		it("leaves a subquest to the budget it names its parent, judging only the parent", async () => {
+			const plain = judged("none", 0, { registry: false });
+			succeeded(await plain.run({ action: "create", title: "Delta Top" }));
+			const top = plain.state.questId as string;
+			const child = succeeded(
+				await plain.run({
+					action: "create",
+					title: "Delta Child",
+					kind: "subquest",
+					parent: top,
+				}),
+			).details?.id as string;
+			const { state, run } = judged("delta", 0.95);
+
+			const dry = succeeded(
+				await run({ action: "budget-sweep", dryRun: true }),
+			);
+			expect(dry.message).toContain(
+				`Would be left to draw on a parent's: ${child} (by ${top}).`,
+			);
+			asked = [];
+			const swept = succeeded(await run({ action: "budget-sweep" }));
+
+			expect(budgetIn(state.questsRoot, top)).toBe("delta");
+			expect(budgetIn(state.questsRoot, child)).toBeUndefined();
+			expect(asked.map((one) => one.state)).toEqual([{ title: "Delta Top" }]);
+			expect(swept.message).toContain("1 left to a parent");
+		});
+
+		it("judges a quest already journaled personal or unsure only once", async () => {
+			const { run, fans, vague } = await unnamed();
+			succeeded(await run({ action: "budget-sweep" }));
+			asked = [];
+
+			const again = succeeded(await run({ action: "budget-sweep" }));
+
+			const titles = asked.map((one) => one.state);
+			expect(titles).not.toContainEqual({ title: "Laptop Fans" });
+			expect(titles).not.toContainEqual({ title: "Something Vague" });
+			expect(again.message).toContain(
+				"Already journaled personal or unsure, so not judged again:",
+			);
+			expect(again.message).toContain(fans);
+			expect(again.message).toContain(vague);
+		});
+
+		it("leaves alone a quest whose own budget word can't be read", async () => {
+			const plain = judged("none", 0, { registry: false });
+			succeeded(await plain.run({ action: "create", title: "Typo" }));
+			const id = plain.state.questId as string;
+			const readme = join(plain.state.questsRoot, id, "README.md");
+			writeFileSync(
+				readme,
+				readFileSync(readme, "utf8").replace(
+					/^---\n/,
+					'---\nbudget: "two words"\n',
+				),
+			);
+			const { state, run } = judged("delta", 0.99);
+
+			const swept = succeeded(await run({ action: "budget-sweep" }));
+
+			expect(asked).toEqual([]);
+			expect(
+				parseQuestFrontMatter(
+					readFileSync(join(state.questsRoot, id, "README.md"), "utf8"),
+				)?.frontMatter._extra?.budget,
+			).toBe("two words");
+			expect(swept.message).toContain(`can't be read, so left alone: ${id}.`);
 		});
 
 		it("takes a quest's budget from the folder its session ran in before judging it", async () => {
