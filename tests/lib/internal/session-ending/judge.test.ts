@@ -222,6 +222,12 @@ describe("the machines an ask can name", () => {
 		expect(machinesKnown(undefined, undefined, "optimus")).toEqual(["optimus"]);
 	});
 
+	it("keep the realm's listed machines when its sessions can't be read", () => {
+		expect(
+			machinesKnown(undefined, ["optimus", "penelope", ""], "optimus"),
+		).toEqual(["optimus", "penelope"]);
+	});
+
 	it("include the realm's machines that no session is on", () => {
 		expect(
 			machinesKnown(

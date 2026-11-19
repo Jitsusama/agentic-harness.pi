@@ -153,17 +153,29 @@ export async function refusalFor(
 	const asks: SessionEndingAsk[] = [
 		...said.prose.flatMap((text) => asksInProse(text, machines)),
 		...said.labels.flatMap((text) =>
-			asksInLabel(text, machines).map((ask) => onItsMachine(ask, said.on)),
+			asksInLabel(text, machines).map((ask) =>
+				onItsMachine(ask, said.on, machines),
+			),
 		),
 		...commands.flatMap((line) => asksInCommand(line, machines)),
 	];
 	return refusalOf(asks, sessions, self);
 }
 
-/** An ask that names no machine, as on the one it is said for. */
+/**
+ * An ask that names no machine, as on the one it is said for, when that
+ * is a machine the node knows, in any case. One it doesn't know names
+ * none, so every machine is checked rather than a name nobody is on.
+ */
 function onItsMachine(
 	ask: SessionEndingAsk,
 	on: string | undefined,
+	machines: readonly string[],
 ): SessionEndingAsk {
-	return on && ask.machines.length === 0 ? { ...ask, machines: [on] } : ask;
+	const known = machines.find(
+		(name) => name.toLowerCase() === on?.trim().toLowerCase(),
+	);
+	return known && ask.machines.length === 0
+		? { ...ask, machines: [known] }
+		: ask;
 }

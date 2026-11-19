@@ -366,6 +366,45 @@ describe("a talk a session follows", () => {
 	});
 });
 
+describe("a reply withheld after a talk had it", () => {
+	const ASK = "Please reboot optimus.";
+	const INSTEAD =
+		"(Withheld: this asked the person to end a machine's sessions.)";
+
+	it("is replied by what stands in its place, through the run's end", () => {
+		const following = talks();
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		following.withheld(ASK, INSTEAD);
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: INSTEAD });
+	});
+
+	it("is replied by what stands in its place once the talk has closed", () => {
+		const following = talks();
+		following.step("bash");
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		following.withheld(ASK, INSTEAD);
+
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: INSTEAD });
+	});
+
+	it("leaves a talk another reply answered as it was", () => {
+		const following = talks();
+		take(following, { text: "status?", id: "t1", file: "f" });
+		following.wrote("All green.");
+		following.withheld(ASK, INSTEAD);
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "replied",
+			text: "All green.",
+		});
+	});
+});
+
 describe("a session's shutdown", () => {
 	const calm = { parked: false, restarting: false };
 

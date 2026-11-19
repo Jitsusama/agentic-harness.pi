@@ -86,7 +86,7 @@ export function asksInCommand(
 }
 
 const FIRST_LOOK =
-	/\b(?:re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|authrestart|shut(?:s|ting)?[\s-]*down|shutdown|shut\s+\S+(?:\s+\S+)?\s+down|power(?:s|ed|ing)?[\s-]*(?:off|down|cycle)|poweroff|turn(?:s|ed|ing)?\s+(?:\S+\s+){0,2}off|log(?:s|ged|ging)?[\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\s-]*out|switch(?:es|ed|ing)?\s+(?:the\s+)?users?|switch(?:es|ed|ing)?\s+to\s+(?:another|a\s+different|the\s+other)\s+user|user\s+switch(?:ing)?|loginctl|halt|kexec|pkill|killall|kill\s+(?:-\S+\s+)*-1|niri\s+msg|(?:gnome|cinnamon|mate)-session-quit|bootout|loginwindow|windowserver|(?:tel)?init\s+[0-6]|swaymsg\s+exit|hyprctl\s+dispatch\s+exit|display-manager|gdm3?|sddm|lightdm|greetd|lxqt-leave|aevtr(?:rst|sdn|lgo)|systemctl\s[^\n]*\b(?:niri|sway|hyprland|gnome-shell|plasma|graphical-session)|login1|terminate(?:user|session|seat))\b/i;
+	/\b(?:re-?boot(?:s|ed|ing)?|restart(?:s|ed|ing)?|authrestart|shut(?:s|ting)?[\s-]*down|shutdown|shut\s+(?:\S+\s+){1,3}down|power(?:s|ed|ing)?[\s-]*(?:off|down|cycle)|power(?:s|ed|ing)?\s+(?:\S+\s+){1,2}(?:off|down)|poweroff|turn(?:s|ed|ing)?\s+(?:\S+\s+){0,2}off|log(?:s|ged|ging)?[\s-]*(?:out|off)|logout|logoff|sign(?:s|ed|ing)?[\s-]*out|switch(?:es|ed|ing)?\s+(?:the\s+)?users?|switch(?:es|ed|ing)?\s+to\s+(?:another|a\s+different|the\s+other)\s+user|user\s+switch(?:ing)?|loginctl|halt|kexec|pkill|killall|kill\s+(?:-\S+\s+)*-1|niri\s+msg|(?:gnome|cinnamon|mate)-session-quit|bootout|loginwindow|windowserver|(?:tel)?init\s+[0-6]|swaymsg\s+exit|hyprctl\s+dispatch\s+exit|display-manager|gdm3?|sddm|lightdm|greetd|lxqt-leave|aevtr(?:rst|sdn|lgo)|systemctl\s[^\n]*\b(?:niri|sway|hyprland|gnome-shell|plasma|graphical-session)|login1|terminate(?:user|session|seat))\b/i;
 
 /**
  * A text with its typography folded to what the patterns read: every
@@ -171,7 +171,7 @@ function asksIn(
 			found.push(...commandAsks(line, machines));
 		}
 		if (!part.prose) continue;
-		for (const run of sentenceRuns(part.lines)) {
+		for (const run of sentenceRuns(part.lines, words)) {
 			run.forEach((sentence, at) => {
 				const before = at > 0 ? run[at - 1] : undefined;
 				found.push(...sentenceAsks(sentence, before, machines, words, reading));
@@ -209,7 +209,8 @@ function sentenceAsks(
 	const asks =
 		reading === "prose"
 			? readsAsAsk(plain, words)
-			: LABEL_ACT.test(plain) || DO_NOUN.test(plain) || UI_ASK.test(plain);
+			: !DECLINED.test(plain) &&
+				(LABEL_ACT.test(plain) || DO_NOUN.test(plain) || UI_ASK.test(plain));
 	const nouns = UI_ASK.test(plain)
 		? "named"
 		: reading === "label" || DO_NOUN.test(plain);
@@ -229,6 +230,13 @@ function sentenceAsks(
 	}
 	return [...byAct.values()];
 }
+
+/**
+ * A label that turns the act down rather than picking it: "Skip the
+ * reboot", "No restart tonight", "Hold off on the restart".
+ */
+const DECLINED =
+	/^(?:skip|no|not|don't|do\s+not|never|avoid|cancel|postpone|defer|delay|hold\s+off|without)\b/;
 
 /**
  * A bold head closed by a colon, as a list item's "**Reboot at 22:29:**",
@@ -400,9 +408,13 @@ function commandLines(part: Part): string[] {
  * that opens with a capital, so the rest of a wrapped sentence ("goes
  * on / reboot handling and more") isn't read as one of its own.
  */
-function sentenceRuns(lines: readonly string[]): string[][] {
+function sentenceRuns(lines: readonly string[], words: string): string[][] {
+	const names = new RegExp(`\\b(?:${words})\\b`);
 	const kept = lines.filter(
-		(line) => !BOOT_RECORD.test(line) && !HEADING.test(line),
+		(line) =>
+			!BOOT_RECORD.test(line) &&
+			!TICKED.test(line) &&
+			(!HEADING.test(line) || names.test(line.toLowerCase())),
 	);
 	const alone = paragraphsOf(kept).flatMap((paragraph) =>
 		paragraph.filter(
@@ -432,8 +444,14 @@ function cellsOf(line: string): string[] {
 		.filter((cell) => cell !== "" && !/^:?-+:?$/.test(cell));
 }
 
-/** A markdown heading, which names what follows and asks nothing. */
+/**
+ * A markdown heading, which names what follows and asks nothing,
+ * unless it names a machine, as a step's "### 2. Reboot optimus" does.
+ */
 const HEADING = /^\s{0,3}#{1,6}\s/;
+
+/** A ticked task box, which says a step is done, never asks for it. */
+const TICKED = /^\s*(?:[-+*\u2022]\s+)?\[[xX]\]\s/;
 
 /** A line that opens a block of its own: a list item, a heading, a quote. */
 const BLOCK = /^\s*(?:[-+*>#|\u2022]|\d+[.)]\s|\[[ x]\]|(?: {4}|\t))/;
@@ -517,7 +535,7 @@ function namesMachine(plain: string, machines: readonly string[]): boolean {
  * does name may not be the one meant.
  */
 const GENERIC_MACHINE =
-	/\b(?:(?:this|your|my|joel's|the\s+same)\s+(?:machine|computer|laptop|macbook|mac|desktop|workstation|box|system)|here(?!'s|\s+(?:is|are)\b)|locally)\b/;
+	/\b(?:(?:this|your|my|joel's|the\s+same|the)\s+(?:machine|computer|laptop|macbook|mac|desktop|workstation|box|system)|here(?!'s|\s+(?:is|are)\b)|locally)\b/;
 
 /** The words between a verb and its machine: the, your, both of. */
 const DETERMINERS =
@@ -628,14 +646,15 @@ function actsIn(
  * imperative of another step before it: "save your work and".
  */
 const OPENING =
-	/^(?:(?:please|then|now|next|so|ok(?:ay)?|first|finally|lastly|also|afterwards?|and|but|just|joel|kindly|let's|let\s+us|go\s+ahead\s+and|(?:when|whenever)\s+you\s+can|at\s+your\s+convenience|after\s+that|tonight|step\s+\d+)\s*[,:]?|try\s+to|(?:save|close|quit|finish|wrap\s+up|commit|push|park|unplug|disconnect|update|install)\b[^,;:.!?]{0,60}?\s+(?:and(?:\s+then)?|then))\s+/;
+	/^(?:(?:please|then|now|next|so|ok(?:ay)?|first|finally|lastly|also|afterwards?|and|but|just|joel|kindly|let's|let\s+us|go\s+ahead\s+and|(?:when|whenever)\s+you\s+can|at\s+your\s+convenience|after\s+that|tonight|step\s+\d+)\s*(?:[,:]|-{1,2})?|try\s+to|(?:save|close|quit|finish|wrap\s+up|commit|push|park|unplug|disconnect|update|install)\b[^,;:.!?]{0,60}?\s+(?:and(?:\s+then)?|then))\s+/;
 
 /**
- * A lead-in closed by a comma or a colon ("if the mic is still dead,",
- * "to pair the card,", "next step:"), which leaves what follows an
- * imperative unless the act is in the lead-in itself, as in a list.
+ * A lead-in closed by a comma, a colon or a dash ("if the mic is still
+ * dead,", "to pair the card,", "next step:", "last thing -"), which
+ * leaves what follows an imperative unless the act is in the lead-in
+ * itself, as in a list. Folding has made every dash a hyphen.
  */
-const LEAD_IN = /^([^,:;]{1,80})[,:]\s+/;
+const LEAD_IN = /^([^,:;]{1,80}?)(?:[,:]|\s-{1,2})\s+/;
 
 /** A noun of the act after a verb that does it: "do a reboot". */
 const DO_NOUN =
@@ -647,7 +666,7 @@ const DO_NOUN =
  * names what to press.
  */
 const QUALIFIES =
-	"(?!\\s+(?:check|checks|guard|detection|detector|handling|handler|fix|fixes|test|tests|loop|path|script|hold|record|log|logs|count|limit|flag|logic|bug|issue|step|steps|timer|notice|prompt|race|code|banner|dialog|reason|support|policy|hook|helper|marker|signal|state|status)\\b)";
+	"(?!\\s+(?:check|checks|guards?|detection|detectors?|handling|handlers?|fix|fixes|tests?|loops?|paths?|scripts?|holds?|records?|logs?|counts?|limits?|flags?|logic|bugs?|issues?|steps?|timers?|notices?|prompts?|races?|code|banners?|dialogs?|reasons?|support|policy|hooks?|helpers?|markers?|signals?|state|status)\\b)";
 
 /**
  * What after an act word makes it the subject, not an imperative: a
@@ -695,7 +714,7 @@ const LABEL_ACT = new RegExp(
 
 /** Words that make a sentence a request of the person, when an act follows. */
 const REQUEST =
-	/\b(?:please|pls|kindly|could\s+you|can\s+you|would\s+you|will\s+you|you\s+can|(?:you|we)(?:'ll|\s+will|'d|\s+would)?\s+(?:need|have|want)\s+to|you\s+must|you\s+should|you\s+ought\s+to|need\s+you\s+to|i(?:'m|\s+am)?\s+ask(?:ing)?\s+(?:you|joel)\s+to|i'?d\s+like\s+you\s+to|want\s+you\s+to|time\s+to|ready\s+to|go\s+ahead\s+and|do\s+you\s+want\s+to|shall\s+(?:we|i)|may\s+i|can\s+i|could\s+i|ok(?:ay)?\s+to|fine\s+to|safe\s+to|best\s+to|is\s+it\s+(?:ok|okay|alright|fine)\s+to|let\s+me\s+know\s+when\s+you|let's|let\s+us|make\s+sure(?:\s+(?:you|to))?|be\s+sure\s+to|remember\s+to|don't\s+forget\s+to|(?:i'?d\s+|i\s+)?(?:suggest|recommend|advise)|(?:^|would\s+you\s+|do\s+you\s+)mind|consider)\b/;
+	/\b(?:please|pls|kindly|could\s+you|can\s+you|would\s+you|will\s+you|you\s+can|(?:you|we)(?:'ll|\s+will|'d|\s+would)?(?:\s+(?:may|might|probably|likely|also|just|really|still))?\s+(?:need|have|want)\s+to|(?:can|could|should)\s+we|we\s+(?:should|could|can|must)|feel\s+free\s+to|you\s+must|you\s+should|you\s+ought\s+to|need\s+you\s+to|i(?:'m|\s+am)?\s+ask(?:ing)?\s+(?:you|joel)\s+to|i'?d\s+like\s+you\s+to|want\s+you\s+to|time\s+to|ready\s+to|go\s+ahead\s+and|do\s+you\s+want\s+to|shall\s+(?:we|i)|may\s+i|can\s+i|could\s+i|ok(?:ay)?\s+to|fine\s+to|safe\s+to|best\s+to|is\s+it\s+(?:ok|okay|alright|fine)\s+to|let\s+me\s+know\s+(?:when|once|after|as\s+soon\s+as)\s+you|let's|let\s+us|make\s+sure(?:\s+(?:you|to))?|be\s+sure\s+to|remember\s+to|don't\s+forget\s+to|(?:i'?d\s+|i\s+)?(?:suggest|recommend|advise)|(?:^|would\s+you\s+|do\s+you\s+)mind|consider)\b/;
 
 /**
  * Words between a request and an act that turn it from asking for the
@@ -727,6 +746,28 @@ const REQUESTED = new RegExp(
 const DONE_FIRST = new RegExp(
 	`${NOT_BEFORE}\\b(?:once|after|when|until)\\s+you(?:'ve|\\s+have)\\s+(?:re-?booted|restarted|logged[\\s-]*(?:out|off)|signed[\\s-]*out|shut\\s*down|powered\\s*(?:off|down)|switched\\s+users?)\\b`,
 );
+
+/**
+ * An act the person is to do first, said in the present, then a step
+ * after the comma: "once you log out, pair the card". What follows has
+ * to be the step, not what the act would do ("when you reboot, the
+ * sessions end"), and "if" only says what would follow.
+ */
+const DONE_FIRST_NOW =
+	/^(?:once|after|when|as\s+soon\s+as)\s+you\s+(?:re-?boot|restart|log[\s-]*(?:out|off)|sign[\s-]*out|shut\s*down|power\s*(?:off|down)|switch\s+users?)\b[^,;:.!?]{0,60}?,\s+([\w'-]+)/;
+
+/** Words that open a clause's subject, not a step's verb. */
+const SUBJECT =
+	/^(?:you|i|we|it|they|he|she|this|that|these|those|the|a|an|all|every|each|some|any|no|its|your|my|our|their|there|nothing|everything|everyone|nobody|\d+|one|two|three|four|five|six|seven|eight|nine|ten|[\w'-]*[^s\W]s)$/;
+
+/** Whether a sentence asks for an act before a step after it. */
+function doneFirstNow(plain: string, words: string): boolean {
+	const machine = new RegExp(`^(?:${words})$`);
+	return openingsOf(plain).some((opening) => {
+		const next = DONE_FIRST_NOW.exec(opening)?.[1];
+		return next !== undefined && !SUBJECT.test(next) && !machine.test(next);
+	});
+}
 
 /** Words that hand a command over to be typed. */
 const RUN = "(?:run|type|paste|execute|enter)\\b";
@@ -780,18 +821,27 @@ function readsAsAsk(plain: string, words: string): boolean {
 		) ||
 		REQUESTED.test(plain) ||
 		DONE_FIRST.test(plain) ||
+		doneFirstNow(plain, words) ||
 		NEED.test(plain)
 	);
 }
 
 /**
  * Whether an imperative is a label's head instead, "Restart:" or
- * "Reboot hold:", naming no machine before its colon.
+ * "Reboot hold:", naming no machine before its colon. A head of the act
+ * and a time, "Reboot now:", is the imperative with its reason after.
  */
 function labelled(opening: string, words: string): boolean {
 	const head = LABEL_HEAD.exec(opening)?.[1];
-	return head !== undefined && !new RegExp(`\\b(?:${words})\\b`).test(head);
+	return (
+		head !== undefined &&
+		!TIMED_HEAD.test(head) &&
+		!new RegExp(`\\b(?:${words})\\b`).test(head)
+	);
 }
+
+/** A label head's second word that makes it an act now, not a name. */
+const TIMED_HEAD = /^\S+\s+(?:now|tonight|today|first|again|please)$/;
 
 /** Whether a sentence asks for the code in it to be typed. */
 function asksToRun(plain: string): boolean {

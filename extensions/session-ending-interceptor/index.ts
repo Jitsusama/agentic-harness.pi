@@ -24,7 +24,9 @@
  * in its place and keeps in the session, with its tool calls left as
  * they were; the reason follows once a run as a follow-up, so the model
  * says something else. A reply the person stopped is withheld without
- * one, since the run it would continue was ended on purpose.
+ * one, since the run it would continue was ended on purpose. Each one
+ * withheld is said on the bus, since an extension pi ran before this
+ * one, as the mesh's talks, may have relayed the text already.
  */
 
 import { randomUUID } from "node:crypto";
@@ -38,6 +40,7 @@ import { OVERRIDE_HINT } from "../../lib/guardian/report.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { isRecord } from "../../lib/internal/record.ts";
+import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
 import {
 	machineNamesAt,
 	type NodeSession,
@@ -210,11 +213,7 @@ async function withholdReply<M extends { role: string }>(
 	const silent =
 		(stopped && mode !== "off") ||
 		(!telling && !told.keys.has(refusal.key) && mode === "redirect");
-	if (silent) {
-		return {
-			message: { ...message, content: withheld(message.content, WITHHELD) },
-		};
-	}
+	if (silent) return replaced(pi, message, WITHHELD);
 	const verdict = refusalUnder(
 		GUARD.name,
 		{ block: true, reason: refusal.reason },
@@ -236,10 +235,21 @@ async function withholdReply<M extends { role: string }>(
 			{ deliverAs: "followUp" },
 		);
 	}
-	const notice = telling ? WITHHELD_TOLD : WITHHELD;
-	return {
-		message: { ...message, content: withheld(message.content, notice) },
-	};
+	return replaced(pi, message, telling ? WITHHELD_TOLD : WITHHELD);
+}
+
+/**
+ * The reply with its text in one notice, said on the bus, so what
+ * relayed it before this ran, as a mesh talk, can relay the notice.
+ */
+function replaced<M extends { role: string; content: unknown }>(
+	pi: ExtensionAPI,
+	message: M,
+	notice: string,
+): { message: M } {
+	const now = { ...message, content: withheld(message.content, notice) };
+	sayReplyWithheld(pi.events, { was: message, now });
+	return { message: now };
 }
 
 /** A reply's content with its text in one notice, the rest kept. */

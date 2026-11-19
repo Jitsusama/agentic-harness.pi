@@ -10,6 +10,7 @@ import { runStarted } from "../../../lib/internal/session/first-prompt.ts";
 import { isParked } from "../../../lib/internal/session/park.ts";
 import { ROLLOVER_CARRY } from "../../../lib/internal/session/rollover.ts";
 import { onTurnEnd } from "../../../lib/internal/session/turn-end.ts";
+import { onReplyWithheld } from "../../../lib/internal/session/withheld.ts";
 import { RUN_KINDS } from "../../../lib/mesh/lease.ts";
 import { toolDetail } from "../../../lib/mesh/step.ts";
 import { localDay, noUsage, withCall } from "../../../lib/mesh/usage.ts";
@@ -70,6 +71,12 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 				}),
 			},
 		};
+	});
+
+	// A reply another extension withheld once finished, which a talk may
+	// have had first: the talk is replied by what stands in its place.
+	onReplyWithheld(m.pi.events, ({ was, now }) => {
+		m.talks.withheld(assistantText(was), assistantText(now));
 	});
 
 	// A log about to roll over names the session the fresh one carries

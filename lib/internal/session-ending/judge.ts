@@ -26,18 +26,18 @@ const NAMED = 8;
 
 /**
  * The machines an ask can name: those the node's sessions are on and
- * those its realm lists with none on them, else this one, so an ask of
- * it is still read when the node can't be.
+ * those its realm lists with none on them. When the sessions can't be
+ * read, this one stands in for theirs beside what the realm lists, so
+ * an ask of a machine is still read as one.
  */
 export function machinesKnown(
 	sessions: readonly NodeSession[] | undefined,
 	listed: readonly string[] | undefined,
 	here: string,
 ): string[] {
-	if (!sessions) return [here].filter(isMachineName);
 	return [
 		...new Set([
-			...sessions.flatMap((one) => one.machine ?? []),
+			...(sessions ?? [{ machine: here }]).flatMap((one) => one.machine ?? []),
 			...(listed ?? []),
 		]),
 	].filter(isMachineName);

@@ -408,4 +408,86 @@ describe("the cheap first look", () => {
 		expect(mayAsk("Once you've logged out, say so.")).toBe(true);
 		expect(mayAsk("Then telinit 0.")).toBe(true);
 	});
+
+	it("looks closer at a power-off or shutdown with words between", () => {
+		expect(mayAsk("Please power equilibrius off.")).toBe(true);
+		expect(mayAsk("Power optimus down when the run ends.")).toBe(true);
+		expect(mayAsk("Shut both of them down.")).toBe(true);
+		expect(acts("Please power equilibrius off.")).toEqual(["shut down"]);
+	});
+});
+
+describe("an ask said as a hedge or a suggestion", () => {
+	it.each([
+		["You might want to reboot optimus.", "reboot"],
+		["You may need to log out of macOS on equilibrius.", "log out"],
+		["You might need to reboot optimus.", "reboot"],
+		["Can we restart equilibrius tonight?", "restart"],
+		["Could we reboot optimus after the run?", "reboot"],
+		["We should reboot optimus once it lands.", "reboot"],
+		["Feel free to reboot optimus tonight.", "reboot"],
+		["Let me know once you log out of macOS on equilibrius.", "log out"],
+		["Once you log out, pair the card at the login window.", "log out"],
+		["When you reboot optimus, check the mic.", "reboot"],
+	])("%s asks", (text, act) => {
+		expect(acts(text)).toEqual([act]);
+	});
+
+	it("still asks nothing of what would follow one", () => {
+		expect(acts("If you reboot, five sessions end.")).toEqual([]);
+	});
+});
+
+describe("an ask closed off by a dash", () => {
+	it.each([
+		["If the mic is still dead \u2014 reboot optimus.", "reboot"],
+		["Last thing \u2014 log out of macOS on equilibrius.", "log out"],
+		["Then - reboot optimus.", "reboot"],
+	])("%s asks", (text, act) => {
+		expect(acts(text)).toEqual([act]);
+	});
+});
+
+describe("a heading or a task box", () => {
+	it("reads a heading that names a machine as the step it is", () => {
+		expect(acts("### 2. Reboot optimus\n\nThe card pairs after.")).toEqual([
+			"reboot",
+		]);
+	});
+
+	it("reads a ticked box as done", () => {
+		expect(acts("- [x] Reboot optimus\n- [ ] Pair the card")).toEqual([]);
+	});
+});
+
+describe("a machine named only beside the act", () => {
+	it("checks every machine when the act's own is unnamed", () => {
+		expect(
+			named("Once the run on optimus finishes, restart the MacBook."),
+		).toEqual([[]]);
+	});
+});
+
+describe("a label of the fifth round's shapes", () => {
+	it("reads a head of the act and a time as the act", () => {
+		expect(acts("Reboot now: the new kernel only loads at boot.")).toEqual([
+			"reboot",
+		]);
+	});
+
+	it.each([
+		"Skip the reboot",
+		"Don't reboot",
+		"No restart tonight",
+		"Postpone the reboot",
+		"Hold off on the restart",
+		"Without a reboot",
+	])("%s asks nothing", (text) => {
+		expect(asksInLabel(text, MACHINES)).toEqual([]);
+	});
+
+	it("asks nothing where the act qualifies a plural", () => {
+		expect(acts("Fix the restart loops.")).toEqual([]);
+		expect(asksInLabel("Clear reboot flags", MACHINES)).toEqual([]);
+	});
 });

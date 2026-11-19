@@ -13,6 +13,7 @@ import {
 	heldWindowFrom,
 	machineNamesAt,
 	machineNamesFrom,
+	nodeServes,
 	nodeSessionsAt,
 	nodeSessionsFrom,
 	nodeSocket,
@@ -187,7 +188,7 @@ describe("asking the node who is on which machine", () => {
 		expect(nodeSessionsFrom(sessions())).toEqual([]);
 	});
 
-	it("keeps a session in a state it doesn't know, or without a machine, as the node said it", () => {
+	it("keeps a session in a state it doesn't know, without a machine or without an id, as the node said it", () => {
 		const held = nodeSessionsFrom(
 			sessions(
 				{ id: "odd", machine: "optimus", state: "starting" },
@@ -201,7 +202,22 @@ describe("asking the node who is on which machine", () => {
 			{ id: "odd", machine: "optimus", state: "starting" },
 			{ id: "nowhere", state: "idle" },
 			{ id: "stateless", machine: "optimus", state: "unknown" },
+			{ id: "", machine: "optimus", state: "idle" },
 		]);
+	});
+});
+
+describe("whether a node serves at a socket", () => {
+	it("says so of one listening", async () => {
+		const socket = await serving(() => undefined);
+		expect(await nodeServes(socket)).toBe(true);
+	});
+
+	it("says not where nothing is, or only a file", async () => {
+		const file = join(root, "plain.sock");
+		writeFileSync(file, "");
+		expect(await nodeServes(join(root, "none.sock"))).toBe(false);
+		expect(await nodeServes(file)).toBe(false);
 	});
 });
 

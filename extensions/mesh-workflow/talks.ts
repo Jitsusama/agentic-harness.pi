@@ -72,6 +72,11 @@ export interface Talks {
 	writing(text: string): void;
 	/** A message the session finished writing, with its text. */
 	wrote(text: string): void;
+	/**
+	 * A message the session wrote was withheld once finished, with what
+	 * stands in its place: a talk it replied is replied by that instead.
+	 */
+	withheld(was: string, instead: string): void;
 	/** The run settled, stopped or not. */
 	settled(aborted: boolean): void;
 	/**
@@ -244,6 +249,16 @@ export function createTalks(host: TalksHost): Talks {
 			for (const talk of taken()) {
 				if (!talk.reply) reply(talk, said);
 				talk.reply = said;
+			}
+		},
+		withheld(was, instead) {
+			const text = was.trim();
+			const now = instead.trim();
+			if (text === "" || now === "") return;
+			for (const talk of [...open, ...answered.map((one) => one.talk)]) {
+				if (talk.said === text) talk.said = now;
+				if (talk.reply === text) talk.reply = now;
+				if (talk.replied === text) reply(talk, now);
 			}
 		},
 		settled(aborted) {

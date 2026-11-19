@@ -913,7 +913,9 @@ already working is replied by the first text written after it,
 since what follows is the run's own work; one that starts its
 run is replied by its first text too, then again by the last
 text that run writes when that differs, and a reader takes the
-last. A reply so far
+last. A reply another extension withholds once written, as the
+session-ending guard does, is replied again by what stands in
+its place, whichever of them pi ran first. A reply so far
 is said again only once it changes. A quest or document that ends
 afterwards, before the next talk opens, adds `came`, such as
 `{"stage": "came", "what": "plan concluded", "ref": "PLAN-..."}`.

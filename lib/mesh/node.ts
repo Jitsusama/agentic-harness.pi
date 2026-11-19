@@ -457,10 +457,10 @@ export function nodeSessionsFrom(line: string): NodeSession[] | undefined {
 	return sessions.flatMap((one: unknown): NodeSession[] => {
 		if (!isRecord(one)) return [];
 		const { id, address, machine, state } = one;
-		if (typeof id !== "string") return [];
 		return [
 			{
-				id,
+				// A row with no id is still a session there, never nobody.
+				id: typeof id === "string" ? id : "",
 				...(typeof address === "string" ? { address } : {}),
 				...(typeof machine === "string" ? { machine } : {}),
 				state: typeof state === "string" ? state : "unknown",

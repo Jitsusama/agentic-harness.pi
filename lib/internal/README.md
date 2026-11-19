@@ -110,6 +110,8 @@ may import from here, and any of it may change without notice.
   context's usage, worked out once per leaf however many extensions
   ask; and the one listener every extension hears a turn's end
   through, since pi rebuilds the whole context after each listener;
+  and a reply withheld once finished, said on the bus for whatever
+  relayed it first (`withheld.ts`);
   and, for a park under niri, which of a parked pi's windows may
   close (`park-window.ts`) and the calls to niri, kitty and the
   launcher that close them (`park-desktop.ts`); and an extension's

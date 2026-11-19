@@ -15,6 +15,7 @@ import {
 } from "../../../extensions/session-ending-interceptor/index.ts";
 import { forgetRedirects } from "../../../lib/guardian/apply.ts";
 import { setSessionMode } from "../../../lib/guardian/policy.ts";
+import { REPLY_WITHHELD } from "../../../lib/internal/session/withheld.ts";
 import type { NodeSession } from "../../../lib/mesh/node.ts";
 import { type FakePi, fakePi } from "../../support/fake-pi.ts";
 
@@ -253,6 +254,28 @@ describe("a mesh_wait call", () => {
 		).toMatchObject({ block: true });
 	});
 
+	it("is refused when the machine it names is one the node doesn't know", async () => {
+		expect(
+			await call("mesh_wait", {
+				id: "w",
+				title: "Take the new kernel",
+				machine: "equilibrius.local",
+				steps: ["Save your work", "Restart"],
+			}),
+		).toMatchObject({ block: true });
+	});
+
+	it("reads the machine it names in any case", async () => {
+		expect(
+			await call("mesh_wait", {
+				id: "w",
+				title: "Take the new kernel",
+				machine: "Optimus",
+				steps: ["Save your work", "Restart"],
+			}),
+		).toBeUndefined();
+	});
+
 	it("goes ahead when a step is the act on a machine with no one else on it", async () => {
 		expect(
 			await call("mesh_wait", {
@@ -430,6 +453,32 @@ describe("a reply", () => {
 		]);
 		const [note] = pi.recorded.sent;
 		expect(JSON.stringify(note)).toContain("EWUL44 (idle)");
+	});
+
+	it("says on the bus what it withheld and what stands in its place", async () => {
+		const answer = await reply(text("Please reboot equilibrius."));
+
+		const said = pi.recorded.emitted.filter(
+			([channel]) => channel === REPLY_WITHHELD,
+		);
+		expect(said).toEqual([
+			[
+				REPLY_WITHHELD,
+				{
+					was: expect.objectContaining({
+						content: [text("Please reboot equilibrius.")],
+					}),
+					now: (answer as { message: unknown }).message,
+				},
+			],
+		]);
+	});
+
+	it("says nothing on the bus of a reply it leaves as it was", async () => {
+		await reply(text("The guard landed."));
+		expect(
+			pi.recorded.emitted.filter(([channel]) => channel === REPLY_WITHHELD),
+		).toEqual([]);
 	});
 
 	it("tells the model once a run, however many replies are withheld in it", async () => {
