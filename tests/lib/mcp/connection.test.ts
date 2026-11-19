@@ -4,6 +4,7 @@ import {
 	mcpErrorFrom,
 	type SdkClientLike,
 } from "../../../lib/mcp/connection.ts";
+import { defaultWriteSignal } from "../../../lib/mcp/frontend/defaults.ts";
 import { McpError, type McpServerConfig } from "../../../lib/mcp/types.ts";
 
 const config: McpServerConfig = { id: "gw", url: "https://example/mcp" };
@@ -78,6 +79,23 @@ describe("createMcpConnection", () => {
 		expect(tool?.serverId).toBe("gw");
 		expect(tool?.annotations).toEqual({ readOnlyHint: false });
 		expect(tool?.raw.surface).toEqual({ kind: "draft" });
+	});
+
+	it("reads annotations or a resource sent as a list as no object", async () => {
+		const client = fakeClient({
+			toolsList: { tools: [{ name: "delete_item", annotations: [] }] },
+			call: { content: [{ type: "resource", resource: ["a"] }] },
+		});
+		const conn = createMcpConnection(config, { client, transport: {} });
+		await conn.connect();
+		const [tool] = await conn.listTools();
+		expect(tool?.annotations).toBeUndefined();
+		// A list once read as annotations with no hint, which waved this
+		// delete past the write gate. The line above pins the connection's
+		// half; this one replays the original report, end to end.
+		expect(tool && defaultWriteSignal(tool)).toBe(true);
+		const result = await conn.callTool("delete_item", {});
+		expect(result.content).toEqual([{ type: "resource", resource: {} }]);
 	});
 
 	it("maps a call result into content and the error flag", async () => {

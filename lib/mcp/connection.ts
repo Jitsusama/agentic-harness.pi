@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { isRecord } from "../internal/record.ts";
 import {
 	type McpContent,
 	McpError,
@@ -164,10 +165,10 @@ function toTool(serverId: string, raw: Record<string, unknown>): McpTool {
 		name: String(raw.name),
 		description: typeof raw.description === "string" ? raw.description : "",
 		inputSchema:
-			isObject(inputSchema) && inputSchema.type === "object"
+			isRecord(inputSchema) && inputSchema.type === "object"
 				? (inputSchema as unknown as McpTool["inputSchema"])
 				: { type: "object" },
-		annotations: isObject(raw.annotations)
+		annotations: isRecord(raw.annotations)
 			? (raw.annotations as McpTool["annotations"])
 			: undefined,
 		raw,
@@ -177,7 +178,7 @@ function toTool(serverId: string, raw: Record<string, unknown>): McpTool {
 function mapContent(blocks: unknown[]): McpContent[] {
 	const out: McpContent[] = [];
 	for (const block of blocks) {
-		if (!isObject(block)) continue;
+		if (!isRecord(block)) continue;
 		switch (block.type) {
 			case "text":
 				out.push({ type: "text", text: String(block.text ?? "") });
@@ -199,7 +200,7 @@ function mapContent(blocks: unknown[]): McpContent[] {
 			case "resource":
 				out.push({
 					type: "resource",
-					resource: isObject(block.resource) ? block.resource : {},
+					resource: isRecord(block.resource) ? block.resource : {},
 				});
 				break;
 			case "resource_link":
@@ -222,8 +223,4 @@ function mapContent(blocks: unknown[]): McpContent[] {
 
 function mime(block: Record<string, unknown>): string {
 	return String(block.mimeType ?? block.mime_type ?? "");
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
 }

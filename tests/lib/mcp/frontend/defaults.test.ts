@@ -57,7 +57,7 @@ describe("makeTruncatingShape", () => {
 });
 
 describe("defaultWriteSignal", () => {
-	it("uses annotations when present, ignoring the name", () => {
+	it("uses a read-only or destructive hint when present, ignoring the name", () => {
 		expect(
 			defaultWriteSignal(tool("delete_everything", { readOnlyHint: true })),
 			"a read-only hint makes even delete_everything a read",
@@ -70,6 +70,74 @@ describe("defaultWriteSignal", () => {
 			defaultWriteSignal(tool("harmless", { readOnlyHint: false })),
 			"a read-only hint of false makes even harmless a write",
 		).toBe(true);
+		expect(
+			defaultWriteSignal(
+				tool("delete_everything", {
+					readOnlyHint: true,
+					destructiveHint: true,
+				}),
+			),
+			"a read-only hint decides even beside a destructive one",
+		).toBe(false);
+		expect(
+			defaultWriteSignal(
+				tool("harmless", { readOnlyHint: false, destructiveHint: false }),
+			),
+			"a non-read-only tool that only adds is still a write",
+		).toBe(true);
+	});
+
+	it("gates a destructive hint of false with no read-only hint", () => {
+		// The spec reads a missing read-only hint as false, so this says
+		// the tool writes, only by adding: a post or a create.
+		expect(
+			defaultWriteSignal(tool("post_comment", { destructiveHint: false })),
+			"post_comment that only adds is a write",
+		).toBe(true);
+		expect(
+			defaultWriteSignal(tool("harmless", { destructiveHint: false })),
+			"the hint decides, not the name",
+		).toBe(true);
+	});
+
+	it("reads a hint that isn't a boolean as no hint", () => {
+		// The connection passes a server's annotations on unchecked, so a
+		// string can arrive where the spec says a boolean goes.
+		const said = { readOnlyHint: "true" } as unknown as McpTool["annotations"];
+		expect(
+			defaultWriteSignal(tool("delete_item", said)),
+			"a string read-only hint leaves delete_item a write, by its verb",
+		).toBe(true);
+		expect(
+			defaultWriteSignal(tool("search_items", said)),
+			"a string read-only hint leaves search_items a read, by its verb",
+		).toBe(false);
+		const destructive = {
+			destructiveHint: "true",
+		} as unknown as McpTool["annotations"];
+		expect(
+			defaultWriteSignal(tool("harmless", destructive)),
+			"a string destructive hint leaves harmless a read, by its name",
+		).toBe(false);
+	});
+
+	it("falls back to a name-verb match when the annotations carry no hint", () => {
+		expect(
+			defaultWriteSignal(tool("delete_everything", {})),
+			"empty annotations leave delete_everything a write, by its verb",
+		).toBe(true);
+		expect(
+			defaultWriteSignal(tool("delete_everything", { idempotentHint: true })),
+			"an idempotent hint alone says nothing of writing",
+		).toBe(true);
+		expect(
+			defaultWriteSignal(tool("search_items", { idempotentHint: true })),
+			"nor does it make search_items a write",
+		).toBe(false);
+		expect(
+			defaultWriteSignal(tool("grokt_search_code", { openWorldHint: true })),
+			"grokt_search_code, with no read or write hint, is a read by its verb",
+		).toBe(false);
 	});
 
 	it("falls back to a name-verb match when no annotations exist", () => {
