@@ -81,6 +81,14 @@ interface WorktreeAsk {
 	 * unread, never as clean. The history's own exec when absent.
 	 */
 	readonly statusExec?: Exec;
+	/**
+	 * Whether a quest claims the tree until spent, given the path as git
+	 * names it. Only such a tree is asked whether a stash was made on it
+	 * and, detached, whether a remote holds its commit: a second walk over
+	 * the refs, which took 27 s for World's 102 detached trees. None are
+	 * asked when absent.
+	 */
+	readonly claimed?: (path: string) => boolean;
 }
 
 /**
@@ -150,6 +158,54 @@ async function mergedInto(
 			.map((line) => line.trim())
 			.filter((line) => line !== ""),
 	);
+}
+
+/** A stash, by the commit it was made on and the branch, if any. */
+interface Stash {
+	base: string;
+	on?: string;
+}
+
+/** How git names the branch a stash was made on, in its reflog's subject. */
+const STASHED_ON = /^(?:WIP on|On) (.+?): /;
+
+/**
+ * Every stash in the repository, which its trees share: one ref, read
+ * once. None only when git says the ref isn't there; a read that fails
+ * otherwise throws, since a stash missed is work taken with its tree.
+ */
+async function stashesIn(exec: Exec, treePath: string): Promise<Stash[]> {
+	const there = await exec("git", [
+		"-C",
+		treePath,
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		"refs/stash",
+	]);
+	if (there.code === 1 && there.stdout.trim() === "") return [];
+	const said = await run(
+		exec,
+		"git",
+		[
+			"-C",
+			treePath,
+			"log",
+			"--walk-reflogs",
+			"--format=%P%x09%gs",
+			"refs/stash",
+		],
+		`Listing the stashes in ${displayPath(treePath)}`,
+	);
+	return said
+		.split("\n")
+		.filter((line) => line.trim() !== "")
+		.flatMap((line) => {
+			const [parents = "", subject = ""] = line.split("\t");
+			const base = parents.split(" ")[0] ?? "";
+			const on = STASHED_ON.exec(subject)?.[1];
+			return base === "" ? [] : [{ base, ...(on ? { on } : {}) }];
+		});
 }
 
 /** Read a tree's state with plain git. */
@@ -380,6 +436,8 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 			// squash merge leaves it: World and core.nix merge that way, so
 			// trunk never contains a landed branch's own commits. Only the
 			// remotes count here, since the branch itself holds its commit.
+			// A detached tree is asked only when the caller says, as a quest's
+			// claim lets one go only once its commit is on a remote.
 			const pushed = await held(
 				treePath,
 				[
@@ -387,8 +445,9 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 						asking
 							.filter(
 								(tree) =>
-									tree.branch !== undefined &&
-									!merged.has(tree.branch) &&
+									(tree.branch === undefined
+										? options.claimed?.(tree.path) === true
+										: !merged.has(tree.branch)) &&
 									!dirty.has(tree.path) &&
 									!unread.has(tree.path),
 							)
@@ -398,15 +457,29 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 				["--remotes"],
 			);
 
+			// A stash lives in no tree, yet it was made on one's branch or
+			// commit, and its work exists nowhere else.
+			const claimed = asking.filter((tree) => options.claimed?.(tree.path));
+			const stashes =
+				claimed.length === 0 ? [] : await stashesIn(deps.exec, treePath);
+			const stashed = (path: string, commit?: string, branch?: string) =>
+				options.claimed?.(path) === true &&
+				stashes.some(
+					(stash) =>
+						(commit !== undefined && stash.base === commit) ||
+						(branch !== undefined && stash.on === branch),
+				);
+
 			return found.map(({ path, commit, branch }) => ({
 				path,
+				...(stashed(path, commit, branch) ? { stashed: true } : {}),
 				...(branch ? { branch } : {}),
 				...(commit ? { commit } : {}),
 				...(dirty.has(path) ? { dirty: true } : {}),
 				...(unread.has(path) ? { unread: true } : {}),
 				...(branch && merged.has(branch) ? { mergedIntoTrunk: true } : {}),
 				...(!branch && commit && kept.has(commit) ? { commitKept: true } : {}),
-				...(branch && commit && pushed.has(commit) ? { pushed: true } : {}),
+				...(commit && pushed.has(commit) ? { pushed: true } : {}),
 			}));
 		},
 	};

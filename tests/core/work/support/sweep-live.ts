@@ -27,7 +27,10 @@ import {
 	createTreeMemory,
 	type TreeMemory,
 } from "../../../../lib/core/work/memory.ts";
-import type { SweepDeps } from "../../../../lib/core/work/sweep.ts";
+import type {
+	SweepClaims,
+	SweepDeps,
+} from "../../../../lib/core/work/sweep.ts";
 import {
 	PUSHED_SETTLE_MS,
 	sweepEndedTrees,
@@ -151,8 +154,9 @@ export async function setUp() {
 	}
 
 	const sweep = (
-		claims: readonly string[] = [],
+		claims: SweepClaims = [],
 		wentWithFinishedWork?: (gitDir: string) => boolean,
+		signs: Pick<SweepDeps, "sessionFolders"> = {},
 	) =>
 		sweepEndedTrees({
 			exec,
@@ -161,6 +165,7 @@ export async function setUp() {
 			lockPath,
 			facts: machine,
 			...(wentWithFinishedWork ? { wentWithFinishedWork } : {}),
+			...signs,
 		});
 
 	/** A snapshot cut from a clone that is then deleted, as conclude does. */
