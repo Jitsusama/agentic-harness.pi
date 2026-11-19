@@ -466,6 +466,33 @@ describe("the hosted agent resuming a turn a restart cut off", {
 		}
 	});
 
+	it("moves a run waiting for its turn up once Joel steers into it", async () => {
+		// On 19 November Joel's steer into a carried turn waited for every other run of the start.
+		const folder = mkdtempSync(join(tmpdir(), "hosted-turn-steered-"));
+		try {
+			expect(await killed("crash-in-request-automated", folder)).toBe(
+				"SIGKILL",
+			);
+			const { observed } = await reopenedWithReports(
+				folder,
+				"reopen-steered-while-waiting",
+			);
+			expect(
+				turnsOf(observed).slice(0, 2),
+				"the run asked behind Joel's runs and, once his steer was in, counted as his",
+			).toEqual([
+				{ type: "turn asked", first: false },
+				{ type: "turn", first: true },
+			]);
+			expect(
+				said(observed, "assistant"),
+				"the cut-off request and the steer are both answered",
+			).toEqual(["after the restart", "and your words"]);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
 	// 15 November's soak: a job begun in a run a restart cut off reported only once a person typed, its conversation listed busy meanwhile. The host's own runs told extensions they began and never that they settled, so job-workflow's outbox waited on a settle that never came.
 	for (const [crash, carried] of [
 		["crash-in-tool", "a carried tool round"],

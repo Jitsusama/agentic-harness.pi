@@ -202,6 +202,8 @@ interface Scenario {
 	turns?: boolean;
 	/** Words Joel types while the carried run waits for its turn, which comes once the agent has them. */
 	typed?: string;
+	/** Joel's typed words go in as a steer, as pi's editor sends them while it shows a run going. */
+	steered?: boolean;
 	/** Settings over the fixture's, which turn pi's retry and compaction off. */
 	settings?: object;
 	/** The scripted provider's models, when one will not do. */
@@ -679,6 +681,15 @@ const scenarios: Record<string, Scenario> = {
 		persist: true,
 		turns: true,
 		typed: "are you back?",
+	},
+	/** As reopen-typed-while-waiting, Joel's words going in as a steer, as pi's editor sends them while a carried run shows as going. */
+	"reopen-steered-while-waiting": {
+		responses: () => [say("after the restart"), say("and your words")],
+		drive: async () => {},
+		persist: true,
+		turns: true,
+		typed: "are you back?",
+		steered: true,
 	},
 	/** As reopen, with an extension adding a section to each run, and words typed once the carried run ends. */
 	"reopen-sectioned": {
@@ -1250,7 +1261,15 @@ try {
 	if (early) await Promise.race([reached, early]);
 	const hosted = conversation?.agent;
 	let typedIn = Promise.resolve();
-	if (scenario.typed !== undefined && hosted) {
+	if (scenario.typed !== undefined && hosted && scenario.steered) {
+		const steer = hosted.steer.bind(hosted);
+		typedIn = new Promise((reached) => {
+			hosted.steer = (message) => {
+				steer(message);
+				reached();
+			};
+		});
+	} else if (scenario.typed !== undefined && hosted) {
 		const prompt = hosted.prompt.bind(hosted);
 		typedIn = new Promise((reached) => {
 			hosted.prompt = (...words) => {
@@ -1282,7 +1301,9 @@ try {
 	const during =
 		scenario.typed === undefined
 			? scenario.during?.(session, hosted)
-			: session.prompt(scenario.typed);
+			: scenario.steered
+				? session.steer(scenario.typed)
+				: session.prompt(scenario.typed);
 	await recovery?.settled;
 	await early;
 	await during;
