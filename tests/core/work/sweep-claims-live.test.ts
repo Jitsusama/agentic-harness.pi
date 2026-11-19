@@ -7,8 +7,18 @@
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { sweepEndedTrees } from "../../../lib/core/work/sweep.ts";
 import { git } from "../../support/git-fixture.ts";
-import { disposeAll, settle, setUp } from "./support/sweep-live.ts";
+import {
+	disposeAll,
+	elsewhere,
+	exec,
+	machine,
+	machineWithUs,
+	settle,
+	settleFolder,
+	setUp,
+} from "./support/sweep-live.ts";
 
 afterEach(disposeAll);
 
@@ -97,6 +107,66 @@ describe("trees a live quest claims until spent", () => {
 
 		expect(outcome.taken, "what the sweep took").toEqual([{ path: pushed }]);
 		const why = outcome.kept.find((one) => one.path === local)?.why;
-		expect(why, "why the snapshot was kept").toMatch(/no remote holds/);
+		expect(why, "why the snapshot was kept").toMatch(
+			/no remote holds the commit it sits at/,
+		);
+	});
+
+	it("keeps a claimed snapshot that made a commit and went back to a pushed one", async () => {
+		const { cut, sweep } = await setUp();
+		const back = await cut("back", ["--detach", "@", "main"]);
+		await git(back, "commit", "-q", "--allow-empty", "-m", "made here");
+		await git(back, "checkout", "-q", "--detach", "main");
+
+		const outcome = await sweep(untilSpent(back));
+
+		expect(outcome.taken, "what the sweep took").toEqual([]);
+		const why = outcome.kept.find((one) => one.path === back)?.why;
+		expect(why, "why the snapshot was kept").toMatch(/history holds a commit/);
+	});
+
+	it("keeps every claimed tree when the stash read never starts", async () => {
+		// An exec reports a git that never started as a failure with nothing
+		// said, as git saying a ref isn't there once looked.
+		const { memory, lockPath, cut } = await setUp();
+		const spent = await cut("spent", ["-b", "spent", "@", "main"]);
+		const failing = (command: string, args: readonly string[]) =>
+			args.includes("refs/stash")
+				? Promise.resolve({ code: 1, stdout: "", stderr: "" })
+				: exec(command, args);
+
+		const outcome = await sweepEndedTrees({
+			exec: failing,
+			memory,
+			claims: untilSpent(spent),
+			lockPath,
+			facts: machine,
+		});
+
+		expect(outcome.taken, "what the sweep took").toEqual([]);
+		const why = outcome.kept.find((one) => one.path === spent)?.why;
+		expect(why, "why the tree was kept").toMatch(/stash/);
+		expect(existsSync(spent), `${spent} is kept`).toBe(true);
+	});
+
+	it("leaves another provider's tree a quest claims until spent held for good", async () => {
+		const { memory, lockPath, elsewhereTree } = await setUp();
+		const world = elsewhereTree("world");
+		settleFolder(world);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: untilSpent(world),
+			lockPath,
+			facts: machineWithUs,
+			providers: () => [elsewhere(undefined)],
+		});
+
+		expect(outcome.taken, "what the sweep took").toEqual([]);
+		expect(
+			existsSync(world),
+			`${world}, its provider calling it spent, is kept`,
+		).toBe(true);
 	});
 });

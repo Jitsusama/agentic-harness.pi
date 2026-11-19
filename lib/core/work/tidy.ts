@@ -47,6 +47,13 @@ export interface WorktreeOnDisk {
 	 * only a quest's claim asks it.
 	 */
 	stashed?: boolean;
+	/**
+	 * For a tree with no branch, whether its own HEAD's history names a
+	 * commit no remote holds, as one a session made and then moved off
+	 * does, which goes with the tree's reflog. Only a quest's claim asks
+	 * it, and a history that can't be read says yes.
+	 */
+	leftUnpushed?: boolean;
 }
 
 /** What is known when asking which trees were left behind. */
@@ -242,6 +249,10 @@ export function orphanedTrees(ask: OrphanAsk): OrphanPlan {
 			// pushed, which a local ref or the pin alone would let go.
 			if (claimed && !tree.pushed) {
 				keep("its quest claims it, and no remote holds the commit it sits at");
+			} else if (claimed && tree.leftUnpushed) {
+				keep(
+					"its quest claims it, and its history holds a commit no remote holds",
+				);
 			} else if (tree.commitKept || ask.stillPinned?.(tree.path, tree.commit)) {
 				reclaimable.push({ path: tree.path });
 			} else {

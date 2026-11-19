@@ -171,19 +171,19 @@ const STASHED_ON = /^(?:WIP on|On) (.+?): /;
 
 /**
  * Every stash in the repository, which its trees share: one ref, read
- * once. None only when git says the ref isn't there; a read that fails
- * otherwise throws, since a stash missed is work taken with its tree.
+ * once. None only when git answers, succeeding, that the ref isn't
+ * there; any read that fails throws, since a stash missed is work taken
+ * with its tree. Not `rev-parse --verify`, whose "none" is a failure
+ * like a git that never started, which an exec reports the same way.
  */
 async function stashesIn(exec: Exec, treePath: string): Promise<Stash[]> {
-	const there = await exec("git", [
-		"-C",
-		treePath,
-		"rev-parse",
-		"--verify",
-		"--quiet",
-		"refs/stash",
-	]);
-	if (there.code === 1 && there.stdout.trim() === "") return [];
+	const there = await run(
+		exec,
+		"git",
+		["-C", treePath, "for-each-ref", "--format=%(refname)", "refs/stash"],
+		`Asking whether ${displayPath(treePath)} has stashes`,
+	);
+	if (there.trim() === "") return [];
 	const said = await run(
 		exec,
 		"git",
@@ -470,9 +470,21 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 						(branch !== undefined && stash.on === branch),
 				);
 
+			// A claimed snapshot may have made a commit and moved on, even back
+			// to a pushed one: its own history then holds work no remote has.
+			const leftUnpushed = new Set<string>();
+			for (const tree of claimed) {
+				if (tree.branch !== undefined) continue;
+				if (dirty.has(tree.path) || unread.has(tree.path)) continue;
+				if (await historyBeyondRemotes(deps.exec, tree.path)) {
+					leftUnpushed.add(tree.path);
+				}
+			}
+
 			return found.map(({ path, commit, branch }) => ({
 				path,
 				...(stashed(path, commit, branch) ? { stashed: true } : {}),
+				...(leftUnpushed.has(path) ? { leftUnpushed: true } : {}),
 				...(branch ? { branch } : {}),
 				...(commit ? { commit } : {}),
 				...(dirty.has(path) ? { dirty: true } : {}),
@@ -483,6 +495,45 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 			}));
 		},
 	};
+}
+
+/**
+ * Whether a tree's own HEAD has ever stood at a commit no remote holds,
+ * by its reflog, which goes with the tree. A history git can't read, or
+ * a commit it can't find, says yes, as the tree may be all that keeps it.
+ */
+async function historyBeyondRemotes(
+	exec: Exec,
+	treePath: string,
+): Promise<boolean> {
+	const logged = await exec("git", [
+		"-C",
+		treePath,
+		"reflog",
+		"show",
+		"--format=%H",
+		"HEAD",
+	]);
+	if (logged.code !== 0) return true;
+	const commits = [
+		...new Set(
+			logged.stdout
+				.split("\n")
+				.map((line) => line.trim())
+				.filter((line) => line !== ""),
+		),
+	];
+	if (commits.length === 0) return false;
+	const beyond = await exec("git", [
+		"-C",
+		treePath,
+		"rev-list",
+		"--max-count=1",
+		...commits,
+		"--not",
+		"--remotes",
+	]);
+	return beyond.code !== 0 || beyond.stdout.trim() !== "";
 }
 
 /** How many paths a refusal names before it summarises. */
