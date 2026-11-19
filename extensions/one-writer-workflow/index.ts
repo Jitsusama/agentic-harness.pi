@@ -6,24 +6,48 @@
  * the lists and rosters the machine's hosts keep
  * (lib/internal/session/writer-hold.ts). Held by one, the pi says which
  * host holds it and how to reach it there, takes no prompt, and ends
- * with HELD_ELSEWHERE_EXIT. A hosted conversation is its host's own, and
- * a session with no log has none to share, so neither is looked up.
+ * with HELD_ELSEWHERE_EXIT. In its terminal, under a holder that runs it
+ * itself, it hands that window to the host's view instead and ends as a
+ * park, so the window shows the conversation rather than closing: on 19
+ * November four windows opened on plain pi closed within seconds this
+ * way. A hosted conversation is its host's own, and a session with no log
+ * has none to share, so neither is looked up.
  */
+
+import { writeFileSync } from "node:fs";
 
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
-import { heldByHost } from "../../lib/internal/session/host-holds.ts";
+import {
+	type HostHold,
+	heldByHost,
+	viewWords,
+} from "../../lib/internal/session/host-holds.ts";
 import { HELD_ELSEWHERE_EXIT } from "../../lib/internal/session/one-writer.ts";
+import {
+	flagsLost,
+	holderCommand,
+	holderFiles,
+	PARKED_EXIT,
+} from "../../lib/internal/session/park.ts";
 import {
 	type WriterLooking,
 	writerHold,
 } from "../../lib/internal/session/writer-hold.ts";
 
+/** This pi's own process, as a hand-over reads it; a test gives its own. */
+export interface OwnProcess {
+	readonly env?: NodeJS.ProcessEnv;
+	readonly pid?: number;
+	/** The arguments pi was started with. */
+	readonly args?: readonly string[];
+}
+
 /** The extension, looking where `looking` says; the machine's unless a test sets it. */
-export function oneWriterWorkflow(looking: WriterLooking = {}) {
+export function oneWriterWorkflow(looking: WriterLooking & OwnProcess = {}) {
 	return (pi: ExtensionAPI) => {
 		// Set once this pi refused its conversation; nothing is taken after.
 		let refused = false;
@@ -33,6 +57,8 @@ export function oneWriterWorkflow(looking: WriterLooking = {}) {
 			const hold = await writerHold(sessionId, looking);
 			if (!hold) return;
 			refused = true;
+			if (ctx.mode === "tui" && handedOver(ctx, sessionId, hold, looking))
+				return;
 			refuse(ctx, heldByHost(sessionId, hold));
 		});
 		// A prompt given on the command line, or typed before the end lands.
@@ -40,6 +66,47 @@ export function oneWriterWorkflow(looking: WriterLooking = {}) {
 			refused ? { action: "handled" as const } : undefined,
 		);
 	};
+}
+
+/**
+ * Hand this pi's window to its host's view, as a launcher opens one on a
+ * hosted conversation, and end as a park, so the holder starts the view
+ * at once in the same window. Only a pi its holder runs itself, with a
+ * log and no flags plain pi would drop should the view fall back to it;
+ * false, having done nothing, for any other.
+ */
+function handedOver(
+	ctx: ExtensionContext,
+	sessionId: string,
+	hold: HostHold,
+	own: OwnProcess,
+): boolean {
+	const env = own.env ?? process.env;
+	const args = own.args ?? process.argv.slice(2);
+	const files = holderFiles(env, own.pid ?? process.pid);
+	const sessionFile = ctx.sessionManager.getSessionFile();
+	if (files === undefined || sessionFile === undefined) return false;
+	if (flagsLost(args).length > 0) return false;
+	const view = viewWords(sessionId, holderCommand(sessionFile, args, env));
+	writeFileSync(files.again, JSON.stringify(view));
+	writeFileSync(
+		files.wake,
+		JSON.stringify({
+			session: sessionId,
+			view: true,
+			at: new Date().toISOString(),
+		}),
+	);
+	ctx.ui.notify(
+		`Session ${sessionId} is the ${hold.key} host's, so this window shows it through that host.`,
+		"info",
+	);
+	// pi ends a quit with process.exit(0); an exit listener's code wins.
+	process.once("exit", () => {
+		process.exitCode = PARKED_EXIT;
+	});
+	ctx.shutdown();
+	return true;
 }
 
 /**

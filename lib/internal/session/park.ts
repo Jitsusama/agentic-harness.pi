@@ -246,6 +246,28 @@ export function heldDirectly(wake: string, pid: number): boolean {
 	return holderRecord(wake)?.pid === pid;
 }
 
+/** Where a pi its holder runs itself names what starts next, and asks to be woken into it. */
+export interface HolderFiles {
+	/** The wake file, which written before the pi ends starts the next at once. */
+	readonly wake: string;
+	/** The file naming the command the holder starts next. */
+	readonly again: string;
+}
+
+/**
+ * The {@link HolderFiles} of the pi `pid` running with `env`, or nothing
+ * when no holder runs it itself or its holder takes no next command.
+ */
+export function holderFiles(
+	env: NodeJS.ProcessEnv,
+	pid: number,
+): HolderFiles | undefined {
+	const wake = env[WAKE_ENV] ?? "";
+	const again = env[AGAIN_ENV] ?? "";
+	if (wake === "" || again === "") return undefined;
+	return heldDirectly(wake, pid) ? { wake, again } : undefined;
+}
+
 /**
  * The record mycelium's holder keeps beside the wake file `wake`: its
  * pid and the windows showing it. Undefined when it is missing, caught

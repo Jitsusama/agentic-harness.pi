@@ -21,11 +21,13 @@
 
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
 	parseRoster,
 	type RosterEntry,
 	rosterDir,
 } from "../../core/session/roster.ts";
+import { lastingPath } from "../reload/loaded.ts";
 import { type Looking, liveHolder } from "./one-writer.ts";
 
 /** A host holding a conversation. */
@@ -181,6 +183,38 @@ export const RELEASED_EXIT = 3;
  * attach. Only that warning is kept out: any other still shows.
  */
 export const JOIN_QUIET = "--disable-warning=MODULE_TYPELESS_PACKAGE_JSON";
+
+/**
+ * The join beside this package's scripts, named through the install's
+ * link where one names this version, so the words a window keeps outlast
+ * the version that wrote them: on 19 November three windows closed as a
+ * host died because their words named a version since removed.
+ */
+const LASTING_JOIN_SCRIPT = lastingPath(
+	fileURLToPath(new URL("../../../scripts/host-join.ts", import.meta.url)),
+);
+
+/**
+ * The words a window on hosted conversation `session` runs: the join,
+ * looking once (`--view`), which becomes its host's viewer while a host
+ * holds the conversation and `plainPi` once none does, so a release
+ * carries on in the window rather than closing it.
+ */
+export function viewWords(
+	session: string,
+	plainPi: readonly string[],
+): string[] {
+	return [
+		process.execPath,
+		JOIN_QUIET,
+		LASTING_JOIN_SCRIPT,
+		"--view",
+		"--session",
+		session,
+		"--",
+		...plainPi,
+	];
+}
 
 /**
  * Set, to the exit code attach failed with, for the words a window

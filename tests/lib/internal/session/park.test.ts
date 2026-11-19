@@ -18,6 +18,7 @@ import {
 	clearOutlivedParks,
 	clearParked,
 	heldDirectly,
+	holderFiles,
 	holderRecord,
 	isParked,
 	NAMED_PARK_AFTER_MS,
@@ -143,6 +144,19 @@ describe("the record its holder keeps beside the wake file", () => {
 		record("[42]");
 		expect(holderRecord(wake()), "not a record").toBeUndefined();
 		expect(heldDirectly(wake(), 42), "so not held directly").toBe(false);
+	});
+
+	it("names the files a pi it runs itself writes next, and none for another", () => {
+		record(JSON.stringify({ pid: 4242 }));
+		const again = join(folder, "held.again");
+		const env = { MYCELIUM_WAKE: wake(), MYCELIUM_AGAIN: again };
+
+		expect(holderFiles(env, 4242)).toEqual({ wake: wake(), again });
+		expect(holderFiles(env, 1), "held through a shell").toBeUndefined();
+		expect(
+			holderFiles({ MYCELIUM_WAKE: wake() }, 4242),
+			"a holder taking no next command",
+		).toBeUndefined();
 	});
 });
 
