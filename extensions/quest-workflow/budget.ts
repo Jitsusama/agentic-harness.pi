@@ -91,6 +91,17 @@ export function budgetOfFolder(
 	return folderBudgets.get(state)?.(folder) ?? Promise.resolve(undefined);
 }
 
+/**
+ * How long to wait before drawing again on a name whose last draw
+ * failed, by how many have failed in a row, the last standing for every
+ * one after it. A draw fails most often when a host restart resumes
+ * dozens of sessions at once and a provider can't answer within its
+ * deadline, so the first retry is at once; one that keeps failing is
+ * asked less often, so a provider that truly hangs can't add its
+ * deadline to every prompt.
+ */
+const REDRAW_AFTER_MS = [0, 30_000, 120_000, 300_000] as const;
+
 /** Host budget providers and keep the session on its quest's budget. */
 export function keepQuestBudget(
 	pi: ExtensionAPI,
@@ -107,16 +118,33 @@ export function keepQuestBudget(
 	let last: ExtensionContext | undefined;
 	/** The ask still on its way, so a second keep can wait on it. */
 	let pending: Promise<void> = Promise.resolve();
+	/** Draws of `wanted` that failed in a row, and when the last one did. */
+	let failures = 0;
+	let failedAt = 0;
+	/** Whether a draw is on its way, so a keep meanwhile waits on it. */
+	let inFlight = false;
+
+	/** Whether the last draw of `wanted` failed long enough ago to ask again. */
+	const redrawDue = () => {
+		if (failures === 0 || inFlight) return false;
+		const wait =
+			REDRAW_AFTER_MS[Math.min(failures, REDRAW_AFTER_MS.length) - 1] ?? 0;
+		return Date.now() - failedAt >= wait;
+	};
 
 	const keep = async (ctx: ExtensionContext, again = false) => {
 		last = ctx;
 		const name = state.questId
 			? (budgetInRecord(state.questsRoot, state.questId)?.name ?? null)
 			: null;
-		if (name === wanted && !again) return pending;
+		if (name === wanted && !again && !redrawDue()) return pending;
+		if (name !== wanted) failures = 0;
 		wanted = name;
 		const ask = ++asking;
-		pending = settle(ctx, name, ask);
+		inFlight = true;
+		pending = settle(ctx, name, ask).finally(() => {
+			if (ask === asking) inFlight = false;
+		});
 		return pending;
 	};
 
@@ -139,9 +167,12 @@ export function keepQuestBudget(
 				processOverlay(ctx),
 			);
 			told.delete(name);
+			failures = 0;
 			recordDrawn(pi, ctx, drawing);
 			return;
 		}
+		failures++;
+		failedAt = Date.now();
 		liftBudget(sessionEnv(ctx), processOverlay(ctx));
 		recordDrawn(pi, ctx);
 		if (told.has(name)) return;
@@ -163,6 +194,8 @@ export function keepQuestBudget(
 		// Asked again in full by the next session's first keep, and any
 		// answer still on its way is overtaken, so it lays nothing.
 		wanted = undefined;
+		failures = 0;
+		inFlight = false;
 		asking++;
 	};
 

@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	keepQuestBudget,
 	undrawable,
@@ -410,6 +410,66 @@ describe("the session's budget", () => {
 		expect(process.env[KEY]).toBe("late");
 	});
 
+	describe("when a draw fails", () => {
+		const CUT_OFF: BudgetAnswer = {
+			kind: "unavailable",
+			reason: "It didn't answer within 5 s.",
+		};
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("draws again on the next keep, as one cut off by a busy start", async () => {
+			const { run, top, events, keeper } = await deltaKept();
+			const answers = [CUT_OFF];
+			provide(
+				events,
+				"test",
+				async () =>
+					answers.shift() ?? {
+						kind: "drawn",
+						env: { [KEY]: "team" },
+						label: "x",
+					},
+			);
+			await run({ action: "load", id: top });
+
+			await keeper.keep(ui().ctx);
+			expect(process.env[KEY], "cut off, so the default").toBe("personal");
+			await keeper.keep(ui().ctx);
+
+			expect(process.env[KEY], "drawn on the next keep").toBe("team");
+			expect(recorded().at(-1)).toMatchObject({ name: "delta" });
+		});
+
+		it("asks less often while it keeps failing, and says so once", async () => {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			const { run, top, events, keeper } = await deltaKept();
+			let asked = 0;
+			provide(events, "test", async () => {
+				asked++;
+				return CUT_OFF;
+			});
+			await run({ action: "load", id: top });
+			const seen = ui();
+
+			await keeper.keep(seen.ctx);
+			await keeper.keep(seen.ctx);
+			await keeper.keep(seen.ctx);
+			expect(asked, "once, then once more at once").toBe(2);
+
+			vi.advanceTimersByTime(30_000);
+			await keeper.keep(seen.ctx);
+			await keeper.keep(seen.ctx);
+			expect(asked, "again after 30 s, and not straight after").toBe(3);
+
+			vi.advanceTimersByTime(60_000);
+			await keeper.keep(seen.ctx);
+			expect(asked, "not yet: it waits longer each time").toBe(3);
+			expect(seen.notices).toHaveLength(1);
+		});
+	});
+
 	describe("after a reload", () => {
 		const STALE =
 			"This extension ctx is stale after session replacement or reload.";
@@ -498,12 +558,13 @@ describe("the session's budget", () => {
 		);
 		await run({ action: "load", id: top });
 		await keeper.keep(ui().ctx);
+		await keeper.keep(ui().ctx);
 
 		answers.delta = { kind: "drawn", env: { [KEY]: "file" }, label: "x" };
 		await keeper.keep(ui().ctx);
 		expect(
 			process.env[KEY],
-			"an unchanged name isn't asked on every tool call",
+			"past its retry at once, an unchanged name isn't asked on every tool call",
 		).toBe("personal");
 
 		await run({ action: "budget", id: top, ref: "delta" });
