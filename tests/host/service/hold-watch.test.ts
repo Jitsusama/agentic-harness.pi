@@ -8,6 +8,7 @@
  * which takes a page of setup apiece; all eight watch the one module.
  */
 import { spawn, spawnSync } from "node:child_process";
+import { pbkdf2Sync } from "node:crypto";
 import {
 	closeSync,
 	existsSync,
@@ -844,6 +845,163 @@ describe("watchHolds", () => {
 				expect(kept(folder), "nothing kept").toEqual([]);
 			},
 		);
+
+		describe("a main thread that doesn't answer, sampled with perf", () => {
+			/** The lines that say how perf sampled it, or couldn't. */
+			const sampledLines = (): string[] =>
+				said().filter((line) =>
+					/(sampled|couldn't sample|couldn't read perf's samples of) the held loop/.test(
+						line,
+					),
+				);
+
+			/**
+			 * A perf standing in for the real one: it keeps its arguments, and
+			 * a record writes its file while a report says `report`.
+			 */
+			const fakePerf = (report: string, recordExit = 0): string => {
+				const program = join(dir, "perf");
+				const asked = join(dir, "perf-asked");
+				writeFileSync(join(dir, "perf-report"), report);
+				writeFileSync(
+					program,
+					[
+						"#!/bin/sh",
+						`echo "$*" >> '${asked}'`,
+						'if [ "$1" = record ]; then',
+						`  [ ${recordExit} -eq 0 ] || { echo 'Error: perf_event_open failed: Permission denied' >&2; exit ${recordExit}; }`,
+						'  while [ "$1" != -o ]; do shift; done; : > "$2"; exit 0',
+						"fi",
+						`cat '${join(dir, "perf-report")}'`,
+						"",
+					].join("\n"),
+					{ mode: 0o755 },
+				);
+				return program;
+			};
+			const asked = (): string[] =>
+				existsSync(join(dir, "perf-asked"))
+					? readFileSync(join(dir, "perf-asked"), "utf8")
+							.split("\n")
+							.filter(Boolean)
+					: [];
+
+			/** Hold the loop in native code, as a synchronous spawn does. */
+			const holdNatively = async (perf: string, folder: string) => {
+				stop = watchHolds({
+					fd,
+					every: EVERY_MS,
+					after: 300,
+					still: 60_000,
+					proc: procIn("R"),
+					profile: { after: 400, for: 300, folder, answer: 300, perf: [perf] },
+				});
+				// A turn first, so the thread has started and seen the loop move.
+				await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+				expect(spawnSync("sleep", ["1.5"]).status, "held natively").toBe(0);
+				await vi.waitFor(() => {
+					expect(sampledLines(), "perf's sampling said").toHaveLength(1);
+				});
+			};
+
+			it.runIf(ON_LINUX)(
+				"names the native functions it spun in, the kernel's and V8's unnamed code as such",
+				async () => {
+					const folder = join(dir, "held");
+					const perf = fakePerf(
+						[
+							"    61.20%  [.] v8::internal::MarkCompactCollector::MarkLiveObjects()",
+							"    20.10%  [k] 0xffffffff85a95a60",
+							"    10.00%  [.] 0x0000644662e4f5e2",
+							"     8.70%  [.] v8::internal::Heap::Scavenge()",
+							"",
+						].join("\n"),
+					);
+					await holdNatively(perf, folder);
+					expect(sampledLines()[0], "where it spun, natively").toMatch(
+						/^pi-host: sampled the held loop's main thread with perf for 0\.3 s, \d+\.\d s into the hold: most in v8::internal::MarkCompactCollector::MarkLiveObjects\(\) 61%, the kernel 20%, code perf can't name, as JavaScript V8 compiled 10%, v8::internal::Heap::Scavenge\(\) 9%$/,
+					);
+					const [record, report] = asked();
+					expect(record, "the main thread alone, sampled").toMatch(
+						new RegExp(
+							`^record .*-g -t ${process.pid} -o \\S+ -- sleep 0\\.3$`,
+						),
+					);
+					expect(report, "its samples, named").toMatch(
+						/^report -i \S+ --stdio/,
+					);
+					expect(
+						readdirSync(folder).filter((name) => name.endsWith(".perf")),
+						"no samples left behind",
+					).toEqual([]);
+				},
+			);
+
+			/** Whether this machine lets perf sample this process's threads. */
+			const PERF_SAMPLES = ((): boolean => {
+				if (!ON_LINUX) return false;
+				const into = mkdtempSync(join(tmpdir(), "hold-watch-perf-"));
+				try {
+					const file = join(into, "probe");
+					const probe = ["record", "-q", "-m", "16", "-o", file, "--", "true"];
+					return spawnSync("perf", probe, { stdio: "ignore" }).status === 0;
+				} finally {
+					rmSync(into, { recursive: true, force: true });
+				}
+			})();
+
+			it.runIf(PERF_SAMPLES)(
+				"names a real native spin with the perf on PATH",
+				async () => {
+					stop = watchHolds({
+						fd,
+						every: EVERY_MS,
+						after: 300,
+						still: 60_000,
+						proc: procIn("R"),
+						profile: {
+							after: 400,
+							for: 500,
+							folder: join(dir, "held"),
+							answer: 300,
+						},
+					});
+					// A turn first, so the thread has started and seen the loop move.
+					await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+					// One hash in OpenSSL holds the loop in native code for about 3 s,
+					// with no JavaScript between where the inspector could answer.
+					pbkdf2Sync("spin", "salt", 6_000_000, 64, "sha512");
+					await vi.waitFor(
+						() => {
+							expect(sampledLines(), "perf's sampling said").toHaveLength(1);
+						},
+						{ timeout: 15_000 },
+					);
+					expect(sampledLines()[0], "the hash it spun in").toMatch(
+						/^pi-host: sampled the held loop's main thread with perf for 0\.5 s, .*(sha512|SHA512|hmac|HMAC|pbkdf2|PBKDF2)/,
+					);
+				},
+				20_000,
+			);
+
+			it.runIf(ON_LINUX)("says why perf couldn't sample it", async () => {
+				const folder = join(dir, "held");
+				await holdNatively(fakePerf("", 255), folder);
+				expect(sampledLines()[0], "perf's refusal").toBe(
+					"pi-host: couldn't sample the held loop's main thread with perf: it ended with 255: Error: perf_event_open failed: Permission denied",
+				);
+			});
+
+			it.runIf(ON_LINUX)(
+				"says when there is no perf to sample it with",
+				async () => {
+					await holdNatively(join(dir, "no-perf"), join(dir, "held"));
+					expect(sampledLines()[0], "no perf").toMatch(
+						/^pi-host: couldn't sample the held loop's main thread with perf: spawn \S+no-perf ENOENT$/,
+					);
+				},
+			);
+		});
 	});
 
 	it("says nothing while the loop turns, nor once stopped", async () => {
