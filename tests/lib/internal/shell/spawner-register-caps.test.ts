@@ -62,35 +62,35 @@ function lettered(count: number): string {
 }
 
 describe("how much a host says of the node's refusals", () => {
-	it("cuts a long reason, marking the cut", async () => {
-		const said: string[] = [];
-		const socket = await refusing("x".repeat(REASON_CHARS + 50));
-
-		await registerSpawner(SPAWNED, "s-one", {
-			socket,
-			proc: proc(),
-			say: (line: string) => said.push(line),
-		});
-
-		expect(said, "what the host said").toEqual([
-			`${LINE}${"x".repeat(REASON_CHARS)}...\n`,
-		]);
-	});
-
-	it("says no more past its reasons, and says so once", async () => {
+	// One test, since the once-only set is the module's: each reason
+	// counts towards the cap, so the cut's cases are the first said.
+	it("cuts a reason past its characters, by character, then says no more past its reasons, and says so once", async () => {
 		const said: string[] = [];
 		const folder = proc();
-		// The first test said one reason already.
-		for (let reason = 1; reason <= REASONS_SAID + 2; reason++) {
-			const socket = await refusing(`the node says ${lettered(reason)}`);
+		const tell = async (why: string) =>
 			await registerSpawner(SPAWNED, "s-one", {
-				socket,
+				socket: await refusing(why),
 				proc: folder,
 				say: (line: string) => said.push(line),
 			});
+
+		await tell("x".repeat(REASON_CHARS + 1));
+		await tell("y".repeat(REASON_CHARS));
+		// Each takes two UTF-16 units, and none is split.
+		await tell("\u{1F344}".repeat(REASON_CHARS + 1));
+
+		expect(said, "what the host said of each").toEqual([
+			`${LINE}${"x".repeat(REASON_CHARS)}...\n`,
+			`${LINE}${"y".repeat(REASON_CHARS)}\n`,
+			`${LINE}${"\u{1F344}".repeat(REASON_CHARS)}...\n`,
+		]);
+
+		const first = said.length;
+		for (let reason = first + 1; reason <= REASONS_SAID + 2; reason++) {
+			await tell(`the node says ${lettered(reason)}`);
 		}
 
-		expect(said.length, "how many lines the host said").toBe(REASONS_SAID);
+		expect(said.length, "how many lines the host said").toBe(REASONS_SAID + 1);
 		expect(said.at(-1), "its last").toBe(
 			`pi-spawner's host has said ${REASONS_SAID} reasons the mycelium node refused, and says no more until it restarts\n`,
 		);

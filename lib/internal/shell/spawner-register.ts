@@ -23,8 +23,9 @@
  * command that rewrites the harness's files and restarts the host, whose
  * next start runs that code, or writes pi's host records and starts a
  * Node.js of its own that passes the node's checks; only a fence round
- * every conversation's commands does. A refusal is said once for each
- * reason on the host's error output, as the node logs it. The
+ * every conversation's commands does. A refusal, or a node that
+ * listens yet never answers, is said once for each reason on the host's
+ * error output, as the node logs each refusal. The
  * node keeps the word only while it runs, so spawner.ts says it again
  * every 30 seconds while the spawner runs. Where the
  * node isn't there, nothing is said and the spawner's commands are told
@@ -35,7 +36,7 @@
  * start, and so is told no session from then on.
  */
 
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { askAt, nodeSocket } from "../../mesh/node.ts";
 
 /** How long the host waits on the node's answer, at most. */
@@ -84,7 +85,8 @@ export interface RegisterOptions {
 /**
  * Tell the node that `spawned`, a pi-spawner this process started,
  * serves `session`. It settles once the node answers, or patience runs
- * out, whatever is said; a refusal is the node's to log.
+ * out, whatever is said. A refusal, or a node listening that never
+ * answers, is said once for each reason on the host's error output.
  */
 export async function registerSpawner(
 	spawned: Spawned,
@@ -103,10 +105,16 @@ export async function registerSpawner(
 		{ Spawned: { pid, started, session } },
 		patience,
 	);
-	const why = refusalIn(answer);
+	const why =
+		answer === undefined
+			? (await listening(socket))
+				? `the mycelium node didn't answer within ${patience} ms`
+				: undefined
+			: refusalIn(answer);
 	if (why === undefined) return;
-	// A spawner's pid, or the session, makes no reason of its own.
-	const reason = why.split(session).join("").replace(/\d+/g, "");
+	// A spawner's pid, or the session, makes no reason of its own, and a
+	// reason is kept only as far as it's said.
+	const reason = cut(why.split(session).join("").replace(/\d+/g, ""));
 	if (saidRefusals.has(reason) || saidRefusals.size > REFUSALS_SAID) return;
 	saidRefusals.add(reason);
 	const say = options.say ?? ((line) => process.stderr.write(line));
@@ -117,20 +125,36 @@ export async function registerSpawner(
 		return;
 	}
 	// Whoever answers on the socket wrote it, so no control, format or
-	// line-breaking character reaches the host's journal, and only so many
-	// characters, a cut marked.
-	const printable = why.replace(/[\p{C}\p{Zl}\p{Zp}]/gu, "?");
-	const said =
-		printable.length > REFUSAL_CHARS
-			? `${printable.slice(0, REFUSAL_CHARS)}...`
-			: printable;
+	// line-breaking character reaches the host's journal.
+	const said = cut(why.replace(/[\p{C}\p{Zl}\p{Zp}]/gu, "?"));
 	say(
 		`pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: ${said}\n`,
 	);
 }
 
-/** How much of a refusal's reason is said, at most. */
+/** How much of a refusal's reason is said, at most, in characters. */
 const REFUSAL_CHARS = 300;
+
+/**
+ * `text` up to REFUSAL_CHARS characters, a cut marked; counted by code
+ * point, so no character is split in two.
+ */
+function cut(text: string): string {
+	const characters = Array.from(text);
+	return characters.length > REFUSAL_CHARS
+		? `${characters.slice(0, REFUSAL_CHARS).join("")}...`
+		: text;
+}
+
+/** Whether something stands at `socket` to answer, as a node would. */
+async function listening(socket: string): Promise<boolean> {
+	try {
+		return (await stat(socket)).isSocket();
+	} catch {
+		// No node here, which is no reason to say.
+		return false;
+	}
+}
 
 /**
  * The reasons a node refused the word, each said once on the host's

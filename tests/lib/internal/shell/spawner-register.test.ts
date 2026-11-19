@@ -261,17 +261,22 @@ describe("a host telling the node a spawner's session", () => {
 		).resolves.toBeUndefined();
 	});
 
-	it("gives up once its patience runs out, when the node never answers", async () => {
+	it("gives up once its patience runs out, when the node never answers, and says so", async () => {
 		const stand = node(false);
 		await stand.listening;
+		const said: string[] = [];
 		const began = Date.now();
 
 		await registerSpawner(SPAWNED, "s-one", {
 			socket: stand.socket,
 			proc: procWith(SPAWNER, "pi-spawner"),
 			patience: SHORT_PATIENCE_MS,
+			say: (line: string) => said.push(line),
 		});
 
+		expect(said, "what the host said").toEqual([
+			`pi-spawner's session isn't named to the mycelium node, so its commands are told no conversation: the mycelium node didn't answer within ${SHORT_PATIENCE_MS} ms\n`,
+		]);
 		expect(Date.now() - began, "how long it waited").toBeGreaterThanOrEqual(
 			SHORT_PATIENCE_MS - TIMER_SLACK_MS,
 		);
@@ -280,13 +285,17 @@ describe("a host telling the node a spawner's session", () => {
 		);
 	});
 
-	it("gives up at once where nothing serves the socket", async () => {
+	it("gives up at once where nothing serves the socket, saying nothing", async () => {
+		const said: string[] = [];
+
 		await expect(
 			registerSpawner(SPAWNED, "s-one", {
 				socket: join(folder(), "none.sock"),
 				proc: procWith(SPAWNER, "pi-spawner"),
+				say: (line: string) => said.push(line),
 			}),
 		).resolves.toBeUndefined();
+		expect(said, "what the host said").toEqual([]);
 	});
 });
 
