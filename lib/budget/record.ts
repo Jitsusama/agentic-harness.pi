@@ -30,6 +30,54 @@ export const BUDGET_ENTRY = "budget";
 export const BUDGET_VARIABLE = "PI_BUDGET";
 
 /**
+ * The variable naming, comma-separated, the variables a budget laid
+ * (its credentials, never {@link BUDGET_VARIABLE} or this one), so
+ * whatever sends a request for the process (a shared host's engine,
+ * which keeps its own key) can tell the budget's key from one that
+ * merely sits in the environment, and send it. It travels with the
+ * environment, into a parked conversation's kept snapshot and into
+ * what the process starts, for as long as the host that keeps it runs;
+ * a host restarted rebuilds a conversation's environment, and the
+ * list comes back only when its budget is laid again. A budget that
+ * lays no key sets it empty, so a list inherited from a parent's
+ * budget never speaks for it. It names variables, not values: one
+ * something rewrote under the budget is still named, and its newer
+ * value is what gets sent.
+ */
+export const BUDGET_KEYS_VARIABLE = "PI_BUDGET_KEYS";
+
+/** A name a shell would take as a variable's. */
+export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Whether {@link BUDGET_KEYS_VARIABLE} may name `name`: a variable's
+ * name, and neither of the two that say the budget.
+ */
+export function isBudgetKeyName(name: string): boolean {
+	return (
+		VARIABLE_NAME.test(name) &&
+		name !== BUDGET_VARIABLE &&
+		name !== BUDGET_KEYS_VARIABLE
+	);
+}
+
+/**
+ * The variables the budget a process draws on laid, from
+ * {@link BUDGET_KEYS_VARIABLE}: none when no budget is named in
+ * {@link BUDGET_VARIABLE}, and never a name that isn't a variable's
+ * or is one of the two that say the budget.
+ */
+export function budgetKeysOf(
+	env: Readonly<Record<string, string | undefined>>,
+): string[] {
+	if (budgetDrawnOn(env) === null) return [];
+	return (env[BUDGET_KEYS_VARIABLE] ?? "")
+		.split(",")
+		.map((name) => name.trim())
+		.filter(isBudgetKeyName);
+}
+
+/**
  * The bus event said each time the session settles which budget it
  * draws on, with `{ name }` (null for the default), so whatever tells
  * the person (the footer) needn't watch the environment.

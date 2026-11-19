@@ -5,6 +5,7 @@ import {
 	liftBudget,
 	withoutBudget,
 } from "../../../lib/budget/environment.ts";
+import { budgetKeysOf } from "../../../lib/budget/index.ts";
 
 const delta = { name: "delta", label: "delta", env: { KEY: "team" } };
 
@@ -57,7 +58,109 @@ describe("a budget laid over an environment", () => {
 		);
 		layBudget(env, { name: "b", label: "b", env: { KEY: "b" } }, overlay);
 
-		expect(env).toEqual({ KEY: "b", PI_BUDGET: "b" });
+		expect(env).toEqual({ KEY: "b", PI_BUDGET: "b", PI_BUDGET_KEYS: "KEY" });
+	});
+
+	it("names the variables it laid in PI_BUDGET_KEYS, which lifting it takes off", () => {
+		const env: NodeJS.ProcessEnv = { KEY: "personal" };
+		const overlay = emptyOverlay();
+
+		layBudget(
+			env,
+			{ name: "delta", label: "Delta", env: { Z_KEY: "t", KEY: "team" } },
+			overlay,
+		);
+		expect(budgetKeysOf(env)).toEqual(["KEY", "Z_KEY"]);
+
+		liftBudget(env, overlay);
+		expect("PI_BUDGET_KEYS" in env).toBe(false);
+		expect(budgetKeysOf(env)).toEqual([]);
+	});
+
+	it("names no keys for a budget that lays none, even after one that did", () => {
+		const env: NodeJS.ProcessEnv = {};
+		const overlay = emptyOverlay();
+
+		layBudget(env, delta, overlay);
+		layBudget(env, { name: "bare", label: "bare", env: {} }, overlay);
+
+		expect(env).toEqual({ PI_BUDGET: "bare", PI_BUDGET_KEYS: "" });
+		expect(budgetKeysOf(env)).toEqual([]);
+	});
+
+	it("names no keys for a keyless budget over an inherited list, and puts the list back", () => {
+		// A session started under delta, whose own quest's budget lays none.
+		const env: NodeJS.ProcessEnv = {
+			KEY: "team",
+			PI_BUDGET: "delta",
+			PI_BUDGET_KEYS: "KEY",
+		};
+		const overlay = emptyOverlay();
+
+		layBudget(env, { name: "bare", label: "bare", env: {} }, overlay);
+		expect(budgetKeysOf(env)).toEqual([]);
+
+		liftBudget(env, overlay);
+		expect(env).toEqual({
+			KEY: "team",
+			PI_BUDGET: "delta",
+			PI_BUDGET_KEYS: "KEY",
+		});
+	});
+
+	it("names only the variables it laid, whatever its provider's env says", () => {
+		const env: NodeJS.ProcessEnv = {};
+
+		layBudget(
+			env,
+			{
+				name: "delta",
+				label: "Delta",
+				env: {
+					KEY: "team",
+					PI_BUDGET: "aquifer",
+					PI_BUDGET_KEYS: "OTHER_KEY",
+					"A,OTHER_KEY": "x",
+				},
+			},
+			emptyOverlay(),
+		);
+
+		expect(env.PI_BUDGET).toBe("delta");
+		expect(env.PI_BUDGET_KEYS).toBe("KEY");
+		// Laid as the provider gave it, but never named in the list.
+		expect(env["A,OTHER_KEY"]).toBe("x");
+		expect(budgetKeysOf(env)).toEqual(["KEY"]);
+	});
+
+	it("names its keys in a conversation's environment on a shared host", () => {
+		const held = new Map<string, string>([["KEY", "host"]]);
+		const conversation = {
+			get: (key: string) => held.get(key),
+			set: (key: string, value: string) => {
+				held.set(key, value);
+			},
+			delete: (key: string) => {
+				held.delete(key);
+			},
+			snapshot: () => Object.fromEntries(held),
+		};
+		const overlay = emptyOverlay();
+
+		layBudget(conversation, delta, overlay);
+		expect(budgetKeysOf(conversation.snapshot())).toEqual(["KEY"]);
+
+		liftBudget(conversation, overlay);
+		expect(conversation.snapshot()).toEqual({ KEY: "host" });
+	});
+
+	it("leaves PI_BUDGET_KEYS out of a copy made with no budget on", () => {
+		const env: NodeJS.ProcessEnv = {};
+		const overlay = emptyOverlay();
+
+		layBudget(env, delta, overlay);
+
+		expect(withoutBudget(env, overlay)).toEqual({});
 	});
 
 	it("names the budget in PI_BUDGET, and lifting it puts back an inherited one", () => {
