@@ -103,6 +103,12 @@ const SAID_MOST = 1024;
 const EXIT_STDIO_GRACE_MS = 100;
 
 /**
+ * How long a pi-spawner's output is read past its exit, for what it said
+ * just before; a child of its own holding the output keeps it no longer.
+ */
+const SPAWNER_DRAIN_MS = 1000;
+
+/**
  * How long a command given up on before it started waits for its spawner
  * to say it started, before the spawner is retired and the call settles.
  */
@@ -268,7 +274,7 @@ interface Link {
 	 * called: a command about to be sent holds it as one running does.
 	 */
 	hold(): () => void;
-	/** Whether the program has stopped. */
+	/** Whether the program has stopped, or its process has exited. */
 	stopped(): boolean;
 }
 
@@ -740,10 +746,8 @@ async function endOnceStarted(
 		if (first === "started") {
 			await run.done.catch(() => undefined);
 		} else if (first === "waited") {
-			// Retired first, so the close forsaking it may bring knows to kill
-			// a spawner that reads nothing.
-			link.retire(grace);
 			run.forsake();
+			link.retire(grace);
 			say(
 				`pi-spawner didn't say within ${grace} ms whether it started a command given up on, so it takes no more; it is killed if it starts\n`,
 			);
@@ -842,8 +846,17 @@ function startProgram(program: string, quest?: string): Started {
 				listener();
 			};
 			// Once its output is read to the end, not at its exit, so a start
-			// it said just before is heard, and the command killed if given up.
-			child.once("close", once);
+			// it said just before is heard, and the command killed if given up;
+			// or soon after its exit, where something else holds the output.
+			let draining: ReturnType<typeof setTimeout> | undefined;
+			child.once("exit", () => {
+				draining = setTimeout(once, SPAWNER_DRAIN_MS);
+				draining.unref();
+			});
+			child.once("close", () => {
+				clearTimeout(draining);
+				once();
+			});
 			child.once("error", once);
 		},
 	};
@@ -916,6 +929,9 @@ function connect(
 		}
 	});
 	let over = false;
+	// Ended, or its process exited with its output not yet read to the end:
+	// either way nothing sent to it now would run.
+	const stopped = () => over || started.running?.() === false;
 	const end = () => {
 		if (over) return;
 		over = true;
@@ -943,7 +959,7 @@ function connect(
 			// A failure to start rejects started, never awaited past it.
 			done.catch(() => undefined);
 			// One that stopped, or was told to close, hears nothing more.
-			if (over || started.input.writableEnded) {
+			if (stopped() || started.input.writableEnded) {
 				begin?.no(new Error("pi-spawner stopped before the command started"));
 				return { started: startedRun, done, forsake: () => undefined };
 			}
@@ -1039,7 +1055,7 @@ function connect(
 				closeOnceIdle();
 			};
 		},
-		stopped: () => over,
+		stopped,
 	};
 }
 

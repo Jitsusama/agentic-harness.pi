@@ -8,6 +8,7 @@ import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -477,6 +478,24 @@ describe("the agent's commands through pi-spawner", () => {
 		expect(kill, "a process already reaped").not.toHaveBeenCalledWith(4242);
 	});
 
+	it("runs a command through pi's own spawn once its spawner's process has exited, though its output is still held open", async () => {
+		const { program, own, operations } = through();
+		const first = operations.exec("true", "/", { onData: () => {}, env: {} });
+		await askedFor(program, 1);
+		program.ends(1, 10);
+		await expect(first, "the first command").resolves.toEqual({ exitCode: 0 });
+
+		program.exits();
+		const next = operations.exec("echo next", "/", {
+			onData: () => {},
+			env: {},
+		});
+
+		await expect(next, "the next command").resolves.toEqual({ exitCode: 0 });
+		expect(own.calls, "what pi's own spawn started").toEqual(["echo next"]);
+		expect(program.asked, "what reached the exited spawner").toHaveLength(1);
+	});
+
 	it("kills a silent spawner already retired for another quest once it closes", async () => {
 		const first = standIn();
 		const second = standIn();
@@ -780,6 +799,42 @@ describe("a pi-spawner started as a process of its own", () => {
 		);
 		expect(kill, "the command it said it started").toHaveBeenCalledWith(57);
 		expect(own.calls, "what pi's own spawn started").toEqual([]);
+	});
+
+	it("is heard to have ended soon after its process exits, though a child of its own holds its output open", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "spawner-held-"));
+		made.push(dir);
+		const program = join(dir, "pi-spawner");
+		const holder = join(dir, "holder");
+		// It reads the request's length, then exits, leaving a child that
+		// holds its output for far longer than the test may take.
+		writeFileSync(
+			program,
+			`#!/bin/sh\nhead -c 4 >/dev/null\nsleep 60 &\necho $! > '${holder}'\nexit 0\n`,
+		);
+		chmodSync(program, 0o755);
+		const { own, operations } = through({
+			start: undefined,
+			program,
+			asksKeeps: async () => false,
+		});
+		try {
+			const ran = operations.exec("sleep 9", "/", {
+				onData: () => {},
+				env: {},
+			});
+
+			await expect(ran, "how the command ended").rejects.toThrow(
+				"stopped before the command started",
+			);
+			expect(own.calls, "what pi's own spawn started").toEqual([]);
+		} finally {
+			// The child it left, or nothing where it never ran.
+			const pid = Number(
+				readFileSync(holder, { encoding: "utf8", flag: "a+" }),
+			);
+			if (pid > 0) process.kill(pid, "SIGKILL");
+		}
 	});
 });
 
