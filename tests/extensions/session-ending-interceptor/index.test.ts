@@ -93,6 +93,7 @@ async function nodeAnswering(
 	socket: string,
 	address: string,
 	machine: string,
+	listed: readonly string[] = [machine],
 ): Promise<Server> {
 	const server = createServer((client) => {
 		client.setEncoding("utf8");
@@ -100,7 +101,7 @@ async function nodeAnswering(
 			const asked = line.trim();
 			const answer =
 				asked === '"Machines"'
-					? { Ok: { Machines: [{ name: machine }] } }
+					? { Ok: { Machines: listed.map((name) => ({ name })) } }
 					: {
 							Ok: {
 								Sessions: [{ id: address, address, machine, state: "idle" }],
@@ -673,6 +674,33 @@ describe("the node the interceptor reads by default", () => {
 			]);
 		} finally {
 			await Promise.all(servers.map(closing));
+			rmSync(state, { recursive: true, force: true });
+		}
+	});
+
+	it("remembers a machine only a node's sessions named, across a fresh start while none answers", async () => {
+		const state = empty();
+		const run = join(state, "run");
+		mkdirSync(join(run, "mycelium"), { recursive: true });
+		const env = {
+			MYCELIUM_REALM: "work",
+			XDG_STATE_HOME: state,
+			XDG_RUNTIME_DIR: run,
+		};
+		const server = await nodeAnswering(
+			join(run, "mycelium", "work.sock"),
+			"EWUL44",
+			"equilibrius",
+			["optimus"],
+		);
+		try {
+			await nodeDeps(env).sessions();
+		} finally {
+			await new Promise<void>((closed) => server.close(() => closed()));
+		}
+		try {
+			expect(await nodeDeps(env).machines()).toContain("equilibrius");
+		} finally {
 			rmSync(state, { recursive: true, force: true });
 		}
 	});

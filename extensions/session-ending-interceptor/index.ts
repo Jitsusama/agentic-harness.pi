@@ -135,7 +135,13 @@ export function nodeDeps(
 ): SessionEndingDeps {
 	return {
 		onMesh: () => realmOf(env) !== undefined,
-		sessions: () => everyRealmsSessions(nodeSockets(env)),
+		sessions: () =>
+			everyRealmsSessions(nodeSockets(env), async (socket) => {
+				const sessions = await nodeSessionsAt(socket);
+				const named = (sessions ?? []).flatMap((one) => one.machine ?? []);
+				rememberMachines(rememberedMachinesFile(env), named);
+				return sessions;
+			}),
 		machines: async () => {
 			const each = await Promise.all(
 				nodeSockets(env).map((socket) => machineNamesAt(socket)),
@@ -151,17 +157,19 @@ export function nodeDeps(
  * The sessions every socket's node holds, or nothing when any can't
  * say: the session's own realm's first, which must answer, then each
  * other realm's, of which one whose socket nothing serves any more, as
- * a node that ended leaves behind, holds none.
+ * a node that ended leaves behind, holds none. Each socket is read
+ * with `read`.
  */
 async function everyRealmsSessions(
 	sockets: readonly string[],
+	read: (socket: string) => Promise<NodeSession[] | undefined>,
 ): Promise<NodeSession[] | undefined> {
 	const [own, ...others] = sockets;
 	if (own === undefined) return undefined;
 	const each = await Promise.all([
-		nodeSessionsAt(own),
+		read(own),
 		...others.map(async (socket) => {
-			const sessions = await nodeSessionsAt(socket);
+			const sessions = await read(socket);
 			if (sessions !== undefined) return sessions;
 			return (await nodeServes(socket)) ? undefined : [];
 		}),
