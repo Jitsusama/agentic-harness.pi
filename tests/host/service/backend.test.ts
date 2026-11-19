@@ -894,7 +894,7 @@ describe("hostBackend", () => {
 			expect(said, "the journal says the attach waits on the open").toEqual([
 				expect.stringMatching(
 					new RegExp(
-						`\\(${sessionId}\\): a window's attach has waited [0-9.]+ s on its open to finish$`,
+						`\\(${sessionId}\\): a window's attach has waited [0-9.]+ s, now on its open to finish$`,
 					),
 				),
 			]),
@@ -905,6 +905,54 @@ describe("hostBackend", () => {
 		expect(said[1], "and says when it was answered").toMatch(
 			new RegExp(
 				`\\(${sessionId}\\): a window's attach was answered after [0-9.]+ s$`,
+			),
+		);
+		// A real pause past the bound is the point: a timer the attach left
+		// armed would fire within it.
+		await new Promise((done) => setTimeout(done, 60));
+		expect(said, "nothing more, then or after").toHaveLength(2);
+	});
+
+	it("journals a slow attach that is refused as refused, and why", async () => {
+		const sessionId = randomUUID();
+		let fail = (): void => undefined;
+		const { fake } = engine({
+			prepare: vi.fn(async () => ({ sessionId, file: dir, cwd: dir })),
+			start: vi.fn(
+				() =>
+					new Promise<void>((_, refuse) => {
+						fail = () => refuse(new Error("extension load failed"));
+					}),
+			),
+		});
+		const said: string[] = [];
+		const backend = hostBackend({
+			identity: { key: host.key, owner: host.owner },
+			host,
+			roster,
+			engine: fake,
+			say: (line) => said.push(line),
+			attachSlowMs: 20,
+		});
+		const opening = backend.execute(open);
+		await vi.waitFor(() => expect(roster.entries()).toHaveLength(1));
+		const attaching = backend.execute({
+			v: 1,
+			id: "t",
+			op: "attach",
+			sessionId,
+			rows: 1,
+			columns: 1,
+		});
+		await vi.waitFor(() =>
+			expect(said, "the journal says the attach waits").toHaveLength(1),
+		);
+		fail();
+		await expect(opening).rejects.toThrow("extension load failed");
+		await expect(attaching).rejects.toThrow("not hosted");
+		expect(said[1], "a refusal is not said to be an answer").toMatch(
+			new RegExp(
+				`\\(${sessionId}\\): a window's attach was refused after [0-9.]+ s: .*not hosted`,
 			),
 		);
 		expect(said, "nothing more").toHaveLength(2);

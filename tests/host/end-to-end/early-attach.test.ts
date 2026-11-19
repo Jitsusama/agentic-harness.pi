@@ -13,7 +13,8 @@
  * host was starting, and sat blank for 2 h 20 min with nothing in the
  * host's journal to say why. The last case attaches a window while the
  * next host's start is held, and the window must be drawn, the journal
- * saying what its attach waited on and the size of its first frame.
+ * saying what its attach waited on and when it was answered, and saying
+ * nothing of a window left undrawn.
  */
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -102,7 +103,7 @@ describe.skipIf(!packageDir)(
 
 		// Last, since it replaces the host every case before it shares.
 		it(
-			"draws a window that attached during the host's start, journaling what it waited on and its first frame",
+			"draws a window that attached during the host's start, journaling what it waited on and when it was answered",
 			async () => {
 				if (!packageDir) throw new Error(hostPiMissing());
 				const cwd = heldAtStart();
@@ -119,40 +120,51 @@ describe.skipIf(!packageDir)(
 				const attaching = attachOnceListening(path, sessionId).finally(() => {
 					answered = true;
 				});
-				// The conversation is being built, whether the start resumes it or
-				// the attach wakes it from a park, and the attach waits on it.
-				await until(
-					"the conversation's start to be held",
-					() => existsSync(join(cwd, HOLDING)),
-					CASE_MS / 2,
-				);
-				// Past the fixture host's half a second, so it journals the wait.
-				await quietFor(ANSWER_MS, 10);
-				expect(answered, "the host answered while the start was held").toBe(
-					false,
-				);
-
-				writeFileSync(join(cwd, GO_ON), "");
-				host = await starting;
+				try {
+					// The conversation is being built, whether the start resumes it
+					// or the attach wakes it from a park, and the attach waits on it.
+					await until(
+						"the conversation's start to be held",
+						() => existsSync(join(cwd, HOLDING)),
+						CASE_MS / 2,
+					);
+					// Past the fixture host's half a second, so it journals the wait;
+					// that line shows the attach reached the host and was held there.
+					await quietFor(ANSWER_MS, 10);
+					expect(answered, "the host answered while the start was held").toBe(
+						false,
+					);
+				} finally {
+					// Let the start go however the held part ended, so a failure
+					// leaves a host the suite's end can stop, not one held for good.
+					writeFileSync(join(cwd, GO_ON), "");
+					host = await starting;
+				}
 				const viewer = await attaching;
 				viewers.push(viewer);
 				await viewer.shows("heard: before the start", TURN_MS);
-				const journal = host.errors();
-				expect(journal, "the journal names what the attach waited on").toMatch(
-					new RegExp(
-						`\\(${sessionId}\\): a window's attach has waited [0-9.]+ s on (the host's start to resume it|its wake)`,
-					),
+				const said = (pattern: string) =>
+					new RegExp(`\\(${sessionId}\\): a window${pattern}`).test(
+						host.errors(),
+					);
+				// The journal comes on the host's stderr, apart from the frames.
+				await until(
+					"the journal to name what the attach waited on",
+					() =>
+						said(
+							"'s attach has waited [0-9.]+ s, now on (the host's start to resume it|its wake)",
+						),
+					TURN_MS,
 				);
-				expect(journal, "and when it was answered").toMatch(
-					new RegExp(
-						`\\(${sessionId}\\): a window's attach was answered after [0-9.]+ s`,
-					),
+				await until(
+					"the journal to say when it was answered",
+					() => said("'s attach was answered after [0-9.]+ s"),
+					TURN_MS,
 				);
-				expect(journal, "and the first frame the window was sent").toMatch(
-					new RegExp(
-						`\\(${sessionId}\\): a window's first frame, [1-9][0-9]* bytes`,
-					),
-				);
+				expect(
+					said(" attached [0-9.]+ s ago has been sent nothing to draw"),
+					"a window drawn once answered is not said to be blank",
+				).toBe(false);
 			},
 			CASE_MS * 2,
 		);

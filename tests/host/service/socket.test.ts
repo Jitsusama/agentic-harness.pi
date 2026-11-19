@@ -478,13 +478,14 @@ describe("viewer connection lifecycle", () => {
 		});
 		socket.destroy();
 	});
-	it("journals the first frame each window it attached was sent, and how big", async () => {
+	it("journals nothing for a window drawn at once, even once its bound has passed", async () => {
 		const said: string[] = [];
 		listener = await listenControl({
 			path,
 			backend,
 			report,
 			say: (line) => said.push(line),
+			attachSlowMs: 20,
 			viewer: {
 				attach: (_request, sink) => {
 					sink.write("drawn");
@@ -498,18 +499,19 @@ describe("viewer connection lifecycle", () => {
 			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
 		);
 		await messages.next();
-		await messages.next();
-		expect(said, "one line, naming the size of the frame drawn").toEqual([
-			expect.stringMatching(
-				new RegExp(
-					`\\(${a}\\): a window's first frame, 5 bytes, went [0-9.]+ s after its attach was answered$`,
-				),
-			),
-		]);
+		expect((await messages.next()).value).toEqual({
+			type: "output",
+			data: "drawn",
+		});
+		// A real pause past the bound is the point: a frame that didn't stop
+		// the undrawn timer would let it fire within it.
+		await new Promise((done) => setTimeout(done, 60));
+		expect(said, "a window drawn at once says nothing").toEqual([]);
 		socket.destroy();
 	});
-	it("journals a window it attached that nothing was drawn for", async () => {
+	it("journals a window it attached that nothing was drawn for, then its late frame and how big", async () => {
 		const said: string[] = [];
+		let draw = (_text: string): void => undefined;
 		listener = await listenControl({
 			path,
 			backend,
@@ -517,7 +519,10 @@ describe("viewer connection lifecycle", () => {
 			say: (line) => said.push(line),
 			attachSlowMs: 20,
 			viewer: {
-				attach: () => ({ input: vi.fn(), resize: vi.fn(), detach: vi.fn() }),
+				attach: (_request, sink) => {
+					draw = (text) => sink.write(text);
+					return { input: vi.fn(), resize: vi.fn(), detach: vi.fn() };
+				},
 			},
 		});
 		const socket = createConnection(path);
@@ -535,7 +540,44 @@ describe("viewer connection lifecycle", () => {
 				),
 			]),
 		);
+		draw("late");
+		await vi.waitFor(() =>
+			expect(said[1], "and the frame that came late, with its size").toMatch(
+				new RegExp(
+					`\\(${a}\\): a window's first frame, 4 bytes, went [0-9.]+ s after its attach was answered$`,
+				),
+			),
+		);
 		socket.destroy();
+	});
+	it("journals a window that left with nothing drawn, and how long it waited", async () => {
+		const said: string[] = [];
+		listener = await listenControl({
+			path,
+			backend,
+			report,
+			say: (line) => said.push(line),
+			attachSlowMs: 20,
+			viewer: {
+				attach: () => ({ input: vi.fn(), resize: vi.fn(), detach: vi.fn() }),
+			},
+		});
+		const socket = createConnection(path);
+		const messages = readMessages(socket);
+		socket.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId: a, rows: 20, columns: 80 })}\n`,
+		);
+		await messages.next();
+		await vi.waitFor(() => expect(said).toHaveLength(1));
+		socket.destroy();
+		await vi.waitFor(() =>
+			expect(said[1], "its leaving says how long it stayed blank").toMatch(
+				new RegExp(
+					`\\(${a}\\): a window attached [0-9.]+ s ago left with nothing drawn$`,
+				),
+			),
+		);
+		expect(said, "nothing more").toHaveLength(2);
 	});
 	it("bounds output even when a viewer does not read", async () => {
 		const detach = vi.fn();
