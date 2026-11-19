@@ -131,18 +131,22 @@ describe("turns for the runs a restart cut off", () => {
 			typing.push(7);
 			vi.advanceTimersByTime(LOOK_AGAIN_MS);
 			await settle();
-			expect(started, "no turn is free for it yet").toEqual([0, 1, 2, 3]);
+			expect(
+				started,
+				"the run he types into goes on the next look, past the cap, ahead of the one begun before",
+			).toEqual([0, 1, 2, 3, 7]);
+			expect(turns.going()).toBe(5);
 			givers.get(0)?.();
 			await settle();
 			expect(
 				started,
-				"the freed turn goes to the run he types into, not the one begun before",
+				"a turn given back while past the cap lets nothing more go",
 			).toEqual([0, 1, 2, 3, 7]);
 			givers.get(1)?.();
 			await settle();
 			expect(
 				started,
-				"the next goes to the run his words began, while the rest still wait",
+				"once under the cap, the run his words began goes, while the rest still wait",
 			).toEqual([0, 1, 2, 3, 7, 4]);
 			givers.get(2)?.();
 			await settle();
@@ -164,20 +168,33 @@ describe("turns for the runs a restart cut off", () => {
 			expect(vi.getTimerCount(), "no look once nothing waits").toBe(0);
 		});
 
-		it("stops looking once the start opens the turns", async () => {
+		it("lets a run Joel types into go past a full cap outside a start too", async () => {
 			vi.useFakeTimers();
-			const turns = resumeTurns(1);
+			const turns = resumeTurns(2);
+			const typing: number[] = [];
+			const { started } = askTen(turns.take, [], typing);
+			await settle();
+			expect(started).toEqual([0, 1]);
+			typing.push(5);
+			vi.advanceTimersByTime(LOOK_AGAIN_MS);
+			await settle();
+			expect(started, "it goes on the next look").toEqual([0, 1, 5]);
+		});
+
+		it("stops looking once the start opens the turns to every run waiting", async () => {
+			vi.useFakeTimers();
+			const turns = resumeTurns(10);
 			turns.hold();
 			const { started } = askTen(turns.take, []);
 			await settle();
 			expect(vi.getTimerCount(), "one look while runs wait").toBe(1);
 			turns.open();
 			await settle();
-			expect(started).toEqual([0]);
+			expect(started).toHaveLength(10);
 			expect(
 				vi.getTimerCount(),
-				"only the lent turn's own time, and no look, once the turns are open",
-			).toBe(1);
+				"only the ten lent turns' own times, and no look, once nothing waits",
+			).toBe(10);
 		});
 
 		it("stops looking once it grants the last waiting run", async () => {

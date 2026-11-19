@@ -16,7 +16,9 @@
  * the restart, since he waits on its answer; then the rest in the order
  * they asked, which is roughly the order the host held them in, since a
  * few resume at once. The runs Joel waits on go even while the start
- * still holds the rest, up to the cap: on 19 November his words into a
+ * still holds the rest, up to the cap, and one he types into goes past
+ * the cap too, since four runs his words began before the restart could
+ * otherwise keep it waiting a minute: on 19 November his words into a
  * carried turn waited seven minutes behind a start resuming 84
  * conversations. Outside a start the turns are open, so a wake or an open
  * waits on nothing but the cap.
@@ -40,9 +42,10 @@ export const RESUMED_RUNS_AT_ONCE = 4;
 export const RESUMED_TURN_MS = 60_000;
 
 /**
- * How often a start that holds the turns looks again at the runs
- * waiting, since whether Joel waits on one is a question asked of it,
- * not something it says: words he types move it up within a second.
+ * How often the turns look again at the runs waiting, held back by a
+ * start or by the cap, since whether Joel waits on one is a question
+ * asked of it, not something it says: words he types move it up within
+ * a second.
  */
 export const LOOK_AGAIN_MS = 1_000;
 
@@ -75,7 +78,8 @@ export interface ResumeTurns {
 	readonly take: TakeTurn;
 	/**
 	 * Hold back every run Joel doesn't wait on as a start begins resuming
-	 * what it holds; the ones he waits on still go, up to the cap.
+	 * what it holds; the ones he waits on still go, up to the cap, and
+	 * one he types into past it.
 	 */
 	hold(): void;
 	/** Let every run go once the start has resumed everything it holds. */
@@ -89,9 +93,20 @@ interface Waiting {
 	readonly grant: () => void;
 }
 
-/** Where in `waiting` the run to go next is, or -1 while `held` keeps every one back. */
-function nextAt(waiting: readonly Waiting[], held: boolean): number {
+/**
+ * Where in `waiting` the run to go next is, or -1 while every one waits:
+ * one Joel types into whenever any is, past the cap; else, under the cap,
+ * one his words began, then the first to ask unless the start `held`
+ * them.
+ */
+function nextAt(
+	waiting: readonly Waiting[],
+	held: boolean,
+	underCap: boolean,
+): number {
 	const ways = waiting.map((each) => each.waits());
+	const typing = ways.indexOf("typing");
+	if (typing >= 0 || !underCap) return typing;
 	for (const way of WAITS_FIRST) {
 		const at = ways.indexOf(way);
 		if (at >= 0) return at;
@@ -100,8 +115,9 @@ function nextAt(waiting: readonly Waiting[], held: boolean): number {
 }
 
 /**
- * Turns for at most `atOnce` cut-off runs at a time, each going back by
- * itself once it has been out for `lentMs`.
+ * Turns for at most `atOnce` cut-off runs at a time, beside any Joel
+ * types into, each going back by itself once it has been out for
+ * `lentMs`.
  */
 export function resumeTurns(
 	atOnce = RESUMED_RUNS_AT_ONCE,
@@ -126,18 +142,18 @@ export function resumeTurns(
 		return back;
 	};
 	const next = () => {
-		while (going < atOnce && waiting.length > 0) {
-			const at = nextAt(waiting, held);
+		while (waiting.length > 0) {
+			const at = nextAt(waiting, held, going < atOnce);
 			if (at < 0) break;
 			const [chosen] = waiting.splice(at, 1);
 			going++;
 			chosen?.grant();
 		}
-		lookWhileHeld();
+		lookWhileWaiting();
 	};
-	// Looks again only while a start holds the turns and a run waits on one.
-	const lookWhileHeld = () => {
-		const wanted = held && waiting.length > 0;
+	// Looks again only while a run waits on a turn.
+	const lookWhileWaiting = () => {
+		const wanted = waiting.length > 0;
 		if (wanted && looking === undefined) {
 			// Paced at LOOK_AGAIN_MS, so Joel's words move a run up within a second.
 			looking = setInterval(next, LOOK_AGAIN_MS);
@@ -163,7 +179,7 @@ export function resumeTurns(
 					const at = waiting.indexOf(each);
 					if (at < 0) return;
 					waiting.splice(at, 1);
-					lookWhileHeld();
+					lookWhileWaiting();
 					resolve(() => {});
 				};
 				signal?.addEventListener("abort", aborted, { once: true });
@@ -173,7 +189,6 @@ export function resumeTurns(
 		},
 		hold() {
 			held = true;
-			lookWhileHeld();
 		},
 		open() {
 			held = false;

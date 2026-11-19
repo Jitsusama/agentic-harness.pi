@@ -710,7 +710,7 @@ describe("whether words a session is given are a steer someone else wrote", () =
 	});
 
 	it("names none of the person's, nor words merely mentioning the phrase", () => {
-		for (const asker of ["The person", "Joel"])
+		for (const asker of ["The person", "Joel", "JOEL", "Person"])
 			expect(
 				isOthersSteerText(
 					`[${asker} is asking from outside this window: answer first.]\n\nhi`,

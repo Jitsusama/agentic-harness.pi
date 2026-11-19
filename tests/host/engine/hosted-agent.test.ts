@@ -52,7 +52,7 @@ function turnsOf(observed: Observed, among: readonly string[] = []): unknown[] {
 		if (event.type === "agent_end" || among.includes(event.type))
 			return [event.type];
 		if (event.type === "turn" || event.type === "turn asked")
-			return [{ type: event.type, first: event.first }];
+			return [{ type: event.type, waits: event.waits }];
 		if (event.type === "turn given back") return [{ type: event.type }];
 		return [];
 	});
@@ -376,7 +376,7 @@ describe("the hosted agent resuming a turn a restart cut off", {
 			expect(await killed("crash-in-tool", folder)).toBe("SIGKILL");
 			const reopened = await observe("hosted", "reopen-taking-turns", folder);
 			expect(turnsOf(reopened)).toEqual([
-				{ type: "turn", first: true },
+				{ type: "turn", waits: "began" },
 				{ type: "turn given back" },
 				"agent_end",
 			]);
@@ -400,7 +400,7 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				turnsOf(reopened, ["tool_execution_start"]),
 				"the cut-off round shows first; the turn goes back as the answer after it ends, before that answer's tool starts",
 			).toEqual([
-				{ type: "turn", first: true },
+				{ type: "turn", waits: "began" },
 				"tool_execution_start",
 				{ type: "turn given back" },
 				"tool_execution_start",
@@ -429,7 +429,7 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				turnsOf(observed),
 				"a turn the harness began waits behind Joel's; the carried run showed pi nothing, and the ask again's answer gives the turn back",
 			).toEqual([
-				{ type: "turn", first: false },
+				{ type: "turn", waits: "not" },
 				{ type: "turn given back" },
 				"agent_end",
 			]);
@@ -452,10 +452,10 @@ describe("the hosted agent resuming a turn a restart cut off", {
 			);
 			expect(
 				turnsOf(observed).slice(0, 2),
-				"the run asked behind Joel's runs and, once his words were in, took the turn that came free first",
+				"the run asked behind Joel's runs and, once his words were in, ranked as one he types into",
 			).toEqual([
-				{ type: "turn asked", first: false },
-				{ type: "turn", first: true },
+				{ type: "turn asked", waits: "not" },
+				{ type: "turn", waits: "typing" },
 			]);
 			expect(
 				said(observed, "assistant"),
@@ -481,12 +481,39 @@ describe("the hosted agent resuming a turn a restart cut off", {
 				turnsOf(observed).slice(0, 2),
 				"the run asked behind Joel's runs and, once his steer was in, counted as his",
 			).toEqual([
-				{ type: "turn asked", first: false },
-				{ type: "turn", first: true },
+				{ type: "turn asked", waits: "not" },
+				{ type: "turn", waits: "typing" },
 			]);
 			expect(
 				said(observed, "assistant"),
 				"the cut-off request and the steer are both answered",
+			).toEqual(["after the restart", "and your words"]);
+		} finally {
+			rmSync(folder, { recursive: true, force: true });
+		}
+	});
+
+	it("leaves a waiting run where it was when a peer agent steers into it", async () => {
+		// A peer's steer carries no automated header, so it read as Joel's and could jump a start's turns (council, 19 November).
+		const folder = mkdtempSync(join(tmpdir(), "hosted-turn-peer-"));
+		try {
+			expect(await killed("crash-in-request-automated", folder)).toBe(
+				"SIGKILL",
+			);
+			const { observed } = await reopenedWithReports(
+				folder,
+				"reopen-peer-steered-while-waiting",
+			);
+			expect(
+				turnsOf(observed).slice(0, 2),
+				"the peer's steer is in, yet the run still ranks as none Joel waits on",
+			).toEqual([
+				{ type: "turn asked", waits: "not" },
+				{ type: "turn", waits: "not" },
+			]);
+			expect(
+				said(observed, "assistant"),
+				"the cut-off request and the peer's steer are both answered",
 			).toEqual(["after the restart", "and your words"]);
 		} finally {
 			rmSync(folder, { recursive: true, force: true });

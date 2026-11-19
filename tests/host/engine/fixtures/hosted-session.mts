@@ -35,6 +35,7 @@ import {
 	withCallSignal,
 } from "../../../../lib/core/exec/call-signal.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
+import { ASKING_FROM_OUTSIDE } from "../../../../lib/mesh/steer.ts";
 
 /** What the fixture drives of a pi session. */
 interface Session {
@@ -691,6 +692,15 @@ const scenarios: Record<string, Scenario> = {
 		typed: "are you back?",
 		steered: true,
 	},
+	/** As reopen-steered-while-waiting, the steer a peer agent's, framed as mesh-workflow frames one, which isn't Joel's. */
+	"reopen-peer-steered-while-waiting": {
+		responses: () => [say("after the restart"), say("and your words")],
+		drive: async () => {},
+		persist: true,
+		turns: true,
+		typed: `[Ospht4${ASKING_FROM_OUTSIDE}: answer first.]\n\nare you back?`,
+		steered: true,
+	},
 	/** As reopen, with an extension adding a section to each run, and words typed once the carried run ends. */
 	"reopen-sectioned": {
 		responses: () => [
@@ -1282,13 +1292,12 @@ try {
 	const recovery = await hosted?.recover(
 		scenario.turns
 			? async (waits) => {
-					const first = () => waits() !== "not";
 					if (scenario.typed !== undefined) {
-						note({ type: "turn asked", first: first() });
+						note({ type: "turn asked", waits: waits() });
 						// A turn comes free only once the agent has the words, as one would after Joel typed.
 						await typedIn;
 					}
-					note({ type: "turn", first: first() });
+					note({ type: "turn", waits: waits() });
 					let given = false;
 					// Only the first give-back counts, as with the host's own turns.
 					return () => {

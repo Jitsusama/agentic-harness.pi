@@ -33,6 +33,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { spawnExec } from "../../lib/core/exec/index.ts";
 import { createGitRebaser } from "../../lib/core/work/rebase.ts";
+import { automatedText } from "../../lib/internal/automated.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
 import { writeRefused } from "../../lib/internal/carry/ordered.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
@@ -129,8 +130,12 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			);
 		}
 		if (tookUp) {
+			// Headed as automated, so a host starting runs never counts it as Joel's.
 			host.carryOn(
-				`[An ordered carry to ${ordered.to} by ${ordered.by} ended this run to go, then couldn't: ${why}. Nothing was carried; carry on where you left off.]`,
+				automatedText(
+					"an ordered carry couldn't go",
+					`An ordered carry to ${ordered.to} by ${ordered.by} ended this run to go, then couldn't: ${why}. Nothing was carried; carry on where you left off.`,
+				),
 			);
 		}
 	};

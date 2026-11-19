@@ -124,8 +124,12 @@ export const MACHINE_SAYS = "[Said by this machine's ";
 /** What follows the asker in the words a session is given for a steer from outside its window. */
 export const ASKING_FROM_OUTSIDE = " is asking from outside this window";
 
-/** The askers the person's own steers read as, unnamed or by name. */
-const PERSON_ASKERS = new Set(["The person", "Joel"]);
+/**
+ * The askers the person's own steers read as, unnamed or by name, in
+ * lower case, since the asker keeps the case of the `from` that
+ * isFromPerson reads without it.
+ */
+const PERSON_ASKERS = new Set(["the person", FROM_PERSON, "joel"]);
 
 /**
  * Whether `text`, as a session is given it, is a steer someone other
@@ -140,7 +144,7 @@ export function isOthersSteerText(text: string): boolean {
 	const at = text.indexOf(ASKING_FROM_OUTSIDE);
 	const closed = text.indexOf("]");
 	if (at < 0 || (closed >= 0 && closed < at)) return false;
-	return !PERSON_ASKERS.has(text.slice(1, at));
+	return !PERSON_ASKERS.has(text.slice(1, at).toLowerCase());
 }
 
 /**
