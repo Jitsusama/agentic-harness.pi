@@ -138,11 +138,7 @@ export class HostedAgent {
 			// Words left queued once pi's run settled run next, as after pi's own; a run's failure shows in it.
 			if (this.hasQueuedMessages()) void this.continue().catch(() => undefined);
 		},
-		async () => {
-			// Words queued as the agent's last run ended run inside pi's run, as pi's own run goes on to them before it settles.
-			// That run takes whatever is typed during it, so once is enough.
-			if (this.hasQueuedMessages() && !this.parked) await this.continue();
-		},
+		() => this.runWaiting(),
 	);
 
 	constructor(
@@ -265,6 +261,25 @@ export class HostedAgent {
 	clearAllQueues(): void {
 		this.clearSteeringQueue();
 		this.clearFollowUpQueue();
+	}
+
+	/**
+	 * Run the words queued as the agent's last run ended inside pi's run, as
+	 * pi's own run goes on to them before it settles. They went once none of
+	 * them still waits: a continue that left one would only go round.
+	 */
+	private async runWaiting(): Promise<boolean> {
+		if (!this.hasQueuedMessages() || this.parked) return false;
+		const waiting = new Set(this.queuedIds());
+		await this.continue();
+		return !this.queuedIds().some((id) => waiting.has(id));
+	}
+
+	/** The host's ids of the words pi's queues hold. */
+	private queuedIds(): string[] {
+		return [...this.steeringQueue.all(), ...this.followUpQueue.all()].map(
+			(item) => item.hostId,
+		);
 	}
 
 	hasQueuedMessages(): boolean {

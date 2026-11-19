@@ -65,6 +65,13 @@ export type Within = (say: () => Promise<unknown>) => Promise<unknown>;
 export type Report = (error: unknown) => void;
 
 /**
+ * Run the words waiting in pi's queue, answering whether they went: false
+ * when none waited, or some still wait after the run, so carrying on again
+ * would only go round.
+ */
+export type RunWaiting = () => Promise<boolean>;
+
+/**
  * An open run of pi's, ended by `end`, done once `settled` resolves, true
  * when pi settled it and false when pi failed to prepare it, or given up
  * on once `overdue` does, as pi never prepared it in time. `signal` is the
@@ -87,18 +94,21 @@ export class PiRuns {
 	private readonly parked: () => boolean;
 	private readonly within: Within;
 	private readonly next: () => void;
-	private readonly carryOn: () => Promise<void>;
+	private readonly runWaiting: RunWaiting;
 	private session: HostRunningSession | undefined;
 	private report: Report = () => {};
 	private holds = 0;
 	private open: OpenRun | undefined;
 	/** The stop signals of runs shown pi with no seam to open them, for the settle owed. */
 	private unseamed: (AbortSignal | undefined)[] | undefined;
+	/** The stop signals of every run shown pi while held, since a stop of any ends pi's run going on. */
+	private shown: (AbortSignal | undefined)[] = [];
 
 	/**
 	 * Runs whose host is stopping once `parked` says so, each settle said
-	 * `within`. Before the last hold ends a run pi opened, `carryOn` runs
-	 * the words that wait inside it, as pi's own run continues on queued
+	 * `within`. Before the last hold ends a run pi opened, `runWaiting`
+	 * runs the words that wait inside it, again for as long as words wait
+	 * and no run shown was stopped, as pi's own run continues on queued
 	 * words before it settles: they waited, in memory alone, through every
 	 * settle handler, and a host dying then lost them. Words queued after
 	 * that go on to `next` once pi's run settled, since pi starts no run
@@ -108,12 +118,12 @@ export class PiRuns {
 		parked: () => boolean,
 		within: Within = (say) => say(),
 		next: () => void = () => {},
-		carryOn: () => Promise<void> = async () => {},
+		runWaiting: RunWaiting = async () => false,
 	) {
 		this.parked = parked;
 		this.within = within;
 		this.next = next;
-		this.carryOn = carryOn;
+		this.runWaiting = runWaiting;
 	}
 
 	/** Open runs in `session` from now on, saying to `report` each run pi didn't prepare. */
@@ -132,13 +142,11 @@ export class PiRuns {
 		return async () => {
 			if (released) return;
 			released = true;
-			// Still held, so the runs carried on join pi's open run, which settles once after them; pi's own run goes on to none once stopped.
-			const carrying = this.holds === 1 ? this.open : undefined;
-			if (carrying && !this.parked() && carrying.signal?.aborted !== true)
-				// A run carried on shows its own failure, and this hold still ends.
-				await this.carryOn().catch(() => undefined);
+			// Still held, so the runs carried on join pi's open run, which settles once after them.
+			if (this.holds === 1 && this.open) await this.carryOnWaiting();
 			this.holds -= 1;
 			if (this.holds > 0) return;
+			this.shown = [];
 			const open = this.open;
 			this.open = undefined;
 			const unseamed = this.unseamed;
@@ -162,6 +170,16 @@ export class PiRuns {
 			});
 			await Promise.race([done, open.overdue]);
 		};
+	}
+
+	/** Run what waits in pi's queue until none does, as pi's own run goes on to none once stopped or parked. */
+	private async carryOnWaiting(): Promise<void> {
+		const stopped = () => this.shown.some((signal) => signal?.aborted === true);
+		while (!this.parked() && !stopped()) {
+			// A run carried on shows its own failure, and this hold still ends.
+			const went = await this.runWaiting().catch(() => false);
+			if (!went) return;
+		}
 	}
 
 	/** Tell pi's extensions the runs shown settled, unless pi's own run under way settles them. */
@@ -197,6 +215,7 @@ export class PiRuns {
 	 */
 	async opening(signal?: AbortSignal): Promise<readonly AgentMessage[]> {
 		const session = this.session;
+		if (this.holds > 0) this.shown.push(signal);
 		if (this.open || this.holds === 0 || !session) return [];
 		if (session.isStreaming) return [];
 		if (!session.runForHost) {
