@@ -33,6 +33,7 @@ import type {
 import { createEngine } from "../../../../host/engine/engine.ts";
 import { bindHeadless } from "../../../../host/engine/headless.ts";
 import { SessionHost } from "../../../../host/engine/session-host.ts";
+import { emptyOverlay, layBudget } from "../../../../lib/budget/environment.ts";
 import type { RosterEntry } from "../../../../lib/core/session/roster.ts";
 import {
 	LONG_CACHE_LIFETIME_MS,
@@ -926,6 +927,49 @@ const scenarios: Record<string, Scenario> = {
 		keyVariable: "PI_PROXY_API_KEY",
 		launch: { PI_PROXY_API_KEY: "its-own-key" },
 		run: answerOnce,
+	},
+	/**
+	 * One conversation on a budget, whose key the quest workflow lays
+	 * over its environment under both names the proxy's key goes by, as
+	 * a team's agent key is laid; it answers and is warmed parked. Then
+	 * a personal one, on no budget, answers.
+	 */
+	"budget-key": {
+		api: "anthropic-messages",
+		responses: () => [say("hello there"), say(""), say("hello there")],
+		run: async (engine, host) => {
+			const team = await open(engine, {});
+			layBudget(
+				host.env(team),
+				{
+					name: "team",
+					label: "Team",
+					env: {
+						SHOPIFY_PROXY_KEY: "team-key",
+						PI_PROXY_API_KEY: "team-key",
+						PI_PROXY_AUTH_HEADER: "Bearer team-key",
+					},
+				},
+				emptyOverlay(),
+			);
+			await host.run(team, () => prompt(engine, team, "hi"));
+			await idle(engine, team);
+			const turn = keysSeen.length;
+			writeDueCarry(team);
+			host.park(team);
+			await warmed(turn);
+			const warm = keysSeen.length;
+			const personal = await open(engine, { first: "hi" });
+			await idle(engine, personal);
+			await host.close(personal);
+			return {
+				budgetKeys: {
+					turn: keysSeen.slice(0, turn),
+					warm: keysSeen.slice(turn, warm),
+					personal: keysSeen.slice(warm),
+				},
+			};
+		},
 	},
 	/** The provider's key is read from a variable only the host's process holds. */
 	"host-read": {
