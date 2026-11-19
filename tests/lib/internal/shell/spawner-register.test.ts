@@ -8,6 +8,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { processGlobal } from "../../../../lib/internal/process/process-global.ts";
 import {
 	NAME_PATIENCE_MS,
 	REGISTER_PATIENCE_MS,
@@ -38,10 +39,10 @@ const LINE =
 // Each test starts with the process's once-only reasons empty, so none
 // passes for a reason an earlier one used up.
 beforeEach(() => {
-	Reflect.deleteProperty(
-		globalThis,
-		Symbol.for("agentic-harness.shell/spawner-register-said"),
-	);
+	processGlobal(
+		"agentic-harness.shell/spawner-register-said",
+		() => new Set<string>(),
+	).clear();
 });
 
 afterEach(() => {
@@ -219,6 +220,24 @@ describe("a host telling the node a spawner's session", () => {
 		});
 
 		expect(said, "what the host said").toEqual([]);
+	});
+
+	it("says an answer that neither takes nor refuses the word, as a node of another shape gives", async () => {
+		const said: string[] = [];
+		for (const answer of ['{"Ok":"Other"}', "not an answer"]) {
+			const stand = node(answer);
+			await stand.listening;
+
+			await registerSpawner(SPAWNED, "s-one", {
+				socket: stand.socket,
+				proc: procWith(SPAWNER, "pi-spawner"),
+				say: (line: string) => said.push(line),
+			});
+		}
+
+		expect(said, "what the host said, once for both").toEqual([
+			`${LINE}the mycelium node answered in a way this harness can't read\n`,
+		]);
 	});
 
 	it("waits for the spawner's own name, as one in a scope goes by another first", async () => {

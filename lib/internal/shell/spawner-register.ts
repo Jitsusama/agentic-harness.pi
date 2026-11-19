@@ -29,10 +29,12 @@
  * once for each reason on the host's error output, as the node logs
  * each refusal. The
  * node keeps the word only while it runs, so spawner.ts says it again
- * every 30 seconds while the spawner runs. Where the
- * node isn't there, nothing is said and the spawner's commands are told
- * no session, as before; one that doesn't know the word refuses it, and
- * that refusal is said like any other. With no /proc, as
+ * every 30 seconds while the spawner runs. Where no node's socket is
+ * there, nothing is said and the spawner's commands are told no
+ * session, as before; a socket a node that ended left behind is said to
+ * answer nothing. A node that doesn't know the word refuses it, and
+ * that refusal is said like any other, as is an answer that neither
+ * takes nor refuses it. With no /proc, as
  * on a Mac, there is no tick to read, and nothing is said. A command a
  * host's restart keeps runs on under a spawner the next host didn't
  * start, and so is told no session from then on.
@@ -201,24 +203,27 @@ const saidRefusals = processGlobal(
  */
 const REFUSALS_SAID = 32;
 
-/** The node's reason, when its answer refuses the word. */
-function refusalIn(answer: string | undefined): string | undefined {
-	if (answer === undefined) return undefined;
+/**
+ * The node's reason, when its answer refuses the word; nothing, when it
+ * takes it; and that it can't be read, when it answers neither way, as
+ * a node speaking another shape would.
+ */
+function refusalIn(answer: string): string | undefined {
+	let reply: unknown;
 	try {
-		const reply: unknown = JSON.parse(answer);
-		if (
-			typeof reply === "object" &&
-			reply !== null &&
-			"Err" in reply &&
-			typeof reply.Err === "string"
-		) {
-			return reply.Err;
-		}
+		reply = JSON.parse(answer);
 	} catch {
-		// An answer this harness can't read refuses nothing it can say.
+		return UNREADABLE;
 	}
-	return undefined;
+	if (typeof reply !== "object" || reply === null) return UNREADABLE;
+	if ("Ok" in reply && reply.Ok === "Spawned") return undefined;
+	if ("Err" in reply && typeof reply.Err === "string") return reply.Err;
+	return UNREADABLE;
 }
+
+/** What's said of an answer that neither takes nor refuses the word. */
+const UNREADABLE =
+	"the mycelium node answered in a way this harness can't read";
 
 /** When `pid` started, in clock ticks since boot, or nothing once it's gone. */
 export async function startOf(
