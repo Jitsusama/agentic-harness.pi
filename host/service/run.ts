@@ -34,7 +34,7 @@
  * engine is passed in, so the program that starts this names which.
  */
 
-import { execFile } from "node:child_process";
+import { type ExecFileException, execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ambientSession } from "../../lib/core/session/index.ts";
@@ -136,12 +136,13 @@ const READY_TELLINGS = 10;
 /** How long systemctl has to say a unit's state, in ms. */
 const UNIT_STATE_WITHIN_MS = 5000;
 /**
- * How long one telling of a ready has, in ms, before its systemd-notify
- * is killed and the telling counts as missed, so a notifier that hangs
- * can't hold the start for good. Twice systemd-notify's own wait for
- * the manager's barrier, so a slow manager answers before the kill.
+ * How long one telling of systemd has, in ms, before its systemd-notify
+ * is killed and the telling fails (a ready's counts as missed), so a
+ * notifier that hangs can't hold the start, a step or the stop for good.
+ * Twice systemd-notify's own wait for the manager's barrier, so a slow
+ * manager answers before the kill.
  */
-const READY_TOLD_WITHIN_MS = 10_000;
+const TOLD_WITHIN_MS = 10_000;
 /** The states that say systemd took a ready: the unit is up. */
 const READY_TAKEN_STATES: ReadonlySet<string> = new Set([
 	"active",
@@ -195,8 +196,11 @@ export interface HostRunOptions {
 	unit?: string | null;
 	/** How long, in ms, systemd has to take a ready before the host looks; READY_TAKEN_MS by default. */
 	readyTaken?: number;
-	/** How long, in ms, each telling of a ready has; READY_TOLD_WITHIN_MS by default. */
-	readyToldWithin?: number;
+	/**
+	 * How long, in ms, each telling of systemd's notify has, but the
+	 * watchdog's; TOLD_WITHIN_MS by default.
+	 */
+	toldWithin?: number;
 	/** Says the host's status once it changes; systemd's notify by default. */
 	status?: (env: NodeJS.ProcessEnv, status: string) => Promise<void>;
 	/** How often the status is looked at, in ms; STATUS_EVERY_MS by default. */
@@ -296,7 +300,11 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const realm = hostRealm(options.env);
 	const report = options.report ?? reportToJournal;
 	const say = options.say ?? sayToJournal;
-	const progress = options.progress ?? notifyProgress;
+	const toldWithin = options.toldWithin ?? TOLD_WITHIN_MS;
+	const progress =
+		options.progress ??
+		((env: NodeJS.ProcessEnv, step: string) =>
+			notifyProgress(env, step, toldWithin));
 	const began = Date.now();
 	const unparked = unparkedMarks(realm, kind, report);
 	const lastStop = unparked.read();
@@ -398,7 +406,9 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	}
 	const status = () => readyStatus(readyCount(serving));
 	const tell = (now: string) =>
-		(options.status ?? notifyStatus)(options.env, now);
+		options.status
+			? options.status(options.env, now)
+			: notifyStatus(options.env, now, toldWithin);
 	const signals = options.signals ?? process;
 	const every = watchdogEvery(options.env);
 	const unwatchBeats =
@@ -499,7 +509,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 				notifyReady(env, said, {
 					unit: options.unit === null ? undefined : (options.unit ?? ownUnit()),
 					taken: options.readyTaken ?? READY_TAKEN_MS,
-					toldWithin: options.readyToldWithin ?? READY_TOLD_WITHIN_MS,
+					toldWithin,
 					say,
 					stopping: () => stopping !== undefined,
 				}));
@@ -597,13 +607,16 @@ function firstLine(reason: unknown): string {
  * Ask systemd for STEP_ALLOWANCE_MS more from now and show the step as the
  * unit's status, when it runs the host as a notify unit.
  */
-function notifyProgress(env: NodeJS.ProcessEnv, status: string): Promise<void> {
-	const extension = STEP_ALLOWANCE_MS * MICROSECONDS_PER_MS;
-	return tellSystemd(env, [
-		`EXTEND_TIMEOUT_USEC=${extension}`,
-		`STATUS=${status}`,
-	]);
+function notifyProgress(
+	env: NodeJS.ProcessEnv,
+	status: string,
+	within: number,
+): Promise<void> {
+	return tellSystemd(env, [STEP_EXTENSION, `STATUS=${status}`], within);
 }
+
+/** Asks systemd for STEP_ALLOWANCE_MS more of the start, from now. */
+const STEP_EXTENSION = `EXTEND_TIMEOUT_USEC=${STEP_ALLOWANCE_MS * MICROSECONDS_PER_MS}`;
 
 /**
  * Run systemd-notify with `args`, when the host runs as a notify unit,
@@ -612,22 +625,49 @@ function notifyProgress(env: NodeJS.ProcessEnv, status: string): Promise<void> {
  * writes every child this process spawns into jobs.service: on 11
  * November the background host's ready went to jobs.service whenever the
  * move landed first, and systemd stopped the host at its start timeout.
- * Given `within` ms, a systemd-notify still running then is killed and
- * the telling fails.
+ * A systemd-notify still running `within` ms on is killed outright, as
+ * one that ignored a gentler signal would still hold the telling, and the
+ * telling fails.
  */
 function tellSystemd(
 	env: NodeJS.ProcessEnv,
 	args: readonly string[],
-	within?: number,
+	within: number,
 ): Promise<void> {
 	if (!env.NOTIFY_SOCKET) return Promise.resolve();
-	const timeout = within === undefined ? {} : { timeout: within };
 	return new Promise((resolve, reject) => {
 		withPi(() =>
-			execFile("systemd-notify", args, { env, ...timeout }, (error) =>
-				error ? reject(error) : resolve(),
+			execFile(
+				"systemd-notify",
+				args,
+				{ env, timeout: within, killSignal: "SIGKILL" },
+				(error, _stdout, stderr) =>
+					error ? reject(notifyFailure(error, stderr, within)) : resolve(),
 			),
 		);
+	});
+}
+
+/**
+ * Why a telling failed, in systemd-notify's own words where it gave any,
+ * rather than execFile's "Command failed" and the command it ran, keeping
+ * the error's code and whether the host killed it.
+ */
+function notifyFailure(
+	error: ExecFileException,
+	stderr: string,
+	within: number,
+): Error {
+	const why = firstLine(stderr);
+	const said =
+		error.killed === true
+			? `systemd-notify hung, and the host killed it ${within} ms on`
+			: typeof error.code === "number"
+				? `systemd-notify ended with ${error.code}${why ? `: ${why}` : ""}`
+				: `systemd-notify couldn't run: ${firstLine(error)}`;
+	return Object.assign(new Error(said, { cause: error }), {
+		code: error.code,
+		killed: error.killed === true,
 	});
 }
 
@@ -684,12 +724,25 @@ async function notifyReady(
 	const { unit, taken, toldWithin, say, stopping } = confirm;
 	const args = ["--ready", `STATUS=${status}`];
 	// With no unit to read, a hung telling still can't hold the start.
-	if (unit === undefined) return tellSystemd(env, args, toldWithin);
+	if (unit === undefined)
+		return tellSystemd(env, args, toldWithin).catch((error: unknown) => {
+			throw new Error(
+				`telling systemd the host is ready: ${firstLine(error)}`,
+				{ cause: error },
+			);
+		});
 	let lastFailed: string | undefined;
 	for (let telling = 1; ; telling++) {
 		lastFailed = undefined;
 		try {
-			await tellSystemd(env, args, toldWithin);
+			// A ready told again asks for the start's time again, as the
+			// unit still reads activating, so ten tellings that each hang
+			// can't outlast what the last step was given.
+			await tellSystemd(
+				env,
+				telling === 1 ? args : [...args, STEP_EXTENSION],
+				toldWithin,
+			);
 		} catch (error) {
 			// A notifier that can't run at all fails every telling the same.
 			if (isRecord(error) && CANNOT_RUN.has(error.code))
@@ -698,10 +751,7 @@ async function notifyReady(
 				);
 			// One that failed or hung is a miss like any other: the unit's
 			// state still says whether systemd has the ready.
-			lastFailed =
-				isRecord(error) && error.killed === true
-					? `systemd-notify hung, and the host killed it ${toldWithin} ms on`
-					: `systemd-notify failed: ${firstLine(error)}`;
+			lastFailed = firstLine(error);
 			say(`telling systemd the host is ready: ${lastFailed}`);
 		}
 		// systemd takes a notify off its socket in its own time.
@@ -710,6 +760,12 @@ async function notifyReady(
 		try {
 			state = await unitState(env, unit);
 		} catch (error) {
+			// A telling known to have failed is never trusted.
+			if (lastFailed !== undefined)
+				throw new Error(
+					`telling systemd the host is ready failed, and its unit can't be read: ${lastFailed}; ${firstLine(error)}`,
+					{ cause: error },
+				);
 			say(
 				`couldn't read whether systemd took the host's ready, so trusting it: ${firstLine(error)}`,
 			);
@@ -914,8 +970,12 @@ function clockTime(at: number): string {
 }
 
 /** Show what the host serves as the unit's status, once it changes. */
-function notifyStatus(env: NodeJS.ProcessEnv, status: string): Promise<void> {
-	return tellSystemd(env, [`STATUS=${status}`]);
+function notifyStatus(
+	env: NodeJS.ProcessEnv,
+	status: string,
+	within: number,
+): Promise<void> {
+	return tellSystemd(env, [`STATUS=${status}`], within);
 }
 
 /**
