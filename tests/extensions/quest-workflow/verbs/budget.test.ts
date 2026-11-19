@@ -1,3 +1,14 @@
+/**
+ * A quest's budget: the verb that names one, the judging that names one
+ * at create and in a sweep, and the keeper that draws on it.
+ *
+ * Long because every case shares one sandbox: the quest tool and the
+ * budget keeper are two halves of one session, writing to and reading
+ * back one branch and one process environment, and the setup that
+ * resets both between cases is what keeps each case from reading the
+ * last one's budget.
+ */
+
 import {
 	mkdtempSync,
 	readdirSync,
@@ -1075,6 +1086,7 @@ describe("the budget of a session on no quest", () => {
 		const notices: string[] = [];
 		const ctx = {
 			cwd: tmpRoot,
+			hasUI: true,
 			ui: { notify: (message: string) => notices.push(message) },
 			sessionManager: { getBranch: () => written },
 			modelRegistry: {
@@ -1193,6 +1205,42 @@ describe("the budget of a session on no quest", () => {
 
 		expect(next.judged).toHaveLength(1);
 		expect(process.env[KEY]).toBe("delta");
+	});
+
+	it("judges its conversation's first prompt once reloaded, not the follow-up", async () => {
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+		// What the conversation already holds when a keeper reloads in it.
+		written.push({
+			type: "message",
+			message: { role: "user", content: "Speed up walgit" },
+		} as unknown as (typeof written)[number]);
+
+		await keeper.keep(ctx, { prompt: "yes, go on" });
+
+		expect(judged.map((work) => (work as { prompt: string }).prompt)).toEqual([
+			"Speed up walgit",
+		]);
+		expect(process.env[KEY]).toBe("delta");
+	});
+
+	it("isn't judged on its prompt when it runs headless, as a subagent of a quest on no budget does", async () => {
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+		const headless = { ...ctx, hasUI: false } as typeof ctx;
+
+		await keeper.keep(headless, { prompt: "Review this Delta change" });
+
+		expect(judged).toEqual([]);
+		expect(process.env[KEY]).toBe("personal");
+	});
+
+	it("still draws on its folder's budget when it runs headless", async () => {
+		const { keeper, ctx, judged } = loose(tmpRoot, "delta");
+		const headless = { ...ctx, hasUI: false } as typeof ctx;
+
+		await keeper.keep(headless, { prompt: "Review this" });
+
+		expect(judged).toEqual([]);
+		expect(process.env[KEY]).toBe("aquifer");
 	});
 
 	it("keeps the budget it was started on over its folder's", async () => {

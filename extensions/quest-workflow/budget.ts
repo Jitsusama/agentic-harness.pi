@@ -60,6 +60,7 @@ import {
 	budgetInRecord,
 	NO_BUDGET,
 } from "../../lib/internal/quest/fields/budget.ts";
+import { userTextOf } from "../../lib/internal/session/driven.ts";
 import type { QuestState } from "./state.ts";
 
 /** What keeps the session on its quest's budget. */
@@ -200,8 +201,8 @@ export function keepQuestBudget(
 	/** Whether a keep asked to draw again, so one overtaking it does. */
 	let redrawOwed = false;
 	/**
-	 * Its first prompt, kept so a provider registering late judges the
-	 * same words rather than whatever prompt comes next.
+	 * Its first prompt, kept so a provider registering late, or a keeper
+	 * reloaded, judges the same words rather than whatever comes next.
 	 */
 	let firstPrompt: string | undefined;
 	/**
@@ -241,7 +242,11 @@ export function keepQuestBudget(
 		const byFolder = await folderAsked;
 		if (session !== sessions) return null;
 		if (byFolder !== null) return byFolder;
-		firstPrompt ??= prompt?.trim() || undefined;
+		// Only a person's session is judged on its prompt: a subagent or a
+		// job runs headless, and its task is no word on whose work it is,
+		// so it keeps what it inherited or its folder's, unasked and unpaid.
+		if (!ctx.hasUI) return null;
+		firstPrompt ??= firstPromptOf(ctx) ?? (prompt?.trim() || undefined);
 		if (firstPrompt === undefined) return null;
 		promptAsked ??= judgeLoose(ctx, folder, firstPrompt, session);
 		const asked = promptAsked;
@@ -257,16 +262,19 @@ export function keepQuestBudget(
 		prompt: string,
 		session: number,
 	): Promise<string | null> => {
+		// Read once: the context answers with whichever run is current when
+		// asked, and Escape means this run's, not one started since.
+		const run = ctx.signal;
 		const judged = await host.budgetForWork(
 			{ title: folder, folder, prompt: prompt.slice(0, LONGEST_PROMPT) },
 			await classifierOf(ctx),
 			// Pressing Escape stops the wait before the first model call.
-			ctx.signal,
+			run,
 		);
 		if (session !== sessions) return null;
 		// A judgement stopped by Escape is no answer: the next prompt asks
 		// again, of the same first words.
-		if (ctx.signal?.aborted) {
+		if (run?.aborted) {
 			promptAsked = undefined;
 			return null;
 		}
@@ -375,6 +383,19 @@ function inheritedBudget(ctx: ExtensionContext): string {
 	const now = sessionEnv(ctx).get(BUDGET_VARIABLE);
 	const under = laid && now === laid.value ? laid.before : now;
 	return under?.trim() ?? "";
+}
+
+/**
+ * The first words the session's conversation holds from its user, so a
+ * keeper reloaded mid-conversation judges them again rather than a
+ * follow-up like "go on"; nothing before the first prompt is logged.
+ */
+function firstPromptOf(ctx: ExtensionContext): string | undefined {
+	for (const entry of ctx.sessionManager?.getBranch?.() ?? []) {
+		const text = userTextOf(entry)?.trim();
+		if (text) return text;
+	}
+	return undefined;
 }
 
 /**

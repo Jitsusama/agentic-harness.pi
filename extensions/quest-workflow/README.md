@@ -404,7 +404,9 @@ shipped and tested.
   and was unsure of; with `dryRun` it writes nothing.
   A session on no quest draws on what its folder names, else on
   what a sure judgement of its folder and first prompt names,
-  asked before that prompt's model call, and says so once.
+  asked before that prompt's model call, and says so once. Only a
+  session with a UI is judged: a headless one, as a subagent is,
+  keeps the budget it inherited or its folder's.
 - **The realm's own agent**: a spawn that runs pi, fresh or
   resuming, runs instead the command the chosen machine's node
   declares for the session's realm (`declared.agents`), here or

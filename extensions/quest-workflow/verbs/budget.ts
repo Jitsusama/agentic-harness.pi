@@ -262,6 +262,64 @@ export function judgedClause(judged: WorkBudget): string {
 	return `, drawing on budget ${judged.name}, which ${by} judged from its work${why} (\`quest budget\` names another)`;
 }
 
+/** The budget a quest is born on, and how its create says so. */
+export interface BornBudget {
+	/** The budget it names, when it names one. */
+	readonly name?: string;
+	/** Its Journey's lines saying where that came from, oldest first. */
+	readonly journey: readonly string[];
+	/** What the create's first line ends on, "" for nothing to say. */
+	readonly clause: string;
+	/** What the create's details say of it. */
+	readonly details: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * The budget a quest being made under `above` is born on, when nothing
+ * above it names one: its folder's, else a judgement's of its work,
+ * named only when sure and said either way. What is above is asked
+ * again after the wait, up to 20 s, so a budget named there meanwhile
+ * is the one it draws on, as for a quest made after.
+ */
+export async function budgetAtBirth(
+	state: QuestState,
+	ctx: Pick<ExtensionContext, "modelRegistry" | "cwd">,
+	above: string | null,
+	work: WorkToBudget,
+	signal?: AbortSignal,
+): Promise<BornBudget> {
+	const byFolder = await budgetFromFolder(state, above, ctx.cwd);
+	const judgement = byFolder
+		? undefined
+		: await budgetFromWork(state, ctx, above, work, signal);
+	const unnamed = unnamedFrom(state, above);
+	const folderBudget = unnamed ? byFolder : undefined;
+	if (folderBudget && ctx.cwd) {
+		return {
+			name: folderBudget.name,
+			journey: [takenFromFolder(folderBudget, ctx.cwd)],
+			clause: `, drawing on budget ${folderBudget.name}, which ${namedBy(folderBudget)} says this folder's work draws on (\`quest budget\` names another)`,
+			details: { budget: folderBudget.name },
+		};
+	}
+	const judged = unnamed ? judgement : undefined;
+	if (!judged) return { journey: [], clause: "", details: {} };
+	const name = namedByJudgement(judged);
+	return {
+		...(name ? { name } : {}),
+		journey: [judgedFromWork(judged)],
+		clause: judgedClause(judged),
+		details: {
+			...(name ? { budget: name } : {}),
+			judged: {
+				name: judged.name,
+				sure: judged.sure,
+				provider: judged.provider,
+			},
+		},
+	};
+}
+
 /**
  * Judge which budget quest `quest` in `questDir` draws on from `work`,
  * when nothing on or above it names one, naming it only when the

@@ -32,7 +32,10 @@ import {
 	type QuestEntry,
 } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { extractSection } from "../../../lib/internal/quest/documents/quest-doc.ts";
-import { budgetFoundInRecord } from "../../../lib/internal/quest/fields/budget.ts";
+import {
+	budgetFoundInRecord,
+	NO_BUDGET,
+} from "../../../lib/internal/quest/fields/budget.ts";
 import type { QuestState } from "../state.ts";
 import {
 	budgetFromFolder,
@@ -123,7 +126,7 @@ export async function budgetSweep(
 					const now = budgetFoundInRecord(state.questsRoot, id);
 					const reads =
 						typeof now === "object" && now.from === id
-							? `its budget reads ${now.name} now, but a write failed: `
+							? `its budget reads ${now.name ?? NO_BUDGET} now, but a write failed: `
 							: "its write failed: ";
 					return { id, stood: `${reads}${why}` };
 				}
@@ -140,6 +143,11 @@ export async function budgetSweep(
 			swept.push(one ?? { id, stopped: true });
 		}
 	}
+	// Left as they stood, with why, so a caller learns of a quest whose
+	// budget a failed write may have left written without its Journey line.
+	const stood = swept.flatMap((one) =>
+		"stood" in one ? [{ id: one.id, why: one.stood }] : [],
+	);
 	return ok(said(swept, dry, unread, judgedBefore), {
 		dryRun: dry,
 		swept: swept.length,
@@ -154,6 +162,7 @@ export async function budgetSweep(
 		),
 		...(unread.length > 0 ? { unread } : {}),
 		...(judgedBefore.length > 0 ? { judgedBefore } : {}),
+		...(stood.length > 0 ? { stood } : {}),
 	});
 }
 
