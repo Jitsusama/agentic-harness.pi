@@ -363,7 +363,13 @@ shipped and tested.
   spend-workflow, which hears it on the bus (`budget:settled:v1`)
   each time it settles; a name
   no provider knows, or one it can't draw on yet, leaves the
-  default and says why once. Nothing of it reaches the prompt.
+  default and says so, naming the budget and what's missing, in a
+  notice once a name, in the system's journal at warning, and in
+  the log's `budget` entry (`"unresolved": {"budget": "delta",
+  "missing": ...}`), which draws a line in the session and lets
+  spend-watch count the sessions that fell to the person's key. A
+  provider that fails or is late saying a folder's budget is
+  journalled too. Nothing of it reaches the prompt.
   The session's log says it too: a `budget` entry
   (`{"v": 1, "name": "delta", "label": ..., "provider": ...}`,
   `name` null for the default) at start and each time what it
