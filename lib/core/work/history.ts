@@ -472,14 +472,31 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 
 			// A claimed snapshot may have made a commit and moved on, even back
 			// to a pushed one: its own history then holds work no remote has.
-			const leftUnpushed = new Set<string>();
+			// Each tree's history is read on its own, a file, and the remotes
+			// walked once for them all, as `held` does.
+			const histories = new Map<string, string[] | undefined>();
 			for (const tree of claimed) {
 				if (tree.branch !== undefined) continue;
 				if (dirty.has(tree.path) || unread.has(tree.path)) continue;
-				if (await historyBeyondRemotes(deps.exec, tree.path)) {
-					leftUnpushed.add(tree.path);
-				}
+				histories.set(tree.path, await headHistory(deps.exec, tree.path));
 			}
+			const everyCommit = [
+				...new Set([...histories.values()].flatMap((one) => one ?? [])),
+			];
+			const beyond =
+				everyCommit.length === 0
+					? new Set<string>()
+					: await beyondRemotes(deps.exec, treePath, everyCommit);
+			const leftUnpushed = new Set(
+				[...histories]
+					.filter(
+						([, commits]) =>
+							commits === undefined ||
+							beyond === undefined ||
+							commits.some((commit) => beyond.has(commit)),
+					)
+					.map(([path]) => path),
+			);
 
 			return found.map(({ path, commit, branch }) => ({
 				path,
@@ -498,14 +515,13 @@ export function createGitHistory(deps: { exec: Exec }): WorkHistory {
 }
 
 /**
- * Whether a tree's own HEAD has ever stood at a commit no remote holds,
- * by its reflog, which goes with the tree. A history git can't read, or
- * a commit it can't find, says yes, as the tree may be all that keeps it.
+ * Every commit a tree's own HEAD has stood at, by its reflog, which goes
+ * with the tree; nothing when git can't read it, which keeps the tree.
  */
-async function historyBeyondRemotes(
+async function headHistory(
 	exec: Exec,
 	treePath: string,
-): Promise<boolean> {
+): Promise<string[] | undefined> {
 	const logged = await exec("git", [
 		"-C",
 		treePath,
@@ -514,8 +530,8 @@ async function historyBeyondRemotes(
 		"--format=%H",
 		"HEAD",
 	]);
-	if (logged.code !== 0) return true;
-	const commits = [
+	if (logged.code !== 0) return undefined;
+	return [
 		...new Set(
 			logged.stdout
 				.split("\n")
@@ -523,17 +539,33 @@ async function historyBeyondRemotes(
 				.filter((line) => line !== ""),
 		),
 	];
-	if (commits.length === 0) return false;
-	const beyond = await exec("git", [
+}
+
+/**
+ * Which of `commits`, and what they stand on, no remote holds, in one
+ * walk; nothing when git can't say, as when one of them is gone, which
+ * keeps every tree asking, as the tree may be all that keeps a commit.
+ */
+async function beyondRemotes(
+	exec: Exec,
+	treePath: string,
+	commits: readonly string[],
+): Promise<ReadonlySet<string> | undefined> {
+	const walked = await exec("git", [
 		"-C",
 		treePath,
 		"rev-list",
-		"--max-count=1",
 		...commits,
 		"--not",
 		"--remotes",
 	]);
-	return beyond.code !== 0 || beyond.stdout.trim() !== "";
+	if (walked.code !== 0) return undefined;
+	return new Set(
+		walked.stdout
+			.split("\n")
+			.map((line) => line.trim())
+			.filter((line) => line !== ""),
+	);
 }
 
 /** How many paths a refusal names before it summarises. */

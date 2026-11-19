@@ -52,7 +52,32 @@ describe("trees a live quest claims until spent", () => {
 		});
 
 		expect(outcome.taken, "what the sweep took").toEqual([]);
+		// Held by the census the sweep began with, so never judged, rather
+		// than offered and then kept by the second look.
+		const judged = outcome.kept.find((one) => one.path === hosted);
+		expect(judged, "the tree was held from the start, not judged").toBe(
+			undefined,
+		);
 		expect(existsSync(hosted), `${hosted}, worked in, is kept`).toBe(true);
+	});
+
+	it("keeps a claimed tree a session takes up after the sweep's first census", async () => {
+		const { cut, sweep } = await setUp();
+		const back = await cut("back", ["-b", "back", "@", "main"]);
+		let asked = 0;
+		// Nobody there when the sweep begins, and a conversation there by the
+		// time it comes to take the tree.
+		const outcome = await sweep(untilSpent(back), undefined, {
+			sessionFolders: async () => {
+				asked += 1;
+				return asked > 1 ? [back] : [];
+			},
+		});
+
+		expect(outcome.taken, "what the sweep took").toEqual([]);
+		const why = outcome.kept.find((one) => one.path === back)?.why;
+		expect(why, "why the tree was kept").toMatch(/took it up/);
+		expect(existsSync(back), `${back}, taken up again, is kept`).toBe(true);
 	});
 
 	it("keeps an ended session's claimed tree holding one untracked file", async () => {

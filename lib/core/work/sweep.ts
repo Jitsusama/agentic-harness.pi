@@ -569,10 +569,20 @@ async function sweepRepository(
 		}
 		return;
 	}
+	const offered = (tree: HeldTree) =>
+		plan.reclaimable.find((one) => one.path === resolved(tree.path));
+	const claimedPaths = new Set(held.spendable);
+	const cameBack = await takenUpAgain(
+		deps,
+		trees.filter(
+			(tree) =>
+				claimedPaths.has(resolved(tree.path)) && offered(tree) !== undefined,
+		),
+	);
 	for (const tree of trees) {
 		const path = resolved(tree.path);
-		const offered = plan.reclaimable.find((one) => one.path === path);
-		if (offered === undefined) {
+		const offer = offered(tree);
+		if (offer === undefined) {
 			const retained = plan.retained.find((one) => one.path === path);
 			outcome.kept.push({
 				path: tree.path,
@@ -580,7 +590,14 @@ async function sweepRepository(
 			});
 			continue;
 		}
-		const remote = offered.pushed
+		if (cameBack.has(path)) {
+			outcome.kept.push({
+				path: tree.path,
+				why: "its quest claims it, and a live session took it up while the sweep judged it",
+			});
+			continue;
+		}
+		const remote = offer.pushed
 			? await remoteHolding(deps.exec, tree.path)
 			: undefined;
 		await takeBack(
@@ -590,13 +607,36 @@ async function sweepRepository(
 			tree,
 			{
 				path: tree.path,
-				...(offered.branch ? { branch: offered.branch } : {}),
+				...(offer.branch ? { branch: offer.branch } : {}),
 				...(remote ? { remote } : {}),
 				...(tree.sessions?.length ? { sessions: [...tree.sessions] } : {}),
 			},
 			outcome,
 		);
 	}
+}
+
+/**
+ * Which of `trees`, those a quest claims that the sweep would take, a
+ * live session works in now, asked again just before they go: a claimed
+ * tree is one a session comes back to, and judging a repository can take
+ * minutes after the census the sweep began with. The sessions' records
+ * and hosts' rosters are read afresh, and so are the processes, when the
+ * machine can say; when it can't, every one is kept.
+ */
+async function takenUpAgain(
+	deps: SweepDeps,
+	trees: readonly HeldTree[],
+): Promise<ReadonlySet<string>> {
+	if (trees.length === 0) return new Set();
+	const paths = trees.map((tree) => resolved(tree.path));
+	const inUse = (await treesInUse(deps, trees)).map((tree) =>
+		resolved(tree.path),
+	);
+	if (deps.busyAmong === undefined) return new Set(inUse);
+	const busy = await deps.busyAmong(paths);
+	if (busy === undefined) return new Set(paths);
+	return new Set([...inUse, ...busy]);
 }
 
 /**
