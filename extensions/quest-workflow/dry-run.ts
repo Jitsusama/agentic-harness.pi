@@ -53,11 +53,12 @@ const PREVIEWS: ReadonlySet<string> = new Set([
 	"spawn-pane",
 	"spawn-window",
 	"reopen-sessions",
+	"budget-sweep",
 ]);
 
 /** What the refusals say previews, so a caller knows where a dry run works. */
 const WHAT_PREVIEWS =
-	"Only reparent, conclude and retire of quests not loaded here, spawn and reopen-sessions take a dry run.";
+	"Only reparent, conclude and retire of quests not loaded here, spawn, reopen-sessions and budget-sweep take a dry run.";
 
 /**
  * The refusal for a call whose action would ignore its `dryRun`, or

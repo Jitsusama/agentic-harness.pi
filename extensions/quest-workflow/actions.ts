@@ -19,7 +19,8 @@ import {
  * below it, while core is not published. `need-add` and `need-remove`
  * say what a quest needs of a machine, in mycelium's words, which core
  * knows nothing of. `budget` names what a quest's model calls draw on,
- * which core knows nothing of either.
+ * which core knows nothing of either, and `budget-sweep` names one for
+ * every live quest nothing ever named one for.
  */
 const LOCAL_ACTIONS = [
 	"retitle",
@@ -30,6 +31,7 @@ const LOCAL_ACTIONS = [
 	"need-add",
 	"need-remove",
 	"budget",
+	"budget-sweep",
 ] as const;
 
 /** Every action the quest tool takes. */

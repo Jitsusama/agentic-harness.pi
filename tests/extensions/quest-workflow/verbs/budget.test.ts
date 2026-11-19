@@ -326,9 +326,13 @@ describe("a quest no folder or parent names a budget for", () => {
 	 * `confidence`; and a ctx whose registry serves Jev.
 	 */
 	function judged(
-		choice: string,
-		confidence: number,
-		options: { folder?: string; registry?: boolean } = {},
+		given: string,
+		sureness: number,
+		options: {
+			folder?: string;
+			registry?: boolean;
+			byTitle?: Record<string, readonly [string, number]>;
+		} = {},
 	) {
 		asked = [];
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
@@ -358,8 +362,14 @@ describe("a quest no folder or parent names a budget for", () => {
 			getAvailableOfType: async () => [
 				{ provider: "typesafe", id: "jev-latest" },
 			],
-			classify: async (_model: unknown, context: { state: unknown }) => {
+			classify: async (
+				_model: unknown,
+				context: { state: { title?: unknown } },
+			) => {
 				asked.push({ work: context.state, state: context.state });
+				const [choice, confidence] = options.byTitle?.[
+					String(context.state.title)
+				] ?? [given, sureness];
 				return {
 					api: "typesafe-system-one",
 					provider: "typesafe",
@@ -478,6 +488,92 @@ describe("a quest no folder or parent names a budget for", () => {
 			undefined,
 		);
 		expect(asked).toEqual([]);
+	});
+
+	describe("swept", () => {
+		/** Quests made with no classifier, then a sweeper that has one. */
+		async function unnamed() {
+			const plain = judged("none", 0, { registry: false });
+			succeeded(await plain.run({ action: "create", title: "Walgit Packs" }));
+			const walgit = plain.state.questId as string;
+			const made = (title: string, more = {}) =>
+				plain
+					.run({ action: "create", title, ...more })
+					.then((result) => succeeded(result).details?.id as string);
+			const fans = await made("Laptop Fans");
+			const vague = await made("Something Vague");
+			const sealed = await made("Old Delta Work");
+			succeeded(await plain.run({ action: "conclude", id: sealed }));
+			const mine = await made("Mine");
+			succeeded(await plain.run({ action: "budget", id: mine, ref: "none" }));
+			const under = await made("Delta Under Mine", {
+				kind: "subquest",
+				parent: mine,
+			});
+			const sweeper = judged("none", 0, {
+				byTitle: {
+					"Walgit Packs": ["delta", 0.95],
+					"Laptop Fans": ["none", 0.9],
+					"Something Vague": ["aquifer", 0.5],
+					"Old Delta Work": ["delta", 0.99],
+					"Delta Under Mine": ["delta", 0.99],
+				},
+			});
+			return { ...sweeper, walgit, fans, vague, sealed, under };
+		}
+
+		it("names each live quest nothing names a budget for that a sure judgement names, and says the rest", async () => {
+			const { state, run, walgit, fans, vague, sealed, under } =
+				await unnamed();
+
+			const swept = succeeded(await run({ action: "budget-sweep" }));
+
+			expect(budgetIn(state.questsRoot, walgit)).toBe("delta");
+			for (const id of [fans, vague, sealed, under]) {
+				expect(budgetIn(state.questsRoot, id), id).toBeUndefined();
+			}
+			expect(asked.map((one) => one.state)).toEqual(
+				expect.not.arrayContaining([
+					{ title: "Old Delta Work" },
+					{ title: "Delta Under Mine" },
+				]),
+			);
+			expect(swept.message.split("\n")[0]).toBe(
+				"Swept 3 live quests drawing on no budget: 1 named, 1 judged personal, 1 unsure, 0 unjudged.",
+			);
+			expect(swept.message).toContain(`- ${walgit}: delta, judged by "judge"`);
+			expect(swept.message).toContain(`- ${vague}: best guess aquifer`);
+			expect(swept.message).toContain(`Judged personal: ${fans}.`);
+			expect(journeyOf(join(state.questsRoot, vague))).toContain(
+				"Budget: unsure, so none named.",
+			);
+		});
+
+		it("writes nothing on a dry run, saying what it would name", async () => {
+			const { state, run, walgit, vague } = await unnamed();
+
+			const swept = succeeded(
+				await run({ action: "budget-sweep", dryRun: true }),
+			);
+
+			expect(budgetIn(state.questsRoot, walgit)).toBeUndefined();
+			expect(swept.message).toContain("Dry run, nothing written.");
+			expect(swept.message).toContain("Would name:");
+			expect(journeyOf(join(state.questsRoot, vague))).not.toContain(
+				"unsure",
+			);
+		});
+
+		it("takes a quest's budget from the folder its session ran in before judging it", async () => {
+			const plain = judged("none", 0, { registry: false });
+			succeeded(await plain.run({ action: "create", title: "Here" }));
+			const id = plain.state.questId as string;
+			const { state, run } = judged("delta", 0.99, { folder: tmpRoot });
+
+			succeeded(await run({ action: "budget-sweep" }));
+
+			expect(budgetIn(state.questsRoot, id)).toBe("aquifer");
+		});
 	});
 
 	it("is made unjudged when the session has no classifier, saying nothing of a budget", async () => {
