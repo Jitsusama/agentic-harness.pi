@@ -1,7 +1,14 @@
 /**
  * Scope: the groups a peer's work puts it in.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	statSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -106,6 +113,33 @@ describe("a checkout's repository key", () => {
 		const at = checkoutWith(undefined);
 		expect(repositoryKey(at)).toBeUndefined();
 		rmSync(at, { recursive: true, force: true });
+	});
+
+	// Every presence publish asks for each held tree's key, and core.nix's
+	// config is half a megabyte: rereading it each time held the host's
+	// loop busy (19 November).
+	it("reads a checkout's config once, until the config changes", () => {
+		const at = checkoutWith("https://github.com/Jitsusama/mycelium.git");
+		const config = join(at, ".git", "config");
+		try {
+			expect(repositoryKey(at)).toBe("github:Jitsusama/mycelium");
+			const { atime, mtime } = statSync(config);
+			writeFileSync(
+				config,
+				'[remote "origin"]\n\turl = https://github.com/Jitsusama/core.nix.git\n',
+			);
+			utimesSync(config, atime, mtime);
+			expect(
+				repositoryKey(at),
+				"a config whose time stands is not read again",
+			).toBe("github:Jitsusama/mycelium");
+			utimesSync(config, atime, new Date(mtime.getTime() + 1_000));
+			expect(repositoryKey(at), "a config that changed is read again").toBe(
+				"github:Jitsusama/core.nix",
+			);
+		} finally {
+			rmSync(at, { recursive: true, force: true });
+		}
 	});
 });
 
