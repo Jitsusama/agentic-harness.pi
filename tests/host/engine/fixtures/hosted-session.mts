@@ -269,7 +269,10 @@ let note = (_event: {
 	readonly waiting?: number;
 	readonly ms?: number;
 	readonly first?: boolean;
-	/** Whether the agent still counted a run under way once the step returned. */
+	/**
+	 * Whether a run was under way at the event: the agent's, once a step
+	 * returned, or pi's, as words were sent.
+	 */
 	readonly streaming?: boolean;
 	/** The signal a command started now would stop with: none, one still live, or one already aborted. */
 	readonly signal?: "none" | "live" | "aborted";
@@ -277,7 +280,6 @@ let note = (_event: {
 	readonly sectioned?: boolean;
 	readonly prompt?: string;
 	readonly paired?: boolean;
-	readonly streaming?: boolean;
 }): void => {};
 
 /** Answer only after SLOW_FIRST_TOKEN_MS, as a provider that pays an abort no heed does. */

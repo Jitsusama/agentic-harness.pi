@@ -21,7 +21,10 @@ export interface Observed {
 		readonly first?: boolean;
 		/** What a step threw, for an event that notes one. */
 		readonly error?: string;
-		/** Whether the agent still counted a run under way once the step returned. */
+		/**
+		 * Whether a run was under way at the event: the agent's, once a step
+		 * returned, or pi's, as words were sent.
+		 */
 		readonly streaming?: boolean;
 		/** What began a run pi prepared: a person's words, a custom message or a run carried on. */
 		readonly trigger?: unknown;
@@ -31,8 +34,6 @@ export interface Observed {
 		readonly prompt?: string;
 		/** Whether each tool result in a request follows its call's answer. */
 		readonly paired?: boolean;
-		/** Whether pi had a run under way as words were sent. */
-		readonly streaming?: boolean;
 	}[];
 	readonly transcript: readonly {
 		readonly role: string;
