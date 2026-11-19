@@ -911,7 +911,16 @@ const scenarios: Record<string, Scenario> = {
 		responses: () => [say("after the restart")],
 		tools: echo(async () => noteEffect("ping")),
 		during: async () => {
-			await preparing;
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const began = await Promise.race([
+				preparing.then(() => true),
+				new Promise<boolean>((done) => {
+					// A bound, so a runtime whose pi never prepares the run fails the case in seconds rather than at vitest's timeout.
+					timer = setTimeout(() => done(false), STALL_MS);
+				}),
+			]);
+			clearTimeout(timer);
+			if (!began) note({ type: "never prepared" });
 			note({ type: "parking" });
 			await parkAndClose();
 		},
@@ -1207,7 +1216,11 @@ try {
 		holdMessagesThroughCarriedTurns(session, conversation.agent, (error) =>
 			process.stderr.write(`held message reported: ${String(error)}\n`),
 		);
-		conversation.agent.joinSession(session);
+		conversation.agent.joinSession(session, (error) =>
+			process.stderr.write(
+				`pi's run for the host reported: ${String(error)}\n`,
+			),
+		);
 	}
 	stopHost = () => {
 		// As the engine's release does for a stopping host, then the process ends before any turn does.
