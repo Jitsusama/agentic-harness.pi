@@ -138,16 +138,21 @@ describe("a standing context in the prompt", () => {
 		expect(h.last().returned?.systemPrompt).toBeUndefined();
 	});
 
-	it("keeps its section in a run a host carries on, and says a change once, which pi holds for the next prompt", async () => {
+	it("keeps its section in a run a host carries on, and leaves a change for the next prompt to say", async () => {
+		// pi holds a carried run's message in memory for the next prompt, so one given there is lost to a stop before it.
 		const state = { current: "A" as string | null };
 		const h = harness(state);
 		await h.start();
 		await h.prompt();
 		state.current = "B";
 
-		expect(await h.prompt("continue")).toBe("[Probe] Now: B.");
+		expect(await h.prompt("continue"), "the carried run says nothing").toBe(
+			undefined,
+		);
 		expect(h.last().sections).toEqual({ "probe-context": "[Probe] A" });
-		expect(await h.prompt(), "said once already").toBeUndefined();
+		await h.start();
+		expect(await h.prompt(), "the next prompt says it").toBe("[Probe] Now: B.");
+		expect(await h.prompt(), "said once").toBeUndefined();
 	});
 });
 

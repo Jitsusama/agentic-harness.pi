@@ -88,6 +88,50 @@ describe("the agent's own runs in pi", () => {
 		expect(fromLater, "a start that failed later").toEqual([]);
 	});
 
+	it("says a run pi failed to prepare, which goes on without its sections", async () => {
+		const said: unknown[] = [];
+		const runs = new PiRuns(() => false);
+		runs.tell(
+			{ runForHost: () => Promise.reject(new Error("a handler threw")) },
+			(error) => said.push(error),
+		);
+
+		await runs.holding(() => runs.opening());
+
+		expect(said.map(String), "the failure is said").toEqual([
+			expect.stringContaining("a handler threw"),
+		]);
+	});
+
+	it("says a run pi took too long to prepare, and nothing for a stopped one", async () => {
+		vi.useFakeTimers();
+		try {
+			const said: unknown[] = [];
+			const overdue = new PiRuns(() => false);
+			overdue.tell({ runForHost: () => new Promise(() => {}) }, (error) =>
+				said.push(error),
+			);
+			const stopped = new PiRuns(() => false);
+			stopped.tell({ runForHost: () => new Promise(() => {}) }, (error) =>
+				said.push(error),
+			);
+			const stop = new AbortController();
+			const releases = [overdue.hold(), stopped.hold()];
+			void overdue.opening();
+			void stopped.opening(stop.signal);
+			stop.abort();
+
+			await vi.advanceTimersByTimeAsync(PREPARING_MS);
+			await Promise.all(releases.map((release) => release()));
+
+			expect(said.map(String), "only the overdue run is said").toEqual([
+				expect.stringContaining("to prepare the host's run"),
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("goes on without pi's preparation once it is overdue", async () => {
 		// A handler that never answers would hold one of the host's resume slots for good.
 		vi.useFakeTimers();

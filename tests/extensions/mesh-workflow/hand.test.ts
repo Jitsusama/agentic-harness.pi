@@ -303,7 +303,7 @@ describe("a peer's hand", () => {
 		expect(said).toEqual([`The mesh hold [${shortId(hold)}] is over.`]);
 	});
 
-	it("holds back a carried run's heavy work, telling it of the holds standing", async () => {
+	it("holds back a carried run's heavy work, saying the holds standing for the prompt after it", async () => {
 		// pi gives a carried run's message to the prompt after it; the hold
 		// itself refuses the run's heavy commands in the meantime.
 		othersHold("hold builds: rebooting");

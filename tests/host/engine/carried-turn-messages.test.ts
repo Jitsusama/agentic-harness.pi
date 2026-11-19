@@ -98,11 +98,26 @@ describe("an extension's message during a turn the host carries on", () => {
 		expect(written).toEqual(["a word pi kept", "disposed"]);
 	});
 
-	it("says nothing lost when an idle pi has no flush, since it counts no run to hold for", () => {
+	it("says nothing lost when an idle pi with no flush is seen to hold nothing", () => {
 		const { session, written, reported } = carrying();
+		Reflect.set(session, "_pendingCustomMessages", []);
 		session.dispose();
 		expect(written).toEqual(["disposed"]);
 		expect(reported, "nothing was said lost").toEqual([]);
+	});
+
+	it.each([
+		{ which: "a word it kept", held: ["a word pi kept"] },
+		{ which: "what it can't be seen to hold", held: undefined },
+	])("is said lost when an idle pi with no flush holds $which", ({ held }) => {
+		// pi keeps words past a run whose work failed, idle by then, so idle alone doesn't mean nothing is held.
+		const { session, written, reported } = carrying();
+		Reflect.set(session, "_pendingCustomMessages", held);
+		session.dispose();
+		expect(written, "the session still lets go").toEqual(["disposed"]);
+		expect(String(reported[0]), "what was lost is said").toContain(
+			"_flushPendingCustomMessages",
+		);
 	});
 
 	it("is said lost when pi has no flush to write what it held", () => {
