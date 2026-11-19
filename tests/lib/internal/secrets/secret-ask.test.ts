@@ -324,9 +324,14 @@ describe("runsPasswords", () => {
 		expect(runsPasswords(47, proc, 1000), "no such pid").toBe(false);
 		expect(runsPasswords(48, proc, 1000), "died, not yet reaped").toBe(false);
 		expect(runsPasswords(42, proc, -1), "no account to compare").toBe(false);
+		runs(49, "passwords", "1000\t1000\t1000\t1000", "X (dead)");
+		expect(runsPasswords(49, proc, 1000), "dead").toBe(false);
 	});
 
-	it.runIf(process.platform === "linux")(
+	// Root reads any exe link, non-dumpable or not, so the premise holds
+	// only for an ordinary account; it also needs fs.suid_dumpable at 0,
+	// its default, which keeps an unreadable program's process non-dumpable.
+	it.runIf(process.platform === "linux" && process.getuid?.() !== 0)(
 		"knows a running passwords program from any other of this account's",
 		async () => {
 			const program = join(dir, "passwords");
@@ -347,16 +352,28 @@ describe("runsPasswords", () => {
 			const runtime = mkdtempSync(join(tmpdir(), "answered-"));
 			try {
 				const pid = daemon.pid ?? 0;
-				await expect.poll(() => failed ?? runsPasswords(pid)).toBe(true);
+				await expect
+					.poll(() => failed ?? runsPasswords(pid), { timeout: 5000 })
+					.toBe(true);
+				expect(
+					readlinkSync(`/proc/${process.pid}/exe`),
+					"a dumpable one's",
+				).toBe(realpathSync(process.execPath));
 				expect(
 					() => readlinkSync(`/proc/${pid}/exe`),
 					"a non-dumpable process's exe",
-				).toThrow();
+				).toThrow(expect.objectContaining({ code: "EACCES" }));
 				expect(runsPasswords(process.pid), "this process, node").toBe(false);
 				mkdirSync(join(runtime, "secret-asks"));
 				writeFileSync(join(runtime, "secret-asks", "answering"), `${pid}\n`);
 				expect(asksAnswered(runtime), "its sign, read from the machine").toBe(
 					true,
+				);
+				const exited = new Promise((done) => daemon.once("exit", done));
+				daemon.kill("SIGKILL");
+				await exited;
+				expect(asksAnswered(runtime), "the sign a killed daemon left").toBe(
+					false,
 				);
 			} finally {
 				daemon.kill();

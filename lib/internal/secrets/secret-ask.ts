@@ -139,10 +139,13 @@ export interface RouteReads {
  * unless the process has since renamed itself, so another program of
  * Joel's that a reused pid now names doesn't read as the daemon by
  * accident, and nor does another account's, or one that has died and not
- * yet been reaped. It tells a leftover sign from a live one; it doesn't
- * stop one of Joel's own programs posing as the daemon, which the fence
- * keeps agents' commands from. Where there's no /proc, as on a Mac,
- * nothing reads as the daemon, which is right: it runs only on Linux.
+ * yet been reaped. It tells a leftover sign from a live one by accident's
+ * measure only: a process of Joel's, fenced or not, could rename itself
+ * and take the pid a leftover sign names. The fence keeps agents' commands
+ * from writing a sign, not from that, and a pose gains nothing but an ask
+ * filed with nobody to answer it, which waits out its deadline. Where
+ * there's no /proc, as on a Mac, nothing reads as the daemon, which is
+ * right: it runs only on Linux.
  */
 export function runsPasswords(
 	pid: number,
