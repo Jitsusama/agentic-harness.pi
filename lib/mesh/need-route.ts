@@ -223,15 +223,27 @@ export const MOST_SUBJECT_WORDS = 12;
  */
 const SUBJECT_BREAK = /[:./]/;
 
-/** A subject's parts, broadest first. */
+/**
+ * A systemd unit's type, ending a subject that names a unit whole, as
+ * owner prefixes such as `unstamped:agents.service` do. The type says
+ * what kind of unit it is, never what it works on, so it is no part.
+ */
+const UNIT_TYPE =
+	/\.(?:service|socket|timer|target|path|mount|automount|swap|slice|scope|device)$/;
+
+/** A subject's parts, broadest first, leaving out a unit's type. */
 function subjectParts(subject: string): string[] {
-	return subject.split(SUBJECT_BREAK).filter((part) => part !== "");
+	return subject
+		.replace(UNIT_TYPE, "")
+		.split(SUBJECT_BREAK)
+		.filter((part) => part !== "");
 }
 
 /**
  * The words of a subject's narrowest part, the one after its last colon,
  * dot or slash: `mycelium:easing` gives `easing`, `health.asks.` gives
- * `asks`. A narrowest part with no word long enough gives none, rather
+ * `asks`, and `unstamped:agents.service` gives `agents`, since a unit's
+ * type is left out. A narrowest part with no word long enough gives none, rather
  * than a broader part's.
  */
 export function subjectWords(subject: string): string[] {

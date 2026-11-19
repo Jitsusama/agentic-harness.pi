@@ -92,6 +92,20 @@ describe("the words a cell's declared subjects give it", () => {
 		expect(subjectWords("")).toEqual([]);
 	});
 
+	it("reads a unit's name as its narrowest part, never its type", () => {
+		// Owner prefixes name units whole, and a unit's type is no subject:
+		// every service would otherwise claim one word and lose its own.
+		expect(subjectWords("unstamped:agents.service")).toEqual(["agents"]);
+		expect(subjectWords("failed:pulse-sampler.service")).toEqual([
+			"pulse",
+			"sampler",
+		]);
+		expect(subjectWords("unstamped:repos.timer")).toEqual(["repos"]);
+		expect(subjectWords("failed:com.shopify.monobus.service")).toEqual([
+			"monobus",
+		]);
+	});
+
 	it("breaks a subject at a slash, as a repository's scope does", () => {
 		expect(subjectWords("github:Jitsusama/mycelium")).toEqual(["mycelium"]);
 	});
