@@ -67,17 +67,14 @@ export function isPidAlive(pid: number): boolean {
 	}
 }
 
-/** Record who owns this profile, which Chrome pid it launched, and how a
- * separate process can reach that same browser. */
+/** Record who owns this profile and which Chrome pid it launched. */
 export function writeOwnerRecord(
 	profileDir: string,
 	browserPid?: number,
-	browserWSEndpoint?: string,
 ): void {
 	const record: OwnerRecord = {
 		ownerPid: process.pid,
 		browserPid,
-		browserWSEndpoint,
 	};
 	try {
 		fs.writeFileSync(ownerFile(profileDir), JSON.stringify(record));

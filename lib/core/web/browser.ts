@@ -34,7 +34,6 @@ export {
 	shouldCloseWhenIdle,
 	shouldForceKill,
 } from "./browser/idle.ts";
-export { connectShared } from "./browser/launch.ts";
 export { holdEventLoop, releaseEventLoop } from "./browser/loop.ts";
 export { isPidAlive } from "./browser/profile.ts";
 export {

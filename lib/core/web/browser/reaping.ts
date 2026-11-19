@@ -68,15 +68,6 @@ export interface OwnerRecord {
 	ownerPid: number;
 	/** Pid (and process-group leader) of the Chrome this process launched. */
 	browserPid?: number;
-	/**
-	 * The browser-wide DevTools WebSocket URL, when Chrome published one.
-	 * A separate process passes this to connectShared() to attach to this
-	 * same browser instead of launching its own. Absent when the port
-	 * file never appeared or the DevTools HTTP endpoint never answered;
-	 * either way the owning process's own pipe-based connection, which
-	 * does not depend on this, is unaffected.
-	 */
-	browserWSEndpoint?: string;
 }
 
 /** Inputs for reaping Chrome trees and profile dirs a dead owner left behind. */
