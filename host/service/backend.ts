@@ -681,12 +681,16 @@ export const RESUME_AT_ONCE = 4;
  * order is the one they asked in, roughly the order held, since a few
  * resume at once.
  * One no longer held when its turn comes, closed while the start ran,
- * is passed over.
+ * is passed over. Once `halted` says so, as a stop does, none begins:
+ * those under way end, and the rest stay held for the next start.
+ * `settled` hears each one's id as its turn ends, however it ended.
  */
 export async function resumeHeld(options: {
 	roster: HostRoster;
 	engine: ConversationEngine;
 	admitAnother?: AdmitAnother;
+	halted?: () => boolean;
+	settled?: (sessionId: string) => void;
 	starting?: (step: Resuming) => Promise<void>;
 	mark?: (step: Resuming, phase: ResumePhase) => void;
 	finished?: (step: Resuming, end: ResumeEnd, reason?: unknown) => void;
@@ -741,14 +745,18 @@ export async function resumeHeld(options: {
 			failure = reason;
 		} finally {
 			order.settled(sessionId);
+			options.settled?.(sessionId);
 			if (began) options.finished?.(step, end, failure);
 		}
 	}
 
+	const halted = () => options.halted?.() ?? false;
+	/** The next the order owes, or none once halted. */
+	const next = () => (halted() ? undefined : order.next());
+
 	/** Take the next as each ends, until the order owes no more. */
 	async function resumeRest(): Promise<void> {
-		for (let entry = order.next(); entry; entry = order.next())
-			await resumeOne(entry);
+		for (let entry = next(); entry; entry = next()) await resumeOne(entry);
 	}
 
 	options.engine.resuming?.(
@@ -757,7 +765,7 @@ export async function resumeHeld(options: {
 	try {
 		// Alone until one resumes, so the rollout gate's first runs by itself.
 		while (resumed.length === 0) {
-			const entry = order.next();
+			const entry = next();
 			if (!entry) break;
 			await resumeOne(entry);
 		}
