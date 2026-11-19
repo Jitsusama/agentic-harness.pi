@@ -1,8 +1,9 @@
 # Mesh Library Tests
 
 The tests of `lib/mesh`, a file for each of its modules, and for
-`need-route` a second, `need-route-subjects`, for routing by the
-subjects cells declare.
+`need-route` two more: `need-route-subjects`, for routing by the
+subjects cells declare, and `need-route-service-units`, for subjects
+naming a service unit whole.
 
 - `support/`: the needs, cells and ties the need-routing tests build.
 

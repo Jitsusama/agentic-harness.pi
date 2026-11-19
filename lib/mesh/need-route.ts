@@ -34,11 +34,11 @@
  * `easing`, never `mycelium`, since declaring a narrow subject claims
  * nothing of the broader one, and `unstamped:agents.service` gives
  * `agents`. At most `MOST_SUBJECTS` are read from a cell and
- * `MOST_SUBJECT_WORDS` words taken from them, and a need keeps the words that route it rarest
- * first, so a cell declaring many can't crowd it, nor its asker's own.
- * That routes a message and grants nothing: a need finds who works on
- * something, and a yes, a ruling or a grant still comes only from the
- * owner named by address.
+ * `MOST_SUBJECT_WORDS` words taken from them, and a need keeps the
+ * words that route it rarest first, so a cell declaring many can't
+ * crowd it, nor its asker's own. That routes a message and grants
+ * nothing: a need finds who works on something, and a yes, a ruling or
+ * a grant still comes only from the owner named by address.
  */
 
 import { createHash, randomBytes } from "node:crypto";

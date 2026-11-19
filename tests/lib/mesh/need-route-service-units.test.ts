@@ -5,8 +5,26 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { foragersFrom, subjectWords } from "../../../lib/mesh/need-route.ts";
+import {
+	foragersFrom,
+	type NeedAsked,
+	subjectWords,
+} from "../../../lib/mesh/need-route.ts";
 import { asked, cells, routeNeed, ties } from "./support/needs.ts";
+
+/**
+ * How many needs, each its own id, a depth ranking is judged over: two
+ * hubs as deep are shared out among needs by a hash, so one need alone
+ * can't tell a deeper hub from a tie.
+ */
+const SHARED_NEEDS = 40;
+
+/** `SHARED_NEEDS` needs from `asker` about `words`, each its own id. */
+const numbered = (asker: string, ...words: string[]): NeedAsked[] =>
+	Array.from({ length: SHARED_NEEDS }, (_, at) => ({
+		...asked(asker, ...words),
+		need: `${asker}/${at}`,
+	}));
 
 /** The node's list of one cell declaring two service units, as it says it. */
 const NODE_CELL = JSON.stringify({
@@ -78,17 +96,22 @@ describe("a need routed by a subject naming a service unit", () => {
 	});
 
 	it("counts no part for a unit's type when ranking hubs by depth", () => {
-		const found = routeNeed(asked("A", "agents"), {
-			foragers: cells({ A: [], U: ["agents"], D: ["agents"] }),
-			ties: ties(),
-			hubs: [
-				{ subject: "unstamped:agents.service", hub: "U", fits: ["U"] },
-				{ subject: "a:b:agents", hub: "D", fits: ["D"] },
-			],
-		});
+		// Were the type a part, both hubs would be three deep and the needs
+		// shared between them; as no part, every one goes to the deeper.
+		const fits = numbered("A", "agents").map(
+			(need) =>
+				routeNeed(need, {
+					foragers: cells({ A: [], U: ["agents"], D: ["agents"] }),
+					ties: ties(),
+					hubs: [
+						{ subject: "unstamped:agents.service", hub: "U", fits: ["U"] },
+						{ subject: "a:b:agents", hub: "D", fits: ["D"] },
+					],
+				}).fit,
+		);
 
-		expect(found, "three parts beat the unit's two").toMatchObject({
-			fit: "D",
-		});
+		expect(new Set(fits), "three parts beat the unit's two").toEqual(
+			new Set(["D"]),
+		);
 	});
 });
