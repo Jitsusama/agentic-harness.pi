@@ -13,8 +13,8 @@
  *
  * So a short reply that says it waits on work, gives no figure or time
  * for how far it has got or when it reports, and names no job but one
- * still running, is a bare wait while a job runs, and is sent back once, naming the jobs running and asking
- * for those four things. The run that answers is never sent back, so a
+ * still running, is a bare wait while a job runs, and is sent back
+ * once, naming the jobs running and asking for those four things. The run that answers is never sent back, so a
  * model that answers bare again rests, and the bare run's tool calls
  * count in its answer's, for away mode and carrying on to judge the two
  * as the one run they are. A run that asks the person something, or
