@@ -16,7 +16,13 @@
  * draws on its own quest's.
  *
  * A name no provider knows, or one a provider cannot draw on now,
- * leaves the session on its default and says why, once a name. The
+ * leaves the session on its default and says so in three places, each
+ * naming the budget and what's missing: a notice, once a name; a
+ * warning in the system's journal; and the session's log, whose entry
+ * draws a line in the session and lets spend-watch count the sessions
+ * that fell to the person's key against their quest's word. A provider
+ * that fails or is late saying a folder's budget is journalled too,
+ * since the quest it leaves unnamed draws on that key as well. The
  * session's log says the budget drawn on (lib/budget/record.ts) each
  * time it changes, so whatever prices the log knows whose money each
  * request spent, and the bus says it each time it settles, for
@@ -29,6 +35,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import {
 	layBudget,
 	liftBudget,
@@ -45,10 +52,16 @@ import {
 	type BudgetRecord,
 	type BudgetSettled,
 	budgetDrawnOn,
-	lastRecorded,
+	lastRecordOn,
+	recordIn,
+	type UnresolvedBudget,
 } from "../../lib/budget/record.ts";
 import { sessionEnv } from "../../lib/core/session/index.ts";
 import { budgetInRecord } from "../../lib/internal/quest/fields/budget.ts";
+import {
+	journalCommand,
+	sayInJournal,
+} from "../../lib/internal/session/journal.ts";
 import type { QuestState } from "./state.ts";
 
 /** What keeps the session on its quest's budget. */
@@ -91,12 +104,28 @@ export function budgetOfFolder(
 	return folderBudgets.get(state)?.(folder) ?? Promise.resolve(undefined);
 }
 
+/** Where a keeper says what went wrong; the system's journal unless a test says. */
+export interface BudgetKeeperOptions {
+	readonly journal?: (line: string) => void;
+}
+
+/** Write a line to the system's journal at warning. */
+function warnInJournal(line: string): void {
+	sayInJournal(line, journalCommand("warning"));
+}
+
 /** Host budget providers and keep the session on its quest's budget. */
 export function keepQuestBudget(
 	pi: ExtensionAPI,
 	state: QuestState,
+	options: BudgetKeeperOptions = {},
 ): BudgetKeeper {
-	const host = hostBudgets(pi.events);
+	const journal = options.journal ?? warnInJournal;
+	const host = hostBudgets(pi.events, undefined, (trouble) =>
+		journal(
+			`budget provider ${trouble.provider} couldn't say which budget ${trouble.folder} draws on, so it draws on none: ${trouble.why}`,
+		),
+	);
 	folderBudgets.set(state, (folder) => host.budgetFor(folder));
 	/** The name last drawn on or asked for, null for none. */
 	let wanted: string | null | undefined;
@@ -143,7 +172,13 @@ export function keepQuestBudget(
 			return;
 		}
 		liftBudget(sessionEnv(ctx), processOverlay(ctx));
-		recordDrawn(pi, ctx);
+		const unresolved = { budget: name, missing: missingFrom(drawing) };
+		if (recordDrawn(pi, ctx, undefined, unresolved)) {
+			const quest = state.questId ? `quest ${state.questId}` : "the quest";
+			journal(
+				`${quest} names budget ${name}, which can't be drawn on: ${unresolved.missing}; model calls use the session's default`,
+			);
+		}
 		if (told.has(name)) return;
 		told.add(name);
 		ctx.ui.notify(undrawable(name, drawing), "warning");
@@ -178,23 +213,72 @@ export function keepQuestBudget(
  * environment, so a budget inherited from the process that started
  * this one is what's written when this session lays none of its own.
  * The bus hears it every time, written or not, since a footer that
- * loaded after the entry was written still needs telling.
+ * loaded after the entry was written still needs telling. With
+ * `unresolved`, the entry says the budget the quest named and what
+ * was missing, and is written again when that changes though the name
+ * drawn on doesn't. Says whether it wrote one.
  */
 function recordDrawn(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	drawing?: { readonly provider: string; readonly label: string },
-): void {
+	unresolved?: UnresolvedBudget,
+): boolean {
 	const name = budgetDrawnOn(sessionEnv(ctx).snapshot());
 	const settled: BudgetSettled = { name };
 	pi.events.emit(BUDGET_SETTLED, settled);
 	const branch = ctx.sessionManager?.getBranch?.() ?? [];
-	if (lastRecorded(branch) === name) return;
+	const last = lastRecordOn(branch);
+	if (
+		last?.name === name &&
+		last.unresolved?.budget === unresolved?.budget &&
+		last.unresolved?.missing === unresolved?.missing
+	)
+		return false;
 	const record: BudgetRecord =
 		drawing && name !== null
 			? { v: 1, name, label: drawing.label, provider: drawing.provider }
-			: { v: 1, name };
+			: { v: 1, name, ...(unresolved ? { unresolved } : {}) };
 	pi.appendEntry(BUDGET_ENTRY, record);
+	return true;
+}
+
+/** What was missing for a budget not drawn on, in a few words. */
+function missingFrom(
+	drawing: Exclude<BudgetDrawing, { kind: "drawn" }>,
+): string {
+	if (drawing.kind === "unavailable") {
+		return `${drawing.provider}: ${drawing.reason}`;
+	}
+	return drawing.asked.length === 0
+		? "no budget provider is installed"
+		: `no budget provider knows it (asked ${drawing.asked.join(", ")})`;
+}
+
+/** The colours a budget line is drawn in. */
+interface BudgetTheme {
+	fg(colour: "warning", text: string): string;
+}
+
+/**
+ * The line a `budget` entry draws in the session: one for a budget the
+ * quest named but the session couldn't draw on, and nothing for any
+ * other, which is the log's alone.
+ */
+export function budgetEntryView(
+	data: unknown,
+	theme: BudgetTheme,
+): Text | undefined {
+	const unresolved = recordIn(data)?.unresolved;
+	if (!unresolved) return undefined;
+	return new Text(
+		theme.fg(
+			"warning",
+			`Budget ${unresolved.budget} isn't drawn on (${unresolved.missing}); model calls use the session's default. \`quest budget\` names another.`,
+		),
+		0,
+		0,
+	);
 }
 
 /**

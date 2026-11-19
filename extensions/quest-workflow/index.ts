@@ -19,6 +19,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { BUDGET_ENTRY } from "../../lib/budget/record.ts";
 import { registerBuiltinTreeProviders } from "../../lib/core/tree/register.ts";
 import {
 	getSection,
@@ -34,7 +35,7 @@ import { registerStandingContext } from "../../lib/prompt/standing.ts";
 import { registerBuiltinRefTypes } from "../../lib/refs/register.ts";
 import { registerBuiltinTerminalDrivers } from "../../lib/terminal/register.ts";
 import { registerBatchingTrial } from "./batching-trial.ts";
-import { keepQuestBudget } from "./budget.ts";
+import { budgetEntryView, keepQuestBudget } from "./budget.ts";
 import { answerTreeClaims, forgetSweptTrees } from "./claims.ts";
 import {
 	parseQuestWorkflowConfig,
@@ -103,6 +104,11 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	// The model calls draw on the budget the loaded quest names, and what
 	// a name means is asked of the budget providers registered here.
 	const budgets = keepQuestBudget(pi, state);
+	// A budget the quest named but the session couldn't draw on is a line
+	// in the session; any other budget entry is the log's alone.
+	pi.registerEntryRenderer?.(BUDGET_ENTRY, (entry, _options, theme) =>
+		budgetEntryView(entry.data, theme),
+	);
 
 	// The agent's commands name the loaded quest, so the machine can
 	// share itself by quest, and their temporary files go where that

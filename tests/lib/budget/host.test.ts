@@ -246,6 +246,36 @@ describe("the budget a folder's work draws on", () => {
 		});
 	});
 
+	it("says which provider failed or was late, with the folder and why, and not one that names none", async () => {
+		const events = bus();
+		const troubles: unknown[] = [];
+		const host = hostBudgets(events, 20, (trouble) => troubles.push(trouble));
+		registerBudgetProvider(
+			events,
+			placing("throws", 0, async () => {
+				throw new Error("no map");
+			}),
+		);
+		registerBudgetProvider(
+			events,
+			placing("late", 1, () => new Promise(() => {})),
+		);
+		registerBudgetProvider(
+			events,
+			placing("quiet", 2, async () => undefined),
+		);
+
+		expect(await host.budgetFor("/src/delta")).toBeUndefined();
+		expect(troubles).toEqual([
+			{ provider: "throws", folder: "/src/delta", why: "it failed: no map" },
+			{
+				provider: "late",
+				folder: "/src/delta",
+				why: "it didn't answer within 20 ms",
+			},
+		]);
+	});
+
 	it("asks every provider at once, so the wait is one deadline however many are late", async () => {
 		const events = bus();
 		const host = hostBudgets(events, 200);
