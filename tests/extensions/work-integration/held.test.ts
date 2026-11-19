@@ -7,6 +7,7 @@
 import {
 	existsSync,
 	readdirSync,
+	rmSync,
 	statSync,
 	utimesSync,
 	writeFileSync,
@@ -76,6 +77,20 @@ describe("dating the trees it names", () => {
 
 		expect(written(), "naming a tree didn't date its use").toBeGreaterThan(
 			before,
+		);
+	});
+
+	// The broker's listing drops a tree whose folder went, so a take
+	// before the action reads as not held; the refusal in the action is
+	// for a take landing between that listing and the dating.
+	it("says a tree a sweep took is no longer held", async () => {
+		const { key, path } = await cut();
+		rmSync(path, { recursive: true, force: true });
+
+		const status = await work({ action: "status", tree: key });
+
+		expect(status.text).toBe(
+			`${GLYPH.refused} No held tree called ${key}: none are held.`,
 		);
 	});
 });

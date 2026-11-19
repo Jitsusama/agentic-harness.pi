@@ -110,14 +110,15 @@ export async function answerWork(
 			return refuse(`${GLYPH.refused} ${chooseTree(inPlay.candidates)}`);
 		}
 		// Dated as an ask, since a tree named here is read by path after,
-		// as one listed is. A quest's tree is the quest's to date.
+		// as one listed is. Only this session's own: dating holds a tree,
+		// and another session's or a quest's is theirs to hold.
 		const named = heldByName(held, inPlay.key);
 		if (
 			named !== undefined &&
 			(await datedHeld(broker, [named])).length === 0
 		) {
 			return refuse(
-				`${GLYPH.refused} ${inPlay.key} was taken by a sweep after going unused. Ask for it again with action 'tree' or 'snapshot'.`,
+				`${GLYPH.refused} ${inPlay.key} isn't where it was: a sweep may have taken it after it went unused. Ask for it again with action 'tree' or 'snapshot', which finds it if it stands.`,
 			);
 		}
 		const found = named ?? claimedTree(pi, inPlay.key);

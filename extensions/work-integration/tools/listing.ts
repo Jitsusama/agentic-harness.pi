@@ -18,19 +18,25 @@ import { CLAIMED_PROVIDER } from "./held.ts";
 import { type Answer, refuse, say } from "./shared.ts";
 
 /**
- * The held trees that still stand, each one's use dated. A listing is
- * how a reader finds a path to read by, and a reader by path leaves no
- * other sign, so a sweep would take a snapshot read hours after it was
- * cut. One a sweep took meanwhile is left out. One whose dating is
- * refused is still listed, since it is still held and a listing never
- * fails for its dating.
+ * The held trees that still stand, with the use of each this session
+ * holds dated. A listing is how a reader finds a path to read by, and a
+ * reader by path leaves no other sign, so a sweep would take a snapshot
+ * read hours after it was cut. One a sweep took meanwhile is left out.
+ * One whose dating is refused is still listed, since it is still held
+ * and a listing never fails for its dating.
+ *
+ * Only this session's own are dated. The broker lists every tree
+ * recorded on the machine, and dating one holds it, so dating them all
+ * made the lister an owner of every tree, which no sweep could then
+ * take; and each dating reads the whole record folder.
  */
 export async function datedHeld(
-	broker: Pick<TreeBroker, "used">,
+	broker: Pick<TreeBroker, "used" | "cutHere">,
 	held: readonly HeldTree[],
 ): Promise<HeldTree[]> {
 	const standing = await Promise.all(
 		held.map(async (tree) => {
+			if (!broker.cutHere(tree.path)) return tree;
 			try {
 				return (await broker.used(tree)) ? tree : undefined;
 			} catch {
