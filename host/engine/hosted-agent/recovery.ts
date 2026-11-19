@@ -132,9 +132,13 @@ export class Recovery {
 				await release();
 			})
 			.finally(async () => {
-				await release();
-				this.answered = undefined;
-				giveBack();
+				// pi's settle may throw as its run goes; the turn is given back whatever it did.
+				try {
+					await release();
+				} finally {
+					this.answered = undefined;
+					giveBack();
+				}
 			});
 		try {
 			await Promise.race([started, settled]);
