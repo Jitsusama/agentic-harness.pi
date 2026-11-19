@@ -102,6 +102,9 @@ const SAID_MOST = 1024;
 /** How long pi waits for output past a command's exit, as pi does. */
 const EXIT_STDIO_GRACE_MS = 100;
 
+/** How long a command given up on before it started is waited for, to be killed and seen to end. */
+const GIVEN_UP_GRACE_MS = 5000;
+
 /** The longest time limit pi takes, which is setTimeout's. */
 export const MAX_TIMEOUT_MS = 2_147_483_647;
 
@@ -607,7 +610,19 @@ async function runThrough(
 			`Working directory does not exist: ${cwd}\nCannot execute bash commands.`,
 		);
 	}
-	const run = link.run(shell.shell, [...shell.args, command], cwd, env, onData);
+	// A stop during the check sends nothing.
+	if (signal?.aborted) throw new Error("aborted");
+	// The call hears nothing more once it has settled.
+	let heard = true;
+	const run = link.run(
+		shell.shell,
+		[...shell.args, command],
+		cwd,
+		env,
+		(data) => {
+			if (heard) onData(data);
+		},
+	);
 	// The limit and a stop count from the ask, not from STARTED, so a
 	// spawner slow to start the command can't stretch either.
 	let pid: number | undefined;
@@ -633,9 +648,7 @@ async function runThrough(
 		else signal?.addEventListener("abort", stop, { once: true });
 		const first = await Promise.race([run.started, givenUp]);
 		if (typeof first !== "number") {
-			// It ended before the spawner said it started: kill it once it has.
-			run.started.then(kill, () => undefined);
-			run.done.catch(() => undefined);
+			await endOnceStarted(run, kill);
 			throw new Error(first === "aborted" ? "aborted" : `timeout:${timeout}`);
 		}
 		pid = first;
@@ -644,8 +657,39 @@ async function runThrough(
 		if (timedOut) throw new Error(`timeout:${timeout}`);
 		return { exitCode: exitCodeOf(ended) };
 	} finally {
+		heard = false;
 		clearTimeout(timer);
 		signal?.removeEventListener("abort", stop);
+	}
+}
+
+/**
+ * Ends a command given up on before its spawner said it started: killed
+ * once it starts, and waited for, so the call settles after it is gone,
+ * as pi's own spawn settles after its child closes. A spawner that says
+ * nothing is waited for only so long; the kill still follows a late start.
+ */
+async function endOnceStarted(
+	run: Run,
+	kill: (pid: number) => void,
+): Promise<void> {
+	const ended = run.started
+		.then((pid) => {
+			kill(pid);
+			return run.done;
+		})
+		.then(
+			() => undefined,
+			() => undefined,
+		);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const waited = new Promise<void>((settle) => {
+		timer = setTimeout(settle, GIVEN_UP_GRACE_MS);
+	});
+	try {
+		await Promise.race([ended, waited]);
+	} finally {
+		clearTimeout(timer);
 	}
 }
 

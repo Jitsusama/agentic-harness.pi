@@ -17,8 +17,9 @@
  * A sleep is a promise resolved by `setTimeout` after a number or a named
  * constant, an awaited `sleep`, `delay`, `pause`, `wait` or `setTimeout`
  * given one, or `Atomics.wait`. A delay named in lower case is a helper's
- * own parameter, whose callers are the sleeps. A file that drives fake
- * timers sleeps on none of them, so it is skipped.
+ * own parameter, whose callers are the sleeps. A file that fakes
+ * setTimeout sleeps on none of them, so it is skipped; one that fakes only
+ * other timers still sleeps on real ones, so it is read.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -61,9 +62,17 @@ function says(line: string): boolean {
 	);
 }
 
+/** Whether some source fakes setTimeout: fake timers given no list, or a list naming it. */
+function fakesSleeps(text: string): boolean {
+	return [...text.matchAll(/useFakeTimers\(([^)]*)\)/g)].some(
+		([, given = ""]) =>
+			!given.includes("toFake") || given.includes("setTimeout"),
+	);
+}
+
 /** How many sleeps in some source carry no comment on their line or the line above. */
 function uncommentedSleeps(text: string): number {
-	if (text.includes("useFakeTimers")) return 0;
+	if (fakesSleeps(text)) return 0;
 	const lines = text.split("\n");
 	let count = 0;
 	lines.forEach((line, at) => {
@@ -143,6 +152,12 @@ describe("the package's tests", () => {
 			uncommentedSleeps(`vi.useFakeTimers();\n${pause}`),
 			"a file on fake timers sleeps on none",
 		).toBe(0);
+		expect(
+			uncommentedSleeps(
+				`vi.useFakeTimers({ toFake: ["setInterval"] });\n${pause}`,
+			),
+			"a file faking only other timers still sleeps on real ones",
+		).toBe(1);
 	});
 
 	it("sleep a fixed time only where a comment says why", () => {

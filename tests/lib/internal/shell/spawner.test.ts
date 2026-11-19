@@ -240,24 +240,44 @@ describe("the agent's commands through pi-spawner", () => {
 		expect(kill).toHaveBeenCalledWith(55);
 	});
 
-	it("ends a command at its limit though its spawner never says it started, killing it once it does", async () => {
+	it("ends a command at its limit though its spawner never says it started, settling once it is killed and gone", async () => {
 		const { program, operations, kill } = through();
+		const heard: string[] = [];
 
 		const ran = operations.exec("sleep 9", "/", {
-			onData: () => {},
+			onData: (data) => heard.push(data.toString()),
 			env: {},
 			timeout: 0.05,
 		});
 		const ended = expect(ran, "how the command ended").rejects.toThrow(
 			"timeout:0.05",
 		);
+		let settled = false;
+		void ran.catch(() => {
+			settled = true;
+		});
 		await askedFor(program, 1);
 
-		await ended;
+		// Well past the 50 ms limit, which is what's measured.
+		await new Promise((passed) => setTimeout(passed, 200));
+		expect(settled, "settled before its command started").toBe(false);
 		program.started(1, 88);
 		await vi.waitFor(() =>
 			expect(kill, "what was killed").toHaveBeenCalledWith(88),
 		);
+		program.said(1, 1, "late\n");
+		await delivered();
+		expect(settled, "settled before its command ended").toBe(false);
+		program.closed(1, 1);
+		program.closed(1, 2);
+		program.exited(1, -1, 9);
+
+		await ended;
+		program.said(1, 1, "after\n");
+		await delivered();
+		expect(heard, "nothing reaches the call once it settled").toEqual([
+			"late\n",
+		]);
 	});
 
 	it("ends a command stopped before its spawner says it started, killing it once it does", async () => {
@@ -272,14 +292,24 @@ describe("the agent's commands through pi-spawner", () => {
 		const ended = expect(ran, "how the command ended").rejects.toThrow(
 			"aborted",
 		);
+		let settled = false;
+		void ran.catch(() => {
+			settled = true;
+		});
 		await askedFor(program, 1);
 		stopping.abort();
 
-		await ended;
+		await delivered();
+		expect(settled, "settled before its command started").toBe(false);
 		program.started(1, 89);
 		await vi.waitFor(() =>
 			expect(kill, "what was killed").toHaveBeenCalledWith(89),
 		);
+		program.closed(1, 1);
+		program.closed(1, 2);
+		program.exited(1, -1, 9);
+
+		await ended;
 	});
 
 	it("kills the command's group at its time limit, and says so as pi does", async () => {
