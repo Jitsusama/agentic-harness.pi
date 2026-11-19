@@ -124,9 +124,10 @@ describe("a checkout's repository key", () => {
 		try {
 			expect(repositoryKey(at)).toBe("github:Jitsusama/mycelium");
 			const { atime, mtime } = statSync(config);
+			// Another origin of the same length, so only the file's time can say it moved.
 			writeFileSync(
 				config,
-				'[remote "origin"]\n\turl = https://github.com/Jitsusama/core.nix.git\n',
+				'[core]\n\tbare = false\n[remote "origin"]\n\turl = https://github.com/Jitsusama/mycelia2.git\n',
 			);
 			utimesSync(config, atime, mtime);
 			expect(
@@ -135,7 +136,7 @@ describe("a checkout's repository key", () => {
 			).toBe("github:Jitsusama/mycelium");
 			utimesSync(config, atime, new Date(mtime.getTime() + 1_000));
 			expect(repositoryKey(at), "a config that changed is read again").toBe(
-				"github:Jitsusama/core.nix",
+				"github:Jitsusama/mycelia2",
 			);
 		} finally {
 			rmSync(at, { recursive: true, force: true });
