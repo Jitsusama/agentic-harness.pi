@@ -402,6 +402,34 @@ describe("a need routed by declared subjects", () => {
 		expect([...taken.entries()]).toEqual([["F3", SHARED_NEEDS]]);
 	});
 
+	it.each([
+		["a gone hub", "H0"],
+		["a hub whose fit is gone", "F0"],
+	])(
+		"puts only the needs that drew %s elsewhere, shared over the rest",
+		(_, away) => {
+			const reach = equalHubs(
+				(at) => `realm.g${at}:carry`,
+				(at) => `H${at}`,
+			);
+			const gone = { ...reach, live: (address: string) => address !== away };
+			const moved = new Set<string | null>();
+
+			for (const need of numbered("A", "carry")) {
+				const drawn = routeNeed(need, reach).fit;
+				const now = routeNeed(need, gone).fit;
+				if (drawn === "F0") moved.add(now);
+				else expect(now, need.need).toBe(drawn);
+			}
+
+			expect(
+				[...moved].filter((fit) => !["F1", "F2", "F3"].includes(fit ?? "")),
+				"each to another hub's fit",
+			).toEqual([]);
+			expect(moved.size, "not all to the first listed").toBeGreaterThan(1);
+		},
+	);
+
 	it("puts a need to the next equal hub when the one it drew has no live fit", () => {
 		const reach = equalHubs(
 			(at) => `realm.g${at}:carry`,
@@ -475,6 +503,39 @@ describe("a need routed by declared subjects", () => {
 		});
 
 		expect([...taken.entries()]).toEqual([["F1", SHARED_NEEDS]]);
+	});
+
+	it("weighs the whole next rank when the top has no live fit, and goes no lower", () => {
+		// Only carry has hubs. The top rank's fit is gone; of the next
+		// rank's two, F1 works on more of the need, and the rank below
+		// holds F2, which works on all of it.
+		const reach = {
+			foragers: cells({
+				A: [],
+				X: ["carry"],
+				F0: ["carry"],
+				F1: ["carry", "easing"],
+				F2: ["carry", "easing", "lines"],
+			}),
+			ties: ties(),
+			hubs: [
+				{ subject: "realm.g9.top:carry", hub: "H9", fits: ["X"] },
+				{ subject: "realm.g0:carry", hub: "H0", fits: ["F0"] },
+				{ subject: "realm.g1:carry", hub: "H1", fits: ["F1"] },
+				{ subject: "realm:carry", hub: "H2", fits: ["F2"] },
+			],
+			live: (address: string) => address !== "X",
+		};
+		const needs = numbered("A", "carry", "easing", "lines");
+
+		expect(
+			[
+				...new Set(
+					needs.map((need) => routeNeed(need, reach).path.join(" > ")),
+				),
+			],
+			"each by H1 to its own fit",
+		).toEqual(["H1 > F1"]);
 	});
 
 	it("puts a need to the equal hub whose fit works on most of it, whatever it drew", () => {

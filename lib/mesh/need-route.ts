@@ -207,6 +207,9 @@ const CELL_FIELDS = ["title", "repo", "subjects"];
 /**
  * What a subject's hub record names: its one hub and fits, or several
  * listed under `hubs`. The node leaves out a field a record lacks.
+ * The one hub and fits are still asked for because a record may hold
+ * only those, as a node from before `hubs` writes it; where a record
+ * holds a readable list as well, the list is read in their place.
  */
 const HUB_FIELDS = ["hub", "fits", "hubs"];
 
