@@ -178,7 +178,10 @@ describe("where a change's tree stands", () => {
 
 	// The change is attached by the time its tree's use is dated, so a
 	// lock that can't be got or a full disk must not fail the attach.
-	it("answers by the folder when its use can't be dated", async () => {
+	// Nor may it name the tree: a lock held that long is most likely a
+	// sweep taking it, and an undated use gives the sweep nothing to
+	// keep it by.
+	it("names the call that cuts one when its use can't be dated", async () => {
 		forgetWorkLayer();
 		const folder = mkdtempSync(join(tmpdir(), "tree-standing-"));
 		try {
@@ -195,15 +198,13 @@ describe("where a change's tree stands", () => {
 			layer.refused = true;
 			announce(layer);
 
+			const standing = await treeStandingFor(REPO, COMMIT);
+
 			expect(
-				await treeStandingFor(REPO, COMMIT),
-				"a standing tree whose use couldn't be dated wasn't named",
-			).toEqual({ kind: "cut", path: folder });
-			rmSync(folder, { recursive: true });
-			expect(
-				(await treeStandingFor(REPO, COMMIT)).kind,
-				"a gone tree whose use couldn't be dated was named",
+				standing.kind,
+				"a standing tree whose use couldn't be dated was named",
 			).toBe("none");
+			expect(standing.kind === "none" && standing.would).toContain(COMMIT);
 		} finally {
 			rmSync(folder, { recursive: true, force: true });
 		}

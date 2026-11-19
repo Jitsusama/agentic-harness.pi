@@ -5,6 +5,7 @@
  */
 
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	renameSync,
@@ -170,9 +171,11 @@ it("keeps a tree whose record, filed under another name, can't date its ask", as
 	expect(moved, "an undated tree was moved").toBe(false);
 });
 
-it("answers a use as gone, and leaves no record, once a sweep took the tree", async () => {
-	// The broker dates a reader's use by writing the record, which must
-	// not bring back the record of a tree the sweep just took.
+it("answers a use as gone, and leaves no record on disk, once a sweep took the tree", async () => {
+	// The broker dates a reader's use by writing the record, which for a
+	// tree the sweep just took writes it again; only the read that
+	// follows, which drops a record whose folder has gone, takes it
+	// back off. So the file is looked at before anything else recalls.
 	const memory = memoryAt();
 	const held = tree("snap");
 	memory.remember(held);
@@ -184,8 +187,11 @@ it("answers a use as gone, and leaves no record, once a sweep took the tree", as
 
 	const stands = await broker.used(held);
 
+	expect(
+		existsSync(join(root, "cut", "snap.json")),
+		"dating the use left a taken tree's record on disk",
+	).toBe(false);
 	expect(stands, "a taken tree's use reads as standing").toBe(false);
-	expect(memory.recall(), "dating the use brought its record back").toEqual([]);
 	expect(
 		broker.cutHere(held.path),
 		"a taken tree is still listed as this session's",

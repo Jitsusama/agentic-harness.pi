@@ -400,6 +400,11 @@ export async function busyAmongBy(
 	} catch {
 		return undefined;
 	}
+	// A /proc mounted to hide other users' processes leaves them out of
+	// the listing without an error, so a root build working in a tree
+	// would go unseen. The machine's first process is always there to a
+	// reader who sees everyone, and hidden from one who doesn't.
+	if (!pids.includes("1")) return undefined;
 	const asked = new Set(paths);
 	const busy = new Set<string>();
 	// Up a link's folders rather than across every path, since a sweep

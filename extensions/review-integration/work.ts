@@ -24,7 +24,6 @@
  * stand refuses instead of degrading.
  */
 
-import { existsSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RepoLocator, TreeRead } from "../../lib/core/review/index.ts";
 import { checkoutFor, whatItRead } from "../../lib/core/review/index.ts";
@@ -138,21 +137,25 @@ export type TreeStanding =
 	| { kind: "unknown"; why: string };
 
 /**
- * Whether a held tree still stands, dating its use when that can be
- * done. Dating takes the record's lock and writes it, which a held
- * lock or a full disk refuses; the change is attached by then, so a
- * refusal answers by the folder alone, as attach did before it dated
- * anything, rather than failing an attach that went through.
+ * Whether a held tree still stands and its use is dated. Dating takes
+ * the record's lock and writes it, which a held lock or a full disk
+ * refuses. The change is attached by then, so a refusal never fails
+ * the attach; it answers that no tree can be named, which names the
+ * call that cuts one instead. Answering by the folder would name the
+ * one tree a sweep may be taking: the likeliest holder of a record's
+ * lock for seconds is another process's sweep judging that very
+ * tree, and an undated use leaves it nothing to keep it by. The
+ * named call dates the tree under the lock, reusing or recutting it.
  */
-async function usedOrStanding(
+async function standsDated(
 	broker: Pick<TreeBroker, "used">,
 	tree: HeldTree,
 ): Promise<boolean> {
 	try {
 		return await broker.used(tree);
 	} catch {
-		// Undated, which only leaves it to the sweep's other signs of use.
-		return existsSync(tree.path);
+		// Undated, so not safe to name: see above.
+		return false;
 	}
 }
 
@@ -206,7 +209,7 @@ export async function treeStandingFor(
 	// leaves no other sign: a snapshot last asked for nearly four hours
 	// ago was otherwise taken by a sweep while a review read it. One
 	// taken meanwhile answers as none, naming the call that cuts it.
-	if (already && (await usedOrStanding(broker, already))) {
+	if (already && (await standsDated(broker, already))) {
 		return { kind: "cut", path: already.path };
 	}
 

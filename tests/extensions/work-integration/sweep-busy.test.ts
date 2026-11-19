@@ -20,13 +20,18 @@ function failing(code: string): Error {
 
 /**
  * A machine of `links`, each a path to what it points at or the error
- * reading it throws, its processes those `/proc` holds, and `folders`
- * the live sessions'.
+ * reading it throws, its processes those `/proc` holds beside its first,
+ * which works at the root as a real one's does, and `folders` the live
+ * sessions'.
  */
 function machine(
-	links: Record<string, string | Error>,
+	given: Record<string, string | Error>,
 	folders: readonly string[] = [],
 ): ProcessReads {
+	const links: Record<string, string | Error> = {
+		"/proc/1/cwd": "/",
+		...given,
+	};
 	const listing = (path: string): string[] => {
 		const prefix = `${path}/`;
 		const names = Object.keys(links)
@@ -133,5 +138,23 @@ describe("the sweep's reading of what is in use", () => {
 		);
 
 		expect(reading, "a machine with no /proc was trusted").toBe(undefined);
+	});
+
+	it("can't say when /proc hides other users' processes", async () => {
+		// Mounted with hidepid, /proc lists only the reader's own
+		// processes and raises nothing, the machine's first among those
+		// hidden.
+		const shown = machine({ "/proc/10/cwd": "/home" });
+		const hiding: ProcessReads = {
+			...shown,
+			readdir: async (path) =>
+				(await shown.readdir(path)).filter((name) => name !== "1"),
+		};
+
+		const reading = await busyAmongBy(["/trees/a"], hiding);
+
+		expect(reading, "a listing missing others' processes was trusted").toBe(
+			undefined,
+		);
 	});
 });
