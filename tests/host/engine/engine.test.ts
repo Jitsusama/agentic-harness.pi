@@ -50,6 +50,12 @@ interface Seen {
 	readonly state?: string;
 	readonly after?: string;
 	readonly keysSeen: readonly string[];
+	/** The keys a budget's conversation sent for its turn and its warm, then a personal one's. */
+	readonly budgetKeys?: {
+		readonly turn: readonly string[];
+		readonly warm: readonly string[];
+		readonly personal: readonly string[];
+	};
 	/** The header the provider's extension registration sets, on each request that carried it. */
 	readonly registeredHeadersSeen: readonly string[];
 	readonly ran: number;
@@ -563,6 +569,27 @@ describe("the host's engine", () => {
 			expect(proxy.keysSeen, "the proxy key the provider was sent").toEqual([
 				"first-key",
 			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	// A team's quest draws on its agent's key, which the quest workflow
+	// lays over the conversation's environment. The host wrote its own key
+	// over it on every request, so from 17 to 18 November Delta's hosted
+	// conversations logged $170.55 and Delta's key was billed nothing.
+	it(
+		"sends a budget's key for a conversation on it, warms included, and the host's for one on none",
+		async () => {
+			const seen = await step(hostFolder(), "budget-key");
+			expect(
+				seen.reported.filter((line) => line.includes("Parked warm")),
+				"no parked warm failed",
+			).toEqual([]);
+			expect(seen.budgetKeys).toEqual({
+				turn: ["team-key"],
+				warm: ["team-key"],
+				personal: ["first-key"],
+			});
 		},
 		HOST_LIFE_MS,
 	);
