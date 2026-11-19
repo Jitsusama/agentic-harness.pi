@@ -108,23 +108,20 @@ describe("a budget laid over an environment", () => {
 		});
 	});
 
-	it("names only the variables it laid, whatever its provider's env says", () => {
+	it("names only the keys it laid that a list can carry, whatever its provider's env says", () => {
 		const env: NodeJS.ProcessEnv = {};
-
-		layBudget(
-			env,
-			{
-				name: "delta",
-				label: "Delta",
-				env: {
-					KEY: "team",
-					PI_BUDGET: "aquifer",
-					PI_BUDGET_KEYS: "OTHER_KEY",
-					"A,OTHER_KEY": "x",
-				},
+		const delta = {
+			name: "delta",
+			label: "Delta",
+			env: {
+				KEY: "team",
+				PI_BUDGET: "aquifer",
+				PI_BUDGET_KEYS: "OTHER_KEY",
+				"A,OTHER_KEY": "x",
 			},
-			emptyOverlay(),
-		);
+		};
+
+		layBudget(env, delta, emptyOverlay());
 
 		expect(env.PI_BUDGET).toBe("delta");
 		expect(env.PI_BUDGET_KEYS).toBe("KEY");

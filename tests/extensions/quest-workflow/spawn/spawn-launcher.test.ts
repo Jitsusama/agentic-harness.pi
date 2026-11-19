@@ -1,3 +1,12 @@
+/**
+ * Spawning a quest's session through the desktop's launcher, and the
+ * budget a spawn's folder lays on the session it starts.
+ *
+ * Long because both drive one stand-in launcher, kitty and starter,
+ * with the environment they need kept and given back around each test,
+ * which splitting would copy into each file.
+ */
+
 import { EventEmitter } from "node:events";
 import {
 	chmodSync,

@@ -31,7 +31,10 @@ export const BUDGET_VARIABLE = "PI_BUDGET";
 
 /**
  * The variable naming, comma-separated, the variables a budget laid
- * (its credentials, never {@link BUDGET_VARIABLE} or this one), so
+ * whose names it can carry: its credentials, never
+ * {@link BUDGET_VARIABLE} or this one, nor a variable whose name
+ * isn't one a shell would take (a comma in it would split the list),
+ * which is laid but left unnamed. So
  * whatever sends a request for the process (a shared host's engine,
  * which keeps its own key) can tell the budget's key from one that
  * merely sits in the environment, and send it. It travels with the
