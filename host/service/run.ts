@@ -277,8 +277,12 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		resuming.delete(step.number);
 		under.renewing?.();
 		const now = Date.now();
+		const why =
+			end === "unresumed" && reason !== undefined
+				? `: ${firstLine(reason)}`
+				: "";
 		say(
-			`${since()}: ${ENDED_AS[end]} ${step.number} of ${step.of} in ${seconds(now - under.at)}${phaseTimes(under.at, under.phases, now)}${end === "unresumed" && reason !== undefined ? `: ${reason instanceof Error ? reason.message : String(reason)}` : ""}`,
+			`${since()}: ${ENDED_AS[end]} ${step.number} of ${step.of} in ${seconds(now - under.at)}${phaseTimes(under.at, under.phases, now)}${why}`,
 		);
 	};
 	const ask = async (status: string) => {
@@ -296,9 +300,11 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	const starting = async (step: StartStep) => {
 		renewing?.();
 		renewing = undefined;
-		const under: UnderWay | undefined =
-			step.step === "resume" ? { at: Date.now(), phases: [] } : undefined;
-		if (step.step === "resume" && under) resuming.set(step.number, under);
+		let under: UnderWay | undefined;
+		if (step.step === "resume") {
+			under = { at: Date.now(), phases: [] };
+			resuming.set(step.number, under);
+		}
 		const status = describeStep(step);
 		const left =
 			step.step === "resume" && lastStop?.ids.includes(step.sessionId)
@@ -310,6 +316,14 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			ask: () => ask(status),
 			every: options.stepRenewEvery ?? STEP_RENEW_MS,
 			ceiling: options.stepCeiling ?? STEP_CEILING_MS,
+			// Resumes overlap, so the journal's tail no longer names one that
+			// hangs: it names itself as it stops asking.
+			passed: under
+				? (ceiling) =>
+						say(
+							`${since()}: still ${status} after ${seconds(ceiling)}; asking no more`,
+						)
+				: undefined,
 		});
 		// A resume's end is said only once its start has resolved, so it
 		// is still under way here.
@@ -478,18 +492,21 @@ export function watchdogEvery(
 /**
  * Ask again every `every` ms from the host's own loop, until `ceiling` ms
  * after the step began or the answer is called, whichever comes first.
- * An ask still on its way when the next is due is let be.
+ * An ask still on its way when the next is due is let be. `passed` hears
+ * the ceiling once, if it is reached before the answer is called.
  */
 function askWhileUnderWay(options: {
 	ask: () => Promise<void>;
 	every: number;
 	ceiling: number;
+	passed?: (ceiling: number) => void;
 }): () => void {
 	const began = performance.now();
 	let asking = false;
 	const again = setInterval(() => {
 		if (performance.now() - began >= options.ceiling) {
 			clearInterval(again);
+			options.passed?.(options.ceiling);
 			return;
 		}
 		if (asking) return;
@@ -500,6 +517,15 @@ function askWhileUnderWay(options: {
 	}, options.every);
 	again.unref();
 	return () => clearInterval(again);
+}
+
+/**
+ * The first line of why something failed, to keep a journal entry on one
+ * line; the start's report says the rest, stack and all.
+ */
+function firstLine(reason: unknown): string {
+	const text = reason instanceof Error ? reason.message : String(reason);
+	return text.split("\n", 1)[0] ?? text;
 }
 
 /**

@@ -487,6 +487,23 @@ describe("hostBackend", () => {
 			expect(atLetGo, "let go once, with nothing still building").toEqual([0]);
 		});
 
+		it("fails only its own resume when a listener throws as it marks a phase", async () => {
+			const held = await holding(3);
+			const { restart } = overlapping();
+			const broken = new Error("a mark's fault");
+			const result = await resumeHeld({
+				roster,
+				engine: restart.fake,
+				mark: (step) => {
+					if (step.number === 2) throw broken;
+				},
+			});
+			expect(result.unresumed).toEqual([
+				expect.objectContaining({ sessionId: held[1], reason: broken }),
+			]);
+			expect([...result.resumed].sort()).toEqual([held[0], held[2]].sort());
+		});
+
 		it("keeps going alone after a first that failed, until one resumes", async () => {
 			const held = await holding(RESUME_AT_ONCE + 2);
 			const { restart, atBegin } = overlapping(held[0]);

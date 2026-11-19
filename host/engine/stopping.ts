@@ -56,7 +56,9 @@ export interface StopKeeping {
 	 * `reapEarlier`: nothing of a held one runs in this host until pi builds
 	 * it, which its first reap comes before, and the hosts whose tools left
 	 * it processes have ended, so one reading of the table, however old,
-	 * serves them all. A conversation the start doesn't hold (opened,
+	 * serves them all. That holds for processes marked honestly: this reap
+	 * is tidying, never containment, since a tool may start one unmarked.
+	 * A conversation the start doesn't hold (opened,
 	 * adopted or pi's replacement) may have started tools since, so it
 	 * reads the table for itself, as does every reap once a reading fails.
 	 */
@@ -100,17 +102,6 @@ export function stopKeeping(options: {
 
 	async function reap(sessionId: string): Promise<void> {
 		await reapAmong(sessionId, await startScanFor(sessionId));
-	}
-
-	/**
-	 * A reap that reads the table for itself, even as the first of a held
-	 * conversation: a close's, once what its parks kept is no longer
-	 * spared, since a kept command may have started more since the
-	 * start's reading.
-	 */
-	async function reapAfresh(sessionId: string): Promise<void> {
-		start?.unreaped.delete(sessionId);
-		await reapAmong(sessionId, undefined);
 	}
 
 	async function reapAmong(
@@ -224,11 +215,13 @@ export function stopKeeping(options: {
 		async dropped(sessionId) {
 			// Closed for good while parked, what its parks kept ends with it,
 			// as a running one's close ends it; released, it is kept. Either
-			// way the start owes it no reap.
+			// way the start owes it no reap, so its close, or its first reap
+			// once adopted back, reads the table for itself: a kept command may
+			// have started more since the start's reading.
 			start?.unreaped.delete(sessionId);
 			if (!handedOn.delete(sessionId) && endKept(sessionId))
 				try {
-					await reapAfresh(sessionId);
+					await reap(sessionId);
 				} catch (error) {
 					// The close goes on; what the reap missed runs out the day it was kept for.
 					report(error);
