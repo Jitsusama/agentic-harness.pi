@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
 	chmodSync,
 	copyFileSync,
@@ -6,6 +6,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	readlinkSync,
 	realpathSync,
 	rmSync,
 	statSync,
@@ -294,11 +295,16 @@ describe("askRoute", () => {
 describe("runsPasswords", () => {
 	it("reads the name and the real uid the kernel gives", () => {
 		const proc = join(dir, "proc");
-		const runs = (pid: number, name: string, uids: string) => {
+		const runs = (
+			pid: number,
+			name: string,
+			uids: string,
+			state = "S (sleeping)",
+		) => {
 			mkdirSync(join(proc, String(pid)), { recursive: true });
 			writeFileSync(
 				join(proc, String(pid), "status"),
-				`Name:\t${name}\nUmask:\t0077\nState:\tS (sleeping)\nUid:\t${uids}\n`,
+				`Name:\t${name}\nUmask:\t0077\nState:\t${state}\nUid:\t${uids}\n`,
 			);
 		};
 		runs(42, "passwords", "1000\t1000\t1000\t1000");
@@ -306,6 +312,7 @@ describe("runsPasswords", () => {
 		runs(44, "passwords", "1001\t1000\t1000\t1000");
 		runs(45, "sleep", "1000\t1000\t1000\t1000");
 		runs(46, "passwords-not", "1000\t1000\t1000\t1000");
+		runs(48, "passwords", "1000\t1000\t1000\t1000", "Z (zombie)");
 		expect(runsPasswords(42, proc, 1000)).toBe(true);
 		expect(runsPasswords(43, proc, 1000), "another account's").toBe(false);
 		expect(
@@ -315,6 +322,7 @@ describe("runsPasswords", () => {
 		expect(runsPasswords(45, proc, 1000), "another program").toBe(false);
 		expect(runsPasswords(46, proc, 1000), "a name like it").toBe(false);
 		expect(runsPasswords(47, proc, 1000), "no such pid").toBe(false);
+		expect(runsPasswords(48, proc, 1000), "died, not yet reaped").toBe(false);
 		expect(runsPasswords(42, proc, -1), "no account to compare").toBe(false);
 	});
 
@@ -323,16 +331,27 @@ describe("runsPasswords", () => {
 		async () => {
 			const program = join(dir, "passwords");
 			copyFileSync(realpathSync("/bin/sh"), program);
-			chmodSync(program, 0o755);
+			// Run from a file it can't read, the kernel makes it non-dumpable,
+			// as core's daemon makes itself, so its exe can't be read even by
+			// this account and only its status says what it is.
+			chmodSync(program, 0o111);
 			// The shell waits on its own read, so it starts no child to
 			// outlive it.
 			const daemon = spawn(program, ["-c", "read -r line"], {
 				stdio: ["pipe", "ignore", "ignore"],
 			});
+			let failed: Error | undefined;
+			daemon.on("error", (why) => {
+				failed = why;
+			});
 			const runtime = mkdtempSync(join(tmpdir(), "answered-"));
 			try {
 				const pid = daemon.pid ?? 0;
-				await expect.poll(() => runsPasswords(pid)).toBe(true);
+				await expect.poll(() => failed ?? runsPasswords(pid)).toBe(true);
+				expect(
+					() => readlinkSync(`/proc/${pid}/exe`),
+					"a non-dumpable process's exe",
+				).toThrow();
 				expect(runsPasswords(process.pid), "this process, node").toBe(false);
 				mkdirSync(join(runtime, "secret-asks"));
 				writeFileSync(join(runtime, "secret-asks", "answering"), `${pid}\n`);
@@ -343,14 +362,6 @@ describe("runsPasswords", () => {
 				daemon.kill();
 				rmSync(runtime, { recursive: true, force: true });
 			}
-		},
-	);
-
-	it.runIf(process.platform === "linux")(
-		"reads a pid gone as no daemon",
-		() => {
-			const ended = spawnSync("true");
-			expect(runsPasswords(ended.pid), "a process that ended").toBe(false);
 		},
 	);
 });

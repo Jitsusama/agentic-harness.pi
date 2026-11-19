@@ -1,7 +1,7 @@
 /**
  * An agent's ask for one work secret, as core's passwords daemon reads it,
- * and the secret-asks daemon before it: a file `<id>.ask.json` in the asks folder (the shape's version 1),
- * and the answer the daemon writes beside it, `<id>.answer.json`, once
+ * and the secret-asks daemon before it: a file `<id>.ask.json` in the asks
+ * folder (the shape's version 1), and the answer the daemon writes beside it, `<id>.answer.json`, once
  * Joel says yes or no in the launcher or the ask runs out.
  *
  * The harness only writes the ask and reads the answer's fields; the value
@@ -135,10 +135,14 @@ export interface RouteReads {
  * this account, by the name and real uid its status gives. The daemon
  * turns its dumpable flag off before it leaves its sign, which hides its
  * exe link even from its own account, while its status stays readable.
- * The name is the one the kernel took from the program's file at exec, so
- * another program of Joel's that a reused pid now names doesn't read as
- * the daemon, and nor does another account's. Where there's no /proc, as
- * on a Mac, nothing does, which is right: the daemon runs only on Linux.
+ * The name is the one the kernel took from the program's file at exec,
+ * unless the process has since renamed itself, so another program of
+ * Joel's that a reused pid now names doesn't read as the daemon by
+ * accident, and nor does another account's, or one that has died and not
+ * yet been reaped. It tells a leftover sign from a live one; it doesn't
+ * stop one of Joel's own programs posing as the daemon, which the fence
+ * keeps agents' commands from. Where there's no /proc, as on a Mac,
+ * nothing reads as the daemon, which is right: it runs only on Linux.
  */
 export function runsPasswords(
 	pid: number,
@@ -155,7 +159,8 @@ export function runsPasswords(
 	}
 	const name = /^Name:\t(.*)$/m.exec(status)?.[1];
 	const real = /^Uid:\t(\d+)\t/m.exec(status)?.[1];
-	return name === "passwords" && real === String(uid);
+	const dead = /^State:\t[ZX]/m.test(status);
+	return name === "passwords" && real === String(uid) && !dead;
 }
 
 const MACHINE: RouteReads = {
