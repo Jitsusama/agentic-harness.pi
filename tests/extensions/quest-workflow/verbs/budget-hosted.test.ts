@@ -104,7 +104,8 @@ function conversation(id: string) {
 	);
 	const state = createQuestState({ questsRoot: root });
 	state.questId = quest;
-	const keeper = keepQuestBudget(pi, state);
+	// Quiet, so a budget missed writes nothing to the machine's journal.
+	const keeper = keepQuestBudget(pi, state, { journal: () => undefined });
 	return { pi, ctx, state, keeper };
 }
 
@@ -158,7 +159,9 @@ it("settles interleaved budgets explicitly, preserves overlays on reload and lif
 	// A new extension load sees the same overlay, even under B's dispatch.
 	a.keeper.forget();
 	a.state.questId = null;
-	const reloaded = keepQuestBudget(a.pi, a.state);
+	const reloaded = keepQuestBudget(a.pi, a.state, {
+		journal: () => undefined,
+	});
 	await withSession("b", () => reloaded.keep(a.ctx));
 	expect(sessionEnv(a.ctx).get("MODEL_KEY")).toBe("personal-a");
 	expect(sessionEnv(a.ctx).get("PI_BUDGET")).toBeUndefined();

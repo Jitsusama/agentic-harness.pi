@@ -16,13 +16,16 @@
  * draws on its own quest's.
  *
  * A name no provider knows, or one a provider cannot draw on now,
- * leaves the session on its default and says so in three places, each
+ * leaves the session on its default, or on the budget it was started
+ * on, and says so in three places, each
  * naming the budget and what's missing: a notice, once a name; a
  * warning in the system's journal; and the session's log, whose entry
  * draws a line in the session and lets spend-watch count the sessions
  * that fell to the person's key against their quest's word. A provider
  * that fails or is late saying a folder's budget is journalled too,
- * since the quest it leaves unnamed draws on that key as well. The
+ * since a quest it leaves unnamed draws on that key as well. What a
+ * provider says goes into the journal and the log quoted and cut short
+ * (`quoted`), so a program's stderr can't add lines or fill either. The
  * session's log says the budget drawn on (lib/budget/record.ts) each
  * time it changes, so whatever prices the log knows whose money each
  * request spent, and the bus says it each time it settles, for
@@ -120,10 +123,17 @@ export function keepQuestBudget(
 	state: QuestState,
 	options: BudgetKeeperOptions = {},
 ): BudgetKeeper {
-	const journal = options.journal ?? warnInJournal;
+	const sink = options.journal ?? warnInJournal;
+	const journal = (line: string): void => {
+		try {
+			sink(line);
+		} catch {
+			// One line of news is lost; the budget it was about stands as laid.
+		}
+	};
 	const host = hostBudgets(pi.events, undefined, (trouble) =>
 		journal(
-			`budget provider ${trouble.provider} couldn't say which budget ${trouble.folder} draws on, so it draws on none: ${trouble.why}`,
+			`budget provider ${JSON.stringify(trouble.provider)} couldn't say which budget ${JSON.stringify(trouble.folder)} draws on, so its answer is passed over: ${quoted(trouble.why)}`,
 		),
 	);
 	folderBudgets.set(state, (folder) => host.budgetFor(folder));
@@ -173,15 +183,16 @@ export function keepQuestBudget(
 		}
 		liftBudget(sessionEnv(ctx), processOverlay(ctx));
 		const unresolved = { budget: name, missing: missingFrom(drawing) };
+		const fallback = fallbackOf(budgetDrawnOn(sessionEnv(ctx).snapshot()));
 		if (recordDrawn(pi, ctx, undefined, unresolved)) {
 			const quest = state.questId ? `quest ${state.questId}` : "the quest";
 			journal(
-				`${quest} names budget ${name}, which can't be drawn on: ${unresolved.missing}; model calls use the session's default`,
+				`${quest} names budget ${name}, which can't be drawn on: ${unresolved.missing}; model calls use ${fallback}`,
 			);
 		}
 		if (told.has(name)) return;
 		told.add(name);
-		ctx.ui.notify(undrawable(name, drawing), "warning");
+		ctx.ui.notify(undrawable(name, drawing, fallback), "warning");
 	};
 
 	// A provider that registers late may know the name nothing did.
@@ -243,16 +254,43 @@ function recordDrawn(
 	return true;
 }
 
-/** What was missing for a budget not drawn on, in a few words. */
+/**
+ * What was missing for a budget not drawn on, in a few words, with
+ * what each provider said `quoted`.
+ */
 function missingFrom(
 	drawing: Exclude<BudgetDrawing, { kind: "drawn" }>,
 ): string {
 	if (drawing.kind === "unavailable") {
-		return `${drawing.provider}: ${drawing.reason}`;
+		return `${JSON.stringify(drawing.provider)}: ${quoted(drawing.reason)}`;
 	}
 	return drawing.asked.length === 0
 		? "no budget provider is installed"
-		: `no budget provider knows it (asked ${drawing.asked.join(", ")})`;
+		: `no budget provider knows it (asked ${drawing.asked.map((id) => JSON.stringify(id)).join(", ")})`;
+}
+
+/**
+ * A provider's words, on one line and cut to `SAID_KEPT` characters:
+ * a credential program's stderr is the provider's reason, and the
+ * journal and the session's log keep it long after the notice.
+ */
+function quoted(said: string): string {
+	const kept =
+		said.length > SAID_KEPT ? `${said.slice(0, SAID_KEPT)} (cut short)` : said;
+	return JSON.stringify(kept);
+}
+
+/** How much of a provider's words the journal and the log keep. */
+const SAID_KEPT = 200;
+
+/**
+ * What model calls draw on once a budget isn't: the budget the process
+ * was started on, `inherited`, or the session's default.
+ */
+function fallbackOf(inherited: string | null): string {
+	return inherited === null
+		? "the session's default"
+		: `budget ${inherited}, which this session was started on`;
 }
 
 /** The colours a budget line is drawn in. */
@@ -269,12 +307,13 @@ export function budgetEntryView(
 	data: unknown,
 	theme: BudgetTheme,
 ): Text | undefined {
-	const unresolved = recordIn(data)?.unresolved;
-	if (!unresolved) return undefined;
+	const record = recordIn(data);
+	const unresolved = record?.unresolved;
+	if (!record || !unresolved) return undefined;
 	return new Text(
 		theme.fg(
 			"warning",
-			`Budget ${unresolved.budget} isn't drawn on (${unresolved.missing}); model calls use the session's default. \`quest budget\` names another.`,
+			`Budget ${unresolved.budget} isn't drawn on (${unresolved.missing}); model calls use ${fallbackOf(record.name)}. \`quest budget\` names another.`,
 		),
 		0,
 		0,
@@ -288,11 +327,12 @@ export function budgetEntryView(
 export function undrawable(
 	name: string,
 	drawing: Exclude<BudgetDrawing, { kind: "drawn" }>,
+	fallback = fallbackOf(null),
 ): string {
 	if (drawing.kind === "unavailable") {
-		return `Budget ${name} can't be drawn on yet (${JSON.stringify(drawing.provider)}): ${drawing.reason} Model calls use the session's default until then.`;
+		return `Budget ${name} can't be drawn on yet (${JSON.stringify(drawing.provider)}): ${drawing.reason} Model calls use ${fallback} until then.`;
 	}
 	return drawing.asked.length === 0
-		? `No budget provider is installed, so budget ${name} means nothing yet; model calls use the session's default.`
-		: `No budget provider knows ${name} (asked ${drawing.asked.map((id) => JSON.stringify(id)).join(", ")}), so model calls use the session's default.`;
+		? `No budget provider is installed, so budget ${name} means nothing yet; model calls use ${fallback}.`
+		: `No budget provider knows ${name} (asked ${drawing.asked.map((id) => JSON.stringify(id)).join(", ")}), so model calls use ${fallback}.`;
 }

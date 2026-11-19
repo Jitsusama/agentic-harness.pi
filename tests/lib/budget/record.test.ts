@@ -3,6 +3,8 @@ import {
 	budgetDrawnOn,
 	budgetKeysOf,
 	lastRecorded,
+	lastRecordOn,
+	recordIn,
 } from "../../../lib/budget/record.ts";
 
 const said = (data: unknown) => ({
@@ -76,5 +78,45 @@ describe("the budget a branch last recorded", () => {
 		];
 
 		expect(lastRecorded(branch)).toBe("delta");
+	});
+});
+
+describe("a budget entry read back", () => {
+	it("keeps what it says it missed, and only what it says well", () => {
+		const missed = {
+			budget: "delta",
+			missing: "no budget provider is installed",
+		};
+		expect(recordIn({ v: 1, name: null, unresolved: missed })).toEqual({
+			v: 1,
+			name: null,
+			unresolved: missed,
+		});
+		expect(
+			recordIn({ v: 1, name: null, unresolved: { budget: "delta" } }),
+			"half a miss is none",
+		).toEqual({ v: 1, name: null });
+		expect(
+			recordIn({ v: 1, name: "delta", label: 3, provider: "p", extra: true }),
+		).toEqual({ v: 1, name: "delta", provider: "p" });
+		expect(recordIn({ v: 2, name: "delta" })).toBeUndefined();
+		expect(recordIn("delta")).toBeUndefined();
+	});
+
+	it("is the newest budget entry on a branch, with what it missed", () => {
+		const missed = { budget: "delta", missing: "locked" };
+		const branch = [
+			said({ v: 1, name: "delta" }),
+			said({ v: 1, name: null, unresolved: missed }),
+			{ type: "custom", customType: "other", data: { v: 1, name: "x" } },
+			said("not a record"),
+		];
+
+		expect(lastRecordOn(branch)).toEqual({
+			v: 1,
+			name: null,
+			unresolved: missed,
+		});
+		expect(lastRecordOn([])).toBeUndefined();
 	});
 });

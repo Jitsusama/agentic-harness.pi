@@ -1,3 +1,13 @@
+/**
+ * What a quest's budget does: the budget verb, what a quest keeps, what
+ * a session is told and journals when a budget can't be drawn on, and
+ * what a folder's provider answers.
+ *
+ * Long because every case shares one fixture, the quest store, the
+ * registered providers and the session's journal, set up and torn down
+ * around each; split by concern, each file would repeat it whole.
+ */
+
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -54,6 +64,9 @@ const intoTheBranch = {
 		written.push({ type: "custom", customType, data });
 	},
 };
+
+/** What every keeper here is handed, so none writes to the machine's journal. */
+const quiet = { journal: () => undefined };
 
 /** The budgets the session's log says, in the order it said them. */
 function recorded(): unknown[] {
@@ -120,6 +133,7 @@ async function deltaKept() {
 	const keeper = keepQuestBudget(
 		fakePi({ ...intoTheBranch, events }),
 		made.state,
+		quiet,
 	);
 	return { ...made, events, keeper };
 }
@@ -191,7 +205,7 @@ describe("a quest made where a budget's work is", () => {
 	function placed(folder: () => string, id = "places") {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const events = bus();
-		keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
+		keepQuestBudget(fakePi({ ...intoTheBranch, events }), state, quiet);
 		registerBudgetProvider(events, {
 			id,
 			precedence: 0,
@@ -361,7 +375,7 @@ describe("the session's budget", () => {
 	it("stays on the default and says why once when no provider knows the name", async () => {
 		const { state, run, top } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });
-		const keeper = keepQuestBudget(fakePi(intoTheBranch), state);
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state, quiet);
 		const seen = ui();
 
 		await run({ action: "load", id: top });
@@ -552,7 +566,7 @@ describe("the budget in the session's log", () => {
 	it("says the default when the quest's budget can't be drawn on, and which it couldn't and why", async () => {
 		const { state, run, top } = await quests();
 		await run({ action: "budget", id: top, ref: "delta" });
-		const keeper = keepQuestBudget(fakePi(intoTheBranch), state);
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state, quiet);
 
 		await run({ action: "load", id: top });
 		await keeper.keep(ctx());
@@ -586,10 +600,107 @@ describe("the budget in the session's log", () => {
 				name: null,
 				unresolved: {
 					budget: "delta",
-					missing: "vault: Its key file isn't there.",
+					missing: '"vault": "Its key file isn\'t there."',
 				},
 			},
 		]);
+	});
+
+	it("says it again when only what's missing changes, as when a provider registers that can't draw on it", async () => {
+		const { run, top, events, keeper } = await deltaKept();
+		await run({ action: "load", id: top });
+		await keeper.keep(ctx());
+
+		provide(events, "vault", async () => ({
+			kind: "unavailable",
+			reason: "Locked.",
+		}));
+		await keeper.keep(ctx(), { again: true });
+
+		expect(recorded().map((record) => JSON.stringify(record))).toEqual([
+			expect.stringContaining("no budget provider is installed"),
+			expect.stringContaining("Locked."),
+		]);
+	});
+
+	it("says the default once a budget it missed gives way to none", async () => {
+		const { run, top, keeper } = await deltaKept();
+		await run({ action: "load", id: top });
+		await keeper.keep(ctx());
+
+		await run({ action: "unload" });
+		await keeper.keep(ctx());
+
+		expect(recorded()).toEqual([
+			{
+				v: 1,
+				name: null,
+				unresolved: {
+					budget: "delta",
+					missing: "no budget provider is installed",
+				},
+			},
+			{ v: 1, name: null },
+		]);
+	});
+
+	it("keeps a provider's words on one line and cut short", async () => {
+		const { run, top, events, keeper } = await deltaKept();
+		provide(events, "vault", async () => ({
+			kind: "unavailable",
+			reason: `first\nsecond ${"x".repeat(400)}`,
+		}));
+
+		await run({ action: "load", id: top });
+		await keeper.keep(ctx());
+
+		const missing = String(
+			(recorded()[0] as { unresolved: { missing: string } }).unresolved.missing,
+		);
+		expect(missing.split("\n")).toHaveLength(1);
+		expect(missing).toContain("first\\nsecond");
+		expect(missing).toMatch(/x \(cut short\)"$/);
+		expect(missing.length).toBeLessThan(250);
+	});
+
+	it("names the budget the session was started on as what model calls use, when it misses the quest's", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		process.env.PI_BUDGET = "aquifer";
+		const lines: string[] = [];
+		const notices: string[] = [];
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state, {
+			journal: (line) => lines.push(line),
+		});
+		const seen = {
+			...ctx(),
+			ui: { notify: (message: string) => notices.push(message) },
+		} as unknown as ReturnType<typeof ctx>;
+
+		await run({ action: "load", id: top });
+		await keeper.keep(seen);
+
+		const started = "budget aquifer, which this session was started on";
+		expect(recorded()).toEqual([
+			{
+				v: 1,
+				name: "aquifer",
+				unresolved: {
+					budget: "delta",
+					missing: "no budget provider is installed",
+				},
+			},
+		]);
+		expect(lines).toEqual([
+			expect.stringContaining(`model calls use ${started}`),
+		]);
+		expect(notices).toEqual([
+			expect.stringContaining(`model calls use ${started}.`),
+		]);
+		const theme = { fg: (_colour: string, text: string) => text };
+		expect(
+			budgetEntryView(recorded()[0], theme)?.render(300).join("\n"),
+		).toContain(`model calls use ${started}.`);
 	});
 
 	it("says it again when a resumed branch's default was its own word, not a budget it missed", async () => {
@@ -600,7 +711,7 @@ describe("the budget in the session's log", () => {
 			customType: "budget",
 			data: { v: 1, name: null },
 		});
-		const keeper = keepQuestBudget(fakePi(intoTheBranch), state);
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state, quiet);
 
 		await run({ action: "load", id: top });
 		await keeper.keep(ctx());
@@ -619,7 +730,7 @@ describe("the budget in the session's log", () => {
 	it("says the budget a session was started on when it lays none of its own", async () => {
 		const { state } = await quests();
 		process.env.PI_BUDGET = "aquifer";
-		const keeper = keepQuestBudget(fakePi(intoTheBranch), state);
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state, quiet);
 
 		await keeper.keep(ctx());
 
@@ -656,7 +767,7 @@ describe("the budget in the session's log", () => {
 			customType: "budget",
 			data: { v: 1, name: null },
 		});
-		const keeper = keepQuestBudget(fakePi(intoTheBranch), state);
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state, quiet);
 
 		await keeper.keep(ctx());
 
@@ -703,7 +814,8 @@ describe("a budget that can't be drawn on, in the journal", () => {
 
 		await run({ action: "load", id: top });
 		await keeper.keep(ctx());
-		await keeper.keep(ctx());
+		// Asked again, so the second settles too and finds the log says it.
+		await keeper.keep(ctx(), { again: true });
 
 		expect(lines).toEqual([
 			expect.stringContaining(
@@ -712,7 +824,30 @@ describe("a budget that can't be drawn on, in the journal", () => {
 		]);
 	});
 
-	it("says a provider that failed or was late asked about a folder", async () => {
+	it("goes on when the journal can't be written, saying it on the screen and in the log", async () => {
+		const { state, run, top } = await quests();
+		await run({ action: "budget", id: top, ref: "delta" });
+		const notices: string[] = [];
+		const keeper = keepQuestBudget(fakePi(intoTheBranch), state, {
+			journal: () => {
+				throw new Error("the journal is shut");
+			},
+		});
+		const seen = {
+			...ctx(),
+			ui: { notify: (message: string) => notices.push(message) },
+		} as unknown as ReturnType<typeof ctx>;
+
+		await run({ action: "load", id: top });
+		await expect(keeper.keep(seen)).resolves.toBeUndefined();
+
+		expect(notices).toHaveLength(1);
+		expect(recorded()).toHaveLength(1);
+	});
+
+	// The late case is the host's alone, which says it the same way
+	// (tests/lib/budget/host.test.ts); the keeper's deadline is pi's 5 s.
+	it("says a provider that failed asked about a folder, and that its answer is passed over", async () => {
 		const { state } = await quests();
 		const lines: string[] = [];
 		const events = bus();
@@ -731,7 +866,7 @@ describe("a budget that can't be drawn on, in the journal", () => {
 		expect(await budgetOfFolder(state, "/src/delta")).toBeUndefined();
 
 		expect(lines).toEqual([
-			"budget provider vault couldn't say which budget /src/delta draws on, so it draws on none: it failed: budgets.json isn't JSON",
+			'budget provider "vault" couldn\'t say which budget "/src/delta" draws on, so its answer is passed over: "it failed: budgets.json isn\'t JSON"',
 		]);
 	});
 });
