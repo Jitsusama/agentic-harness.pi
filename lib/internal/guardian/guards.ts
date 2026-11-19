@@ -318,6 +318,19 @@ export const GUARDS = {
 		defaultMode: "block",
 		groups: ["files"],
 	}),
+	// A log-out, reboot or switch of users ends every session on the
+	// machine, and a run ended mid-way can't be brought back, so this
+	// blocks: on 18 November one ask for a log-out on equilibrius ended
+	// five. It refuses only while the node says others are there, or
+	// can't say, and the refusal says where the ask goes instead.
+	noSessionEndingAskWhileLive: declare({
+		name: "no-session-ending-ask-while-live",
+		class: "safety",
+		description:
+			"Refuses a reply, ask or look asking the person to log out, reboot, restart, shut down or switch users on a machine while other sessions are live there",
+		defaultMode: "block",
+		groups: ["send"],
+	}),
 	vmHere: declare({
 		name: "vm-here",
 		class: "form",

@@ -11,6 +11,8 @@ import {
 	agentsFrom,
 	heldWindowAt,
 	heldWindowFrom,
+	nodeSessionsAt,
+	nodeSessionsFrom,
 	nodeSocket,
 	placeAt,
 	placeToStartAt,
@@ -143,6 +145,48 @@ describe("asking the node who is there", () => {
 		);
 
 		expect(held && [...held.keys()]).toEqual(["ok"]);
+	});
+});
+
+describe("asking the node who is on which machine", () => {
+	it("hears each session with its address, machine and state", async () => {
+		const socket = await serving(() =>
+			sessions(
+				{ id: "far", address: "EWUL44", machine: "equilibrius", state: "idle" },
+				{ id: "here", machine: "optimus", state: "busy" },
+			),
+		);
+
+		expect(await nodeSessionsAt(socket)).toEqual([
+			{ id: "far", address: "EWUL44", machine: "equilibrius", state: "idle" },
+			{ id: "here", machine: "optimus", state: "busy" },
+		]);
+	});
+
+	it("hears nothing where no node serves or none answers in time", async () => {
+		const socket = await serving(() => undefined);
+
+		expect(await nodeSessionsAt(join(root, "none.sock"))).toBeUndefined();
+		expect(await nodeSessionsAt(undefined)).toBeUndefined();
+		expect(await nodeSessionsAt(socket, 50)).toBeUndefined();
+	});
+
+	it("takes an answer naming no sessions as no answer, not as nobody", () => {
+		expect(nodeSessionsFrom('{"Err":"not a request"}')).toBeUndefined();
+		expect(nodeSessionsFrom("not json")).toBeUndefined();
+		expect(nodeSessionsFrom(sessions())).toEqual([]);
+	});
+
+	it("passes over a session without a machine or in a state it doesn't know", () => {
+		const held = nodeSessionsFrom(
+			sessions(
+				{ id: "odd", machine: "optimus", state: "dreaming" },
+				{ id: "nowhere", state: "idle" },
+				{ id: "ok", machine: "optimus", state: "idle" },
+			),
+		);
+
+		expect(held?.map((one) => one.id)).toEqual(["ok"]);
 	});
 });
 

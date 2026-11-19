@@ -409,6 +409,62 @@ export function sessionsFrom(line: string): NodeSessions | undefined {
 	return held;
 }
 
+/** One session a node holds, with the machine it is on. */
+export interface NodeSession {
+	readonly id: string;
+	/** The address its messages sign, where the node says it. */
+	readonly address?: string;
+	readonly machine: string;
+	readonly state: Held;
+}
+
+/**
+ * Every session the node serving `socket` holds, with the machine each
+ * is on, or nothing when none answers there within `patience`.
+ */
+export async function nodeSessionsAt(
+	socket: string | undefined,
+	patience: number = NODE_PATIENCE_MS,
+): Promise<NodeSession[] | undefined> {
+	const line = await askAt(socket, "Sessions", patience);
+	return line === undefined ? undefined : nodeSessionsFrom(line);
+}
+
+/**
+ * The sessions a node's answer names, each with its machine, or nothing
+ * when it names none. A session without a machine, or in a state this
+ * reader doesn't know, is passed over.
+ */
+export function nodeSessionsFrom(line: string): NodeSession[] | undefined {
+	let reply: unknown;
+	try {
+		reply = JSON.parse(line);
+	} catch {
+		// Not an answer this reader knows, so the node is taken as not
+		// answering rather than as holding nobody.
+		return undefined;
+	}
+	const sessions =
+		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Sessions : undefined;
+	if (!Array.isArray(sessions)) return undefined;
+	return sessions.flatMap((one: unknown): NodeSession[] => {
+		if (!isRecord(one)) return [];
+		const { id, address, machine } = one;
+		const state = HELD.find((each) => each === one.state);
+		if (typeof id !== "string" || typeof machine !== "string" || !state) {
+			return [];
+		}
+		return [
+			{
+				id,
+				...(typeof address === "string" ? { address } : {}),
+				machine,
+				state,
+			},
+		];
+	});
+}
+
 /**
  * The command each machine starts an agent session with in this realm,
  * as its node declares it (`declared.agents`), by machine: pi-claude in
