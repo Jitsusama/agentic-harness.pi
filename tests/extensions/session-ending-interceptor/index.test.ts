@@ -556,6 +556,9 @@ describe("a reply", () => {
 
 		expect(await reply(text("Please restart equilibrius."))).toBeDefined();
 		expect(await reply(text("Please shut down penelope."))).toBeDefined();
+
+		listed = ["optimus"];
+		expect(await reply(text("Please shut down penelope."))).toBeDefined();
 	});
 
 	it("keeps no override, when the guard redirects, across a reload of the extension", async () => {
@@ -635,6 +638,44 @@ describe("a reply", () => {
 
 describe("the node the interceptor reads by default", () => {
 	const empty = () => mkdtempSync(join(tmpdir(), "session-ending-"));
+
+	it("remembers the machines its nodes named, across a fresh start while none answers and a read of only some", async () => {
+		const state = empty();
+		const run = join(state, "run");
+		mkdirSync(join(run, "mycelium"), { recursive: true });
+		const work = join(run, "mycelium", "work.sock");
+		const personal = join(run, "mycelium", "personal.sock");
+		const env = {
+			MYCELIUM_REALM: "work",
+			XDG_STATE_HOME: state,
+			XDG_RUNTIME_DIR: run,
+		};
+		const closing = (server: Server) =>
+			new Promise<void>((closed) => server.close(() => closed()));
+		const servers = await Promise.all([
+			nodeAnswering(work, "BXNMUC", "optimus"),
+			nodeAnswering(personal, "A210QS", "penelope"),
+		]);
+		try {
+			await nodeDeps(env).machines();
+			await Promise.all(servers.splice(0).map(closing));
+
+			expect([...((await nodeDeps(env).machines()) ?? [])].sort()).toEqual([
+				"optimus",
+				"penelope",
+			]);
+
+			servers.push(await nodeAnswering(personal, "A210QS", "titan"));
+			expect([...((await nodeDeps(env).machines()) ?? [])].sort()).toEqual([
+				"optimus",
+				"penelope",
+				"titan",
+			]);
+		} finally {
+			await Promise.all(servers.map(closing));
+			rmSync(state, { recursive: true, force: true });
+		}
+	});
 
 	it("is on the mesh where a realm is named, though no runtime folder says where its socket is", async () => {
 		const state = empty();

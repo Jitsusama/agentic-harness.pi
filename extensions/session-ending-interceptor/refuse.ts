@@ -31,7 +31,8 @@ export interface SessionEndingDeps {
 	readonly sessions: () => Promise<readonly NodeSession[] | undefined>;
 	/**
 	 * Every machine the realm holds, sessions on it or not, so an ask of
-	 * an empty one reads as naming it; nothing when the node can't say.
+	 * an empty one reads as naming it, with those its nodes named before;
+	 * nothing when the node can't say.
 	 */
 	readonly machines: () => Promise<readonly string[] | undefined>;
 	/** This machine's name, for an ask read while the node can't be. */
@@ -134,26 +135,28 @@ export function saidInReply(content: unknown): Said {
 }
 
 /**
- * The machines each node last named, kept for when none can be read:
- * otherwise only this machine is known then, so "restart equilibrius"
- * reads as restarting something else and goes through, just when the
- * guard means to refuse. Kept per set of deps, so a reload starts clean.
+ * The machines `deps`' nodes have named, kept for when none can be
+ * read, or only some: otherwise only this machine is known then, so
+ * "restart equilibrius" reads as restarting something else and goes
+ * through, just when the guard means to refuse. Kept per set of deps;
+ * the default deps also keep them on disk, for a fresh start.
  */
 const lastKnown = new WeakMap<SessionEndingDeps, readonly string[]>();
 
-/** The machines `deps`' nodes name now, or last named when they can't. */
-function machinesRemembered(
+/** The machines `deps`' nodes name now, with every one named before. */
+function machinesSoFar(
 	deps: SessionEndingDeps,
 	sessions: readonly NodeSession[] | undefined,
 	listed: readonly string[] | undefined,
 ): string[] {
-	const here = deps.here();
-	if (sessions || listed) {
-		const known = machinesKnown(sessions, listed, here);
-		lastKnown.set(deps, known);
-		return known;
-	}
-	return machinesKnown(undefined, lastKnown.get(deps), here);
+	const known = [
+		...new Set([
+			...(lastKnown.get(deps) ?? []),
+			...machinesKnown(sessions, listed, deps.here()),
+		]),
+	];
+	lastKnown.set(deps, known);
+	return known;
 }
 
 /**
@@ -172,7 +175,7 @@ export async function refusalFor(
 		deps.sessions(),
 		deps.machines(),
 	]);
-	const machines = machinesRemembered(deps, sessions, listed);
+	const machines = machinesSoFar(deps, sessions, listed);
 	const asks: SessionEndingAsk[] = [
 		...said.prose.flatMap((text) => asksInProse(text, machines)),
 		...said.labels.flatMap((text) =>

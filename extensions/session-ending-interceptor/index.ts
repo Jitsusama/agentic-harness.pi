@@ -58,6 +58,7 @@ import {
 	saidByWait,
 	saidInReply,
 } from "./refuse.ts";
+import { rememberedMachinesFile, rememberMachines } from "./remembered.ts";
 
 export type { SessionEndingDeps } from "./refuse.ts";
 
@@ -139,8 +140,8 @@ export function nodeDeps(
 			const each = await Promise.all(
 				nodeSockets(env).map((socket) => machineNamesAt(socket)),
 			);
-			const read = each.filter((names) => names !== undefined);
-			return read.length === 0 ? undefined : [...new Set(read.flat())];
+			const read = each.flatMap((names) => names ?? []);
+			return rememberMachines(rememberedMachinesFile(env), read);
 		},
 		here: () => thisMachine(),
 	};
