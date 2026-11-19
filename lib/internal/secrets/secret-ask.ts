@@ -1,18 +1,20 @@
 /**
- * An agent's ask for one work secret, as core's secret-asks daemon reads
- * it: a file `<id>.ask.json` in the asks folder (the shape's version 1),
- * and the answer the daemon writes beside it, `<id>.answer.json`, once
- * Joel says yes or no in the launcher or the ask runs out.
+ * An agent's ask for one work secret, as core's passwords daemon reads it,
+ * and the secret-asks daemon before it: a file `<id>.ask.json` in the asks
+ * folder (the shape's version 1), and the answer the daemon writes beside
+ * it, `<id>.answer.json`, once Joel says yes or no in the launcher or the
+ * ask runs out.
  *
  * The harness only writes the ask and reads the answer's fields; the value
  * goes from 1Password to the command the line names and never comes back
  * here. An ask the daemon would refuse is refused before it's written, so
  * an agent learns why at once rather than after Joel has seen a line.
  *
- * Only pi asks, from outside the fence: the daemon takes a yes from
- * anything that reaches its socket (core's secret-asks `daemon.rs`), so
- * no fenced command reaches it or the asks, and one naming the daemon's
- * program is told to use secret_run instead.
+ * Only pi asks, from outside the fence: the secret-asks daemon takes a
+ * yes from anything that reaches its socket (core's secret-asks
+ * `daemon.rs`), and either daemon runs what an ask in its folder names,
+ * so the fence keeps every fenced command from that socket and the asks,
+ * and one naming the daemon's program is told to use secret_run instead.
  */
 
 import { randomBytes } from "node:crypto";
@@ -121,15 +123,100 @@ function refusal(ask: SecretAsk): string | undefined {
 	return undefined;
 }
 
+/** What the route reads of the machine, given so a test can say it. */
+export interface RouteReads {
+	readonly exists: (path: string) => boolean;
+	/** A file's text, or nothing when it can't be read. */
+	readonly read: (path: string) => string | undefined;
+	/** Whether the process with this pid is core's passwords daemon, as this account. */
+	readonly daemon: (pid: number) => boolean;
+}
+
+/**
+ * Whether the process with this pid is core's passwords program, run by
+ * this account, by the name and real uid its status gives. The daemon
+ * turns its dumpable flag off before it leaves its sign, which hides its
+ * exe link even from its own account, while its status stays readable.
+ * The name is the one the kernel took from the program's file at exec,
+ * unless the process has since renamed itself, so another program of
+ * Joel's that a reused pid now names doesn't read as the daemon by
+ * accident, and nor does another account's, or one that has died and not
+ * yet been reaped. It tells a leftover sign from a live one by accident's
+ * measure only: a process of Joel's, fenced or not, could rename itself
+ * and take the pid a leftover sign names. The fence keeps agents' commands
+ * from writing a sign, not from that, and a pose gains nothing but an ask
+ * filed with nobody to answer it, which waits out its deadline. Where
+ * there's no /proc, as on a Mac, nothing reads as the daemon, which is
+ * right: it runs only on Linux. Where /proc hides processes (hidepid, or a
+ * unit's ProtectProc), the kernel hides a non-dumpable one even from its
+ * own account, so the daemon reads as gone and every ask is refused: the
+ * safe way to be wrong.
+ */
+export function runsPasswords(
+	pid: number,
+	proc = "/proc",
+	// Where there's no account to compare, no status names -1.
+	uid: number = process.getuid?.() ?? -1,
+): boolean {
+	let status: string;
+	try {
+		status = readFileSync(join(proc, String(pid), "status"), "utf8");
+	} catch {
+		// Gone, or no /proc: none is the daemon.
+		return false;
+	}
+	const name = /^Name:\t(.*)$/m.exec(status)?.[1];
+	const real = /^Uid:\t(\d+)\t/m.exec(status)?.[1];
+	const dead = /^State:\t[ZX]/m.test(status);
+	return name === "passwords" && real === String(uid) && !dead;
+}
+
+const MACHINE: RouteReads = {
+	exists: existsSync,
+	read: (path) => {
+		try {
+			return readFileSync(path, "utf8");
+		} catch {
+			// A sign that can't be read says nothing is answering.
+			return undefined;
+		}
+	},
+	daemon: (pid) => runsPasswords(pid),
+};
+
+/**
+ * Whether something answers the asks filed in the runtime folder: core's
+ * secret-asks daemon, by its socket, or core's passwords daemon, by the
+ * sign it leaves in the asks folder while it answers them, `answering`,
+ * holding its pid (core's passwords `main.rs`). A sign whose pid isn't
+ * the passwords program now is one a killed daemon left behind, its pid
+ * since gone or reused, and says nothing. The socket is only looked for:
+ * systemd leaves it in place when its unit stops, until the login ends,
+ * so an ask filed then waits out its deadline with nobody to answer it.
+ * Core runs the passwords daemon as its package's `bin/passwords`, the
+ * name its status gives (core's passwords `checks.nix`).
+ */
+export function asksAnswered(
+	runtime: string,
+	reads: RouteReads = MACHINE,
+): boolean {
+	if (reads.exists(join(runtime, "daemons", "secret-asks.sock"))) return true;
+	const sign = reads.read(join(runtime, "secret-asks", "answering"));
+	const pid = sign?.trim();
+	if (!(pid && /^[1-9][0-9]*$/.test(pid))) return false;
+	return reads.daemon(Number(pid));
+}
+
 /**
  * Where secret_run files its asks, or why it can't from here: only from a
  * session whose commands are fenced, since only the fence keeps them from
- * the asks, and only where the daemon runs. Nothing is filed, so the
- * pre-flight checks the whole route without asking Joel.
+ * the asks, and only where something answers them (`asksAnswered`).
+ * Nothing is filed, so the pre-flight checks the whole route without
+ * asking Joel.
  */
 export function askRoute(
 	place: { readonly fenced: boolean; readonly runtimeDir: string | undefined },
-	exists: (path: string) => boolean = existsSync,
+	reads: RouteReads = MACHINE,
 ): { readonly folder: string } | { readonly refused: string } {
 	if (!place.fenced) {
 		return {
@@ -138,10 +225,10 @@ export function askRoute(
 		};
 	}
 	const runtime = place.runtimeDir;
-	if (!runtime || !exists(join(runtime, "daemons", "secret-asks.sock"))) {
+	if (!(runtime && asksAnswered(runtime, reads))) {
 		return {
 			refused:
-				"secret_run needs core's secret-asks daemon, which doesn't run on this machine. Ask Joel in words instead.",
+				"secret_run needs core's passwords or secret-asks daemon answering asks, and neither does on this machine. Ask Joel in words instead.",
 		};
 	}
 	return { folder: join(runtime, "secret-asks") };

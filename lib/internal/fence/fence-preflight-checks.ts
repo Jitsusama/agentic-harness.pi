@@ -19,7 +19,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SANDBOX_VARIABLE, sandboxFor } from "../sandbox/sandbox.ts";
-import { askRoute } from "../secrets/secret-ask.ts";
+import { askRoute, asksAnswered } from "../secrets/secret-ask.ts";
 import { FENCE, NEVER_THROUGH } from "./fence.ts";
 import { lenderFolders } from "./fence-builders.ts";
 import { DISK } from "./fence-disk.ts";
@@ -434,14 +434,23 @@ export const CHECKS: readonly Check[] = [
 		group: "agents",
 		what: "secret_run finds its daemon, which no command reaches",
 		// secret_run asks from pi, outside the fence, and only the fence
-		// keeps a command from the daemon's socket, which takes a yes from
-		// anything that reaches it (core's secret-asks daemon.rs). So the
-		// asks are checked from outside and the socket from inside, and no
-		// ask is ever filed, since one pings Joel.
+		// keeps a command from the asks and from the secret-asks daemon's
+		// socket, which takes a yes from anything that reaches it (core's
+		// secret-asks daemon.rs). So the daemon is found from outside, by
+		// its socket or the passwords daemon's sign, and neither the socket
+		// nor the asks from inside, and no ask is ever filed, since one
+		// pings Joel.
 		run: async ({ scratch, session }) => {
 			const socket = join(runtime(), "daemons", "secret-asks.sock");
 			const asks = join(runtime(), "secret-asks");
-			if (!existsSync(socket)) return failed(`no daemon at ${socket}`);
+			if (!asksAnswered(runtime())) {
+				return failed(
+					`nothing answers the asks in ${asks}: no secret-asks socket at ${socket}, and no answering sign there naming a running passwords daemon`,
+				);
+			}
+			const by = existsSync(socket)
+				? "the secret-asks daemon's socket"
+				: "the passwords daemon's answering sign";
 			if (!existsSync(asks)) return failed(`no asks folder at ${asks}`);
 			const inside = await fenced(
 				`test -e '${socket}' || test -e '${asks}'`,
@@ -450,7 +459,7 @@ export const CHECKS: readonly Check[] = [
 			);
 			return inside.code === 0
 				? failed("a fenced command reaches the daemon or its asks")
-				: passed("its socket and asks are there for pi, and not inside");
+				: passed(`${by} and the asks are there for pi, and not inside`);
 		},
 	},
 	{

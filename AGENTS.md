@@ -237,8 +237,9 @@ rules, and where it doesn't yet.
   reason.
 - **Skips:** a test skips only when the machine lacks what it
   drives: `hasServer` (a language server), `NPM_RUNS`,
-  `PI_RACE_TESTS`, a bubblewrap that can make a namespace, or a
-  platform. The browser lane fails without
+  `PI_RACE_TESTS`, a bubblewrap that can make a namespace, a kernel
+  that hides a non-dumpable process's exe from its own account (not
+  root, `fs.suid_dumpable` not 1), or a platform. The browser lane fails without
   a Chrome rather than skipping.
 - **Sleeps:** a fixed sleep in a test says why in a comment. The
   129 that didn't on 8 November are listed in
