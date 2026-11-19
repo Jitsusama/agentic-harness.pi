@@ -5,9 +5,11 @@
  * and the asymmetry with {@link tidyPlan} is deliberate. Deleting a
  * branch destroys the only name a commit had, so tidy refuses to do
  * it. Removing a worktree destroys a directory and git's bookkeeping
- * for it, and leaves the branch exactly where it was: the commits stay
+ * for it, and leaves the branch where it was: the commits stay
  * reachable, and re-cutting the tree at the same branch puts a person
- * back where they were. A report whose only follow-through is the
+ * back where they were. The one branch that goes is one whose every
+ * commit is on the remote's trunk (merged-branch.ts), which loses
+ * nothing either. A report whose only follow-through is the
  * `git worktree` call the guide says never to make is not a path, so
  * this supplies the path.
  *
@@ -23,7 +25,13 @@ import type { Reclaimable } from "./tidy.ts";
 
 /** What became of one tree. */
 export type ReclaimedTree =
-	| { kind: "reclaimed"; path: string; branch?: string }
+	| {
+			kind: "reclaimed";
+			path: string;
+			branch?: string;
+			/** Set when the branch went too, since trunk has all of it. */
+			branchGone?: true;
+	  }
 	/**
 	 * Git would not let go of it, and the tree is still there.
 	 *
@@ -69,13 +77,15 @@ export async function reclaimTrees(
 				["-C", deps.mainPath, "worktree", "remove", tree.path],
 				`Taking back ${displayPath(tree.path)}`,
 			);
-			if (tree.branch) {
-				await dropMergedBranch(deps.exec, deps.mainPath, tree.branch);
-			}
+			const gone =
+				tree.branch !== undefined &&
+				tree.branch !== "" &&
+				(await dropMergedBranch(deps.exec, deps.mainPath, tree.branch));
 			trees.push({
 				kind: "reclaimed",
 				path: tree.path,
 				...(tree.branch ? { branch: tree.branch } : {}),
+				...(gone ? { branchGone: true as const } : {}),
 			});
 		} catch (error) {
 			// Git's own words. It refuses a tree with anything untracked in

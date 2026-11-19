@@ -151,6 +151,9 @@ export async function onBtrfs(dir: string): Promise<boolean> {
 	}
 }
 
+/** Where a checkout's own branches live. */
+const BRANCH_REFS = "refs/heads/";
+
 /**
  * The branch a tree stands on and the checkout that holds it, or
  * nothing for a tree on a bare commit. Read before the tree goes, since
@@ -160,15 +163,13 @@ async function standsOn(
 	exec: Exec,
 	tree: string,
 ): Promise<{ name: string; checkout: string } | undefined> {
-	const on = await exec("git", [
-		"-C",
-		tree,
-		"symbolic-ref",
-		"--quiet",
-		"--short",
-		"HEAD",
-	]);
-	const name = on.code === 0 ? on.stdout.trim() : "";
+	// The full ref, not --short: a short name is the shortest that is
+	// unambiguous, which for a branch sharing a tag's or a remote's name
+	// is not the branch's own, and HEAD may point somewhere not a branch.
+	const on = await exec("git", ["-C", tree, "symbolic-ref", "--quiet", "HEAD"]);
+	const ref = on.code === 0 ? on.stdout.trim() : "";
+	if (!ref.startsWith(BRANCH_REFS)) return undefined;
+	const name = ref.slice(BRANCH_REFS.length);
 	if (name === "") return undefined;
 	const common = await exec("git", [
 		"-C",
