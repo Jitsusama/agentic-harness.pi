@@ -168,7 +168,8 @@ describe("runReviewer: argument composition", () => {
 		for (let i = 0; i < args.length; i++) {
 			if (args[i] === "--extension") extensionFlagPositions.push(i);
 		}
-		expect(extensionFlagPositions).toHaveLength(2);
+		// The caller's two, then the budget pack every subagent loads.
+		expect(extensionFlagPositions).toHaveLength(3);
 		expect(args[at(extensionFlagPositions, 0) + 1]).toBe(
 			"/abs/path/to/pr-workflow-verify/index.ts",
 		);
@@ -177,15 +178,21 @@ describe("runReviewer: argument composition", () => {
 		);
 	});
 
-	it("omits --extension entirely when no extraExtensions are supplied", async () => {
+	it("loads only the budget pack when no extraExtensions are supplied", async () => {
 		// Older callers and the default path don't pass
-		// extensions through; we keep pi's default extension
-		// discovery in that case.
+		// extensions through; the one pack every subagent
+		// loads is the one that says its budget in its log.
 		const { runPi, calls } = fakeRun({
 			stdout: assistantEvent(`{"findings": []}`),
 		});
 		await review(runPi);
-		expect(at(calls, 0).args).not.toContain("--extension");
+		const args = at(calls, 0).args;
+		const extensions = args.filter(
+			(_, i) => i > 0 && args[i - 1] === "--extension",
+		);
+		expect(extensions).toEqual([
+			expect.stringMatching(/packs\/budget-entry\/index\.ts$/),
+		]);
 	});
 
 	it("omits --model and --tools when the reviewer config doesn't specify them", async () => {
