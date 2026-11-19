@@ -95,7 +95,9 @@ function* liveQuests(questsRoot: string) {
 	]);
 	for (const store of stores) {
 		// What the sweep writes rests on which quests list a tree now.
-		signQuestsNow(store);
+		// Not awaited: a sweep runs on its thread, so it signs there itself
+		// when nothing holds signing back, and reads the last walk when it is.
+		void signQuestsNow(store);
 		const { index } = discoverQuests(store);
 		for (const entry of index.quests.values()) {
 			if (!isSealedStatus(entry.doc.frontMatter.status)) yield entry;

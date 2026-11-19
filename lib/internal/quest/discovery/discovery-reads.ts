@@ -201,14 +201,33 @@ interface Memo {
 	again?: Set<string>;
 	/** Whether the person paused signing off the thread, and when read. */
 	paused?: { readonly is: boolean; readonly readAt: number };
+	/** The walks begun off the thread, counted, so an ask knows a later one. */
+	begun?: number;
+	/** Each root's asks waiting on a walk begun after they were made. */
+	waiting?: Map<string, Set<WalkWait>>;
+	/** What wakes each root's signing resting between walks, when asked. */
+	wake?: Map<string, () => void>;
+	/** When a host last said a thread let go holds its signing back. */
+	heldBackSaidAt?: number;
+}
+
+/**
+ * An ask waiting on a walk begun after it was made, the `begun` count
+ * then, heard with what the walk found or how its signing ended
+ * without one.
+ */
+export interface WalkWait {
+	readonly after: number;
+	readonly heard: (heard: DiscoveryResult | SigningEnd) => void;
 }
 
 /**
  * How a signing off the thread ended: its walk kept, dropped for a
- * newer one or failed; or, to one ask, given up on while the walk ran
- * on. Undefined from code that says none.
+ * newer one or failed, or stopped between walks by the person's pause;
+ * or, to one ask, given up on while the walk ran on. Undefined from
+ * code that says none.
  */
-export type SigningEnd = "kept" | "dropped" | "failed" | "gave up";
+export type SigningEnd = "kept" | "dropped" | "failed" | "paused" | "gave up";
 
 /**
  * Where the memo lives: on `globalThis`, never in this module's scope.

@@ -147,6 +147,21 @@ function clearCalls(): void {
 	stats.mockClear();
 }
 
+/** Let `count` turns of the event loop pass, real ones, which fake timers leave be. */
+async function turns(count: number): Promise<void> {
+	for (let turn = 0; turn < count; turn++)
+		await new Promise((resolve) => setImmediate(resolve));
+}
+
+/** Turn the event loop until `holds` does, or fail after many turns. */
+async function until(holds: () => boolean, most = 20_000): Promise<void> {
+	for (let turn = 0; turn < most; turn++) {
+		if (holds()) return;
+		await new Promise((resolve) => setImmediate(resolve));
+	}
+	throw new Error(`still waiting after ${most} turns: ${holds}`);
+}
+
 /** Move the clock past when a host signs a known tree again. */
 function later(ms: number): void {
 	const now = Date.now();
@@ -316,10 +331,11 @@ describe("discovery on a host", () => {
 			signing.walks,
 			"no second walk starts beside one only given up on",
 		).toBe(1);
-		await vi.advanceTimersByTimeAsync(5 * 60_000 - 31_000);
+		// Five minutes and the ten seconds' margin past the walk's start.
+		await vi.advanceTimersByTimeAsync(5 * 60_000 + 10_000 - 31_000);
 		later(6_000);
 		discoverQuests(root);
-		expect(signing.walks, "nor just short of five minutes on").toBe(1);
+		expect(signing.walks, "nor just short of its hung time").toBe(1);
 		await vi.advanceTimersByTimeAsync(1_000);
 		later(6_000);
 		discoverQuests(root);
@@ -380,7 +396,7 @@ describe("discovery on a host", () => {
 		const firstRead = nextRead();
 		discoverQuests(root);
 		await firstRead;
-		await vi.advanceTimersByTimeAsync(5 * 60_000 - 1_000);
+		await vi.advanceTimersByTimeAsync(5 * 60_000 + 10_000 - 1_000);
 		// A wait on the hung walk, with a clock of its own, that answers
 		// once that walk has ended and let go of whatever it holds.
 		const hungEnded = discoverySettled(root);
@@ -558,7 +574,9 @@ describe("discovery on a host", () => {
 			signQuestsNow(root);
 			expect(signing.walks, "no walk off the thread").toBe(0);
 			expect(syncCalls(), "nor on it").toEqual(rootStat());
-			await expect(discoverQuestsAfresh(root)).rejects.toThrow();
+			await expect(discoverQuestsAfresh(root)).rejects.toThrow(
+				`signing is paused by ${paused}`,
+			);
 		} finally {
 			rmSync(paused, { force: true });
 		}
@@ -581,21 +599,90 @@ describe("discovery on a host", () => {
 		expect(statusNow(), "once it stops, its own write shows").toBe("paused");
 	});
 
-	it("signs nothing on the thread for an action while a signing runs", async () => {
+	it("has an action wait for a walk begun after it asked, and see what changed", async () => {
 		discoverQuests(root);
 		openSignings = holdSignings();
 		const read = nextRead();
 		later(6_000);
 		discoverQuests(root);
 		await read;
-		atomicWriteFile(readmePath, readme("paused"));
-		clearCalls();
-		signQuestsNow(root);
-		expect(listings.mock.calls, "no walk on the thread").toEqual([]);
-		signing.gate = undefined;
+		writeSettled(readmePath, readme("paused"));
+		let answered = false;
+		const asked = signQuestsNow(root).then(() => {
+			answered = true;
+		});
+		await turns(20);
+		expect(answered, "not answered by the walk begun before it").toBe(false);
 		openSignings();
-		await discoverySettled(root);
-		expect(statusNow()).toBe("paused");
+		await asked;
+		expect(signing.walks, "a walk begun after it asked").toBe(2);
+		expect(statusNow(), "and what changed shows").toBe("paused");
+	});
+
+	it("has an action that asks while a signing rests wake it, rather than wait out the rest", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		later(6_000);
+		discoverQuests(root);
+		await read;
+		// Its own write during the walk asks for another, after a rest.
+		atomicWriteFile(readmePath, readme("paused"));
+		openSignings();
+		await until(() => signing.returned === 1);
+		await turns(20);
+		expect(signing.walks, "resting, not walking").toBe(1);
+		writeSettled(join(root, ID, "note.md"), "a note");
+		const asked = signQuestsNow(root);
+		await until(() => signing.walks === 2);
+		await asked;
+		expect(signing.walks, "woken at the ask, no fake time passing").toBe(2);
+	});
+
+	it("ends a signing walking again once the person pauses signing", async () => {
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		later(6_000);
+		discoverQuests(root);
+		await read;
+		const settled = discoverySettled(root);
+		atomicWriteFile(readmePath, readme("paused"));
+		const paused = signingPausedPath();
+		mkdirSync(dirname(paused), { recursive: true });
+		fs.writeFileSync(paused, "");
+		try {
+			// Past when the pause is read again.
+			later(6_000);
+			openSignings();
+			expect(await settled).toBe("paused");
+			expect(signing.walks, "no walk past the pause").toBe(1);
+		} finally {
+			rmSync(paused, { force: true });
+		}
+	});
+
+	it("answers a wait for a fresh walk while writes keep overtaking the walks", async () => {
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		later(6_000);
+		discoverQuests(root);
+		await read;
+		writeSettled(readmePath, readme("paused"));
+		const fresh = discoverQuestsAfresh(root);
+		// Each walk is written during, so the signing walks on past this.
+		const overtake = () => {
+			atomicWriteFile(join(root, ID, "note.md"), `note ${signing.walks}`);
+			signing.onRead = overtake;
+		};
+		signing.onRead = overtake;
+		openSignings();
+		const found = await fresh;
+		signing.onRead = undefined;
+		expect(found.index.quests.get(ID)?.doc.frontMatter.status).toBe("paused");
+		expect(signing.walks, "answered by the walk after it asked").toBe(2);
 	});
 
 	it("answers the asks after a signing now as the tree stood then", () => {

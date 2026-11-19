@@ -117,8 +117,9 @@ export function handle(
 	return turns.runExclusive(
 		async () => {
 			// What an action reads decides what it writes, so on a host it
-			// reads the tree as it stands, not a walk a few seconds old.
-			signQuestsNow(state.questsRoot);
+			// reads the tree as it stands, not a walk a few seconds old: the
+			// next walk begun after it asked, or none past the give-up.
+			await signQuestsNow(state.questsRoot);
 			const actedOn = targetsOf(state, params);
 			const result = await dispatch(state, pi, ctx, params, signal);
 			tellConcluded(pi, params, actedOn, result);

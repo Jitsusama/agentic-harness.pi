@@ -90,7 +90,9 @@ export function followSessionLife(
 	pi.on("session_start", async (event, ctx) =>
 		withDiscoveryHeld(() => {
 			// What a start restores and records rests on the tree as it is.
-			signQuestsNow(state.questsRoot);
+			// Not awaited, so the start holds discovery in one turn: where a
+			// signing runs, it reads the last walk plus its own writes.
+			void signQuestsNow(state.questsRoot);
 			if (stayedBecause && ctx.hasUI) ctx.ui.notify(stayedBecause, "warning");
 			stayedBecause = undefined;
 			// What this session journals is its own, for its own undo.
