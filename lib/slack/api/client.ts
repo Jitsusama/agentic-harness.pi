@@ -6,6 +6,8 @@
  * validation. No external dependencies.
  */
 
+import { refuseDirectSlack } from "../policy.ts";
+
 const SLACK_API_BASE = "https://slack.com/api";
 
 /**
@@ -122,6 +124,9 @@ export class SlackClient {
 		cookie?: string,
 		options: SlackClientOptions = {},
 	) {
+		// Every direct call to Slack's API goes through a client, so
+		// refusing one here refuses them all while direct Slack is off.
+		refuseDirectSlack();
 		this.token = token;
 		this.cookie = cookie;
 		this.options = options;

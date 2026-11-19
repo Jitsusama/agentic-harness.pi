@@ -14,6 +14,7 @@ import { frameTitle } from "../../ui/frame.ts";
 import { viewWhile } from "../../ui/panel.ts";
 import type { ViewConfig } from "../../ui/types.ts";
 import { SlackClient } from "../api/client.ts";
+import { refuseDirectSlack } from "../policy.ts";
 import type { OAuthApp } from "../types.ts";
 import { openInBrowser } from "./browser.ts";
 import { getToken, hasToken, storeToken } from "./credentials.ts";
@@ -31,6 +32,8 @@ export async function ensureAuthenticated(
 	ctx: ExtensionContext,
 	envConfig: OAuthApp,
 ): Promise<SlackClient> {
+	// Before the wizard, which would take Chrome's or Slack's session.
+	refuseDirectSlack();
 	const setup = await ensureSetup(ctx, envConfig);
 
 	if (!setup) {

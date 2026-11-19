@@ -109,4 +109,13 @@ slack-integration/
   refused; at the screen you're asked once. Reads go through,
   and so do drafts, since you send a draft yourself. A gateway
   Slack tool not known to read is treated as a write.
+- **Gateway only**: a machine that wants the tool gateway as its
+  only way to Slack places a file at
+  `~/.config/agentic-harness/slack/gateway-only`, from its own
+  configuration. While it's there, the `slack` tool and its sign-in
+  commands aren't registered, and nothing in the package reads the
+  stored token, signs in, takes a browser's session or calls Slack's
+  API (`lib/slack/policy.ts`). The token stays stored, for whatever
+  else on the machine reads it. It's a rule the package keeps, not a
+  boundary: the fence is what keeps agents' commands from the token.
 - **CSRF protection**: OAuth state parameter prevents forgery

@@ -38,6 +38,7 @@ import type {
 	SlackClient,
 	SlackUser,
 } from "../../lib/slack/index.ts";
+import { directSlackRefused } from "../../lib/slack/policy.ts";
 import { formatSlackText } from "../../lib/slack/renderers/message.ts";
 import { parseSlackUrl } from "../../lib/slack/resolvers/url.ts";
 import { displayNameForId } from "../../lib/slack/resolvers/user.ts";
@@ -278,6 +279,12 @@ export default function slackIntegration(pi: ExtensionAPI) {
 	pi.on("tool_call", (event, ctx) =>
 		gateGatewayWrite(ctx, event.toolName, event.input),
 	);
+
+	// Where the machine has turned direct Slack off, the gateway's tools
+	// are the only way to Slack: no slack tool, no sign-in commands and no
+	// identity read from the stored token. The gate above stays, since the
+	// gateway's writes still need Joel's yes.
+	if (directSlackRefused()) return;
 
 	// Restore identity from previous session.
 	pi.on("session_start", async (_event, ctx) => {
