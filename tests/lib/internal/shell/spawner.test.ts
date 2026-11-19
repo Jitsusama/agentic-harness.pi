@@ -40,22 +40,35 @@ const SHELL = { shell: "/bin/bash", args: ["-c"] };
 /** When every stand-in spawner started, as /proc would say it. */
 const STARTED = 987_654;
 
-/** pi's own spawn as a stand-in, counting what fell back to it. */
-function fallback(): BashOperations & { calls: string[] } {
+/**
+ * pi's own spawn as a stand-in, counting what fell back to it and the
+ * time limit each was given; where `timesOut`, it runs out of time as
+ * pi's own does.
+ */
+function fallback(timesOut = false): BashOperations & {
+	calls: string[];
+	limits: (number | undefined)[];
+} {
 	const calls: string[] = [];
+	const limits: (number | undefined)[] = [];
 	return {
 		calls,
-		exec: async (command) => {
+		limits,
+		exec: async (command, _cwd, { timeout }) => {
 			calls.push(command);
+			limits.push(timeout);
+			if (timesOut) throw new Error(`timeout:${timeout}`);
 			return { exitCode: 0 };
 		},
 	};
 }
 
-/** The operations through a stand-in, asked for, with `over` on top. */
-function through(over: Partial<SpawnerOptions> = {}) {
+/**
+ * The operations through a stand-in, asked for, with `over` on top and
+ * `own` as pi's own spawn.
+ */
+function through(over: Partial<SpawnerOptions> = {}, own = fallback()) {
 	const program = standIn();
-	const own = fallback();
 	const kill = vi.fn<(pid: number) => void>();
 	const operations = spawnedBy(own, {
 		env: { [SPAWNER_VARIABLE]: "on" },
@@ -708,6 +721,85 @@ describe("the node told the session a load's pi-spawner serves", () => {
 
 		await expect(ran, "how the command ended").rejects.toThrow("timeout:0.05");
 		expect(program.asked, "what the spawner was asked").toEqual([]);
+	});
+
+	it("gives pi's own spawn only the time the wait left, when its spawner stops meanwhile", async () => {
+		const program = standIn();
+		let told: (() => void) | undefined;
+		const { operations, own } = through({
+			start: asProcess(program),
+			session: "s-one",
+			register: () =>
+				new Promise((settle) => {
+					told = settle;
+				}),
+		});
+
+		const ran = operations.exec("true", "/", {
+			onData: () => {},
+			env: {},
+			timeout: 10,
+		});
+		await vi.waitFor(() => expect(told, "the telling began").toBeDefined());
+		program.stop();
+		await delivered();
+		told?.();
+		await ran;
+
+		const [given] = own.limits;
+		expect(given, "the limit pi's own spawn was given").toBeLessThan(10);
+		expect(given, "the limit pi's own spawn was given").toBeGreaterThan(0);
+	});
+
+	it("says the limit asked for when pi's own spawn runs out of the time left", async () => {
+		const program = standIn();
+		let told: (() => void) | undefined;
+		const { operations } = through(
+			{
+				start: asProcess(program),
+				session: "s-one",
+				register: () =>
+					new Promise((settle) => {
+						told = settle;
+					}),
+			},
+			fallback(true),
+		);
+
+		const ran = operations.exec("true", "/", {
+			onData: () => {},
+			env: {},
+			timeout: 10,
+		});
+		await vi.waitFor(() => expect(told, "the telling began").toBeDefined());
+		program.stop();
+		await delivered();
+		told?.();
+
+		await expect(ran, "how the command ended").rejects.toThrow(/^timeout:10$/);
+	});
+
+	it("ends as stopped a command stopped while it waited, though its spawner stopped too", async () => {
+		const program = standIn();
+		const { operations, own } = through({
+			start: asProcess(program),
+			session: "s-one",
+			register: () => new Promise<void>(() => undefined),
+		});
+		const stopping = new AbortController();
+
+		const ran = operations.exec("true", "/", {
+			onData: () => {},
+			env: {},
+			signal: stopping.signal,
+		});
+		await delivered();
+		program.stop();
+		await delivered();
+		stopping.abort();
+
+		await expect(ran, "how the command ended").rejects.toThrow("aborted");
+		expect(own.calls, "what pi's own spawn ran").toEqual([]);
 	});
 
 	it("refuses a time limit pi refuses before waiting on the telling", async () => {

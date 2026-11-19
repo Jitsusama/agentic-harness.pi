@@ -363,23 +363,40 @@ export function spawnedBy(
 			try {
 				// Nothing it runs asks the node before the node knows whose it
 				// is.
-				if (told !== undefined) {
-					await toldOrStopped(told, settings.signal, limit);
-				}
+				const waited =
+					told === undefined
+						? "told"
+						: await toldOrStopped(told, settings.signal, limit);
+				// Stopped while it waited, it ends as stopped, wherever it
+				// would have run.
+				if (settings.signal?.aborted) throw new Error("aborted");
 				const left =
 					limit === undefined ? undefined : limit - (performance.now() - asked);
-				if (left !== undefined && left <= 0) {
+				if (waited === "expired" || (left !== undefined && left <= 0)) {
 					throw new Error(`timeout:${settings.timeout}`);
 				}
 				// Only its own spawner stopping while it waited leaves it to
 				// pi's own spawn, given what time is left; any other, the one
 				// serving now included, may stop without moving it.
 				if (through.stopped()) {
-					const rest =
-						left === undefined
-							? settings
-							: { ...settings, timeout: left / 1000 };
-					return await fallback.exec(command, cwd, rest);
+					if (left === undefined) {
+						return await fallback.exec(command, cwd, settings);
+					}
+					try {
+						return await fallback.exec(command, cwd, {
+							...settings,
+							timeout: left / 1000,
+						});
+					} catch (error) {
+						// It ran out of the time asked for, not of what was left.
+						if (
+							error instanceof Error &&
+							error.message.startsWith("timeout:")
+						) {
+							throw new Error(`timeout:${settings.timeout}`);
+						}
+						throw error;
+					}
 				}
 				return await runThrough(
 					through,
@@ -544,26 +561,30 @@ function commOf(pid: number, proc: string): string | undefined {
 	}
 }
 
+/** Why a wait on the node's telling ended. */
+type Waited = "told" | "stopped" | "expired";
+
 /**
  * Once `told` settles, or sooner if `signal` stops the command or its
- * `limit`, in milliseconds, runs out.
+ * `limit`, in milliseconds, runs out; saying which came first.
  */
 function toldOrStopped(
 	told: Promise<void>,
 	signal: AbortSignal | undefined,
 	limit: number | undefined,
-): Promise<void> {
-	if (signal?.aborted) return Promise.resolve();
+): Promise<Waited> {
+	if (signal?.aborted) return Promise.resolve("stopped");
 	return new Promise((settle) => {
 		let timer: ReturnType<typeof setTimeout> | undefined;
-		const done = () => {
+		const stopped = () => done("stopped");
+		const done = (why: Waited) => {
 			clearTimeout(timer);
-			signal?.removeEventListener("abort", done);
-			settle();
+			signal?.removeEventListener("abort", stopped);
+			settle(why);
 		};
-		if (limit !== undefined) timer = setTimeout(done, limit);
-		signal?.addEventListener("abort", done, { once: true });
-		void told.then(done);
+		if (limit !== undefined) timer = setTimeout(() => done("expired"), limit);
+		signal?.addEventListener("abort", stopped, { once: true });
+		void told.then(() => done("told"));
 	});
 }
 
