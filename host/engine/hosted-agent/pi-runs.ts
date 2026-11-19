@@ -77,10 +77,12 @@ const NONE_WAITING: WaitingWords = { ids: () => [], run: async () => {} };
  * An open run of pi's, ended by `end`, done once `settled` resolves, true
  * when pi settled it and false when pi failed to prepare it, or given up
  * on once `overdue` does, as pi never prepared it in time. `signal` is the
- * run's stop, for a settle said here.
+ * run's stop, for a settle said here, and `began` whether pi has prepared
+ * it and begun the host's work.
  */
 interface OpenRun {
 	readonly end: () => void;
+	readonly began: () => boolean;
 	readonly settled: Promise<boolean>;
 	readonly overdue: Promise<void>;
 	readonly signal: AbortSignal | undefined;
@@ -112,9 +114,11 @@ export class PiRuns {
 	 * `waiting` words inside it, again for as long as words wait, some went
 	 * and no run shown was stopped, as pi's own run continues on queued
 	 * words before it settles: they waited, in memory alone, through every
-	 * settle handler, and a host dying then lost them. Words queued after
-	 * that go on to `next` once pi's run settled, since pi starts no run
-	 * for them after a host's.
+	 * settle handler, and a host dying then lost them. A run pi failed to
+	 * prepare, or hasn't yet, carries nothing on, since what ran inside it
+	 * would go without pi's sections. Words queued after that, as during
+	 * pi's settle handlers, wait in memory alone until they go on to `next`
+	 * once pi's run settled, since pi starts no run for them after a host's.
 	 */
 	constructor(
 		parked: () => boolean,
@@ -145,7 +149,7 @@ export class PiRuns {
 			if (released) return;
 			released = true;
 			// Still held, so the runs carried on join pi's open run, which settles once after them.
-			if (this.holds === 1 && this.open) await this.carryOnWaiting();
+			if (this.holds === 1 && this.open?.began()) await this.carryOnWaiting();
 			this.holds -= 1;
 			if (this.holds > 0) return;
 			this.shown = [];
@@ -243,8 +247,10 @@ export class PiRuns {
 			begun = done;
 		});
 		const report = this.report;
+		let began = false;
 		const settled = session
 			.runForHost((handed) => {
+				began = true;
 				begun(handed ?? []);
 				return ended;
 			})
@@ -260,7 +266,7 @@ export class PiRuns {
 		const overdue = new Promise<void>((done) => {
 			late = done;
 		});
-		this.open = { end, settled, overdue, signal };
+		this.open = { end, began: () => began, settled, overdue, signal };
 		// A run pi failed to prepare, took too long over, or that was stopped
 		// meanwhile, hands nothing over, and the work goes on; one prepared late
 		// ends with it as any other.
