@@ -33,9 +33,8 @@
  * service unit's `.service` left out first: `mycelium:easing` gives
  * `easing`, never `mycelium`, since declaring a narrow subject claims
  * nothing of the broader one, and `unstamped:agents.service` gives
- * `agents`. At most
- * `MOST_SUBJECTS` are read from a cell and `MOST_SUBJECT_WORDS` words
- * taken from them, and a need keeps the words that route it rarest
+ * `agents`. At most `MOST_SUBJECTS` are read from a cell and
+ * `MOST_SUBJECT_WORDS` words taken from them, and a need keeps the words that route it rarest
  * first, so a cell declaring many can't crowd it, nor its asker's own.
  * That routes a message and grants nothing: a need finds who works on
  * something, and a yes, a ruling or a grant still comes only from the
@@ -231,9 +230,13 @@ const SUBJECT_BREAK = /[:./]/;
  * a name and never as a part of its own. It says what kind of unit the
  * subject names, never what it works on. Only the service type is read
  * so, since it is the only one owner prefixes name, and the other types'
- * words (`scope`, `target`, `path`) are as often a subject itself.
+ * words (`scope`, `target`, `path`) are as often a subject itself. A
+ * subject ending in a break, as `health.service.` does, names a
+ * namespace rather than a unit, so its `service` is its subject. Read in
+ * any case, since the node lowercases a hub's subject and a cell's
+ * subjects come as declared.
  */
-const SERVICE_UNIT = /(?<=[^:./])\.service\.?$/;
+const SERVICE_UNIT = /(?<=[^:./])\.service$/i;
 
 /** A subject's parts, broadest first, leaving out a service unit's type. */
 function subjectParts(subject: string): string[] {
@@ -246,9 +249,9 @@ function subjectParts(subject: string): string[] {
 /**
  * The words of a subject's narrowest part, the one after its last colon,
  * dot or slash: `mycelium:easing` gives `easing`, `health.asks.` gives
- * `asks`, and `unstamped:agents.service` gives `agents`, since a service
- * unit's type is left out. A narrowest part with no word long enough gives none, rather
- * than a broader part's.
+ * `asks`, and `unstamped:agents.service` gives `agents`, since a
+ * service unit's type is left out. A narrowest part with no word long
+ * enough gives none, rather than a broader part's.
  */
 export function subjectWords(subject: string): string[] {
 	return wordsOf(subjectParts(subject).at(-1) ?? "");
