@@ -110,8 +110,9 @@ export async function listenControl(options: {
 	viewer?: ViewerBridge;
 	report(error: unknown): void;
 	/**
-	 * Writes a line to the host's journal: each attached window's first
-	 * frame and its size, or that it was sent nothing to draw.
+	 * Writes a line to the host's journal for an attached window sent
+	 * nothing to draw in time: then, its first frame and size when it
+	 * comes, or its leaving with nothing drawn.
 	 */
 	say?: (line: string) => void;
 	/** How long an attached window may go undrawn before the journal says so: ATTACH_SLOW_MS. */
@@ -134,15 +135,19 @@ export async function listenControl(options: {
 		let viewer: ViewerConnection | undefined;
 		let sessionId: string | undefined;
 		let ended = false;
-		// Until the window's first frame goes, what journals it, and the line
-		// saying it was sent nothing should none go in time.
+		// Until the window's first frame goes, what it does: nothing, unless
+		// the line saying it was sent nothing in time has gone, when the
+		// frame is journaled too, as is a leaving with nothing drawn.
 		let firstFrame: ((bytes: number) => void) | undefined;
+		let leftUndrawn: (() => void) | undefined;
 		let undrawn: NodeJS.Timeout | undefined;
 		function watchFirstFrame(id: string) {
 			const answered = Date.now();
 			const who = `${sessionAddress(id)} (${id})`;
 			const since = () => secondsSince(answered);
+			let late = false;
 			undrawn = setTimeout(() => {
+				late = true;
 				options.say?.(
 					`${who}: a window attached ${since()} s ago has been sent nothing to draw`,
 				);
@@ -151,16 +156,27 @@ export async function listenControl(options: {
 			undrawn.unref();
 			firstFrame = (bytes) => {
 				firstFrame = undefined;
+				leftUndrawn = undefined;
 				clearTimeout(undrawn);
-				options.say?.(
-					`${who}: a window's first frame, ${bytes} bytes, went ${since()} s after its attach was answered`,
-				);
+				if (late)
+					options.say?.(
+						`${who}: a window's first frame, ${bytes} bytes, went ${since()} s after its attach was answered`,
+					);
+			};
+			leftUndrawn = () => {
+				if (late)
+					options.say?.(
+						`${who}: a window attached ${since()} s ago left with nothing drawn`,
+					);
 			};
 		}
 		function detach() {
 			if (ended) return;
 			ended = true;
 			clearTimeout(undrawn);
+			firstFrame = undefined;
+			leftUndrawn?.();
+			leftUndrawn = undefined;
 			if (viewer && sessionId) {
 				const attached = viewer;
 				try {

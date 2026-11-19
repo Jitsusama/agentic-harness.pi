@@ -302,9 +302,12 @@ export function hostBackend(options: {
 				waits.next("its wake");
 				await wake(sessionId);
 			}
-			return live(sessionId);
-		} finally {
+			const shown = live(sessionId);
 			waits.done();
+			return shown;
+		} catch (refusal) {
+			waits.done(refusal);
+			throw refusal;
 		}
 	}
 

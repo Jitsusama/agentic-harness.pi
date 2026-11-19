@@ -1,7 +1,7 @@
 /**
- * What the journal says of a window's attach that waits: each step that
- * holds it past a bound, when it is answered after one did, and, once
- * answered, its first frame or that nothing was sent to draw. An attach
+ * What the journal says of a window's attach that waits: when it has
+ * waited past a bound and on what, each step after that holds it past
+ * the bound again, and how it ended, answered or refused. An attach
  * answered at once says nothing.
  */
 
@@ -24,14 +24,18 @@ export function secondsSince(began: number): string {
 export interface AttachWaits {
 	/** Begins the step named `waiting`, ending the one before. */
 	next(waiting: string): void;
-	/** Ends the attach, saying when it was answered if a step was slow. */
-	done(): void;
+	/**
+	 * Ends the attach, saying how if it was slow: answered, or refused
+	 * with `refusal`'s reason.
+	 */
+	done(refusal?: unknown): void;
 }
 
 /**
- * The waits of `who`'s attach, each journaled through `say` once it
- * passes `slowMs` itself, so a slow step that gives way to a fast one
- * says nothing more.
+ * The waits of `who`'s attach, journaled through `say`. The whole attach
+ * passing `slowMs` says the step it is on, however many quicker steps
+ * came before; after that, each step that itself passes `slowMs` says so
+ * again, and one that gives way at once says nothing.
  */
 export function attachWaits(
 	who: string,
@@ -40,25 +44,41 @@ export function attachWaits(
 ): AttachWaits {
 	const began = Date.now();
 	let slow = false;
+	let waitingOn = "";
 	let timer: NodeJS.Timeout | undefined;
+	const arm = () => {
+		clearTimeout(timer);
+		timer = setTimeout(() => {
+			slow = true;
+			say?.(
+				`${who}: a window's attach has waited ${secondsSince(began)} s, now on ${waitingOn}`,
+			);
+		}, slowMs);
+		// A host stopping never waits on a window's journal line.
+		timer.unref();
+	};
 	return {
 		next(waiting) {
-			clearTimeout(timer);
-			timer = setTimeout(() => {
-				slow = true;
-				say?.(
-					`${who}: a window's attach has waited ${secondsSince(began)} s on ${waiting}`,
-				);
-			}, slowMs);
-			// A host stopping never waits on a window's journal line.
-			timer.unref();
+			waitingOn = waiting;
+			if (timer === undefined || slow) arm();
 		},
-		done() {
+		done(refusal) {
 			clearTimeout(timer);
-			if (slow)
+			if (!slow) return;
+			if (refusal === undefined)
 				say?.(
 					`${who}: a window's attach was answered after ${secondsSince(began)} s`,
 				);
+			else
+				say?.(
+					`${who}: a window's attach was refused after ${secondsSince(began)} s: ${reasonOf(refusal)}`,
+				);
 		},
 	};
+}
+
+// A refusal's reason on one line, as the journal keeps one line a wait.
+function reasonOf(refusal: unknown): string {
+	const text = refusal instanceof Error ? refusal.message : String(refusal);
+	return text.replace(/\s+/g, " ").trim();
 }
