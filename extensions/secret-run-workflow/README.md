@@ -19,11 +19,12 @@ The tool writes an ask into `$XDG_RUNTIME_DIR/secret-asks/`, in the shape
 core's passwords daemon reads, as the secret-asks daemon before it did
 (`lib/internal/secrets/secret-ask.ts`). It's filed only where one of them
 answers: the secret-asks daemon's socket, or the passwords daemon's
-`answering` sign beside the asks, naming a pid that runs core's
-`passwords` program as Joel, so a sign a killed daemon left, its pid
-since reused, answers nothing. The daemon
-draws it as a line in the launcher's Asks; Joel's key there
-says yes or no. On a yes the daemon reads the item and runs the command
+`answering` sign beside the asks, naming a live pid whose status says
+it's a program named `passwords` run by Joel's account. So a sign a
+killed daemon left answers nothing, unless one of Joel's own processes
+has since taken that pid and that name; such a pose gains only an ask
+nobody answers, which runs out. The daemon draws it as a line in the
+launcher's Asks; Joel's key there says yes or no. On a yes the daemon reads the item and runs the command
 with it, then writes an answer beside the ask, which the tool reads for
 its state, exit code, why and masked output alone.
 

@@ -331,11 +331,16 @@ describe("runsPasswords", () => {
 	// Root reads any exe link, non-dumpable or not, so the premise holds
 	// only for an ordinary account, and only where fs.suid_dumpable isn't
 	// 1, which would leave an unreadable program's process dumpable.
-	it.runIf(
-		process.platform === "linux" &&
-			process.getuid?.() !== 0 &&
-			readFileSync("/proc/sys/fs/suid_dumpable", "utf8").trim() !== "1",
-	)(
+	const dumpsStayHidden = (): boolean => {
+		if (process.platform !== "linux" || process.getuid?.() === 0) return false;
+		try {
+			return readFileSync("/proc/sys/fs/suid_dumpable", "utf8").trim() !== "1";
+		} catch {
+			return false;
+		}
+	};
+
+	it.runIf(dumpsStayHidden())(
 		"knows a running passwords program from any other of this account's",
 		async () => {
 			const program = join(dir, "passwords");
@@ -349,8 +354,19 @@ describe("runsPasswords", () => {
 			const daemon = spawn(program, ["-c", "read -r line"], {
 				stdio: ["pipe", "ignore", "ignore"],
 			});
+			// The same shell from a file it can read stays dumpable, so its
+			// exe reads: the control that shows the copy's mode alone hides it.
+			const readable = join(dir, "readable");
+			copyFileSync(realpathSync("/bin/sh"), readable);
+			chmodSync(readable, 0o755);
+			const other = spawn(readable, ["-c", "read -r line"], {
+				stdio: ["pipe", "ignore", "ignore"],
+			});
 			let failed: Error | undefined;
 			daemon.on("error", (why) => {
+				failed = why;
+			});
+			other.on("error", (why) => {
 				failed = why;
 			});
 			const runtime = mkdtempSync(join(tmpdir(), "answered-"));
@@ -359,10 +375,20 @@ describe("runsPasswords", () => {
 				await expect
 					.poll(() => failed ?? runsPasswords(pid), { timeout: 5000 })
 					.toBe(true);
-				expect(
-					readlinkSync(`/proc/${process.pid}/exe`),
-					"a dumpable one's",
-				).toBe(realpathSync(process.execPath));
+				const control = other.pid ?? 0;
+				await expect
+					.poll(
+						() =>
+							failed ??
+							readFileSync(`/proc/${control}/status`, "utf8").includes(
+								"Name:\treadable\n",
+							),
+						{ timeout: 5000 },
+					)
+					.toBe(true);
+				expect(readlinkSync(`/proc/${control}/exe`), "a dumpable one's").toBe(
+					realpathSync(readable),
+				);
 				expect(
 					() => readlinkSync(`/proc/${pid}/exe`),
 					"a non-dumpable process's exe",
@@ -381,9 +407,11 @@ describe("runsPasswords", () => {
 				);
 			} finally {
 				daemon.kill();
+				other.kill();
 				rmSync(runtime, { recursive: true, force: true });
 			}
 		},
+		15_000,
 	);
 });
 
