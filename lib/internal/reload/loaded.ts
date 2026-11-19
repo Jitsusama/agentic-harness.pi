@@ -58,6 +58,21 @@ export function installOfVersion(root: string): string | undefined {
 }
 
 /**
+ * A path to `file` that outlives the version it sits in: the same file
+ * through the install's `current` link, for a file in an installed
+ * version that the link's version also holds; `file` itself otherwise.
+ * Words a window keeps for days name this, since an install keeps only
+ * the versions a live pi loaded, and on 19 November three windows closed
+ * as a host died because their words named a version since removed.
+ */
+export function lastingPath(
+	file: string,
+	_exists: (path: string) => boolean = existsSync,
+): string {
+	return file;
+}
+
+/**
  * Whether the session runs something other than the install its settings
  * name. A version the install's link has since left is still the install,
  * only behind it: the session follows it, rather than being held as one

@@ -1,10 +1,19 @@
-import { writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	describeLoaded,
 	homely,
 	isSwapped,
+	lastingPath,
 	readLoaded,
 } from "../../../../lib/internal/reload/loaded.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
@@ -136,5 +145,60 @@ describe("reading what runs from git", () => {
 		expect((await readLoaded(repo, undefined)).head).toBe(
 			await git(repo, "rev-parse", "HEAD"),
 		);
+	});
+});
+
+describe("a path that outlives its version", () => {
+	const OLD = "1111111111111111111111111111111111111111";
+	const NEW = "2222222222222222222222222222222222222222";
+	const SCRIPT = join("scripts", "host-join.ts");
+	let install = "";
+
+	/** An install holding `versions`, each with the join script, its link at the last. */
+	function installWith(...versions: readonly string[]): void {
+		install = mkdtempSync(join(tmpdir(), "install-"));
+		for (const version of versions) {
+			mkdirSync(join(install, "versions", version, "scripts"), {
+				recursive: true,
+			});
+			writeFileSync(join(install, "versions", version, SCRIPT), "");
+		}
+		symlinkSync(
+			join("versions", versions.at(-1) ?? ""),
+			join(install, "current"),
+		);
+	}
+
+	afterEach(() => {
+		if (install !== "") rmSync(install, { recursive: true, force: true });
+		install = "";
+	});
+
+	it("still reaches the file once the version it was taken from is removed", () => {
+		installWith(OLD, NEW);
+		const lasting = lastingPath(join(install, "versions", OLD, SCRIPT));
+		rmSync(join(install, "versions", OLD), { recursive: true });
+		expect(
+			existsSync(lasting),
+			`the path ${lasting} names a file that outlived its version`,
+		).toBe(true);
+		expect(lasting, "it goes through the install's link").toBe(
+			join(install, "current", SCRIPT),
+		);
+	});
+
+	it("keeps the version's own path when the link's version lacks the file", () => {
+		installWith(OLD, NEW);
+		rmSync(join(install, "versions", NEW, SCRIPT));
+		const file = join(install, "versions", OLD, SCRIPT);
+		expect(lastingPath(file), "the file as it was").toBe(file);
+	});
+
+	it("keeps a path outside any install, as a checkout's", () => {
+		const file = join("/src", "tree", SCRIPT);
+		expect(
+			lastingPath(file, () => true),
+			"the checkout's own path",
+		).toBe(file);
 	});
 });
