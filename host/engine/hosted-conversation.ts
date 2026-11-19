@@ -171,6 +171,11 @@ export async function openHostedConversation(options: {
 				await opened.close(context);
 			} finally {
 				kept?.release();
+				// The harness's close closes the store; one that threw before it
+				// would leave the store and its thread held, and a second close does nothing.
+				await database
+					.close()
+					.catch((closeError) => options.report?.(closeError));
 			}
 		},
 	};

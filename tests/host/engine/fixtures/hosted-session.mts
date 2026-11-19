@@ -1373,6 +1373,8 @@ function stallingExtension(pi: ExtensionPi): void {
 
 /** Whether every store thread the conversation started has ended, given a few seconds. */
 async function storeThreadsEnded(): Promise<boolean> {
+	// A conversation that started no store thread let none go.
+	if (storeExits.length === 0) return false;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const late = new Promise<false>((given) => {
 		// A thread a closed store let go ends in milliseconds; one still held never does.

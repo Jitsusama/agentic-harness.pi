@@ -14,6 +14,8 @@ import {
 
 /** How long a store waits for a lock another connection holds, in ms, in the stall case. */
 const STALL_MS = 1500;
+/** How long a call stalled on purpose waits for its lock: past any deadline here. */
+const HELD_MS = 60_000;
 
 /** How often the host's thread ticks while a store is stalled, in ms. */
 const TICK_MS = 50;
@@ -527,6 +529,61 @@ describe("the threads the stores are spread across", () => {
 			}
 		} finally {
 			await Promise.allSettled([stalled.close(), free.close()]);
+		}
+	});
+
+	it("opens a store on a thread with no stalled call, even one holding more", async () => {
+		const said: unknown[] = [];
+		const spread = storeThreads({
+			threads: 2,
+			stalledMs: STALL_MS / 6,
+			report: (error) => said.push(error),
+		});
+		const path = join(dir, "stalled.sqlite");
+		// The stalled call waits far past the deadline below, so only a store
+		// opened on the other thread can answer within it.
+		const stalled = await spread.open(path, { busyTimeoutMs: HELD_MS });
+		const free = await spread.open(join(dir, "free.sqlite"));
+		const late: StoreDatabase[] = [];
+		try {
+			await stalled.exec("CREATE TABLE entry (id INTEGER PRIMARY KEY)");
+			const other = new DatabaseSync(path);
+			other.exec("BEGIN IMMEDIATE");
+			try {
+				let settled = false;
+				const waiting = stalled
+					.transaction(async () => undefined)
+					.catch(() => {})
+					.finally(() => {
+						settled = true;
+					});
+				await expect.poll(() => said.length).toBe(1);
+				// Each thread holds one store; the stalled one is passed over.
+				const answered = spread
+					.open(join(dir, "late.sqlite"))
+					.then(async (database) => {
+						late.push(database);
+						await database.get("SELECT 1 AS one");
+						return "answered";
+					});
+				// A deadline rather than a measured time, so a loaded machine
+				// fails it only when the open waits behind the stall.
+				const deadline = new Promise<string>((done) =>
+					setTimeout(() => done("behind the stall"), STALL_MS * 2),
+				);
+				expect(await Promise.race([answered, deadline])).toBe("answered");
+				expect(settled).toBe(false);
+				other.exec("ROLLBACK");
+				await waiting;
+				await answered;
+			} finally {
+				if (other.isTransaction) other.exec("ROLLBACK");
+				other.close();
+			}
+		} finally {
+			await Promise.allSettled(
+				[stalled, free, ...late].map((database) => database.close()),
+			);
 		}
 	});
 

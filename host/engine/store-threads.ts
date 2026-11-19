@@ -449,7 +449,15 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 			stalled.unref();
 			thread.waiting.set(id, { resolve, reject, stalled });
 			holding(thread);
-			worker.postMessage({ ...asked, id, store });
+			try {
+				worker.postMessage({ ...asked, id, store });
+			} catch (error) {
+				// Never sent, so never answered: it fails now rather than waiting forever.
+				thread.waiting.delete(id);
+				clearTimeout(stalled);
+				holding(thread);
+				reject(error instanceof Error ? error : new Error(String(error)));
+			}
 		});
 	}
 
@@ -461,14 +469,19 @@ export function storeThreads(options: StoreThreadOptions = {}): StoreThreads {
 		return true;
 	}
 
-	/** The thread taking stores that holds fewest. */
+	/**
+	 * The thread taking stores that holds fewest, passing over one with a
+	 * call stalled on it while another can take the store, so a start's
+	 * opens don't pile up behind one stalled disk read.
+	 */
 	function fewest(): Thread {
 		let chosen: Thread | undefined;
+		const better = (thread: Thread, than: Thread) =>
+			thread.stallSaid === than.stallSaid
+				? thread.stores.size < than.stores.size
+				: !thread.stallSaid;
 		for (const thread of threads)
-			if (
-				taking(thread) &&
-				(!chosen || thread.stores.size < chosen.stores.size)
-			)
+			if (taking(thread) && (!chosen || better(thread, chosen)))
 				chosen = thread;
 		if (!chosen)
 			throw new Error(

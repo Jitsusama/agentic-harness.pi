@@ -32,6 +32,12 @@
  * server's writer threw on its closed pipe, the host stopped mid-turn
  * for it, and the stop systemd asked for a moment later exited 1. The
  * engine is passed in, so the program that starts this names which.
+ *
+ * Long because a host's start, ready, watchdog and stop are one
+ * lifetime told to systemd: each step's ask for time, the ready it
+ * confirms, the pings and the stop's park share the process's state and
+ * the notifier that keeps every telling in the host's own cgroup, so
+ * splitting them would pass that state across files to no gain.
  */
 
 import { execFile } from "node:child_process";
