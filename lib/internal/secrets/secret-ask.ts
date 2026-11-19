@@ -1,8 +1,9 @@
 /**
  * An agent's ask for one work secret, as core's passwords daemon reads it,
  * and the secret-asks daemon before it: a file `<id>.ask.json` in the asks
- * folder (the shape's version 1), and the answer the daemon writes beside it, `<id>.answer.json`, once
- * Joel says yes or no in the launcher or the ask runs out.
+ * folder (the shape's version 1), and the answer the daemon writes beside
+ * it, `<id>.answer.json`, once Joel says yes or no in the launcher or the
+ * ask runs out.
  *
  * The harness only writes the ask and reads the answer's fields; the value
  * goes from 1Password to the command the line names and never comes back

@@ -329,9 +329,13 @@ describe("runsPasswords", () => {
 	});
 
 	// Root reads any exe link, non-dumpable or not, so the premise holds
-	// only for an ordinary account; it also needs fs.suid_dumpable at 0,
-	// its default, which keeps an unreadable program's process non-dumpable.
-	it.runIf(process.platform === "linux" && process.getuid?.() !== 0)(
+	// only for an ordinary account, and only where fs.suid_dumpable isn't
+	// 1, which would leave an unreadable program's process dumpable.
+	it.runIf(
+		process.platform === "linux" &&
+			process.getuid?.() !== 0 &&
+			readFileSync("/proc/sys/fs/suid_dumpable", "utf8").trim() !== "1",
+	)(
 		"knows a running passwords program from any other of this account's",
 		async () => {
 			const program = join(dir, "passwords");
