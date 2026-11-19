@@ -19,11 +19,11 @@
  * extras, and core's verbs write it back untouched.
  */
 
+import { resolve } from "node:path";
 import type { FolderBudget } from "../../../lib/budget/host.ts";
 import { appendJourneyByPath } from "../../../lib/internal/quest/documents/append-journey.ts";
 import {
 	budgetInRecord,
-	budgetSaid,
 	isBudgetName,
 	NO_BUDGET,
 	type QuestBudget,
@@ -90,12 +90,14 @@ export async function budgetFromFolder(
 ): Promise<FolderBudget | undefined> {
 	if (!folder) return undefined;
 	if (above !== null && budgetInRecord(state.questsRoot, above)) return;
-	return budgetOfFolder(state, folder);
+	// Providers are promised an absolute path, and a call's cwd may not be.
+	return budgetOfFolder(state, resolve(folder));
 }
 
 /** The Journey's line for a budget a quest took from its folder. */
 export function takenFromFolder(taken: FolderBudget, folder: string): string {
-	return `Budget: ${taken.name}, which ${taken.provider} says work in ${folder} draws on, since nothing above it named one.`;
+	// Quoted, so a folder's name can't add a line of its own.
+	return `Budget: ${taken.name}, which ${taken.provider} says work in ${JSON.stringify(resolve(folder))} draws on, since nothing above it named one.`;
 }
 
 /**
@@ -113,8 +115,9 @@ export async function nameBudgetFromFolder(
 	if (!taken || !folder) return undefined;
 	let named = false;
 	const result = mutateQuestFrontMatter(questDir, (fm) => {
-		// Named by someone else in between: theirs stands.
-		if (budgetSaid(fm) !== undefined) return undefined;
+		// Named by someone else in between, or by hand with a word that
+		// can't be a budget: theirs stands, to be read and put right.
+		if (fm._extra?.budget !== undefined) return undefined;
 		named = true;
 		return withBudget(fm, taken.name);
 	});

@@ -572,8 +572,12 @@ describe("spawn through the desktop's launcher", () => {
 });
 
 describe("a spawn where a budget's work is", () => {
-	/** Host a provider on `state` that names delta for work in tmpRoot. */
-	function placeDelta(state: ReturnType<typeof createQuestState>) {
+	/** Host a provider on `state` that names delta for work in `where`. */
+	function placeDelta(
+		state: ReturnType<typeof createQuestState>,
+		where: string = tmpRoot,
+		asked: string[] = [],
+	) {
 		const events = new EventEmitter();
 		const bus = {
 			on: (channel: string, handler: (data: unknown) => void) => {
@@ -587,9 +591,76 @@ describe("a spawn where a budget's work is", () => {
 			id: "places",
 			precedence: 0,
 			resolve: async () => ({ kind: "unknown" }),
-			budgetFor: async (folder) => (folder === tmpRoot ? "delta" : undefined),
+			budgetFor: async (folder) => {
+				asked.push(folder);
+				return folder === where ? "delta" : undefined;
+			},
 		});
 	}
+
+	/** The budget quest `id`'s README names, if any. */
+	function budgetOf(state: ReturnType<typeof createQuestState>, id: string) {
+		const readme = readFileSync(
+			join(state.questsRoot, id, "README.md"),
+			"utf8",
+		);
+		return parseQuestFrontMatter(readme)?.frontMatter._extra?.budget;
+	}
+
+	it("asks for the folder the session starts in, not the spawner's", async () => {
+		const { state, id } = await quest();
+		const work = join(tmpRoot, "work");
+		mkdirSync(work);
+		const asked: string[] = [];
+		placeDelta(state, work, asked);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			cwd: work,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(asked).toEqual([work]);
+		expect(budgetOf(state, id)).toBe("delta");
+	});
+
+	it("leaves a quest that names its own budget as it is", async () => {
+		const { state, id } = await quest();
+		const named = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "budget",
+			ref: "aquifer",
+		});
+		if (!named.ok) throw new Error(named.guidance);
+		placeDelta(state);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(budgetOf(state, id)).toBe("aquifer");
+		expect(result.message).not.toContain("Budget delta");
+	});
+
+	it("says so when a spawn is refused after naming the budget", async () => {
+		process.env.QS_SAYS = "refused: no session with an id and a folder";
+		const { state, id } = await quest();
+		placeDelta(state);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+			terminal: "no-such-terminal",
+		});
+		if (result.ok) throw new Error(`opened: ${result.message}`);
+
+		expect(budgetOf(state, id)).toBe("delta");
+		expect(result.guidance).toContain(
+			"The quest was still named for budget delta",
+		);
+	});
 
 	it("names the budget before the session starts, and opens by saying so", async () => {
 		const { state, id } = await quest();

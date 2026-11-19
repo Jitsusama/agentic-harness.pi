@@ -307,7 +307,14 @@ export async function spawn(
 ): Promise<QuestResult> {
 	const said: { budget?: FolderBudget } = {};
 	const result = await spawnNaming(state, ctx, params, said);
-	if (!result.ok || !said.budget) return result;
+	if (!said.budget) return result;
+	// Refused once it was named, the quest keeps it, and is told so.
+	if (!result.ok) {
+		return {
+			...result,
+			guidance: `${result.guidance} The quest was still named for budget ${said.budget.name}, which ${said.budget.provider} says its folder's work draws on; \`quest budget\` names another.`,
+		};
+	}
 	return {
 		...result,
 		message: `Budget ${said.budget.name} named, which ${said.budget.provider} says its folder's work draws on. ${result.message}`,
@@ -374,17 +381,6 @@ async function spawnNaming(
 	let chosenBy = given
 		? "the folder the call named"
 		: describeCwdSource(resolved.source);
-	// Named before the session starts, so it starts drawing on it.
-	if (!params.dryRun) {
-		const named = await nameBudgetFromFolder(
-			state,
-			questIdForSpawn,
-			entry.dir,
-			cwd,
-		);
-		if (named) said.budget = named;
-	}
-
 	// The session to resume, not the spawning one: a live one, else the
 	// newest idle; several live start a fresh pi and say the choice.
 	const currentId = currentSessionId(ctx, undefined);
@@ -418,6 +414,23 @@ async function spawnNaming(
 		resume && "id" in resume && !params.command?.trim() ? resume.id : undefined;
 	const hold = resuming ? await hostHold(resuming) : undefined;
 	if (resuming && hold) return reachedInHost(resuming, hold);
+	// Named before the session starts, so it starts drawing on it, once
+	// where it runs is settled: a reopen runs where its session ran, below.
+	if (!params.dryRun) {
+		const reopening = reopenedCwd({
+			command: resolveSpawnCommand(params.command, resume).command,
+			sessions,
+			questDir: entry.dir,
+			store: state.questsRoot,
+		});
+		const taken = await nameBudgetFromFolder(
+			state,
+			questIdForSpawn,
+			entry.dir,
+			reopening ?? cwd,
+		);
+		if (taken) said.budget = taken;
+	}
 	const here = machine ?? hostname().split(".")[0] ?? "";
 	const picked =
 		resume && "id" in resume

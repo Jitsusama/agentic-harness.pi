@@ -244,6 +244,50 @@ describe("the budget a folder's work draws on", () => {
 		});
 	});
 
+	it("asks every provider at once, so the wait is one deadline however many are late", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 200);
+		for (const id of ["one", "two", "three"]) {
+			registerBudgetProvider(
+				events,
+				placing(id, 0, () => new Promise(() => {})),
+			);
+		}
+		registerBudgetProvider(
+			events,
+			placing("last", 9, async () => "delta"),
+		);
+
+		const began = Date.now();
+		const found = await host.budgetFor("/anywhere");
+		const waited = Date.now() - began;
+
+		expect(found).toEqual({ name: "delta", provider: "last" });
+		expect(waited, `waited ${waited} ms for three late providers`).toBeLessThan(
+			500,
+		);
+	});
+
+	it("passes over a provider that names none, since a folder never opts a quest out", async () => {
+		const events = bus();
+		const host = hostBudgets(events);
+		registerBudgetProvider(
+			events,
+			placing("opts-out", 0, async () => "none"),
+		);
+
+		expect(await host.budgetFor("/anywhere")).toBeUndefined();
+
+		registerBudgetProvider(
+			events,
+			placing("names", 1, async () => "aquifer"),
+		);
+		expect(await host.budgetFor("/anywhere")).toEqual({
+			name: "aquifer",
+			provider: "names",
+		});
+	});
+
 	it("takes a payload whose budgetFor isn't a function as no provider", () => {
 		const events = bus();
 		const host = hostBudgets(events);

@@ -211,8 +211,46 @@ describe("a quest made where a budget's work is", () => {
 			"drawing on budget delta, which places says",
 		);
 		expect(journeyOf(join(state.questsRoot, id))).toContain(
-			`Budget: delta, which places says work in ${tmpRoot} draws on`,
+			`Budget: delta, which places says work in "${tmpRoot}" draws on`,
 		);
+	});
+
+	it("names a subquest whose ancestors name nothing for its folder too", async () => {
+		const { state, run } = placed(() => "/elsewhere");
+		succeeded(await run({ action: "create", title: "Unnamed" }));
+		const top = state.questId as string;
+		const here = placed(() => tmpRoot);
+
+		const made = succeeded(
+			await here.run({
+				action: "create",
+				title: "Under It",
+				kind: "subquest",
+				parent: top,
+			}),
+		);
+
+		expect(budgetIn(state.questsRoot, made.details?.id as string)).toBe(
+			"delta",
+		);
+		expect(budgetIn(state.questsRoot, top)).toBeUndefined();
+	});
+
+	it("quotes the folder in the Journey, so its name can't add a line", async () => {
+		const odd = join(tmpRoot, "two\nlines");
+		const { state } = placed(() => odd);
+		const ctx = { ...fakeCtx(), cwd: odd } as Parameters<typeof handle>[2];
+
+		succeeded(
+			await handle(state, fakePi(intoTheBranch), ctx, {
+				action: "create",
+				title: "Odd",
+			}),
+		);
+
+		const journey = journeyOf(join(state.questsRoot, state.questId as string));
+		expect(journey).toContain(JSON.stringify(odd));
+		expect(journey).not.toContain("\nlines");
 	});
 
 	it("keeps what a parent names, none included, rather than the folder's", async () => {
