@@ -135,7 +135,7 @@ describe("a failed reply that was billed", () => {
 	it("is never one the provider never read, as a 502 is", () => {
 		expect(
 			wasBilled(reply("error", "502 Bad Gateway")),
-			"a 502 is not billed",
+			"a call that read nothing and cost nothing",
 		).toBe(false);
 	});
 });

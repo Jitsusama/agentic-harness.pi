@@ -55,9 +55,10 @@ describe("a bare wait", () => {
 			"",
 			"Both report on their own.",
 		].join("\n");
-		expect(isBareWait(ran(said), [evalTests, push]), "a full account").toBe(
-			false,
-		);
+		expect(
+			isBareWait(ran(said), [evalTests, push]),
+			"says where things stand",
+		).toBe(false);
 	});
 
 	it(`counts the words, so ${MAX_BARE_WORDS + 1} of them is no bare wait`, () => {
@@ -88,7 +89,9 @@ describe("a bare wait", () => {
 		"No, j27 is still running the eval tests.",
 		"Blocked: waiting on your answer to the token ask in the launcher.",
 	])("is not a short reply that only uses a job's words: %s", (text) => {
-		expect(isBareWait(ran(text), [evalTests]), "not a wait").toBe(false);
+		expect(isBareWait(ran(text), [evalTests]), "no bare wait on a job").toBe(
+			false,
+		);
 	});
 
 	it("is not a wait on a job that has finished, while another runs", () => {
@@ -105,7 +108,9 @@ describe("a bare wait", () => {
 	])(
 		"is not a short reply that says how far it has got or when: %s",
 		(text) => {
-			expect(isBareWait(ran(text), [evalTests]), "says how far").toBe(false);
+			expect(isBareWait(ran(text), [evalTests]), "says how far or when").toBe(
+				false,
+			);
 		},
 	);
 
