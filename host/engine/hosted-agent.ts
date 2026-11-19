@@ -720,9 +720,11 @@ export class HostedAgent {
 			throw new Error(
 				"Durable requested before the host's agent prepared the request",
 			);
+		// pi's abort stops the provider at once, as pi's own loop does, rather
+		// than once durable's abort lands, a store round trip later.
 		const signal =
 			options.signal instanceof AbortSignal
-				? options.signal
+				? AbortSignal.any([options.signal, run.controller.signal])
 				: run.controller.signal;
 		const durablePayload = isPayloadHook(options.onPayload)
 			? options.onPayload

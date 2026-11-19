@@ -230,8 +230,9 @@ describe("the hosted agent, beside pi's", { timeout: SESSION_PAIR_MS }, () => {
 				observe("pi", scenario),
 				observe("hosted", scenario),
 			]);
+			// Only the host's agent has a store thread to let go; a case of its own checks it.
 			expect(
-				hosted,
+				{ ...hosted, storeLetGo: undefined },
 				`the host's agent shows pi's listeners what pi's own does (${scenario})`,
 			).toEqual(ours);
 			const shown = Object.entries(SHOWN).find(([name]) => name === scenario);
@@ -500,6 +501,11 @@ describe("the hosted agent resuming a turn a restart cut off", {
 	it("takes no turn for a conversation with nothing to carry on", async () => {
 		const fresh = await observe("hosted", "fresh-taking-turns");
 		expect(turnsOf(fresh)).toEqual(["agent_end"]);
+	});
+
+	it("lets its store's thread go once it closes, durable's close closing the store", async () => {
+		const closed = await observe("hosted", "plain");
+		expect(closed.storeLetGo).toBe(true);
 	});
 
 	it("shows the answer pi never saw without showing again a result it held under another time", async () => {

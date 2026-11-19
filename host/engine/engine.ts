@@ -78,6 +78,7 @@ import {
 import { adoptable, folder, hintsFor } from "./requests.ts";
 import { resumeTurns, type TakeTurn } from "./resume-turns.ts";
 import { backgroundIn, heavyIn, restartEnds, stopKeeping } from "./stopping.ts";
+import { storeThreads } from "./store-threads.ts";
 import {
 	hostedSubagentInstall,
 	pinSubagentInstall,
@@ -156,6 +157,8 @@ export async function createEngine(
 		stopping,
 		// One thread for the host's stores, started with the first and ended with the last.
 		checkpoints: checkpointing({ report }),
+		// A few threads the stores are read and written on, never the host's own.
+		stores: storeThreads({ report }),
 		watched: () => watched,
 		held,
 		fileHeld,

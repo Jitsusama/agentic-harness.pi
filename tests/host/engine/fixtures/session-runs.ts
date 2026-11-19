@@ -52,6 +52,8 @@ export interface Observed {
 	readonly pendingAtEnd?: readonly string[];
 	/** The patches of seams the host wants that its pi lacks. */
 	readonly lacking?: readonly string[];
+	/** Whether the store thread a hosted conversation held ended once it closed. */
+	readonly storeLetGo?: boolean;
 }
 
 /** The scenarios' runs on the host's pi, found as each case asks. */

@@ -24,6 +24,7 @@ import type { HostPiModules } from "./host-pi.ts";
 import { HostedAgent } from "./hosted-agent.ts";
 import type { PiLibrary } from "./pi-library.ts";
 import type { AgentOptions, AssistantMessage } from "./pi-types.ts";
+import type { StoreDatabase, StoreThreads } from "./store-threads.ts";
 
 /** The durable extension's name; one per conversation's registry. */
 export const HOSTED_EXTENSION = "pi-host";
@@ -68,17 +69,25 @@ export async function openHostedConversation(options: {
 	readonly report?: (error: unknown) => void;
 	/** The host's checkpointer, which keeps the store's checkpoints off the host's thread. */
 	readonly checkpoints?: Checkpoints;
+	/** The host's store threads, which read and write the store off the host's thread. */
+	readonly stores: StoreThreads;
 }): Promise<HostedConversation> {
 	const durable = durableModule(options.modules);
 	const context = backgroundContext(options.modules);
-	const openStorage = options.modules.sqlite.openNodeSqliteStorage;
-	if (typeof openStorage !== "function")
-		throw new Error("The host's pi-durable has no SQLite storage for Node");
+	const openStorage = storageOpener(options.modules);
 	await mkdir(dirname(options.storePath), { recursive: true });
-	const storage: unknown = await openStorage(
+	const database = await options.stores.open(
 		options.storePath,
 		options.checkpoints?.storeOptions,
 	);
+	let storage: unknown;
+	try {
+		storage = await openStorage(database);
+	} catch (error) {
+		// The storage's failure is the one thrown; the store is let go either way.
+		await database.close().catch((closeError) => options.report?.(closeError));
+		throw error;
+	}
 	const registry = durable.createRegistry();
 	let agent: HostedAgent | undefined;
 	const built = (): HostedAgent => {
@@ -86,17 +95,30 @@ export async function openHostedConversation(options: {
 			throw new Error("Durable asked for the host's agent before pi built it");
 		return agent;
 	};
-	const harness = await durable.Harness.open(
-		storage,
-		{
-			models: () => built().models,
-			registry,
-			settings: () => agent?.settings(),
-			onReport: (report: { error: unknown }) => options.report?.(report.error),
-		},
-		context,
-	);
-	const root: Conversation = await harness.root(context);
+	let harness: Harness | undefined;
+	let root: Conversation;
+	try {
+		harness = await durable.Harness.open(
+			storage,
+			{
+				models: () => built().models,
+				registry,
+				settings: () => agent?.settings(),
+				onReport: (report: { error: unknown }) =>
+					options.report?.(report.error),
+			},
+			context,
+		);
+		root = await harness.root(context);
+	} catch (error) {
+		// The opening's failure is the one thrown; the store is let go either way.
+		await harness
+			?.close(context)
+			.catch((closeError) => options.report?.(closeError));
+		await database.close().catch((closeError) => options.report?.(closeError));
+		throw error;
+	}
+	const opened: Harness = harness;
 	// Kept once open, so a store that failed to open leaves nothing kept.
 	const kept = options.checkpoints?.keep(options.storePath);
 	return {
@@ -109,12 +131,12 @@ export async function openHostedConversation(options: {
 				conversation: root,
 				registry,
 				context,
-				abortSubmission: (id) => harness.abortSubmission(id, context),
-				resume: () => harness.resume(),
+				abortSubmission: (id) => opened.abortSubmission(id, context),
+				resume: () => opened.resume(),
 				runFailure: async () =>
-					failureIn(await harness.snapshot(durable.LiveDoc, root.id, context)),
+					failureIn(await opened.snapshot(durable.LiveDoc, root.id, context)),
 				carrying: async () =>
-					busyIn(await harness.snapshot(durable.LiveDoc, root.id, context)),
+					busyIn(await opened.snapshot(durable.LiveDoc, root.id, context)),
 				extension: (
 					tools: readonly ToolRegistration[],
 					hooks: GenerationHooks,
@@ -146,9 +168,14 @@ export async function openHostedConversation(options: {
 					// A checkpoint that couldn't be asked for leaves it to the store's own close.
 					options.report?.(error);
 				}
-				await harness.close(context);
+				await opened.close(context);
 			} finally {
 				kept?.release();
+				// The harness's close closes the store; one that threw before it
+				// would leave the store and its thread held, and a second close does nothing.
+				await database
+					.close()
+					.catch((closeError) => options.report?.(closeError));
 			}
 		},
 	};
@@ -166,6 +193,24 @@ function failureIn(live: unknown): RunFailure | undefined {
 /** Whether a conversation's `pi.live` document holds a run, as it does exactly while busy. */
 function busyIn(live: unknown): boolean {
 	return isRecord(live) && isRecord(live.run);
+}
+
+/**
+ * pi-durable's `SqliteStorage.open`, which takes any database keeping
+ * chord's contract, as the host's store threads do.
+ */
+function storageOpener(
+	modules: HostPiModules,
+): (database: StoreDatabase) => Promise<unknown> {
+	const { SqliteStorage } = modules.sqlite;
+	// pi-durable's is a class, so a function, whose static open is read off it.
+	const open: unknown =
+		typeof SqliteStorage === "function" || isRecord(SqliteStorage)
+			? Reflect.get(SqliteStorage, "open")
+			: undefined;
+	if (typeof open !== "function")
+		throw new Error("The host's pi-durable has no SQLite storage");
+	return async (database) => Reflect.apply(open, SqliteStorage, [database]);
 }
 
 function durableModule(modules: HostPiModules): DurableModule {
