@@ -69,6 +69,7 @@ const PROCESS_TESTS = [
 	"tests/core/package/heavy-dependencies-load-on-use.test.ts",
 	"tests/package/hosted-loads-add-no-process-listeners.test.ts",
 	"tests/lib/internal/priority/fetched-git.test.ts",
+	"tests/core/internal/keyring/secret-service-call.test.ts",
 	"tests/lib/internal/priority/push-hooks.test.ts",
 	"tests/lib/internal/fence/fence-sockets.test.ts",
 	"tests/lib/internal/fence/fence-quest-locks.test.ts",

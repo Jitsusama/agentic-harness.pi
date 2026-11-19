@@ -10,7 +10,10 @@
  * What it leans on lives beside it in hosted-agent/: what a run holds,
  * the agent's state, the provider stream, durable's transcript mirrored
  * to pi, pi's turns around each request, the queued words given to
- * durable, the recovery, and reading pi's messages.
+ * durable, the recovery, and reading pi's messages. Long because what
+ * stays is pi's Agent surface itself, every method AgentSession calls,
+ * each of which must answer as pi's does; splitting it further would
+ * scatter one contract across files that change together.
  */
 import { randomUUID } from "node:crypto";
 import { isPersonWords } from "../../lib/internal/session/driven.ts";
