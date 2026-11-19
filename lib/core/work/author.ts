@@ -16,7 +16,7 @@
 // The leaf rather than the barrel, so a working layer that never draws anything
 // does not pull the TUI in behind one string helper.
 import { displayPath } from "../../ui/path.ts";
-import { type Exec, run } from "../exec/index.ts";
+import { EXIT_ABORTED, type Exec, run } from "../exec/index.ts";
 
 /** What a commit says. */
 export interface CommitMessage {
@@ -143,6 +143,132 @@ export function namingComplaints(name: string): string[] {
 		said.push("it separates words with underscores rather than hyphens");
 	}
 	return said;
+}
+
+/**
+ * What came of asking for a branch this tree is already on: moved up
+ * from the commit it was at, already at the start, or left where it is
+ * and why.
+ */
+export type Repointed =
+	| { kind: "moved"; was: string }
+	| { kind: "there" }
+	| { kind: "refused"; why: string };
+
+/**
+ * Move a branch that already exists up to a fresh start, when the move
+ * loses nothing; nothing when no branch of that name exists here, so it
+ * is made as new.
+ *
+ * `work tree` on a new branch makes it at the start a recent fetch left,
+ * and on 19 November one so made on World sat at a stale main. Asking
+ * `work branch` for the same name from `origin/main` then failed on git's
+ * "a branch named ... already exists" however fresh the fetch, so the
+ * branch could never reach the new base. Asking for a branch by a name
+ * the tree is already on, from a start, says where it should start, so
+ * it moves there, but only when its head is an ancestor of the start:
+ * then every commit on it is in the start too, and moving it is a fast
+ * forward. A branch with commits of its own is left alone and the answer
+ * says to rebase, which keeps them, and so is one this tree is not on.
+ *
+ * The start is resolved to a commit once, and the move is a fast-forward
+ * merge to that commit, which git refuses unless it is one: a ref that
+ * moves after the check cannot carry the branch somewhere unchecked. A
+ * fast forward carries staged and unstaged changes along apart, as a
+ * checkout does, and refuses, changing nothing, where the start would
+ * overwrite one. A name that shadows a remote's branch, or is a ref's
+ * full name, is left to the new-branch path, which refuses it. The
+ * upstream is set to the start only where the branch had none, as
+ * `checkout -b` would have, so a pushed branch keeps tracking its own.
+ * `asked` is the start as the caller named it, for the answer, when
+ * `start` is its full spelling. A stopped git throws rather than being
+ * read as an answer.
+ */
+export async function repointBranch(
+	exec: Exec,
+	treePath: string,
+	name: string,
+	start: string,
+	asked: string = start,
+): Promise<Repointed | undefined> {
+	const safe = safeBranchName(name);
+	const from = safeBranchName(start);
+	// An unusable name is the new-branch path's to refuse, in its words.
+	if (safe === undefined || from === undefined) return undefined;
+	if (fullRefRefusal(safe) !== undefined) return undefined;
+	const git = async (...args: string[]) => {
+		const result = await exec("git", ["-C", treePath, ...args]);
+		if (result.code === EXIT_ABORTED) {
+			throw new Error(`Stopped while moving ${safe}; it was left where it is.`);
+		}
+		return result;
+	};
+	const local = `refs/heads/${safe}`;
+	const shadow = await git(
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		`refs/remotes/${safe}`,
+	);
+	if (shadow.code === 0) return undefined;
+	const was = await git("rev-parse", "--verify", "--quiet", local);
+	if (was.code !== 0) return undefined;
+	const current = await git("symbolic-ref", "--quiet", "HEAD");
+	if (current.code !== 0 || current.stdout.trim() !== local) {
+		return {
+			kind: "refused",
+			why: `${safe} already exists and this tree is not on it, so it was left where it is. Switch this tree to it first, or name a new branch.`,
+		};
+	}
+	const target = await git(
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		`${from}^{commit}`,
+	);
+	if (target.code !== 0) return undefined;
+	const head = was.stdout.trim();
+	const commit = target.stdout.trim();
+	if (head !== commit) {
+		const contained = await git("merge-base", "--is-ancestor", head, commit);
+		if (contained.code !== 0) {
+			const said = contained.stderr.trim().split("\n")[0]?.trim() ?? "";
+			return {
+				kind: "refused",
+				why:
+					said === ""
+						? `${safe} already exists here with commits ${asked} lacks, so it was not moved, which would drop them. Rebase it onto ${asked} to bring it up.`
+						: `${safe} already exists here, and git could not say whether ${asked} holds its commits (${said}), so it was not moved.`,
+			};
+		}
+		const moved = await git(
+			"merge",
+			"-q",
+			"--ff-only",
+			"--no-autostash",
+			"--no-verify-signatures",
+			commit,
+		);
+		if (moved.code !== 0) {
+			const said = moved.stderr.trim().split("\n").slice(0, 3).join(" ").trim();
+			return {
+				kind: "refused",
+				why: `${safe} could not move up to ${asked}, so it was left where it is.${said === "" ? "" : ` Git said: ${said}`}`,
+			};
+		}
+	}
+	if (from.startsWith("refs/remotes/")) {
+		const tracked = await git(
+			"rev-parse",
+			"--verify",
+			"--quiet",
+			`${safe}@{upstream}`,
+		);
+		if (tracked.code !== 0) {
+			await git("branch", "-q", `--set-upstream-to=${from}`, safe);
+		}
+	}
+	return head === commit ? { kind: "there" } : { kind: "moved", was: head };
 }
 
 /** Write to a tree with plain git. */

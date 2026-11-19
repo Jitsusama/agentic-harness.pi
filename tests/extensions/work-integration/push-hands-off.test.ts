@@ -118,6 +118,97 @@ function holdPushes(): { started: string; release: string } {
 	return { started, release };
 }
 
+/**
+ * Hold every fetch into the clone the same way, through the program git
+ * runs on the remote's side of a fetch, which for a local remote is a
+ * command the clone names.
+ */
+async function holdFetches(): Promise<{ started: string; release: string }> {
+	const started = join(place, "fetch-started");
+	const release = join(place, "fetch-release");
+	const wrapper = join(place, "held-upload-pack");
+	writeFileSync(
+		wrapper,
+		`#!/bin/sh\n: > '${started}'\nwhile [ ! -e '${release}' ] && [ -d '${place}' ]; do sleep 0.05; done\nexec git-upload-pack "$@"\n`,
+		{ mode: 0o755 },
+	);
+	await git(clone, "config", "remote.origin.uploadpack", wrapper);
+	return { started, release };
+}
+
+/** Let I/O turns pass until `ready` holds or the time is up. */
+async function turnsUntil(ready: () => boolean): Promise<void> {
+	const deadline = Date.now() + GIT_WITHIN_MS;
+	while (!ready() && Date.now() < deadline) {
+		await new Promise((resolve) => setImmediate(resolve));
+	}
+}
+
+describe("a branch whose fetch is waited on", () => {
+	it(
+		"still fetching after a minute moves to a job, which says where the branch starts",
+		async () => {
+			// Origin's main moves on while this clone's record of it stays
+			// behind, so the branch lands on the new commit only if the fetch
+			// finished behind the job rather than being stopped by it.
+			const behind = await git(clone, "rev-parse", "origin/main");
+			await git(clone, "push", "-q", "origin", "topic:main");
+			await git(clone, "update-ref", "refs/remotes/origin/main", behind);
+			const moved = await git(clone, "rev-parse", "topic");
+			const { started, release } = await holdFetches();
+			const { host, outcomes } = recordingHost();
+			const stub = activateWith(workIntegration);
+			stub.pi.events.on(WORK_TREE_CLAIMS, (data) => {
+				(data as TreeClaims).paths.push(clone);
+			});
+			announceJobHost(stub.pi.events as never, host);
+			const work = toolNamed(stub, "work");
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			let returned = false;
+			const answer = (
+				work.execute(
+					"call-2",
+					{
+						action: "branch",
+						tree: clone,
+						name: "jg/next",
+						from: "origin/main",
+					},
+					undefined,
+					undefined,
+					HEADLESS,
+				) as Promise<{ content: { text: string }[] }>
+			).finally(() => {
+				returned = true;
+			});
+			try {
+				await turnsUntil(() => existsSync(started));
+				expect(existsSync(started), "git began the fetch").toBe(true);
+				await vi.advanceTimersByTimeAsync(60_000);
+				await turnsUntil(() => returned);
+				expect(returned, "the call gave the turn back after a minute").toBe(
+					true,
+				);
+				const said = (await answer).content.map((part) => part.text).join("\n");
+				expect(said).toContain("now runs as background work j7");
+			} finally {
+				vi.useRealTimers();
+				writeFileSync(release, "");
+			}
+			await until(
+				"the branch to be made",
+				() => outcomes.length > 0,
+				GIT_WITHIN_MS,
+			);
+			expect(outcomes[0]?.summary).toContain("is on jg/next");
+			expect(await git(clone, "branch", "--show-current")).toBe("jg/next");
+			expect(await git(clone, "rev-parse", "jg/next")).toBe(moved);
+			expect(outcomes[0]?.summary).toContain(`at ${moved.slice(0, 12)}`);
+		},
+		REAL_GIT_MS,
+	);
+});
+
 describe("a push waited on", () => {
 	it(
 		"still running after a minute moves to a job, which says how it ended",

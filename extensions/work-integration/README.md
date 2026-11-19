@@ -40,6 +40,17 @@ were built and checked on a main that was gone. A fetch that
 fails leaves the start as it was and, for `branch` and `rebase`,
 says why.
 
+Asked for a branch the tree is already on, as `tree` made it, from a
+remote's branch, `branch` moves it up to the fresh start by a fast
+forward, when every commit on it is in that start. Staged and unstaged
+changes come along, and one the start would overwrite stops the move
+with nothing changed. A start that isn't a remote's branch moves
+nothing. On 19
+November a World tree's branch, made at a stale main, could never
+reach the fresh one, since git refused a branch that already existed.
+A branch with commits of its own is left where it is, and the answer
+says to rebase.
+
 The tool is marked sequential, so pi runs any batch holding a
 `work` call one call at a time, in the order written. Side by side,
 a resume once read the tree before the `git add` written ahead of
@@ -140,10 +151,12 @@ on a five-hour clock that counts the wait
 (`lib/internal/priority/queued-exec.ts`). Everything else runs as
 it did.
 
-A push, rebase, resume, restack or sync still running after a minute
-moves to a job of kind `work`, as a long bash command does, since on
-11 November 21 such calls held their turn, the longest 301 seconds,
-while the person's typed lines waited. Its result arrives as a message
+A branch, push, rebase, resume, restack or sync still running after a
+minute moves to a job of kind `work`, as a long bash command does,
+since on 11 November 21 such calls held their turn, the longest 301
+seconds, while the person's typed lines waited. A branch joined them
+on 19 November, when its fetch of World's main held a turn for two
+minutes. Its result arrives as a message
 of its own. A record never moves: its gate can wait on the person, and
 a panel left open behind a job would answer nobody.
 

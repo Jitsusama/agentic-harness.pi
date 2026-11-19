@@ -14,6 +14,7 @@ import { runProseGate } from "../../../lib/core/internal/guardian/prose-gate.ts"
 import {
 	createGitAuthor,
 	namingComplaints,
+	repointBranch,
 } from "../../../lib/core/work/author.ts";
 import type { HeldTree } from "../../../lib/core/work/broker.ts";
 import {
@@ -165,12 +166,30 @@ export async function makeBranch(
 		: undefined;
 	const stale = fresh?.stale;
 	const lately = fresh?.lately;
-	try {
-		await author.branch(
-			found.path,
-			name,
-			fresh ? { from: fresh.start } : undefined,
+	// A branch the tree is already on, as `work tree` made it, moves up
+	// to a remote's branch, fetched fresh, when that loses nothing
+	// (author.ts). Only a remote's branch: `branch main from jg/topic`
+	// still asks for a new branch, and git still refuses it.
+	const repointed =
+		fresh?.start.startsWith("refs/remotes/") && from
+			? await repointBranch(exec, found.path, name, fresh.start, from)
+			: undefined;
+	if (repointed?.kind === "refused") {
+		return refuse(
+			[
+				`${GLYPH.refused} ${repointed.why}`,
+				...(stale ? [`   ${stale}`] : []),
+			].join("\n"),
 		);
+	}
+	try {
+		if (repointed === undefined) {
+			await author.branch(
+				found.path,
+				name,
+				fresh ? { from: fresh.start } : undefined,
+			);
+		}
 	} catch (error) {
 		// A start point never fetched before has nothing to fall back
 		// on, and git's "not a commit" alone hides that the fetch is
@@ -188,7 +207,13 @@ export async function makeBranch(
 		.head(found.path)
 		.then((head) => head.commit)
 		.catch(() => undefined);
-	const where = `${commit ? `, at ${commit.slice(0, 12)}` : ""}${from ? ` from ${from}` : ""}`;
+	const motion =
+		repointed?.kind === "moved"
+			? `, moved up from ${repointed.was.slice(0, 12)}`
+			: repointed?.kind === "there"
+				? ", already"
+				: "";
+	const where = `${motion}${commit ? `, at ${commit.slice(0, 12)}` : ""}${from ? ` from ${from}` : ""}`;
 	// Said after the branch exists, because the name is workable
 	// and the convention is a preference rather than a rule git
 	// enforces. Refusing here would make a repo with its own
@@ -206,6 +231,7 @@ export async function makeBranch(
 		{
 			ok: true,
 			branch: name,
+			...(repointed?.kind === "moved" ? { moved: true } : {}),
 			...(commit ? { commit } : {}),
 			...(from ? { fresh: stale === undefined && lately === undefined } : {}),
 		},
