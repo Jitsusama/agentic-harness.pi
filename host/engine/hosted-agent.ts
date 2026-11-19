@@ -837,7 +837,13 @@ export class HostedAgent {
 		if (run && !run.opened) {
 			run.opened = true;
 			// Pi's prepared messages go in the next request, after any owed tool result (pi-runs.ts).
-			run.placed.push(...(await this.piRuns.opening(run.controller.signal)));
+			// A park stops the wait too, so a stopping host's close waits on no preparation it abandoned.
+			const stopped = AbortSignal.any([
+				run.controller.signal,
+				this.parking.signal,
+			]);
+			run.placed.push(...(await this.piRuns.opening(stopped)));
+			if (this.parked) return;
 			if (event.type !== "agent_start") {
 				// A recovering run shows pi the run and the turn it carries on before its first event.
 				await this.emit({ type: "agent_start" });
