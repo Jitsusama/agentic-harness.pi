@@ -293,7 +293,9 @@ another, and one not yet sent goes to pi's own spawn, while the
 commands it already runs carry on. The one given up on is killed if
 it starts later, its output goes nowhere, and it keeps the spawner
 open no longer: the spawner closes once its other commands end,
-ending it.
+ending it. One still running five seconds after it was closed is
+killed, since it may read nothing; a command it started unsaid then
+runs on.
 
 A shared host's conversations share its process, so the machine's
 mycelium node can't tell from that which one asked it for a run. The
@@ -305,10 +307,12 @@ later telling lands. The node takes the word only from a process
 proving the conversation as its host in pi's records, of its own
 `pi-spawner`, and checks for itself that the kernel lets no process
 trace any but its own descendants and that the host's Node.js started
-with `--disable-sigusr1` as its first option and no inspector, on its
-command line or in `NODE_OPTIONS`, as core.nix's unit for a host
-starts it, since a command that could trace the host or open its
-inspector could speak for it. A host without them is refused, and each
+with `--disable-sigusr1` as its first option and no inspector on its
+command line, and with none of `NODE_OPTIONS`, `LD_PRELOAD`,
+`LD_AUDIT`, `LD_LIBRARY_PATH`, `OPENSSL_CONF` or `OPENSSL_MODULES` in
+its environment, as core.nix's unit for a host starts it, since a
+command that could trace the host, open its inspector or load code
+into it could speak for it. A host without them is refused, and each
 of its conversations' commands told none; the node logs why, once, as
 it does every refusal, and the host says each reason once on its own
 error output, its printable characters only, up to 32 reasons. The

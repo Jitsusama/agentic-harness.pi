@@ -312,6 +312,29 @@ describe("the agent's commands through pi-spawner", () => {
 		await ended;
 	});
 
+	it("kills a command stopped just as its spawner says it started", async () => {
+		const { program, operations, kill } = through();
+		const stopping = new AbortController();
+
+		const ran = operations.exec("sleep 9", "/", {
+			onData: () => {},
+			env: {},
+			signal: stopping.signal,
+		});
+		await askedFor(program, 1);
+		// Heard after the link hears the start, before it acts on it.
+		program.start().output.once("data", () => stopping.abort());
+		program.started(1, 89);
+
+		await vi.waitFor(() =>
+			expect(kill, "what was killed").toHaveBeenCalledWith(89),
+		);
+		program.closed(1, 1);
+		program.closed(1, 2);
+		program.exited(1, -1, 9);
+		await expect(ran, "how the command ended").rejects.toThrow("aborted");
+	});
+
 	it("retires a spawner that never says a command given up on started, its other commands running on, and starts another for the next", async () => {
 		const first = standIn();
 		const second = standIn();
@@ -357,6 +380,14 @@ describe("the agent's commands through pi-spawner", () => {
 		first.said(2, 1, "late\n");
 		await delivered();
 		expect(heard, "what the settled call heard").toEqual([]);
+		first.closed(2, 1);
+		first.closed(2, 2);
+		first.exited(2, -1, 9);
+		await delivered();
+		expect(
+			first.hungUp(),
+			"closed as the one given up on ended, under its other command",
+		).toBe(false);
 
 		const next = operations.exec("true", "/", { onData: () => {}, env: {} });
 		await askedFor(second, 1);
@@ -380,7 +411,7 @@ describe("the agent's commands through pi-spawner", () => {
 		const first = standIn();
 		const second = standIn();
 		const programs = [first, second];
-		const { own, operations } = through({
+		const { own, operations, kill } = through({
 			givenUpGrace: 20,
 			say: () => undefined,
 			start: () => {
@@ -402,6 +433,11 @@ describe("the agent's commands through pi-spawner", () => {
 		await expect(ran, "how the command ended").rejects.toThrow("aborted");
 		await vi.waitFor(() =>
 			expect(first.hungUp(), "closed, though it never answered").toBe(true),
+		);
+		await vi.waitFor(() =>
+			expect(kill, "killed, still running once closed").toHaveBeenCalledWith(
+				4242,
+			),
 		);
 		first.stop();
 		await delivered();

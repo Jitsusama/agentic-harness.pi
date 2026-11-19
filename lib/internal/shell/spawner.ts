@@ -245,11 +245,12 @@ interface Link {
 		onData: (data: Buffer) => void,
 	): Run;
 	/**
-	 * Close the program once the commands it runs have ended; `silent`
-	 * when it left one unanswered, so even a command already holding it
-	 * is sent elsewhere.
+	 * Close the program once the commands it runs have ended. `silentFor`
+	 * is given when it left one unanswered that long: even a command
+	 * already holding it is sent elsewhere, and once closed, a program
+	 * still running that long after is killed.
 	 */
-	retire(silent?: boolean): void;
+	retire(silentFor?: number): void;
 	/**
 	 * Whether the program was retired, so it takes no more commands and
 	 * its stop is no loss.
@@ -732,7 +733,7 @@ async function endOnceStarted(
 			await run.done.catch(() => undefined);
 		} else if (first === "waited") {
 			run.forsake();
-			link.retire(true);
+			link.retire(grace);
 			say(
 				`pi-spawner didn't say within ${grace} ms whether it started a command given up on, so it takes no more; it is killed if it starts\n`,
 			);
@@ -829,7 +830,9 @@ function startProgram(program: string, quest?: string): Started {
 				told = true;
 				listener();
 			};
-			child.once("exit", once);
+			// Once its output is read to the end, not at its exit, so a start
+			// it said just before is heard, and the command killed if given up.
+			child.once("close", once);
 			child.once("error", once);
 		},
 	};
@@ -851,21 +854,30 @@ function connect(
 	let next = 1;
 	let held: Buffer = Buffer.alloc(0);
 	let retiring = false;
-	let quiet = false;
+	// How long it left a command unanswered, where it was retired for that.
+	let quiet: number | undefined;
 	// Commands given up on, which keep it open no longer.
 	const forsaken = new Set<number>();
 	// Commands about to be sent, which keep it open as running ones do.
 	let holding = 0;
 	// The end of its input tells pi-spawner to stop, killing only what
-	// was given up on.
+	// was given up on. One that left a command unanswered may not be
+	// reading it, so it is killed if it still runs as long again; what it
+	// started that this never heard of then runs on.
 	const closeOnceIdle = () => {
 		if (
 			retiring &&
-			pending.size === forsaken.size &&
+			[...pending.keys()].every((id) => forsaken.has(id)) &&
 			holding === 0 &&
 			!started.input.writableEnded
 		) {
 			started.input.end();
+			const { pid } = started;
+			if (quiet !== undefined && pid !== undefined) {
+				setTimeout(() => {
+					if (!over) kill(pid);
+				}, quiet).unref();
+			}
 		}
 	};
 	started.input.on("error", () => {
@@ -992,13 +1004,13 @@ function connect(
 			};
 			return { started: startedRun, done, forsake };
 		},
-		retire(silent = false) {
+		retire(silentFor) {
 			retiring = true;
-			if (silent) quiet = true;
+			if (silentFor !== undefined) quiet = silentFor;
 			closeOnceIdle();
 		},
 		retired: () => retiring,
-		silent: () => quiet,
+		silent: () => quiet !== undefined,
 		hold() {
 			holding += 1;
 			let released = false;
