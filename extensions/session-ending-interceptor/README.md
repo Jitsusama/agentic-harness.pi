@@ -70,12 +70,17 @@ optimus", also after "if the mic is dead," or a dash, or as "try
 logging out"), a request or hedge followed by the act as a verb
 ("could you reboot", "you might need to log out", "can we restart",
 "feel free to reboot", "may I"), a need ("needs a reboot") or the act
-first, then a step ("once you log out, pair the card"). A reboot that
-happened, one a change waits for, or one a request only asks about
-("could you check whether the reboot fixed it") asks nothing. Options
+first, then a step ("once you log out, pair the card"). What would
+follow one ("if you reboot, five sessions end", "when you reboot,
+niri restores the windows", "until we can reboot") asks nothing,
+and nor does a reboot that happened, one a change waits for, or one
+a request only asks about ("could you check whether the reboot
+fixed it"). Options
 and choices are the ask itself, so the act counts there whenever it is
 named rather than a time ("after the reboot"), unless it turns the
-act down ("Skip the reboot", "No restart tonight").
+act down ("Skip the reboot", "No restart tonight"). The decline has
+to govern the act: "Cancel the backup and reboot", "No, reboot now"
+and "Don't forget to log out" still ask.
 
 What a reply only talks about asks nothing: a markdown heading that
 names no machine ("### 2. Reboot optimus" asks), a ticked task box, an

@@ -429,12 +429,19 @@ describe("an ask said as a hedge or a suggestion", () => {
 		["Let me know once you log out of macOS on equilibrius.", "log out"],
 		["Once you log out, pair the card at the login window.", "log out"],
 		["When you reboot optimus, check the mic.", "reboot"],
+		["Once you log out, open settings and pair the card.", "log out"],
 	])("%s asks", (text, act) => {
 		expect(acts(text)).toEqual([act]);
 	});
 
-	it("still asks nothing of what would follow one", () => {
-		expect(acts("If you reboot, five sessions end.")).toEqual([]);
+	it.each([
+		"If you reboot, five sessions end.",
+		"When you reboot, they'll all end.",
+		"When you reboot, niri restores the windows.",
+		"When you log out, pi's sessions end.",
+		"Until we can reboot optimus, the kernel waits.",
+	])("%s only says what would follow one", (text) => {
+		expect(acts(text)).toEqual([]);
 	});
 });
 
@@ -484,6 +491,15 @@ describe("a label of the fifth round's shapes", () => {
 		"Without a reboot",
 	])("%s asks nothing", (text) => {
 		expect(asksInLabel(text, MACHINES)).toEqual([]);
+	});
+
+	it.each([
+		["Cancel the backup and reboot equilibrius", "reboot"],
+		["Don't forget to log out", "log out"],
+		["No, reboot now", "reboot"],
+		["Skip the backup, then restart", "restart"],
+	])("%s still asks, since what it turns down isn't the act", (text, act) => {
+		expect(asksInLabel(text, MACHINES).map((a) => a.act)).toEqual([act]);
 	});
 
 	it("asks nothing where the act qualifies a plural", () => {
