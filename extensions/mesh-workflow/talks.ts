@@ -365,7 +365,6 @@ export function endsForGood(event: unknown, how: ShuttingDown): boolean {
 	return quit && !how.parked && !how.restarting;
 }
 
-/** The text a message carries, when it is the assistant's. */
 /**
  * Talks that hear each reply another extension withholds once written,
  * as the session-ending guard says it on the bus. Returns a disposer.
@@ -379,6 +378,7 @@ export function followWithheld(
 	});
 }
 
+/** The text a message carries, when it is the assistant's. */
 export function assistantText(message: unknown): string {
 	return textAs(message, "assistant");
 }
