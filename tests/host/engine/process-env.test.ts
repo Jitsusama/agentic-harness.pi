@@ -253,6 +253,37 @@ it("never serves a proxy key from a conversation's env", () => {
 	expect(sessionEnv("a").get("PI_PROXY_API_KEY")).toBe("written-here");
 });
 
+it("serves a proxy key from a conversation's env where its budget laid it, and the host's elsewhere", () => {
+	const started = start();
+	started.register(
+		registration("team", {
+			PI_BUDGET: "team",
+			PI_BUDGET_KEYS: "SHOPIFY_PROXY_KEY",
+			SHOPIFY_PROXY_KEY: "team-key",
+			PI_PROXY_API_KEY: "launch-key",
+		}),
+	);
+	started.register(
+		registration("keyless", {
+			PI_BUDGET: "keyless",
+			PI_BUDGET_KEYS: "",
+			SHOPIFY_PROXY_KEY: "launch-key",
+		}),
+	);
+	expect(
+		started.run("team", () => [
+			process.env.SHOPIFY_PROXY_KEY,
+			process.env.PI_PROXY_API_KEY,
+		]),
+	).toEqual(["team-key", "host-api-key"]);
+	expect(
+		started.run("team", () => ({ ...process.env }).SHOPIFY_PROXY_KEY),
+	).toBe("team-key");
+	expect(started.run("keyless", () => process.env.SHOPIFY_PROXY_KEY)).toBe(
+		"host-key",
+	);
+});
+
 it("keeps a conversation's view across an await", async () => {
 	const started = twoConversations();
 	const [a, b] = await Promise.all(

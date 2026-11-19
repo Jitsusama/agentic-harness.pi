@@ -11,11 +11,12 @@
  * conversation's environment; anywhere else it is the host's own.
  *
  * Credentials are the exception. The engine resolves provider keys per
- * request, and a conversation's env never serves them here: the proxy
- * keys always read from the host's environment, which holds none, and a
- * write to one inside a conversation stays in that conversation's env
- * rather than reaching its neighbours, though its reads still come from
- * the host.
+ * request, and a conversation's env serves one here only where its
+ * budget laid it (PI_BUDGET_KEYS names it): otherwise the proxy keys
+ * read from the host's environment, which holds none, and a write to
+ * one inside a conversation stays in that conversation's env rather
+ * than reaching its neighbours, though its reads still come from the
+ * host.
  *
  * What only the host's own process is (HOST_READS) is read but never
  * listed. Its unit names the ai-proxy-headers and worktrail it was built
@@ -32,10 +33,15 @@
  */
 
 import {
+	BUDGET_KEYS_VARIABLE,
+	BUDGET_VARIABLE,
+} from "../../lib/budget/record.ts";
+import {
 	ambientSession,
 	type Host,
 	type SessionEnvironment,
 } from "../../lib/core/session/index.ts";
+import { laidKeys } from "./budget-keys.ts";
 
 /** Keys the engine owns, which no conversation's env serves. */
 const CREDENTIALS: ReadonlySet<string> = new Set([
@@ -72,9 +78,17 @@ export function installConversationEnv(host: Host): () => void {
 		const id = ambientSession();
 		return id !== undefined && host.holds(id) === undefined;
 	};
+	/** A credential the conversation's budget laid, which it reads as its own. */
+	const laid = (env: SessionEnvironment, name: string): string | undefined =>
+		laidKeys({
+			[BUDGET_VARIABLE]: env.get(BUDGET_VARIABLE),
+			[BUDGET_KEYS_VARIABLE]: env.get(BUDGET_KEYS_VARIABLE),
+			[name]: env.get(name),
+		})[name];
 	const read = (name: string): string | undefined => {
 		const env = current();
-		if (!env || CREDENTIALS.has(name)) return own[name];
+		if (!env) return own[name];
+		if (CREDENTIALS.has(name)) return laid(env, name) ?? own[name];
 		const value = env.get(name);
 		return value === undefined && HOST_READS.includes(name) ? own[name] : value;
 	};
@@ -82,7 +96,9 @@ export function installConversationEnv(host: Host): () => void {
 		...(env.names?.() ?? Object.keys(env.snapshot())).filter(
 			(name) => !CREDENTIALS.has(name),
 		),
-		...Object.keys(own).filter((name) => CREDENTIALS.has(name)),
+		...[...CREDENTIALS].filter(
+			(name) => laid(env, name) !== undefined || name in own,
+		),
 	];
 	const view = new Proxy(own, {
 		get: (target, name) => {

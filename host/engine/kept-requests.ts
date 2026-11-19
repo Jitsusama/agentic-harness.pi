@@ -10,6 +10,10 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { keepingRequests } from "../../extensions/compaction-workflow/kept-request.ts";
 import { warmingSwitchedOn } from "../../extensions/compaction-workflow/warm.ts";
+import {
+	BUDGET_KEYS_VARIABLE,
+	BUDGET_VARIABLE,
+} from "../../lib/budget/record.ts";
 import type { SessionEnvironment } from "../../lib/core/session/index.ts";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { callIsOn } from "../../lib/internal/cache/calls.ts";
@@ -18,6 +22,7 @@ import {
 	warmingCarryDir,
 } from "../../lib/internal/cache/warming-carry.ts";
 import { conversationAuthContext } from "./auth-context.ts";
+import { laidKeys, unlistedKeys } from "./budget-keys.ts";
 import type { EngineOptions } from "./contract.ts";
 import {
 	type KeptProviders,
@@ -35,7 +40,7 @@ import type { ModelRuntime, PiSessions } from "./pi-session.ts";
 import type { AssistantMessage } from "./pi-types.ts";
 import { sessionEnvironment } from "./session-host.ts";
 
-/** The variables the work provider reads its gateway key from, set from the key on each request. */
+/** The variables the work provider reads its gateway key from, set on each request from the budget's key or the host's. */
 export const KEY_VARIABLES = ["SHOPIFY_PROXY_KEY", "PI_PROXY_API_KEY"] as const;
 
 /** An answer the gateway gave a key it would not take. */
@@ -62,7 +67,7 @@ export interface KeptRequests {
 	forget(sessionId: string): void;
 }
 
-/** Keep each conversation's requests on the host's key, warming each as it parks. */
+/** Keep each conversation's requests on its budget's key or the host's, warming each as it parks. */
 export function keptRequests(options: {
 	readonly engine: EngineOptions;
 	readonly sessions: PiSessions;
@@ -91,10 +96,33 @@ export function keptRequests(options: {
 			if (value !== undefined) values[name] = value;
 		}
 		if (engine.key) {
+			// A budget's key bills its budget; every other key variable is
+			// the host's, renewed, never a launch's that may have gone stale.
+			const laid = laidKeys(values);
+			sayUnlisted(sessionId, values);
 			const key = await engine.key.current();
-			for (const name of KEY_VARIABLES) values[name] = key;
+			for (const name of KEY_VARIABLES) values[name] = laid[name] ?? key;
 		}
 		return values;
+	}
+
+	// The conversations already told their budget's key went unsent.
+	const toldUnlisted = new Set<string>();
+
+	/** Say once for a conversation when its budget holds a key it didn't list, which the host's replaces. */
+	function sayUnlisted(
+		sessionId: string,
+		values: Readonly<Record<string, string>>,
+	): void {
+		if (toldUnlisted.has(sessionId)) return;
+		const unlisted = unlistedKeys(values, KEY_VARIABLES);
+		if (unlisted.length === 0) return;
+		toldUnlisted.add(sessionId);
+		report(
+			new Error(
+				`Conversation ${sessionId} draws on budget ${values[BUDGET_VARIABLE]} but its budget didn't list ${unlisted.join(", ")} in ${BUDGET_KEYS_VARIABLE}, so it is sent the host's key instead; laying the budget again lists it.`,
+			),
+		);
 	}
 
 	/** A conversation's environment: the host's while it holds it, else the one it parked with. */
@@ -177,6 +205,7 @@ export function keptRequests(options: {
 			agentDirs.delete(sessionId);
 			environments.delete(sessionId);
 			providers.delete(sessionId);
+			toldUnlisted.delete(sessionId);
 			rmSync(providersFile(sessionId), { force: true });
 		},
 	};

@@ -17,8 +17,13 @@ import { afterEach, expect, it } from "vitest";
 import {
 	hostedSubagentInstall,
 	pinSubagentInstall,
+	pinSubagentKey,
 } from "../../../host/engine/subagent-install.ts";
 import { installHost, withSession } from "../../../lib/core/session/index.ts";
+import {
+	pinnedChildEnvironment,
+	unpinChildEnvironment,
+} from "../../../lib/subagent/child-env.ts";
 import { getParentPiInstall } from "../../../lib/subagent/install.ts";
 import { sessionHost } from "../../support/session-host.ts";
 
@@ -86,4 +91,31 @@ it("replaces a capture already taken, which in a host names the host's script", 
 	});
 	pinSubagentInstall(install);
 	expect(getParentPiInstall()).toEqual(install);
+});
+
+it("hands a subagent the key its conversation's budget laid, and the host's for the rest", async () => {
+	let env: Record<string, string | undefined> = {
+		PI_BUDGET: "team",
+		PI_BUDGET_KEYS: "SHOPIFY_PROXY_KEY",
+		SHOPIFY_PROXY_KEY: "team-key",
+		PI_PROXY_API_KEY: "launch-key",
+	};
+	pinSubagentKey(
+		{ current: async () => "host-key" },
+		["SHOPIFY_PROXY_KEY", "PI_PROXY_API_KEY"],
+		() => env,
+	);
+	try {
+		expect(await pinnedChildEnvironment()).toEqual({
+			SHOPIFY_PROXY_KEY: "team-key",
+			PI_PROXY_API_KEY: "host-key",
+		});
+		env = { SHOPIFY_PROXY_KEY: "launch-key" };
+		expect(await pinnedChildEnvironment()).toEqual({
+			SHOPIFY_PROXY_KEY: "host-key",
+			PI_PROXY_API_KEY: "host-key",
+		});
+	} finally {
+		unpinChildEnvironment();
+	}
 });

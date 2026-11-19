@@ -1,7 +1,8 @@
-/** The pi a hosted conversation's subagents run, and the key they run on: the host's own, pinned before any extension loads. */
+/** The pi a hosted conversation's subagents run, and the key they run on: its budget's, else the host's own, pinned before any extension loads. */
 import { realpathSync } from "node:fs";
 import { pinChildEnvironment } from "../../lib/subagent/child-env.ts";
 import type { PiInstall } from "../../lib/subagent/install.ts";
+import { laidKeys } from "./budget-keys.ts";
 import type { EngineKey } from "./contract.ts";
 import type { HostPi } from "./host-pi.ts";
 
@@ -44,19 +45,26 @@ export function pinSubagentInstall(install: PiInstall): void {
  * A terminal pi's children inherit the key its launcher exported; the
  * host's own environment holds none, so without this a subagent refuses
  * with "No API key found" before it answers. Each start asks the key
- * afresh, so a child never starts on one the host has since renewed.
+ * afresh, so a child never starts on one the host has since renewed. A
+ * conversation on a budget hands its subagents the key its budget laid
+ * instead, read from `env` (process.env, which is the conversation's
+ * own while it runs), so they bill the same budget.
  */
 export function pinSubagentKey(
 	key: Pick<EngineKey, "current">,
 	names: readonly string[],
+	env: () => Readonly<Record<string, string | undefined>> = () => process.env,
 ): void {
 	pinChildEnvironment(async () => {
+		const laid = laidKeys(env());
 		const current = await key.current().catch((error: unknown) => {
 			throw new Error(
 				`The host couldn't resolve its gateway key for a subagent: ${error instanceof Error ? error.message : String(error)}`,
 				{ cause: error },
 			);
 		});
-		return Object.fromEntries(names.map((name) => [name, current]));
+		return Object.fromEntries(
+			names.map((name) => [name, laid[name] ?? current]),
+		);
 	});
 }
