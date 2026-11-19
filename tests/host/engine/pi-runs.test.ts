@@ -326,6 +326,59 @@ describe("the agent's own runs in pi", () => {
 		expect(said).toEqual(["prepared", "settled", "next"]);
 	});
 
+	it("carries words that wait on inside pi's run, before it settles, as pi's own run does", async () => {
+		// Words pi queued as a carried run ended waited, in memory alone, until pi had settled it.
+		const { session, said } = piSession();
+		const runs = new PiRuns(
+			() => false,
+			(say) => say(),
+			() => said.push("next"),
+			async () => {
+				said.push("carried on");
+			},
+		);
+		runs.tell(session);
+
+		const carried = runs.hold();
+		await runs.opening();
+		const asked = runs.hold();
+		await carried();
+		expect(said, "not while the ask again holds it").toEqual(["prepared"]);
+		await asked();
+
+		expect(said).toEqual(["prepared", "carried on", "settled", "next"]);
+	});
+
+	it("carries nothing on inside a run that was stopped or whose host parked", async () => {
+		// pi's own run stops going on once it is aborted.
+		const said: string[] = [];
+		const carryOn = async () => {
+			said.push("carried on");
+		};
+		const stopped = new PiRuns(
+			() => false,
+			(say) => say(),
+			() => {},
+			carryOn,
+		);
+		stopped.tell(piSession().session);
+		const stop = new AbortController();
+		const release = stopped.hold();
+		void stopped.opening(stop.signal);
+		stop.abort();
+		await release();
+		const parked = new PiRuns(
+			() => true,
+			(say) => say(),
+			() => {},
+			carryOn,
+		);
+		parked.tell(piSession().session);
+		await parked.holding(() => parked.opening());
+
+		expect(said).toEqual([]);
+	});
+
 	it("goes on to nothing once the host parks, even while pi settles", async () => {
 		const said: string[] = [];
 		let parked = false;
