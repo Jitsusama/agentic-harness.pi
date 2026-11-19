@@ -846,6 +846,150 @@ describe("watchHolds", () => {
 		);
 	});
 
+	describe("recording a spin with perf from outside the host", () => {
+		/**
+		 * A stand-in perf on PATH, through a launcher that runs its command
+		 * at once as systemd-run would in a unit of its own: it notes what
+		 * it was asked, writes the file it records into, and its report
+		 * names one frame.
+		 */
+		const standIn = (): { launcher: string[]; asked: () => string[] } => {
+			const bin = join(dir, "bin");
+			mkdirSync(bin, { recursive: true });
+			const notes = join(dir, "perf-asked");
+			writeFileSync(
+				join(bin, "perf"),
+				`#!/bin/sh\necho "$*" >> '${notes}'\nprev=\nfor a; do [ "$prev" = -o ] && : > "$a"; prev=$a; done\n[ "$1" = report ] && echo '    91.00%  [.] v8::internal::Runtime_StringReplace'\nexit 0\n`,
+				{ mode: 0o755 },
+			);
+			return {
+				launcher: ["env", `PATH=${bin}:${process.env.PATH ?? ""}`],
+				asked: () =>
+					existsSync(notes)
+						? readFileSync(notes, "utf8").split("\n").filter(Boolean)
+						: [],
+			};
+		};
+
+		const recorded = (): string[] =>
+			said().filter((line) => /with perf outside the host/.test(line));
+
+		it("starts perf on the main thread once a spin's hold is long, saying where it lands", {
+			timeout: 20_000,
+		}, async () => {
+			const folder = join(dir, "held");
+			const perf = standIn();
+			stop = watchHolds({
+				fd,
+				every: EVERY_MS,
+				after: 300,
+				still: 60_000,
+				profile: {
+					after: 600,
+					for: 300,
+					folder,
+					outside: { launcher: perf.launcher, for: 1000 },
+				},
+			});
+			// A turn first, so the thread has started and seen the loop move.
+			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+			hold(1500);
+			await vi.waitFor(() => {
+				expect(perf.asked(), "recorded, then reported").toHaveLength(2);
+			});
+			const [record, report] = perf.asked();
+			expect(record, "the main thread, by its id").toMatch(
+				new RegExp(
+					`^record .*-e cpu-clock:u .*-g .*-t ${process.pid} -o \\S+/held-[^ ]+\\.perf -- sleep 1\\.0$`,
+				),
+			);
+			expect(record, "keeps no build-id cache").toContain("--no-buildid-cache");
+			const file = /-o (\S+)/.exec(record ?? "")?.[1] ?? "";
+			expect(file.startsWith(`${folder}/`), "kept with the profiles").toBe(
+				true,
+			);
+			expect(report, "reads what it recorded").toMatch(
+				new RegExp(`^report -i ${file} `),
+			);
+			const lines = recorded();
+			expect(lines, `said once: ${lines.join(" | ")}`).toHaveLength(1);
+			expect(lines[0]).toMatch(
+				/^pi-host: recording the held loop's main thread with perf outside the host for 1\.0 s, 0\.\d s into the hold, into \S+\.perf; its report is journalled as pi-host-spin$/,
+			);
+		});
+
+		it("says why when perf can't be started outside the host", async () => {
+			const folder = join(dir, "held");
+			stop = watchHolds({
+				fd,
+				every: EVERY_MS,
+				after: 300,
+				still: 60_000,
+				profile: {
+					after: 400,
+					for: 300,
+					folder,
+					outside: {
+						launcher: [
+							"sh",
+							"-c",
+							"echo 'Failed to connect to bus' >&2; exit 1",
+							"sh",
+						],
+						for: 300,
+					},
+				},
+			});
+			// A turn first, so the thread has started and seen the loop move.
+			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+			hold(1200);
+			await vi.waitFor(() => {
+				expect(
+					said().filter((line) => /perf outside the host/.test(line)),
+				).toEqual([
+					"pi-host: couldn't start perf outside the host: it ended with 1: Failed to connect to bus",
+				]);
+			});
+		});
+
+		it("keeps only the newest recordings", { timeout: 20_000 }, async () => {
+			const folder = join(dir, "held");
+			mkdirSync(folder, { recursive: true });
+			for (const old of ["held-1.perf", "held-2.perf", "held-3.perf"])
+				writeFileSync(join(folder, old), "");
+			const perf = standIn();
+			stop = watchHolds({
+				fd,
+				every: EVERY_MS,
+				after: 300,
+				still: 60_000,
+				profile: {
+					after: 400,
+					for: 300,
+					folder,
+					keep: 2,
+					outside: { launcher: perf.launcher, for: 300 },
+				},
+			});
+			// A turn first, so the thread has started and seen the loop move.
+			await new Promise((resolve) => setTimeout(resolve, 3 * EVERY_MS));
+			hold(1200);
+			await vi.waitFor(() => {
+				expect(recorded()).toHaveLength(1);
+			});
+			await vi.waitFor(() => {
+				expect(
+					readdirSync(folder).filter((name) => name.endsWith(".perf")),
+					"the newest old one and its own",
+				).toHaveLength(2);
+			});
+			expect(
+				existsSync(join(folder, "held-3.perf")),
+				"the newest old one",
+			).toBe(true);
+		});
+	});
+
 	it("says nothing while the loop turns, nor once stopped", async () => {
 		stop = watchHolds({ fd, every: EVERY_MS, after: AFTER_MS });
 		// Three bars' worth of a turning loop.
