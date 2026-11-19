@@ -36,12 +36,27 @@ export const BUDGET_VARIABLE = "PI_BUDGET";
  * which keeps its own key) can tell the budget's key from one that
  * merely sits in the environment, and send it. It travels with the
  * environment, into a parked conversation's kept snapshot and into
- * what the process starts.
+ * what the process starts. A budget that lays no key sets it empty,
+ * so a list inherited from a parent's budget never speaks for it.
+ * It names variables, not values: one something rewrote under the
+ * budget is still named, and its newer value is what gets sent.
  */
 export const BUDGET_KEYS_VARIABLE = "PI_BUDGET_KEYS";
 
 /** A name a shell would take as a variable's. */
 const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Whether {@link BUDGET_KEYS_VARIABLE} may name `name`: a variable's
+ * name, and neither of the two that say the budget.
+ */
+export function isBudgetKeyName(name: string): boolean {
+	return (
+		VARIABLE_NAME.test(name) &&
+		name !== BUDGET_VARIABLE &&
+		name !== BUDGET_KEYS_VARIABLE
+	);
+}
 
 /**
  * The variables the budget a process draws on laid, from
@@ -56,12 +71,7 @@ export function budgetKeysOf(
 	return (env[BUDGET_KEYS_VARIABLE] ?? "")
 		.split(",")
 		.map((name) => name.trim())
-		.filter(
-			(name) =>
-				VARIABLE_NAME.test(name) &&
-				name !== BUDGET_VARIABLE &&
-				name !== BUDGET_KEYS_VARIABLE,
-		);
+		.filter(isBudgetKeyName);
 }
 
 /**

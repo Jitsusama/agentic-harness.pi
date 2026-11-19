@@ -36,7 +36,16 @@ describe("the variables a budget laid", () => {
 		expect(
 			budgetKeysOf({
 				PI_BUDGET: "delta",
-				PI_BUDGET_KEYS: " A_KEY ,,b=c,PI_BUDGET",
+				PI_BUDGET_KEYS: " A_KEY ,,b=c,9_KEY",
+			}),
+		).toEqual(["A_KEY"]);
+	});
+
+	it("never names the two variables that say the budget", () => {
+		expect(
+			budgetKeysOf({
+				PI_BUDGET: "delta",
+				PI_BUDGET_KEYS: "PI_BUDGET,A_KEY,PI_BUDGET_KEYS",
 			}),
 		).toEqual(["A_KEY"]);
 	});

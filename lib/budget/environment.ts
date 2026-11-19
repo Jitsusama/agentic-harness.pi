@@ -18,7 +18,11 @@ import {
 	type SessionRef,
 	sessionSlot,
 } from "../core/session/index.ts";
-import { BUDGET_KEYS_VARIABLE, BUDGET_VARIABLE } from "./record.ts";
+import {
+	BUDGET_KEYS_VARIABLE,
+	BUDGET_VARIABLE,
+	isBudgetKeyName,
+} from "./record.ts";
 
 /** One variable a budget set, and what it replaced. */
 interface Laid {
@@ -75,7 +79,8 @@ function isSessionEnvironment(
  * Lay a budget's variables over `env`, in place of whatever budget was
  * on before, with its name in `PI_BUDGET` so what the process starts
  * knows which budget it inherited, and the variables it laid in
- * `PI_BUDGET_KEYS` (when it laid any) so whatever sends a request can
+ * `PI_BUDGET_KEYS` (empty when it laid none, so an inherited list is
+ * hidden until the budget comes off) so whatever sends a request can
  * tell its key from one that only sits there. A variable the earlier
  * budget set and this one does not is put back first.
  */
@@ -89,15 +94,13 @@ export function layBudget(
 	overlay: BudgetOverlay = processOverlay(),
 ): void {
 	const target = mutableEnvironment(env);
-	const keys = Object.keys(budget.env)
-		.filter((key) => key !== BUDGET_VARIABLE && key !== BUDGET_KEYS_VARIABLE)
-		.sort();
-	const laying: Record<string, string> = {
-		...budget.env,
-		[BUDGET_VARIABLE]: budget.name,
-	};
-	delete laying[BUDGET_KEYS_VARIABLE];
-	if (keys.length > 0) laying[BUDGET_KEYS_VARIABLE] = keys.join(",");
+	const laying: Record<string, string> = {};
+	for (const [key, value] of Object.entries(budget.env)) {
+		// Only a name the list can carry is laid, so the list names all it laid.
+		if (isBudgetKeyName(key)) laying[key] = value;
+	}
+	laying[BUDGET_KEYS_VARIABLE] = Object.keys(laying).sort().join(",");
+	laying[BUDGET_VARIABLE] = budget.name;
 	for (const key of [...overlay.laid.keys()]) {
 		if (!(key in laying)) restore(target, overlay, key);
 	}
