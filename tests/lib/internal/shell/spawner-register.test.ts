@@ -222,23 +222,24 @@ describe("a host telling the node a spawner's session", () => {
 		expect(said, "what the host said").toEqual([]);
 	});
 
-	it("says an answer that neither takes nor refuses the word, as a node of another shape gives", async () => {
-		const said: string[] = [];
-		for (const answer of ['{"Ok":"Other"}', "not an answer"]) {
+	it.each([['{"Ok":"Other"}'], ['{"Err":7}'], ["not an answer"]])(
+		"says an answer that neither takes nor refuses the word, as %s",
+		async (answer) => {
 			const stand = node(answer);
 			await stand.listening;
+			const said: string[] = [];
 
 			await registerSpawner(SPAWNED, "s-one", {
 				socket: stand.socket,
 				proc: procWith(SPAWNER, "pi-spawner"),
 				say: (line: string) => said.push(line),
 			});
-		}
 
-		expect(said, "what the host said, once for both").toEqual([
-			`${LINE}the mycelium node answered in a way this harness can't read\n`,
-		]);
-	});
+			expect(said, "what the host said").toEqual([
+				`${LINE}the mycelium node answered in a way this harness can't read\n`,
+			]);
+		},
+	);
 
 	it("waits for the spawner's own name, as one in a scope goes by another first", async () => {
 		const stand = node();
@@ -316,12 +317,15 @@ describe("a host telling the node a spawner's session", () => {
 	});
 
 	it("says nothing where no node is named", async () => {
-		await expect(
-			registerSpawner(SPAWNED, "s-one", {
-				socket: undefined,
-				proc: procWith(SPAWNER, "pi-spawner"),
-			}),
-		).resolves.toBeUndefined();
+		const said: string[] = [];
+
+		await registerSpawner(SPAWNED, "s-one", {
+			socket: undefined,
+			proc: procWith(SPAWNER, "pi-spawner"),
+			say: (line: string) => said.push(line),
+		});
+
+		expect(said, "what the host said").toEqual([]);
 	});
 
 	it("gives up once its patience runs out, when the node never answers, and says so", async () => {
