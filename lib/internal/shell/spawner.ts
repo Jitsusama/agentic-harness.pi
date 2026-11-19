@@ -353,18 +353,43 @@ export function spawnedBy(
 			if (through === undefined) return fallback.exec(command, cwd, settings);
 			// The telling of the spawner just taken, read before anything waits.
 			const told = linkTold;
+			// Refused before any wait, and counted from now, so the wait on
+			// the telling is part of the command's time, as pi's own would be.
+			const limit = timeLimit(settings.timeout);
+			const asked = performance.now();
 			// Held until it has run, so a command of another quest retiring
-			// this spawner meanwhile closes it only after, never in a loop.
+			// this spawner, or the load retiring, closes it only after.
 			const release = through.hold();
 			try {
 				// Nothing it runs asks the node before the node knows whose it
-				// is; a spawner lost, or a load retired, while it waited leaves
-				// the command to pi's own spawn.
-				if (told !== undefined) await toldOrStopped(told, settings.signal);
-				if (lost || through.stopped()) {
-					return await fallback.exec(command, cwd, settings);
+				// is.
+				if (told !== undefined) {
+					await toldOrStopped(told, settings.signal, limit);
 				}
-				return await runThrough(through, shell, command, cwd, settings, kill);
+				const left =
+					limit === undefined ? undefined : limit - (performance.now() - asked);
+				if (left !== undefined && left <= 0) {
+					throw new Error(`timeout:${settings.timeout}`);
+				}
+				// Only its own spawner stopping while it waited leaves it to
+				// pi's own spawn, given what time is left; any other, the one
+				// serving now included, may stop without moving it.
+				if (through.stopped()) {
+					const rest =
+						left === undefined
+							? settings
+							: { ...settings, timeout: left / 1000 };
+					return await fallback.exec(command, cwd, rest);
+				}
+				return await runThrough(
+					through,
+					shell,
+					command,
+					cwd,
+					settings,
+					left,
+					kill,
+				);
 			} finally {
 				release();
 			}
@@ -519,23 +544,26 @@ function commOf(pid: number, proc: string): string | undefined {
 	}
 }
 
-/** Once `told` settles, or sooner if `signal` stops the command. */
+/**
+ * Once `told` settles, or sooner if `signal` stops the command or its
+ * `limit`, in milliseconds, runs out.
+ */
 function toldOrStopped(
 	told: Promise<void>,
 	signal: AbortSignal | undefined,
+	limit: number | undefined,
 ): Promise<void> {
-	if (signal === undefined) return told;
+	if (signal?.aborted) return Promise.resolve();
 	return new Promise((settle) => {
-		const stop = () => settle();
-		if (signal.aborted) {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const done = () => {
+			clearTimeout(timer);
+			signal?.removeEventListener("abort", done);
 			settle();
-			return;
-		}
-		signal.addEventListener("abort", stop, { once: true });
-		void told.then(() => {
-			signal.removeEventListener("abort", stop);
-			settle();
-		});
+		};
+		if (limit !== undefined) timer = setTimeout(done, limit);
+		signal?.addEventListener("abort", done, { once: true });
+		void told.then(done);
 	});
 }
 
@@ -546,10 +574,10 @@ async function runThrough(
 	command: string,
 	cwd: string,
 	settings: Parameters<BashOperations["exec"]>[2],
+	limit: number | undefined,
 	kill: (pid: number) => void,
 ): Promise<{ exitCode: number }> {
 	const { onData, signal, timeout, env = {} } = settings;
-	const limit = timeLimit(timeout);
 	if (signal?.aborted) throw new Error("aborted");
 	try {
 		await access(cwd, constants.F_OK);
