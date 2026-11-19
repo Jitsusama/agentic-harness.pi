@@ -324,8 +324,8 @@ is lost, or kept through a host's restart under a
 spawner the next host didn't start, is told its host's conversation
 only where the host holds just one, and otherwise none. A spawner
 not retired counts as lost once it ends, so a command that kills its own
-leaves its conversation's later commands told none until the
-conversation starts again. An unfenced command can do the same to
+leaves its conversation's later commands told none, where its host
+holds more than one, until the conversation starts again. An unfenced command can do the same to
 every conversation's, since it can see and signal every process of
 its user; a fenced one, in a process namespace of its own, can't.
 Code running inside the host itself, an extension a project brings

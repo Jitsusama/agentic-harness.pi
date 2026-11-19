@@ -1220,7 +1220,7 @@ describe("the node told the session a load's pi-spawner serves", () => {
 
 	it("gives its spawner only the time the wait left", async () => {
 		const program = standIn();
-		const waited = 400;
+		const waited = 1_000;
 		const { operations, kill } = through({
 			start: asProcess(program),
 			session: "s-one",
@@ -1237,16 +1237,21 @@ describe("the node told the session a load's pi-spawner serves", () => {
 		const ran = operations.exec("sleep 9", "/", {
 			onData: () => {},
 			env: {},
-			timeout: 1.2,
+			timeout: 2,
 		});
-		await askedFor(program, 1);
+		// The command is asked for only once the telling's `waited` is up.
+		await vi.waitFor(
+			() =>
+				expect(program.asked.length, "requests the stand-in read").toBe(1),
+			{ timeout: 2 * waited },
+		);
 		program.started(1, 66);
 
-		await expect(ran, "how the command ended").rejects.toThrow("timeout:1.2");
+		await expect(ran, "how the command ended").rejects.toThrow("timeout:2");
 		expect(kill, "what was killed").toHaveBeenCalledWith(66);
-		// It ends at 1200 ms; with the whole limit it would end `waited`
-		// later, at 1600, so 200 ms either side for a loaded machine.
-		expect(performance.now() - began, "how long it ran").toBeLessThan(1400);
+		// It ends at 2000 ms; with the whole limit it would end `waited`
+		// later, at 3000, so 500 ms either side for a loaded machine.
+		expect(performance.now() - began, "how long it ran").toBeLessThan(2500);
 	});
 
 	it("gives pi's own spawn only the time the wait left, when its spawner stops meanwhile", async () => {
