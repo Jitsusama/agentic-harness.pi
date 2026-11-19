@@ -20,7 +20,8 @@
  * moved runs, opens no run of pi's, so pi settles none: its extensions
  * are told each settle here instead, as they were before the seam, or one
  * waiting on it, as job-workflow's outbox does, waits until a person types
- * (15 November).
+ * (15 November). pi settles no run it failed to prepare either, so that
+ * run's settle is said here too.
  */
 
 import type { AgentMessage } from "../pi-types.ts";
@@ -64,13 +65,16 @@ export type Within = (say: () => Promise<unknown>) => Promise<unknown>;
 export type Report = (error: unknown) => void;
 
 /**
- * An open run of pi's, ended by `end`, settled once `settled` resolves,
- * or given up on once `overdue` does, as pi never prepared it in time.
+ * An open run of pi's, ended by `end`, done once `settled` resolves, true
+ * when pi settled it and false when pi failed to prepare it, or given up
+ * on once `overdue` does, as pi never prepared it in time. `signal` is the
+ * run's stop, for a settle said here.
  */
 interface OpenRun {
 	readonly end: () => void;
-	readonly settled: Promise<void>;
+	readonly settled: Promise<boolean>;
 	readonly overdue: Promise<void>;
+	readonly signal: AbortSignal | undefined;
 }
 
 /**
@@ -137,10 +141,14 @@ export class PiRuns {
 			// pi settles a run it never finished preparing only once it has, which a
 			// handler that never answers puts off for good: the run ends without it.
 			// What waits goes on only once pi settles, so no run hears that settle.
-			void open.settled.then(() => {
-				if (!this.parked()) this.next();
+			// pi settles no run it failed to prepare, so that settle is said here, as
+			// on a pi with no seam.
+			const done = open.settled.then(async (piSettled) => {
+				if (this.parked()) return;
+				if (!piSettled) await this.settledWithoutSeam([open.signal]);
+				this.next();
 			});
-			await Promise.race([open.settled, open.overdue]);
+			await Promise.race([done, open.overdue]);
 		};
 	}
 
@@ -198,15 +206,19 @@ export class PiRuns {
 				begun(handed ?? []);
 				return ended;
 			})
-			.catch((error: unknown) => {
-				// The host's work goes on either way, but a run pi failed to prepare goes without its sections, which is said.
-				report(new Error(`pi's run for the host failed: ${String(error)}`));
-			});
+			.then(
+				() => true,
+				(error: unknown) => {
+					// The host's work goes on either way, but a run pi failed to prepare goes without its sections, which is said.
+					report(new Error(`pi's run for the host failed: ${String(error)}`));
+					return false;
+				},
+			);
 		let late = () => {};
 		const overdue = new Promise<void>((done) => {
 			late = done;
 		});
-		this.open = { end, settled, overdue };
+		this.open = { end, settled, overdue, signal };
 		// A run pi failed to prepare, took too long over, or that was stopped
 		// meanwhile, hands nothing over, and the work goes on; one prepared late
 		// ends with it as any other.

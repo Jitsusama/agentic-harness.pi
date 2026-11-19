@@ -78,9 +78,10 @@ export function holdMessagesThroughCarriedTurns(
 	};
 	session.dispose = () => {
 		undo();
-		writeWhatPiHolds(session, report);
-		// pi writes a no-turn message at once while it counts no run, so it is in the file before pi lets go of it.
+		// pi writes a no-turn message at once while it counts no run, and holds it
+		// while it counts one, so what is held here goes first, for pi's flush.
 		flush();
+		writeWhatPiHolds(session, report);
 		dispose();
 	};
 	session.sendCustomMessage = async (message, options) => {
@@ -102,7 +103,7 @@ export function holdMessagesThroughCarriedTurns(
  * work failed, as it would once a turn ends; it writes nothing when it
  * holds nothing. pi keeps that flush to itself, so it is found by name; a
  * pi that moves it drops what it holds, as pi does, and that loss is
- * reported unless pi is idle and its list of held messages is empty.
+ * reported unless pi's list of held messages is seen to be empty.
  */
 function writeWhatPiHolds(
 	session: MessagingSession,
@@ -110,10 +111,9 @@ function writeWhatPiHolds(
 ): void {
 	const flush: unknown = Reflect.get(session, PI_FLUSH);
 	if (typeof flush !== "function") {
-		// pi keeps words past a failed run while idle, so only an idle pi seen to hold none is quiet.
+		// pi keeps words in a run and past a failed one, so only a pi seen to hold none is quiet.
 		const held: unknown = Reflect.get(session, PI_HELD);
-		if (!session.isStreaming && Array.isArray(held) && held.length === 0)
-			return;
+		if (Array.isArray(held) && held.length === 0) return;
 		report(
 			new Error(`pi has no ${PI_FLUSH}, so what it held is lost as it lets go`),
 		);

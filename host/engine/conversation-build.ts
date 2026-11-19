@@ -330,7 +330,9 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		});
 		// A turn durable carries on is no run of pi's session, which would write an extension's message mid-round.
 		// The hold ends with the session's dispose, writing what it held, so nothing here keeps its undo.
-		holdMessagesThroughCarriedTurns(created.session, agentOf(record), report);
+		holdMessagesThroughCarriedTurns(created.session, agentOf(record), (error) =>
+			report(`Conversation ${sessionId}: ${String(error)}`),
+		);
 		// Words the agent queues past the session show as pending, where pi has the seam; the host says at start when it lacks it.
 		// The agent's own runs open as pi's, where pi has the seam, so pi prepares and settles them as it does a prompt's.
 		agentOf(record).joinSession(created.session, (error) =>
