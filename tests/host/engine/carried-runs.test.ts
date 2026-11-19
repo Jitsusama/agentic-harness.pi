@@ -21,6 +21,8 @@ beforeEach(({ skip }) => {
 const { observe, killed } = sessionRuns(() => packageDir);
 /** Two sessions in two processes, each loading pi's whole package. */
 const SESSION_PAIR_MS = 60_000;
+/** Three sessions in three processes, one waiting up to 20 s for its carried run to end. */
+const SESSION_TRIO_MS = 90_000;
 /** The longest a park may hold a stopping host's close, as hosted-agent.test.ts holds it; the fixture's slow handler takes twice that. */
 const PARKED_CLOSE_MOST_MS = 5_000;
 /** The words reopen-typed-as-it-ends types, and the file it says what it saw in, as the fixture names them. */
@@ -56,7 +58,9 @@ describe("a run the host carries on after a restart", {
 		}
 	});
 
-	it("keeps words typed as it ends through the host dying as pi settles it", async () => {
+	it("keeps words typed as it ends through the host dying as pi settles it", {
+		timeout: SESSION_TRIO_MS,
+	}, async () => {
 		// Words pi queued as the carried run ended lived only in the agent's memory until pi had settled the run.
 		const folder = mkdtempSync(join(tmpdir(), "carried-typed-end-"));
 		try {
@@ -83,6 +87,10 @@ describe("a run the host carries on after a restart", {
 				said(observed, "user"),
 				`the words typed as the run ended outlived the host (it saw ${JSON.stringify(typed)})`,
 			).toContain(TYPED_AS_IT_ENDS);
+			expect(
+				typed,
+				"the words had run inside pi's run, none left queued as it settled",
+			).toMatchObject({ queuedAtSettle: false });
 		} finally {
 			rmSync(folder, { recursive: true, force: true });
 		}

@@ -64,12 +64,14 @@ export type Within = (say: () => Promise<unknown>) => Promise<unknown>;
 /** Where a run pi didn't prepare is said, so a run sent on without its sections isn't silent. */
 export type Report = (error: unknown) => void;
 
-/**
- * Run the words waiting in pi's queue, answering whether they went: false
- * when none waited, or some still wait after the run, so carrying on again
- * would only go round.
- */
-export type RunWaiting = () => Promise<boolean>;
+/** The words waiting in pi's queue, by the host's ids, and a run of them. */
+export interface WaitingWords {
+	ids(): readonly string[];
+	run(): Promise<void>;
+}
+
+/** No words wait, as for a host that queues none. */
+const NONE_WAITING: WaitingWords = { ids: () => [], run: async () => {} };
 
 /**
  * An open run of pi's, ended by `end`, done once `settled` resolves, true
@@ -94,7 +96,7 @@ export class PiRuns {
 	private readonly parked: () => boolean;
 	private readonly within: Within;
 	private readonly next: () => void;
-	private readonly runWaiting: RunWaiting;
+	private readonly waiting: WaitingWords;
 	private session: HostRunningSession | undefined;
 	private report: Report = () => {};
 	private holds = 0;
@@ -106,8 +108,8 @@ export class PiRuns {
 
 	/**
 	 * Runs whose host is stopping once `parked` says so, each settle said
-	 * `within`. Before the last hold ends a run pi opened, `runWaiting`
-	 * runs the words that wait inside it, again for as long as words wait
+	 * `within`. Before the last hold ends a run pi opened, it runs the
+	 * `waiting` words inside it, again for as long as words wait, some went
 	 * and no run shown was stopped, as pi's own run continues on queued
 	 * words before it settles: they waited, in memory alone, through every
 	 * settle handler, and a host dying then lost them. Words queued after
@@ -118,12 +120,12 @@ export class PiRuns {
 		parked: () => boolean,
 		within: Within = (say) => say(),
 		next: () => void = () => {},
-		runWaiting: RunWaiting = async () => false,
+		waiting: WaitingWords = NONE_WAITING,
 	) {
 		this.parked = parked;
 		this.within = within;
 		this.next = next;
-		this.runWaiting = runWaiting;
+		this.waiting = waiting;
 	}
 
 	/** Open runs in `session` from now on, saying to `report` each run pi didn't prepare. */
@@ -176,9 +178,17 @@ export class PiRuns {
 	private async carryOnWaiting(): Promise<void> {
 		const stopped = () => this.shown.some((signal) => signal?.aborted === true);
 		while (!this.parked() && !stopped()) {
+			const before = this.waiting.ids();
+			if (before.length === 0) return;
 			// A run carried on shows its own failure, and this hold still ends.
-			const went = await this.runWaiting().catch(() => false);
-			if (!went) return;
+			const ran = await this.waiting.run().then(
+				() => true,
+				() => false,
+			);
+			if (!ran) return;
+			const after = new Set(this.waiting.ids());
+			// None of the words went, so going on again would only go round.
+			if (before.every((id) => after.has(id))) return;
 		}
 	}
 

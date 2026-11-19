@@ -4,6 +4,7 @@ import {
 	type HostRunningSession,
 	PiRuns,
 	PREPARING_MS,
+	type WaitingWords,
 } from "../../../host/engine/hosted-agent/pi-runs.ts";
 import type { AgentMessage } from "../../../host/engine/pi-types.ts";
 
@@ -30,6 +31,30 @@ function piSession(streaming = false, handed?: readonly AgentMessage[]) {
 		},
 	};
 	return { session, said };
+}
+
+/** How many runs of the same stuck words a case lets go by before calling it going round. */
+const MOST_PASSES = 3;
+
+/**
+ * pi's queue as batches of words, each run of them taking the first and
+ * saying so, and `during` run inside it, as the agent's continue runs
+ * inside pi's run. A loop that should have stopped ends with the batches
+ * rather than hanging the worker.
+ */
+function queued(
+	batches: readonly (readonly string[])[],
+	said: string[],
+	during: () => Promise<unknown> = async () => {},
+): WaitingWords {
+	const left = [...batches];
+	return {
+		ids: () => left[0] ?? [],
+		run: async () => {
+			said.push(`ran ${(left.shift() ?? []).join(", ")}`);
+			await during();
+		},
+	};
 }
 
 describe("the agent's own runs in pi", () => {
@@ -329,17 +354,11 @@ describe("the agent's own runs in pi", () => {
 	it("carries words that wait on inside pi's run, before it settles, as pi's own run does", async () => {
 		// Words pi queued as a carried run ended waited, in memory alone, until pi had settled it.
 		const { session, said } = piSession();
-		let waiting = 1;
 		const runs = new PiRuns(
 			() => false,
 			(say) => say(),
 			() => said.push("next"),
-			async () => {
-				if (waiting === 0) return false;
-				waiting -= 1;
-				said.push("carried on");
-				return true;
-			},
+			queued([["typed"]], said),
 		);
 		runs.tell(session);
 
@@ -350,22 +369,44 @@ describe("the agent's own runs in pi", () => {
 		expect(said, "not while the ask again holds it").toEqual(["prepared"]);
 		await asked();
 
-		expect(said).toEqual(["prepared", "carried on", "settled", "next"]);
+		expect(said).toEqual(["prepared", "ran typed", "settled", "next"]);
 	});
 
 	it("carries on again for words typed as the run carried on ended", async () => {
 		// That run drains pi's queue as it starts, so words typed as it ends wait as the first did.
 		const { session, said } = piSession();
-		let waiting = 2;
 		const runs = new PiRuns(
 			() => false,
 			(say) => say(),
 			() => said.push("next"),
-			async () => {
-				if (waiting === 0) return false;
-				waiting -= 1;
-				said.push("carried on");
-				return true;
+			queued([["typed"], ["typed as it ended"]], said),
+		);
+		runs.tell(session);
+
+		await runs.holding(() => runs.opening());
+
+		expect(said).toEqual([
+			"prepared",
+			"ran typed",
+			"ran typed as it ended",
+			"settled",
+			"next",
+		]);
+	});
+
+	it("carries on while some of the words that waited went, though others still wait", async () => {
+		// A steer runs before the follow-ups queued with it.
+		const { session, said } = piSession();
+		const left = ["steered", "followed"];
+		const runs = new PiRuns(
+			() => false,
+			(say) => say(),
+			() => said.push("next"),
+			{
+				ids: () => left,
+				run: async () => {
+					said.push(`ran ${left.shift()}`);
+				},
 			},
 		);
 		runs.tell(session);
@@ -374,8 +415,8 @@ describe("the agent's own runs in pi", () => {
 
 		expect(said).toEqual([
 			"prepared",
-			"carried on",
-			"carried on",
+			"ran steered",
+			"ran followed",
 			"settled",
 			"next",
 		]);
@@ -384,20 +425,26 @@ describe("the agent's own runs in pi", () => {
 	it("carries on once for words a run left waiting, and then settles", async () => {
 		// Going on again would run the same words round and round.
 		const { session, said } = piSession();
+		let passes = 0;
 		const runs = new PiRuns(
 			() => false,
 			(say) => say(),
 			() => said.push("next"),
-			async () => {
-				said.push("carried on");
-				return false;
+			{
+				ids: () => ["stuck"],
+				run: async () => {
+					passes += 1;
+					said.push("ran stuck");
+					// A bound, so a loop that goes round fails the case rather than hanging its worker.
+					if (passes > MOST_PASSES) throw new Error("went round");
+				},
 			},
 		);
 		runs.tell(session);
 
 		await runs.holding(() => runs.opening());
 
-		expect(said).toEqual(["prepared", "carried on", "settled", "next"]);
+		expect(said).toEqual(["prepared", "ran stuck", "settled", "next"]);
 	});
 
 	it("ends the hold and settles pi's run though carrying on failed", async () => {
@@ -406,55 +453,92 @@ describe("the agent's own runs in pi", () => {
 			() => false,
 			(say) => say(),
 			() => said.push("next"),
-			async () => {
-				said.push("carried on");
+			queued([["typed"], ["more"]], said, async () => {
 				throw new Error("the run carried on failed");
-			},
+			}),
 		);
 		runs.tell(session);
 
 		await runs.holding(() => runs.opening());
 
-		expect(said).toEqual(["prepared", "carried on", "settled", "next"]);
+		expect(said).toEqual(["prepared", "ran typed", "settled", "next"]);
 	});
 
 	it("runs what it carries on inside pi's open run, which it opens no second time", async () => {
 		// The run carried on holds pi's run itself, as each of the agent's runs does.
 		const { session, said } = piSession();
-		let waiting = 1;
 		const runs: PiRuns = new PiRuns(
 			() => false,
 			(say) => say(),
 			() => said.push("next"),
-			async () => {
-				if (waiting === 0) return false;
-				waiting -= 1;
-				await runs.holding(async () => {
+			queued([["typed"]], said, () =>
+				runs.holding(async () => {
 					await runs.opening();
-					said.push("carried on");
-				});
-				return true;
-			},
+				}),
+			),
 		);
 		runs.tell(session);
 
 		await runs.holding(() => runs.opening());
 
-		expect(said).toEqual(["prepared", "carried on", "settled", "next"]);
+		expect(said).toEqual(["prepared", "ran typed", "settled", "next"]);
+	});
+
+	it("carries nothing more on once the run it carried on was stopped", async () => {
+		// Escape during that run stops pi's run going on, as it would its own.
+		const { session, said } = piSession();
+		const stop = new AbortController();
+		const runs: PiRuns = new PiRuns(
+			() => false,
+			(say) => say(),
+			() => said.push("next"),
+			queued([["typed"], ["typed while it ran"]], said, () =>
+				runs.holding(async () => {
+					await runs.opening(stop.signal);
+					stop.abort();
+				}),
+			),
+		);
+		runs.tell(session);
+
+		await runs.holding(() => runs.opening());
+
+		expect(said).toEqual(["prepared", "ran typed", "settled", "next"]);
+	});
+
+	it("carries on in pi's next run though a run in the one before was stopped", async () => {
+		const { session, said } = piSession();
+		const runs = new PiRuns(
+			() => false,
+			(say) => say(),
+			() => {},
+			queued([["typed"]], said),
+		);
+		runs.tell(session);
+		const stop = new AbortController();
+		const stopped = runs.hold();
+		await runs.opening();
+		await runs.opening(stop.signal);
+		stop.abort();
+		await stopped();
+		expect(said, "nothing carried on in the stopped run").toEqual([
+			"prepared",
+			"settled",
+		]);
+
+		await runs.holding(() => runs.opening());
+
+		expect(said.slice(2)).toEqual(["prepared", "ran typed", "settled"]);
 	});
 
 	it("carries nothing on inside a run that was stopped or whose host parked", async () => {
 		// pi's own run stops going on once it is aborted.
 		const said: string[] = [];
-		const runWaiting = async () => {
-			said.push("carried on");
-			return true;
-		};
 		const stopped = new PiRuns(
 			() => false,
 			(say) => say(),
 			() => {},
-			runWaiting,
+			queued([["typed"]], said),
 		);
 		stopped.tell(piSession().session);
 		const stop = new AbortController();
@@ -466,7 +550,7 @@ describe("the agent's own runs in pi", () => {
 			() => true,
 			(say) => say(),
 			() => {},
-			runWaiting,
+			queued([["typed"]], said),
 		);
 		parked.tell(piSession().session);
 		await parked.holding(() => parked.opening());
@@ -481,10 +565,7 @@ describe("the agent's own runs in pi", () => {
 			() => false,
 			(say) => say(),
 			() => {},
-			async () => {
-				said.push("carried on");
-				return true;
-			},
+			queued([["typed"]], said),
 		);
 		runs.tell(piSession().session);
 
@@ -528,12 +609,14 @@ describe("the agent's own runs in pi", () => {
 			() => false,
 			(say) => say(),
 			next,
+			queued([["typed"]], said),
 		);
 		inside.tell(piSession(true).session);
 		const unseamed = new PiRuns(
 			() => false,
 			(say) => say(),
 			next,
+			queued([["typed"]], said),
 		);
 		unseamed.tell({ extensionRunner: { emit: async () => undefined } });
 
