@@ -245,6 +245,17 @@ describe("a pi that keeps no session", () => {
 	});
 });
 
+describe("the subjects it says", () => {
+	it("reads the owner lines naming its address from the owners file into its presence", async () => {
+		const owners = join(fixture.root, "owners.txt");
+		writeFileSync(owners, "health.=7M6JKG\noom.=80ECO2\n");
+		await startSession({ PI_OWNERS_FILE: owners });
+
+		const presences = createPresences(join(fixture.paths.mesh, "presence"));
+		expect(presences.of(session)?.subjects).toEqual(["health."]);
+	});
+});
+
 describe("a fleet's subagent", () => {
 	it("works as the hands of the peer that starts it", async () => {
 		const env: NodeJS.ProcessEnv = {};

@@ -409,6 +409,19 @@ folded, found by the keywords; an optional `what`, a sentence,
 says in its drawer what it is for. Presence leaves the key out
 otherwise.
 
+A session says in its presence the `subjects` it works on, which
+mycelium's node serves on its cell and a need is routed by
+([`lib/mesh/subjects.ts`](../../lib/mesh/subjects.ts)). First come
+the owner prefixes Joel's config names one of its addresses for,
+each as written, longest first: the `prefix=ADDRESS` lines cadence
+takes as `--owner`, read at each refresh from
+`~/.config/cadence/owners.txt` (under `XDG_CONFIG_HOME` when set;
+`PI_OWNERS_FILE` names another file). Then its quest's own
+`subjects`, set with the quest tool's `config` (`ref`
+`subjects=a,b`). At most 12, each plain text of at most 120
+characters, as the node reads them; presence leaves the key out
+while there are none. A subject routes a need and grants nothing.
+
 A quest marked `hears: addressed` (set with the quest tool's
 `config`, `ref` `hears=addressed`, and cleared with `hears=all`)
 hears in full only what is put to its sessions: what is sent to

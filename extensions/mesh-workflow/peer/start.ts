@@ -32,6 +32,7 @@ import { localPeer } from "../../../lib/mesh/peer.ts";
 import { questEnded, windowTitle } from "../../../lib/mesh/presence.ts";
 import { keepPresent, whenPresent } from "../../../lib/mesh/present.ts";
 import { createReadFront, seenAtStart } from "../../../lib/mesh/reading.ts";
+import { ownerLinesAt, ownersFile } from "../../../lib/mesh/subjects.ts";
 import { usageFromLog } from "../../../lib/mesh/usage.ts";
 import { identifyCurrentTerminal } from "../../../lib/terminal/resolve.ts";
 import type { TerminalSessionHandle } from "../../../lib/terminal/types.ts";
@@ -182,6 +183,9 @@ export function onSessionStart(
 			// Its background commands hold heavy leases (leases/heavy-calls.ts),
 			// so a node can tell an idle session from one an older harness runs.
 			leases: { background: true },
+			// The subjects it owns by the machine's config, read at each refresh so
+			// a switch rewriting them is said with the next (subjects.ts).
+			owners: () => ownerLinesAt(ownersFile(m.env)),
 		});
 		for (const want of m.wanting.values()) m.peer.want(want);
 		// A move asked before a reload goes on waiting for the session.

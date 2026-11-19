@@ -64,7 +64,9 @@ async function startSession(): Promise<Map<string, Tool>> {
 		registerCommand: () => {},
 		events: { on: () => {}, emit: () => {} },
 	};
-	meshWorkflow(paths, {}, { settleMs: 40, spreadMs: 0 })(pi as never);
+	// No machine's owners file: the test reads none.
+	const env = { PI_OWNERS_FILE: join(root, "no-owners.txt") };
+	meshWorkflow(paths, env, { settleMs: 40, spreadMs: 0 })(pi as never);
 	await lifecycle.get("session_start")?.(
 		{ reason: "startup" },
 		{

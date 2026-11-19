@@ -71,6 +71,7 @@ import {
 } from "./scope.ts";
 import { isStepDetail, type StepDetail } from "./step.ts";
 import { type Stop, stopsFrom } from "./stop.ts";
+import { declaredSubjects, subjectsOf } from "./subjects.ts";
 import { removeStaged } from "./transport.ts";
 import { isUsage, type SessionUsage } from "./usage.ts";
 import { type Want, wantFrom } from "./want.ts";
@@ -288,6 +289,13 @@ export interface Presence {
 	 * and the words that find it, as its README's `stands-at-top` says.
 	 */
 	readonly standsAtTop?: StandsAtTop;
+	/**
+	 * What it says it works on (see subjects.ts): the owner prefixes the
+	 * config names its address for, then its quest's own `subjects`, which
+	 * mycelium's node serves on its cell and a need is routed by. Missing
+	 * while it declares none, and from an older presence.
+	 */
+	readonly subjects?: readonly string[];
 	/** When it last said so, as an ISO time. */
 	readonly at: string;
 }
@@ -400,6 +408,8 @@ export interface PeerWork {
 	readonly hears?: "addressed";
 	/** Its quest stands at the launcher's top (see Presence). */
 	readonly standsAtTop?: StandsAtTop;
+	/** The subjects its quest's README lists, which presence says after those it owns. */
+	readonly subjects?: readonly string[];
 }
 
 /** How far up a quest's parents are followed, against a loop. */
@@ -465,7 +475,15 @@ export function workOf(
 		workspace: questAddress(windowWorkspaceOf(quest, read) ?? quest),
 		...(parsed.frontMatter.hears ? { hears: parsed.frontMatter.hears } : {}),
 		...standingAtTop(parsed.frontMatter._extra?.["stands-at-top"]),
+		...subjectsSaid(declaredSubjects(parsed.frontMatter._extra?.subjects)),
 	};
+}
+
+/** Subjects as a presence or its work says them: left out when none. */
+function subjectsSaid(subjects: readonly string[]): {
+	subjects?: readonly string[];
+} {
+	return subjects.length > 0 ? { subjects } : {};
 }
 
 /** A `stands-at-top` as `{name, keywords, what?}`, or nothing unnamed. */
@@ -712,6 +730,7 @@ function presenceFrom(value: unknown): Presence | undefined {
 			? { leases: { background: one.leases.background } }
 			: {}),
 		...standingAtTop(one.standsAtTop),
+		...subjectsSaid(subjectsOf([], declaredSubjects(one.subjects))),
 		at: typeof one.at === "string" ? one.at : "",
 	};
 }

@@ -121,7 +121,8 @@ async function peer(id: string) {
 	withSession(id, () =>
 		meshWorkflow(
 			paths,
-			{},
+			// No machine's owners file: the test reads none.
+			{ PI_OWNERS_FILE: join(root, "no-owners.txt") },
 			{ settleMs: 1, spreadMs: 0 },
 		)(pi as unknown as ExtensionAPI),
 	);

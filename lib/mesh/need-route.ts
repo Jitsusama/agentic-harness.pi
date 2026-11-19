@@ -46,6 +46,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord } from "../internal/record.ts";
 import { listAt, TIE_HALF_LIFE_MS } from "./node.ts";
+import { MOST_SUBJECTS } from "./subjects.ts";
 
 /** A cell and the words of what it works on. */
 export interface Forager {
@@ -212,9 +213,6 @@ const CELL_FIELDS = ["title", "repo", "subjects"];
  * holds a readable list as well, the list is read in their place.
  */
 const HUB_FIELDS = ["hub", "fits", "hubs"];
-
-/** The most declared subjects read from one cell. */
-export const MOST_SUBJECTS = 12;
 
 /** The most words one cell's declared subjects give it, all together. */
 export const MOST_SUBJECT_WORDS = 12;
