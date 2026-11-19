@@ -24,6 +24,12 @@
  * which says so and looks again, waiting longer the more `--failures`
  * its words count. Under none, a view or a release runs it itself,
  * ending as it ends.
+ *
+ * The words a window keeps name this script through the install's
+ * `current` link, so they still run once the version that wrote them is
+ * removed, which closed three windows as a host died on 19 November. So
+ * these words are read by later versions than the one that wrote them:
+ * keep every flag above accepted, and add new ones as optional.
  */
 
 import { spawnSync } from "node:child_process";

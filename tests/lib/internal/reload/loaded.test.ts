@@ -154,19 +154,21 @@ describe("a path that outlives its version", () => {
 	const SCRIPT = join("scripts", "host-join.ts");
 	let install = "";
 
-	/** An install holding `versions`, each with the join script, its link at the last. */
-	function installWith(...versions: readonly string[]): void {
+	/** An install holding `versions` in `folder`, each with the join script, its link at the last. */
+	function installIn(folder: string, ...versions: readonly string[]): void {
 		install = mkdtempSync(join(tmpdir(), "install-"));
 		for (const version of versions) {
-			mkdirSync(join(install, "versions", version, "scripts"), {
+			mkdirSync(join(install, folder, version, "scripts"), {
 				recursive: true,
 			});
-			writeFileSync(join(install, "versions", version, SCRIPT), "");
+			writeFileSync(join(install, folder, version, SCRIPT), "");
 		}
-		symlinkSync(
-			join("versions", versions.at(-1) ?? ""),
-			join(install, "current"),
-		);
+		symlinkSync(join(folder, versions.at(-1) ?? ""), join(install, "current"));
+	}
+
+	/** An install holding `versions` under versions/, its link at the last. */
+	function installWith(...versions: readonly string[]): void {
+		installIn("versions", ...versions);
 	}
 
 	afterEach(() => {
@@ -185,6 +187,14 @@ describe("a path that outlives its version", () => {
 		expect(lasting, "it goes through the install's link").toBe(
 			join(install, "current", SCRIPT),
 		);
+	});
+
+	it("reaches the file through the link from the former releases/ folder too", () => {
+		installIn("releases", OLD, NEW);
+		expect(
+			lastingPath(join(install, "releases", OLD, SCRIPT)),
+			"it goes through the install's link",
+		).toBe(join(install, "current", SCRIPT));
 	});
 
 	it("keeps the version's own path when the link's version lacks the file", () => {
