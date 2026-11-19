@@ -94,13 +94,16 @@ export function layBudget(
 	overlay: BudgetOverlay = processOverlay(),
 ): void {
 	const target = mutableEnvironment(env);
-	const laying: Record<string, string> = {};
-	for (const [key, value] of Object.entries(budget.env)) {
-		// Only a name the list can carry is laid, so the list names all it laid.
-		if (isBudgetKeyName(key)) laying[key] = value;
-	}
-	laying[BUDGET_KEYS_VARIABLE] = Object.keys(laying).sort().join(",");
-	laying[BUDGET_VARIABLE] = budget.name;
+	// Every variable is laid as the provider gave it; the list names only
+	// those it can carry, so a comma in a name can't add names to it.
+	const laying: Record<string, string> = {
+		...budget.env,
+		[BUDGET_KEYS_VARIABLE]: Object.keys(budget.env)
+			.filter(isBudgetKeyName)
+			.sort()
+			.join(","),
+		[BUDGET_VARIABLE]: budget.name,
+	};
 	for (const key of [...overlay.laid.keys()]) {
 		if (!(key in laying)) restore(target, overlay, key);
 	}

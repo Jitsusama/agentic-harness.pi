@@ -128,6 +128,8 @@ describe("a budget laid over an environment", () => {
 
 		expect(env.PI_BUDGET).toBe("delta");
 		expect(env.PI_BUDGET_KEYS).toBe("KEY");
+		// Laid as the provider gave it, but never named in the list.
+		expect(env["A,OTHER_KEY"]).toBe("x");
 		expect(budgetKeysOf(env)).toEqual(["KEY"]);
 	});
 

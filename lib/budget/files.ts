@@ -25,14 +25,12 @@ import {
 	type BudgetProvider,
 	isBudgetName,
 } from "./provider.ts";
+import { VARIABLE_NAME as VARIABLE } from "./record.ts";
 
 const run = promisify(execFile);
 
 /** How long a budget's program may take before it is given up on. */
 const PROGRAM_TIMEOUT_MS = 15_000;
-
-/** A variable's name, as a shell would take it. */
-const VARIABLE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** What a budget file says: its variables and the label it gives. */
 export interface BudgetFile {
