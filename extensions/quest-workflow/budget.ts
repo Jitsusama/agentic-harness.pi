@@ -110,7 +110,19 @@ export function budgetOfFolder(
 /** Where a keeper says what went wrong; the system's journal unless a test says. */
 export interface BudgetKeeperOptions {
 	readonly journal?: (line: string) => void;
+	/** The clock a missed budget's wait is read on; the machine's unless a test says. */
+	readonly now?: () => number;
 }
+
+/**
+ * How long a budget that couldn't be drawn on waits before the next
+ * keep asks for it again. A provider can miss once and answer the next
+ * time, as its credential program does under the load of a restart, and
+ * a session that never asked again drew on the default for the rest of
+ * its life; a provider that stays down costs a turn its deadline once
+ * a minute, rather than every turn.
+ */
+export const BUDGET_ASKED_AGAIN_MS = 60_000;
 
 /** Write a line to the system's journal at warning. */
 function warnInJournal(line: string): void {
@@ -124,6 +136,7 @@ export function keepQuestBudget(
 	options: BudgetKeeperOptions = {},
 ): BudgetKeeper {
 	const sink = options.journal ?? warnInJournal;
+	const now = options.now ?? Date.now;
 	const journal = (line: string): void => {
 		try {
 			sink(line);
@@ -146,14 +159,19 @@ export function keepQuestBudget(
 	let last: ExtensionContext | undefined;
 	/** The ask still on its way, so a second keep can wait on it. */
 	let pending: Promise<void> = Promise.resolve();
+	/** When the name wanted was last missed, so a later keep asks again. */
+	let missedAt: number | undefined;
 
 	const keep = async (ctx: ExtensionContext, again = false) => {
 		last = ctx;
 		const name = state.questId
 			? (budgetInRecord(state.questsRoot, state.questId)?.name ?? null)
 			: null;
-		if (name === wanted && !again) return pending;
+		const due =
+			missedAt !== undefined && now() - missedAt >= BUDGET_ASKED_AGAIN_MS;
+		if (name === wanted && !again && !due) return pending;
 		wanted = name;
+		missedAt = undefined;
 		const ask = ++asking;
 		pending = settle(ctx, name, ask);
 		return pending;
@@ -181,6 +199,7 @@ export function keepQuestBudget(
 			recordDrawn(pi, ctx, drawing);
 			return;
 		}
+		missedAt = now();
 		liftBudget(sessionEnv(ctx), processOverlay(ctx));
 		const inherited = budgetDrawnOn(sessionEnv(ctx).snapshot());
 		// Started on the very budget the quest names, the calls draw on it
@@ -217,6 +236,7 @@ export function keepQuestBudget(
 		// Asked again in full by the next session's first keep, and any
 		// answer still on its way is overtaken, so it lays nothing.
 		wanted = undefined;
+		missedAt = undefined;
 		asking++;
 	};
 
