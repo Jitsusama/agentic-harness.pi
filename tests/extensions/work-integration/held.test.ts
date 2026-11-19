@@ -4,10 +4,17 @@
  * means.
  */
 
-import { existsSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	readdirSync,
+	statSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { GLYPH } from "../../../extensions/work-integration/render.ts";
+import { treeRecordDir } from "../../../lib/internal/work-records.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { cut, work } from "./worked.ts";
 
@@ -27,6 +34,49 @@ describe("listing what is held", () => {
 			`${displayPath(path)} · copying`,
 		);
 		expect(listed.details).toMatchObject({ ok: true, held: 1 });
+	});
+});
+
+/**
+ * The one tree record there is, dated `hours` ago as a sweep reads it,
+ * answering when it was last written.
+ */
+function recordAged(hours: number): () => number {
+	const names = readdirSync(treeRecordDir());
+	expect(names, "not one tree record, so this case tests nothing").toHaveLength(
+		1,
+	);
+	const file = join(treeRecordDir(), names[0] ?? "");
+	const then = new Date(Date.now() - hours * 3_600_000);
+	utimesSync(file, then, then);
+	return () => statSync(file).mtimeMs;
+}
+
+// A reader sent to a tree by path leaves no sign a sweep can see, so
+// whatever hands a tree's path out dates its use, as an ask does.
+describe("dating the trees it names", () => {
+	it("dates each tree it lists", async () => {
+		await cut();
+		const written = recordAged(5);
+		const before = written();
+
+		await work({ action: "trees" });
+
+		expect(written(), "listing a tree didn't date its use").toBeGreaterThan(
+			before,
+		);
+	});
+
+	it("dates the tree an action names", async () => {
+		const { key } = await cut();
+		const written = recordAged(5);
+		const before = written();
+
+		await work({ action: "status", tree: key });
+
+		expect(written(), "naming a tree didn't date its use").toBeGreaterThan(
+			before,
+		);
 	});
 });
 

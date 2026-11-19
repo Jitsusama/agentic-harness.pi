@@ -17,9 +17,37 @@ import { GLYPH, treeLine } from "../render.ts";
 import { CLAIMED_PROVIDER } from "./held.ts";
 import { type Answer, refuse, say } from "./shared.ts";
 
-/** List the trees the broker holds, one line each. */
-export function listHeld(broker: TreeBroker, ctx: ExtensionContext): Answer {
-	const held = broker.held();
+/**
+ * The held trees that still stand, each one's use dated. A listing is
+ * how a reader finds a path to read by, and a reader by path leaves no
+ * other sign, so a sweep would take a snapshot read hours after it was
+ * cut. One a sweep took meanwhile is left out. One whose dating is
+ * refused is still listed, since it is still held and a listing never
+ * fails for its dating.
+ */
+export async function datedHeld(
+	broker: Pick<TreeBroker, "used">,
+	held: readonly HeldTree[],
+): Promise<HeldTree[]> {
+	const standing = await Promise.all(
+		held.map(async (tree) => {
+			try {
+				return (await broker.used(tree)) ? tree : undefined;
+			} catch {
+				// Refused, as a held lock or a full disk does: still ours.
+				return tree;
+			}
+		}),
+	);
+	return standing.filter((tree) => tree !== undefined);
+}
+
+/** List the trees the broker holds, one line each, dating each use. */
+export async function listHeld(
+	broker: TreeBroker,
+	ctx: ExtensionContext,
+): Promise<Answer> {
+	const held = await datedHeld(broker, broker.held());
 	if (held.length === 0) {
 		return say(
 			`${GLYPH.named} No trees held. Ask for one with action 'tree' or 'snapshot'.`,

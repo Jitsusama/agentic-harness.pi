@@ -20,7 +20,7 @@ import { makeBranch, record } from "./author.ts";
 import { carryHome } from "./carry.ts";
 import { cutTree } from "./cut.ts";
 import { claimedTree, heldByName } from "./held.ts";
-import { listHeld, releaseTree } from "./listing.ts";
+import { datedHeld, listHeld, releaseTree } from "./listing.ts";
 import { publish } from "./push.ts";
 import { replay } from "./replay.ts";
 import { type Answer, messageOf, refuse } from "./shared.ts";
@@ -88,7 +88,7 @@ export async function answerWork(
 	const exec = unattendedExec(signal);
 
 	try {
-		if (action === "trees") return listHeld(broker, ctx);
+		if (action === "trees") return await listHeld(broker, ctx);
 		if (action === "tree" || action === "snapshot") {
 			return await cutTree(exec, broker, action, args, ctx, signal);
 		}
@@ -109,7 +109,18 @@ export async function answerWork(
 		if ("candidates" in inPlay) {
 			return refuse(`${GLYPH.refused} ${chooseTree(inPlay.candidates)}`);
 		}
-		const found = heldByName(held, inPlay.key) ?? claimedTree(pi, inPlay.key);
+		// Dated as an ask, since a tree named here is read by path after,
+		// as one listed is. A quest's tree is the quest's to date.
+		const named = heldByName(held, inPlay.key);
+		if (
+			named !== undefined &&
+			(await datedHeld(broker, [named])).length === 0
+		) {
+			return refuse(
+				`${GLYPH.refused} ${inPlay.key} was taken by a sweep after going unused. Ask for it again with action 'tree' or 'snapshot'.`,
+			);
+		}
+		const found = named ?? claimedTree(pi, inPlay.key);
 		if (!found) {
 			// Naming what is held turns a typo into a correction
 			// rather than a second guess.

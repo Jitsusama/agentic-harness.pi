@@ -168,8 +168,9 @@ it("counts a hosted conversation's folder as in use, though its host stands else
 	expect(folders, "the folders live sessions work in").toContain(folder);
 });
 
-// Only where every process is seen, as the fence's own namespace isn't.
-it.runIf(await seesEveryProcess())(
+// Only where every process is seen, as the fence's own namespace isn't,
+// nor a /proc that hides the machine's first process.
+it.runIf((await seesEveryProcess()) && existsSync("/proc/1"))(
 	"says which trees a process works in or holds a file open in, from the kernel's own links",
 	async () => {
 		// The kernel names real paths, so the trees are named by theirs.
