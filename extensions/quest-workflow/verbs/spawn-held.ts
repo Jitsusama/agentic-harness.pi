@@ -25,6 +25,7 @@
  * 18:45 on 15 November).
  */
 
+import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { relative } from "node:path";
 import { type Exec, spawnExec } from "../../../lib/core/exec/index.ts";
@@ -35,6 +36,7 @@ import {
 } from "../../../lib/internal/quest/sessions/first-words.ts";
 import {
 	agentsAt,
+	type NodeStart,
 	type NodeStarted,
 	nodeSocket,
 	placeAt,
@@ -100,6 +102,75 @@ export type StartOnNode = (
 ) => Promise<StartAnswer>;
 
 const askTheNode: StartOnNode = (start) => startAt(nodeSocket(), start);
+
+/**
+ * How long a start the node never answered is asked again under its
+ * name: it lands within the node's own patience or not at all, and a
+ * spawn asked again after this is meant afresh.
+ */
+const UNANSWERED_FOR_MS = 10 * 60_000;
+
+/**
+ * The names this process gives the starts it asks of a node: each start
+ * a name of its own, but a start asked again while one just like it went
+ * unanswered takes that one's name, so the node answers the start that
+ * may still be landing rather than starting a second (KP0L6A, 19
+ * November: a start answered after 45 s landed, and the retry started
+ * another).
+ */
+export interface StartNames {
+	/** The name to ask `start` under. */
+	nameFor(start: Omit<NodeStart, "once">): string;
+	/** Hears how the start asked under `name` was answered. */
+	heard(name: string, answer: StartAnswer): void;
+}
+
+/**
+ * A start as spawn asks it, as a key for one just like it. The key a
+ * spawn here leaves its first words under is new each time, so it is left
+ * out: a start asked again is told as the first was.
+ */
+function likeness(start: Omit<NodeStart, "once">): string {
+	return JSON.stringify([
+		start.machine,
+		start.needs ?? [],
+		start.folder ?? null,
+		start.command.filter(
+			(word) => !word.startsWith(`${FIRST_WORDS_VARIABLE}=`),
+		),
+	]);
+}
+
+/** Start names kept in memory, judged by the clock `now`. */
+export function startNames(now: () => number = Date.now): StartNames {
+	// Each start still being asked, by name, with its likeness; a start
+	// just like one in flight is another start, so it is named afresh.
+	const asking = new Map<string, string>();
+	// Each start the node took and never answered, by likeness, till it
+	// is asked again or its time is up.
+	const unanswered = new Map<string, { name: string; at: number }>();
+	return {
+		nameFor(start) {
+			for (const [like, one] of unanswered) {
+				if (now() - one.at >= UNANSWERED_FOR_MS) unanswered.delete(like);
+			}
+			const like = likeness(start);
+			const name = unanswered.get(like)?.name ?? randomUUID();
+			unanswered.delete(like);
+			asking.set(name, like);
+			return name;
+		},
+		heard(name, answer) {
+			const like = asking.get(name);
+			asking.delete(name);
+			if (like !== undefined && !answer.ok && answer.mayLand) {
+				unanswered.set(like, { name, at: now() });
+			}
+		},
+	};
+}
+
+const namesHere = startNames();
 
 /** How spawn asks a node where work goes; the machine's node by default. */
 export type PlaceOnNode = (needs: readonly Need[]) => Promise<PlaceAnswer>;
@@ -346,6 +417,7 @@ export async function spawnHeld(
 	asked: HeldSpawn,
 	start: StartOnNode = askTheNode,
 	share: ShareQuest = shareByMycelium,
+	names: StartNames = namesHere,
 ): Promise<HeldSpawnOutcome> {
 	const here = isThisMachine(asked.machine);
 	const folder = folderFor(asked.cwd, asked.home, here);
@@ -389,7 +461,7 @@ export async function spawnHeld(
 	const unshared = shared.ok
 		? ""
 		: ` Its quest wasn't shared there (${shared.reason}), so it starts without the quest's record; run mycelium share ${asked.questId} to give it one.`;
-	const answer = await start({
+	const starting = {
 		machine: asked.machine,
 		needs: asked.needs,
 		...(folder !== undefined ? { folder } : {}),
@@ -399,7 +471,16 @@ export async function spawnHeld(
 			asked.firstWords,
 			here ? undefined : asked.firstText,
 		),
-	});
+	};
+	const once = names.nameFor(starting);
+	const answer = await start({ ...starting, once });
+	names.heard(once, answer);
+	if (!answer.ok && answer.mayLand) {
+		return {
+			ok: false,
+			refusal: `No answer came from ${asked.machine}'s start: ${answer.reason}. It may still start there, so look for it there before spawning it again. Spawned again within ten minutes, it is asked under the same name, which a node that knows start names answers with that start rather than starting another; an older node starts another.${unshared}`,
+		};
+	}
 	if (!answer.ok) {
 		return {
 			ok: false,

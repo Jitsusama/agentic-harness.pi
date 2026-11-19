@@ -10,6 +10,7 @@ import {
 	type ShareQuest,
 	type StartOnNode,
 	spawnHeld,
+	startNames,
 } from "../../../../extensions/quest-workflow/verbs/spawn-held.ts";
 import type { NodeStart } from "../../../../lib/mesh/node.ts";
 import type { Need } from "../../../../lib/mesh/placement.ts";
@@ -155,6 +156,7 @@ describe("spawning on a machine", () => {
 				needs: [],
 				folder: "src/core.nix",
 				command: heldWords("pi", "QEST-20261013-4UHC5Q"),
+				once: expect.stringMatching(/^\S{1,64}$/),
 			},
 		]);
 		expect(kitty.calls.spawned, "no window opened").toEqual([]);
@@ -207,6 +209,121 @@ describe("spawning on a machine", () => {
 		expect(starts[0]?.needs).toEqual([home]);
 		expect(outcome.ok && outcome.message).toContain(
 			"The node chose equilibrius for reach=home. Started a held session",
+		);
+	});
+});
+
+// KP0L6A (19 Nov): a start the node answered after 45 s still landed, and
+// the agent's retry started a second session.
+describe("a start asked again after the node answered nothing", () => {
+	const silent = {
+		ok: false,
+		reason: "the node took the ask and answered nothing within 120 s",
+		mayLand: true,
+	} as const;
+
+	/** A node answering each start in turn with `answers`, keeping each. */
+	function answering(...answers: Awaited<ReturnType<StartOnNode>>[]) {
+		const asked: NodeStart[] = [];
+		const start: StartOnNode = async (one) => {
+			asked.push(one);
+			return answers.shift() ?? equilibrius;
+		};
+		return { asked, start };
+	}
+
+	it("asks again under the name of the start that may still land, and says so", async () => {
+		const kitty = fakeDriver("kitty");
+		const names = startNames();
+		const { asked: starts, start } = answering(silent, equilibrius);
+		const first = await spawnHeld(
+			{ ...asked(kitty), firstWords: "01JFIRST" },
+			start,
+			shares,
+			names,
+		);
+		expect(first.ok || first.refusal).toContain(
+			"It may still start there, so look for it there before spawning it again.",
+		);
+		const again = await spawnHeld(
+			{ ...asked(kitty), firstWords: "01JAGAIN" },
+			start,
+			shares,
+			names,
+		);
+		expect(again.ok, "asked again, it is the start that landed").toBe(true);
+		expect(starts[0]?.once).toMatch(/^\S{1,64}$/);
+		expect(starts[1]?.once).toBe(starts[0]?.once);
+	});
+
+	it("names each start afresh once the node answered the one before", async () => {
+		const kitty = fakeDriver("kitty");
+		const names = startNames();
+		const { asked: starts, start } = answering(
+			{ ok: false, reason: "no link reaches equilibrius now" },
+			equilibrius,
+			equilibrius,
+		);
+		for (let one = 0; one < 3; one++) {
+			await spawnHeld(asked(kitty), start, shares, names);
+		}
+		const once = new Set(starts.map((one) => one.once));
+		expect(once.size, "a start answered, even refused, is never joined").toBe(
+			3,
+		);
+	});
+
+	it("names afresh a start of something else, or one asked ten minutes on", async () => {
+		const kitty = fakeDriver("kitty");
+		let now = 0;
+		const names = startNames(() => now);
+		const { asked: starts, start } = answering(silent, silent, silent);
+		await spawnHeld(asked(kitty), start, shares, names);
+		await spawnHeld(
+			{ ...asked(kitty), command: "pi --model other" },
+			start,
+			shares,
+			names,
+		);
+		await spawnHeld(
+			{ ...asked(kitty), machine: "penelope" },
+			start,
+			shares,
+			names,
+		);
+		await spawnHeld(
+			{ ...asked(kitty), cwd: "/home/joel/src/other" },
+			start,
+			shares,
+			names,
+		);
+		now = 10 * 60_000;
+		await spawnHeld(asked(kitty), start, shares, names);
+		const once = new Set(starts.map((one) => one.once));
+		expect(once.size, "each a start of its own").toBe(5);
+	});
+
+	it("names afresh a start just like one still being asked", async () => {
+		const kitty = fakeDriver("kitty");
+		const names = startNames();
+		const asked1: NodeStart[] = [];
+		let answer: (() => void) | undefined;
+		const start: StartOnNode = async (one) => {
+			asked1.push(one);
+			if (asked1.length === 1) {
+				await new Promise<void>((answered) => {
+					answer = answered;
+				});
+			}
+			return equilibrius;
+		};
+		const first = spawnHeld(asked(kitty), start, shares, names);
+		await spawnHeld(asked(kitty), start, shares, names);
+		answer?.();
+		await first;
+		expect(asked1).toHaveLength(2);
+		expect(asked1[1]?.once, "two spawns at once are two starts").not.toBe(
+			asked1[0]?.once,
 		);
 	});
 });
