@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	BUDGET_ASKED_AGAIN_MS,
 	budgetEntryView,
 	budgetOfFolder,
 	keepQuestBudget,
@@ -501,6 +502,78 @@ describe("the session's budget", () => {
 			await keeper.keep(ui().ctx);
 
 			expect(process.env[KEY], "the same name was asked again").toBe("team");
+		});
+	});
+
+	describe("once it couldn't be drawn on", () => {
+		/** The quests with the top naming delta, kept on a clock the test turns. */
+		async function onAClock() {
+			const made = await quests();
+			await made.run({ action: "budget", id: made.top, ref: "delta" });
+			const events = bus();
+			const clock = { at: 0 };
+			const keeper = keepQuestBudget(
+				fakePi({ ...intoTheBranch, events }),
+				made.state,
+				{ ...quiet, now: () => clock.at },
+			);
+			let answer: BudgetAnswer = {
+				kind: "unavailable",
+				reason: "It didn't answer within 5 s.",
+			};
+			let asked = 0;
+			provide(events, "plane", async () => {
+				asked++;
+				return answer;
+			});
+			await made.run({ action: "load", id: made.top });
+			return {
+				keeper,
+				clock,
+				asked: () => asked,
+				answers: (next: BudgetAnswer) => {
+					answer = next;
+				},
+			};
+		}
+
+		it("asks again a while later, so a session missed at a reload ends on its budget", async () => {
+			const { keeper, clock, answers } = await onAClock();
+			await keeper.keep(ui().ctx);
+			expect(process.env[KEY]).toBe("personal");
+
+			answers({ kind: "drawn", env: { [KEY]: "team" }, label: "Delta" });
+			clock.at += BUDGET_ASKED_AGAIN_MS;
+			await keeper.keep(ui().ctx);
+
+			expect(process.env[KEY], "the next turn draws on the quest's").toBe(
+				"team",
+			);
+			expect(recorded().at(-1), "the log ends on the quest's").toMatchObject({
+				name: "delta",
+			});
+		});
+
+		it("isn't asked again before the wait is out, so a provider that's down costs no turn", async () => {
+			const { keeper, clock, asked } = await onAClock();
+			await keeper.keep(ui().ctx);
+			clock.at += BUDGET_ASKED_AGAIN_MS - 1;
+			await keeper.keep(ui().ctx);
+			expect(asked()).toBe(1);
+
+			clock.at += 1;
+			await keeper.keep(ui().ctx);
+			await keeper.keep(ui().ctx);
+			expect(asked(), "once more, then waits again").toBe(2);
+		});
+
+		it("isn't asked again once it's drawn", async () => {
+			const { keeper, clock, asked, answers } = await onAClock();
+			answers({ kind: "drawn", env: { [KEY]: "team" }, label: "Delta" });
+			await keeper.keep(ui().ctx);
+			clock.at += BUDGET_ASKED_AGAIN_MS * 3;
+			await keeper.keep(ui().ctx);
+			expect(asked()).toBe(1);
 		});
 	});
 
