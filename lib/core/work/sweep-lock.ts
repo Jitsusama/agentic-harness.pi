@@ -4,65 +4,188 @@
  *
  * It is a file holding its holder's pid. A second sweep has nothing to
  * add to the first, so it never waits: it answers why it can't run. A
- * lock its holder left behind, by ending or by standing past
- * {@link SWEEP_STALE_MS}, is moved aside and taken over, so a sweep cut
- * off mid-run never stops the next.
+ * running sweep touches its lock every {@link LOCK_FRESH_EVERY_MS}, so
+ * one left behind, by its holder ending or by standing untouched past
+ * {@link SWEEP_STALE_MS}, is a sweep that stopped: it is moved aside and
+ * taken over, so a sweep cut off mid-run never stops the next.
+ *
+ * A sweep knows its own lock by the file, not by the pid in it, since a
+ * host's conversations share one pid. The text stays a bare pid, so a
+ * session still running code from before the touching came in reads a
+ * running sweep's lock as held, rather than as nobody's.
  */
 
 import { randomBytes } from "node:crypto";
 import {
 	closeSync,
+	fstatSync,
+	linkSync,
 	openSync,
 	readFileSync,
 	renameSync,
 	rmSync,
+	type Stats,
 	statSync,
+	utimesSync,
 	writeSync,
 } from "node:fs";
 
 /**
- * How old a sweep's lock may be before it is taken over whoever holds
- * it: past any real sweep, so its holder stopped rather than working.
+ * How long a sweep's lock may go untouched before it is taken over
+ * whoever holds it. A running sweep touches it every
+ * {@link LOCK_FRESH_EVERY_MS}, so one this old has stopped rather than
+ * working.
  */
 const SWEEP_STALE_MS = 60 * 60 * 1000;
 
 /**
+ * How often a running sweep touches its lock, well inside
+ * {@link SWEEP_STALE_MS}. A sweep outgrew the stale age on 19 November,
+ * judging 860 kept trees on a loaded machine: at an hour a second sweep
+ * took the lock over beside the first, in the same host, doubling the
+ * work that had made the first slow.
+ */
+export const LOCK_FRESH_EVERY_MS = 5 * 60 * 1000;
+
+/**
+ * How long a sweep keeps touching its lock. A sweep wedged on an answer
+ * that never comes stops touching it this long after it began, and the
+ * lock goes stale {@link SWEEP_STALE_MS} later, six hours in, so another
+ * sweep can run.
+ */
+export const LOCK_FRESH_FOR_MS = 5 * 60 * 60 * 1000;
+
+/** How often, and for how long, a running sweep touches its lock. */
+export interface LockFresh {
+	/** Milliseconds between touches. */
+	everyMs: number;
+	/** Milliseconds after the sweep began that it stops touching. */
+	forMs: number;
+}
+
+/**
  * Hold the sweep's lock, answering how to let it go, or why another
- * sweep has it. A lock whose holder has ended, or that has stood past
+ * sweep has it. While held the lock is touched as `fresh` says. A lock
+ * whose holder has ended, or that has stood untouched past
  * {@link SWEEP_STALE_MS}, is moved aside and taken over. Unlike the
  * record locks this never waits: a second sweep has nothing to add.
  */
-export function sweepLock(lockPath: string): (() => void) | string {
+export function sweepLock(
+	lockPath: string,
+	fresh: LockFresh = {
+		everyMs: LOCK_FRESH_EVERY_MS,
+		forMs: LOCK_FRESH_FOR_MS,
+	},
+): (() => void) | string {
 	for (let tries = 0; tries < 2; tries += 1) {
+		let mine: string;
 		try {
 			const fd = openSync(lockPath, "wx");
 			try {
 				writeSync(fd, String(process.pid));
+				mine = identity(fstatSync(fd));
 			} finally {
 				closeSync(fd);
 			}
-			return () => {
-				// Only our own lock: one taken over from us is its new holder's.
-				if (holderOf(lockPath) === process.pid)
-					rmSync(lockPath, { force: true });
-			};
+		} catch (error) {
+			if (!hasCode(error, "EEXIST")) throw error;
+			const held = heldBy(lockPath);
+			if (held !== undefined) return held;
+			continue;
+		}
+		return keptFresh(lockPath, mine, fresh);
+	}
+	return "another sweep took the lock as this one did";
+}
+
+/**
+ * Touch our lock while it is still ours, until `fresh.forMs` has gone,
+ * answering how to let it go. Only our own lock is touched or removed:
+ * one taken over from us is its new holder's.
+ */
+function keptFresh(
+	lockPath: string,
+	mine: string,
+	fresh: LockFresh,
+): () => void {
+	const until = Date.now() + fresh.forMs;
+	const beat = setInterval(() => {
+		if (Date.now() > until) clearInterval(beat);
+		else if (identityOf(lockPath) === mine) touch(lockPath);
+	}, fresh.everyMs);
+	// A sweep's touching must never keep its process alive.
+	beat.unref();
+	return () => {
+		clearInterval(beat);
+		if (identityOf(lockPath) === mine) rmSync(lockPath, { force: true });
+	};
+}
+
+/**
+ * Why the lock at `lockPath` stands in the way, or undefined once it no
+ * longer does: gone, or left behind and now moved aside.
+ */
+function heldBy(lockPath: string): string | undefined {
+	let judged: Stats;
+	try {
+		judged = statSync(lockPath);
+	} catch (error) {
+		// Let go between the failed create and here: try again.
+		if (hasCode(error, "ENOENT")) return undefined;
+		throw error;
+	}
+	const holder = holderOf(lockPath);
+	const stale = Date.now() - judged.mtimeMs > SWEEP_STALE_MS;
+	if (holder !== undefined && isAlive(holder) && !stale) {
+		return `another sweep is running, pid ${holder}`;
+	}
+	const aside = `${lockPath}.stale-${process.pid}-${randomBytes(4).toString("hex")}`;
+	try {
+		renameSync(lockPath, aside);
+	} catch (error) {
+		// Somebody else moved it first, which is theirs to hold now.
+		if (hasCode(error, "ENOENT")) return undefined;
+		throw error;
+	}
+	if (identity(statSync(aside)) !== identity(judged)) {
+		// Between the judgement and the move another sweep took the lock
+		// over and made its own, and this moved theirs. Put it back,
+		// unless a third has already made one, which then stands.
+		try {
+			linkSync(aside, lockPath);
 		} catch (error) {
 			if (!hasCode(error, "EEXIST")) throw error;
 		}
-		const holder = holderOf(lockPath);
-		if (holder !== undefined && isAlive(holder) && !isStale(lockPath)) {
-			return `another sweep is running, pid ${holder}`;
-		}
-		const stale = `${lockPath}.stale-${process.pid}-${randomBytes(4).toString("hex")}`;
-		try {
-			renameSync(lockPath, stale);
-			rmSync(stale, { force: true });
-		} catch (error) {
-			// Somebody else moved it first, which is theirs to hold now.
-			if (!hasCode(error, "ENOENT")) throw error;
-		}
 	}
-	return "another sweep took the lock as this one did";
+	rmSync(aside, { force: true });
+	return undefined;
+}
+
+/**
+ * Which file a lock is, whatever it holds. The inode alone could name a
+ * later lock, since ext4 gives a removed file's inode to the next, so its
+ * birth time goes with it.
+ */
+function identity(stats: Stats): string {
+	return `${stats.ino}/${stats.birthtimeMs}`;
+}
+
+function identityOf(lockPath: string): string | undefined {
+	try {
+		return identity(statSync(lockPath));
+	} catch {
+		// Gone: no lock, so none of ours.
+		return undefined;
+	}
+}
+
+function touch(lockPath: string): void {
+	try {
+		const now = new Date();
+		utimesSync(lockPath, now, now);
+	} catch {
+		// Gone since it was read: nothing left to keep fresh.
+	}
 }
 
 function holderOf(lockPath: string): number | undefined {
@@ -72,15 +195,6 @@ function holderOf(lockPath: string): number | undefined {
 	} catch {
 		// Gone or half-written: nobody this can name holds it.
 		return undefined;
-	}
-}
-
-function isStale(lockPath: string): boolean {
-	try {
-		return Date.now() - statSync(lockPath).mtimeMs > SWEEP_STALE_MS;
-	} catch {
-		// Gone since it was read, so nothing stands in the way.
-		return true;
 	}
 }
 

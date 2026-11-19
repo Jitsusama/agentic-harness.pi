@@ -74,7 +74,7 @@ import {
 	lastUsed,
 	mainCheckoutOf,
 } from "./sweep-idle.ts";
-import { sweepLock } from "./sweep-lock.ts";
+import { type LockFresh, sweepLock } from "./sweep-lock.ts";
 import { goneGitDir, takeOrphan } from "./sweep-orphan.ts";
 import { markEnded, restingSince } from "./sweep-rest.ts";
 import { orphanedTrees } from "./tidy.ts";
@@ -108,6 +108,11 @@ export interface SweepDeps extends UseSigns {
 	claims: SweepClaims | (() => SweepClaims);
 	/** The file that keeps two sweeps from running at once. */
 	lockPath: string;
+	/**
+	 * How often, and for how long, a running sweep touches its lock; every
+	 * five minutes for five hours by default.
+	 */
+	lockFresh?: LockFresh;
 	/**
 	 * How long after any sweep on this machine ends before another runs,
 	 * in milliseconds, told by a stamp beside the lock. Without it a sweep
@@ -224,7 +229,7 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 	const now = deps.now?.() ?? Date.now();
 	const resting = restingSince(deps.lockPath, now, deps.restMs);
 	if (resting !== undefined) return { ...outcome, rested: resting };
-	const release = sweepLock(deps.lockPath);
+	const release = sweepLock(deps.lockPath, deps.lockFresh);
 	if (typeof release === "string") return { ...outcome, skipped: release };
 	try {
 		// Asked at once, before any wait, so a conversation that closes
