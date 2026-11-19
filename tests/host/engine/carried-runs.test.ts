@@ -74,6 +74,10 @@ describe("a run the host carries on after a restart", {
 				streaming: true,
 				queuedOnceTyped: true,
 			});
+			// Only pi's settle writes it, so the host died there, not before or after.
+			expect(typed, "the host died as pi settled the run").toHaveProperty(
+				"queuedAtSettle",
+			);
 			const observed = await observe("hosted", "reopen-after-typed", folder);
 			expect(
 				said(observed, "user"),
