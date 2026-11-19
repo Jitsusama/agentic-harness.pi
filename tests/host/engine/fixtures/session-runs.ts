@@ -10,6 +10,13 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const FIXTURE = join(import.meta.dirname, "hosted-session.mts");
+/**
+ * The longest a scenario that kills its own host may run, under the
+ * cases' 60 s budgets: one that never reaches its kill is ended with
+ * SIGTERM, so it fails saying so rather than at vitest's timeout, which
+ * leaves the process running.
+ */
+const KILLED_MOST_MS = 45_000;
 
 /** What one scenario showed pi's listeners, and how its agent ended. */
 export interface Observed {
@@ -101,6 +108,8 @@ export function sessionRuns(packageDir: () => string): SessionRuns {
 			try {
 				await run(process.execPath, fixtureArgs("hosted", scenario, folder), {
 					env: sealedEnv(),
+					timeout: KILLED_MOST_MS,
+					killSignal: "SIGTERM",
 				});
 				return null;
 			} catch (error) {

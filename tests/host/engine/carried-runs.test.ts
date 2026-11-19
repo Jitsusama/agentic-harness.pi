@@ -25,8 +25,9 @@ const SESSION_PAIR_MS = 60_000;
 const SESSION_TRIO_MS = 90_000;
 /** The longest a park may hold a stopping host's close, as hosted-agent.test.ts holds it; the fixture's slow handler takes twice that. */
 const PARKED_CLOSE_MOST_MS = 5_000;
-/** The words reopen-typed-as-it-ends types, and the file it says what it saw in, as the fixture names them. */
+/** The words reopen-typed-as-it-ends types and steers with, and the file it says what it saw in, as the fixture names them. */
 const TYPED_AS_IT_ENDS = "typed as it ended";
+const STEERED_AS_IT_ENDS = "steered as it ended";
 const TYPED_AS_IT_ENDS_FILE = "typed-as-it-ends.json";
 
 describe("a run the host carries on after a restart", {
@@ -78,15 +79,17 @@ describe("a run the host carries on after a restart", {
 				streaming: true,
 				queuedOnceTyped: true,
 			});
-			// Only pi's settle writes it, so the host died there, not before or after.
-			expect(typed, "the host died as pi settled the run").toHaveProperty(
-				"queuedAtSettle",
-			);
+			// Only pi's settle writes the file, and the host killed itself there, so it died as pi settled the run.
 			const observed = await observe("hosted", "reopen-after-typed", folder);
+			const saw = `(it saw ${JSON.stringify(typed)})`;
 			expect(
 				said(observed, "user"),
-				`the words typed as the run ended outlived the host (it saw ${JSON.stringify(typed)})`,
+				`the words typed as the run ended outlived the host ${saw}`,
 			).toContain(TYPED_AS_IT_ENDS);
+			expect(
+				said(observed, "user"),
+				`the words steered as the run ended outlived the host ${saw}`,
+			).toContain(STEERED_AS_IT_ENDS);
 			expect(
 				typed,
 				"the words had run inside pi's run, none left queued as it settled",

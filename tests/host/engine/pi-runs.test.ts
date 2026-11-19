@@ -395,7 +395,9 @@ describe("the agent's own runs in pi", () => {
 	});
 
 	it("carries on while some of the words that waited went, though others still wait", async () => {
-		// A steer runs before the follow-ups queued with it.
+		// A steer runs before the follow-ups queued with it. The queue answers
+		// with its live list on purpose, as one may, so the words that waited
+		// must be read before the run changes it.
 		const { session, said } = piSession();
 		const left = ["steered", "followed"];
 		const runs = new PiRuns(
@@ -540,6 +542,7 @@ describe("the agent's own runs in pi", () => {
 			() => {},
 			queued([["typed"]], said),
 		);
+		const parkedSaid: string[] = [];
 		stopped.tell(piSession().session);
 		const stop = new AbortController();
 		const release = stopped.hold();
@@ -550,12 +553,53 @@ describe("the agent's own runs in pi", () => {
 			() => true,
 			(say) => say(),
 			() => {},
-			queued([["typed"]], said),
+			queued([["typed"]], parkedSaid),
 		);
 		parked.tell(piSession().session);
 		await parked.holding(() => parked.opening());
 
-		expect(said).toEqual([]);
+		expect(said, "nothing carried on in the stopped run").toEqual([]);
+		expect(parkedSaid, "nothing carried on in the parked run").toEqual([]);
+	});
+
+	it("carries nothing more on once its host parks between runs it carried on", async () => {
+		const { session, said } = piSession();
+		let parked = false;
+		const runs = new PiRuns(
+			() => parked,
+			(say) => say(),
+			() => said.push("next"),
+			queued([["typed"], ["typed while it ran"]], said, async () => {
+				parked = true;
+			}),
+		);
+		runs.tell(session);
+
+		await runs.holding(() => runs.opening());
+
+		expect(said, "a parked host shows pi no settle").toEqual([
+			"prepared",
+			"ran typed",
+		]);
+	});
+
+	it("carries nothing on inside a run pi failed to prepare, leaving the words to the run next opens", async () => {
+		// What ran inside it would reach the model without pi's sections.
+		const said: string[] = [];
+		const runs = new PiRuns(
+			() => false,
+			(say) => say(),
+			() => said.push("next"),
+			queued([["typed"]], said),
+		);
+		runs.tell(
+			{ runForHost: () => Promise.reject(new Error("a handler threw")) },
+			() => said.push("reported"),
+		);
+
+		await runs.holding(() => runs.opening());
+
+		expect(said).toEqual(["reported", "next"]);
 	});
 
 	it("carries nothing on once a later run under the same hold was stopped", async () => {

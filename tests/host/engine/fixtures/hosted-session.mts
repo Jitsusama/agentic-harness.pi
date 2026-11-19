@@ -279,6 +279,8 @@ const preparing = new Promise<void>((done) => {
 const TYPED_AS_IT_ENDS = "typed as it ended";
 /** Where the scenario typing them says what it saw, since it dies before printing; carried-runs.test.ts reads it. */
 const TYPED_AS_IT_ENDS_FILE = "typed-as-it-ends.json";
+/** The words reopen-typed-as-it-ends steers with as the carried run ends. */
+const STEERED_AS_IT_ENDS = "steered as it ended";
 /** How long that scenario waits to see the carried run end. */
 const CARRIED_END_WAIT_MS = 20_000;
 /** What that scenario saw as it typed, written as the host dies. */
@@ -924,20 +926,33 @@ const scenarios: Record<string, Scenario> = {
 	 * never prints.
 	 */
 	"reopen-typed-as-it-ends": {
-		responses: () => [say("after the restart"), say("and your words")],
+		responses: () => [
+			say("after the restart"),
+			say("and your words"),
+			say("and your steer"),
+		],
 		// Slow enough that the carried run is still under way once the recovery has begun.
 		tokensPerSecond: 20,
 		tools: echo(async () => noteEffect("ping")),
 		during: async (session) => {
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			let stop = () => {};
 			const ended = await new Promise<boolean>((done) => {
-				const stop = session.agent.subscribe((event: unknown) => {
+				stop = session.agent.subscribe((event: unknown) => {
 					if (!isRecord(event) || event.type !== "agent_end") return;
 					stop();
+					clearTimeout(timer);
 					// Queued as pi's prompt queues words typed into a run under way, at a moment
-					// of the run's own rather than after pi's input handlers, which take a while.
+					// of the run's own rather than after pi's input handlers, which take a while:
+					// a follow-up, and a steer, as Enter during a run sends.
 					session.agent.followUp({
 						role: "user",
 						content: [{ type: "text", text: TYPED_AS_IT_ENDS }],
+						timestamp: Date.now(),
+					});
+					session.agent.steer({
+						role: "user",
+						content: [{ type: "text", text: STEERED_AS_IT_ENDS }],
 						timestamp: Date.now(),
 					});
 					typedAsItEnds = {
@@ -947,8 +962,12 @@ const scenarios: Record<string, Scenario> = {
 					};
 					done(true);
 				});
-				// A bound, so a carried run that never ends fails the case in seconds rather than at vitest's timeout.
-				setTimeout(() => done(false), CARRIED_END_WAIT_MS);
+				// A bound, so a carried run that never ends fails the case in seconds rather than at vitest's timeout;
+				// it stops listening, so a late end can't overwrite what it saw.
+				timer = setTimeout(() => {
+					stop();
+					done(false);
+				}, CARRIED_END_WAIT_MS);
 			});
 			typedAsItEnds = { ...typedAsItEnds, ended };
 		},
