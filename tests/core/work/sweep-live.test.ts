@@ -47,7 +47,7 @@ import {
 afterEach(disposeAll);
 
 describe("sweeping the trees whose sessions have ended", () => {
-	it("takes an ended session's merged tree, keeping its branch", async () => {
+	it("takes an ended session's merged tree, and its branch trunk has", async () => {
 		const { main, memory, cut, sweep } = await setUp();
 		const tree = await cut("done", ["-b", "done", "@", "main"]);
 		// A build the tree made, which git ignores and the removal takes.
@@ -56,10 +56,12 @@ describe("sweeping the trees whose sessions have ended", () => {
 
 		const outcome = await sweep();
 
-		expect(outcome.taken).toEqual([{ path: tree, branch: "done" }]);
+		expect(outcome.taken).toEqual([
+			{ path: tree, branch: "done", branchGone: true },
+		]);
 		expect(existsSync(tree), `${tree} is taken`).toBe(false);
 		expect(memory.recall().map((one) => one.path)).not.toContain(tree);
-		expect(await git(main, "branch", "--list", "done")).toContain("done");
+		expect(await git(main, "branch", "--list", "done")).toBe("");
 	});
 
 	it("takes a detached tree whose commit a ref holds", async () => {
@@ -456,7 +458,7 @@ describe("trees a session still uses, whatever their owners say", () => {
 
 		// The record's sessions are named, so one reopened can recut it.
 		expect(outcome.taken).toEqual([
-			{ path: tree, branch: "done", sessions: ["ended"] },
+			{ path: tree, branch: "done", branchGone: true, sessions: ["ended"] },
 		]);
 	});
 
@@ -492,7 +494,9 @@ describe("trees a session still uses, whatever their owners say", () => {
 
 		const outcome = await sweepKnowing({ bootedAt: Date.now() + 60_000 });
 
-		expect(outcome.taken).toEqual([{ path: tree, branch: "done" }]);
+		expect(outcome.taken).toEqual([
+			{ path: tree, branch: "done", branchGone: true },
+		]);
 	});
 });
 
