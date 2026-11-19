@@ -203,6 +203,7 @@ async function raise(options: RaiseOptions = {}): Promise<PiSession> {
 /** Waits for the gate to take the keyboard, then for its arm to pass. */
 async function armed(session: PiSession): Promise<void> {
 	await screenUntil("the gate to take focus", () => !session.editorFocused());
+	// Past the arm, after which the gate takes a key, with room to spare.
 	await sleep(GATE_ARM_MS + 50);
 }
 
@@ -219,6 +220,7 @@ async function turnEnds(session: PiSession): Promise<void> {
 		"the turn to end",
 		() => !session.runtime.session.isStreaming,
 	);
+	// A moment for the frame after the turn to draw.
 	await sleep(50);
 }
 
@@ -411,12 +413,14 @@ describe("a gate arriving while the person types", () => {
 		await screenUntil("the gate to take focus", () => !session.editorFocused());
 
 		await session.key("enter");
+		// Time for an early Enter, were it taken, to answer.
 		await sleep(100);
 
 		expect(answers).toEqual([]);
 		expect(await session.viewport()).toContainEqual(
 			expect.stringContaining(TITLE),
 		);
+		// The arm's whole length, after which an Enter counts.
 		await sleep(GATE_ARM_MS);
 		await session.key("enter");
 		await turnEnds(session);
@@ -488,6 +492,7 @@ describe("the hop chord on a gate", () => {
 		await screenUntil("the gate to take focus", () => !session.editorFocused());
 
 		await session.key("ctrl+alt+n");
+		// Past the pause and the arm after which it would take the keys back.
 		await sleep(GATE_TYPING_IDLE_MS + GATE_ARM_MS + 200);
 
 		expect(
@@ -529,6 +534,7 @@ describe("a gate closed from outside", () => {
 			"the turn to stop",
 			() => !session.runtime.session.isStreaming,
 		);
+		// A moment for the stopped turn to take the gate down.
 		await sleep(50);
 
 		expect(answers).toEqual([null]);
@@ -550,6 +556,7 @@ describe("a gate closed from outside", () => {
 
 		await session.runtime.newSession();
 		await screenUntil("the gate to answer", () => answers.length === 1);
+		// Time for a record of the cancel, were one written, to reach the screen.
 		await sleep(100);
 
 		expect(answers).toEqual([null]);
@@ -662,6 +669,7 @@ describe("a gate that gets shorter", () => {
 			"the shorter item",
 			async () => !(await session.onScreen("MARK-body-9")),
 		);
+		// A moment for the shorter item's frame to settle.
 		await sleep(50);
 		expect((await session.verdict()).blankMax).toBe(0);
 

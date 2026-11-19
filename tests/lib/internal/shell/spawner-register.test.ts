@@ -397,6 +397,8 @@ describe("a host telling the node a spawner's session", () => {
 				socket: join(folder(), "none.sock"),
 				proc: procWith(SPAWNER, "pi-spawner"),
 				say: (line: string) => said.push(line),
+				// Past the test's own limit, so only giving up at once passes.
+				patience: 60_000,
 			}),
 		).resolves.toBeUndefined();
 		expect(said, "what the host said").toEqual([]);

@@ -25,6 +25,7 @@ import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { isMachineName } from "../internal/machine/machine.ts";
+import { isRealmName } from "../internal/machine/realm.ts";
 import { runtimeDir } from "../internal/paths.ts";
 import { isRecord } from "../internal/record.ts";
 import {
@@ -889,17 +890,22 @@ export function nodeServes(
 	});
 }
 
-/** The realm the machine's node is asked in, or nothing when none is named. */
+/**
+ * The realm the machine's node is asked in, or nothing when none is
+ * named, or the one named is no name a socket's file may carry.
+ */
 export function realmOf(
 	env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
 	// The session's own first: the node's kept realm is the machine's
 	// first, and a session in its second realm would ask the wrong node.
-	if (env.MYCELIUM_REALM) return env.MYCELIUM_REALM;
+	// A session naming one no folder carries joins no mesh, so asks none.
+	const own = env.MYCELIUM_REALM?.trim();
+	if (own) return isRealmName(own) ? own : undefined;
 	const state = env.XDG_STATE_HOME || join(homedir(), ".local", "state");
 	try {
 		const kept = readFileSync(join(state, "mycelium", "realm"), "utf8").trim();
-		if (kept) return kept;
+		if (kept) return isRealmName(kept) ? kept : undefined;
 	} catch {
 		// No node has run here yet, and the login names no realm.
 	}

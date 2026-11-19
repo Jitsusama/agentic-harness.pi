@@ -197,6 +197,11 @@ export interface SpawnerOptions {
 	 * started, before its spawner is retired (GIVEN_UP_GRACE_MS).
 	 */
 	givenUpGrace?: number;
+	/**
+	 * How long a started program's output is read past its exit, before it
+	 * counts as ended though something holds it (SPAWNER_DRAIN_MS).
+	 */
+	drain?: number;
 	/** Write a line to the host's log; by default to standard error. */
 	say?: (line: string) => void;
 	/** Whether the program at a path spares kept commands when pi goes. */
@@ -276,6 +281,8 @@ interface Link {
 	hold(): () => void;
 	/** Whether the program has stopped, or its process has exited. */
 	stopped(): boolean;
+	/** The program's process, where it started as one. */
+	readonly pid: number | undefined;
 }
 
 /**
@@ -299,6 +306,14 @@ export function spawnedBy(
 		};
 	}
 	const kill = options.kill ?? killGroup;
+	const write = options.say ?? ((line: string) => process.stderr.write(line));
+	// Each line names the session its spawners serve, where there is one.
+	const say = (line: string) =>
+		write(options.session === undefined ? line : `${options.session}: ${line}`);
+	const start =
+		options.start ??
+		((program: string, quest?: string) =>
+			startProgram(program, quest, options.drain ?? SPAWNER_DRAIN_MS));
 	let link: Link | undefined;
 	let linkQuest: string | undefined;
 	// The node told the session the link's spawner serves, or given up on.
@@ -319,6 +334,13 @@ export function spawnedBy(
 	let keeps: Promise<boolean> | undefined;
 	const linked = (quest: string | undefined): Link | undefined => {
 		if (lost) return undefined;
+		// One whose process exited unretired is lost, as its end will say,
+		// though its output is not yet read to the end.
+		if (link?.stopped() === true && !link.retired()) {
+			lost = true;
+			link = undefined;
+			return undefined;
+		}
 		if (link && linkQuest === quest && !link.retired()) return link;
 		// Another quest's work: the one running closes once its own commands
 		// end, and the next is filed under this quest from its start.
@@ -333,8 +355,8 @@ export function spawnedBy(
 			let made: Link | undefined;
 			let resaying: ReturnType<typeof setInterval> | undefined;
 			let ended = false;
-			const begun = (options.start ?? startProgram)(program, quest);
-			made = connect(begun, kill, () => {
+			const begun = start(program, quest);
+			made = connect(begun, kill, say, () => {
 				ended = true;
 				clearInterval(resaying);
 				// One retired, for another quest's or for a command it left
@@ -440,7 +462,7 @@ export function spawnedBy(
 								left,
 								kill,
 								options.givenUpGrace ?? GIVEN_UP_GRACE_MS,
-								options.say ?? ((line) => process.stderr.write(line)),
+								say,
 							);
 				if (ran !== UNSENT) return ran;
 				// Run elsewhere, it keeps the spawner it never reached open no
@@ -721,7 +743,8 @@ async function runThrough(
  * nothing for `grace` is retired, so it takes no more commands and later
  * ones start another, while what it already runs carries on and it
  * closes once that ends, ending this one too. The call then settles and
- * hears no more of it; a start said after it is still killed.
+ * hears no more of it; a start said after it is still killed, unless
+ * the spawner's output was given up a drain past its exit.
  */
 async function endOnceStarted(
 	link: Link,
@@ -749,7 +772,7 @@ async function endOnceStarted(
 			run.forsake();
 			link.retire(grace);
 			say(
-				`pi-spawner didn't say within ${grace} ms whether it started a command given up on, so it takes no more; it is killed if it starts\n`,
+				`pi-spawner${link.pid === undefined ? "" : ` ${link.pid}`} didn't say within ${grace} ms whether it started a command given up on, so it takes no more; it is killed if it starts\n`,
 			);
 		}
 	} finally {
@@ -807,7 +830,11 @@ function killGroup(pid: number): void {
  * output is read, the first of it kept, so a scope that couldn't be made
  * is said and the spawners after it run unscoped.
  */
-function startProgram(program: string, quest?: string): Started {
+function startProgram(
+	program: string,
+	quest: string | undefined,
+	drain: number,
+): Started {
 	const start = spawnerStart(program, settingHere(hosted() !== undefined));
 	if (start.unscoped !== undefined) sayUnscoped(start.unscoped);
 	const scoped = start.args.length > 0;
@@ -850,7 +877,7 @@ function startProgram(program: string, quest?: string): Started {
 			// or soon after its exit, where something else holds the output.
 			let draining: ReturnType<typeof setTimeout> | undefined;
 			child.once("exit", () => {
-				draining = setTimeout(once, SPAWNER_DRAIN_MS);
+				draining = setTimeout(once, drain);
 				draining.unref();
 			});
 			child.once("close", () => {
@@ -872,6 +899,7 @@ interface Pending {
 function connect(
 	started: Started,
 	kill: (pid: number) => void,
+	say: (line: string) => void,
 	gone: () => void,
 ): Link {
 	const pending = new Map<number, Pending>();
@@ -897,7 +925,11 @@ function connect(
 		setTimeout(() => {
 			// Only while its pid is still its own: once reaped, it may be
 			// another's.
-			if (started.running?.() ?? !over) kill(pid);
+			if (!(started.running?.() ?? !over)) return;
+			say(
+				`pi-spawner ${pid} still ran ${quiet} ms after it was closed, having left a command unanswered, so it is killed\n`,
+			);
+			kill(pid);
 		}, quiet).unref();
 	};
 	const closeOnceIdle = () => {
@@ -1056,6 +1088,7 @@ function connect(
 			};
 		},
 		stopped,
+		pid: started.pid,
 	};
 }
 

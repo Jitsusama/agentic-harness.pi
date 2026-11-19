@@ -291,7 +291,8 @@ once it ends; a spawner that says nothing of it for five seconds is
 retired, said in the host's log, so the next command starts
 another, and one not yet sent goes to pi's own spawn, while the
 commands it already runs carry on. The one given up on is killed if
-it starts later, its output goes nowhere, and it keeps the spawner
+it starts later, unless its spawner has been gone a second by then,
+its output goes nowhere, and it keeps the spawner
 open no longer: the spawner closes once its other commands end,
 ending it. One still running five seconds after it was closed is
 killed, since it may read nothing; a command it started unsaid then
