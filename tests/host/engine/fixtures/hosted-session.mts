@@ -269,6 +269,8 @@ const askedOnce = new Promise<void>((done) => {
 });
 /** How long the stalling extension takes to prepare a carried run: twice what a parked close may take. */
 const STALL_MS = 10_000;
+/** How long pi may take to begin preparing a carried run before the case says it never did. */
+const PREPARING_BEGINS_MOST_MS = 10_000;
 /** Resolve preparing, once the stalling extension begins preparing a carried run. */
 let preparingBegan = (): void => {};
 /** Settles once the stalling extension begins preparing a carried run. */
@@ -911,7 +913,16 @@ const scenarios: Record<string, Scenario> = {
 		responses: () => [say("after the restart")],
 		tools: echo(async () => noteEffect("ping")),
 		during: async () => {
-			await preparing;
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const began = await Promise.race([
+				preparing.then(() => true),
+				new Promise<boolean>((done) => {
+					// A bound, so a runtime whose pi never prepares the run fails the case in seconds rather than at vitest's timeout.
+					timer = setTimeout(() => done(false), PREPARING_BEGINS_MOST_MS);
+				}),
+			]);
+			clearTimeout(timer);
+			if (!began) note({ type: "never prepared" });
 			note({ type: "parking" });
 			await parkAndClose();
 		},
@@ -1207,7 +1218,10 @@ try {
 		holdMessagesThroughCarriedTurns(session, conversation.agent, (error) =>
 			process.stderr.write(`held message reported: ${String(error)}\n`),
 		);
-		conversation.agent.joinSession(session);
+		// Among the events, which the test prints, since stderr is dropped when the fixture exits cleanly.
+		conversation.agent.joinSession(session, (error) =>
+			note({ type: "pi's run for the host reported", error: String(error) }),
+		);
 	}
 	stopHost = () => {
 		// As the engine's release does for a stopping host, then the process ends before any turn does.

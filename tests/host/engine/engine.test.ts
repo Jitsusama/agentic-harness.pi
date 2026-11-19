@@ -124,6 +124,10 @@ interface Seen {
 	readonly bothIds?: readonly string[];
 	readonly header?: Readonly<Record<string, unknown>>;
 	readonly refused?: string;
+	/** How many runs the agent started once words were queued to follow up. */
+	readonly startedAfter?: number;
+	/** How often the agent was asked to continue once the close began. */
+	readonly continuedAfter?: number;
 	/** The warms a parked conversation's host kept for its next start. */
 	readonly pending?: number;
 	/** How the host held each conversation's log open at each point, one `read` or `write` a descriptor. */
@@ -137,6 +141,10 @@ interface Seen {
 	/** The process's listeners for each event, once pi loaded and once the step was done. */
 	/** Whether an open on a waiting command answered while it still waited. */
 	readonly answeredWhileWaiting?: boolean;
+	/** Whether the open answered while the run its first words met still waited on its answer. */
+	readonly openedWhileRunning?: boolean;
+	/** Whether durable held each word pi queued behind that run, as the open answered. */
+	readonly heldAsOpened?: readonly boolean[];
 	/** Whether an attended open answered while its screen asked whether to trust its folder. */
 	readonly answeredWhileAsking?: boolean;
 	/** The trust question its screen was asked, and whether it named that conversation and folder. */
@@ -806,6 +814,41 @@ describe("the host's engine", () => {
 	);
 
 	it(
+		"answers an open whose first words an extension took for itself, asking no model",
+		async () => {
+			const seen = await step(hostFolder(), "open-handled");
+			expect(
+				seen.transcript,
+				"the words an extension handled reach no model",
+			).toEqual([]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"answers an open whose first words meet a run under way only once durable holds them, then answers them after it",
+		async () => {
+			const seen = await step(hostFolder(), "open-into-run");
+			expect(
+				seen.openedWhileRunning,
+				"the open answers while the run its words met still waits",
+			).toBe(true);
+			expect(
+				seen.heldAsOpened,
+				"durable holds the queued first words by the time the open answers",
+			).toEqual([true]);
+			expect(seen.transcript, "the run goes first, then the words").toEqual([
+				"system: ",
+				"user: warm up",
+				"assistant: warmed up",
+				"user: meet a run",
+				"assistant: went on",
+			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
 		"answers an open whose first words are a command still waiting on a person",
 		async () => {
 			const seen = await step(hostFolder(), "open-waiting");
@@ -1027,6 +1070,21 @@ describe("the host's engine", () => {
 			expect(released.reported, "said as one line, not an error").toEqual([
 				expect.stringMatching(/stop what 1 ended command left$/),
 			]);
+		},
+		HOST_LIFE_MS,
+	);
+
+	it(
+		"starts no run on words queued to follow up once it closes their conversation mid-run",
+		async () => {
+			// pi's abort leaves its queue, so a close that went on to the words started a run it then cut off.
+			const seen = await step(hostFolder(), "close-with-followed");
+			expect(seen.held, "the close let it go").toBe("let go");
+			expect(
+				seen.continuedAfter,
+				"nothing asked the agent to go on to the words once the close began",
+			).toBe(0);
+			expect(seen.startedAfter, "no run started once the close began").toBe(0);
 		},
 		HOST_LIFE_MS,
 	);

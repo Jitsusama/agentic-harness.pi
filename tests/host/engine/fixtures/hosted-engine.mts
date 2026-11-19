@@ -141,6 +141,21 @@ const TRUST_THIS_SESSION = "Trust (this session only)";
 /** How long a condition the fixture waits on may take, and how often it looks. */
 const UNTIL_MS = 60_000;
 const LOOK_MS = 10;
+/** How long after a close a run it started would have reached the agent. */
+const AFTER_CLOSE_MS = 500;
+/** How long open-into-run's open may take before it counts as waiting on the run. */
+const OPEN_INTO_RUN_MS = 15_000;
+
+/** As much of pi's agent as the close scenario follows up on and watches. */
+interface FollowingAgent {
+	subscribe(listener: (event: { readonly type: string }) => void): void;
+	continue(): Promise<void>;
+	followUp(message: {
+		readonly role: "user";
+		readonly content: readonly { type: "text"; text: string }[];
+		readonly timestamp: number;
+	}): void;
+}
 
 /** Linux's access mode bits in a descriptor's flags, and the one that only reads. */
 const ACCESS_MODE = 0o3;
@@ -361,6 +376,9 @@ async function warmed(before: number): Promise<void> {
 	);
 }
 
+/** Lets the warm-up run's answer go, once its request is in. */
+let warmUpAnswer: (() => void) | undefined;
+
 const say =
 	(text: string) =>
 	(
@@ -554,6 +572,60 @@ const scenarios: Record<string, Scenario> = {
 			return { answeredWhileWaiting };
 		},
 	},
+	/** Open with first words an extension's input handler takes for itself, so pi calls them handled. */
+	"open-handled": {
+		responses: () => [],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "handle it" });
+			await idle(engine, id);
+			const seen = summary(engine, id);
+			await host.close(id);
+			return seen;
+		},
+	},
+	/** Open with first words that meet a run of pi's an extension began, still waiting on its answer. */
+	"open-into-run": {
+		responses: () => [
+			async (context: unknown, options: { apiKey?: unknown }) => {
+				await new Promise<void>((answer) => {
+					warmUpAnswer = answer;
+				});
+				return say("warmed up")(context, options);
+			},
+			say("went on"),
+		],
+		run: async (engine, host) => {
+			const opening = open(engine, { first: "meet a run" });
+			// The warm-up's answer is held until after this race, so an open that waited on the run loses it.
+			let bound: NodeJS.Timeout | undefined;
+			const openedWhileRunning = await Promise.race([
+				opening.then(() => true),
+				new Promise<boolean>((late) => {
+					// How long the open may take before it counts as waiting on the run.
+					bound = setTimeout(() => late(false), OPEN_INTO_RUN_MS);
+				}),
+			]);
+			clearTimeout(bound);
+			// The words are read while the run still holds them, before the warm-up goes.
+			const heldAsOpened = openedWhileRunning
+				? heldAsQueued(engine, await opening)
+				: [];
+			// Let the warm-up go either way, so a late open still answers and the case ends by name.
+			await until(
+				"the warm-up's request is in",
+				() => warmUpAnswer !== undefined,
+			);
+			warmUpAnswer?.();
+			const id = await opening;
+			await until("the first words are answered", () =>
+				String(summary(engine, id).transcript).includes("went on"),
+			);
+			await idle(engine, id);
+			const seen = summary(engine, id);
+			await host.close(id);
+			return { ...seen, openedWhileRunning, heldAsOpened };
+		},
+	},
 	/** Open with first words an extension's input handler asks the person about, at a screen nobody has attached to yet. */
 	"open-asking": {
 		responses: () => [say("went on")],
@@ -723,6 +795,60 @@ const scenarios: Record<string, Scenario> = {
 			engine.handsOn?.(id);
 			await host.close(id, "released, asked by a test");
 			return { held: host.holds(id) ?? "let go" };
+		},
+	},
+	/**
+	 * Words queued to follow up while a tool runs, then the service closes
+	 * the conversation, which aborts pi's run but leaves pi's queue as it
+	 * stands. Notes each run the agent starts, and whether the words are
+	 * still queued once the close is done.
+	 */
+	"close-with-followed": {
+		responses: () => [
+			compat.fauxAssistantMessage(
+				[
+					compat.fauxToolCall(
+						"bash",
+						{ command: `echo started > ${effects}; sleep 300` },
+						{ id: "call-1" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+			say("followed it up"),
+		],
+		run: async (engine, host) => {
+			const id = await open(engine, { first: "run it" });
+			await until("the tool ran", () => existsSync(effects));
+			const session = engine.view(id)?.runtime.session as unknown as
+				| { readonly agent?: FollowingAgent }
+				| undefined;
+			const agent = session?.agent;
+			if (!agent) throw new Error("no agent to follow up");
+			const starts: string[] = [];
+			agent.subscribe((event) => {
+				if (event.type === "agent_start") starts.push("started");
+			});
+			// Whether a run starts on them races the close's dispose, so the ask itself is counted.
+			const continued: string[] = [];
+			const proceed = agent.continue.bind(agent);
+			agent.continue = async () => {
+				continued.push("continued");
+				return await proceed();
+			};
+			agent.followUp({
+				role: "user",
+				content: [{ type: "text", text: "and then this" }],
+				timestamp: Date.now(),
+			});
+			await host.close(id, "closed, asked by a test");
+			// A run the close started would reach the agent a turn or two after it.
+			await new Promise((later) => setTimeout(later, AFTER_CLOSE_MS));
+			return {
+				startedAfter: starts.length,
+				continuedAfter: continued.length,
+				held: host.holds(id) ?? "let go",
+			};
 		},
 	},
 	/** The next host closes for good the conversation the last one parked, as the service closes one held but not running. */
@@ -1425,6 +1551,18 @@ async function idle(engine: HostEngine, id: string): Promise<void> {
 
 function readEntry(): RosterEntry {
 	return JSON.parse(readFileSync(entryFile, "utf8"));
+}
+
+/** Whether each word pi's agent queues for the conversation is already durable's. */
+function heldAsQueued(engine: HostEngine, id: string): boolean[] {
+	const agent = field(engine.view(id)?.runtime.session, "agent");
+	const queue = field(agent, "followUpQueue");
+	const all = field(queue, "all");
+	const queued: unknown =
+		typeof all === "function" ? Reflect.apply(all, queue, []) : [];
+	return Array.isArray(queued)
+		? queued.map((item) => field(item, "submissionId") !== undefined)
+		: [];
 }
 
 /** What a conversation ended with: its id, its file, and its transcript as text. */
