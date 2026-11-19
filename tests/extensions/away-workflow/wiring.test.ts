@@ -100,6 +100,8 @@ interface Said {
 interface FakeJob {
 	summary?: string;
 	withdrawn: boolean;
+	/** Said to the model already, so no longer taken back. */
+	said?: boolean;
 }
 
 const disposers: (() => unknown)[] = [];
@@ -132,6 +134,7 @@ function activate({ hasUI = true, sessionId = "live" } = {}) {
 					},
 					onDelivered: () => {},
 					withdraw: () => {
+						if (job.said) return false;
 						job.withdrawn = true;
 						return true;
 					},
@@ -925,6 +928,76 @@ describe("a run that ends only naming a job that runs", () => {
 			setProgressSource(undefined);
 			vi.useRealTimers();
 		}
+	});
+
+	it("lets a Blocked: ending while away rest on the job that wakes it", async () => {
+		const pi = activate();
+		pi.running.push(evalTests);
+		pi.wakeable("1 background job");
+		await pi.fire("session_start");
+		await pi.goAway();
+
+		await pi.runEnds("Blocked: waiting on j27.");
+
+		expect(pi.jobs).toHaveLength(0);
+	});
+
+	it("sends nothing back while a move waits, and the next run starts afresh", async () => {
+		const pi = activate();
+		pi.running.push(evalTests);
+		await pi.fire("session_start");
+		await pi.runEnds("Waiting on j27.");
+
+		move.waits = true;
+		await pi.runEnds("Waiting on j27.");
+		expect(pi.jobs, "none while the move waits").toHaveLength(1);
+
+		move.waits = false;
+		await pi.runEnds("Waiting on j27.");
+		expect(pi.jobs, "the skipped run answered the send-back").toHaveLength(2);
+	});
+
+	it("is off with PI_JOB_WAIT=off", async () => {
+		vi.stubEnv("PI_JOB_WAIT", "off");
+		try {
+			const pi = activate();
+			pi.running.push(evalTests);
+			await pi.fire("session_start");
+
+			await pi.runEnds("Waiting on j27.");
+
+			expect(pi.jobs).toHaveLength(0);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	it("still answers a send-back already said when the person types into its answer", async () => {
+		const pi = activate();
+		pi.running.push(evalTests);
+		await pi.fire("session_start");
+		await pi.runEnds("Waiting on j27.");
+		const sent = pi.jobs[0];
+		if (sent) sent.said = true;
+
+		await pi.fire("input", { text: "and j31?", source: "interactive" });
+		await pi.runEnds("Waiting on j27.");
+
+		expect(pi.jobs, "the answer is not sent back").toHaveLength(1);
+	});
+
+	it("starts afresh once the person stops the run answering a send-back", async () => {
+		const pi = activate();
+		pi.running.push(evalTests);
+		await pi.fire("session_start");
+		await pi.runEnds("Waiting on j27.");
+
+		// pi from 1.1 says so on the settled event itself.
+		await pi.fire("agent_end", { messages: [] });
+		await pi.fire("agent_settled", { aborted: true });
+		await pi.runEnds("Waiting on j27.");
+
+		expect(pi.jobs, "a stopped run answers nothing").toHaveLength(2);
 	});
 
 	it("takes back a send-back not yet said when the person types, and starts afresh", async () => {

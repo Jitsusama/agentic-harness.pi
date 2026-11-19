@@ -29,7 +29,8 @@ describe("a bare wait", () => {
 		"5h0q's results will come back on their own; I'll finish the draft once they do.",
 		"waiting on j27",
 	])("is a short reply that only says it waits: %s", (text) => {
-		expect(isBareWait(ran(text), [evalTests])).toBe(true);
+		const goTests = { id: "j30", kind: "bash", label: "the zone's Go tests" };
+		expect(isBareWait(ran(text), [evalTests, goTests])).toBe(true);
 	});
 
 	it("sees past a Done: or Blocked: lead and markdown", () => {
@@ -62,16 +63,62 @@ describe("a bare wait", () => {
 		expect(isBareWait(ran(`${at} more`), [evalTests]), "one past").toBe(false);
 	});
 
+	it("leaves markdown and an ending's lead out of the count", () => {
+		const filler = Array.from({ length: MAX_BARE_WORDS - 3 }, () => "word");
+		const at = ["waiting", "on", "`j27`", ...filler].join(" ");
+		expect(isBareWait(ran(`**Blocked:** ${at}`), [evalTests])).toBe(true);
+		expect(isBareWait(ran(`- **Done:** ${at}`), [evalTests])).toBe(true);
+	});
+
+	it.each([
+		"It returns the jobs still running, oldest first.",
+		"Done: the bug report is filed as #42.",
+		"Done: the fix lands in #1830.",
+		"Done: the dev server is running on :3000.",
+		"No, j27 is still running the eval tests.",
+		"Blocked: waiting on your answer to the token ask in the launcher.",
+	])("is not a short reply that only uses a job's words: %s", (text) => {
+		expect(isBareWait(ran(text), [evalTests])).toBe(false);
+	});
+
+	it("is not a wait on a job that has finished, while another runs", () => {
+		expect(isBareWait(ran("Waiting on j12 before merging."), [push])).toBe(
+			false,
+		);
+	});
+
+	it.each([
+		"Waiting on j27, 8 of 13 done; reports in about 20 minutes, then I commit.",
+		"Waiting on j27: 60% through; then I push.",
+		"j27 reports on its own in five minutes; then I commit.",
+	])(
+		"is not a short reply that says how far it has got or when: %s",
+		(text) => {
+			expect(isBareWait(ran(text), [evalTests])).toBe(false);
+		},
+	);
+
+	it("leaves a Done: or Blocked: ending to away mode while the person is away", () => {
+		expect(isBareWait(ran("Blocked: waiting on j27."), [evalTests], true)).toBe(
+			false,
+		);
+		expect(isBareWait(ran("Waiting on j27."), [evalTests], true)).toBe(true);
+	});
+
 	it("needs a job running", () => {
 		expect(isBareWait(ran("Waiting on j27."), [])).toBe(false);
 	});
 
-	it("needs the reply to name a job or a wait", () => {
+	it("needs the reply to say it waits", () => {
 		expect(isBareWait(ran("Merged #1824."), [evalTests])).toBe(false);
 	});
 
 	it("leaves a reply that asks the person something to them", () => {
 		expect(isBareWait(ran("Shall I wait on j27?"), [evalTests])).toBe(false);
+		expect(
+			isBareWait(ran("**Shall I wait on `j27`?**"), [evalTests]),
+			"a question in markdown",
+		).toBe(false);
 	});
 
 	it("leaves a run the person stopped, and one that said nothing", () => {
