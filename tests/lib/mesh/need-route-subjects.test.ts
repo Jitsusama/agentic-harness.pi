@@ -100,10 +100,21 @@ describe("the words a cell's declared subjects give it", () => {
 			"pulse",
 			"sampler",
 		]);
-		expect(subjectWords("unstamped:repos.timer")).toEqual(["repos"]);
 		expect(subjectWords("failed:com.shopify.monobus.service")).toEqual([
 			"monobus",
 		]);
+		expect(subjectWords("unstamped:agents.service.")).toEqual(["agents"]);
+	});
+
+	it("reads service as a subject wherever it isn't a unit's type", () => {
+		// Only a name's own .service is a type: alone after a break it is
+		// the subject, as is any other ending, and any other place.
+		expect(subjectWords("unit:.service")).toEqual(["service"]);
+		expect(subjectWords("mycelium:services")).toEqual(["services"]);
+		expect(subjectWords("service.agents")).toEqual(["agents"]);
+		expect(subjectWords("agents.service-mesh")).toEqual(["service", "mesh"]);
+		expect(subjectWords("oauth.scope")).toEqual(["scope"]);
+		expect(subjectWords("build.target")).toEqual(["target"]);
 	});
 
 	it("breaks a subject at a slash, as a repository's scope does", () => {
@@ -271,6 +282,20 @@ describe("a need routed by declared subjects", () => {
 			expect(found, "the deeper subject, the narrower, wins").toMatchObject({
 				fit: "F",
 				path: ["H", "F"],
+			});
+		}
+	});
+
+	it("puts a need to the hub of a subject naming a service unit", () => {
+		for (const need of numbered("A", "agents")) {
+			const found = routeNeed(need, {
+				foragers: cells({ A: [], K: ["agents"] }),
+				ties: ties(),
+				hubs: [{ subject: "unstamped:agents.service", hub: "K", fits: ["K"] }],
+			});
+
+			expect(found, "the unit's name is its hub's subject").toMatchObject({
+				fit: "K",
 			});
 		}
 	});

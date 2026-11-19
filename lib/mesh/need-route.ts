@@ -29,9 +29,11 @@
  * answer. A fit is chosen by the words of its own title, its repository
  * and the subjects it declares, which the cell and its forage set, so a
  * cell can draw needs by what it says it works on. A subject counts by
- * its narrowest part alone, after its last colon, dot or slash:
- * `mycelium:easing` gives `easing`, never `mycelium`, since declaring a
- * narrow subject claims nothing of the broader one. At most
+ * its narrowest part alone, after its last colon, dot or slash, a
+ * service unit's `.service` left out first: `mycelium:easing` gives
+ * `easing`, never `mycelium`, since declaring a narrow subject claims
+ * nothing of the broader one, and `unstamped:agents.service` gives
+ * `agents`. At most
  * `MOST_SUBJECTS` are read from a cell and `MOST_SUBJECT_WORDS` words
  * taken from them, and a need keeps the words that route it rarest
  * first, so a cell declaring many can't crowd it, nor its asker's own.
@@ -224,17 +226,19 @@ export const MOST_SUBJECT_WORDS = 12;
 const SUBJECT_BREAK = /[:./]/;
 
 /**
- * A systemd unit's type, ending a subject that names a unit whole, as
- * owner prefixes such as `unstamped:agents.service` do. The type says
- * what kind of unit it is, never what it works on, so it is no part.
+ * The `.service` ending a subject that names a service unit whole, as
+ * owner prefixes such as `unstamped:agents.service` do, read only after
+ * a name and never as a part of its own. It says what kind of unit the
+ * subject names, never what it works on. Only the service type is read
+ * so, since it is the only one owner prefixes name, and the other types'
+ * words (`scope`, `target`, `path`) are as often a subject itself.
  */
-const UNIT_TYPE =
-	/\.(?:service|socket|timer|target|path|mount|automount|swap|slice|scope|device)$/;
+const SERVICE_UNIT = /(?<=[^:./])\.service\.?$/;
 
-/** A subject's parts, broadest first, leaving out a unit's type. */
+/** A subject's parts, broadest first, leaving out a service unit's type. */
 function subjectParts(subject: string): string[] {
 	return subject
-		.replace(UNIT_TYPE, "")
+		.replace(SERVICE_UNIT, "")
 		.split(SUBJECT_BREAK)
 		.filter((part) => part !== "");
 }
@@ -242,8 +246,8 @@ function subjectParts(subject: string): string[] {
 /**
  * The words of a subject's narrowest part, the one after its last colon,
  * dot or slash: `mycelium:easing` gives `easing`, `health.asks.` gives
- * `asks`, and `unstamped:agents.service` gives `agents`, since a unit's
- * type is left out. A narrowest part with no word long enough gives none, rather
+ * `asks`, and `unstamped:agents.service` gives `agents`, since a service
+ * unit's type is left out. A narrowest part with no word long enough gives none, rather
  * than a broader part's.
  */
 export function subjectWords(subject: string): string[] {
