@@ -162,6 +162,21 @@ function endedLine(sessionId: string, why: string): string {
 	return `${sessionAddress(sessionId)} (${sessionId}) ended: ${why}`;
 }
 
+/**
+ * How long a window's attach may wait for its answer before the journal
+ * says what it waits on. Six windows attached during a host's start on
+ * 18 November sat blank for 2 h 20 min, and nothing kept could say
+ * which wait never settled.
+ */
+export const ATTACH_SLOW_MS = 5_000;
+
+const MS_PER_SECOND = 1_000;
+
+// Seconds since `began`, to a tenth, as the journal says a wait.
+function secondsSince(began: number): string {
+	return ((Date.now() - began) / MS_PER_SECOND).toFixed(1);
+}
+
 // Who sent a control request, as it named itself; a name is only a
 // caller's word, so it is kept to one plain line.
 function askedBy(by: string | undefined): string {
@@ -215,6 +230,8 @@ export function hostBackend(options: {
 	 * waits for the start's own resume, so none resumes twice.
 	 */
 	held?: Pick<HeldOrder, "ahead">;
+	/** How long an attach waits before the journal says on what: ATTACH_SLOW_MS. */
+	attachSlowMs?: number;
 }): HostBackend {
 	const { host, roster, engine } = options;
 	const now = options.now ?? (() => new Date());
@@ -277,6 +294,46 @@ export function hostBackend(options: {
 				beginning -= 1;
 			}
 		});
+	}
+
+	// A window's attach: answered once its conversation can be shown, the
+	// journal saying each wait that holds it past the bound, and then when
+	// it is answered. A wait that passes at once says nothing.
+	async function attachment(sessionId: string): Promise<SessionIdentity> {
+		const began = Date.now();
+		const who = `${sessionAddress(sessionId)} (${sessionId})`;
+		let slow = false;
+		let timer: NodeJS.Timeout | undefined;
+		const next = (waiting: string) => {
+			clearTimeout(timer);
+			timer = setTimeout(() => {
+				slow = true;
+				options.say?.(
+					`${who}: a window's attach has waited ${secondsSince(began)} s on ${waiting}`,
+				);
+			}, options.attachSlowMs ?? ATTACH_SLOW_MS);
+			// A host stopping never waits on a window's journal line.
+			timer.unref();
+		};
+		try {
+			next("the host's start to resume it");
+			await startOwes(sessionId);
+			next("its open to finish");
+			await starts.get(sessionId);
+			next("its park to settle");
+			await engine.parkSettled?.(sessionId);
+			if (host.holds(sessionId) === undefined && rostered(sessionId)) {
+				next("its wake");
+				await wake(sessionId);
+			}
+			return live(sessionId);
+		} finally {
+			clearTimeout(timer);
+			if (slow)
+				options.say?.(
+					`${who}: a window's attach was answered after ${secondsSince(began)} s`,
+				);
+		}
 	}
 
 	function live(sessionId: string): SessionIdentity {
@@ -464,15 +521,7 @@ export function hostBackend(options: {
 					// opened on a parked conversation is its person asking for it,
 					// as soon as a park under way has settled. One the host's start
 					// has yet to resume goes next.
-					await startOwes(request.sessionId);
-					await starts.get(request.sessionId);
-					await engine.parkSettled?.(request.sessionId);
-					if (
-						host.holds(request.sessionId) === undefined &&
-						rostered(request.sessionId)
-					)
-						await wake(request.sessionId);
-					live(request.sessionId);
+					await attachment(request.sessionId);
 					return { sessionId: request.sessionId };
 			}
 		},

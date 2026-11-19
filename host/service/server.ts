@@ -8,6 +8,8 @@ import {
 } from "node:net";
 import { dirname, isAbsolute } from "node:path";
 import { withSession } from "../../lib/core/session/index.ts";
+import { sessionAddress } from "../../lib/mesh/address.ts";
+import { ATTACH_SLOW_MS } from "./backend.ts";
 import { type ControlBackend, dispatchControl } from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
 import { type ControlRequest, parseControl, parseViewer } from "./protocol.ts";
@@ -21,6 +23,7 @@ const SOCKET_MODE = 0o600;
  */
 const RESTART_FLUSH_MS = 2_000;
 const DIRECTORY_MODE = 0o700;
+const MS_PER_SECOND = 1_000;
 
 /** One viewer's connection to a persistent Terminal, not the session itself. */
 export interface ViewerConnection {
@@ -107,6 +110,13 @@ export async function listenControl(options: {
 	backend: ControlBackend;
 	viewer?: ViewerBridge;
 	report(error: unknown): void;
+	/**
+	 * Writes a line to the host's journal: each attached window's first
+	 * frame and its size, or that it was sent nothing to draw.
+	 */
+	say?: (line: string) => void;
+	/** How long an attached window may go undrawn before the journal says so: ATTACH_SLOW_MS. */
+	attachSlowMs?: number;
 }) {
 	if (!isAbsolute(options.path))
 		throw new Error("Host socket path must be absolute");
@@ -125,9 +135,34 @@ export async function listenControl(options: {
 		let viewer: ViewerConnection | undefined;
 		let sessionId: string | undefined;
 		let ended = false;
+		// Until the window's first frame goes, what journals it, and the line
+		// saying it was sent nothing should none go in time.
+		let firstFrame: ((bytes: number) => void) | undefined;
+		let undrawn: NodeJS.Timeout | undefined;
+		function watchFirstFrame(id: string) {
+			const answered = Date.now();
+			const who = `${sessionAddress(id)} (${id})`;
+			const since = () =>
+				((Date.now() - answered) / MS_PER_SECOND).toFixed(1);
+			undrawn = setTimeout(() => {
+				options.say?.(
+					`${who}: a window attached ${since()} s ago has been sent nothing to draw`,
+				);
+			}, options.attachSlowMs ?? ATTACH_SLOW_MS);
+			// A host stopping never waits on a window's journal line.
+			undrawn.unref();
+			firstFrame = (bytes) => {
+				firstFrame = undefined;
+				clearTimeout(undrawn);
+				options.say?.(
+					`${who}: a window's first frame, ${bytes} bytes, went ${since()} s after its attach was answered`,
+				);
+			};
+		}
 		function detach() {
 			if (ended) return;
 			ended = true;
+			clearTimeout(undrawn);
 			if (viewer && sessionId) {
 				const attached = viewer;
 				try {
@@ -158,6 +193,7 @@ export async function listenControl(options: {
 			const data = drawn;
 			drawn = "";
 			frame({ type: "output", data });
+			if (!socket.destroyed) firstFrame?.(Buffer.byteLength(data));
 		}
 		/** Send a frame after whatever the screen drew before it. */
 		function send(value: unknown) {
@@ -235,6 +271,7 @@ export async function listenControl(options: {
 				!ended
 			) {
 				sessionId = request.sessionId;
+				watchFirstFrame(sessionId);
 				viewer = withSession(sessionId, () =>
 					options.viewer?.attach(request, {
 						write: output,
