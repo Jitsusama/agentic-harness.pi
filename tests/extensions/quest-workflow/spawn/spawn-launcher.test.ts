@@ -719,8 +719,35 @@ describe("a spawn where a budget's work is", () => {
 		expect(parseQuestFrontMatter(readme)?.frontMatter._extra?.budget).toBe(
 			"delta",
 		);
-		expect(result.message).toMatch(/^Budget delta named, which places says/);
+		expect(result.message).toMatch(/^Budget delta named, which "places" says/);
+		expect(
+			readFileSync(join(state.questsRoot, id, "JOURNEY.md"), "utf8"),
+		).toContain(
+			`Budget: delta, which "places" says work in ${JSON.stringify(tmpRoot)}`,
+		);
 		expect(handed()).toBeDefined();
+	});
+
+	it("leaves a budget typed by hand as it is, even one no budget could be named", async () => {
+		const { state, id } = await quest();
+		const readme = join(state.questsRoot, id, "README.md");
+		writeFileSync(
+			readme,
+			readFileSync(readme, "utf8").replace(
+				/^---\n/,
+				"---\nbudget: Delta Team\n",
+			),
+		);
+		placeDelta(state);
+
+		const result = await handle(state, fakePi(), fakeCtx(tmpRoot, "spawner"), {
+			action: "spawn",
+			id,
+		});
+		if (!result.ok) throw new Error(result.guidance);
+
+		expect(budgetOf(state, id)).toBe("Delta Team");
+		expect(result.message).not.toContain("Budget delta");
 	});
 
 	it("names nothing on a dry run", async () => {

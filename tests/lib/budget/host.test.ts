@@ -304,6 +304,69 @@ describe("the budget a folder's work draws on", () => {
 		expect(await host.budgetFor("/anywhere")).toBeUndefined();
 	});
 
+	it("is the earlier provider's when a later one answers first", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 5_000);
+		registerBudgetProvider(
+			events,
+			placing(
+				"slow",
+				0,
+				() => new Promise((answer) => setTimeout(() => answer("delta"), 50)),
+			),
+		);
+		registerBudgetProvider(
+			events,
+			placing("quick", 1, async () => "aquifer"),
+		);
+
+		expect(await host.budgetFor("/anywhere")).toEqual({
+			name: "delta",
+			provider: "slow",
+		});
+	});
+
+	it("leaves no rejection behind from a provider that throws at once, or fails after the answer", async () => {
+		const leaked: unknown[] = [];
+		const catchLeak = (reason: unknown) => leaked.push(reason);
+		process.on("unhandledRejection", catchLeak);
+		try {
+			const events = bus();
+			const host = hostBudgets(events, 20);
+			registerBudgetProvider(events, {
+				...provider("throws-at-once", 0, {}),
+				budgetFor: () => {
+					throw new Error("not even a promise");
+				},
+			});
+			registerBudgetProvider(
+				events,
+				placing("names", 1, async () => "delta"),
+			);
+			registerBudgetProvider(
+				events,
+				placing(
+					"fails-later",
+					2,
+					() =>
+						new Promise((_, fail) =>
+							setTimeout(() => fail(new Error("after the answer")), 40),
+						),
+				),
+			);
+
+			expect(await host.budgetFor("/anywhere")).toEqual({
+				name: "delta",
+				provider: "names",
+			});
+			// Past the deadline and the late failure, for a leak to surface.
+			await new Promise((settle) => setTimeout(settle, 100));
+			expect(leaked).toEqual([]);
+		} finally {
+			process.off("unhandledRejection", catchLeak);
+		}
+	});
+
 	it("answers as soon as the first to name one and every provider before it have said", async () => {
 		const events = bus();
 		const host = hostBudgets(events, 5_000);

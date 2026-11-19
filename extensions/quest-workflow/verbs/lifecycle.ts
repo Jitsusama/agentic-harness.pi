@@ -71,7 +71,7 @@ import {
 } from "../lookup.ts";
 import { livePeers, peersSaid } from "../peers.ts";
 import { startedWith, trackSession } from "../session-registry.ts";
-import { budgetFromFolder, takenFromFolder } from "./budget.ts";
+import { budgetFromFolder, namedBy, takenFromFolder } from "./budget.ts";
 
 /**
  * Priority ladder for sorting list output. Lower numbers
@@ -356,7 +356,7 @@ export async function create(
 	}
 	const made = `Created ${kind} ${id} at ${displayPath(path)}${
 		folderBudget
-			? `, drawing on budget ${folderBudget.name}, which ${folderBudget.provider} says this folder's work draws on (\`quest budget\` names another)`
+			? `, drawing on budget ${folderBudget.name}, which ${namedBy(folderBudget)} says this folder's work draws on (\`quest budget\` names another)`
 			: ""
 	}`;
 	const details = {

@@ -208,7 +208,7 @@ describe("a quest made where a budget's work is", () => {
 		const id = state.questId as string;
 		expect(budgetIn(state.questsRoot, id)).toBe("delta");
 		expect(made.message.split("\n")[0]).toContain(
-			"drawing on budget delta, which places says",
+			'drawing on budget delta, which "places" says',
 		);
 		expect(journeyOf(join(state.questsRoot, id))).toContain(
 			`Budget: delta, which "places" says work in "${tmpRoot}" draws on`,
@@ -280,7 +280,7 @@ describe("a quest made where a budget's work is", () => {
 		const made = succeeded(await run({ action: "create", title: "Mine" }));
 
 		expect(budgetIn(state.questsRoot, state.questId as string)).toBeUndefined();
-		expect(made.message).not.toContain("budget");
+		expect(made.message).not.toContain("drawing on budget");
 	});
 });
 

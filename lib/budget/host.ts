@@ -1,6 +1,7 @@
 /**
  * The host side of the budget contract: the providers registered over
- * the bus, and asking them in turn what a budget's name means.
+ * the bus, asking them in turn what a budget's name means, and asking
+ * them all at once which budget a folder's work draws on.
  *
  * Kept apart from the extension that hosts it so the chain can be
  * tested without pi, and so the contract's two halves sit together.

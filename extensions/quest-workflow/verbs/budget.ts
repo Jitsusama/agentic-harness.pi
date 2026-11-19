@@ -94,11 +94,18 @@ export async function budgetFromFolder(
 	return budgetOfFolder(state, resolve(folder));
 }
 
+/**
+ * The provider that named a folder's budget, as every line about it
+ * says it: quoted, so its id can't add a line of its own.
+ */
+export function namedBy(taken: FolderBudget): string {
+	return JSON.stringify(taken.provider);
+}
+
 /** The Journey's line for a budget a quest took from its folder. */
 export function takenFromFolder(taken: FolderBudget, folder: string): string {
-	// Quoted, so a folder's name or a provider's id can't add a line of
-	// its own.
-	return `Budget: ${taken.name}, which ${JSON.stringify(taken.provider)} says work in ${JSON.stringify(resolve(folder))} draws on, since nothing above it named one.`;
+	// The folder is quoted too, so its name can't add a line either.
+	return `Budget: ${taken.name}, which ${namedBy(taken)} says work in ${JSON.stringify(resolve(folder))} draws on, since nothing above it named one.`;
 }
 
 /**

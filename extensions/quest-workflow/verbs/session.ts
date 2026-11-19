@@ -67,7 +67,7 @@ import {
 	windowPlaceFor,
 } from "../window-place.ts";
 import { addressOf } from "./address.ts";
-import { nameBudgetFromFolder } from "./budget.ts";
+import { nameBudgetFromFolder, namedBy } from "./budget.ts";
 import { needsOf } from "./needs.ts";
 import {
 	currentSessionId,
@@ -312,12 +312,12 @@ export async function spawn(
 	if (!result.ok) {
 		return {
 			...result,
-			guidance: `${result.guidance} The quest was still named for budget ${said.budget.name}, which ${said.budget.provider} says its folder's work draws on; \`quest budget\` names another.`,
+			guidance: `${result.guidance} The quest was still named for budget ${said.budget.name}, which ${namedBy(said.budget)} says its folder's work draws on; \`quest budget\` names another.`,
 		};
 	}
 	return {
 		...result,
-		message: `Budget ${said.budget.name} named, which ${said.budget.provider} says its folder's work draws on. ${result.message}`,
+		message: `Budget ${said.budget.name} named, which ${namedBy(said.budget)} says its folder's work draws on. ${result.message}`,
 		details: { ...result.details, budget: said.budget.name },
 	};
 }
