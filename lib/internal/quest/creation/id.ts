@@ -30,6 +30,12 @@ const ID_REGEX = new RegExp(
 );
 const ID_REGEX_BODY = `(${ID_PREFIXES.join("|")})-(${DATE_PATTERN})-([0-9A-Z]{6})`;
 
+/**
+ * The pattern a whole id matches, as `isId` tests it, for code that
+ * runs where it can't import this module, such as a thread's program.
+ */
+export const ID_PATTERN = ID_REGEX.source;
+
 function pad(n: number): string {
 	return String(n).padStart(2, "0");
 }

@@ -9,7 +9,10 @@ one folder up, beside the modules its hash covers.
 
 On a host, where every conversation shares one thread, a known tree is
 answered from its last signed walk and signed again off the thread
-(`off-thread.ts`) once that walk is a few seconds old. Between signings
+(`off-thread.ts`) once that walk is a few seconds old. A signing's reads
+run on a thread of their own (`tree-thread.ts`), which answers the
+host's thread in one message, so a long turn there holds them back by
+one turn rather than one per read. Between signings
 the thread reads again only the quests that changed under it: those this
 process wrote, those a quest tool action names, and those the root
 gained, lost or that took their README. An action whose write rests on
