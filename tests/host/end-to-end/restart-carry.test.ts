@@ -25,7 +25,7 @@
  * why without one.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
@@ -95,12 +95,20 @@ function kept(): string[] {
 	return existsSync(folder) ? readdirSync(folder).map(String) : [];
 }
 
-/** The carried command's shell, from the pid its stub kept. */
-function keptShell(): number | undefined {
+/**
+ * The carried command's shell, from the pid its stub kept, and when the
+ * command started, in ms since the epoch: the stub writes that pid
+ * before anything else, so the file's time is the command's start,
+ * however long the turn that ran it took.
+ */
+function keptShell(): { pid: number; started: number } | undefined {
 	const file = kept().find((name) => name.endsWith(".pid"));
 	if (file === undefined) return undefined;
-	const pid = Number(readFileSync(join(keptFolder(), file), "utf8").trim());
-	return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+	const path = join(keptFolder(), file);
+	const pid = Number(readFileSync(path, "utf8").trim());
+	return Number.isInteger(pid) && pid > 0
+		? { pid, started: statSync(path).mtimeMs }
+		: undefined;
 }
 
 /** Whether a process is still there. */
@@ -122,11 +130,12 @@ async function start(pi: string): Promise<HostProcess> {
 
 /**
  * Open a conversation that starts the carried command in the background,
- * and answer its log, what the log held then, and the command's shell.
+ * and answer its log, what the log held then, the command's shell, and
+ * when the command started.
  */
 async function carrying(
 	host: HostProcess,
-): Promise<{ file: string; held: string; shell: number }> {
+): Promise<{ file: string; held: string; shell: number; started: number }> {
 	const cwd = join(sealed.home, "w");
 	await mkdir(cwd, { recursive: true });
 	const one = await host.open(cwd, { model: SCRIPTED, first: CARRY });
@@ -137,9 +146,14 @@ async function carrying(
 		ROUND_TRIP_MS,
 	);
 	const shell = keptShell();
-	if (shell === undefined || !alive(shell))
+	if (shell === undefined || !alive(shell.pid))
 		throw new Error(`the carried command isn't running; ${said()}`);
-	return { file, held: await readFile(file, "utf8"), shell };
+	return {
+		file,
+		held: await readFile(file, "utf8"),
+		shell: shell.pid,
+		started: shell.started,
+	};
 }
 
 it(
@@ -192,10 +206,11 @@ it(
 	async ({ skip }) => {
 		await onHostPi(skip, said, async (pi) => {
 			const first = await start(pi);
-			// The command starts after this, so it can't end of itself before
-			// RUNS_MS from here.
 			const opened = Date.now();
-			const { file, held, shell } = await carrying(first);
+			// Every time below is on the command's own clock, which the turn
+			// that started it doesn't run: on a loaded lender that turn alone
+			// took over 30 s.
+			const { file, held, shell, started } = await carrying(first);
 			// The record follows the call's start; without one, as before this
 			// change, the kill goes ahead and the case says what was lost.
 			await untilAnswered(
@@ -205,10 +220,10 @@ it(
 			).catch(() => undefined);
 
 			await first.kill();
-			const killedAfter = Date.now() - opened;
+			const killedAfter = Date.now() - started;
 			if (!alive(shell) || killedAfter >= RUNS_MS - 15_000)
 				throw new Error(
-					`the kill came ${killedAfter} ms in, with the command running: ${alive(shell)}; it must land well inside the command's ${RUNS_MS} ms to prove anything`,
+					`the kill came ${killedAfter} ms into the command, which started ${started - opened} ms after the open, with it running: ${alive(shell)}; it must land well inside the command's ${RUNS_MS} ms to prove anything`,
 				);
 			const second = await start(pi);
 			await untilAnswered(
@@ -219,7 +234,7 @@ it(
 			// The next host's engine reaps what a dead host's tools left before
 			// it resumes anything, so a command its record spared runs on here,
 			// unless it was already about to end of itself.
-			if (Date.now() - opened < RUNS_MS - 2_000)
+			if (Date.now() - started < RUNS_MS - 2_000)
 				expect(
 					alive(shell),
 					`the next host's start spared the command; ${said()}`,
@@ -242,10 +257,12 @@ it(
 					].join("\n"),
 				);
 			});
-			const endedAfter = Date.now() - opened;
+			// The command's timeout starts after its pid is written, so its
+			// own end comes RUNS_MS after that at the soonest.
+			const endedAfter = Date.now() - started;
 			expect(
 				endedAfter >= RUNS_MS,
-				`the end said is the command's own, its timeout's, not a stop's: said ${endedAfter} ms in`,
+				`the end said is the command's own, its timeout's, not a stop's: said ${endedAfter} ms into it`,
 			).toBe(true);
 			await untilAnswered(
 				"nothing the shell kept of the command is left once its end is said",
