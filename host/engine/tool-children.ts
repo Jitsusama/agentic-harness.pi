@@ -177,20 +177,25 @@ export async function markedByConversation(
  * Kill every process group holding a process a host under this key started
  * and no longer runs, answering what it killed. Nothing else would end them:
  * a host that does not resume their conversation never reaps it by name.
+ * A conversation `held` names is left alone, as one a child host is
+ * starting for, which reaps its own as it resumes.
  */
 export function reapLeftBehind(
 	key: string,
 	table: ProcessTable = linuxProcessTable(),
 	spared: CarriedCalls = carriedCalls(),
+	held: (sessionId: string) => boolean = () => false,
 ): Promise<Reaped> {
 	return reapWhere(
 		{
 			mentioning: `${KEY_MARKER}=${key}`,
 			chosen: (environ) => {
 				const owner = environ[OWNER_MARKER];
+				const conversation = environ[CONVERSATION_MARKER];
 				return (
 					environ[KEY_MARKER] === key &&
 					owner !== undefined &&
+					!(conversation !== undefined && held(conversation)) &&
 					!runs(owner, table)
 				);
 			},

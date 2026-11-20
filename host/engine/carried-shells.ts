@@ -117,6 +117,11 @@ export interface CarriedShells {
 	 * holds once it is due. Answers the function that stops looking.
 	 */
 	watch(holds: (session: string) => boolean): () => void;
+	/**
+	 * Look once, as a watch does each time: stop each call nobody holds
+	 * once it is due, those its jobs recorded as running among them.
+	 */
+	look(holds: (session: string) => boolean): void;
 }
 
 /** What the carried calls need of the machine, for tests to stand in for. */
@@ -339,5 +344,6 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 			};
 			return every(STRAY_LOOK_MS, looking);
 		},
+		look,
 	};
 }

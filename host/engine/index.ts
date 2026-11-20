@@ -8,6 +8,7 @@ export type {
 	HostedView,
 } from "./contract.ts";
 export { createEngine } from "./engine.ts";
+export { type SweepOptions, type Swept, sweepUnheld } from "./sweep.ts";
 export {
 	HARNESS_SETTINGS_VARIABLE,
 	type HarnessEngine,

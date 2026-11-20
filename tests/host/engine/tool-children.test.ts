@@ -422,6 +422,21 @@ describe("reaping what a dead host left behind", () => {
 		).toEqual([20]);
 	});
 
+	it("spares what it left of a conversation a child host is starting for", async () => {
+		const table = fakeTable({
+			1: { group: 1, env: {} },
+			10: { group: 10, env: conversationMarker("starting", EARLIER) },
+			20: { group: 20, env: conversationMarker("unheld", EARLIER) },
+		});
+		const reaped = await reapLeftBehind(
+			"test-host",
+			table,
+			groupsCarried(),
+			(sessionId) => sessionId === "starting",
+		);
+		expect(reaped.groups).toEqual([20]);
+	});
+
 	it("takes a reused pid for a host that no longer runs", async () => {
 		const table = fakeTable({
 			1: { group: 1, env: {} },
