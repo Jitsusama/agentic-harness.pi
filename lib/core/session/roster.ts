@@ -71,7 +71,8 @@ export function parseRoster(text: string, key: string): Roster | undefined {
 	}
 	if (!isRecord(value) || value.v !== 1 || value.key !== key) return undefined;
 	const sessions = value.sessions;
-	if (!Array.isArray(sessions) || !sessions.every(isRosterEntry)) return undefined;
+	if (!Array.isArray(sessions) || !sessions.every(isRosterEntry))
+		return undefined;
 	const ids = new Set(sessions.map((entry) => entry.sessionId));
 	if (ids.size !== sessions.length) return undefined;
 	return { v: 1, key, sessions };
