@@ -28,6 +28,7 @@ import {
 	readyQuests,
 	refreshQuests,
 } from "../../../../../lib/internal/quest/discovery/discovery.ts";
+import { ThreadsHeld } from "../../../../../lib/internal/quest/discovery/tree-thread.ts";
 import { takeSeed } from "../../../../../lib/internal/quest/discovery-seed.ts";
 import {
 	atomicWriteFile,
@@ -60,13 +61,18 @@ vi.mock("node:fs", async (importOriginal) => {
  * of this test's `root`, `onRead` hears when one's reads are done, and
  * `gate` holds what they found back until it opens, as a slow or hung
  * disk would. Each walk waits on the gate standing when its reads
- * ended. Only this test's root counts and is heard, since a walk an
- * earlier test left running may end during this one.
+ * ended. `keeps` counts the walks whose skipped records were kept, and
+ * `fails` is what the thread fails with, as one that can't start, errs
+ * or is refused does.
+ * Only this test's root counts and is heard, since a walk an earlier
+ * test left running may end during this one.
  */
 const signing = vi.hoisted(() => ({
 	root: undefined as string | undefined,
 	walks: 0,
 	returned: 0,
+	keeps: 0,
+	fails: undefined as Error | undefined,
 	onRead: undefined as (() => void) | undefined,
 	gate: undefined as Promise<void> | undefined,
 }));
@@ -80,16 +86,22 @@ vi.mock(
 			>();
 		return {
 			...actual,
-			readTreeOffThread: async (questsRoot: string) => {
+			readTreeOffThread: async (questsRoot: string, hangsAfterMs: number) => {
 				// Asked afresh at each step, since a walk an earlier test began
 				// may read on into this one and must not be heard as its own.
 				const ours = () => questsRoot === signing.root;
 				if (ours()) signing.walks += 1;
-				const read = await actual.readTreeOffThread(questsRoot);
+				if (ours() && signing.fails) throw signing.fails;
+				const read = await actual.readTreeOffThread(questsRoot, hangsAfterMs);
 				if (ours()) signing.onRead?.();
 				if (signing.gate) await signing.gate;
 				if (ours()) signing.returned += 1;
-				return read;
+				if (!read) return read;
+				const keep = () => {
+					if (ours()) signing.keeps += 1;
+					read.keep();
+				};
+				return { ...read, keep };
 			},
 		};
 	},
@@ -257,6 +269,8 @@ afterEach(() => {
 	signing.onRead = undefined;
 	signing.walks = 0;
 	signing.returned = 0;
+	signing.keeps = 0;
+	signing.fails = undefined;
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 	host?.dispose();
@@ -364,7 +378,11 @@ describe("discovery on a host", () => {
 		discoverQuests(root);
 		openSignings = holdSignings();
 		later(6_000);
+		// Read before the clock moves, so the walk hangs on the gate, not
+		// on a thread whose wall the fake clock would end.
+		const read = nextRead();
 		discoverQuests(root);
+		await read;
 		const hung = discoverySettled(root);
 		await vi.advanceTimersByTimeAsync(30_000);
 		expect(await hung).toBe("gave up");
@@ -473,6 +491,67 @@ describe("discovery on a host", () => {
 			signing.walks,
 			"the hung walk's end leaves the second holding its root",
 		).toBe(2);
+	});
+
+	it("puts back no record for a walk that ends after a later one was kept", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		discoverQuests(root);
+		const openHung = holdSignings();
+		later(6_000);
+		const firstRead = nextRead();
+		discoverQuests(root);
+		await firstRead;
+		await vi.advanceTimersByTimeAsync(5 * 60_000 - 1_000);
+		// A wait on the hung walk, with a clock of its own, that answers
+		// once that walk has ended.
+		const hungEnded = discoverySettled(root);
+		await vi.advanceTimersByTimeAsync(1_000);
+		signing.gate = undefined;
+		later(6_000);
+		discoverQuests(root);
+		expect(await discoverySettled(root), "the later walk").toBe("kept");
+		expect(signing.keeps, "the later walk kept its records").toBe(1);
+		openHung();
+		let ended: Awaited<typeof hungEnded> | "waiting" = "waiting";
+		void hungEnded.then((end) => {
+			ended = end;
+		});
+		await vi.waitFor(
+			async () => {
+				await vi.advanceTimersByTimeAsync(100);
+				expect(ended, "the hung walk ended").not.toBe("waiting");
+			},
+			{ timeout: 4_000 },
+		);
+		expect(ended, "the hung walk was overtaken").toBe("dropped");
+		expect(signing.keeps, "the overtaken walk kept nothing").toBe(1);
+	});
+
+	it("keeps the last walk when a signing's read fails, and says it failed", async () => {
+		discoverQuests(root);
+		writeSettled(readmePath, readme("paused"));
+		signing.fails = new Error("the thread failed");
+		later(6_000);
+		discoverQuests(root);
+		expect(await discoverySettled(root)).toBe("failed");
+		expect(signing.keeps, "a failed signing keeps nothing").toBe(0);
+		expect(statusNow(), "the last walk stands").toBe("active");
+	});
+
+	it("gives up, and signs nothing on the thread, while a thread is held in a read", async () => {
+		discoverQuests(root);
+		await discoverySettled(root);
+		writeSettled(readmePath, readme("paused"));
+		signing.fails = new ThreadsHeld(1);
+		later(6_000);
+		await expect(
+			discoverQuestsAfresh(root),
+			"a hung disk is no tree to sign on the host's thread",
+		).rejects.toThrow("didn't answer a signing in time");
+		expect(
+			statusNow(),
+			"the last walk stands, so nothing read the paused README on the host's thread",
+		).toBe("active");
 	});
 
 	it("starts one signing at a time for a root", async () => {

@@ -24,13 +24,33 @@ import { splitFrontMatter } from "../documents/frontmatter.ts";
 import type { DiscoveryResult } from "./discovery.ts";
 
 /**
+ * A listed entry as the walk reads it: its name and kind, from a
+ * listing here or one a thread sent.
+ */
+export type Entry = Pick<
+	Dirent,
+	"name" | "isDirectory" | "isFile" | "isSymbolicLink"
+>;
+
+/**
+ * What a file's stamp is taken from: its stat, and when that was taken
+ * when it wasn't just now, as for a stat a thread took.
+ */
+export type StatOf = Pick<
+	BigIntStats,
+	"size" | "mtimeNs" | "ctimeNs" | "ino"
+> & {
+	readonly at?: bigint;
+};
+
+/**
  * What one discovery call has read from disk. The signature pass fills
  * it on the way to a cache miss and the walk reuses it, so a cold call
  * reads each file and lists each directory once rather than twice.
  */
 export interface Pass {
 	bytes: Map<string, Buffer>;
-	listings: Map<string, Dirent[] | undefined>;
+	listings: Map<string, Entry[] | undefined>;
 	/** Each file's content hash, as the signature pass found it. */
 	hashes: Map<string, string>;
 	/** Files a signing off the thread found missing or unreadable. */
@@ -79,9 +99,9 @@ export const CANONICAL_DOCUMENT_DIRS = [
 ] as const;
 
 /** A directory's listing, read once a pass, or undefined when it has none. */
-export function readEntries(path: string, pass: Pass): Dirent[] | undefined {
+export function readEntries(path: string, pass: Pass): Entry[] | undefined {
 	if (pass.listings.has(path)) return pass.listings.get(path);
-	let entries: Dirent[] | undefined;
+	let entries: Entry[] | undefined;
 	try {
 		entries = readdirSync(path, { withFileTypes: true });
 	} catch {
@@ -100,7 +120,7 @@ export function kindEntries(
 	questDir: string,
 	subdir: string,
 	pass: Pass,
-): Dirent[] | undefined {
+): Entry[] | undefined {
 	const present = readEntries(questDir, pass)?.some(
 		(e) => e.name === subdir && (e.isDirectory() || e.isSymbolicLink()),
 	);
@@ -288,7 +308,7 @@ export function discoverySignature(questsRoot: string, pass: Pass): string {
 			// absence is itself a change from a signature that had it.
 		}
 	};
-	const layout = (entries: Dirent[]): string =>
+	const layout = (entries: Entry[]): string =>
 		entries
 			.map((e) => `${e.name}/${e.isDirectory() ? "d" : "f"}`)
 			.sort()
@@ -354,12 +374,66 @@ function contentHash(path: string, pass: Pass): string {
 }
 
 /** A file's stat as a stamp keeps it. */
-function statKey(st: BigIntStats): string {
+function statKey(st: StatOf): string {
 	return `${st.size}:${st.mtimeNs}:${st.ctimeNs}:${st.ino}`;
 }
 
+/**
+ * A file a signing need not read again, as the memo held it when the
+ * signing began: the stat its stamp was taken under and the hash that
+ * stamp vouches for. `keep`, for a signing that is kept, puts back the
+ * record parsed from that hash should a walk have let it go meanwhile,
+ * and answers the hash the walk will find the file's record under: that
+ * one, or the hash of a record a walk parsed since. Either way the walk
+ * after it needn't read the file on the host's thread.
+ */
+export interface Skipped {
+	readonly stat: string;
+	readonly hash: string;
+	readonly keep: () => string;
+}
+
+/**
+ * Each file a signing need not read again: one whose stamp vouches for
+ * its hash, and, where the walk `parses` it, whose record was parsed
+ * from that hash.
+ */
+export function skippable(
+	parses: (path: string) => boolean,
+): Map<string, Skipped> {
+	const { stamps, readmes, documents } = memo();
+	const skip = new Map<string, Skipped>();
+	for (const [path, { stat, hash }] of stamps) {
+		const keep = !parses(path)
+			? () => hash
+			: (keeping(readmes, path, hash) ?? keeping(documents, path, hash));
+		if (keep) skip.set(path, { stat, hash, keep });
+	}
+	return skip;
+}
+
+/**
+ * What puts back `path`'s record in `table` while no other has taken
+ * its place, when the one there now was parsed from `hash`, answering
+ * the hash of the record there then.
+ */
+function keeping<D>(
+	table: Map<string, Parsed<D>>,
+	path: string,
+	hash: string,
+): (() => string) | undefined {
+	const record = table.get(path);
+	if (record?.hash !== hash) return undefined;
+	return () => {
+		const now = table.get(path);
+		if (now) return now.hash;
+		table.set(path, record);
+		return hash;
+	};
+}
+
 /** The hash a file's stamp vouches for under this stat, if it does. */
-export function vouchedHash(path: string, st: BigIntStats): string | undefined {
+function vouchedHash(path: string, st: StatOf): string | undefined {
 	const known = memo().stamps.get(path);
 	return known && known.stat === statKey(st) ? known.hash : undefined;
 }
@@ -370,7 +444,7 @@ export function vouchedHash(path: string, st: BigIntStats): string | undefined {
  */
 export function hashRead(
 	path: string,
-	st: BigIntStats,
+	st: StatOf,
 	bytes: Buffer,
 	pass: Pass,
 ): string {
@@ -383,16 +457,16 @@ export function hashRead(
 	return hash;
 }
 
-/** Whether a stat is old enough to stand for what it describes. */
-export function settled(st: BigIntStats): boolean {
-	return BigInt(Date.now()) * 1_000_000n - st.mtimeNs > SETTLED_NS;
+/**
+ * Whether a stat was old enough, when it was taken, to stand for what
+ * it describes.
+ */
+export function settled(st: StatOf): boolean {
+	const at = st.at ?? BigInt(Date.now()) * NS_PER_MS;
+	return at - st.mtimeNs > SETTLED_NS;
 }
 
-/** Whether a parsed record is kept for this file under this hash. */
-export function recordFor(path: string, hash: string): boolean {
-	const { readmes, documents } = memo();
-	return (readmes.get(path) ?? documents.get(path))?.hash === hash;
-}
+const NS_PER_MS = 1_000_000n;
 
 function hashOf(bytes: Buffer): string {
 	return createHash("sha1").update(bytes).digest("hex");

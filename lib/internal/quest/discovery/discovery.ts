@@ -84,6 +84,7 @@ import {
 	pendingStampOf,
 	readTreeOffThread,
 } from "./off-thread.ts";
+import { threadsHeld } from "./tree-thread.ts";
 
 /** A single quest entry in the index. */
 export interface QuestEntry {
@@ -622,10 +623,12 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 	const seeds = seedsOf({});
 	if (seeds) takeSeed(questsRoot, seeds.dir, seeds.code);
 	const work = (async (): Promise<SigningEnd> => {
-		const { pass, rootStamp } = await readTreeOffThread(questsRoot);
-		if (memo() !== m) return "dropped";
+		const read = await readTreeOffThread(questsRoot, SIGNING_HUNG_AFTER_MS);
+		if (!read || memo() !== m) return "dropped";
+		const { pass, rootStamp } = read;
 		const cached = m.cache.get(questsRoot);
 		if (cached && cached.signedAt > signedAt) return "dropped";
+		read.keep();
 		const signature = discoverySignature(questsRoot, pass);
 		const result =
 			cached && cached.signature === signature
@@ -647,6 +650,12 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 		return "kept";
 	})().catch((error: unknown): SigningEnd => {
 		// The last walk stands, and the next ask past its age signs again.
+		// A thread still held in a read means the disk hangs, which a
+		// signing on the host's own thread would hang on too.
+		if (threadsHeld(error)) {
+			sayOnHost(`signing ${questsRoot} off the thread gave up: ${error}`);
+			return "gave up";
+		}
 		sayOnHost(`signing ${questsRoot} off the thread failed: ${error}`);
 		return "failed";
 	});

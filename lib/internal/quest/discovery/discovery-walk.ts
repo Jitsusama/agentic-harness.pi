@@ -31,6 +31,7 @@ import type {
 } from "./discovery.ts";
 import {
 	CANONICAL_DOCUMENT_DIRS,
+	type Entry,
 	forgetUnparsed,
 	kept,
 	kindEntries,
@@ -80,7 +81,7 @@ export function movedNames(
 }
 
 /** Each name a root listing holds, with its kind. */
-export function namesOf(entries: readonly Dirent[]): Map<string, string> {
+export function namesOf(entries: readonly Entry[]): Map<string, string> {
 	return new Map(entries.map((entry) => [entry.name, kindOf(entry)]));
 }
 
