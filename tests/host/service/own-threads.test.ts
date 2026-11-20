@@ -2,9 +2,11 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { controlRequest } from "../../../host/service/client.ts";
+import { jsonLines } from "../../../host/service/framing.ts";
 
 const service = resolve(import.meta.dirname, "../../../host/service");
 const busy = "a0000000-0000-4000-8000-000000000001";
@@ -24,7 +26,8 @@ const ANSWERS_WITHIN_MS = 1_000;
  * Whichever runs the busy conversation holds its thread through an abort
  * of it for HELD_MS, saying so on stdout as it starts: a child, when the
  * host passes the conversation on, else the host itself, as every
- * conversation ran on the host's one thread before children.
+ * conversation ran on the host's one thread before children. A window
+ * attaching to a conversation is sent a frame as soon as it attaches.
  */
 const source = `
 const { listenControl } = await import(${JSON.stringify(join(service, "server.ts"))});
@@ -38,6 +41,12 @@ await listenControl({
 	path: process.env.SOCKET,
 	report: (error) => console.error(error),
 	children: routes,
+	viewer: {
+		attach(_request, sink) {
+			setImmediate(() => sink.write("drawn"));
+			return { input() {}, resize() {}, detach() {} };
+		},
+	},
 	backend: {
 		identity,
 		execute: async (request) => {
@@ -134,10 +143,30 @@ async function answered(
 	return Date.now() - asked;
 }
 
-describe.skipIf(process.platform !== "linux")(
+/** How long a window attaching to a conversation waits for its first frame, in milliseconds. */
+function drawn(path: string, sessionId: string): Promise<number> {
+	const asked = Date.now();
+	return new Promise((done, fail) => {
+		const window = createConnection(path);
+		const frames = jsonLines();
+		window.on("data", (chunk: Buffer) => {
+			for (const value of frames.push(chunk)) {
+				if (Reflect.get(Object(value), "type") !== "output") continue;
+				window.destroy();
+				done(Date.now() - asked);
+			}
+		});
+		window.on("error", fail);
+		window.write(
+			`${JSON.stringify({ v: 1, id: "view", op: "attach", sessionId, rows: 20, columns: 80 })}\n`,
+		);
+	});
+}
+
+describe(
 	"a conversation holding its thread",
 	() => {
-		it("holds neither the host nor another conversation", async () => {
+		it("holds neither the host, another conversation's turn nor a window on it", async () => {
 			const [held, free] = await Promise.all([
 				run("busy", {}),
 				run("other", {}),
@@ -151,13 +180,17 @@ describe.skipIf(process.platform !== "linux")(
 
 			const holding = answered(host.socket, host.identity, busy);
 			await Promise.race(said);
-			const [listed, conversation] = await Promise.all([
+			const [listed, conversation, window] = await Promise.all([
 				answered(host.socket, host.identity),
 				answered(host.socket, host.identity, other),
+				drawn(host.socket, other),
 			]);
 
 			expect(listed, "the host answers a list").toBeLessThan(ANSWERS_WITHIN_MS);
-			expect(conversation, "another conversation answers").toBeLessThan(
+			expect(conversation, "another conversation takes a turn").toBeLessThan(
+				ANSWERS_WITHIN_MS,
+			);
+			expect(window, "a window on another conversation draws").toBeLessThan(
 				ANSWERS_WITHIN_MS,
 			);
 			expect(await holding, "the busy one answers once free").toBeGreaterThan(

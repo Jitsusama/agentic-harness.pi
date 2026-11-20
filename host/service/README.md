@@ -241,6 +241,15 @@ input pipeline or screen. No unit or running host is installed yet.
   and disconnect cleanup. It takes over only this user's socket that
   nothing answers, as a killed host leaves, once the caller holds the
   roster lock; a live socket, a file or another user's socket is refused.
+  A request naming a conversation a child runs is asked of the child,
+  and a window attaching to one is handed to the child as bytes.
+- children.ts: the conversations child processes run, as the host
+  routes to them: each child's socket and identity, the request as the
+  child takes it under its own name, and lists naming each conversation
+  once, whichever thread runs it.
+- child-requests.ts: reaching a child's socket and reading the one
+  answer a request gets; a child answering as another process, or not
+  at all, is said as `child_unreachable`.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place

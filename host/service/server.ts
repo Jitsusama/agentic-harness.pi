@@ -1,16 +1,18 @@
 /** Private Unix listener and bounded viewer transport; session work stays in the engine. */
 import { chmod, lstat, mkdir, unlink } from "node:fs/promises";
-import {
-	createConnection,
-	createServer,
-	type Server,
-	type Socket,
-} from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute } from "node:path";
 import { withSession } from "../../lib/core/session/index.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import { ATTACH_SLOW_MS, secondsSince } from "./attach-waits.ts";
-import { type ChildRoutes, passedOn } from "./children.ts";
+import {
+	askOnce,
+	childUnreachable,
+	fromChild,
+	MAX_ANSWER_BYTES,
+	reach,
+} from "./child-requests.ts";
+import { type ChildRoutes, listingChildren, passedOn } from "./children.ts";
 import {
 	type ControlBackend,
 	dispatchControl,
@@ -57,24 +59,14 @@ export interface ViewerBridge {
 	): ViewerConnection;
 }
 
-/** A connection passed on to the child running its conversation, and its opening bytes. */
+/** A window's attach passed on to the child running its conversation. */
 interface PassedOn {
 	child: Socket;
+	/** The attach, as the child takes it. */
 	line: string;
-	/** Whether a window attaches on it, which a restart tells by a frame. */
-	viewing: boolean;
-}
-
-/** Connect to a child's socket, or fail as the kernel says it can't be reached. */
-function reach(path: string): Promise<Socket> {
-	return new Promise((resolve, reject) => {
-		const child = createConnection(path);
-		child.once("connect", () => {
-			child.off("error", reject);
-			resolve(child);
-		});
-		child.once("error", reject);
-	});
+	/** The attach's id, which the child's answer names. */
+	id: string;
+	sessionId: string;
 }
 
 async function privateDirectory(path: string) {
@@ -146,14 +138,19 @@ export async function listenControl(options: {
 	attachSlowMs?: number;
 	/**
 	 * The conversations children run: a request naming one is passed on
-	 * to its child's socket, and the connection with it, so the child
-	 * answers it, and a window attached to it, on a thread of its own.
+	 * to its child's socket, and a window attaching to one is handed to
+	 * the child whole, so the child answers on a thread of its own. A
+	 * list names them with the host's own.
 	 */
 	children?: ChildRoutes;
 }) {
 	if (!isAbsolute(options.path))
 		throw new Error("Host socket path must be absolute");
 	await privateDirectory(dirname(options.path));
+	// A list names every conversation, whichever thread runs it.
+	const backend = options.children
+		? listingChildren(options.backend, options.children)
+		: options.backend;
 	const sockets = new Set<Socket>();
 	// How to reach each connection a viewer is attached on.
 	const viewing = new Map<Socket, (value: unknown) => void>();
@@ -260,32 +257,37 @@ export async function listenControl(options: {
 			socket.write(line);
 		}
 		/**
-		 * Hand the connection to the child: what it was sent from the request
-		 * on goes to the child as bytes, and what the child answers comes
-		 * back as bytes, so neither is decoded on this thread again.
+		 * Hand a window's connection to the child: the child's answer to the
+		 * attach is read, as a caller is told it, and from then on what the
+		 * window sends goes to the child as bytes, and what the child draws
+		 * comes back as bytes, so neither is decoded on this thread again.
 		 */
 		function passOn(
-			{ child, line, viewing: attached }: PassedOn,
+			{ child, line, id, sessionId: passedId }: PassedOn,
 			after: readonly unknown[],
 			rest: Buffer,
 		) {
 			socket.off("data", received);
-			let atEdge = true;
+			const open = () => !socket.destroyed && !socket.writableEnded;
+			// The answer to the attach, until its line ends; then null.
+			let answer: Buffer | null = Buffer.alloc(0);
+			// Whether the last byte sent ended a frame, so another may follow.
+			let atEdge = false;
 			let leaving = false;
 			const leave = () => {
-				socket.write(`${JSON.stringify({ type: "restarting" })}\n`);
-				socket.end();
+				if (open()) {
+					socket.write(`${JSON.stringify({ type: "restarting" })}\n`);
+					socket.end();
+				}
 				child.destroy();
 			};
-			// A request's one answer is left to come: a frame after it would
-			// read as a second answer.
-			if (attached)
-				passing.set(socket, () => {
-					leaving = true;
-					if (atEdge) leave();
-				});
-			child.on("data", (chunk: Buffer) => {
-				if (socket.destroyed) return;
+			// Before the child answers, the answer comes first and then this.
+			passing.set(socket, () => {
+				leaving = true;
+				if (atEdge) leave();
+			});
+			const toWindow = (chunk: Buffer) => {
+				if (!open() || chunk.length === 0) return;
 				if (leaving) {
 					// The rest of the frame the window was being sent, then the one
 					// saying the host restarts.
@@ -299,14 +301,53 @@ export async function listenControl(options: {
 				}
 				atEdge = chunk.at(-1) === 10;
 				if (!socket.write(chunk)) child.pause();
+			};
+			child.on("data", (chunk: Buffer) => {
+				if (answer === null) return toWindow(chunk);
+				answer = Buffer.concat([answer, chunk]);
+				const lf = answer.indexOf(10);
+				if (lf === -1) {
+					if (answer.length > MAX_ANSWER_BYTES) {
+						answer = null;
+						refuse(childUnreachable(id));
+					}
+					return;
+				}
+				const reply = fromChild(answer.subarray(0, lf), id);
+				const drawn = answer.subarray(lf + 1);
+				answer = null;
+				if (!reply.ok) return refuse(reply);
+				frame(reply);
+				atEdge = true;
+				if (leaving) return leave();
+				toWindow(drawn);
 			});
+			/** Tell the window why it has no conversation, and leave the child. */
+			function refuse(reply: unknown) {
+				passing.delete(socket);
+				frame(reply);
+				if (open()) socket.end();
+				child.destroy();
+			}
 			socket.on("drain", () => child.resume());
-			child.on("end", () => socket.end());
-			child.on("close", () => socket.end());
-			child.on("error", (error) => {
-				options.report(error);
-				socket.destroy();
+			child.on("close", () => {
+				if (answer !== null) return refuse(childUnreachable(id));
+				if (!open() || leaving) return;
+				// A window cut off mid-frame can't be told why; one at a frame's
+				// edge is, rather than left reading a bare end.
+				if (atEdge) {
+					frame({
+						type: "detached",
+						reason: "the process running this conversation ended",
+					});
+				}
+				options.say?.(
+					`${sessionAddress(passedId)} (${passedId}): the process running it ended under an attached window`,
+				);
+				socket.end();
 			});
+			// Its close follows, and tells the window.
+			child.on("error", options.report);
 			socket.on("close", () => child.destroy());
 			child.write(line);
 			for (const value of after) child.write(`${JSON.stringify(value)}\n`);
@@ -329,7 +370,7 @@ export async function listenControl(options: {
 			try {
 				request = parseControl(value);
 			} catch {
-				send(await dispatchControl(value, options.backend, options.report));
+				send(await dispatchControl(value, backend, options.report));
 				return;
 			}
 			if (
@@ -358,35 +399,38 @@ export async function listenControl(options: {
 				// is asked under its own name.
 				if (
 					request.expectedHost &&
-					!sameHost(request.expectedHost, options.backend.identity)
+					!sameHost(request.expectedHost, backend.identity)
 				) {
 					send(staleHost(request.id));
 					return;
 				}
+				let child: Socket;
 				try {
-					const child = await reach(route.socket);
-					if (socket.destroyed || ended) {
-						child.destroy();
-						return;
-					}
-					return {
-						child,
-						line: `${JSON.stringify(passedOn(request, route))}\n`,
-						viewing: request.op === "attach",
-					};
+					child = await reach(route.socket);
 				} catch (error) {
 					options.report(error);
-					send({
-						v: 1,
-						id: request.id,
-						ok: false,
-						error: {
-							code: "child_unreachable",
-							message: "The process running this conversation does not answer",
-						},
-					});
+					send(childUnreachable(request.id));
 					return;
 				}
+				if (socket.destroyed || ended) {
+					child.destroy();
+					return;
+				}
+				const line = `${JSON.stringify(passedOn(request, route))}\n`;
+				if (request.op === "attach")
+					return {
+						child,
+						line,
+						id: request.id,
+						sessionId: request.sessionId,
+					};
+				// Any other request has one answer, and the connection is the
+				// host's again once it comes, for whatever is asked next.
+				const gone = () => child.destroy();
+				socket.once("close", gone);
+				send(await askOnce(child, line, request.id, options.report));
+				socket.off("close", gone);
+				return;
 			}
 			if (request.op === "attach" && !options.viewer) {
 				send({
@@ -403,7 +447,7 @@ export async function listenControl(options: {
 			const asked = Date.now();
 			const reply = await dispatchControl(
 				request,
-				options.backend,
+				backend,
 				options.report,
 			);
 			send(reply);
