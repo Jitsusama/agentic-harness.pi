@@ -22,6 +22,7 @@ import {
 	type GitRules,
 	gitRun,
 	guardedExec,
+	refusedIn,
 } from "../../../../lib/internal/sandbox/tree-git.ts";
 import { disposeRepo, freshRepo, git } from "../../../support/git-fixture.ts";
 
@@ -187,6 +188,15 @@ describe("git that pi runs outside the sandbox", () => {
 		expect(gitRun(folder, ["status"], rules())).toMatchObject({
 			refused: expect.stringContaining("is a link"),
 		});
+	});
+
+	it("names the repository it refuses, from any folder below it", () => {
+		const folder = join(home, "linked");
+		mkdirSync(join(folder, "src"), { recursive: true });
+		symlinkSync(join(template, ".git"), join(folder, ".git"));
+
+		expect(refusedIn(join(folder, "src"), rules())).toBe(folder);
+		expect(refusedIn(template, rules()), "git may run there").toBeUndefined();
 	});
 
 	it("holds a sandboxed session to repositories the fence guards", async () => {

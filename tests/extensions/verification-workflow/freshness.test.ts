@@ -286,7 +286,12 @@ async function verifyEndsMeanwhile(
 	// Another project's git answers at once, so the repository's ends last.
 	heldGit(" status ", other === repo ? undefined : other);
 	h.questVerify = "exit 1";
-	const failing = h.verify.execute("call", { path: repo }, undefined);
+	let ended = false;
+	const failing = h.verify
+		.execute("call", { path: repo }, undefined)
+		.finally(() => {
+			ended = true;
+		});
 	// A shell and the stub's gits start first, slowly on a loaded machine.
 	await vi.waitFor(
 		() => expect(existsSync(gitWaiting()), "git asked").toBe(true),
@@ -300,6 +305,9 @@ async function verifyEndsMeanwhile(
 		h.questVerify = then;
 		await h.verify.execute("call", { path: other }, undefined);
 	}
+	// Past git's own wall the first verify recorded with no answer, and
+	// the case would show something else; say so rather than pass.
+	expect(ended, "the first verify still waits on git").toBe(false);
 	// Only now may the first verify's git answer, so the other has ended.
 	writeFileSync(gitReleased(), "");
 	return await failing;
@@ -542,6 +550,20 @@ describe("the verify tool", () => {
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 	});
 
+	it("holds back a commit made from a folder below the failed run's", async () => {
+		repo = await freshRepo("verify-below");
+		writeFileSync(join(repo, "package.json"), '{"name":"fixture"}\n');
+		const below = join(repo, "src");
+		mkdirSync(below);
+		const h = await harness();
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+
+		const held = await currentVerificationFailure({ dir: below });
+
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	});
+
 	// Each git a commit's check asks is slowed in turn, so any one of them
 	// held on the thread would stop the timer for the whole delay.
 	it("leaves the thread free while a commit's check asks git what changed", async () => {
@@ -565,9 +587,9 @@ describe("the verify tool", () => {
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 		// Not even kept unknown: only the footer tells the two apart.
 		expect(h.statuses.at(-1), "nothing left failing").toBeUndefined();
-	}, 20_000);
+	});
 
-	it("keeps the failure of another project that ended meanwhile, as the last to end", async () => {
+	it("keeps both failures of two projects, one ending while the other's git answers", async () => {
 		repo = await projectRepo();
 		const h = await harness();
 		const other = project("other");
@@ -576,8 +598,28 @@ describe("the verify tool", () => {
 
 		const held = await currentVerificationFailure({ dir: other });
 		expect(held?.problems[0]).toContain(`exit 1 failed in ${other}`);
-		expect(first.content[0]?.text).toContain("holds the record");
-	}, 20_000);
+		const mine = await currentVerificationFailure({ dir: repo });
+		expect(mine?.problems[0]).toContain(`exit 1 failed in ${repo}`);
+		expect(first.content[0]?.text).not.toContain("isn't kept");
+	});
+
+	it("keeps a project's failure when another project fails after it", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const other = project("other");
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+		await h.verify.execute("call", { path: other }, undefined);
+
+		const mine = await currentVerificationFailure({ dir: repo });
+
+		expect(mine?.problems[0]).toContain(`exit 1 failed in ${repo}`);
+		// Answered for at last, the other's failure leaves this one standing.
+		h.questVerify = "true";
+		await h.verify.execute("call", { path: other }, undefined);
+		const still = await currentVerificationFailure({ dir: repo });
+		expect(still?.problems[0]).toContain(`exit 1 failed in ${repo}`);
+	});
 
 	it("records no failure an edit of its project answered for meanwhile", async () => {
 		repo = await projectRepo();
@@ -589,7 +631,7 @@ describe("the verify tool", () => {
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 		expect(h.statuses.at(-1), "nothing left failing").toBeUndefined();
 		expect(first.content[0]?.text).toContain("an edit landed");
-	}, 20_000);
+	});
 
 	it("records no failure an edit of its project answered for as it ran", async () => {
 		repo = await projectRepo();
@@ -613,7 +655,7 @@ describe("the verify tool", () => {
 
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 		expect(result.content[0]?.text).toContain("an edit landed");
-	}, 20_000);
+	});
 
 	it("records a failure though another project was edited meanwhile", async () => {
 		repo = await projectRepo();
@@ -624,7 +666,7 @@ describe("the verify tool", () => {
 
 		const held = await currentVerificationFailure({ dir: repo });
 		expect(held?.problems[0]).toContain("exit 1 failed in");
-	}, 20_000);
+	});
 
 	it("keeps a failure still standing once another that ended later is answered for", async () => {
 		repo = await projectRepo();
@@ -635,7 +677,7 @@ describe("the verify tool", () => {
 
 		const held = await currentVerificationFailure({ dir: repo });
 		expect(held?.problems[0]).toContain("exit 1 failed in");
-	}, 20_000);
+	});
 
 	it("records a failure while a verify of another project ends", async () => {
 		repo = await projectRepo();
@@ -645,7 +687,7 @@ describe("the verify tool", () => {
 
 		const held = await currentVerificationFailure({ dir: repo });
 		expect(held?.problems[0]).toContain("exit 1 failed in");
-	}, 20_000);
+	});
 
 	it("records a failure while a verify that checked nothing ends", async () => {
 		repo = await projectRepo();
@@ -655,7 +697,7 @@ describe("the verify tool", () => {
 
 		const held = await currentVerificationFailure({ dir: repo });
 		expect(held?.problems[0]).toContain("exit 1 failed in");
-	}, 20_000);
+	});
 
 	it("holds back a commit on a failed run in a repository with no commit yet", async () => {
 		const unborn = project("unborn");
@@ -707,12 +749,9 @@ describe("the verify tool", () => {
 		// leaves nothing to tell when the tree changed, so an edit must.
 		const answers: [string, string][] = [
 			["exit 1", " --show-toplevel "],
-			["echo 'fatal: not a git repository' >&2; exit 1", " --show-toplevel "],
-			[
-				"echo 'fatal: detected dubious ownership in repository' >&2; exit 128",
-				" --show-toplevel ",
-			],
 			["exit 1", " status "],
+			// A tree changed too widely to list, past the mebibyte kept.
+			["head -c 1100000 /dev/zero | tr '\\0' a; exit 0", " status "],
 		];
 		for (const [answer, only] of answers) {
 			repo = await projectRepo();
@@ -753,6 +792,12 @@ describe("the verify tool", () => {
 		expect(result.content[0]?.text).not.toContain("holds back no");
 		const held = await currentVerificationFailure({ dir: repo });
 		expect(held?.problems[0]).toContain("exit 1 failed in");
+		// The guard found the repository it refused, so a commit from a
+		// folder below the run is held as well.
+		const below = join(repo, "src");
+		mkdirSync(below);
+		const fromBelow = await currentVerificationFailure({ dir: below });
+		expect(fromBelow?.problems[0]).toContain("exit 1 failed in");
 		await edit(h, join(repo, "package.json"));
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 	});
@@ -792,18 +837,27 @@ describe("the verify tool", () => {
 	}, 20_000);
 
 	it("keeps a failed run while git fails to say what it sits on", async () => {
-		repo = await projectRepo();
-		const h = await harness();
-		h.questVerify = "exit 1";
-		await h.verify.execute("call", { path: repo }, undefined);
+		// Failing as no commit yet never does: it says nothing of the tree,
+		// nor does a failure that only quotes git's words for it.
+		const answers = [
+			"echo 'fatal: unable to read' >&2; exit 128",
+			"echo 'fatal: ambiguous argument x' >&2; exit 1",
+		];
+		for (const answer of answers) {
+			repo = await projectRepo();
+			const h = await harness();
+			h.questVerify = "exit 1";
+			await h.verify.execute("call", { path: repo }, undefined);
 
-		// Failing as no commit yet never does: it says nothing of the tree.
-		gitThat("echo 'fatal: unable to read' >&2; exit 128", " HEAD^{tree} ");
-		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
-		if (path !== undefined) process.env.PATH = path;
+			gitThat(answer, " HEAD^{tree} ");
+			const unsaid = await currentVerificationFailure({ dir: repo });
+			expect(unsaid, answer).toBeUndefined();
+			if (path !== undefined) process.env.PATH = path;
 
-		const held = await currentVerificationFailure({ dir: repo });
-		expect(held?.problems[0]).toContain("exit 1 failed in");
+			const held = await currentVerificationFailure({ dir: repo });
+			expect(held?.problems[0], answer).toContain("exit 1 failed in");
+			disposeRepo(repo);
+		}
 	});
 
 	it("keeps a failed run while git's status says too much to read", async () => {
@@ -846,25 +900,32 @@ describe("the verify tool", () => {
 		expect(await currentVerificationFailure({ dir: tree })).toBeUndefined();
 	});
 
-	it("outside git, holds back a commit whatever language git speaks", async () => {
+	it("tells a repository with no commit yet whatever language git speaks", async () => {
+		const unborn = project("unborn");
+		execFileSync(REAL_GIT, ["init", "-q", unborn]);
 		const h = await harness();
-		const tree = project("plain");
 		h.questVerify = "exit 1";
 		// A git that answers in German unless asked for its own words.
 		gitThat(
-			'[ "$LC_ALL" = C ] || { echo "fatal: Kein Git-Repository" >&2; exit 128; }',
-			" --show-toplevel ",
+			'[ "$LC_ALL" = C ] || { echo "fatal: mehrdeutiges Argument" >&2; exit 128; }',
+			" HEAD^{tree} ",
 		);
 		const language = process.env.LC_ALL;
 		process.env.LC_ALL = "de_DE.UTF-8";
 		try {
-			await h.verify.execute("call", { path: tree }, undefined);
+			await h.verify.execute("call", { path: unborn }, undefined);
+			const held = await currentVerificationFailure({ dir: unborn });
+			expect(held?.problems[0]).toContain("exit 1 failed in");
+
+			// Fingerprinted as having no commit, so a file written there,
+			// with no edit, moves it on.
+			writeFileSync(join(unborn, "formatted.ts"), "export {};\n");
+			const moved = await currentVerificationFailure({ dir: unborn });
+			expect(moved).toBeUndefined();
 		} finally {
 			if (language === undefined) delete process.env.LC_ALL;
 			else process.env.LC_ALL = language;
 		}
-
-		expect(await currentVerificationFailure({ dir: tree })).toBeDefined();
 	});
 });
 
