@@ -47,7 +47,7 @@ import {
 	nodeServes,
 	nodeSessionsAt,
 	nodeSockets,
-	realmOf,
+	realmNamed,
 } from "../../lib/mesh/node.ts";
 import {
 	refusalFor,
@@ -127,14 +127,15 @@ export function sessionEndingInterceptor(deps: SessionEndingDeps) {
 /**
  * The machine's nodes: the one for the realm `env` names, and any other
  * realm's the machine serves. A realm named with no runtime folder to
- * find its socket in is still on the mesh, so its node reads as one
- * that can't be, and so does every node when any one can't be read.
+ * find its socket in, or one no socket's file may carry, is still on
+ * the mesh, so its node reads as one that can't be, and so does every
+ * node when any one can't be read.
  */
 export function nodeDeps(
 	env: NodeJS.ProcessEnv = process.env,
 ): SessionEndingDeps {
 	return {
-		onMesh: () => realmOf(env) !== undefined,
+		onMesh: () => realmNamed(env),
 		sessions: () =>
 			everyRealmsSessions(nodeSockets(env), async (socket) => {
 				const sessions = await nodeSessionsAt(socket);

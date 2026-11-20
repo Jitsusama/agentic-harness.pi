@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type HeldSession,
+	heldInRealm,
 	heldSessionsIn,
 	type KittyWindowSeen,
 	kittyWindowsIn,
@@ -21,6 +22,28 @@ import {
 } from "../../../../../lib/internal/quest/reopening/reopen-in-place.ts";
 
 const kitty = "unix:@kitty-1";
+
+describe("which node is asked what it holds", () => {
+	const asked = (env: NodeJS.ProcessEnv) => {
+		const realms: (string | undefined)[] = [];
+		void heldInRealm(env, async (realm) => {
+			realms.push(realm);
+			return [];
+		});
+		return realms;
+	};
+
+	it("asks the node of the realm the session names", () => {
+		expect(asked({ MYCELIUM_REALM: "work" })).toEqual(["work"]);
+	});
+
+	it("asks no node where the realm named is no name a socket's file may carry, not the machine's first", async () => {
+		const env = { MYCELIUM_REALM: "../work" };
+
+		expect(asked(env)).toEqual([]);
+		expect(await heldInRealm(env, async () => [])).toBeUndefined();
+	});
+});
 
 describe("what the node holds", () => {
 	it("reads one session a line, with its windows, and skips what it can't read", () => {

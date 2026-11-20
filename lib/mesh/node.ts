@@ -892,14 +892,16 @@ export function nodeServes(
 
 /**
  * The realm the machine's node is asked in, or nothing when none is
- * named, or the one named is no name a socket's file may carry.
+ * named, or the one named is no name a socket's file may carry; a
+ * caller that would otherwise ask the machine's first realm tells the
+ * two apart with {@link realmNamed}.
  */
 export function realmOf(
 	env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
 	// The session's own first: the node's kept realm is the machine's
 	// first, and a session in its second realm would ask the wrong node.
-	// A session naming one no folder carries joins no mesh, so asks none.
+	// A session naming one no folder carries finds no node by its name.
 	const own = env.MYCELIUM_REALM?.trim();
 	if (own) return isRealmName(own) ? own : undefined;
 	const state = env.XDG_STATE_HOME || join(homedir(), ".local", "state");
@@ -910,4 +912,20 @@ export function realmOf(
 		// No node has run here yet, and the login names no realm.
 	}
 	return undefined;
+}
+
+/**
+ * Whether `env` names a realm at all, as {@link realmOf} reads one,
+ * though the one named may be no name a socket's file can carry: a
+ * guard that fails closed off the mesh asks this, so a malformed name
+ * finds no node and refuses, rather than reading as no mesh.
+ */
+export function realmNamed(env: NodeJS.ProcessEnv = process.env): boolean {
+	if (env.MYCELIUM_REALM?.trim()) return true;
+	const state = env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+	try {
+		return readFileSync(join(state, "mycelium", "realm"), "utf8").trim() !== "";
+	} catch {
+		return false;
+	}
 }

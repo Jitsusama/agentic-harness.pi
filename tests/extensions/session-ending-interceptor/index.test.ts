@@ -723,6 +723,27 @@ describe("the node the interceptor reads by default", () => {
 		}
 	});
 
+	it("is on the mesh where a realm is named that no socket's file may carry, so its sessions can't be read", async () => {
+		const state = empty();
+		try {
+			const run = join(state, "run");
+			mkdirSync(join(run, "mycelium"), { recursive: true });
+			const deps = nodeDeps({
+				MYCELIUM_REALM: "../work",
+				XDG_STATE_HOME: state,
+				XDG_RUNTIME_DIR: run,
+			});
+
+			expect(deps.onMesh(), "a malformed realm still names one").toBe(true);
+			expect(
+				await deps.sessions(),
+				"its node's sessions can't be read, so an ask is refused",
+			).toBeUndefined();
+		} finally {
+			rmSync(state, { recursive: true, force: true });
+		}
+	});
+
 	it("reads the sessions of every realm's node on the machine", async () => {
 		const state = empty();
 		const run = join(state, "run");
