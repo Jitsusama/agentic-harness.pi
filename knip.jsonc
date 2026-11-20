@@ -47,6 +47,7 @@
 	// Programs the machine provides, never an npm package's binaries.
 	"ignoreBinaries": [
 		"btrfs",
+		"bwrap",
 		"devx",
 		"kitty",
 		"mkfifo",

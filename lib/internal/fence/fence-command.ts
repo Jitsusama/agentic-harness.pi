@@ -7,6 +7,7 @@
  */
 
 import { quoted, SANDBOXED_COMMAND } from "../sandbox/sandbox-shell.ts";
+import type { ArgsFile } from "./fence-args-file.ts";
 import {
 	type GitHubDoor,
 	openedOutside,
@@ -31,8 +32,9 @@ const UNSET = [
 ] as const;
 
 /**
- * The descriptor bubblewrap reads its arguments file on, which it closes
- * once read, so the command inside never holds it.
+ * The descriptor bubblewrap reads its arguments file on. bubblewrap
+ * closes it once read, and the command inside closes it again before it
+ * runs, so it never holds the file whatever bubblewrap does.
  */
 const ARGS_FD = 3;
 
@@ -44,8 +46,8 @@ const ARGS_FD = 3;
  * `agent`, the proxy, GitHub is reached through `github`, its door,
  * `shims`, the fence's `wl-copy` and `wl-paste`, go first on
  * `PATH`, and `display`, the sandboxed display, is the one
- * `WAYLAND_DISPLAY` names, each when there is one. With `argsFile`, the
- * file holding `args` (`fence-args-file.ts`), bubblewrap reads them from
+ * `WAYLAND_DISPLAY` names, each when there is one. When `args` is the
+ * file holding them (`fence-args-file.ts`), bubblewrap reads them from
  * it, so the text stays short however many there are.
  */
 export function fencedCommand(
@@ -53,8 +55,7 @@ export function fencedCommand(
 	fence: {
 		readonly bwrap: string;
 		readonly landrun: string;
-		readonly args: readonly string[];
-		readonly argsFile?: string;
+		readonly args: readonly string[] | ArgsFile;
 		readonly rules: readonly string[];
 		readonly door?: string;
 		readonly agent?: string;
@@ -72,7 +73,10 @@ export function fencedCommand(
 		...(fence.shims ? ["PATH"] : []),
 		SANDBOXED_COMMAND,
 	].join("|");
-	const run = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
+	const file = "path" in fence.args ? fence.args.path : undefined;
+	const inline = "path" in fence.args ? [] : fence.args;
+	const closed = file ? `exec ${ARGS_FD}<&-; ` : "";
+	const run = `${closed}eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
 	const stub = pointedInside(fence.github, run);
 	return [
 		...openedOutside(fence.github),
@@ -80,9 +84,9 @@ export function fencedCommand(
 		[
 			`${SANDBOXED_COMMAND}=${quoted(command)}`,
 			quoted(fence.bwrap),
-			...(fence.argsFile
-				? [`--args ${ARGS_FD} ${ARGS_FD}<${quoted(fence.argsFile)}`]
-				: fence.args.map(quoted)),
+			...(file
+				? [`--args ${ARGS_FD} ${ARGS_FD}<${quoted(file)}`]
+				: inline.map(quoted)),
 			"--",
 			quoted(fence.landrun),
 			...fence.rules.map(quoted),

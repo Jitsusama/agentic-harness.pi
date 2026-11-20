@@ -136,13 +136,17 @@ describe("what a session asking for the fence is given", () => {
 		const fence = sandboxFor({ PI_SANDBOX: FENCE }, "linux", withDoor);
 		expect(fence).toMatchObject({ githubDoor: "/bin/pi-github-door" });
 		const home = realpathSync(mkdtempSync(join(tmpdir(), "fence-door-")));
+		// Its own runtime folder, so the arguments file is always written,
+		// and never into the machine's.
+		const run = join(home, "run");
+		mkdirSync(run);
 		const text = (session: string) =>
 			argsReadIn(
 				wrapFor(
 					fence,
 					{
 						cwd: home,
-						env: { XDG_RUNTIME_DIR: "/run/user/1000", PI_SESSION_ID: session },
+						env: { XDG_RUNTIME_DIR: run, PI_SESSION_ID: session },
 					},
 					home,
 				)?.("true") ?? "",
@@ -151,7 +155,7 @@ describe("what a session asking for the fence is given", () => {
 			"'/bin/pi-github-door' open 's-1'",
 		);
 		expect(text("s-1"), "its folder isn't bound").toContain(
-			"'--ro-bind-try' '/run/user/1000/pi-github/sessions/s-1'",
+			`'--ro-bind-try' '${run}/pi-github/sessions/s-1'`,
 		);
 		expect(
 			text("../s"),

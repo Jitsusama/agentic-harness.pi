@@ -22,6 +22,7 @@ import { fenceArgs } from "../../../../lib/internal/fence/fence.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
 import {
 	afterCheck,
+	afterCheckIn,
 	armSharedRoot,
 	disarmAll,
 	endFencedCommands,
@@ -327,6 +328,50 @@ describe("the after-check", () => {
 
 	it("logs nothing when nothing was planted", () => {
 		expect(checked("true", [join(root, "commondir")]).stdout).toBe("");
+	});
+
+	it("reads what it guards from a list file, removing and logging each plant, and says when the file is gone", () => {
+		const planted = [join(root, "commondir"), join(root, "it's gitdir")];
+		const list = join(root, "guarded-list");
+		writeFileSync(list, planted.map((path) => `${path}\0`).join(""));
+		const inBash = (script: string, file: string) =>
+			spawnSync(
+				"bash",
+				["-c", `${script}\n${afterCheck(planted, "echo logged", file)}`],
+				{ encoding: "utf8" },
+			);
+		const ran = inBash(
+			`mkdir '${planted[0]}'; touch "${planted[1]}"; (exit 4)`,
+			list,
+		);
+		expect(ran.status, "the command's status").toBe(4);
+		expect(
+			planted.filter((path) => existsSync(path)),
+			"a plant stayed",
+		).toEqual([]);
+		expect(ran.stdout).toBe("logged\nlogged\n");
+		const text = afterCheck(planted, "echo logged", list);
+		expect(text, "a guarded path went in the text").not.toContain("commondir");
+		const gone = inBash("true", join(root, "no-such-list"));
+		expect(gone.status).toBe(0);
+		expect(gone.stderr).toContain("couldn't read the list of git folders");
+	});
+
+	it("puts what it guards in a file in the session's runtime folder, and inline only without one", () => {
+		const runtimeDir = join(root, "run");
+		mkdirSync(runtimeDir, { recursive: true });
+		const planted = join(root, "commondir");
+		const text = afterCheckIn(runtimeDir, [planted], "echo logged");
+		expect(text, "the guarded path went in the text").not.toContain(planted);
+		const ran = spawnSync("bash", ["-c", `mkdir '${planted}'\n${text}`], {
+			encoding: "utf8",
+		});
+		expect(existsSync(planted), "the plant").toBe(false);
+		expect(ran.stdout).toBe("logged\n");
+		expect(afterCheckIn(undefined, [planted], "echo logged")).toContain(
+			planted,
+		);
+		expect(afterCheckIn(runtimeDir, [], "echo logged")).toBe("");
 	});
 });
 
