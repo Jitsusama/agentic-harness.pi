@@ -38,6 +38,14 @@
  * show, an answer or a tool's result, and is told it was cut off if,
  * idle and with nothing typed, it never did.
  *
+ * A host's run is carried from its own record, whatever ended the last
+ * host, so a hosted log that stops mid-run waits the same way. On 20
+ * November the 04:35 restart killed runs wedged since 03:03 and 04:11,
+ * leaving no record. The next host carried each on at once, yet each
+ * was queued "nothing has resumed it since", and was told so up to two
+ * hours later, at its first idle moment. A log plain pi left so, opened
+ * in a host that has no run to carry, is told once the wait is up.
+ *
  * A move back to plain pi that waited too long on a run ends it at its
  * turn's end and leaves the same record, naming itself as what ended it
  * (mesh-workflow moving.ts), so plain pi is told the move stopped it,
@@ -118,7 +126,8 @@ function roleOf(entry: unknown): string | undefined {
  * Whether a session's history says it was cut off and nothing has
  * taken it up since: what was under way, or nothing. Returning in a
  * host, a run its host carries on has been taken up, so only a job dead
- * with it counts; elsewhere nothing carries it.
+ * with it counts, and a log that stops mid-run is a run the host
+ * carries on; elsewhere nothing carries it.
  */
 export function cutOffIn(
 	branch: readonly unknown[],
@@ -140,7 +149,7 @@ export function cutOffIn(
 			return data.jobs.length === 0 ? undefined : data;
 		}
 	}
-	return killedIn(branch);
+	return returnsInHost ? undefined : killedIn(branch);
 }
 
 /**
@@ -161,14 +170,16 @@ export function leftDead(
 }
 
 /**
- * The record of a run a host carried on with no job dead with it, and
- * nothing typed since: told nothing on the return, since the next host
- * takes the run up, but owed a notice if that run never shows.
+ * The run a host carries on with no job dead with it, and nothing typed
+ * since, from its record or from a log that stops mid-run: told nothing
+ * on the return, since the next host takes the run up, but owed a
+ * notice if that run never shows.
  */
 export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
-		if (roleOf(entry) === "user") return undefined;
+		// A prompt since the record took it up; a later kill is read below.
+		if (roleOf(entry) === "user") break;
 		if (
 			field(entry, "type") === "custom" &&
 			field(entry, "customType") === CUT_OFF_ENTRY
@@ -179,16 +190,22 @@ export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
 				: undefined;
 		}
 	}
-	return undefined;
+	return killedIn(branch);
 }
 
 /**
- * Whether the run a host carried on has shown since its record: an
+ * Whether the run a host carried on has shown since its record, or
+ * since `since`, the branch's length as the session returned: an
  * answer or a tool's result. A failed answer is no run: on 14 November
- * a reboot's next host failed a carried run it had cut mid-answer.
+ * a reboot's next host failed a carried run it had cut mid-answer. A
+ * log that stops mid-run ends on a tool call or result of its own, so
+ * only what came after the return counts.
  */
-export function carriedRunShowed(branch: readonly unknown[]): boolean {
-	for (let i = branch.length - 1; i >= 0; i--) {
+export function carriedRunShowed(
+	branch: readonly unknown[],
+	since = 0,
+): boolean {
+	for (let i = branch.length - 1; i >= since; i--) {
 		const entry = branch[i];
 		if (field(entry, "customType") === CUT_OFF_ENTRY) return false;
 		const role = roleOf(entry);

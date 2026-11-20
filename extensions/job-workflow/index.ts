@@ -29,6 +29,7 @@ import {
 	withSession,
 } from "../../lib/core/session/index.ts";
 import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
+import type { CutOff } from "../../lib/internal/session/cut-off-record.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { jobIdsIn } from "../../lib/jobs/report.ts";
@@ -219,13 +220,19 @@ function awaitCarriedRun(
 ): ReturnType<typeof setTimeout> | undefined {
 	if (hosted() === undefined) return undefined;
 	const branch = branchOf(ctx);
-	if (branch === undefined || carriedRunIn(branch) === undefined)
-		return undefined;
+	const cut = branch === undefined ? undefined : carriedRunIn(branch);
+	if (branch === undefined || cut === undefined) return undefined;
+	// Only what comes after the return shows the run: a log that stops
+	// mid-run ends on a tool call or result of its own.
+	const since = branch.length;
 	// A host routes what the session says by the conversation it runs in,
 	// which a timer's callback must name again.
 	const key = sessionKeyOf(ctx);
 	const timer = setTimeout(
-		() => withSession(key, () => tellIfCarriedRunLost(opened, ctx, current)),
+		() =>
+			withSession(key, () =>
+				tellIfCarriedRunLost(opened, ctx, current, { cut, since }),
+			),
 		CARRIED_RUN_WAIT_MS,
 	);
 	// The wait never holds a host up that is otherwise ready to end.
@@ -233,17 +240,23 @@ function awaitCarriedRun(
 	return timer;
 }
 
-/** Tell an idle session its carried run never showed, if it still hasn't. */
+/**
+ * Tell an idle session its carried run, the `cut` found as it returned
+ * with a branch `since` long, never showed, if it still hasn't and
+ * nothing has been typed since.
+ */
 function tellIfCarriedRunLost(
 	opened: JobSession,
 	ctx: ExtensionContext,
 	current: () => JobSession | undefined,
+	returned: { readonly cut: CutOff; readonly since: number },
 ): void {
 	if (current() !== opened || !idle(ctx)) return;
 	const branch = branchOf(ctx);
-	if (branch === undefined || carriedRunShowed(branch)) return;
-	const cut = carriedRunIn(branch);
-	if (cut === undefined) return;
+	if (branch === undefined) return;
+	if (carriedRunShowed(branch, returned.since)) return;
+	if (carriedRunIn(branch) === undefined) return;
+	const { cut } = returned;
 	opened.outbox.post({
 		jobId: "cut-off",
 		label: "the machine ended this session",
