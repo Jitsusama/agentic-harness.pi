@@ -135,7 +135,7 @@ describe("sprouting", () => {
 			missing: true,
 		});
 		const answer = await sprout({ words: "tea" }, "/", run);
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		expect(!answer.ok && answer.reason).toMatch(/mycelium isn't installed/u);
 	});
 
@@ -153,7 +153,7 @@ describe("sprouting", () => {
 	it("refuses words that are only blank without running anything", async () => {
 		const { run, asked } = answering({ code: 0, stdout: STARTED, stderr: "" });
 		const answer = await sprout({ words: "  " }, "/", run);
-		expect(answer.ok).toBe(false);
+		expect(answer).toMatchObject({ ok: false });
 		expect(asked).toEqual([]);
 	});
 });

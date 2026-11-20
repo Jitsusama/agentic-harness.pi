@@ -15,13 +15,13 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { aliasAdd } from "../../lib/core/quest/verbs/alias.ts";
-import type { QuestResult } from "../../lib/core/quest/verbs/shared.ts";
+import { aliasAdd } from "../../../lib/core/quest/verbs/alias.ts";
+import type { QuestResult } from "../../../lib/core/quest/verbs/shared.ts";
 import {
 	buildAliasIndex,
 	lookupAliasDetail,
-} from "../../lib/internal/quest/creation/alias-index.ts";
-import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
+} from "../../../lib/internal/quest/creation/alias-index.ts";
+import { discoverQuests } from "../../../lib/internal/quest/discovery/discovery.ts";
 import {
 	type SproutSeed,
 	sproutAlias,
@@ -30,11 +30,11 @@ import {
 	type Tied,
 	tieArguments,
 	titleFromWords,
-} from "../../lib/internal/quest/sessions/sprout-seed.ts";
-import { type RunProgram, runProgram } from "../../lib/mesh/sprout.ts";
-import { pendingWords } from "./lifecycle.ts";
-import type { QuestState } from "./state.ts";
-import { create } from "./verbs/lifecycle.ts";
+} from "../../../lib/internal/quest/sessions/sprout-seed.ts";
+import { type RunProgram, runProgram } from "../../../lib/mesh/sprout.ts";
+import { pendingWords } from "../lifecycle.ts";
+import type { QuestState } from "../state.ts";
+import { create } from "../verbs/lifecycle.ts";
 
 /** How long a tie to the map may take before the start goes on without it. */
 const TIE_PATIENCE_MS = 15_000;

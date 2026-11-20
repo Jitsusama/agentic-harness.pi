@@ -85,8 +85,8 @@ describe("a sprouted quest's title", () => {
 	it("is cut at a word when the words run long", () => {
 		const title = titleFromWords(`tidy ${"the rows ".repeat(20)}`);
 		expect(title.length).toBeLessThanOrEqual(72);
-		expect(title.endsWith(" ")).toBe(false);
-		expect(title.startsWith("Tidy the rows")).toBe(true);
+		expect(title).not.toMatch(/ $/);
+		expect(title).toMatch(/^Tidy the rows/);
 	});
 });
 

@@ -15,7 +15,7 @@ import {
 import {
 	type Create,
 	startSprouted,
-} from "../../../../extensions/quest-workflow/sprout-start.ts";
+} from "../../../../extensions/quest-workflow/sessions/sprout-start.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { create } from "../../../../extensions/quest-workflow/verbs/lifecycle.ts";
 import {
@@ -113,7 +113,7 @@ describe("a sprouted session's start", () => {
 			id: "S1",
 		});
 		expect(source).toBe("sprout");
-		expect(state.questId).toBeTruthy();
+		expect(state.questId).toMatch(/^QEST-/);
 		expect(sproutedQuest("S1")).toBe(state.questId);
 		expect(words).toMatch(/is made and loaded for it from the person's words/u);
 		expect(words).not.toMatch(/quest create/u);
@@ -131,7 +131,7 @@ describe("a sprouted session's start", () => {
 			url: "https://github.com/o/r/pull/1",
 			note: "this one",
 		});
-		expect(state.questId).toBeTruthy();
+		expect(state.questId).toMatch(/^QEST-/);
 		expect(words).toMatch(/from https:\/\/github\.com\/o\/r\/pull\/1/u);
 	});
 
@@ -165,7 +165,7 @@ describe("a sprouted session's start", () => {
 			{ words: "tea", from: "TERN02" },
 			{ run: async () => ({ code: 1, stdout: "", stderr: "no such cell\n" }) },
 		);
-		expect(state.questId).toBeTruthy();
+		expect(state.questId).toMatch(/^QEST-/);
 		expect(words).toMatch(/failed \(no such cell\); run `mycelium web /u);
 	});
 
@@ -183,14 +183,14 @@ describe("a sprouted session's start", () => {
 			from: "TERN02 --how x",
 		});
 		expect(source).not.toBe("sprout");
-		expect(state.questId).toBeFalsy();
+		expect(state.questId, "a start with no seed made a quest").toBeFalsy();
 		expect(questIds()).toEqual([]);
 		expect(words).toBe("the node's prose");
 	});
 
 	it("leaves the prose path when there is no seed", async () => {
 		const { state, words } = await start(undefined);
-		expect(state.questId).toBeFalsy();
+		expect(state.questId, "a start with no seed made a quest").toBeFalsy();
 		expect(words).toBe("the node's prose");
 	});
 });

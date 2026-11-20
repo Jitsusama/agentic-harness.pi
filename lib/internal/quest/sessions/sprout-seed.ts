@@ -11,6 +11,8 @@
  * read with the other launch hints (lib/core/session/env.ts).
  */
 
+import { isRecord } from "../../record.ts";
+
 /** The one shape of it this reads. */
 const SPROUT_VERSION = 1;
 
@@ -36,11 +38,6 @@ export interface SproutSeed {
 	readonly from?: string;
 	/** The sprout's own id, which makes it once only. */
 	readonly id?: string;
-}
-
-/** Whether `value` is a plain object, to read fields off. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Whether `text` is an http or https URL. */

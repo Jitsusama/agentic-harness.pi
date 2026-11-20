@@ -64,7 +64,7 @@ import {
 	stopHeartbeat,
 	trackSession,
 } from "../session-registry.ts";
-import { hushReplayedSprout, startSprouted } from "../sprout-start.ts";
+import { hushReplayedSprout, startSprouted } from "../sessions/sprout-start.ts";
 import type { QuestState } from "../state.ts";
 import { currentSessionId, isPersistedSession } from "../verbs/shared.ts";
 import { keepQuestWeights } from "../weights.ts";

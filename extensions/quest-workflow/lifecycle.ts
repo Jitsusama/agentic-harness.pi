@@ -425,7 +425,7 @@ export function resolveStartup(
 	if (restoreFromRecord(state, pi, ctx)) {
 		return { source: "record", questId: state.questId };
 	}
-	// A sprout makes its own quest (sprout-start.ts), so it never takes
+	// A sprout makes its own quest (sessions/sprout-start.ts), so it never takes
 	// on the quest of whatever tree it was started in.
 	if (sproutSeedFrom(hints.sprout)) {
 		return { source: "sprout", questId: null };
