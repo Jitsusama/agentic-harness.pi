@@ -68,15 +68,21 @@ import {
 	guardsGitFolder,
 	nixDoor,
 } from "../fence/fence.ts";
+import {
+	type ArgsFile,
+	BWRAP_MOST_ARGS,
+	bwrapArgsFile,
+	guardedListFile,
+} from "../fence/fence-args-file.ts";
 import { fenceShims } from "../fence/fence-clipboard.ts";
-import { fencedCommand } from "../fence/fence-command.ts";
+import { bwrapWords, fencedCommand } from "../fence/fence-command.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
 import { dockerHoldsCredentials } from "../fence/fence-docker.ts";
 import {
-	afterCheck,
 	guardedFolders,
 	guardedIn,
 	plantStopped,
+	withAfterCheckIn,
 } from "../fence/fence-git-root.ts";
 import { githubDoorFolder } from "../fence/fence-github.ts";
 import { foldersMadeFirst, OWN_HOMES } from "../fence/fence-home.ts";
@@ -131,6 +137,32 @@ export function gitRules(
 
 /** What a session's own refusal of its folder names as refusing. */
 const ASKED = `${SANDBOX_VARIABLE}=${STRICT}`;
+/**
+ * The longest fenced command text that starts: Linux takes 128 KiB in one
+ * string (MAX_ARG_STRLEN), less room for the variable's name pi's shell
+ * passes it under, and the lines the machine's queue and the move into
+ * jobs put around it after it is wrapped.
+ */
+const LONGEST_TEXT = 128 * 1024 - 4 * 1024;
+
+/**
+ * Why a fenced command's `text` is refused as too long: the fence's lists
+ * written into it, when pi's runtime folder couldn't hold them, or else
+ * the `command` itself.
+ */
+function tooLong(
+	text: string,
+	command: string,
+	args: readonly string[] | ArgsFile,
+	listedInline: boolean,
+): string {
+	const own = Buffer.byteLength(command);
+	const said = `The fenced command's text is ${Buffer.byteLength(text)} bytes, past the ${LONGEST_TEXT} Linux passes in one string, ${own} of them the command's own`;
+	// The lists are blamed only when they, not the command, are most of it.
+	return (!("path" in args) || listedInline) && own < LONGEST_TEXT / 2
+		? `${said}, since pi's runtime folder couldn't hold the fence's lists; check that XDG_RUNTIME_DIR names a folder pi can write, and that it isn't full.`
+		: `${said}; put it in a script and run that.`;
+}
 /** The Nix daemon's door for sandboxes, in the account's runtime folder. */
 export const NIX_DOOR = "nix-untrusted.sock";
 
@@ -687,10 +719,13 @@ export function wrapFor(
 			// Never waited on: a command started first finds what the own
 			// homes held already.
 			void seedOwnHomes(home, own);
+			const args = fenceArgs(fence);
 			const made = {
 				bwrap: sandbox.bwrap,
 				landrun: sandbox.landrun,
-				args: fenceArgs(fence),
+				// Read from a file, since in the text they can pass the 128 KiB
+				// Linux takes in one string; in it only where no file can be had.
+				args: bwrapArgsFile(fence.runtimeDir, args) ?? args,
 				rules: fenceRules(fence),
 				door: nixDoor(fence.runtimeDir),
 				agent: agentProxy(fence.runtimeDir),
@@ -704,6 +739,14 @@ export function wrapFor(
 				],
 				...(github ? { github } : {}),
 			};
+			// Said only for a command the fence would run, never one sent
+			// outside it. Those it can count are counted here; the shell
+			// counts the variables it passes as well, before bubblewrap starts.
+			const counted = bwrapWords(made);
+			const tooMany =
+				counted > BWRAP_MOST_ARGS
+					? `The fence would hand bubblewrap at least ${counted} arguments, past the ${BWRAP_MOST_ARGS} it takes; they grow with the trees this session holds, so release the ones it is done with.`
+					: undefined;
 			return (command) => {
 				const out = offloadedOutside(command, sandbox.offload, {
 					home,
@@ -716,17 +759,31 @@ export function wrapFor(
 				if (out !== undefined) return out;
 				const keptIn = sandbox.offload ? offloadKeptIn(command) : undefined;
 				if (keptIn !== undefined) return refused(keptIn);
+				if (tooMany) return refused(tooMany);
 				const guarded = guardedIn(watched);
 				const planted = recordedInShell(
 					{ kind: "plant", tool: "git", sandbox: FENCE, session },
 					sandbox.logger,
 				);
-				return [
+				const text = withAfterCheckIn(
+					fence.runtimeDir,
 					fencedCommand(withSecretNote(command), made),
-					afterCheck(guarded, planted),
-				]
-					.filter(Boolean)
-					.join("\n");
+					guarded,
+					planted,
+				);
+				// What can't go in a file is said rather than left to fail with
+				// a bare E2BIG.
+				return Buffer.byteLength(text) > LONGEST_TEXT
+					? refused(
+							tooLong(
+								text,
+								command,
+								made.args,
+								guarded.length > 0 &&
+									guardedListFile(fence.runtimeDir, guarded) === undefined,
+							),
+						)
+					: text;
 			};
 		}
 		case "strict": {
