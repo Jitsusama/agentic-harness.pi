@@ -20,9 +20,7 @@
  * A branch whose tree went before its pull request merged is left by
  * that, so each checkout the records name is also searched for
  * branches trunk holds that nobody has moved for
- * {@link PUSHED_SETTLE_MS}, which go the same way. On 19 November
- * core.nix's checkout held 5,734 branches and 518 KB of config, which
- * every git command there read.
+ * {@link PUSHED_SETTLE_MS}, which go the same way (`sweep-branches.ts`).
  *
  * A session can take a spent tree up again at any moment, so the last
  * look happens under the record's own lock, where that session writes
@@ -48,8 +46,6 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
 import type { Exec } from "../exec/index.ts";
 import { type ProcessFacts, systemFacts } from "../process/index.ts";
 import type { HeldTree, TreeProvider } from "./broker.ts";
@@ -63,11 +59,8 @@ import {
 	type UseSigns,
 } from "./in-use.ts";
 import type { TreeMemory } from "./memory.ts";
-import {
-	dropMergedBranch,
-	dropSettledMergedBranches,
-	type WentBranch,
-} from "./merged-branch.ts";
+import { dropMergedBranch, type WentBranch } from "./merged-branch.ts";
+import { dropSettledBranches } from "./sweep-branches.ts";
 import {
 	type IdleSnapshot,
 	idleSnapshots,
@@ -272,8 +265,8 @@ export async function sweepEndedTrees(deps: SweepDeps): Promise<SweepOutcome> {
 		await dropSettledBranches(
 			deps,
 			[...repositories.byMain.keys()],
-			held,
-			now,
+			held.filter((tree) => tree.providerId === GIT_WORKTREE),
+			now - PUSHED_SETTLE_MS,
 			outcome,
 		);
 		const live = [...new Map(held.map((tree) => [tree.path, tree])).values()];
@@ -338,63 +331,6 @@ async function dropIdleRoots(
 		}
 		const roots = dropIdleDevShellRoots(tree.path, now);
 		if (roots > 0) outcome.dropped.push({ path: tree.path, roots });
-	}
-}
-
-/**
- * Drop the settled branches origin's trunk holds in every checkout a
- * record names: those whose trees this sweep judged, and those of trees
- * still held, whose checkouts gather branches from trees released
- * before their pull request merged.
- */
-async function dropSettledBranches(
-	deps: SweepDeps,
-	judged: readonly string[],
-	held: readonly HeldTree[],
-	now: number,
-	outcome: SweepOutcome,
-): Promise<void> {
-	const mains = new Set(judged);
-	const asked = new Set<string>();
-	for (const tree of held) {
-		if (tree.providerId !== GIT_WORKTREE || asked.has(tree.path)) continue;
-		asked.add(tree.path);
-		const main =
-			checkoutNamedBy(tree.path) ??
-			(await mainCheckoutOf(deps.exec, tree.path));
-		if (main !== undefined) mains.add(main);
-	}
-	for (const main of mains) {
-		const went = await dropSettledMergedBranches(
-			deps.exec,
-			main,
-			now - PUSHED_SETTLE_MS,
-		);
-		if (went.length > 0) outcome.branches.push({ checkout: main, went });
-	}
-}
-
-/**
- * The main checkout a worktree was cut from, as its `.git` file and its
- * git folder's `commondir` say, or nothing where they can't be read.
- * Read from the files rather than asked of git, since every sweep asks
- * it of every held tree, hundreds on a busy machine.
- */
-function checkoutNamedBy(tree: string): string | undefined {
-	try {
-		const said = /^gitdir: (.+)$/m.exec(
-			readFileSync(join(tree, ".git"), "utf8"),
-		)?.[1];
-		if (said === undefined) return undefined;
-		const gitDir = resolve(tree, said.trim());
-		const common = resolve(
-			gitDir,
-			readFileSync(join(gitDir, "commondir"), "utf8").trim(),
-		);
-		return basename(common) === ".git" ? dirname(common) : common;
-	} catch {
-		// No `.git` file or no `commondir`: git is asked instead.
-		return undefined;
 	}
 }
 
