@@ -67,9 +67,10 @@ export type Beginning = Extract<ControlRequest, { op: "open" | "adopt" }>;
 export interface ChildSupervisor {
 	/**
 	 * Run a held conversation in a child of its own, settling once the
-	 * child has it, or with the one already running it.
+	 * child has it, or with the one already running it: `woken` when a
+	 * wake of its park asked for it.
 	 */
-	resume(entry: RosterEntry): Promise<SessionIdentity>;
+	resume(entry: RosterEntry, woken?: boolean): Promise<SessionIdentity>;
 	/**
 	 * Start a conversation in a child of its own, settling with the
 	 * child's answer to `request` as the caller is told it.
@@ -223,9 +224,10 @@ export function childSupervisor(options: {
 	async function inSlot<T>(
 		slot: Slot,
 		session: RosterEntry | undefined,
+		woken: boolean,
 		work: () => Promise<T>,
 	): Promise<T> {
-		await writeSlot(slot, session);
+		await writeSlot(slot, session, woken);
 		try {
 			await units.start(slot.unit);
 			return await work();
@@ -236,13 +238,21 @@ export function childSupervisor(options: {
 		}
 	}
 
-	function started(entry: RosterEntry): Promise<SessionIdentity> {
+	function started(
+		entry: RosterEntry,
+		woken: boolean,
+	): Promise<SessionIdentity> {
 		const slot = slotOf(options.folder, options.key, entry.sessionId);
-		return inSlot(slot, entry, async () => (await watch(slot)).conversation);
+		return inSlot(
+			slot,
+			entry,
+			woken,
+			async () => (await watch(slot)).conversation,
+		);
 	}
 
 	return {
-		resume(entry) {
+		resume(entry, woken = false) {
 			const { sessionId } = entry;
 			const running = routes
 				.listed()
@@ -250,7 +260,9 @@ export function childSupervisor(options: {
 			if (running) return Promise.resolve(running);
 			const already = starting.get(sessionId);
 			if (already) return already;
-			const start = started(entry).finally(() => starting.delete(sessionId));
+			const start = started(entry, woken).finally(() =>
+				starting.delete(sessionId),
+			);
 			starting.set(sessionId, start);
 			return start;
 		},
@@ -259,7 +271,7 @@ export function childSupervisor(options: {
 			// The caller named this host, which checked it; the child has no
 			// identity the caller could know yet.
 			const { expectedHost: _checked, ...asked } = request;
-			return inSlot(slot, undefined, async () => {
+			return inSlot(slot, undefined, false, async () => {
 				const child = await once(
 					() => reach(slot.socket),
 					withinMs,
