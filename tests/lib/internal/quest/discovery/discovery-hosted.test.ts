@@ -21,12 +21,18 @@ import {
 	discoverQuests,
 	discoverQuestsAfresh,
 	discoverySettled,
+	type DiscoveryResult,
+	readyQuests,
 	refreshQuests,
 } from "../../../../../lib/internal/quest/discovery/discovery.ts";
-import { atomicWriteFile } from "../../../../../lib/internal/quest/io.ts";
+import {
+	atomicWriteFile,
+	withQuestLock,
+} from "../../../../../lib/internal/quest/io.ts";
 import { installTestHost } from "../../../../support/session-host.ts";
 import {
 	ID,
+	plan,
 	readme,
 	settle,
 	settledTree,
@@ -41,6 +47,7 @@ vi.mock("node:fs", async (importOriginal) => {
 		readdirSync: vi.fn(actual.readdirSync),
 		realpathSync: vi.fn(actual.realpathSync),
 		statSync: vi.fn(actual.statSync),
+		lstatSync: vi.fn(actual.lstatSync),
 	};
 });
 
@@ -104,6 +111,7 @@ const reads = vi.mocked(fs.readFileSync);
 const listings = vi.mocked(fs.readdirSync);
 const reals = vi.mocked(fs.realpathSync);
 const stats = vi.mocked(fs.statSync);
+const linkStats = vi.mocked(fs.lstatSync);
 
 const OTHER = "QEST-20260604-CCC333";
 
@@ -125,7 +133,9 @@ function syncCalls(but: readonly string[] = []): unknown[] {
 		...reads.mock.calls,
 		...listings.mock.calls,
 		...reals.mock.calls,
-		...stats.mock.calls.filter(([path]) => !but.includes(String(path))),
+		...[...stats.mock.calls, ...linkStats.mock.calls].filter(
+			([path]) => !but.includes(String(path)),
+		),
 	];
 }
 
@@ -138,6 +148,7 @@ function touching(dir: string): unknown[] {
 		...listings.mock.calls,
 		...reals.mock.calls,
 		...stats.mock.calls,
+		...linkStats.mock.calls,
 	].filter(([path]) => inside(path));
 }
 
@@ -161,6 +172,31 @@ function clearCalls(): void {
 	listings.mockClear();
 	reals.mockClear();
 	stats.mockClear();
+	linkStats.mockClear();
+}
+
+/**
+ * What a walk found, in an order of its own: the quests with their
+ * status, parent and documents, each parent's children, and the errors.
+ */
+function shapeOf({ index, errors }: DiscoveryResult): unknown {
+	const byText = (a: string, b: string) => a.localeCompare(b);
+	return {
+		quests: [...index.quests.values()]
+			.map((entry) => ({
+				id: entry.doc.frontMatter.id,
+				status: entry.doc.frontMatter.status,
+				parent: entry.doc.frontMatter.parent ?? null,
+				documents: entry.documents.map((doc) => doc.path).sort(byText),
+			}))
+			.sort((a, b) => byText(a.id, b.id)),
+		children: [...index.children]
+			.map(([parent, ids]) => [parent, [...ids].sort(byText)])
+			.sort((a, b) => byText(String(a[0]), String(b[0]))),
+		errors: errors
+			.map((error) => `${error.path}: ${error.message}`)
+			.sort(byText),
+	};
 }
 
 /** Move the clock past when a host signs a known tree again. */
@@ -264,7 +300,7 @@ describe("discovery on a host", () => {
 		expect(statusNow()).toBe("active");
 	});
 
-	it("answers the last walk after a minute unasked, and signs again off the thread", async () => {
+	it("answers an ask that can't wait from the last walk after a minute unasked, and signs again off the thread", async () => {
 		discoverQuests(root);
 		writeSettled(readmePath, readme("paused"));
 		later(61_000);
@@ -567,6 +603,146 @@ describe("discovery on a host", () => {
 		expect(statusNow(), "the write it overtook").toBe("paused");
 		expect(touching(join(root, OTHER))).toEqual([]);
 		expect(signing.walks, "walks of the tree").toBe(1);
+	});
+
+	it("reads the root's entry again for a write misplaced in a quest inside another", () => {
+		discoverQuests(root);
+		const nested = join(root, ID, OTHER);
+		mkdirSync(nested);
+		atomicWriteFile(
+			join(nested, "README.md"),
+			readme("active").replaceAll(ID, OTHER),
+		);
+		const said = discoverQuests(root).errors.map((error) => error.message);
+		expect(said.join("\n")).toContain("Nested quest");
+	});
+
+	it("keeps one copy of an entry's errors under a root named with a trailing slash", () => {
+		const bare = join(root, "QEST-20260604-DDD444");
+		mkdirSync(bare);
+		settle(bare);
+		settle(root);
+		const slashed = `${root}/`;
+		discoverQuests(slashed);
+		atomicWriteFile(join(bare, "notes.txt"), "one\n");
+		discoverQuests(slashed);
+		atomicWriteFile(join(bare, "notes.txt"), "two\n");
+		const { errors } = discoverQuests(slashed);
+		const ofBare = errors.filter((error) => error.path.startsWith(bare));
+		expect(ofBare.map((error) => error.message)).toEqual([
+			"README.md missing",
+		]);
+	});
+
+	it("reads a quest folder removed and put back under its name by the next signing", async () => {
+		settledOther();
+		discoverQuests(root);
+		rmSync(join(root, OTHER), { recursive: true });
+		mkdirSync(join(root, OTHER));
+		writeSettled(
+			join(root, OTHER, "README.md"),
+			readme("paused").replaceAll(ID, OTHER),
+		);
+		settle(join(root, OTHER));
+		discoverQuests(root);
+		await discoverySettled(root);
+		expect(otherStatus()).toBe("paused");
+	});
+
+	it("signs the tree again once more writes came than its log keeps", () => {
+		const elsewhere = mkdtempSync(join(tmpdir(), "elsewhere-"));
+		try {
+			discoverQuests(root);
+			writeSettled(readmePath, readme("paused"));
+			// The log keeps 4,096 writes: that many outside any quest are
+			// placed, and read nothing again.
+			for (let at = 0; at < 4_096; at++) withQuestLock(elsewhere, () => at);
+			expect(statusNow(), "every write placed").toBe("active");
+			for (let at = 0; at <= 4_096; at++) withQuestLock(elsewhere, () => at);
+			expect(statusNow(), "one past what the log keeps").toBe("paused");
+		} finally {
+			rmSync(elsewhere, { recursive: true, force: true });
+		}
+	});
+
+	it("has an action that names its quests read them, and wait on no signing", async () => {
+		settledOther();
+		discoverQuests(root);
+		writeSettled(readmePath, readme("paused"));
+		writeSettled(
+			join(root, OTHER, "README.md"),
+			readme("paused").replaceAll(ID, OTHER),
+		);
+		await readyQuests(root, [ID], false);
+		expect(statusNow(), "the quest it names").toBe("paused");
+		expect(otherStatus(), "a quest it doesn't").toBe("active");
+		expect(signing.walks, "signings of the tree").toBe(0);
+	});
+
+	it("has an action across other quests wait on the whole tree signed afresh", async () => {
+		settledOther();
+		discoverQuests(root);
+		writeSettled(
+			join(root, OTHER, "README.md"),
+			readme("paused").replaceAll(ID, OTHER),
+		);
+		await readyQuests(root, [ID], true);
+		expect(otherStatus()).toBe("paused");
+	});
+
+	it("has an action after a minute unasked wait on the whole tree signed afresh", async () => {
+		settledOther();
+		discoverQuests(root);
+		writeSettled(
+			join(root, OTHER, "README.md"),
+			readme("paused").replaceAll(ID, OTHER),
+		);
+		later(61_000);
+		await readyQuests(root, [ID], false);
+		expect(otherStatus()).toBe("paused");
+	});
+
+	it("has an action on a document the last walk never found wait on a signing", async () => {
+		settledOther();
+		discoverQuests(root);
+		const id = "PLAN-20260604-CCC333";
+		mkdirSync(join(root, OTHER, "plans"));
+		writeSettled(
+			join(root, OTHER, "plans", `${id}.md`),
+			plan("Made Elsewhere", id).replaceAll(ID, OTHER),
+		);
+		await readyQuests(root, [id], false);
+		const quest = discoverQuests(root).index.quests.get(OTHER);
+		expect(quest?.documents.map((doc) => doc.path)).toContain(
+			join(root, OTHER, "plans", `${id}.md`),
+		);
+	});
+
+	it("brings a walk up to date as a whole walk of the tree finds it", () => {
+		settledOther();
+		discoverQuests(root);
+		const third = "QEST-20260604-EEE555";
+		atomicWriteFile(
+			join(root, OTHER, "README.md"),
+			readme("paused")
+				.replaceAll(ID, OTHER)
+				.replace("parent: null", `parent: ${ID}`),
+		);
+		mkdirSync(join(root, third));
+		atomicWriteFile(
+			join(root, third, "README.md"),
+			readme("active").replaceAll(ID, third),
+		);
+		mkdirSync(join(root, "QEST-20260604-DDD444"));
+		atomicWriteFile(
+			join(root, ID, "plans", "PLAN-20260604-CCC333.md"),
+			plan("Another", "PLAN-20260604-CCC333"),
+		);
+		const caught = shapeOf(discoverQuests(root));
+		host?.dispose();
+		host = undefined;
+		clearDiscoveryCache();
+		expect(caught).toEqual(shapeOf(discoverQuests(root)));
 	});
 
 	it("signs afresh off the thread when asked to wait for it", async () => {

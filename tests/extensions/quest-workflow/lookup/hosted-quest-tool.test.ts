@@ -1,10 +1,14 @@
 /**
  * The quest tool on a host, whose discovery answers a known tree from
- * its last walk for a few seconds: each action signs the tree first, so
- * what it reads and decides on is the tree as it stands.
+ * its last walk for a few seconds: each action reads the quests it
+ * names again first, and waits on the whole tree signed afresh when
+ * what it writes rests on quests it doesn't name, or the last walk is
+ * over a minute old, so what it reads and decides on is the tree as it
+ * stands.
  */
 
 import {
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -13,7 +17,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
 import { withSession } from "../../../../lib/core/session/index.ts";
@@ -38,6 +42,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	host.dispose();
 	clearDiscoveryCache();
 	rmSync(tmpRoot, { recursive: true, force: true });
@@ -53,6 +58,132 @@ function settleAll(path: string): void {
 	}
 	settle(path);
 }
+
+/** A quest made through the tool, by a state of its own. */
+async function made(
+	questsRoot: string,
+	title: string,
+	parent?: string,
+): Promise<{ id: string; readme: string }> {
+	const state = createQuestState({ questsRoot });
+	const kind = parent ? "subquest" : undefined;
+	const result = await withSession("a", () =>
+		handle(state, fakePi(), fakeCtx(tmpRoot, "a"), {
+			action: "create",
+			title,
+			parent,
+			kind,
+		}),
+	);
+	if (!result.ok) throw new Error(result.guidance);
+	const id = state.questId ?? "";
+	return { id, readme: join(state.questDir ?? "", "README.md") };
+}
+
+/** Give a quest a parent as another process would: on disk, uncounted. */
+function parentedElsewhere(readmePath: string, parent: string): void {
+	const text = readFileSync(readmePath, "utf8").replace(
+		/^kind: quest$/m,
+		"kind: subquest",
+	);
+	const next = /^parent:/m.test(text)
+		? text.replace(/^parent:.*$/m, `parent: ${parent}`)
+		: text.replace(/^kind: subquest$/m, `kind: subquest\nparent: ${parent}`);
+	writeFileSync(readmePath, next);
+	settle(readmePath);
+}
+
+/** Move the clock past how old a walk an action acts on may be. */
+function aMinuteOn(): void {
+	const now = Date.now();
+	vi.spyOn(Date, "now").mockReturnValue(now + 61_000);
+}
+
+it("refuses a cycle through a quest the action doesn't name, made elsewhere since", async () => {
+	const questsRoot = join(tmpRoot, "quests");
+	const alpha = await made(questsRoot, "Alpha");
+	const gamma = await made(questsRoot, "Gamma");
+	const beta = await made(questsRoot, "Beta", gamma.id);
+	settleAll(questsRoot);
+	expect([...discoverQuests(questsRoot).index.quests.keys()]).toContain(
+		beta.id,
+	);
+
+	parentedElsewhere(gamma.readme, alpha.id);
+	const state = createQuestState({ questsRoot });
+	const result = await withSession("a", () =>
+		handle(state, fakePi(), fakeCtx(tmpRoot, "a"), {
+			action: "reparent",
+			id: alpha.id,
+			parent: beta.id,
+		}),
+	);
+
+	expect(result.ok, "Alpha under Beta, under Gamma, under Alpha").toBe(false);
+	expect(readFileSync(alpha.readme, "utf8")).not.toContain(beta.id);
+});
+
+it("finds a document another process made in another quest since the last walk", async () => {
+	const questsRoot = join(tmpRoot, "quests");
+	const alpha = await made(questsRoot, "Alpha");
+	const beta = await made(questsRoot, "Beta");
+	settleAll(questsRoot);
+	expect([...discoverQuests(questsRoot).index.quests.keys()]).toContain(
+		beta.id,
+	);
+
+	const planId = "PLAN-20260604-CCC333";
+	const plans = join(beta.readme, "..", "plans");
+	mkdirSync(plans, { recursive: true });
+	const planPath = join(plans, `${planId}.md`);
+	writeFileSync(
+		planPath,
+		`---\nid: ${planId}\nkind: plan\nquest: ${beta.id}\nstage: think\n` +
+			"updated: 2026-06-04\n---\n\n# Made Elsewhere\n",
+	);
+	settle(planPath);
+	const state = createQuestState({ questsRoot });
+	state.questId = alpha.id;
+	const shown = await withSession("a", () =>
+		handle(state, fakePi(), fakeCtx(tmpRoot, "a"), {
+			action: "show",
+			id: planId,
+		}),
+	);
+
+	expect(shown.ok ? "shown" : shown.guidance).toBe("shown");
+});
+
+it("acts on the whole tree as it stands after a minute unasked", async () => {
+	const questsRoot = join(tmpRoot, "quests");
+	const alpha = await made(questsRoot, "Alpha");
+	const beta = await made(questsRoot, "Beta");
+	settleAll(questsRoot);
+	expect([...discoverQuests(questsRoot).index.quests.keys()]).toContain(
+		beta.id,
+	);
+
+	const text = readFileSync(beta.readme, "utf8");
+	writeFileSync(
+		beta.readme,
+		text.replace(/^priority: \w+$/m, "priority: queued"),
+	);
+	settle(beta.readme);
+	aMinuteOn();
+	const state = createQuestState({ questsRoot });
+	state.questId = alpha.id;
+	const listed = await withSession("a", () =>
+		handle(state, fakePi(), fakeCtx(tmpRoot, "a"), { action: "list" }),
+	);
+
+	if (!listed.ok) throw new Error(listed.guidance);
+	const { listing } = listed.details as {
+		listing: { rows: { id: string; priority: string }[] };
+	};
+	expect(listing.rows.find((row) => row.id === beta.id)?.priority).toBe(
+		"queued",
+	);
+});
 
 it("reads the tree as it stands at each action, not the host's last walk", async () => {
 	const questsRoot = join(tmpRoot, "quests");
