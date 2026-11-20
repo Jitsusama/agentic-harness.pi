@@ -27,15 +27,18 @@ afterEach(() => {
 		rmSync(dir, { recursive: true, force: true });
 });
 
-it("sweeps once outside any host, standing the hosts' sweeps down and logging the sweep", async () => {
+/** A home of its own, and the sweep's state folder in it, not yet made. */
+function freshHome(): { home: string; work: string } {
 	const home = mkdtempSync(join(tmpdir(), "pi-sweep-"));
 	made.push(home);
-	const work = join(home, "state", "pi", "agentic-harness.pi", "work");
-	// A sweep that has only just ended, which a host's sweep rests after
-	// and the timer's run, spaced by its timer, never does.
-	mkdirSync(work, { recursive: true });
-	writeFileSync(join(work, "sweep.lock.ended"), "");
+	return {
+		home,
+		work: join(home, "state", "pi", "agentic-harness.pi", "work"),
+	};
+}
 
+/** Run the script once, as its timer would, in `home` alone. */
+async function sweepIn(home: string): Promise<void> {
 	await run(
 		process.execPath,
 		["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", SCRIPT],
@@ -51,22 +54,26 @@ it("sweeps once outside any host, standing the hosts' sweeps down and logging th
 			timeout: 20_000,
 		},
 	);
+}
+
+/** The sweep log's lines, each as the object it was written from. */
+function logLines(work: string): Record<string, unknown>[] {
+	return readFileSync(join(work, "sweep.log"), "utf8")
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+it("sweeps once on a machine that has never swept, standing the hosts' sweeps down", async () => {
+	const { home, work } = freshHome();
+
+	await sweepIn(home);
 
 	expect(
 		existsSync(join(work, "sweep.lock.outside")),
 		"the stamp that stands the hosts' sweeps down",
 	).toBe(true);
-	const lines = readFileSync(join(work, "sweep.log"), "utf8")
-		.trim()
-		.split("\n")
-		.map((line) => JSON.parse(line) as Record<string, unknown>);
-	expect(
-		lines,
-		"one line for its one sweep, run though one just ended",
-	).toHaveLength(1);
-	expect(lines[0], "a sweep that ran, rather than failed or rested").toEqual(
-		expect.objectContaining({ taken: [], refused: [] }),
-	);
+	expect(logLines(work), "one line for its one sweep").toHaveLength(1);
 	// The stamp is dated in whole milliseconds and the log by the file
 	// system, so a stamp in the log's own millisecond may read just under it.
 	expect(
@@ -79,4 +86,18 @@ it("sweeps once outside any host, standing the hosts' sweeps down and logging th
 		existsSync(join(work, "sweep.lock")),
 		"a lock left behind once it was done",
 	).toBe(false);
+});
+
+it("sweeps though a sweep has only just ended, which a host's would rest after", async () => {
+	const { home, work } = freshHome();
+	mkdirSync(work, { recursive: true });
+	writeFileSync(join(work, "sweep.lock.ended"), "");
+
+	await sweepIn(home);
+
+	const lines = logLines(work);
+	expect(lines, "one line for its one sweep").toHaveLength(1);
+	expect(lines[0], "a sweep that ran, rather than failed or rested").toEqual(
+		expect.objectContaining({ taken: [], refused: [] }),
+	);
 });
