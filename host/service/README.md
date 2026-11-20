@@ -259,6 +259,21 @@ input pipeline or screen. No unit or running host is installed yet.
 - child-requests.ts: reaching a child's socket and reading the one
   answer a request gets; a child answering as another process, or not
   at all, is said as `child_unreachable`.
+- child-units.ts: where each child runs: an instance of the template
+  unit `pi-conversation-KEY@SLOT.service` core's host.nix writes, and
+  its slot in `pi-host/KEY.d/`, SLOT.json naming the roster entry it
+  resumes, SLOT.sock where it listens and SLOT.d/ for its own use.
+- child-watch.ts: watching one child on a connection kept open: its
+  first answer names who it is and its conversation, then a line for
+  each state, each new id the conversation takes, and its ending. A
+  line it can't read ends the watch as failed.
+- child-supervisor.ts: the host starting a child for a conversation it
+  resumes or a caller opens, holding a route to it from the child's
+  watch, moving it as the conversation becomes another and letting it
+  go with the slot as the child ends. A child that never listens or
+  refuses its first request is stopped; a host starting takes up the
+  children an earlier one left running, and a host stopping leaves
+  them. Nothing starts it yet.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place

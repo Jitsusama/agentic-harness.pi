@@ -35,6 +35,40 @@ each conversation once, a child that is gone or ends without
 answering, a window told when its child ends under it, a restart's
 frame sent at a frame's edge and after an attach's answer, and a child
 left unread while its window reads nothing.
+child-supervisor.test.ts runs the supervisor against children in this
+process, started by fake units a little after their unit starts: a
+resume's slot naming its roster entry, one child for two resumes, a
+child ending before it listens or never listening given up, a host's
+stop at each step of a start, a slow watch included, a unit systemd
+won't start, a child running another conversation refused and one
+naming its own in another case taken, state, a new id and an ending
+each kept in the routes, a child whose new id is held or run elsewhere
+or can't be held stopped, with a start of that id waiting on it, what
+a newer child adds passed over, an unreadable line and a silent exit
+as failed, and a folder too long refused.
+child-claims.test.ts runs them for whose conversation a child holds:
+the roster's hold spelled in capitals replaced by what it became and
+let go on a close, a became followed in another case, and a resume
+kept in its own slot after another child claimed its conversation.
+child-leaving.test.ts runs them as each leaves: a unit stopped three
+times before its slot is kept in use, naming the command that ends it,
+a systemd that once won't say asked again, and a slot freed once its
+unit has gone.
+child-opens.test.ts runs the same children for opens and adopts: an
+open asked of the child without the host's identity, a refusal
+stopping its child, an open or adopt of a held id or one its watch
+contradicts refused, its slot named before the roster holds it, an
+open answered late named rather than stopped, a begin's one deadline
+and a stop ending its ask, a resume waiting on the open's slot, and a
+host starting again taking up the children left running, once for two
+adopts, under the ids they now run, a busy one tried again with each
+try said, one systemd won't say has gone watched, a second one running
+a conversation stopped, and a start waiting on one it couldn't take up
+under another id.
+support/supervised-children.ts is their fake units, roster and
+children, each child's traits set by the test that starts it.
+child-units.test.ts checks a slot's paths and unit, and that a name
+reaching another path or unit is refused.
 own-threads.test.ts runs the host and two children as node processes
 of their own: while one conversation holds its child's thread for 3 s,
 the host answers a list, and the other conversation takes a turn and
@@ -78,3 +112,6 @@ without closing, lock refusal and takeover races, launch environments
 written only when they hold something, and refusal to start over an
 unreadable roster, in a private temporary folder. They do not
 start a production host, copy credential files or use Joel's screen.
+
+- `support/`: helpers these tests share, such as the fake units,
+  roster and children the supervisor's tests run.

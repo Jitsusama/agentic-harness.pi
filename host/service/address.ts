@@ -1,7 +1,8 @@
 /** Stable realm-kind sockets, independent of a host process's restart identity. */
 import { isAbsolute, join } from "node:path";
 
-const MAX_SOCKET_PATH_BYTES = 103;
+/** The longest socket path every Unix this runs on binds whole. */
+export const MAX_SOCKET_PATH_BYTES = 103;
 const MAX_REALM_LENGTH = 64;
 // The same rule lib/internal/machine/realm.ts holds a realm name to.
 const REALM_NAME = /^[a-z0-9-]+$/;

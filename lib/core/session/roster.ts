@@ -49,6 +49,16 @@ export const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const UUID =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** Whether `key` names a host as a roster's file does: a realm and a kind. */
+export function isHostKey(key: string): boolean {
+	return KEY.test(key);
+}
+
+/** Whether `id` is a conversation's id as a roster holds one. */
+export function isSessionId(id: string): boolean {
+	return UUID.test(id);
+}
+
 /** The folder every roster lives in; the host creates it before any hold. */
 export function rosterDir(): string {
 	return stateDir("host-rosters");
@@ -71,7 +81,8 @@ export function parseRoster(text: string, key: string): Roster | undefined {
 	}
 	if (!isRecord(value) || value.v !== 1 || value.key !== key) return undefined;
 	const sessions = value.sessions;
-	if (!Array.isArray(sessions) || !sessions.every(isEntry)) return undefined;
+	if (!Array.isArray(sessions) || !sessions.every(isRosterEntry))
+		return undefined;
 	const ids = new Set(sessions.map((entry) => entry.sessionId));
 	if (ids.size !== sessions.length) return undefined;
 	return { v: 1, key, sessions };
@@ -124,7 +135,8 @@ export async function heldSessionStatus(
 	return doubt ? "unknown" : "unheld";
 }
 
-function isEntry(value: unknown): value is RosterEntry {
+/** Whether `value` is a roster entry as a roster holds one. */
+export function isRosterEntry(value: unknown): value is RosterEntry {
 	if (!isRecord(value)) return false;
 	const { sessionId, file, cwd, attended, quest, since, launch } = value;
 	return (
