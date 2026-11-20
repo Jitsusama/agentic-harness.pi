@@ -314,16 +314,89 @@ describe("holding a change until our own council has read it", () => {
 		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
 	});
 
-	it("holds a rebased change that brought something else along", async () => {
+	it("holds a rebased change with more on it than its council read", async () => {
 		await councilRead(fix);
 		await rebasedOntoNewMain();
 		writeFileSync(join(repo, "two"), "two, said otherwise\n");
 		await git(repo, "commit", "-qam", "otherwise");
 
-		const said = await councilFirst(exec, topic(), "proposed");
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
 
-		expect(said).toContain("No council of ours");
-		expect(said).toContain("leaves the change's diff as it was");
+	it("lends a rebase nothing a branch cut from reviewed work couldn't claim", async () => {
+		// `first` went up as another branch and its council read it; this
+		// one adds `fix`, which nobody read, and is then rebased.
+		await git(repo, "update-ref", "refs/remotes/origin/reviewed", first);
+		await councilRead(first);
+		await rebasedOntoNewMain();
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("holds a binary file whose content changed though its diff's words didn't", async () => {
+		const binary = (byte: number) =>
+			writeFileSync(join(repo, "blob.bin"), Buffer.from([0, byte, 0, 255]));
+		binary(1);
+		await git(repo, "add", "blob.bin");
+		await git(repo, "commit", "-qm", "blob");
+		await councilRead(await git(repo, "rev-parse", "HEAD"));
+		await rebasedOntoNewMain();
+		binary(2);
+		await git(repo, "commit", "-qam", "other bytes");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("holds the same edit made in another function", async () => {
+		// Bodies alike and long enough that a hunk in either reads the same
+		// but for the function its header names.
+		const lines = Array.from({ length: 11 }, (_, at) => `\tline${at};\n`);
+		const body = lines.join("");
+		const edited = body.replace("line5;", "LINE5;");
+		const file = (a: string, b: string) =>
+			writeFileSync(
+				join(repo, "code"),
+				`function a() {\n${a}}\nfunction b() {\n${b}}\n`,
+			);
+		await git(repo, "switch", "-q", "main");
+		file(body, body);
+		await git(repo, "add", "code");
+		await git(repo, "commit", "-qm", "code");
+		await git(repo, "switch", "-q", "topic");
+		await git(repo, "rebase", "-q", "main");
+		file(edited, body);
+		await git(repo, "commit", "-qam", "in a");
+		await councilRead(await git(repo, "rev-parse", "HEAD"));
+		await git(repo, "reset", "-q", "--hard", "HEAD~1");
+		file(body, edited);
+		await git(repo, "commit", "-qam", "in b");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
+	it("finds the head before a rebase in the pushed branch's reflog", async () => {
+		// Pushed before the rebase and again after it, from a checkout whose
+		// own branch remembers nothing of its past.
+		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
+		await councilRead(fix);
+		await rebasedOntoNewMain();
+		await git(
+			repo,
+			"update-ref",
+			"refs/remotes/origin/topic",
+			await git(repo, "rev-parse", "HEAD"),
+		);
+		await git(repo, "reflog", "expire", "--expire=now", "refs/heads/topic");
+
+		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
 	});
 
 	it("holds a clean rebase of a change no council read", async () => {

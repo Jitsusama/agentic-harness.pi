@@ -32,7 +32,9 @@
  * reflogs in the checkout recall them, count too: one whose whole
  * change, from where it left its base, reads the same as the change's
  * now, line for line though maybe not at the same line numbers, lends
- * the change any council that read one of that head's own commits. A
+ * the change any council that read one of that head's own commits,
+ * judged as the change's own are, so a rebase lends nothing a branch
+ * cut from reviewed work couldn't claim before it. A
  * rebase that had to settle a conflict, or brought anything else
  * along, changes the diff and needs a round of its own. Only the last
  * EARLIER_HEADS of each reflog are asked about, and a checkout that
@@ -58,6 +60,9 @@ const EARLIER_HEADS = 30;
 
 /** How many of the branches holding a change's reviewed commits a refusal names. */
 const HOLDERS_NAMED = 3;
+
+/** A hunk's header up to its function, with its lengths captured and its line numbers not. */
+const HUNK_AT = /^@@ -\d+(,\d+)? \+\d+(,\d+)? @@/;
 
 /** A full commit id, as git prints one a line. */
 const COMMIT_ID = /^[0-9a-f]{40}$/;
@@ -134,7 +139,7 @@ export async function councilFirst(
 		const more = read.holders.length > HOLDERS_NAMED ? " and others" : "";
 		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.`;
 	}
-	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). A rebase that leaves the change's diff as it was keeps its council; this one has none to keep, or changed what the change does. Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
+	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A clean rebase keeps the council of the head before it, when this checkout's reflogs still recall that head.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
 }
 
 /** The change's commits, newest first. */
@@ -159,9 +164,25 @@ async function commitsOf(exec: Exec, change: ChangeCommits): Promise<Read> {
 	};
 	const base = await pushed(change.base);
 	const head = change.headCommit ?? (await pushed(change.head));
-	const unread = {
-		unread: `${base}..${head} can't be read in ${change.checkout}`,
-	};
+	const range = await rangeOf(git, base, head, change.head);
+	return range
+		? { ...range, base, head }
+		: { unread: `${base}..${head} can't be read in ${change.checkout}` };
+}
+
+/**
+ * The commits from `base` to `head` that are `branch`'s own, and those
+ * another pushed branch holds without `head`, with those branches'
+ * names; nothing when they can't be read.
+ */
+async function rangeOf(
+	git: (...args: string[]) => ReturnType<Exec>,
+	base: string,
+	head: string,
+	branch: string,
+): Promise<
+	{ commits: string[]; shared: string[]; holders: string[] } | undefined
+> {
 	const list = async (...without: string[]) => {
 		const listed = await git(
 			"rev-list",
@@ -173,15 +194,15 @@ async function commitsOf(exec: Exec, change: ChangeCommits): Promise<Read> {
 		return listed.code === 0 ? commitIds(listed.stdout) : undefined;
 	};
 	const all = await list();
-	if (all === undefined) return unread;
-	const others = await othersHolding(git, head, change.head, all);
-	if (others === undefined) return unread;
+	if (all === undefined) return undefined;
+	const others = await othersHolding(git, head, branch, all);
+	if (others === undefined) return undefined;
 	// A commit is the change's own when no batch of other branches holds
 	// it, so each batch's answer narrows what the last left.
 	const own = new Set(all);
 	for (let at = 0; at < others.commits.length; at += REFS_A_CALL) {
 		const kept = await list(...others.commits.slice(at, at + REFS_A_CALL));
-		if (kept === undefined) return unread;
+		if (kept === undefined) return undefined;
 		const stays = new Set(kept);
 		for (const sha of own) if (!stays.has(sha)) own.delete(sha);
 	}
@@ -189,15 +210,15 @@ async function commitsOf(exec: Exec, change: ChangeCommits): Promise<Read> {
 		commits: all.filter((sha) => own.has(sha)),
 		shared: all.filter((sha) => !own.has(sha)),
 		holders: others.names,
-		base,
-		head,
 	};
 }
 
 /**
  * Whether a council read an earlier head of the change's branch whose
  * whole change reads as the change's does now, so that only a clean
- * rebase stands between them.
+ * rebase stands between them. What it lends is that head's own commits,
+ * as the change's own are judged, so a branch cut from reviewed work
+ * gains nothing by a rebase.
  */
 async function rebasedReviewed(
 	exec: Exec,
@@ -219,21 +240,32 @@ async function rebasedReviewed(
 		(sha) => sha !== now,
 	);
 	if (earlier.length === 0) return false;
+	// One list of every earlier head's commits and one look at the ledger
+	// before any diff, since most changes refused were never read at all.
+	const listed = await git(
+		"rev-list",
+		`--max-count=${COMMITS_ASKED}`,
+		"--end-of-options",
+		...earlier,
+		`^${read.base}`,
+	);
+	if (listed.code !== 0) return false;
+	const anyRead = new Set(commitIds(listed.stdout));
+	if (anyRead.size === 0 || !(await witnesses(change.repo, anyRead)))
+		return false;
 	const wanted = await changeDiff(git, read.base, now);
-	if (!wanted) return false;
-	const lent = new Set<string>();
+	if (wanted === undefined) return false;
 	for (const head of earlier) {
-		const was = await changeDiff(git, read.base, head);
-		if (was?.diff !== wanted.diff) continue;
-		const own = await git(
-			"rev-list",
-			`--max-count=${COMMITS_ASKED}`,
-			"--end-of-options",
-			`${was.from}..${head}`,
-		);
-		if (own.code === 0) for (const sha of commitIds(own.stdout)) lent.add(sha);
+		if ((await changeDiff(git, read.base, head)) !== wanted) continue;
+		const range = await rangeOf(git, read.base, head, change.head);
+		if (
+			range &&
+			range.commits.length > 0 &&
+			(await witnesses(change.repo, new Set(range.commits)))
+		)
+			return true;
 	}
-	return lent.size > 0 && witnesses(change.repo, lent);
+	return false;
 }
 
 /**
@@ -263,16 +295,18 @@ async function earlierHeads(
 }
 
 /**
- * The whole change `head` makes from where it left `base`, and that
- * point, with what a rebase alone changes taken out: the blob ids and
- * the hunks' line numbers. Nothing when it makes none or can't be read,
- * since an empty change matches every branch cut and never pushed on.
+ * The whole change `head` makes from where it left `base`, with what a
+ * rebase alone changes taken out: the blob ids and the hunks' line
+ * numbers, keeping the function each hunk sits in. Binary files are
+ * written out whole, since without their ids nothing else tells two
+ * apart, and every option the user's config could set to hide part of
+ * a change is named. Nothing when it can't be read.
  */
 async function changeDiff(
 	git: (...args: string[]) => ReturnType<Exec>,
 	base: string,
 	head: string,
-): Promise<{ from: string; diff: string } | undefined> {
+): Promise<string | undefined> {
 	const fork = await git("merge-base", "--end-of-options", base, head);
 	const from = fork.stdout.trim();
 	if (fork.code !== 0 || !COMMIT_ID.test(from)) return undefined;
@@ -281,19 +315,25 @@ async function changeDiff(
 		"--no-color",
 		"--no-ext-diff",
 		"--no-textconv",
-		"--full-index",
+		"--binary",
+		"--unified=3",
+		"--no-relative",
+		"--no-renames",
+		"--ignore-submodules=none",
+		"--submodule=short",
+		"--src-prefix=a/",
+		"--dst-prefix=b/",
 		"--end-of-options",
 		from,
 		head,
 		"--",
 	);
 	if (diffed.code !== 0) return undefined;
-	const diff = diffed.stdout
+	return diffed.stdout
 		.split("\n")
 		.filter((line) => !line.startsWith("index "))
-		.map((line) => (line.startsWith("@@ ") ? "@@" : line))
+		.map((line) => line.replace(HUNK_AT, "@@ -$1 +$2 @@"))
 		.join("\n");
-	return diff.trim() === "" ? undefined : { from, diff };
 }
 
 /**
