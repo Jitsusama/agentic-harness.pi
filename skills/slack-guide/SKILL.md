@@ -12,6 +12,18 @@ description: >
 Access Slack through the `slack` tool. Translates natural
 language requests into structured API calls.
 
+## When the Machine Turns Direct Slack Off
+
+A machine can say that agents reach Slack only through the tool
+gateway, by placing a file at
+`~/.config/agentic-harness/slack/gateway-only`. There the `slack`
+tool and `/slack-setup` aren't registered, and anything that
+would call Slack directly is refused. Use the gateway's `slack_*`
+tools instead, and never work around the refusal by calling
+Slack's API, a Slack MCP server or a browser on slack.com. The
+rest of this guide still holds for what to say and how to
+present it; the actions and their parameters are the gateway's.
+
 When composing messages on behalf of the person (not just
 relaying information), follow the person's writing voice and
 prose style guides. The message should sound like the person

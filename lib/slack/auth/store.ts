@@ -7,10 +7,15 @@
  * before; the first read moves it into the keyring, and it is used
  * again only while the keyring can't be reached, as
  * `lib/core/internal/keyring/document.ts` says.
+ *
+ * While direct Slack is off (policy.ts), the keyring and the file are
+ * left alone: reading finds nothing, writing is refused, and nothing is
+ * moved.
  */
 
 import { credentialsDocument } from "../../core/internal/keyring/document.ts";
 import { credentialsPath } from "../paths.ts";
+import { directSlackRefused, refuseDirectSlack } from "../policy.ts";
 import type { OAuthApp, StoredToken } from "../types.ts";
 
 /** Shape of the stored credentials. */
@@ -28,15 +33,18 @@ const document = credentialsDocument<CredentialsFile>({
 
 /** Read the stored credentials, or none when nothing is stored. */
 export async function readCredentials(): Promise<CredentialsFile> {
+	if (directSlackRefused()) return {};
 	return document.read();
 }
 
 /** Write the credentials whole. */
 export async function writeCredentials(data: CredentialsFile): Promise<void> {
+	refuseDirectSlack();
 	await document.write(data);
 }
 
 /** Move the plain file into the keyring now, if one is left. */
 export async function moveToKeyring(): Promise<void> {
+	if (directSlackRefused()) return;
 	await document.moveIfPresent();
 }

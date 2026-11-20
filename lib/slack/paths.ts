@@ -43,6 +43,15 @@ export function credentialsPath(): string {
 }
 
 /**
+ * The file whose presence turns direct Slack off on this machine, so
+ * only the tool gateway reaches Slack (policy.ts). The machine's own
+ * configuration writes it; its contents are not read.
+ */
+export function gatewayOnlyPath(): string {
+	return join(xdgConfigRoot(), "agentic-harness", "slack", "gateway-only");
+}
+
+/**
  * Where resolved user and channel names are cached.
  *
  * Cache rather than config: every entry here is a name Slack's API

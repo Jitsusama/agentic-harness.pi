@@ -13,6 +13,7 @@
 
 import type { Browser } from "puppeteer-core";
 import { resolveChromePath } from "../../core/web/chrome.ts";
+import { refuseDirectSlack } from "../policy.ts";
 
 /**
  * Default Slack URL to navigate to: the dedicated sign-in entry
@@ -79,6 +80,7 @@ export async function extractFromBrowser(
 	onStep?: (message: string) => void,
 	options: ExtractOptions = {},
 ): Promise<BrowserCredentials> {
+	refuseDirectSlack();
 	const { signal } = options;
 	if (signal?.aborted) throw stopped(signal);
 	const chromePath = resolveChromePath(process.env.CHROME_PATH);
