@@ -6,7 +6,14 @@
  * gateway's own writes stays.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,6 +37,16 @@ vi.mock("../../../lib/core/internal/keyring/document.ts", () => ({
 	}),
 }));
 
+// Should the refusal regress, the browser grab fails here rather than
+// opening a Chrome on slack.com in front of whoever runs the suite.
+vi.mock("puppeteer-core", () => ({
+	default: {
+		launch: async () => {
+			throw new Error("a Chrome was launched");
+		},
+	},
+}));
+
 const { DirectSlackRefused, directSlackRefused } = await import(
 	"../../../lib/slack/policy.ts"
 );
@@ -38,6 +55,9 @@ const { getToken, hasToken, storeToken } = await import(
 	"../../../lib/slack/auth/credentials.ts"
 );
 const { moveToKeyring } = await import("../../../lib/slack/auth/store.ts");
+const { exchangeCodeForToken } = await import(
+	"../../../lib/slack/auth/oauth.ts"
+);
 const { ensureAuthenticated } = await import(
 	"../../../lib/slack/auth/ensure-auth.ts"
 );
@@ -123,4 +143,66 @@ describe("with direct Slack on", () => {
 		expect(pi.recorded.tools.map((tool) => tool.name)).toContain("slack");
 		expect(pi.recorded.commands.has("slack-auth")).toBe(true);
 	});
+});
+
+describe("turning direct Slack off while a session runs", () => {
+	const fetched = vi.fn(async () => new Response("{}"));
+
+	beforeEach(() => {
+		fetched.mockClear();
+		vi.stubGlobal("fetch", fetched);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("stops a client built before it from sending anything", async () => {
+		const client = new SlackClient("xoxp-stored");
+		turnOff();
+		await expect(client.call("auth.test")).rejects.toBeInstanceOf(
+			DirectSlackRefused,
+		);
+		await expect(
+			client.download("https://files.slack.com/f"),
+		).rejects.toBeInstanceOf(DirectSlackRefused);
+		await expect(
+			client.upload("https://files.slack.com/u", Buffer.from("x")),
+		).rejects.toBeInstanceOf(DirectSlackRefused);
+		expect(fetched).not.toHaveBeenCalled();
+	});
+
+	it("stops a sign-in already under way from trading its code", async () => {
+		turnOff();
+		await expect(
+			exchangeCodeForToken(
+				{ clientId: "c", clientSecret: "s" } as never,
+				"code",
+			),
+		).rejects.toBeInstanceOf(DirectSlackRefused);
+		expect(fetched).not.toHaveBeenCalled();
+	});
+});
+
+describe("a switch that can't be read plainly", () => {
+	const slack = () => join(config, "agentic-harness", "slack");
+
+	it("is off when the path is a dangling link", () => {
+		mkdirSync(slack(), { recursive: true });
+		symlinkSync(join(config, "nowhere"), join(slack(), "gateway-only"));
+		expect(directSlackRefused()).toBe(true);
+	});
+
+	it.skipIf(process.getuid?.() === 0)(
+		"is off when its folder can't be read",
+		() => {
+			mkdirSync(slack(), { recursive: true });
+			chmodSync(slack(), 0o000);
+			try {
+				expect(directSlackRefused()).toBe(true);
+			} finally {
+				chmodSync(slack(), 0o700);
+			}
+		},
+	);
 });

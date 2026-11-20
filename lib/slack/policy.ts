@@ -13,7 +13,7 @@
  * agent fence can still read the keyring. The fence is what refuses that.
  */
 
-import { existsSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import { gatewayOnlyPath } from "./paths.ts";
 
 /** What a refused direct Slack call says, wherever it is caught. */
@@ -31,10 +31,18 @@ export class DirectSlackRefused extends Error {
 
 /**
  * Whether direct Slack is off, read fresh each time so a machine that
- * turns it off is obeyed without waiting for a reload.
+ * turns it off is obeyed without waiting for a reload. Only a path that
+ * is plainly not there leaves it on: anything there, a dangling link
+ * included, or a path that can't be read, turns it off.
  */
 export function directSlackRefused(path: string = gatewayOnlyPath()): boolean {
-	return existsSync(path);
+	try {
+		lstatSync(path);
+		return true;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		return code !== "ENOENT" && code !== "ENOTDIR";
+	}
 }
 
 /** Throw {@link DirectSlackRefused} when direct Slack is off. */

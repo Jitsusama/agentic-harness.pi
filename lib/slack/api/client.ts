@@ -124,8 +124,9 @@ export class SlackClient {
 		cookie?: string,
 		options: SlackClientOptions = {},
 	) {
-		// Every direct call to Slack's API goes through a client, so
-		// refusing one here refuses them all while direct Slack is off.
+		// Refused here, so nothing builds a client while direct Slack is
+		// off, and again before each request, so one built before the
+		// machine turned it off sends nothing after.
 		refuseDirectSlack();
 		this.token = token;
 		this.cookie = cookie;
@@ -174,6 +175,7 @@ export class SlackClient {
 
 		for (let attempt = 0; attempt < MAX_ERROR_RETRIES; attempt++) {
 			if (signal?.aborted) throw aborted(signal);
+			refuseDirectSlack();
 
 			const response = await fetch(`${SLACK_API_BASE}/${method}`, {
 				method: "POST",
@@ -279,6 +281,7 @@ export class SlackClient {
 			headers.Cookie = `d=${this.cookie}`;
 		}
 
+		refuseDirectSlack();
 		const response = await fetch(url, {
 			method: "GET",
 			headers,
@@ -335,6 +338,7 @@ export class SlackClient {
 			headers.Cookie = `d=${this.cookie}`;
 		}
 
+		refuseDirectSlack();
 		const response = await fetch(url, {
 			method: "POST",
 			headers,
