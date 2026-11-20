@@ -24,20 +24,36 @@ export {
 	parseQuestWorkflowConfig,
 	QUEST_WORKFLOW_SLUG,
 	type QuestWorkflowConfig,
-	resolveQuestsRoot,
 	summarizeQuestConfig,
 } from "../../lib/core/quest/config.ts";
 
 /**
- * Where this machine's quests live, as the config says now: its
- * `questsRoot`, or the data folder's when it names none or can't be read.
+ * The quest-workflow section as the config says now, and where this
+ * machine's quests live by it: its `questsRoot`, or the data folder's.
+ * A missing file or a malformed section reads as an empty one; the
+ * config query verb is where provenance and any warning surface.
+ */
+export async function questWorkflowNow(): Promise<{
+	section: QuestWorkflowConfig;
+	questsRoot: string;
+}> {
+	const loaded = await loadPackageConfig();
+	const section: QuestWorkflowConfig = loaded.ok
+		? getSection(loaded.config, QUEST_WORKFLOW_SLUG, parseQuestWorkflowConfig)
+				.value
+		: {};
+	return {
+		section,
+		questsRoot: resolveQuestsRoot(section, dataDir("quest-workflow")),
+	};
+}
+
+/**
+ * Where this machine's quests live, as the config says now, read just as
+ * each session's quest workflow reads it when it starts.
  */
 export async function questsRootNow(): Promise<string> {
-	const loaded = await loadPackageConfig();
-	const section = loaded.ok
-		? getSection(loaded.config, QUEST_WORKFLOW_SLUG, parseQuestWorkflowConfig)
-		: { value: {} };
-	return resolveQuestsRoot(section.value, dataDir("quest-workflow"));
+	return (await questWorkflowNow()).questsRoot;
 }
 
 /**

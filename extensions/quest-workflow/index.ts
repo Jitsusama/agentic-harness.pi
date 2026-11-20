@@ -21,12 +21,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { BUDGET_ENTRY } from "../../lib/budget/record.ts";
 import { registerBuiltinTreeProviders } from "../../lib/core/tree/register.ts";
-import {
-	getSection,
-	loadPackageConfig,
-} from "../../lib/internal/config/loader.ts";
 import { declareGuards, GUARDS } from "../../lib/internal/guardian/guards.ts";
-import { dataDir } from "../../lib/internal/paths.ts";
 import { registerBuiltinUrlFetchers } from "../../lib/internal/quest/creation/url-fetchers.ts";
 import { offerShellEnvironment } from "../../lib/internal/shell/environment.ts";
 import { registerBuiltinHandleTypes } from "../../lib/people/register.ts";
@@ -37,12 +32,7 @@ import { registerBuiltinTerminalDrivers } from "../../lib/terminal/register.ts";
 import { registerBatchingTrial } from "./batching-trial.ts";
 import { budgetEntryView, keepQuestBudget } from "./budget.ts";
 import { answerTreeClaims, forgetSweptTrees } from "./claims.ts";
-import {
-	budgetWhenCappedSetting,
-	parseQuestWorkflowConfig,
-	QUEST_WORKFLOW_SLUG,
-	resolveQuestsRoot,
-} from "./config.ts";
+import { budgetWhenCappedSetting, questWorkflowNow } from "./config.ts";
 import { QUEST_CONTEXT, renderQuestContext } from "./context.ts";
 import { settleLaunchedSpawn } from "./launched-spawn.ts";
 import { questCommandEnvironment } from "./scratch.ts";
@@ -79,22 +69,13 @@ export default async function questWorkflow(pi: ExtensionAPI) {
 	registerBuiltinTerminalDrivers();
 	registerBuiltinTreeProviders();
 
-	// Resolve the quests root from the package config file.
-	// A missing file or a malformed section degrades to the
-	// default data-dir location; the config query verb is
-	// where provenance and any warning surface to the user.
-	const loaded = await loadPackageConfig();
-	const section = loaded.ok
-		? getSection(loaded.config, QUEST_WORKFLOW_SLUG, parseQuestWorkflowConfig)
-		: { value: {} };
-	const questsRoot = resolveQuestsRoot(
-		section.value,
-		dataDir("quest-workflow"),
-	);
+	// The quests root from the package config file, as the sweep outside
+	// the hosts reads it too (scripts/pi-sweep.ts).
+	const { section, questsRoot } = await questWorkflowNow();
 	const state = createQuestState({
 		questsRoot,
-		autoloadFromCwd: section.value.autoloadFromCwd,
-		sessionRetentionDays: section.value.sessionRetentionDays,
+		autoloadFromCwd: section.autoloadFromCwd,
+		sessionRetentionDays: section.sessionRetentionDays,
 	});
 
 	// So the working layer does not reclaim a tree a quest is holding,
