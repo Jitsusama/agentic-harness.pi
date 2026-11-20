@@ -16,7 +16,7 @@ import { Type } from "@sinclair/typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
 import { showSinglePrompt } from "../../lib/ui/prompt/prompt-single.ts";
-import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
+import { bootPi, type PiSession, screenUntil, sleep } from "./pi-session.ts";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -123,7 +123,9 @@ describe("a gate beside a tool whose output streams in", () => {
 			]);
 			session.mark("stream");
 			await session.prompt("ask while it streams");
-			await waitFor(() => session.onScreen("MARK-body-3"), "the gate's body");
+			await screenUntil("the gate's body", () =>
+				session.onScreen("MARK-body-3"),
+			);
 
 			const lost: number[] = [];
 			while (release === undefined) {

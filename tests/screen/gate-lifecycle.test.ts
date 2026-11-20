@@ -43,7 +43,7 @@ import { GATE_ARM_MS } from "../../lib/ui/gate/gate-dock.ts";
 import { OUTCOME_GLYPH } from "../../lib/ui/outcome-glyphs.ts";
 import { dockRows } from "../../lib/ui/pi-layout.ts";
 import { showSinglePrompt } from "../../lib/ui/prompt/prompt-single.ts";
-import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
+import { bootPi, type PiSession, screenUntil, sleep } from "./pi-session.ts";
 
 const TITLE = "MARK-title Approve the thing?";
 const CANCELLED = `${OUTCOME_GLYPH.cancelled} cancelled`;
@@ -244,9 +244,9 @@ async function boot(screen: Screen): Promise<PiSession> {
 	for (let turn = 0; turn < screen.history; turn++) {
 		session.answer(`MARK-history-${turn} ${"lorem ipsum ".repeat(12)}`);
 		await session.prompt(`question ${turn}`);
-		await waitFor(
-			() => !session.runtime.session.isStreaming,
+		await screenUntil(
 			`history turn ${turn}`,
+			() => !session.runtime.session.isStreaming,
 		);
 	}
 	return session;
@@ -277,9 +277,9 @@ async function raise(session: PiSession, raiser: Raiser): Promise<void> {
 			: raiser === "progress"
 				? "MARK-progress-0"
 				: "MARK-twin-0";
-	await waitFor(() => session.onScreen(shows), "the widget to show");
+	await screenUntil("the widget to show", () => session.onScreen(shows));
 	if (raiser === "tool" || raiser === "guardian") {
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 		await sleep(GATE_ARM_MS + 50);
 	} else await sleep(150);
 }
@@ -448,9 +448,8 @@ async function twinOf(screen: Screen, act: Act): Promise<Outcome> {
 /** `/new` typed into the editor. */
 const newTyped: Act = async (session) => {
 	await command(session, "/new");
-	await waitFor(
-		() => session.onScreen("New session started"),
-		"the new session",
+	await screenUntil("the new session", () =>
+		session.onScreen("New session started"),
 	);
 };
 
@@ -464,7 +463,10 @@ const newFromCode: Act = async (session) => {
 const escapeInEditor: Act = async (session) => {
 	session.mark("escape");
 	await session.key("escape");
-	await waitFor(() => !session.runtime.session.isStreaming, "the turn to stop");
+	await screenUntil(
+		"the turn to stop",
+		() => !session.runtime.session.isStreaming,
+	);
 };
 
 /** `/fork` from the last message, which replaces the session. */
@@ -473,7 +475,9 @@ const fork: Act = async (session, ours) => {
 	await sleep(100);
 	commitsNow(session, ours);
 	await session.key("enter");
-	await waitFor(() => session.onScreen("Forked to new session"), "the fork");
+	await screenUntil("the fork", () =>
+		session.onScreen("Forked to new session"),
+	);
 };
 
 /** `/fork` opened and then cancelled. */
@@ -494,9 +498,8 @@ const tree: Act = async (session, ours) => {
 	await sleep(100);
 	commitsNow(session, ours);
 	await session.key("enter");
-	await waitFor(
-		() => session.onScreen("Navigated to selected point"),
-		"the navigation",
+	await screenUntil("the navigation", () =>
+		session.onScreen("Navigated to selected point"),
 	);
 };
 
@@ -511,9 +514,8 @@ const treeCancelled: Act = async (session) => {
 /** `/reload` while the turn runs, which pi refuses. */
 const reloadBusy: Act = async (session) => {
 	await command(session, "/reload");
-	await waitFor(
-		() => session.onScreen("Wait for the current response"),
-		"pi to refuse the reload",
+	await screenUntil("pi to refuse the reload", () =>
+		session.onScreen("Wait for the current response"),
 	);
 };
 
@@ -544,9 +546,9 @@ async function stillAnswerable(session: PiSession): Promise<void> {
 		"the hop takes the keys back to the waiting gate",
 	).toBe(false);
 	await session.key("enter");
-	await waitFor(() => answers.length === 1, "the gate to answer");
+	await screenUntil("the gate to answer", () => answers.length === 1);
 	expect(answers).toEqual([{ type: "action", key: "__enter__" }]);
-	await waitFor(() => session.onScreen("MARK-after"), "the turn to go on");
+	await screenUntil("the turn to go on", () => session.onScreen("MARK-after"));
 	expect(
 		session.editorFocused(),
 		"the editor has the keys back once the gate is answered",
@@ -690,7 +692,7 @@ describe.each([
 			await hopOut(session, raiser);
 
 			await quit(session);
-			await waitFor(() => session.exits().length > 0, "pi to exit");
+			await screenUntil("pi to exit", () => session.exits().length > 0);
 			await sleep(100);
 
 			expect(session.exits()).toEqual([0]);
@@ -710,7 +712,7 @@ describe("the guarded command", () => {
 		await raise(session, "guardian");
 
 		await session.key("enter");
-		await waitFor(() => existsSync(guardedFile()), "the command to run");
+		await screenUntil("the command to run", () => existsSync(guardedFile()));
 
 		expect(answers).toEqual([{ type: "action", key: "__enter__" }]);
 	});
@@ -720,29 +722,33 @@ describe("a gate a command raised", () => {
 	it("fails closed on an idle /reload, and the reloaded command asks again", async () => {
 		const session = await boot(QUIT_SCREEN);
 		await command(session, "/ask-gate");
-		await waitFor(() => session.onScreen(TITLE), "the gate");
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate", () => session.onScreen(TITLE));
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 		const rows = widgetRows(session);
 		await session.key("ctrl+alt+n");
 
 		await command(session, "/reload");
-		await waitFor(() => answers.length === 1, "the gate to answer");
-		await waitFor(() => session.onScreen("Reloaded keybindings"), "the reload");
+		await screenUntil("the gate to answer", () => answers.length === 1);
+		await screenUntil("the reload", () =>
+			session.onScreen("Reloaded keybindings"),
+		);
 		await sleep(150);
 		const ours = await outcome(session);
 		await leftNoRecord(session);
 
 		await session.key("backspace");
 		await command(session, "/ask-gate");
-		await waitFor(() => session.onScreen(TITLE), "the gate again");
+		await screenUntil("the gate again", () => session.onScreen(TITLE));
 		await session.stop();
 		current = undefined;
 
 		const twin = await boot(QUIT_SCREEN);
 		await command(twin, `/twin-widget ${rows}`);
-		await waitFor(() => twin.onScreen("MARK-twin-0"), "the twin's widget");
+		await screenUntil("the twin's widget", () => twin.onScreen("MARK-twin-0"));
 		await command(twin, "/reload");
-		await waitFor(() => twin.onScreen("Reloaded keybindings"), "the reload");
+		await screenUntil("the reload", () =>
+			twin.onScreen("Reloaded keybindings"),
+		);
 		await sleep(150);
 		expectNoWorseThan(ours, await outcome(twin));
 	});

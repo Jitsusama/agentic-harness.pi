@@ -14,7 +14,7 @@ import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import jobWorkflow from "../../extensions/job-workflow/index.ts";
 import { runOrHandOff } from "../../lib/jobs/hand-off.ts";
-import { bootPi, type PiSession, waitFor } from "./pi-session.ts";
+import { bootPi, type PiSession, screenUntil } from "./pi-session.ts";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -95,18 +95,18 @@ describe("a line typed while a long call runs", () => {
 			fauxAssistantMessage("MARK-heard the job end"),
 		]);
 		await session.prompt("start the slow thing");
-		await waitFor(() => running, "the slow call to start");
+		await screenUntil("the slow call to start", () => running);
 
 		const typedAt = Date.now();
 		await session.prompt("MARK-typed are you there");
-		await waitFor(
-			() => session.onScreen(WAITING),
+		await screenUntil(
 			"the working line to say what the line waits on",
+			() => session.onScreen(WAITING),
 			SAID_WITHIN_MS,
 		);
-		await waitFor(
-			() => session.onScreen("MARK-answered"),
+		await screenUntil(
 			"the typed line's answer",
+			() => session.onScreen("MARK-answered"),
 			ANSWERED_WITHIN_MS,
 		);
 
