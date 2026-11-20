@@ -25,8 +25,9 @@ import {
 } from "../../lib/core/work/events.ts";
 import { everyRealmsDir } from "../../lib/internal/paths.ts";
 import {
+	type DiscoveryResult,
 	discoverQuests,
-	signQuestsNow,
+	discoverQuestsAfresh,
 } from "../../lib/internal/quest/discovery/discovery.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 import {
@@ -51,12 +52,19 @@ import {
  * ended trees of 456 on one machine on 11 November. So its trees go in
  * the asker's {@link TreeClaims.untilSpent} when it offers that list,
  * and are held for good only by an asker that doesn't.
+ *
+ * The asker hears the claims as the event fires, so they come from each
+ * store's last walk, as a host brings it up to date between signings:
+ * a tree another process listed in the last few seconds can go
+ * unclaimed. A sweep takes only a tree that is clean and in trunk, or
+ * pushed and left a day, so a tree cut that recently loses nothing.
  */
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREE_CLAIMS, (data: unknown) => {
 		const claims = data as TreeClaims;
 		const into = claims.untilSpent ?? claims.paths;
-		for (const entry of liveQuests(questsRoot)) {
+		const walks = storesOf(questsRoot).map((store) => discoverQuests(store));
+		for (const entry of liveQuests(walks)) {
 			for (const tree of entry.doc.frontMatter.trees ?? []) {
 				into.push(tree.path);
 			}
@@ -68,35 +76,58 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
  * Drop a tree a sweep took from every live quest that listed it, since
  * its folder is gone and a recut at its branch makes a new one. Logged
  * by the sweep itself, with the branch and the sessions that used it.
+ * What it writes rests on which quests list a tree now, so it waits on
+ * each store signed afresh, off a host's thread.
  */
 export function forgetSweptTrees(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREES_SWEPT, (data: unknown) => {
-		const taken = new Set((data as SweptTrees).paths);
-		for (const entry of liveQuests(questsRoot)) {
-			for (const tree of entry.doc.frontMatter.trees ?? []) {
-				if (!taken.has(tree.path)) continue;
-				removeTreeFromQuest(entry.dir, tree.path);
-				setPendingPrune(entry.dir, null, { clearPath: tree.path });
-			}
-		}
+		void forgetTaken(questsRoot, new Set((data as SweptTrees).paths));
 	});
 }
 
+/** Drop each tree in `taken` from every live quest that lists it. */
+async function forgetTaken(
+	questsRoot: string,
+	taken: ReadonlySet<string>,
+): Promise<void> {
+	const walks: DiscoveryResult[] = [];
+	for (const store of storesOf(questsRoot)) walks.push(await signed(store));
+	for (const entry of liveQuests(walks)) {
+		for (const tree of entry.doc.frontMatter.trees ?? []) {
+			if (!taken.has(tree.path)) continue;
+			removeTreeFromQuest(entry.dir, tree.path);
+			setPendingPrune(entry.dir, null, { clearPath: tree.path });
+		}
+	}
+}
+
 /**
- * Every unsealed quest in every realm. Trees are the machine's, so a
- * sweep in one realm would otherwise take another's as nobody's.
+ * `store` signed afresh, or as its last walk stands when its disk gave
+ * no answer in time: a tree left listed is dropped by the next sweep.
  */
-function* liveQuests(questsRoot: string) {
-	const stores = new Set([
-		questsRoot,
-		...everyRealmsDir("data", "quest-workflow").map((dir) =>
-			join(dir, "quests"),
-		),
-	]);
-	for (const store of stores) {
-		// What the sweep writes rests on which quests list a tree now.
-		signQuestsNow(store);
-		const { index } = discoverQuests(store);
+async function signed(store: string): Promise<DiscoveryResult> {
+	try {
+		return await discoverQuestsAfresh(store);
+	} catch {
+		// The disk didn't answer the signing; the last walk still stands.
+		return discoverQuests(store);
+	}
+}
+
+/**
+ * Every realm's quest store. Trees are the machine's, so a sweep in
+ * one realm would otherwise take another's as nobody's.
+ */
+function storesOf(questsRoot: string): string[] {
+	const realms = everyRealmsDir("data", "quest-workflow").map((dir) =>
+		join(dir, "quests"),
+	);
+	return [...new Set([questsRoot, ...realms])];
+}
+
+/** Every unsealed quest in `walks`. */
+function* liveQuests(walks: readonly DiscoveryResult[]) {
+	for (const { index } of walks) {
 		for (const entry of index.quests.values()) {
 			if (!isSealedStatus(entry.doc.frontMatter.status)) yield entry;
 		}

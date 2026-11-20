@@ -67,8 +67,9 @@ import {
 	unlinkSync,
 	writeSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { WRITING, writeWhole } from "../write-whole.ts";
+import { isId, prefixOf } from "./creation/id.ts";
 import { questLockFolder } from "./lock-folder.ts";
 
 /** Lock-acquire retry budget per call. */
@@ -155,7 +156,7 @@ export function atomicWriteFile(path: string, data: string): void {
 	try {
 		writeWhole(path, data, { durable: true });
 	} finally {
-		wrote();
+		wrote(path);
 	}
 }
 
@@ -168,10 +169,71 @@ const WRITES = Symbol.for("agentic-harness.quest-writes");
 
 type WriteCount = Record<symbol, number | undefined>;
 
-/** Count one more write this process made to a quest. */
-function wrote(): void {
+/**
+ * Where the process logs which quest each counted write landed in,
+ * beside the count and shared the same way. A copy of this file loaded
+ * before the log counts without logging, which `questsWrittenSince`
+ * sees as a write it can't place.
+ */
+const WRITTEN = Symbol.for("agentic-harness.quest-writes-placed");
+
+/** A counted write: the count it made, and the quest it landed in. */
+interface PlacedWrite {
+	readonly count: number;
+	readonly quest: string | undefined;
+}
+
+type WriteLog = Record<symbol, PlacedWrite[] | undefined>;
+
+/**
+ * How many placed writes the log keeps. A host's discovery reads it
+ * within seconds of each write; one asking about a write older than
+ * this signs its whole tree again instead.
+ */
+const WRITES_LOGGED = 4096;
+
+/** Count one more write this process made to a quest, at `path`. */
+function wrote(path: string): void {
 	const global = globalThis as WriteCount;
-	global[WRITES] = (global[WRITES] ?? 0) + 1;
+	const count = (global[WRITES] ?? 0) + 1;
+	global[WRITES] = count;
+	const logs = globalThis as WriteLog;
+	const log = logs[WRITTEN] ?? [];
+	logs[WRITTEN] = log;
+	log.push({ count, quest: questOf(path) });
+	if (log.length > WRITES_LOGGED) log.splice(0, log.length - WRITES_LOGGED);
+}
+
+/**
+ * The quest whose folder holds `path`: the nearest folder on it named
+ * as a quest. A path in none, as a session's record, is in no quest.
+ */
+function questOf(path: string): string | undefined {
+	const parts = path.split(sep);
+	for (let at = parts.length - 1; at >= 0; at--) {
+		const part = parts[at] ?? "";
+		if (isId(part) && prefixOf(part) === "QEST") return part;
+	}
+	return undefined;
+}
+
+/**
+ * The quests this process wrote to since its count stood at `since`,
+ * by id; none for writes outside any quest. Undefined when a write
+ * since can't be placed: one counted by code that logs nothing, or
+ * older than the log keeps.
+ */
+export function questsWrittenSince(
+	since: number,
+): ReadonlySet<string> | undefined {
+	const now = questWritesMade();
+	if (now === since) return new Set();
+	const log = (globalThis as WriteLog)[WRITTEN] ?? [];
+	const placed = log.filter((write) => write.count > since);
+	if (placed.length !== now - since) return undefined;
+	const quests = new Set<string>();
+	for (const write of placed) if (write.quest) quests.add(write.quest);
+	return quests;
 }
 
 /**
@@ -452,7 +514,7 @@ export function withQuestLock<T>(questDir: string, fn: () => T): T {
 		awaitLegacyRelease(questDir, join(questDir, LEGACY_LOCK_NAME));
 		return fn();
 	} finally {
-		wrote();
+		wrote(questDir);
 		releaseLock(lockPath, held);
 	}
 }
