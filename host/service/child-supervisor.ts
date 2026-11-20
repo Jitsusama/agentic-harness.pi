@@ -12,6 +12,12 @@
  * first answer, moves the route when the conversation becomes another,
  * and lets the route and the slot go when the child says it ends.
  *
+ * The shared roster is the supervisor's too, kept from the entry each
+ * child sends: held from the child's first answer when it isn't held
+ * already (an open, or one an earlier host opened but never held),
+ * replaced when the conversation becomes another, and dropped only when
+ * it is closed or released, so a parked or failed one is resumed later.
+ *
  * A host stopping stops watching and leaves its children running, since
  * each is a unit of its own; the next host finds them by their slots and
  * watches them again, and clears a slot whose unit has gone.
@@ -36,6 +42,13 @@ import {
 import type { HeldChildren } from "./children.ts";
 import type { ControlReply } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
+import type { HostRoster } from "./roster.ts";
+
+/** The shared roster, as far as the supervisor keeps it. */
+export type KeptRoster = Pick<
+	HostRoster,
+	"entries" | "hold" | "replace" | "drop"
+>;
 
 /**
  * How long a child may take to listen once its unit starts: one with
@@ -123,6 +136,7 @@ export function childSupervisor(options: {
 	folder: string;
 	units: Units;
 	routes: HeldChildren;
+	roster: KeptRoster;
 	report: (error: unknown) => void;
 	/** Writes a line to the host's journal, as each child ends. */
 	say?: (line: string) => void;
@@ -130,7 +144,7 @@ export function childSupervisor(options: {
 	ended?: (sessionId: string, why: ChildEnding) => void;
 	listensWithinMs?: number;
 }): ChildSupervisor {
-	const { routes, units } = options;
+	const { roster, routes, units } = options;
 	const withinMs = options.listensWithinMs ?? LISTENS_WITHIN_MS;
 	const watches = new Set<ChildWatch>();
 	// Each conversation a child is starting for, so two asks start one.
@@ -140,25 +154,43 @@ export function childSupervisor(options: {
 	async function watch(slot: Slot): Promise<ChildWatch> {
 		let current: string | undefined;
 		let over = false;
+		// This child's roster changes, in the order it said them.
+		let kept = Promise.resolve();
+		function keep(change: () => Promise<void>) {
+			kept = kept.then(change).catch(options.report);
+		}
+		const held = (sessionId: string) =>
+			roster.entries().some((entry) => entry.sessionId === sessionId);
 		const watching = await once(
 			() =>
 				watchChild(slot.socket, {
-					watched({ host, conversation }) {
+					watched({ host, conversation, entry }) {
 						current = conversation.sessionId;
 						routes.hold(conversation, { socket: slot.socket, identity: host });
+						keep(async () => {
+							if (!held(entry.sessionId)) await roster.hold(entry);
+						});
 					},
 					state: (conversation) => routes.update(conversation),
-					became(previousId, conversation) {
+					became(previousId, conversation, entry) {
 						const was = routes.routeOf(previousId);
 						routes.drop(previousId);
 						current = conversation.sessionId;
 						if (was) routes.hold(conversation, was);
+						keep(() =>
+							held(previousId)
+								? roster.replace(previousId, entry)
+								: roster.hold(entry),
+						);
 					},
 					ended(why) {
 						over = true;
 						if (current) routes.drop(current);
 						clearSlot(slot).catch(options.report);
 						if (!current) return;
+						const gone = current;
+						if (why === "closed" || why === "released")
+							keep(() => roster.drop(gone));
 						options.say?.(
 							`${sessionAddress(current)} (${current}): its process ended, ${why}`,
 						);
@@ -168,6 +200,8 @@ export function childSupervisor(options: {
 			withinMs,
 			() => units.active(slot.unit),
 		);
+		// Held before anyone is told the child has it.
+		await kept;
 		// One that ended as it answered is watched no longer.
 		if (!over) {
 			watches.add(watching);

@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type ChildSupervisor,
 	childSupervisor,
+	type KeptRoster,
 } from "../../../host/service/child-supervisor.ts";
 import {
 	type Slot,
@@ -30,6 +31,7 @@ const LISTENS_AFTER_MS = 150;
 
 let folder: string;
 let routes: ReturnType<typeof heldChildren>;
+let roster: FakeRoster;
 let units: FakeUnits;
 let reported: unknown[];
 let said: string[];
@@ -56,6 +58,39 @@ function entry(sessionId: string): RosterEntry {
 	};
 }
 
+/** What an open's child derives for its conversation, launch and all. */
+function opened(sessionId: string): RosterEntry {
+	return { ...entry(sessionId), attended: true, launch: { PI_ARM: "b" } };
+}
+
+interface FakeRoster extends KeptRoster {
+	held: RosterEntry[];
+}
+
+/** A shared roster in memory, refusing what the real one refuses. */
+function fakeRoster(held: RosterEntry[]): FakeRoster {
+	const holds = (sessionId: string) =>
+		fake.held.some((one) => one.sessionId === sessionId);
+	const fake: FakeRoster = {
+		held,
+		entries: () => [...fake.held],
+		async hold(entry) {
+			if (holds(entry.sessionId)) throw new Error("Held already");
+			fake.held = [...fake.held, entry];
+		},
+		async replace(previousId, entry) {
+			if (!holds(previousId)) throw new Error("Conversation is not held");
+			fake.held = fake.held.map((one) =>
+				one.sessionId === previousId ? entry : one,
+			);
+		},
+		async drop(sessionId) {
+			fake.held = fake.held.filter((one) => one.sessionId !== sessionId);
+		},
+	};
+	return fake;
+}
+
 function line(value: unknown) {
 	return `${JSON.stringify(value)}\n`;
 }
@@ -66,6 +101,7 @@ interface FakeChild {
 	readonly identity: HostIdentity;
 	readonly asked: Record<string, unknown>[];
 	conversation: SessionIdentity | undefined;
+	entry: RosterEntry | undefined;
 	/** Say a line on every watch. */
 	say(value: unknown): void;
 	/** Say it ends, then exit. */
@@ -107,6 +143,7 @@ async function runChild(
 		conversation: held.session
 			? conversation(held.session.sessionId)
 			: undefined,
+		entry: held.session,
 		say(value) {
 			for (const watcher of watchers) watcher.write(line(value));
 		},
@@ -143,7 +180,9 @@ async function runChild(
 						);
 						continue;
 					}
-					child.conversation = conversation(randomUUID());
+					const sessionId = randomUUID();
+					child.conversation = conversation(sessionId);
+					child.entry = opened(sessionId);
 					socket.write(
 						line({ v: 1, id, ok: true, result: child.conversation }),
 					);
@@ -158,6 +197,7 @@ async function runChild(
 								version: "test",
 								host: child.identity,
 								conversation: child.conversation,
+								entry: child.entry,
 							},
 						}),
 					);
@@ -220,6 +260,7 @@ function supervise(): ChildSupervisor {
 		folder,
 		units,
 		routes,
+		roster,
 		report: (error) => reported.push(error),
 		say: (text) => said.push(text),
 		ended: (sessionId, why) => ended.push([sessionId, why]),
@@ -231,6 +272,8 @@ beforeEach(async () => {
 	// Short, since a socket's path may run to no more than 107 bytes.
 	folder = await mkdtemp(join(tmpdir(), "cs-"));
 	routes = heldChildren();
+	// As a host holds what it resumes before it resumes it.
+	roster = fakeRoster([entry(a)]);
 	units = fakeUnits();
 	reported = [];
 	said = [];
@@ -259,6 +302,8 @@ describe("a resumed conversation", () => {
 			identity: childOf(a).identity,
 		});
 		expect(routes.listed().map(({ sessionId }) => sessionId)).toEqual([a]);
+		expect(roster.held, "held once").toEqual([entry(a)]);
+		expect(reported).toEqual([]);
 	});
 
 	it("starts one child when it is asked for twice at once", async () => {
@@ -315,10 +360,14 @@ describe("what a child says", () => {
 			type: "became",
 			previousId: a,
 			conversation: conversation(b),
+			entry: entry(b),
 		});
 
 		await vi.waitFor(() => expect(routes.routeOf(b)).toEqual(route));
 		expect(routes.routeOf(a)).toBeUndefined();
+		await vi.waitFor(() =>
+			expect(roster.held, "held in the old one's place").toEqual([entry(b)]),
+		);
 	});
 
 	it("lets the route and the slot go when the child says it ends", async () => {
@@ -338,6 +387,15 @@ describe("what a child says", () => {
 		expect(said).toEqual([
 			expect.stringContaining("its process ended, parked"),
 		]);
+		expect(roster.held, "kept to resume later").toEqual([entry(a)]);
+	});
+
+	it("lets the roster's hold go only when the child says it closed", async () => {
+		await supervisor.resume(entry(a));
+
+		await childOf(a).end("closed");
+
+		await vi.waitFor(() => expect(roster.held, "no hold left").toEqual([]));
 	});
 
 	it("stops trusting a child that says what it can't read", async () => {
@@ -355,6 +413,7 @@ describe("what a child says", () => {
 		await childOf(a).exit();
 
 		await vi.waitFor(() => expect(ended).toEqual([[a, "failed"]]));
+		expect(roster.held, "kept to resume later").toEqual([entry(a)]);
 	});
 });
 
@@ -387,6 +446,10 @@ describe("a new conversation", () => {
 			JSON.parse(await readFile(slot.file, "utf8")),
 			"a slot naming none",
 		).toEqual({});
+		expect(roster.held, "held as its child derived it").toEqual([
+			entry(a),
+			opened(opened?.sessionId ?? ""),
+		]);
 	});
 
 	it("tells the caller its child's refusal, and stops that child", async () => {
@@ -428,6 +491,19 @@ describe("a host starting again", () => {
 			false,
 		);
 		expect(units.started, "no child started again").toHaveLength(1);
+	});
+
+	it("holds again a child's conversation an earlier host never held", async () => {
+		await supervisor.resume(entry(a));
+		supervisor.close();
+		// As when a host ends between its child's open and its hold.
+		roster = fakeRoster([]);
+		routes = heldChildren();
+		supervisor = supervise();
+
+		await supervisor.adopt();
+
+		expect(roster.held).toEqual([entry(a)]);
 	});
 
 	it("leaves each child running when it stops watching", async () => {
