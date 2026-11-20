@@ -74,13 +74,14 @@ it("sweeps once on a machine that has never swept, standing the hosts' sweeps do
 		"the stamp that stands the hosts' sweeps down",
 	).toBe(true);
 	expect(logLines(work), "one line for its one sweep").toHaveLength(1);
-	// The stamp is dated in whole milliseconds and the log by the file
-	// system, so a stamp in the log's own millisecond may read just under it.
+	// The stamp is dated in whole milliseconds through a float of seconds,
+	// which can read back a hair under its millisecond, and the log by the
+	// file system: a millisecond's slack keeps both on one footing.
 	expect(
 		statSync(join(work, "sweep.lock.outside")).mtimeMs,
-		"the stamp dated again once the sweep ended, not only as it started",
+		"the stamp dated once the sweep ended",
 	).toBeGreaterThanOrEqual(
-		Math.floor(statSync(join(work, "sweep.log")).mtimeMs),
+		Math.floor(statSync(join(work, "sweep.log")).mtimeMs) - 1,
 	);
 	expect(
 		existsSync(join(work, "sweep.lock")),
@@ -100,4 +101,33 @@ it("sweeps though a sweep has only just ended, which a host's would rest after",
 	expect(lines[0], "a sweep that ran, rather than failed or rested").toEqual(
 		expect.objectContaining({ taken: [], refused: [] }),
 	);
+});
+
+it("leaves the hosts sweeping when its sweep fails", async () => {
+	const { home, work } = freshHome();
+	mkdirSync(work, { recursive: true });
+	// Where the trees' records go, as a file: the sweep can't list them.
+	writeFileSync(join(work, "cut"), "");
+
+	await sweepIn(home);
+
+	expect(logLines(work)[0], "the line it logged").toHaveProperty("failed");
+	expect(
+		existsSync(join(work, "sweep.lock.outside")),
+		"a stamp standing the hosts down after a sweep that failed",
+	).toBe(false);
+});
+
+it("leaves the hosts sweeping when another sweep holds the lock", async () => {
+	const { home, work } = freshHome();
+	// A lock it can't take or read, as one another sweep is making.
+	mkdirSync(join(work, "sweep.lock"), { recursive: true });
+
+	await sweepIn(home);
+
+	expect(logLines(work)[0], "the line it logged").toHaveProperty("skipped");
+	expect(
+		existsSync(join(work, "sweep.lock.outside")),
+		"a stamp standing the hosts down after a sweep that never ran",
+	).toBe(false);
 });

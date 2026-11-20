@@ -154,13 +154,22 @@ export interface SweepAsks {
 	swept(paths: readonly string[]): void;
 	/** How long the machine rests after any sweep ends, if at all. */
 	restMs?: number;
+	/**
+	 * Whether its git holds to the fence's guard in every repository, as
+	 * a fenced session's does, whatever this process's own sandbox.
+	 */
+	fencedGit?: boolean;
 }
 
-/** One sweep, logged, which never throws. */
-export async function sweepAndLog(asks: SweepAsks): Promise<void> {
+/**
+ * One sweep, logged, which never throws: whether it ran to its end,
+ * rather than resting, finding another sweep running, or failing.
+ */
+export async function sweepAndLog(asks: SweepAsks): Promise<boolean> {
 	const started = Date.now();
 	let line: Record<string, unknown>;
 	let taken: string[] = [];
+	let ran = false;
 	try {
 		// A quest holds trees the broker knows nothing of, and says so
 		// when asked, as it does for reclaim. A live quest's trees are held
@@ -172,7 +181,7 @@ export async function sweepAndLog(asks: SweepAsks): Promise<void> {
 		// folder a hosted conversation worked in; on 19 November 280 claimed
 		// trees whose sessions had ended held 5.6 GiB.
 		const outcome = await sweepEndedTrees({
-			exec: unattendedExec(),
+			exec: unattendedExec(undefined, asks.fencedGit === true),
 			memory: createTreeMemory(treeRecordDir()),
 			claims: () => asks.claimed(),
 			lockPath: sweepLockPath(),
@@ -185,14 +194,16 @@ export async function sweepAndLog(asks: SweepAsks): Promise<void> {
 		// it did: a line for each filled the log at one every 3 seconds on
 		// 18 November. One that found another running still says so, as
 		// the only sign of a sweep that holds the lock and never ends.
-		if (outcome.rested !== undefined) return;
+		if (outcome.rested !== undefined) return false;
 		line = said(outcome);
 		taken = outcome.taken.map((tree) => tree.path);
+		ran = outcome.skipped === undefined;
 	} catch (error) {
 		line = { failed: error instanceof Error ? error.message : String(error) };
 	}
 	logSweep({ ms: Date.now() - started, ...line }, started);
 	if (taken.length > 0) asks.swept(taken);
+	return ran;
 }
 
 /**
