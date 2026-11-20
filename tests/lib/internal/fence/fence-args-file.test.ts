@@ -9,6 +9,7 @@
 import { spawnSync } from "node:child_process";
 import {
 	accessSync,
+	chmodSync,
 	constants,
 	mkdirSync,
 	mkdtempSync,
@@ -41,6 +42,7 @@ import {
 	bwrapWords,
 	fencedCommand,
 } from "../../../../lib/internal/fence/fence-command.ts";
+import { fenceCopy } from "../../../../lib/internal/fence/fence-copy.ts";
 import { wrapFor } from "../../../../lib/internal/sandbox/sandbox.ts";
 import {
 	cutTreeDir,
@@ -291,6 +293,35 @@ describe("bubblewrap's arguments from a file", () => {
 			expect(statSync(path).mode & 0o777, path).toBe(0o400);
 	});
 
+	it("makes a list written before its mode was asked for read-only as it is used again", () => {
+		const path = bwrapArgsFile(runtimeDir, ["--older"])?.path ?? "";
+		chmodSync(path, 0o600);
+
+		const again = bwrapArgsFile(runtimeDir, ["--older"])?.path;
+
+		expect(again, "the same file in use").toBe(path);
+		expect(statSync(path).mode & 0o777, "read-only now").toBe(0o400);
+		expect(readFileSync(path, "utf8"), "what it holds kept").toBe("--older\0");
+	});
+
+	it("rewrites a read-only copy whose text changed, still read-only", () => {
+		const read = (path: string) => {
+			try {
+				return readFileSync(path, "utf8");
+			} catch {
+				// No copy yet: nothing to compare.
+				return undefined;
+			}
+		};
+		const path = fenceCopy(runtimeDir, "changes", "before", read, 0o400);
+
+		const again = fenceCopy(runtimeDir, "changes", "after", read, 0o400);
+
+		expect(again, "the same place, written afresh").toBe(path);
+		expect(read(path ?? ""), "the new text").toBe("after");
+		expect(statSync(path ?? "").mode & 0o777, "still read-only").toBe(0o400);
+	});
+
 	it("gives no file without a runtime folder, or for an argument holding a NUL", () => {
 		expect(bwrapArgsFile(undefined, ["--dev", "/dev"])).toBeUndefined();
 		expect(
@@ -527,8 +558,18 @@ describe("bubblewrap's arguments from a file", () => {
 				home,
 			)?.("true") ?? "";
 
-		expect(said).toContain(`past the ${BWRAP_MOST_ARGS} it takes`);
-		expect(said).toContain("release the ones it is done with");
+		// pi's own refusal, not a command carrying the shell's guard, whose
+		// words are much the same.
+		expect(said, "pi counted them before any command").toContain(
+			"The fence would hand bubblewrap at least ",
+		);
+		expect(said, "no fenced command, guard and all").not.toContain("__pi_env");
+		expect(said, "the bound named").toContain(
+			`past the ${BWRAP_MOST_ARGS} it takes`,
+		);
+		expect(said, "what to do named").toContain(
+			"release the ones it is done with",
+		);
 	});
 
 	it("blames the runtime folder when the lists, written into the text for want of it, make it too long", () => {

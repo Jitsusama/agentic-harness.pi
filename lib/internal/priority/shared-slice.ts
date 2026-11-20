@@ -23,12 +23,21 @@ export const SHARED_SLICE_VARIABLE = "SHARED_SLICE";
  */
 export const SYSTEM_ENVIRONMENT = "/etc/set-environment";
 
+/** The longest one string Linux passes a program (MAX_ARG_STRLEN). */
+const LONGEST_STRING = 128 * 1024;
+
 /**
- * The longest the slice's form of a command may be: what Linux passes a
- * program in one string (MAX_ARG_STRLEN), less the room the fence keeps
- * for the queue's lines and pi's own, as `sandbox.ts` does.
+ * Room kept for what is put around the command after the queue: the
+ * variable's name pi's shell passes it under and the move into jobs.
+ * The same room `sandbox.ts` keeps under its LONGEST_TEXT, kept apart
+ * since neither module reaches the other; the queue's own lines are
+ * measured rather than counted in it.
  */
-const LONGEST_FORM = 128 * 1024 - 4 * 1024;
+const LATER_ROOM = 4 * 1024;
+
+/** What a walk too long for the slice's form says, on its errors. */
+export const SLICE_GIVEN_UP =
+	"This walk runs in the queue's slice: its command is too long to run in the shared one.";
 
 /**
  * Shell lines running `command` in the slice `SHARED_SLICE` names, in the
@@ -38,10 +47,12 @@ const LONGEST_FORM = 128 * 1024 - 4 * 1024;
  * `systemd-run` or runtime folder to reach the person's systemd through,
  * it runs as it was: `systemd-run` that can't reach it fails without
  * running the command at all. It runs as it was too when the form,
- * which holds the command twice and each quote in it quoted, would be
- * longer than Linux takes in one string: a fenced command whose lists
- * couldn't go in a file can be most of that alone, and a walk in the
- * queue's slice is slower, where one past it fails with E2BIG.
+ * which holds the command twice and each quote in it quoted, with the
+ * `around` bytes of the queue's lines, would be longer than Linux takes
+ * in one string: a fenced command whose lists couldn't go in a file can
+ * be most of that alone, and a walk in the queue's slice is slower,
+ * where one past it fails with E2BIG. That walk says so on its errors,
+ * so a slow walk can be traced to it.
  *
  * systemd-run expands each `${...}` in a command's words itself unless
  * told not to, so the command's own shell never saw them: a fenced
@@ -52,6 +63,7 @@ const LONGEST_FORM = 128 * 1024 - 4 * 1024;
 export function inSharedSlice(
 	command: string,
 	systemEnvironment: string = SYSTEM_ENVIRONMENT,
+	around = 0,
 ): string {
 	const quoted = `'${command.replaceAll("'", `'\\''`)}'`;
 	const file = `'${systemEnvironment.replaceAll("'", `'\\''`)}'`;
@@ -64,5 +76,8 @@ export function inSharedSlice(
 		command,
 		"fi",
 	].join("\n");
-	return Buffer.byteLength(form) > LONGEST_FORM ? command : form;
+	const room = LONGEST_STRING - LATER_ROOM - around;
+	return Buffer.byteLength(form) > room
+		? `printf '%s\\n' '${SLICE_GIVEN_UP.replaceAll("'", `'\\''`)}' >&2\n${command}`
+		: form;
 }

@@ -19,6 +19,9 @@ import { dirname, join } from "node:path";
 /** pi's folder in the runtime folder, for the fence's copies. */
 const FOLDER = "pi-fence";
 
+/** The permission bits of a file's mode. */
+const FILE_MODE_BITS = 0o777;
+
 /**
  * The path of the copy named `name`, holding `text`, written only when
  * what is there differs (`current` reads it), with `mode`; or nothing
@@ -45,7 +48,14 @@ export function fenceCopy(
 		// right, by a copy written beside its place and renamed over it.
 		if (!lstatSync(dirname(path)).isDirectory()) return undefined;
 		const linked = existsSync(path) && lstatSync(path).isSymbolicLink();
-		if (!linked && current(path) === text) return path;
+		// One written with another mode, as a list kept from before its mode
+		// was asked for, is written afresh, so it is read-only as a new one is.
+		if (
+			!linked &&
+			current(path) === text &&
+			(lstatSync(path).mode & FILE_MODE_BITS) === mode
+		)
+			return path;
 		staging = `${path}.${randomUUID()}`;
 		writeFileSync(staging, text, { mode, flag: "wx" });
 		renameSync(staging, path);
