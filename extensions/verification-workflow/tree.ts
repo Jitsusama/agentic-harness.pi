@@ -26,10 +26,7 @@ import {
 	spawnExec,
 } from "../../lib/core/exec/index.ts";
 import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
-import {
-	GIT_REFUSED,
-	guardedExec,
-} from "../../lib/internal/sandbox/tree-git.ts";
+import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
 
 /** How long one git question may take before it counts as unanswered. */
 const GIT_WALL_MS = 5_000;
@@ -98,17 +95,6 @@ export async function treeFingerprint(
 	root: string,
 	signal?: AbortSignal,
 ): Promise<string | undefined> {
-	return (await fingerprinted(root, signal)).print;
-}
-
-/**
- * A tree's fingerprint, as {@link treeFingerprint} gives it, with what
- * git said when asked which repository holds the tree.
- */
-async function fingerprinted(
-	root: string,
-	signal?: AbortSignal,
-): Promise<{ print?: string; top: Asked }> {
 	// Takes no lock, so it never stands in the way of the session's own git.
 	const status = [
 		"--no-optional-locks",
@@ -123,33 +109,14 @@ async function fingerprinted(
 		ask(root, ["rev-parse", "--show-toplevel"], signal),
 	]);
 	const topDir = top.answered && top.code === 0 ? top.stdout.trim() : "";
-	if (!head.answered || changed === undefined || !topDir) return { top };
+	if (!head.answered || changed === undefined || !topDir) return undefined;
 	const unborn = saysFatally(head, NO_COMMIT);
 	// Any other failure says nothing of what the tree sits on.
-	if (head.code !== 0 && !unborn) return { top };
+	if (head.code !== 0 && !unborn) return undefined;
 	const commit = unborn ? undefined : head.stdout;
 	const print = await fingerprintOf(commit, changed, topDir);
 	// Stopped while stamping: what it read is no answer.
-	return signal?.aborted ? { top } : { print, top };
-}
-
-/**
- * The fingerprint to keep with a failed run in `root`: undefined outside
- * git, or where the guard refuses git, so the run holds back commits
- * until an edit; and null when git holds the root but gave no
- * fingerprint, so the run is kept without being held against a commit
- * on a guess.
- */
-export async function recordedFingerprint(
-	root: string,
-): Promise<string | null | undefined> {
-	const { print, top } = await fingerprinted(root);
-	if (print !== undefined) return print;
-	// A refusal stands on every ask (a submodule, a repository the fence
-	// doesn't guard), so it fails closed, as it did before git ran off
-	// the thread. Only silence says nothing either way.
-	if (top.answered && top.code === GIT_REFUSED) return undefined;
-	return saysFatally(top, NOT_A_REPOSITORY) ? undefined : null;
+	return signal?.aborted ? undefined : print;
 }
 
 /**
@@ -164,9 +131,6 @@ function saysFatally(asked: Asked, message: RegExp): boolean {
 
 /** The code git exits with when it can't do what it was asked. */
 const GIT_FATAL = 128;
-
-/** What git says, in the C locale, of a folder no repository holds. */
-const NOT_A_REPOSITORY = /^fatal: not a git repository/m;
 
 /** What git says, in the C locale, of a HEAD with no commit yet. */
 const NO_COMMIT = /^fatal: .*(unknown revision|ambiguous argument)/m;

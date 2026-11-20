@@ -657,20 +657,6 @@ describe("the verify tool", () => {
 		expect(held?.problems[0]).toContain("exit 1 failed in");
 	}, 20_000);
 
-	it("keeps a failure git couldn't fingerprint, holding back no commit", async () => {
-		repo = await projectRepo();
-		const h = await harness();
-		h.questVerify = "exit 1";
-		failingGit(" status ");
-
-		const result = await h.verify.execute("call", { path: repo }, undefined);
-
-		expect(result.details.outcome).toBe("failing");
-		expect(result.content[0]?.text).toContain("holds back no commit");
-		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
-		expect(h.statuses.at(-1), "still said failing").toBeDefined();
-	});
-
 	it("holds back a commit on a failed run in a repository with no commit yet", async () => {
 		const unborn = project("unborn");
 		execFileSync(REAL_GIT, ["init", "-q", unborn]);

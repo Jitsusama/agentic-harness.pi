@@ -265,7 +265,7 @@ export function gitRun(
 }
 
 /** The exit code a refused git answers with, as a shell's for a command it won't run. */
-export const GIT_REFUSED = 126;
+const GIT_REFUSED = 126;
 
 /**
  * The folder git would run in for `args`, each leading `-C` taken in

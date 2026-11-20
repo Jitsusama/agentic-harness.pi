@@ -87,24 +87,22 @@ never read from an earlier pass:
   status within a mebibyte. A check asks a few, so it can wait
   several times that, and longer on a git that holds its output
   open until it ends.
-  - Outside git, or where the guard refuses git (a submodule,
-    say), it holds back commits until an edit under its project.
-    Only git saying the folder is in no repository counts as
-    outside git.
-  - When git gives no answer (its clock or a stop ended it, its
-    status ran past a mebibyte, or it failed to say what the
-    tree sits on for any reason but there being no commit yet),
-    it holds back no commit, as verify's answer says. It stays
-    failing on the status line until a clean run or an edit
-    there retires it, or git says the tree moved, if git
-    fingerprinted it. So a tree changed too widely to list holds
-    back no commit.
+  - With no fingerprint, it holds back commits until an edit
+    under its project: outside git, where the guard refuses git
+    (a submodule, say), and where git gives no answer (its clock
+    ended it, its status ran past a mebibyte, or it failed to
+    say what the tree sits on for any reason but there being no
+    commit yet). So a tree changed too widely to list still
+    holds back commits, as it did before git ran off the thread.
+  - A check stopped before it ended is not kept, and verify's
+    answer says so.
   - A project the disk says is gone retires it, however it was
     recorded; one out of reach for now doesn't.
   - Of two failed runs ending close together, in any projects,
     the one that ended last is kept. A failure is not kept when a
     later run of its project ended first, or an edit landed in
-    its project while it ran, and verify's answer says why.
+    its project between the run's start and its record, and
+    verify's answer says why.
 
 It used to publish a flag that only the end of a turn refreshed,
 and a verify run in the wrong directory could set it, so a commit

@@ -85,19 +85,6 @@ describe("a commit's check", () => {
 		expect(state.failedRun).toBe(NEXT);
 	});
 
-	it("neither holds back nor retires a run git said nothing of, asking nothing", async () => {
-		const unsaid: FailedRun = { ...RUN, fingerprint: null };
-		state.failedRun = unsaid;
-		const { failure } = await failureNow(
-			state,
-			{ dir: "/src/repo" },
-			undefined,
-		);
-		expect(failure).toBeUndefined();
-		expect(state.failedRun).toBe(unsaid);
-		expect(asked, "fingerprints asked").toHaveLength(0);
-	});
-
 	// Three asks bound a check that verifies keep overtaking; the newest
 	// is left for the next ask rather than chased.
 	it("leaves the newest run for the next ask after three recorded meanwhile", async () => {
@@ -200,13 +187,6 @@ describe("settling the outcome", () => {
 		const settling = settle(state);
 		await gitSays(undefined);
 		expect(await settling).toBe("clean");
-		expect(state.failedRun).toBeUndefined();
-	});
-
-	it("retires a run git said nothing of once its root is gone", async () => {
-		state.failedRun = { ...RUN, fingerprint: null };
-		disk.there = false;
-		expect(await settle(state)).toBe("clean");
 		expect(state.failedRun).toBeUndefined();
 	});
 
