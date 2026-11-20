@@ -80,25 +80,45 @@ export function sweepLock(
 		forMs: LOCK_FRESH_FOR_MS,
 	},
 ): (() => void) | string {
-	for (let tries = 0; tries < 2; tries += 1) {
-		let mine: string;
-		try {
-			const fd = openSync(lockPath, "wx");
-			try {
-				writeSync(fd, String(process.pid));
-				mine = identity(fstatSync(fd));
-			} finally {
-				closeSync(fd);
-			}
-		} catch (error) {
-			if (!hasCode(error, "EEXIST")) throw error;
-			const held = heldBy(lockPath);
+	// Locks moved aside stay until this sweep has made its own, so the
+	// new lock can never be given a moved one's inode, and its holder,
+	// if it still runs, never takes the new lock for its own.
+	const asides: string[] = [];
+	try {
+		for (let tries = 0; tries < 2; tries += 1) {
+			const mine = made(lockPath);
+			if (mine !== undefined) return keptFresh(lockPath, mine, fresh);
+			const held = heldBy(lockPath, asides);
 			if (held !== undefined) return held;
-			continue;
 		}
-		return keptFresh(lockPath, mine, fresh);
+		return "another sweep took the lock as this one did";
+	} finally {
+		for (const aside of asides) rmSync(aside, { force: true });
 	}
-	return "another sweep took the lock as this one did";
+}
+
+/**
+ * Make the lock, answering which file it is, or undefined when one is
+ * there already. A lock that can't be written is removed again, so it
+ * never stands as an empty one nobody holds.
+ */
+function made(lockPath: string): string | undefined {
+	let fd: number;
+	try {
+		fd = openSync(lockPath, "wx");
+	} catch (error) {
+		if (hasCode(error, "EEXIST")) return undefined;
+		throw error;
+	}
+	try {
+		writeSync(fd, String(process.pid));
+		return identity(fstatSync(fd));
+	} catch (error) {
+		rmSync(lockPath, { force: true });
+		throw error;
+	} finally {
+		closeSync(fd);
+	}
 }
 
 /**
@@ -114,24 +134,35 @@ function keptFresh(
 	// The monotonic clock stands still while the machine sleeps, so a
 	// night's suspend neither spends the budget nor ends it at the wake.
 	const began = performance.now();
+	let lost = false;
+	// The beat goes on past the touching, only looking, so a lock taken
+	// over from a wedged sweep is seen as lost long before a later lock
+	// could be given its inode, and the sweep then never removes that one.
 	const beat = setInterval(() => {
-		if (performance.now() - began > fresh.forMs) clearInterval(beat);
-		else if (identityOf(lockPath) === mine) touch(lockPath);
+		if (identityOf(lockPath) !== mine) {
+			lost = true;
+			clearInterval(beat);
+		} else if (performance.now() - began <= fresh.forMs) touch(lockPath);
 	}, fresh.everyMs);
 	// A sweep's touching must never keep its process alive.
 	beat.unref();
 	return () => {
 		clearInterval(beat);
-		if (identityOf(lockPath) === mine) rmSync(lockPath, { force: true });
+		if (!lost && identityOf(lockPath) === mine) {
+			rmSync(lockPath, { force: true });
+		}
 	};
 }
 
 /**
  * Why the lock at `lockPath` stands in the way, or undefined once it no
- * longer does: gone, or left behind and now moved aside. A lock naming
- * no pid, as one just made and not yet written is, goes only by its age.
+ * longer does: gone, or left behind and now moved aside into `asides`,
+ * which the caller removes once its own lock is made. A lock naming no
+ * pid is one a sweep is making, but only for a moment, since nothing
+ * yields between the create and the write: one older than
+ * {@link LOCK_FRESH_EVERY_MS} was left behind.
  */
-function heldBy(lockPath: string): string | undefined {
+function heldBy(lockPath: string, asides: string[]): string | undefined {
 	let judged: Stats;
 	try {
 		// The link itself, never what it points at: a dangling link at the
@@ -142,9 +173,13 @@ function heldBy(lockPath: string): string | undefined {
 		if (hasCode(error, "ENOENT")) return undefined;
 		throw error;
 	}
-	const holder = holderOf(lockPath);
-	const stale = Date.now() - judged.mtimeMs > SWEEP_STALE_MS;
-	const gone = holder !== undefined && !isAlive(holder);
+	// Read only from a plain file: a pipe or a device at the lock's path
+	// would block the reading thread, and a link may point anywhere.
+	const holder = judged.isFile() ? holderOf(lockPath) : undefined;
+	const age = Date.now() - judged.mtimeMs;
+	const stale = age > SWEEP_STALE_MS;
+	const gone =
+		holder === undefined ? age > LOCK_FRESH_EVERY_MS : !isAlive(holder);
 	if (!stale && !gone) {
 		return holder === undefined
 			? "another sweep is starting"
@@ -167,8 +202,10 @@ function heldBy(lockPath: string): string | undefined {
 		} catch (error) {
 			if (!hasCode(error, "EEXIST")) throw error;
 		}
+		rmSync(aside, { force: true });
+		return undefined;
 	}
-	rmSync(aside, { force: true });
+	asides.push(aside);
 	return undefined;
 }
 

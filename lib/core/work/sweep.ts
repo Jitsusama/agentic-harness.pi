@@ -110,7 +110,7 @@ export interface SweepDeps extends UseSigns {
 	lockPath: string;
 	/**
 	 * How often, and for how long, a running sweep touches its lock; every
-	 * five minutes for five hours by default.
+	 * minute for five awake hours by default.
 	 */
 	lockFresh?: LockFresh;
 	/**

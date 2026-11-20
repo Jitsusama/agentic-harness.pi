@@ -6,8 +6,10 @@
  * time, would do to its lock.
  */
 
+import { execFileSync } from "node:child_process";
 import {
 	existsSync,
+	linkSync,
 	lutimesSync,
 	readFileSync,
 	renameSync,
@@ -68,7 +70,7 @@ function pausingOnce(meanwhile: () => Promise<void>) {
 }
 
 describe("one sweep at a time", () => {
-	it("keeps its lock fresh while it runs, so a second sweep waits however long the first takes", async () => {
+	it("keeps its lock fresh while it runs, so a second sweep is turned away however long the first takes", async () => {
 		const { memory, lockPath, cut } = await setUp();
 		await cut("done", ["-b", "done", "@", "main"]);
 		const seconds: (SweepOutcome | undefined)[] = [];
@@ -134,7 +136,7 @@ describe("one sweep at a time", () => {
 		).toBeGreaterThan(TWO_HOURS_MS - 60_000);
 	});
 
-	it("leaves a lock naming no pid to the sweep making it, until it goes stale", async () => {
+	it("leaves a lock naming no pid to the sweep making it, but only for a minute", async () => {
 		const { memory, lockPath, cut } = await setUp();
 		const done = await cut("done", ["-b", "done", "@", "main"]);
 		// Made and not yet written, as a sweep starting leaves it.
@@ -147,7 +149,9 @@ describe("one sweep at a time", () => {
 			lockPath,
 			facts: machine,
 		});
-		age(lockPath);
+		// Past a minute, well inside the hour a named holder's lock stands.
+		const old = new Date(Date.now() - 2 * 60 * 1000);
+		utimesSync(lockPath, old, old);
 		const stale = await sweepEndedTrees({
 			exec,
 			memory,
@@ -162,8 +166,54 @@ describe("one sweep at a time", () => {
 		).toBe("another sweep is starting");
 		expect(
 			stale.taken.map((tree) => tree.path),
-			"an empty lock left for hours kept every sweep out",
+			"an empty lock left behind kept every sweep out",
 		).toEqual([done]);
+	});
+
+	it("never reads through a pipe at the lock's path", async () => {
+		const { memory, lockPath } = await setUp();
+		execFileSync("mkfifo", [lockPath]);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(
+			outcome.skipped,
+			"a pipe at the lock's path was read as a holder",
+		).toBe("another sweep is starting");
+	});
+
+	it("never removes a later lock given its lost lock's inode", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		await cut("done", ["-b", "done", "@", "main"]);
+		const ours = `${lockPath}.ours`;
+
+		await sweepEndedTrees({
+			exec: pausingOnce(async () => {
+				// Taken over: another lock stands in ours' place for a few beats.
+				linkSync(lockPath, ours);
+				replaceLock(lockPath);
+				// Long enough for several beats to see the lock is no longer ours.
+				await wait(FRESH_EVERY_MS * 5);
+				// Then a later lock is given our old inode, as ext4 may give it.
+				renameSync(ours, lockPath);
+			}),
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+			lockFresh: { everyMs: FRESH_EVERY_MS, forMs: 60_000 },
+		});
+
+		expect(
+			existsSync(lockPath),
+			"a sweep that had lost its lock removed a later one with its inode",
+		).toBe(true);
 	});
 
 	it("takes over a dangling link left at the lock's path once it is stale", async () => {
@@ -272,16 +322,18 @@ describe("one sweep at a time", () => {
 			LOCK_FRESH_EVERY_MS * 4,
 			"a running sweep's lock could pass the stale age between touches",
 		).toBeLessThanOrEqual(SWEEP_STALE_MS);
-		// Stale an hour after the last touch, which comes up to a beat
-		// before the touching ends: between 5.5 and 6 hours in.
-		const staleAfter = LOCK_FRESH_FOR_MS + SWEEP_STALE_MS - LOCK_FRESH_EVERY_MS;
+		// Stale an hour after the last touch, which comes at the end of the
+		// touching or up to a beat before it: both ends of that window fall
+		// between five and a half and six hours in.
+		const latest = LOCK_FRESH_FOR_MS + SWEEP_STALE_MS;
+		const earliest = latest - LOCK_FRESH_EVERY_MS;
 		expect(
-			staleAfter,
-			"a wedged sweep's lock goes stale later than six hours in",
+			latest,
+			"a wedged sweep's lock can go stale later than six hours in",
 		).toBeLessThanOrEqual(6 * 60 * 60 * 1000);
 		expect(
-			staleAfter,
-			"a wedged sweep's lock goes stale sooner than five and a half hours in",
+			earliest,
+			"a wedged sweep's lock can go stale sooner than five and a half hours in",
 		).toBeGreaterThan(5.5 * 60 * 60 * 1000);
 	});
 });
