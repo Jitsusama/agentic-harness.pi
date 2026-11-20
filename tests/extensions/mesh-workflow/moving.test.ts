@@ -306,7 +306,14 @@ describe("moving a session", () => {
 				one.offs.push(off);
 			},
 			note: (to) => one.did.push(`note ${to}`),
-			handOver: () => ({ end: () => one.did.push("handed") }),
+			handOver: () => ({
+				tell: () => {
+					one.did.push("told");
+					return undefined;
+				},
+				untell: () => one.did.push("untold"),
+				quiet: () => one.did.push("handed"),
+			}),
 			keyedAt: () => keyed.at,
 			tell: (text) => one.told.push(text),
 			close: () => one.did.push("close"),
