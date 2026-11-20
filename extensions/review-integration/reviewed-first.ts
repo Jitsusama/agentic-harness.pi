@@ -41,10 +41,15 @@
  * settle a conflict, or brought anything else along, gives another tree
  * and needs a round of its own; so the replay runs in a scratch repo
  * that reads no settings or attributes, and no merge driver can settle
- * a conflict for it. Nor does the commit the branch was made at lend,
- * or anything under it: that is work it was cut from, which after a
- * restack no pushed branch may hold any more. So the branch must have
- * been made in this checkout, its reflog still saying so. Only the last
+ * a conflict for it. Nor does any commit work from elsewhere brought
+ * the branch to lend, or anything under one: where it was made or
+ * copied, and every reset, fast-forward, `branch -f` or `checkout -B`
+ * since. That is work it was cut from or took in, which after a restack
+ * or a rebase no pushed branch may hold any more. Only a commit, a
+ * cherry-pick, a revert, a merge that made a commit and a rebase that
+ * replayed something are the branch's own; a subject git may write one
+ * day counts as brought. So the branch's reflog in this checkout must
+ * still reach back to its making or copying. Only the last
  * EARLIER_HEADS of each reflog are asked about, and a checkout that
  * never held the branch before its rebase remembers none.
  */
@@ -72,6 +77,33 @@ const EARLIER_HEADS = 30;
 
 /** How git's reflog says a branch was made, in its oldest entry. */
 const MADE = "branch: Created from ";
+
+/**
+ * How git's reflog says a branch's own work moved it: a commit of any
+ * kind, a cherry-pick, a revert, a merge that made a commit. Anything
+ * else (a reset, a fast-forward, `branch -f`, `checkout -B`, a fetch,
+ * or a subject git may write one day) brought work from elsewhere.
+ */
+const OWN_WORK = [
+	/^commit( \([a-z -]+\))?: /,
+	/^cherry-pick: /,
+	/^revert: /,
+	/^(merge|pull)( [^:]*)?: Merge made by /,
+];
+
+/**
+ * How git's reflog says a rebase finished, naming the commit it went
+ * onto: its own work only when it replayed some, so the head isn't that
+ * commit itself.
+ */
+const REBASED =
+	/^(rebase|rebase -i|pull( [^:]*)?) \(finish\): \S+ onto ([0-9a-f]{40})$/;
+
+/** How git's reflog says a branch was renamed, moving nothing. */
+const RENAMED = "Branch: renamed ";
+
+/** How git's reflog says a branch was copied, its entries older than this the source's. */
+const COPIED = "Branch: copied ";
 
 /** How many of the branches holding a change's reviewed commits a refusal names. */
 const HOLDERS_NAMED = 3;
@@ -151,7 +183,7 @@ export async function councilFirst(
 		const more = read.holders.length > HOLDERS_NAMED ? " and others" : "";
 		return `${range} isn't ${doing} yet: the council of ours that read it read commits ${named}${more} also hold without its head, so they count as that work's, not this change's (Joel's rule: our own review before anyone else's). If those are this change before its last fix, as a branch above it in a stack or an old copy, restack them onto its head or delete them, push, and ask again. Otherwise run review_ask council on this change at its head.`;
 	}
-	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is among the last ${EARLIER_HEADS} this checkout's reflogs recall, the branch was made here and that head is its own work above where it was made, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
+	return `No council of ours has read ${range} yet, so it isn't ${doing} (Joel's rule: our own review before anyone else's). (A rebase keeps a council when the head it read is among the last ${EARLIER_HEADS} this checkout's reflogs recall, the branch's reflog here reaches back to its making, that head is its own work above wherever it was made, reset or fast-forwarded to, and git replays it onto the new base cleanly to this change's tree, or to one of its commits below a fix.) Run review_ask council on it at its head (base the change below it, for a change in a stack), or review_ask stack over a stack already proposed, as drafts if need be (with an intent saying why, if it refuses another), check each finding against the source, fix and push what holds, then ask again. A draft can go up first: propose with draft true and no reviewers.`;
 }
 
 /** The change's commits, newest first. */
@@ -247,24 +279,24 @@ async function rebasedReviewed(
 	);
 	if (tip.code !== 0) return false;
 	const now = tip.stdout.trim();
-	const earlier = (await earlierHeads(git, change.head)).filter(
-		(sha) => sha !== now,
-	);
+	const history = await historyOf(git, change.head);
+	if (history === undefined) return false;
+	const earlier = [
+		...new Set([...history.heads, ...(await pushedHeads(git, change.head))]),
+	].filter((sha) => sha !== now);
 	// One look at the ledger before any replay, since most changes
 	// refused were never read at all.
 	if (earlier.length === 0 || !(await witnesses(change.repo, new Set(earlier))))
 		return false;
 	const onto = await forkOf(git, read.base, now);
 	const trees = await ownTrees(git, read.base, now, read.commits);
-	const created = await createdAt(git, change.head);
-	if (onto === undefined || trees === undefined || created === undefined)
-		return false;
+	if (onto === undefined || trees === undefined) return false;
 	const scratch = await scratchRepo(exec, git);
 	if (scratch === undefined) return false;
 	try {
 		for (const head of earlier) {
 			if (!(await witnesses(change.repo, new Set([head])))) continue;
-			if (await atOrBelow(git, head, created)) continue;
+			if (await atOrBelowAny(git, head, history.arrivals)) continue;
 			const tree = await replayed(git, scratch, read.base, head, onto);
 			if (tree === undefined || !trees.has(tree)) continue;
 			if (await ownWherever(git, read.base, head, earlier, change.head))
@@ -277,15 +309,18 @@ async function rebasedReviewed(
 }
 
 /**
- * The commit `branch` was made at, as the oldest entry of its reflog in
- * the checkout says, git writing "branch: Created from" there however a
- * branch is made and keeping it through a rename; nothing when the
- * reflog no longer reaches back that far, or there is no such branch.
+ * What `branch`'s local reflog in the checkout says of it: its last
+ * EARLIER_HEADS heads, and every commit work from elsewhere brought it
+ * to, its making among them. A copy's entries older than the copy are
+ * its source's, so they are left out and the copy is an arrival. Nothing
+ * when the reflog no longer reaches back to the branch's making or
+ * copying, since what came before can't be told, or there is no such
+ * branch.
  */
-async function createdAt(
+async function historyOf(
 	git: (...args: string[]) => ReturnType<Exec>,
 	branch: string,
-): Promise<string | undefined> {
+): Promise<{ heads: string[]; arrivals: string[] } | undefined> {
 	const logged = await git(
 		"log",
 		"--walk-reflogs",
@@ -295,25 +330,50 @@ async function createdAt(
 		"--",
 	);
 	if (logged.code !== 0) return undefined;
-	const oldest = logged.stdout.trim().split("\n").at(-1) ?? "";
-	const [commit = "", ...said] = oldest.split(" ");
-	return COMMIT_ID.test(commit) && said.join(" ").startsWith(MADE)
-		? commit
-		: undefined;
+	const heads: string[] = [];
+	const arrivals: string[] = [];
+	for (const line of logged.stdout.split("\n")) {
+		const [commit = "", ...words] = line.split(" ");
+		if (!COMMIT_ID.test(commit)) continue;
+		const said = words.join(" ");
+		if (heads.length < EARLIER_HEADS && !heads.includes(commit))
+			heads.push(commit);
+		if (said.startsWith(MADE) || said.startsWith(COPIED)) {
+			arrivals.push(commit);
+			return { heads, arrivals };
+		}
+		if (!movedByItself(commit, said)) arrivals.push(commit);
+	}
+	return undefined;
 }
 
 /**
- * Whether `head` is `created` or under it: work the branch was cut from,
- * never its own, whoever's council read it.
+ * Whether a reflog entry saying `said`, leaving the branch at `commit`,
+ * is the branch's own work or a rename, rather than work brought from
+ * elsewhere.
  */
-async function atOrBelow(
+function movedByItself(commit: string, said: string): boolean {
+	if (said.startsWith(RENAMED)) return true;
+	if (OWN_WORK.some((own) => own.test(said))) return true;
+	const rebased = REBASED.exec(said);
+	return rebased !== null && rebased[3] !== commit;
+}
+
+/**
+ * Whether `head` is one of `arrivals` or under one: work the branch was
+ * cut from or brought in, never its own, whoever's council read it.
+ */
+async function atOrBelowAny(
 	git: (...args: string[]) => ReturnType<Exec>,
 	head: string,
-	created: string,
+	arrivals: readonly string[],
 ): Promise<boolean> {
-	const under = await git("merge-base", "--is-ancestor", head, created);
-	// 1 says it isn't; anything else can't be told from it being so.
-	return under.code !== 1;
+	for (const arrival of arrivals) {
+		const under = await git("merge-base", "--is-ancestor", head, arrival);
+		// 1 says it isn't; anything else can't be told from it being so.
+		if (under.code !== 1) return true;
+	}
+	return false;
 }
 
 /**
@@ -397,10 +457,19 @@ async function scratchRepo(
 	const tree = empty.stdout.trim();
 	if (objects.code !== 0 || empty.code !== 0 || !COMMIT_ID.test(tree))
 		return undefined;
-	const dir = mkdtempSync(join(tmpdir(), "reviewed-first-"));
-	const remove = () => rmSync(dir, { recursive: true, force: true });
+	const dir = madeTemporary();
+	if (dir === undefined) return undefined;
+	const remove = () => {
+		try {
+			rmSync(dir, { recursive: true, force: true });
+		} catch {
+			// A scratch folder left behind costs a few bytes of the temporary
+			// folder, which the system clears; the gate's answer stands.
+		}
+	};
 	const unread = [
 		...["GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY"],
+		...["GIT_COMMON_DIR"],
 		...["GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"],
 		...["GIT_CONFIG_SYSTEM", "GIT_ATTR_SOURCE", "GIT_NAMESPACE"],
 	].flatMap((name) => ["-u", name]);
@@ -434,30 +503,37 @@ async function scratchRepo(
 	};
 }
 
+/** A fresh temporary folder, or nothing when one can't be made. */
+function madeTemporary(): string | undefined {
+	try {
+		return mkdtempSync(join(tmpdir(), "reviewed-first-"));
+	} catch {
+		// A full or unwritable temporary folder: no replay can run, so no
+		// earlier council lends, and the refusal says to run one.
+		return undefined;
+	}
+}
+
 /**
- * The commits `branch` pointed at before, newest first, as its local
- * and its pushed reflogs recall them; none when it isn't a branch.
+ * The commits `branch` pointed at on origin, newest first, as its
+ * pushed reflog recalls them; none when the checkout keeps no such
+ * reflog.
  */
-async function earlierHeads(
+async function pushedHeads(
 	git: (...args: string[]) => ReturnType<Exec>,
 	branch: string,
 ): Promise<string[]> {
-	const heads = new Set<string>();
-	for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
-		const logged = await git(
-			"log",
-			"--walk-reflogs",
-			"--format=%H",
-			`--max-count=${EARLIER_HEADS}`,
-			"--end-of-options",
-			ref,
-			"--",
-		);
-		// No reflog, or no such branch: it recalls no earlier head.
-		if (logged.code === 0)
-			for (const sha of commitIds(logged.stdout)) heads.add(sha);
-	}
-	return [...heads];
+	const logged = await git(
+		"log",
+		"--walk-reflogs",
+		"--format=%H",
+		`--max-count=${EARLIER_HEADS}`,
+		"--end-of-options",
+		`refs/remotes/origin/${branch}`,
+		"--",
+	);
+	// No reflog, or no such branch: it recalls no earlier head.
+	return logged.code === 0 ? commitIds(logged.stdout) : [];
 }
 
 /** Where `head` left `base`, or nothing when that can't be read. */

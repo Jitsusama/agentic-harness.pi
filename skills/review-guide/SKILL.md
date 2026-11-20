@@ -233,13 +233,15 @@ check its findings against the source, fix and push what holds, then
 propose; a council read before that last fix still counts, and so
 does one read before a clean rebase: a head the council read, which
 the checkout's reflogs still recall and which was the branch's own
-work above where it was made in this checkout, lends its council
+work above wherever it was made, copied, reset or fast-forwarded to
+in this checkout, lends its council
 when git replays its change onto the new base cleanly, with no merge
 driver, into the tree of the change's head, or of one of its
 commits below a later fix. So a rebase needs a new round only when
 it settled a conflict or brought something else along, or when the
 branch was made elsewhere, and a branch never borrows the council of
-the work it was cut from or the one below it after a restack. Commits
+the work it was cut from, reset onto or fast-forwarded to, or the one
+below it after a restack. Commits
 another pushed branch holds without the change's head aren't its
 own, so a branch cut from reviewed work needs its own council, and
 a lower branch fixed under a stack is judged once the branches above

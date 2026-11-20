@@ -1,6 +1,11 @@
 /**
  * Whether our own council has read a change, judged from the change's
  * commits in its checkout and the rounds held on disk.
+ *
+ * Long because every case moves one repository's branches through the
+ * same fixture and helpers, held in the suite's closure: split, each half
+ * would carry its own copy of them, or a module of moves shared by one
+ * suite alone.
  */
 
 import { execFile } from "node:child_process";
@@ -523,6 +528,136 @@ describe("holding a change until our own council has read it", () => {
 		).toContain("No council of ours");
 	});
 
+	/**
+	 * `fix` goes up as the topic and its council reads it; `cut` is made
+	 * on the trunk and `bring` moves it to `fix`, then main moves on, `cut`
+	 * is rebased onto it and given `three`, which nobody read.
+	 */
+	async function broughtToReviewedWork(bring: () => Promise<unknown>) {
+		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
+		await councilRead(fix);
+		await git(repo, "switch", "-qc", "cut", trunk);
+		await bring();
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "later"), "later\n");
+		await git(repo, "add", "later");
+		await git(repo, "commit", "-qm", "later");
+		await git(repo, "switch", "-q", "cut");
+		await git(repo, "rebase", "-q", "main");
+		writeFileSync(join(repo, "three"), "three\n");
+		await git(repo, "add", "three");
+		await git(repo, "commit", "-qm", "three");
+	}
+
+	it("lends nothing to a branch reset onto reviewed work, then rebased", async () => {
+		await broughtToReviewedWork(() =>
+			git(repo, "reset", "-q", "--hard", "topic"),
+		);
+
+		expect(
+			await councilFirst(exec, { ...topic(), head: "cut" }, "proposed"),
+		).toContain("No council of ours");
+	});
+
+	it("lends nothing to a branch fast-forwarded to reviewed work, then rebased", async () => {
+		await broughtToReviewedWork(() =>
+			git(repo, "merge", "-q", "--ff-only", "topic"),
+		);
+
+		expect(
+			await councilFirst(exec, { ...topic(), head: "cut" }, "proposed"),
+		).toContain("No council of ours");
+	});
+
+	it("lends nothing to a branch rebased onto reviewed work it held none of", async () => {
+		// A rebase with nothing to replay only fast-forwards.
+		await broughtToReviewedWork(() => git(repo, "rebase", "-q", "topic"));
+
+		expect(
+			await councilFirst(exec, { ...topic(), head: "cut" }, "proposed"),
+		).toContain("No council of ours");
+	});
+
+	it("lends nothing to a copy of a reviewed branch, though it copies the reflog", async () => {
+		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
+		await councilRead(fix);
+		await git(repo, "branch", "-c", "topic", "copy");
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "later"), "later\n");
+		await git(repo, "add", "later");
+		await git(repo, "commit", "-qm", "later");
+		await git(repo, "switch", "-q", "copy");
+		await git(repo, "rebase", "-q", "main");
+		writeFileSync(join(repo, "three"), "three\n");
+		await git(repo, "add", "three");
+		await git(repo, "commit", "-qm", "three");
+
+		expect(
+			await councilFirst(exec, { ...topic(), head: "copy" }, "proposed"),
+		).toContain("No council of ours");
+	});
+
+	it("keeps a renamed branch's council across a clean rebase", async () => {
+		await councilRead(fix);
+		await git(repo, "branch", "-m", "topic", "renamed");
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "later"), "later\n");
+		await git(repo, "add", "later");
+		await git(repo, "commit", "-qm", "later");
+		await git(repo, "switch", "-q", "renamed");
+		await git(repo, "rebase", "-q", "main");
+
+		expect(
+			await councilFirst(exec, { ...topic(), head: "renamed" }, "proposed"),
+		).toBeUndefined();
+	});
+
+	it("holds a rebase whose conflict the person's global merge driver settled", async () => {
+		const global = join(repo, "..", `${repo.split("/").at(-1)}.gitconfig`);
+		writeFileSync(global, "[merge]\n\tdefault = union\n");
+		const was = process.env.GIT_CONFIG_GLOBAL;
+		process.env.GIT_CONFIG_GLOBAL = global;
+		try {
+			await councilRead(fix);
+			await git(repo, "switch", "-q", "main");
+			writeFileSync(join(repo, "two"), "two on main\n");
+			await git(repo, "add", "two");
+			await git(repo, "commit", "-qm", "main's two");
+			await git(repo, "switch", "-q", "topic");
+			const went = await exec("git", ["-C", repo, "rebase", "-q", "main"]);
+			expect(went.code, "the global driver settled the rebase").toBe(0);
+
+			expect(await councilFirst(exec, topic(), "proposed")).toContain(
+				"No council of ours",
+			);
+		} finally {
+			if (was === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+			else process.env.GIT_CONFIG_GLOBAL = was;
+			rmSync(global, { force: true });
+		}
+	});
+
+	it("holds a rebase whose conflict a merge driver the change commits settled", async () => {
+		writeFileSync(join(repo, ".gitattributes"), "* merge=union\n");
+		await git(repo, "add", ".gitattributes");
+		await git(repo, "commit", "-qm", "attributes");
+		writeFileSync(join(repo, "three"), "three on the topic\n");
+		await git(repo, "add", "three");
+		await git(repo, "commit", "-qm", "three");
+		await councilRead(await git(repo, "rev-parse", "HEAD"));
+		await git(repo, "switch", "-q", "main");
+		writeFileSync(join(repo, "three"), "three on main\n");
+		await git(repo, "add", "three");
+		await git(repo, "commit", "-qm", "main's three");
+		await git(repo, "switch", "-q", "topic");
+		const went = await exec("git", ["-C", repo, "rebase", "-q", "main"]);
+		expect(went.code, "the committed driver settled the rebase").toBe(0);
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
+	});
+
 	it("keeps a restacked upper branch's own council", async () => {
 		// The topic sits on `lower`, which holds `first`; its council read
 		// `fix`, and both are restacked onto a new main.
@@ -550,7 +685,15 @@ describe("holding a change until our own council has read it", () => {
 		// `lower` is made on the trunk and holds `first`, which its council
 		// read; the topic above it still holds the old `first`.
 		await git(repo, "branch", "lower", trunk);
-		await git(repo, "update-ref", "refs/heads/lower", first);
+		// Its reflog says `first` was committed there, as committing it would.
+		await git(
+			repo,
+			"update-ref",
+			"-m",
+			"commit: one",
+			"refs/heads/lower",
+			first,
+		);
 		await git(repo, "update-ref", "refs/remotes/origin/lower", first);
 		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
 		await councilRead(first);
