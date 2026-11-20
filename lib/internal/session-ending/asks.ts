@@ -1009,7 +1009,7 @@ const COMMANDS: readonly (readonly [RegExp, Act])[] = [
 	],
 	[
 		new RegExp(
-			String.raw`^(?:loginctl\s+(?:terminate|kill)-user(?=\s|$)|${LOGIN1}\b(?:terminate|kill)user\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*\s*$|kill\s+(?:-\S+\s+)*-1(?=\s|$))`,
+			String.raw`^(?:loginctl\s+(?:terminate|kill)-user(?=\s|$)|${LOGIN1}\b(?:terminate|kill)user\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*\s*$|kill(?:\s+-\S+)*\s+-1\s*$)`,
 		),
 		// These end the user's manager or every process the user owns, so
 		// what outlives a log-out ends too.

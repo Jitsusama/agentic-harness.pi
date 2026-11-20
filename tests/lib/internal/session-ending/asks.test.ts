@@ -251,6 +251,7 @@ describe("a command in fenced code", () => {
 		["```sh\nsudo fdesetup authrestart\n```", "reboot"],
 		["```sh\nsudo pkill -KILL -u joel\n```", "end the user's processes"],
 		["```sh\nkill -9 -1\n```", "end the user's processes"],
+		["```sh\nkill -- -1\n```", "end the user's processes"],
 		["```sh\nsudo systemctl restart display-manager\n```", "log out"],
 		["```sh\nswaymsg exit\n```", "log out"],
 		["```sh\nhyprctl dispatch exit\n```", "log out"],
@@ -312,6 +313,9 @@ describe("a command in fenced code", () => {
 	it("asks nothing of a command that ends no session", () => {
 		expect(acts("```sh\nsudo shutdown -c\n```")).toEqual([]);
 		expect(acts("```sh\npkill -u $USER -f vitest\n```")).toEqual([]);
+		// Signal 1 to one process, not every process.
+		expect(acts("```sh\nkill -1 1234\n```")).toEqual([]);
+		expect(acts("```sh\nsudo kill -1 $(pidof nginx)\n```")).toEqual([]);
 		expect(acts("```sh\n# reboot once this lands\nls\n```")).toEqual([]);
 		expect(acts("```\nshutdown of the old node is done.\n```")).toEqual([]);
 	});
