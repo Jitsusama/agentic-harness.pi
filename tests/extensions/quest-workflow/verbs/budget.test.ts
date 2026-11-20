@@ -1118,6 +1118,41 @@ describe("the session's budget", () => {
 			});
 		});
 
+		it("draws on it once a provider late for its deadline answers, with no keep and no wait", async () => {
+			// A host too busy to read a file in time, as every hosted session
+			// reloading at once makes it: each answer comes past the deadline.
+			const made = await quests();
+			await made.run({ action: "budget", id: made.top, ref: "delta" });
+			const events = bus();
+			const keeper = keepQuestBudget(
+				fakePi({ ...intoTheBranch, events }),
+				made.state,
+				{ ...quiet, now: () => 0, answerDeadlineMs: 20 },
+			);
+			provide(events, "plane", async () => {
+				// Long past the deadline, however loaded the machine.
+				await new Promise((done) => setTimeout(done, 400));
+				return { kind: "drawn", env: { [KEY]: "team" }, label: "Delta" };
+			});
+			await made.run({ action: "load", id: made.top });
+			await keeper.keep(ui().ctx);
+			expect(process.env[KEY], "the deadline passed first").toBe("personal");
+
+			await vi.waitFor(
+				() =>
+					expect(process.env[KEY], "the late answer is drawn on").toBe("team"),
+				{ timeout: 5_000, interval: 10 },
+			);
+			const last = recorded().at(-1);
+			expect(last, "the log ends on the quest's").toEqual(
+				expect.objectContaining({ name: "delta", provider: "plane" }),
+			);
+			expect(
+				isRecord(last) && "unresolved" in last,
+				"the log's last entry says nothing was missed",
+			).toBe(false);
+		});
+
 		it("is asked again at the next keep, as a restart's load passes", async () => {
 			const { keeper, asked } = await onAClock();
 			await keeper.keep(ui().ctx);

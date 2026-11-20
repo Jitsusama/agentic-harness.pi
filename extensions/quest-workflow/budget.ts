@@ -261,6 +261,8 @@ export interface BudgetKeeperOptions {
 	 * nowhere.
 	 */
 	readonly whenCapped?: () => Promise<{ name?: string; unreadable?: string }>;
+	/** How long a provider may take to answer (lib/budget/host.ts's default). */
+	readonly answerDeadlineMs?: number;
 }
 
 /** How long a session the cap moved stays on its budget (capped.ts). */
@@ -305,7 +307,7 @@ export function keepQuestBudget(
 			// One line of news is lost; the budget it was about stands as laid.
 		}
 	};
-	const host = hostBudgets(pi.events, undefined, (trouble) =>
+	const host = hostBudgets(pi.events, options.answerDeadlineMs, (trouble) =>
 		journal(
 			`budget provider ${JSON.stringify(trouble.provider)} couldn't say which budget ${JSON.stringify(trouble.folder)} draws on, so its answer is passed over: ${quoted(trouble.why)}`,
 		),
@@ -649,6 +651,18 @@ export function keepQuestBudget(
 			if (promptNamed === null) promptAsked = undefined;
 		}
 		if (!last || (typeof wanted !== "string" && state.questId)) return;
+		keep(last, true).catch(() => {
+			// Nothing awaits this ask, and an unwatched rejection ends pi;
+			// the next keep, before the next model call, asks again.
+		});
+	});
+
+	// A draw that missed its deadline has drawn since: settle again now,
+	// when the answer stands in for the late one, rather than at a retry
+	// a busy host may have doubled to many minutes, the calls between
+	// billed to the fallback key.
+	host.onDrawnLate((name) => {
+		if (!last || wanted !== name) return;
 		keep(last, true).catch(() => {
 			// Nothing awaits this ask, and an unwatched rejection ends pi;
 			// the next keep, before the next model call, asks again.

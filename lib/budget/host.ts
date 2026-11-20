@@ -41,12 +41,27 @@ export type BudgetDrawing =
 			readonly asked: readonly string[];
 	  };
 
+/** A drawing that drew. */
+type Drawn = Extract<BudgetDrawing, { readonly kind: "drawn" }>;
+
 /** The host: its registry, and the one question it asks of it. */
 export interface BudgetHost extends BudgetHostApi {
-	/** Ask each provider, lowest precedence first, what `name` means. */
+	/**
+	 * Ask each provider, lowest precedence first, what `name` means. One
+	 * that misses the deadline is still waited for, out of the caller's
+	 * way, and meanwhile the name's last drawing stands in for it, when
+	 * there is one: a busy host measures itself, not the provider, so a
+	 * late answer is no answer that the budget can't be drawn on.
+	 */
 	draw(name: string): Promise<BudgetDrawing>;
 	/** Be told each time a provider registers, as a late one may answer. */
 	onRegistered(listener: () => void): void;
+	/**
+	 * Be told the name a draw that missed its deadline has drawn on since,
+	 * so what fell to the default can draw on it now rather than at its
+	 * next retry.
+	 */
+	onDrawnLate(listener: (name: string) => void): void;
 	/**
 	 * The budget work in `folder` draws on, from the first provider,
 	 * lowest precedence first, that names one, and which it was. Every
@@ -107,11 +122,74 @@ export function hostBudgets(
 	deadlineMs: number = BUDGET_ANSWER_DEADLINE_MS,
 	troubled: (trouble: FolderTrouble) => void = () => undefined,
 	judgeMs: number = BUDGET_JUDGEMENT_DEADLINE_MS,
+	lateMs: number = BUDGET_LATE_ANSWER_MS,
 ): BudgetHost {
 	const providers = new Map<string, BudgetProvider>();
 	const listeners: (() => void)[] = [];
+	const lateListeners: ((name: string) => void)[] = [];
 	const ordered = () =>
 		[...providers.values()].sort((a, b) => a.precedence - b.precedence);
+	// Each provider's answer still on its way, by provider and name, so
+	// a draw asked again while one is late waits on it rather than
+	// piling another on a host already too busy to answer the first.
+	const coming = new Map<string, Promise<BudgetAnswer>>();
+	// Each name's last drawing, which stands in for a provider that is
+	// late, and only for one that is: any answer in time replaces it.
+	const lastDrawn = new Map<string, Drawn>();
+	// The names a draw that missed its deadline is still waiting on, and
+	// whether any such draw went without, which alone is told the late
+	// drawing: one the last drawing stood in for has what it would bring,
+	// and telling it would only ask again of a host still busy.
+	const waiting = new Map<string, { without: boolean }>();
+	const answerOf = (provider: BudgetProvider, name: string) => {
+		const key = `${provider.id}\0${name}`;
+		let answer = coming.get(key);
+		if (!answer) {
+			answer = askOne(provider, name, lateMs);
+			coming.set(key, answer);
+			const done = answer;
+			void done.finally(() => {
+				if (coming.get(key) === done) coming.delete(key);
+			});
+		}
+		return answer;
+	};
+	const drawWithin = async (
+		name: string,
+		withinMs: number,
+	): Promise<BudgetDrawing | { readonly lateOf: string }> => {
+		const asked: string[] = [];
+		for (const provider of ordered()) {
+			asked.push(provider.id);
+			const answer = await within(answerOf(provider, name), withinMs);
+			if (answer === LATE) return { lateOf: provider.id };
+			if (answer.kind === "unknown") continue;
+			const drawing = { ...answer, provider: provider.id };
+			if (drawing.kind === "drawn") lastDrawn.set(name, drawing);
+			else lastDrawn.delete(name);
+			return drawing;
+		}
+		lastDrawn.delete(name);
+		return { kind: "unknown", asked };
+	};
+	const waitOn = (name: string, without: boolean) => {
+		const already = waiting.get(name);
+		if (already) {
+			already.without ||= without;
+			return;
+		}
+		const wait = { without };
+		waiting.set(name, wait);
+		// The answers already on their way are the ones waited on, so this
+		// reads nothing again; askOne's own bound ends a stuck one.
+		void drawWithin(name, lateMs)
+			.then((drawing) => {
+				if (!("kind" in drawing) || drawing.kind !== "drawn") return;
+				if (!wait.without) return;
+				for (const listener of lateListeners) tellLate(listener, name);
+			})
+			.finally(() => waiting.delete(name));
+	};
 	const host: BudgetHost = {
 		registerProvider(provider) {
 			providers.set(provider.id, provider);
@@ -121,15 +199,23 @@ export function hostBudgets(
 		onRegistered(listener) {
 			listeners.push(listener);
 		},
+		onDrawnLate(listener) {
+			lateListeners.push(listener);
+		},
 		async draw(name) {
-			const asked: string[] = [];
-			for (const provider of ordered()) {
-				asked.push(provider.id);
-				const answer = await askOne(provider, name, deadlineMs);
-				if (answer.kind === "unknown") continue;
-				return { ...answer, provider: provider.id };
-			}
-			return { kind: "unknown", asked };
+			const drawing = await drawWithin(name, deadlineMs);
+			if ("kind" in drawing) return drawing;
+			const stands = lastDrawn.get(name);
+			waitOn(name, stands === undefined);
+			return (
+				stands ?? {
+					kind: "unavailable",
+					provider: drawing.lateOf,
+					// The answer names the provider beside its reason, quoted, so
+					// the reason leaves it out rather than say it twice, or raw.
+					reason: `It didn't answer within ${deadlineMs / MS_PER_SECOND} s.`,
+				}
+			);
 		},
 		async budgetFor(folder) {
 			const asking = ordered().filter((p) => typeof p.budgetFor === "function");
@@ -203,6 +289,15 @@ export function hostBudgets(
  * prompt must not hold them.
  */
 export const BUDGET_ANSWER_DEADLINE_MS = 5_000;
+
+/**
+ * How long a provider that missed the deadline is still waited for, out
+ * of the caller's way, before it counts as stuck: long past what a busy
+ * host takes to read a file, and well short of a session's life.
+ */
+export const BUDGET_LATE_ANSWER_MS = 120_000;
+
+const MS_PER_SECOND = 1000;
 
 /**
  * How long a provider may take to judge work. A classifier answers in
@@ -339,6 +434,34 @@ async function askFolder(
 	}
 }
 
+/** `answer`, or `LATE` when it hasn't come within `withinMs`. */
+async function within<T>(
+	answer: Promise<T>,
+	withinMs: number,
+): Promise<T | typeof LATE> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<typeof LATE>((resolve) => {
+		timer = setTimeout(() => resolve(LATE), withinMs);
+	});
+	try {
+		return await Promise.race([answer, late]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/**
+ * Tells `listener` a late draw drew on `name`. One that throws is passed
+ * over, since nothing awaits the late draw to take its rejection.
+ */
+function tellLate(listener: (name: string) => void, name: string): void {
+	try {
+		listener(name);
+	} catch {
+		// That listener misses the late drawing; its next draw has it.
+	}
+}
+
 /**
  * One provider's answer, with a rejection, or no answer within the
  * deadline, read as unavailable.
@@ -356,10 +479,13 @@ async function askOne(
 					kind: "unavailable",
 					// The answer names the provider beside its reason, quoted, so
 					// the reason leaves it out rather than say it twice, or raw.
-					reason: `It didn't answer within ${deadlineMs / 1000} s.`,
+					reason: `It didn't answer within ${deadlineMs / MS_PER_SECOND} s.`,
 				}),
 			deadlineMs,
 		);
+		// Waited on past the caller's deadline, so a stuck provider mustn't
+		// keep a process up that has nothing else to do.
+		timer.unref();
 	});
 	try {
 		return await Promise.race([provider.resolve(name), late]);
