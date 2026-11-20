@@ -28,11 +28,12 @@
  * Providers other than git come from the modules PI_SWEEP_PROVIDERS
  * names, colon-separated and absolute, each one's default export a
  * function giving the providers to load. A module that won't load, or
- * gives anything but providers, is passed over whole, and a provider
- * that couldn't judge or take one of its trees, or took past fifteen
- * minutes to, is told to stop, asked nothing more that run, and left out
- * of the stamp, so the hosts go on sweeping those trees. Trees from a
- * provider loaded nowhere here are kept.
+ * gives anything but providers, is passed over whole. A provider that
+ * took past fifteen minutes over a tree is told to stop, asked nothing
+ * more that run, and left out of the stamp, as is one whose judging or
+ * taking failed for every tree it tried, so the hosts go on sweeping
+ * those trees. One that failed for only some keeps them and stays in
+ * the stamp. Trees from a provider loaded nowhere here are kept.
  *
  * It writes its sweep's line to the sweep's log, as a host's does, and a
  * line for any module it passed over, provider that failed or stamp it
@@ -116,12 +117,16 @@ export async function sweepOutside({
 	loadWithinMs = LOAD_WITHIN_MS,
 	callWithinMs = CALL_WITHIN_MS,
 }: SweepOutsideOptions = {}): Promise<SweptOutside> {
-	const failing = new Set<string>();
+	const calls: ProviderCalls = {
+		hung: new Set(),
+		threw: new Map(),
+		answered: new Map(),
+	};
 	const troubles = await loadProviders(
 		env[PROVIDER_MODULES],
 		loadWithinMs,
 		callWithinMs,
-		failing,
+		calls,
 	);
 	if (troubles.length > 0) logSweep({ passedOver: troubles });
 	const untrusted = await whyUntrusted();
@@ -148,15 +153,30 @@ export async function sweepOutside({
 		swept: (paths) => forgetTrees(questsRoot, paths),
 		fencedGit: true,
 	});
-	// A provider that failed leaves its trees to the hosts, which the
-	// unit's state should show.
-	for (const id of failing) {
+	// Any call that failed shows in the unit's state. A tree whose call
+	// threw is kept, and asked about again next run, so its provider is
+	// stamped still where the same kind of call answered for another
+	// tree: one bad tree mustn't keep every host sweeping on its thread.
+	// One that hung, or whose judging or taking failed every time, as a
+	// provider that can't reach its tools here would, leaves its trees
+	// to the hosts.
+	const failed = new Set([...calls.hung, ...calls.threw.keys()]);
+	for (const id of failed) {
 		troubles.push(`${id} couldn't judge or take every tree`);
 	}
-	if (failing.size > 0) logSweep({ unjudgedBy: [...failing] });
+	const unjudged = [...failed].filter(
+		(id) =>
+			calls.hung.has(id) ||
+			[...(calls.threw.get(id) ?? [])].some(
+				(kind) => calls.answered.get(id)?.has(kind) !== true,
+			),
+	);
+	if (failed.size > 0) {
+		logSweep({ failedCalls: [...failed], unjudgedBy: unjudged });
+	}
 	// A sweep that left trees unjudged stands no host down for them.
 	if (end !== "ran") return { end, troubles };
-	const judged = judgedProviders().filter((id) => !failing.has(id));
+	const judged = judgedProviders().filter((id) => !unjudged.includes(id));
 	const unstamped = markSweptOutside(sweepLockPath(), Date.now(), judged);
 	if (unstamped !== undefined) {
 		logSweep({ unstamped });
@@ -203,14 +223,14 @@ async function loadProviders(
 	modules: string | undefined,
 	withinMs: number,
 	callWithinMs: number,
-	failing: Set<string>,
+	calls: ProviderCalls,
 ): Promise<string[]> {
 	const passedOver: string[] = [];
 	for (const path of (modules ?? "").split(":")) {
 		if (path === "") continue;
 		try {
 			for (const provider of await providersOf(path, withinMs)) {
-				registerTreeProvider(watched(provider, failing, callWithinMs));
+				registerTreeProvider(watched(provider, calls, callWithinMs));
 			}
 		} catch (error) {
 			passedOver.push(`${path}: ${said(error)}`);
@@ -250,6 +270,32 @@ async function providersOf(
 }
 
 /**
+ * Which providers' calls answered, threw or hung this run, by their ids.
+ */
+interface ProviderCalls {
+	/** Took past their time, so are asked nothing more and left unstamped. */
+	hung: Set<string>;
+	/** The kinds of call each threw for at least one tree, which is kept. */
+	threw: Map<string, Set<CallKind>>;
+	/** The kinds of call each answered for at least one tree. */
+	answered: Map<string, Set<CallKind>>;
+}
+
+/** A provider's two calls a sweep makes for each of its trees. */
+type CallKind = "judge" | "take";
+
+/** Notes in `seen` that provider `id` made a call of `kind`. */
+function note(
+	seen: Map<string, Set<CallKind>>,
+	id: string,
+	kind: CallKind,
+): void {
+	const kinds = seen.get(id) ?? new Set<CallKind>();
+	kinds.add(kind);
+	seen.set(id, kinds);
+}
+
+/**
  * `promise`, unless it takes longer than `ms` to settle, when `late` is
  * told first, so what it started can be stopped.
  */
@@ -273,35 +319,46 @@ async function within<T>(
 }
 
 /**
- * `provider`, noting in `failing` when it couldn't judge or take one of
- * its trees, or took longer than `withinMs` to, so the stamp doesn't
- * name it as having judged them. A call past its time is told to stop,
- * and once one has failed the rest of the run asks it nothing more, so
- * a provider that hangs costs one wait rather than one for every tree.
+ * `provider`, noting in `calls` which providers answered, threw or took
+ * longer than `withinMs`, so the stamp names only those that judged
+ * their trees. A call past its time is told to stop, and the rest of
+ * the run asks that provider nothing more, so one that hangs costs one
+ * wait rather than one for every tree. One that threw is still asked
+ * about its other trees, since a single bad tree says nothing of them.
  */
 function watched(
 	provider: TreeProvider,
-	failing: Set<string>,
+	calls: ProviderCalls,
 	withinMs: number,
 ): TreeProvider {
 	const noted = async <T>(
+		kind: CallKind,
 		options: TreeCallOptions | undefined,
 		call: (options: TreeCallOptions) => Promise<T>,
 	): Promise<T> => {
-		if (failing.has(provider.id)) {
-			throw new Error(`${provider.id} failed earlier in this sweep`);
+		if (calls.hung.has(provider.id)) {
+			throw new Error(`${provider.id} hung earlier in this sweep`);
 		}
 		const stop = new AbortController();
 		const signal =
 			options?.signal === undefined
 				? stop.signal
 				: AbortSignal.any([options.signal, stop.signal]);
+		let late = false;
 		try {
-			return await within(withinMs, call({ ...options, signal }), () =>
-				stop.abort(),
+			const answer = await within(
+				withinMs,
+				call({ ...options, signal }),
+				() => {
+					late = true;
+					stop.abort();
+				},
 			);
+			note(calls.answered, provider.id, kind);
+			return answer;
 		} catch (error) {
-			failing.add(provider.id);
+			if (late) calls.hung.add(provider.id);
+			else note(calls.threw, provider.id, kind);
 			throw error;
 		}
 	};
@@ -312,12 +369,14 @@ function watched(
 		appliesTo: (repo) => provider.appliesTo(repo),
 		ensure: (request, options) => provider.ensure(request, options),
 		release: (held, options) =>
-			noted(options, (given) => provider.release(held, given)),
+			noted("take", options, (given) => provider.release(held, given)),
 		...(typeof whyKept !== "function"
 			? {}
 			: {
 					whyKept: (held, options) =>
-						noted(options, (given) => whyKept.call(provider, held, given)),
+						noted("judge", options, (given) =>
+							whyKept.call(provider, held, given),
+						),
 				}),
 	};
 }

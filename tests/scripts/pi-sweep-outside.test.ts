@@ -234,20 +234,64 @@ it("leaves out of its stamp a provider that couldn't judge a tree", async () => 
 	expect(exitCodeOf(ran), "the code it exits with").toBe(1);
 });
 
-it("asks a provider that failed nothing more that run", async () => {
+it("asks a provider that hung nothing more that run", async () => {
 	seen.trees = 3;
 	const asked = join(root, "asked");
 	const world = module(
 		"world",
 		`() => [${providerSource(
 			"world-dev-tree",
-			`async () => { (await import("node:fs")).appendFileSync(${JSON.stringify(asked)}, "x"); throw new Error("no dev here"); }`,
+			`async () => { (await import("node:fs")).appendFileSync(${JSON.stringify(asked)}, "x"); return new Promise(() => {}); }`,
 		)}]`,
 	);
 
-	await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
+	await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world }, callWithinMs: 50 });
 
 	expect(readFileSync(asked, "utf8"), "each time it was asked").toBe("x");
+});
+
+it("asks a provider that threw for one tree about the rest, and stamps it", async () => {
+	seen.trees = 3;
+	const asked = join(root, "asked");
+	const world = module(
+		"world",
+		`() => [${providerSource(
+			"world-dev-tree",
+			`async () => { const fs = await import("node:fs"); const first = !fs.existsSync(${JSON.stringify(asked)}); fs.appendFileSync(${JSON.stringify(asked)}, "x"); if (first) throw new Error("one bad tree"); }`,
+		)}]`,
+	);
+
+	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
+
+	expect(readFileSync(asked, "utf8"), "each time it was asked").toBe("xxx");
+	expect(stamp(), "the stamp it left").toEqual({
+		judged: ["git-worktree", "world-dev-tree"],
+	});
+	expect(ran.troubles, "what went wrong beside").toEqual([
+		"world-dev-tree couldn't judge or take every tree",
+	]);
+	expect(exitCodeOf(ran), "the code it exits with").toBe(1);
+});
+
+it("stamps a provider that couldn't take one tree but took another", async () => {
+	seen.releasing = true;
+	seen.trees = 2;
+	const took = join(root, "took");
+	const world = module(
+		"world",
+		`() => [${providerSource(
+			"world-dev-tree",
+			undefined,
+			`async () => { const fs = await import("node:fs"); const first = !fs.existsSync(${JSON.stringify(took)}); fs.appendFileSync(${JSON.stringify(took)}, "x"); if (first) throw new Error("dev refused"); }`,
+		)}]`,
+	);
+
+	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
+
+	expect(stamp(), "the stamp it left").toEqual({
+		judged: ["git-worktree", "world-dev-tree"],
+	});
+	expect(exitCodeOf(ran), "the code it exits with").toBe(1);
 });
 
 it("leaves out of its stamp a provider that couldn't take a tree", async () => {
