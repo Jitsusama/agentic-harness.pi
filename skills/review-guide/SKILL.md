@@ -237,9 +237,12 @@ work above wherever it was made, copied, reset or fast-forwarded to
 in this checkout, lends its council
 when git replays its change onto the new base cleanly, with no merge
 driver, into the tree of the change's head, or of one of its
-commits below a later fix. So a rebase needs a new round only when
-it settled a conflict or brought something else along, or when the
-branch was made elsewhere, and a branch never borrows the council of
+commits below a later fix. So a rebase needs a new round when it
+settled a conflict or brought something else along, or when the
+branch was made elsewhere; a few clean rebases the gate can't tell
+apart from those cost a round too, such as one moved by `--update-refs`
+or a head older than the reflogs recall. A pushed head lends only if
+the branch here once held it, and a branch never borrows the council of
 the work it was cut from, reset onto or fast-forwarded to, or the one
 below it after a restack. Commits
 another pushed branch holds without the change's head aren't its

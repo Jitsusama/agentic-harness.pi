@@ -281,9 +281,14 @@ async function rebasedReviewed(
 	const now = tip.stdout.trim();
 	const history = await historyOf(git, change.head);
 	if (history === undefined) return false;
-	const earlier = [
-		...new Set([...history.heads, ...(await pushedHeads(git, change.head))]),
-	].filter((sha) => sha !== now);
+	// A pushed head the branch here never held was made elsewhere, so only
+	// those it held, further back than its own heads are asked, recall more.
+	const pushed = (await pushedHeads(git, change.head)).filter((sha) =>
+		history.held.has(sha),
+	);
+	const earlier = [...new Set([...history.heads, ...pushed])].filter(
+		(sha) => sha !== now,
+	);
 	// One look at the ledger before any replay, since most changes
 	// refused were never read at all.
 	if (earlier.length === 0 || !(await witnesses(change.repo, new Set(earlier))))
@@ -310,8 +315,8 @@ async function rebasedReviewed(
 
 /**
  * What `branch`'s local reflog in the checkout says of it: its last
- * EARLIER_HEADS heads, and every commit work from elsewhere brought it
- * to, its making among them. A copy's entries older than the copy are
+ * EARLIER_HEADS heads, every head it held since its making, and every
+ * commit work from elsewhere brought it to, its making among them. A copy's entries older than the copy are
  * its source's, so they are left out and the copy is an arrival. Nothing
  * when the reflog no longer reaches back to the branch's making or
  * copying, since what came before can't be told, or there is no such
@@ -320,7 +325,9 @@ async function rebasedReviewed(
 async function historyOf(
 	git: (...args: string[]) => ReturnType<Exec>,
 	branch: string,
-): Promise<{ heads: string[]; arrivals: string[] } | undefined> {
+): Promise<
+	{ heads: string[]; held: Set<string>; arrivals: string[] } | undefined
+> {
 	const logged = await git(
 		"log",
 		"--walk-reflogs",
@@ -331,16 +338,18 @@ async function historyOf(
 	);
 	if (logged.code !== 0) return undefined;
 	const heads: string[] = [];
+	const held = new Set<string>();
 	const arrivals: string[] = [];
 	for (const line of logged.stdout.split("\n")) {
 		const [commit = "", ...words] = line.split(" ");
 		if (!COMMIT_ID.test(commit)) continue;
 		const said = words.join(" ");
+		held.add(commit);
 		if (heads.length < EARLIER_HEADS && !heads.includes(commit))
 			heads.push(commit);
 		if (said.startsWith(MADE) || said.startsWith(COPIED)) {
 			arrivals.push(commit);
-			return { heads, arrivals };
+			return { heads, held, arrivals };
 		}
 		if (!movedByItself(commit, said)) arrivals.push(commit);
 	}

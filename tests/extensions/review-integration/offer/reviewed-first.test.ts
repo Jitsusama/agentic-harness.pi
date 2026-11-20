@@ -675,6 +675,9 @@ describe("holding a change until our own council has read it", () => {
 		await git(repo, "update-ref", "refs/remotes/origin/lower", restacked);
 		await git(repo, "switch", "-q", "topic");
 		await git(repo, "rebase", "-q", "--onto", "lower", first);
+		// Pushed, as a restack is, so the head judged is the rebased one.
+		const pushed = await git(repo, "rev-parse", "HEAD");
+		await git(repo, "update-ref", "refs/remotes/origin/topic", pushed);
 
 		expect(
 			await councilFirst(exec, { ...topic(), base: "lower" }, "proposed"),
@@ -703,6 +706,9 @@ describe("holding a change until our own council has read it", () => {
 		await git(repo, "commit", "-qm", "later");
 		await git(repo, "switch", "-q", "lower");
 		await git(repo, "rebase", "-q", "main");
+		// Pushed, so the head judged is the rebased one.
+		const pushed = await git(repo, "rev-parse", "HEAD");
+		await git(repo, "update-ref", "refs/remotes/origin/lower", pushed);
 
 		expect(
 			await councilFirst(exec, { ...topic(), head: "lower" }, "proposed"),
@@ -798,26 +804,64 @@ describe("holding a change until our own council has read it", () => {
 		);
 	}
 
-	it("finds the head before a rebase in the pushed branch's reflog", async () => {
-		// The checkout's own branch keeps where it was made, and nothing of
-		// the head the council read.
-		await pushedAcrossTheRebase();
-		const entries = await git(
-			repo,
-			"log",
-			"--walk-reflogs",
-			"--format=%gd %H",
-			"refs/heads/topic",
-		);
-		const atFix = entries
-			.split("\n")
-			.filter((line) => line.endsWith(` ${fix}`))
-			.map((line) => line.split(" ")[0] ?? "")
-			.reverse();
-		expect(atFix.length, "the branch's reflog held the reviewed head").toBe(1);
-		for (const entry of atFix) await git(repo, "reflog", "delete", entry);
+	/**
+	 * How long the test making more commits than the reflog is asked for
+	 * may take: 31 commits a process each, which a loaded machine has
+	 * taken past the usual 30 s.
+	 */
+	const MANY_MOVES_MS = 120_000;
 
-		expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+	it(
+		"finds the head before a rebase in the pushed branch's reflog",
+		async () => {
+			// The branch moved more often since than its own heads are asked
+			// for, so only the pushed branch's reflog recalls the reviewed head.
+			await pushedAcrossTheRebase();
+			for (let moved = 0; moved <= 30; moved++)
+				await git(
+					repo,
+					"commit",
+					"-q",
+					"--allow-empty",
+					"-m",
+					`again ${moved}`,
+				);
+			await git(
+				repo,
+				"update-ref",
+				"refs/remotes/origin/topic",
+				await git(repo, "rev-parse", "HEAD"),
+			);
+
+			expect(await councilFirst(exec, topic(), "proposed")).toBeUndefined();
+		},
+		MANY_MOVES_MS,
+	);
+
+	it("lends nothing of a pushed head the branch here never held", async () => {
+		// `fix` went up under the branch's name and its council read it;
+		// the branch here was made afresh and its own commits copy it.
+		await git(repo, "update-ref", "refs/remotes/origin/topic", fix);
+		await councilRead(fix);
+		await git(repo, "switch", "-q", "main");
+		await git(repo, "branch", "-D", "topic");
+		await git(repo, "switch", "-q", "-c", "topic", trunk);
+		await git(repo, "cherry-pick", "-x", "--allow-empty", first, fix);
+		expect(
+			await git(repo, "rev-parse", "HEAD"),
+			"the copies are commits of their own",
+		).not.toBe(fix);
+		await rebasedOntoNewMain();
+		await git(
+			repo,
+			"update-ref",
+			"refs/remotes/origin/topic",
+			await git(repo, "rev-parse", "HEAD"),
+		);
+
+		expect(await councilFirst(exec, topic(), "proposed")).toContain(
+			"No council of ours",
+		);
 	});
 
 	it("lends nothing once the branch's reflog no longer says where it was made", async () => {
