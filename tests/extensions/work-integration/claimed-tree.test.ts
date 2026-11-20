@@ -78,6 +78,30 @@ describe("a tree a quest holds", () => {
 		expect(released.details?.ok).not.toBe(true);
 	});
 
+	it("is found when only its holder's fresh answer names it", async () => {
+		repo = await freshRepo("work-claimed-late");
+		const tree = realpathSync(repo);
+		const stub = activateWith(workIntegration);
+		// A holder whose last read predates the tree, as a host's can.
+		stub.pi.events.on(WORK_TREE_CLAIMS, (data) => {
+			const claims = data as TreeClaims;
+			claims.answering?.push(
+				Promise.resolve().then(() => {
+					claims.paths.push(tree);
+				}),
+			);
+		});
+		const work = toolNamed(stub, "work");
+		const status = (await work.execute(
+			"call",
+			{ action: "status", tree },
+			undefined,
+			undefined,
+			HEADLESS,
+		)) as { content: { text: string }[] };
+		expect(status.content[0]?.text).toContain(`${tree} is clean`);
+	});
+
 	it("is not invented for a path nobody claims", async () => {
 		const { run } = await workWithClaim();
 		const status = await run({ action: "status", tree: join(root, "other") });

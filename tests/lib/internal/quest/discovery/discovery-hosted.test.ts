@@ -575,10 +575,14 @@ describe("discovery on a host", () => {
 		}
 	});
 
-	it("signs the tree again for a write it can't place", () => {
+	it("signs the tree again off the thread for a write it can't place", async () => {
 		discoverQuests(root);
 		writeSettled(readmePath, readme("paused"));
 		unplacedWrite();
+		clearCalls();
+		discoverQuests(root);
+		expect(touching(join(root, ID)), "read on the thread").toEqual([]);
+		await discoverySettled(root);
 		expect(statusNow()).toBe("paused");
 	});
 
@@ -647,7 +651,7 @@ describe("discovery on a host", () => {
 		expect(otherStatus()).toBe("paused");
 	});
 
-	it("signs the tree again once more writes came than its log keeps", () => {
+	it("signs the tree again off the thread once more writes came than its log keeps", async () => {
 		const elsewhere = mkdtempSync(join(tmpdir(), "elsewhere-"));
 		try {
 			discoverQuests(root);
@@ -657,6 +661,10 @@ describe("discovery on a host", () => {
 			for (let at = 0; at < 4_096; at++) withQuestLock(elsewhere, () => at);
 			expect(statusNow(), "every write placed").toBe("active");
 			for (let at = 0; at <= 4_096; at++) withQuestLock(elsewhere, () => at);
+			clearCalls();
+			discoverQuests(root);
+			expect(touching(join(root, ID)), "read on the thread").toEqual([]);
+			await discoverySettled(root);
 			expect(statusNow(), "one past what the log keeps").toBe("paused");
 		} finally {
 			rmSync(elsewhere, { recursive: true, force: true });
@@ -736,6 +744,28 @@ describe("discovery on a host", () => {
 			join(root, ID, "plans", "PLAN-20260604-CCC333.md"),
 			plan("Another", "PLAN-20260604-CCC333"),
 		);
+		const caught = shapeOf(discoverQuests(root));
+		host?.dispose();
+		host = undefined;
+		clearDiscoveryCache();
+		expect(caught).toEqual(shapeOf(discoverQuests(root)));
+	});
+
+	it("brings a walk up to date through removals as a whole walk finds it", () => {
+		settledOther();
+		const plans = join(root, ID, "plans");
+		mkdirSync(plans, { recursive: true });
+		const planFile = join(plans, "PLAN-20260604-CCC333.md");
+		atomicWriteFile(planFile, plan("Another", "PLAN-20260604-CCC333"));
+		discoverQuests(root);
+		atomicWriteFile(
+			join(root, OTHER, "README.md"),
+			readme("paused").replaceAll(ID, OTHER),
+		);
+		discoverQuests(root);
+		rmSync(planFile);
+		atomicWriteFile(readmePath, readme("blocked"));
+		rmSync(join(root, OTHER), { recursive: true, force: true });
 		const caught = shapeOf(discoverQuests(root));
 		host?.dispose();
 		host = undefined;
