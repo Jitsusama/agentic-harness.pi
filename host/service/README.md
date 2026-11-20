@@ -184,9 +184,11 @@ input pipeline or screen. No unit or running host is installed yet.
   through. While turns run it drains itself, as a drain asked by hand
   does, so each conversation parks as its turn ends and a wake waits
   for the next host: on 20 November a pressed host waited 52 minutes
-  for such a moment as wakes kept starting turns. The drain stays
-  while the heap is past half and lifts once nothing is left to
-  restart for; a drain asked by hand stays its asker's. Past
+  for such a moment as wakes kept starting turns. While the drain
+  stands the heap counts as pressed, so its own parks never let its
+  held wakes through; it lifts once nothing is left to restart for.
+  A drain standing by hand before the heap was pressed is left to
+  its asker; one asked while the heap's stands lifts with it. Past
   three-quarters it restarts at once, turns and all, since on 18
   November a host whose councils held its restart ran out
   of heap and ended everything anyway. The heap is read as the last

@@ -491,13 +491,17 @@ describe("restartWhenSettled", () => {
 	it("drains the host while a pressed heap waits on a turn, once, and lifts it only once nothing is left to restart for", async () => {
 		let pressure: "pressed" | undefined = "pressed";
 		let differs: string | undefined = "its heap is short";
+		let clock = NOW;
 		const timers = manualTimers();
 		const drains: boolean[] = [];
+		const waits: boolean[] = [];
 		const { facts: given, said } = facts({
 			differs: async () => differs,
 			held: () => [{ state: "busy", since: lately }],
 			pressure: () => pressure,
 			drain: (on) => drains.push(on),
+			waitsForGap: (waiting) => waits.push(waiting),
+			now: () => clock,
 		});
 		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
 		await timers.fire();
@@ -513,11 +517,20 @@ describe("restartWhenSettled", () => {
 		// still means to restart for its heap.
 		pressure = undefined;
 		differs = "its heap is past half";
+		clock += SETTLE_CEILING_MS;
 		await timers.fire();
 		await timers.fire();
 		expect(drains, "kept while the heap is past half").toEqual([true]);
+		expect(
+			waits.every((waiting) => !waiting),
+			"no held wake let through past the ceiling while it stands",
+		).toBe(true);
 
+		// Asked about once a minute while only the drain keeps it pressed.
 		differs = undefined;
+		await timers.fire();
+		expect(drains, "not asked again within the minute").toEqual([true]);
+		clock += 60;
 		await timers.fire();
 		expect(drains, "lifted once nothing differs").toEqual([true, false]);
 		expect(said.slice(2)).toEqual([
@@ -591,6 +604,37 @@ describe("restartWhenSettled", () => {
 		expect(drains, "drained, then again after the lift").toEqual([true, true]);
 	});
 
+	it("leaves the heap's drain lifted by hand as it is once nothing differs", async () => {
+		let differs: string | undefined = "its heap is short";
+		let hostDrains = false;
+		const timers = manualTimers();
+		const drains: boolean[] = [];
+		const { facts: given, said } = facts({
+			differs: async () => differs,
+			held: () => [{ state: "busy", since: lately }],
+			pressure: () => (differs === undefined ? undefined : "pressed"),
+			drain: (on) => {
+				drains.push(on);
+				hostDrains = on;
+			},
+			draining: () => hostDrains,
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		expect(drains, "the heap's drain").toEqual([true]);
+
+		// Lifted by hand just as the heap has room again.
+		hostDrains = false;
+		differs = undefined;
+		await timers.fire();
+		await timers.fire();
+		expect(drains, "nothing lifted twice").toEqual([true]);
+		expect(
+			said.some((line) => line.includes("Nothing left to restart for")),
+			"no lift said that never happened",
+		).toBe(false);
+	});
+
 	it("starts no drain for a heap with no turn to wait on, or one that has nearly run out", async () => {
 		for (const [pressure, state] of [
 			["pressed", "idle"],
@@ -615,11 +659,12 @@ describe("restartWhenSettled", () => {
 	});
 
 	it("reports a drain that throws, and goes on looking", async () => {
+		let differs: string | undefined = "its heap is short";
 		const timers = manualTimers();
 		const { facts: given, said } = facts({
-			differs: async () => "its heap is short",
+			differs: async () => differs,
 			held: () => [{ state: "busy", since: lately }],
-			pressure: () => "pressed",
+			pressure: () => (differs === undefined ? undefined : "pressed"),
 			drain: () => {
 				throw new Error("This host can't drain");
 			},
@@ -637,6 +682,39 @@ describe("restartWhenSettled", () => {
 			"no drain said to have started",
 		).toBe(false);
 		expect(timers.pending()[0]?.ms, "a look a second").toBe(1000);
+
+		// Pressed again after room, it tries again and says so again.
+		differs = undefined;
+		await timers.fire();
+		differs = "its heap is short";
+		await timers.fire();
+		expect(
+			said.filter((line) => line.includes("can't drain")),
+			"said again once pressed again",
+		).toHaveLength(2);
+	});
+
+	it("lifts a drain that took before it threw, once nothing differs", async () => {
+		let differs: string | undefined = "its heap is short";
+		let hostDrains = false;
+		const timers = manualTimers();
+		const drains: boolean[] = [];
+		const { facts: given } = facts({
+			differs: async () => differs,
+			held: () => [{ state: "busy", since: lately }],
+			pressure: () => (differs === undefined ? undefined : "pressed"),
+			drain: (on) => {
+				drains.push(on);
+				hostDrains = on;
+				if (on) throw new Error("Drained, then failed to say so");
+			},
+			draining: () => hostDrains,
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		differs = undefined;
+		await timers.fire();
+		expect(drains, "the drain that took is lifted").toEqual([true, false]);
 	});
 
 	// Waking parked conversations grows a heap already short of room.
@@ -1046,9 +1124,11 @@ describe("followWhatStarts", () => {
 		);
 	});
 
-	it("drains the host it follows while a pressed heap waits on a turn", async () => {
+	it("drains the host it follows while a pressed heap waits on a turn, unless it drains already", async () => {
 		const { systemctl } = systemd();
 		const drains: boolean[] = [];
+		// A drain asked by hand stands until the host says it doesn't.
+		let byHand = true;
 		const { timers } = await follow(
 			systemctl,
 			vi.fn(),
@@ -1056,9 +1136,13 @@ describe("followWhatStarts", () => {
 			{
 				held: () => [{ state: "busy", since: long }],
 				drain: (on) => drains.push(on),
-				draining: () => drains.at(-1) ?? false,
+				draining: () => byHand || drains.at(-1) === true,
 			},
 		);
+		await timers.fire();
+		expect(drains, "none over a drain the host says stands").toEqual([]);
+
+		byHand = false;
 		await timers.fire();
 		await timers.fire();
 		expect(drains, "the host's own drain, started once").toEqual([true]);

@@ -62,13 +62,16 @@
  * turn ends, idle time aside, and a wake waits for the next host, so
  * the turns run out and the moment comes. It stays while a call holds
  * the restart, since the heap is no less short, and while the heap is
- * past half, where the host still means to restart for it: lifting at
- * three-fifths would let the drain's own parks lift it, waking all it
- * held onto a heap that grows again. Once nothing is left to restart
- * for, the drain lifts, waking what it held. A drain someone asked for
- * by hand is theirs: one standing before the heap was pressed is
- * neither taken over nor lifted, and one lifted by hand is started
- * again at the next look while the heap is still pressed.
+ * past half, where the host still means to restart for it. While it
+ * stands the heap counts as pressed, though its parks take it under
+ * three-fifths: otherwise the ordinary rules would let its held wakes
+ * through past the ceiling and wait on heavy runs, and the wakes would
+ * grow the heap again. Once nothing is left to restart for, the drain
+ * lifts, waking what it held. A drain standing by hand before the heap
+ * was pressed is neither taken over nor lifted; one asked by hand
+ * while the heap's stands lifts with it, since the host keeps one
+ * drain. One lifted by hand is started again at the next look while
+ * the heap is still pressed.
  *
  * The heap is read as the last major collection left it, which counts
  * no garbage: V8's used heap between collections can stand well past
@@ -343,6 +346,10 @@ export function restartWhenSettled(
 	// Whether starting the heap's drain threw since the heap was last roomy,
 	// so a host that can't drain says so once rather than every second.
 	let drainRefused = false;
+	// Whether only the heap's own drain keeps it pressed, and when the host
+	// last asked what differs, so such a heap is asked about each minute.
+	let pressedByDrain = false;
+	let differsAskedAt: number | undefined;
 	// Why a restart was last said to be held for the person, and when.
 	let saidQuiet: string | undefined;
 	let saidQuietAt: number | undefined;
@@ -467,8 +474,10 @@ export function restartWhenSettled(
 		try {
 			facts.drain(true);
 		} catch (error) {
-			drainRefused = true;
 			facts.report(error);
+			// A drain that took before its throw is the heap's, to lift.
+			if (facts.draining?.() === true) drained = true;
+			else drainRefused = true;
 			return;
 		}
 		drained = true;
@@ -521,10 +530,24 @@ export function restartWhenSettled(
 		return why !== undefined;
 	}
 
-	// Read how short the heap runs, once for each decision, so the rule and its journal line agree.
+	// Read how short the heap runs, once for each decision, so the rule
+	// and its journal line agree. The heap's own drain standing keeps it
+	// pressed until nothing differs, so its parks never undo it.
 	function readPressure(): void {
-		short = facts.pressure?.();
+		const heapDrains = drained && facts.draining?.() !== false;
+		const read = facts.pressure?.();
+		pressedByDrain = read === undefined && heapDrains;
+		short = read ?? (heapDrains ? "pressed" : undefined);
 		if (short === undefined) saidPressed = undefined;
+	}
+
+	// Whether a heap only the drain keeps pressed is due to be asked
+	// about, so a recovered one lifts within a minute, not at a gap.
+	function liftDue(): boolean {
+		return (
+			pressedByDrain &&
+			(differsAskedAt === undefined || facts.now() - differsAskedAt >= lookMs)
+		);
 	}
 
 	// Whether the next look comes in a second, for a gap, rather than a minute.
@@ -535,7 +558,8 @@ export function restartWhenSettled(
 	async function consider(): Promise<Next> {
 		readPressure();
 		// Past the ceiling, a look with no gap asks nothing more.
-		if (looksForGap() && mayRestart() === undefined) return "gap";
+		if (!liftDue() && looksForGap() && mayRestart() === undefined) return "gap";
+		differsAskedAt = facts.now();
 		const why = await facts.differs();
 		if (stopped) return "look";
 		if (why === undefined) {
