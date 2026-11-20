@@ -39,13 +39,30 @@ export interface HeldConversation {
 	readonly kind: HostKind;
 }
 
+/** A kind of host whose list couldn't be had, and why. */
+export interface UnreadHost {
+	readonly kind: HostKind;
+	readonly why: string;
+}
+
+/**
+ * One look at the realm's hosts: what they hold, and each kind whose
+ * list couldn't be had, whose holdings are then unknown, not none.
+ */
+export interface HostsLook {
+	readonly held: readonly HeldConversation[];
+	readonly unread: readonly UnreadHost[];
+}
+
+/** Why each unread host's list couldn't be had, as one line. */
+function saidOf(unread: readonly UnreadHost[]): string {
+	return unread.map((one) => one.why).join("; ");
+}
+
 /** What a release asks of the machine; tests give their own. */
 export interface ReleaseFacts {
-	/**
-	 * Every conversation the realm's two hosts hold now; rejects when a
-	 * host listening didn't answer, since what it holds is then unknown.
-	 */
-	held(): Promise<HeldConversation[]>;
+	/** What the realm's two hosts hold now, each kind's on its own. */
+	held(): Promise<HostsLook>;
 	/** The addresses a conversation answers to, its signature first. */
 	addressesOf(session: string): readonly string[];
 	/** Ask the conversation going by `address` to move to plain pi. */
@@ -206,8 +223,13 @@ export async function releaseBack(
 	deadline: number,
 	options: ReleaseOptions = {},
 ): Promise<ReleaseReport> {
+	const first = await facts.held();
+	if (first.unread.length > 0)
+		throw new Error(
+			`Nothing was released, since ${saidOf(first.unread)}; run it again once the hosts answer`,
+		);
 	const { chosen, unknown } = chooseReleased(
-		await facts.held(),
+		first.held,
 		(session) => facts.addressesOf(session),
 		names,
 	);
@@ -273,22 +295,25 @@ export async function releaseBack(
 			`${address} released from the ${base.from} host; ${SAID_OPENED[opened]}`,
 		);
 	};
-	let unread: string | undefined;
+	let unread: readonly UnreadHost[] = [];
 	for (;;) {
-		// A look no host answered counts none as gone: read as empty, one
-		// still held would be settled with no note, and lost.
-		const still = await facts.held().then(
-			(held) => {
-				unread = undefined;
-				return new Set(held.map((one) => one.session));
-			},
-			(error: unknown) => {
-				const why = error instanceof Error ? error.message : String(error);
-				if (why !== unread) facts.say(`looking again, as ${why}`);
-				unread = why;
-				return new Set(left.keys());
-			},
-		);
+		const look = await facts.held();
+		const why = look.unread.length > 0 ? saidOf(look.unread) : undefined;
+		const before = unread.length > 0 ? saidOf(unread) : undefined;
+		if (why !== undefined && why !== before)
+			facts.say(`looking again, as ${why}`);
+		if (why === undefined && before !== undefined)
+			facts.say("the hosts answer again");
+		unread = look.unread;
+		// One whose host didn't answer counts as still there: read as
+		// gone, one still held would be settled with no note, and lost.
+		const unanswered = new Set(look.unread.map((one) => one.kind));
+		const still = new Set([
+			...look.held.map((one) => one.session),
+			...[...left.values()]
+				.filter((one) => unanswered.has(one.kind))
+				.map((one) => one.session),
+		]);
 		let leaving = false;
 		for (const [session, one] of left) {
 			if (still.has(session)) {
@@ -318,9 +343,18 @@ export async function releaseBack(
 		const over = facts.now() >= deadline || options.stop?.aborted === true;
 		if (over && !calledOff) {
 			calledOff = true;
-			for (const session of left.keys()) {
+			const unanswered = new Map(unread.map((one) => [one.kind, one.why]));
+			for (const [session, one] of left) {
 				facts.callOff(addressOf(session));
-				facts.say(`called off ${addressOf(session)}'s move; it stays hosted`);
+				const unseen = unanswered.get(one.kind);
+				if (unseen === undefined) {
+					facts.say(`called off ${addressOf(session)}'s move; it stays hosted`);
+					continue;
+				}
+				// Its host never answered at the end, so it may have left.
+				const holds = `whether it left is unknown, as ${unseen}`;
+				lastHolds.set(session, holds);
+				facts.say(`called off ${addressOf(session)}'s move; ${holds}`);
 			}
 		}
 		if (departed.size === 0 && (left.size === 0 || calledOff)) break;

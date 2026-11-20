@@ -54,7 +54,12 @@ import { parseListResult } from "../service/protocol.ts";
 import { rolloutFacts } from "../service/rollout.ts";
 import { personWrote } from "./attended.ts";
 import type { CutoverFacts, MoveFacts } from "./cutover.ts";
-import type { HeldConversation, ReleaseFacts } from "./release.ts";
+import type {
+	HeldConversation,
+	HostsLook,
+	ReleaseFacts,
+	UnreadHost,
+} from "./release.ts";
 import type { TakeUpFacts } from "./take-up.ts";
 import {
 	type MachineWindows,
@@ -123,16 +128,22 @@ function holdsSaid(presence: Presence | undefined): string | undefined {
 }
 
 /**
- * Every conversation the realm's two hosts hold, and the kinds of host
- * that are listening but didn't answer the list, whose holdings are
- * unknown rather than none.
+ * What each of the realm's two hosts answered of its list: what an
+ * answering host holds, each kind not listening at all, and each kind
+ * whose list couldn't be had, with why, whose holdings are unknown
+ * rather than none.
  */
 async function heldBy(
 	realm: string,
 	runtimeDir: string | undefined,
-): Promise<{ held: HeldConversation[]; unanswered: string[] }> {
+): Promise<{
+	held: HeldConversation[];
+	silent: HostKind[];
+	unread: UnreadHost[];
+}> {
 	const held: HeldConversation[] = [];
-	const unanswered: string[] = [];
+	const silent: HostKind[] = [];
+	const unread: UnreadHost[] = [];
 	for (const kind of ["attended", "background"] as const) {
 		try {
 			const reply = await controlRequest(
@@ -140,19 +151,25 @@ async function heldBy(
 				{ v: 1, id: randomUUID(), op: "list" },
 			);
 			if (!reply.ok) {
-				unanswered.push(`the ${kind} host refused its list`);
+				unread.push({
+					kind,
+					why: `the ${kind} host refused its list: ${reply.error.message}`,
+				});
 				continue;
 			}
 			const { sessions, host } = parseListResult(reply.result);
 			for (const one of sessions)
 				held.push({ session: one.sessionId, host: host.key, kind });
 		} catch (error) {
-			// A host not listening holds nothing; adopting into it says so.
-			if (!notListening(error))
-				unanswered.push(`the ${kind} host didn't answer: ${messageOf(error)}`);
+			if (notListening(error)) silent.push(kind);
+			else
+				unread.push({
+					kind,
+					why: `the ${kind} host's list couldn't be had: ${messageOf(error)}`,
+				});
 		}
 	}
-	return { held, unanswered };
+	return { held, silent, unread };
 }
 
 /** Whether a request failed because no host listens at its socket at all. */
@@ -164,7 +181,10 @@ function notListening(error: unknown): boolean {
 	);
 }
 
-/** Every conversation the realm's two hosts hold; one not answering holds none. */
+/**
+ * Every conversation the realm's two hosts hold; one not answering holds
+ * none, which adopting into it then says.
+ */
 async function listHeld(
 	realm: string,
 	runtimeDir: string | undefined,
@@ -173,18 +193,28 @@ async function listHeld(
 }
 
 /**
- * Every conversation the realm's two hosts hold, refused while a host
- * listening doesn't answer: a release reading that as empty would count
- * a conversation still held as gone with no note, as a loaded host's
- * slow list did in E30.
+ * Every conversation the realm's two hosts hold, and each kind whose
+ * list couldn't be had: a release reading that as empty would count a
+ * conversation still held as gone with no note, as a loaded host's slow
+ * list did in E30. A host not listening holds what its roster keeps,
+ * which it resumes as it starts again, so one restarting never reads as
+ * holding nothing.
  */
-async function answeredHeld(
+async function hostsLook(
 	realm: string,
 	runtimeDir: string | undefined,
-): Promise<HeldConversation[]> {
-	const { held, unanswered } = await heldBy(realm, runtimeDir);
-	if (unanswered.length > 0) throw new Error(unanswered.join("; "));
-	return held;
+	rosters: string | undefined,
+): Promise<HostsLook> {
+	const { held, silent, unread } = await heldBy(realm, runtimeDir);
+	if (silent.length === 0) return { held, unread };
+	const kept = rosterHolds(rosters);
+	const resting = silent.flatMap((kind) => {
+		const host = hostKey(realm, kind);
+		return [...kept]
+			.filter(([, key]) => key === host)
+			.map(([session]) => ({ session, host, kind }));
+	});
+	return { held: [...held, ...resting], unread };
 }
 
 /** Pause for `ms`, between looks. */
@@ -205,6 +235,8 @@ export interface ReleasePlaces {
 	readonly steer?: string;
 	readonly moves?: string;
 	readonly quests?: string;
+	/** The hosts' rosters, read for a host not listening; the realm's own unless a test says. */
+	readonly rosters?: string;
 	/** How the launcher is asked to open a session; Quickshell's own unless a test says. */
 	readonly launcher?: LauncherCall;
 }
@@ -250,7 +282,7 @@ export function releaseFacts(places: ReleasePlaces): ReleaseFacts {
 	const moves = places.moves ?? moveFolder();
 	const quests = places.quests ?? join(dataDir("quest-workflow"), "quests");
 	return {
-		held: () => answeredHeld(places.realm, places.runtimeDir),
+		held: () => hostsLook(places.realm, places.runtimeDir, places.rosters),
 		addressesOf: (session) => presences.of(session)?.addresses ?? [],
 		tell: (address) => {
 			giveSteer(steer, address, {

@@ -271,33 +271,78 @@ describe("releaseFacts", () => {
 		}
 	});
 
-	it("reads no host listening as holding nothing, and one that refuses its list as unknown", async () => {
+	it("reads a host not listening by what its roster keeps, and one listening that doesn't answer as unread", async () => {
 		const { root, places: deep } = releasePlaces("taken");
 		// A socket's path can't pass 103 bytes, so its folder sits just under TMPDIR.
-		const places = { ...deep, runtimeDir: mkdtempSync(join(tmpdir(), "r-")) };
-		const socket = hostSocketPath("work", "attended", places.runtimeDir);
-		const refusing = createServer((client) => {
-			client.on("data", (chunk) => {
-				const { id } = JSON.parse(chunk.toString().split("\n")[0] ?? "{}");
-				client.end(
-					`${JSON.stringify({ v: 1, id, ok: false, error: { code: "busy", message: "busy" } })}\n`,
-				);
+		const runtimeDir = mkdtempSync(join(tmpdir(), "r-"));
+		const places = { ...deep, runtimeDir, rosters: rosters([HOPPING]) };
+		const socket = hostSocketPath("work", "attended", runtimeDir);
+		const answering = (answer: (id: string) => string | undefined) =>
+			createServer((client) => {
+				client.on("data", (chunk) => {
+					const { id } = JSON.parse(chunk.toString().split("\n")[0] ?? "{}");
+					const line = answer(id);
+					if (line === undefined) client.destroy();
+					else client.end(`${line}\n`);
+				});
 			});
-		});
+		const refusing = answering((id) =>
+			JSON.stringify({
+				v: 1,
+				id,
+				ok: false,
+				error: { code: "busy", message: "still starting" },
+			}),
+		);
+		const hangingUp = answering(() => undefined);
+		const listen = (server: ReturnType<typeof createServer>) =>
+			new Promise<void>((listening, failed) => {
+				server.once("error", failed);
+				server.listen(socket, listening);
+			});
+		const close = (server: ReturnType<typeof createServer>) =>
+			new Promise((closed) => server.close(closed));
+		const resting = {
+			session: HOPPING,
+			host: "work-background",
+			kind: "background",
+		};
 		try {
 			const facts = releaseFacts(places);
-			expect(await facts.held(), "no host listening").toEqual([]);
-			mkdirSync(join(places.runtimeDir, "pi-host"), { recursive: true });
-			await new Promise<void>((listening) =>
-				refusing.listen(socket, listening),
-			);
-			await expect(facts.held()).rejects.toThrow(
-				"the attended host refused its list",
+			expect(await facts.held(), "no host listening").toEqual({
+				held: [resting],
+				unread: [],
+			});
+			mkdirSync(join(runtimeDir, "pi-host"), { recursive: true });
+			writeFileSync(socket, "");
+			expect(
+				await facts.held(),
+				"a stale socket, nothing listening (ECONNREFUSED)",
+			).toEqual({ held: [resting], unread: [] });
+			rmSync(socket);
+			await listen(refusing);
+			expect(await facts.held()).toEqual({
+				held: [resting],
+				unread: [
+					{
+						kind: "attended",
+						why: "the attended host refused its list: still starting",
+					},
+				],
+			});
+			await close(refusing);
+			await listen(hangingUp);
+			const hungUp = await facts.held();
+			expect(hungUp.unread.map((one) => one.kind)).toEqual(["attended"]);
+			expect(hungUp.unread[0]?.why).toMatch(
+				/^the attended host's list couldn't be had: /,
 			);
 		} finally {
-			await new Promise((closed) => refusing.close(closed));
+			await close(refusing);
+			await close(hangingUp);
 			rmSync(root, { recursive: true, force: true });
-			rmSync(places.runtimeDir, { recursive: true, force: true });
+			rmSync(runtimeDir, { recursive: true, force: true });
+			rmSync(places.rosters, { recursive: true, force: true });
 		}
 	});
 

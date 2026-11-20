@@ -52,7 +52,10 @@ function fakeRealm(
 		told.includes(ADDRESSES[session]?.[0] ?? session) &&
 		looks > (closes[session]?.after ?? Number.POSITIVE_INFINITY);
 	const facts: ReleaseFacts = {
-		held: async () => conversations.filter((one) => !gone(one.session)),
+		held: async () => ({
+			held: conversations.filter((one) => !gone(one.session)),
+			unread: [],
+		}),
 		addressesOf: (session) =>
 			// Its presence goes once it has closed.
 			gone(session) ? [] : (ADDRESSES[session] ?? []),
@@ -103,6 +106,26 @@ function fakeRealm(
 		said,
 		refreshedAt,
 		clock: () => clock,
+		looks: () => looks,
+	};
+}
+
+/** `realm`'s looks, with the kind `kind`'s list unread, saying `why`, while `unread` holds. */
+function unreadWhile(
+	realm: ReturnType<typeof fakeRealm>,
+	kind: "attended" | "background",
+	unread: (looks: number) => boolean,
+	why: (looks: number) => string = () =>
+		`the ${kind} host's list couldn't be had: timed out`,
+) {
+	const look = realm.facts.held;
+	realm.facts.held = async () => {
+		const seen = await look();
+		if (!unread(realm.looks())) return seen;
+		return {
+			held: seen.held.filter((one) => one.kind !== kind),
+			unread: [{ kind, why: why(realm.looks()) }],
+		};
 	};
 }
 
@@ -270,29 +293,72 @@ describe("releaseBack", () => {
 
 	// A host that didn't answer one look read as holding nothing, so one
 	// still held and not yet noted was counted lost (release-reopen E30).
-	it("reads a look no host answered as still held, and releases it once one does", async () => {
-		const realm = fakeRealm({ s1: { after: 3 } });
-		const held = realm.facts.held;
-		let looked = 0;
-		realm.facts.held = async () => {
-			looked += 1;
-			if (looked === 2 || looked === 3) {
-				throw new Error("work-attended didn't answer: timed out");
-			}
-			return held();
-		};
-		const note = realm.facts.note;
-		// Its note lands only as it truly leaves, after the looks that failed.
-		realm.facts.note = (session) => (looked > 3 ? note(session) : undefined);
+	it("reads one whose host didn't answer as still held, while the other host's leave at once", async () => {
+		const realm = fakeRealm(
+			{ s1: { after: 0 }, s2: { after: 0 } },
+			{ conversations: [held("s1"), held("s2", "background")] },
+		);
+		unreadWhile(
+			realm,
+			"attended",
+			(looks) => looks === 1 || looks === 2,
+			(looks) =>
+				looks === 1
+					? "the attended host's list couldn't be had: timed out"
+					: "the attended host refused its list: busy",
+		);
 
 		const report = await releaseBack("all", realm.facts, 60_000);
 
-		expect(report.lost, "none lost while no host answered").toEqual([]);
-		expect(report.released.map((one) => one.address)).toEqual(["AAAAAA"]);
 		expect(
-			realm.said.filter((line) => line.startsWith("looking again")),
-			"said once for the same reason",
-		).toEqual(["looking again, as work-attended didn't answer: timed out"]);
+			realm.refreshedAt.slice(0, 2),
+			"BBBBBB left at the first look it was gone, AAAAAA once its host answered",
+		).toEqual([1, 3]);
+		expect(report.lost).toEqual([]);
+		expect(report.released.map((one) => one.address).sort()).toEqual([
+			"AAAAAA",
+			"BBBBBB",
+		]);
+		expect(
+			realm.said.filter(
+				(line) =>
+					line.startsWith("looking again") || line.startsWith("the hosts"),
+			),
+			"each reason once, then that they answer again",
+		).toEqual([
+			"looking again, as the attended host's list couldn't be had: timed out",
+			"looking again, as the attended host refused its list: busy",
+			"the hosts answer again",
+		]);
+	});
+
+	it("releases nothing and tells no one when its first look has a host unread", async () => {
+		const realm = fakeRealm({ s1: { after: 0 } });
+		unreadWhile(realm, "attended", () => true);
+
+		await expect(releaseBack("all", realm.facts, 60_000)).rejects.toThrow(
+			"Nothing was released, since the attended host's list couldn't be had: timed out; run it again once the hosts answer",
+		);
+		expect(realm.told).toEqual([]);
+	});
+
+	it("says it can't tell whether one left when its host is unread at the deadline", async () => {
+		const realm = fakeRealm(
+			{ s1: { after: 1000 }, s2: { after: 1000 } },
+			{ conversations: [held("s1"), held("s2", "background")] },
+		);
+		unreadWhile(realm, "attended", (looks) => looks >= 1);
+
+		const report = await releaseBack("all", realm.facts, 10_000);
+
+		const unknown =
+			"whether it left is unknown, as the attended host's list couldn't be had: timed out";
+		expect(report.waiting).toEqual([
+			{ address: "AAAAAA", holds: unknown },
+			{ address: "BBBBBB" },
+		]);
+		expect(realm.said).toContain(`called off AAAAAA's move; ${unknown}`);
+		expect(realm.said).toContain("called off BBBBBB's move; it stays hosted");
 	});
 
 	it("counts one whose window took it up, its note settled, as released", async () => {
