@@ -91,6 +91,10 @@ let said: string[];
 let sink: ViewerSink | undefined;
 // What the child's attach waits on before it answers, when a test sets it.
 let attachWaits: Promise<void> | undefined;
+// What the host's own attach does first, when a test says: a wake.
+let hostAttach: ((sessionId: string) => void) | undefined;
+// The windows the host's own viewer drew.
+let hostViewed: string[];
 let routes: ReturnType<typeof heldChildren>;
 let hostPath: string;
 let childPath: string;
@@ -146,6 +150,8 @@ beforeEach(async () => {
 	said = [];
 	sink = undefined;
 	attachWaits = undefined;
+	hostAttach = undefined;
+	hostViewed = [];
 	routes = heldChildren();
 	const childBackend: ControlBackend = {
 		identity: child,
@@ -179,6 +185,7 @@ beforeEach(async () => {
 		identity: host,
 		execute: vi.fn(async (request) => {
 			asked.push(request);
+			if (request.op === "attach") hostAttach?.(request.sessionId);
 			if (request.op === "list")
 				return { sessions: [conversation(b), conversation(c)], host };
 			return "sessionId" in request ? { sessionId: request.sessionId } : null;
@@ -191,6 +198,16 @@ beforeEach(async () => {
 			children: routes,
 			report: (error) => reported.push(error),
 			say: (words) => said.push(words),
+			viewer: {
+				attach(request) {
+					hostViewed.push(request.sessionId);
+					return {
+						input: () => undefined,
+						resize: () => undefined,
+						detach: () => undefined,
+					};
+				},
+			},
 		}),
 	);
 });
@@ -231,6 +248,33 @@ describe("a host with conversations in children", () => {
 		window.end();
 		await vi.waitFor(() => expect(viewed).toContain("detached"));
 		expect(reported, "nothing went wrong on the way").toEqual([]);
+	});
+	it("passes a window on to the child its attach woke the conversation in", async () => {
+		// The wake the attach asks for starts the conversation in a child.
+		hostAttach = (sessionId) =>
+			routes.hold(conversation(sessionId), {
+				socket: childPath,
+				identity: child,
+			});
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		window.write(attaching(b));
+
+		expect((await seen.next()).value).toMatchObject({
+			id: "view",
+			ok: true,
+			result: { sessionId: b },
+		});
+		await vi.waitFor(() =>
+			expect(childAsked, "the child was asked to attach it").toEqual([
+				expect.objectContaining({ op: "attach", sessionId: b }),
+			]),
+		);
+		window.write(line({ type: "input", data: "hello" }));
+		await vi.waitFor(() => expect(viewed).toEqual([{ input: "hello" }]));
+		expect(hostViewed, "the host's own viewer drew none of it").toEqual([]);
+		window.end();
+		await vi.waitFor(() => expect(viewed).toContain("detached"));
 	});
 	it("asks the child to end its conversation under the child's own name", async () => {
 		const reply = await controlRequest(hostPath, {
