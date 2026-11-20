@@ -20,6 +20,7 @@ import {
 	type CodeStanding,
 	codeStanding,
 	pin,
+	printable,
 	projectCode,
 	startPins,
 	unpinnedSaying,
@@ -123,6 +124,10 @@ export function projectTrust(
 			// someone there, so the warning doesn't say nobody is.
 			const refused =
 				unpinned && (asking.ask === undefined || !standing.code.complete);
+			if (unpinned && known === false && !refused)
+				asking.warn(
+					`${unpinnedSaying(cwd, standing.code)}, and you said not to load it, so its own .pi settings and extensions are not loaded. Change it, or restart the host, to be asked again.`,
+				);
 			if (refused)
 				asking.warn(
 					standing.code.complete
@@ -155,18 +160,12 @@ export function projectTrust(
 					async resolveProjectTrust({ extensionsResult }) {
 						if (standing.kind === "unpinned") {
 							const allowed = await allowCode(cwd, standing, asking);
-							if (!allowed) {
-								decided.set(answered, false);
+							if (allowed !== true) {
+								// A question closed unanswered is asked again at the next open.
+								if (allowed === false) decided.set(answered, false);
 								return false;
 							}
-							// The yes was for the code shown: code that changed while the question waited loads only after one of its own.
-							const now = projectCode(cwd);
-							if (now?.digest !== standing.code.digest) {
-								asking.warn(
-									`${cwd}'s .pi code changed while you were asked, so this conversation leaves out its own .pi settings and extensions. Open another there to be asked about it as it is now.`,
-								);
-								return false;
-							}
+							if (changedSince(cwd, standing, asking)) return false;
 							pin(cwd, agentDir, standing.code);
 						}
 						const context = asking.context ?? questionContext(cwd, asking);
@@ -178,6 +177,8 @@ export function projectTrust(
 							projectTrustContext: context,
 							onExtensionError: (message) => asking.warn(message),
 						});
+						// pi's own question can wait as long as the person does, so the code shown must still be the code loaded.
+						if (trusted && changedSince(cwd, standing, asking)) return false;
 						decided.set(answered, trusted);
 						const unanswered =
 							!trusted &&
@@ -187,7 +188,7 @@ export function projectTrust(
 							store.get(cwd) === null;
 						if (unanswered)
 							asking.warn(
-								`${cwd} is not trusted, so its own .pi settings and extensions are not loaded: pi asks before trusting a folder, and nobody is at this conversation to answer. Run /trust in pi there to decide for every session.`,
+								`${printable(cwd)} is not trusted, so its own .pi settings and extensions are not loaded: pi asks before trusting a folder, and nobody is at this conversation to answer. Run /trust in pi there to decide for every session.`,
 							);
 						return trusted;
 					},
@@ -197,23 +198,45 @@ export function projectTrust(
 	};
 }
 
+/**
+ * Whether `cwd`'s code is no longer what `standing` found, said when it
+ * isn't: a yes was for the code shown, so code that changed while a
+ * question waited loads only after one of its own.
+ */
+function changedSince(
+	cwd: string,
+	standing: CodeStanding,
+	asking: TrustAsking,
+): boolean {
+	if (standing.kind === "none") return false;
+	if (projectCode(cwd)?.digest === standing.code.digest) return false;
+	asking.warn(
+		`${printable(cwd)}'s .pi code changed while you were asked, so this conversation leaves out its own .pi settings and extensions. Open another there to be asked about it as it is now.`,
+	);
+	return true;
+}
+
 /** What a folder's answer is kept under: the folder, and the code it held when answered. */
 function decisionKey(cwd: string, standing: CodeStanding): string {
 	return standing.kind === "none" ? cwd : `${cwd}\0${standing.code.digest}`;
 }
 
-/** Ask the person whether `cwd`'s new or changed code may run outside the sandbox. */
+/**
+ * Ask the person whether `cwd`'s new or changed code may run outside the
+ * sandbox: true for a yes, false for a no, nothing when nobody answered.
+ */
 async function allowCode(
 	cwd: string,
 	standing: CodeStanding & { kind: "unpinned" },
 	asking: TrustAsking,
-): Promise<boolean> {
-	if (!asking.ask) return false;
+): Promise<boolean | undefined> {
+	if (!asking.ask) return undefined;
 	const answer = await asking.ask(
 		`${unpinnedSaying(cwd, standing.code)}.\nLoad it, as you would any program you run?`,
 		[YES, NO],
 	);
-	return answer === YES;
+	if (answer === YES) return true;
+	return answer === NO ? false : undefined;
 }
 
 /**
@@ -223,7 +246,8 @@ async function allowCode(
  * said once for each change, rather than load the change unasked. Once
  * its code is pinned again, by a yes in another conversation or by
  * changing back, the next load trusts it again, since the drop was the
- * guard's and not the person's.
+ * guard's and not the person's: but only while nobody else has set the
+ * folder's trust since, and the person hasn't said not to trust it.
  */
 function guardLoads(
 	settingsManager: SettingsManager,
@@ -233,15 +257,21 @@ function guardLoads(
 	checked: () => boolean,
 ): void {
 	const reload = settingsManager.reload.bind(settingsManager);
+	const setTrusted = settingsManager.setProjectTrusted.bind(settingsManager);
 	let dropped = false;
 	let said: string | undefined;
+	// Trust set by anyone else, pi's /trust among them, is theirs: the guard gives back none it didn't take.
+	settingsManager.setProjectTrusted = (...args) => {
+		dropped = false;
+		return setTrusted(...args);
+	};
 	settingsManager.reload = async () => {
 		if (settingsManager.isProjectTrusted() || dropped) {
 			const standing: CodeStanding = checked()
 				? codeStanding(cwd, agentDir)
 				: { kind: "none" };
 			if (standing.kind === "unpinned") {
-				settingsManager.setProjectTrusted(false);
+				setTrusted(false);
 				dropped = true;
 				if (said !== standing.code.digest)
 					asking.warn(
@@ -249,9 +279,10 @@ function guardLoads(
 					);
 				said = standing.code.digest;
 			} else if (dropped) {
-				settingsManager.setProjectTrusted(true);
 				dropped = false;
 				said = undefined;
+				// A folder the person has since said not to trust stays untrusted.
+				if (checked()) setTrusted(true);
 			}
 		}
 		return reload();

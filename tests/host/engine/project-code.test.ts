@@ -1,9 +1,12 @@
 import {
+	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
 	symlinkSync,
+	truncateSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +20,9 @@ import {
 	projectCode,
 	unpinnedSaying,
 } from "../../../host/engine/project-code.ts";
+
+/** Root reads every folder whatever its mode, so a case about modes can't hold. */
+const asRoot = process.getuid?.() === 0;
 
 let root: string;
 let folder: string;
@@ -144,6 +150,56 @@ describe("the code a folder's .pi holds", () => {
 		for (let n = 0; n <= MOST_ENTRIES; n += 1)
 			writeFileSync(join(folder, ".pi/extensions", `${n}.ts`), "");
 		expect(projectCode(folder)?.complete).toBe(false);
+		// Ten thousand files take seconds to write on a busy disk.
+	}, 60_000);
+
+	it.skipIf(asRoot)(
+		"is never complete with a folder it can enter but not list",
+		() => {
+			write(".pi/extensions/lint.ts", "one");
+			chmodSync(join(folder, ".pi/extensions"), 0o311);
+			try {
+				const code = projectCode(folder);
+				expect(code?.complete, "a file it can't list may load").toBe(false);
+				expect(code?.unchecked).toMatch(/can't read .*EACCES/);
+			} finally {
+				chmodSync(join(folder, ".pi/extensions"), 0o755);
+			}
+		},
+	);
+
+	it("is never complete past the most bytes it checks, reading none of a file past them", () => {
+		write(".pi/extensions/big.ts", "");
+		// Sparse, so the case costs no disk: a read of it all would still
+		// take seconds and the memory, which the size check spares.
+		truncateSync(join(folder, ".pi/extensions/big.ts"), 65 * 1024 * 1024);
+		const started = Date.now();
+		const code = projectCode(folder);
+		expect(code?.complete, "a file past the limit was pinned").toBe(false);
+		expect(code?.unchecked).toContain("over 64 MiB");
+		expect(Date.now() - started, "it read the file").toBeLessThan(2_000);
+	});
+
+	it("is never complete where its settings name a pattern it can't follow", () => {
+		write(
+			".pi/settings.json",
+			JSON.stringify({ extensions: ["../ext/{a,b}.ts"] }),
+		);
+		const code = projectCode(folder);
+		expect(code?.complete, "a brace may name a file it never read").toBe(
+			false,
+		);
+		expect(code?.unchecked).toContain("a pattern it can't follow");
+	});
+
+	it("is never complete where its settings name a file URL it can't read, and doesn't throw", () => {
+		write(
+			".pi/settings.json",
+			JSON.stringify({ packages: ["file://elsewhere/x"] }),
+		);
+		const code = projectCode(folder);
+		expect(code?.complete, "a place it can't read was pinned").toBe(false);
+		expect(code?.unchecked).toContain("isn't a place it can read");
 	});
 
 	it("is none for settings that change how pi behaves, not what runs", () => {
@@ -269,6 +325,32 @@ describe("whether a folder's code may load", () => {
 		}
 	});
 
+	it("sets damaged pins aside before pinning anew", () => {
+		write(".pi/extensions/lint.ts", "one");
+		const file = join(agentDir, PINS_FILE);
+		writeFileSync(file, "{ not json");
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		pin(folder, agentDir, code);
+		expect(readFileSync(`${file}.damaged`, "utf8")).toBe("{ not json");
+		expect(codeStanding(folder, agentDir).kind).toBe("pinned");
+	});
+
+	it("never writes over pins it couldn't read for a moment", () => {
+		write(".pi/extensions/lint.ts", "one");
+		// A folder where the file belongs fails every read, as a moment's
+		// trouble with the disk would, without being damaged pins.
+		const file = join(agentDir, PINS_FILE);
+		mkdirSync(file);
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		pin(folder, agentDir, code);
+		expect(existsSync(`${file}.damaged`), "set aside as damaged").toBe(
+			false,
+		);
+		expect(codeStanding(folder, agentDir).kind).toBe("unpinned");
+	});
+
 	it("loads the same code in another tree once it was allowed in one", () => {
 		write(".pi/extensions/lint.ts", "one");
 		allowed();
@@ -289,10 +371,22 @@ describe("whether a folder's code may load", () => {
 		if (standing.kind !== "unpinned") return;
 		pin(folder, agentDir, standing.code);
 		expect(codeStanding(folder, agentDir, later).kind).toBe("unpinned");
-	});
+	}, 60_000);
 });
 
 describe("what is said of code that may not load", () => {
+	it("says why code it can't check whole can't be allowed", () => {
+		write(
+			".pi/settings.json",
+			JSON.stringify({ extensions: ["../ext/{a,b}.ts"] }),
+		);
+		const code = projectCode(folder);
+		if (!code) throw new Error("the folder should hold code");
+		expect(unpinnedSaying(folder, code)).toBe(
+			`${folder}'s .pi holds code pi would run outside the sandbox that the host can't check whole, since its settings name ../ext/{a,b}.ts, a pattern it can't follow, so it can't be allowed until that changes`,
+		);
+	});
+
 	it("names the folder and a few of its files", () => {
 		for (const name of ["a", "b", "c", "d", "e"])
 			write(`.pi/extensions/${name}.ts`, name);

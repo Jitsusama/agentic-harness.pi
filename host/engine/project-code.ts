@@ -84,11 +84,13 @@ const FETCHED = /^(npm|git|github|http|https|ssh|builtin):|^[\w.-]+@[\w.-]+:/;
 /** How deep a link may lead before the walk stops following it. */
 const MOST_FOLDERS_DEEP = 24;
 
+const MIB = 1024 * 1024;
+
 /** The most entries one folder's code may hold and still be checked. */
 export const MOST_ENTRIES = 10_000;
 
 /** The most bytes one folder's code may hold and still be checked. */
-export const MOST_BYTES = 64 * 1024 * 1024;
+export const MOST_BYTES = 64 * MIB;
 
 /** How many digests the host keeps as allowed wherever they are found. */
 const MOST_ALLOWED = 500;
@@ -108,8 +110,10 @@ export interface ProjectCode {
 	readonly files: readonly string[];
 	/** The newest time any file of it, or a link to one, changed status. */
 	readonly newest: number;
-	/** False when it was too large to check whole, so it can never be pinned. */
+	/** False when it couldn't be checked whole, so it can never be pinned. */
 	readonly complete: boolean;
+	/** What kept it from being checked whole, when it wasn't. */
+	readonly unchecked?: string;
 }
 
 /** Whether a folder's code may load, and why. */
@@ -131,11 +135,24 @@ interface Pins {
 const DAMAGED: Pins = { since: 0, folders: {}, allowed: [] };
 
 /**
+ * The pins as read, and whether they may be written over: only when
+ * they were read whole or there were none, so a read that failed for a
+ * moment never takes every other folder's pins with it.
+ */
+interface ReadPins {
+	readonly pins: Pins;
+	readonly writable: boolean;
+	/** Read, but not as pins: kept aside before new ones are written. */
+	readonly damaged?: boolean;
+}
+
+/**
  * The code `cwd`'s .pi holds, or undefined when it holds none. Links are
  * followed, since pi loads what they lead to, and the link itself counts
  * too, so a link moved to another file is a change. Nothing the disk
- * does stops the walk with an error: what can't be read is counted as
- * unreadable, so it reads as a change rather than as nothing.
+ * does stops the walk with an error: what can't be read leaves the code
+ * unchecked, since a file behind an entry the host can't read may still
+ * be one pi loads, and could change unseen.
  */
 export function projectCode(cwd: string): ProjectCode | undefined {
 	const base = join(cwd, ".pi");
@@ -150,6 +167,7 @@ export function projectCode(cwd: string): ProjectCode | undefined {
 	if (said !== undefined) {
 		walk.counted("settings", relative(cwd, settings), said.digest);
 		walk.stamp(settings);
+		if (said.unchecked) walk.unchecked(said.unchecked);
 		for (const named of said.paths) walk.take(named, 0);
 	}
 	return walk.code();
@@ -162,6 +180,8 @@ interface Walker {
 	counted(kind: string, place: string, value: string): void;
 	/** Count when `path`, and what it leads to, last changed status. */
 	stamp(path: string): void;
+	/** Leave the code unchecked, saying why, unless something already has. */
+	unchecked(why: string): void;
 	code(): ProjectCode;
 }
 
@@ -172,13 +192,17 @@ function walker(cwd: string): Walker {
 	let newest = 0;
 	let entries = 0;
 	let bytes = 0;
-	let complete = true;
+	let unchecked: string | undefined;
 	const line = (kind: string, place: string, value: string): void => {
 		lines.push(JSON.stringify([kind, place, value]));
 	};
+	const stop = (why: string): void => {
+		unchecked ??= why;
+	};
 	const full = (): boolean => {
-		if (entries > MOST_ENTRIES || bytes > MOST_BYTES) complete = false;
-		return !complete;
+		if (entries > MOST_ENTRIES) stop(`it holds over ${MOST_ENTRIES} entries`);
+		if (bytes > MOST_BYTES) stop(`it holds over ${MOST_BYTES / MIB} MiB`);
+		return unchecked !== undefined;
 	};
 	const take = (
 		path: string,
@@ -206,7 +230,7 @@ function walker(cwd: string): Walker {
 				if (depth >= MOST_FOLDERS_DEEP) {
 					// What lies below goes unread, so a change there would go unseen.
 					line("too-deep", place, "");
-					complete = false;
+					stop(`its folders go over ${MOST_FOLDERS_DEEP} deep`);
 					return;
 				}
 				const names = readdirSync(path)
@@ -215,16 +239,19 @@ function walker(cwd: string): Walker {
 				for (const name of names) take(join(path, name), depth + 1);
 				return;
 			}
-			const sum = fileDigest(path);
+			const sum = fileDigest(path, MOST_BYTES - bytes);
 			if (sum === undefined) {
 				line("other", place, "");
 				return;
 			}
 			bytes += sum.size;
+			if (sum.digest === undefined) return;
 			line("file", place, sum.digest);
 			files.push(place);
 		} catch (error) {
+			// pi may still load what lies behind it, by name, so it can't count as known.
 			line("unreadable", place, errorCode(error));
+			stop(`the host can't read ${printable(place)} (${errorCode(error)})`);
 		}
 	};
 	return {
@@ -239,35 +266,52 @@ function walker(cwd: string): Walker {
 				const seen = statSync(path, { throwIfNoEntry: false });
 				newest = Math.max(newest, own?.ctimeMs ?? 0, seen?.ctimeMs ?? 0);
 			} catch (error) {
-				line("unreadable", relative(cwd, path), errorCode(error));
+				const place = relative(cwd, path);
+				line("unreadable", place, errorCode(error));
+				stop(`the host can't read ${printable(place)} (${errorCode(error)})`);
 			}
 		},
+		unchecked: stop,
 		code() {
 			full();
 			const digest = createHash("sha256")
 				.update(lines.join("\n"))
 				.digest("hex");
-			return { digest, files, newest, complete };
+			return unchecked === undefined
+				? { digest, files, newest, complete: true }
+				: { digest, files, newest, complete: false, unchecked };
 		},
 	};
 }
 
 /**
- * A regular file's digest and size, or undefined for anything else.
- * Opened without waiting, then checked through the open file, so a pipe
- * swapped in after the walk looked can't hold the host up.
+ * A regular file's size, and its digest when it is no larger than
+ * `room`, or undefined for anything else. Opened without waiting, then
+ * checked through the open file, so a pipe swapped in after the walk
+ * looked can't hold the host up, and a file past the room left is never
+ * read, so a planted sparse file costs the host nothing.
  */
 function fileDigest(
 	path: string,
-): { digest: string; size: number } | undefined {
+	room: number,
+): { digest?: string; size: number } | undefined {
+	const text = regularFile(path, room);
+	if (text === undefined) return undefined;
+	if (typeof text === "number") return { size: text };
+	return { digest: sha256(text), size: text.length };
+}
+
+/**
+ * A regular file's contents, its size alone when it is past `room`, or
+ * undefined when it isn't a regular file.
+ */
+function regularFile(path: string, room: number): Buffer | number | undefined {
 	const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
 	try {
-		if (!fstatSync(fd).isFile()) return undefined;
-		const text = readFileSync(fd);
-		return {
-			digest: createHash("sha256").update(text).digest("hex"),
-			size: text.length,
-		};
+		const seen = fstatSync(fd);
+		if (!seen.isFile()) return undefined;
+		if (seen.size > room) return seen.size;
+		return readFileSync(fd);
 	} finally {
 		closeSync(fd);
 	}
@@ -298,6 +342,8 @@ interface CodeSettings {
 	readonly digest: string;
 	/** What the settings name on the disk as extensions or packages. */
 	readonly paths: readonly string[];
+	/** What kept the settings, or what they name, from being read whole. */
+	readonly unchecked?: string;
 }
 
 /**
@@ -309,10 +355,22 @@ interface CodeSettings {
 function codeSettings(file: string): CodeSettings | undefined {
 	let text: Buffer;
 	try {
-		if (!statSync(file, { throwIfNoEntry: false })?.isFile()) return undefined;
-		text = readFileSync(file);
+		if (!statSync(file, { throwIfNoEntry: false })) return undefined;
+		const read = regularFile(file, MOST_BYTES);
+		if (read === undefined) return undefined;
+		if (typeof read === "number")
+			return {
+				digest: "too large",
+				paths: [],
+				unchecked: `its settings are over ${MOST_BYTES / MIB} MiB`,
+			};
+		text = read;
 	} catch (error) {
-		return { digest: `unreadable ${errorCode(error)}`, paths: [] };
+		return {
+			digest: `unreadable ${errorCode(error)}`,
+			paths: [],
+			unchecked: `the host can't read its settings (${errorCode(error)})`,
+		};
 	}
 	const whole = { digest: sha256(text), paths: [] };
 	let parsed: unknown;
@@ -330,37 +388,72 @@ function codeSettings(file: string): CodeSettings | undefined {
 	]);
 	if (picked.length === 0) return undefined;
 	const base = join(file, "..");
-	const paths = PATH_SETTINGS.flatMap((key) =>
+	const named = PATH_SETTINGS.map((key) =>
 		namedPaths(Reflect.get(parsed, key), base),
 	);
-	return { digest: sha256(JSON.stringify(picked)), paths };
+	const unchecked = named.find((found) => found.unchecked)?.unchecked;
+	return {
+		digest: sha256(JSON.stringify(picked)),
+		paths: named.flatMap((found) => found.paths),
+		...(unchecked ? { unchecked } : {}),
+	};
 }
 
 /**
  * The places on the disk a packages or extensions setting names, as pi
  * resolves them against the settings' folder. A pattern counts from the
- * folder it starts in, since pi may load anything under it.
+ * folder it starts in, since pi may load anything under it; one whose
+ * start the host can't tell, behind a brace or a group, or a file URL it
+ * can't read, leaves the code unchecked rather than guess.
  */
-function namedPaths(value: unknown, base: string): string[] {
-	if (!Array.isArray(value)) return [];
-	return value.flatMap((entry) => {
-		const source =
-			typeof entry === "string"
-				? entry
-				: typeof entry === "object" && entry !== null && "source" in entry
-					? entry.source
-					: undefined;
-		if (typeof source !== "string") return [];
-		const trimmed = source.trim().replace(/^[+!-]+/, "");
-		if (trimmed === "" || FETCHED.test(trimmed)) return [];
-		const literal = trimmed.split(/[*?[{]/, 1)[0] ?? "";
-		const local = literal.startsWith("file:")
+function namedPaths(
+	value: unknown,
+	base: string,
+): { paths: string[]; unchecked?: string } {
+	if (!Array.isArray(value)) return { paths: [] };
+	const paths: string[] = [];
+	for (const entry of value) {
+		const place = namedPath(entry, base);
+		if (place === undefined) continue;
+		if (typeof place !== "string") return { paths, unchecked: place.unchecked };
+		paths.push(place);
+	}
+	return { paths };
+}
+
+/** The place one entry names, nothing for one pi fetches, or why it can't be told. */
+function namedPath(
+	entry: unknown,
+	base: string,
+): string | { unchecked: string } | undefined {
+	const source =
+		typeof entry === "string"
+			? entry
+			: typeof entry === "object" && entry !== null && "source" in entry
+				? entry.source
+				: undefined;
+	if (typeof source !== "string") return undefined;
+	const trimmed = source.trim().replace(/^[+!-]+/, "");
+	if (trimmed === "" || FETCHED.test(trimmed)) return undefined;
+	const said = printable(trimmed);
+	if (/[{(]/.test(trimmed))
+		return {
+			unchecked: `its settings name ${said}, a pattern it can't follow`,
+		};
+	const literal = trimmed.split(/[*?[]/, 1)[0] ?? "";
+	let local: string;
+	try {
+		local = literal.startsWith("file:")
 			? fileURLToPath(literal)
 			: literal === "~" || literal.startsWith("~/")
 				? join(homedir(), literal.slice(1))
 				: literal;
-		return [isAbsolute(local) ? local : resolve(base, local)];
-	});
+	} catch {
+		return {
+			unchecked: `its settings name ${said}, which isn't a place it can read`,
+		};
+	}
+	return isAbsolute(local) ? local : resolve(base, local);
 }
 
 function sha256(text: string | Buffer): string {
@@ -388,7 +481,7 @@ export function codeStanding(
 	now: () => number = Date.now,
 ): CodeStanding {
 	startPins(agentDir, now);
-	const pins = readPins(join(agentDir, PINS_FILE));
+	const { pins } = readPins(join(agentDir, PINS_FILE));
 	const code = projectCode(cwd);
 	if (!code) return { kind: "none" };
 	if (!code.complete) return { kind: "unpinned", code };
@@ -405,7 +498,11 @@ export function codeStanding(
 export function pin(cwd: string, agentDir: string, code: ProjectCode): void {
 	if (!code.complete) return;
 	const file = join(agentDir, PINS_FILE);
-	const pins = readPins(file);
+	const { pins, writable, damaged } = readPins(file);
+	// Damaged pins are kept beside, for whoever looks at why they broke.
+	if (damaged) renameSync(file, `${file}.damaged`);
+	// Not over pins it couldn't read: a yes then holds for the host's life alone.
+	else if (!writable) return;
 	writePins(file, {
 		since: pins.since,
 		folders: { ...pins.folders, [cwd]: code.digest },
@@ -420,7 +517,7 @@ export function pin(cwd: string, agentDir: string, code: ProjectCode): void {
 export function unpinnedSaying(cwd: string, code: ProjectCode): string {
 	const where = printable(cwd);
 	if (!code.complete)
-		return `${where}'s .pi holds code pi would run outside the sandbox that is too large to check (over ${MOST_ENTRIES} entries or ${MOST_BYTES / 1024 / 1024} MiB), so it can't be allowed`;
+		return `${where}'s .pi holds code pi would run outside the sandbox that the host can't check whole, since ${code.unchecked ?? "it is too large"}, so it can't be allowed until that changes`;
 	const count = code.files.length;
 	const named = code.files.slice(0, NAMED_FILES).map(printable).join(", ");
 	const more = count > NAMED_FILES ? ` and ${count - NAMED_FILES} more` : "";
@@ -433,23 +530,36 @@ export function unpinnedSaying(cwd: string, code: ProjectCode): string {
  * A name as a question may show it: printable ASCII alone, and cut short
  * from the front, since a path's end is what names its folder or file.
  */
-function printable(name: string): string {
+export function printable(name: string): string {
 	const plain = name.replace(/[^\x20-\x7e]/g, "?");
 	return plain.length > LONGEST_NAME
 		? `...${plain.slice(plain.length - (LONGEST_NAME - 3))}`
 		: plain;
 }
 
-/** The pins, read as damaged, which pins nothing, when they can't be read. */
-function readPins(file: string): Pins {
+/**
+ * The pins, read as damaged, which pins nothing, when they can't be
+ * read. Only pins read whole, or none at all, may be written over.
+ */
+function readPins(file: string): ReadPins {
+	let text: string;
 	try {
-		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-		if (!isPins(parsed)) return DAMAGED;
+		text = readFileSync(file, "utf8");
+	} catch (error) {
+		// Gone, or unreadable for now: nothing is pinned, so nothing loads unasked.
+		return { pins: DAMAGED, writable: errorCode(error) === "ENOENT" };
+	}
+	try {
+		const parsed: unknown = JSON.parse(text);
+		if (!isPins(parsed))
+			return { pins: DAMAGED, writable: false, damaged: true };
 		const allowed = parsed.allowed ?? [];
-		return { since: parsed.since, folders: parsed.folders, allowed };
+		return {
+			pins: { since: parsed.since, folders: parsed.folders, allowed },
+			writable: true,
+		};
 	} catch {
-		// Gone or unreadable: nothing is pinned, so nothing loads unasked.
-		return DAMAGED;
+		return { pins: DAMAGED, writable: false, damaged: true };
 	}
 }
 
