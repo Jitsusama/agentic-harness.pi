@@ -5,6 +5,7 @@ import {
 	makeDefaultWrap,
 	makeTruncatingShape,
 	toAgentContent,
+	WRITE_VERBS,
 } from "../../../../lib/mcp/frontend/defaults.ts";
 import { CANCELLED_TEXT } from "../../../../lib/mcp/render/result.ts";
 import type {
@@ -30,6 +31,151 @@ function result(
 ): McpToolResult {
 	return { content, ...extra };
 }
+
+/**
+ * One real tool name for each word `WRITE_VERBS` lists, each holding no
+ * other listed word, so taking any word out of the public list fails its
+ * own row, and a word added without a row fails the pairing case.
+ */
+const ONE_NAME_PER_WORD = [
+	"create_issue",
+	"update_record",
+	"delete_branch",
+	"write_file",
+	"append_block",
+	"clear_cache",
+	"insert_rows",
+	"replace_text",
+	"add_label",
+	"remove_member",
+	"send_email",
+	"post_message",
+	"move_card",
+	"rename_file",
+	"escalate_incident",
+	"comment_on_issue",
+	"upload_attachment",
+	"edit_page",
+	"modify_record",
+	"patch_issue",
+	"put_object",
+	"set_status",
+	"unset_env",
+	"upsert_record",
+	"save_file",
+	"merge_pull_request",
+	"git_commit",
+	"revert_change",
+	"rollback_release",
+	"push_files",
+	"fork_repository",
+	"import_data",
+	"apply_migration",
+	"transitionJiraIssue",
+	"close_issue",
+	"reopen_issue",
+	"dismiss_alert",
+	"mark_as_read",
+	"archive_channel",
+	"unarchive_channel",
+	"publish-page",
+	"unpublish-page",
+	"approve_request",
+	"submit_form",
+	"assign_issue",
+	"unassignIssue",
+	"invite_member",
+	"share_file",
+	"grant_role",
+	"revokeToken",
+	"transfer_funds",
+	"refund_order",
+	"cancel_job",
+	"drop_table",
+	"purge_cache",
+	"destroy_stack",
+	"executeQuery",
+	"pods_exec",
+	"run_sql",
+	"invoke_function",
+	"trigger_workflow",
+	"deploy_site",
+	"undeploy_site",
+	"install_package",
+	"uninstall_package",
+	"enable_feature",
+	"disable_feature",
+	"toggle_flag",
+	"lock_issue",
+	"unlock_issue",
+	"StartInstances",
+	"StopInstances",
+	"pause_project",
+	"restart_service",
+	"restore_project",
+	"reset_password",
+	"kill_process",
+	"TerminateInstances",
+	"scale_deployment",
+	"reply_to_thread",
+	"react_to_message",
+	"RebootInstances",
+	"shutdown_vm",
+	"truncate_table",
+	"wipe_device",
+	"erase_disk",
+	"overwrite_file",
+	"fs_rm",
+	"redis_del",
+	"rerun_failed_jobs",
+	"redeploy_service",
+	"retry_job",
+	"resend_invitation",
+	"reassign_issue",
+	"rebase_branch",
+	"confirm_payment_intent",
+	"void_invoice",
+	"charge_customer",
+	"migrate_database",
+	"upgrade_plan",
+	"subscribe_to_topic",
+	"unsubscribe_from_topic",
+	"follow_user",
+	"unfollow_user",
+	"star_repository",
+	"unstar_repository",
+	"pin_message",
+	"unpin_message",
+	"attach_volume",
+	"detach_volume",
+	"resume_job",
+	"unpause_project",
+	"reject_request",
+	"decline_invitation",
+	"deny_access",
+	"accept_invitation",
+	"rotate_api_key",
+	"git_checkout",
+	"git_init",
+	"suspend_user",
+	"clone_repository",
+	"duplicate_page",
+	"mute_channel",
+	"unmute_channel",
+	"unshare_file",
+	"reinstall_package",
+	"rewrite_history",
+	"resubmit_form",
+	"republish_page",
+	"recreate_index",
+	"flush_cache",
+	"prune_images",
+	"drain_node",
+	"evict_pod",
+	"acknowledge_incident",
+	"kick_member",
+	"ban_user",
+];
 
 describe("identityShape", () => {
 	it("returns the content unchanged", () => {
@@ -150,6 +296,90 @@ describe("defaultWriteSignal", () => {
 			"grokt_search_code, by its search verb, is a read",
 		).toBe(false);
 	});
+
+	it.each([
+		"delete_item",
+		"delete-item",
+		"deleteItem",
+		"DeleteItem",
+		"Delete_Item",
+		"DELETE_ITEM",
+		"item.delete",
+		"HTTPDelete",
+		"v2DeleteItem",
+		"delete2Items",
+		"v2_delete",
+		"v2delete",
+	])("reads the write verb in %s in any case it is spelt", (name) => {
+		expect(
+			defaultWriteSignal(tool(name)),
+			`${name} holds the word delete, so it is a write`,
+		).toBe(true);
+	});
+
+	it.each(ONE_NAME_PER_WORD)("counts %s a write by its verb", (name) => {
+		expect(
+			defaultWriteSignal(tool(name)),
+			`${name} names a write verb, so it is a write`,
+		).toBe(true);
+	});
+
+	it("pairs each listed word with the one name only it gates", () => {
+		expect(
+			ONE_NAME_PER_WORD,
+			"the table holds one name for each listed word",
+		).toHaveLength(WRITE_VERBS.size);
+		for (const word of [...WRITE_VERBS]) {
+			WRITE_VERBS.delete(word);
+			try {
+				const freed = ONE_NAME_PER_WORD.filter(
+					(name) => !defaultWriteSignal(tool(name)),
+				);
+				expect(
+					freed,
+					`taking "${word}" off the list leaves exactly one name ungated`,
+				).toHaveLength(1);
+			} finally {
+				WRITE_VERBS.add(word);
+			}
+		}
+	});
+
+	it.each([
+		"get_settings",
+		"listOutputs",
+		"search_closed_issues",
+		"readDeletedItems",
+	])("leaves %s a read, matching only whole words", (name) => {
+		expect(
+			defaultWriteSignal(tool(name)),
+			`${name} holds no write verb as a whole word, so it is a read`,
+		).toBe(false);
+	});
+
+	it.each([
+		"get_merge_request",
+		"getPost",
+		"API-post-search",
+		"get_workflow_run",
+	])("asks first for %s, a read holding a noun the list names", (name) => {
+		// A missing word lets a write run unasked, which costs more than
+		// a read asking first, so these gate on purpose.
+		expect(
+			defaultWriteSignal(tool(name)),
+			`${name} holds a listed word as a noun, and asks first by design`,
+		).toBe(true);
+	});
+
+	it.each(["get_schedule", "resolve-library-id"])(
+		"leaves %s a read, by a word kept off the list",
+		(name) => {
+			expect(
+				defaultWriteSignal(tool(name)),
+				`${name}'s words are kept off the list since reads use them most, so it is a read`,
+			).toBe(false);
+		},
+	);
 });
 
 describe("toAgentContent", () => {
