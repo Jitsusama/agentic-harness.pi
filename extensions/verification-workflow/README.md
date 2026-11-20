@@ -100,15 +100,17 @@ never read from an earlier pass:
     for now lets the commit through, since nothing confirms it,
     and stays recorded for the next ask. So does a run above the
     commit's folder when git names no repository for it, since
-    that run may be another repository's.
+    that run may be another repository's. Where the guard refuses
+    git, the repository it refused is the commit's, so a commit
+    from a folder below the run is held too.
   - A check that verify runs keep overtaking asks git three
     times, then holds the commit on the newest run as it was
     recorded, in scope, and says it failed while the commit was
     checked.
   - A project the disk says is gone retires it, however it was
     recorded; one out of reach for now doesn't.
-  - Of two failed runs ending close together, in any projects,
-    the one that ended last is kept. A failure is not kept when a
+  - Each project keeps its own last failed run, so a failure in
+    one never displaces another's. A failure is not kept when a
     later run of its project ended first, or an edit landed in
     its project between the run's start and its record, and
     verify's answer says why.
