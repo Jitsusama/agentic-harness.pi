@@ -163,39 +163,36 @@ function drawn(path: string, sessionId: string): Promise<number> {
 	});
 }
 
-describe(
-	"a conversation holding its thread",
-	() => {
-		it("holds neither the host, another conversation's turn nor a window on it", async () => {
-			const [held, free] = await Promise.all([
-				run("busy", {}),
-				run("other", {}),
-			]);
-			const host = await run("host", {
-				ROUTES: JSON.stringify([
-					[busy, held],
-					[other, free],
-				]),
-			});
+describe("a conversation holding its thread", () => {
+	it("holds neither the host, another conversation's turn nor a window on it", async () => {
+		const [held, free] = await Promise.all([
+			run("busy", {}),
+			run("other", {}),
+		]);
+		const host = await run("host", {
+			ROUTES: JSON.stringify([
+				[busy, held],
+				[other, free],
+			]),
+		});
 
-			const holding = answered(host.socket, host.identity, busy);
-			await Promise.race(said);
-			const [listed, conversation, window] = await Promise.all([
-				answered(host.socket, host.identity),
-				answered(host.socket, host.identity, other),
-				drawn(host.socket, other),
-			]);
+		const holding = answered(host.socket, host.identity, busy);
+		await Promise.race(said);
+		const [listed, conversation, window] = await Promise.all([
+			answered(host.socket, host.identity),
+			answered(host.socket, host.identity, other),
+			drawn(host.socket, other),
+		]);
 
-			expect(listed, "the host answers a list").toBeLessThan(ANSWERS_WITHIN_MS);
-			expect(conversation, "another conversation takes a turn").toBeLessThan(
-				ANSWERS_WITHIN_MS,
-			);
-			expect(window, "a window on another conversation draws").toBeLessThan(
-				ANSWERS_WITHIN_MS,
-			);
-			expect(await holding, "the busy one answers once free").toBeGreaterThan(
-				ANSWERS_WITHIN_MS,
-			);
-		}, 20_000);
-	},
-);
+		expect(listed, "the host answers a list").toBeLessThan(ANSWERS_WITHIN_MS);
+		expect(conversation, "another conversation takes a turn").toBeLessThan(
+			ANSWERS_WITHIN_MS,
+		);
+		expect(window, "a window on another conversation draws").toBeLessThan(
+			ANSWERS_WITHIN_MS,
+		);
+		expect(await holding, "the busy one answers once free").toBeGreaterThan(
+			ANSWERS_WITHIN_MS,
+		);
+	}, 20_000);
+});
