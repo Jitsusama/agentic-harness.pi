@@ -411,9 +411,30 @@ function everyMount(): string | undefined {
 			seen.add(space);
 		} catch {
 			// Gone, or another account's, which never holds this one's copies.
+			// One of this account's in a fence, whose mounts can't be read, as
+			// a process that isn't dumpable, may hold a set, so none goes.
+			if (fencedUnread(pid)) return undefined;
 		}
 	}
 	return mounts.join("");
+}
+
+/**
+ * Whether `pid` is still there, runs as this account, and lives in a pid
+ * namespace below this machine's, as a fenced command does: its status
+ * is read even where its mounts aren't, and names a pid for each level.
+ * The person's own agents that aren't dumpable live at the top, and
+ * hold no copies, so they don't keep every set for ever.
+ */
+function fencedUnread(pid: string): boolean {
+	try {
+		if (statSync(`/proc/${pid}`).uid !== process.getuid?.()) return false;
+		const status = readFileSync(`/proc/${pid}/status`, "utf8");
+		const levels = /^NSpid:\s*(.*)$/m.exec(status)?.[1]?.trim().split(/\s+/);
+		return (levels?.length ?? 1) > 1;
+	} catch {
+		return false;
+	}
 }
 
 /** This process's pid namespace, or empty where it can't be read. */
