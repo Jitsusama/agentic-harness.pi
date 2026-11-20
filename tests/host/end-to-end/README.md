@@ -137,6 +137,14 @@ in a long tool cuts that tool short and leaves it listening, a Close
 ends it, and the host drops it alone, its neighbour answering
 throughout.
 
+stop-all.test.ts is Joel's `pineapple stop all`, before a demo, as two
+conversations in one host meet it: written as core's pineapple writes
+it, the stop parks both within its minute, the busy one once its tool
+has run out and the idle one as it stands. A peer's question then
+starts nothing in the parked one, and a spawn in Joel's own words is
+refused. Once he resumes, the one whose run the stop ended carries on
+and the idle one stays idle.
+
 cutover.test.ts is E9, wave 3's cutover and its rollback as
 `scripts/host-cutover.ts` and `scripts/host-release.ts` run them: ten
 plain pis, five a person prompted and five only a peer's message woke,
