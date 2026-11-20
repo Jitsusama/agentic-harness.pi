@@ -79,10 +79,11 @@ never read from an earlier pass:
   those in the repository the commit lands in, worked out from
   its `cd` segments and `git -C`. A file the server does not
   reach within ten seconds is not held against the commit.
-- A failed verify run counts while its tree is the one it
-  judged: the same HEAD, and the same size and modification
-  time on every changed file. Staging moves no file, so it does
-  not count as a change. Git is asked in its own untranslated
+- A failed verify run counts while its project's folder is the
+  one it judged: what HEAD holds there, and the same size and
+  modification time on every changed file under it. Work in
+  another project of the repository leaves it standing. Staging
+  moves no file, so it does not count as a change. Git is asked in its own untranslated
   words, off the thread: each question within five seconds and a
   status within a mebibyte. A check asks a few, so it can wait
   several times that, and longer on a git that holds its output
@@ -105,8 +106,10 @@ never read from an earlier pass:
     commit's, so a commit from a folder below the run is held too.
     That holds as far as the guard's walk matches git's own.
   - A commit's check asks git after one project at a time, and
-    only those in the commit's repository; a run elsewhere waits
-    for the next verify to be asked after.
+    only those in the commit's repository, including one recorded
+    while it asks; a run elsewhere waits for the next verify to be
+    asked after. No wall bounds the check as a whole, since one
+    ending it would let the commit through unjudged.
   - A check that verify runs keep overtaking asks git three
     times, then holds the commit on the newest run as it was
     recorded, in scope, and says it failed while the commit was

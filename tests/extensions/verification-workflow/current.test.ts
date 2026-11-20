@@ -205,8 +205,19 @@ describe("a commit's check", () => {
 		expect(state.failedRuns.get(elsewhere.root)).toBe(elsewhere);
 	});
 
-	// Each asks for a status of the whole tree; several at once in one
-	// repository only load the disk the check waits on.
+	// Each asks for a status of its project's tree; several at once only
+	// load the disk the check waits on.
+	it("holds back a commit on a run recorded in another of its projects while git answered", async () => {
+		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		await gitAsked();
+		record({ ...RUN, root: "/src/repo/lib", command: "pnpm lint" });
+		await gitSays("judged");
+		await gitSays("judged");
+		const { failure } = await checking;
+		expect(failure?.problems).toHaveLength(2);
+		expect(failure?.problems.join("\n")).toContain("pnpm lint failed");
+	});
+
 	it("asks git after one project's run at a time", async () => {
 		record({ ...RUN, root: "/src/repo/lib", command: "pnpm lint" });
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
@@ -221,7 +232,8 @@ describe("a commit's check", () => {
 	});
 
 	it("settles a commit's outcome without asking git about another repository's run", async () => {
-		state.outcome = "failing";
+		// Clean until the settle says otherwise, so one that never ran fails.
+		state.outcome = "clean";
 		const elsewhere = { ...NEXT, root: "/src/other" };
 		record(elsewhere);
 		const checking = commitCheck(state, { dir: "/src/repo" }, undefined);

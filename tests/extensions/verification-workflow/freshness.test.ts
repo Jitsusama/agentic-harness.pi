@@ -564,6 +564,27 @@ describe("the verify tool", () => {
 		expect(held?.problems[0]).toContain("exit 1 failed in");
 	});
 
+	it("holds back a commit on a project's failure while another project in its repository changes", async () => {
+		repo = await freshRepo("verify-two");
+		const failing = join(repo, "failing");
+		const beside = join(repo, "beside");
+		for (const dir of [failing, beside]) {
+			mkdirSync(dir);
+			writeFileSync(join(dir, "package.json"), '{"name":"fixture"}\n');
+		}
+		const h = await harness();
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: failing }, undefined);
+
+		// Written by something other than an edit, beside the failing one.
+		writeFileSync(join(beside, "formatted.ts"), "export {};\n");
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain(`exit 1 failed in ${failing}`);
+
+		writeFileSync(join(failing, "formatted.ts"), "export {};\n");
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+	});
+
 	// Each git a commit's check asks is slowed in turn, so any one of them
 	// held on the thread would stop the timer for the whole delay.
 	it("leaves the thread free while a commit's check asks git what changed", async () => {
@@ -571,7 +592,7 @@ describe("the verify tool", () => {
 	}, 20_000);
 
 	it("leaves the thread free while a commit's check asks git for its commit", async () => {
-		await freeWhileGitAnswers(" HEAD^{tree} ");
+		await freeWhileGitAnswers(" HEAD:./ ");
 	}, 20_000);
 
 	it("leaves the thread free while a commit's check asks git for its repository", async () => {
@@ -866,7 +887,7 @@ describe("the verify tool", () => {
 		await h.verify.execute("call", { path: repo }, undefined);
 
 		// Past git's own wall, so it gives no answer at all.
-		slowGit(10, " HEAD^{tree} ");
+		slowGit(10, " HEAD:./ ");
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 		if (path !== undefined) process.env.PATH = path;
 
@@ -887,7 +908,7 @@ describe("the verify tool", () => {
 			h.questVerify = "exit 1";
 			await h.verify.execute("call", { path: repo }, undefined);
 
-			gitThat(answer, " HEAD^{tree} ");
+			gitThat(answer, " HEAD:./ ");
 			const unsaid = await currentVerificationFailure({ dir: repo });
 			expect(unsaid, answer).toBeUndefined();
 			if (path !== undefined) process.env.PATH = path;
@@ -946,7 +967,7 @@ describe("the verify tool", () => {
 		// A git that answers in German unless asked for its own words.
 		gitThat(
 			'[ "$LC_ALL" = C ] || { echo "fatal: mehrdeutiges Argument" >&2; exit 128; }',
-			" HEAD^{tree} ",
+			" HEAD:./ ",
 		);
 		const language = process.env.LC_ALL;
 		process.env.LC_ALL = "de_DE.UTF-8";

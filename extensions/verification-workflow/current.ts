@@ -99,10 +99,14 @@ export async function failureNow(
 
 	const judged: Judged[] = [];
 	const leave = new Set<string>();
-	// One project at a time: each asks git for a status of its whole
-	// tree, and several at once in one repository only load the disk the
-	// commit's check is waiting on.
-	for (const at of [...state.failedRuns.keys()]) {
+	// One project at a time, so a commit's check never sets several git
+	// statuses on the disk it waits on at once; a project whose run is
+	// recorded while others are asked about is asked about in its turn.
+	const asked = new Set<string>();
+	for (;;) {
+		const at = [...state.failedRuns.keys()].find((one) => !asked.has(one));
+		if (at === undefined) break;
+		asked.add(at);
 		if (!inScope(at)) {
 			leave.add(at);
 			continue;
