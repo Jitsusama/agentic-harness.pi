@@ -12,11 +12,7 @@ import { createConnection } from "node:net";
 import { z } from "zod";
 import type { HostIdentity } from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
-import {
-	identities,
-	parseReply,
-	type SessionIdentity,
-} from "./protocol.ts";
+import { identities, parseReply, type SessionIdentity } from "./protocol.ts";
 
 const sessionId = z.uuid();
 const { conversation } = identities;
