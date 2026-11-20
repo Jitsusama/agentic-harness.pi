@@ -26,7 +26,6 @@ import {
 	UNWATCHED_MS,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
-import { writingBeside } from "../../../lib/internal/session/hand-over.ts";
 import {
 	awakePath,
 	flagsLost,
@@ -47,6 +46,7 @@ import {
 	SESSION_WOKEN,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
+import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { announceJobHost } from "../../../lib/jobs/index.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
@@ -688,13 +688,16 @@ describe("starting again on a fresh log", () => {
 	// 10 November, krc-5: started again through its holder, the window
 	// said "Parked, its memory given back" while it came back, which it
 	// never was. In place, the holder sees no exit at all.
-	it("ends at once, not idle, to start again in place on the fresh log, telling its holder nothing", () => {
+	it("ends at once, not idle, to start again in place on the fresh log, waking its holder for nothing", () => {
 		restarting();
 		const ask = asked();
 		expect(ask).toMatchObject({ restarting: true });
 		expect(ask.why).toBeUndefined();
 		expect(restarts).toEqual([fresh()]);
-		expect(readdirSync(folder)).not.toContain("held.again");
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
+			"named before pi ends, so whatever starts it next opens the fresh log",
+		).toEqual(["pi", "--session", fresh()]);
 		expect(readdirSync(folder)).not.toContain("held.wake");
 		expect(exits).toEqual([]);
 		expect(shutdowns).toBe(1);
@@ -728,43 +731,50 @@ describe("starting again on a fresh log", () => {
 		).toEqual(["pi", "--session", fresh()]);
 		expect(said).toEqual([
 			expect.stringMatching(
-				/^It stays parked, since its holder couldn't be told to start it again: EISDIR.*held\.wake/,
+				/^It stays parked until a key starts it again, since its holder couldn't be woken: EISDIR.*held\.wake/,
 			),
 		]);
 		expect(exits).toEqual([PARKED_EXIT]);
 	});
 
-	it("says why, naming the file, when its command can't be written", () => {
+	// Round 3, 20 November: named only once pi had ended, a command that
+	// couldn't be written left the window parked on the log it left, or
+	// on a bare pi, while it said it would start again.
+	it("stays, saying why and naming the file, when its command can't be written", () => {
 		mkdirSync(join(folder, "held.again"));
 		restarting();
-		asked();
-		fallbacks[0]?.();
-		expect(said).toEqual([
-			expect.stringMatching(
-				/^It stays parked, since its holder couldn't be told to start it again: EISDIR.*held\.again/,
-			),
-		]);
+		const ask = asked();
+		expect(ask.why).toMatch(
+			/^its holder couldn't be told how to start it again: EISDIR.*held\.again/,
+		);
+		expect(ask.restarting, "the rollover is told it stays").toBeUndefined();
+		expect(restarts).toEqual([]);
+		expect(shutdowns).toBe(0);
 		expect(
-			readdirSync(folder),
-			"no wake into a command it lacks",
-		).not.toContain("held.wake");
-		expect(exits).toEqual([PARKED_EXIT]);
+			readdirSync(join(folder, WRITING)),
+			"the failed write leaves nothing staged",
+		).toEqual([]);
+		expect(readdirSync(folder)).not.toContain("held.wake");
+		expect(exits).toEqual([]);
 	});
 
-	it("leaves the command named before when its own is cut short", () => {
+	it("leaves the command named before when its own is cut short, and stays", () => {
 		const again = join(folder, "held.again");
 		writeFileSync(again, JSON.stringify(["pi", "--session", "before.jsonl"]));
-		mkdirSync(writingBeside(again));
+		writeFileSync(
+			join(folder, WRITING),
+			"a file where its staging folder goes",
+		);
 		restarting();
-		asked();
-		fallbacks[0]?.();
+		const ask = asked();
 		expect(
 			JSON.parse(readFileSync(again, "utf8")),
 			"a write that fails empties nothing",
 		).toEqual(["pi", "--session", "before.jsonl"]);
-		expect(said).toEqual([
-			expect.stringMatching(/couldn't be told to start it again: EISDIR/),
-		]);
+		expect(ask.why).toMatch(
+			/^its holder couldn't be told how to start it again: E(EXIST|NOTDIR).*held\.again/,
+		);
+		expect(shutdowns).toBe(0);
 	});
 
 	it("has its holder start it fenced on the fresh log, as it was started", () => {

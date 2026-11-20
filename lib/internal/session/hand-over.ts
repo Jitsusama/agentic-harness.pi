@@ -7,7 +7,7 @@
  * draws over it.
  */
 
-import { renameSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import {
 	flagsLost,
 	type HolderFiles,
@@ -87,27 +87,6 @@ export function tellHolder(
 export function whyWriting(path: string, error: unknown): string {
 	const message = error instanceof Error ? error.message : String(error);
 	return message.includes(path) ? message : `${message}, to ${path}`;
-}
-
-/** The file {@link writeWhole} writes beside `path` before renaming it. */
-export function writingBeside(path: string): string {
-	return `${path}.${process.pid}.writing`;
-}
-
-/**
- * Writes `text` to `path` whole or not at all, through a file beside it
- * renamed into place, so a write a full disk cuts short leaves `path` as
- * it was rather than emptied. Throws as the write or rename does.
- */
-export function writeWhole(path: string, text: string): void {
-	const beside = writingBeside(path);
-	try {
-		writeFileSync(beside, text);
-		renameSync(beside, path);
-	} catch (error) {
-		forget(beside);
-		throw error;
-	}
 }
 
 /**

@@ -19,8 +19,6 @@ import {
 	tellHolder,
 	untellHolder,
 	whyWriting,
-	writeWhole,
-	writingBeside,
 } from "../../../../lib/internal/session/hand-over.ts";
 import { PARKED_EXIT } from "../../../../lib/internal/session/park.ts";
 
@@ -187,27 +185,6 @@ describe("writing a holder's file", () => {
 			),
 			"one that names it already is left as it is",
 		).toBe("EISDIR: open '/run/held/s.again'");
-	});
-
-	it("writes a file whole", () => {
-		const { files } = holderFor(4242);
-		writeFileSync(files.again, "before");
-
-		writeWhole(files.again, "after");
-
-		expect(readFileSync(files.again, "utf8")).toBe("after");
-		expect(existsSync(writingBeside(files.again)), "nothing left beside").toBe(
-			false,
-		);
-	});
-
-	it("leaves a file as it was when the write fails", () => {
-		const { files } = holderFor(4242);
-		writeFileSync(files.again, "before");
-		mkdirSync(writingBeside(files.again));
-
-		expect(() => writeWhole(files.again, "after")).toThrow(/EISDIR/);
-		expect(readFileSync(files.again, "utf8")).toBe("before");
 	});
 });
 

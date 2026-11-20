@@ -7,10 +7,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
-import {
-	whyWriting,
-	writeWhole,
-} from "../../lib/internal/session/hand-over.ts";
+import { whyWriting } from "../../lib/internal/session/hand-over.ts";
 import {
 	AGAIN_ENV,
 	clearAwake,
@@ -55,6 +52,7 @@ import {
 	type HeldWindow,
 	heldWindowsOf,
 } from "../../lib/internal/session/park-window.ts";
+import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 
 /**
@@ -575,30 +573,31 @@ export function watch(
 		// Its person asking is the settled moment a restart waits for.
 		const seen = asked ? undefined : watched();
 		if (seen !== undefined) return seen;
+		// Named before pi ends, as a park names it, so whatever starts it
+		// next opens the fresh log: one that couldn't be named would wake
+		// at a key on the log it left, or as a new conversation, so it
+		// stays. The holder reads it only once its program ends, so a
+		// restart in place still shows it no exit.
+		try {
+			writeWhole(again, JSON.stringify(holderCommand(fresh, args, env)));
+		} catch (error) {
+			return `its holder couldn't be told how to start it again: ${whyWriting(again, error)}`;
+		}
 		const throughHolder = () => {
-			// Its holder starts the named command on the fresh log at once
-			// when woken. With the command written but not the wake, the window
-			// stays parked and a key starts that command, still on the fresh
-			// log. The command is written whole or not at all, so one that
-			// fails leaves whatever was named before; with nothing named, a
-			// key starts what its holder last ran (mycelium's hold/holder.rs,
-			// `named`). So
-			// nothing written is taken back, and the window says why.
-			let writing = again;
+			// Its holder starts the named command at once when woken. Unwoken,
+			// the window stays parked and a key starts it, still on the fresh
+			// log, as the window says.
 			try {
-				writeWhole(again, JSON.stringify(holderCommand(fresh, args, env)));
-				writing = wake;
 				writeFileSync(
 					wake,
 					`${JSON.stringify({ session, restart: fresh, at: new Date(now()).toISOString() })}\n`,
 				);
 			} catch (error) {
-				const why = whyWriting(writing, error);
 				(
 					options.say ??
 					((line: string) => process.stdout.write(`\r\n${line}\r\n`))
 				)(
-					`It stays parked, since its holder couldn't be told to start it again: ${why}.`,
+					`It stays parked until a key starts it again, since its holder couldn't be woken: ${whyWriting(wake, error)}.`,
 				);
 			}
 			const setCode =
