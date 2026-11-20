@@ -11,7 +11,7 @@ const COLUMNS = 72;
 
 describe("pi-carry's help", () => {
 	it("opens with its name and keeps each line within 72 columns", () => {
-		expect(CARRY_HELP.startsWith("pi-carry ")).toBe(true);
+		expect(CARRY_HELP).toMatch(/^pi-carry /);
 		const wide = CARRY_HELP.split("\n").filter((line) => line.length > COLUMNS);
 		expect(wide).toEqual([]);
 	});
@@ -42,25 +42,27 @@ describe("pi-carry's help", () => {
 	});
 
 	it("is asked for by --help or -h anywhere before --", () => {
-		expect(asksForHelp(["--help"])).toBe(true);
-		expect(asksForHelp(["arrive", "QEST-20261107-CARRY3", "-h"])).toBe(true);
+		expect(asksForHelp(["--help"]), "--help alone asks").toBe(true);
+		const late = ["arrive", "QEST-20261107-CARRY3", "-h"];
+		expect(asksForHelp(late), "-h after a form's words asks").toBe(true);
 	});
 
 	it("isn't asked for by a carry's own words", () => {
 		const carry = ["QEST-20261107-CARRY3", "--to", "far-machine"];
-		expect(asksForHelp(carry)).toBe(false);
-		expect(asksForHelp([])).toBe(false);
+		expect(asksForHelp(carry), "a carry's words don't ask").toBe(false);
+		expect(asksForHelp([]), "no words don't ask").toBe(false);
 	});
 
 	it("carries a one-word value, and answers what parseArgs refuses", () => {
 		const arrive = ["arrive", "QEST-20261107-CARRY3", "--from", "far"];
 		const asked = (...more: string[]) => asksForHelp([...arrive, ...more]);
 		// As mycelium sends a reason: one word, which parseArgs carries.
-		expect(asked("--by=WCJQSG", "--why=--help")).toBe(false);
-		expect(asked("--why=-h")).toBe(false);
+		const reason = asked("--by=WCJQSG", "--why=--help");
+		expect(reason, "--why=--help is a reason").toBe(false);
+		expect(asked("--why=-h"), "--why=-h is a reason").toBe(false);
 		// parseArgs refuses a dash-led value as the next word, so help loses
 		// nothing it would have carried.
-		expect(asked("--why", "--help")).toBe(true);
+		expect(asked("--why", "--help"), "a lone --help asks").toBe(true);
 	});
 
 	it("rests on parseArgs refusing a dash-led value as the next word", () => {
@@ -77,6 +79,7 @@ describe("pi-carry's help", () => {
 	});
 
 	it("isn't asked for past --", () => {
-		expect(asksForHelp(["--", "--help"])).toBe(false);
+		const past = asksForHelp(["--", "--help"]);
+		expect(past, "--help past -- is a word").toBe(false);
 	});
 });
