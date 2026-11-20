@@ -36,10 +36,22 @@ if [[ $# -gt 0 ]]; then
   exec pnpm exec vitest run --project process --reporter verbose "$@"
 fi
 report=$(mktemp)
+# The suite runs as a child so its report can follow, and a stop that
+# reaches this shell is passed on to it rather than leaving it running on
+# the lender.
+pnpm test:host --reporter=json "--outputFile.json=$report" &
+suite=$!
+trap 'kill -TERM "$suite" 2>/dev/null' TERM HUP INT
 set +e
-pnpm test:host --reporter=json "--outputFile.json=$report"
+wait "$suite"
 status=$?
+# A stop interrupts the wait before the suite has ended; wait for its end.
+while kill -0 "$suite" 2>/dev/null; do
+  wait "$suite"
+  status=$?
+done
 set -e
+trap - TERM HUP INT
 echo "host-run: vitest's report follows"
 # A run that died before its report leaves the file empty, which proves
 # nothing; the run's own exit is kept either way.

@@ -20,11 +20,12 @@
  * was cut at. It is judged exactly as a run here is. The report doesn't
  * name its runtime, so whoever ran it answers for running it on RUNTIME.
  *
- * REPORT may also be the saved log of a whole scripts/host-test-there.sh
- * run, whose last lines hold the report as scripts/host-run.sh prints it.
- * That log names the commit and the runtime it ran, and a proof is
- * refused unless they are COMMIT and RUNTIME, or when it says the run
- * exited other than 0.
+ * REPORT may also be the whole saved log of one scripts/host-test-there.sh
+ * run, which holds the report as scripts/host-run.sh prints it, between
+ * the lines naming the commit and runtime it ran and how it exited. A
+ * proof is refused unless the log holds exactly one such run, of COMMIT
+ * on RUNTIME, that exited 0 (judgedLog, host/service/proof.ts). The
+ * fenced call, which prints none of those lines, proves nothing.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -42,13 +43,12 @@ import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import {
 	type HostProof,
+	judgedLog,
+	judgedReport,
 	PROOF_KIND,
 	PROOF_VERSION,
-	provenBy,
-	type RunSummary,
-	loggedRun,
+	type provenBy,
 } from "../host/service/proof.ts";
-import { isRecord } from "../lib/internal/record.ts";
 
 const HARNESS = join(import.meta.dirname, "..");
 
@@ -161,9 +161,8 @@ function runHere(): { harness: string; verdict: ReturnType<typeof judged> } {
 }
 
 /**
- * What a run elsewhere proves, from `file`: its JSON report, or the log
- * of a lent run holding one, which must name `commit` and `runtime`
- * where it names what it ran.
+ * What a run elsewhere proves, from `file`: its bare JSON report, or
+ * the whole log of a lent run holding one, judged by judgedLog.
  */
 function reported(
 	file: string,
@@ -176,14 +175,9 @@ function reported(
 	} catch {
 		return `${file} can't be read`;
 	}
-	if (text.trimStart().startsWith("{")) return judgedText(text);
-	const logged = loggedRun(text);
-	if (typeof logged === "string") return logged;
-	if (logged.commit !== undefined && logged.commit !== commit)
-		return `the log ran ${logged.commit}, not ${commit}`;
-	if (logged.runtime !== undefined && logged.runtime !== runtime)
-		return `the log ran on ${logged.runtime}, not ${runtime}`;
-	return judgedText(logged.report);
+	return text.trimStart().startsWith("{")
+		? judgedReport(text)
+		: judgedLog(text, commit, runtime);
 }
 
 /** What the run's JSON report proves, or why it proves nothing. */
@@ -194,33 +188,7 @@ function judged(file: string): ReturnType<typeof provenBy> {
 	} catch {
 		return "the run wrote no report to judge";
 	}
-	return judgedText(text);
-}
-
-/** What a JSON report's text proves, or why it proves nothing. */
-function judgedText(text: string): ReturnType<typeof provenBy> {
-	let value: unknown;
-	try {
-		value = JSON.parse(text);
-	} catch {
-		return "the run wrote no report to judge";
-	}
-	return isSummary(value) ? provenBy(value) : "the run's report isn't vitest's";
-}
-
-function isSummary(value: unknown): value is RunSummary {
-	return (
-		isRecord(value) &&
-		typeof value.success === "boolean" &&
-		Array.isArray(value.testResults) &&
-		[
-			value.numTotalTests,
-			value.numPassedTests,
-			value.numFailedTests,
-			value.numPendingTests,
-			value.numTodoTests,
-		].every((count) => typeof count === "number")
-	);
+	return judgedReport(text);
 }
 
 /** The link the host checks find the latest proven runtime at. */

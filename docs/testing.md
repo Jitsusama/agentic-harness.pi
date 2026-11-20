@@ -115,7 +115,10 @@ every case has passed does it write the runtime's proof and move the
 runtime link to it. Where the run goes to a lent builder, as a
 derivation with no git, `--report REPORT --harness COMMIT` judges that
 run's JSON report the same way and records the commit its source was cut
-at. A realm names the proof beside its pi. core.nix fails
+at. REPORT may instead be the whole saved log of one
+`scripts/host-test-there.sh` run, which `scripts/host-run.sh` makes
+print its report; the log must name COMMIT and RUNTIME and say the run
+exited 0. A realm names the proof beside its pi. core.nix fails
 evaluation when the proof names another runtime, and the host program
 refuses to start without a proof of its own pi
 (`host/service/proof.ts`). The proof names the harness commit that ran,
