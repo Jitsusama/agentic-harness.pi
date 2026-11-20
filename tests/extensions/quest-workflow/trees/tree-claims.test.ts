@@ -311,7 +311,11 @@ describe("hearing that a sweep took a tree", () => {
 		clearDiscoveryCache();
 	});
 
-	/** What the quests under `root` list, once the forgetting settles. */
+	/**
+	 * What the quests under `root` list, once the forgetting settles. A
+	 * host answers no claims before its first walk, so an empty answer is
+	 * one from before the forgetting read the tree.
+	 */
 	function listedOnceGone(
 		pi: ReturnType<typeof bus>,
 		gone: string,
@@ -320,6 +324,7 @@ describe("hearing that a sweep took a tree", () => {
 			const claims: TreeClaims = { paths: [] };
 			pi.events.emit(WORK_TREE_CLAIMS, claims);
 			expect(claims.paths, "the tree the sweep took").not.toContain(gone);
+			expect(claims.paths, "read since the sweep").not.toEqual([]);
 			return claims.paths;
 		});
 	}
