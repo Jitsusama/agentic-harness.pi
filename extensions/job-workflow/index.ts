@@ -30,13 +30,12 @@ import {
 } from "../../lib/core/session/index.ts";
 import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import type { CutOff } from "../../lib/internal/session/cut-off-record.ts";
-import { isPersonText } from "../../lib/internal/session/driven.ts";
+import { isPersonsOwnText } from "../../lib/internal/session/driven.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { jobIdsIn } from "../../lib/jobs/report.ts";
 import { answerSteerWaiting, saySteered } from "../../lib/jobs/steer.ts";
 import { offerCarried } from "../../lib/jobs/take-up.ts";
-import { isOthersSteerText } from "../../lib/mesh/steer.ts";
 import { sessionIdOf } from "./carry.ts";
 import { showJobs } from "./command.ts";
 import {
@@ -587,12 +586,7 @@ export default function jobWorkflow(
 		if (shown.again(event.text)) return { action: "handled" as const };
 		session?.outbox.promptSubmitted();
 		// A peer's or the machine's steer is no one there to say what next.
-		if (
-			carriedWait &&
-			isPersonText(event.text) &&
-			!isOthersSteerText(event.text)
-		)
-			carriedWait.typed = true;
+		if (carriedWait && isPersonsOwnText(event.text)) carriedWait.typed = true;
 		if (steersTheRun(event)) {
 			line.typed();
 			showWaiting(line, ctx);

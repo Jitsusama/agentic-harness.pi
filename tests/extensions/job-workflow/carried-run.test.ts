@@ -30,6 +30,7 @@ import {
 	message,
 	noticeSeen,
 	refused,
+	refusedUnmarked,
 	TIMEOUTS,
 } from "./support/cut-off-session.ts";
 
@@ -269,9 +270,9 @@ describe("a session whose host carried its run on", () => {
 		}
 	});
 
-	it("is told its carried run failed after a mesh message came in", async () => {
-		// A mesh message or a job's report is said as an extension's
-		// prompt, and no person is there to say what comes next.
+	it("is told its carried run failed after an extension's prompt or another's steer", async () => {
+		// A job's report is said as an extension's prompt under the
+		// automated header, and no person is there to say what comes next.
 		const host = installTestHost();
 		vi.useFakeTimers({ toFake: TIMEOUTS });
 		try {
@@ -318,8 +319,10 @@ describe("a session whose host carried its run on", () => {
 			const pi = activate(killedLog(), new EventEmitter());
 			await pi.fire("session_start", { reason: "startup" });
 			await carriedRun(pi, undefined, undefined);
-			// What the host leaves for a run durable refused as busy.
+			// What the host leaves for a run durable refused as busy, marked
+			// and, from a host before the mark, in durable's words.
 			await carriedRun(pi, refused, undefined);
+			await carriedRun(pi, refusedUnmarked, undefined);
 			expect(pi.said, "a refused run is not the carried one").toHaveLength(0);
 			await carriedRun(pi, interrupted, aborted);
 			expect(pi.said, "the carried run decides").toHaveLength(1);
@@ -358,8 +361,10 @@ describe("a session whose host carried its run on", () => {
 		const host = installTestHost();
 		vi.useFakeTimers({ toFake: TIMEOUTS });
 		try {
+			// Started and still busy, as a run reads within a turn.
 			const busy = activate(killedLog(), new EventEmitter());
 			await busy.fire("session_start", { reason: "startup" });
+			await carriedRunStarts(busy, interrupted);
 			busy.session.busy = true;
 
 			// Idle again, as a host's run reads between its turns.
@@ -375,7 +380,8 @@ describe("a session whose host carried its run on", () => {
 			).toEqual({ busy: 0, started: 0 });
 
 			busy.session.busy = false;
-			await carriedRun(busy, interrupted, aborted);
+			busy.branch.push(aborted);
+			await busy.fire("agent_settled", {});
 			started.branch.push(aborted);
 			await started.fire("agent_settled", {});
 			expect(

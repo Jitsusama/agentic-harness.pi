@@ -367,12 +367,15 @@ rather than the machine.
   answer: one that is neither an error nor a tool call says nothing,
   one that is either is told the run failed, and one the person
   stopped or typed over is left to them. A run that answers nothing,
-  or answers only that its conversation is busy, as one durable
-  refuses while it holds the carried run, leaves the carried run to
-  come. The person is told apart by the automated header and by a
-  steer's frame, not by where words came from, since the launcher's
-  Steer comes through an extension, and a peer's or the machine's
-  steer carries no automated header. A carried run waits its turn behind the
+  or answers only with the error its host marks as its own for a run
+  durable never admitted, as one refused while it holds the carried
+  run, leaves the carried run to come; a log from a host before that
+  mark is read by durable's "is busy" words. The person is told apart
+  by the automated header and by a steer's frame, not by where words
+  came from, since the launcher's Steer comes through an extension,
+  and a peer's or the machine's steer carries no automated header. A
+  steer's frame is declared by whoever wrote it, so this trusts those
+  who can write the steer inbox. A carried run waits its turn behind the
   others (107 took 805 s on 20 November), so a clock decides only for
   a run that never starts, after half an hour, looking again each
   minute while the session is busy. That includes a log the host had
