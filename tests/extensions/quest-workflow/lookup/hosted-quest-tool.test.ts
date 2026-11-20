@@ -10,13 +10,15 @@
 import {
 	mkdirSync,
 	mkdtempSync,
+	lstatSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BudgetKeeper } from "../../../../extensions/quest-workflow/budget.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
@@ -32,12 +34,35 @@ import { fakePi } from "../../../support/fake-pi.ts";
 import { installTestHost } from "../../../support/session-host.ts";
 import { createEnvGuard, fakeCtx } from "../_helpers.ts";
 
-// Listings on the thread are counted, to show the walk isn't one.
+// Reads on the thread are counted, to show the walk isn't one.
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
-	return { ...actual, readdirSync: vi.fn(actual.readdirSync) };
+	return {
+		...actual,
+		readdirSync: vi.fn(actual.readdirSync),
+		readFileSync: vi.fn(actual.readFileSync),
+		statSync: vi.fn(actual.statSync),
+		lstatSync: vi.fn(actual.lstatSync),
+	};
 });
-const listings = vi.mocked(readdirSync);
+/** A read counted on the thread, as these tests ask of it. */
+interface Counted {
+	readonly mock: { readonly calls: readonly (readonly unknown[])[] };
+	mockClear(): void;
+}
+const onThread: readonly Counted[] = [
+	vi.mocked(readdirSync),
+	vi.mocked(readFileSync),
+	vi.mocked(statSync),
+	vi.mocked(lstatSync),
+];
+
+/** The paths read on the thread since `onThread` was last cleared. */
+function readOnThread(): string[] {
+	return onThread.flatMap((read) =>
+		read.mock.calls.map(([path]) => String(path)),
+	);
+}
 
 const envGuard = createEnvGuard();
 let tmpRoot: string;
@@ -174,7 +199,7 @@ it("refuses an alias another process put on another quest since the last walk", 
 
 it("starts a session in a tree another process gave a quest since the last walk", async () => {
 	const questsRoot = join(tmpRoot, "quests");
-	await made(questsRoot, "Alpha");
+	const alpha = await made(questsRoot, "Alpha");
 	const beta = await made(questsRoot, "Beta");
 	const tree = join(tmpRoot, "tree");
 	mkdirSync(tree);
@@ -195,16 +220,15 @@ it("starts a session in a tree another process gave a quest since the last walk"
 	const budgets = { keep: async () => undefined, forget: () => undefined };
 	followSessionLife(pi, state, budgets as unknown as BudgetKeeper, undefined);
 	const [start] = pi.recorded.handlers.get("session_start") ?? [];
-	listings.mockClear();
+	for (const read of onThread) read.mockClear();
 	await withSession("a", async () =>
 		start?.({ type: "session_start", reason: "startup" }, startIn(tree)),
 	);
 
 	expect(state.questId).toBe(beta.id);
-	const listed = listings.mock.calls.map(([path]) => String(path));
-	expect(listed, "the quests folder, listed on the thread").not.toContain(
-		questsRoot,
-	);
+	const elsewhere = dirname(alpha.readme);
+	const read = readOnThread().filter((path) => path.startsWith(elsewhere));
+	expect(read, "a quest it didn't start in, read on the thread").toEqual([]);
 });
 
 /** A session's context at its start in `cwd`, kept in no file. */
