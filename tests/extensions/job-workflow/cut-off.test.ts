@@ -70,6 +70,32 @@ const aborted = message("assistant", {
 	errorMessage: "This operation was aborted",
 });
 
+/** The result a host gives the tool call a kill cut, as it carries the run on. */
+const interrupted = message("toolResult", { isError: true });
+
+/** A log a kill left mid-run, ending on a tool's result with no record. */
+function killedLog(): unknown[] {
+	return [
+		message("user"),
+		message("assistant", { stopReason: "toolUse" }),
+		message("toolResult"),
+	];
+}
+
+/** Run the carried run in `pi`, adding `entries` to its log, then settle it. */
+async function carriedRun(
+	pi: ReturnType<typeof activate>,
+	first: unknown,
+	second: unknown,
+	settled: { aborted?: boolean } = {},
+): Promise<void> {
+	pi.session.busy = true;
+	await pi.fire("agent_start");
+	for (const entry of [first, second]) if (entry) pi.branch.push(entry);
+	pi.session.busy = false;
+	await pi.fire("agent_settled", settled);
+}
+
 describe("a session cut off when it ended", () => {
 	it("is found from the record its end left, with nothing typed since", () => {
 		const record = { at: Date.parse(AT), running: true, jobs: [] };
@@ -514,6 +540,67 @@ describe("the job workflow, at a session's end and its return", () => {
 				"told only where the run never showed",
 			).toEqual({ carried: 0, lost: 1 });
 			expect(lost.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("in a host, says nothing of a carried run whose turn comes minutes after its return", async () => {
+		// On 20 November the 06:57 restart carried X18TU2's run, whose turn
+		// came at 07:09, behind 106 others; the 90 s wait had run out at
+		// 07:08, so the run was told nothing had resumed it as it resumed.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			await vi.advanceTimersByTimeAsync(3 * 60_000);
+			await carriedRun(pi, interrupted, message("assistant"));
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(pi.said, "its run answered").toHaveLength(0);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("in a host, tells a session its carried run failed, once that run settles", async () => {
+		// The host's own result for the tool call the kill cut is no
+		// answer, and a log that ends mid-run is no less carried for it.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			await carriedRun(pi, interrupted, aborted);
+			expect(pi.said).toHaveLength(1);
+			expect(pi.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(pi.said, "told once").toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("in a host, says nothing of a failed carried run the person stopped or spoke over", async () => {
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const stopped = activate(killedLog(), new EventEmitter());
+			await stopped.fire("session_start", { reason: "startup" });
+			await carriedRun(stopped, aborted, undefined, { aborted: true });
+
+			const typed = activate(killedLog(), new EventEmitter(), "s2");
+			await typed.fire("session_start", { reason: "startup" });
+			await carriedRun(typed, message("user"), aborted);
+
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(
+				{ stopped: stopped.said.length, typed: typed.said.length },
+				"the person is there to say what comes next",
+			).toEqual({ stopped: 0, typed: 0 });
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
