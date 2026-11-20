@@ -63,6 +63,10 @@
  * programs keep their caches and state, the work, the network and the
  * environment, less what names the desktop. The strict profile
  * is for text a stranger wrote; the fence is for every session.
+ *
+ * Long because it is the fence's one declaration: what is hidden, what
+ * is let through and what is kept read-only are read against each other,
+ * so a path moved from one list to another is seen whole in one file.
  */
 
 import { basename, dirname, join, relative, sep } from "node:path";

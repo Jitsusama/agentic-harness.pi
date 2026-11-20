@@ -196,7 +196,7 @@ describe("a fenced command with the GitHub door", () => {
 		expect(env.get("http_proxy")).toBe("http://127.0.0.1:4242");
 		// curl and others never read the capital name, kept from CGI's
 		// Proxy header, so it isn't set.
-		expect(env.has("HTTP_PROXY")).toBe(false);
+		expect(env.get("HTTP_PROXY"), "the capital name is set").toBeUndefined();
 		expect(env.get("GH_TOKEN")).toBe(GITHUB_PLACEHOLDER);
 		expect(
 			env.get("DEV_GITHUB_TOKEN"),
