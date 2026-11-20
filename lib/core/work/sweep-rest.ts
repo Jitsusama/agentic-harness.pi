@@ -39,6 +39,58 @@ export function restingSince(
 }
 
 /**
+ * How long a sweep run outside any pi host keeps the hosts' own sweeps
+ * standing down: two of its hourly runs, so one missed run changes
+ * nothing, while a timer that stops for good hands sweeping back to the
+ * hosts within two hours.
+ */
+export const OUTSIDE_SWEEP_HOLDS_MS = 2 * 60 * 60 * 1000;
+
+/** The stamp beside a sweep's lock that says a sweep ran outside the hosts. */
+function outsideStamp(lockPath: string): string {
+	return `${lockPath}.outside`;
+}
+
+/**
+ * Why a host's own sweep should stand down: a sweep outside every host
+ * started within {@link OUTSIDE_SWEEP_HOLDS_MS} of `now`. A host runs
+ * every conversation on one thread, and its sweeps' git calls and folder
+ * listings held that thread for up to 262 s on 19 November, freezing
+ * every conversation in it; a sweep in a process of its own holds none.
+ */
+export function sweptOutsideSince(
+	lockPath: string,
+	now: number,
+): string | undefined {
+	let stamped: number;
+	try {
+		stamped = statSync(outsideStamp(lockPath)).mtimeMs;
+	} catch {
+		// No stamp, or none to read: no sweep outside, so the hosts sweep.
+		return undefined;
+	}
+	const ago = now - stamped;
+	// A stamp from the future, as a clock set back leaves, holds nobody.
+	return ago >= 0 && ago < OUTSIDE_SWEEP_HOLDS_MS
+		? `a sweep outside the hosts started ${Math.round(ago / 1000)} s ago`
+		: undefined;
+}
+
+/**
+ * Stamp that a sweep outside every host is starting, for
+ * {@link sweptOutsideSince}, dated `at` by the sweep's own clock.
+ */
+export function markSweptOutside(lockPath: string, at: number): void {
+	const stamp = outsideStamp(lockPath);
+	try {
+		writeFileSync(stamp, "");
+		utimesSync(stamp, at / 1000, at / 1000);
+	} catch {
+		// Unwritten, the hosts go on sweeping as before, one at a time.
+	}
+}
+
+/**
  * Stamp that a sweep has just ended, for {@link restingSince}, dated by
  * the sweep's own clock rather than the file system's, so the two
  * readings of the rest are of one clock. Only its time is read, so it

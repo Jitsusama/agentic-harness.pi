@@ -18,10 +18,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { answerTreeClaims } from "../../../extensions/quest-workflow/claims.ts";
+import {
+	answerTreeClaims,
+	forgetTrees,
+	liveQuestTrees,
+} from "../../../extensions/quest-workflow/claims.ts";
 import {
 	registerTreeSweeps,
 	seesEveryProcess,
+	sweepAndLog,
+	sweepLockPath,
 	useSigns,
 } from "../../../extensions/work-integration/sweep.ts";
 import {
@@ -31,6 +37,7 @@ import {
 	WORK_TREES_SWEPT,
 } from "../../../lib/core/work/index.ts";
 import type { SweepClaims } from "../../../lib/core/work/sweep.ts";
+import { markSweptOutside } from "../../../lib/core/work/sweep-rest.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
 /** The claims each sweep was given. */
@@ -215,6 +222,38 @@ it("asks every sweep to rest 20 minutes after any sweep ends", async () => {
 	await sweepOn(createEventBus());
 
 	expect(rests, "the rest each sweep was asked for").toEqual([20 * 60 * 1000]);
+});
+
+it("stands a host's sweep down for two hours after a sweep outside the hosts starts", async () => {
+	mkdirSync(join(root, "state", "pi", "agentic-harness.pi", "work"), {
+		recursive: true,
+	});
+	markSweptOutside(sweepLockPath(), Date.now());
+
+	await sweepOn(createEventBus());
+	expect(rests, "the sweeps a host started beside one outside").toEqual([]);
+
+	// Its hourly sweeps at 63 and 123 minutes: the second is past the two hours.
+	await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
+	expect(rests, "the sweeps a host started once the hold ran out").toHaveLength(
+		1,
+	);
+});
+
+it("sweeps outside a host by the quests on disk, never resting, and drops what it took", async () => {
+	const spent = "/src/repo/.worktrees/spent";
+	const quests = liveQuestListing(spent);
+
+	await sweepAndLog({
+		claimed: () => ({ held: [], untilSpent: liveQuestTrees(quests) }),
+		swept: (paths) => forgetTrees(quests, paths),
+	});
+
+	expect(given, "the claims the sweep was given").toEqual([
+		{ held: [], untilSpent: [spent] },
+	]);
+	expect(rests, "the rest it was asked for").toEqual([undefined]);
+	expect(liveQuestTrees(quests), "the trees its quest still lists").toEqual([]);
 });
 
 it("writes no line for a sweep that rested", async () => {

@@ -10,6 +10,10 @@
  * beside the trees' records, one JSON line a sweep, naming the trees
  * taken and those whose dev-shell roots were dropped. A sweep that
  * rests, since one ended within the last 20 minutes, writes none.
+ *
+ * Where a machine sweeps outside its hosts, as scripts/pi-sweep.ts does
+ * from a timer, a host's sweeps stand down for two hours after each of
+ * its runs, so a host's one thread never carries a sweep's work.
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -30,6 +34,7 @@ import {
 	type SweepOutcome,
 	sweepEndedTrees,
 } from "../../lib/core/work/sweep.ts";
+import { sweptOutsideSince } from "../../lib/core/work/sweep-rest.ts";
 import { machineBooted } from "../../lib/internal/machine/booted.ts";
 import { everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
@@ -113,9 +118,46 @@ function stopSweeps(own: Sweeps): void {
 	own.every = undefined;
 }
 
-/** One sweep, logged, which never throws into a timer. */
+/**
+ * One sweep in a host, unless a sweep outside every host has run lately,
+ * which stands it down before it reads anything.
+ */
 async function sweepOnce(pi: ExtensionAPI): Promise<void> {
-	const dir = stateDir("work");
+	if (sweptOutsideSince(sweepLockPath(), Date.now()) !== undefined) return;
+	await sweepAndLog({
+		// Asked only by a sweep that runs, as the sweep says why.
+		claimed: () => {
+			const claims: TreeClaims = { paths: [], untilSpent: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+			return { held: claims.paths, untilSpent: claims.untilSpent ?? [] };
+		},
+		// Whoever listed a tree it took stops listing a folder that is gone.
+		// pi's bus reports a listener's error itself, never to the emitter.
+		swept: (paths) => {
+			const swept: SweptTrees = { paths: [...paths] };
+			pi.events.emit(WORK_TREES_SWEPT, swept);
+		},
+		restMs: SWEEP_REST_MS,
+	});
+}
+
+/** Where every sweep on the machine takes its turn. */
+export function sweepLockPath(): string {
+	return join(stateDir("work"), "sweep.lock");
+}
+
+/** What a sweep asks of whoever runs it. */
+export interface SweepAsks {
+	/** The trees held for good, and those held only until spent. */
+	claimed(): { held: string[]; untilSpent: string[] };
+	/** Told the trees a sweep took, when it took any. */
+	swept(paths: readonly string[]): void;
+	/** How long the machine rests after any sweep ends, if at all. */
+	restMs?: number;
+}
+
+/** One sweep, logged, which never throws. */
+export async function sweepAndLog(asks: SweepAsks): Promise<void> {
 	const started = Date.now();
 	let line: Record<string, unknown>;
 	let taken: string[] = [];
@@ -129,20 +171,12 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 		// counted as in use, one sweep so took 154 trees, among them the
 		// folder a hosted conversation worked in; on 19 November 280 claimed
 		// trees whose sessions had ended held 5.6 GiB.
-		// Asked only by a sweep that runs, as the sweep says why, and
-		// waited on, so a quest answers from its tree as it stands now.
-		const claimed = async () => {
-			const claims: TreeClaims = { paths: [], untilSpent: [], answering: [] };
-			pi.events.emit(WORK_TREE_CLAIMS, claims);
-			await Promise.all(claims.answering ?? []);
-			return { held: claims.paths, untilSpent: claims.untilSpent ?? [] };
-		};
 		const outcome = await sweepEndedTrees({
 			exec: unattendedExec(),
 			memory: createTreeMemory(treeRecordDir()),
-			claims: claimed,
-			lockPath: join(dir, "sweep.lock"),
-			restMs: SWEEP_REST_MS,
+			claims: () => asks.claimed(),
+			lockPath: sweepLockPath(),
+			...(asks.restMs === undefined ? {} : { restMs: asks.restMs }),
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
 			...useSigns(),
@@ -158,12 +192,7 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 		line = { failed: error instanceof Error ? error.message : String(error) };
 	}
 	logSweep({ ms: Date.now() - started, ...line }, started);
-	// Whoever listed a tree it took stops listing a folder that is gone.
-	// pi's bus reports a listener's error itself, never to the emitter.
-	if (taken.length > 0) {
-		const swept: SweptTrees = { paths: taken };
-		pi.events.emit(WORK_TREES_SWEPT, swept);
-	}
+	if (taken.length > 0) asks.swept(taken);
 }
 
 /**

@@ -87,6 +87,20 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 }
 
 /**
+ * Every tree a live quest lists, in any realm, read from the quests on
+ * disk: what a sweep in a process of its own holds until spent. Outside
+ * a host each store is signed as it stands on every ask.
+ */
+export function liveQuestTrees(questsRoot: string): string[] {
+	const paths: string[] = [];
+	claimFrom(
+		storesOf(questsRoot).map((store) => discoverQuests(store)),
+		paths,
+	);
+	return paths;
+}
+
+/**
  * Push every tree a live quest in `walks` lists onto `into`, once, so
  * the fresh answer adds only what the last walk didn't hold.
  */
@@ -109,11 +123,24 @@ function claimFrom(walks: readonly DiscoveryResult[], into: string[]): void {
  */
 export function forgetSweptTrees(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREES_SWEPT, (data: unknown) => {
-		const taken = new Set((data as SweptTrees).paths);
-		forgetTaken(questsRoot, taken).catch((error: unknown) => {
-			sayForgetFailed("any quest", error);
-		});
+		forgetTrees(questsRoot, (data as SweptTrees).paths).catch(
+			(error: unknown) => {
+				sayForgetFailed("any quest", error);
+			},
+		);
 	});
+}
+
+/**
+ * Drop each tree in `paths` from every live quest that lists it, as
+ * {@link forgetSweptTrees} does for a host's sweep, for a sweep in a
+ * process of its own that waits on it before it ends.
+ */
+export function forgetTrees(
+	questsRoot: string,
+	paths: readonly string[],
+): Promise<void> {
+	return forgetTaken(questsRoot, new Set(paths));
 }
 
 /**
