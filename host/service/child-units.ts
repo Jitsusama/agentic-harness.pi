@@ -91,17 +91,41 @@ export function slotOf(folder: string, key: string, name: string): Slot {
 /**
  * Write what the child in `slot` resumes, before its unit starts:
  * `woken` when a park's wake asked for it, so the child keeps the wake
- * rather than resting parked again. Written aside and renamed into
- * place, so a host killed mid-write leaves the last whole file, which
- * names the id the next host replaces.
+ * rather than resting parked again; `was` when its child became
+ * `session` from another, which the next host replaces in the roster
+ * if this one ended first. Written aside and renamed into place, so a
+ * host killed mid-write leaves the last whole file, which names the id
+ * the next host replaces.
  */
 export async function writeSlot(
 	slot: Slot,
 	session: RosterEntry | undefined,
 	woken = false,
+	was?: string,
 ): Promise<void> {
-	const held = session ? { session, ...(woken ? { woken } : {}) } : {};
+	const held = session
+		? {
+				session,
+				...(woken ? { woken } : {}),
+				...(was !== undefined ? { was } : {}),
+			}
+		: {};
 	await writeHeld(slot, held);
+}
+
+/**
+ * The conversation `slot`'s file says its child became what it names
+ * from, or undefined when it says none or can't be read.
+ */
+export async function slotWas(slot: Slot): Promise<string | undefined> {
+	try {
+		const held: unknown = JSON.parse(await readFile(slot.file, "utf8"));
+		const was = isRecord(held) ? held.was : undefined;
+		return typeof was === "string" && isSessionId(was) ? was : undefined;
+	} catch {
+		// Gone or half written: nothing says what it became from.
+		return undefined;
+	}
 }
 
 /**
