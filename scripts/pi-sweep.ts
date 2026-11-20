@@ -4,9 +4,11 @@
  * thread, whose git calls and folder listings held a host's thread for up
  * to 262 s on 19 November, freezing every conversation in it.
  *
- * It stamps that it is starting before anything else, and while that
- * stamp is under two hours old the hosts' own sweeps stand down, so a
- * timer that stops hands sweeping back to them by itself. It takes its
+ * It stamps that it is sweeping before anything else, and again as it
+ * ends, however it ends, since its timer counts the hour to the next run
+ * from there; while that stamp is under two hours old the hosts' own
+ * sweeps stand down, so a timer that stops hands sweeping back to them
+ * by itself. It takes its
  * turn at the same lock as every other sweep, but never rests after one,
  * as its timer already spaces its runs. A quest's trees are read from
  * the quests on disk, held until spent as a host holds them, and a tree
@@ -31,8 +33,12 @@ import {
 import { markSweptOutside } from "../lib/core/work/sweep-rest.ts";
 
 markSweptOutside(sweepLockPath(), Date.now());
-const questsRoot = await questsRootNow();
-await sweepAndLog({
-	claimed: () => ({ held: [], untilSpent: liveQuestTrees(questsRoot) }),
-	swept: (paths) => forgetTrees(questsRoot, paths),
-});
+try {
+	const questsRoot = await questsRootNow();
+	await sweepAndLog({
+		claimed: () => ({ held: [], untilSpent: liveQuestTrees(questsRoot) }),
+		swept: (paths) => forgetTrees(questsRoot, paths),
+	});
+} finally {
+	markSweptOutside(sweepLockPath(), Date.now());
+}

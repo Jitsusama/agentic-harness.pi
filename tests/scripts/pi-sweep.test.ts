@@ -4,7 +4,13 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -51,6 +57,14 @@ it("sweeps once outside any host, standing the hosts' sweeps down and logging th
 	expect(lines, "one line for its one sweep").toHaveLength(1);
 	expect(lines[0], "a sweep that ran, rather than failed or rested").toEqual(
 		expect.objectContaining({ taken: [], refused: [] }),
+	);
+	// The stamp is dated in whole milliseconds and the log by the file
+	// system, so a stamp in the log's own millisecond may read just under it.
+	expect(
+		statSync(join(work, "sweep.lock.outside")).mtimeMs,
+		"the stamp dated again once the sweep ended, not only as it started",
+	).toBeGreaterThanOrEqual(
+		Math.floor(statSync(join(work, "sweep.log")).mtimeMs),
 	);
 	expect(
 		existsSync(join(work, "sweep.lock")),

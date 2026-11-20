@@ -53,7 +53,7 @@ function outsideStamp(lockPath: string): string {
 
 /**
  * Why a host's own sweep should stand down: a sweep outside every host
- * started within {@link OUTSIDE_SWEEP_HOLDS_MS} of `now`. A host runs
+ * started or ended within {@link OUTSIDE_SWEEP_HOLDS_MS} of `now`. A host runs
  * every conversation on one thread, and its sweeps' git calls and folder
  * listings held that thread for up to 262 s on 19 November, freezing
  * every conversation in it; a sweep in a process of its own holds none.
@@ -72,12 +72,12 @@ export function sweptOutsideSince(
 	const ago = now - stamped;
 	// A stamp from the future, as a clock set back leaves, holds nobody.
 	return ago >= 0 && ago < OUTSIDE_SWEEP_HOLDS_MS
-		? `a sweep outside the hosts started ${Math.round(ago / 1000)} s ago`
+		? `a sweep outside the hosts ran ${Math.round(ago / 1000)} s ago`
 		: undefined;
 }
 
 /**
- * Stamp that a sweep outside every host is starting, for
+ * Stamp that a sweep outside every host is starting or has ended, for
  * {@link sweptOutsideSince}, dated `at` by the sweep's own clock.
  */
 export function markSweptOutside(lockPath: string, at: number): void {
