@@ -593,10 +593,13 @@ is `~/.local/share/pi/agentic-harness.pi/quest-workflow/quests/`
 takes `spawnHost` (see Spawn into a host by default),
 `startHost` (see Start into a host) and `budgetWhenCapped`: the
 budget a session drawing on none moves to when the person's own key
-is refused for its cap. The move lasts an hour, then the session
-draws on its own key again, and moves back if the cap still refuses.
-It is written into the log's `budget` entry with a `because`, and
-said once in the session. Unset, a cap refusal ends the turn.
+is refused for its cap, a budget's name (letters, digits, dots,
+dashes and underscores, at most 64). The move lasts an hour by the
+wall clock, then the session draws on its own key again, and moves
+back if the cap still refuses. It is written into the log's `budget`
+entry with a `because`, and said once in the session. Unset, a cap
+refusal ends the turn; a config that can't be read ends it too, with
+a line in the journal saying why.
 
 ```json
 { "sections": { "quest-workflow": { "spawnHost": "background", "startHost": "attended", "budgetWhenCapped": "worldtree" } } }

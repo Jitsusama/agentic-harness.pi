@@ -30,7 +30,9 @@ allowed.
   asks quest-workflow's budget keeper, over the bus, to move the
   session onto the budget `budgetWhenCapped` names, and tries at once
   once one is laid. With none named, or the session already on a
-  budget, the turn ends as before.
+  budget, the turn ends as before. Refused for the cap again before a
+  turn ends well, it says the move didn't help and asks for none,
+  so a budget the cap also refuses never loops.
 - **When.** Once the run has settled with no try of pi's left: 30
   seconds after the first failure, doubling to 4.5 minutes, then every
   4.5 minutes for as long as the call fails. That is just inside the

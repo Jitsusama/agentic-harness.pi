@@ -11,6 +11,7 @@
  */
 
 import { join } from "node:path";
+import { isBudgetName } from "../../budget/provider.ts";
 
 /** An extension's parser for its own config section. */
 export type SectionParse<T> = (
@@ -136,9 +137,15 @@ export const parseQuestWorkflowConfig: SectionParse<QuestWorkflowConfig> = (
 	const whenCapped = record.budgetWhenCapped;
 	if (
 		whenCapped !== undefined &&
-		(typeof whenCapped !== "string" || whenCapped.trim() === "")
+		(typeof whenCapped !== "string" || !isBudgetName(whenCapped.trim()))
 	) {
-		return { ok: false, error: "budgetWhenCapped must be a budget's name" };
+		// A name a session can't say it draws on would be laid on every
+		// refusal, since each would read as the session drawing on none.
+		return {
+			ok: false,
+			error:
+				"budgetWhenCapped must be a budget's name: letters, digits, dots, dashes and underscores, at most 64",
+		};
 	}
 	const parsed: QuestWorkflowConfig = {};
 	if (questsRoot !== undefined) parsed.questsRoot = questsRoot;

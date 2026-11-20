@@ -286,6 +286,31 @@ describe("a call refused because the person's own key is over its cap", () => {
 		]);
 	});
 
+	it("asks no second move when the budget it moved to is refused for the cap too, until a turn ends well", async () => {
+		const held = session();
+		let asked = 0;
+		const pi = loaded(held, {
+			capped: async () => {
+				asked++;
+				return "worldtree";
+			},
+		});
+		await pi.started();
+		await pi.ran(reply("error", CAPPED));
+		await passes(0);
+		await pi.ran(reply("error", CAPPED));
+		await passes(HOUR_MS);
+
+		expect(asked, "it asked to move again").toBe(1);
+		expect(held.tries).toHaveLength(1);
+		expect(held.notices.at(-1)?.text).toContain("refused for the cap again");
+
+		await pi.ran(reply("stop"));
+		await pi.ran(reply("error", CAPPED));
+		await passes(0);
+		expect(asked, "a turn that ended well didn't let it move again").toBe(2);
+	});
+
 	it("ends the turn as any usage limit does when nothing keeps a budget", async () => {
 		const held = session();
 		const pi = loaded(held);

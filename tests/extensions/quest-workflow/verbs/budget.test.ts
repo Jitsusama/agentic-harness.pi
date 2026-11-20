@@ -712,8 +712,14 @@ describe("the session's budget", () => {
 	describe("when the person's own key is over its cap", () => {
 		const REFUSED = "403 Personal token usage is over your weekly cap";
 
-		/** A keeper on a quest that names no budget, with `named` for a capped key. */
-		async function capped(named?: string, quest?: string) {
+		/**
+		 * A keeper on a quest that names `quest` or no budget, with `named`
+		 * for a capped key: a name, or what the setting reads as.
+		 */
+		async function capped(
+			named?: string | { name?: string; unreadable?: string },
+			quest?: string,
+		) {
 			const made = await quests();
 			if (quest) await made.run({ action: "budget", id: made.top, ref: quest });
 			const events = bus();
@@ -725,7 +731,13 @@ describe("the session's budget", () => {
 				{
 					journal: (line) => lines.push(line),
 					now: () => clock.at,
-					...(named ? { whenCapped: async () => named } : {}),
+					wallNow: () => clock.at,
+					...(named === undefined
+						? {}
+						: {
+								whenCapped: async () =>
+									typeof named === "string" ? { name: named } : named,
+							}),
 				},
 			);
 			provide(events, "plane", async (name) =>
@@ -741,6 +753,8 @@ describe("the session's budget", () => {
 				clock,
 				lines,
 				seen,
+				name: (ref: string) =>
+					made.run({ action: "budget", id: made.top, ref }),
 				ask: () => askBudgetWhenCapped(events, REFUSED),
 			};
 		}
@@ -778,10 +792,44 @@ describe("the session's budget", () => {
 		});
 
 		it("moves it nowhere when no budget is named for it", async () => {
-			const { ask } = await capped();
+			for (const setting of [undefined, {}]) {
+				const { ask } = await capped(setting);
+
+				await expect(ask()).resolves.toBe(null);
+				expect(process.env[KEY]).toBe("personal");
+			}
+		});
+
+		it("moves it nowhere, saying why in the journal, when the setting can't be read", async () => {
+			const { ask, lines } = await capped({ unreadable: "bad JSON" });
 
 			await expect(ask()).resolves.toBe(null);
 			expect(process.env[KEY]).toBe("personal");
+			expect(lines).toEqual([
+				expect.stringContaining('can\'t be read: "bad JSON"'),
+			]);
+		});
+
+		it("keeps it there through a quest whose budget can't be drawn on", async () => {
+			const { ask, keeper, seen, name } = await capped("worldtree");
+			await ask();
+
+			await name("nowhere");
+			await keeper.keep(seen.ctx, { again: true });
+
+			expect(process.env[KEY], "the miss lifted the capped key's budget").toBe(
+				"worldtree",
+			);
+		});
+
+		it("tells the session once, however often the cap moves it", async () => {
+			const { ask, keeper, clock, seen } = await capped("worldtree");
+			await ask();
+			clock.at += CAPPED_HOLD_MS;
+			await keeper.keep(seen.ctx);
+
+			await expect(ask()).resolves.toBe("worldtree");
+			expect(seen.notices).toHaveLength(1);
 		});
 
 		it("moves it nowhere when its quest's budget is drawn on", async () => {

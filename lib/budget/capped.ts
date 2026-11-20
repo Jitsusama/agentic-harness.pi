@@ -26,6 +26,8 @@ export interface BudgetCappedAsk {
 	 * null once it finds it has none to lay.
 	 */
 	readonly answer: (drawn: Promise<string | null>) => void;
+	/** Whether a keeper has answered already, so no other lays a budget. */
+	readonly answered: () => boolean;
 }
 
 /**
@@ -54,6 +56,7 @@ export function askBudgetWhenCapped(
 		answer: (promise) => {
 			drawn ??= promise;
 		},
+		answered: () => drawn !== undefined,
 	};
 	bus.emit(BUDGET_CAPPED, ask);
 	return (drawn ?? Promise.resolve(null)).catch(() => null);
@@ -61,14 +64,15 @@ export function askBudgetWhenCapped(
 
 /**
  * Answer {@link BUDGET_CAPPED} with `take`, which lays a budget for a
- * capped key and says which, or null. Returns the unsubscribe.
+ * capped key and says which, or null, unless another keeper answered
+ * first. Returns the unsubscribe.
  */
 export function onBudgetCapped(
 	bus: Pick<EventBus, "on">,
 	take: (because: string) => Promise<string | null>,
 ): () => void {
 	return bus.on(BUDGET_CAPPED, (data) => {
-		if (!isCappedAsk(data)) return;
+		if (!isCappedAsk(data) || data.answered()) return;
 		data.answer(take(data.because));
 	});
 }
@@ -77,6 +81,7 @@ function isCappedAsk(data: unknown): data is BudgetCappedAsk {
 	return (
 		isRecord(data) &&
 		typeof data.because === "string" &&
-		typeof data.answer === "function"
+		typeof data.answer === "function" &&
+		typeof data.answered === "function"
 	);
 }

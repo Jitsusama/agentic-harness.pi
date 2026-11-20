@@ -77,6 +77,9 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 	// Bumped whenever the wait is stopped, so a budget laid for a capped
 	// key after the person or another run took over tries nothing.
 	let movingOn = 0;
+	// Whether the session moved off a capped key since a turn last ended
+	// well, so a second refusal for the cap doesn't ask to move again.
+	let movedOffCap = false;
 
 	// The mark goes in the session's branch, so the load after a reload or
 	// a restart knows what this one was waiting on (record.ts).
@@ -138,10 +141,21 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 	 */
 	const moveOffCap = (ctx: ExtensionContext, reply: AssistantMessage) => {
 		const line = failureLine(reply);
+		// Refused for the cap again before any turn ended well: the move
+		// didn't help, so it isn't asked for again until one does, whatever
+		// the keeper would answer.
+		if (movedOffCap) {
+			ctx.ui.notify(
+				`The model call was refused for the cap again after moving to a budget: ${line}. Type to try again.`,
+				"warning",
+			);
+			return;
+		}
 		const asked = movingOn;
 		askBudgetWhenCapped(pi.events, line).then(
 			whileCurrent((drawn: string | null) => {
 				if (drawn === null || asked !== movingOn) return;
+				movedOffCap = true;
 				sayTry(ctx, cappedText(drawn, line));
 			}),
 		);
@@ -243,6 +257,7 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 			}
 			if (!reply || !failed) {
 				countAfresh();
+				if (reply && !reply.errorMessage) movedOffCap = false;
 				return;
 			}
 			// A failure the provider billed may fail so every try, at full

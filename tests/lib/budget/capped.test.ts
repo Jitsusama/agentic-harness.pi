@@ -62,12 +62,20 @@ describe("asking for a budget when capped", () => {
 
 	it("is answered by the first keeper alone", async () => {
 		const pi = fakePi();
-		onBudgetCapped(pi.events, async () => "worldtree");
-		onBudgetCapped(pi.events, async () => "delta");
+		const taken: string[] = [];
+		onBudgetCapped(pi.events, async () => {
+			taken.push("worldtree");
+			return "worldtree";
+		});
+		onBudgetCapped(pi.events, async () => {
+			taken.push("delta");
+			return "delta";
+		});
 
 		await expect(askBudgetWhenCapped(pi.events, "capped")).resolves.toBe(
 			"worldtree",
 		);
+		expect(taken, "a second keeper laid its budget too").toEqual(["worldtree"]);
 	});
 
 	it("stops hearing once unsubscribed", async () => {

@@ -115,10 +115,17 @@ export interface BudgetKeeperOptions {
 	/** The clock a missed budget's wait is read on; the machine's unless a test says. */
 	readonly now?: () => number;
 	/**
-	 * The budget named for a session whose own key the cap refuses, read
-	 * as it refuses; none moves such a session nowhere.
+	 * The clock a capped key's hour is read on, the machine's wall clock
+	 * unless a test says, since a cap lifts by the calendar and a laptop
+	 * asleep stops the monotonic one.
 	 */
-	readonly whenCapped?: () => Promise<string | undefined>;
+	readonly wallNow?: () => number;
+	/**
+	 * The budget named for a session whose own key the cap refuses, read
+	 * as it refuses, or why it can't be read; none moves such a session
+	 * nowhere.
+	 */
+	readonly whenCapped?: () => Promise<{ name?: string; unreadable?: string }>;
 }
 
 /**
@@ -160,6 +167,7 @@ export function keepQuestBudget(
 	const sink = options.journal ?? warnInJournal;
 	// A monotonic clock, so a wall clock stepped back holds no retry off.
 	const now = options.now ?? (() => performance.now());
+	const wallNow = options.wallNow ?? Date.now;
 	const journal = (line: string): void => {
 		try {
 			sink(line);
@@ -201,7 +209,7 @@ export function keepQuestBudget(
 	/** Lay the capped key's budget again, while its hour holds. */
 	const layCapped = (ctx: ExtensionContext): boolean => {
 		if (!capped) return false;
-		if (now() - capped.at >= CAPPED_HOLD_MS) {
+		if (wallNow() - capped.at >= CAPPED_HOLD_MS) {
 			capped = undefined;
 			return false;
 		}
@@ -217,10 +225,12 @@ export function keepQuestBudget(
 		const due = missedAt !== undefined && now() - missedAt >= missedWait;
 		// Its hour out, a capped key is drawn on again, so settle afresh.
 		const cappedOut =
-			capped !== undefined && now() - capped.at >= CAPPED_HOLD_MS;
+			capped !== undefined && wallNow() - capped.at >= CAPPED_HOLD_MS;
 		if (cappedOut) capped = undefined;
 		if (name === wanted && !again && !due && !cappedOut) return pending;
-		const retrying = name === wanted && due && !again;
+		// Due or not, a name missed before is a retry, so a capped key's hour
+		// running out doesn't start its backoff afresh.
+		const retrying = name === wanted && !again && missedAt !== undefined;
 		wanted = name;
 		missedAt = undefined;
 		const ask = ++asking;
@@ -296,7 +306,13 @@ export function keepQuestBudget(
 		const ctx = last;
 		if (!ctx || !options.whenCapped) return null;
 		if (budgetDrawnOn(sessionEnv(ctx).snapshot()) !== null) return null;
-		const name = await options.whenCapped();
+		const { name, unreadable } = await options.whenCapped();
+		if (unreadable) {
+			journal(
+				`${questOf()} can't move off the person's capped key: the setting naming a budget for it can't be read: ${quoted(unreadable)}`,
+			);
+			return null;
+		}
 		if (!name || last !== ctx) return null;
 		const drawing = await host.draw(name);
 		if (last !== ctx) return null;
@@ -309,7 +325,7 @@ export function keepQuestBudget(
 		}
 		// A budget laid while the draw was on its way stands.
 		if (budgetDrawnOn(sessionEnv(ctx).snapshot()) !== null) return null;
-		capped = { name, label: drawing.label, env: drawing.env, at: now() };
+		capped = { name, label: drawing.label, env: drawing.env, at: wallNow() };
 		layCapped(ctx);
 		recordDrawn(pi, ctx, drawing, undefined, why);
 		journal(`${questOf()} moves to budget ${name}, since ${why}`);

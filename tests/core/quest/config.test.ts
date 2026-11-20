@@ -88,11 +88,20 @@ describe("parseQuestWorkflowConfig", () => {
 		).toEqual({ ok: true, value: { budgetWhenCapped: "worldtree" } });
 	});
 
-	it("rejects a budget for a capped key that names none", () => {
-		for (const budgetWhenCapped of ["", "  ", 7]) {
+	it("rejects a budget for a capped key that names none, or one no session could say it draws on", () => {
+		for (const budgetWhenCapped of [
+			"",
+			"  ",
+			7,
+			"world tree",
+			"-x",
+			"a".repeat(65),
+		]) {
 			expect(parseQuestWorkflowConfig({ budgetWhenCapped })).toEqual({
 				ok: false,
-				error: "budgetWhenCapped must be a budget's name",
+				error: expect.stringContaining(
+					"budgetWhenCapped must be a budget's name",
+				),
 			});
 		}
 	});
