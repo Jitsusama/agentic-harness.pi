@@ -821,7 +821,10 @@ describe("a quest no folder or parent names a budget for", () => {
 				"Swept 6 live quests drawing on no budget: 0 named, 0 judged personal, 0 unsure, 0 unjudged, 6 not reached.",
 			);
 			expect(handed, "judged until the stop").toHaveLength(1);
-			expect(lookups, "no quest started after the stop").toBe(4);
+			expect(
+				lookups,
+				"a classifier looked up only for the judgement a provider classified",
+			).toBe(1);
 		});
 
 		it("leaves a quest's updated date as it was when it names its budget", async () => {
@@ -1371,6 +1374,41 @@ describe("the budget of a session on no quest", () => {
 		expect(process.env[KEY]).toBe("delta");
 		expect(judged).toHaveLength(1);
 		expect(notices).toHaveLength(1);
+	});
+
+	it("keeps a judgement still on its way when a provider registers, rather than one asked over it", async () => {
+		// Unsure itself, so only the slow provider's first answer is sure.
+		const { keeper, ctx, events } = loose(undefined, "delta", 0.5);
+		let calls = 0;
+		let release = (): void => undefined;
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		registerBudgetProvider(events, {
+			id: "slow",
+			precedence: 1,
+			resolve: async () => ({ kind: "unknown" }),
+			budgetForWork: async () => {
+				calls++;
+				if (calls > 1) return { name: "delta", why: "again", sure: false };
+				await held;
+				return { name: "delta", why: "its prompt", sure: true };
+			},
+		});
+
+		const first = keeper.keep(ctx, { prompt: "Speed up walgit" });
+		await vi.waitFor(() => expect(calls, "the first judgement asked").toBe(1));
+		registerBudgetProvider(events, {
+			id: "late",
+			precedence: 2,
+			resolve: async () => ({ kind: "unknown" }),
+		});
+		release();
+		await first;
+		await keeper.keep(ctx, { prompt: "and another thing" });
+
+		expect(calls, "judged once").toBe(1);
+		expect(process.env[KEY]).toBe("delta");
 	});
 
 	it("judges its first prompt again when a provider registers late after it named nothing", async () => {

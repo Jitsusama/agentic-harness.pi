@@ -55,7 +55,11 @@ import {
 	hostBudgets,
 	type WorkBudget,
 } from "../../lib/budget/host.ts";
-import type { Classify, WorkToBudget } from "../../lib/budget/provider.ts";
+import {
+	type Classify,
+	isBudgetName,
+	type WorkToBudget,
+} from "../../lib/budget/provider.ts";
 import {
 	BUDGET_ENTRY,
 	BUDGET_OPTED_OUT_VARIABLE,
@@ -70,7 +74,10 @@ import {
 	type UnresolvedBudget,
 } from "../../lib/budget/record.ts";
 import { findClassifier } from "../../lib/classifier/jev.ts";
-import { sessionEnv } from "../../lib/core/session/index.ts";
+import {
+	type SessionContext,
+	sessionEnv,
+} from "../../lib/core/session/index.ts";
 import {
 	budgetInRecord,
 	NO_BUDGET,
@@ -174,26 +181,59 @@ export function budgetOfWork(
 /**
  * The session's classifier, found through its model registry, or one
  * that fails saying why there is none, so a provider that needs it is
- * passed over rather than every provider going unasked.
+ * passed over rather than every provider going unasked. `choice` is the
+ * session's {@link BUDGET_CLASSIFIER_ENV}, read from its own environment,
+ * which in a hosted conversation is not the host's.
+ *
+ * Looked up only when a provider first classifies, so the lookup is held
+ * to that provider's deadline and stop, and costs nothing where no
+ * provider judges: a registry slow to answer could otherwise hold a
+ * first prompt past every bound.
  */
-export async function classifierOf(
+export function classifierOf(
 	ctx: Pick<ExtensionContext, "modelRegistry">,
-): Promise<Classify> {
+	choice: string | undefined,
+): Classify {
 	const failing =
 		(reason: string): Classify =>
 		() =>
 			Promise.reject(new Error(reason));
+	const lookUp = async (): Promise<Classify> => {
+		try {
+			const found = await findClassifier(ctx, choice, BUDGET_CLASSIFIER_ENV);
+			return found.ok ? found.classify : failing(found.reason);
+		} catch (error) {
+			// A registry that throws is no classifier, said as one: a create
+			// or keep that awaited it would otherwise fail over a judgement.
+			return failing(error instanceof Error ? error.message : String(error));
+		}
+	};
+	let found: Promise<Classify> | undefined;
+	return (context, signal) => {
+		found ??= lookUp();
+		return found.then((classify) => classify(context, signal));
+	};
+}
+
+/** Whether a context says which conversation it is. */
+function isSessionContext(ctx: unknown): ctx is SessionContext {
+	return (
+		isRecord(ctx) &&
+		isRecord(ctx.sessionManager) &&
+		typeof ctx.sessionManager.getSessionId === "function"
+	);
+}
+
+/** The classifier choice a session's own environment makes, if any. */
+function classifierChoiceOf(ctx: unknown): string | undefined {
 	try {
-		const found = await findClassifier(
-			ctx,
-			process.env[BUDGET_CLASSIFIER_ENV],
+		return sessionEnv(isSessionContext(ctx) ? ctx : undefined).get(
 			BUDGET_CLASSIFIER_ENV,
 		);
-		return found.ok ? found.classify : failing(found.reason);
-	} catch (error) {
-		// A registry that throws is no classifier, said as one: a create
-		// or keep that awaited it would otherwise fail over a judgement.
-		return failing(error instanceof Error ? error.message : String(error));
+	} catch {
+		// A hosted call that names no session has no environment of its
+		// own to read; the host's is the nearest word on the choice.
+		return process.env[BUDGET_CLASSIFIER_ENV];
 	}
 }
 
@@ -249,7 +289,11 @@ export function keepQuestBudget(
 	);
 	folderBudgets.set(state, (folder) => host.budgetFor(folder));
 	workBudgets.set(state, async (work, ctx, signal) =>
-		host.budgetForWork(work, await classifierOf(ctx), signal),
+		host.budgetForWork(
+			work,
+			classifierOf(ctx, classifierChoiceOf(ctx)),
+			signal,
+		),
 	);
 	/** The name last drawn on or asked for, null for none. */
 	let wanted: string | null | undefined;
@@ -339,7 +383,9 @@ export function keepQuestBudget(
 		if (promptAsked === undefined && wanted === undefined) {
 			// One it missed names what it wanted, not what calls fell to.
 			const last = lastRecordOn(branchOf(ctx));
-			const recorded = last?.unresolved?.budget ?? last?.name;
+			const missed = last?.unresolved?.budget;
+			const recorded =
+				missed !== undefined && isBudgetName(missed) ? missed : last?.name;
 			if (typeof recorded === "string" && firstPromptOf(ctx) !== undefined) {
 				promptNamed = recorded;
 				promptAsked = Promise.resolve(recorded);
@@ -368,7 +414,7 @@ export function keepQuestBudget(
 		const run = ctx.signal;
 		const judged = await host.budgetForWork(
 			{ title: folder, folder, prompt: prompt.slice(0, LONGEST_PROMPT) },
-			await classifierOf(ctx),
+			classifierOf(ctx, classifierChoiceOf(ctx)),
 			// Pressing Escape stops the wait before the first model call.
 			run,
 		);
@@ -471,9 +517,11 @@ export function keepQuestBudget(
 			return;
 		}
 		if (recordDrawn(pi, ctx, undefined, unresolved)) {
-			const quest = state.questId ? `quest ${state.questId}` : "the quest";
+			const namer = state.questId
+				? `quest ${state.questId}`
+				: "this session's folder or first prompt";
 			journal(
-				`${quest} names budget ${name}, which can't be drawn on: ${unresolved.missing}; model calls use ${fallback}`,
+				`${namer} names budget ${name}, which can't be drawn on: ${unresolved.missing}; model calls use ${fallback}`,
 			);
 		}
 		if (told.has(name)) return;
@@ -486,9 +534,10 @@ export function keepQuestBudget(
 	host.onRegistered(() => {
 		if (!state.questId) {
 			folderAsked = undefined;
-			// A sure judgement stands, rather than a paid one asked again
-			// that a failure or a stop would take it off.
-			if (typeof promptNamed !== "string") promptAsked = undefined;
+			// Only a judgement that answered none is asked again. A sure one
+			// stands, and so does one still on its way, rather than a paid one
+			// asked over it that a failure or a stop would take it off.
+			if (promptNamed === null) promptAsked = undefined;
 		}
 		if (!last || (typeof wanted !== "string" && state.questId)) return;
 		keep(last, true).catch(() => {
@@ -695,7 +744,7 @@ export function budgetEntryView(
 	return new Text(
 		theme.fg(
 			"warning",
-			`Budget ${unresolved.budget} isn't drawn on (${unresolved.missing}); model calls use ${fallbackOf(record.name)}. \`quest budget\` names another.`,
+			`Budget ${unresolved.budget} isn't drawn on (${unresolved.missing}); model calls use ${fallbackOf(record.name)}. On a quest, \`quest budget\` names another.`,
 		),
 		0,
 		0,
