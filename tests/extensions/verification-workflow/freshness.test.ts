@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -162,6 +169,26 @@ function serve(asked: string[], answer: (path: string) => boolean): void {
 
 let root: string;
 let repo: string | undefined;
+let path: string | undefined;
+
+/** How long the slow git takes to answer, in seconds. */
+const GIT_TAKES_S = 0.5;
+/** How often a test's timer ticks while git answers. */
+const TICK_MS = 20;
+
+/** Put a git first on PATH that waits `seconds` before running the real one. */
+function slowGit(seconds: number): void {
+	const real = execFileSync("sh", ["-c", "command -v git"], {
+		encoding: "utf8",
+	}).trim();
+	const bin = join(root, "bin");
+	mkdirSync(bin, { recursive: true });
+	const git = join(bin, "git");
+	writeFileSync(git, `#!/bin/sh\nsleep ${seconds}\nexec ${real} "$@"\n`);
+	chmodSync(git, 0o755);
+	path = process.env.PATH;
+	process.env.PATH = `${bin}:${path ?? ""}`;
+}
 
 /** A project directory with a package.json, outside any repository. */
 function project(name: string): string {
@@ -176,6 +203,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	if (path !== undefined) process.env.PATH = path;
+	path = undefined;
 	clearLspBackends();
 	provideVerificationCheck(undefined);
 	disposeRepo(repo);
@@ -359,6 +388,30 @@ describe("the verify tool", () => {
 		writeFileSync(join(repo, "formatted.ts"), "export {};\n");
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 	});
+
+	it("leaves the thread free while git answers whether its tree changed", async () => {
+		repo = await freshRepo("verify-slow");
+		writeFileSync(join(repo, "package.json"), '{"name":"fixture"}\n');
+		const h = await harness();
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+		slowGit(GIT_TAKES_S);
+
+		let ticks = 0;
+		const ticking = setInterval(() => {
+			ticks += 1;
+		}, TICK_MS);
+		try {
+			const held = await currentVerificationFailure({ dir: repo });
+			expect(held?.problems[0]).toContain("exit 1 failed in");
+		} finally {
+			clearInterval(ticking);
+		}
+
+		// Each git takes half a second, so a free thread ticks many times;
+		// one held by git ticks at most once, after it lets go.
+		expect(ticks, "timers ran while git answered").toBeGreaterThan(5);
+	}, 20_000);
 
 	it("outside git, holds back a commit on a failed run until an edit there", async () => {
 		const h = await harness();
