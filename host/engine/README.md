@@ -233,13 +233,17 @@ load, the folder loads untrusted and the journal says why, and a
 reload trusts it again once its code is pinned again. Every load
 begins with pi reloading the settings, so the check runs there, before
 a reload's resources too. A .pi too large to check (past 10,000
-entries, 64 MiB or folders 24 deep) never loads its code; pins that can't be read pin
-nothing; and a folder pi doesn't ask trust for, or that the person
-said not to trust, is never asked about.
+entries, 64 MiB or folders 24 deep), or holding a pipe or a device,
+never loads its code; pins that can't be read pin nothing; and a
+folder pi doesn't ask trust for, or that the person said not to trust,
+is never asked about, though a conversation still trusted from before
+the no is checked at each load.
 
 What the pins don't cover: code outside .pi that pinned code imports
 or runs, such as a linter an extension starts from the repository; a
-change between the check and pi's reading of the file; two hosts
+file in .pi an extension already loaded reads again before the next
+load, which the check sees only then; a change between the check and
+pi's reading of the file; two hosts
 writing the pins at once, where the last write wins; the hand-kept
 lists of pi's code entries and code settings, which a new pi may
 outgrow; and a plain pi outside the host, which doesn't check the

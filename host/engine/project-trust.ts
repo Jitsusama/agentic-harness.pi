@@ -135,20 +135,19 @@ export function projectTrust(
 						: `${unpinnedSaying(cwd, standing.code)}, so its own .pi settings and extensions are not loaded.`,
 				);
 			const resolving = !refused && known === undefined && requiring;
+			// The person's no outranks a yes this host remembers, which may be for the folder before
+			// it held code: the code check was skipped for it.
 			const projectTrusted =
 				!refused &&
+				!untrusted &&
 				(resolving ? false : (known ?? store.get(cwd) ?? !requiring));
 			const settingsManager = pi.SettingsManager.create(cwd, agentDir, {
 				projectTrusted,
 			});
-			guardLoads(
-				settingsManager,
-				cwd,
-				agentDir,
-				asking,
-				() =>
-					pi.hasTrustRequiringProjectResources(cwd) && store.get(cwd) !== false,
-			);
+			guardLoads(settingsManager, cwd, agentDir, asking, {
+				requiring: () => pi.hasTrustRequiringProjectResources(cwd),
+				untrusted: () => store.get(cwd) === false,
+			});
 			if (!resolving) return { settingsManager };
 			const defaultProjectTrust = pi.SettingsManager.create(
 				cwd,
@@ -247,14 +246,16 @@ async function allowCode(
  * its code is pinned again, by a yes in another conversation or by
  * changing back, the next load trusts it again, since the drop was the
  * guard's and not the person's: but only while nobody else has set the
- * folder's trust since, and the person hasn't said not to trust it.
+ * folder's trust since, and the person hasn't said not to trust it. A
+ * conversation still trusted after the person said no is checked too,
+ * since the no doesn't take its trust away.
  */
 function guardLoads(
 	settingsManager: SettingsManager,
 	cwd: string,
 	agentDir: string,
 	asking: TrustAsking,
-	checked: () => boolean,
+	folder: { requiring: () => boolean; untrusted: () => boolean },
 ): void {
 	const reload = settingsManager.reload.bind(settingsManager);
 	const setTrusted = settingsManager.setProjectTrusted.bind(settingsManager);
@@ -267,7 +268,7 @@ function guardLoads(
 	};
 	settingsManager.reload = async () => {
 		if (settingsManager.isProjectTrusted() || dropped) {
-			const standing: CodeStanding = checked()
+			const standing: CodeStanding = folder.requiring()
 				? codeStanding(cwd, agentDir)
 				: { kind: "none" };
 			if (standing.kind === "unpinned") {
@@ -282,7 +283,7 @@ function guardLoads(
 				dropped = false;
 				said = undefined;
 				// A folder the person has since said not to trust stays untrusted.
-				if (checked()) setTrusted(true);
+				if (folder.requiring() && !folder.untrusted()) setTrusted(true);
 			}
 		}
 		return reload();

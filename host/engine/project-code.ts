@@ -27,6 +27,7 @@ import { createHash } from "node:crypto";
 import {
 	closeSync,
 	constants,
+	copyFileSync,
 	existsSync,
 	fstatSync,
 	lstatSync,
@@ -34,7 +35,9 @@ import {
 	readdirSync,
 	readFileSync,
 	readlinkSync,
+	readSync,
 	renameSync,
+	rmSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
@@ -241,7 +244,11 @@ function walker(cwd: string): Walker {
 			}
 			const sum = fileDigest(path, MOST_BYTES - bytes);
 			if (sum === undefined) {
+				// A pipe or a device has no contents to pin, yet pi reads whatever comes through it.
 				line("other", place, "");
+				stop(
+					`it holds ${printable(place)}, which is neither a file nor a folder`,
+				);
 				return;
 			}
 			bytes += sum.size;
@@ -303,7 +310,8 @@ function fileDigest(
 
 /**
  * A regular file's contents, its size alone when it is past `room`, or
- * undefined when it isn't a regular file.
+ * undefined when it isn't a regular file. Read no further than `room`,
+ * so a file that grows after its size was seen can't hold the host up.
  */
 function regularFile(path: string, room: number): Buffer | number | undefined {
 	const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
@@ -311,7 +319,17 @@ function regularFile(path: string, room: number): Buffer | number | undefined {
 		const seen = fstatSync(fd);
 		if (!seen.isFile()) return undefined;
 		if (seen.size > room) return seen.size;
-		return readFileSync(fd);
+		const chunks: Buffer[] = [];
+		let total = 0;
+		for (;;) {
+			const chunk = Buffer.alloc(Math.min(MIB, room + 1 - total));
+			// Past the room: what was read says how far.
+			if (chunk.length === 0) return total;
+			const got = readSync(fd, chunk, 0, chunk.length, null);
+			if (got === 0) return Buffer.concat(chunks, total);
+			chunks.push(chunk.subarray(0, got));
+			total += got;
+		}
 	} finally {
 		closeSync(fd);
 	}
@@ -357,7 +375,13 @@ function codeSettings(file: string): CodeSettings | undefined {
 	try {
 		if (!statSync(file, { throwIfNoEntry: false })) return undefined;
 		const read = regularFile(file, MOST_BYTES);
-		if (read === undefined) return undefined;
+		if (read === undefined)
+			return {
+				digest: "not a file",
+				paths: [],
+				unchecked:
+					"its settings aren't a file, so what pi reads there can't be pinned",
+			};
 		if (typeof read === "number")
 			return {
 				digest: "too large",
@@ -410,9 +434,11 @@ function namedPaths(
 	value: unknown,
 	base: string,
 ): { paths: string[]; unchecked?: string } {
-	if (!Array.isArray(value)) return { paths: [] };
+	// pi spreads the setting into a list, so a string names each of its characters.
+	const entries: unknown[] =
+		typeof value === "string" ? [...value] : Array.isArray(value) ? value : [];
 	const paths: string[] = [];
-	for (const entry of value) {
+	for (const entry of entries) {
 		const place = namedPath(entry, base);
 		if (place === undefined) continue;
 		if (typeof place !== "string") return { paths, unchecked: place.unchecked };
@@ -440,7 +466,10 @@ function namedPath(
 		return {
 			unchecked: `its settings name ${said}, a pattern it can't follow`,
 		};
-	const literal = trimmed.split(/[*?[]/, 1)[0] ?? "";
+	// A wildcard may sit inside a name, so the walk starts at the folder above it.
+	const wild = trimmed.search(/[*?[]/);
+	const literal =
+		wild < 0 ? trimmed : trimmed.slice(0, trimmed.lastIndexOf("/", wild) + 1);
 	let local: string;
 	try {
 		local = literal.startsWith("file:")
@@ -470,8 +499,12 @@ export function startPins(
 	now: () => number = Date.now,
 ): void {
 	const file = join(agentDir, PINS_FILE);
-	if (!existsSync(file))
+	if (existsSync(file)) return;
+	try {
 		writePins(file, { since: now(), folders: {}, allowed: [] });
+	} catch {
+		// With no pins to read nothing is pinned, so code asks rather than the build failing.
+	}
 }
 
 /** Whether `cwd`'s code may load as it stands, by the pins in `agentDir`. */
@@ -497,20 +530,27 @@ export function codeStanding(
 /** Pin `code` as `cwd`'s, and as allowed wherever it is found; code too large to check never is. */
 export function pin(cwd: string, agentDir: string, code: ProjectCode): void {
 	if (!code.complete) return;
+	// Pins started before this yes keep the host's first look as it was.
+	startPins(agentDir);
 	const file = join(agentDir, PINS_FILE);
 	const { pins, writable, damaged } = readPins(file);
-	// Damaged pins are kept beside, for whoever looks at why they broke.
-	if (damaged) renameSync(file, `${file}.damaged`);
-	// Not over pins it couldn't read: a yes then holds for the host's life alone.
-	else if (!writable) return;
-	writePins(file, {
-		since: pins.since,
-		folders: { ...pins.folders, [cwd]: code.digest },
-		allowed: [
-			code.digest,
-			...pins.allowed.filter((digest) => digest !== code.digest),
-		].slice(0, MOST_ALLOWED),
-	});
+	try {
+		// Damaged pins are copied beside, for whoever looks at why they broke, and the new
+		// ones renamed over them, so no moment finds the file gone and starts it afresh.
+		if (damaged) copyFileSync(file, `${file}.damaged`);
+		// Not over pins it couldn't read: a yes then holds for the host's life alone.
+		else if (!writable) return;
+		writePins(file, {
+			since: pins.since,
+			folders: { ...pins.folders, [cwd]: code.digest },
+			allowed: [
+				code.digest,
+				...pins.allowed.filter((digest) => digest !== code.digest),
+			].slice(0, MOST_ALLOWED),
+		});
+	} catch {
+		// A full disk or a read-only agent folder: the yes holds for the host's life alone.
+	}
 }
 
 /** What to say of code that may not load, naming a few of its files. */
@@ -566,10 +606,15 @@ function readPins(file: string): ReadPins {
 function writePins(file: string, pins: Pins): void {
 	// Written whole and renamed into place, so a reader never meets half of it.
 	const staged = `${file}.${process.pid}.staged`;
-	writeFileSync(staged, `${JSON.stringify(pins, null, "\t")}\n`, {
-		mode: 0o600,
-	});
-	renameSync(staged, file);
+	try {
+		writeFileSync(staged, `${JSON.stringify(pins, null, "\t")}\n`, {
+			mode: 0o600,
+		});
+		renameSync(staged, file);
+	} catch (error) {
+		rmSync(staged, { force: true });
+		throw error;
+	}
 }
 
 function isPins(
