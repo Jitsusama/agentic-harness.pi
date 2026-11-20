@@ -28,6 +28,7 @@ import {
 	readyQuests,
 	refreshQuests,
 } from "../../../../../lib/internal/quest/discovery/discovery.ts";
+import { takeSeed } from "../../../../../lib/internal/quest/discovery-seed.ts";
 import {
 	atomicWriteFile,
 	withQuestLock,
@@ -91,6 +92,17 @@ vi.mock(
 				return read;
 			},
 		};
+	},
+);
+
+vi.mock(
+	"../../../../../lib/internal/quest/discovery-seed.ts",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("../../../../../lib/internal/quest/discovery-seed.ts")
+			>();
+		return { ...actual, takeSeed: vi.fn(actual.takeSeed) };
 	},
 );
 
@@ -587,6 +599,28 @@ describe("discovery on a host", () => {
 		expect(touching(join(root, ID)), "read on the thread").toEqual([]);
 		await discoverySettled(root);
 		expect(statusNow()).toBe("paused");
+	});
+
+	it("signs again before a wait on the tree ends, for a write it can't place", async () => {
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		const afresh = discoverQuestsAfresh(root);
+		await read;
+		writeSettled(readmePath, readme("paused"));
+		unplacedWrite();
+		openSignings();
+		openSignings = undefined;
+
+		const walk = await afresh;
+		expect(walk.index.quests.get(ID)?.doc.frontMatter.status).toBe("paused");
+	});
+
+	it("parses a fresh memo's first signing from the last process's seed", async () => {
+		vi.mocked(takeSeed).mockClear();
+		await readyQuests(root, [], true);
+		const seeded = vi.mocked(takeSeed).mock.calls.map(([of]) => of);
+		expect(seeded, "seeds taken").toContain(root);
 	});
 
 	it("keeps a signing its own write overtook, and shows both", async () => {

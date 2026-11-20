@@ -10,8 +10,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
-import { readyQuests } from "../../../../lib/internal/quest/discovery/discovery.ts";
+import {
+	clearDiscoveryCache,
+	readyQuests,
+} from "../../../../lib/internal/quest/discovery/discovery.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
+import { installTestHost } from "../../../support/session-host.ts";
 import { createEnvGuard, fakeCtx } from "../_helpers.ts";
 
 vi.mock(
@@ -78,4 +82,59 @@ it("refuses a write resting on other quests when the folders don't answer", asyn
 
 	expect(moved.ok ? "moved" : moved.guidance).toContain("didn't answer");
 	expect(readFileSync(readme, "utf8")).toBe(before);
+});
+
+it("answers a dry run, which writes nothing, when the folders don't answer", async () => {
+	const { state, ctx } = await twoQuests();
+	nextReadUnanswered();
+	const planned = await handle(state, fakePi(), ctx, {
+		action: "reparent",
+		parent: "null",
+		dryRun: true,
+	});
+
+	expect(planned.ok ? "planned" : planned.guidance).not.toContain(
+		"didn't answer",
+	);
+});
+
+it("expands from the last read when the folders don't answer", async () => {
+	const { state, ctx } = await twoQuests();
+	nextReadUnanswered();
+	const expanded = await handle(state, fakePi(), ctx, { action: "expand" });
+
+	expect(expanded.ok ? "expanded" : expanded.guidance).not.toContain(
+		"didn't answer",
+	);
+});
+
+it("says what an unknown action might mean, whatever the folders say", async () => {
+	const { state, ctx } = await twoQuests();
+	nextReadUnanswered();
+	const typo = await handle(state, fakePi(), ctx, {
+		action: "lsit" as "list",
+	});
+
+	expect(typo.ok ? "answered" : typo.guidance).toContain("list");
+	expect(typo.ok ? "answered" : typo.guidance).not.toContain("didn't answer");
+	vi.mocked(readyQuests).mockReset();
+});
+
+it("on a host, reads nothing on the thread for folders that never answered a read", async () => {
+	const host = installTestHost();
+	try {
+		clearDiscoveryCache();
+		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
+		nextReadUnanswered();
+		const listed = await handle(state, fakePi(), fakeCtx(tmpRoot, "a"), {
+			action: "list",
+		});
+
+		expect(listed.ok ? "listed" : listed.guidance).toContain(
+			"haven't answered a first read",
+		);
+	} finally {
+		host.dispose();
+		clearDiscoveryCache();
+	}
 });

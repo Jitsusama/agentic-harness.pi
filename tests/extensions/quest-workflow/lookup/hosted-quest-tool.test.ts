@@ -8,6 +8,7 @@
  */
 
 import {
+	existsSync,
 	lstatSync,
 	mkdirSync,
 	mkdtempSync,
@@ -339,3 +340,50 @@ it("reads the tree as it stands at each action, not the host's last walk", async
 	};
 	expect(listing.rows.find((row) => row.id === id)?.priority).toBe("queued");
 });
+
+it("runs one message's calls in the order they were made, though the first waits on the tree", async () => {
+	const questsRoot = join(tmpRoot, "quests");
+	const alpha = await made(questsRoot, "Alpha");
+	const beta = await made(questsRoot, "Beta");
+	const tree = join(tmpRoot, "tree");
+	mkdirSync(tree);
+	frontMatterElsewhere(
+		beta.readme,
+		`trees:\n  - path: ${tree}\n    providerId: git-worktree\n` +
+			`    repoRoot: ${tree}\n    origin: scaffolded\n`,
+	);
+	settleAll(questsRoot);
+	discoverQuests(questsRoot);
+	const state = createQuestState({ questsRoot });
+	const ctx = fakeCtx(tree, "a");
+	const loaded = await withSession("a", () =>
+		handle(state, fakePi(), ctx, { action: "load", id: alpha.id }),
+	);
+	if (!loaded.ok) throw new Error(loaded.guidance);
+
+	// As pi runs one message's calls: both asked before either ends. A
+	// load naming no quest finds Beta by its tree, from the whole tree.
+	const [moved, noted] = await withSession("a", () =>
+		Promise.all([
+			handle(state, fakePi(), ctx, { action: "load" }),
+			handle(state, fakePi(), ctx, { action: "journal", note: "Landed." }),
+		]),
+	);
+
+	if (!moved.ok) throw new Error(moved.guidance);
+	if (!noted.ok) throw new Error(noted.guidance);
+	expect(state.questId, "loaded by its tree").toBe(beta.id);
+	expect(journeyOf(dirname(beta.readme)), "the quest loaded first").toContain(
+		"Landed.",
+	);
+	expect(journeyOf(dirname(alpha.readme))).not.toContain("Landed.");
+});
+
+/** Everything a quest's folder says of its journey: README and JOURNEY.md. */
+function journeyOf(dir: string): string {
+	return ["README.md", "JOURNEY.md"]
+		.map((name) => join(dir, name))
+		.filter((file) => existsSync(file))
+		.map((file) => readFileSync(file, "utf8"))
+		.join("\n");
+}
