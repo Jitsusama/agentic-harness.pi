@@ -118,13 +118,15 @@ export function projectTrust(
 			const answered = decisionKey(cwd, standing);
 			const known = decided.get(answered);
 			const unpinned = standing.kind === "unpinned";
-			// New code with nobody to ask, or too large to check, stays out, whatever the folder's trust.
+			// New code this build can't ask about, or too large to check, stays out, whatever the
+			// folder's trust. Only a fresh open at a screen asks: a /new, fork or resume may have
+			// someone there, so the warning doesn't say nobody is.
 			const refused =
 				unpinned && (asking.ask === undefined || !standing.code.complete);
 			if (refused)
 				asking.warn(
 					standing.code.complete
-						? `${unpinnedSaying(cwd, standing.code)}, so its own .pi settings and extensions are not loaded: nobody is at this conversation to allow it. Open a conversation there with a screen to be asked.`
+						? `${unpinnedSaying(cwd, standing.code)}, so its own .pi settings and extensions are not loaded: only a conversation first opened there at a screen can allow it. Open one to be asked.`
 						: `${unpinnedSaying(cwd, standing.code)}, so its own .pi settings and extensions are not loaded.`,
 				);
 			const resolving = !refused && known === undefined && requiring;
@@ -243,7 +245,7 @@ function guardLoads(
 				dropped = true;
 				if (said !== standing.code.digest)
 					asking.warn(
-						`${unpinnedSaying(cwd, standing.code)}, so loads leave out its own .pi settings and extensions until it is allowed. Open a conversation there with a screen to be asked; this one picks it up at its next reload.`,
+						`${unpinnedSaying(cwd, standing.code)}, so loads leave out its own .pi settings and extensions until it is allowed. Open a conversation there at a screen to be asked; this one picks it up at its next reload.`,
 					);
 				said = standing.code.digest;
 			} else if (dropped) {

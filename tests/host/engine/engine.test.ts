@@ -901,7 +901,7 @@ describe("the host's engine", () => {
 				{
 					type: "warning",
 					message: expect.stringMatching(
-						/planted's \.pi holds code .* nobody is at this conversation to allow it/,
+						/planted's \.pi holds code .* only a conversation first opened there at a screen can allow it/,
 					),
 				},
 			]);
