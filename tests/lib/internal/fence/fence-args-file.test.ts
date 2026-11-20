@@ -100,12 +100,15 @@ describe("bubblewrap's arguments from a file", () => {
 		runtimeDir = join(folder, "run");
 		mkdirSync(runtimeDir);
 		// Reads `--args` from its descriptor as bubblewrap does, says how many
-		// it read, and runs what follows the first `--`.
+		// it read, and runs what follows the first `--`. It writes beside
+		// itself how many arguments bubblewrap would count: every word after
+		// its name, and those it read.
 		bwrap = join(folder, "bwrap");
 		writeFileSync(
 			bwrap,
 			[
 				"#!/usr/bin/env bash",
+				"words=$#",
 				"read=0",
 				'while [ "$1" != -- ]; do',
 				'  if [ "$1" = --args ]; then',
@@ -116,6 +119,7 @@ describe("bubblewrap's arguments from a file", () => {
 				"  else shift; fi",
 				"done",
 				"shift",
+				'echo "$((words + read))" > "$0.count"',
 				'echo "read $read"',
 				'exec "$@"',
 			].join("\n"),
@@ -178,6 +182,21 @@ describe("bubblewrap's arguments from a file", () => {
 		const under = fits(BWRAP_MOST_ARGS - 1000);
 		expect(under.stderr).toBe("");
 		expect(under.stdout).toBe(`read ${BWRAP_MOST_ARGS - 1000}\ninside\n`);
+		// What bubblewrap would count, the variables included, places the
+		// line that lands on its limit exactly, and the one a word past it.
+		const counted = Number(readFileSync(`${bwrap}.count`, "utf8"));
+		const atLimit = BWRAP_MOST_ARGS - 1000 + (BWRAP_MOST_ARGS - counted);
+		const at = fits(atLimit);
+		expect(at.stderr, "refused at the limit").toBe("");
+		expect(
+			Number(readFileSync(`${bwrap}.count`, "utf8")),
+			"what bubblewrap counts",
+		).toBe(BWRAP_MOST_ARGS);
+		const past = fits(atLimit + 1);
+		expect(past.status, "started a word past the limit").toBe(126);
+		expect(past.stderr).toContain(
+			`hand bubblewrap ${BWRAP_MOST_ARGS + 1} arguments`,
+		);
 	});
 
 	it(`starts a command whose session holds ${TREES} trees`, () => {
