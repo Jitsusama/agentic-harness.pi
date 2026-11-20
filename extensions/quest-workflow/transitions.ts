@@ -19,8 +19,12 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createMutex } from "../../lib/internal/process/async-mutex.ts";
 import {
+	type AsyncMutex,
+	createMutex,
+} from "../../lib/internal/process/async-mutex.ts";
+import {
+	questsWalked,
 	readyQuests,
 	signingGaveUp,
 } from "../../lib/internal/quest/discovery/discovery.ts";
@@ -28,7 +32,7 @@ import { sayConcluded } from "../../lib/internal/quest/fields/concluded.ts";
 import { setJournalSession } from "../../lib/internal/quest/fields/structural-journal.ts";
 import { sayLanded, sayUnlanded } from "../../lib/internal/session/landings.ts";
 import type { QuestPriority } from "../../lib/quest/index.ts";
-import { suggestAction } from "./actions.ts";
+import { isQuestAction, suggestAction } from "./actions.ts";
 import { refuseIgnoredDryRun, refuseUndoElsewhere } from "./dry-run.ts";
 import type { QuestState } from "./state.ts";
 import { aliasAdd, aliasRemove } from "./verbs/alias.ts";
@@ -106,6 +110,21 @@ export type { QuestResult, QuestToolParams };
 // for quest calls and serialize every other tool in the batch too.
 const turns = createMutex();
 
+// Each conversation's calls in the order it issued them: a call readies
+// what it reads and takes its turn behind its own earlier calls, so a
+// `journal` after a `create` in one message writes into the new quest,
+// while a wait on the tree holds no other conversation's calls.
+const issued = new WeakMap<QuestState, AsyncMutex>();
+
+/** The order `state`'s conversation issued its calls in. */
+function issueOrder(state: QuestState): AsyncMutex {
+	const known = issued.get(state);
+	if (known) return known;
+	const made = createMutex();
+	issued.set(state, made);
+	return made;
+}
+
 /**
  * Dispatch the action to its handler, one call at a time. A call
  * stopped while it waits for the tree or its turn rejects with an
@@ -118,18 +137,25 @@ export async function handle(
 	params: QuestToolParams,
 	signal?: AbortSignal,
 ): Promise<QuestResult> {
-	// Before its turn, so one conversation's wait on the tree holds no
-	// other's quest calls: a signing that ends is the tree as it stands,
-	// and this process's own writes after it are read with it.
-	const unready = await ready(state, params, signal);
-	if (unready) return refuse(unready);
-	return turns.runExclusive(
+	// Readied before the shared turn, so one conversation's wait on the
+	// tree holds no other's quest calls: a signing that ends is the tree
+	// as it stands, and this process's own writes after it are read with
+	// it. Readied after this conversation's earlier calls have run, so it
+	// reads what they wrote and names the quest they left loaded.
+	return issueOrder(state).runExclusive(
 		async () => {
-			const actedOn = targetsOf(state, params);
-			const result = await dispatch(state, pi, ctx, params, signal);
-			tellConcluded(pi, params, actedOn, result);
-			tellLanded(pi, params, result);
-			return result;
+			const unready = await ready(state, params, signal);
+			if (unready) return refuse(unready);
+			return turns.runExclusive(
+				async () => {
+					const actedOn = targetsOf(state, params);
+					const result = await dispatch(state, pi, ctx, params, signal);
+					tellConcluded(pi, params, actedOn, result);
+					tellLanded(pi, params, result);
+					return result;
+				},
+				{ signal },
+			);
 		},
 		{ signal },
 	);
@@ -148,6 +174,8 @@ async function ready(
 	params: QuestToolParams,
 	signal?: AbortSignal,
 ): Promise<string | undefined> {
+	// An action no verb takes is answered with what it might have meant.
+	if (!isQuestAction(params.action)) return undefined;
 	const named = [
 		...targetsOf(state, params),
 		state.questId,
@@ -158,7 +186,10 @@ async function ready(
 		await readyQuests(state.questsRoot, named, readsAcross(params), signal);
 	} catch (error) {
 		if (!signingGaveUp(error)) throw error;
-		if (WRITES_NOTHING.has(params.action)) return undefined;
+		// Never signed whole on the thread, which would hold every
+		// conversation on the disk that just gave no answer.
+		if (!questsWalked(state.questsRoot)) return `Nothing read: ${NEVER_READ}`;
+		if (writesNothing(params)) return undefined;
 		return `Nothing changed: ${QUESTS_UNREAD} Try again in a moment; a listing still answers from the last read.`;
 	}
 	return undefined;
@@ -167,6 +198,15 @@ async function ready(
 /** Why an action that writes can't go ahead while the disk is slow. */
 const QUESTS_UNREAD =
 	"the quest folders didn't answer a read in time, and what this writes rests on them.";
+
+/** Why nothing can answer while the disk has never given a walk. */
+const NEVER_READ =
+	"the quest folders haven't answered a first read yet. Try again in a moment.";
+
+/** Whether a call writes nothing: a listing, or a dry run of any action. */
+function writesNothing(params: QuestToolParams): boolean {
+	return params.dryRun === true || WRITES_NOTHING.has(params.action);
+}
 
 /**
  * Whether an action decides what it writes from quests it doesn't name:
@@ -180,6 +220,7 @@ function readsAcross(params: QuestToolParams): boolean {
 
 /** The actions that write nothing, so a walk the disk can't renew answers them. */
 const WRITES_NOTHING: ReadonlySet<string> = new Set([
+	"expand",
 	"show",
 	"status",
 	"tree-list",

@@ -121,7 +121,7 @@ export async function answerWork(
 				`${GLYPH.refused} ${inPlay.key} isn't where it was: a sweep may have taken it after it went unused. Ask for it again with action 'tree' or 'snapshot', which finds it if it stands.`,
 			);
 		}
-		const found = named ?? (await claimedTree(pi, inPlay.key));
+		const found = named ?? (await claimedTree(pi, inPlay.key, signal));
 		if (!found) {
 			// Naming what is held turns a typo into a correction
 			// rather than a second guess.

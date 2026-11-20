@@ -223,7 +223,8 @@ export function discoverQuests(
  * id names the quest it sits in, as the last walk found it; any other
  * text names nothing. The rest of the tree stays as the last signing
  * found it, bar what `caughtUp` reads anyway. A tree never signed is
- * signed whole. Plain pi signs every ask already, so this does nothing
+ * signed whole; one it can't bring up to date is left to a signing off
+ * the thread. Plain pi signs every ask already, so this does nothing
  * there. An action, which can wait, asks `readyQuests` instead.
  */
 export function refreshQuests(
@@ -239,7 +240,8 @@ export function refreshQuests(
 		return;
 	}
 	const named = questsNamed(questsRoot, slot.result, ids) ?? new Set();
-	if (!caughtUp(questsRoot, slot, named)) discoverQuestsSigned(questsRoot, {});
+	// One it can't bring up to date is read by a signing off the thread.
+	if (!caughtUp(questsRoot, slot, named)) void startSigning(questsRoot);
 }
 
 /**
@@ -298,6 +300,15 @@ function untilStopped<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
 	});
 }
 
+/**
+ * Whether this process holds a walk of `questsRoot` to answer from,
+ * however old: on a host, one with none signs it whole at its first
+ * synchronous ask. Plain pi signs every ask, so it always has one.
+ */
+export function questsWalked(questsRoot: string): boolean {
+	return !hosted() || memo().cache.has(questsRoot);
+}
+
 /** Whether `error` is a signing the disk gave no answer to in time. */
 export function signingGaveUp(error: unknown): error is Error {
 	return error instanceof Error && error.message === SIGNING_GAVE_UP;
@@ -342,11 +353,13 @@ function questsNamed(
  * and waited for, for work that can wait: the desktop's lists, written
  * only from a walk signed after the change that asked for them, and
  * brought up to date for this process's own writes since. A signing
- * dropped for a newer one, or one whose writes can't be placed, is made
- * again off the thread, and after `AFRESH_TRIES` on it. One that gives
- * up on the disk
- * throws, since signing it on the thread would hold every conversation
- * on that same disk. Plain pi signs it on the thread, as every ask.
+ * dropped for a newer one, or one a write since can't be placed in, is
+ * made again off the thread, up to `AFRESH_TRIES` times; after that the
+ * newest walk answers, a write behind at most, and the journal says so.
+ * Only a tree no signing could walk is signed on the thread, as a
+ * missing folder is, cheaply. One that gives up on the disk throws,
+ * since signing it on the thread would hold every conversation on that
+ * same disk. Plain pi signs it on the thread, as every ask.
  */
 export async function discoverQuestsAfresh(
 	questsRoot: string,
@@ -360,10 +373,18 @@ export async function discoverQuestsAfresh(
 		if (ended === "gave up") throw new Error(SIGNING_GAVE_UP);
 		const slot = memo().cache.get(questsRoot);
 		const found = slot && slot.signedAt >= asked;
-		const current = found ? caughtUp(questsRoot, slot, new Set()) : undefined;
+		// A write since that can't be placed is read only by another signing.
+		const placed = found && questsWrittenSince(slot.writes) !== undefined;
+		const current = placed ? caughtUp(questsRoot, slot, new Set()) : undefined;
 		if (current) return current;
 	}
-	return discoverQuestsSigned(questsRoot, {});
+	const slot = memo().cache.get(questsRoot);
+	const newest = slot && caughtUp(questsRoot, slot, new Set());
+	if (!newest) return discoverQuestsSigned(questsRoot, {});
+	sayOnHost(
+		`${AFRESH_TRIES} signings of ${questsRoot} each missed a write or a newer signing, so the newest walk answers`,
+	);
+	return newest;
 }
 
 /** How often `discoverQuestsAfresh` signs off the thread before on it. */
@@ -411,8 +432,10 @@ const SIGNING_HUNG_AFTER_MS = 5 * 60_000;
  * a known tree is answered from its last signed walk, brought up to
  * date quest by quest (`caughtUp`), and signed again off the thread
  * once that walk is a few seconds old. It signs the whole tree on the
- * thread, as plain pi does, only for a tree it has never signed and
- * for a write it can't place.
+ * thread, as plain pi does, only for a tree it has never signed. A walk
+ * it can't bring up to date quest by quest, as one kept by code from
+ * before the root's names were, answers as it stands while a signing
+ * off the thread reads the tree.
  *
  * On 20 November a signing on the thread for this process's own write
  * held the background host for 6.1 s over 1,495 quests, under
@@ -424,12 +447,13 @@ function discoverQuestsHosted(
 	seed: SeedOptions,
 ): DiscoveryResult {
 	const slot = memo().cache.get(questsRoot);
-	const result = slot && caughtUp(questsRoot, slot, new Set());
-	if (!slot || !result) return discoverQuestsSigned(questsRoot, seed);
+	if (!slot) return discoverQuestsSigned(questsRoot, seed);
+	const result = caughtUp(questsRoot, slot, new Set());
 	// A clock stepped back gives a negative age, which no limit bounds.
 	const age = Date.now() - slot.signedAt;
-	if (age < 0 || age > SIGN_AGAIN_AFTER_MS) void startSigning(questsRoot);
-	return result;
+	const old = age < 0 || age > SIGN_AGAIN_AFTER_MS;
+	if (!result || old) void startSigning(questsRoot);
+	return result ?? slot.result;
 }
 
 /**
@@ -439,7 +463,8 @@ function discoverQuestsHosted(
  * root gained, lost or changed in kind since its stat last vouched, and
  * each found with no README whose stamp moved. A write since that can't
  * be placed starts a signing off the thread, which reads it. Undefined
- * when the root can't be listed, so the caller signs the tree whole.
+ * when the root can't be listed or the slot kept no names for it, so
+ * the caller leaves the tree to a signing off the thread.
  * The quests named are noted as read now, so a signing begun before
  * reads them again (`startSigning`).
  */
@@ -592,6 +617,10 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 	if (under) return under;
 	const signedAt = Date.now();
 	const writes = questWritesMade();
+	// A fresh memo's first walk parses from the last process's seed, as a
+	// walk on the thread does, rather than every quest anew.
+	const seeds = seedsOf({});
+	if (seeds) takeSeed(questsRoot, seeds.dir, seeds.code);
 	const work = (async (): Promise<SigningEnd> => {
 		const { pass, rootStamp } = await readTreeOffThread(questsRoot);
 		if (memo() !== m) return "dropped";
@@ -610,6 +639,9 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 			questsRoot,
 		);
 		m.cache.set(questsRoot, slot);
+		if (seeds && pass.parses >= SEED_AFTER_PARSES) {
+			leaveSeed(questsRoot, seeds.dir, seeds.code);
+		}
 		const since = readSince(cached, signedAt);
 		if (since.size > 0) caughtUp(questsRoot, slot, since);
 		return "kept";
@@ -669,9 +701,8 @@ function discoverQuestsSigned(
 	const signedAt = Date.now();
 	const writes = questWritesMade();
 	const rootStamp = folderStampOf(questsRoot);
-	const seeds = seed.dir === undefined ? cacheDir(SEED_FOLDER) : seed.dir;
-	const code = seeds ? (seed.code ?? codeKey()) : "";
-	if (seeds) takeSeed(questsRoot, seeds, code);
+	const seeds = seedsOf(seed);
+	if (seeds) takeSeed(questsRoot, seeds.dir, seeds.code);
 	const signature = discoverySignature(questsRoot, pass);
 	const { cache } = memo();
 	const cached = cache.get(questsRoot);
@@ -684,9 +715,17 @@ function discoverQuestsSigned(
 	const result = discoverQuestsUncached(questsRoot, pass);
 	cache.set(questsRoot, slotOf(signature, result, stamps, pass, questsRoot));
 	if (seeds && pass.parses >= (seed.after ?? SEED_AFTER_PARSES)) {
-		leaveSeed(questsRoot, seeds, code);
+		leaveSeed(questsRoot, seeds.dir, seeds.code);
 	}
 	return result;
+}
+
+/** Where a walk's seeds are kept and the code they're for; none when `seed` turns them off. */
+function seedsOf(
+	seed: SeedOptions,
+): { readonly dir: string; readonly code: string } | undefined {
+	const dir = seed.dir === undefined ? cacheDir(SEED_FOLDER) : seed.dir;
+	return dir ? { dir, code: seed.code ?? codeKey() } : undefined;
 }
 
 /** What a signing knew as it began: when, the writes by then, the root's stat. */

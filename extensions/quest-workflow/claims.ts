@@ -30,6 +30,7 @@ import {
 	type DiscoveryResult,
 	discoverQuests,
 	discoverQuestsAfresh,
+	questsWalked,
 } from "../../lib/internal/quest/discovery/discovery.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 import {
@@ -59,21 +60,28 @@ import {
  * may predate another process's change by as long as nobody asked. An
  * asker that offers {@link TreeClaims.answering} waits as well on each
  * store signed afresh off the thread, whose trees are added when it
- * ends; one that doesn't hears only the last walk. Plain pi walks
- * every ask afresh, so it offers the asker nothing more to wait on.
+ * ends; one that doesn't hears only the last walk. When a store's disk
+ * gives no answer in time, that wait rejects rather than pass an old
+ * walk off as fresh: a sweep then takes nothing that round, since a
+ * tree listed since would be in no claim. Plain pi walks every ask
+ * afresh, so it offers the asker nothing more to wait on.
  */
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREE_CLAIMS, (data: unknown) => {
 		const claims = data as TreeClaims;
 		const into = claims.untilSpent ?? claims.paths;
 		const stores = storesOf(questsRoot);
+		// A store this host never walked is signed only off the thread,
+		// below, for an asker that waits.
 		claimFrom(
-			stores.map((store) => discoverQuests(store)),
+			stores.filter(questsWalked).map((store) => discoverQuests(store)),
 			into,
 		);
 		if (!hosted()) return;
 		claims.answering?.push(
-			Promise.all(stores.map(signed)).then((walks) => claimFrom(walks, into)),
+			Promise.all(stores.map((store) => discoverQuestsAfresh(store))).then(
+				(walks) => claimFrom(walks, into),
+			),
 		);
 	});
 }
@@ -125,8 +133,13 @@ async function forgetTaken(
 		for (const tree of entry.doc.frontMatter.trees ?? []) {
 			if (!taken.has(tree.path) || existsSync(tree.path)) continue;
 			try {
-				removeTreeFromQuest(entry.dir, tree.path);
-				setPendingPrune(entry.dir, null, { clearPath: tree.path });
+				// A write refused says why as a throw does, and stops the second.
+				const removed = removeTreeFromQuest(entry.dir, tree.path);
+				if (!removed.ok) throw new Error(removed.reason);
+				const cleared = setPendingPrune(entry.dir, null, {
+					clearPath: tree.path,
+				});
+				if (!cleared.ok) throw new Error(cleared.reason);
 			} catch (error) {
 				sayForgetFailed(entry.doc.frontMatter.id, error);
 			}

@@ -40,6 +40,11 @@ export const QUEST_ACTIONS = [...CORE_ACTIONS, ...LOCAL_ACTIONS] as const;
 /** One action the quest tool takes. */
 export type QuestAction = (typeof QUEST_ACTIONS)[number];
 
+/** Whether `action` is one the quest tool takes. */
+export function isQuestAction(action: string): action is QuestAction {
+	return (QUEST_ACTIONS as readonly string[]).includes(action);
+}
+
 /** How much of a local verb a typo must share before it is suggested. */
 const SHARED_PREFIX = 3;
 

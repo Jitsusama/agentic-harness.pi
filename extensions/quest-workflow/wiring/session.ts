@@ -10,6 +10,7 @@ import { hosted } from "../../../lib/core/session/host.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
+	questsWalked,
 	readyQuests,
 	refreshQuests,
 	signingGaveUp,
@@ -306,21 +307,41 @@ export function followSessionLife(
  * or its folder may name any quest, and a tree another process just
  * added draws it only once read. When the disk gives no answer in
  * time, the start goes on from the last walk and the journal says so.
+ * With no walk at all, which only a signing on the thread could give,
+ * it waits on the next signing instead, holding only itself, until
+ * {@link START_TRIES} have given up, as a disk that hangs does.
  */
 async function readyForStart(state: QuestState): Promise<void> {
-	try {
-		await readyQuests(
-			state.questsRoot,
-			[state.questId],
-			state.questId === undefined,
-		);
-	} catch (error) {
-		if (!signingGaveUp(error)) throw error;
-		process.stderr.write(
-			`[quest-workflow] a session's start reads the last walk of ${state.questsRoot}: ${error.message}\n`,
-		);
+	const root = state.questsRoot;
+	for (let tries = 1; ; tries++) {
+		try {
+			await readyQuests(root, [state.questId], state.questId === undefined);
+			return;
+		} catch (error) {
+			if (!signingGaveUp(error)) throw error;
+			const walked = questsWalked(root);
+			if (walked || tries >= START_TRIES) {
+				const reads = walked
+					? "reads the last walk of"
+					: `signs on the thread, after ${tries} waits gave up,`;
+				process.stderr.write(
+					`[quest-workflow] a session's start ${reads} ${root}: ${error.message}\n`,
+				);
+				return;
+			}
+			process.stderr.write(
+				`[quest-workflow] a session's start waits on a first walk of ${root}: ${error.message}\n`,
+			);
+		}
 	}
 }
+
+/**
+ * How many waits on a tree never walked a start makes before it signs
+ * it on the thread: each is up to a minute, so about as long as a
+ * signing holds its root before its disk is taken to hang.
+ */
+const START_TRIES = 5;
 
 /** The most recent sessions the passive start hint will name. */
 const SESSION_HINT_ROWS = 3;
