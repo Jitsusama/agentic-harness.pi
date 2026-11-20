@@ -22,7 +22,11 @@ import {
 	tickedOwnerNow,
 } from "../../lib/internal/process-ticks.ts";
 import { spareStaleRejections } from "../../lib/internal/reload/stale-rejections.ts";
-import { type ConversationIdentity, SessionHost } from "../engine/index.ts";
+import {
+	type ConversationIdentity,
+	type HostChanges,
+	SessionHost,
+} from "../engine/index.ts";
 import { type HostKind, hostKey, hostSocketPath } from "./address.ts";
 import {
 	type ConversationEngine,
@@ -39,7 +43,11 @@ import {
 import type { ControlBackend } from "./dispatch.ts";
 import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
 import { openRoster, type RosterWait } from "./roster.ts";
-import { listenControl, type ViewerBridge } from "./server.ts";
+import {
+	listenControl,
+	type ViewerBridge,
+	type WatchBridge,
+} from "./server.ts";
 
 /**
  * A step a starting host has reached: waiting on a last host that still
@@ -97,8 +105,16 @@ export async function serveHost(options: {
 	say?: (line: string) => void;
 	viewer?: (host: SessionHost) => ViewerBridge;
 	runtimeDir?: string;
+	/** The socket to listen on, rather than the realm-kind host's own, as a child's slot names. */
+	socketPath?: string;
 	rosterDir?: string;
 	registryDir?: string;
+	/** Hears each change the host publishes, as a child follows its one conversation. */
+	changes?: HostChanges;
+	/** What a watch follows; without one, a watch is refused. */
+	watch?: WatchBridge;
+	/** Hears a conversation becoming another inside pi, before the roster says so. */
+	becoming?: (previousId: string, nextId: string) => void;
 	owner?: TickedOwner;
 	standing?: (owner: TickedOwner) => Promise<Standing>;
 	/** How long and how a start waits on a lock another host holds. */
@@ -131,7 +147,9 @@ export async function serveHost(options: {
 		options.rejectionLog ??
 			join(stateDir("host-service"), key, "stale-rejections.jsonl"),
 	);
-	const path = hostSocketPath(options.realm, options.kind, options.runtimeDir);
+	const path =
+		options.socketPath ??
+		hostSocketPath(options.realm, options.kind, options.runtimeDir);
 	const owner = options.owner ?? (await tickedOwnerNow());
 	if (!owner) throw new Error("Host cannot name its own process");
 	const roster = await openRoster({
@@ -148,7 +166,12 @@ export async function serveHost(options: {
 	let host: SessionHost | undefined;
 	let listener: Awaited<ReturnType<typeof listenControl>> | undefined;
 	try {
-		host = new SessionHost({ key, owner, registryDir: options.registryDir });
+		host = new SessionHost({
+			key,
+			owner,
+			registryDir: options.registryDir,
+			...(options.changes ? { changes: options.changes } : {}),
+		});
 		await options.starting?.({ step: "engine" });
 		const engine = await options.engine(host);
 		// What wakes a parked conversation, once the host listens. A wake asked
@@ -163,14 +186,24 @@ export async function serveHost(options: {
 		});
 		// Before anything resumes, so a conversation that ends or becomes
 		// another inside pi is never missed.
+		const events = conversationEvents({
+			roster,
+			report: options.report,
+			...(options.say ? { say: options.say } : {}),
+			wake: (sessionId) =>
+				wakes ? wakes(sessionId) : listened.then((wake) => wake(sessionId)),
+		});
+		const { becoming } = options;
 		engine.watch?.(
-			conversationEvents({
-				roster,
-				report: options.report,
-				...(options.say ? { say: options.say } : {}),
-				wake: (sessionId) =>
-					wakes ? wakes(sessionId) : listened.then((wake) => wake(sessionId)),
-			}),
+			becoming
+				? {
+						...events,
+						became(previousId, next) {
+							becoming(previousId, next.sessionId);
+							return events.became(previousId, next);
+						},
+					}
+				: events,
 		);
 		const order = heldOrder(roster);
 		const identity = { key: host.key, owner: host.owner };
@@ -192,6 +225,7 @@ export async function serveHost(options: {
 			path,
 			backend,
 			viewer: options.viewer?.(host),
+			...(options.watch ? { watch: options.watch } : {}),
 			report: options.report,
 			...(options.say ? { say: options.say } : {}),
 			...slowAfter,

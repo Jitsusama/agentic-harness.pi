@@ -34,5 +34,6 @@ export {
 	type ConversationIdentity,
 	type ConversationRegistration,
 	HOST_RELOAD_ONTO,
+	type HostChanges,
 	SessionHost,
 } from "./session-host.ts";

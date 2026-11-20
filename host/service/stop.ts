@@ -157,6 +157,8 @@ export function unparkedMarks(
 	realm: string,
 	kind: HostKind,
 	report: (error: unknown) => void,
+	/** The folder it goes in; the realm-kind host's own state folder by default. */
+	folder: string = join(stateDir("host-service"), hostKey(realm, kind)),
 ): {
 	/** Where the mark is, for a writer that can't call write. */
 	readonly file: string;
@@ -164,7 +166,7 @@ export function unparkedMarks(
 	write(ids: readonly string[]): void;
 	clear(): void;
 } {
-	const file = join(stateDir("host-service"), hostKey(realm, kind), UNPARKED);
+	const file = join(folder, UNPARKED);
 	return {
 		file,
 		read() {

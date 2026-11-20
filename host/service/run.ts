@@ -54,6 +54,12 @@ import type {
 	ResumePhase,
 	Resuming,
 } from "./backend.ts";
+import {
+	type ChildLife,
+	type ChildSlot,
+	childRegistry,
+	oneConversation,
+} from "./child.ts";
 import { type HoldWatchOptions, watchHolds } from "./hold-watch.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
@@ -179,6 +185,13 @@ const CLOSED_PIPE_CODES: ReadonlySet<string> = new Set([
 export interface HostRunOptions {
 	/** The command line after the program: the host's kind. */
 	argv: readonly string[];
+	/**
+	 * The slot a child host was started for, and the life that follows its
+	 * one conversation (child.ts): its key, not the command line, names the
+	 * host, it serves on the slot's socket from the slot's own folder, and
+	 * it stops once its conversation ends.
+	 */
+	child?: { readonly slot: ChildSlot; readonly life: ChildLife };
 	/** The environment the unit gave the process. */
 	env: NodeJS.ProcessEnv;
 	/** Builds the engine over the host's ownership. */
@@ -291,6 +304,40 @@ const ENDED_AS: Record<ResumeEnd, string> = {
 	unresumed: "could not resume",
 };
 
+/**
+ * What serveHost is given for a child: the slot's socket and folder, the
+ * life that hears its changes and becomings and answers its watch, and a
+ * gate that keeps it to one conversation.
+ */
+function childPlaces(
+	slot: ChildSlot,
+	life: ChildLife,
+): Partial<Parameters<typeof serveHost>[0]> {
+	return {
+		socketPath: slot.socket,
+		rosterDir: slot.folder,
+		registryDir: childRegistry(slot),
+		rollout: oneConversation,
+		changes: life,
+		watch: life.watch,
+		becoming: life.becoming,
+	};
+}
+
+/**
+ * How the start's resume of a child's slot ended: resumed when it runs,
+ * failed when it couldn't be resumed or its file was gone, and left
+ * parked when it rests as it did before the start.
+ */
+function slotResumed(serving: ServingHost, slot: ChildSlot): ResumeEnd {
+	const id = slot.held?.sessionId;
+	if (serving.held().some((held) => held.id === id)) return "resumed";
+	const failed =
+		serving.dropped.includes(id ?? "") ||
+		serving.unresumed.some(({ sessionId }) => sessionId === id);
+	return failed ? "unresumed" : "parked";
+}
+
 /** The host's kind from its command line, refusing anything else. */
 export function hostKind(argv: readonly string[]): HostKind {
 	const [kind, ...rest] = argv;
@@ -301,8 +348,9 @@ export function hostKind(argv: readonly string[]): HostKind {
 
 /** Start a host for this process and stop it on the first stop signal. */
 export async function runHost(options: HostRunOptions): Promise<HostRun> {
-	const kind = hostKind(options.argv);
-	const realm = hostRealm(options.env);
+	const { child } = options;
+	const kind = child ? child.slot.kind : hostKind(options.argv);
+	const realm = child ? child.slot.realm : hostRealm(options.env);
 	const report = options.report ?? reportToJournal;
 	const say = options.say ?? sayToJournal;
 	const toldWithin = options.toldWithin ?? TOLD_WITHIN_MS;
@@ -311,7 +359,9 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 		((env: NodeJS.ProcessEnv, step: string) =>
 			notifyProgress(env, step, toldWithin));
 	const began = Date.now();
-	const unparked = unparkedMarks(realm, kind, report);
+	const unparked = child
+		? unparkedMarks(realm, kind, report, child.slot.folder)
+		: unparkedMarks(realm, kind, report);
 	const lastStop = unparked.read();
 	const seconds = (ms: number) => `${(ms / MS_PER_SECOND).toFixed(1)} s`;
 	const since = () => seconds(Date.now() - began);
@@ -399,6 +449,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			engine: options.engine,
 			...(options.viewer ? { viewer: options.viewer } : {}),
 			...(options.rollout ? { rollout: options.rollout } : {}),
+			...(child ? childPlaces(child.slot, child.life) : {}),
 			report,
 			say,
 			starting,
@@ -406,9 +457,13 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			finished,
 			runtimeDir: options.env.XDG_RUNTIME_DIR,
 		});
+	} catch (error) {
+		child?.life.fail();
+		throw error;
 	} finally {
 		stopRenewing();
 	}
+	if (child?.slot.held) child.life.resumed(slotResumed(serving, child.slot));
 	const status = () => readyStatus(readyCount(serving));
 	const tell = (now: string) =>
 		options.status
@@ -450,6 +505,8 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 	let stopping: Promise<void> | undefined;
 	const stop = () => {
 		if (stopping) return stopping;
+		// A child says why it ends before its socket closes, so its watch hears it.
+		child?.life.stopping();
 		following?.();
 		// Parking many can take a while; the status says so meanwhile, and
 		// the watchdog hears the loop still turns until every one is parked.
@@ -494,10 +551,13 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			signals.once(signal, () => {
 				stop().then(resolve, reject);
 			});
+		// A child stops once its conversation ends, as a signal would stop it.
+		void child?.life.ending.then(() => stop().then(resolve, reject));
 		options.faults?.on("uncaughtException", (error) => {
 			const failure = uncontained(error, options.contain);
 			if (!failure) return;
 			report(error);
+			child?.life.fail();
 			// A stop under way ends as it began; a closed pipe ends nothing.
 			if (stopping || closedPipe(error)) return;
 			const ended = () => reject(failure);

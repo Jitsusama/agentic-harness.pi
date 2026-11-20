@@ -123,6 +123,12 @@ export interface CarriedShells {
 export interface CarriedShellsOptions {
 	/** The host engine's own state folder, where `KEPT_FILE` goes. */
 	readonly stateDir: string;
+	/**
+	 * The folder `KEPT_FILE` goes in at each use, rather than `stateDir`:
+	 * a child host keeps its one conversation's own, so children on one
+	 * key never write over each other's (host/service/child.ts).
+	 */
+	readonly keptIn?: () => string;
 	/** The jobs cgroup, as `JOBS_CGROUP` names it; that setting by default, and empty for none. */
 	readonly jobs?: string | undefined;
 	/** This process's /proc/self/cgroup; read from /proc by default. */
@@ -184,7 +190,8 @@ function readKept(file: string): KeptCall[] {
 export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 	const now = options.now ?? Date.now;
 	const table = options.table ?? linuxProcessTable();
-	const file = join(options.stateDir, KEPT_FILE);
+	const keptIn = options.keptIn ?? (() => options.stateDir);
+	const keptFile = () => join(keptIn(), KEPT_FILE);
 	const ownCgroup =
 		options.ownCgroup ?? (() => readFileSync("/proc/self/cgroup", "utf8"));
 	let procs: string | undefined;
@@ -231,7 +238,7 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 
 	function write(calls: readonly KeptCall[]): void {
 		try {
-			writeWhole(file, `${JSON.stringify(calls)}\n`);
+			writeWhole(keptFile(), `${JSON.stringify(calls)}\n`);
 		} catch (error) {
 			options.report(error);
 		}
@@ -259,7 +266,7 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 
 	function look(holds: (session: string) => boolean): void {
 		lookRecorded(holds);
-		const kept = readKept(file);
+		const kept = readKept(keptFile());
 		if (kept.length === 0) return;
 		const left = kept.filter((call) => {
 			if (!isRunning(call.work) || holds(call.session)) return false;
@@ -312,7 +319,7 @@ export function carriedShells(options: CarriedShellsOptions): CarriedShells {
 			const moved: number[] = [];
 			if (procs !== undefined) moved.push(...(await moveOut(carried, procs)));
 			// What an earlier restart kept and nobody took up yet goes on too.
-			write([...readKept(file), ...carried]);
+			write([...readKept(keptFile()), ...carried]);
 			return moved;
 		},
 		watch(holds) {

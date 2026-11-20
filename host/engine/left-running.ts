@@ -69,17 +69,20 @@ function isLeftCall(value: unknown): value is LeftCall {
 /** Keep what parks noted in the host engine's state folder. */
 export function leftRunning(options: {
 	readonly stateDir: string;
+	/** The folder the notes go in at each use, rather than `stateDir`, as a child host keeps its own. */
+	readonly keptIn?: () => string;
 	readonly report: (error: unknown) => void;
 	readonly now?: () => number;
 }): LeftRunning {
-	const file = join(options.stateDir, LEFT_FILE);
+	const keptIn = options.keptIn ?? (() => options.stateDir);
+	const leftFile = () => join(keptIn(), LEFT_FILE);
 	const now = options.now ?? Date.now;
 
 	// The notes still within their day, oldest first.
 	function read(): LeftCall[] {
 		let parsed: unknown;
 		try {
-			parsed = JSON.parse(readFileSync(file, "utf8"));
+			parsed = JSON.parse(readFileSync(leftFile(), "utf8"));
 		} catch {
 			// No file: no park kept anything, or it was unreadable and keeps nothing.
 			return [];
@@ -98,7 +101,7 @@ export function leftRunning(options: {
 			const fresh = new Set(added.map(({ mark }) => mark));
 			const kept = read().filter(({ mark }) => !fresh.has(mark));
 			try {
-				writeWhole(file, `${JSON.stringify([...kept, ...added])}\n`);
+				writeWhole(leftFile(), `${JSON.stringify([...kept, ...added])}\n`);
 			} catch (error) {
 				options.report(error);
 			}
@@ -117,7 +120,7 @@ export function leftRunning(options: {
 			const ended = left.length - kept.length;
 			if (ended === 0) return 0;
 			try {
-				writeWhole(file, `${JSON.stringify(kept)}\n`);
+				writeWhole(leftFile(), `${JSON.stringify(kept)}\n`);
 			} catch (error) {
 				options.report(error);
 			}

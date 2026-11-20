@@ -13,6 +13,14 @@
  * hold kept. It exits 78 when its configuration is refused, which no
  * restart would change, and 1 on any other failure to start, which a
  * restart might.
+ *
+ * A supervisor starts a child host for one conversation the same way:
+ *
+ *   node scripts/pi-host.ts --child
+ *
+ * with PI_HOST_CHILD_KEY and PI_HOST_CHILD_SOCKET naming its slot
+ * (host/service/child.ts). It exits once its conversation ends, 0 when
+ * it was parked, closed or released and 1 when it failed.
  */
 
 import { flushCompileCache, registerHooks } from "node:module";
@@ -55,9 +63,11 @@ try {
 	// Node writes its cache at exit, which a killed host never reaches.
 	if (compiled.state === "on") flushCompileCache();
 	await run.stopped;
+	// A child's ending is settled before its stop begins.
+	const failed = (await run.ending) === "failed";
 	// A screen's timers or a viewer's socket can outlive the host's stop;
 	// every conversation is parked and held by now, so nothing is lost.
-	process.exit(0);
+	process.exit(failed ? 1 : 0);
 } catch (error) {
 	if (error instanceof HostMisconfigured) {
 		// What was given is wrong, not the code, so the message is the whole story.

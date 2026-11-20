@@ -50,6 +50,7 @@ import type {
 	WatchAnswer,
 	WatchLine,
 } from "./protocol.ts";
+import { type AdmitAnother, ROLLOUT_REFUSED } from "./rollout.ts";
 import type { WatchBridge } from "./server.ts";
 
 /** How often, in ms, a watch hears the heap again while nothing changes. */
@@ -95,6 +96,15 @@ export interface ChildSlot {
 	/** The conversation to resume; none for an open or adopt. */
 	readonly held?: RosterEntry;
 }
+
+/** The rollout gate a child keeps: it runs one conversation, and a second is refused. */
+export const oneConversation: AdmitAnother = () =>
+	Promise.reject(
+		hostRefusal(
+			ROLLOUT_REFUSED,
+			"A child host runs one conversation; its supervisor starts another child for the next",
+		),
+	);
 
 /**
  * Take from a child's environment the variables only systemd's notify,
@@ -210,10 +220,16 @@ export interface ChildLife {
 	/** A conversation is becoming another inside pi, under `nextId`. */
 	becoming(previousId: string, nextId: string): void;
 	/**
-	 * The start's resume of the slot's conversation ended so: one left
-	 * parked ends the child as parked, and one that failed as failed.
+	 * The start's resume of the slot's conversation ended so. One that
+	 * failed ends the child as failed. One left parked, as it rested
+	 * before, waits for the wake the supervisor sends, and ends as parked
+	 * if none comes within the first wait.
 	 */
 	resumed(end: "resumed" | "parked" | "unresumed"): void;
+	/** The child is stopping: parked once it held its conversation, else failed. */
+	stopping(): void;
+	/** The conversation it runs, or last ran, by id; none before the first. */
+	conversation(): string | undefined;
 	/** The child can't go on, whatever it holds. */
 	fail(): void;
 	/** Stop its timers. */
@@ -256,6 +272,8 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	}[] = [];
 	let sent: { id: string; state: string } | undefined;
 	let pending: { previousId: string; nextId: string } | undefined;
+	// The slot's conversation rests parked, as it did before the start.
+	let resting = false;
 
 	function send(line: WatchLine): void {
 		for (const follow of followers) follow(line);
@@ -295,7 +313,7 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	}
 
 	const stopFirst = after(options.firstWithin ?? FIRST_WITHIN_MS, () => {
-		if (!answered) end("failed");
+		if (!answered) end(resting ? "parked" : "failed");
 	});
 	const stopHeap = every(HEAP_EVERY_MS, () => {
 		const held = current();
@@ -361,8 +379,14 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			pending = { previousId, nextId };
 		},
 		resumed(how) {
-			if (how === "parked" && current() === undefined) end("parked");
+			if (how === "parked") resting = true;
 			else if (how === "unresumed") end("failed");
+		},
+		stopping() {
+			end(answered || resting ? "parked" : "failed");
+		},
+		conversation() {
+			return current()?.id ?? sent?.id;
 		},
 		fail() {
 			end("failed");
