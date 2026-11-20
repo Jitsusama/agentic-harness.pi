@@ -15,88 +15,30 @@ import {
 	constants,
 	linkSync,
 	mkdirSync,
-	mkdtempSync,
 	openSync,
 	readFileSync,
 	readSync,
-	realpathSync,
 	rmSync,
 	statSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import {
-	type ConversationRegistration,
-	SessionHost,
-} from "../../../host/engine/index.ts";
+import { SessionHost } from "../../../host/engine/index.ts";
 import { tellHostFence } from "../../../lib/internal/sandbox/fence-told.ts";
-import type { FenceKind } from "../../../lib/mesh/presence.ts";
+import {
+	closedState,
+	fences,
+	owner,
+	putDown,
+	registration,
+	start,
+	told,
+} from "./fixtures/fence-host.ts";
 
-const owner = { pid: 123, startedAt: 1000, bootId: "boot", startTicks: 20 };
 const asked = { reason: "a test" };
-const hosts: SessionHost[] = [];
-const directories: string[] = [];
-afterEach(async () => {
-	for (const host of hosts.splice(0)) {
-		for (const { id } of host.list()) await host.close(id);
-		host.dispose();
-	}
-	for (const dir of directories.splice(0))
-		rmSync(dir, { recursive: true, force: true });
-});
-
-/** A closed state folder of its own, spelled as it really is. */
-function closedState(): string {
-	const dir = realpathSync(mkdtempSync(join(tmpdir(), "session-host-fence-")));
-	directories.push(dir);
-	return dir;
-}
-
-function start(
-	state = closedState(),
-	registryDir = join(state, "agentic-harness.pi/hosts"),
-): SessionHost {
-	const host = new SessionHost({
-		key: "test-host",
-		owner,
-		registryDir,
-		closedState: state,
-	});
-	hosts.push(host);
-	return host;
-}
-
-function registration(
-	id: string,
-	extra: Partial<ConversationRegistration> = {},
-): ConversationRegistration {
-	return {
-		id,
-		file: `/sessions/${id}.jsonl`,
-		cwd: `/repo/${id}`,
-		env: {},
-		hints: {},
-		close: () => {},
-		...extra,
-	};
-}
-
-/** Each session's fence, as the host's record says it. */
-function fences(host: SessionHost): Record<string, unknown> {
-	const read = JSON.parse(readFileSync(host.registryPath, "utf8")) as {
-		sessions: { id: string; fence?: unknown }[];
-	};
-	return Object.fromEntries(read.sessions.map(({ id, fence }) => [id, fence]));
-}
-
-/** A runner starting, its file guard and then its shell telling the host. */
-function told(host: SessionHost, id: string, fence: FenceKind): void {
-	host.fenced(id, fence, "files");
-	host.fenced(id, fence, "shell");
-}
+afterEach(putDown);
 
 it("says no session's fence until its shell and its file guard both tell it", () => {
 	const host = start();
@@ -451,6 +393,11 @@ it.skipIf(asRoot)(
 		const folder = join(state, "agentic-harness.pi/hosts");
 		chmodSync(folder, 0o555);
 		try {
+			// Refused, and rewritten naming none, though both guards told one.
+			expect(host.fenced("a", "none", "files"), "went unrefused").toBe(false);
+			expect(fences(host), "the rewrite named a fence").toEqual({
+				a: undefined,
+			});
 			host.left("a");
 			expect(fences(host), "the record kept a fence the host dropped").toEqual({
 				a: undefined,
@@ -484,13 +431,7 @@ it("names no fence where its records lay past a link as it started", () => {
 	const real = join(state, "real");
 	mkdirSync(real);
 	symlinkSync(real, join(state, "linked"));
-	const host = new SessionHost({
-		key: "test-host",
-		owner,
-		registryDir: join(state, "linked/hosts"),
-		closedState: state,
-	});
-	hosts.push(host);
+	const host = start(state, join(state, "linked/hosts"));
 	// A fenced command swaps the link for a folder of its own.
 	rmSync(join(state, "linked"));
 	mkdirSync(join(state, "linked/hosts"), { recursive: true });
@@ -600,6 +541,7 @@ it.skipIf(asRoot)(
 		for (const put of [
 			() => execFileSync("mkfifo", [host.registryPath]),
 			() => linkSync(kept, host.registryPath),
+			() => symlinkSync(kept, host.registryPath),
 		]) {
 			rmSync(host.registryPath);
 			put();
@@ -610,7 +552,7 @@ it.skipIf(asRoot)(
 			} finally {
 				chmodSync(folder, 0o755);
 			}
-			expect(readFileSync(kept, "utf8"), "wrote through a hard link").toBe(
+			expect(readFileSync(kept, "utf8"), "wrote through what was put").toBe(
 				"the person's own",
 			);
 			told(host, "a", "strict");
