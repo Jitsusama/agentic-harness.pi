@@ -8,9 +8,11 @@
 
 import { execFileSync } from "node:child_process";
 import {
+	chmodSync,
 	existsSync,
 	linkSync,
 	lutimesSync,
+	mkdirSync,
 	readFileSync,
 	renameSync,
 	statSync,
@@ -18,6 +20,7 @@ import {
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
+import { dirname } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -263,6 +266,61 @@ describe("one sweep at a time", () => {
 			outcome.taken.map((tree) => tree.path),
 			"a dangling link at the lock's path kept every sweep out",
 		).toEqual([done]);
+	});
+
+	it("lets its own lock go when a lock moved aside won't be removed", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		const done = await cut("done", ["-b", "done", "@", "main"]);
+		// A directory moves aside like a lock, but won't go without recursion.
+		mkdirSync(lockPath);
+		const old = new Date(Date.now() - TWO_HOURS_MS);
+		utimesSync(lockPath, old, old);
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+		});
+
+		expect(
+			outcome.taken.map((tree) => tree.path),
+			"a stale directory at the lock's path kept every sweep out",
+		).toEqual([done]);
+		expect(
+			existsSync(lockPath),
+			"an aside that wouldn't go cost the sweep its lock's release",
+		).toBe(false);
+	});
+
+	it("lets its lock go after a moment it couldn't read it", async () => {
+		const { memory, lockPath, cut } = await setUp();
+		await cut("done", ["-b", "done", "@", "main"]);
+		const state = dirname(lockPath);
+		const mode = statSync(state).mode & 0o777;
+
+		await sweepEndedTrees({
+			exec: pausingOnce(async () => {
+				chmodSync(state, 0o000);
+				try {
+					// Long enough for several beats to find the lock unreadable.
+					await wait(FRESH_EVERY_MS * 5);
+				} finally {
+					chmodSync(state, mode);
+				}
+			}),
+			memory,
+			claims: [],
+			lockPath,
+			facts: machine,
+			lockFresh: { everyMs: FRESH_EVERY_MS, forMs: 60_000 },
+		});
+
+		expect(
+			existsSync(lockPath),
+			"a moment's unreadable lock was given up, and left standing",
+		).toBe(false);
 	});
 
 	it("lets its lock go stale once it has kept it fresh for its time", async () => {

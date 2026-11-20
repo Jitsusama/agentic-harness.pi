@@ -152,7 +152,15 @@ function keptFresh(
 	// over from a wedged sweep is seen as lost long before a later lock
 	// could be given its inode, and the sweep then never removes that one.
 	const beat = setInterval(() => {
-		if (identityOf(lockPath) !== mine) {
+		let now: string | undefined;
+		try {
+			now = identityOf(lockPath);
+		} catch {
+			// Unreadable for now, which says nothing of whose it is: the next
+			// beat judges it again, rather than giving it up for good.
+			return;
+		}
+		if (now !== mine) {
 			lost = true;
 			clearInterval(beat);
 		} else if (performance.now() - began <= fresh.forMs) touch(lockPath);
@@ -161,8 +169,12 @@ function keptFresh(
 	beat.unref();
 	return () => {
 		clearInterval(beat);
-		if (!lost && identityOf(lockPath) === mine) {
-			rmSync(lockPath, { force: true });
+		if (lost) return;
+		try {
+			if (identityOf(lockPath) === mine) rmSync(lockPath, { force: true });
+		} catch {
+			// Unreadable or unremovable: left untouched, it goes stale within
+			// the hour, and the sweep's own outcome is never thrown over.
 		}
 	};
 }
@@ -233,12 +245,17 @@ function identity(stats: Stats): string {
 	return `${stats.dev}/${stats.ino}`;
 }
 
+/**
+ * The identity of the lock at `lockPath`, or undefined once it is gone.
+ * Any other failure throws, since it can't say whose the lock is.
+ */
 function identityOf(lockPath: string): string | undefined {
 	try {
 		return identity(lstatSync(lockPath));
-	} catch {
+	} catch (error) {
 		// Gone: no lock, so none of ours.
-		return undefined;
+		if (hasCode(error, "ENOENT")) return undefined;
+		throw error;
 	}
 }
 
