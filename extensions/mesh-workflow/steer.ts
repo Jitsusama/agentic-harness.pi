@@ -21,6 +21,7 @@ import { answerLook, type Look, looksIn } from "../../lib/mesh/looks/looks.ts";
 import {
 	ASKING_FROM_OUTSIDE,
 	inboxOf,
+	isFromPerson,
 	type Steer,
 	type Taken,
 	takenSteers,
@@ -180,9 +181,11 @@ export interface SteeredInto {
 
 /**
  * What the session reads: the person asking, to be answered first and
- * briefly, or the machine's words, under the harness's own header so
- * that whatever reads who drives a session (a safe word's parking, the
- * mesh's driven mark) knows them for not the person's.
+ * briefly, or anyone else's words (the machine's, or a peer that names
+ * itself), under the harness's own header so that whatever reads who
+ * drives a session (a safe word's parking, the mesh's driven mark) knows
+ * them for not the person's. A steer naming nobody is the person's, as
+ * the node and the traffic shaper read it too (`isFromPerson`).
  *
  * The person's words are a question put from the launcher or another
  * window, where the talk shows the first answer; framed as mere
@@ -193,10 +196,16 @@ export function steerText(steer: Steer, into: SteeredInto): string {
 		const who = steer.by ?? "mycelium node";
 		return `${automatedHeader(`said by this machine's ${who}, not by the person, through this session's steer inbox`)}\n\n${steer.text}`;
 	}
-	const then = into.busy
-		? " while this session works: answer first, in a line or two, then carry on."
-		: ": answer first, in a line or two, then do what is asked.";
-	return `[${asker(steer.from)}${ASKING_FROM_OUTSIDE}${then}]\n\n${steer.text}`;
+	const answer = into.busy
+		? "answer first, in a line or two, then carry on."
+		: "answer first, in a line or two, then do what is asked.";
+	if (!isFromPerson(steer.from)) {
+		// Asked, but not by the person, so a stop's parking and the mesh's
+		// driven mark must not take it for Joel's words.
+		return `${automatedHeader(`asked by ${steer.from}, not by the person, through this session's steer inbox`)} Please ${answer}\n\n${steer.text}`;
+	}
+	const then = into.busy ? " while this session works: " : ": ";
+	return `[${asker(steer.from)}${ASKING_FROM_OUTSIDE}${then}${answer}]\n\n${steer.text}`;
 }
 
 /** What the window says of an answer that came for an ask now gone. */
