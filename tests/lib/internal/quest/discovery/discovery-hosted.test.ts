@@ -4,14 +4,16 @@
  * Signing the tree is a listing a folder and a stat a file, 6,072 calls
  * over 1,437 quests on 17 November, and on a host each one holds every
  * conversation while the disk answers. So a host answers a known tree
- * from its last signed walk and signs it again off the thread, while
- * this process's own writes, a quest made, removed or given its README,
- * and an ask after a minute unasked still sign at once. Plain pi signs
+ * from its last signed walk and signs it again off the thread. What it
+ * must show at once, its own writes and a quest made, removed or given
+ * its README, it reads quest by quest: on 20 November a signing on the
+ * thread for a write held 1,495 quests' host for 6.1 s. Plain pi signs
  * every ask, as before.
  */
 
 import * as fs from "node:fs";
-import { mkdirSync, rmSync, utimesSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -19,7 +21,7 @@ import {
 	discoverQuests,
 	discoverQuestsAfresh,
 	discoverySettled,
-	signQuestsNow,
+	refreshQuests,
 } from "../../../../../lib/internal/quest/discovery/discovery.ts";
 import { atomicWriteFile } from "../../../../../lib/internal/quest/io.ts";
 import { installTestHost } from "../../../../support/session-host.ts";
@@ -127,6 +129,33 @@ function syncCalls(but: readonly string[] = []): unknown[] {
 	];
 }
 
+/** The calls that held the thread on `dir` or anything inside it. */
+function touching(dir: string): unknown[] {
+	const inside = (path: unknown) =>
+		String(path) === dir || String(path).startsWith(`${dir}/`);
+	return [
+		...reads.mock.calls,
+		...listings.mock.calls,
+		...reals.mock.calls,
+		...stats.mock.calls,
+	].filter(([path]) => inside(path));
+}
+
+/** The listings of the quests root itself. */
+function rootListings(): unknown[] {
+	return listings.mock.calls.filter(([path]) => String(path) === root);
+}
+
+/**
+ * A quest write counted by a copy of io.ts that says nothing of where
+ * it wrote, as one loaded before this code would.
+ */
+function unplacedWrite(): void {
+	const count = globalThis as Record<symbol, number | undefined>;
+	const writes = Symbol.for("agentic-harness.quest-writes");
+	count[writes] = (count[writes] ?? 0) + 1;
+}
+
 function clearCalls(): void {
 	reads.mockClear();
 	listings.mockClear();
@@ -147,6 +176,18 @@ function otherQuest(): void {
 		join(root, OTHER, "README.md"),
 		readme("active").replaceAll(ID, OTHER),
 	);
+}
+
+/** A second quest beside the first, its folder and the root settled. */
+function settledOther(): void {
+	otherQuest();
+	settle(join(root, OTHER));
+	settle(root);
+}
+
+/** The second quest's status, as discovery answers it now. */
+function otherStatus(): string | undefined {
+	return discoverQuests(root).index.quests.get(OTHER)?.doc.frontMatter.status;
 }
 
 beforeEach(() => {
@@ -223,10 +264,14 @@ describe("discovery on a host", () => {
 		expect(statusNow()).toBe("active");
 	});
 
-	it("signs on the thread at an ask after a minute unasked", () => {
+	it("answers the last walk after a minute unasked, and signs again off the thread", async () => {
 		discoverQuests(root);
 		writeSettled(readmePath, readme("paused"));
 		later(61_000);
+		clearCalls();
+		expect(statusNow()).toBe("active");
+		expect(syncCalls([root])).toEqual([]);
+		await discoverySettled(root);
 		expect(statusNow()).toBe("paused");
 	});
 
@@ -248,7 +293,7 @@ describe("discovery on a host", () => {
 		expect(listings.mock.calls.length).toBeGreaterThan(0);
 	});
 
-	it("drops a signing begun before one on the thread that answered since", async () => {
+	it("keeps a quest read since a signing began over what that signing found", async () => {
 		discoverQuests(root);
 		openSignings = holdSignings();
 		const read = nextRead();
@@ -257,7 +302,7 @@ describe("discovery on a host", () => {
 		await read;
 		writeSettled(readmePath, readme("paused"));
 		later(1_000);
-		signQuestsNow(root);
+		refreshQuests(root, [ID]);
 		openSignings();
 		await discoverySettled(root);
 		expect(statusNow()).toBe("paused");
@@ -443,11 +488,85 @@ describe("discovery on a host", () => {
 		expect(statusNow()).toBe("paused");
 	});
 
-	it("answers the asks after a signing now as the tree stood then", () => {
+	it("reads a named quest as it stands now, and no other", () => {
+		settledOther();
 		discoverQuests(root);
 		writeSettled(readmePath, readme("paused"));
-		signQuestsNow(root);
+		clearCalls();
+		refreshQuests(root, [ID]);
 		expect(statusNow()).toBe("paused");
+		expect(touching(join(root, OTHER))).toEqual([]);
+		expect(rootListings()).toEqual([]);
+	});
+
+	it("reads only the quest it wrote to show its own write", () => {
+		settledOther();
+		discoverQuests(root);
+		clearCalls();
+		atomicWriteFile(readmePath, readme("paused"));
+		expect(statusNow()).toBe("paused");
+		expect(touching(join(root, OTHER))).toEqual([]);
+		expect(rootListings()).toEqual([]);
+	});
+
+	it("lists only the root to find a quest made elsewhere", () => {
+		discoverQuests(root);
+		clearCalls();
+		otherQuest();
+		expect(questIds()).toContain(OTHER);
+		expect(touching(join(root, ID))).toEqual([]);
+	});
+
+	it("lists only the root to drop a quest removed elsewhere", () => {
+		settledOther();
+		discoverQuests(root);
+		rmSync(join(root, OTHER), { recursive: true });
+		clearCalls();
+		expect(questIds()).toEqual([ID]);
+		expect(touching(join(root, ID))).toEqual([]);
+	});
+
+	it("signs nothing for a write outside any quest", () => {
+		discoverQuests(root);
+		const elsewhere = mkdtempSync(join(tmpdir(), "elsewhere-"));
+		try {
+			atomicWriteFile(join(elsewhere, "record.json"), "{}\n");
+			clearCalls();
+			discoverQuests(root);
+			expect(syncCalls([root])).toEqual([]);
+		} finally {
+			rmSync(elsewhere, { recursive: true, force: true });
+		}
+	});
+
+	it("signs the tree again for a write it can't place", () => {
+		discoverQuests(root);
+		writeSettled(readmePath, readme("paused"));
+		unplacedWrite();
+		expect(statusNow()).toBe("paused");
+	});
+
+	it("keeps a signing its own write overtook, and shows both", async () => {
+		settledOther();
+		discoverQuests(root);
+		openSignings = holdSignings();
+		const read = nextRead();
+		later(6_000);
+		writeSettled(
+			join(root, OTHER, "README.md"),
+			readme("paused").replaceAll(ID, OTHER),
+		);
+		discoverQuests(root);
+		await read;
+		atomicWriteFile(readmePath, readme("paused"));
+		openSignings();
+		openSignings = undefined;
+		await discoverySettled(root);
+		clearCalls();
+		expect(otherStatus(), "what the signing found").toBe("paused");
+		expect(statusNow(), "the write it overtook").toBe("paused");
+		expect(touching(join(root, OTHER))).toEqual([]);
+		expect(signing.walks, "walks of the tree").toBe(1);
 	});
 
 	it("signs afresh off the thread when asked to wait for it", async () => {
