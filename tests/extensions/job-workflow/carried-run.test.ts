@@ -9,7 +9,11 @@
 
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { CARRIED_RUN_WAIT_MS } from "../../../extensions/job-workflow/cut-off.ts";
+import {
+	CARRIED_RUN_RECHECK_MS,
+	CARRIED_RUN_WAIT_MS,
+} from "../../../extensions/job-workflow/cut-off.ts";
+import { automatedText } from "../../../lib/internal/automated.ts";
 import { installTestHost } from "../../support/session-host.ts";
 import {
 	AT,
@@ -24,6 +28,9 @@ import {
 	message,
 	TIMEOUTS,
 } from "./support/cut-off-session.ts";
+
+/** Well past the 90 s wait the 06:57 restart ran out, and short of the clock. */
+const TWELVE_MINUTES = 12 * 60_000;
 
 describe("a session whose host carried its run on", () => {
 	it("is told its run was cut off when the carried run never shows", async () => {
@@ -53,11 +60,14 @@ describe("a session whose host carried its run on", () => {
 				"s2",
 			);
 			await failed.fire("session_start", { reason: "startup" });
+			// A host without pi's runs-through-pi seam fires no run's start or
+			// settle for the carried run, so the clock reads what its log holds.
 			failed.branch.push(aborted);
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(failed.said, "a carried run that failed is no run").toHaveLength(
 				1,
 			);
+			expect(failed.said[0]).toMatch(FAILED_TEXT);
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
@@ -146,7 +156,7 @@ describe("a session whose host carried its run on", () => {
 		try {
 			const pi = activate(killedLog(), new EventEmitter());
 			await pi.fire("session_start", { reason: "startup" });
-			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS - 1);
+			await vi.advanceTimersByTimeAsync(TWELVE_MINUTES);
 			expect(pi.said, "its turn not yet come").toHaveLength(0);
 			await carriedRun(pi, interrupted, message("assistant"));
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
@@ -176,6 +186,56 @@ describe("a session whose host carried its run on", () => {
 		}
 	});
 
+	it("is told its carried run failed when it ended on a tool call or an error after one", async () => {
+		// A run that called a tool and then failed answered nothing, nor did
+		// one a second kill cut on its call.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const calling = message("assistant", { stopReason: "toolUse" });
+			const failed = activate(killedLog(), new EventEmitter());
+			await failed.fire("session_start", { reason: "startup" });
+			const result = message("toolResult");
+			await carriedRunStarts(failed, interrupted, calling, result, aborted);
+			failed.session.busy = false;
+			await failed.fire("agent_settled", {});
+
+			const cut = activate(killedLog(), new EventEmitter(), "s2");
+			await cut.fire("session_start", { reason: "startup" });
+			await carriedRun(cut, interrupted, calling);
+
+			expect(
+				[...failed.said, ...cut.said].map((said) => FAILED_TEXT.test(said)),
+				"each told its run failed",
+			).toEqual([true, true]);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("is told once it rests when it was busy with no run of its own as the wait ran out", async () => {
+		// A compaction keeps a session busy with no run started.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			pi.session.busy = true;
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(pi.said, "nothing said while it is busy").toHaveLength(0);
+			pi.session.busy = false;
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_RECHECK_MS);
+			expect(pi.said, "told once it rests").toHaveLength(1);
+			expect(pi.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(pi.said, "told once").toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
 	it("is told its carried run failed after a mesh message came in", async () => {
 		// A mesh message or a job's report is said as an extension's
 		// prompt, and no person is there to say what comes next.
@@ -184,9 +244,29 @@ describe("a session whose host carried its run on", () => {
 		try {
 			const pi = activate(killedLog(), new EventEmitter());
 			await pi.fire("session_start", { reason: "startup" });
-			await pi.fire("input", { text: "From A2VLJN", source: "extension" });
+			const said = automatedText("a peer sent a message", "From A2VLJN");
+			await pi.fire("input", { text: said, source: "extension" });
 			await carriedRun(pi, message("user"), aborted);
 			expect(pi.said).toHaveLength(1);
+			expect(pi.said[0]).toMatch(FAILED_TEXT);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
+	it("leaves a run that answered nothing to the carried run to come", async () => {
+		// A job's report posted on the return runs before the recovery, and
+		// durable admits nothing while it holds the carried run cut off.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			await carriedRun(pi, undefined, undefined);
+			expect(pi.said, "a refused run is not the carried one").toHaveLength(0);
+			await carriedRun(pi, interrupted, aborted);
+			expect(pi.said, "the carried run decides").toHaveLength(1);
 			expect(pi.said[0]).toMatch(FAILED_TEXT);
 		} finally {
 			vi.useRealTimers();
@@ -272,16 +352,27 @@ describe("a session whose host carried its run on", () => {
 			await stopped.fire("session_start", { reason: "startup" });
 			await carriedRun(stopped, aborted, undefined, { aborted: true });
 
+			// A host's person types over RPC, and the launcher's Steer comes
+			// through an extension: words without the automated header.
 			const typed = activate(killedLog(), new EventEmitter(), "s2");
 			await typed.fire("session_start", { reason: "startup" });
-			await typed.fire("input", { text: "Carry on", source: "interactive" });
+			await typed.fire("input", { text: "Carry on", source: "rpc" });
 			await carriedRun(typed, message("user"), aborted);
+
+			const steered = activate(killedLog(), new EventEmitter(), "s3");
+			await steered.fire("session_start", { reason: "startup" });
+			await steered.fire("input", { text: "Carry on", source: "extension" });
+			await carriedRun(steered, message("user"), aborted);
 
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(
-				{ stopped: stopped.said.length, typed: typed.said.length },
+				{
+					stopped: stopped.said.length,
+					typed: typed.said.length,
+					steered: steered.said.length,
+				},
 				"the person is there to say what comes next",
-			).toEqual({ stopped: 0, typed: 0 });
+			).toEqual({ stopped: 0, typed: 0, steered: 0 });
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
