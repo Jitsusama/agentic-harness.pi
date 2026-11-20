@@ -144,7 +144,7 @@ describe("the sessions parked on this machine", () => {
 	/** Every session's marker reads as one from this boot. */
 	const marked = () => true;
 
-	/** A session's marker, as parking writes it. */
+	/** A session's park marker, as parking writes it. */
 	const markerOf = (session: string): Parked => ({
 		session,
 		sessionFile: `${session}.jsonl`,

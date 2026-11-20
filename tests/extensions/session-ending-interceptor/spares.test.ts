@@ -220,7 +220,7 @@ describe("what spares, read by default", () => {
 		presence("woken", "parked");
 		presence("waiting", "listening");
 		writeParked({
-			session: "hosted",
+			session: "hosted", // its marker from this boot
 			sessionFile: "hosted.jsonl",
 			cwd: bin,
 			addresses: ["HOSTED"],
