@@ -229,6 +229,23 @@ export function flagsLost(args: readonly string[]): string[] {
 }
 
 /**
+ * Whether pi's arguments give it a prompt: words that are no flag nor a
+ * flag's value, or anything after `--`. A pi that never took its prompt
+ * can't hand its window on as though the conversation had.
+ */
+export function promptIn(args: readonly string[]): boolean {
+	for (let i = 0; i < args.length; i += 1) {
+		const arg = args[i] ?? "";
+		if (arg === "--") return i + 1 < args.length;
+		if (!arg.startsWith("-") || arg === "-") return true;
+		const [flag = "", inline] = arg.split(/[=](.*)/s, 2);
+		const valued = SESSION_FLAGS.has(flag) || CARRIED_FLAGS.has(flag);
+		if (valued && inline === undefined) i += 1;
+	}
+	return false;
+}
+
+/**
  * What a parking pi exits with, EX_TEMPFAIL, so its holder can tell a
  * park from an end and keep the window for the wake.
  */

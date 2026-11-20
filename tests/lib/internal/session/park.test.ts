@@ -27,6 +27,7 @@ import {
 	parkAfterMs,
 	parkedPath,
 	parkSwitch,
+	promptIn,
 	readParked,
 	type Stillness,
 	whyNotPark,
@@ -266,5 +267,28 @@ describe("why a session may not park now", () => {
 		expect(
 			whyNotPark({ ...still, refusals: ["peers wait on a hold it sent"] }),
 		).toBe("peers wait on a hold it sent");
+	});
+});
+
+describe("whether pi's arguments give it a prompt", () => {
+	it("is words that are no flag's value, or anything after --", () => {
+		expect(promptIn(["--session", "/logs/a.jsonl", "hello"]), "words").toBe(
+			true,
+		);
+		expect(promptIn(["--", "-hello"]), "after --").toBe(true);
+	});
+
+	it("is not a session's or a carried flag's value, nor a lone --", () => {
+		expect(
+			promptIn(["--session", "/logs/a.jsonl", "--model", "opus"]),
+			"flags and their values",
+		).toBe(false);
+		expect(
+			promptIn(["--session=/logs/a.jsonl", "--offline"]),
+			"an inline value and a bare flag",
+		).toBe(false);
+		expect(promptIn(["--session", "/logs/a.jsonl", "--"]), "a lone --").toBe(
+			false,
+		);
 	});
 });

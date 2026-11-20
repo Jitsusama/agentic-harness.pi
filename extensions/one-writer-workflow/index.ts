@@ -14,7 +14,7 @@
  * has none to share, so neither is looked up.
  */
 
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 
 import type {
 	ExtensionAPI,
@@ -32,6 +32,7 @@ import {
 	holderCommand,
 	holderFiles,
 	PARKED_EXIT,
+	promptIn,
 } from "../../lib/internal/session/park.ts";
 import {
 	type WriterLooking,
@@ -72,8 +73,9 @@ export function oneWriterWorkflow(looking: WriterLooking & OwnProcess = {}) {
  * Hand this pi's window to its host's view, as a launcher opens one on a
  * hosted conversation, and end as a park, so the holder starts the view
  * at once in the same window. Only a pi its holder runs itself, with a
- * log and no flags plain pi would drop should the view fall back to it;
- * false, having done nothing, for any other.
+ * log, no prompt and no flags plain pi would drop should the view fall
+ * back to it, on a hold its host can still run; false for any other, or
+ * when the holder's files can't be written, leaving nothing named next.
  */
 function handedOver(
 	ctx: ExtensionContext,
@@ -86,17 +88,28 @@ function handedOver(
 	const files = holderFiles(env, own.pid ?? process.pid);
 	const sessionFile = ctx.sessionManager.getSessionFile();
 	if (files === undefined || sessionFile === undefined) return false;
+	// A stranded hold's remedy is a host restart only the refusal names,
+	// and a prompt given here would be lost once the view takes over.
+	if (hold.stranded || promptIn(args)) return false;
 	if (flagsLost(args).length > 0) return false;
 	const view = viewWords(sessionId, holderCommand(sessionFile, args, env));
-	writeFileSync(files.again, JSON.stringify(view));
-	writeFileSync(
-		files.wake,
-		JSON.stringify({
-			session: sessionId,
-			view: true,
-			at: new Date().toISOString(),
-		}),
-	);
+	try {
+		writeFileSync(files.again, JSON.stringify(view));
+		writeFileSync(
+			files.wake,
+			JSON.stringify({
+				session: sessionId,
+				view: true,
+				at: new Date().toISOString(),
+			}),
+		);
+	} catch {
+		// A holder that can't be told what's next ends with its window on a
+		// refusal, which still says how to reach the conversation; the
+		// words already written go, so it starts nothing half-told.
+		forget(files.again);
+		return false;
+	}
 	ctx.ui.notify(
 		`Session ${sessionId} is the ${hold.key} host's, so this window shows it through that host.`,
 		"info",
@@ -107,6 +120,16 @@ function handedOver(
 	});
 	ctx.shutdown();
 	return true;
+}
+
+/** Remove `path` if it can be; the refusal that follows runs either way. */
+function forget(path: string): void {
+	try {
+		rmSync(path, { force: true });
+	} catch {
+		// Left as it is: nothing more can be undone here, and the refusal
+		// after still says how to reach the conversation.
+	}
 }
 
 /**
