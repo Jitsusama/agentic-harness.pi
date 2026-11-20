@@ -107,7 +107,62 @@ describe("a tree a quest holds", () => {
 		const status = await run({ action: "status", tree: join(root, "other") });
 		expect(status.content[0]?.text).toContain("No held tree called");
 	});
+
+	it("asks no holder for a fresh answer when the quick one holds it", async () => {
+		const { tree, run } = await workWithClaimAndAsks();
+		await run({ action: "status", tree });
+		expect(asks.fresh, "fresh answers asked for").toBe(0);
+	});
+
+	it("asks no holder for a fresh answer for a path that isn't there", async () => {
+		const { run } = await workWithClaimAndAsks();
+		const status = await run({ action: "status", tree: join(root, "gone") });
+		expect(status.content[0]?.text).toContain("No held tree called");
+		expect(asks.fresh, "fresh answers asked for").toBe(0);
+	});
+
+	it("stops waiting on a fresh answer when the call is stopped", async () => {
+		const stub = activateWith(workIntegration);
+		// A holder whose fresh answer never comes, as a hung disk's.
+		stub.pi.events.on(WORK_TREE_CLAIMS, (data) => {
+			(data as TreeClaims).answering?.push(new Promise(() => undefined));
+		});
+		const work = toolNamed(stub, "work");
+		const stop = new AbortController();
+		const asked = work.execute(
+			"call",
+			{ action: "status", tree: root },
+			stop.signal,
+			undefined,
+			HEADLESS,
+		);
+		stop.abort();
+		// Ended either way, rather than waiting on the holder for good.
+		const ended = () => "ended";
+		expect(await asked.then(ended, ended)).toBe("ended");
+	});
 });
+
+/** How many fresh answers a holder was asked for. */
+const asks = { fresh: 0 };
+
+/** The work tool with a claim, counting the asks that offer to wait. */
+async function workWithClaimAndAsks() {
+	asks.fresh = 0;
+	const claimed = await workWithClaim();
+	const stub = activateWith(workIntegration);
+	stub.pi.events.on(WORK_TREE_CLAIMS, (data) => {
+		const claims = data as TreeClaims;
+		claims.paths.push(claimed.tree);
+		if (claims.answering) asks.fresh += 1;
+	});
+	const work = toolNamed(stub, "work");
+	const run = (args: Record<string, unknown>) =>
+		work.execute("call", args, undefined, undefined, HEADLESS) as Promise<{
+			content: { text: string }[];
+		}>;
+	return { tree: claimed.tree, run };
+}
 
 /**
  * The work tool, with a quest claiming a tree whose checkout sits in a
