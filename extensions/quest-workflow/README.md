@@ -417,7 +417,10 @@ shipped and tested.
   `budget-sweep` does the same for every live quest with nothing
   named on or above it, from the folder its newest session ran
   in, four at a time, and says what it named, judged personal
-  and was unsure of; with `dryRun` it writes nothing.
+  and was unsure of; with `dryRun` it writes nothing. Its
+  judging is the sweeping session's classifier calls, so it
+  bills the budget that session draws on, and the answer says
+  which.
   A session on no quest draws on what its folder names, else on
   what a sure judgement of its folder and first prompt names,
   asked before that prompt's model call, and says so once. Only a

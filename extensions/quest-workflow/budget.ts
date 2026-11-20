@@ -232,6 +232,21 @@ function isSessionContext(ctx: unknown): ctx is SessionContext {
 	);
 }
 
+/**
+ * The budget a session draws on now, from its own environment: null for
+ * the person's own key. A judgement its classifier makes bills this.
+ */
+export function budgetOfSession(ctx: unknown): string | null {
+	try {
+		return budgetDrawnOn(
+			sessionEnv(isSessionContext(ctx) ? ctx : undefined).snapshot(),
+		);
+	} catch {
+		// As for the classifier's choice below: the host's is the nearest word.
+		return budgetDrawnOn(process.env);
+	}
+}
+
 /** The classifier choice a session's own environment makes, if any. */
 function classifierChoiceOf(ctx: unknown): string | undefined {
 	try {

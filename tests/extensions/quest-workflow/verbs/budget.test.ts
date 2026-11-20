@@ -675,6 +675,31 @@ describe("a quest no folder or parent names a budget for", () => {
 			);
 		});
 
+		it("says its judging bills the budget the sweeping session draws on", async () => {
+			const { run } = await unnamed();
+			process.env.PI_BUDGET = "aquifer";
+
+			const swept = succeeded(await run({ action: "budget-sweep" }));
+
+			expect(swept.message.split("\n")[1]).toBe(
+				"Its judging bills what this session draws on: budget aquifer.",
+			);
+			expect(swept.details?.judgingBills).toBe("aquifer");
+		});
+
+		it("says its judging bills the person's own key when the session draws on none", async () => {
+			const { run } = await unnamed();
+
+			const swept = succeeded(
+				await run({ action: "budget-sweep", dryRun: true }),
+			);
+
+			expect(swept.message).toContain(
+				"Its judging bills what this session draws on: the person's own key.",
+			);
+			expect(swept.details?.judgingBills).toBeNull();
+		});
+
 		it("writes nothing on a dry run, saying what it would name", async () => {
 			const { state, run, walgit, vague } = await unnamed();
 
