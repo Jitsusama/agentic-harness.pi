@@ -6,10 +6,12 @@
 import { execFile } from "node:child_process";
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,6 +31,10 @@ it("sweeps once outside any host, standing the hosts' sweeps down and logging th
 	const home = mkdtempSync(join(tmpdir(), "pi-sweep-"));
 	made.push(home);
 	const work = join(home, "state", "pi", "agentic-harness.pi", "work");
+	// A sweep that has only just ended, which a host's sweep rests after
+	// and the timer's run, spaced by its timer, never does.
+	mkdirSync(work, { recursive: true });
+	writeFileSync(join(work, "sweep.lock.ended"), "");
 
 	await run(
 		process.execPath,
@@ -54,7 +60,10 @@ it("sweeps once outside any host, standing the hosts' sweeps down and logging th
 		.trim()
 		.split("\n")
 		.map((line) => JSON.parse(line) as Record<string, unknown>);
-	expect(lines, "one line for its one sweep").toHaveLength(1);
+	expect(
+		lines,
+		"one line for its one sweep, run though one just ended",
+	).toHaveLength(1);
 	expect(lines[0], "a sweep that ran, rather than failed or rested").toEqual(
 		expect.objectContaining({ taken: [], refused: [] }),
 	);
