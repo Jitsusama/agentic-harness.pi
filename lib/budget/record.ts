@@ -108,6 +108,13 @@ export interface BudgetRecord {
 	 * session drew what was named, or nothing was named.
 	 */
 	readonly unresolved?: UnresolvedBudget;
+	/**
+	 * Why the session draws on `name` rather than what its quest names,
+	 * when something other than the quest chose it: the person's own
+	 * key refused for its cap, which moves the session onto the budget
+	 * named for that (lib/budget/capped.ts).
+	 */
+	readonly because?: string;
 }
 
 /** A budget named but not drawn on, and what was missing. */
@@ -173,6 +180,7 @@ export function recordIn(data: unknown): BudgetRecord | undefined {
 		...(typeof data.label === "string" ? { label: data.label } : {}),
 		...(typeof data.provider === "string" ? { provider: data.provider } : {}),
 		...(unresolved ? { unresolved } : {}),
+		...(typeof data.because === "string" ? { because: data.because } : {}),
 	};
 }
 
