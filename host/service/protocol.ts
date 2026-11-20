@@ -133,6 +133,9 @@ const drained = z.strictObject({
 /** A hosted conversation as open, adopt and list report it. */
 export type SessionIdentity = z.infer<typeof identity>;
 
+/** What a host's identity and a conversation's look like, for what a child says. */
+export const identities = { host: expectedHost, conversation: identity };
+
 function result<T>(schema: z.ZodType<T>, value: unknown): T {
 	const parsed = schema.safeParse(value);
 	if (!parsed.success) throw new Error("Invalid host control result");

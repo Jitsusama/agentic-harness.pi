@@ -1,0 +1,253 @@
+/**
+ * The host as its children's supervisor: it starts a child for a
+ * conversation, watches what the child says of it, routes to it while
+ * it runs, and takes its children up again when the host itself starts.
+ *
+ * A child is started into a slot (child-units.ts) and listens on the
+ * slot's socket some seconds later, once its extensions have loaded. A
+ * resumed conversation is named in the slot, so the child takes it up
+ * by itself; a new one is asked of the child as its first request, an
+ * open or an adopt, whose answer names the conversation. Either way the
+ * host then watches the child, holds a route to it from the child's
+ * first answer, moves the route when the conversation becomes another,
+ * and lets the route and the slot go when the child says it ends.
+ *
+ * A host stopping stops watching and leaves its children running, since
+ * each is a unit of its own; the next host finds them by their slots and
+ * watches them again, and clears a slot whose unit has gone.
+ */
+import { randomUUID } from "node:crypto";
+import { sessionAddress } from "../../lib/mesh/address.ts";
+import { askOnce, reach } from "./child-requests.ts";
+import {
+	clearSlot,
+	type Slot,
+	slotOf,
+	slotsIn,
+	type Units,
+	writeSlot,
+} from "./child-units.ts";
+import {
+	type ChildEnding,
+	type ChildWatch,
+	watchChild,
+} from "./child-watch.ts";
+import type { HeldChildren } from "./children.ts";
+import type { ControlReply } from "./dispatch.ts";
+import type { ControlRequest, SessionIdentity } from "./protocol.ts";
+
+/**
+ * How long a child may take to listen once its unit starts: one with
+ * every extension took 8 to 13 s on 19 November, on a loaded machine.
+ */
+export const LISTENS_WITHIN_MS = 60_000;
+/** How often a starting child's socket is tried until it listens. */
+const TRIED_EVERY_MS = 100;
+
+/** A request that starts a conversation, as a child takes it first. */
+export type Beginning = Extract<ControlRequest, { op: "open" | "adopt" }>;
+
+/** The host's children, as the host asks for them. */
+export interface ChildSupervisor {
+	/**
+	 * Run a held conversation in a child of its own, settling once the
+	 * child has it, or with the one already running it.
+	 */
+	resume(sessionId: string): Promise<SessionIdentity>;
+	/**
+	 * Start a conversation in a child of its own, settling with the
+	 * child's answer to `request` as the caller is told it.
+	 */
+	begin(request: Beginning): Promise<ControlReply>;
+	/**
+	 * Watch every child an earlier host left running, and clear each
+	 * slot whose unit has gone; settles with how many it took up.
+	 */
+	adopt(): Promise<number>;
+	/** Stop watching every child, leaving each running. */
+	close(): void;
+}
+
+/** A child's refusal of the conversation it was asked to start. */
+class RefusedBeginning extends Error {
+	constructor(readonly reply: ControlReply) {
+		super("The child refused its first request");
+	}
+}
+
+/** Whether an error says nothing listens at a socket yet. */
+function notListening(error: unknown): boolean {
+	const code = error instanceof Error ? Reflect.get(error, "code") : undefined;
+	return code === "ENOENT" || code === "ECONNREFUSED";
+}
+
+function pause(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Try `attempt` until the child at its socket listens, or the time runs out. */
+async function once<T>(
+	attempt: () => Promise<T>,
+	withinMs: number,
+): Promise<T> {
+	const until = Date.now() + withinMs;
+	for (;;) {
+		try {
+			return await attempt();
+		} catch (error) {
+			if (!notListening(error) || Date.now() >= until) throw error;
+		}
+		await pause(TRIED_EVERY_MS);
+	}
+}
+
+/** Supervise the children of the host keyed `key`, whose slots are in `folder`. */
+export function childSupervisor(options: {
+	key: string;
+	folder: string;
+	units: Units;
+	routes: HeldChildren;
+	report: (error: unknown) => void;
+	/** Writes a line to the host's journal, as each child ends. */
+	say?: (line: string) => void;
+	/** A child's conversation ended, as it said, its route already gone. */
+	ended?: (sessionId: string, why: ChildEnding) => void;
+	listensWithinMs?: number;
+}): ChildSupervisor {
+	const { routes, units } = options;
+	const withinMs = options.listensWithinMs ?? LISTENS_WITHIN_MS;
+	const watches = new Set<ChildWatch>();
+	// Each conversation a child is starting for, so two asks start one.
+	const starting = new Map<string, Promise<SessionIdentity>>();
+
+	/** Watch the child in `slot`, holding its route from its first answer. */
+	async function watch(slot: Slot): Promise<ChildWatch> {
+		let current: string | undefined;
+		let over = false;
+		const watching = await once(
+			() =>
+				watchChild(slot.socket, {
+					watched({ host, conversation }) {
+						current = conversation.sessionId;
+						routes.hold(conversation, { socket: slot.socket, identity: host });
+					},
+					state: (conversation) => routes.update(conversation),
+					became(previousId, conversation) {
+						const was = routes.routeOf(previousId);
+						routes.drop(previousId);
+						current = conversation.sessionId;
+						if (was) routes.hold(conversation, was);
+					},
+					ended(why) {
+						over = true;
+						if (current) routes.drop(current);
+						clearSlot(slot).catch(options.report);
+						if (!current) return;
+						options.say?.(
+							`${sessionAddress(current)} (${current}): its process ended, ${why}`,
+						);
+						options.ended?.(current, why);
+					},
+				}),
+			withinMs,
+		);
+		// One that ended as it answered is watched no longer.
+		if (!over) {
+			watches.add(watching);
+			void closedOn(watching);
+		}
+		return watching;
+	}
+	/** Forget a watch once its child has ended. */
+	async function closedOn(watching: ChildWatch) {
+		await watching.closed;
+		watches.delete(watching);
+	}
+
+	/**
+	 * Start the child in `slot` and settle with what `work` makes of it;
+	 * a child that never gets that far is stopped, and its slot cleared,
+	 * so no conversation runs where nothing watches it.
+	 */
+	async function inSlot<T>(
+		slot: Slot,
+		session: string | undefined,
+		work: () => Promise<T>,
+	): Promise<T> {
+		await writeSlot(slot, session);
+		try {
+			await units.start(slot.unit);
+			return await work();
+		} catch (error) {
+			await units.stop(slot.unit).catch(options.report);
+			await clearSlot(slot).catch(options.report);
+			throw error;
+		}
+	}
+
+	function started(sessionId: string): Promise<SessionIdentity> {
+		const slot = slotOf(options.folder, options.key, sessionId);
+		return inSlot(slot, sessionId, async () => (await watch(slot)).conversation);
+	}
+
+	return {
+		resume(sessionId) {
+			const running = routes
+				.listed()
+				.find((held) => held.sessionId === sessionId);
+			if (running) return Promise.resolve(running);
+			const already = starting.get(sessionId);
+			if (already) return already;
+			const start = started(sessionId).finally(() =>
+				starting.delete(sessionId),
+			);
+			starting.set(sessionId, start);
+			return start;
+		},
+		begin(request) {
+			const slot = slotOf(options.folder, options.key, randomUUID());
+			// The caller named this host, which checked it; the child has no
+			// identity the caller could know yet.
+			const { expectedHost: _checked, ...asked } = request;
+			return inSlot(slot, undefined, async () => {
+				const child = await once(() => reach(slot.socket), withinMs);
+				const reply = await askOnce(
+					child,
+					`${JSON.stringify(asked)}\n`,
+					request.id,
+					options.report,
+				);
+				// A child that couldn't start its conversation is stopped.
+				if (!reply.ok) throw new RefusedBeginning(reply);
+				await watch(slot);
+				return reply;
+			}).catch((error) => {
+				if (error instanceof RefusedBeginning) return error.reply;
+				throw error;
+			});
+		},
+		async adopt() {
+			const slots = await slotsIn(options.folder, options.key);
+			const taken = await Promise.allSettled(
+				slots.map(async (slot) => {
+					if (!(await units.active(slot.unit))) {
+						await clearSlot(slot);
+						return false;
+					}
+					await watch(slot);
+					return true;
+				}),
+			);
+			let count = 0;
+			for (const outcome of taken) {
+				if (outcome.status === "rejected") options.report(outcome.reason);
+				else if (outcome.value) count += 1;
+			}
+			return count;
+		},
+		close() {
+			for (const watching of watches) watching.close();
+			watches.clear();
+		},
+	};
+}
