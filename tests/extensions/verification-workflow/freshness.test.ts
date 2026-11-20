@@ -765,9 +765,10 @@ describe("the verify tool", () => {
 		const run = new AbortController();
 
 		const stopping = h.verify.execute("call", { path: repo }, run.signal);
-		await vi.waitFor(() => expect(existsSync(started)).toBe(true), {
-			timeout: 10_000,
-		});
+		await vi.waitFor(
+			() => expect(existsSync(started), "the check started").toBe(true),
+			{ timeout: 10_000 },
+		);
 		run.abort();
 		const result = await stopping;
 
