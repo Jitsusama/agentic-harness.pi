@@ -186,9 +186,7 @@ describe("the code a folder's .pi holds", () => {
 			JSON.stringify({ extensions: ["../ext/{a,b}.ts"] }),
 		);
 		const code = projectCode(folder);
-		expect(code?.complete, "a brace may name a file it never read").toBe(
-			false,
-		);
+		expect(code?.complete, "a brace may name a file it never read").toBe(false);
 		expect(code?.unchecked).toContain("a pattern it can't follow");
 	});
 
@@ -345,9 +343,7 @@ describe("whether a folder's code may load", () => {
 		const code = projectCode(folder);
 		if (!code) throw new Error("the folder should hold code");
 		pin(folder, agentDir, code);
-		expect(existsSync(`${file}.damaged`), "set aside as damaged").toBe(
-			false,
-		);
+		expect(existsSync(`${file}.damaged`), "set aside as damaged").toBe(false);
 		expect(codeStanding(folder, agentDir).kind).toBe("unpinned");
 	});
 
