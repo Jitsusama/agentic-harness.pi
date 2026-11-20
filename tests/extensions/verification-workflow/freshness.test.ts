@@ -14,7 +14,9 @@ import {
 	mkdtempSync,
 	readFileSync,
 	realpathSync,
+	renameSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -714,42 +716,78 @@ describe("the verify tool", () => {
 		expect(h.statuses.at(-1), "no longer failing").toBeUndefined();
 	});
 
-	it("keeps a failure whose repository git didn't name, holding back no commit", async () => {
-		repo = await projectRepo();
-		// Only git's own fatal exit and line say outside git.
-		const answers = [
-			"exit 1",
-			"echo 'fatal: not a git repository' >&2; exit 1",
-			"echo 'fatal: detected dubious ownership in repository' >&2; exit 128",
+	it("holds back a commit on a failure git gave no fingerprint for, until an edit", async () => {
+		// A git that won't answer, such as a status past what is kept,
+		// leaves nothing to tell when the tree changed, so an edit must.
+		const answers: [string, string][] = [
+			["exit 1", " --show-toplevel "],
+			["echo 'fatal: not a git repository' >&2; exit 1", " --show-toplevel "],
+			[
+				"echo 'fatal: detected dubious ownership in repository' >&2; exit 128",
+				" --show-toplevel ",
+			],
+			["exit 1", " status "],
 		];
-		for (const answer of answers) {
+		for (const [answer, only] of answers) {
+			repo = await projectRepo();
 			const h = await harness();
 			h.questVerify = "exit 1";
-			gitThat(answer, " --show-toplevel ");
+			gitThat(answer, only);
 
 			const result = await h.verify.execute("call", { path: repo }, undefined);
 
-			expect(result.content[0]?.text, answer).toContain("holds back no commit");
+			const said = `${answer} to${only}`;
+			expect(result.content[0]?.text, said).not.toContain("holds back no");
 			const held = await currentVerificationFailure({ dir: repo });
-			expect(held, answer).toBeUndefined();
-			expect(h.statuses.at(-1), `still said failing: ${answer}`).toBeDefined();
+			expect(held?.problems[0], said).toContain("exit 1 failed in");
+			await edit(h, join(repo, "package.json"));
+			expect(
+				await currentVerificationFailure({ dir: repo }),
+				said,
+			).toBeUndefined();
+			disposeRepo(repo);
 		}
 	});
 
-	it("holds back a commit on a failed run the guard refuses git for, until an edit", async () => {
+	it("holds back a commit where the guard refuses git, running none, until an edit", async () => {
 		repo = await projectRepo();
+		// The guard refuses a tree whose .git is a link, whatever its rules,
+		// as a sandboxed command could have pointed it anywhere.
+		const moved = join(root, "moved.git");
+		renameSync(join(repo, ".git"), moved);
+		symlinkSync(moved, join(repo, ".git"));
+		const gits = join(root, "gits");
+		countingGit(gits, " ");
 		const h = await harness();
 		h.questVerify = "exit 1";
-		// As the guard answers every ask in a submodule, say.
-		gitThat("echo 'refused: no repository it guards' >&2; exit 126", "");
 
-		await h.verify.execute("call", { path: repo }, undefined);
+		const result = await h.verify.execute("call", { path: repo }, undefined);
+
+		expect(counted(gits), "git never ran").toBe(0);
+		expect(result.content[0]?.text).not.toContain("holds back no");
 		const held = await currentVerificationFailure({ dir: repo });
 		expect(held?.problems[0]).toContain("exit 1 failed in");
-
 		await edit(h, join(repo, "package.json"));
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 	});
+
+	it("keeps no failure of a check stopped before it ended", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const started = join(root, "started");
+		h.questVerify = `: > ${shQuoted(started)}; sleep 30`;
+		const run = new AbortController();
+
+		const stopping = h.verify.execute("call", { path: repo }, run.signal);
+		await vi.waitFor(() => expect(existsSync(started)).toBe(true), {
+			timeout: 10_000,
+		});
+		run.abort();
+		const result = await stopping;
+
+		expect(result.content[0]?.text).toContain("stopped before it ended");
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+	}, 20_000);
 
 	it("keeps a failed run while git won't say what it sits on", async () => {
 		repo = await projectRepo();
