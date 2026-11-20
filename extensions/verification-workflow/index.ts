@@ -49,7 +49,7 @@ import { expandable } from "../../lib/ui/expandable.ts";
 import { footerMark } from "../../lib/ui/footer-mark.ts";
 import { checkRunVerdict } from "../../lib/verification/check-run.ts";
 import { fastLayerVerdict } from "../../lib/verification/verdict.ts";
-import { currentFailure, settle } from "./current.ts";
+import { commitCheck, type Judged, settle } from "./current.ts";
 import { collectErrors, rememberChecked } from "./diagnostics.ts";
 import {
 	isVerificationReport,
@@ -61,6 +61,7 @@ import {
 	createVerificationState,
 	errorSetKey,
 	FAST_LAYER_WALL_MS,
+	type FailedRun,
 	MAX_FIX_ATTEMPTS,
 	type VerificationState,
 } from "./state.ts";
@@ -81,6 +82,16 @@ function isTheWork(path: string): boolean {
 export default function verificationWorkflow(pi: ExtensionAPI) {
 	const state = createVerificationState();
 	let ctxRef: ExtensionContext | null = null;
+	// How many verify runs have said how a project stands, which said so
+	// last of each, and which run each record holds, so a failure is
+	// recorded only if no later run of its project said otherwise, no
+	// later failure holds the one record, and no edit landed in its
+	// project from the run's start until it was recorded.
+	let verdicts = 0;
+	const latest = new Map<string, number>();
+	const runOf = new WeakMap<FailedRun, number>();
+	// The paths edited while each verify runs and is recorded.
+	const watchingEdits = new Set<string[]>();
 
 	pi.registerMessageRenderer<VerificationReport>(
 		VERIFICATION_MESSAGE,
@@ -102,8 +113,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 	// Answer the commit guardian's question freshly each time it asks.
 	const check: VerificationCheck = async (scope) => {
 		const backend = ctxRef ? resolveLspBackend(ctxRef) : undefined;
-		const failure = await currentFailure(state, scope, backend);
-		if (state.outcome === "failing" || failure) state.outcome = settle(state);
+		const failure = await commitCheck(state, scope, backend);
 		if (ctxRef) refreshStatus(ctxRef, state);
 		return failure;
 	};
@@ -133,6 +143,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		const absolute = isAbsolute(path) ? path : resolve(ctx.cwd, path);
 		state.touched.add(absolute);
 		state.lastEdited = absolute;
+		for (const edited of watchingEdits) edited.push(absolute);
 		// An edit under a failed run's project means the run judged a
 		// tree that no longer exists.
 		if (state.failedRun && within(state.failedRun.root, absolute)) {
@@ -244,7 +255,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 				// When the server errored for a touched file, "no errors" is
 				// not "checked clean", so it reads deferred unless something
 				// else is known to be failing.
-				const settled = settle(state);
+				const settled = await settle(state, undefined, run);
 				state.outcome = failed && settled === "clean" ? "deferred" : settled;
 			}
 			refreshStatus(ctx, state);
@@ -288,47 +299,92 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			const questVerify =
 				getLastEntry<{ verify?: string | null }>(ctx, "quest-workflow")
 					?.verify ?? undefined;
-			const result = await runVerify({
-				cwd: dir,
-				...(questVerify ? { questVerify } : {}),
-				...(signal ? { signal } : {}),
-			});
-			const verdict = checkRunVerdict(result);
-			if (verdict.outcome === "failing" && result.command) {
-				const fingerprint = treeFingerprint(root);
-				state.failedRun = {
-					root,
-					command: result.command,
-					...(fingerprint ? { fingerprint } : {}),
+			// Edits from the run's start on: the check may have read the tree
+			// before one landed, so what git sees after says nothing of it.
+			const edited: string[] = [];
+			watchingEdits.add(edited);
+			try {
+				const result = await runVerify({
+					cwd: dir,
+					...(questVerify ? { questVerify } : {}),
+					...(signal ? { signal } : {}),
+				});
+				const verdict = checkRunVerdict(result);
+				// A check stopped before it ended failed by being stopped.
+				const stopped = signal?.aborted === true;
+				// One that checked nothing says nothing of the project.
+				const mine =
+					verdict.outcome === "deferred" || stopped ? undefined : ++verdicts;
+				if (mine !== undefined) latest.set(root, mine);
+				// The run this call recorded, already as git sees it now.
+				let recorded: Judged | undefined;
+				// Why a failed run wasn't recorded, for verify's answer to say.
+				let unkept: string | undefined;
+				if (verdict.outcome === "failing" && stopped) {
+					unkept = "it was stopped before it ended";
+				} else if (
+					verdict.outcome === "failing" &&
+					result.command &&
+					mine !== undefined
+				) {
+					// Not stopped by this call's signal: an Escape after the run
+					// leaves its failure as true as it was. With no fingerprint,
+					// such as where git won't answer, it holds back commits until
+					// an edit, so a tree too wide to list never turns the gate off.
+					const fingerprint = await treeFingerprint(root);
+					// A run of the project that ended while git answered, or an
+					// edit there since the run began, says more of the tree now; a
+					// failure still recorded that ended later holds the record, as
+					// the last to end does.
+					const holder = state.failedRun && runOf.get(state.failedRun);
+					unkept = whyUnkept({
+						later: latest.get(root) !== mine,
+						edited: edited.some((p) => within(root, p)),
+						outranked: holder !== undefined && holder > mine,
+					});
+					if (unkept === undefined) {
+						const run: FailedRun = {
+							root,
+							command: result.command,
+							...(fingerprint === undefined ? {} : { fingerprint }),
+						};
+						runOf.set(run, mine);
+						state.failedRun = run;
+						recorded = { run, standing: "same" };
+					}
+				} else if (
+					verdict.outcome === "clean" &&
+					state.failedRun?.root === root
+				) {
+					state.failedRun = undefined;
+				}
+				watchingEdits.delete(edited);
+				// A check that could not start leaves what else is known as it
+				// was; with nothing else known it says nothing was checked.
+				const settled = await settle(state, recorded, signal);
+				state.outcome =
+					verdict.outcome === "deferred" && settled === "clean"
+						? "deferred"
+						: settled;
+				if (ctxRef) refreshStatus(ctxRef, state);
+				const said =
+					verdict.outcome === "deferred"
+						? `Checked nothing in ${root}: ${verdict.reason}. This says ` +
+							`nothing about the code.\n\n${result.output}`
+						: `In ${root}:\n${result.output}${unheld(unkept)}`;
+				return {
+					content: [{ type: "text", text: said }],
+					details: {
+						ok: result.ok,
+						outcome: verdict.outcome,
+						dir: root,
+						...(result.command ? { command: result.command } : {}),
+					},
 				};
-			} else if (
-				verdict.outcome === "clean" &&
-				state.failedRun?.root === root
-			) {
-				state.failedRun = undefined;
+			} finally {
+				// However the run ends, its edits stop being gathered.
+				watchingEdits.delete(edited);
 			}
-			// A check that could not start leaves what else is known as it
-			// was; with nothing else known it says nothing was checked.
-			const settled = settle(state);
-			state.outcome =
-				verdict.outcome === "deferred" && settled === "clean"
-					? "deferred"
-					: settled;
-			if (ctxRef) refreshStatus(ctxRef, state);
-			const said =
-				verdict.outcome === "deferred"
-					? `Checked nothing in ${root}: ${verdict.reason}. This says ` +
-						`nothing about the code.\n\n${result.output}`
-					: `In ${root}:\n${result.output}`;
-			return {
-				content: [{ type: "text", text: said }],
-				details: {
-					ok: result.ok,
-					outcome: verdict.outcome,
-					dir: root,
-					...(result.command ? { command: result.command } : {}),
-				},
-			};
 		},
 	});
 }
@@ -338,6 +394,34 @@ interface VerifyDetails {
 	readonly outcome: "clean" | "failing" | "deferred";
 	readonly dir: string;
 	readonly command?: string;
+}
+
+/**
+ * Why a failed run is left unrecorded: a `later` run of its project has
+ * the say, an edit there landed before it was recorded (`edited`), or a failure
+ * elsewhere that ended later `outranked` it. Nothing when it is kept.
+ */
+function whyUnkept(meanwhile: {
+	readonly later: boolean;
+	readonly edited: boolean;
+	readonly outranked: boolean;
+}): string | undefined {
+	if (meanwhile.later) return "a later run of this project has the say";
+	if (meanwhile.edited)
+		return "an edit landed in this project before it could be recorded";
+	if (meanwhile.outranked)
+		return "a failure in another project that ended later holds the record";
+	return undefined;
+}
+
+/**
+ * What a failure left `unkept` for a reason adds to verify's answer: it
+ * holds back no commit, which the person would otherwise learn only from
+ * the commit going through.
+ */
+function unheld(unkept: string | undefined): string {
+	if (unkept === undefined) return "";
+	return `\n\nThis failure isn't kept, so it holds back no commit itself: ${unkept}.`;
 }
 
 /**

@@ -82,8 +82,36 @@ never read from an earlier pass:
 - A failed verify run counts while its tree is the one it
   judged: the same HEAD, and the same size and modification
   time on every changed file. Staging moves no file, so it does
-  not count as a change. Outside git, an edit under its project
-  retires it instead.
+  not count as a change. Git is asked in its own untranslated
+  words, off the thread: each question within five seconds and a
+  status within a mebibyte. A check asks a few, so it can wait
+  several times that, and longer on a git that holds its output
+  open until it ends.
+  - With no fingerprint, it holds back commits until an edit
+    under its project: outside git, where the guard refuses git
+    (a submodule, say), and where git gives no answer (its clock
+    ended it, its status ran past a mebibyte, or it failed to
+    say what the tree sits on for any reason but there being no
+    commit yet). So a tree changed too widely to list still
+    holds back commits, as it did before git ran off the thread.
+  - A check stopped before it ended is not kept, and verify's
+    answer says so.
+  - At a commit, a run git fingerprinted that git can't answer
+    for now lets the commit through, since nothing confirms it,
+    and stays recorded for the next ask. So does a run above the
+    commit's folder when git names no repository for it, since
+    that run may be another repository's.
+  - A check that verify runs keep overtaking asks git three
+    times, then holds the commit on the newest run as it was
+    recorded, in scope, and says it failed while the commit was
+    checked.
+  - A project the disk says is gone retires it, however it was
+    recorded; one out of reach for now doesn't.
+  - Of two failed runs ending close together, in any projects,
+    the one that ended last is kept. A failure is not kept when a
+    later run of its project ended first, or an edit landed in
+    its project between the run's start and its record, and
+    verify's answer says why.
 
 It used to publish a flag that only the end of a turn refreshed,
 and a verify run in the wrong directory could set it, so a commit

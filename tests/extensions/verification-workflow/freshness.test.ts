@@ -1,8 +1,29 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+/**
+ * A failed verify run and the commits it holds back, driven through the
+ * verify tool and a commit's check with git stubbed on PATH.
+ *
+ * Long because every case drives the one extension through the same
+ * harness, repositories and git stubs, which a split would copy into
+ * each part.
+ */
+import { execFileSync } from "node:child_process";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import verificationWorkflow from "../../../extensions/verification-workflow/index.ts";
+import { present } from "../../../extensions/verification-workflow/tree.ts";
 import {
 	clearLspBackends,
 	type Diagnostic,
@@ -13,7 +34,11 @@ import {
 	currentVerificationFailure,
 	provideVerificationCheck,
 } from "../../../lib/internal/verification/signal.ts";
-import { disposeRepo, freshRepo } from "../../support/git-fixture.ts";
+import {
+	disposeRepo,
+	freshRepo,
+	REAL_GIT_MS,
+} from "../../support/git-fixture.ts";
 import { endTurn } from "../../support/turn-end.ts";
 
 /**
@@ -162,6 +187,161 @@ function serve(asked: string[], answer: (path: string) => boolean): void {
 
 let root: string;
 let repo: string | undefined;
+let path: string | undefined;
+
+/** How long the slow git takes to answer, in seconds. */
+const GIT_TAKES_S = 0.5;
+/** How often a test's timer ticks while git answers. */
+const TICK_MS = 20;
+
+/** `text` quoted for sh, whatever it holds. */
+function shQuoted(text: string): string {
+	return `'${text.replaceAll("'", "'\\''")}'`;
+}
+
+/** The file a slowed git touches once it starts waiting. */
+function gitWaiting(): string {
+	return join(root, "git-waiting");
+}
+
+/** The file a held git waits on before it answers. */
+function gitReleased(): string {
+	return join(root, "git-released");
+}
+
+/** The real git, found before any test puts one of its own first. */
+const REAL_GIT = execFileSync("sh", ["-c", "command -v git"], {
+	encoding: "utf8",
+}).trim();
+
+/**
+ * Put a git first on PATH that does `then` when its arguments hold
+ * `only`, and runs the real one at once otherwise.
+ */
+function gitThat(then: string, only: string): void {
+	const real = REAL_GIT;
+	const bin = join(root, "bin");
+	mkdirSync(bin, { recursive: true });
+	const git = join(bin, "git");
+	writeFileSync(
+		git,
+		`#!/bin/sh\ncase " $* " in *${shQuoted(only)}*) ${then} ;; esac\n` +
+			`exec ${shQuoted(real)} "$@"\n`,
+	);
+	chmodSync(git, 0o755);
+	path ??= process.env.PATH;
+	process.env.PATH = `${bin}:${path ?? ""}`;
+}
+
+/**
+ * A git that waits `seconds` when its arguments hold `only`, saying so
+ * in `gitWaiting()` first.
+ */
+function slowGit(seconds: number, only: string): void {
+	gitThat(`: > ${shQuoted(gitWaiting())}; sleep ${seconds}`, only);
+}
+
+/** A git that fails whenever its arguments hold `only`. */
+function failingGit(only: string): void {
+	gitThat("exit 1", only);
+}
+
+/**
+ * A git that, when its arguments hold `only`, says so in `gitWaiting()`
+ * and waits for `gitReleased()` before answering.
+ */
+function heldGit(only: string, except?: string): void {
+	const waiting = shQuoted(gitWaiting());
+	const released = shQuoted(gitReleased());
+	const hold = `: > ${waiting}; while [ ! -e ${released} ]; do sleep 0.05; done`;
+	const there = except === undefined ? "" : shQuoted(realpathSync(except));
+	gitThat(
+		except === undefined
+			? hold
+			: `case "$(pwd -P)" in ${there}) ;; *) ${hold} ;; esac`,
+		only,
+	);
+}
+
+/** A git that counts in `file` each time its arguments hold `only`. */
+function countingGit(file: string, only: string): void {
+	gitThat(`echo >> ${shQuoted(file)}`, only);
+}
+
+/** How many times a counting git wrote to `file`. */
+function counted(file: string): number {
+	return existsSync(file) ? readFileSync(file, "utf8").length : 0;
+}
+
+/**
+ * Start a failing verify of the repository, and once it waits on git
+ * for its fingerprint, end a verify in `other` with each of `thens`,
+ * one after another, or with none, make the edit `meanwhile` does.
+ */
+async function verifyEndsMeanwhile(
+	h: Harness,
+	other: string,
+	...thens: (string | (() => Promise<void>))[]
+): Promise<Verified> {
+	// Another project's git answers at once, so the repository's ends last.
+	heldGit(" status ", other === repo ? undefined : other);
+	h.questVerify = "exit 1";
+	const failing = h.verify.execute("call", { path: repo }, undefined);
+	// A shell and the stub's gits start first, slowly on a loaded machine.
+	await vi.waitFor(
+		() => expect(existsSync(gitWaiting()), "git asked").toBe(true),
+		{ timeout: REAL_GIT_MS },
+	);
+	for (const then of thens) {
+		if (typeof then !== "string") {
+			await then();
+			continue;
+		}
+		h.questVerify = then;
+		await h.verify.execute("call", { path: other }, undefined);
+	}
+	// Only now may the first verify's git answer, so the other has ended.
+	writeFileSync(gitReleased(), "");
+	return await failing;
+}
+
+/** What the verify tool answers. */
+type Verified = Awaited<ReturnType<VerifyTool["execute"]>>;
+
+/** A fresh repository holding a project. */
+async function projectRepo(): Promise<string> {
+	const made = await freshRepo("verify-fresh");
+	writeFileSync(join(made, "package.json"), '{"name":"fixture"}\n');
+	return made;
+}
+
+/**
+ * Hold back a commit on a failed run while the git whose arguments hold
+ * `only` takes its time, and show timers ran meanwhile.
+ */
+async function freeWhileGitAnswers(only: string): Promise<void> {
+	repo = await freshRepo("verify-slow");
+	writeFileSync(join(repo, "package.json"), '{"name":"fixture"}\n');
+	const h = await harness();
+	h.questVerify = "exit 1";
+	await h.verify.execute("call", { path: repo }, undefined);
+	slowGit(GIT_TAKES_S, only);
+
+	let ticks = 0;
+	const ticking = setInterval(() => {
+		ticks += 1;
+	}, TICK_MS);
+	try {
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	} finally {
+		clearInterval(ticking);
+	}
+
+	// The slowed git takes half a second, so a free thread ticks many
+	// times; one held by it ticks at most once, after it lets go.
+	expect(ticks, "timers ran while git answered").toBeGreaterThan(5);
+}
 
 /** A project directory with a package.json, outside any repository. */
 function project(name: string): string {
@@ -176,6 +356,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	if (path !== undefined) process.env.PATH = path;
+	path = undefined;
 	clearLspBackends();
 	provideVerificationCheck(undefined);
 	disposeRepo(repo);
@@ -360,6 +542,298 @@ describe("the verify tool", () => {
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 	});
 
+	// Each git a commit's check asks is slowed in turn, so any one of them
+	// held on the thread would stop the timer for the whole delay.
+	it("leaves the thread free while a commit's check asks git what changed", async () => {
+		await freeWhileGitAnswers(" status ");
+	}, 20_000);
+
+	it("leaves the thread free while a commit's check asks git for its commit", async () => {
+		await freeWhileGitAnswers(" HEAD^{tree} ");
+	}, 20_000);
+
+	it("leaves the thread free while a commit's check asks git for its repository", async () => {
+		await freeWhileGitAnswers(" --show-toplevel ");
+	}, 20_000);
+
+	it("records no failure a later verify of its project answered for meanwhile", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+
+		await verifyEndsMeanwhile(h, repo, "true");
+
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		// Not even kept unknown: only the footer tells the two apart.
+		expect(h.statuses.at(-1), "nothing left failing").toBeUndefined();
+	}, 20_000);
+
+	it("keeps the failure of another project that ended meanwhile, as the last to end", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const other = project("other");
+
+		const first = await verifyEndsMeanwhile(h, other, "exit 1");
+
+		const held = await currentVerificationFailure({ dir: other });
+		expect(held?.problems[0]).toContain(`exit 1 failed in ${other}`);
+		expect(first.content[0]?.text).toContain("holds the record");
+	}, 20_000);
+
+	it("records no failure an edit of its project answered for meanwhile", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const fixed = join(repo, "package.json");
+
+		const first = await verifyEndsMeanwhile(h, repo, () => edit(h, fixed));
+
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		expect(h.statuses.at(-1), "nothing left failing").toBeUndefined();
+		expect(first.content[0]?.text).toContain("an edit landed");
+	}, 20_000);
+
+	it("records no failure an edit of its project answered for as it ran", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const started = shQuoted(join(root, "check-started"));
+		const go = join(root, "check-go");
+		const waits = `while [ ! -e ${shQuoted(go)} ]; do sleep 0.05; done`;
+		h.questVerify = `: > ${started}; ${waits}; exit 1`;
+		const failing = h.verify.execute("call", { path: repo }, undefined);
+		await vi.waitFor(
+			() => {
+				const there = existsSync(join(root, "check-started"));
+				expect(there, "check started").toBe(true);
+			},
+			{ timeout: REAL_GIT_MS },
+		);
+		await edit(h, join(repo, "package.json"));
+		writeFileSync(go, "");
+
+		const result = await failing;
+
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		expect(result.content[0]?.text).toContain("an edit landed");
+	}, 20_000);
+
+	it("records a failure though another project was edited meanwhile", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const elsewhere = join(project("other"), "src.ts");
+
+		await verifyEndsMeanwhile(h, repo, () => edit(h, elsewhere));
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	}, 20_000);
+
+	it("keeps a failure still standing once another that ended later is answered for", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const other = project("other");
+
+		await verifyEndsMeanwhile(h, other, "exit 1", "true");
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	}, 20_000);
+
+	it("records a failure while a verify of another project ends", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+
+		await verifyEndsMeanwhile(h, project("other"), "true");
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	}, 20_000);
+
+	it("records a failure while a verify that checked nothing ends", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+
+		await verifyEndsMeanwhile(h, repo, "biome-is-not-installed-here check .");
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	}, 20_000);
+
+	it("holds back a commit on a failed run in a repository with no commit yet", async () => {
+		const unborn = project("unborn");
+		execFileSync(REAL_GIT, ["init", "-q", unborn]);
+		const h = await harness();
+		h.questVerify = "exit 1";
+
+		await h.verify.execute("call", { path: unborn }, undefined);
+		const held = await currentVerificationFailure({ dir: unborn });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+
+		// Compared, not constant: a file written there moves it.
+		writeFileSync(join(unborn, "formatted.ts"), "export {};\n");
+		expect(await currentVerificationFailure({ dir: unborn })).toBeUndefined();
+	});
+
+	it("retires a failed run once its repository is gone", async () => {
+		repo = await projectRepo();
+		const gone = repo;
+		const h = await harness();
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: gone }, undefined);
+
+		disposeRepo(gone);
+
+		expect(await currentVerificationFailure({ dir: gone })).toBeUndefined();
+		// A run kept unknown holds nothing back either; only the footer
+		// tells a retired run from a kept one.
+		expect(h.statuses.at(-1), "no longer failing").toBeUndefined();
+	});
+
+	it("retires a failure git couldn't fingerprint once its repository is gone", async () => {
+		repo = await projectRepo();
+		const gone = repo;
+		const h = await harness();
+		h.questVerify = "exit 1";
+		failingGit(" status ");
+		await h.verify.execute("call", { path: gone }, undefined);
+		expect(h.statuses.at(-1), "kept as failing").toBeDefined();
+
+		disposeRepo(gone);
+
+		expect(await currentVerificationFailure({ dir: gone })).toBeUndefined();
+		expect(h.statuses.at(-1), "no longer failing").toBeUndefined();
+	});
+
+	it("holds back a commit on a failure git gave no fingerprint for, until an edit", async () => {
+		// A git that won't answer, such as a status past what is kept,
+		// leaves nothing to tell when the tree changed, so an edit must.
+		const answers: [string, string][] = [
+			["exit 1", " --show-toplevel "],
+			["echo 'fatal: not a git repository' >&2; exit 1", " --show-toplevel "],
+			[
+				"echo 'fatal: detected dubious ownership in repository' >&2; exit 128",
+				" --show-toplevel ",
+			],
+			["exit 1", " status "],
+		];
+		for (const [answer, only] of answers) {
+			repo = await projectRepo();
+			const h = await harness();
+			h.questVerify = "exit 1";
+			gitThat(answer, only);
+
+			const result = await h.verify.execute("call", { path: repo }, undefined);
+
+			const said = `${answer} to${only}`;
+			expect(result.content[0]?.text, said).not.toContain("holds back no");
+			const held = await currentVerificationFailure({ dir: repo });
+			expect(held?.problems[0], said).toContain("exit 1 failed in");
+			await edit(h, join(repo, "package.json"));
+			expect(
+				await currentVerificationFailure({ dir: repo }),
+				said,
+			).toBeUndefined();
+			disposeRepo(repo);
+		}
+	});
+
+	it("holds back a commit where the guard refuses git, running none, until an edit", async () => {
+		repo = await projectRepo();
+		// The guard refuses a tree whose .git is a link, whatever its rules,
+		// as a sandboxed command could have pointed it anywhere.
+		const moved = join(root, "moved.git");
+		renameSync(join(repo, ".git"), moved);
+		symlinkSync(moved, join(repo, ".git"));
+		const gits = join(root, "gits");
+		countingGit(gits, " ");
+		const h = await harness();
+		h.questVerify = "exit 1";
+
+		const result = await h.verify.execute("call", { path: repo }, undefined);
+
+		expect(counted(gits), "git never ran").toBe(0);
+		expect(result.content[0]?.text).not.toContain("holds back no");
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+		await edit(h, join(repo, "package.json"));
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+	});
+
+	it("keeps no failure of a check stopped before it ended", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const started = join(root, "started");
+		h.questVerify = `: > ${shQuoted(started)}; sleep 30`;
+		const run = new AbortController();
+
+		const stopping = h.verify.execute("call", { path: repo }, run.signal);
+		await vi.waitFor(
+			() => expect(existsSync(started), "the check started").toBe(true),
+			{ timeout: 10_000 },
+		);
+		run.abort();
+		const result = await stopping;
+
+		expect(result.content[0]?.text).toContain("stopped before it ended");
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+	}, 20_000);
+
+	it("keeps a failed run while git won't say what it sits on", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+
+		// Past git's own wall, so it gives no answer at all.
+		slowGit(10, " HEAD^{tree} ");
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		if (path !== undefined) process.env.PATH = path;
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	}, 20_000);
+
+	it("keeps a failed run while git fails to say what it sits on", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+
+		// Failing as no commit yet never does: it says nothing of the tree.
+		gitThat("echo 'fatal: unable to read' >&2; exit 128", " HEAD^{tree} ");
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		if (path !== undefined) process.env.PATH = path;
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	});
+
+	it("keeps a failed run while git's status says too much to read", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+
+		// Past the mebibyte a status may print.
+		gitThat("head -c 1100000 /dev/zero | tr '\\0' a; exit 0", " status ");
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		expect(h.statuses.at(-1), "still said failing").toBeDefined();
+		if (path !== undefined) process.env.PATH = path;
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	});
+
+	it("fingerprints a failing run's tree once", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		h.questVerify = "exit 1";
+		const asked = join(root, "statuses");
+		countingGit(asked, " status ");
+
+		await h.verify.execute("call", { path: repo }, undefined);
+
+		expect(counted(asked), "statuses asked").toBe(1);
+	});
+
 	it("outside git, holds back a commit on a failed run until an edit there", async () => {
 		const h = await harness();
 		const tree = project("plain");
@@ -371,4 +845,52 @@ describe("the verify tool", () => {
 		await edit(h, join(tree, "fix.ts"));
 		expect(await currentVerificationFailure({ dir: tree })).toBeUndefined();
 	});
+
+	it("outside git, holds back a commit whatever language git speaks", async () => {
+		const h = await harness();
+		const tree = project("plain");
+		h.questVerify = "exit 1";
+		// A git that answers in German unless asked for its own words.
+		gitThat(
+			'[ "$LC_ALL" = C ] || { echo "fatal: Kein Git-Repository" >&2; exit 128; }',
+			" --show-toplevel ",
+		);
+		const language = process.env.LC_ALL;
+		process.env.LC_ALL = "de_DE.UTF-8";
+		try {
+			await h.verify.execute("call", { path: tree }, undefined);
+		} finally {
+			if (language === undefined) delete process.env.LC_ALL;
+			else process.env.LC_ALL = language;
+		}
+
+		expect(await currentVerificationFailure({ dir: tree })).toBeDefined();
+	});
+});
+
+describe("whether a run's root is still there", () => {
+	it("is gone only once the disk says it isn't there", async () => {
+		const file = join(root, "file");
+		writeFileSync(file, "");
+
+		expect(await present(root), "a folder there").toBe(true);
+		expect(await present(join(root, "missing")), "nothing there").toBe(false);
+		expect(await present(join(file, "inner")), "under a file").toBe(false);
+	});
+
+	// Root reaches into any folder, so nothing is out of its reach.
+	it.skipIf(process.getuid?.() === 0)(
+		"takes a root out of reach for now as still there",
+		async () => {
+			const locked = join(root, "locked");
+			mkdirSync(join(locked, "inner"), { recursive: true });
+			chmodSync(locked, 0o000);
+			try {
+				const inner = join(locked, "inner");
+				expect(await present(inner), "out of reach").toBe(true);
+			} finally {
+				chmodSync(locked, 0o755);
+			}
+		},
+	);
 });
