@@ -91,10 +91,12 @@ input pipeline or screen. No unit or running host is installed yet.
   the loop recovers from never costs the host its next beat.
 - systemd.ts: how run.ts tells systemd each of those: a step's ask for
   more time, the ready and the read-back of the unit's ActiveState that
-  says systemd took it (told again up to ten times while the unit reads
-  activating), the watchdog's pings and the unit's status. Each telling
-  is a systemd-notify sent from the host's own cgroup and killed 10 s
-  on, so one that hangs can't hold the start, a step or the stop.
+  says systemd took it (told at most ten times in all while the unit
+  reads activating), the watchdog's pings and the unit's status. Each
+  telling is a systemd-notify sent from the host's own cgroup and killed
+  once its time is up (a watchdog ping's is one beat), and the read-back
+  is a systemctl given 5 s, so none that hangs can hold the start, a
+  step or the stop.
 - status.ts: what run.ts says of the host in words: each start step,
   each resume's phase times, the ready count and the journal's names
   of dropped holds, and the stopping status. The words change for the

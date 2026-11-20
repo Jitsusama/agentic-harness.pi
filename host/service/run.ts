@@ -32,7 +32,8 @@
  * server's writer threw on its closed pipe, the host stopped mid-turn
  * for it, and the stop systemd asked for a moment later exited 1. The
  * engine is passed in, so the program that starts this names which.
- * How each of those is told to systemd is systemd.ts's.
+ * How a step's ask for more time, the ready, the watchdog's beats and
+ * the unit's status are told to systemd is systemd.ts's.
  */
 
 import { join } from "node:path";
