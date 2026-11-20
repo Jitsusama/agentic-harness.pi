@@ -27,6 +27,10 @@ import {
 } from "../../../../lib/internal/priority/queue.ts";
 import type { Reading } from "../../../../lib/internal/priority/room.ts";
 import {
+	inSharedSlice,
+	SLICE_GIVEN_UP,
+} from "../../../../lib/internal/priority/shared-slice.ts";
+import {
 	queuedCommand,
 	queueHeavyWork,
 	waitsForTurn,
@@ -199,6 +203,28 @@ describe("heavy work waiting for its turn", () => {
 		});
 		expect(job.planning).toBeUndefined();
 		expect(job.quick).toBeUndefined();
+	});
+
+	it("gives up the shared slice for a walk that fits alone but not with the queue's lines", () => {
+		queueingAfterRuns();
+		const world = join(homedir(), "world", "trees", "w-main", "src");
+		// Linux's one string, less the room kept after the queue; the form
+		// holds the command twice.
+		const room = 128 * 1024 - 4 * 1024;
+		const start = "git fetch origin ";
+		const bare = Buffer.byteLength(inSharedSlice(start));
+		const fetch = `${start}${"x".repeat(Math.floor((room - bare) / 2))}`;
+		expect(inSharedSlice(fetch), "alone it fits the slice").toContain(
+			"systemd-run",
+		);
+
+		const queued = queuedCommand(fetch, world);
+
+		expect(jobsAsked().length, "queued as a walk").toBe(1);
+		expect(queued, "with the queue's lines it doesn't").toContain(
+			// Up to its apostrophe, which the shell text quotes.
+			SLICE_GIVEN_UP.split("'")[0],
+		);
 	});
 
 	// 10 November: four pushes of World peaked at 2.9 to 3.2 MB and ran 3

@@ -37,6 +37,9 @@ export function fenceCopy(
 	if (!runtimeDir) return undefined;
 	const path = join(runtimeDir, FOLDER, name);
 	let staging: string | undefined;
+	// A copy that reads right, whatever its mode, so a rewrite that fails
+	// still leaves one to bind.
+	let reads = false;
 	try {
 		// Only pi's own folder is made, never the runtime folder: node's
 		// recursive mkdir spins for good where a parent exists but refuses
@@ -50,20 +53,18 @@ export function fenceCopy(
 		const linked = existsSync(path) && lstatSync(path).isSymbolicLink();
 		// One written with another mode, as a list kept from before its mode
 		// was asked for, is written afresh, so it is read-only as a new one is.
-		if (
-			!linked &&
-			current(path) === text &&
-			(lstatSync(path).mode & FILE_MODE_BITS) === mode
-		)
-			return path;
+		reads = !linked && current(path) === text;
+		if (reads && (lstatSync(path).mode & FILE_MODE_BITS) === mode) return path;
 		staging = `${path}.${randomUUID()}`;
 		writeFileSync(staging, text, { mode, flag: "wx" });
 		renameSync(staging, path);
 		staging = undefined;
 		return path;
 	} catch {
-		// No copy to bind: the caller binds nothing, and says what that leaves.
-		return undefined;
+		// A copy that reads right serves in its old mode, as it did before
+		// the mode was asked for; with none, the caller binds nothing, and
+		// says what that leaves.
+		return reads ? path : undefined;
 	} finally {
 		if (staging) rmSync(staging, { force: true });
 	}

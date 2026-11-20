@@ -155,6 +155,16 @@ describe("a command run in the shared slice", () => {
 		expect(ran.stderr, "the walk says where it runs").toContain(SLICE_GIVEN_UP);
 	});
 
+	it("says nothing of the slice it gave up where none is named", () => {
+		const quoted = `: ${"'".repeat(26 * 1024)}\n${COMMAND}`;
+
+		const ran = run(inSharedSlice(quoted, join(root, "none")), {});
+
+		expect(ran.status, "the command's own status").toBe(3);
+		expect(said("out"), "the command ran").toEqual(["it's kept"]);
+		expect(ran.stderr, "nothing said of a slice there is none of").toBe("");
+	});
+
 	it("counts the queue's lines that go before it, to the byte", () => {
 		const none = join(root, "none");
 		const form = inSharedSlice(COMMAND, none);

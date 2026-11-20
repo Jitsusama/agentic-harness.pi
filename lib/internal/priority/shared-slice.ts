@@ -37,7 +37,7 @@ const LATER_ROOM = 4 * 1024;
 
 /** What a walk too long for the slice's form says, on its errors. */
 export const SLICE_GIVEN_UP =
-	"This walk runs in the queue's slice: its command is too long to run in the shared one.";
+	"This walk runs in the queue's slice: its command is too long to run in the shared one, most often a fenced command whose lists couldn't go in a file.";
 
 /**
  * Shell lines running `command` in the slice `SHARED_SLICE` names, in the
@@ -67,9 +67,10 @@ export function inSharedSlice(
 ): string {
 	const quoted = `'${command.replaceAll("'", `'\\''`)}'`;
 	const file = `'${systemEnvironment.replaceAll("'", `'\\''`)}'`;
+	// Read in a subshell, so nothing else the file sets reaches the command.
+	const named = `[ -n "\${${SHARED_SLICE_VARIABLE}:-}" ] || ${SHARED_SLICE_VARIABLE}=$( [ -r ${file} ] && . ${file} > /dev/null 2>&1; printf '%s' "\${${SHARED_SLICE_VARIABLE}:-}")`;
 	const form = [
-		// Read in a subshell, so nothing else the file sets reaches the command.
-		`[ -n "\${${SHARED_SLICE_VARIABLE}:-}" ] || ${SHARED_SLICE_VARIABLE}=$( [ -r ${file} ] && . ${file} > /dev/null 2>&1; printf '%s' "\${${SHARED_SLICE_VARIABLE}:-}")`,
+		named,
 		`if [ -n "\${${SHARED_SLICE_VARIABLE}:-}" ] && [ -n "\${XDG_RUNTIME_DIR:-}" ] && command -v systemd-run > /dev/null 2>&1; then`,
 		`systemd-run --user --scope --quiet --collect --slice="$${SHARED_SLICE_VARIABLE}" --expand-environment=no -- bash -c ${quoted}`,
 		"else",
@@ -77,7 +78,8 @@ export function inSharedSlice(
 		"fi",
 	].join("\n");
 	const room = LONGEST_STRING - LATER_ROOM - around;
-	return Buffer.byteLength(form) > room
-		? `printf '%s\\n' '${SLICE_GIVEN_UP.replaceAll("'", `'\\''`)}' >&2\n${command}`
-		: form;
+	if (Buffer.byteLength(form) <= room) return form;
+	// Said only where a slice is named, since elsewhere it runs as it was.
+	const given = `'${SLICE_GIVEN_UP.replaceAll("'", `'\\''`)}'`;
+	return `${named}\n[ -z "\${${SHARED_SLICE_VARIABLE}:-}" ] || printf '%s\\n' ${given} >&2\n${command}`;
 }

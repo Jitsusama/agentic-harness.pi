@@ -35,8 +35,9 @@ const PREFIXES = {
 } as const;
 
 /**
- * A list file's mode: read by the person alone, and written by nobody,
- * since a name holds what its file holds and is never written again.
+ * A list file's mode: read by the person alone, and not writable, since
+ * a name holds what its file holds and is never written again. It guards
+ * against a slip, not a foe: the same user may change the mode back.
  */
 const LIST_MODE = 0o400;
 

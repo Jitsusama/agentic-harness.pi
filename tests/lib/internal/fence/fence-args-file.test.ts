@@ -23,7 +23,7 @@ import {
 } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	afterAll,
 	beforeAll,
@@ -302,6 +302,21 @@ describe("bubblewrap's arguments from a file", () => {
 		expect(again, "the same file in use").toBe(path);
 		expect(statSync(path).mode & 0o777, "read-only now").toBe(0o400);
 		expect(readFileSync(path, "utf8"), "what it holds kept").toBe("--older\0");
+	});
+
+	it("keeps using a list in its old mode when it can't be written afresh", () => {
+		const path = bwrapArgsFile(runtimeDir, ["--full"])?.path ?? "";
+		chmodSync(path, 0o600);
+		// A folder nothing can be written into, as a full runtime tmpfs is.
+		chmodSync(dirname(path), 0o500);
+		try {
+			const again = bwrapArgsFile(runtimeDir, ["--full"])?.path;
+
+			expect(again, "the copy that reads right still serves").toBe(path);
+			expect(statSync(path).mode & 0o777, "its old mode kept").toBe(0o600);
+		} finally {
+			chmodSync(dirname(path), 0o700);
+		}
 	});
 
 	it("rewrites a read-only copy whose text changed, still read-only", () => {
