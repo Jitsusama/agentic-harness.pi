@@ -336,7 +336,9 @@ describe("a command that will not finish", () => {
 		const result = await spawnExec({
 			timeoutMs: 300,
 			signal: AbortSignal.timeout(3_000),
-			turn: { waits: "", goes: [""], longestMs: 10_000 },
+			// An empty wait's mark would hold at the first line, and nothing
+			// would end it but the signal.
+			turn: { waits: "", goes: ["its turn came after"], longestMs: 10_000 },
 		})("sh", ["-c", "echo said >&2; sleep 30"]);
 
 		expect(result.code, "an empty mark holds nothing").toBe(EXIT_TIMED_OUT);

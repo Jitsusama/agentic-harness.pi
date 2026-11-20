@@ -41,7 +41,7 @@ import {
 	WORLD_PUSH_TURN,
 } from "../../lib/internal/priority/queued-exec.ts";
 import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
-import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
+import { heldGit } from "../../lib/internal/sandbox/tree-git.ts";
 import { UNATTENDED_LIMIT_MS } from "../../lib/internal/sandbox/unattended-exec.ts";
 import { cutTreeDir, treeRecordDir } from "../../lib/internal/work-records.ts";
 import { createFleetLedger } from "../../lib/subagent/fleet.ts";
@@ -99,10 +99,11 @@ export function treeExec(signal?: AbortSignal): Exec {
  * (`tree-git.ts`) before either. The guard comes first because the
  * queue hands `queued` a `bash -c` line, which the guard lets by as no
  * git of its own: guarded after, a queued push would run a tree's
- * `.git` as a sandboxed command left it, outside the sandbox.
+ * `.git` as a sandboxed command left it, outside the sandbox. The queue
+ * still reads git as it was asked, so its job says `push`.
  */
 export function treeExecOver(direct: Exec, queued: Exec): Exec {
-	return guardedExec(queuedExec(direct, queued), gitRules);
+	return queuedExec(direct, queued, heldGit(gitRules));
 }
 
 /**

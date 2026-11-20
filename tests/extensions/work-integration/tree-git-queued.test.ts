@@ -13,13 +13,17 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { treeExecOver } from "../../../extensions/work-integration/broker.ts";
+import {
+	treeExec,
+	treeExecOver,
+} from "../../../extensions/work-integration/broker.ts";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import { queueFolder } from "../../../lib/internal/priority/folder.ts";
 import { queueHeavyWork } from "../../../lib/internal/priority/turn.ts";
@@ -80,6 +84,12 @@ function recording(): { exec: Exec; asked: [string, string[]][] } {
 const queuedJobs = () =>
 	readdirSync(jobs).filter((name) => name.endsWith(".job"));
 
+/** The jobs the queue was asked to run, as it wrote them. */
+const asked = () =>
+	queuedJobs().map((name) =>
+		JSON.parse(readFileSync(join(jobs, name), "utf8")),
+	);
+
 describe("the work tool's git, when the queue takes it", () => {
 	it("hands the queue git as the guard rewrote it", async () => {
 		const direct = recording();
@@ -99,6 +109,18 @@ describe("the work tool's git, when the queue takes it", () => {
 		expect(args[1], "the guard's settings reach the queued line").toContain(
 			`git -c core.fsmonitor=false -C ${tree} push origin x`,
 		);
+		expect(asked(), "the queue names the push as it was asked").toMatchObject([
+			{ what: `git -C ${tree} push origin x`, walk: "push" },
+		]);
+	});
+
+	it("guards the push's own git the same way", async () => {
+		writeFileSync(join(tree, ".git"), `gitdir: ${join(root, "elsewhere")}\n`);
+
+		const result = await treeExec()("git", ["-C", tree, "push", "origin", "x"]);
+
+		expect(result.code, "the guard refuses it").toBe(126);
+		expect(queuedJobs()).toEqual([]);
 	});
 
 	it("runs no push of a tree whose .git names a folder of its own", async () => {

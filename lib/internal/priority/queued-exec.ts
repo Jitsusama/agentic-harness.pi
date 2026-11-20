@@ -15,6 +15,7 @@
  */
 
 import type { Exec, Turn } from "../../core/exec/index.ts";
+import type { Held } from "../sandbox/tree-git.ts";
 import { queuedCommand } from "./turn.ts";
 
 /**
@@ -65,13 +66,33 @@ function shellWord(word: string): string {
  * An exec that runs heavy work through the machine's queue: a command
  * the queue takes runs as `bash -c` of its queued shell through
  * `queued`, and every other through `direct`, as it was.
+ *
+ * `held` says how each command may run, or answers it instead, before
+ * either: the queue's shell runs it as held, since an exec behind the
+ * queue sees only `bash`, while the queue reads it as it was given, so
+ * a job is named and weighed by what was asked rather than by the
+ * longer line a guard makes of it.
  */
-export function queuedExec(direct: Exec, queued: Exec = direct): Exec {
+export function queuedExec(
+	direct: Exec,
+	queued: Exec = direct,
+	held: (command: string, args: readonly string[]) => Held = (_, args) => ({
+		args,
+	}),
+): Exec {
 	return (command, args) => {
-		const line = [command, ...args].map(shellWord).join(" ");
-		const shell = queuedCommand(line);
-		return shell === line
-			? direct(command, args)
+		const hold = held(command, args);
+		if ("refused" in hold) return Promise.resolve(hold.refused);
+		const line = shellLine(command, args);
+		const run = shellLine(command, hold.args);
+		const shell = queuedCommand(line, undefined, () => run);
+		return shell === run
+			? direct(command, [...hold.args])
 			: queued("bash", ["-c", shell]);
 	};
+}
+
+/** `command` and `args` as one shell line. */
+function shellLine(command: string, args: readonly string[]): string {
+	return [command, ...args].map(shellWord).join(" ");
 }
