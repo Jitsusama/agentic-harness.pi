@@ -7,6 +7,7 @@
  */
 
 export { callSignal, withCallSignal } from "./call-signal.ts";
+export type { Turn } from "./clock.ts";
 export {
 	type Exec,
 	type ExecResult,

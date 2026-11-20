@@ -14,7 +14,8 @@
  * any other runs as it was.
  */
 
-import type { Exec } from "../../core/exec/index.ts";
+import type { Exec, Turn } from "../../core/exec/index.ts";
+import type { Held } from "../sandbox/tree-git.ts";
 import { queuedCommand } from "./turn.ts";
 
 /**
@@ -25,6 +26,33 @@ import { queuedCommand } from "./turn.ts";
  * honest work, and one that counts the wait must outlast both.
  */
 export const QUEUED_LIMIT_MS = 5 * 60 * 60 * 1000;
+
+/**
+ * How World's push gate, a pre-push hook taking pushes of World one at a
+ * time, says a push waits for another and that its turn came or it goes
+ * on without one, as its git passes on. The gate gives up waiting after
+ * 30 minutes; the longest the waits hold the clock leaves it 5 more.
+ *
+ * The work tool's push runs on a clock of ten minutes, the queue's on
+ * five hours, and on 20 November five pushes waited at the gate behind
+ * one that hung for 25, so they timed out before their turn came
+ * (IKQ63G [d73f883a]). Here rather than beside the work tool, because
+ * this module already says how long a push of World may take.
+ *
+ * The words are the gate's own, read from its program: each line it says
+ * starts with its name, so the wait's mark does too, and since a wait is
+ * heard only at a line's start, a remote's `remote: ` line stops no
+ * clock. The marks that start it again may be looser, since hearing one
+ * early only counts more of the wait. A gate that changes its words
+ * stops holding the clock, and its pushes end at ten minutes again: the
+ * tests pin these words, not the gate's.
+ */
+export const WORLD_PUSH_TURN: Turn = {
+	waits:
+		"world-push-gate: another push to World is running; this one waits its turn",
+	goes: ["its turn came after", "this one goes on", "this push goes on"],
+	longestMs: 35 * 60 * 1000,
+};
 
 /** A word the shell reads as it stands. */
 const PLAIN = /^[\w@%+=:,./-]+$/;
@@ -38,13 +66,33 @@ function shellWord(word: string): string {
  * An exec that runs heavy work through the machine's queue: a command
  * the queue takes runs as `bash -c` of its queued shell through
  * `queued`, and every other through `direct`, as it was.
+ *
+ * `held` says how each command may run, or answers it instead, before
+ * either: the queue's shell runs it as held, since an exec behind the
+ * queue sees only `bash`, while the queue reads it as it was given, so
+ * a job is named and weighed by what was asked rather than by the
+ * longer line a guard makes of it.
  */
-export function queuedExec(direct: Exec, queued: Exec = direct): Exec {
+export function queuedExec(
+	direct: Exec,
+	queued: Exec = direct,
+	held: (command: string, args: readonly string[]) => Held = (_, args) => ({
+		args,
+	}),
+): Exec {
 	return (command, args) => {
-		const line = [command, ...args].map(shellWord).join(" ");
-		const shell = queuedCommand(line);
-		return shell === line
-			? direct(command, args)
+		const hold = held(command, args);
+		if ("refused" in hold) return Promise.resolve(hold.refused);
+		const line = shellLine(command, args);
+		const run = shellLine(command, hold.args);
+		const shell = queuedCommand(line, undefined, () => run);
+		return shell === run
+			? direct(command, [...hold.args])
 			: queued("bash", ["-c", shell]);
 	};
+}
+
+/** `command` and `args` as one shell line. */
+function shellLine(command: string, args: readonly string[]): string {
+	return [command, ...args].map(shellWord).join(" ");
 }

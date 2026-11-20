@@ -14,7 +14,7 @@ import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import { heldNames } from "../../../lib/core/work/survey.ts";
 import { unattendedExec } from "../../../lib/internal/sandbox/unattended-exec.ts";
-import { treeBroker } from "../broker.ts";
+import { treeBroker, treeExec } from "../broker.ts";
 import { GLYPH } from "../render.ts";
 import { makeBranch, record } from "./author.ts";
 import { carryHome } from "./carry.ts";
@@ -144,7 +144,16 @@ export async function answerWork(
 			case "carry":
 				return await carryHome(exec, found, ctx.sessionManager);
 			case "push":
-				return await publish(pi, exec, history, found, args.replace);
+				// The tree provider's git, so a push of World waits its turn
+				// in the machine's queue when it is busy, and otherwise its
+				// clock stands still while World's push gate holds it.
+				return await publish(
+					pi,
+					treeExec(signal),
+					history,
+					found,
+					args.replace,
+				);
 			case "rebase":
 			case "resume":
 			case "abandon":

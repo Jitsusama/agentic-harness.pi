@@ -26,6 +26,7 @@
 import { spawn } from "node:child_process";
 import { count } from "../../ui/count.ts";
 import { callSignal } from "./call-signal.ts";
+import { startClock, type Turn } from "./clock.ts";
 import type { Exec, ExecResult } from "./exec.ts";
 
 /** The exit code of a command its clock stopped, as `timeout(1)` reports. */
@@ -66,6 +67,11 @@ export interface SpawnExecOptions {
 	signal?: AbortSignal;
 	/** Stops the command after this long. No clock when absent. */
 	timeoutMs?: number;
+	/**
+	 * How the command says it waits its turn, a wait the clock doesn't
+	 * count (`clock.ts`). Read only with `timeoutMs`.
+	 */
+	turn?: Turn;
 	/** How long a stopped command may take to exit before it is killed. */
 	killGraceMs?: number;
 	/** How much of each stream may be held before the command is stopped. */
@@ -147,6 +153,7 @@ function runUnattended(
 		});
 		child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
 			stderr = held(stderr, chunk, "stderr");
+			clock?.heard(stderr);
 		});
 
 		const stop = (code: number, why: string): void => {
@@ -163,20 +170,18 @@ function runUnattended(
 		const clock =
 			options.timeoutMs === undefined
 				? undefined
-				: setTimeout(
-						() =>
-							stop(
-								EXIT_TIMED_OUT,
-								`${command} timed out after ${options.timeoutMs} ms`,
-							),
+				: startClock(
 						options.timeoutMs,
+						options.turn,
+						(why) => stop(EXIT_TIMED_OUT, why),
+						command,
 					);
 
 		let settled = false;
 		const settle = (result: ExecResult): void => {
 			if (settled) return;
 			settled = true;
-			clearTimeout(clock);
+			clock?.stop();
 			clearTimeout(killer);
 			signal?.removeEventListener("abort", onAbort);
 			// Whatever the command left running in its group goes with it.

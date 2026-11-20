@@ -105,14 +105,17 @@ function recordingHost(): { host: JobHost; outcomes: JobOutcome[] } {
  * begun by making `started`. The hook's own sleep is git's child polling
  * for the file, so the test's clock never waits on it. It also lets go
  * once the test's folder is gone, so a failed run leaves nothing behind.
+ * With `says`, the hook says it on stderr first, as World's push gate
+ * says a push waits its turn.
  */
-function holdPushes(): { started: string; release: string } {
+function holdPushes(says?: string): { started: string; release: string } {
 	const started = join(place, "started");
 	const release = join(place, "release");
 	const hook = join(clone, ".git", "hooks", "pre-push");
+	const said = says === undefined ? "" : `echo '${says}' >&2\n`;
 	writeFileSync(
 		hook,
-		`#!/bin/sh\n: > '${started}'\nwhile [ ! -e '${release}' ] && [ -d '${place}' ]; do sleep 0.05; done\n`,
+		`#!/bin/sh\n${said}: > '${started}'\nwhile [ ! -e '${release}' ] && [ -d '${place}' ]; do sleep 0.05; done\n`,
 		{ mode: 0o755 },
 	);
 	return { started, release };
@@ -251,6 +254,52 @@ describe("a push waited on", () => {
 			expect(await git(clone, "rev-parse", "origin/topic")).toBe(
 				await git(clone, "rev-parse", "topic"),
 			);
+		},
+		REAL_GIT_MS,
+	);
+
+	it(
+		"held by World's push gate past the unattended clock, still publishes",
+		async () => {
+			const { started, release } = holdPushes(
+				"world-push-gate: another push to World is running; this one waits its turn.",
+			);
+			const { host, outcomes } = recordingHost();
+			const stub = activateWith(workIntegration);
+			stub.pi.events.on(WORK_TREE_CLAIMS, (data) => {
+				(data as TreeClaims).paths.push(clone);
+			});
+			announceJobHost(stub.pi.events as never, host);
+			const work = toolNamed(stub, "work");
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			const returned = work.execute(
+				"call-3",
+				{ action: "push", tree: clone },
+				undefined,
+				undefined,
+				HEADLESS,
+			) as Promise<{ content: { text: string }[] }>;
+			await turnsUntil(() => existsSync(started));
+			expect(existsSync(started), "git reached the pre-push hook").toBe(true);
+			// The gate's line was said before the hook marked it began; a few
+			// more I/O turns let the push's clock hear it.
+			for (let turn = 0; turn < 50; turn++) {
+				await new Promise((resolve) => setImmediate(resolve));
+			}
+			// Eleven minutes, past the unattended clock's ten.
+			await vi.advanceTimersByTimeAsync(11 * 60_000);
+			await returned;
+			vi.useRealTimers();
+			writeFileSync(release, "");
+			await until(
+				"the push to finish",
+				() => outcomes.length > 0,
+				GIT_WITHIN_MS,
+			);
+			expect(
+				outcomes[0]?.summary,
+				"a push the gate holds is not stopped by the clock",
+			).toContain("topic published to origin");
 		},
 		REAL_GIT_MS,
 	);
