@@ -268,8 +268,8 @@ async function verifyEndsMeanwhile(
 	other: string,
 	then: string,
 ): Promise<void> {
-	// The other's git answers at once, so the repository's ends last.
-	heldGit(" status ", other);
+	// Another project's git answers at once, so the repository's ends last.
+	heldGit(" status ", other === repo ? undefined : other);
 	h.questVerify = "exit 1";
 	const failing = h.verify.execute("call", { path: repo }, undefined);
 	await vi.waitFor(() =>
