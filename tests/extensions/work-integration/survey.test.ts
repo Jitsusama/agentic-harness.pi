@@ -16,11 +16,15 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GLYPH } from "../../../extensions/work-integration/render.ts";
 import { seesEveryProcess } from "../../../extensions/work-integration/sweep.ts";
+import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 import { GUARD_WORDS, strandedDir } from "../../../lib/core/work/stranded.ts";
-import { cutTreeDir } from "../../../lib/internal/work-records.ts";
+import {
+	cutTreeDir,
+	treeRecordDir,
+} from "../../../lib/internal/work-records.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
-import { checkout, scratchDir, work } from "./worked.ts";
+import { checkout, claim, cut, scratchDir, work } from "./worked.ts";
 
 /** A worktree beside the checkout, at a branch trunk already holds. */
 async function spareTree(): Promise<string> {
@@ -180,6 +184,42 @@ describe("reclaim", () => {
 			);
 		},
 	);
+
+	it("keeps a tree git won't read that a quest claims, naming it nowhere", async () => {
+		// A claim outranks everything, so the tree is never offered: not
+		// even as kept, which is how a machine that can't say lists it.
+		const path = strandedTree("snapshot-claimed", AN_HOUR);
+		claim(path);
+
+		const tidy = await work({ action: "tidy", tree: checkout() });
+		const reclaim = await work({ action: "reclaim", tree: checkout() });
+
+		expect(tidy.text).not.toContain(displayPath(path));
+		expect(tidy.details).toMatchObject({ stranded: 0 });
+		expect(reclaim.details).toEqual({ ok: true, reclaimed: 0, setAside: 0 });
+		expect(existsSync(path), "it stays where it was").toBe(true);
+	});
+
+	it("keeps a tree git won't read that a running session's record names", async () => {
+		// This session's own owner, taken from a tree it really cut.
+		await cut("topic");
+		const memory = createTreeMemory(treeRecordDir());
+		const [ours] = memory.recall();
+		const path = strandedTree("snapshot-recorded", AN_HOUR);
+		memory.remember({
+			identity: { key: "snapshot-recorded", shareable: true },
+			path,
+			providerId: "git",
+			...(ours?.owners === undefined ? {} : { owners: ours.owners }),
+		});
+
+		const reclaim = await work({ action: "reclaim", tree: checkout() });
+
+		expect(ours?.owners, "the cut recorded its owner").toBeDefined();
+		expect(reclaim.text).not.toContain(displayPath(path));
+		expect(reclaim.details).toMatchObject({ setAside: 0 });
+		expect(existsSync(path), "it stays where it was").toBe(true);
+	});
 
 	it("keeps a tree git won't read that may still be being cut", async () => {
 		const path = strandedTree("snapshot-cutting", 0);

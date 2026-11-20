@@ -412,7 +412,11 @@ beside the trees, deleting nothing, so its name can be cut again.
 One something still works in, or cut in the last ten minutes,
 stays, and so does every one where the machine can't say what
 works in a folder. A refusal that says git marks the tree locked
-means another session is cutting it: ask again in a minute.
+means another session is cutting it: ask again in a minute. A
+lock an hour old is taken as one a killed cut left, which reclaim
+may then set aside. A tree set aside keeps its `.git` as
+`.git-was`: copy out what is wanted rather than joining it to git
+again.
 
 ## Where This Ends and Review Begins
 

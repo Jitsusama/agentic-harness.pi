@@ -18,8 +18,10 @@ import { forgetTreeBroker } from "../../../extensions/work-integration/broker.ts
 import workIntegration from "../../../extensions/work-integration/index.ts";
 import {
 	registerTreeProvider,
+	type TreeClaims,
 	type TreeProvider,
 	unregisterTreeProvider,
+	WORK_TREE_CLAIMS,
 } from "../../../lib/core/work/index.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 import {
@@ -43,6 +45,7 @@ let repo = "";
 let savedState: string | undefined;
 let tool: RegisteredTool | undefined;
 let said: { event: string; data: unknown }[] = [];
+let claimed: string[] = [];
 
 /** Cuts each tree as a copy of the test's repository, at what was asked. */
 const COPYING: TreeProvider = {
@@ -71,6 +74,10 @@ beforeEach(async () => {
 	forgetTreeBroker();
 	repo = await freshRepo("worked");
 	const stub = activateWith(workIntegration);
+	claimed = [];
+	stub.pi.events.on(WORK_TREE_CLAIMS, (data) => {
+		(data as TreeClaims).paths.push(...claimed);
+	});
 	said = stub.emitted;
 	tool = toolNamed(stub, "work");
 	registerTreeProvider(COPYING);
@@ -93,6 +100,11 @@ export function checkout(): string {
 /** What the tool said on pi's bus, in order. */
 export function emitted(): readonly { event: string; data: unknown }[] {
 	return said;
+}
+
+/** Have a quest claim the tree at `path`, as one holding it would. */
+export function claim(path: string): void {
+	claimed.push(path);
 }
 
 /** A folder of this test's own, removed after it. */

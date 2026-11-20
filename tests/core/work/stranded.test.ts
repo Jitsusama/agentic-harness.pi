@@ -126,6 +126,14 @@ describe("strandedTrees", () => {
 		expect(found?.why.length).toBe(203);
 	});
 
+	it("says back no mark that moves a reader's cursor or turns text", () => {
+		// A C1 escape, a bidi override and a line separator, each of which
+		// some terminal or reader acts on.
+		const said = plainWords("a\u009b2Jb\u202ec\u2028d\u2066e");
+
+		expect(said).toBe("a 2Jb c d e");
+	});
+
 	it("leaves out what is no worktree, and what the sweep is removing", () => {
 		mkdirSync(join(trees, "no-git-here"));
 		writeFileSync(join(trees, "check.log"), "a log beside the trees\n");
@@ -286,6 +294,30 @@ describe("setAside", () => {
 			readFileSync(join(aside, "notes.md"), "utf8"),
 			"every file it held goes with it",
 		).toBe("written by a reader\n");
+		expect(
+			existsSync(join(aside, ".git")),
+			"it no longer names git's entry",
+		).toBe(false);
+		expect(readFileSync(join(aside, ".git-was"), "utf8")).toContain("gitdir:");
+	});
+
+	it("says a tree another reclaim took as it was asked about is gone", async () => {
+		const path = treeNaming("snapshot-raced", standingGitDir("snapshot-raced"));
+		const records: StrandedRecords = {
+			recall: () => [{ path }],
+			whileUnheld: async (_at, take) => {
+				// The other reclaim moves it in the moment before this one.
+				rmSync(path, { recursive: true, force: true });
+				return (await take()) ? {} : undefined;
+			},
+		};
+
+		const [raced] = await setAside([{ path, why: REFUSED }], {
+			into: strandedDir(trees),
+			records,
+		});
+
+		expect(raced?.kind).toBe("gone");
 	});
 
 	it("says a tree went before its turn and goes on with the rest", async () => {
@@ -475,9 +507,84 @@ describe("a snapshot at a stranded tree's commit", () => {
 			stateDir: trees,
 			subvolumes: async () => false,
 		});
+		// Another tree that clone cut, gone by other means, whose entry
+		// is git's own prune's to forget rather than this cut's.
+		const other = join(trees, "snapshot-other");
+		await git(clone, "worktree", "add", "--detach", other, commit);
+		rmSync(other, { recursive: true, force: true });
 		await setAside([{ path, why: REFUSED }], { into: strandedDir(trees) });
 
 		await expect(provider.ensure(request)).resolves.toEqual({ path });
 		expect(await git(path, "rev-parse", "HEAD")).toBe(commit);
+		expect(
+			await git(clone, "worktree", "list", "--porcelain"),
+			"the other gone tree's entry stays",
+		).toContain("snapshot-other");
+	});
+
+	/**
+	 * Cut a snapshot from one clone, killed as git marked it locked, or
+	 * locked by hand for `reason`.
+	 */
+	async function killedCut(lockedAgo: number, reason = "initializing") {
+		clone = await freshRepo("stranded-locked-clone");
+		const commit = await git(clone, "rev-parse", "HEAD");
+		const request: TreeRequest = {
+			intent: "snapshot",
+			repo: { key: "github:o/r", localPath: clone },
+			purpose: "review",
+			commit,
+		};
+		const path = join(trees, treeIdentity(request).key);
+		await git(clone, "worktree", "add", "--detach", path, commit);
+		const entry = join(clone, ".git", "worktrees", treeIdentity(request).key);
+		const lock = join(entry, "locked");
+		writeFileSync(lock, `${reason}\n`);
+		const at = new Date(Date.now() - lockedAgo);
+		utimesSync(lock, at, at);
+		const provider = createGitTreeProvider({
+			exec: guarded(path),
+			stateDir: trees,
+			subvolumes: async () => false,
+		});
+		return { commit, entry, path, provider, request };
+	}
+
+	it("is cut again where a killed cut's lock is an hour old", async () => {
+		// git won't forget a locked entry, and reclaim sets aside a tree
+		// whose lock is this old, so the cut has to forget it itself.
+		const cut = await killedCut(LOCK_STALE_MS + 60_000);
+		await setAside([{ path: cut.path, why: REFUSED }], {
+			into: strandedDir(trees),
+		});
+
+		await expect(cut.provider.ensure(cut.request)).resolves.toEqual({
+			path: cut.path,
+		});
+		expect(await git(cut.path, "rev-parse", "HEAD")).toBe(cut.commit);
+	});
+
+	it("leaves a lock put there by hand alone, however old", async () => {
+		const cut = await killedCut(LOCK_STALE_MS + 60_000, "on a drive away");
+		rmSync(cut.path, { recursive: true, force: true });
+
+		await expect(cut.provider.ensure(cut.request)).rejects.toThrow(
+			"missing but locked worktree",
+		);
+		expect(existsSync(join(cut.entry, "locked")), "git's entry stays").toBe(
+			true,
+		);
+	});
+
+	it("leaves a fresh lock alone, as its cut may still be running", async () => {
+		const cut = await killedCut(60_000);
+		rmSync(cut.path, { recursive: true, force: true });
+
+		await expect(cut.provider.ensure(cut.request)).rejects.toThrow(
+			"missing but locked worktree",
+		);
+		expect(existsSync(join(cut.entry, "locked")), "git's entry stays").toBe(
+			true,
+		);
 	});
 });

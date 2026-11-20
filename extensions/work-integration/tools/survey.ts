@@ -36,6 +36,7 @@ import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import {
 	GUARD_WORDS,
 	type KeptTree,
+	plainWords,
 	type SetAsideTree,
 	type StrandedSigns,
 	type StrandedTree,
@@ -361,8 +362,18 @@ async function surveyRepo(
 						{ exec, mainPath: target.path },
 						orphans.reclaimable,
 					);
-		// Moved, never removed: git can't say whether one holds work.
-		const moved = await setStrandedAside(orphans.stranded);
+		// Moved, never removed: git can't say whether one holds work. A
+		// failure here is said beside what was already taken back, rather
+		// than losing that report.
+		let moved: SetAsideTree[] = [];
+		let unmoved: string | undefined;
+		try {
+			moved = await setStrandedAside(orphans.stranded);
+		} catch (error) {
+			unmoved = plainWords(
+				error instanceof Error ? error.message : String(error),
+			);
+		}
 		const setAsideCount = moved.filter((t) => t.kind === "set-aside").length;
 		const took = outcome.trees.filter((t) => t.kind === "reclaimed");
 		const kept = took.some((t) => t.branch && !t.branchGone);
@@ -395,6 +406,11 @@ async function surveyRepo(
 								: `${GLYPH.named} Set aside ${count(setAsideCount, "tree", "trees")} git won't read where the broker cuts them.`,
 						]),
 				...moved.map(movedLine),
+				...(unmoved === undefined
+					? []
+					: [
+							`${GLYPH.refused} Setting aside the trees git won't read failed, so each stays where it was: ${unmoved}`,
+						]),
 				...orphans.strandedKept.map(keptLine),
 				...(kept
 					? [
@@ -407,9 +423,9 @@ async function surveyRepo(
 					? [
 							"",
 							"A tree set aside keeps every file it held, and its name is free",
-							"to cut again. Delete it once nothing in it is wanted. If the clone",
-							"it came from was only moved or away, git worktree repair at its",
-							"new place joins them again.",
+							"to cut again. Its .git is kept as .git-was, since the git entry",
+							"it named may by then belong to a tree cut at its name, so copy",
+							"out what is wanted and delete it once nothing in it is wanted.",
 						]
 					: []),
 			].join("\n"),

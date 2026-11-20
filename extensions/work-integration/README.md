@@ -206,9 +206,12 @@ one whose `.git` is under ten minutes old, as a cut still running
 may be, stays; where the machine can't say what works in a
 folder, every one stays (`lib/core/work/stranded.ts`). The
 guard's own words for its refusal are never said back, since a
-fenced command can choose the path in them. Cutting again from
-the clone that cut a tree set aside prunes git's entry for its
-gone folder and tries once more.
+fenced command can choose the path in them. A tree set aside
+keeps its `.git` as `.git-was`, parted from git's entry, which a
+tree cut again at its name takes back. Cutting again from the
+clone that cut a tree set aside forgets git's entry for that one
+gone folder, a lock on it included once it is an hour old, and
+tries once more; the clone's other entries stay for git's prune.
 
 ## Trees Whose Sessions Have Ended
 

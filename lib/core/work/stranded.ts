@@ -23,6 +23,7 @@ import {
 	readdirSync,
 	readFileSync,
 	renameSync,
+	rmSync,
 	statSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -78,7 +79,7 @@ export const LOCK_STALE_MS = 60 * 60 * 1000;
  * ours: the guard's own name a path a fenced command can choose.
  */
 export const GUARD_WORDS =
-	"the fence's guard won't run git there, as its repository isn't one the fence keeps safe";
+	"the fence's guard won't run git there, as it can't trust what git would run in that folder";
 
 /**
  * The trees in the folder the broker cuts them in that nothing live
@@ -206,7 +207,9 @@ function makingWhy(path: string, now: number): string | undefined {
 			return "git won't read it, but it was cut in the last ten minutes and its cut may not have ended, so it stays";
 		}
 	} catch {
-		// Its `.git` went since it was listed: the move finds it gone.
+		// Its `.git` went since it was listed, which nothing explains as
+		// well as somebody at work in it, so it isn't taken as free.
+		return "its .git went while it was asked about, so it stays";
 	}
 	return undefined;
 }
@@ -217,11 +220,90 @@ function makingWhy(path: string, now: number): string | undefined {
  */
 export function cutRunning(path: string, now = Date.now()): boolean {
 	const gitDir = namedGitDir(path);
-	if (gitDir === undefined) return false;
+	return gitDir !== undefined && lockedSince(gitDir, now);
+}
+
+/**
+ * Part a tree set aside from git's entry for it, keeping its `.git` file
+ * as `.git-was` to read. A cut again at its name takes the entry's name
+ * back, and a git run in the old folder would then read and write the
+ * new tree's index and HEAD.
+ */
+function unlink(aside: string): void {
 	try {
-		return now - statSync(join(gitDir, "locked")).mtimeMs < LOCK_STALE_MS;
+		renameSync(join(aside, ".git"), join(aside, ".git-was"));
 	} catch {
-		// No lock: no cut is running there.
+		// No `.git` file left to part it from: nothing names an entry.
+	}
+}
+
+/**
+ * Forget git's entry, in the repository whose common folder is
+ * `commonDir`, for a worktree at `path` whose folder is gone, as
+ * `worktree prune` would but for that one entry alone, so the other
+ * entries in that repository stay as they are. One git marks locked
+ * stays while its lock is younger than {@link LOCK_STALE_MS}, as a
+ * cut may still be running; an older one is a lock a killed cut left,
+ * which reclaim sets aside on the same terms. A lock giving a reason
+ * other than git's own while it cuts was put there by hand, with
+ * `worktree lock`, and is git's to keep. Answers whether one went.
+ */
+export function forgetGoneEntry(
+	commonDir: string,
+	path: string,
+	now = Date.now(),
+): boolean {
+	if (existsSync(path)) return false;
+	const entries = join(commonDir, "worktrees");
+	// git writes the real path, which only the folder's parent still has.
+	const wanted = new Set([
+		resolve(path, ".git"),
+		join(resolvedPath(dirname(path)), basename(path), ".git"),
+	]);
+	let names: string[];
+	try {
+		names = readdirSync(entries);
+	} catch {
+		// No worktrees folder: git has no entry to forget.
+		return false;
+	}
+	for (const name of names) {
+		const entry = join(entries, name);
+		try {
+			if (!lstatSync(entry).isDirectory()) continue;
+			const named = readFileSync(join(entry, "gitdir"), "utf8").trim();
+			if (!wanted.has(resolve(entry, named))) continue;
+			if (lockedSince(entry, now) || lockedByHand(entry)) return false;
+			rmSync(entry, { recursive: true, force: true });
+			return true;
+		} catch {
+			// An entry git can't have written, or one going as it is read.
+		}
+	}
+	return false;
+}
+
+/**
+ * Whether git's entry `entry` is locked for a reason of somebody's own
+ * rather than the word `worktree add` writes while it fills a tree.
+ */
+function lockedByHand(entry: string): boolean {
+	try {
+		return (
+			readFileSync(join(entry, "locked"), "utf8").trim() !== "initializing"
+		);
+	} catch {
+		// No lock on it.
+		return false;
+	}
+}
+
+/** Whether git's entry `entry` holds a lock younger than an hour. */
+function lockedSince(entry: string, now: number): boolean {
+	try {
+		return now - statSync(join(entry, "locked")).mtimeMs < LOCK_STALE_MS;
+	} catch {
+		// No lock on it.
 		return false;
 	}
 }
@@ -306,15 +388,19 @@ export async function setAside(
 			`${basename(tree.path)}-${randomBytes(4).toString("hex")}`,
 		);
 		let refused: string | undefined;
+		let gone = false;
 		const move = async () => {
 			try {
 				mkdirSync(deps.into, { recursive: true });
 				renameSync(tree.path, aside);
-				return true;
 			} catch (error) {
+				// Another reclaim, or the sweep, may have taken it first.
+				gone = !existsSync(tree.path);
 				refused = error instanceof Error ? error.message : String(error);
 				return false;
 			}
+			unlink(aside);
+			return true;
 		};
 		const real = resolvedPath(tree.path);
 		const recorded = deps.records
@@ -324,6 +410,8 @@ export async function setAside(
 			const took = await deps.records.whileUnheld(recorded.path, move);
 			if (took !== undefined) {
 				done.push({ kind: "set-aside", path: tree.path, aside });
+			} else if (gone) {
+				done.push({ kind: "gone", path: tree.path });
 			} else if (refused !== undefined) {
 				done.push({ kind: "refused", path: tree.path, why: refused });
 			} else if (!existsSync(tree.path)) {
@@ -346,6 +434,7 @@ export async function setAside(
 			continue;
 		}
 		if (await move()) done.push({ kind: "set-aside", path: tree.path, aside });
+		else if (gone) done.push({ kind: "gone", path: tree.path });
 		else done.push({ kind: "refused", path: tree.path, why: refused ?? "" });
 	}
 	return done;
@@ -360,8 +449,15 @@ const WORDS_MAX = 200;
  * its line breaks and control characters go and a long one is cut.
  */
 export function plainWords(said: string): string {
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: what it removes.
-	const flat = said.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
+	// Control characters of both sets, the marks that turn text's
+	// direction, and the separators some readers break lines at.
+	const flat = said
+		.replace(
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: what it removes.
+			/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028-\u202e\u2066-\u2069]+/g,
+			" ",
+		)
+		.trim();
 	return flat.length > WORDS_MAX ? `${flat.slice(0, WORDS_MAX)}...` : flat;
 }
 

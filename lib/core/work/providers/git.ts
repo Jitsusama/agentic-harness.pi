@@ -27,6 +27,7 @@ import { FETCHED_LATELY_MS, refreshStart } from "../fresh-start.ts";
 import { dropMergedBranch } from "../merged-branch.ts";
 import {
 	cutRunning,
+	forgetGoneEntry,
 	GUARD_WORDS,
 	looksCut,
 	plainWords,
@@ -67,13 +68,13 @@ function unreadTree(
 	const why = /[.!?]$/.test(said) ? said : `${said}.`;
 	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
 	if (cutRunning(path)) {
-		return `${where} git marks it locked, as it does while another session cuts it, so ask again in a minute.`;
+		return `${where} git marks it locked, as it does while another session cuts it, so ask again in a minute. A lock an hour old is taken as one a killed cut left.`;
 	}
 	if (
 		looksCut(path) &&
 		(gone !== undefined || standing.code === GUARD_REFUSED)
 	) {
-		return `${where} Nothing can hand it over or cut there until it goes. Once nothing holds it or works in it, \`work tidy\` lists it and \`work reclaim\` moves it aside whole, after which this ${intent} can be cut. Where this machine can't say what works in a folder, reclaim keeps it, so move it aside by hand.`;
+		return `${where} Nothing can hand it over or cut there until it goes. Once nothing holds it or works in it, \`work tidy\` lists it and \`work reclaim\` moves it aside whole, after which this ${intent} can be cut. Where a record from before trees named their owners names it, or this machine can't say what works in a folder, reclaim keeps it, so move it aside by hand.`;
 	}
 	return `${where} If git was only slow or stopped, ask again. Otherwise move it aside by hand once nothing in it is wanted, after which this ${intent} can be cut.`;
 }
@@ -420,15 +421,24 @@ export function createGitTreeProvider(deps: {
 				exec("git", ["-C", source.path, "worktree", "add", ...at]);
 			let cut = await add();
 			// A tree set aside from under this checkout leaves git's entry for
-			// it naming a folder that is no longer there, and git then refuses
-			// the name. Pruning forgets only entries whose folders are gone,
-			// which is git's own way out, and the cut is asked once more.
+			// it naming a folder that is no longer there, locked too when a
+			// killed cut left it, and git then refuses the name. That one
+			// entry is forgotten and the cut asked once more, rather than a
+			// prune, which would forget every gone tree's entry in the clone.
 			if (
 				cut.code !== 0 &&
-				/missing but already registered worktree/.test(cut.stderr) &&
-				(await exec("git", ["-C", source.path, "worktree", "prune"])).code === 0
+				/missing but (already registered|locked) worktree/.test(cut.stderr)
 			) {
-				cut = await add();
+				const common = await exec("git", [
+					"-C",
+					source.path,
+					"rev-parse",
+					"--path-format=absolute",
+					"--git-common-dir",
+				]);
+				if (common.code === 0 && forgetGoneEntry(common.stdout.trim(), path)) {
+					cut = await add();
+				}
 			}
 			if (cut.code !== 0) {
 				// An empty subvolume goes with rmdir, as its owner.
