@@ -218,6 +218,21 @@ describe("a commit's check", () => {
 		expect(failure?.problems.join("\n")).toContain("pnpm lint failed");
 	});
 
+	it("holds back a commit on a run recorded again in a project already asked about", async () => {
+		record({ ...RUN, root: "/src/repo/lib", command: "pnpm lint" });
+		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		await gitSays("moved on");
+		await gitAsked();
+		record({ ...NEXT, fingerprint: "judged" });
+		await gitSays("judged");
+		await settled();
+		// Answer any it asked, so one never asked fails rather than hangs.
+		for (const answer of asked.splice(0)) answer("judged");
+		const { failure } = await checking;
+		expect(failure?.problems.join("\n")).toContain("pnpm test failed");
+		expect(failure?.problems).toHaveLength(2);
+	});
+
 	it("asks git after one project's run at a time", async () => {
 		record({ ...RUN, root: "/src/repo/lib", command: "pnpm lint" });
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);

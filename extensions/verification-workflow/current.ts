@@ -100,21 +100,31 @@ export async function failureNow(
 	const judged: Judged[] = [];
 	const leave = new Set<string>();
 	// One project at a time, so a commit's check never sets several git
-	// statuses on the disk it waits on at once; a project whose run is
-	// recorded while others are asked about is asked about in its turn.
-	const asked = new Set<string>();
+	// statuses on the disk it waits on at once; a run recorded while
+	// others are asked about, in a new project or one already asked
+	// about, is asked about in its turn.
+	const asked = new Map<string, FailedRun | undefined>();
 	for (;;) {
-		const at = [...state.failedRuns.keys()].find((one) => !asked.has(one));
-		if (at === undefined) break;
-		asked.add(at);
+		const next = [...state.failedRuns].find(
+			([key, run]) => asked.get(key) !== run,
+		);
+		if (next === undefined) break;
+		const [at, run] = next;
+		asked.set(at, run);
 		if (!inScope(at)) {
 			leave.add(at);
 			continue;
 		}
 		const one = await askAfter(state, at, scope.signal);
 		if (!one) continue;
-		if ("judged" in one) judged.push(one.judged);
-		else leave.add(one.overtaken);
+		if ("judged" in one) {
+			asked.set(at, one.judged.run);
+			judged.push(one.judged);
+		} else {
+			// The newest holds the commit as recorded; git isn't asked again.
+			asked.set(at, state.failedRuns.get(at));
+			leave.add(one.overtaken);
+		}
 		if (one.problem) problems.push(one.problem);
 	}
 	const failure = problems.length > 0 ? { problems } : undefined;

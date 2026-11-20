@@ -581,6 +581,14 @@ describe("the verify tool", () => {
 		const held = await currentVerificationFailure({ dir: repo });
 		expect(held?.problems[0]).toContain(`exit 1 failed in ${failing}`);
 
+		// Committed beside it, which moves the repository's own tree.
+		execFileSync("git", ["-C", repo, "add", "beside"]);
+		execFileSync("git", ["-C", repo, "commit", "-qm", "beside"]);
+		const committed = await currentVerificationFailure({ dir: repo });
+		expect(committed?.problems[0], "held past a commit beside it").toContain(
+			`exit 1 failed in ${failing}`,
+		);
+
 		writeFileSync(join(failing, "formatted.ts"), "export {};\n");
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 	});
