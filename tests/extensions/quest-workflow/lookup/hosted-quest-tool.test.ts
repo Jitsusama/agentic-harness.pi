@@ -199,7 +199,8 @@ function startIn(cwd: string): unknown {
 		cwd,
 		hasUI: false,
 		isIdle: () => true,
-		ui: { notify: () => undefined, setStatus: () => undefined },
+		// A screen nobody sees: every call to it is taken and does nothing.
+		ui: new Proxy({}, { get: () => () => undefined }),
 		sessionManager: {
 			getSessionId: () => "a",
 			isPersisted: () => false,
