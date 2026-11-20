@@ -324,7 +324,12 @@ describe("an ask past the sessions that parked", () => {
 
 	it("still counts them for an act that leaves the boot, whose markers would outlive their wakers", () => {
 		const wrong = (
-			["log out", "switch users", "end the user's processes"] as const
+			[
+				"log out",
+				"switch users",
+				"end the user's processes",
+				"soft-reboot",
+			] as const
 		).filter(
 			(act) =>
 				!/A00001/.test(

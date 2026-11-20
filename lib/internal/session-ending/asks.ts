@@ -40,6 +40,7 @@ export type Act =
 	| "reboot"
 	| "restart"
 	| "shut down"
+	| "soft-reboot"
 	| "switch users";
 
 /** One ask to end a machine's sessions, found in a text. */
@@ -997,7 +998,15 @@ const LOGIN1 = String.raw`(?:busctl|dbus-send|gdbus)\s.*login1.*`;
 const COMMANDS: readonly (readonly [RegExp, Act])[] = [
 	[
 		new RegExp(
-			String.raw`^(?:reboot(?=\s|$)|shutdown\s+(?:\S+\s+)*-r\b|${SYSTEMCTL}(?:reboot|soft-reboot|kexec)(?=\s|$)|${SYSTEMCTL}(?:isolate|start)\s+(?:reboot|soft-reboot|kexec)\.target|(?:tel)?init\s+6(?=\s|$)|launchctl\s+reboot(?!\s+logout)(?=\s|$)|fdesetup\s+authrestart(?=\s|$)|osascript\s.*\b(?:restart|aevtrrst)\b|${LOGIN1}\breboot\b|qdbus\s.*\blogoutandreboot\b)`,
+			String.raw`^(?:${SYSTEMCTL}soft-reboot(?=\s|$)|${SYSTEMCTL}(?:isolate|start)\s+soft-reboot\.target)`,
+		),
+		// It ends every process but keeps the kernel and its boot, so what
+		// a boot clears outlives it.
+		"soft-reboot",
+	],
+	[
+		new RegExp(
+			String.raw`^(?:reboot(?=\s|$)|shutdown\s+(?:\S+\s+)*-r\b|${SYSTEMCTL}(?:reboot|kexec)(?=\s|$)|${SYSTEMCTL}(?:isolate|start)\s+(?:reboot|kexec)\.target|(?:tel)?init\s+6(?=\s|$)|launchctl\s+reboot(?!\s+logout)(?=\s|$)|fdesetup\s+authrestart(?=\s|$)|osascript\s.*\b(?:restart|aevtrrst)\b|${LOGIN1}\breboot\b|qdbus\s.*\blogoutandreboot\b)`,
 		),
 		"reboot",
 	],
@@ -1009,7 +1018,7 @@ const COMMANDS: readonly (readonly [RegExp, Act])[] = [
 	],
 	[
 		new RegExp(
-			String.raw`^(?:loginctl\s+(?:terminate|kill)-user(?=\s|$)|${LOGIN1}\b(?:terminate|kill)user\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*\s*$|kill(?:\s+-\S+)*\s+-1\s*$)`,
+			String.raw`^(?:loginctl\s+(?:terminate|kill)-user(?=\s|$)|${LOGIN1}\b(?:terminate|kill)user\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*\s*$|kill(?:\s+-\S+)*\s+-1\s*(?:$|[<>|;&#]|\d+[<>]))`,
 		),
 		// These end the user's manager or every process the user owns, so
 		// what outlives a log-out ends too.

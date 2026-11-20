@@ -89,8 +89,9 @@ const ENDS_A_LOG_IN: ReadonlySet<SessionEndingAsk["act"]> = new Set([
 
 /**
  * The acts that end the boot, whose next boot clears this one's park
- * markers. Any other ending leaves a parked session's marker saying this
- * boot after its waker has gone, so the mesh writes wakes nothing reads.
+ * markers. Any other ending, a soft-reboot included, since it keeps the
+ * kernel's boot, leaves a parked session's marker saying this boot after
+ * its waker has gone, so the mesh writes wakes nothing reads.
  */
 const ENDS_THE_BOOT: ReadonlySet<SessionEndingAsk["act"]> = new Set([
 	"reboot",
