@@ -485,6 +485,80 @@ describe("restartWhenSettled", () => {
 		expect(said.filter((line) => !line.startsWith("report:"))).toEqual([]);
 	});
 
+	// 20 November 15:22: pressed, the background host waited 52 min for a
+	// moment with no turn, as wakes kept starting turns, until its heap
+	// ran to three-quarters and the restart ended 57 turns.
+	it("drains the host while a pressed heap waits on a turn, once, and lifts the drain once the heap has room again", async () => {
+		let pressure: "pressed" | undefined = "pressed";
+		const timers = manualTimers();
+		const drains: boolean[] = [];
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is short",
+			held: () => [{ state: "busy", since: lately }],
+			pressure: () => pressure,
+			drain: (on) => drains.push(on),
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		await timers.fire();
+		await timers.fire();
+		expect(drains, "drained once, while the turn runs").toEqual([true]);
+		expect(said).toEqual([
+			"report: Heap short of room: draining, so each conversation parks as its turn ends and wakes wait for the next host, and restarting at the first moment no conversation has a turn, whatever background work or screens hold; 1 running now",
+		]);
+
+		pressure = undefined;
+		await timers.fire();
+		expect(drains, "lifted once the heap has room").toEqual([true, false]);
+		expect(said.slice(1)).toEqual([
+			"report: Heap has room again: the drain it started lifts, and parked conversations wake as asked",
+		]);
+
+		pressure = "pressed";
+		await timers.fire();
+		await timers.fire();
+		expect(drains, "drained again, pressed again").toEqual([true, false, true]);
+	});
+
+	it("starts no drain for a heap with no turn to wait on, or one that has nearly run out", async () => {
+		for (const [pressure, state] of [
+			["pressed", "idle"],
+			["urgent", "busy"],
+		] as const) {
+			const timers = manualTimers();
+			const drains: boolean[] = [];
+			const { facts: given, said } = facts({
+				differs: async () => "its heap is short",
+				held: () => [{ state, since: lately }],
+				pressure: () => pressure,
+				drain: (on) => drains.push(on),
+			});
+			restartWhenSettled(given, { after: timers.after });
+			await timers.fire(() => said.length > 1);
+			expect(drains, `${pressure} with the turn ${state}`).toEqual([]);
+			expect(said, `${pressure} restarts at once`).toEqual([
+				"expect true",
+				"restart: its heap is short",
+			]);
+		}
+	});
+
+	it("reports a drain that throws, and goes on looking", async () => {
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			differs: async () => "its heap is short",
+			held: () => [{ state: "busy", since: lately }],
+			pressure: () => "pressed",
+			drain: () => {
+				throw new Error("This host can't drain");
+			},
+		});
+		restartWhenSettled(given, { after: timers.after });
+		await timers.fire();
+		expect(said).toContain("report: Error: This host can't drain");
+		expect(timers.pending()[0]?.ms, "a look a second").toBe(1000);
+	});
+
 	// Waking parked conversations grows a heap already short of room.
 	it("lets no held wake through while its heap is short, past the ceiling or not", async () => {
 		let clock = NOW;

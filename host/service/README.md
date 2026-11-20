@@ -181,7 +181,11 @@ input pipeline or screen. No unit or running host is installed yet.
   running out. Past three-fifths of V8's limit the host takes the
   first moment no conversation has a turn running, whatever background
   work or screens hold, naming what it ends and letting no held wake
-  through; past three-quarters it restarts at once, turns and all,
+  through. While turns run it drains itself, as a drain asked by hand
+  does, so each conversation parks as its turn ends and a wake waits
+  for the next host: on 20 November a pressed host waited 52 minutes
+  for such a moment as wakes kept starting turns. The drain lifts if
+  the heap has room again first. Past three-quarters it restarts at once, turns and all,
   since on 18 November a host whose councils held its restart ran out
   of heap and ended everything anyway. The heap is read as the last
   major collection left it, so garbage not yet collected never ends a
