@@ -36,6 +36,7 @@ import {
 import { BUDGET_ENTRY, BUDGET_SETTLED } from "../../../../lib/budget/record.ts";
 import { automatedText } from "../../../../lib/internal/automated.ts";
 import { parseQuestFrontMatter } from "../../../../lib/internal/quest/documents/frontmatter.ts";
+import { isRecord } from "../../../../lib/internal/record.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard, journeyOf, refused, succeeded } from "../_helpers.ts";
 
@@ -94,10 +95,12 @@ beforeEach(() => {
 		"XDG_STATE_HOME",
 		"PI_BUDGET",
 		"PI_BUDGET_CLASSIFIER",
+		"PI_BUDGET_OPTED_OUT",
 		KEY,
 	])
 		kept[key] = process.env[key];
 	delete process.env.PI_BUDGET;
+	delete process.env.PI_BUDGET_OPTED_OUT;
 	// The person's own choice of classifier, or `off`, is not the tests'.
 	delete process.env.PI_BUDGET_CLASSIFIER;
 	process.env.HOME = tmpRoot;
@@ -713,10 +716,26 @@ describe("a quest no folder or parent names a budget for", () => {
 			expect(titles).not.toContainEqual({ title: "Laptop Fans" });
 			expect(titles).not.toContainEqual({ title: "Something Vague" });
 			expect(again.message).toContain(
-				"Already journaled personal or unsure, so not judged again:",
+				"Already journaled personal or unsure, and no folder names a budget, so not judged again:",
 			);
 			expect(again.message).toContain(fans);
 			expect(again.message).toContain(vague);
+		});
+
+		it("still names a quest journaled personal or unsure its folder's budget, without judging it", async () => {
+			const plain = judged("none", 0, { registry: false });
+			succeeded(await plain.run({ action: "create", title: "Laptop Fans" }));
+			const fans = plain.state.questId as string;
+			succeeded(await judged("none", 0.9).run({ action: "budget-sweep" }));
+			expect(journeyOf(join(plain.state.questsRoot, fans))).toContain(
+				"Budget: none named",
+			);
+			const { state, run } = judged("delta", 0.99, { folder: tmpRoot });
+
+			succeeded(await run({ action: "budget-sweep" }));
+
+			expect(budgetIn(state.questsRoot, fans)).toBe("aquifer");
+			expect(asked, "nothing judged again").toEqual([]);
 		});
 
 		it("leaves alone a quest whose own budget word can't be read", async () => {
@@ -1295,10 +1314,64 @@ describe("the budget of a session on no quest", () => {
 	});
 
 	it("isn't judged on its prompt when it runs headless, as a subagent of a quest on no budget does", async () => {
-		const { keeper, ctx, judged } = loose(undefined, "delta");
-		const headless = { ...ctx, mode: "json" } as typeof ctx;
+		for (const mode of ["json", "print"]) {
+			const { keeper, ctx, judged } = loose(undefined, "delta");
+			const headless = { ...ctx, mode } as typeof ctx;
 
-		await keeper.keep(headless, { prompt: "Review this Delta change" });
+			await keeper.keep(headless, { prompt: "Review this Delta change" });
+
+			expect(judged, mode).toEqual([]);
+			expect(process.env[KEY], mode).toBe("personal");
+		}
+	});
+
+	it("keeps to none, unjudged and over its folder's, when a quest whose budget is none started it", async () => {
+		process.env.PI_BUDGET_OPTED_OUT = "1";
+		const { keeper, ctx, judged } = loose(tmpRoot, "delta");
+
+		await keeper.keep(ctx, { prompt: "Review this Delta change" });
+
+		expect(judged).toEqual([]);
+		expect(process.env[KEY], "not its folder's aquifer").toBe("personal");
+	});
+
+	it("says a quest's none to what it starts, and isn't judged on that quest's words once it leaves it", async () => {
+		const { state, keeper, ctx, judged } = loose(undefined, "delta");
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(state, fakePi(intoTheBranch), fakeCtx("/elsewhere"), params);
+		succeeded(await run({ action: "create", title: "Mine" }));
+		const id = state.questId as string;
+		succeeded(await run({ action: "budget", id, ref: "none" }));
+
+		await keeper.keep(ctx, { prompt: "Tune the laptop's fans" });
+		expect(process.env.PI_BUDGET_OPTED_OUT).toBe("1");
+
+		succeeded(await run({ action: "unload" }));
+		await keeper.keep(ctx, { prompt: "and now something else" });
+
+		expect(process.env.PI_BUDGET_OPTED_OUT, "lifted with it").toBeUndefined();
+		expect(
+			judged.filter((work) => isRecord(work) && work.prompt !== undefined),
+			"no prompt judged, only the quest as it was made",
+		).toEqual([]);
+		expect(process.env[KEY]).toBe("personal");
+	});
+
+	it("isn't judged once reloaded into a conversation that was on a quest", async () => {
+		const { keeper, ctx, judged } = loose(undefined, "delta");
+		written.push(
+			{
+				type: "message",
+				message: { role: "user", content: "Speed up walgit" },
+			} as unknown as (typeof written)[number],
+			{
+				type: "custom",
+				customType: "quest-workflow",
+				data: { questId: "QEST-20261119-AAAAAA" },
+			} as unknown as (typeof written)[number],
+		);
+
+		await keeper.keep(ctx, { prompt: "yes, go on" });
 
 		expect(judged).toEqual([]);
 		expect(process.env[KEY]).toBe("personal");

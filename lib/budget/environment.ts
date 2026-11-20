@@ -20,6 +20,7 @@ import {
 } from "../core/session/index.ts";
 import {
 	BUDGET_KEYS_VARIABLE,
+	BUDGET_OPTED_OUT_VARIABLE,
 	BUDGET_VARIABLE,
 	isBudgetKeyName,
 } from "./record.ts";
@@ -121,6 +122,35 @@ export function layBudget(
 	overlay.name = budget.name;
 	overlay.label = budget.label;
 }
+
+/**
+ * Take any budget off `env` and set {@link BUDGET_OPTED_OUT_VARIABLE},
+ * for work said to draw on none, so what the process starts keeps to
+ * that. Laid as a budget's variables are, so the next lay or lift puts
+ * back what it replaced.
+ */
+export function layOptedOut(
+	env: NodeJS.ProcessEnv | SessionEnvironment,
+	overlay: BudgetOverlay = processOverlay(),
+): void {
+	const target = mutableEnvironment(env);
+	const key = BUDGET_OPTED_OUT_VARIABLE;
+	for (const laid of [...overlay.laid.keys()]) {
+		if (laid !== key) restore(target, overlay, laid);
+	}
+	const earlier = overlay.laid.get(key);
+	const before =
+		earlier && target.get(key) === earlier.value
+			? earlier.before
+			: target.get(key);
+	overlay.laid.set(key, { before, value: OPTED_OUT });
+	target.set(key, OPTED_OUT);
+	overlay.name = undefined;
+	overlay.label = undefined;
+}
+
+/** What {@link layOptedOut} sets its variable to. */
+const OPTED_OUT = "1";
 
 /** Take the budget off `env`, putting back what it replaced. */
 export function liftBudget(

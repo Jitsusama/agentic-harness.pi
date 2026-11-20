@@ -163,7 +163,7 @@ export function loadQuest(
  * the in-memory state from it. Same channel pr-workflow
  * uses for its roster, judge config and last run state.
  */
-const SESSION_KEY = "quest-workflow";
+export const SESSION_KEY = "quest-workflow";
 
 /** Snapshot persisted across reloads. */
 interface PersistedState {

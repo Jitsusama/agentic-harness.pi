@@ -77,6 +77,7 @@ type Swept =
 	| { readonly id: string; readonly folder: FolderBudget }
 	| { readonly id: string; readonly judged: WorkBudget }
 	| { readonly id: string; readonly unjudged: true }
+	| { readonly id: string; readonly judgedBefore: true }
 	| { readonly id: string; readonly covered: string }
 	| { readonly id: string; readonly stood: string }
 	| { readonly id: string; readonly stopped: true };
@@ -92,14 +93,18 @@ export async function budgetSweep(
 	const { index } = discoverQuests(state.questsRoot);
 	const unnamed: [string, QuestEntry][] = [];
 	const unread: string[] = [];
-	const judgedBefore: string[] = [];
+	// Judged before, so not paid for again; its folder, which costs no
+	// model call and may have changed since, is still asked.
+	const journaled = new Set<string>();
 	for (const [id, entry] of index.quests) {
 		if (SEALED.has(entry.doc.frontMatter.status)) continue;
 		const found = budgetFoundInRecord(state.questsRoot, id);
 		if (found === "unread") unread.push(id);
 		else if (found !== undefined) continue;
-		else if (journaledJudged(entry)) judgedBefore.push(id);
-		else unnamed.push([id, entry]);
+		else {
+			if (journaledJudged(entry)) journaled.add(id);
+			unnamed.push([id, entry]);
+		}
 	}
 	const parentOf = (id: string) =>
 		index.quests.get(id)?.doc.frontMatter.parent ?? null;
@@ -116,7 +121,15 @@ export async function budgetSweep(
 				if (coveredBy) return coveredBy;
 				let one: Swept;
 				try {
-					one = await sweepOne(state, ctx, id, entry, dry, signal);
+					one = await sweepOne(
+						state,
+						ctx,
+						id,
+						entry,
+						dry,
+						signal,
+						journaled.has(id),
+					);
 				} catch (error) {
 					// One quest's lock or write failing is that quest's, said as
 					// such, so the sweep still ends and says what it did.
@@ -147,6 +160,9 @@ export async function budgetSweep(
 	// budget a failed write may have left written without its Journey line.
 	const stood = swept.flatMap((one) =>
 		"stood" in one ? [{ id: one.id, why: one.stood }] : [],
+	);
+	const judgedBefore = swept.flatMap((one) =>
+		"judgedBefore" in one ? [one.id] : [],
 	);
 	return ok(said(swept, dry, unread, judgedBefore), {
 		dryRun: dry,
@@ -240,12 +256,14 @@ async function sweepOne(
 	entry: QuestEntry,
 	dry: boolean,
 	signal: AbortSignal | undefined,
+	judgedBefore: boolean,
 ): Promise<Swept> {
 	const folder = folderOf(entry);
 	const options = { stampUpdated: false, ...(signal ? { signal } : {}) };
 	if (dry) {
 		const taken = await budgetFromFolder(state, id, folder);
 		if (taken) return { id, folder: taken };
+		if (judgedBefore) return { id, judgedBefore: true };
 		const judged = await budgetFromWork(
 			state,
 			ctx,
@@ -258,6 +276,7 @@ async function sweepOne(
 	const byFolder = await folderNaming(state, id, entry.dir, folder, options);
 	if ("named" in byFolder) return { id, folder: byFolder.named };
 	if ("stood" in byFolder) return { id, stood: byFolder.stood };
+	if (judgedBefore) return { id, judgedBefore: true };
 	const byWork: Naming<WorkBudget> = await nameBudgetFromWork(
 		state,
 		ctx,
@@ -327,7 +346,9 @@ function said(
 	let unjudged = 0;
 	let stopped = 0;
 	for (const one of swept) {
-		if ("unjudged" in one) {
+		if ("judgedBefore" in one) {
+			// Said below, from the list the caller was given.
+		} else if ("unjudged" in one) {
 			unjudged++;
 		} else if ("stopped" in one) {
 			stopped++;
@@ -357,6 +378,9 @@ function said(
 		`${personal.length} judged personal`,
 		`${unsure.length} unsure`,
 		`${unjudged} unjudged`,
+		...(judgedBefore.length > 0
+			? [`${judgedBefore.length} judged before`]
+			: []),
 		...(covered.length > 0 ? [`${covered.length} left to a parent`] : []),
 		...(stood.length > 0 ? [`${stood.length} left as they stood`] : []),
 		...(stopped > 0 ? [`${stopped} not reached`] : []),
@@ -394,7 +418,7 @@ function said(
 	if (judgedBefore.length > 0) {
 		lines.push(
 			"",
-			`Already journaled personal or unsure, so not judged again: ${judgedBefore.join(", ")}.`,
+			`Already journaled personal or unsure, and no folder names a budget, so not judged again: ${judgedBefore.join(", ")}.`,
 		);
 	}
 	if (unread.length > 0) {

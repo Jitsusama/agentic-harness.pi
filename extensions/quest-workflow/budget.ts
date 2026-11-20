@@ -35,6 +35,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
 	layBudget,
+	layOptedOut,
 	liftBudget,
 	processOverlay,
 } from "../../lib/budget/environment.ts";
@@ -47,6 +48,7 @@ import {
 import type { Classify, WorkToBudget } from "../../lib/budget/provider.ts";
 import {
 	BUDGET_ENTRY,
+	BUDGET_OPTED_OUT_VARIABLE,
 	BUDGET_SETTLED,
 	BUDGET_VARIABLE,
 	type BudgetRecord,
@@ -60,11 +62,13 @@ import {
 	budgetInRecord,
 	NO_BUDGET,
 } from "../../lib/internal/quest/fields/budget.ts";
+import { isRecord } from "../../lib/internal/record.ts";
 import {
 	isPersonText,
 	isPersonWords,
 	userTextOf,
 } from "../../lib/internal/session/driven.ts";
+import { SESSION_KEY } from "./lifecycle.ts";
 import type { QuestState } from "./state.ts";
 
 /** What keeps the session on its quest's budget. */
@@ -188,6 +192,10 @@ export function keepQuestBudget(
 	);
 	/** The name last drawn on or asked for, null for none. */
 	let wanted: string | null | undefined;
+	/** Whether that none was the quest's own word, laid for what it starts. */
+	let wantedOptedOut = false;
+	/** Whether this session has been on a quest, whose words its own aren't. */
+	let beenOnQuest = false;
 	/** Bumped on every ask, so an answer overtaken by another is dropped. */
 	let asking = 0;
 	/** Names already said to be undrawable, so each is said once. */
@@ -256,6 +264,10 @@ export function keepQuestBudget(
 		firstPrompt ??=
 			firstPromptOf(ctx) ?? (said && isPersonText(said) ? said : undefined);
 		if (firstPrompt === undefined) return null;
+		// A session that left a quest opened on that quest's work, so its
+		// first words would judge the quest's budget onto what comes next.
+		if (promptAsked === undefined && (beenOnQuest || wasOnQuest(ctx)))
+			return null;
 		// A keeper reloaded into a conversation keeps the budget the one
 		// before it recorded, rather than paying to judge again, which a
 		// miss or an unsure answer would take off without a word.
@@ -317,15 +329,24 @@ export function keepQuestBudget(
 		last = ctx;
 		if (again) redrawOwed = true;
 		startedOn ??= inheritedBudget(ctx);
+		if (state.questId) beenOnQuest = true;
+		const found = state.questId
+			? budgetInRecord(state.questsRoot, state.questId)
+			: undefined;
 		const name = state.questId
-			? (budgetInRecord(state.questsRoot, state.questId)?.name ?? null)
+			? (found?.name ?? null)
 			: await looseName(ctx, prompt);
 		if (ctx !== last) return pending;
-		if (name === wanted && !redrawOwed) return pending;
+		// A quest whose own word, or one above it, is none, as against one
+		// nothing names: what it starts keeps to that word.
+		const optedOut = found !== undefined && found.name === null;
+		if (name === wanted && optedOut === wantedOptedOut && !redrawOwed)
+			return pending;
 		redrawOwed = false;
 		wanted = name;
+		wantedOptedOut = optedOut;
 		const ask = ++asking;
-		pending = settle(ctx, name, ask);
+		pending = settle(ctx, name, ask, optedOut);
 		return pending;
 	};
 
@@ -333,9 +354,11 @@ export function keepQuestBudget(
 		ctx: ExtensionContext,
 		name: string | null,
 		ask: number,
+		optedOut = false,
 	) => {
 		if (name === null) {
-			liftBudget(sessionEnv(ctx), processOverlay(ctx));
+			if (optedOut) layOptedOut(sessionEnv(ctx), processOverlay(ctx));
+			else liftBudget(sessionEnv(ctx), processOverlay(ctx));
 			recordDrawn(pi, ctx);
 			return;
 		}
@@ -379,6 +402,8 @@ export function keepQuestBudget(
 		// Asked again in full by the next session's first keep, and any
 		// answer still on its way is overtaken, so it lays nothing.
 		wanted = undefined;
+		wantedOptedOut = false;
+		beenOnQuest = false;
 		asking++;
 		sessions++;
 		folderAsked = undefined;
@@ -401,10 +426,29 @@ export function keepQuestBudget(
  * earlier session's keeper laid is never taken for one it started on.
  */
 function inheritedBudget(ctx: ExtensionContext): string {
-	const laid = processOverlay(ctx).laid.get(BUDGET_VARIABLE);
-	const now = sessionEnv(ctx).get(BUDGET_VARIABLE);
-	const under = laid && now === laid.value ? laid.before : now;
-	return under?.trim() ?? "";
+	// Started by work said to be the person's own, which it keeps to.
+	if (beneathOverlay(ctx, BUDGET_OPTED_OUT_VARIABLE)?.trim()) return NO_BUDGET;
+	return beneathOverlay(ctx, BUDGET_VARIABLE)?.trim() ?? "";
+}
+
+/** What `key` held before this session's keeper laid anything over it. */
+function beneathOverlay(
+	ctx: ExtensionContext,
+	key: string,
+): string | undefined {
+	const laid = processOverlay(ctx).laid.get(key);
+	const now = sessionEnv(ctx).get(key);
+	return laid && now === laid.value ? laid.before : now;
+}
+
+/** Whether the session's log says it was on a quest at some point. */
+function wasOnQuest(ctx: ExtensionContext): boolean {
+	for (const entry of ctx.sessionManager?.getBranch?.() ?? []) {
+		if (entry.type !== "custom" || entry.customType !== SESSION_KEY) continue;
+		const data: unknown = entry.data;
+		if (isRecord(data) && typeof data.questId === "string") return true;
+	}
+	return false;
 }
 
 /**

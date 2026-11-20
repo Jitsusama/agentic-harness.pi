@@ -46,6 +46,15 @@ export const BUDGET_VARIABLE = "PI_BUDGET";
  */
 export const BUDGET_KEYS_VARIABLE = "PI_BUDGET_KEYS";
 
+/**
+ * The variable set while a process's work was said to be the person's
+ * own, drawing on no budget by choice rather than for want of a name,
+ * so what the process starts (a subagent in a folder a team's budget
+ * lists) keeps to that word rather than taking the folder's. Not
+ * {@link BUDGET_VARIABLE}, whose every value names a budget.
+ */
+export const BUDGET_OPTED_OUT_VARIABLE = "PI_BUDGET_OPTED_OUT";
+
 /** A name a shell would take as a variable's. */
 export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
