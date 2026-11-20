@@ -108,6 +108,8 @@ describe("a resumed conversation", () => {
 	});
 
 	it("is stopped at once when it is refused as it says it ends", async () => {
+		// A grace longer than the wait below, so a stop within it is no grace.
+		superviseAgain({ clocks: { exitsWithinMs: 3_000 } });
 		units.next = {
 			answers: (result) => ({ ...result, conversation: conversation(b) }),
 			endsAsItAnswers: true,
@@ -117,8 +119,13 @@ describe("a resumed conversation", () => {
 			`runs ${b}, not ${a} as asked`,
 		);
 
-		expect(units.stopped, "stopped, not given its while").toEqual(
-			units.started,
+		// Stopped once its slot is marked, for a host ending before the stop.
+		await vi.waitFor(
+			() =>
+				expect(units.stopped, "stopped, not given its while").toEqual(
+					units.started,
+				),
+			{ timeout: 1_000 },
 		);
 	});
 
@@ -269,7 +276,7 @@ describe("a resumed conversation", () => {
 			`runs ${b}, not ${a} as asked`,
 		);
 
-		expect(units.stopped).toEqual(units.started);
+		await vi.waitFor(() => expect(units.stopped).toEqual(units.started));
 		expect(routes.listed()).toEqual([]);
 	});
 
@@ -598,6 +605,7 @@ describe("what a child says", () => {
 		await vi.waitFor(async () =>
 			expect(JSON.parse(await readFile(slot.file, "utf8"))).toEqual({
 				session: entry(b),
+				was: a,
 			}),
 		);
 	});

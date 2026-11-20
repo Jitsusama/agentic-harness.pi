@@ -5,7 +5,11 @@
 
 import { existsSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { slotForsaken, slotOf } from "../../../host/service/child-units.ts";
+import {
+	slotForsaken,
+	slotOf,
+	slotWas,
+} from "../../../host/service/child-units.ts";
 import {
 	a,
 	b,
@@ -16,6 +20,7 @@ import {
 	entry,
 	folder,
 	key,
+	pause,
 	reported,
 	roster,
 	routes,
@@ -76,7 +81,7 @@ describe("whose conversation a child holds", () => {
 		expect(reported).toEqual([]);
 	});
 
-	it("resumes a conversation in its own slot after another child claimed it and won't stop", async () => {
+	it("resumes a conversation another child claimed and won't stop only once that child has gone", async () => {
 		roster.held = [entry(a), entry(b)];
 		await supervisor.resume(entry(a));
 		await supervisor.resume(entry(b));
@@ -97,10 +102,18 @@ describe("whose conversation a child holds", () => {
 			expect(existsSync(slotA.file), "a's slot is cleared").toBe(false),
 		);
 
+		// Two processes would run it while the forsaken one lingers.
+		const slotB = slotOf(folder, key, b);
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			`${a} still runs in ${slotB.unit}`,
+		);
+		await units.children.get(slotB.unit)?.exit();
+		units.children.delete(slotB.unit);
+
 		await supervisor.resume(entry(a));
 		expect(units.started, "a started again in its own slot").toEqual([
 			slotA.unit,
-			slotOf(folder, key, b).unit,
+			slotB.unit,
 			slotA.unit,
 		]);
 	});
@@ -200,6 +213,66 @@ describe("whose conversation a child holds", () => {
 			expect(await slotForsaken(slotA), "still marked").toEqual({ runs: e }),
 		);
 		expect(units.stopped, "stopped once marked").toEqual([slotA.unit]);
+	});
+
+	it("clears its slot only once the writes its watch queued have landed", async () => {
+		await supervisor.resume(entry(a));
+		const slotA = slotOf(folder, key, a);
+		const disk = deferred();
+		roster.written = disk.promise;
+		const child = childOf(a);
+		child.say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(c),
+			entry: entry(c),
+		});
+		// Its slot write waits behind the first became's roster change.
+		child.say({
+			type: "became",
+			previousId: c,
+			conversation: conversation(d),
+			entry: entry(d),
+		});
+		await child.end("parked");
+
+		// Long past the unit's going, which frees the slot when nothing waits.
+		await pause(1_000);
+		expect(units.forgotten, "not cleared under a queued write").toEqual([]);
+		disk.settle();
+
+		await vi.waitFor(() => expect(units.forgotten).toEqual([slotA.unit]));
+		expect(existsSync(slotA.file), "no write landed after the clear").toBe(
+			false,
+		);
+		expect(roster.held, "the roster followed it").toEqual([entry(d)]);
+	});
+
+	it("replaces what a child became from when its last host ended before the roster did", async () => {
+		await supervisor.resume(entry(a));
+		const slotA = slotOf(folder, key, a);
+		// A roster change that never lands, as a host killed first leaves it.
+		roster.written = deferred().promise;
+		const child = childOf(a);
+		child.say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+			entry: entry(b),
+		});
+		await vi.waitFor(async () =>
+			expect(await slotWas(slotA), "its slot names what it was").toBe(a),
+		);
+		// The child runs b now, which the next host's watch answers.
+		child.conversation = conversation(b);
+		child.entry = entry(b);
+		superviseAgain({ held: [entry(a)], nextHost: true });
+
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
+
+		expect(roster.held, "a replaced, not held beside b").toEqual([entry(b)]);
+		expect(routes.routeOf(b), "routed to what it became").toBeDefined();
+		expect(reported).toEqual([]);
 	});
 
 	it("stops at once a child forsaken while it leaves as it said it would", async () => {

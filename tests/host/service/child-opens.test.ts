@@ -109,7 +109,8 @@ describe("a new conversation", () => {
 			`opened ${a}, which the roster holds already`,
 		);
 
-		expect(units.stopped).toEqual(units.started);
+		// Stopped once its slot is marked, for a host ending before the stop.
+		await vi.waitFor(() => expect(units.stopped).toEqual(units.started));
 		expect(routes.routeOf(a), "no route taken from it").toBeUndefined();
 		expect(roster.held).toEqual([entry(a)]);
 	});
@@ -121,7 +122,7 @@ describe("a new conversation", () => {
 			`opened ${a}, which the roster holds already`,
 		);
 
-		expect(units.stopped).toEqual(units.started);
+		await vi.waitFor(() => expect(units.stopped).toEqual(units.started));
 		expect(routes.routeOf(a), "no route taken from it").toBeUndefined();
 		expect(roster.held).toEqual([entry(a)]);
 	});
@@ -170,7 +171,7 @@ describe("a new conversation", () => {
 			`runs ${b}, not`,
 		);
 
-		expect(units.stopped).toEqual(units.started);
+		await vi.waitFor(() => expect(units.stopped).toEqual(units.started));
 		expect(routes.listed()).toEqual([]);
 		expect(roster.held).toEqual([entry(a)]);
 	});
