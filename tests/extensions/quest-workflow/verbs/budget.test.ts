@@ -1135,7 +1135,8 @@ describe("the session's budget", () => {
 				return { kind: "drawn", env: { [KEY]: "team" }, label: "Delta" };
 			});
 			await made.run({ action: "load", id: made.top });
-			await keeper.keep(ui().ctx);
+			const seen = ui();
+			await keeper.keep(seen.ctx);
 			expect(process.env[KEY], "the deadline passed first").toBe("personal");
 
 			await vi.waitFor(
@@ -1151,6 +1152,51 @@ describe("the session's budget", () => {
 				isRecord(last) && "unresolved" in last,
 				"the log's last entry says nothing was missed",
 			).toBe(false);
+			expect(
+				seen.notices.at(-1),
+				"the person, told calls used the fallback, is told that ended",
+			).toBe(
+				"Budget delta can be drawn on now, so model calls draw on it again.",
+			);
+		});
+
+		it("lifts a budget whose token is refused late, saying the provider's reason", async () => {
+			const made = await quests();
+			await made.run({ action: "budget", id: made.top, ref: "delta" });
+			const events = bus();
+			const keeper = keepQuestBudget(
+				fakePi({ ...intoTheBranch, events }),
+				made.state,
+				{ ...quiet, now: () => 0, answerDeadlineMs: 20 },
+			);
+			let slow = false;
+			provide(events, "plane", async () => {
+				if (!slow)
+					return { kind: "drawn", env: { [KEY]: "team" }, label: "Delta" };
+				// Long past the deadline, however loaded the machine.
+				await new Promise((done) => setTimeout(done, 400));
+				return { kind: "unavailable", reason: "The token was taken away." };
+			});
+			await made.run({ action: "load", id: made.top });
+			const seen = ui();
+			await keeper.keep(seen.ctx);
+			expect(process.env[KEY], "drawn on in time").toBe("team");
+
+			slow = true;
+			await keeper.keep(seen.ctx, { again: true });
+			expect(process.env[KEY], "the last drawing stands in").toBe("team");
+
+			await vi.waitFor(
+				() =>
+					expect(process.env[KEY], "the refused token is lifted").toBe(
+						"personal",
+					),
+				{ timeout: 5_000, interval: 10 },
+			);
+			expect(
+				seen.notices.at(-1),
+				"the notice gives the provider's reason, not a missed deadline",
+			).toContain("The token was taken away.");
 		});
 
 		it("lays no late answer once its session is forgotten", async () => {

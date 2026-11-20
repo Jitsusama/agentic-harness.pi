@@ -132,37 +132,59 @@ export function hostBudgets(
 	// Each provider's answer still on its way, by provider and name, so
 	// a draw asked again while one is late waits on it rather than
 	// piling another on a host already too busy to answer the first.
-	const coming = new Map<string, Promise<BudgetAnswer | typeof LATE>>();
+	// Each is kept with when it was asked, since a draw that joins it
+	// waits only what is left of its deadline.
+	const coming = new Map<
+		string,
+		{ answer: Promise<BudgetAnswer | typeof LATE>; askedAt: number }
+	>();
+	// Counts the providers registered, so what an ask of a replaced one
+	// answers lays nothing and tells nobody.
+	let era = 0;
 	// Each name's last drawing, which stands in for a provider that is
 	// late, and only for one that is: any answer in time replaces it.
 	const lastDrawn = new Map<string, Drawn>();
-	// The names a draw that missed its deadline is still waiting on, with
-	// whether any such draw went without and the drawing that stood in for
-	// the rest. The late answer is told only where it differs from what a
-	// draw was given: one the last drawing stood in for, answered the same,
-	// already has it, and telling it would only ask again of a busy host.
+	// The names a draw that missed its deadline is still waiting on, by
+	// the provider that was late, with whether any such draw went without
+	// and the drawing that stood in for the rest. The late answer is told
+	// only where it differs from what a draw was given: one the last
+	// drawing stood in for, answered the same, already has it, and telling
+	// it would only ask again of a busy host.
 	const waiting = new Map<
 		string,
 		{ without: boolean; stood: Drawn | undefined }
 	>();
+	// Each name's late answer that was told, and when, for the draw the
+	// telling brings: it takes this rather than asking the busy provider
+	// again, whose next answer, a fresh token each time, would be told in
+	// turn, and so on for the whole session.
+	const told = new Map<string, { drawing: BudgetDrawing; at: number }>();
 	const answerOf = (provider: BudgetProvider, name: string) => {
 		const key = `${provider.id}\0${name}`;
-		let answer = coming.get(key);
-		if (!answer) {
-			answer = askOne(provider, name, lateMs);
-			coming.set(key, answer);
-			const done = answer;
-			void done.finally(() => {
-				if (coming.get(key) === done) coming.delete(key);
+		let ask = coming.get(key);
+		if (!ask) {
+			const answer = askOne(provider, name, lateMs);
+			const made = { answer, askedAt: Date.now() };
+			coming.set(key, made);
+			void answer.finally(() => {
+				if (coming.get(key) === made) coming.delete(key);
 			});
+			ask = made;
 		}
-		return answer;
+		return ask;
 	};
 	const drawWithin = async (
 		name: string,
 		withinMs: number,
 		from?: string,
+		long = false,
 	): Promise<BudgetDrawing | { readonly lateOf: string }> => {
+		const drawnIn = era;
+		const stands = (drawing: BudgetDrawing | undefined) => {
+			if (drawnIn !== era) return;
+			if (drawing?.kind === "drawn") lastDrawn.set(name, drawing);
+			else lastDrawn.delete(name);
+		};
 		const asked: string[] = [];
 		const all = ordered();
 		const start = Math.max(
@@ -171,45 +193,65 @@ export function hostBudgets(
 		);
 		for (const provider of all.slice(start)) {
 			asked.push(provider.id);
-			const answer = await within(answerOf(provider, name), withinMs);
+			const ask = answerOf(provider, name);
+			const left = Math.max(0, withinMs - (Date.now() - ask.askedAt));
+			const answer = await within(ask.answer, left, long);
 			if (answer === LATE) return { lateOf: provider.id };
-			if (answer.kind === "unknown") continue;
+			if (answer.kind === "unknown") {
+				// Its own last drawing can't stand in once it says it has none.
+				if (lastDrawn.get(name)?.provider === provider.id) stands(undefined);
+				continue;
+			}
 			const drawing = { ...answer, provider: provider.id };
-			if (drawing.kind === "drawn") lastDrawn.set(name, drawing);
-			else lastDrawn.delete(name);
+			stands(drawing);
 			return drawing;
 		}
-		lastDrawn.delete(name);
+		stands(undefined);
 		return { kind: "unknown", asked };
 	};
 	const waitOn = (name: string, lateOf: string, stood: Drawn | undefined) => {
-		const already = waiting.get(name);
+		const key = `${lateOf}\0${name}`;
+		const already = waiting.get(key);
 		if (already) {
 			if (stood) already.stood = stood;
 			else already.without = true;
 			return;
 		}
 		const wait = { without: stood === undefined, stood };
-		waiting.set(name, wait);
+		waiting.set(key, wait);
+		const waitedIn = era;
 		// From the late provider on: those ahead of it answered in time, and
 		// its own answer is the one already on its way, so this asks nothing
 		// again of it. Its bound ends a stuck one as late, which tells none.
-		void drawWithin(name, lateMs, lateOf)
+		void drawWithin(name, lateMs, lateOf, true)
 			.then((drawing) => {
-				if (!("kind" in drawing)) return;
+				if (waitedIn !== era || !("kind" in drawing)) return;
 				const gained = wait.without && drawing.kind === "drawn";
 				const changed =
 					wait.stood !== undefined && !sameDrawing(wait.stood, drawing);
 				if (!gained && !changed) return;
+				told.set(name, { drawing, at: Date.now() });
 				for (const listener of lateListeners) tellLate(listener, name);
 			})
-			.finally(() => waiting.delete(name));
+			.catch(() => {
+				// Nothing here rejects: askOne reads a throw or a malformed answer
+				// as unavailable, and tellLate passes over a listener that throws.
+				// Kept so that a slip there can't leave a rejection to end pi.
+			})
+			.finally(() => {
+				if (waiting.get(key) === wait) waiting.delete(key);
+			});
 	};
 	const host: BudgetHost = {
 		registerProvider(provider) {
-			// An ask of the one it replaces answers for that one, not this.
+			// An ask of the one it replaces answers for that one, not this, so
+			// what it answers lays nothing and tells nobody, and a late draw
+			// waits on the new one afresh.
 			for (const key of coming.keys())
 				if (key.startsWith(`${provider.id}\0`)) coming.delete(key);
+			era++;
+			waiting.clear();
+			told.clear();
 			providers.set(provider.id, provider);
 			for (const listener of listeners) listener();
 		},
@@ -221,6 +263,9 @@ export function hostBudgets(
 			lateListeners.push(listener);
 		},
 		async draw(name) {
+			const late = told.get(name);
+			told.delete(name);
+			if (late && Date.now() - late.at <= lateMs) return late.drawing;
 			const drawing = await drawWithin(name, deadlineMs);
 			if ("kind" in drawing) return drawing;
 			const stands = lastDrawn.get(name);
@@ -458,13 +503,14 @@ async function askFolder(
 async function within<T>(
 	answer: Promise<T>,
 	withinMs: number,
+	long = false,
 ): Promise<T | typeof LATE> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const late = new Promise<typeof LATE>((resolve) => {
 		timer = setTimeout(() => resolve(LATE), withinMs);
 		// The late wait runs long, so it mustn't keep a process up that has
-		// nothing else to do.
-		timer.unref();
+		// nothing else to do; a caller's own deadline keeps it, as before.
+		if (long) timer.unref();
 	});
 	try {
 		return await Promise.race([answer, late]);
@@ -496,10 +542,36 @@ async function askOne(
 	lateMs: number,
 ): Promise<BudgetAnswer | typeof LATE> {
 	try {
-		return await within(Promise.resolve(provider.resolve(name)), lateMs);
+		const said = await within(
+			Promise.resolve(provider.resolve(name)),
+			lateMs,
+			true,
+		);
+		if (said === LATE || isAnswer(said)) return said;
+		return { kind: "unavailable", reason: NO_ANSWER };
 	} catch (error) {
 		return { kind: "unavailable" as const, reason: whatFailed(error) };
 	}
+}
+
+/** What a provider whose answer isn't one is said to have done. */
+const NO_ANSWER = "It answered with something that isn't a budget's answer.";
+
+/**
+ * Whether `said` has the shape the host reads before anything else does:
+ * a kind it knows, and for a drawing, its variables. A reason that isn't
+ * words is said as none further on, so it passes here.
+ */
+function isAnswer(said: unknown): said is BudgetAnswer {
+	if (typeof said !== "object" || said === null || !("kind" in said))
+		return false;
+	if (said.kind === "unknown" || said.kind === "unavailable") return true;
+	return (
+		said.kind === "drawn" &&
+		"env" in said &&
+		typeof said.env === "object" &&
+		said.env !== null
+	);
 }
 
 /** Whether `drawing` is `stood`, by what a call draws on. */

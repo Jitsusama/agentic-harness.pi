@@ -545,8 +545,18 @@ export function keepQuestBudget(
 				{ name, label: drawing.label, env: drawing.env },
 				processOverlay(ctx),
 			);
-			told.delete(name);
 			recordDrawn(pi, ctx, drawing);
+			// The person was told calls use the fallback, so they're told this
+			// ends it, rather than left to think it goes on.
+			if (told.delete(name)) {
+				journal(
+					`budget ${name} can be drawn on now, so model calls draw on it again`,
+				);
+				ctx.ui.notify(
+					`Budget ${name} can be drawn on now, so model calls draw on it again.`,
+					"info",
+				);
+			}
 			return;
 		}
 		liftBudget(sessionEnv(ctx), processOverlay(ctx));
