@@ -19,20 +19,17 @@ import {
 	relative,
 	resolve,
 } from "node:path";
+import type { FenceKind } from "../../mesh/presence.ts";
 import { FENCE, fenceRefusesRead, fenceRefusesWrite } from "../fence/fence.ts";
 import { askedSandbox } from "../fence/fence-stage.ts";
 import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
 import { makeShares, questScratch } from "./quest-folders.ts";
-import {
-	SANDBOX_NAMES,
-	SANDBOX_VARIABLE,
-	STRICT,
-	unfencedFolder,
-} from "./sandbox.ts";
+import { SANDBOX_NAMES, SANDBOX_VARIABLE, STRICT } from "./sandbox.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
 import { type FileUse, fileReach } from "./strict-rules.ts";
 import { treeGit, within, worktreeRepository } from "./tree-git.ts";
+import { unfencedFolder } from "./unfenced-folder.ts";
 
 /**
  * pi's file tools, by what each does with its `path`. Those that search
@@ -130,6 +127,28 @@ interface FilePlace {
 	skills?: readonly string[];
 	/** Whether the fence's first stage takes it unasked; by default, as it started. */
 	staged?: (env: NodeJS.ProcessEnv) => boolean;
+}
+
+/**
+ * The fence pi's file tools hold `call` to, read as `fileToolRefusal`
+ * reads it, as a host's record names it; nothing for another tool.
+ */
+export function fileToolFence(
+	call: ToolCall,
+	env: NodeJS.ProcessEnv,
+	staged?: (env: NodeJS.ProcessEnv) => boolean,
+): FenceKind | undefined {
+	return FILE_TOOLS.has(call.toolName) ? filesFence(env, staged) : undefined;
+}
+
+/** The fence pi's file tools run under in `env`, as fileToolRefusal judges them. */
+export function filesFence(
+	env: NodeJS.ProcessEnv,
+	staged?: (env: NodeJS.ProcessEnv) => boolean,
+): FenceKind {
+	const asked = askedSandbox(env, SANDBOX_NAMES, staged).name;
+	if (asked === STRICT) return "strict";
+	return asked === FENCE ? "fence" : "none";
 }
 
 /**

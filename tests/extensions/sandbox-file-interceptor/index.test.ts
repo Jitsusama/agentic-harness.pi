@@ -20,8 +20,12 @@ import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import sandboxFileInterceptor from "../../../extensions/sandbox-file-interceptor/index.ts";
+import { type Host, installHost } from "../../../lib/core/session/host.ts";
+import { withSession } from "../../../lib/core/session/index.ts";
 import type { Refusal } from "../../../lib/internal/fence/fence-log.ts";
+import { FENCE_UNSAID } from "../../../lib/internal/sandbox/fence-told.ts";
 import {
+	fileToolFence,
 	fileToolRefusal,
 	toolPaths,
 } from "../../../lib/internal/sandbox/sandbox-files.ts";
@@ -257,6 +261,33 @@ describe("a strict session the sandbox can't fence", () => {
 	});
 });
 
+describe("the fence pi's file tools hold a call to", () => {
+	const read = { toolName: "read", input: { path: "notes.md" } };
+	const never = () => false;
+
+	it("is the one each sandbox's name asks for, as the refusal reads it", () => {
+		expect(
+			[
+				{ PI_SANDBOX: "strict" },
+				{ PI_SANDBOX: "fence" },
+				{ PI_SANDBOX: "off" },
+				{ PI_SANDBOX: "vm" },
+				{},
+			].map((env) => fileToolFence(read, env, never)),
+		).toEqual(["strict", "fence", "none", "fence", "none"]);
+	});
+
+	it("is the fence in the first stage unasked", () => {
+		expect(fileToolFence(read, {}, () => true)).toBe("fence");
+	});
+
+	it("is nothing for any tool but pi's file tools", () => {
+		expect(
+			fileToolFence({ toolName: "bash", input: {} }, {}, never),
+		).toBeUndefined();
+	});
+});
+
 describe("the interceptor", () => {
 	type Handler = (
 		event: { toolName: string; input: unknown },
@@ -271,6 +302,8 @@ describe("the interceptor", () => {
 	}) => Promise<unknown>;
 	let handler: Handler;
 	let starting: Starting;
+	let sessionStart: unknown;
+	let sessionShutdown: unknown;
 	let asked: string | undefined;
 	const seat = () => ({
 		cwd: work,
@@ -291,11 +324,124 @@ describe("the interceptor", () => {
 		}
 		handler = registered as Handler;
 		starting = start as Starting;
+		sessionStart = handlers.get("session_start");
+		sessionShutdown = handlers.get("session_shutdown");
 	});
 
 	afterEach(() => {
 		if (asked === undefined) delete process.env.PI_SANDBOX;
 		else process.env.PI_SANDBOX = asked;
+	});
+
+	it("tells a host its file tools' fence as its runner starts, before any call", async () => {
+		const told: [string, string, string][] = [];
+		const uninstall = installHost({
+			fenced: (id: string, fence: string, by: string) => {
+				told.push([id, fence, by]);
+				return true;
+			},
+		} as unknown as Host);
+		try {
+			process.env.PI_SANDBOX = "strict";
+			expect(
+				typeof sessionStart,
+				"the guard never heard its runner start",
+			).toBe("function");
+			// A host runs each call within its conversation.
+			await withSession("a-session", () =>
+				(sessionStart as (event: unknown, ctx: unknown) => Promise<unknown>)(
+					{ type: "session_start" },
+					seat(),
+				),
+			);
+		} finally {
+			uninstall();
+		}
+		// The host names a fence only once this guard has told one, since a
+		// runner without it leaves pi's file tools unfenced.
+		expect(told).toEqual([["a-session", "strict", "files"]]);
+	});
+
+	it("tells a host it left as its runner shuts down, naming the session it started in", async () => {
+		const told: string[][] = [];
+		const uninstall = installHost({
+			fenced: () => true,
+			left: (id: string) => told.push([id, "left"]),
+		} as unknown as Host);
+		try {
+			expect(
+				typeof sessionShutdown,
+				"the guard never heard its runner shut down",
+			).toBe("function");
+			await withSession("a-session", () =>
+				(sessionStart as (event: unknown, ctx: unknown) => Promise<unknown>)(
+					{ type: "session_start" },
+					seat(),
+				),
+			);
+			// Its context may not be read once the runner is gone, so none.
+			await (sessionShutdown as (event: unknown, ctx: unknown) => unknown)(
+				{ type: "session_shutdown" },
+				undefined,
+			);
+		} finally {
+			uninstall();
+		}
+		// A runner whose shell never loaded is judged as it ends, whoever
+		// reloads it, since pi's own bash ran unfenced.
+		expect(told).toEqual([["a-session", "left"]]);
+	});
+
+	it("tells a host the fence it holds each file call to, before the call runs", async () => {
+		const told: [string, string, string][] = [];
+		const uninstall = installHost({
+			fenced: (id: string, fence: string, by: string) => {
+				told.push([id, fence, by]);
+				return true;
+			},
+		} as unknown as Host);
+		// A host runs each call within its conversation.
+		const call = (toolName: string, input: unknown) =>
+			withSession("a-session", () => handler({ toolName, input }, seat()));
+		let refused: unknown;
+		try {
+			process.env.PI_SANDBOX = "off";
+			const path = join(work, "notes.md");
+			await call("read", { path });
+			process.env.PI_SANDBOX = "strict";
+			// Told even of a call the fence goes on to refuse, so it was told
+			// before the call was judged.
+			refused = await call("read", { path: "/proc/self/environ" });
+			await call("bash", { command: "true" });
+		} finally {
+			uninstall();
+		}
+		expect(refused, "the strict read went through").toMatchObject({
+			block: true,
+		});
+		expect(told).toEqual([
+			["a-session", "none", "files"],
+			["a-session", "strict", "files"],
+		]);
+	});
+
+	it("refuses a file call whose fence its host couldn't write", async () => {
+		const uninstall = installHost({
+			fenced: () => false,
+		} as unknown as Host);
+		let answer: unknown;
+		try {
+			process.env.PI_SANDBOX = "off";
+			answer = await withSession("a-session", () =>
+				handler(
+					{ toolName: "read", input: { path: join(work, "notes.md") } },
+					seat(),
+				),
+			);
+		} finally {
+			uninstall();
+		}
+		expect(answer).toEqual({ block: true, reason: FENCE_UNSAID });
 	});
 
 	it("blocks a strict session's read outside the fence, saying why", async () => {

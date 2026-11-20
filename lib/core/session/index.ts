@@ -3,6 +3,7 @@
 export type { TickedOwner as SessionOwner } from "../../internal/process-ticks.ts";
 export { launchHints, sessionEnv } from "./env.ts";
 export {
+	type FenceTeller,
 	type Host,
 	type HostedSession,
 	type HostedState,

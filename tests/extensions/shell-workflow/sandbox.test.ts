@@ -38,7 +38,6 @@ import {
 	askTheCloudAhead,
 	type Sandbox,
 	sandboxFor,
-	unfencedFolder,
 	wrapFor,
 } from "../../../lib/internal/sandbox/sandbox.ts";
 import { quoted } from "../../../lib/internal/sandbox/sandbox-shell.ts";
@@ -128,6 +127,7 @@ describe("what a session asks for", () => {
 	});
 });
 
+// What unfencedFolder refuses is proved in unfenced-folder.test.ts.
 describe("a working folder the sandbox won't let commands write", () => {
 	let home: string;
 
@@ -139,17 +139,6 @@ describe("a working folder the sandbox won't let commands write", () => {
 	});
 
 	afterAll(() => rmSync(home, { recursive: true, force: true }));
-
-	it("is the home folder, or one holding it", () => {
-		expect(unfencedFolder(home, home)).toContain("startup files");
-		expect(unfencedFolder(join(home, ".."), home)).toContain("startup files");
-	});
-
-	it("is one holding its repository's git folder, and not a worktree", () => {
-		expect(unfencedFolder(join(home, "checkout"), home)).toContain("hooks");
-		expect(unfencedFolder(join(home, "worktree"), home)).toBeUndefined();
-		expect(unfencedFolder(join(home, "checkout/src"), home)).toBeUndefined();
-	});
 
 	it("runs no command there, and says why", async () => {
 		const answer = await run(

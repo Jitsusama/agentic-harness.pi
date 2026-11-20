@@ -231,12 +231,17 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 			cwd: target.cwd,
 			...(Object.keys(launch).length > 0 ? { launch } : {}),
 		});
-		return context.register(
+		const next = await context.register(
 			traits,
 			launch,
 			resumes(target) ? { op: "adopt" } : { op: "open" },
 			quest ? { questId: quest } : {},
 		);
+		// Before its runner tells, so the record never names it tighter
+		// than what the one it replaces has running; replaced() hands on
+		// again whatever that one told since.
+		host.inherit(previous.traits.sessionId, sessionId);
+		return next;
 	}
 
 	/**
@@ -378,14 +383,18 @@ export function conversationBuilds(context: BuildContext): ConversationBuilds {
 		}
 		seat.current = next;
 		seat.next = undefined;
-		// Plain pi keeps what the conversation it replaces left running.
+		// Plain pi keeps what the conversation it replaces left running, so
+		// the host keeps its fence too, for when it is held again.
 		previous.handsOn = true;
+		host.handsOn(previousId);
 		previous.runtime = undefined;
 		previous.disposed = true;
 		previous.unsubscribe?.();
 		previous.unsubscribe = undefined;
 		next.runtime = runtime;
 		const { sessionId } = next.traits;
+		// What it had in flight runs on as the next one's, under its fence.
+		host.inherit(previousId, sessionId);
 		try {
 			await host.run(sessionId, async () => {
 				next.unsubscribe = runtime.session.subscribe((event) =>

@@ -101,7 +101,19 @@ session. Legacy owners have no extra check. processKey distinguishes
 co-hosted session owners while preserving its legacy process key.
 
 Other processes read HostRegistry: key, owner and sessions, each with
-id, state and since (an ISO timestamp). hostRegistryPath(owner) names
+id, state and since (an ISO timestamp), and fence once the session's
+tools have told one (Host.fenced). A missing fence means the node must
+refuse, never that the session runs unfenced: its runner's shell or file
+guard hasn't told one, either guard said it left (Host.left), the
+record came from another harness, or its folder lies past a link,
+outside what the fence keeps read-only, or under a folder another
+account may write, from pi's state folder down, now or as the host
+started. That covers what this host writes; the node, reading, also
+refuses a records folder or record that isn't its own account's
+alone, so one put there by another account names nothing. The code pi compiled and runs
+unfenced later is closed to a fenced command too: the host's and
+node's compile caches lie in pi's state, and node's and jiti's in the
+temporary folder are the fence's own. hostRegistryPath(owner) names
 the list under the existing package state folder:
 
 ~~~text

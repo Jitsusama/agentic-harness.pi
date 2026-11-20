@@ -113,7 +113,8 @@ import { quoted, SANDBOXED_COMMAND } from "./sandbox-shell.ts";
 import { folderGit, heldTree, sessionWorktrees } from "./sandbox-trees.ts";
 import { type Rule, sandboxFolders, strictRules } from "./strict-rules.ts";
 import { systemProgram } from "./system-program.ts";
-import { type GitRules, real, within, worktreeRepository } from "./tree-git.ts";
+import { type GitRules, real, worktreeRepository } from "./tree-git.ts";
+import { unfencedFolder } from "./unfenced-folder.ts";
 
 /** The variable that asks for the sandbox, and the strict profile's value. */
 export const SANDBOX_VARIABLE = "PI_SANDBOX";
@@ -137,8 +138,6 @@ export function gitRules(
 	};
 }
 
-/** What a session's own refusal of its folder names as refusing. */
-const ASKED = `${SANDBOX_VARIABLE}=${STRICT}`;
 /**
  * The longest fenced command text that starts: Linux takes 128 KiB in one
  * string (MAX_ARG_STRLEN), less room for the variable's name pi's shell
@@ -287,24 +286,6 @@ export function sandboxedCommand(
 /** The shell text that refuses to run a command, saying why. */
 export function refusedCommand(reason: string): string {
 	return `printf '%s\\n' ${quoted(reason)} >&2; exit 126`;
-}
-
-/**
- * Why the sandbox can't let commands write `cwd`, when it can't: its
- * writes would reach what runs outside the sandbox later, as `asker` says.
- */
-export function unfencedFolder(cwd: string, home: string, asker = ASKED) {
-	if (within(home, cwd)) {
-		return `${asker} won't let commands write ${cwd}, which holds the home folder and the startup files that run outside the sandbox, so no command runs. Start it in the folder it works on.`;
-	}
-	try {
-		if (statSync(join(cwd, ".git")).isDirectory()) {
-			return `${asker} won't let commands write ${cwd}, which holds its repository's git folder, whose hooks and settings git runs outside the sandbox, so no command runs. Work in a tree the work tool cuts (\`work tree\`) or a snapshot, whose git folder lies elsewhere; a plain clone won't do.`;
-		}
-	} catch {
-		// No git folder here, or a worktree's .git file pointing elsewhere.
-	}
-	return undefined;
 }
 
 /**

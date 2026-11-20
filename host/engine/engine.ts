@@ -569,6 +569,7 @@ export async function createEngine(
 
 		handsOn(sessionId) {
 			stopping.handsOn(sessionId);
+			host.handsOn(sessionId);
 		},
 
 		async dropped(sessionId, why) {
