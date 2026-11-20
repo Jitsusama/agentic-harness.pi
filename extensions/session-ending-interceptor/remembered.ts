@@ -3,11 +3,18 @@
  * started or reloaded while no node answers still knows them: knowing
  * only its own, "restart equilibrius" would read as restarting
  * something else and go through, just when the guard means to refuse.
+ *
+ * Every session on the machine writes the one file, so each addition
+ * reads and writes it under the package's file lock: two processes
+ * adding at once would otherwise each lay their list over the other's
+ * and drop a machine.
  */
 
+import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { withFileLock } from "../../lib/core/internal/file-lock.ts";
 import { isMachineName } from "../../lib/internal/machine/machine.ts";
 
 /** Where the machines are kept, under the state folder `env` names. */
@@ -35,26 +42,36 @@ function machinesKept(file: string): string[] {
 	}
 }
 
+/** The machines `kept` with those `read` names, in that order. */
+function together(kept: readonly string[], read: readonly string[]): string[] {
+	return [...new Set([...kept, ...read.filter(isMachineName)])];
+}
+
 /**
  * The machines `read` names together with those kept in `file`, which
  * keeps them all when that adds any. A machine once named stays: one
  * known too many reads one more ask, which the node then judges, while
  * one forgotten lets its restart through unasked.
  */
-export function rememberMachines(
+export async function rememberMachines(
 	file: string,
 	read: readonly string[],
-): string[] {
+): Promise<string[]> {
 	const kept = machinesKept(file);
-	const all = [...new Set([...kept, ...read.filter(isMachineName)])];
+	const all = together(kept, read);
 	if (all.length === kept.length) return all;
 	try {
 		mkdirSync(dirname(file), { recursive: true });
-		const writing = `${file}.${process.pid}.tmp`;
-		writeFileSync(writing, `${JSON.stringify(all)}\n`);
-		renameSync(writing, file);
+		return await withFileLock(file, async () => {
+			const now = together(machinesKept(file), read);
+			const writing = `${file}.${randomUUID()}.tmp`;
+			writeFileSync(writing, `${JSON.stringify(now)}\n`);
+			renameSync(writing, file);
+			return now;
+		});
 	} catch {
-		// A state folder that can't be written: this answer still names them all.
+		// A state folder that can't be written, or a lock held past its wait:
+		// this answer still names them all.
+		return all;
 	}
-	return all;
 }

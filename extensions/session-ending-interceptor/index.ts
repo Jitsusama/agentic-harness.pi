@@ -153,7 +153,7 @@ export function nodeDeps(
 			everyRealmsSessions(nodeSockets(env), async (socket) => {
 				const sessions = await nodeSessionsAt(socket);
 				const named = (sessions ?? []).flatMap((one) => one.machine ?? []);
-				rememberMachines(rememberedMachinesFile(env), named);
+				await rememberMachines(rememberedMachinesFile(env), named);
 				return sessions;
 			}),
 		machines: async () => {

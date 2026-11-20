@@ -77,6 +77,7 @@ const PROCESS_TESTS = [
 	"tests/host/service/own-threads.test.ts",
 	"tests/lib/internal/shell/spawner-register-sockets.test.ts",
 	"tests/lib/internal/shell/spawner-starts.test.ts",
+	"tests/extensions/session-ending-interceptor/remembered.test.ts",
 	"tests/scripts/host-join.test.ts",
 	"tests/scripts/pi-carry.test.ts",
 	"tests/scripts/pi-fence.test.ts",
