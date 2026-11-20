@@ -136,6 +136,8 @@ it("holds a live quest's tree only until spent", async () => {
 	answerTreeClaims({ events } as never, liveQuestListing(tree));
 
 	await sweepOn(events);
+	// The quest answers once its tree is signed afresh, off the thread.
+	await vi.waitFor(() => expect(given, "claims given").toHaveLength(1));
 
 	expect(given, "the claims the sweep was given").toEqual([
 		{ held: [], untilSpent: [tree] },
