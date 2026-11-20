@@ -102,9 +102,10 @@ describe("telling the holder what starts next", () => {
 	it("names the command and writes the wake", () => {
 		const { files } = holderFor(4242);
 
-		expect(toldHolder(files, ["pi", "--session", log], { view: true })).toBe(
-			true,
-		);
+		expect(
+			toldHolder(files, ["pi", "--session", log], { view: true }),
+			"the holder is told",
+		).toBe(true);
 
 		expect(JSON.parse(readFileSync(files.again, "utf8"))).toEqual([
 			"pi",
@@ -120,7 +121,10 @@ describe("telling the holder what starts next", () => {
 		const { files } = holderFor(4242);
 		mkdirSync(files.again);
 
-		expect(toldHolder(files, ["pi"], { view: true })).toBe(false);
+		expect(
+			toldHolder(files, ["pi"], { view: true }),
+			"a command it couldn't write tells nothing",
+		).toBe(false);
 
 		expect(existsSync(files.wake), "no wake").toBe(false);
 	});
@@ -129,7 +133,10 @@ describe("telling the holder what starts next", () => {
 		const { files } = holderFor(4242);
 		mkdirSync(files.wake);
 
-		expect(toldHolder(files, ["pi"], { view: true })).toBe(false);
+		expect(
+			toldHolder(files, ["pi"], { view: true }),
+			"a wake it couldn't write tells nothing",
+		).toBe(false);
 
 		expect(existsSync(files.again), "the command it wrote is gone").toBe(false);
 	});
@@ -151,8 +158,14 @@ describe("going quiet", () => {
 				.filter((one) => !before.includes(one));
 			expect(process.stdout.write, "pi's frame stays").not.toBe(out);
 			expect(process.stderr.write, "no resume hint").not.toBe(err);
-			expect(process.stdout.write("a frame")).toBe(true);
-			expect(process.stderr.write("a hint")).toBe(true);
+			expect(
+				process.stdout.write("a frame"),
+				"a write still answers as written",
+			).toBe(true);
+			expect(
+				process.stderr.write("a hint"),
+				"a write still answers as written",
+			).toBe(true);
 			expect(pause).toHaveBeenCalledOnce();
 			expect(added, "one exit listener sets the code").toHaveLength(1);
 			(added[0] as () => void)();
