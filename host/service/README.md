@@ -186,7 +186,9 @@ input pipeline or screen. No unit or running host is installed yet.
   for the next host: on 20 November a pressed host waited 52 minutes
   for such a moment as wakes kept starting turns. While the drain
   stands the heap counts as pressed, so its own parks never let its
-  held wakes through; it lifts once nothing is left to restart for.
+  held wakes through; it lifts once the heap is under half, and
+  another difference, such as a moved install, then waits under the
+  ordinary rules.
   A drain standing by hand before the heap was pressed is left to
   its asker; one asked while the heap's stands lifts with it. Past
   three-quarters it restarts at once, turns and all, since on 18

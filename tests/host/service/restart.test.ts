@@ -489,7 +489,8 @@ describe("restartWhenSettled", () => {
 	// moment with no turn, as wakes kept starting turns, until its heap
 	// ran to three-quarters and the restart ended 57 turns.
 	it("drains the host while a pressed heap waits on a turn, once, and lifts it only once nothing is left to restart for", async () => {
-		let pressure: "pressed" | undefined = "pressed";
+		// Not yet pressed at the first look, so the ceiling starts counting.
+		let pressure: "pressed" | undefined;
 		let differs: string | undefined = "its heap is short";
 		let clock = NOW;
 		const timers = manualTimers();
@@ -505,6 +506,7 @@ describe("restartWhenSettled", () => {
 		});
 		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
 		await timers.fire();
+		pressure = "pressed";
 		await timers.fire();
 		await timers.fire();
 		expect(drains, "drained once, while the turn runs").toEqual([true]);
@@ -542,6 +544,78 @@ describe("restartWhenSettled", () => {
 		await timers.fire();
 		await timers.fire();
 		expect(drains, "drained again, pressed again").toEqual([true, false, true]);
+	});
+
+	it("lifts the heap's drain once the heap is under half, and waits on another difference under the ordinary rules", async () => {
+		let pressure: "pressed" | undefined = "pressed";
+		let pastHalf = true;
+		let state: Held["state"] = "busy";
+		let differs = "its heap is short";
+		const timers = manualTimers();
+		const drains: boolean[] = [];
+		const { facts: given, said } = facts({
+			differs: async () => differs,
+			held: () => [{ state, since: lately }],
+			background: () => 1,
+			holding: () => ["s1: j1 review: council"],
+			pressure: () => pressure,
+			heapRestarts: () => pastHalf,
+			drain: (on) => drains.push(on),
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		expect(drains, "drained while the turn runs").toEqual([true]);
+
+		// Its parks took it under half, and the install moved meanwhile.
+		pressure = undefined;
+		pastHalf = false;
+		state = "idle";
+		differs = "the install moved";
+		await timers.fire();
+		await timers.fire();
+		expect(drains, "lifted").toEqual([true, false]);
+		expect(
+			said.filter((line) => line.startsWith("restart:")),
+			"no restart ends the council",
+		).toEqual([]);
+		expect(said).toContain(
+			"report: The heap is under half its limit again: the drain the heap started lifts, and parked conversations wake as asked",
+		);
+	});
+
+	it("says it drains when a drain took before it threw, and says it waits again once pressed after a lift", async () => {
+		let differs: string | undefined = "its heap is short";
+		let hostDrains = false;
+		const timers = manualTimers();
+		const { facts: given, said } = facts({
+			differs: async () => differs,
+			held: () => [{ state: "busy", since: lately }],
+			pressure: () => (differs === undefined ? undefined : "pressed"),
+			drain: (on) => {
+				hostDrains = on;
+				if (on) throw new Error("drain half done");
+			},
+			draining: () => hostDrains,
+		});
+		restartWhenSettled(given, { after: timers.after, lookMs: 60 });
+		await timers.fire();
+		const waitsLine =
+			"report: Heap short of room: restarting at the first moment no conversation has a turn, whatever background work or screens hold; 1 running now";
+		expect(said).toEqual([
+			waitsLine,
+			"report: Error: drain half done",
+			"report: Heap short of room: the host drains, so each conversation parks as its turn ends and wakes wait for the next host",
+		]);
+
+		// Lifted, and pressed again at the very next look.
+		differs = undefined;
+		await timers.fire();
+		differs = "its heap is short";
+		await timers.fire();
+		expect(
+			said.filter((line) => line === waitsLine),
+			"said again, pressed again",
+		).toHaveLength(2);
 	});
 
 	it("restarts with the drain still on once the turns end, after a call holding it ends", async () => {

@@ -66,8 +66,10 @@
  * stands the heap counts as pressed, though its parks take it under
  * three-fifths: otherwise the ordinary rules would let its held wakes
  * through past the ceiling and wait on heavy runs, and the wakes would
- * grow the heap again. Once nothing is left to restart for, the drain
- * lifts, waking what it held. A drain standing by hand before the heap
+ * grow the heap again. Once the heap is under half, the drain lifts,
+ * waking what it held, and any other difference, such as a moved
+ * install, waits under the ordinary rules rather than ending
+ * background work and screens as a short heap would. A drain standing by hand before the heap
  * was pressed is neither taken over nor lifted; one asked by hand
  * while the heap's stands lifts with it, since the host keeps one
  * drain. One lifted by hand is started again at the next look while
@@ -254,6 +256,13 @@ export interface RestartFacts {
 	/** How short the heap runs, or nothing while it has room. */
 	pressure?(): HeapPressure | undefined;
 	/**
+	 * Whether the heap alone would have the host restart, past half its
+	 * limit. While the heap's own drain stands and it would not, the drain
+	 * lifts at once, so another difference waits under the ordinary rules;
+	 * with no say, the drain lifts only once nothing differs.
+	 */
+	heapRestarts?(): boolean;
+	/**
 	 * Start or lift the host's drain for a pressed heap: while it lasts
 	 * each conversation parks as its turn ends and a wake waits for the
 	 * next host. A throw is reported.
@@ -343,7 +352,7 @@ export function restartWhenSettled(
 	let saidPressed: HeapPressure | undefined;
 	// Whether this loop drained the host for a pressed heap, not yet lifted.
 	let drained = false;
-	// Whether starting the heap's drain threw since the heap was last roomy,
+	// Whether starting the heap's drain threw since the heap last had room,
 	// so a host that can't drain says so once rather than every second.
 	let drainRefused = false;
 	// Whether only the heap's own drain keeps it pressed, and when the host
@@ -476,9 +485,10 @@ export function restartWhenSettled(
 		} catch (error) {
 			facts.report(error);
 			// A drain that took before its throw is the heap's, to lift.
-			if (facts.draining?.() === true) drained = true;
-			else drainRefused = true;
-			return;
+			if (facts.draining?.() !== true) {
+				drainRefused = true;
+				return;
+			}
 		}
 		drained = true;
 		facts.report(
@@ -486,12 +496,13 @@ export function restartWhenSettled(
 		);
 	}
 
-	// Lift the drain this loop started, once nothing is left to restart
-	// for; one lifted by hand meanwhile is left as it is.
-	function liftHeapDrain(): void {
-		drainRefused = false;
+	// Lift the drain this loop started, saying why; one lifted by hand
+	// meanwhile is left as it is.
+	function liftHeapDrain(why: string): void {
 		if (facts.drain === undefined || !drained) return;
 		drained = false;
+		// A heap pressed again says so again.
+		saidPressed = undefined;
 		if (facts.draining?.() === false) return;
 		try {
 			facts.drain(false);
@@ -500,7 +511,7 @@ export function restartWhenSettled(
 			return;
 		}
 		facts.report(
-			"Nothing left to restart for: the drain the heap started lifts, and parked conversations wake as asked",
+			`${why}: the drain the heap started lifts, and parked conversations wake as asked`,
 		);
 	}
 
@@ -532,13 +543,19 @@ export function restartWhenSettled(
 
 	// Read how short the heap runs, once for each decision, so the rule
 	// and its journal line agree. The heap's own drain standing keeps it
-	// pressed until nothing differs, so its parks never undo it.
+	// pressed while the heap would still restart the host, so its parks
+	// never undo it; once it would not, the drain lifts.
 	function readPressure(): void {
-		const heapDrains = drained && facts.draining?.() !== false;
 		const read = facts.pressure?.();
+		if (read === undefined && facts.heapRestarts?.() === false)
+			liftHeapDrain("The heap is under half its limit again");
+		const heapDrains = drained && facts.draining?.() !== false;
 		pressedByDrain = read === undefined && heapDrains;
 		short = read ?? (heapDrains ? "pressed" : undefined);
-		if (short === undefined) saidPressed = undefined;
+		if (short === undefined) {
+			saidPressed = undefined;
+			drainRefused = false;
+		}
 	}
 
 	// Whether a heap only the drain keeps pressed is due to be asked
@@ -563,7 +580,7 @@ export function restartWhenSettled(
 		const why = await facts.differs();
 		if (stopped) return "look";
 		if (why === undefined) {
-			liftHeapDrain();
+			liftHeapDrain("Nothing left to restart for");
 			differingSince = undefined;
 			heldSaidAt = undefined;
 			saidQuiet = undefined;
@@ -712,6 +729,7 @@ export async function followWhatStarts(
 			...(options.draining ? { draining: options.draining } : {}),
 			resting: options.resting,
 			pressure,
+			heapRestarts: () => heapPastShare(heap()) !== undefined,
 			...(quiet ? { quiet } : {}),
 			stopping: () => options.serving.stopping(),
 			expect: (coming) => options.serving.restartComing(coming),
