@@ -21,6 +21,7 @@ import {
 	fstatSync,
 	linkSync,
 	lstatSync,
+	mkdirSync,
 	openSync,
 	readFileSync,
 	renameSync,
@@ -29,6 +30,7 @@ import {
 	utimesSync,
 	writeSync,
 } from "node:fs";
+import { dirname } from "node:path";
 
 /**
  * How long a sweep's lock may go untouched before it is taken over
@@ -85,6 +87,10 @@ export function sweepLock(
 	// if it still runs, never takes the new lock for its own.
 	const asides: string[] = [];
 	try {
+		// A machine whose first sweep runs outside any host has no work
+		// state folder yet: a host's broker makes it, and a sweep there
+		// failed for want of it.
+		mkdirSync(dirname(lockPath), { recursive: true });
 		for (let tries = 0; tries < 2; tries += 1) {
 			const mine = made(lockPath);
 			if (mine !== undefined) return keptFresh(lockPath, mine, fresh);

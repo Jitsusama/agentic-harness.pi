@@ -20,7 +20,7 @@ import {
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -73,6 +73,24 @@ function pausingOnce(meanwhile: () => Promise<void>) {
 }
 
 describe("one sweep at a time", () => {
+	it("takes its lock in a work folder nothing has made yet, as a machine's first sweep outside the hosts does", async () => {
+		const { memory, lockPath } = await setUp();
+		const fresh = join(dirname(lockPath), "never-made", "work", "sweep.lock");
+
+		const outcome = await sweepEndedTrees({
+			exec,
+			memory,
+			claims: [],
+			lockPath: fresh,
+			facts: machine,
+		});
+
+		expect(outcome.skipped, "why the sweep didn't run").toBeUndefined();
+		expect(existsSync(fresh), "a lock left behind once it was done").toBe(
+			false,
+		);
+	});
+
 	it("keeps its lock fresh while it runs, so a second sweep is turned away however long the first takes", async () => {
 		const { memory, lockPath, cut } = await setUp();
 		await cut("done", ["-b", "done", "@", "main"]);
