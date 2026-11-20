@@ -1,8 +1,8 @@
 /**
  * Joel's `pineapple stop all`, before a demo, as two conversations in
  * one sealed host meet it: the stop on everything his command writes
- * parks both within a minute, the one busy in a tool once that tool has
- * run out and the idle one as it stands. While it stands, a peer's
+ * parks both within a minute, the one busy in a run the harness started
+ * once its tool has run out and the idle one as it stands. While it stands, a peer's
  * question starts nothing in the parked one, and a spawn asked for in
  * words Joel typed is refused, since a parked session must not start
  * more agents to carry on for it. Once he resumes, the one whose run
@@ -19,6 +19,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { automatedHeader } from "../../../lib/internal/automated.ts";
 import { isRecord } from "../../../lib/internal/record.ts";
 import { sessionAddress } from "../../../lib/mesh/address.ts";
 import { type HostProcess, startHost } from "./support/host-process.ts";
@@ -116,12 +117,14 @@ it(
 				await mkdir(join(sealed.home, folder), { recursive: true });
 			const busy = await host.open(join(sealed.home, "busy"), {
 				model: SCRIPTED,
-				first: WAIT_A_WHILE,
+				// Not Joel's words, so the stop ends this run at its turn's end.
+				first: `${automatedHeader("a job is reporting")}\n${WAIT_A_WHILE}`,
 			});
 			const idle = await host.open(join(sealed.home, "idle"), {
 				model: SCRIPTED,
 			});
-			const files = () => `busy: ${textOf(busy.file)}\nidle: ${textOf(idle.file)}`;
+			const files = () =>
+				`busy: ${textOf(busy.file)}\nidle: ${textOf(idle.file)}`;
 			await untilAnswered("the busy conversation is in its tool", async () =>
 				textOf(busy.file).includes(WAITING),
 			).catch((error: unknown) => {
@@ -165,7 +168,8 @@ it(
 			);
 			await untilAnswered(
 				"the busy one is handed the idle one's question",
-				async () => /Mesh message \[[0-9a-f]+\] \(question\)/.test(textOf(busy.file)),
+				async () =>
+					/Mesh message \[[0-9a-f]+\] \(question\)/.test(textOf(busy.file)),
 			).catch((error: unknown) => {
 				throw new Error(`${String(error)}\n${files()}`);
 			});
@@ -173,9 +177,9 @@ it(
 			// parked one the time a run would take to answer, then looks.
 			await pause(NOTHING_STARTS_MS);
 			expect(
-				textOf(busy.file),
-				"a peer's question starts nothing in a parked conversation",
-			).not.toContain('"text":"pong"');
+				textOf(busy.file).includes('"text":"pong"'),
+				`a peer's question starts nothing in a parked conversation\n${files()}`,
+			).toBe(false);
 
 			await stopAll(true);
 			await untilAnswered(
