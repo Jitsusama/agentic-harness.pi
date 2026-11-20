@@ -15,12 +15,16 @@
  * session's own, as `MYCELIUM_REALM` names it, since a machine in two
  * realms runs a node for each; else the one the node last ran in, as it
  * keeps it.
+ *
+ * Long because it is the node's one client: every question asked of its
+ * socket shares the same framing, patience and reading of the answer.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isMachineName } from "../internal/machine/machine.ts";
 import { runtimeDir } from "../internal/paths.ts";
 import { isRecord } from "../internal/record.ts";
 import {
@@ -410,6 +414,65 @@ export function sessionsFrom(line: string): NodeSessions | undefined {
 }
 
 /**
+ * One session a node holds, with the machine it is on and its state,
+ * both as the node said them, so a reader that judges by them can treat
+ * a state it doesn't know, or a missing machine, as it must.
+ */
+export interface NodeSession {
+	readonly id: string;
+	/** The address its messages sign, where the node says it. */
+	readonly address?: string;
+	/** The machine it is on, where the node says it. */
+	readonly machine?: string;
+	/** Its state as the node named it, as `idle`, or `unknown` for none. */
+	readonly state: string;
+}
+
+/**
+ * Every session the node serving `socket` holds, with the machine each
+ * is on, or nothing when none answers there within `patience`.
+ */
+export async function nodeSessionsAt(
+	socket: string | undefined,
+	patience: number = NODE_PATIENCE_MS,
+): Promise<NodeSession[] | undefined> {
+	const line = await askAt(socket, "Sessions", patience);
+	return line === undefined ? undefined : nodeSessionsFrom(line);
+}
+
+/**
+ * The sessions a node's answer names, each with its machine, or nothing
+ * when it names none. Only a session without an id is passed over; one
+ * without a machine or a state is kept without them.
+ */
+export function nodeSessionsFrom(line: string): NodeSession[] | undefined {
+	let reply: unknown;
+	try {
+		reply = JSON.parse(line);
+	} catch {
+		// Not an answer this reader knows, so the node is taken as not
+		// answering rather than as holding nobody.
+		return undefined;
+	}
+	const sessions =
+		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Sessions : undefined;
+	if (!Array.isArray(sessions)) return undefined;
+	return sessions.flatMap((one: unknown): NodeSession[] => {
+		if (!isRecord(one)) return [];
+		const { id, address, machine, state } = one;
+		return [
+			{
+				// A row with no id is still a session there, never nobody.
+				id: typeof id === "string" ? id : "",
+				...(typeof address === "string" ? { address } : {}),
+				...(typeof machine === "string" ? { machine } : {}),
+				state: typeof state === "string" ? state : "unknown",
+			},
+		];
+	});
+}
+
+/**
  * The command each machine starts an agent session with in this realm,
  * as its node declares it (`declared.agents`), by machine: pi-claude in
  * the realm Joel's own Claude plan works in, pi elsewhere. A machine
@@ -729,6 +792,40 @@ function answerId(line: string): unknown {
 	}
 }
 
+/**
+ * Every machine the node's realm holds, by name, whether or not any
+ * session is on it; nothing when no node answers.
+ */
+export async function machineNamesAt(
+	socket: string | undefined,
+	patience: number = NODE_PATIENCE_MS,
+): Promise<string[] | undefined> {
+	const line = await askAt(socket, "Machines", patience);
+	return line === undefined ? undefined : machineNamesFrom(line);
+}
+
+/**
+ * The machines a node's `Machines` answer names, or nothing for an
+ * answer naming none, so a refusal is no answer rather than no machine.
+ * A name no machine could have is left out, since an empty one would
+ * match any word a machine's name is looked for in.
+ */
+export function machineNamesFrom(line: string): string[] | undefined {
+	let reply: unknown;
+	try {
+		reply = JSON.parse(line);
+	} catch {
+		// Not an answer this reader knows: it names no machine.
+		return undefined;
+	}
+	const machines =
+		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Machines : undefined;
+	if (!Array.isArray(machines)) return undefined;
+	return machines.flatMap((machine: unknown) =>
+		isRecord(machine) && isMachineName(machine.name) ? [machine.name] : [],
+	);
+}
+
 /** The socket the machine's node serves, or nothing when no realm is named. */
 export function nodeSocket(
 	env: NodeJS.ProcessEnv = process.env,
@@ -737,6 +834,59 @@ export function nodeSocket(
 	if (!realm) return undefined;
 	const base = runtimeDir(env);
 	return base ? join(base, "mycelium", `${realm}.sock`) : undefined;
+}
+
+/**
+ * The socket of every realm's node on this machine: the session's own
+ * realm's first, though its node hasn't started, then each other realm
+ * a socket is served for. A machine in two realms runs a node for each,
+ * and a reboot ends the sessions of both. None when no realm is named.
+ */
+export function nodeSockets(env: NodeJS.ProcessEnv = process.env): string[] {
+	const own = nodeSocket(env);
+	if (own === undefined) return [];
+	const base = runtimeDir(env);
+	let others: string[] = [];
+	try {
+		if (base) {
+			const folder = join(base, "mycelium");
+			others = readdirSync(folder)
+				.filter((name) => name.endsWith(".sock"))
+				.sort()
+				.map((name) => join(folder, name));
+		}
+	} catch {
+		// No node has served a socket here yet: only the own realm's is known.
+	}
+	return [own, ...others.filter((socket) => socket !== own)];
+}
+
+/** What a socket nothing serves answers a connection with. */
+const NOTHING_SERVES = new Set(["ECONNREFUSED", "ENOENT", "ENOTSOCK"]);
+
+/**
+ * Whether a node serves `socket`: false only when the socket refuses
+ * the connection, as one a node left behind when it ended does; true
+ * when one connects, or when the socket can't say, so a node that is
+ * there but slow still counts as one.
+ */
+export function nodeServes(
+	socket: string,
+	patience: number = NODE_PATIENCE_MS,
+): Promise<boolean> {
+	return new Promise((resolve) => {
+		const trying = connect(socket);
+		const settle = (serves: boolean) => {
+			clearTimeout(waiting);
+			trying.destroy();
+			resolve(serves);
+		};
+		const waiting = setTimeout(() => settle(true), patience);
+		trying.on("connect", () => settle(true));
+		trying.on("error", (error: NodeJS.ErrnoException) =>
+			settle(!NOTHING_SERVES.has(error.code ?? "")),
+		);
+	});
 }
 
 /** The realm the machine's node is asked in, or nothing when none is named. */

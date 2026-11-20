@@ -27,6 +27,8 @@
  * an unread answer would go as soon as it came.
  */
 
+import type { EventBus } from "@earendil-works/pi-coding-agent";
+import { onReplyWithheld } from "../../lib/internal/session/withheld.ts";
 import type { Steer } from "../../lib/mesh/steer.ts";
 import {
 	overTalks,
@@ -72,6 +74,13 @@ export interface Talks {
 	writing(text: string): void;
 	/** A message the session finished writing, with its text. */
 	wrote(text: string): void;
+	/**
+	 * A message the session wrote was withheld once finished, with what
+	 * stands in its place: a talk it replied is replied by that instead,
+	 * and one it closed opens again, so what the run writes next replies
+	 * it, unless a newer talk has opened since.
+	 */
+	withheld(was: string, instead: string): void;
 	/** The run settled, stopped or not. */
 	settled(aborted: boolean): void;
 	/**
@@ -103,6 +112,9 @@ interface Open {
 	replying?: number;
 }
 
+/** How many talks replied last a withheld reply is matched against. */
+const RECENT = 8;
+
 interface Answered {
 	readonly talk: Open;
 	readonly at: number;
@@ -113,6 +125,24 @@ export function createTalks(host: TalksHost): Talks {
 	const now = host.now ?? Date.now;
 	let open: Open[] = [];
 	let answered: Answered[] = [];
+	/**
+	 * The talks the run under way replied, newest last, kept apart from
+	 * `answered`, which a new talk empties, so a reply withheld after a
+	 * talk had it still finds that talk. A run's end empties it, so a
+	 * later run's reply never rewrites an earlier one's talk.
+	 */
+	let recent: Open[] = [];
+	/**
+	 * What stands in the run's withheld replies, so the run's text
+	 * written as one, when pi hands the mesh the stand-in rather than
+	 * the reply, leaves a talk open for the text the run writes next.
+	 */
+	const standIns = new Set<string>();
+	/** The run is over: what it replied and withheld is no longer matched. */
+	const runOver = () => {
+		recent = [];
+		standIns.clear();
+	};
 	/** Whether the run under way has stepped or written yet. */
 	let working = false;
 	const taken = () => open.filter((talk) => talk.taken);
@@ -153,7 +183,10 @@ export function createTalks(host: TalksHost): Talks {
 
 	const say = (talk: Open, event: TalkEvent) => {
 		talk.last = event.stage;
-		if (event.stage === "replied") talk.replied = event.text;
+		if (event.stage === "replied") {
+			talk.replied = event.text;
+			recent = [...recent.filter((one) => one !== talk), talk].slice(-RECENT);
+		}
 		try {
 			sayTalk(talk.inbox, talk.id, event, new Date(now()));
 		} catch {
@@ -240,17 +273,41 @@ export function createTalks(host: TalksHost): Talks {
 			working = true;
 			const first = taken().filter((talk) => talk.intoWork);
 			for (const talk of first) reply(talk, said);
-			if (first.length > 0) close(first);
+			// A stand-in answers for now; what the run writes next replies.
+			if (first.length > 0 && !standIns.has(said)) close(first);
 			for (const talk of taken()) {
-				if (!talk.reply) reply(talk, said);
+				if (!talk.reply && !first.includes(talk)) reply(talk, said);
 				talk.reply = said;
+			}
+		},
+		withheld(was, instead) {
+			const text = was.trim();
+			const now = instead.trim();
+			if (text === "" || now === "") return;
+			standIns.add(now);
+			for (const talk of new Set([...open, ...recent])) {
+				if (talk.said === text) talk.said = now;
+				if (talk.reply === text) talk.reply = now;
+				if (talk.replied !== text) continue;
+				// Said again as it stands, never ending a newer talk as a reply does.
+				say(talk, { stage: "replied", text: now });
+				// Closed on the withheld text with no newer talk since, it opens
+				// again, so what the run writes instead replies it.
+				if (answered.some((one) => one.talk === talk)) {
+					answered = answered.filter((one) => one.talk !== talk);
+					talk.reply = now;
+					open = [...open, talk];
+				}
 			}
 		},
 		settled(aborted) {
 			working = false;
 			const closing = taken();
 			// A talk its run never took waits for the run pi starts for it.
-			if (closing.length === 0) return;
+			if (closing.length === 0) {
+				runOver();
+				return;
+			}
 			for (const talk of closing) {
 				if (aborted) say(talk, { stage: "failed", why: "stopped" });
 				else if (talk.reply) {
@@ -260,6 +317,7 @@ export function createTalks(host: TalksHost): Talks {
 				} else say(talk, { stage: "failed", why: "the run wrote no reply" });
 			}
 			close(closing);
+			runOver();
 		},
 		came(what, ref) {
 			const moment = now();
@@ -305,6 +363,19 @@ export function endsForGood(event: unknown, how: ShuttingDown): boolean {
 		"reason" in event &&
 		event.reason === "quit";
 	return quit && !how.parked && !how.restarting;
+}
+
+/**
+ * Talks that hear each reply another extension withholds once written,
+ * as the session-ending guard says it on the bus. Returns a disposer.
+ */
+export function followWithheld(
+	bus: EventBus | undefined,
+	talks: Talks,
+): () => void {
+	return onReplyWithheld(bus, ({ was, now }) => {
+		talks.withheld(assistantText(was), assistantText(now));
+	});
 }
 
 /** The text a message carries, when it is the assistant's. */

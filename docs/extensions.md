@@ -26,7 +26,7 @@ folder. All but `advisor`, `convention-context` and
   `git-cli-interceptor`, `github-cli-interceptor`,
   `read-after-write-interceptor`, `remote-check-interceptor`,
   `sandbox-file-interceptor`, `secret-scrub-interceptor`,
-  `shell-habit-interceptor`
+  `session-ending-interceptor`, `shell-habit-interceptor`
 
 - **Workflows** (`*-workflow`): orchestrate a multi-step or
   session-wide process with state and stages. This covers

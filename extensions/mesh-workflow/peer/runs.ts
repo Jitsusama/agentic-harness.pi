@@ -15,7 +15,12 @@ import { toolDetail } from "../../../lib/mesh/step.ts";
 import { localDay, noUsage, withCall } from "../../../lib/mesh/usage.ts";
 import { NOTED, noted } from "../delivery.ts";
 import { parkHeavyCalls, reloading } from "../leases.ts";
-import { assistantText, endsForGood, userText } from "../talks.ts";
+import {
+	assistantText,
+	endsForGood,
+	followWithheld,
+	userText,
+} from "../talks.ts";
 import { markOwnerRunning, settleFromVerdicts } from "../wait.ts";
 import type { Handing } from "./handing.ts";
 import type { Hearing } from "./hearing.ts";
@@ -71,6 +76,10 @@ export function onRuns(m: MeshState, f: Handing & Hearing & HeavyWork) {
 			},
 		};
 	});
+
+	// A reply another extension withheld once finished, which a talk may
+	// have had first: the talk is replied by what stands in its place.
+	followWithheld(m.pi.events, m.talks);
 
 	// A log about to roll over names the session the fresh one carries
 	// on from, so it can take this peer's presence and leases.
