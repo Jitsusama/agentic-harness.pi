@@ -98,7 +98,13 @@ never read from an earlier pass:
     answer says so.
   - At a commit, a run git fingerprinted that git can't answer
     for now lets the commit through, since nothing confirms it,
-    and stays recorded for the next ask.
+    and stays recorded for the next ask. So does a run above the
+    commit's folder when git names no repository for it, since
+    that run may be another repository's.
+  - A check that verify runs keep overtaking asks git three
+    times, then holds the commit on the newest run as it was
+    recorded, in scope, and says it failed while the commit was
+    checked.
   - A project the disk says is gone retires it, however it was
     recorded; one out of reach for now doesn't.
   - Of two failed runs ending close together, in any projects,

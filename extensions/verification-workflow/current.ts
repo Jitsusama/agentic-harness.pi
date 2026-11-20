@@ -29,7 +29,8 @@ import { gitRoot, present, treeFingerprint, within } from "./tree.ts";
 
 /**
  * How many times a check asks after a run recorded while git answered
- * for the one before, before it leaves the newest for the next ask.
+ * for the one before, before it holds the commit on the newest as it
+ * was recorded, asking git no more.
  */
 const JUDGED_AT_MOST = 3;
 
@@ -59,15 +60,14 @@ export async function failureNow(
 	scope: VerificationScope,
 	backend: DiagnosticsBackend | undefined,
 ): Promise<FailureNow> {
-	const top = scope.dir ? await gitRoot(scope.dir, scope.signal) : undefined;
-	const root = top ?? scope.dir;
+	// A commit always sits in a repository, so a folder git names none for
+	// is one git was silent on, and only runs at or below it count: one
+	// above may be another repository's, so it isn't held on a guess.
+	const root = scope.dir
+		? ((await gitRoot(scope.dir, scope.signal)) ?? scope.dir)
+		: undefined;
 	const inScope = (path: string): boolean =>
 		root === undefined || within(root, path);
-	// With no repository git would name, a run recorded above the folder
-	// may be the one the commit lands in, so it counts too.
-	const runInScope = (run: FailedRun): boolean =>
-		inScope(run.root) ||
-		(top === undefined && root !== undefined && within(run.root, root));
 	const problems: string[] = [];
 
 	const files = [...state.known.keys()].filter(inScope);
@@ -88,7 +88,7 @@ export async function failureNow(
 	let overtaken = true;
 	for (let tries = 0; tries < JUDGED_AT_MOST; tries++) {
 		const run = state.failedRun;
-		if (!run || !runInScope(run)) {
+		if (!run || !inScope(run.root)) {
 			overtaken = false;
 			break;
 		}
@@ -98,24 +98,32 @@ export async function failureNow(
 		// meanwhile is asked about in turn.
 		if (state.failedRun !== run) continue;
 		overtaken = false;
-		if (judged.standing === "same") problems.push(stillFailing(run));
+		if (judged.standing === "same") problems.push(unchanged(run));
 		else if (judged.standing === "moved") state.failedRun = undefined;
 		break;
 	}
 	// Overtaken past the bound, the newest run holds the commit as it was
 	// recorded, since verify fingerprinted it last; git isn't asked again.
 	const newest = state.failedRun;
-	if (overtaken && newest && runInScope(newest))
-		problems.push(stillFailing(newest));
+	if (overtaken && newest && inScope(newest.root))
+		problems.push(recordedMeanwhile(newest));
 	const failure = problems.length > 0 ? { problems } : undefined;
 	return { failure, judged };
 }
 
-/** What a commit is told of a failed run whose tree it judged. */
-function stillFailing(run: FailedRun): string {
+/** What a commit is told of a failed run whose tree git says is the same. */
+function unchanged(run: FailedRun): string {
 	return (
 		`${run.command} failed in ${run.root}, and nothing there has ` +
 		"changed since. Run verify again once it is fixed."
+	);
+}
+
+/** What a commit is told of a failed run recorded while its check ran. */
+function recordedMeanwhile(run: FailedRun): string {
+	return (
+		`${run.command} failed in ${run.root} while this commit was ` +
+		"checked. Run verify again once it is fixed."
 	);
 }
 
