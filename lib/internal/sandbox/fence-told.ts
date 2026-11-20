@@ -30,10 +30,11 @@ export const FENCE_UNSAID =
 
 /**
  * Tell the host holding this session that its shell, or another tool,
- * holds it to `fence`. False only when the host couldn't write it, so
- * the tool refuses what it would run; true outside a host, in a host
- * that keeps no record, or one that holds no such session, whose record
- * then names no fence for it, so the node refuses its carry.
+ * holds it to `fence`. False when the host couldn't write it, or broke
+ * telling while it still holds the session, so the tool refuses what
+ * it would run; true outside a host, in a host that keeps no record,
+ * or one that holds no such session, whose record then names no fence
+ * for it, so the node refuses its carry.
  */
 export function tellHostFence(
 	fence: FenceKind,
@@ -46,7 +47,14 @@ export function tellHostFence(
 	try {
 		return host.fenced(session, fence, by);
 	} catch {
-		return true;
+		// A tell that broke partway may have left the record tighter than
+		// the tool runs; only a session the host no longer holds is named
+		// nowhere.
+		try {
+			return host.holds(session) === undefined;
+		} catch {
+			return false;
+		}
 	}
 }
 
