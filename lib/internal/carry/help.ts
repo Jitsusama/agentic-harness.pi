@@ -6,8 +6,9 @@
 /** What `pi-carry --help` says, each line within 72 columns. */
 export const CARRY_HELP = `pi-carry carries a quest's work from one of the person's machines
 to another, as \`mycelium carry\` asks it. A carry, an arrival and a
-settling print a JSON line for each thing they do; where and fence
-print a bare answer.
+settling print a JSON line for each thing they do. Where and fence
+print a bare answer, fence nothing for a session that runs unfenced,
+and say why they couldn't on stderr.
 
 Usage:
   pi-carry QUEST --to MACHINE

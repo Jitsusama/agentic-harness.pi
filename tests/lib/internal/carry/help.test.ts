@@ -1,3 +1,4 @@
+import { parseArgs } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
 	asksForHelp,
@@ -27,6 +28,16 @@ describe("pi-carry's help", () => {
 			const line = usage.startsWith(" ") ? usage : `  pi-carry ${usage}`;
 			expect(CARRY_HELP).toContain(`\n${line}`);
 		}
+		for (const form of ["--to", "arrive", "where", "fence", "settle"]) {
+			expect(CARRY_HELP).toMatch(new RegExp(`\\n  ${form} +\\S`));
+		}
+	});
+
+	it("says each code it exits with, as the script gives them", () => {
+		expect(CARRY_HELP).toContain(
+			"It exits 0 when done, 1 when it couldn't do all it was asked, a line\n" +
+				"saying why, and 2 when asked wrongly.\n",
+		);
 	});
 
 	it("is asked for by --help or -h anywhere before --", () => {
@@ -49,6 +60,19 @@ describe("pi-carry's help", () => {
 		// parseArgs refuses a dash-led value as the next word, so help loses
 		// nothing it would have carried.
 		expect(asked("--why", "--help")).toBe(true);
+	});
+
+	it("rests on parseArgs refusing a dash-led value as the next word", () => {
+		const parsed = (...args: string[]) =>
+			parseArgs({
+				args,
+				options: { why: { type: "string" } },
+				allowPositionals: true,
+			});
+		for (const help of ["--help", "-h"]) {
+			expect(() => parsed("--why", help)).toThrow(/ambiguous/);
+			expect(parsed(`--why=${help}`).values.why).toBe(help);
+		}
 	});
 
 	it("isn't asked for past --", () => {
