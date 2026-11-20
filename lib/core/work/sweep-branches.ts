@@ -21,7 +21,9 @@ import { mainCheckoutOf } from "./sweep-idle.ts";
  * `settledBefore`, in every checkout a record names: those whose trees
  * this sweep judged, and those of the git worktrees still held, whose
  * checkouts gather branches from trees released before their pull
- * request merged.
+ * request merged. `heldWorktrees` holds git worktrees only: another
+ * provider's tree, such as a World dev tree, keeps its branches by its
+ * own rules, so the caller leaves it out.
  */
 export async function dropSettledBranches(
 	deps: Pick<SweepDeps, "exec">,
