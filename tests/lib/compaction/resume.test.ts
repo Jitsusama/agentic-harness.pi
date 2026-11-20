@@ -118,7 +118,10 @@ describe("whether a compaction left a run owed", () => {
 	it("owes nothing once a message follows the compaction", () => {
 		const branch = [asked(0, true), compaction(500), user(600)];
 
-		expect(owesResume(branch, T0 + 10_000), "a message settles it").toBe(false);
+		expect(
+			owesResume(branch, T0 + 10_000),
+			"a message after the landing owes nothing",
+		).toBe(false);
 	});
 
 	it("is still owed past messages shown but never run", () => {
@@ -258,7 +261,7 @@ describe("whether a compaction left a run owed", () => {
 
 		expect(
 			owesResume(branch, T0 + 10_000),
-			"an ask settled before the landing is not its",
+			"a landing owes nothing to an ask settled before it",
 		).toBe(false);
 	});
 
@@ -279,8 +282,14 @@ describe("whether a compaction left a run owed", () => {
 			compaction(120_000),
 		];
 
-		expect(owesResume(going, T0 + 130_000), "its own word").toBe(false);
-		expect(owesResume(idle, T0 + 130_000), "a run since").toBe(false);
+		expect(
+			owesResume(going, T0 + 130_000),
+			"an ask whose run has since finished owes nothing",
+		).toBe(false);
+		expect(
+			owesResume(idle, T0 + 130_000),
+			"an idle ask with a finished run since owes nothing",
+		).toBe(false);
 	});
 
 	it("owes nothing with no compaction at all", () => {
@@ -347,7 +356,7 @@ describe("whether a run was cut since a moment", () => {
 		expect(cutSince([user(10)], T0), "an unanswered prompt is cut").toBe(true);
 		expect(
 			cutSince([user(10), answer(20, "stop")], T0),
-			"an answered prompt is not",
+			"an answered prompt is not cut",
 		).toBe(false);
 	});
 
@@ -362,11 +371,11 @@ describe("whether a run was cut since a moment", () => {
 	it("counts an answer that ended on its own as finished", () => {
 		expect(
 			cutSince([answer(10, "stop")], T0),
-			"an answer that stopped is not",
+			"an answer that stopped is not cut",
 		).toBe(false);
 		expect(
 			cutSince([answer(10, "length")], T0),
-			"an answer that ran to length is not",
+			"an answer that ran to length is not cut",
 		).toBe(false);
 	});
 
