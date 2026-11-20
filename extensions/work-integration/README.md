@@ -198,12 +198,17 @@ there. Cutting at its name now refuses, naming the tree and the
 way out that fits it. `tidy` lists each one no running session
 holds, counted apart from the checkout's own trees, and
 `reclaim` moves it aside whole to `work/stranded/`, since git
-can't say whether it holds work. Each is asked about again just
-before it moves, and one with a record moves only under that
-record's lock, as the sweep takes a tree. One a process works
-in, one git marks locked, and one whose `.git` is under ten
-minutes old, as a cut still running may be, stays
-(`lib/core/work/stranded.ts`).
+can't say whether it holds work. They are asked about again,
+once for all, just before they move, and one with a record moves
+only under that record's lock, as the sweep takes a tree. One a
+process works in, one git has marked locked within the hour, and
+one whose `.git` is under ten minutes old, as a cut still running
+may be, stays; where the machine can't say what works in a
+folder, every one stays (`lib/core/work/stranded.ts`). The
+guard's own words for its refusal are never said back, since a
+fenced command can choose the path in them. Cutting again from
+the clone that cut a tree set aside prunes git's entry for its
+gone folder and tries once more.
 
 ## Trees Whose Sessions Have Ended
 

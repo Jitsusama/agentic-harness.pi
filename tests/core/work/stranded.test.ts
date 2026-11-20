@@ -19,10 +19,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../lib/core/exec/index.ts";
+import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
 import {
 	CANT_SAY,
 	CUT_GRACE_MS,
+	cutRunning,
+	LOCK_STALE_MS,
 	plainWords,
 	type StrandedRecords,
 	setAside,
@@ -73,15 +76,14 @@ describe("strandedTrees", () => {
 		).toEqual([{ path, why: REFUSED }]);
 	});
 
-	it("names a tree whose git folder is gone, saying which", () => {
+	it("names a tree whose git folder is gone, without the path it names", () => {
+		// The path in a `.git` file is anybody's to write, so it isn't said.
 		const gone = join(root, "deleted-clone", ".git", "worktrees", "b");
 		const path = treeNaming("snapshot-b", gone);
 
 		expect(
 			strandedTrees({ dir: trees, kept: new Set(), refusal: () => undefined }),
-		).toEqual([
-			{ path, why: `the git folder its .git names, ${gone}, is gone` },
-		]);
+		).toEqual([{ path, why: "the git folder its .git file names is gone" }]);
 	});
 
 	it("leaves out a tree git reads", () => {
@@ -121,7 +123,7 @@ describe("strandedTrees", () => {
 		expect(found?.path).toBe(path);
 		expect(found?.why).toBe(plainWords(forged));
 		expect(found?.why).toMatch(/^fatal: nope \[2Jinjected x+\.\.\.$/);
-		expect(found?.why.length).toBe(403);
+		expect(found?.why.length).toBe(203);
 	});
 
 	it("leaves out what is no worktree, and what the sweep is removing", () => {
@@ -167,13 +169,39 @@ describe("splitStranded", () => {
 	});
 
 	it("keeps a tree a process works in, saying so", async () => {
+		// Listed through a link, while the machine names the real path, as
+		// the kernel does, so only a split that resolves links keeps it.
 		const path = aged("snapshot-j", LONG_AGO);
+		const linked = join(root, "linked-trees");
+		symlinkSync(trees, linked);
+		const listed = join(linked, "snapshot-j");
 
-		const split = await splitStranded([{ path, why: REFUSED }], {
-			busyAmong: async (paths) => new Set(paths),
+		const split = await splitStranded([{ path: listed, why: REFUSED }], {
+			busyAmong: async () => new Set([path]),
 		});
 
-		expect(split).toEqual({ free: [], kept: [{ path, why: WORKED_IN }] });
+		expect(split).toEqual({
+			free: [],
+			kept: [{ path: listed, why: WORKED_IN }],
+		});
+	});
+
+	it("frees a tree its machine names no process in", async () => {
+		const path = aged("snapshot-q", LONG_AGO);
+		const other = aged("snapshot-r", LONG_AGO);
+
+		const split = await splitStranded(
+			[
+				{ path, why: REFUSED },
+				{ path: other, why: REFUSED },
+			],
+			{ busyAmong: async () => new Set([other]) },
+		);
+
+		expect(split).toEqual({
+			free: [{ path, why: REFUSED }],
+			kept: [{ path: other, why: WORKED_IN }],
+		});
 	});
 
 	it("keeps every tree where the machine can't say what works in it", async () => {
@@ -197,6 +225,24 @@ describe("splitStranded", () => {
 
 		expect(split.free).toEqual([]);
 		expect(split.kept[0]?.why).toMatch(/git marks it locked/);
+	});
+
+	it("frees a tree whose lock a killed cut left long ago", async () => {
+		// A cut killed outright never takes its lock away, and a lock read
+		// as running for ever would keep the tree for ever.
+		const gitDir = standingGitDir("snapshot-s");
+		const path = treeNaming("snapshot-s", gitDir);
+		const at = (Date.now() - 2 * LOCK_STALE_MS) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		writeFileSync(join(gitDir, "locked"), "initializing\n");
+		utimesSync(join(gitDir, "locked"), at, at);
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(cutRunning(path), "the lock is long past").toBe(false);
+		expect(split).toEqual({ free: [{ path, why: REFUSED }], kept: [] });
 	});
 
 	it("keeps a tree cut lately, whose record may not be written yet", async () => {
@@ -242,7 +288,8 @@ describe("setAside", () => {
 		).toBe("written by a reader\n");
 	});
 
-	it("says why a move was refused and goes on with the rest", async () => {
+	it("says a tree went before its turn and goes on with the rest", async () => {
+		// Another reclaim or the sweep may take one first.
 		const missing = join(trees, "snapshot-gone-already");
 		const path = treeNaming("snapshot-g", standingGitDir("snapshot-g"));
 
@@ -254,19 +301,18 @@ describe("setAside", () => {
 			{ into: strandedDir(trees) },
 		);
 
-		expect(done.map((one) => one.kind)).toEqual(["refused", "set-aside"]);
-		expect(done[0]?.kind === "refused" ? done[0].why : "").toMatch(/ENOENT/);
+		expect(done.map((one) => one.kind)).toEqual(["gone", "set-aside"]);
 	});
 
-	it("keeps a tree asked about again that must stay after all", async () => {
+	it("says why a move was refused, leaving the tree where it was", async () => {
 		const path = treeNaming("snapshot-n", standingGitDir("snapshot-n"));
+		const into = strandedDir(trees);
+		writeFileSync(into, "a file where the folder would go\n");
 
-		const done = await setAside([{ path, why: REFUSED }], {
-			into: strandedDir(trees),
-			stays: async () => WORKED_IN,
-		});
+		const [done] = await setAside([{ path, why: REFUSED }], { into });
 
-		expect(done).toEqual([{ kind: "kept", path, why: WORKED_IN }]);
+		expect(done?.kind).toBe("refused");
+		expect(done?.kind === "refused" ? done.why : "").toMatch(/EEXIST|ENOTDIR/);
 		expect(existsSync(path), "it stays where it was").toBe(true);
 	});
 
@@ -295,6 +341,52 @@ describe("setAside", () => {
 
 		expect(kept?.kind).toBe("kept");
 		expect(kept?.kind === "kept" ? kept.why : "").toMatch(/may still hold/);
+		expect(existsSync(path), "it stays where it was").toBe(true);
+	});
+
+	it("sets aside a tree the broker recorded for a session that ended", async () => {
+		// The broker's own records, not a stand-in, so the lock and the
+		// forgetting are the ones reclaim really takes.
+		const path = treeNaming("snapshot-t", standingGitDir("snapshot-t"));
+		const memory = createTreeMemory(join(root, "work", "cut"));
+		memory.remember({
+			identity: { key: "snapshot-t", shareable: true },
+			path,
+			providerId: "git",
+			// Above the system's highest pid, so nothing can be wearing it.
+			owners: [{ pid: 0x7f_ff_ff_ff, startedAt: 1 }],
+		});
+
+		const [moved] = await setAside([{ path, why: REFUSED }], {
+			into: strandedDir(trees),
+			records: memory,
+		});
+
+		expect(moved?.kind).toBe("set-aside");
+		expect(existsSync(path), "its name is free to cut again").toBe(false);
+		expect(
+			memory.recall().map((one) => one.path),
+			"its record went with it",
+		).toEqual([]);
+	});
+
+	it("keeps a tree the broker recorded for nobody it can name", async () => {
+		// A record from before owners were written: nothing can say its
+		// holder ended, so the tree stays.
+		const path = treeNaming("snapshot-u", standingGitDir("snapshot-u"));
+		const memory = createTreeMemory(join(root, "work", "cut"));
+		memory.remember({
+			identity: { key: "snapshot-u", shareable: true },
+			path,
+			providerId: "git",
+		});
+
+		const [kept] = await setAside([{ path, why: REFUSED }], {
+			into: strandedDir(trees),
+			records: memory,
+		});
+
+		expect(kept?.kind).toBe("kept");
 		expect(existsSync(path), "it stays where it was").toBe(true);
 	});
 });
@@ -360,6 +452,30 @@ describe("a snapshot at a stranded tree's commit", () => {
 		});
 		expect(stranded.map((one) => one.path)).toEqual([path]);
 		await setAside(stranded, { into: strandedDir(trees) });
+
+		await expect(provider.ensure(request)).resolves.toEqual({ path });
+		expect(await git(path, "rev-parse", "HEAD")).toBe(commit);
+	});
+
+	it("is cut again from the very clone that cut the stranded tree", async () => {
+		// That clone still lists the tree it cut, by a folder now gone,
+		// and git refuses the name until the entry is pruned.
+		clone = await freshRepo("stranded-same-clone");
+		const commit = await git(clone, "rev-parse", "HEAD");
+		const request: TreeRequest = {
+			intent: "snapshot",
+			repo: { key: "github:o/r", localPath: clone },
+			purpose: "review",
+			commit,
+		};
+		const path = join(trees, treeIdentity(request).key);
+		await git(clone, "worktree", "add", "--detach", path, commit);
+		const provider = createGitTreeProvider({
+			exec: guarded(path),
+			stateDir: trees,
+			subvolumes: async () => false,
+		});
+		await setAside([{ path, why: REFUSED }], { into: strandedDir(trees) });
 
 		await expect(provider.ensure(request)).resolves.toEqual({ path });
 		expect(await git(path, "rev-parse", "HEAD")).toBe(commit);

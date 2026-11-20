@@ -13,12 +13,13 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { GLYPH } from "../../../extensions/work-integration/render.ts";
-import { strandedDir } from "../../../lib/core/work/stranded.ts";
+import { seesEveryProcess } from "../../../extensions/work-integration/sweep.ts";
+import { GUARD_WORDS, strandedDir } from "../../../lib/core/work/stranded.ts";
 import { cutTreeDir } from "../../../lib/internal/work-records.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
-import { git } from "../../support/git-fixture.ts";
+import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
 import { checkout, scratchDir, work } from "./worked.ts";
 
 /** A worktree beside the checkout, at a branch trunk already holds. */
@@ -46,6 +47,19 @@ function strandedTree(name: string, ageMs: number): string {
 /** An hour, well past the grace a cut in progress is given. */
 const AN_HOUR = 60 * 60 * 1000;
 
+/**
+ * Whether this machine can say what works in a folder. Where it can't,
+ * every stranded tree is rightly kept, so the cases that free one only
+ * run where the kernel names every process's folders.
+ */
+const machineCanSay = (await seesEveryProcess()) && existsSync("/proc/1");
+
+let elsewhere = "";
+afterEach(() => {
+	if (elsewhere !== "") disposeRepo(elsewhere);
+	elsewhere = "";
+});
+
 describe("tidy", () => {
 	it("says nothing has been spent when nothing has", async () => {
 		const named = displayPath(checkout());
@@ -62,22 +76,48 @@ describe("tidy", () => {
 		});
 	});
 
-	it("names a tree git won't read apart from the checkout's, and leaves it", async () => {
-		const path = strandedTree("snapshot-stranded", AN_HOUR);
-		const named = displayPath(checkout());
-		const answer = await work({ action: "tidy", tree: checkout() });
-		expect(answer.text).toContain(
-			`${GLYPH.clean} Nothing in ${named} has been spent yet, against main.`,
-		);
-		expect(answer.text).toContain(
-			`${GLYPH.named} 1 tree git won't read can be set aside where the broker cuts them.`,
-		);
-		expect(answer.text).toContain(
-			`${displayPath(path)}, a tree nothing holds that git won't read: the git folder`,
-		);
-		expect(answer.details).toMatchObject({ reclaimable: 0, stranded: 1 });
-		expect(existsSync(path), "tidy moves nothing").toBe(true);
-	});
+	it.runIf(machineCanSay)(
+		"names a tree the guard won't run git in, in words of its own",
+		async () => {
+			// Cut for real from a repository outside every home the fence
+			// keeps, which the guard refuses wherever the broker cuts trees.
+			elsewhere = await freshRepo("survey-elsewhere");
+			const path = join(cutTreeDir(), "snapshot-refused");
+			await git(elsewhere, "worktree", "add", "-q", "--detach", path);
+			const at = (Date.now() - AN_HOUR) / 1000;
+			utimesSync(join(path, ".git"), at, at);
+
+			const answer = await work({ action: "tidy", tree: checkout() });
+
+			expect(answer.text).toContain(
+				`${displayPath(path)}, a tree nothing holds that git won't read: ${GUARD_WORDS}`,
+			);
+			expect(answer.text, "the guard's own words aren't said").not.toContain(
+				"read-only",
+			);
+			expect(answer.details).toMatchObject({ stranded: 1 });
+		},
+	);
+
+	it.runIf(machineCanSay)(
+		"names a tree git won't read apart from the checkout's, and leaves it",
+		async () => {
+			const path = strandedTree("snapshot-stranded", AN_HOUR);
+			const named = displayPath(checkout());
+			const answer = await work({ action: "tidy", tree: checkout() });
+			expect(answer.text).toContain(
+				`${GLYPH.clean} Nothing in ${named} has been spent yet, against main.`,
+			);
+			expect(answer.text).toContain(
+				`${GLYPH.named} 1 tree git won't read can be set aside where the broker cuts them.`,
+			);
+			expect(answer.text).toContain(
+				`${displayPath(path)}, a tree nothing holds that git won't read: the git folder`,
+			);
+			expect(answer.details).toMatchObject({ reclaimable: 0, stranded: 1 });
+			expect(existsSync(path), "tidy moves nothing").toBe(true);
+		},
+	);
 
 	it("names a merged branch that can go, and leaves it", async () => {
 		await git(checkout(), "branch", "done");
@@ -113,30 +153,33 @@ describe("reclaim", () => {
 		expect(answer.details).toEqual({ ok: true, reclaimed: 0, setAside: 0 });
 	});
 
-	it("sets a tree git won't read aside whole, and tidy then counts it", async () => {
-		const path = strandedTree("snapshot-stranded", AN_HOUR);
-		const answer = await work({ action: "reclaim", tree: checkout() });
-		expect(answer.text).toContain(
-			`${GLYPH.named} Set aside 1 tree git won't read where the broker cuts them.`,
-		);
-		expect(answer.text, "none is counted as the checkout's").not.toContain(
-			"Took back",
-		);
-		expect(answer.details).toEqual({ ok: true, reclaimed: 0, setAside: 1 });
-		expect(existsSync(path), "its name is free to cut again").toBe(false);
-		const into = strandedDir(cutTreeDir());
-		const [aside] = readdirSync(into);
-		expect(aside).toMatch(/^snapshot-stranded-[0-9a-f]{8}$/);
-		expect(
-			readFileSync(join(into, aside ?? "", "notes.md"), "utf8"),
-			"every file it held goes with it",
-		).toBe("written by a reader\n");
+	it.runIf(machineCanSay)(
+		"sets a tree git won't read aside whole, and tidy then counts it",
+		async () => {
+			const path = strandedTree("snapshot-stranded", AN_HOUR);
+			const answer = await work({ action: "reclaim", tree: checkout() });
+			expect(answer.text).toContain(
+				`${GLYPH.named} Set aside 1 tree git won't read where the broker cuts them.`,
+			);
+			expect(answer.text, "none is counted as the checkout's").not.toContain(
+				"Took back",
+			);
+			expect(answer.details).toEqual({ ok: true, reclaimed: 0, setAside: 1 });
+			expect(existsSync(path), "its name is free to cut again").toBe(false);
+			const into = strandedDir(cutTreeDir());
+			const [aside] = readdirSync(into);
+			expect(aside).toMatch(/^snapshot-stranded-[0-9a-f]{8}$/);
+			expect(
+				readFileSync(join(into, aside ?? "", "notes.md"), "utf8"),
+				"every file it held goes with it",
+			).toBe("written by a reader\n");
 
-		const tidy = await work({ action: "tidy", tree: checkout() });
-		expect(tidy.text).toContain(
-			`1 tree set aside earlier wait in ${displayPath(into)}.`,
-		);
-	});
+			const tidy = await work({ action: "tidy", tree: checkout() });
+			expect(tidy.text).toContain(
+				`1 tree set aside earlier wait in ${displayPath(into)}.`,
+			);
+		},
+	);
 
 	it("keeps a tree git won't read that may still be being cut", async () => {
 		const path = strandedTree("snapshot-cutting", 0);

@@ -34,7 +34,9 @@ import {
 } from "../../../lib/core/work/reclaim.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import {
+	GUARD_WORDS,
 	type KeptTree,
+	type SetAsideTree,
 	type StrandedSigns,
 	type StrandedTree,
 	setAside,
@@ -242,7 +244,8 @@ async function strandedBeside(
 		kept: new Set(kept),
 		refusal: (path) => {
 			const run = gitRun(path, ["rev-parse", "HEAD"], rules);
-			return "refused" in run ? run.refused : undefined;
+			// The guard's words name a path a fenced command can choose.
+			return "refused" in run ? GUARD_WORDS : undefined;
 		},
 	});
 	const split = await splitStranded(found, strandedSigns());
@@ -250,20 +253,40 @@ async function strandedBeside(
 }
 
 /**
- * Set aside the stranded trees the survey offered, each asked about
- * again just before it moves, since a cut or a reader may have come to
- * it since, and one with a record only under that record's lock.
+ * Set aside the stranded trees the survey offered, asked about again
+ * just before they move, since a cut or a reader may have come to one
+ * while the checkout's trees were reclaimed, and one with a record only
+ * under that record's lock. One look for them all, since each walks
+ * every process.
  */
-async function setStrandedAside(trees: readonly StrandedTree[]) {
+async function setStrandedAside(
+	trees: readonly StrandedTree[],
+): Promise<SetAsideTree[]> {
 	if (trees.length === 0) return [];
-	return await setAside(trees, {
-		into: strandedDir(treeDir()),
-		// The memory the sweep takes trees under, so the two judge a
-		// record the same way and under the same lock.
-		records: createTreeMemory(treeRecordDir()),
-		stays: async (path) =>
-			(await splitStranded([{ path, why: "" }], strandedSigns())).kept[0]?.why,
-	});
+	const again = await splitStranded(trees, strandedSigns());
+	return [
+		...again.kept.map((tree) => ({ kind: "kept" as const, ...tree })),
+		...(await setAside(again.free, {
+			into: strandedDir(treeDir()),
+			// The memory the sweep takes trees under, so the two judge a
+			// record the same way and under the same lock.
+			records: createTreeMemory(treeRecordDir()),
+		})),
+	];
+}
+
+/** What became of one stranded tree, as a line under reclaim's count. */
+function movedLine(tree: SetAsideTree): string {
+	switch (tree.kind) {
+		case "set-aside":
+			return `   ${GLYPH.named} ${displayPath(tree.path)}, set aside whole at ${displayPath(tree.aside)}`;
+		case "gone":
+			return `   ${GLYPH.clean} ${displayPath(tree.path)}: gone by its turn, as another reclaim or the sweep took it`;
+		case "kept":
+			return keptLine(tree);
+		case "refused":
+			return `   ${GLYPH.refused} ${displayPath(tree.path)}: moving it was refused: ${tree.why}`;
+	}
 }
 
 /**
@@ -367,13 +390,11 @@ async function surveyRepo(
 				...(moved.length === 0
 					? []
 					: [
-							`${GLYPH.named} Set aside ${count(setAsideCount, "tree", "trees")} git won't read where the broker cuts them.`,
+							setAsideCount === 0
+								? `${GLYPH.clean} Set aside none of the trees git won't read where the broker cuts them.`
+								: `${GLYPH.named} Set aside ${count(setAsideCount, "tree", "trees")} git won't read where the broker cuts them.`,
 						]),
-				...moved.map((tree) =>
-					tree.kind === "set-aside"
-						? `   ${GLYPH.named} ${displayPath(tree.path)}, set aside whole at ${displayPath(tree.aside)}`
-						: `   ${GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
-				),
+				...moved.map(movedLine),
 				...orphans.strandedKept.map(keptLine),
 				...(kept
 					? [
@@ -386,7 +407,9 @@ async function surveyRepo(
 					? [
 							"",
 							"A tree set aside keeps every file it held, and its name is free",
-							"to cut again. Delete it once nothing in it is wanted.",
+							"to cut again. Delete it once nothing in it is wanted. If the clone",
+							"it came from was only moved or away, git worktree repair at its",
+							"new place joins them again.",
 						]
 					: []),
 			].join("\n"),

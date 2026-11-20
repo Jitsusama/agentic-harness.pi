@@ -67,6 +67,20 @@ const GOING = ".going-";
 export const CUT_GRACE_MS = 10 * 60 * 1000;
 
 /**
+ * How long git's `locked` file is taken as a cut still running. A cut
+ * killed outright leaves it behind, and one read as running for ever
+ * would keep its tree for ever; an hour is six times the slowest cut.
+ */
+export const LOCK_STALE_MS = 60 * 60 * 1000;
+
+/**
+ * Why git won't run in a tree the fence's guard refused, in words of
+ * ours: the guard's own name a path a fenced command can choose.
+ */
+export const GUARD_WORDS =
+	"the fence's guard won't run git there, as its repository isn't one the fence keeps safe";
+
+/**
  * The trees in the folder the broker cuts them in that nothing live
  * holds and git won't read: one whose git folder is gone, or one git is
  * refused in. A folder with no `.git` file is no worktree, so whatever
@@ -100,10 +114,11 @@ export function strandedWhy(
 	path: string,
 	refusal: (path: string) => string | undefined,
 ): string | undefined {
-	const gone = goneGitDir(path);
-	return gone === undefined
+	// The path a `.git` file names is anybody's to write, so it isn't
+	// repeated: the file is there to read.
+	return goneGitDir(path) === undefined
 		? refusal(path)
-		: `the git folder its .git names, ${gone}, is gone`;
+		: "the git folder its .git file names is gone";
 }
 
 /** What tells a stranded tree is still being made or used. */
@@ -183,8 +198,7 @@ export const CANT_SAY =
  * only once it ends.
  */
 function makingWhy(path: string, now: number): string | undefined {
-	const gitDir = namedGitDir(path);
-	if (gitDir !== undefined && existsSync(join(gitDir, "locked"))) {
+	if (cutRunning(path, now)) {
 		return "git won't read it, but git marks it locked, as it does while a cut runs, so it stays";
 	}
 	try {
@@ -195,6 +209,21 @@ function makingWhy(path: string, now: number): string | undefined {
 		// Its `.git` went since it was listed: the move finds it gone.
 	}
 	return undefined;
+}
+
+/**
+ * Whether git marks the worktree at `path` locked within the last
+ * {@link LOCK_STALE_MS}, as `worktree add` does while it fills one.
+ */
+export function cutRunning(path: string, now = Date.now()): boolean {
+	const gitDir = namedGitDir(path);
+	if (gitDir === undefined) return false;
+	try {
+		return now - statSync(join(gitDir, "locked")).mtimeMs < LOCK_STALE_MS;
+	} catch {
+		// No lock: no cut is running there.
+		return false;
+	}
 }
 
 /** The git folder a worktree's `.git` file names, or nothing. */
@@ -214,6 +243,7 @@ function namedGitDir(path: string): string | undefined {
 export type SetAsideTree =
 	| { kind: "set-aside"; path: string; aside: string }
 	| { kind: "kept"; path: string; why: string }
+	| { kind: "gone"; path: string }
 	| { kind: "refused"; path: string; why: string };
 
 /** The broker's records, as far as setting a tree aside needs them. */
@@ -234,11 +264,6 @@ export interface SetAsideDeps {
 	into: string;
 	/** The broker's records, or nothing where there are none. */
 	records?: StrandedRecords;
-	/**
-	 * Why a tree must stay after all, asked just before it moves, or
-	 * nothing: what was listed may be seconds old by then.
-	 */
-	stays?: (path: string) => Promise<string | undefined>;
 }
 
 /** Where stranded trees are set aside: beside the trees' folder, never in it. */
@@ -259,11 +284,12 @@ export function setAsideEarlier(into: string): number {
 
 /**
  * Move each stranded tree aside whole, under a name of its own in
- * `into`, and say where each went. Each is asked about again just
- * before it moves. One with a record moves only under that record's
- * lock while every session it names has ended, as the sweep takes a
- * tree, and its record goes with it. A move refused leaves the tree
- * where it was and says why, without holding up the rest.
+ * `into`, and say where each went. One with a record moves only under
+ * that record's lock while every session it names has ended, as the
+ * sweep takes a tree, and its record goes with it. One gone by its turn,
+ * as another reclaim or the sweep took it, is said to be. A move
+ * refused leaves the tree where it was and says why, without holding
+ * up the rest.
  */
 export async function setAside(
 	trees: readonly StrandedTree[],
@@ -271,9 +297,8 @@ export async function setAside(
 ): Promise<SetAsideTree[]> {
 	const done: SetAsideTree[] = [];
 	for (const tree of trees) {
-		const stays = await deps.stays?.(tree.path);
-		if (stays !== undefined) {
-			done.push({ kind: "kept", path: tree.path, why: stays });
+		if (!existsSync(tree.path)) {
+			done.push({ kind: "gone", path: tree.path });
 			continue;
 		}
 		const aside = join(
@@ -301,6 +326,16 @@ export async function setAside(
 				done.push({ kind: "set-aside", path: tree.path, aside });
 			} else if (refused !== undefined) {
 				done.push({ kind: "refused", path: tree.path, why: refused });
+			} else if (!existsSync(tree.path)) {
+				done.push({ kind: "gone", path: tree.path });
+			} else if (
+				!deps.records.recall().some((one) => resolvedPath(one.path) === real)
+			) {
+				done.push({
+					kind: "kept",
+					path: tree.path,
+					why: "its record went while it was asked about, so it stays for the next reclaim",
+				});
 			} else {
 				done.push({
 					kind: "kept",
@@ -317,7 +352,7 @@ export async function setAside(
 }
 
 /** The longest stretch of git's words said back. */
-const WORDS_MAX = 400;
+const WORDS_MAX = 200;
 
 /**
  * Words from git or the guard, as one plain line said back: a path in

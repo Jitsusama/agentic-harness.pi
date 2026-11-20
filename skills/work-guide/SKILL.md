@@ -410,7 +410,9 @@ session holds, from whichever checkout it runs in, counted apart
 from that checkout's own, and `reclaim` moves each aside whole
 beside the trees, deleting nothing, so its name can be cut again.
 One something still works in, or cut in the last ten minutes,
-stays.
+stays, and so does every one where the machine can't say what
+works in a folder. A refusal that says git marks the tree locked
+means another session is cutting it: ask again in a minute.
 
 ## Where This Ends and Review Begins
 

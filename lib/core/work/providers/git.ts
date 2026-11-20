@@ -25,17 +25,19 @@ import { fullRefRefusal } from "../author.ts";
 import type { TreeProvider } from "../broker.ts";
 import { FETCHED_LATELY_MS, refreshStart } from "../fresh-start.ts";
 import { dropMergedBranch } from "../merged-branch.ts";
-import { looksCut, plainWords, strandedWhy } from "../stranded.ts";
+import {
+	cutRunning,
+	GUARD_WORDS,
+	looksCut,
+	plainWords,
+	strandedWhy,
+} from "../stranded.ts";
 import { type TreeRequest, treeIdentity, treeSource } from "../tree.ts";
 
 /**
- * Whether anything stands in the folder at `path`. git cuts into an
- * empty folder as readily as a missing one, as it does into a subvolume
- * made for the tree, so only a folder with something in it is in the way.
- */
-/**
  * The exit code the fence's guard answers a git it won't run with, as a
- * shell's for a command it won't run.
+ * shell's for a command it won't run. Said again here rather than shared
+ * with the guard, since the work core imports nothing of the sandbox's.
  */
 const GUARD_REFUSED = 126;
 
@@ -53,21 +55,34 @@ function unreadTree(
 	intent: string,
 ): string {
 	const gone = strandedWhy(path, () => undefined);
-	const said = plainWords(
+	// The guard's own words name a path a fenced command can choose, so
+	// what it refused is said in words of ours rather than repeated.
+	const said =
 		gone ??
-			(standing.stderr.trim() || `git exited ${standing.code} reading it`),
-	);
+		(standing.code === GUARD_REFUSED
+			? GUARD_WORDS
+			: plainWords(
+					standing.stderr.trim() || `git exited ${standing.code} reading it`,
+				));
 	const why = /[.!?]$/.test(said) ? said : `${said}.`;
 	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
+	if (cutRunning(path)) {
+		return `${where} git marks it locked, as it does while another session cuts it, so ask again in a minute.`;
+	}
 	if (
 		looksCut(path) &&
 		(gone !== undefined || standing.code === GUARD_REFUSED)
 	) {
-		return `${where} Nothing can hand it over or cut there until it goes. Once nothing holds it or works in it, \`work tidy\` lists it and \`work reclaim\` moves it aside whole, after which this ${intent} can be cut.`;
+		return `${where} Nothing can hand it over or cut there until it goes. Once nothing holds it or works in it, \`work tidy\` lists it and \`work reclaim\` moves it aside whole, after which this ${intent} can be cut. Where this machine can't say what works in a folder, reclaim keeps it, so move it aside by hand.`;
 	}
 	return `${where} If git was only slow or stopped, ask again. Otherwise move it aside by hand once nothing in it is wanted, after which this ${intent} can be cut.`;
 }
 
+/**
+ * Whether anything stands in the folder at `path`. git cuts into an
+ * empty folder as readily as a missing one, as it does into a subvolume
+ * made for the tree, so only a folder with something in it is in the way.
+ */
 function holdsAnything(path: string): boolean {
 	try {
 		return readdirSync(path).length > 0;
@@ -401,13 +416,20 @@ export function createGitTreeProvider(deps: {
 			const apart =
 				(await subvolumes(deps.stateDir)) &&
 				(await exec("btrfs", ["subvolume", "create", path])).code === 0;
-			const cut = await exec("git", [
-				"-C",
-				source.path,
-				"worktree",
-				"add",
-				...at,
-			]);
+			const add = () =>
+				exec("git", ["-C", source.path, "worktree", "add", ...at]);
+			let cut = await add();
+			// A tree set aside from under this checkout leaves git's entry for
+			// it naming a folder that is no longer there, and git then refuses
+			// the name. Pruning forgets only entries whose folders are gone,
+			// which is git's own way out, and the cut is asked once more.
+			if (
+				cut.code !== 0 &&
+				/missing but already registered worktree/.test(cut.stderr) &&
+				(await exec("git", ["-C", source.path, "worktree", "prune"])).code === 0
+			) {
+				cut = await add();
+			}
 			if (cut.code !== 0) {
 				// An empty subvolume goes with rmdir, as its owner.
 				if (apart) await exec("rmdir", [path]);

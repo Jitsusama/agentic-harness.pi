@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoLocator } from "../../../lib/core/review/index.ts";
 import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
+import { GUARD_WORDS } from "../../../lib/core/work/stranded.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
 import { fakeExec } from "../../support/fake-exec.ts";
 
@@ -729,11 +730,15 @@ describe("a tree standing where git won't read it", () => {
 	 */
 	function standingTree(): string {
 		const path = join(stateDir, treeIdentity(snapshot()).key);
-		const gitDir = join(stateDir, "elsewhere", ".git", "worktrees", "x");
-		mkdirSync(gitDir, { recursive: true });
+		mkdirSync(gitDirOf(), { recursive: true });
 		mkdirSync(path);
-		writeFileSync(join(path, ".git"), `gitdir: ${gitDir}\n`);
+		writeFileSync(join(path, ".git"), `gitdir: ${gitDirOf()}\n`);
 		return path;
+	}
+
+	/** The git folder a standing tree's `.git` names. */
+	function gitDirOf(): string {
+		return join(stateDir, "elsewhere", ".git", "worktrees", "x");
 	}
 
 	it("says why and what to do, rather than cutting over it", async () => {
@@ -750,7 +755,10 @@ describe("a tree standing where git won't read it", () => {
 		const cut = provider.ensure(snapshot());
 
 		await expect(cut).rejects.toThrow("which git here won't read");
-		await expect(cut).rejects.toThrow(REFUSED);
+		// The guard's own words name a path a fenced command can choose, so
+		// ours are said in their place.
+		await expect(cut).rejects.toThrow(GUARD_WORDS);
+		await expect(cut).rejects.not.toThrow("/elsewhere/.git");
 		await expect(cut).rejects.toThrow(
 			"`work tidy` lists it and `work reclaim` moves it aside whole",
 		);
@@ -776,17 +784,68 @@ describe("a tree standing where git won't read it", () => {
 		expect(addition(calls), "nothing is cut over it").toBeUndefined();
 	});
 
-	it("says the guard's words as one line, ending as a sentence", async () => {
+	it("says git's words as one line, ending as a sentence", async () => {
 		const { exec } = fakeExec([
-			{ when: ["rev-parse", "HEAD"], code: 126, stderr: "refused\nhere\n" },
+			{ when: ["rev-parse", "HEAD"], code: 128, stderr: "refused\nhere\n" },
 			{ when: ["cat-file"], stdout: "" },
 		]);
 		const provider = createGitTreeProvider({ exec, stateDir });
 		standingTree();
 
 		await expect(provider.ensure(snapshot())).rejects.toThrow(
-			"won't read: refused here. Nothing can hand it over",
+			"won't read: refused here. If git was only slow or stopped",
 		);
+	});
+
+	it("names reclaim for a cut tree whose git folder is gone", async () => {
+		// Whatever git answered, a git folder that is gone won't come back.
+		const { exec } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 128, stderr: "fatal: not a git" },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		standingTree();
+		rmSync(gitDirOf(), { recursive: true });
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow(
+			"the git folder its .git file names is gone",
+		);
+		await expect(cut).rejects.toThrow("`work reclaim` moves it aside whole");
+	});
+
+	it("names no reclaim for a refused folder that is no cut tree", async () => {
+		// A clone of its own, its `.git` a folder: reclaim never lists one.
+		const { exec } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		mkdirSync(join(stateDir, treeIdentity(snapshot()).key, ".git"), {
+			recursive: true,
+		});
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow("move it aside by hand");
+		await expect(cut).rejects.not.toThrow("work reclaim");
+	});
+
+	it("asks again in a minute while git marks the tree locked", async () => {
+		// Another session's cut is filling it, and will be done shortly.
+		const { exec } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 126, stderr: REFUSED },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		standingTree();
+		writeFileSync(join(gitDirOf(), "locked"), "initializing\n");
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow("so ask again in a minute");
+		await expect(cut).rejects.not.toThrow("work reclaim");
 	});
 
 	it("cuts into an empty folder, as git does", async () => {
