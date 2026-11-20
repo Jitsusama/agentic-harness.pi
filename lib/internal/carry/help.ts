@@ -31,7 +31,20 @@ came or something here holds work the carry lacks, and 2 when asked
 wrongly.
 `;
 
-/** Whether `words` ask for pi-carry's help, by `--help` or `-h`. */
+/** pi-carry's flags that take the word after them as their value. */
+const VALUED = new Set(["--to", "--from", "--session", "--by", "--why"]);
+
+/**
+ * Whether `words` ask for pi-carry's help, by `--help` or `-h` before any
+ * `--`. The word after a valued flag is its value, as a parser reads it, so
+ * a reason that is exactly `--help` is carried rather than taken for help.
+ */
 export function asksForHelp(words: readonly string[]): boolean {
-	return words.some((word) => word === "--help" || word === "-h");
+	for (let at = 0; at < words.length; at += 1) {
+		const word = words[at];
+		if (word === "--") return false;
+		if (word === "--help" || word === "-h") return true;
+		if (word !== undefined && VALUED.has(word)) at += 1;
+	}
+	return false;
 }

@@ -37,4 +37,16 @@ describe("pi-carry's help", () => {
 		expect(asksForHelp(carry)).toBe(false);
 		expect(asksForHelp([])).toBe(false);
 	});
+
+	it("reads a valued flag's word as its value, even one spelt as help", () => {
+		const arrive = ["arrive", "QEST-20261107-CARRY3", "--from", "far"];
+		const asked = (...more: string[]) => asksForHelp([...arrive, ...more]);
+		expect(asked("--by", "WCJQSG", "--why", "--help")).toBe(false);
+		expect(asked("--why", "-h", "--session", "s")).toBe(false);
+		expect(asked("--why", "moved", "--help")).toBe(true);
+	});
+
+	it("isn't asked for past --", () => {
+		expect(asksForHelp(["--", "--help"])).toBe(false);
+	});
 });
