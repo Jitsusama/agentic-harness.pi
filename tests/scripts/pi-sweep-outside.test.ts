@@ -250,7 +250,7 @@ it("leaves out of its stamp a provider that couldn't judge a tree", async () => 
 		said.mock.calls.map((call) => String(call[0])),
 		"what its unit's journal was told",
 	).toContain(
-		"pi-sweep: world-dev-tree couldn't judge or take every tree, so the hosts sweep its trees; sweep.log has each tree's reason\n",
+		"pi-sweep: world-dev-tree couldn't judge or take every tree, so the hosts sweep its trees; sweep.log counts the commonest reasons kept\n",
 	);
 });
 
