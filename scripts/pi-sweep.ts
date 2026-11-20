@@ -60,6 +60,7 @@ import {
 import { questsRootNow } from "../extensions/quest-workflow/config.ts";
 import {
 	judgedProviders,
+	listsFirstProcess,
 	logSweep,
 	type SweepEnd,
 	seesEveryProcess,
@@ -155,6 +156,7 @@ export async function sweepOutside({
 		claimed: () => ({ held: [], untilSpent: liveQuestTrees(questsRoot) }),
 		swept: (paths) => forgetTrees(questsRoot, paths),
 		fencedGit: true,
+		told: (why) => tell(`sweep ${why}`),
 	});
 	// Any call that failed shows in the unit's state. A tree whose call
 	// threw is kept, and asked about again next run, so its provider is
@@ -228,7 +230,11 @@ async function whyUntrusted(): Promise<string | undefined> {
 	if (git.code !== 0) {
 		return `git won't run: ${git.stderr.trim() || `exit ${git.code}`}`;
 	}
-	if (!(await seesEveryProcess())) {
+	// As the walk for who works in a tree checks: a /proc mounted to hide
+	// other users' processes lists no first process, and a reading that
+	// misses them keeps every claimed tree while the stamp still stands
+	// the hosts down.
+	if (!(await seesEveryProcess()) || !(await listsFirstProcess())) {
 		return "it can't see every process on the machine";
 	}
 	return undefined;

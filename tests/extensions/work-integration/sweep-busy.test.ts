@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	busyAmongBy,
+	listsFirstProcess,
 	type ProcessReads,
 } from "../../../extensions/work-integration/sweep.ts";
 
@@ -156,5 +157,20 @@ describe("the sweep's reading of what is in use", () => {
 		expect(reading, "a listing missing others' processes was trusted").toBe(
 			undefined,
 		);
+	});
+});
+
+describe("whether /proc lists everyone's processes", () => {
+	it("says so only where it lists the first, and not where it can't be read", async () => {
+		expect(
+			{
+				whole: await listsFirstProcess(async () => ["1", "10", "self"]),
+				hiding: await listsFirstProcess(async () => ["10", "self"]),
+				none: await listsFirstProcess(async () => {
+					throw failing("ENOENT");
+				}),
+			},
+			"whether each listing is whole",
+		).toEqual({ whole: true, hiding: false, none: false });
 	});
 });

@@ -186,6 +186,11 @@ export interface SweepAsks {
 	 * a fenced session's does, whatever this process's own sandbox.
 	 */
 	fencedGit?: boolean;
+	/**
+	 * Told why a sweep failed or left trees unjudged, beside its line in
+	 * the log, for a runner with a journal of its own.
+	 */
+	told?(why: string): void;
 }
 
 /** One sweep, logged, which never throws, saying how it ended. */
@@ -227,8 +232,12 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 				: outcome.idleUnjudged !== undefined
 					? "partly"
 					: "ran";
+		if (outcome.idleUnjudged !== undefined) {
+			asks.told?.(`left idle snapshots unjudged: ${outcome.idleUnjudged}`);
+		}
 	} catch (error) {
 		line = { failed: messageOf(error) };
+		asks.told?.(`failed: ${messageOf(error)}`);
 	}
 	logSweep({ ms: Date.now() - started, ...line }, started);
 	if (taken.length > 0) {
@@ -422,6 +431,22 @@ export async function seesEveryProcess(
 ): Promise<boolean> {
 	try {
 		return (await link("/proc/self/ns/pid")) === HOST_PID_NAMESPACE;
+	} catch {
+		// No /proc, as on macOS.
+		return false;
+	}
+}
+
+/**
+ * Whether `/proc` lists the machine's first process, as it does to a
+ * reader who sees everyone's, and not where it is mounted to hide other
+ * users' processes.
+ */
+export async function listsFirstProcess(
+	list: (path: string) => Promise<string[]> = (path) => readdir(path),
+): Promise<boolean> {
+	try {
+		return (await list("/proc")).includes("1");
 	} catch {
 		// No /proc, as on macOS.
 		return false;

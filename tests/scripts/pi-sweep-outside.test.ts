@@ -34,9 +34,11 @@ const seen = vi.hoisted(() => ({
 	quests: "",
 	unreadable: undefined as string | undefined,
 	seesAll: true,
+	listsFirst: true,
 	releasing: false,
 	trees: 1,
 	partly: undefined as string | undefined,
+	fails: undefined as string | undefined,
 	claims: [] as SweepClaims[],
 	rests: [] as (number | undefined)[],
 	execs: [] as Exec[],
@@ -52,6 +54,7 @@ vi.mock("../../extensions/quest-workflow/config.ts", () => ({
 vi.mock("../../extensions/work-integration/sweep.ts", async (original) => ({
 	...(await original<object>()),
 	seesEveryProcess: async () => seen.seesAll,
+	listsFirstProcess: async () => seen.listsFirst,
 }));
 
 vi.mock("../../lib/core/work/sweep.ts", () => ({
@@ -64,6 +67,7 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 		seen.claims.push(deps.claims());
 		seen.rests.push(deps.restMs);
 		seen.execs.push(deps.exec);
+		if (seen.fails !== undefined) throw new Error(seen.fails);
 		// As the library does: each provider that can is asked about a tree
 		// of its own, and one that throws keeps it.
 		for (const provider of deps.providers()) {
@@ -95,9 +99,11 @@ beforeEach(() => {
 	mkdirSync(seen.quests);
 	seen.unreadable = undefined;
 	seen.seesAll = true;
+	seen.listsFirst = true;
 	seen.releasing = false;
 	seen.trees = 1;
 	seen.partly = undefined;
+	seen.fails = undefined;
 	seen.claims.length = 0;
 	seen.rests.length = 0;
 	seen.execs.length = 0;
@@ -405,12 +411,34 @@ it("passes over a module whose provider's judgement is null", async () => {
 
 it("leaves no stamp after a sweep that left idle snapshots unjudged", async () => {
 	seen.partly = "the snapshots can't be listed";
+	const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
 	const ran = await sweepOutside({ env: {} });
 
 	expect(ran.end, "how its sweep ended").toBe("partly");
 	expect(stamp(), "the stamp it left").toBeUndefined();
 	expect(exitCodeOf(ran), "the code the run exits with").toBe(1);
+	expect(
+		said.mock.calls.map(([line]) => String(line)),
+		"what it said",
+	).toEqual([
+		"pi-sweep: sweep left idle snapshots unjudged: the snapshots can't be listed\n",
+	]);
+});
+
+it("says in its journal why its sweep failed", async () => {
+	seen.fails = "the records can't be read";
+	const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how its sweep ended").toBe("failed");
+	expect(stamp(), "the stamp it left").toBeUndefined();
+	expect(exitCodeOf(ran), "the code the run exits with").toBe(1);
+	expect(
+		said.mock.calls.map(([line]) => String(line)),
+		"what it said",
+	).toEqual(["pi-sweep: sweep failed: the records can't be read\n"]);
 });
 
 it("exits 0 only after a sweep that ran or met another's, with no trouble beside", () => {
@@ -520,6 +548,20 @@ it("fails before sweeping when git won't run, leaving the hosts sweeping", async
 
 it("fails before sweeping when it can't see every process", async () => {
 	seen.seesAll = false;
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	expect(logLines()[0]?.failed, "the line it logged").toBe(
+		"it can't see every process on the machine",
+	);
+	expect(stamp(), "the stamp it left").toBeUndefined();
+});
+
+it("fails before sweeping when /proc hides the machine's first process", async () => {
+	seen.listsFirst = false;
+	vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
 	const ran = await sweepOutside({ env: {} });
 
