@@ -22,18 +22,17 @@
  * the terminal, unechoed, for whatever reads it next.
  */
 
-import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import {
+	goQuiet,
+	handingOf,
+	toldHolder,
+} from "../../lib/internal/session/hand-over.ts";
 import {
 	JOIN_QUIET,
 	viewWords,
 } from "../../lib/internal/session/host-holds.ts";
-import {
-	flagsLost,
-	holderCommand,
-	holderFiles,
-	PARKED_EXIT,
-} from "../../lib/internal/session/park.ts";
+import { holderCommand } from "../../lib/internal/session/park.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
 
 /**
@@ -74,28 +73,23 @@ export interface HandOver {
  * to plain pi would drop.
  */
 export function handOverOf(facts: InPlaceFacts): HandOver | undefined {
-	const files = holderFiles(facts.env, facts.pid);
-	if (files === undefined) return undefined;
-	const { wake, again } = files;
-	if (facts.sessionFile === undefined) return undefined;
-	if (flagsLost(facts.args).length > 0) return undefined;
+	const handing = handingOf(facts);
+	if (handing === undefined) return undefined;
 	// The holder runs the join in its own environment, so plain pi's words
 	// carry the fence and the spawner as a park's restart does.
 	const command = joinCommand(
 		facts.session,
-		holderCommand(facts.sessionFile, facts.args, facts.env),
+		holderCommand(handing.sessionFile, facts.args, facts.env),
 	);
 	return {
 		end: () => {
-			writeFileSync(again, JSON.stringify(command));
-			writeFileSync(
-				wake,
-				JSON.stringify({
-					session: facts.session,
-					move: true,
-					at: new Date().toISOString(),
-				}),
-			);
+			const told = toldHolder(handing.files, command, {
+				session: facts.session,
+				move: true,
+				at: new Date().toISOString(),
+			});
+			// The move's own catch says why it stopped; nothing half told stays.
+			if (!told) throw new Error("its holder couldn't be told the join");
 			(facts.quiet ?? goQuiet)();
 		},
 	};
@@ -147,28 +141,4 @@ export function hostedPresence(
 			? {}
 			: { view: viewWords(session, holderCommand(sessionFile, [], env)) }),
 	};
-}
-
-/** Writes nothing, so pi's last frame stays on the terminal. */
-function nothingWritten(): boolean {
-	return true;
-}
-
-/**
- * From here on this process reads no keys, leaves the terminal as it is
- * and writes nothing to it, and ends with PARKED_EXIT whatever pi ends
- * with, so its holder starts what it named at once.
- */
-function goQuiet(): void {
-	// Paused outright, so even pi's drain at exit reads none of the keys.
-	process.stdin.pause();
-	// Left raw: cooked, the terminal would echo what Joel types over the
-	// frame until the join's attach takes it raw again.
-	if (process.stdin.isTTY) process.stdin.setRawMode = () => process.stdin;
-	process.stdout.write = nothingWritten;
-	process.stderr.write = nothingWritten;
-	// pi ends a quit with process.exit(0); an exit listener's code wins.
-	process.once("exit", () => {
-		process.exitCode = PARKED_EXIT;
-	});
 }

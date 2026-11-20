@@ -14,26 +14,23 @@
  * has none to share, so neither is looked up.
  */
 
-import { rmSync, writeFileSync } from "node:fs";
-
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
 import {
+	goQuiet,
+	handingOf,
+	toldHolder,
+} from "../../lib/internal/session/hand-over.ts";
+import {
 	type HostHold,
 	heldByHost,
 	viewWords,
 } from "../../lib/internal/session/host-holds.ts";
 import { HELD_ELSEWHERE_EXIT } from "../../lib/internal/session/one-writer.ts";
-import {
-	flagsLost,
-	holderCommand,
-	holderFiles,
-	PARKED_EXIT,
-	promptIn,
-} from "../../lib/internal/session/park.ts";
+import { holderCommand, promptIn } from "../../lib/internal/session/park.ts";
 import {
 	type WriterLooking,
 	writerHold,
@@ -45,6 +42,8 @@ export interface OwnProcess {
 	readonly pid?: number;
 	/** The arguments pi was started with. */
 	readonly args?: readonly string[];
+	/** Go quiet on the terminal and end as a park; a test says otherwise. */
+	readonly quiet?: () => void;
 }
 
 /** The extension, looking where `looking` says; the machine's unless a test sets it. */
@@ -80,6 +79,9 @@ export function oneWriterWorkflow(looking: WriterLooking & OwnProcess = {}) {
  * log, no prompt at start-up and no flags plain pi would drop should the
  * view fall back to it, on a hold its host can still run; false for any
  * other, or when the holder's files can't be written, leaving neither.
+ * It goes quiet first, as a move does, so pi's last frame stays until
+ * the view draws over it: no restored screen, resume hint or notice
+ * flashes in between, which the view's first frame would wipe anyway.
  */
 function handedOver(
 	ctx: ExtensionContext,
@@ -89,54 +91,32 @@ function handedOver(
 ): boolean {
 	const env = own.env ?? process.env;
 	const args = own.args ?? process.argv.slice(2);
-	const files = holderFiles(env, own.pid ?? process.pid);
-	const sessionFile = ctx.sessionManager.getSessionFile();
-	if (files === undefined || sessionFile === undefined) return false;
+	const handing = handingOf({
+		env,
+		pid: own.pid ?? process.pid,
+		args,
+		sessionFile: ctx.sessionManager.getSessionFile(),
+	});
+	if (handing === undefined) return false;
 	// A stranded hold's remedy is a host restart only the refusal names,
 	// and a prompt given at start-up would be lost once the view takes
 	// over; a later start, as a resume, sent that prompt long before.
 	if (hold.stranded || (own.startup && promptIn(args))) return false;
-	if (flagsLost(args).length > 0) return false;
-	const view = viewWords(sessionId, holderCommand(sessionFile, args, env));
-	try {
-		writeFileSync(files.again, JSON.stringify(view));
-		writeFileSync(
-			files.wake,
-			JSON.stringify({
-				session: sessionId,
-				view: true,
-				at: new Date().toISOString(),
-			}),
-		);
-	} catch {
-		// A holder that can't be told what's next ends with its window on a
-		// refusal, which still says how to reach the conversation. Both
-		// files go, even one cut short as it was written, so the holder
-		// starts nothing half-told.
-		forget(files.again);
-		forget(files.wake);
-		return false;
-	}
-	ctx.ui.notify(
-		`Session ${sessionId} is the ${hold.key} host's, so this window shows it through that host.`,
-		"info",
+	const view = viewWords(
+		sessionId,
+		holderCommand(handing.sessionFile, args, env),
 	);
-	// pi ends a quit with process.exit(0); an exit listener's code wins.
-	process.once("exit", () => {
-		process.exitCode = PARKED_EXIT;
+	const told = toldHolder(handing.files, view, {
+		session: sessionId,
+		view: true,
+		at: new Date().toISOString(),
 	});
+	// A holder that can't be told what's next ends with its window on a
+	// refusal, which still says how to reach the conversation.
+	if (!told) return false;
+	(own.quiet ?? goQuiet)();
 	ctx.shutdown();
 	return true;
-}
-
-/** Remove `path` if it can be; the refusal that follows runs either way. */
-function forget(path: string): void {
-	try {
-		rmSync(path, { force: true });
-	} catch {
-		// Left as it is: nothing more can be undone here, and the refusal
-		// after still says how to reach the conversation.
-	}
 }
 
 /**
