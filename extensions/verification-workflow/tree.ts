@@ -12,13 +12,13 @@
  * held every one of them for as long as it took.
  */
 
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
+import { spawnExec } from "../../lib/core/exec/index.ts";
 import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
-import { gitRun } from "../../lib/internal/sandbox/tree-git.ts";
+import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
 
 /** How long one git question may take before it counts as unanswered. */
 const GIT_WALL_MS = 5_000;
@@ -35,8 +35,11 @@ export function directoryOf(path: string): string {
 }
 
 /** The top of the git repository holding dir, or undefined outside one. */
-export async function gitRoot(dir: string): Promise<string | undefined> {
-	const out = await git(dir, ["rev-parse", "--show-toplevel"]);
+export async function gitRoot(
+	dir: string,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	const out = await git(dir, ["rev-parse", "--show-toplevel"], signal);
 	return out === undefined ? undefined : out.trim() || undefined;
 }
 
@@ -51,19 +54,31 @@ export function within(root: string, path: string): boolean {
  * A fingerprint of what a tree holds: the commit it sits on, and the
  * size and modification time of every file that differs from it,
  * untracked ones included. Staging leaves it alone, since it moves no
- * file. Undefined outside git or when git does not answer in time.
+ * file. Undefined outside git, when git does not answer in time, or
+ * once `signal` fires.
  */
 export async function treeFingerprint(
 	root: string,
+	signal?: AbortSignal,
 ): Promise<string | undefined> {
-	const [head, status, top] = await Promise.all([
-		git(root, ["rev-parse", "HEAD^{tree}"]),
-		git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
-		gitRoot(root),
+	const status = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+	const [head, changed, top] = await Promise.all([
+		git(root, ["rev-parse", "HEAD^{tree}"], signal),
+		git(root, status, signal),
+		gitRoot(root, signal),
 	]);
-	if (status === undefined) return undefined;
+	if (changed === undefined) return undefined;
+	return fingerprintOf(head, changed, top ?? root);
+}
+
+/** The fingerprint of a tree at `head` whose status said `status`. */
+async function fingerprintOf(
+	head: string | undefined,
+	status: string,
+	top: string,
+): Promise<string> {
 	const files = await Promise.all(
-		changedPaths(status).map((path) => stamped(top ?? root, path)),
+		changedPaths(status).map((path) => stamped(top, path)),
 	);
 	return createHash("sha1")
 		.update((head ?? "no-commit").trim())
@@ -105,23 +120,25 @@ function canonical(path: string): string {
 	return join(canonical(parent), absolute.slice(parent.length + 1));
 }
 
-/** What git prints for `args` in `cwd`, or undefined when it gives no answer. */
-function git(
+/**
+ * What git prints for `args` in `cwd`, or undefined when it gives no
+ * answer. It runs as every unattended command does (`spawnExec`): unable
+ * to prompt, and stopped with all it started by its clock or `signal`.
+ */
+async function git(
 	cwd: string,
 	args: readonly string[],
+	signal?: AbortSignal,
 ): Promise<string | undefined> {
+	const bounds = {
+		cwd,
+		timeoutMs: GIT_WALL_MS,
+		...(signal ? { signal } : {}),
+	};
 	// Outside any sandbox, so held to where a sandboxed command couldn't
 	// have set what git runs (tree-git.ts).
-	const run = gitRun(cwd, args, gitRules());
-	if ("refused" in run) return Promise.resolve(undefined);
-	return new Promise((answer) => {
-		const child = execFile(
-			"git",
-			run.args,
-			{ cwd, encoding: "utf8", timeout: GIT_WALL_MS },
-			// Not a repository, git missing, or out of time: no answer.
-			(error, stdout) => answer(error ? undefined : stdout),
-		);
-		child.stdin?.end();
-	});
+	const exec = guardedExec(spawnExec(bounds), gitRules, cwd);
+	const { code, stdout } = await exec("git", [...args]);
+	// Not a repository, git missing or refused, stopped, or out of time.
+	return code === 0 ? stdout : undefined;
 }

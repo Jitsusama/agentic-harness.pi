@@ -49,7 +49,7 @@ import { expandable } from "../../lib/ui/expandable.ts";
 import { footerMark } from "../../lib/ui/footer-mark.ts";
 import { checkRunVerdict } from "../../lib/verification/check-run.ts";
 import { fastLayerVerdict } from "../../lib/verification/verdict.ts";
-import { currentFailure, settle } from "./current.ts";
+import { failureNow, settle } from "./current.ts";
 import { collectErrors, rememberChecked } from "./diagnostics.ts";
 import {
 	isVerificationReport,
@@ -81,6 +81,9 @@ function isTheWork(path: string): boolean {
 export default function verificationWorkflow(pi: ExtensionAPI) {
 	const state = createVerificationState();
 	let ctxRef: ExtensionContext | null = null;
+	// How many verify runs have ended, so a failure is recorded only if no
+	// run ended after it while its tree was fingerprinted.
+	let verdicts = 0;
 
 	pi.registerMessageRenderer<VerificationReport>(
 		VERIFICATION_MESSAGE,
@@ -102,9 +105,9 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 	// Answer the commit guardian's question freshly each time it asks.
 	const check: VerificationCheck = async (scope) => {
 		const backend = ctxRef ? resolveLspBackend(ctxRef) : undefined;
-		const failure = await currentFailure(state, scope, backend);
+		const { failure, judged } = await failureNow(state, scope, backend);
 		if (state.outcome === "failing" || failure)
-			state.outcome = await settle(state);
+			state.outcome = await settle(state, judged);
 		if (ctxRef) refreshStatus(ctxRef, state);
 		return failure;
 	};
@@ -295,13 +298,17 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 				...(signal ? { signal } : {}),
 			});
 			const verdict = checkRunVerdict(result);
+			verdicts += 1;
+			const mine = verdicts;
 			if (verdict.outcome === "failing" && result.command) {
 				const fingerprint = await treeFingerprint(root);
-				state.failedRun = {
-					root,
-					command: result.command,
-					...(fingerprint ? { fingerprint } : {}),
-				};
+				// A run that ended while git answered says more of the tree now.
+				if (mine === verdicts)
+					state.failedRun = {
+						root,
+						command: result.command,
+						...(fingerprint ? { fingerprint } : {}),
+					};
 			} else if (
 				verdict.outcome === "clean" &&
 				state.failedRun?.root === root

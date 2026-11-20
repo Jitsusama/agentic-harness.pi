@@ -5,7 +5,9 @@
  * last had errors are checked again, and only those in the repository
  * the commit lands in. A failed check run counts only while its tree
  * is the one it judged. Whatever cannot be confirmed now is not held
- * against the commit: refusing on a guess is what this replaced.
+ * against the commit: refusing on a guess is what this replaced. Nor
+ * is it forgotten on a guess: a run git couldn't answer for stays
+ * recorded for the next ask.
  */
 
 import type {
@@ -25,17 +27,34 @@ import {
 } from "./state.ts";
 import { gitRoot, treeFingerprint, within } from "./tree.ts";
 
+/** Where a failed run's tree stands: as it judged, moved on, or unsaid. */
+export type Standing = "same" | "moved" | "unknown";
+
+/** A failed run and where its tree stood when git was last asked. */
+export interface Judged {
+	readonly run: FailedRun;
+	readonly standing: Standing;
+}
+
+/** What a commit's check found, and the run it asked git about. */
+export interface FailureNow {
+	readonly failure: VerificationFailure | undefined;
+	readonly judged: Judged | undefined;
+}
+
 /**
- * What is failing in the scope's repository, confirmed now. Updates
- * what the state knows along the way, so a fixed file stops counting.
+ * What is failing in the scope's repository, confirmed now, with the
+ * run it asked git about, so the caller needn't ask again for it.
+ * Updates what the state knows along the way, so a fixed file stops
+ * counting.
  */
-export async function currentFailure(
+export async function failureNow(
 	state: VerificationState,
 	scope: VerificationScope,
 	backend: DiagnosticsBackend | undefined,
-): Promise<VerificationFailure | undefined> {
+): Promise<FailureNow> {
 	const root = scope.dir
-		? ((await gitRoot(scope.dir)) ?? scope.dir)
+		? ((await gitRoot(scope.dir, scope.signal)) ?? scope.dir)
 		: undefined;
 	const inScope = (path: string): boolean =>
 		root === undefined || within(root, path);
@@ -56,41 +75,57 @@ export async function currentFailure(
 	state.pending = state.pending.filter((e) => state.known.has(e.path));
 
 	const run = state.failedRun;
+	let judged: Judged | undefined;
 	if (run && inScope(run.root)) {
-		if (await stillDescribes(run)) {
+		judged = { run, standing: await standingOf(run, scope.signal) };
+		// Only the run still recorded once git answers: one an edit or a
+		// clean verify cleared meanwhile is gone, and one recorded
+		// meanwhile is new, unasked about, and kept.
+		if (state.failedRun === run && judged.standing === "same") {
 			problems.push(
 				`${run.command} failed in ${run.root}, and nothing there has ` +
 					"changed since. Run verify again once it is fixed.",
 			);
-		} else if (state.failedRun === run) {
-			// A run recorded while git answered is a new one, kept.
+		} else if (state.failedRun === run && judged.standing === "moved") {
 			state.failedRun = undefined;
 		}
 	}
-	return problems.length > 0 ? { problems } : undefined;
+	const failure = problems.length > 0 ? { problems } : undefined;
+	return { failure, judged };
 }
 
 /**
- * Whether a failed run still describes its tree. Outside git there is
- * no fingerprint to compare, and an edit under its root is what
- * retires it instead.
+ * Where a failed run's tree stands. Outside git there is no fingerprint
+ * to compare, and an edit under its root is what retires it instead.
  */
-export async function stillDescribes(run: FailedRun): Promise<boolean> {
-	if (run.fingerprint === undefined) return true;
-	return (await treeFingerprint(run.root)) === run.fingerprint;
+export async function standingOf(
+	run: FailedRun,
+	signal?: AbortSignal,
+): Promise<Standing> {
+	if (run.fingerprint === undefined) return "same";
+	const now = await treeFingerprint(run.root, signal);
+	if (now === undefined) return "unknown";
+	return now === run.fingerprint ? "same" : "moved";
 }
 
 /**
  * The outcome for what the state knows now, retiring a failed run
  * whose tree has moved on, so the status line is no staler than the
- * answer a commit would get.
+ * answer a commit would get. A run `judged` already answers for is not
+ * asked about again.
  */
 export async function settle(
 	state: VerificationState,
+	judged?: Judged,
 ): Promise<"clean" | "failing"> {
 	const run = state.failedRun;
+	const standing = !run
+		? undefined
+		: judged?.run === run
+			? judged.standing
+			: await standingOf(run);
 	// Retired only if it is still the one asked about once git answers.
-	if (run && !(await stillDescribes(run)) && state.failedRun === run) {
+	if (run && standing === "moved" && state.failedRun === run) {
 		state.failedRun = undefined;
 	}
 	return state.known.size > 0 || state.failedRun ? "failing" : "clean";
