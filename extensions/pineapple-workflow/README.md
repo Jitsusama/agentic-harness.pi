@@ -86,7 +86,9 @@ all`, which waits a minute for every session to park, counts it.
 Once the stops parking a session are resumed, a session whose run the
 stop ended carries on within ten seconds, told to check what changed
 where the stop stood before it writes. One the stop found idle stays
-idle.
+idle, unless something woke it while parked, a peer's question say,
+since that run was ended too and the resume carries it on. Which run the stop ended is kept in memory, so a session reloaded
+or restarted while parked is left idle by the resume too.
 
 ## Holds
 

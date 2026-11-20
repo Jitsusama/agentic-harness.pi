@@ -5,8 +5,9 @@
  * When someone tags Joel with "pineapple override", core's pineapple
  * reader writes a stop saying what it reaches. While one stands, this
  * refuses the writes it reaches: pushes, pull-request writes (opening,
- * editing, commenting, reviewing, merging) and, for a realm or
- * everything, switches and deploys. Reads, builds, commits and edits go
+ * editing, commenting, reviewing, merging) and, for a quest, a realm
+ * or everything, switches, deploys and starts of more agents. Reads,
+ * builds, commits and edits go
  * on, so a stop on one pull request leaves the session its other work.
  * Only Joel resumes a stop, outside pi.
  *
