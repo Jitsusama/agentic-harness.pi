@@ -15,7 +15,7 @@ import {
 import { constants } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startCompileCache } from "../../../host/service/compile-cache.ts";
 
 let dir = "";
@@ -62,6 +62,29 @@ function folderOf(cache: ReturnType<typeof start>): string {
 }
 
 describe("a host's compile cache", () => {
+	it("lies in pi's state by default, which the fence holds read-only, not its cache", () => {
+		// node runs what it reads back from here at the next start, outside
+		// the fence, and ~/.cache is writable inside (04TNWT, 19 November).
+		const state = join(dir, "state");
+		vi.stubEnv("XDG_STATE_HOME", state);
+		vi.stubEnv("XDG_CACHE_HOME", join(dir, "xdg-cache"));
+		try {
+			const folder = folderOf(
+				startCompileCache({
+					argv: ["attended"],
+					env: { MYCELIUM_REALM: "work", PI_PACKAGE_DIR: pi },
+					harnessRoot: harness,
+					enable,
+				}),
+			);
+			expect(folder.startsWith(join(state, "pi", "agentic-harness.pi"))).toBe(
+				true,
+			);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it("keeps one folder for its install, removing its own earlier ones and no other host's", () => {
 		mkdirSync(join(root, "work-attended-0123456789abcdef"), {
 			recursive: true,

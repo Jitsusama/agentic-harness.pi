@@ -19,6 +19,7 @@ import { flushCompileCache, registerHooks } from "node:module";
 import { dirname, isAbsolute } from "node:path";
 import { startCompileCache } from "../host/service/compile-cache.ts";
 import { piFromHost } from "../host/service/pi-resolution.ts";
+import { keepCompileCacheOutOfReach } from "../lib/internal/compile-cache-place.ts";
 
 // First, so every module the host loads after is compiled once an install.
 const compiled = startCompileCache({
@@ -28,6 +29,12 @@ const compiled = startCompileCache({
 });
 if (compiled.state === "off")
 	process.stderr.write(`pi-host: no compile cache: ${compiled.reason}\n`);
+// Every pi the host starts compiles where the fence can't write either.
+keepCompileCacheOutOfReach({
+	set: (name, value) => {
+		process.env[name] = value;
+	},
+});
 
 const packageDir = process.env.PI_PACKAGE_DIR;
 // Without an absolute install there is nothing to bind to; the program

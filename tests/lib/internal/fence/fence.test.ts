@@ -304,6 +304,10 @@ describe("a command in the fence, through stand-ins", () => {
 			SSH_AUTH_SOCK: "/run/user/1000/ssh-tpm-agent.sock",
 			NIRI_SOCKET: "/run/user/1000/niri.sock",
 			NIX_REMOTE: "daemon",
+			NODE_COMPILE_CACHE: join(
+				home,
+				".local/state/pi/agentic-harness.pi/node-compile-cache",
+			),
 			CARGO_HOME: join(home, ".cargo"),
 			FENCE_TEST_KEPT: "kept",
 		});
@@ -330,6 +334,8 @@ describe("a command in the fence, through stand-ins", () => {
 			"SSH_AUTH_SOCK",
 			"NIRI_SOCKET",
 			"PI_SANDBOXED_COMMAND",
+			// Read-only inside: node there uses the temporary folder's.
+			"NODE_COMPILE_CACHE",
 		]) {
 			expect(env, `${name} reached the command`).not.toMatch(
 				new RegExp(`^${name}=`, "m"),

@@ -215,6 +215,59 @@ describe("the fence's mounts as a profile", () => {
 		]);
 	});
 
+	it("keeps a folder bubblewrap overlays from writes, having no overlay", () => {
+		expect(
+			fileRules(["--overlay-src", "/tmp/jiti", "--tmp-overlay", "/tmp/jiti"]),
+		).toEqual([
+			'(allow file-read* (subpath "/tmp/jiti"))',
+			'(deny file-write* (subpath "/tmp/jiti"))',
+		]);
+		expect(() =>
+			seatbeltProfile(["--overlay-src", "/a", "--tmp-overlay", "/b"], {
+				sockets: [],
+				real: same,
+			}),
+		).toThrow(/--overlay-src/);
+	});
+
+	it("keeps the folders above a cache outside the home from being moved", () => {
+		const { profile } = seatbeltProfile(
+			["--tmpfs", "/var/folders/ab/xy/T/jiti"],
+			{
+				sockets: [],
+				real: same,
+				home: "/Users/j",
+				heldFromRoot: ["/var/folders/ab/xy/T/jiti"],
+			},
+		);
+		for (const folder of ["/var/folders/ab/xy/T", "/var/folders/ab/xy"]) {
+			expect(
+				profile,
+				`${folder} should be kept from being renamed or removed`,
+			).toContain(`(deny file-write-unlink (literal "${folder}"))`);
+		}
+	});
+
+	it("keeps a held cache from writes in a strict run whose folder holds it", () => {
+		const cache = "/var/folders/ab/xy/T/jiti";
+		const { profile } = seatbeltProfile(
+			[
+				...["--overlay-src", cache, "--tmp-overlay", cache],
+				...["--bind", "/var/folders/ab/xy/T", "/var/folders/ab/xy/T"],
+			],
+			{ sockets: [], real: same, heldFromRoot: [cache] },
+		);
+		const lines = profile.split("\n");
+		expect(
+			lines.lastIndexOf(`(deny file-write* (subpath "${cache}"))`),
+			"the cache's rule should come after the folder's grant",
+		).toBeGreaterThan(
+			lines.lastIndexOf(
+				'(allow file-read* file-write* (subpath "/var/folders/ab/xy/T"))',
+			),
+		);
+	});
+
 	it("hides a file a copy stands in for, and says where the copy is", () => {
 		const seatbelt = seatbeltProfile(
 			["--ro-bind", "/run/pi/npmrc", "/Users/j/.npmrc"],

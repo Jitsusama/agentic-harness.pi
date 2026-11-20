@@ -16,7 +16,10 @@ import {
 
 /**
  * Variables that name the desktop, left out so a command fails at once
- * rather than looking for a socket it can't reach.
+ * rather than looking for a socket it can't reach. And node's compile
+ * cache, which names a folder of pi's state the fence holds read-only,
+ * so a node inside uses its temporary folder's, which the fence lets it
+ * write to a tmpfs of its own (`fence-temp-caches.ts`).
  */
 const UNSET = [
 	"WAYLAND_DISPLAY",
@@ -29,6 +32,7 @@ const UNSET = [
 	"KITTY_LISTEN_ON",
 	"KITTY_WINDOW_ID",
 	"NIX_REMOTE",
+	"NODE_COMPILE_CACHE",
 ] as const;
 
 /**

@@ -34,7 +34,9 @@ import {
 	type ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { sessionEnv } from "../../lib/core/session/env.ts";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
+import { keepCompileCacheOutOfReach } from "../../lib/internal/compile-cache-place.ts";
 import { jobsBroker } from "../../lib/internal/fence/fence.ts";
 import { routedDirenv } from "../../lib/internal/fence/fence-direnv.ts";
 import {
@@ -200,6 +202,9 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	// sees it, and in the agent's guidelines below.
 	let noted = false;
 	pi.on("session_start", async (_event, ctx) => {
+		// Before any command: every pi it starts compiles where the fence
+		// can't write (compile-cache-place.ts).
+		keepCompileCacheOutOfReach(sessionEnv(ctx));
 		retireBash();
 		bashFor(ctx);
 		tell = ctx.hasUI ? (why) => ctx.ui.notify(why, "warning") : onStderr;

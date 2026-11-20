@@ -13,6 +13,7 @@ import {
 	pinChildEnvironment,
 	unpinChildEnvironment,
 } from "../../../../lib/subagent/child-env.ts";
+import { supervisorEnvironment } from "../../../../lib/subagent/runpi/supervisor-request.ts";
 import {
 	createSupervisorRunPi,
 	expectRan,
@@ -21,6 +22,14 @@ import {
 	TEST_TIMEOUT_MS,
 	tempStateDir,
 } from "./supervised.ts";
+
+/** A quest's offer, as quest-workflow makes it, with its TMPDIR. */
+function offersQuestTemp(): void {
+	offerShellEnvironment("test", () => ({
+		PI_QUEST: "QEST-20261024-ABC123",
+		TMPDIR: "/tmp/pi-quest-QEST-20261024-ABC123",
+	}));
+}
 
 // Slack for spawning, not a work budget: TEST_TIMEOUT_MS says why.
 vi.setConfig({ testTimeout: TEST_TIMEOUT_MS });
@@ -98,6 +107,30 @@ describe("createSupervisorRunPi: the child's environment", () => {
 
 		expectRan(result);
 		expect(result.finalAssistantText).toBe("QEST-20261024-ABC123");
+	});
+
+	it("keeps the quest's TMPDIR from the child, whose jiti would read code a fence wrote", async () => {
+		// The quest's TMPDIR lies in its scratch, which a fenced command
+		// writes, and the child runs outside the fence.
+		offersQuestTemp();
+		let env: NodeJS.ProcessEnv;
+		try {
+			env = await supervisorEnvironment(
+				{
+					piInstall: {
+						node: process.execPath,
+						entry: "/nowhere",
+						packageDir: "/nowhere",
+					},
+					stateDir: "/nowhere",
+				},
+				undefined,
+			);
+		} finally {
+			offerShellEnvironment("test", undefined);
+		}
+		expect(env.PI_QUEST).toBe("QEST-20261024-ABC123");
+		expect(env.TMPDIR).toBe(process.env.TMPDIR);
 	});
 
 	it("gives the child the run's own variables, and writes none of them to disk", async () => {

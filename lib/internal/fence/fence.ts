@@ -86,6 +86,7 @@ import {
 import { NPMRC } from "./fence-npmrc.ts";
 import { type OwnFolders, ownArgs } from "./fence-own.ts";
 import { questLockArgs } from "./fence-quest-locks.ts";
+import { tempCacheArgs, tempCodeCaches } from "./fence-temp-caches.ts";
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
 
 /** The value of `PI_SANDBOX` that asks for the fence. */
@@ -241,6 +242,12 @@ export interface FencePlace extends Worktrees {
 	readonly trees?: BrokerTrees;
 	/** The session's own folder of the GitHub door's (`fence-github.ts`). */
 	readonly githubDoor?: string;
+	/**
+	 * The folders in the temporary folder that pi and node outside keep
+	 * compiled code in (`fence-temp-caches.ts`), `tempCodeCaches()` unless
+	 * a test names its own.
+	 */
+	readonly tempCaches?: readonly string[];
 }
 
 /**
@@ -370,6 +377,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	for (const folder of ["/run/dbus", "/tmp/.X11-unix"]) {
 		if (exists(folder)) args.push("--tmpfs", folder);
 	}
+	args.push(...tempCacheArgs(place.tempCaches ?? tempCodeCaches(), disk));
 	args.push(...buildersFolderArgs(disk));
 	const settings = systemSshConfig(disk);
 	if (place.sshConfig && exists(place.sshConfig) && settings !== undefined) {
@@ -726,6 +734,8 @@ export function fenceRefusesWrite(
 	const kept = [
 		...readOnlyPaths(place.home),
 		...(place.runtimeDir ? [place.runtimeDir] : []),
+		// Written inside, but only to a tmpfs that goes with the command.
+		...(place.tempCaches ?? tempCodeCaches()),
 	];
 	const inside = (folder: string) =>
 		path === folder || path.startsWith(`${folder}/`);
