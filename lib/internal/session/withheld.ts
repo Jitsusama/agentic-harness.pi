@@ -12,7 +12,7 @@
 import type { EventBus } from "@earendil-works/pi-coding-agent";
 
 /** Said on the bus when a finished reply is withheld. */
-export const REPLY_WITHHELD = "reply:withheld:v1";
+export const REPLY_WITHHELD = "session:reply-withheld:v1";
 
 /** A withheld reply: the message as written, and as it now stands. */
 export interface ReplyWithheld {

@@ -102,7 +102,7 @@ describe("a reply that asks", () => {
 		['Click "Save", then click "Restart".', "restart"],
 		["Choose `Log Out` from the Apple menu.", "log out"],
 	])("%s", (text, act) => {
-		expect(mayAsk(text)).toBe(true);
+		expect(mayAsk(text), `the first look reads ${text} closer`).toBe(true);
 		expect(acts(text)).toEqual([act]);
 	});
 
@@ -295,7 +295,7 @@ describe("a command in fenced code", () => {
 		["```sh\nif true; then sudo reboot; fi\n```", "reboot"],
 		["```sh\n(sudo reboot)\n```", "reboot"],
 	])("%s asks", (text, act) => {
-		expect(mayAsk(text)).toBe(true);
+		expect(mayAsk(text), `the first look reads ${text} closer`).toBe(true);
 		expect(acts(text)).toEqual([act]);
 	});
 
@@ -402,22 +402,29 @@ describe("a label, choice or title, which is the ask itself", () => {
 
 describe("the cheap first look", () => {
 	it("passes text with no act word in it without a closer read", () => {
-		expect(mayAsk("Landed #1824; nothing to try.")).toBe(false);
-		expect(mayAsk("PowerShell is powerful, and the shuttle is halting.")).toBe(
-			false,
-		);
-		expect(mayAsk("Please reboot.")).toBe(true);
-		expect(mayAsk("```\nloginctl terminate-session 3\n```")).toBe(true);
-		expect(mayAsk("```\nsystemctl kexec\n```")).toBe(true);
-		expect(mayAsk("```\npkill niri\n```")).toBe(true);
-		expect(mayAsk("Once you've logged out, say so.")).toBe(true);
-		expect(mayAsk("Then telinit 0.")).toBe(true);
+		const passed = [
+			"Landed #1824; nothing to try.",
+			"PowerShell is powerful, and the shuttle is halting.",
+		];
+		const lookedAt = [
+			"Please reboot.",
+			"```\nloginctl terminate-session 3\n```",
+			"```\nsystemctl kexec\n```",
+			"```\npkill niri\n```",
+			"Once you've logged out, say so.",
+			"Then telinit 0.",
+		];
+		expect(passed.filter((text) => mayAsk(text))).toEqual([]);
+		expect(lookedAt.filter((text) => !mayAsk(text))).toEqual([]);
 	});
 
 	it("looks closer at a power-off or shutdown with words between", () => {
-		expect(mayAsk("Please power equilibrius off.")).toBe(true);
-		expect(mayAsk("Power optimus down when the run ends.")).toBe(true);
-		expect(mayAsk("Shut both of them down.")).toBe(true);
+		const lookedAt = [
+			"Please power equilibrius off.",
+			"Power optimus down when the run ends.",
+			"Shut both of them down.",
+		];
+		expect(lookedAt.filter((text) => !mayAsk(text))).toEqual([]);
 		expect(acts("Please power equilibrius off.")).toEqual(["shut down"]);
 	});
 });

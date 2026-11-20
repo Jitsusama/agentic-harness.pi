@@ -27,8 +27,9 @@ guard, which blocks by default:
   reason follows only when one does, and a reply the person stopped or
   that ended in an error gets none. The text was on screen while it
   streamed. Each reply withheld is said on the bus
-  (`reply:withheld:v1`), so the mesh's talk to the launcher, which pi
-  may have handed the reply first, is replied by the placeholder too.
+  (`session:reply-withheld:v1`), so the mesh's talk to the launcher,
+  which pi may have handed the reply first, is replied by the
+  placeholder too.
 
 Asked again unchanged, a refused call or reply goes through as a
 recorded override. It is known again by every act and machine it asks

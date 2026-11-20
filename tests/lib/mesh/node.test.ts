@@ -210,14 +210,17 @@ describe("asking the node who is on which machine", () => {
 describe("whether a node serves at a socket", () => {
 	it("says so of one listening", async () => {
 		const socket = await serving(() => undefined);
-		expect(await nodeServes(socket)).toBe(true);
+		expect(await nodeServes(socket), "a listening socket serves").toBe(true);
 	});
 
 	it("says not where nothing is, or only a file", async () => {
 		const file = join(root, "plain.sock");
 		writeFileSync(file, "");
-		expect(await nodeServes(join(root, "none.sock"))).toBe(false);
-		expect(await nodeServes(file)).toBe(false);
+		expect(
+			await nodeServes(join(root, "none.sock")),
+			"a path with nothing at it isn't served",
+		).toBe(false);
+		expect(await nodeServes(file), "a plain file isn't served").toBe(false);
 	});
 });
 
