@@ -13,8 +13,9 @@ export const ASKED_WRONGLY = 2;
 export const CARRY_HELP = `pi-carry carries a quest's work from one of the person's machines
 to another, as \`mycelium carry\` asks it. A carry, an arrival and a
 settling print a JSON line for each thing they do, as every form does
-when asked wrongly. Where and fence print a bare answer, fence's off
-for a session that runs unfenced, and say on stderr why they couldn't.
+when asked wrongly. Where and fence print a bare answer: fence says
+off for a session that runs unfenced, and nothing when its carry kept
+no fence. Both say on stderr why they couldn't.
 
 Usage:
   pi-carry QUEST --to MACHINE
