@@ -714,7 +714,9 @@ describe("the node the interceptor reads by default", () => {
 				XDG_RUNTIME_DIR: join(state, "run"),
 			});
 
-			expect(deps.onMesh()).toBe(true);
+			expect(deps.onMesh(), "a named realm puts the session on the mesh").toBe(
+				true,
+			);
 			expect(await deps.sessions()).toBeUndefined();
 		} finally {
 			rmSync(state, { recursive: true, force: true });
@@ -770,7 +772,10 @@ describe("the node the interceptor reads by default", () => {
 	it("is off the mesh where no realm is named", () => {
 		const state = empty();
 		try {
-			expect(nodeDeps({ XDG_STATE_HOME: state }).onMesh()).toBe(false);
+			expect(
+				nodeDeps({ XDG_STATE_HOME: state }).onMesh(),
+				"no realm named leaves the session off the mesh",
+			).toBe(false);
 		} finally {
 			rmSync(state, { recursive: true, force: true });
 		}
