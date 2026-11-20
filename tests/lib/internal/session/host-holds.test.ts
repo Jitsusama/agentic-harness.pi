@@ -27,6 +27,7 @@ import {
 	RELEASED_EXIT,
 	rosterHolds,
 	viewingWords,
+	viewWords,
 } from "../../../../lib/internal/session/host-holds.ts";
 
 const kept = "01a1be5c-fff0-70a1-9301-f505d5634bf6";
@@ -223,6 +224,25 @@ describe("reaching a held conversation", () => {
 		expect(said).toContain(
 			"systemctl --user restart pi-host-work-background.service starts it now, and restarts every conversation it hosts",
 		);
+	});
+});
+
+describe("the words a window on a hosted conversation runs", () => {
+	it("start the join looking once, with plain pi's words to fall back on", () => {
+		const words = viewWords("01a1", ["pi", "--session", "/logs/01a1.jsonl"]);
+
+		expect(words[0]).toBe(process.execPath);
+		expect(words[1]).toBe("--disable-warning=MODULE_TYPELESS_PACKAGE_JSON");
+		expect(words[2]).toMatch(/\/scripts\/host-join\.ts$/);
+		expect(words.slice(3)).toEqual([
+			"--view",
+			"--session",
+			"01a1",
+			"--",
+			"pi",
+			"--session",
+			"/logs/01a1.jsonl",
+		]);
 	});
 });
 

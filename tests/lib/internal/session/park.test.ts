@@ -18,6 +18,7 @@ import {
 	clearOutlivedParks,
 	clearParked,
 	heldDirectly,
+	holderFiles,
 	holderRecord,
 	isParked,
 	NAMED_PARK_AFTER_MS,
@@ -26,6 +27,7 @@ import {
 	parkAfterMs,
 	parkedPath,
 	parkSwitch,
+	promptIn,
 	readParked,
 	type Stillness,
 	whyNotPark,
@@ -144,6 +146,19 @@ describe("the record its holder keeps beside the wake file", () => {
 		expect(holderRecord(wake()), "not a record").toBeUndefined();
 		expect(heldDirectly(wake(), 42), "so not held directly").toBe(false);
 	});
+
+	it("names the files a pi it runs itself writes next, and none for another", () => {
+		record(JSON.stringify({ pid: 4242 }));
+		const again = join(folder, "held.again");
+		const env = { MYCELIUM_WAKE: wake(), MYCELIUM_AGAIN: again };
+
+		expect(holderFiles(env, 4242)).toEqual({ wake: wake(), again });
+		expect(holderFiles(env, 1), "held through a shell").toBeUndefined();
+		expect(
+			holderFiles({ MYCELIUM_WAKE: wake() }, 4242),
+			"a holder taking no next command",
+		).toBeUndefined();
+	});
 });
 
 describe("a park the machine's boot outlived", () => {
@@ -252,5 +267,33 @@ describe("why a session may not park now", () => {
 		expect(
 			whyNotPark({ ...still, refusals: ["peers wait on a hold it sent"] }),
 		).toBe("peers wait on a hold it sent");
+	});
+});
+
+describe("whether pi's arguments give it a prompt", () => {
+	it("is words that are no flag's value, or anything after --", () => {
+		expect(promptIn(["--session", "/logs/a.jsonl", "hello"]), "words").toBe(
+			true,
+		);
+		expect(promptIn(["--", "-hello"]), "after --").toBe(true);
+		expect(promptIn(["-"]), "a lone -, which reads stdin").toBe(true);
+	});
+
+	it("is not a session's or a carried flag's value, nor a lone --", () => {
+		expect(
+			promptIn(["--session", "/logs/a.jsonl", "--model", "opus"]),
+			"flags and their values",
+		).toBe(false);
+		expect(
+			promptIn(["--session-id", "01a1", "--thinking", "high"]),
+			"a session id and a carried flag's word",
+		).toBe(false);
+		expect(
+			promptIn(["--session=/logs/a.jsonl", "--offline"]),
+			"an inline value and a bare flag",
+		).toBe(false);
+		expect(promptIn(["--session", "/logs/a.jsonl", "--"]), "a lone --").toBe(
+			false,
+		);
 	});
 });

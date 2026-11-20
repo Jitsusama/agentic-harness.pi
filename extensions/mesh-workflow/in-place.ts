@@ -24,15 +24,15 @@
 
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { lastingPath } from "../../lib/internal/reload/loaded.ts";
-import { JOIN_QUIET } from "../../lib/internal/session/host-holds.ts";
 import {
-	AGAIN_ENV,
+	JOIN_QUIET,
+	viewWords,
+} from "../../lib/internal/session/host-holds.ts";
+import {
 	flagsLost,
-	heldDirectly,
 	holderCommand,
+	holderFiles,
 	PARKED_EXIT,
-	WAKE_ENV,
 } from "../../lib/internal/session/park.ts";
 import type { Presence } from "../../lib/mesh/presence.ts";
 
@@ -44,12 +44,6 @@ import type { Presence } from "../../lib/mesh/presence.ts";
 export const JOIN_SCRIPT = fileURLToPath(
 	new URL("../../scripts/host-join.ts", import.meta.url),
 );
-
-/**
- * The join named through the install's link, for words a launcher may
- * run days later, once the version this pi loaded has been removed.
- */
-export const LASTING_JOIN_SCRIPT = lastingPath(JOIN_SCRIPT);
 
 /** What a pi needs to hand its window over. */
 export interface InPlaceFacts {
@@ -80,10 +74,9 @@ export interface HandOver {
  * to plain pi would drop.
  */
 export function handOverOf(facts: InPlaceFacts): HandOver | undefined {
-	const wake = facts.env[WAKE_ENV] ?? "";
-	const again = facts.env[AGAIN_ENV] ?? "";
-	if (wake === "" || again === "") return undefined;
-	if (!heldDirectly(wake, facts.pid)) return undefined;
+	const files = holderFiles(facts.env, facts.pid);
+	if (files === undefined) return undefined;
+	const { wake, again } = files;
 	if (facts.sessionFile === undefined) return undefined;
 	if (flagsLost(facts.args).length > 0) return undefined;
 	// The holder runs the join in its own environment, so plain pi's words
@@ -152,18 +145,7 @@ export function hostedPresence(
 		conversation: session,
 		...(sessionFile === undefined
 			? {}
-			: {
-					view: [
-						process.execPath,
-						JOIN_QUIET,
-						LASTING_JOIN_SCRIPT,
-						"--view",
-						"--session",
-						session,
-						"--",
-						...holderCommand(sessionFile, [], env),
-					],
-				}),
+			: { view: viewWords(session, holderCommand(sessionFile, [], env)) }),
 	};
 }
 
