@@ -14,7 +14,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { lstat } from "node:fs/promises";
+import { access, lstat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { spawnExec } from "../../lib/core/exec/index.ts";
 import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
@@ -22,6 +22,27 @@ import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
 
 /** How long one git question may take before it counts as unanswered. */
 const GIT_WALL_MS = 5_000;
+
+/**
+ * The most a status may print before it counts as unanswered: a tree
+ * changed this widely is fingerprinted by no list a commit should wait
+ * to read, nor hold in memory.
+ */
+const STATUS_MOST_CHARS = 1024 * 1024;
+
+/** How many changed files are stamped at once. */
+const STAMPED_AT_ONCE = 64;
+
+/** Whether `path` is still on disk, asked off the thread. */
+export async function present(path: string): Promise<boolean> {
+	try {
+		await access(path);
+		return true;
+	} catch {
+		// Gone, or out of reach, which a check can read no better.
+		return false;
+	}
+}
 
 /** The directory a path names: itself when a directory, else its parent. */
 export function directoryOf(path: string): string {
@@ -54,21 +75,43 @@ export function within(root: string, path: string): boolean {
  * A fingerprint of what a tree holds: the commit it sits on, and the
  * size and modification time of every file that differs from it,
  * untracked ones included. Staging leaves it alone, since it moves no
- * file. Undefined outside git, when git does not answer in time, or
- * once `signal` fires.
+ * file. Undefined outside git, when git does not answer in time or
+ * says too much, or once `signal` fires.
  */
 export async function treeFingerprint(
 	root: string,
 	signal?: AbortSignal,
 ): Promise<string | undefined> {
-	const status = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+	// Takes no lock, so it never stands in the way of the session's own git.
+	const status = [
+		"--no-optional-locks",
+		"status",
+		"--porcelain=v1",
+		"-z",
+		"--untracked-files=all",
+	];
 	const [head, changed, top] = await Promise.all([
 		git(root, ["rev-parse", "HEAD^{tree}"], signal),
-		git(root, status, signal),
+		git(root, status, signal, STATUS_MOST_CHARS),
 		gitRoot(root, signal),
 	]);
-	if (changed === undefined) return undefined;
-	return fingerprintOf(head, changed, top ?? root);
+	if (changed === undefined || top === undefined) return undefined;
+	const print = await fingerprintOf(head, changed, top);
+	// Stopped while stamping: what it read is no answer.
+	return signal?.aborted ? undefined : print;
+}
+
+/**
+ * The fingerprint to keep with a failed run in `root`: undefined outside
+ * git, and null when git holds the root but gave no fingerprint, so the
+ * run is kept without being held against a commit on a guess.
+ */
+export async function recordedFingerprint(
+	root: string,
+): Promise<string | null | undefined> {
+	const print = await treeFingerprint(root);
+	if (print !== undefined) return print;
+	return (await gitRoot(root)) === undefined ? undefined : null;
 }
 
 /** The fingerprint of a tree at `head` whose status said `status`. */
@@ -77,9 +120,13 @@ async function fingerprintOf(
 	status: string,
 	top: string,
 ): Promise<string> {
-	const files = await Promise.all(
-		changedPaths(status).map((path) => stamped(top, path)),
-	);
+	const paths = changedPaths(status);
+	const files: string[] = [];
+	// A few at a time, so a wide change doesn't open every file at once.
+	for (let at = 0; at < paths.length; at += STAMPED_AT_ONCE) {
+		const batch = paths.slice(at, at + STAMPED_AT_ONCE);
+		files.push(...(await Promise.all(batch.map((p) => stamped(top, p)))));
+	}
 	return createHash("sha1")
 		.update((head ?? "no-commit").trim())
 		.update("\n")
@@ -97,6 +144,7 @@ async function stamped(top: string, path: string): Promise<string> {
 		return `${path}\tgone`;
 	}
 }
+
 /** The paths `git status --porcelain -z` names, renames' sources aside. */
 function changedPaths(status: string): string[] {
 	const tokens = status.split("\0").filter((t) => t.length > 0);
@@ -123,17 +171,20 @@ function canonical(path: string): string {
 /**
  * What git prints for `args` in `cwd`, or undefined when it gives no
  * answer. It runs as every unattended command does (`spawnExec`): unable
- * to prompt, and stopped with all it started by its clock or `signal`.
+ * to prompt, and stopped with all it started by its clock, `signal`, or
+ * printing more than `mostChars`.
  */
 async function git(
 	cwd: string,
 	args: readonly string[],
 	signal?: AbortSignal,
+	mostChars?: number,
 ): Promise<string | undefined> {
 	const bounds = {
 		cwd,
 		timeoutMs: GIT_WALL_MS,
 		...(signal ? { signal } : {}),
+		...(mostChars ? { maxOutputChars: mostChars } : {}),
 	};
 	// Outside any sandbox, so held to where a sandboxed command couldn't
 	// have set what git runs (tree-git.ts).

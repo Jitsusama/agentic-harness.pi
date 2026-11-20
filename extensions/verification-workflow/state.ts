@@ -23,9 +23,10 @@ export interface FailedRun {
 	readonly command: string;
 	/**
 	 * The tree's fingerprint when it ran; absent outside git, where an
-	 * edit under root is what retires the run instead.
+	 * edit under root is what retires the run instead, and null when git
+	 * gave no answer, so nothing says whether the tree is the one judged.
 	 */
-	readonly fingerprint?: string;
+	readonly fingerprint?: string | null;
 }
 
 /** Mutable per-session verification state. */

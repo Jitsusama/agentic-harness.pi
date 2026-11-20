@@ -83,7 +83,12 @@ never read from an earlier pass:
   judged: the same HEAD, and the same size and modification
   time on every changed file. Staging moves no file, so it does
   not count as a change. Outside git, an edit under its project
-  retires it instead.
+  retires it instead. Git is asked off the thread, within five
+  seconds. When it gives no answer, the run holds back no
+  commit but stays failing on the status line: a clean run or
+  an edit there retires it, as does git later saying the tree
+  moved, if git fingerprinted it when the run ended. A project no
+  longer on disk retires it.
 
 It used to publish a flag that only the end of a turn refreshed,
 and a verify run in the wrong directory could set it, so a commit

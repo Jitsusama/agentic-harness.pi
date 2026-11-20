@@ -25,7 +25,13 @@ import {
 	type FailedRun,
 	type VerificationState,
 } from "./state.ts";
-import { gitRoot, treeFingerprint, within } from "./tree.ts";
+import { gitRoot, present, treeFingerprint, within } from "./tree.ts";
+
+/**
+ * How many times a check asks after a run recorded while git answered
+ * for the one before, before it leaves the newest for the next ask.
+ */
+const JUDGED_AT_MOST = 3;
 
 /** Where a failed run's tree stands: as it judged, moved on, or unsaid. */
 export type Standing = "same" | "moved" | "unknown";
@@ -74,21 +80,24 @@ export async function failureNow(
 	// The fix loop has no business with a file that came back clean.
 	state.pending = state.pending.filter((e) => state.known.has(e.path));
 
-	const run = state.failedRun;
 	let judged: Judged | undefined;
-	if (run && inScope(run.root)) {
+	for (let tries = 0; tries < JUDGED_AT_MOST; tries++) {
+		const run = state.failedRun;
+		if (!run || !inScope(run.root)) break;
 		judged = { run, standing: await standingOf(run, scope.signal) };
-		// Only the run still recorded once git answers: one an edit or a
-		// clean verify cleared meanwhile is gone, and one recorded
-		// meanwhile is new, unasked about, and kept.
-		if (state.failedRun === run && judged.standing === "same") {
+		// Only the run still recorded once git answers counts: one an edit
+		// or a clean verify cleared meanwhile is gone, and one recorded
+		// meanwhile is asked about in turn.
+		if (state.failedRun !== run) continue;
+		if (judged.standing === "same") {
 			problems.push(
 				`${run.command} failed in ${run.root}, and nothing there has ` +
 					"changed since. Run verify again once it is fixed.",
 			);
-		} else if (state.failedRun === run && judged.standing === "moved") {
+		} else if (judged.standing === "moved") {
 			state.failedRun = undefined;
 		}
+		break;
 	}
 	const failure = problems.length > 0 ? { problems } : undefined;
 	return { failure, judged };
@@ -96,34 +105,39 @@ export async function failureNow(
 
 /**
  * Where a failed run's tree stands. Outside git there is no fingerprint
- * to compare, and an edit under its root is what retires it instead.
+ * to compare, and an edit under its root is what retires it instead;
+ * one git said nothing of when it ran can't be compared either. A root
+ * no longer on disk holds nothing it judged.
  */
 export async function standingOf(
 	run: FailedRun,
 	signal?: AbortSignal,
 ): Promise<Standing> {
 	if (run.fingerprint === undefined) return "same";
+	if (run.fingerprint === null) return "unknown";
 	const now = await treeFingerprint(run.root, signal);
-	if (now === undefined) return "unknown";
-	return now === run.fingerprint ? "same" : "moved";
+	if (now !== undefined) return now === run.fingerprint ? "same" : "moved";
+	if (signal?.aborted) return "unknown";
+	return (await present(run.root)) ? "unknown" : "moved";
 }
 
 /**
  * The outcome for what the state knows now, retiring a failed run
  * whose tree has moved on, so the status line is no staler than the
  * answer a commit would get. A run `judged` already answers for is not
- * asked about again.
+ * asked about again, and git stops being asked once `signal` fires.
  */
 export async function settle(
 	state: VerificationState,
 	judged?: Judged,
+	signal?: AbortSignal,
 ): Promise<"clean" | "failing"> {
 	const run = state.failedRun;
 	const standing = !run
 		? undefined
 		: judged?.run === run
 			? judged.standing
-			: await standingOf(run);
+			: await standingOf(run, signal);
 	// Retired only if it is still the one asked about once git answers.
 	if (run && standing === "moved" && state.failedRun === run) {
 		state.failedRun = undefined;

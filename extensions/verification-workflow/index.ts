@@ -64,7 +64,7 @@ import {
 	MAX_FIX_ATTEMPTS,
 	type VerificationState,
 } from "./state.ts";
-import { directoryOf, treeFingerprint, within } from "./tree.ts";
+import { directoryOf, recordedFingerprint, within } from "./tree.ts";
 
 const STATUS_KEY = "verification-workflow";
 /** Files the LSP fast layer can serve today. */
@@ -81,9 +81,11 @@ function isTheWork(path: string): boolean {
 export default function verificationWorkflow(pi: ExtensionAPI) {
 	const state = createVerificationState();
 	let ctxRef: ExtensionContext | null = null;
-	// How many verify runs have ended, so a failure is recorded only if no
-	// run ended after it while its tree was fingerprinted.
+	// How many verify runs have said how a project stands, and which said
+	// so last of each, so a failure is recorded only if no later run of
+	// its project said otherwise while its tree was fingerprinted.
 	let verdicts = 0;
+	const latest = new Map<string, number>();
 
 	pi.registerMessageRenderer<VerificationReport>(
 		VERIFICATION_MESSAGE,
@@ -107,7 +109,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 		const backend = ctxRef ? resolveLspBackend(ctxRef) : undefined;
 		const { failure, judged } = await failureNow(state, scope, backend);
 		if (state.outcome === "failing" || failure)
-			state.outcome = await settle(state, judged);
+			state.outcome = await settle(state, judged, scope.signal);
 		if (ctxRef) refreshStatus(ctxRef, state);
 		return failure;
 	};
@@ -248,7 +250,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 				// When the server errored for a touched file, "no errors" is
 				// not "checked clean", so it reads deferred unless something
 				// else is known to be failing.
-				const settled = await settle(state);
+				const settled = await settle(state, undefined, run);
 				state.outcome = failed && settled === "clean" ? "deferred" : settled;
 			}
 			refreshStatus(ctx, state);
@@ -298,16 +300,20 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 				...(signal ? { signal } : {}),
 			});
 			const verdict = checkRunVerdict(result);
-			verdicts += 1;
-			const mine = verdicts;
+			// One that checked nothing says nothing of the project.
+			const mine = verdict.outcome === "deferred" ? undefined : ++verdicts;
+			if (mine !== undefined) latest.set(root, mine);
 			if (verdict.outcome === "failing" && result.command) {
-				const fingerprint = await treeFingerprint(root);
-				// A run that ended while git answered says more of the tree now.
-				if (mine === verdicts)
+				// Not stopped by this call's signal: an Escape after the run
+				// leaves its failure as true as it was.
+				const fingerprint = await recordedFingerprint(root);
+				// A run of the project that ended while git answered says more
+				// of the tree now.
+				if (latest.get(root) === mine)
 					state.failedRun = {
 						root,
 						command: result.command,
-						...(fingerprint ? { fingerprint } : {}),
+						...(fingerprint === undefined ? {} : { fingerprint }),
 					};
 			} else if (
 				verdict.outcome === "clean" &&
@@ -317,7 +323,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			}
 			// A check that could not start leaves what else is known as it
 			// was; with nothing else known it says nothing was checked.
-			const settled = await settle(state);
+			const settled = await settle(state, undefined, signal);
 			state.outcome =
 				verdict.outcome === "deferred" && settled === "clean"
 					? "deferred"
