@@ -8,9 +8,9 @@
  */
 
 import {
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
-	lstatSync,
 	readdirSync,
 	readFileSync,
 	rmSync,
