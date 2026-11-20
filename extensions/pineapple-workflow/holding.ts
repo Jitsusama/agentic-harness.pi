@@ -13,7 +13,7 @@
  * session doesn't write it again.
  *
  * A host tends on every conversation's clock on its one thread, so the
- * claim and the notes, read or touched each minute, go through the
+ * claim and the notes, read or touched each tick, go through the
  * promise API, where a stalled disk holds only the tending. What is
  * written only when a hold changes (the hold, its note, the shadow
  * log) stays synchronous and whole. Since a host's conversations now
