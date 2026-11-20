@@ -314,8 +314,11 @@ export function restartWhenSettled(
 	let short: HeapPressure | undefined;
 	// The pressure a wait for a moment with no turn was last said for.
 	let saidPressed: HeapPressure | undefined;
-	// Why a restart was last said to be held for the person.
+	// Why a restart was last said to be held for the person, and when.
 	let saidQuiet: string | undefined;
+	let saidQuietAt: number | undefined;
+	// Whether it last said it waits for a gap, so a minute's look says it no longer does.
+	let waiting = false;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
 
 	async function look(): Promise<void> {
@@ -328,8 +331,11 @@ export function restartWhenSettled(
 		}
 		if (stopped) return;
 		// A heap short of room lets no held wake through, which would grow it.
+		// A look a minute away waits for no gap, so it holds no wake either:
+		// a call holding a drained restart must not hold parked work too.
 		if (next === "gap")
 			waitsForGap(pastCeiling() && short === undefined && !facts.stopping());
+		else if (next === "look" && waiting) waitsForGap(false);
 		cancel =
 			next === "restarting"
 				? after(options.restartDueMs ?? RESTART_DUE_MS, () => void dropped())
@@ -340,9 +346,10 @@ export function restartWhenSettled(
 	}
 
 	// A throw here is reported, never ending the looks.
-	function waitsForGap(waiting: boolean): void {
+	function waitsForGap(now: boolean): void {
+		waiting = now;
 		try {
-			facts.waitsForGap?.(waiting);
+			facts.waitsForGap?.(now);
 		} catch (error) {
 			facts.report(error);
 		}
@@ -429,9 +436,18 @@ export function restartWhenSettled(
 		} catch (error) {
 			why = `it can't tell whether a call is on or a meeting is near: ${String(error)}`;
 		}
-		if (why !== undefined && why !== saidQuiet)
+		const now = facts.now();
+		if (
+			why !== undefined &&
+			(why !== saidQuiet ||
+				saidQuietAt === undefined ||
+				now - saidQuietAt >= HELD_SAY_MS)
+		) {
 			facts.report(`Restart held while ${why}`);
+			saidQuietAt = now;
+		}
 		saidQuiet = why;
+		if (why === undefined) saidQuietAt = undefined;
 		return why !== undefined;
 	}
 
@@ -455,6 +471,8 @@ export function restartWhenSettled(
 		if (why === undefined) {
 			differingSince = undefined;
 			heldSaidAt = undefined;
+			saidQuiet = undefined;
+			saidQuietAt = undefined;
 			return "look";
 		}
 		differingSince ??= facts.now();
@@ -463,11 +481,16 @@ export function restartWhenSettled(
 		if (under === undefined) return looksForGap() ? "gap" : "look";
 		if (await heldForThePerson(under)) return "look";
 		if (stopped) return "look";
+		// The probes took seconds, in which a turn or a stop may have begun,
+		// so the rule is read again before acting on it.
+		readPressure();
+		const still = mayRestart();
+		if (still === undefined) return looksForGap() ? "gap" : "look";
 		// Before systemctl, since systemd may stop the host before it answers.
 		waitsForGap(false);
 		facts.expect(true);
 		try {
-			await facts.restart(why, under);
+			await facts.restart(why, still);
 		} catch (error) {
 			facts.expect(false);
 			throw error;
