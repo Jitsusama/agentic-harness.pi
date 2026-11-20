@@ -35,6 +35,7 @@ import {
 	withCallSignal,
 } from "../../../../lib/core/exec/call-signal.ts";
 import { isRecord } from "../../../../lib/internal/record.ts";
+import { ASKING_FROM_OUTSIDE } from "../../../../lib/mesh/steer.ts";
 
 /** What the fixture drives of a pi session. */
 interface Session {
@@ -202,6 +203,8 @@ interface Scenario {
 	turns?: boolean;
 	/** Words Joel types while the carried run waits for its turn, which comes once the agent has them. */
 	typed?: string;
+	/** Joel's typed words go in as a steer, as pi's editor sends them while it shows a run going. */
+	steered?: boolean;
 	/** Settings over the fixture's, which turn pi's retry and compaction off. */
 	settings?: object;
 	/** The scripted provider's models, when one will not do. */
@@ -297,7 +300,7 @@ let note = (_event: {
 	readonly sends?: number;
 	readonly waiting?: number;
 	readonly ms?: number;
-	readonly first?: boolean;
+	readonly waits?: string;
 	/**
 	 * Whether a run was under way at the event: the agent's, once a step
 	 * returned, or pi's, as words were sent.
@@ -679,6 +682,24 @@ const scenarios: Record<string, Scenario> = {
 		persist: true,
 		turns: true,
 		typed: "are you back?",
+	},
+	/** As reopen-typed-while-waiting, Joel's words going in as a steer, as pi's editor sends them while a carried run shows as going. */
+	"reopen-steered-while-waiting": {
+		responses: () => [say("after the restart"), say("and your words")],
+		drive: async () => {},
+		persist: true,
+		turns: true,
+		typed: "are you back?",
+		steered: true,
+	},
+	/** As reopen-steered-while-waiting, the steer a peer agent's, framed as mesh-workflow frames one, which isn't Joel's. */
+	"reopen-peer-steered-while-waiting": {
+		responses: () => [say("after the restart"), say("and your words")],
+		drive: async () => {},
+		persist: true,
+		turns: true,
+		typed: `[Ospht4${ASKING_FROM_OUTSIDE}: answer first.]\n\nare you back?`,
+		steered: true,
 	},
 	/** As reopen, with an extension adding a section to each run, and words typed once the carried run ends. */
 	"reopen-sectioned": {
@@ -1250,7 +1271,15 @@ try {
 	if (early) await Promise.race([reached, early]);
 	const hosted = conversation?.agent;
 	let typedIn = Promise.resolve();
-	if (scenario.typed !== undefined && hosted) {
+	if (scenario.typed !== undefined && hosted && scenario.steered) {
+		const steer = hosted.steer.bind(hosted);
+		typedIn = new Promise((reached) => {
+			hosted.steer = (message) => {
+				steer(message);
+				reached();
+			};
+		});
+	} else if (scenario.typed !== undefined && hosted) {
 		const prompt = hosted.prompt.bind(hosted);
 		typedIn = new Promise((reached) => {
 			hosted.prompt = (...words) => {
@@ -1262,13 +1291,13 @@ try {
 	}
 	const recovery = await hosted?.recover(
 		scenario.turns
-			? async (first) => {
+			? async (waits) => {
 					if (scenario.typed !== undefined) {
-						note({ type: "turn asked", first: first() });
+						note({ type: "turn asked", waits: waits() });
 						// A turn comes free only once the agent has the words, as one would after Joel typed.
 						await typedIn;
 					}
-					note({ type: "turn", first: first() });
+					note({ type: "turn", waits: waits() });
 					let given = false;
 					// Only the first give-back counts, as with the host's own turns.
 					return () => {
@@ -1282,7 +1311,9 @@ try {
 	const during =
 		scenario.typed === undefined
 			? scenario.during?.(session, hosted)
-			: session.prompt(scenario.typed);
+			: scenario.steered
+				? session.steer(scenario.typed)
+				: session.prompt(scenario.typed);
 	await recovery?.settled;
 	await early;
 	await during;

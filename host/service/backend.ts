@@ -69,13 +69,13 @@ export interface ConversationEngine {
 	lost?(entry: RosterEntry): boolean;
 	/**
 	 * A start is about to resume `held`, what the host holds: carry on none
-	 * of the runs a restart cut off until resumed says it has resumed them
-	 * all, so they go a few at a time in the whole start's order: the
-	 * order they asked in, which is roughly the order held, since a few
-	 * resume at once.
+	 * of the runs a restart cut off but those Joel waits on until resumed
+	 * says it has resumed them all, so they go a few at a time in the whole
+	 * start's order: his first, then the order they asked in, which is
+	 * roughly the order held, since a few resume at once.
 	 */
 	resuming?(held: readonly string[]): void;
-	/** The start has resumed everything it holds; the runs it cut off may go. */
+	/** The start has resumed everything it holds; every run it cut off may go. */
 	resumed?(): void;
 	abort(sessionId: string): Promise<void>;
 	/**

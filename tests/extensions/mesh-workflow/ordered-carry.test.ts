@@ -14,6 +14,7 @@ import {
 	type OrderedCarry,
 	type OrderedCarrying,
 } from "../../../extensions/mesh-workflow/ordered-carry.ts";
+import { isAutomatedText } from "../../../lib/internal/automated.ts";
 import { createBoard } from "../../../lib/mesh/lease.ts";
 
 const ORDER: OrderedCarry = {
@@ -153,6 +154,10 @@ describe("an ordered carry", () => {
 		expect(one.did).toEqual(["abort"]);
 		expect(one.said, "the run it ended is taken up again").toHaveLength(1);
 		expect(one.said[0]).toContain("carry on where you left off");
+		expect(
+			isAutomatedText(one.said[0] ?? ""),
+			"its words say they are the harness's, not the person's",
+		).toBe(true);
 		one.ordering.started();
 		expect(one.did, "runs go on after").toEqual(["abort"]);
 	});

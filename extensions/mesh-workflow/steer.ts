@@ -18,9 +18,11 @@ import { coalescing } from "../../lib/internal/process/single-flight.ts";
 import { answerWant } from "../../lib/internal/session/wants.ts";
 import { answerLook, type Look, looksIn } from "../../lib/mesh/looks/looks.ts";
 import {
+	ASKING_FROM_OUTSIDE,
 	FROM_MACHINE,
 	FROM_PERSON,
 	inboxOf,
+	MACHINE_SAYS,
 	type Steer,
 	type Taken,
 	takenSteers,
@@ -188,12 +190,12 @@ export interface SteeredInto {
 export function steerText(steer: Steer, into: SteeredInto): string {
 	if (steer.from === FROM_MACHINE) {
 		const who = steer.by ?? "mycelium node";
-		return `[Said by this machine's ${who}, not by the person, through this session's steer inbox.]\n\n${steer.text}`;
+		return `${MACHINE_SAYS}${who}, not by the person, through this session's steer inbox.]\n\n${steer.text}`;
 	}
 	const then = into.busy
 		? " while this session works: answer first, in a line or two, then carry on."
 		: ": answer first, in a line or two, then do what is asked.";
-	return `[${asker(steer.from)} is asking from outside this window${then}]\n\n${steer.text}`;
+	return `[${asker(steer.from)}${ASKING_FROM_OUTSIDE}${then}]\n\n${steer.text}`;
 }
 
 /** What the window says of an answer that came for an ask now gone. */

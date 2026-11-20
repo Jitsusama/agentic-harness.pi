@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	inboxOf,
+	isOthersSteerText,
 	isPersonsTalk,
 	steerFrom,
 	takenSteers,
@@ -689,5 +690,37 @@ describe("steers written in one instant", () => {
 			"earlier name",
 			"later name",
 		]);
+	});
+});
+
+describe("whether words a session is given are a steer someone else wrote", () => {
+	it("names the machine's and a peer agent's", () => {
+		expect(
+			isOthersSteerText(
+				"[Said by this machine's mycelium node, not by the person, through this session's steer inbox.]\n\nhi",
+			),
+			"the machine's",
+		).toBe(true);
+		expect(
+			isOthersSteerText(
+				"[Ospht4 is asking from outside this window: answer first.]\n\nhi",
+			),
+			"a peer agent's",
+		).toBe(true);
+	});
+
+	it("names none of the person's, nor words merely mentioning the phrase", () => {
+		for (const asker of ["The person", "Joel", "JOEL", "Person"])
+			expect(
+				isOthersSteerText(
+					`[${asker} is asking from outside this window: answer first.]\n\nhi`,
+				),
+				asker,
+			).toBe(false);
+		expect(
+			isOthersSteerText("[note] someone is asking from outside this window"),
+			"the phrase after a closed bracket",
+		).toBe(false);
+		expect(isOthersSteerText("are you back?"), "plain words").toBe(false);
 	});
 });

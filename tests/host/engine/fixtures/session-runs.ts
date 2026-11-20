@@ -24,8 +24,8 @@ export interface Observed {
 		readonly type: string;
 		/** How long a timed step took, for an event that timed one. */
 		readonly ms?: number;
-		/** Whether a turn taken to carry a run on went to words a person wrote. */
-		readonly first?: boolean;
+		/** How Joel waits on a run taking a turn to carry on: typing, began or not. */
+		readonly waits?: string;
 		/** What a step threw, for an event that notes one. */
 		readonly error?: string;
 		/**

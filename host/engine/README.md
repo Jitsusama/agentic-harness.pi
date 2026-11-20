@@ -119,12 +119,15 @@ holds, each conversation whose durable store holds a run waits for a
 turn before durable carries it on. It gives the turn back as the first
 answer streamed after the restart ends, its own or the ask again's, or
 after RESUMED_TURN_MS (60 s) at most, so a run that goes on for an hour
-holds up neither the runs behind it nor words sent to them. Every turn
-is held until the start has resumed its last conversation, so the order
-is the whole start's: runs begun by words a person typed first, and any
-a person types into while it waits, then the rest in the order they
-asked, roughly the order the host held them, since a few resume at
-once. A run's place is read each time a turn comes free, not once as
+holds up neither the runs behind it nor words sent to them. Until the
+start has resumed its last conversation it holds back every run Joel
+doesn't wait on, so the order is the whole start's: a run he types or
+steers into since the restart goes first, past the cap if it's full;
+then, under the cap, runs his words began; then the rest in the order
+they asked, roughly the order the host held them, once the start ends.
+A peer's or the machine's steer, and words with the automated header,
+are not his (resume-turns.ts, isJoelsWords). A run's place is read each
+time a turn comes free and once a second while any waits, not once as
 it asks. A wake, an open or an adopt takes no turn, an abort ends
 the wait, and a park leaves the run in durable for the start that opens
 it next. Words typed while a run waits queue behind it, and when the
