@@ -1,3 +1,13 @@
+/**
+ * The budget host: registering providers, drawing on a budget, asking
+ * which budget a folder draws on and judging which one work draws on.
+ *
+ * Long because every question the host answers walks the same
+ * providers in the same precedence under the same deadline and stop,
+ * and the cases share the bus and the providers built to answer them;
+ * split by question, each file would rebuild the same fixture.
+ */
+
 import { describe, expect, it, vi } from "vitest";
 import { hostBudgets } from "../../../lib/budget/host.ts";
 import {
