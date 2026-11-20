@@ -216,7 +216,9 @@ export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
  * run, nor is one that stopped on a tool call it never saw through: on
  * 14 November a reboot's next host failed a carried run it had cut
  * mid-answer. Nor is a tool's result, which a host gives the call a
- * kill cut before the run it carries answers, or fails.
+ * kill cut before the run it carries answers, or fails; nor the error a
+ * host answers a run it refused while busy with the carried one, which
+ * says nothing of how that one went.
  */
 export function carriedRunWent(
 	branch: readonly unknown[],
@@ -225,10 +227,22 @@ export function carriedRunWent(
 	for (let i = branch.length - 1; i >= since; i--) {
 		const entry = branch[i];
 		if (roleOf(entry) !== "assistant") continue;
-		const stopped = field(field(entry, "message"), "stopReason");
+		const message = field(entry, "message");
+		const stopped = field(message, "stopReason");
+		if (stopped === "error" && refusedAsBusy(field(message, "errorMessage")))
+			continue;
 		return stopped === "error" || stopped === "toolUse" ? "failed" : "answered";
 	}
 	return "unseen";
+}
+
+/**
+ * Whether `error` is durable's refusal of a run while its conversation
+ * was busy (its `ConversationBusy`, "Conversation ID is busy"), which a
+ * host ends that run with as an error answer of its own.
+ */
+function refusedAsBusy(error: unknown): boolean {
+	return typeof error === "string" && /^Conversation \S+ is busy$/.test(error);
 }
 
 /** A log that stops on a tool call or its result: a session killed mid-run. */

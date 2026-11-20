@@ -36,6 +36,7 @@ import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { jobIdsIn } from "../../lib/jobs/report.ts";
 import { answerSteerWaiting, saySteered } from "../../lib/jobs/steer.ts";
 import { offerCarried } from "../../lib/jobs/take-up.ts";
+import { isOthersSteerText } from "../../lib/mesh/steer.ts";
 import { sessionIdOf } from "./carry.ts";
 import { showJobs } from "./command.ts";
 import {
@@ -562,7 +563,13 @@ export default function jobWorkflow(
 		// (see shown.ts): dropped, so it costs no turn.
 		if (shown.again(event.text)) return { action: "handled" as const };
 		session?.outbox.promptSubmitted();
-		if (carriedWait && isPersonText(event.text)) carriedWait.typed = true;
+		// A peer's or the machine's steer is no one there to say what next.
+		if (
+			carriedWait &&
+			isPersonText(event.text) &&
+			!isOthersSteerText(event.text)
+		)
+			carriedWait.typed = true;
 		if (steersTheRun(event)) {
 			line.typed();
 			showWaiting(line, ctx);
