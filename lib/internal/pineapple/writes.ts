@@ -4,9 +4,12 @@
  *
  * A write is anything that reaches other people or lands for good:
  * pushing a branch, opening, editing, commenting on or merging a pull
- * request, and switching or deploying a machine. Reads, builds and
- * commits stay on this machine and are never writes here, so a stop
- * leaves a session free to keep working in its own tree.
+ * request, and switching or deploying a machine. Starting more agents
+ * counts too: a pi host cut or restarted, a session spawned, a council
+ * or fleet run, since a stop that parks every session means nothing if
+ * a parked one can start more. Reads, builds and commits stay on this
+ * machine and are never writes here, so a stop leaves a session free to
+ * keep working in its own tree.
  *
  * This only reads the call. What it names but doesn't say, such as the
  * repository a bare `git push` goes to, is left for {@link settle} to ask
@@ -20,9 +23,16 @@ import { unquote } from "../../shell/index.ts";
 
 /**
  * What a write lands on: one change (a push, a comment, a merge), a
- * repository (a new pull request), or the machine (a switch, a deploy).
+ * repository (a new pull request), the machine (a switch, a deploy), or
+ * its agents (a start: a pi host cut or restarted, a session spawned, a
+ * council or fleet run).
  */
-export type WriteKind = "change" | "repo" | "machine";
+export type WriteKind = "change" | "repo" | "machine" | "start";
+
+/** Whether a write lands on the machine as a whole, not on a repository. */
+export function machineWide(kind: WriteKind): boolean {
+	return kind === "machine" || kind === "start";
+}
 
 /** A write as the call states it, before git fills in what it left out. */
 export interface WriteCall {
@@ -51,7 +61,7 @@ export interface GitFacts {
 
 /** Fill in the repository and branch a call leaves to its checkout. */
 export async function settle(call: WriteCall, git: GitFacts): Promise<Write> {
-	if (call.kind === "machine" || call.dir === undefined) return call;
+	if (machineWide(call.kind) || call.dir === undefined) return call;
 	const repo =
 		call.repo ?? (await git.repoOf(call.dir, call.remote ?? "origin"));
 	const branch =
@@ -104,6 +114,12 @@ const REVIEW_READS = new Set(["capabilities"]);
 /** review_offer's actions that open a new change rather than touch one. */
 const OPENS = new Set(["propose", "propose-stack"]);
 
+/** The quest tool's actions that start a pi session. */
+const SPAWNS = new Set(["spawn", "spawn-tab", "spawn-pane", "spawn-window"]);
+
+/** review_ask's actions that only read the rounds already run. */
+const ASK_READS = new Set(["runs", "roster", "collect", "stop", "release"]);
+
 /**
  * The write a call to one of the harness's own tools makes, or undefined
  * when it makes none. `trees` is where the work tool keeps its trees, so
@@ -128,6 +144,13 @@ export function writeInTool(
 			return action === "publish"
 				? reviewWrite(tool, action, args, cwd)
 				: undefined;
+		case "quest":
+			return questStart(action, args);
+		case "subagent":
+			return { action: "subagent", kind: "start" };
+		case "review_ask":
+			if (ASK_READS.has(action ?? "runs")) return undefined;
+			return { action: `review_ask ${action}`, kind: "start" };
 		case "work":
 			if (action !== "push") return undefined;
 			return {
@@ -138,6 +161,17 @@ export function writeInTool(
 		default:
 			return undefined;
 	}
+}
+
+/** A quest spawn, or a reopening of lost sessions that isn't a dry run. */
+function questStart(
+	action: string | undefined,
+	args: Record<string, unknown>,
+): WriteCall | undefined {
+	if (args.dryRun === true || action === undefined) return undefined;
+	const starts =
+		SPAWNS.has(action) || (action === "reopen-sessions" && args.force === true);
+	return starts ? { action: `quest ${action}`, kind: "start" } : undefined;
 }
 
 function reviewWrite(
@@ -274,6 +308,8 @@ function writeIn(
 	if (name === "git") return gitPush(rest, dir);
 	if (name === "gh") return ghWrite(rest, dir);
 	if (name === "dt") return dtWrite(rest, dir);
+	const start = startIn(name, rest);
+	if (start) return start;
 	for (const [machine, verbs] of MACHINE) {
 		if (name !== machine) continue;
 		const verb = rest.find((word) => !word.startsWith("-"));
@@ -285,6 +321,46 @@ function writeIn(
 		}
 	}
 	return undefined;
+}
+
+/** systemctl's verbs that start, stop or restart a unit. */
+const UNIT_VERBS = new Set([
+	"start",
+	"stop",
+	"restart",
+	"try-restart",
+	"reload-or-restart",
+	"try-reload-or-restart",
+	"kill",
+	"enable",
+	"disable",
+]);
+
+/** The units a pi host or a hosted conversation runs as. */
+const HOST_UNIT = /^(?:pi-host|pi-conversation|mycelium-pi)-/;
+
+/** The harness's scripts that move conversations into or out of a host. */
+const HOST_SCRIPT = /(?:^|\/)host-(?:cutover|drain|release|take-up|join)\.ts$/;
+
+/**
+ * A command that starts, stops or moves pi hosts: systemctl on a host's
+ * unit, the scripts that move conversations, or `pi-packages update`,
+ * which restarts every host onto the install it moves.
+ */
+function startIn(name: string, args: string[]): WriteCall | undefined {
+	if (name === "systemctl") {
+		const [verb, ...units] = args.filter((word) => !word.startsWith("-"));
+		if (verb === undefined || !UNIT_VERBS.has(verb)) return undefined;
+		if (!units.some((unit) => HOST_UNIT.test(unit))) return undefined;
+		return { action: `pi host ${verb}`, kind: "start" };
+	}
+	if (name === "pi-packages" && args.includes("update")) {
+		return { action: "pi-packages update", kind: "start" };
+	}
+	const script = [name, ...args].find((word) => HOST_SCRIPT.test(word));
+	if (script === undefined) return undefined;
+	const moves = script.split("/").at(-1)?.replace(/\.ts$/, "") ?? script;
+	return { action: `pi ${moves}`, kind: "start" };
 }
 
 /** `git [-C dir] push [options] [remote [refspec...]]`. */
@@ -518,6 +594,11 @@ function patternWrites(command: string): WriteCall[] {
 			/\bswitch-system\b|\b(?:nixos|darwin)-rebuild\s+switch\b|\bhome-manager\s+switch\b/,
 			"switch",
 			"machine",
+		],
+		[
+			/\bsystemctl\b[^;&|\n]*\b(?:pi-host|pi-conversation|mycelium-pi)-|\bhost-(?:cutover|drain|release|take-up|join)\.ts\b/,
+			"pi host start",
+			"start",
 		],
 	];
 	for (const [pattern, action, kind] of patterns) {

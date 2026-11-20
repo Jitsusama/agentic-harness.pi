@@ -131,6 +131,26 @@ describe("writesInBash", () => {
 		expect(writesInBash("nixos-rebuild build", HERE)).toEqual([]);
 	});
 
+	it("reads a pi host started, stopped or moved as a start of agents", () => {
+		const start = (command: string) =>
+			writesInBash(command, HERE).map(({ action, kind }) => ({ action, kind }));
+		expect(start("systemctl --user restart pi-host-work-background")).toEqual([
+			{ action: "pi host restart", kind: "start" },
+		]);
+		expect(start("systemctl --user start pi-conversation-ab12@x")).toEqual([
+			{ action: "pi host start", kind: "start" },
+		]);
+		expect(start("node scripts/host-cutover.ts --only P9R1KI")).toEqual([
+			{ action: "pi host-cutover", kind: "start" },
+		]);
+		expect(start("pi-packages update")).toEqual([
+			{ action: "pi-packages update", kind: "start" },
+		]);
+		expect(start("systemctl --user status pi-host-work-attended")).toEqual([]);
+		expect(start("systemctl --user restart pineapple")).toEqual([]);
+		expect(start("node scripts/host-cutover.test.ts")).toEqual([]);
+	});
+
 	it("finds a write by pattern in a line the command model can't read", () => {
 		const writes = writesInBash(
 			"for b in a c; do git push origin $b; done",
@@ -192,6 +212,32 @@ describe("writeInTool", () => {
 			action: "work push",
 			kind: "change",
 			dir: "/trees/shop-fix",
+		});
+	});
+
+	it("reads a spawn, a council or a fleet as a start of agents", () => {
+		const start = (tool: string, input: unknown) =>
+			writeInTool(tool, input, HERE, TREES);
+		expect(start("quest", { action: "spawn-tab" })).toEqual({
+			action: "quest spawn-tab",
+			kind: "start",
+		});
+		expect(start("quest", { action: "reopen-sessions", force: true })).toEqual({
+			action: "quest reopen-sessions",
+			kind: "start",
+		});
+		expect(start("quest", { action: "reopen-sessions" })).toBeUndefined();
+		expect(start("quest", { action: "spawn", dryRun: true })).toBeUndefined();
+		expect(start("quest", { action: "journal" })).toBeUndefined();
+		expect(start("review_ask", { action: "council" })).toEqual({
+			action: "review_ask council",
+			kind: "start",
+		});
+		expect(start("review_ask", {})).toBeUndefined();
+		expect(start("review_ask", { action: "collect" })).toBeUndefined();
+		expect(start("subagent", { jobs: [] })).toEqual({
+			action: "subagent",
+			kind: "start",
 		});
 	});
 

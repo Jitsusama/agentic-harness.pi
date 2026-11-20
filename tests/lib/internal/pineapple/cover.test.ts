@@ -47,6 +47,7 @@ const pushFix: Write = {
 };
 const pushOther: Write = { ...pushFix, branch: "other" };
 const switching: Write = { action: "switch-system", kind: "machine" };
+const spawning: Write = { action: "quest spawn", kind: "start" };
 
 describe("a stop on one pull request", () => {
 	it("holds writes to that change and pushes to its branch", async () => {
@@ -97,6 +98,8 @@ describe("wider stops", () => {
 		expect(await held(pushOther, "repo:shop")).toBe("held");
 		expect(await held(pushOther, "repo:example/other")).toBe("goes");
 		expect(await held(switching, "repo:example/shop")).toBe("goes");
+		expect(await held(spawning, "repo:example/shop")).toBe("goes");
+		expect(await held(spawning, "named:shop")).toBe("goes");
 	});
 
 	it("a quest holds the writes of a session in it or under it", async () => {
@@ -118,7 +121,7 @@ describe("wider stops", () => {
 	});
 
 	it("everything holds every write", async () => {
-		for (const write of [merge12, pushOther, switching]) {
+		for (const write of [merge12, pushOther, switching, spawning]) {
 			expect(await held(write, "everything")).toBe("held");
 		}
 	});
