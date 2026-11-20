@@ -27,10 +27,11 @@
  *
  * `GIT_CONFIG_GLOBAL` takes the place of both global files git reads,
  * `~/.gitconfig` and `$XDG_CONFIG_HOME/git/config`, so git's copy
- * includes the second by its path ahead of the first's settings, in the
- * order git reads them, and an include the first names by a relative
- * path, or an `includeIf` whose `gitdir` starts `./`, is named from the
- * home folder, where git would have found it. `~/.gitconfig` includes
+ * writes out both, the second ahead of the first, in the order git reads
+ * them, where a fenced command could read them anyway, and includes any
+ * other by its path. An include either names by a relative path, or an
+ * `includeIf` whose `gitdir` starts `./`, is named from that file's own
+ * folder, where git would have found it. `~/.gitconfig` includes
  * dev's settings by their path, which inside leads to the copy.
  *
  * `XDG_CONFIG_HOME` is never moved instead: dev's installer carries it
