@@ -5,11 +5,13 @@
  * the screen at each start or reload asked nothing new of the person
  * and read as the reload failing.
  *
- * The record holds the faults the latest start found, each with when it
- * was first seen, so a reader can tell what holds now: a fault since
- * fixed drops out, and one that comes back counts as new. A fault new
- * to the record, and a record that can't be written, go to the system's
- * journal at warning, once; nothing reaches the screen.
+ * The record holds the faults the latest walk of a quests root found,
+ * each with when it was first seen, so a reader can tell what holds now:
+ * a fault since fixed drops out, and one that comes back counts as new.
+ * A fault new to the record goes to the system's journal at warning,
+ * once; a record that can't be written goes there with every fault it
+ * would have held, at each start until it can be. Nothing reaches the
+ * screen.
  */
 
 import { mkdirSync, readFileSync } from "node:fs";
@@ -29,11 +31,24 @@ export interface KeptLayoutFault extends DiscoveryError {
 	readonly since: string;
 }
 
-/** The record as written: when it was checked, and what it found. */
+/**
+ * The record as written: the quests root walked, when the walk was
+ * made, and what it found.
+ */
 export interface LayoutFaultsRecord {
+	readonly root: string;
 	readonly checkedAt: string;
 	readonly faults: readonly KeptLayoutFault[];
 }
+
+/**
+ * The record read back: none written yet, which is a tidy tree's state,
+ * one that can't be read, and why, or the record itself.
+ */
+export type LayoutFaultsReading =
+	| { readonly kind: "none" }
+	| { readonly kind: "unreadable"; readonly reason: string }
+	| { readonly kind: "read"; readonly record: LayoutFaultsRecord };
 
 /** What keepLayoutFaults may be told, each with a default for pi. */
 export interface KeepLayoutFaultsOptions {
@@ -41,8 +56,8 @@ export interface KeepLayoutFaultsOptions {
 	readonly file?: string;
 	/** The clock. */
 	readonly now?: () => Date;
-	/** Where a new fault or a failed write is said. */
-	readonly journal?: (line: string) => void;
+	/** Where new faults or a failed write are said, a line each. */
+	readonly journal?: (lines: readonly string[]) => void;
 }
 
 /** Where the layout faults are kept on this machine. */
@@ -51,79 +66,106 @@ export function layoutFaultsFile(): string {
 }
 
 /**
- * Replace the record with `faults`, the ones a start just found,
- * keeping when each was first seen, and journal each one the record
- * didn't hold. It answers the new faults and never rejects: a record
- * that can't be written is journalled, and the next start writes it.
- * Sessions start together after a restart, so the read and the write
- * are held under the file's lock.
+ * Replace the record with `faults`, the ones a walk of `root` just
+ * found, keeping when each was first seen, and journal each one the
+ * record didn't hold. Call it straight after the walk, since the walk's
+ * time is taken here. It answers the new faults and never rejects: a
+ * record that can't be written is journalled with the faults, and the
+ * next start writes it. Sessions start together after a restart, so the
+ * read and the write are held under the file's lock, and a walk older
+ * than the record's leaves it as it is.
  */
 export async function keepLayoutFaults(
+	root: string,
 	faults: readonly DiscoveryError[],
 	options: KeepLayoutFaultsOptions = {},
 ): Promise<readonly DiscoveryError[]> {
 	const file = options.file ?? layoutFaultsFile();
-	const now = options.now ?? (() => new Date());
+	const at = (options.now ?? (() => new Date()))().toISOString();
 	const journal = options.journal ?? warnInJournal;
+	const say = (lines: readonly string[]) => {
+		if (lines.length === 0) return;
+		try {
+			journal(lines);
+		} catch {
+			// The journal is the record's last word: when it can't be
+			// told either, there is nowhere left to say it, and the start
+			// must not fail over a log line.
+		}
+	};
 	try {
 		// The lock's own file sits beside the record, so its folder comes first.
 		mkdirSync(dirname(file), { recursive: true });
 		const fresh = await withFileLock(file, async () =>
-			replaceRecord(file, faults, now().toISOString()),
+			replaceRecord(file, root, faults, at),
 		);
-		for (const fault of fresh)
-			journal(
-				`quest-workflow: ${fault.path} is skipped from the quest index: ${fault.message}`,
-			);
+		say(fresh.map(faultLine));
 		return fresh;
 	} catch (error) {
-		journal(
-			`quest-workflow: the quest layout record ${file} couldn't be written: ${error instanceof Error ? error.message : String(error)}`,
-		);
+		const reason = error instanceof Error ? error.message : String(error);
+		say([
+			`quest-workflow: the quest layout record ${JSON.stringify(file)} couldn't be written: ${JSON.stringify(reason)}`,
+			...faults.map(faultLine),
+		]);
 		return [];
 	}
 }
 
-/** The record at `file`, or undefined when there is none to read. */
+/** The record at `file`, read back for what it holds. */
 export function readLayoutFaults(
 	file: string = layoutFaultsFile(),
-): LayoutFaultsRecord | undefined {
+): LayoutFaultsReading {
 	let text: string;
 	try {
 		text = readFileSync(file, "utf8");
-	} catch {
-		// No record yet: no start has found a fault to write.
-		return undefined;
+	} catch (error) {
+		if (isRecord(error) && error.code === "ENOENT") return { kind: "none" };
+		return { kind: "unreadable", reason: String(error) };
 	}
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(text);
-	} catch {
-		// Written whole and renamed into place, so an unreadable record
-		// is someone else's edit; the next start writes it afresh.
-		return undefined;
+	} catch (error) {
+		return { kind: "unreadable", reason: String(error) };
 	}
-	if (!isRecord(parsed) || typeof parsed.checkedAt !== "string")
-		return undefined;
-	const faults = Array.isArray(parsed.faults) ? parsed.faults : [];
+	if (
+		!isRecord(parsed) ||
+		typeof parsed.root !== "string" ||
+		typeof parsed.checkedAt !== "string" ||
+		!Array.isArray(parsed.faults)
+	)
+		return { kind: "unreadable", reason: "not a layout faults record" };
 	return {
-		checkedAt: parsed.checkedAt,
-		faults: faults.flatMap((fault) => keptFaultOf(fault) ?? []),
+		kind: "read",
+		record: {
+			root: parsed.root,
+			checkedAt: parsed.checkedAt,
+			faults: parsed.faults.flatMap((fault) => keptFaultOf(fault) ?? []),
+		},
 	};
 }
 
 /**
- * Write `faults` as the record at `file`, checked `at`, and answer the
- * ones it didn't already hold. A start that finds none and no record
- * writes nothing, so a machine with a tidy tree has no file.
+ * Write `faults` as the record at `file`, from a walk of `root` made
+ * `at`, and answer the ones it didn't already hold. A start that finds
+ * none and no record writes nothing, so a machine with a tidy tree has
+ * no file; one that can't read the record writes it afresh. A walk of
+ * the same root older than the record's changes nothing, since a later
+ * start has written what holds.
  */
 function replaceRecord(
 	file: string,
+	root: string,
 	faults: readonly DiscoveryError[],
 	at: string,
 ): DiscoveryError[] {
-	const before = readLayoutFaults(file);
-	if (faults.length === 0 && before === undefined) return [];
+	const reading = readLayoutFaults(file);
+	if (faults.length === 0 && reading.kind === "none") return [];
+	const before =
+		reading.kind === "read" && reading.record.root === root
+			? reading.record
+			: undefined;
+	if (before && before.checkedAt > at) return [];
 	const since = new Map(
 		(before?.faults ?? []).map((fault) => [faultKey(fault), fault.since]),
 	);
@@ -141,6 +183,7 @@ function replaceRecord(
 		});
 	}
 	const record: LayoutFaultsRecord = {
+		root,
 		checkedAt: at,
 		faults: [...kept.values()],
 	};
@@ -166,7 +209,16 @@ function faultKey(fault: DiscoveryError): string {
 	return `${fault.path}\u0000${fault.message}`;
 }
 
-/** Say `line` in the system's journal at warning. */
-function warnInJournal(line: string): void {
-	sayInJournal(line, journalCommand("warning"));
+/**
+ * A fault as one journal line. The path and the message are quoted as
+ * JSON, so a folder's name can't break the line in two: the journal
+ * reads a line opening `<N>` as written at level N.
+ */
+function faultLine(fault: DiscoveryError): string {
+	return `quest-workflow: a quest layout fault at ${JSON.stringify(fault.path)}: ${JSON.stringify(fault.message)}`;
+}
+
+/** Say `lines` in the system's journal at warning, in one write. */
+function warnInJournal(lines: readonly string[]): void {
+	sayInJournal(lines.join("\n"), journalCommand("warning"));
 }

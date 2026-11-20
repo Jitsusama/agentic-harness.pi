@@ -118,7 +118,7 @@ export function followSessionLife(
 			// notice asked nothing new of the person and read as the reload
 			// failing. The keeping never rejects, so the start needn't wait.
 			const { index, errors } = discoverQuests(state.questsRoot);
-			void keepLayoutFaults(errors);
+			void keepLayoutFaults(state.questsRoot, errors);
 			// From the walk just made, so it walks nothing more, and it catches
 			// a priority edited by hand while no session was running.
 			keepQuestWeights(state.questsRoot, index);

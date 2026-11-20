@@ -5,7 +5,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { BudgetKeeper } from "../../../../extensions/quest-workflow/budget.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { followSessionLife } from "../../../../extensions/quest-workflow/wiring/session.ts";
-import { withFileLock } from "../../../../lib/core/internal/file-lock.ts";
 import { withSession } from "../../../../lib/core/session/index.ts";
 import { clearDiscoveryCache } from "../../../../lib/internal/quest/discovery/discovery.ts";
 import {
@@ -15,11 +14,15 @@ import {
 import { fakePi } from "../../../support/fake-pi.ts";
 import { createEnvGuard } from "../_helpers.ts";
 
-/** What went to the system's journal. */
-const journalled = vi.hoisted(() => [] as string[]);
+/** What went to the system's journal, each write with the level it was at. */
+const journalled = vi.hoisted(
+	() => [] as { text: string; level: string | undefined }[],
+);
 vi.mock("../../../../lib/internal/session/journal.ts", async (original) => ({
 	...(await original<object>()),
-	sayInJournal: (text: string) => journalled.push(text),
+	journalCommand: (level: string) => ({ program: "journal", args: [level] }),
+	sayInJournal: (text: string, command: { args: string[] } | undefined) =>
+		journalled.push({ text, level: command?.args[0] }),
 }));
 
 const envGuard = createEnvGuard();
@@ -64,9 +67,12 @@ function startIn(cwd: string, notices: string[]): unknown {
 	};
 }
 
-/** The record's lines on disk, or none when it was never written. */
+/** The record's faults' paths on disk, or none when it was never written. */
 function recordedPaths(): string[] {
-	return (readLayoutFaults()?.faults ?? []).map((fault) => fault.path);
+	const reading = readLayoutFaults();
+	return reading.kind === "read"
+		? reading.record.faults.map((fault) => fault.path)
+		: [];
 }
 
 it("keeps a quest folder with no README to the record and the journal, once, and off the screen", async () => {
@@ -87,10 +93,14 @@ it("keeps a quest folder with no README to the record and the journal, once, and
 		await withSession("a", async () =>
 			start?.({ type: "session_start", reason }, startIn(tmpRoot, notices)),
 		);
-		// The start writes without waiting. keepLayoutFaults joins the
-		// record's in-process lock queue before its first await, so a turn
-		// taken at that lock now comes after the start's write.
-		await withFileLock(layoutFaultsFile(), async () => undefined);
+		// The start keeps the faults without waiting, and journals after
+		// the record is written, so the test waits for the journal.
+		await vi.waitFor(() =>
+			expect(
+				journalled.map((write) => write.text).join("\n"),
+				`the journal after the ${reason}`,
+			).toContain(folder ?? ""),
+		);
 	}
 
 	expect(notices, "what the starts showed").toEqual([]);
@@ -99,7 +109,13 @@ it("keeps a quest folder with no README to the record and the journal, once, and
 		expect.stringContaining("QEST-20261120-BBBBBB"),
 	]);
 	expect(journalled, "each fault journalled once, as first found").toEqual([
-		expect.stringMatching(/QEST-20261120-AAAAAA.*README\.md missing/),
-		expect.stringMatching(/QEST-20261120-BBBBBB.*README\.md missing/),
+		{
+			text: expect.stringMatching(/QEST-20261120-AAAAAA.*README\.md missing/),
+			level: "warning",
+		},
+		{
+			text: expect.stringMatching(/QEST-20261120-BBBBBB.*README\.md missing/),
+			level: "warning",
+		},
 	]);
 });

@@ -20,6 +20,7 @@ and edit tools, or by another process, shows by the next signing.
 What the walk finds wrong with the tree's layout, such as a quest folder
 with no README, goes to a record in the workflow's state folder
 (`layout-faults.ts`) rather than onto the screen at every start and
-reload. The record holds what the latest start found, each fault with
-when it was first seen, so a fixed fault drops out; a fault new to it
-goes to the system's journal at warning, once.
+reload. The record holds what the latest walk of a quests root found,
+each fault with when it was first seen, so a fixed fault drops out; a
+fault new to it goes to the system's journal at warning, once. A reader
+tells a tidy tree (no record) from a record it can't read.
