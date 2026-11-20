@@ -143,37 +143,54 @@ describe("telling the holder what starts next", () => {
 });
 
 describe("going quiet", () => {
-	it("writes nothing, reads no keys and ends as a park", () => {
+	it("writes nothing, reads no keys, keeps the terminal raw and ends as a park", async () => {
 		const out = process.stdout.write;
 		const err = process.stderr.write;
+		const raw = process.stdin.setRawMode;
+		const tty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
 		const code = process.exitCode;
 		const before = process.listeners("exit");
+		const drawn = vi.fn(() => true);
+		const cooked = vi.fn(() => process.stdin);
 		const pause = vi
 			.spyOn(process.stdin, "pause")
 			.mockReturnValue(process.stdin);
+		// Stand-ins for the terminal pi draws on, so what reaches it shows.
+		process.stdout.write = drawn;
+		process.stderr.write = drawn;
+		Object.defineProperty(process.stdin, "isTTY", {
+			value: true,
+			configurable: true,
+		});
+		process.stdin.setRawMode = cooked;
 		try {
 			goQuiet();
+			const flushed = new Promise<void>((resolve) => {
+				process.stdout.write("a frame", () => resolve());
+			});
+			process.stderr.write("a resume hint");
+			process.stdin.setRawMode(false);
+
+			expect(drawn, "nothing reaches the terminal").not.toHaveBeenCalled();
+			await expect(flushed, "a write's callback still runs").resolves.toBe(
+				undefined,
+			);
+			expect(cooked, "the terminal stays raw").not.toHaveBeenCalled();
+			expect(pause, "no key is read").toHaveBeenCalledOnce();
 			const added = process
 				.listeners("exit")
 				.filter((one) => !before.includes(one));
-			expect(process.stdout.write, "pi's frame stays").not.toBe(out);
-			expect(process.stderr.write, "no resume hint").not.toBe(err);
-			expect(
-				process.stdout.write("a frame"),
-				"a write still answers as written",
-			).toBe(true);
-			expect(
-				process.stderr.write("a hint"),
-				"a write still answers as written",
-			).toBe(true);
-			expect(pause).toHaveBeenCalledOnce();
 			expect(added, "one exit listener sets the code").toHaveLength(1);
 			(added[0] as () => void)();
-			expect(process.exitCode).toBe(PARKED_EXIT);
-			for (const one of added) process.off("exit", one);
+			expect(process.exitCode, "it ends as a park").toBe(PARKED_EXIT);
 		} finally {
+			for (const one of process.listeners("exit"))
+				if (!before.includes(one)) process.off("exit", one);
 			process.stdout.write = out;
 			process.stderr.write = err;
+			process.stdin.setRawMode = raw;
+			if (tty === undefined) Reflect.deleteProperty(process.stdin, "isTTY");
+			else Object.defineProperty(process.stdin, "isTTY", tty);
 			process.exitCode = code;
 		}
 	});

@@ -89,8 +89,14 @@ export function goQuiet(): void {
 	});
 }
 
-/** Writes nothing, so pi's last frame stays on the terminal. */
-function nothingWritten(): boolean {
+/**
+ * Writes nothing, so pi's last frame stays on the terminal, yet answers
+ * as a write that was flushed: a callback given is called, so a shutdown
+ * step that waits for its write to land still ends.
+ */
+function nothingWritten(...args: unknown[]): boolean {
+	const done = args.find((arg) => typeof arg === "function");
+	if (typeof done === "function") process.nextTick(() => done());
 	return true;
 }
 

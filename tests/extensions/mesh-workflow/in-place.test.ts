@@ -3,7 +3,14 @@
  * join rather than closing it, and moves only once nobody has typed in
  * it for a while, resting when nobody stops.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -104,6 +111,24 @@ describe("handing a window over", () => {
 		expect(handOverOf(facts({ env: {} }))).toBeUndefined();
 		expect(handOverOf(facts({ env: { MYCELIUM_WAKE: wake } }))).toBeUndefined();
 		expect(handOverOf(facts({ pid: 7 })), "a shell between").toBeUndefined();
+	});
+
+	it("throws before going quiet, leaving nothing named, when its holder can't be told", () => {
+		mkdirSync(wake);
+		let quiet = 0;
+		const over = handOverOf(
+			facts({
+				quiet: () => {
+					quiet += 1;
+				},
+			}),
+		);
+
+		expect(() => over?.end(), "the move's catch closes it").toThrow(
+			/couldn't be told/,
+		);
+		expect(quiet, "not gone quiet, so its note still stands").toBe(0);
+		expect(existsSync(again), "no join left for a later start").toBe(false);
 	});
 
 	it("can't with no log, or with flags plain pi would drop", () => {

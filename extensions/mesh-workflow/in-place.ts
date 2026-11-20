@@ -88,7 +88,8 @@ export function handOverOf(facts: InPlaceFacts): HandOver | undefined {
 				move: true,
 				at: new Date().toISOString(),
 			});
-			// The move's own catch says why it stopped; nothing half told stays.
+			// Thrown before going quiet, so the move's catch ends it as a move
+			// that closes its window, with nothing half told left behind.
 			if (!told) throw new Error("its holder couldn't be told the join");
 			(facts.quiet ?? goQuiet)();
 		},

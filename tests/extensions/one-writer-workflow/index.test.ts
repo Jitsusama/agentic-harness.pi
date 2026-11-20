@@ -28,6 +28,9 @@ const held = "01a1be5c-fff0-70a1-9301-f505d5634bf6";
  */
 let quieted = 0;
 
+/** What a test's pi did to end, in order: going quiet and shutting down. */
+const steps: string[] = [];
+
 type Handler = (event: unknown, ctx?: unknown) => unknown;
 
 /**
@@ -59,6 +62,7 @@ function loaded(
 		...own,
 		quiet: () => {
 			quieted += 1;
+			steps.push("quiet");
 		},
 	})(pi as never);
 	return handlers;
@@ -162,7 +166,9 @@ function context(session: string, mode: "tui" | "print") {
 		mode,
 		hasUI: mode === "tui",
 		ui: { notify: (line: string) => said.push(line) },
-		shutdown: vi.fn(),
+		shutdown: vi.fn(() => {
+			steps.push("shutdown");
+		}),
 		sessionManager: {
 			getSessionId: () => session,
 			getSessionFile: () => `/home/someone/.pi/sessions/${session}.jsonl`,
@@ -173,6 +179,7 @@ function context(session: string, mode: "tui" | "print") {
 
 afterEach(() => {
 	quieted = 0;
+	steps.splice(0);
 	for (const listener of listening.splice(0)) process.off("exit", listener);
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
@@ -270,6 +277,10 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			action: "handled",
 		});
 		expect(quieted, "it goes quiet, which ends it as a park").toBe(1);
+		expect(steps, "quiet before pi's shutdown can draw").toEqual([
+			"quiet",
+			"shutdown",
+		]);
 		expect(added, "no refusal's exit code").toEqual([]);
 	});
 
@@ -288,6 +299,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			false,
 		);
 		expect(existsSync(holder.wake), "it writes no wake").toBe(false);
+		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
@@ -310,6 +322,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			existsSync(holder.again),
 			"it names nothing to start next, which would drop the flag",
 		).toBe(false);
+		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
@@ -331,6 +344,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		expect(existsSync(holder.again), "it names nothing to start next").toBe(
 			false,
 		);
+		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
@@ -354,6 +368,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		expect(existsSync(holder.again), "it names nothing to start next").toBe(
 			false,
 		);
+		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
