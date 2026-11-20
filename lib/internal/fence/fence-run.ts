@@ -61,6 +61,7 @@ import {
 	seatbeltText,
 } from "./fence-seatbelt.ts";
 import {
+	makeCachesFirst,
 	plantedCache,
 	setAsidePlanted,
 	tempCodeCaches,
@@ -463,6 +464,7 @@ function macFenceText(
 	// held whatever TMPDIR this process was handed.
 	const caches = tempCodeCaches("darwin");
 	setAsidePlanted(caches);
+	makeCachesFirst(caches);
 	const macPlanted = plantedCache(caches);
 	if (macPlanted) return { refused: macPlanted };
 	// The Mac has no runtime folder, so the copy of npm's settings goes

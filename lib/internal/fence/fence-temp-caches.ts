@@ -23,7 +23,7 @@
 
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { lstatSync, realpathSync, renameSync } from "node:fs";
+import { lstatSync, mkdirSync, realpathSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DISK, type Disk } from "./fence-disk.ts";
@@ -150,6 +150,25 @@ export function setAsidePlanted(
 			);
 		} catch {
 			// Gone or moved meanwhile; one still there refuses the fence.
+		}
+	}
+}
+
+/**
+ * Make each of `folders` that isn't there, for the Mac's fence. Its
+ * rules name a folder by its path, and the Mac's disk ignores case, so
+ * a rule naming one not yet there can be walked round by making it in
+ * another case, which node and jiti outside then take as theirs; one
+ * already there is held whatever case a command names it in. Made for
+ * this account alone, as node and jiti would make it.
+ */
+export function makeCachesFirst(folders: readonly string[]): void {
+	for (const folder of folders) {
+		try {
+			mkdirSync(folder, { mode: 0o700 });
+		} catch {
+			// There already, or its folder can't take it; a link or file there
+			// refuses the fence.
 		}
 	}
 }

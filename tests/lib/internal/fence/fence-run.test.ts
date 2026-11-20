@@ -218,7 +218,8 @@ describe("refusing to run where the fence can't hold", () => {
 		const lines = made.text.split("\n");
 		const naming = (folder: string) =>
 			lines.filter((line) => line.includes(`"${folder}"`));
-		for (const cache of ["/tmp/jiti", own]) {
+		// As the kernel names them, which on a Mac is /private/tmp's.
+		for (const cache of [join(realpathSync("/tmp"), "jiti"), own]) {
 			// Its own deny names it as a subpath, so it can be neither written
 			// nor renamed (one not there is hidden whole); the folder above it
 			// can't be renamed either.

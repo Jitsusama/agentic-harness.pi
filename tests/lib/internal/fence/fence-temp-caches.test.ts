@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	makeCachesFirst,
 	setAsidePlanted,
 	TEMP_CODE_CACHES,
 	tempCodeCaches,
@@ -32,6 +33,17 @@ describe("setting aside what was planted where a cache belongs", () => {
 
 	afterEach(() => {
 		rmSync(temp, { recursive: true, force: true });
+	});
+
+	it("makes a cache not there for this account alone, and leaves a link where it is", () => {
+		const missing = join(temp, "jiti");
+		const link = join(temp, "node-compile-cache");
+		symlinkSync(join(temp, "elsewhere"), link);
+		makeCachesFirst([missing, link]);
+		expect(lstatSync(missing).isDirectory()).toBe(true);
+		expect(lstatSync(missing).mode & 0o777).toBe(0o700);
+		expect(lstatSync(link).isSymbolicLink()).toBe(true);
+		expect(existsSync(join(temp, "elsewhere"))).toBe(false);
 	});
 
 	it("moves a link and a file aside, named for when they were found", () => {
