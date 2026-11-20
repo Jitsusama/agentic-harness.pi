@@ -48,6 +48,7 @@ function loaded(
 		dir: listDir(holding),
 		rosters: rosterDir(keeping),
 		standing: async (_owner: TickedOwner) => host,
+		parks: parkDir(),
 		settleMs: 300,
 		...own,
 	})(pi as never);
@@ -119,6 +120,14 @@ function rosterDir(keeping: string[]): string {
 }
 
 const dirs: string[] = [];
+
+/** An empty park folder, so no test reads this machine's own parks. */
+function parkDir(): string {
+	const dir = mkdtempSync(join(tmpdir(), "one-writer-parks-"));
+	dirs.push(dir);
+	return dir;
+}
+
 function listDir(holding: string[]): string {
 	const dir = mkdtempSync(join(tmpdir(), "one-writer-ext-"));
 	dirs.push(dir);
@@ -213,7 +222,11 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 	it("hands its window to the host's view and ends as a park", async () => {
 		const holder = holderFor(4242);
 		const handlers = loaded([held], {
-			process: { env: holder.env, pid: 4242, args: ["--session", log] },
+			process: {
+				env: { ...holder.env, PI_SANDBOX: "fence" },
+				pid: 4242,
+				args: ["--session", log, "--model", "opus"],
+			},
 		});
 		const { ctx, said } = context(held, "tui");
 
@@ -232,9 +245,13 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			"--session",
 			held,
 			"--",
+			"env",
+			"PI_SANDBOX=fence",
 			"pi",
 			"--session",
 			log,
+			"--model",
+			"opus",
 		]);
 		expect(JSON.parse(readFileSync(holder.wake, "utf8"))).toMatchObject({
 			session: held,
@@ -329,6 +346,57 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		expect(existsSync(holder.again), "it names nothing to start next").toBe(
 			false,
 		);
+		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
+	});
+
+	it("hands over a prompt it took at start-up when it resumes into the conversation later", async () => {
+		const holder = holderFor(4242);
+		const handlers = loaded([held], {
+			process: {
+				env: holder.env,
+				pid: 4242,
+				args: ["--session", log, "hello"],
+			},
+		});
+		const { ctx } = context(held, "tui");
+
+		const added = await exitListenerOf(async () =>
+			handlers.get("session_start")?.({ reason: "resume" }, ctx),
+		);
+
+		expect(existsSync(holder.again), "it names the view next").toBe(true);
+		expect(exitCodeFrom(added[0] as () => void)).toBe(PARKED_EXIT);
+	});
+
+	it("hands over a hold its host keeps while down, whose view waits for it", async () => {
+		const holder = holderFor(4242);
+		const handlers = loaded([held], {
+			host: "gone",
+			process: { env: holder.env, pid: 4242, args: ["--session", log] },
+		});
+		const { ctx } = context(held, "tui");
+
+		const added = await exitListenerOf(async () =>
+			handlers.get("session_start")?.({ reason: "startup" }, ctx),
+		);
+
+		expect(existsSync(holder.again), "it names the view next").toBe(true);
+		expect(exitCodeFrom(added[0] as () => void)).toBe(PARKED_EXIT);
+	});
+
+	it("refuses, writing no wake, when what starts next can't be written", async () => {
+		const holder = holderFor(4242);
+		mkdirSync(holder.again);
+		const handlers = loaded([held], {
+			process: { env: holder.env, pid: 4242, args: ["--session", log] },
+		});
+		const { ctx } = context(held, "tui");
+
+		const added = await exitListenerOf(async () =>
+			handlers.get("session_start")?.({ reason: "startup" }, ctx),
+		);
+
+		expect(existsSync(holder.wake), "it wrote no wake").toBe(false);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 

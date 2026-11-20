@@ -276,12 +276,17 @@ describe("whether pi's arguments give it a prompt", () => {
 			true,
 		);
 		expect(promptIn(["--", "-hello"]), "after --").toBe(true);
+		expect(promptIn(["-"]), "a lone -, which reads stdin").toBe(true);
 	});
 
 	it("is not a session's or a carried flag's value, nor a lone --", () => {
 		expect(
 			promptIn(["--session", "/logs/a.jsonl", "--model", "opus"]),
 			"flags and their values",
+		).toBe(false);
+		expect(
+			promptIn(["--session-id", "01a1", "--thinking", "high"]),
+			"a session id and a carried flag's word",
 		).toBe(false);
 		expect(
 			promptIn(["--session=/logs/a.jsonl", "--offline"]),

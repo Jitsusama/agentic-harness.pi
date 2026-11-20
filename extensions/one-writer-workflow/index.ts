@@ -52,13 +52,17 @@ export function oneWriterWorkflow(looking: WriterLooking & OwnProcess = {}) {
 	return (pi: ExtensionAPI) => {
 		// Set once this pi refused its conversation; nothing is taken after.
 		let refused = false;
-		pi.on("session_start", async (_event, ctx) => {
+		pi.on("session_start", async (event, ctx) => {
 			if (hosted() || ctx.sessionManager.getSessionFile() === undefined) return;
 			const sessionId = ctx.sessionManager.getSessionId();
 			const hold = await writerHold(sessionId, looking);
 			if (!hold) return;
 			refused = true;
-			if (ctx.mode === "tui" && handedOver(ctx, sessionId, hold, looking))
+			const startup = event.reason === "startup";
+			if (
+				ctx.mode === "tui" &&
+				handedOver(ctx, sessionId, hold, { ...looking, startup })
+			)
 				return;
 			refuse(ctx, heldByHost(sessionId, hold));
 		});
@@ -73,15 +77,15 @@ export function oneWriterWorkflow(looking: WriterLooking & OwnProcess = {}) {
  * Hand this pi's window to its host's view, as a launcher opens one on a
  * hosted conversation, and end as a park, so the holder starts the view
  * at once in the same window. Only a pi its holder runs itself, with a
- * log, no prompt and no flags plain pi would drop should the view fall
- * back to it, on a hold its host can still run; false for any other, or
- * when the holder's files can't be written, leaving nothing named next.
+ * log, no prompt at start-up and no flags plain pi would drop should the
+ * view fall back to it, on a hold its host can still run; false for any
+ * other, or when the holder's files can't be written, leaving neither.
  */
 function handedOver(
 	ctx: ExtensionContext,
 	sessionId: string,
 	hold: HostHold,
-	own: OwnProcess,
+	own: OwnProcess & { readonly startup: boolean },
 ): boolean {
 	const env = own.env ?? process.env;
 	const args = own.args ?? process.argv.slice(2);
@@ -89,8 +93,9 @@ function handedOver(
 	const sessionFile = ctx.sessionManager.getSessionFile();
 	if (files === undefined || sessionFile === undefined) return false;
 	// A stranded hold's remedy is a host restart only the refusal names,
-	// and a prompt given here would be lost once the view takes over.
-	if (hold.stranded || promptIn(args)) return false;
+	// and a prompt given at start-up would be lost once the view takes
+	// over; a later start, as a resume, sent that prompt long before.
+	if (hold.stranded || (own.startup && promptIn(args))) return false;
 	if (flagsLost(args).length > 0) return false;
 	const view = viewWords(sessionId, holderCommand(sessionFile, args, env));
 	try {
@@ -105,9 +110,11 @@ function handedOver(
 		);
 	} catch {
 		// A holder that can't be told what's next ends with its window on a
-		// refusal, which still says how to reach the conversation; the
-		// words already written go, so it starts nothing half-told.
+		// refusal, which still says how to reach the conversation. Both
+		// files go, even one cut short as it was written, so the holder
+		// starts nothing half-told.
 		forget(files.again);
+		forget(files.wake);
 		return false;
 	}
 	ctx.ui.notify(
