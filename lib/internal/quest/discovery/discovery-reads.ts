@@ -379,21 +379,55 @@ function statKey(st: StatOf): string {
 }
 
 /**
- * The stat key of each file a signing need not read again: one whose
- * stamp vouches for its hash, where `keep` says that hash is enough.
+ * A file a signing need not read again, as the memo held it when the
+ * signing began: the stat its stamp was taken under and the hash that
+ * stamp vouches for. `keepRecord` puts back the record parsed from that
+ * hash, should a walk let it go while the signing reads, so the walk
+ * after it needn't read the file on the host's thread.
+ */
+export interface Skipped {
+	readonly stat: string;
+	readonly hash: string;
+	readonly keepRecord: () => void;
+}
+
+/**
+ * Each file a signing need not read again: one whose stamp vouches for
+ * its hash, and, where the walk `parses` it, whose record was parsed
+ * from that hash.
  */
 export function skippable(
-	keep: (path: string, hash: string) => boolean,
-): Map<string, string> {
-	const skip = new Map<string, string>();
-	for (const [path, { stat, hash }] of memo().stamps) {
-		if (keep(path, hash)) skip.set(path, stat);
+	parses: (path: string) => boolean,
+): Map<string, Skipped> {
+	const { stamps, readmes, documents } = memo();
+	const skip = new Map<string, Skipped>();
+	for (const [path, { stat, hash }] of stamps) {
+		const keepRecord = !parses(path)
+			? () => undefined
+			: (keeping(readmes, path, hash) ?? keeping(documents, path, hash));
+		if (keepRecord) skip.set(path, { stat, hash, keepRecord });
 	}
 	return skip;
 }
 
+/**
+ * What puts back `path`'s record in `table` while no other has taken
+ * its place, when the one there now was parsed from `hash`.
+ */
+function keeping<D>(
+	table: Map<string, Parsed<D>>,
+	path: string,
+	hash: string,
+): (() => void) | undefined {
+	const record = table.get(path);
+	if (record?.hash !== hash) return undefined;
+	return () => {
+		if (!table.has(path)) table.set(path, record);
+	};
+}
+
 /** The hash a file's stamp vouches for under this stat, if it does. */
-export function vouchedHash(path: string, st: StatOf): string | undefined {
+function vouchedHash(path: string, st: StatOf): string | undefined {
 	const known = memo().stamps.get(path);
 	return known && known.stat === statKey(st) ? known.hash : undefined;
 }
@@ -427,12 +461,6 @@ export function settled(st: StatOf): boolean {
 }
 
 const NS_PER_MS = 1_000_000n;
-
-/** Whether a parsed record is kept for this file under this hash. */
-export function recordFor(path: string, hash: string): boolean {
-	const { readmes, documents } = memo();
-	return (readmes.get(path) ?? documents.get(path))?.hash === hash;
-}
 
 function hashOf(bytes: Buffer): string {
 	return createHash("sha1").update(bytes).digest("hex");

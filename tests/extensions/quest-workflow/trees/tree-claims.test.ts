@@ -312,6 +312,13 @@ describe("hearing that a sweep took a tree", () => {
 	});
 
 	/**
+	 * How long a forgetting may take to land: on a host it waits on a
+	 * signing, read on a thread of its own, which a busy machine is slow
+	 * to start; within the test's own five seconds.
+	 */
+	const FORGETS_WITHIN = { timeout: 4_000 };
+
+	/**
 	 * What the quests under `root` list, once the forgetting settles. A
 	 * host answers no claims before its first walk, so an empty answer is
 	 * one from before the forgetting read the tree.
@@ -326,7 +333,7 @@ describe("hearing that a sweep took a tree", () => {
 			expect(claims.paths, "the tree the sweep took").not.toContain(gone);
 			expect(claims.paths, "read since the sweep").not.toEqual([]);
 			return claims.paths;
-		});
+		}, FORGETS_WITHIN);
 	}
 
 	it("drops a tree the sweep took from the quest that listed it", async () => {
@@ -348,7 +355,7 @@ describe("hearing that a sweep took a tree", () => {
 			expect(claims.paths, "what the quest lists after the sweep").toEqual([
 				"/src/repo/.worktrees/working",
 			]);
-		});
+		}, FORGETS_WITHIN);
 	});
 
 	it("leaves a quest's trees alone when the sweep took others", async () => {
@@ -422,7 +429,7 @@ describe("hearing that a sweep took a tree", () => {
 					expect(text, "the quest it could write").not.toContain("spent");
 					const lines = said.mock.calls.map(([line]) => String(line));
 					expect(lines.join("")).toContain("QEST-20260731-BBBBBB");
-				});
+				}, FORGETS_WITHIN);
 			} finally {
 				chmodSync(lockedDir, 0o700);
 				said.mockRestore();

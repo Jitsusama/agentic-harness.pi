@@ -80,12 +80,12 @@ vi.mock(
 			>();
 		return {
 			...actual,
-			readTreeOffThread: async (questsRoot: string) => {
+			readTreeOffThread: async (questsRoot: string, hangsAfterMs: number) => {
 				// Asked afresh at each step, since a walk an earlier test began
 				// may read on into this one and must not be heard as its own.
 				const ours = () => questsRoot === signing.root;
 				if (ours()) signing.walks += 1;
-				const read = await actual.readTreeOffThread(questsRoot);
+				const read = await actual.readTreeOffThread(questsRoot, hangsAfterMs);
 				if (ours()) signing.onRead?.();
 				if (signing.gate) await signing.gate;
 				if (ours()) signing.returned += 1;
@@ -364,7 +364,11 @@ describe("discovery on a host", () => {
 		discoverQuests(root);
 		openSignings = holdSignings();
 		later(6_000);
+		// Read before the clock moves, so the walk hangs on the gate, not
+		// on a thread whose wall the fake clock would end.
+		const read = nextRead();
 		discoverQuests(root);
+		await read;
 		const hung = discoverySettled(root);
 		await vi.advanceTimersByTimeAsync(30_000);
 		expect(await hung).toBe("gave up");

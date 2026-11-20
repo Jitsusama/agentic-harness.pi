@@ -4,26 +4,63 @@
  * 20 November signing 1,523 quests took 30 to 76 s there, since each of
  * its thousands of reads waited for a turn, and every write resting on
  * a signing was refused. These hold that a busy thread holds back the
- * reads by no more than the one turn it takes to hear them, and that
- * what is read is what the walk needs.
+ * reads by no more than the one turn it takes to hear them, that what
+ * is read is what the walk needs, and that the host reads nothing
+ * itself once the thread has answered.
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { clearDiscoveryCache } from "../../../../../lib/internal/quest/discovery/discovery.ts";
-import { readTreeOffThread } from "../../../../../lib/internal/quest/discovery/off-thread.ts";
-import { plan, settle, writeSettled } from "../support/discovery-tree.ts";
+import {
+	clearDiscoveryCache,
+	discoverQuests,
+} from "../../../../../lib/internal/quest/discovery/discovery.ts";
+import {
+	memo,
+	settled,
+} from "../../../../../lib/internal/quest/discovery/discovery-reads.ts";
+import {
+	pendingStampOf,
+	type ReadOffThread,
+	readTreeOffThread,
+} from "../../../../../lib/internal/quest/discovery/off-thread.ts";
+import {
+	answerInThread,
+	readTreeInThread,
+} from "../../../../../lib/internal/quest/discovery/tree-thread.ts";
+import {
+	plan,
+	settle,
+	settledTree,
+	writeSettled,
+} from "../support/discovery-tree.ts";
 
 /** How many quests the busy-thread tree holds, each with a plan. */
-const QUESTS = 200;
+const QUESTS = 100;
 
-/** How long the thread is held, as a conversation's turn may hold it. */
-const HELD_MS = 3_000;
+/**
+ * How long the thread is held, as a conversation's turn may hold it:
+ * long beside the fraction of a second the thread takes to read the
+ * tree, so a slow machine still lets it finish inside.
+ */
+const HELD_MS = 4_000;
 
 /** The turns the thread is given after it is let go. */
 const TURNS_AFTER = 5;
+
+/** The wall a signing's thread reads within here: far past any test. */
+const HANGS_AFTER_MS = 60_000;
+
+const NS_PER_MS = 1_000_000n;
 
 const roots: string[] = [];
 
@@ -42,10 +79,15 @@ function planId(n: number): string {
 	return `PLAN-20260604-${n.toString(36).toUpperCase().padStart(6, "0")}`;
 }
 
+function scratch(): string {
+	const dir = mkdtempSync(join(tmpdir(), "disc-thread-"));
+	roots.push(dir);
+	return dir;
+}
+
 /** A settled tree of `count` quests, each with a README and a plan. */
 function treeOf(count: number): string {
-	const root = mkdtempSync(join(tmpdir(), "disc-thread-"));
-	roots.push(root);
+	const root = scratch();
 	for (let n = 0; n < count; n++) {
 		const dir = join(root, questId(n));
 		mkdirSync(join(dir, "plans"), { recursive: true });
@@ -56,6 +98,13 @@ function treeOf(count: number): string {
 	}
 	settle(root);
 	return root;
+}
+
+/** What the thread read of `root`, which the memo kept throughout. */
+async function readOf(root: string): Promise<ReadOffThread> {
+	const read = await readTreeOffThread(root, HANGS_AFTER_MS);
+	if (!read) throw new Error("the memo was let go while the tree was read");
+	return read;
 }
 
 /** Hold this thread as a long turn would, taking no turn in between. */
@@ -70,11 +119,18 @@ function aTurn(): Promise<void> {
 	return new Promise((resolve) => setImmediate(resolve));
 }
 
+/** A program for a thread, written to a file of its own. */
+function programOf(source: string): string {
+	const path = join(scratch(), "program.mjs");
+	writeFileSync(path, source);
+	return path;
+}
+
 describe("readTreeOffThread", () => {
 	it("is read while the host's thread is held", async () => {
 		const root = treeOf(QUESTS);
 		let read = false;
-		const reading = readTreeOffThread(root).then((answer) => {
+		const reading = readOf(root).then((answer) => {
 			read = true;
 			return answer;
 		});
@@ -87,7 +143,7 @@ describe("readTreeOffThread", () => {
 
 	it("reads every listing, file and stamp the walk asks for", async () => {
 		const root = treeOf(2);
-		const { pass, rootStamp } = await readTreeOffThread(root);
+		const { pass, rootStamp } = await readOf(root);
 		const dir = join(root, questId(0));
 		const planPath = join(dir, "plans", `${planId(0)}.md`);
 		expect(rootStamp).toBeDefined();
@@ -105,8 +161,39 @@ describe("readTreeOffThread", () => {
 		]);
 		expect(pass.bytes.get(planPath)?.toString()).toBe(plan("P", planId(0)));
 		expect(pass.hashes.has(join(dir, "README.md")), "README hashed").toBe(true);
-		expect(pass.pending.get(dir)).toMatch(/\|/);
-		expect(pass.reals.get(dir)).toBe(dir);
+		expect(pass.pending.get(dir)).toBe(pendingStampOf(dir));
+		expect(pass.pending.get(dir)).toMatch(/\|(?!none)/);
+		expect(pass.reals.get(dir)).toBe(realpathSync(dir));
+	});
+
+	it("reads only the folders, links and files the walk reads", async () => {
+		const root = treeOf(1);
+		const dir = join(root, questId(0));
+		const elsewhere = scratch();
+		const brief = join(elsewhere, "BRIF-20260604-AAAAAA.md");
+		writeSettled(brief, plan("B", "BRIF-20260604-AAAAAA"));
+		symlinkSync(elsewhere, join(dir, "briefs"));
+		mkdirSync(join(root, ".trash", questId(1)), { recursive: true });
+		mkdirSync(join(root, "notes"));
+		const other = join(root, questId(2));
+		mkdirSync(join(other, "README.md"), { recursive: true });
+
+		const { pass } = await readOf(root);
+
+		expect(pass.reals.has(join(root, ".trash")), "a dot folder").toBe(false);
+		expect(pass.listings.has(join(root, ".trash")), "a dot folder").toBe(false);
+		expect(pass.reals.get(join(root, "notes"))).toBe(
+			realpathSync(join(root, "notes")),
+		);
+		expect(pass.listings.has(join(root, "notes")), "not a quest").toBe(false);
+		expect(
+			pass.bytes.get(join(dir, "briefs", "BRIF-20260604-AAAAAA.md")),
+			"a kind folder linked from elsewhere is read",
+		).toBeDefined();
+		expect(
+			pass.absent.has(join(other, "README.md")),
+			"a README that isn't a plain file is missing",
+		).toBe(true);
 	});
 
 	it("doesn't read a file again whose stamp still vouches", async () => {
@@ -114,8 +201,8 @@ describe("readTreeOffThread", () => {
 		const notes = join(root, questId(0), "plans", "notes.txt");
 		writeSettled(notes, "kept");
 		settle(join(root, questId(0), "plans"));
-		const first = await readTreeOffThread(root);
-		const second = await readTreeOffThread(root);
+		const first = await readOf(root);
+		const second = await readOf(root);
 		expect(first.pass.bytes.has(notes), "first read reads it").toBe(true);
 		expect(second.pass.bytes.has(notes), "second read skips it").toBe(false);
 		expect(second.pass.hashes.get(notes)).toBe(first.pass.hashes.get(notes));
@@ -125,22 +212,103 @@ describe("readTreeOffThread", () => {
 		const root = treeOf(1);
 		const notes = join(root, questId(0), "plans", "notes.txt");
 		writeSettled(notes, "before");
-		const first = await readTreeOffThread(root);
+		const first = await readOf(root);
 		writeSettled(notes, "after, and longer");
-		const second = await readTreeOffThread(root);
+		const second = await readOf(root);
 		expect(second.pass.bytes.get(notes)?.toString()).toBe("after, and longer");
 		expect(second.pass.hashes.get(notes)).not.toBe(
 			first.pass.hashes.get(notes),
 		);
 	});
 
+	it("keeps the record of a README it skipped, though a walk let it go meanwhile", async () => {
+		const { root, readmePath } = settledTree();
+		roots.push(root);
+		discoverQuests(root);
+		const record = memo().readmes.get(readmePath);
+		expect(record, "the walk parsed it").toBeDefined();
+
+		const reading = readOf(root);
+		memo().readmes.delete(readmePath);
+		const { pass } = await reading;
+
+		expect(pass.bytes.has(readmePath), "not read again").toBe(false);
+		expect(pass.hashes.get(readmePath)).toBe(record?.hash);
+		expect(memo().readmes.get(readmePath)).toBe(record);
+	});
+
+	it("answers nothing when the memo is let go while it reads", async () => {
+		const root = treeOf(1);
+		discoverQuests(root);
+
+		const reading = readTreeOffThread(root, HANGS_AFTER_MS);
+		clearDiscoveryCache();
+
+		expect(await reading).toBeUndefined();
+	});
+
 	it("reads no tree where none is, and says nothing stamps it", async () => {
-		const parent = mkdtempSync(join(tmpdir(), "disc-thread-"));
-		roots.push(parent);
-		const root = join(parent, "none");
-		const { pass, rootStamp } = await readTreeOffThread(root);
+		const root = join(scratch(), "none");
+		const { pass, rootStamp } = await readOf(root);
 		expect(rootStamp).toBeUndefined();
 		expect(pass.listings.get(root)).toBeUndefined();
 		expect(pass.hashes.size).toBe(0);
+	});
+
+	it("is refused, naming its root, when its thread doesn't answer in time", async () => {
+		const root = treeOf(1);
+		await expect(readTreeInThread(root, new Map(), 1)).rejects.toThrow(
+			`reading ${root}: Error: no answer within 1 ms`,
+		);
+	});
+});
+
+describe("a stat's settling", () => {
+	it("is judged by when the stat was taken, not when it is asked", () => {
+		const now = BigInt(Date.now()) * NS_PER_MS;
+		const written = now - 60_000n * NS_PER_MS;
+		const stat = { size: 1n, mtimeNs: written, ctimeNs: written, ino: 1n };
+		const second = 1_000n * NS_PER_MS;
+
+		expect(
+			settled({ ...stat, at: written + second }),
+			"a file a second old when its stat was taken",
+		).toBe(false);
+		expect(
+			settled({ ...stat, at: written + 3n * second }),
+			"a file three seconds old when its stat was taken",
+		).toBe(true);
+	});
+});
+
+describe("answerInThread", () => {
+	it("answers what the program first says", async () => {
+		const program = programOf(
+			'import { parentPort, workerData } from "node:worker_threads";\nparentPort.postMessage({ got: workerData });\n',
+		);
+		expect(await answerInThread(program, 7, HANGS_AFTER_MS)).toEqual({
+			got: 7,
+		});
+	});
+
+	it("is refused once its wall passes with no answer", async () => {
+		const program = programOf("setInterval(() => undefined, 1_000);\n");
+		await expect(answerInThread(program, null, 200)).rejects.toThrow(
+			"no answer within 200 ms",
+		);
+	});
+
+	it("is refused when its program ends without answering", async () => {
+		const program = programOf("process.exit(3);\n");
+		await expect(answerInThread(program, null, HANGS_AFTER_MS)).rejects.toThrow(
+			"the thread ended (3) unanswered",
+		);
+	});
+
+	it("is refused with what its program threw", async () => {
+		const program = programOf('throw new Error("the disk is on fire");\n');
+		await expect(answerInThread(program, null, HANGS_AFTER_MS)).rejects.toThrow(
+			"the disk is on fire",
+		);
 	});
 });

@@ -8,33 +8,24 @@
  */
 
 import { statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { isId, prefixOf } from "../creation/id.ts";
 import {
 	type Entry,
 	hashRead,
+	memo,
 	newPass,
 	type Pass,
-	recordFor,
+	type Skipped,
 	type StatOf,
 	settled,
 	skippable,
-	vouchedHash,
 } from "./discovery-reads.ts";
 import {
 	type EntryKind,
 	readTreeInThread,
-	type StatRead,
 	type TreeRead,
 } from "./tree-thread.ts";
-
-/**
- * The longest a signing's thread may read before its disk is taken to
- * hang and the thread is ended, as `discovery.ts` frees a hung
- * signing's root after as long.
- */
-const READ_HANGS_AFTER_MS = 5 * 60_000;
 
 /**
  * A folder's stat, as a host compares it to see an entry made or
@@ -97,15 +88,19 @@ export interface ReadOffThread {
  * thread of its own, reading again no file whose stamp still vouches.
  * The root's stat is taken first, so a quest made while it reads leaves
  * a stamp that no longer matches and the next ask signs at once.
- * Rejects when the thread fails or its disk hangs.
+ * Undefined when the memo was let go while it read, as a reload does,
+ * since what it skipped is then vouched for by nothing the walk keeps.
+ * Rejects when the thread fails, or reads past `hangsAfterMs`.
  */
 export async function readTreeOffThread(
 	questsRoot: string,
-): Promise<ReadOffThread> {
-	const skip = skippable(
-		(path, hash) => !parsedByTheWalk(path) || recordFor(path, hash),
-	);
-	const read = await readTreeInThread(questsRoot, skip, READ_HANGS_AFTER_MS);
+	hangsAfterMs: number,
+): Promise<ReadOffThread | undefined> {
+	const m = memo();
+	const skip = skippable(parsedByTheWalk);
+	const keys = new Map([...skip].map(([path, { stat }]) => [path, stat]));
+	const read = await readTreeInThread(questsRoot, keys, hangsAfterMs);
+	if (memo() !== m) return undefined;
 	const pass = newPass();
 	const rootStamp = read.root ? stampOf(read.root) : undefined;
 	for (const [path, entries] of read.listings) {
@@ -123,17 +118,21 @@ export async function readTreeOffThread(
 			stamp === undefined ? undefined : joined(stamp, readme ?? undefined),
 		);
 	}
-	await filesInto(read, pass);
+	filesInto(read, skip, pass);
 	return { pass, rootStamp };
 }
 
 /**
- * Each file the thread read into the pass: a hash its stamp vouches
- * for, else its bytes', else missing. A file the thread skipped whose
- * stamp no longer vouches, since the memo moved on while it read, is
- * read here, off the thread.
+ * Each file the thread read into the pass: its bytes' hash; for one it
+ * skipped, the hash its stamp vouched for when the signing began, with
+ * the record parsed from it; else missing. Nothing is read here, so the
+ * host's thread waits on no disk.
  */
-async function filesInto(read: TreeRead, pass: Pass): Promise<void> {
+function filesInto(
+	read: TreeRead,
+	skip: ReadonlyMap<string, Skipped>,
+	pass: Pass,
+): void {
 	for (const [path, st, bytes] of read.files) {
 		if (!st) {
 			pass.absent.add(path);
@@ -143,29 +142,10 @@ async function filesInto(read: TreeRead, pass: Pass): Promise<void> {
 			hashRead(path, st, bufferOf(bytes), pass);
 			continue;
 		}
-		const vouched = vouchedHash(path, st);
-		const enough =
-			vouched !== undefined &&
-			(!parsedByTheWalk(path) || recordFor(path, vouched));
-		if (vouched !== undefined && enough) {
-			pass.hashes.set(path, vouched);
-			continue;
-		}
-		await readAgain(path, st, pass);
-	}
-}
-
-/** A skipped file's bytes, read once its stamp no longer vouches. */
-async function readAgain(
-	path: string,
-	st: StatRead,
-	pass: Pass,
-): Promise<void> {
-	try {
-		hashRead(path, st, await readFile(path), pass);
-	} catch {
-		// Missing or unreadable: the signature leaves it out, as it would.
-		pass.absent.add(path);
+		const skipped = skip.get(path);
+		if (!skipped) throw new Error(`the thread skipped ${path} unasked`);
+		pass.hashes.set(path, skipped.hash);
+		skipped.keepRecord();
 	}
 }
 

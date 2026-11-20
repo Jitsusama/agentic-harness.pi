@@ -622,8 +622,9 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 	const seeds = seedsOf({});
 	if (seeds) takeSeed(questsRoot, seeds.dir, seeds.code);
 	const work = (async (): Promise<SigningEnd> => {
-		const { pass, rootStamp } = await readTreeOffThread(questsRoot);
-		if (memo() !== m) return "dropped";
+		const read = await readTreeOffThread(questsRoot, SIGNING_HUNG_AFTER_MS);
+		if (!read || memo() !== m) return "dropped";
+		const { pass, rootStamp } = read;
 		const cached = m.cache.get(questsRoot);
 		if (cached && cached.signedAt > signedAt) return "dropped";
 		const signature = discoverySignature(questsRoot, pass);
