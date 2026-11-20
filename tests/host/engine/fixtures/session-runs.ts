@@ -50,6 +50,8 @@ export interface Observed {
 	readonly ran?: number;
 	/** The words pi's screen listed as pending once the run ended. */
 	readonly pendingAtEnd?: readonly string[];
+	/** The messages pi's session log holds, as an extension reads its branch. */
+	readonly logged?: readonly unknown[];
 	/** The patches of seams the host wants that its pi lacks. */
 	readonly lacking?: readonly string[];
 }

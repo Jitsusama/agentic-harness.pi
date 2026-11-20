@@ -31,6 +31,7 @@ import {
 	noticeSeen,
 	refused,
 	refusedUnmarked,
+	stoppedShort,
 	TIMEOUTS,
 } from "./support/cut-off-session.ts";
 
@@ -83,7 +84,7 @@ describe("a session whose host carried its run on", () => {
 		}
 	});
 
-	it("is told nothing once the carried run shows, runs or the session ends", async () => {
+	it("is told nothing once the carried run shows or the session ends", async () => {
 		const host = installTestHost();
 		// A shutdown yields once with setImmediate, which stays real.
 		vi.useFakeTimers({ toFake: TIMEOUTS });
@@ -98,14 +99,6 @@ describe("a session whose host carried its run on", () => {
 			await answered.fire("session_start", { reason: "startup" });
 			answered.branch.push(message("assistant", { stopReason: "stop" }));
 
-			const running = activate(
-				[message("user"), record],
-				new EventEmitter(),
-				"s2",
-			);
-			await running.fire("session_start", { reason: "startup" });
-			running.session.busy = true;
-
 			const closed = activate(
 				[message("user"), record],
 				new EventEmitter(),
@@ -118,11 +111,10 @@ describe("a session whose host carried its run on", () => {
 			expect(
 				{
 					answered: answered.said.length,
-					running: running.said.length,
 					closed: closed.said.length,
 				},
-				"a carried run that showed, one under way, and an ended session",
-			).toEqual({ answered: 0, running: 0, closed: 0 });
+				"a carried run that showed, and an ended session",
+			).toEqual({ answered: 0, closed: 0 });
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
@@ -404,12 +396,25 @@ describe("a session whose host carried its run on", () => {
 			await pi.fire("session_start", { reason: "startup" });
 			const third = CARRIED_RUN_WAIT_MS / 3;
 			await vi.advanceTimersByTimeAsync(2 * third);
+			// A carried run that failed with no settle, read from where the
+			// return began, not from where the reload found the log.
+			pi.branch.push(aborted);
 			await pi.fire("session_shutdown", { reason: "reload" });
 			await pi.fire("session_start", { reason: "reload" });
 			await vi.advanceTimersByTimeAsync(third - 1_000);
 			expect(pi.said, "nothing before its clock").toHaveLength(0);
 			await vi.advanceTimersByTimeAsync(1_000);
 			expect(pi.said, "told as its clock ran out").toHaveLength(1);
+			expect(pi.said[0], "of the answer since its return").toMatch(FAILED_TEXT);
+
+			// The person's words before a reload still count after it.
+			const typed = activate(killedLog(), new EventEmitter(), "s2");
+			await typed.fire("session_start", { reason: "startup" });
+			await typed.fire("input", { text: "wait", source: "interactive" });
+			await typed.fire("session_shutdown", { reason: "reload" });
+			await typed.fire("session_start", { reason: "reload" });
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(typed.said, "the person was there").toHaveLength(0);
 
 			// A reload once the wait has ended has none to go on with.
 			await noticeSeen(pi);
@@ -458,9 +463,14 @@ describe("a session whose host carried its run on", () => {
 
 			const stopped = activate(killedLog(), new EventEmitter(), "s2");
 			await stopped.fire("session_start", { reason: "startup" });
-			await carriedRun(stopped, interrupted, undefined, { aborted: true });
+			await carriedRun(stopped, interrupted, stoppedShort, { aborted: true });
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(stopped.said, "the clock tells, once").toHaveLength(1);
+			expect(stopped.said[0], "a stopped answer is no run").toMatch(
+				/mid-run, and nothing has resumed it since/,
+			);
+			// Seen, so the outbox would send a second at once.
+			await noticeSeen(stopped);
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(stopped.said, "and only once").toHaveLength(1);
 		} finally {

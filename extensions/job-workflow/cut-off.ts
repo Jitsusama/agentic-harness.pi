@@ -35,11 +35,12 @@
  * the next host failed a run it had cut mid-answer, and the session,
  * told nothing, sat until a mesh message came. So a hosted session
  * whose record says carried waits for the run to show an answer that
- * isn't an error, and is told it was cut off if, with nothing typed,
- * a run settles with none, or none has started within
- * `CARRIED_RUN_WAIT_MS`. A carried run waits its turn behind
- * every other the restart carries, so how long it takes to start says
- * nothing of whether it was carried; only how it ends does.
+ * isn't an error. With nothing typed, it is told at once of a run that
+ * ends in one, and told it was cut off if no answer has come once
+ * `CARRIED_RUN_WAIT_MS` is up and it rests. A carried run waits its
+ * turn behind every other the restart carries, so how long it takes
+ * to start says nothing of whether it was carried; only how it ends
+ * does.
  *
  * A host's run is carried from its own record, whatever ended the last
  * host, so a hosted log that stops mid-run waits the same way. On 20
@@ -220,7 +221,10 @@ export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
  * kill cut before the run it carries answers, or fails; nor the error a
  * host answers a run it never admitted, as one asked while it carries
  * another on, which says nothing of how that one went. The host marks
- * those (cut-off-record.ts).
+ * those (cut-off-record.ts). Nor is an answer stopped short, as a
+ * compaction, a peer's Stop or a bare Escape stops one: the person
+ * typing since ends the wait on its own, and otherwise the run is still
+ * owed.
  */
 export function carriedRunWent(
 	branch: readonly unknown[],
@@ -231,7 +235,7 @@ export function carriedRunWent(
 		if (roleOf(entry) !== "assistant") continue;
 		const message = field(entry, "message");
 		const stopped = field(message, "stopReason");
-		if (isRefusedRun(message)) continue;
+		if (isRefusedRun(message) || stopped === "aborted") continue;
 		if (stopped === "error" && refusedAsBusy(field(message, "errorMessage")))
 			continue;
 		return stopped === "error" || stopped === "toolUse" ? "failed" : "answered";

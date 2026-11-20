@@ -43,6 +43,9 @@ export const aborted = message("assistant", {
 	errorMessage: "This operation was aborted",
 });
 
+/** An answer stopped short, as pi leaves one a compaction, a Stop or an Escape aborts. */
+export const stoppedShort = message("assistant", { stopReason: "aborted" });
+
 /**
  * The answer a host ends a run with when durable refuses it, busy with
  * the carried run: hosted-agent.ts's `fail`, marked as the host's own.
@@ -56,11 +59,12 @@ export const refused = message("assistant", {
 
 /**
  * The same answer as a host wrote it before it marked one, known only
- * by durable's `ConversationBusy` words.
+ * by durable's `ConversationBusy` words: `Conversation ${conversationId}
+ * is busy`, in its errors.js, whose ids are numbers (durable-types.ts).
  */
 export const refusedUnmarked = message("assistant", {
 	stopReason: "error",
-	errorMessage: "Conversation c1 is busy",
+	errorMessage: "Conversation 17 is busy",
 });
 
 /** The result a host gives the tool call a kill cut, as it carries the run on. */

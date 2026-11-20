@@ -311,6 +311,13 @@ describe("the hosted agent continued once durable's session closed", {
 				answers.map((message) => isRefusedRun(message)),
 				"only the answer to the run never admitted is marked the host's",
 			).toEqual([false, true]);
+			const logged = (observed.logged ?? []).filter(
+				(message) => isRecord(message) && message.role === "assistant",
+			);
+			expect(
+				logged.map((message) => isRefusedRun(message)),
+				"the mark kept in the log the job workflow reads",
+			).toEqual([false, true]);
 		},
 	);
 });

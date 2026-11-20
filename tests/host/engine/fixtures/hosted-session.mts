@@ -1321,6 +1321,9 @@ try {
 	await session.agent.waitForIdle();
 	const transcript = session.agent.state.messages.map(comparable);
 	const pendingAtEnd = [...session.getFollowUpMessages()];
+	const logged = session.sessionManager
+		.getEntries()
+		.flatMap((entry) => (entry.message ? [comparable(entry.message)] : []));
 	session.dispose();
 	if (!storeClosed) await conversation?.close();
 	const ran = existsSync(effects())
@@ -1331,6 +1334,7 @@ try {
 			events,
 			transcript,
 			pendingAtEnd,
+			logged,
 			lacking: pi.lacking.map((seam) => seam.patch),
 			...(scenario.persist ? { ran } : {}),
 		})}\n`,
