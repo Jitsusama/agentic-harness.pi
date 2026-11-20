@@ -522,6 +522,21 @@ describe("a snapshot at a stranded tree's commit", () => {
 		).toContain("snapshot-other");
 	});
 
+	it("is cut again into the empty folder a subvolume makes first", async () => {
+		// Where each tree is a subvolume, the cut makes it at the tree's
+		// name before git runs, so git's gone entry meets an empty folder.
+		const cut = await killedCut(LOCK_STALE_MS + 60_000);
+		await setAside([{ path: cut.path, why: REFUSED }], {
+			into: strandedDir(trees),
+		});
+		mkdirSync(cut.path);
+
+		await expect(cut.provider.ensure(cut.request)).resolves.toEqual({
+			path: cut.path,
+		});
+		expect(await git(cut.path, "rev-parse", "HEAD")).toBe(cut.commit);
+	});
+
 	/**
 	 * Cut a snapshot from one clone, killed as git marked it locked, or
 	 * locked by hand for `reason`.

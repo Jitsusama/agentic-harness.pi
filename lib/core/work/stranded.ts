@@ -239,7 +239,7 @@ function unlink(aside: string): void {
 
 /**
  * Forget git's entry, in the repository whose common folder is
- * `commonDir`, for a worktree at `path` whose folder is gone, as
+ * `commonDir`, for a worktree at `path` whose folder is gone or empty, as
  * `worktree prune` would but for that one entry alone, so the other
  * entries in that repository stay as they are. One git marks locked
  * stays while its lock is younger than {@link LOCK_STALE_MS}, as a
@@ -253,7 +253,9 @@ export function forgetGoneEntry(
 	path: string,
 	now = Date.now(),
 ): boolean {
-	if (existsSync(path)) return false;
+	// An empty folder is as gone to git, and is what the cut makes first
+	// where each tree is a subvolume of its own.
+	if (holdsSomething(path)) return false;
 	const entries = join(commonDir, "worktrees");
 	// git writes the real path, which only the folder's parent still has.
 	const wanted = new Set([
@@ -294,6 +296,16 @@ function lockedByHand(entry: string): boolean {
 		);
 	} catch {
 		// No lock on it.
+		return false;
+	}
+}
+
+/** Whether anything stands at `path` other than an empty folder. */
+function holdsSomething(path: string): boolean {
+	try {
+		return !lstatSync(path).isDirectory() || readdirSync(path).length > 0;
+	} catch {
+		// Nothing there at all.
 		return false;
 	}
 }
@@ -396,7 +408,9 @@ export async function setAside(
 			} catch (error) {
 				// Another reclaim, or the sweep, may have taken it first.
 				gone = !existsSync(tree.path);
-				refused = error instanceof Error ? error.message : String(error);
+				refused = plainWords(
+					error instanceof Error ? error.message : String(error),
+				);
 				return false;
 			}
 			unlink(aside);
