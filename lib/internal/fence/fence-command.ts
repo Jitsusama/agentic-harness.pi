@@ -31,6 +31,12 @@ const UNSET = [
 ] as const;
 
 /**
+ * The descriptor bubblewrap reads its arguments file on, which it closes
+ * once read, so the command inside never holds it.
+ */
+const ARGS_FD = 3;
+
+/**
  * The shell text that runs `command` in the agent fence: bubblewrap
  * with `args`, around landrun with `rules`. Every variable the shell
  * exports goes in but those naming the desktop, Nix is reached
@@ -38,7 +44,9 @@ const UNSET = [
  * `agent`, the proxy, GitHub is reached through `github`, its door,
  * `shims`, the fence's `wl-copy` and `wl-paste`, go first on
  * `PATH`, and `display`, the sandboxed display, is the one
- * `WAYLAND_DISPLAY` names, each when there is one.
+ * `WAYLAND_DISPLAY` names, each when there is one. With `argsFile`, the
+ * file holding `args` (`fence-args-file.ts`), bubblewrap reads them from
+ * it, so the text stays short however many there are.
  */
 export function fencedCommand(
 	command: string,
@@ -46,6 +54,7 @@ export function fencedCommand(
 		readonly bwrap: string;
 		readonly landrun: string;
 		readonly args: readonly string[];
+		readonly argsFile?: string;
 		readonly rules: readonly string[];
 		readonly door?: string;
 		readonly agent?: string;
@@ -71,7 +80,9 @@ export function fencedCommand(
 		[
 			`${SANDBOXED_COMMAND}=${quoted(command)}`,
 			quoted(fence.bwrap),
-			...fence.args.map(quoted),
+			...(fence.argsFile
+				? [`--args ${ARGS_FD} ${ARGS_FD}<${quoted(fence.argsFile)}`]
+				: fence.args.map(quoted)),
 			"--",
 			quoted(fence.landrun),
 			...fence.rules.map(quoted),

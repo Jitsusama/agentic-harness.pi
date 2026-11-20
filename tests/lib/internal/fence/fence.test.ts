@@ -11,6 +11,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	writeFileSync,
@@ -30,10 +31,21 @@ import {
 	wrapFor,
 } from "../../../../lib/internal/sandbox/sandbox.ts";
 import { fileToolRefusal } from "../../../../lib/internal/sandbox/sandbox-files.ts";
+import { quoted } from "../../../../lib/internal/sandbox/sandbox-shell.ts";
 
 const STORE_OFFLOAD = "/nix/store/0000-nix-offload/bin/nix-offload";
 const DRV = `/nix/store/${"a".repeat(32)}-check.drv`;
 const STORE_ENV = "/nix/store/0000-coreutils/bin/env";
+
+/**
+ * `text` with the arguments bubblewrap reads from a file written into
+ * it, as the text would carry them had there been no file.
+ */
+function argsReadIn(text: string): string {
+	return text.replace(/--args 3 3<'([^']+)'/, (_, file: string) =>
+		readFileSync(file, "utf8").split("\0").slice(0, -1).map(quoted).join(" "),
+	);
+}
 
 /** A finder that knows `programs`, as PATH would. */
 function finder(programs: Record<string, string>) {
@@ -125,14 +137,16 @@ describe("what a session asking for the fence is given", () => {
 		expect(fence).toMatchObject({ githubDoor: "/bin/pi-github-door" });
 		const home = realpathSync(mkdtempSync(join(tmpdir(), "fence-door-")));
 		const text = (session: string) =>
-			wrapFor(
-				fence,
-				{
-					cwd: home,
-					env: { XDG_RUNTIME_DIR: "/run/user/1000", PI_SESSION_ID: session },
-				},
-				home,
-			)?.("true") ?? "";
+			argsReadIn(
+				wrapFor(
+					fence,
+					{
+						cwd: home,
+						env: { XDG_RUNTIME_DIR: "/run/user/1000", PI_SESSION_ID: session },
+					},
+					home,
+				)?.("true") ?? "",
+			);
 		expect(text("s-1"), "the session wasn't opened").toContain(
 			"'/bin/pi-github-door' open 's-1'",
 		);

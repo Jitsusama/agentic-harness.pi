@@ -68,6 +68,7 @@ import {
 	guardsGitFolder,
 	nixDoor,
 } from "../fence/fence.ts";
+import { bwrapArgsFile } from "../fence/fence-args-file.ts";
 import { fenceShims } from "../fence/fence-clipboard.ts";
 import { fencedCommand } from "../fence/fence-command.ts";
 import { DIRENV_VARIABLE, fencedDirenv } from "../fence/fence-direnv.ts";
@@ -687,10 +688,15 @@ export function wrapFor(
 			// Never waited on: a command started first finds what the own
 			// homes held already.
 			void seedOwnHomes(home, own);
+			const args = fenceArgs(fence);
+			// Read from a file, since in the text they can pass the 128 KiB
+			// Linux takes in one string; in it only where no file can be had.
+			const argsFile = bwrapArgsFile(fence.runtimeDir, args);
 			const made = {
 				bwrap: sandbox.bwrap,
 				landrun: sandbox.landrun,
-				args: fenceArgs(fence),
+				args,
+				...(argsFile ? { argsFile } : {}),
 				rules: fenceRules(fence),
 				door: nixDoor(fence.runtimeDir),
 				agent: agentProxy(fence.runtimeDir),
