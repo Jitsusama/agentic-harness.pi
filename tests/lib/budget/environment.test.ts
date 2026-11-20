@@ -245,7 +245,7 @@ describe("an inherited opt-out set aside", () => {
 
 		setAsideOptedOut(env, overlay);
 		layBudget(env, delta, overlay);
-		expect("PI_BUDGET_OPTED_OUT" in env).toBe(false);
+		expect(Object.keys(env)).not.toContain("PI_BUDGET_OPTED_OUT");
 
 		liftBudget(env, overlay);
 		expect(env).toEqual({ PI_BUDGET_OPTED_OUT: "1" });
