@@ -85,6 +85,18 @@ async function launchBrowser(): Promise<Browser> {
 }
 
 /**
+ * Whether a browser answers DevTools over its pipe alone. One launched
+ * before the port was dropped was started without the flag.
+ */
+export function keepsToThePipe(browser: Browser): boolean {
+	const args = browser.process()?.spawnargs ?? [];
+	return (
+		args.includes("--remote-debugging-pipe") &&
+		!args.some((arg) => arg.startsWith("--remote-debugging-port"))
+	);
+}
+
+/**
  * Get the shared headless Chrome instance, launching it if
  * needed. Concurrent callers share one in-flight launch, so two
  * extensions reaching for the browser in the same tick do not
@@ -95,9 +107,12 @@ export async function getBrowser(): Promise<Browser> {
 	// Wait out an in-flight teardown so we never hand back a browser that
 	// is closing, nor race a relaunch against its profile removal.
 	if (state.closing) await state.closing;
-	if (state.browser?.connected) return state.browser;
+	if (state.browser?.connected && keepsToThePipe(state.browser))
+		return state.browser;
 	// A browser that exists but has disconnected is stale: retire it (and
-	// its still-running process) before launching a replacement.
+	// its still-running process) before launching a replacement. So is one
+	// an older harness launched with a DevTools port, which outlives a
+	// reload on this process-global and would keep the port open.
 	if (state.browser) await closeBrowser();
 	if (state.launching) return state.launching;
 	state.launching = launchBrowser();

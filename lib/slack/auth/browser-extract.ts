@@ -88,7 +88,15 @@ export async function extractFromBrowser(
 	const browser = await puppeteer.launch({
 		executablePath: chromePath,
 		headless: options.headless ?? false,
-		args: ["--no-sandbox", "--disable-setuid-sandbox"],
+		// DevTools over the pipe alone, as the warm browser does: a port
+		// answers any process on the machine, and this Chrome holds the
+		// person's Slack session.
+		args: [
+			"--no-sandbox",
+			"--disable-setuid-sandbox",
+			"--remote-debugging-pipe",
+		],
+		pipe: true,
 		// Puppeteer's handlers answer SIGINT with process.exit, taking the
 		// exit from the host; the ones installed below kill Chrome without.
 		handleSIGINT: false,

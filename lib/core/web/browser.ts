@@ -19,7 +19,7 @@
  * - idle.ts: when an idle browser closes.
  * - profile.ts: this process's profile and its owner record.
  * - loop.ts: whether the browser holds the event loop.
- * - launch.ts: starting Chrome, and joining another process's.
+ * - launch.ts: starting Chrome, its DevTools over the pipe alone.
  * - shared.ts: the one shared browser's lifetime.
  * - tabs.ts: the tabs callers open in it.
  */
@@ -34,7 +34,6 @@ export {
 	shouldCloseWhenIdle,
 	shouldForceKill,
 } from "./browser/idle.ts";
-export { connectShared } from "./browser/launch.ts";
 export { holdEventLoop, releaseEventLoop } from "./browser/loop.ts";
 export { isPidAlive } from "./browser/profile.ts";
 export {

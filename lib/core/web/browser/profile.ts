@@ -22,7 +22,7 @@ import { killPidGroup, type OwnerRecord, reapOrphans } from "./reaping.ts";
  * by a prior run that a SIGKILL or crash could not clean, which
  * is the orphan the clean-exit teardown never reclaims.
  */
-export const PROFILE_ROOT = path.join(os.tmpdir(), "pi-web-chrome");
+const PROFILE_ROOT = path.join(os.tmpdir(), "pi-web-chrome");
 
 /**
  * This process's own profile directory, resolved once and shared
@@ -46,7 +46,7 @@ function ownerFile(profileDir: string): string {
 }
 
 /** Read a profile's ownership record, or undefined if absent or unreadable. */
-export function readOwnerRecord(profileDir: string): OwnerRecord | undefined {
+function readOwnerRecord(profileDir: string): OwnerRecord | undefined {
 	try {
 		const raw = fs.readFileSync(ownerFile(profileDir), "utf8");
 		const rec = JSON.parse(raw);
@@ -67,17 +67,14 @@ export function isPidAlive(pid: number): boolean {
 	}
 }
 
-/** Record who owns this profile, which Chrome pid it launched, and how a
- * separate process can reach that same browser. */
+/** Record who owns this profile and which Chrome pid it launched. */
 export function writeOwnerRecord(
 	profileDir: string,
 	browserPid?: number,
-	browserWSEndpoint?: string,
 ): void {
 	const record: OwnerRecord = {
 		ownerPid: process.pid,
 		browserPid,
-		browserWSEndpoint,
 	};
 	try {
 		fs.writeFileSync(ownerFile(profileDir), JSON.stringify(record));
