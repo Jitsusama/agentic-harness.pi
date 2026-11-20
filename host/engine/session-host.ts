@@ -101,6 +101,14 @@ interface Conversation extends ConversationIdentity {
 	disposed: boolean;
 }
 
+/** What hears a host's changes, each once it is published. */
+export interface HostChanges {
+	/** What the host runs changed: one registered, or one's state. */
+	changed(): void;
+	/** A conversation left, ended by a stop or a close, saying why. */
+	left(ending: "signalled" | "closed", why: string): void;
+}
+
 /** One host's live ownership; persisted restart rosters belong to the service. */
 export class SessionHost implements Host {
 	readonly kind = "pi-durable";
@@ -123,6 +131,7 @@ export class SessionHost implements Host {
 	private readonly uninstall: () => void;
 	private readonly own: NodeJS.ProcessEnv = process.env;
 	private disposed = false;
+	private readonly changes?: HostChanges;
 	// While draining, the conversations woken from a park since it began,
 	// which the person asked for and which aren't drained again.
 	private wokenInDrain?: Set<string>;
@@ -133,6 +142,8 @@ export class SessionHost implements Host {
 		registryDir?: string;
 		/** The folder the fence keeps read-only, which a record must lie in to name a fence. */
 		closedState?: string;
+		/** Hears each change once it is published, as a child host follows its one conversation. */
+		changes?: HostChanges;
 	}) {
 		if (
 			!options.key ||
@@ -150,6 +161,7 @@ export class SessionHost implements Host {
 		mkdirSync(folder, { recursive: true, mode: 0o755 });
 		closeToOthers(folder, this.closedState);
 		this.closedAtStart = closedIn(folder, this.closedState);
+		if (options.changes) this.changes = options.changes;
 		const unhost = installHost(this);
 		// Code that reads process.env directly sees its own conversation's.
 		const unview = installConversationEnv(this);
@@ -449,6 +461,7 @@ export class SessionHost implements Host {
 					if (conversation.fence) this.leftRunning.set(id, conversation.fence);
 				}
 				releaseSession(id);
+				this.changes?.left(conversation.ending ?? how, why);
 			})
 			.finally(() => {
 				conversation.closing = undefined;
@@ -628,6 +641,7 @@ export class SessionHost implements Host {
 			conversation.fenceUnwritten = false;
 		// Any write that lands ends an outage, a turn's state most often.
 		this.saidUnwritten = undefined;
+		this.changes?.changed();
 	}
 }
 

@@ -8,7 +8,7 @@
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import { attachWaits } from "./attach-waits.ts";
-import type { ControlBackend } from "./dispatch.ts";
+import { type ControlBackend, hostRefusal } from "./dispatch.ts";
 import type { ControlRequest, SessionIdentity } from "./protocol.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import type { HostRoster } from "./roster.ts";
@@ -485,6 +485,9 @@ export function hostBackend(options: {
 					return end(request.sessionId, "released", request.by);
 				case "drain":
 					return drain(request.on, request.by);
+				case "watch":
+					// Only a child host, one conversation to a process, is watched.
+					throw hostRefusal("unsupported", "This host has no watch");
 				case "abort":
 					await startOwes(request.sessionId);
 					live(request.sessionId);

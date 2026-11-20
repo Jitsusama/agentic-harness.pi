@@ -7,6 +7,12 @@ const MAX_REALM_LENGTH = 64;
 // The same rule lib/internal/machine/realm.ts holds a realm name to.
 const REALM_NAME = /^[a-z0-9-]+$/;
 
+/**
+ * The command line a child host is started with: one conversation in a
+ * process of its own, which its host's supervisor starts (child.ts).
+ */
+export const CHILD_FLAG = "--child";
+
 /** A host's kind: an attended screen or background work. */
 export type HostKind = "attended" | "background";
 
@@ -36,6 +42,32 @@ export function hostKey(realm: string, kind: HostKind): string {
 	if (kind !== "attended" && kind !== "background")
 		throw new Error("Host kind must be attended or background");
 	return `${realm}-${kind}`;
+}
+
+/** The realm and kind a host key names, refusing one hostKey wouldn't make. */
+export function hostKeyParts(key: string): { realm: string; kind: HostKind } {
+	const parts = /^(.+)-(attended|background)$/.exec(key);
+	const [, realm, kind] = parts ?? [];
+	if (!(realm && (kind === "attended" || kind === "background")))
+		throw new Error(`${key} isn't a host key, realm-attended or realm-background`);
+	hostKey(realm, kind);
+	return { realm, kind };
+}
+
+/** The folder a realm-kind host's children listen in, beside its own socket. */
+export function childFolder(
+	key: string,
+	runtimeDir = process.env.XDG_RUNTIME_DIR,
+): string {
+	hostKeyParts(key);
+	if (!runtimeDir || !isAbsolute(runtimeDir))
+		throw new Error("Host requires an absolute XDG_RUNTIME_DIR");
+	return join(runtimeDir, "pi-host", `${key}.d`);
+}
+
+/** Whether a socket path fits a Unix address whole. */
+export function socketFits(path: string): boolean {
+	return Buffer.byteLength(path) <= MAX_SOCKET_PATH_BYTES;
 }
 
 /** Select a local socket without accepting path separators or truncating Unix addresses. */

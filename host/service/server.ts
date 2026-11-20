@@ -21,6 +21,7 @@ import { type ChildRoutes, listingChildren, passedOn } from "./children.ts";
 import {
 	type ControlBackend,
 	dispatchControl,
+	failedReply,
 	sameHost,
 	staleHost,
 } from "./dispatch.ts";
@@ -74,6 +75,17 @@ interface PassedOn {
 	sessionId: string;
 }
 
+/**
+ * What a watch on a child host follows (child.ts): its answer, once the
+ * child holds its conversation, and each line after it. An answer that
+ * rejects with a refusal (dispatch.ts's hostRefusal) is said as one.
+ */
+export interface WatchBridge {
+	answer(): Promise<unknown>;
+	/** Hear each line from now on, until the returned call. */
+	follow(send: (line: unknown) => void): () => void;
+}
+
 async function privateDirectory(path: string) {
 	await mkdir(path, { mode: DIRECTORY_MODE, recursive: true });
 	const info = await lstat(path);
@@ -86,6 +98,22 @@ async function privateDirectory(path: string) {
 		throw new Error(
 			"Host socket directory must be owned by this user with mode 0700",
 		);
+}
+
+/**
+ * End a connection once what was written to it has gone, or after
+ * RESTART_FLUSH_MS, whichever comes first.
+ */
+function endWhenWritten(socket: Socket): Promise<void> {
+	if (socket.destroyed) return Promise.resolve();
+	return new Promise<void>((resolve) => {
+		// A watcher that reads nothing never holds a close up for long.
+		const timer = setTimeout(resolve, RESTART_FLUSH_MS);
+		socket.end(() => {
+			clearTimeout(timer);
+			resolve();
+		});
+	});
 }
 
 function errorCode(error: unknown): unknown {
@@ -148,6 +176,8 @@ export async function listenControl(options: {
 	 * list names them with the host's own.
 	 */
 	children?: ChildRoutes;
+	/** What a watch follows; without one, a watch is refused. */
+	watch?: WatchBridge;
 }) {
 	if (!isAbsolute(options.path))
 		throw new Error("Host socket path must be absolute");
@@ -161,6 +191,9 @@ export async function listenControl(options: {
 	const viewing = new Map<Socket, (value: unknown) => void>();
 	// How to end each connection passed on to a child, at a frame's edge.
 	const passing = new Map<Socket, () => void>();
+	// Each connection a watch follows, which a close ends only once what
+	// was written to it, such as a child's ending line, has gone.
+	const watching = new Set<Socket>();
 	let ready = false;
 	const server = createServer((socket) => {
 		if (!ready) {
@@ -172,6 +205,9 @@ export async function listenControl(options: {
 		let viewer: ViewerConnection | undefined;
 		let sessionId: string | undefined;
 		let ended = false;
+		// Once a watch is asked, what ends it; the connection then takes
+		// nothing more from its other end.
+		let unwatch: (() => void) | undefined;
 		// Until the window's first frame goes, what it does: nothing, unless
 		// the line saying it was sent nothing in time has gone, when the
 		// frame is journaled too, as is a leaving with nothing drawn.
@@ -222,9 +258,34 @@ export async function listenControl(options: {
 					options.report(error);
 				}
 			}
+			unwatch?.();
 			viewing.delete(socket);
 			passing.delete(socket);
+			watching.delete(socket);
 			sockets.delete(socket);
+		}
+		/**
+		 * Follow the child's conversation on this connection: every line
+		 * from the ask on, held until the answer has gone ahead of them.
+		 */
+		async function watch(request: ControlRequest, bridge: WatchBridge) {
+			let held: unknown[] | undefined = [];
+			unwatch = bridge.follow((line) => {
+				if (held) held.push(line);
+				else frame(line);
+			});
+			watching.add(socket);
+			try {
+				const result = await bridge.answer();
+				frame({ v: 1, id: request.id, ok: true, result: result ?? null });
+			} catch (error) {
+				unwatch();
+				frame(failedReply(request.id, error, options.report));
+				return;
+			}
+			const lines = held;
+			held = undefined;
+			for (const line of lines) frame(line);
 		}
 		// What the screen drew this tick, sent as one frame once the tick
 		// ends: a redraw is dozens of small writes, and framing each alone
@@ -360,6 +421,7 @@ export async function listenControl(options: {
 			socket.pipe(child);
 		}
 		async function receive(value: unknown): Promise<PassedOn | undefined> {
+			if (unwatch) return undefined;
 			if (viewer && sessionId) {
 				const input = parseViewer(value);
 				const attached = viewer;
@@ -435,6 +497,10 @@ export async function listenControl(options: {
 				socket.once("close", gone);
 				send(await askOnce(child, line, request.id, options.report));
 				socket.off("close", gone);
+				return;
+			}
+			if (request.op === "watch" && options.watch) {
+				await watch(request, options.watch);
 				return;
 			}
 			if (request.op === "attach" && !options.viewer) {
@@ -587,6 +653,7 @@ export async function listenControl(options: {
 		},
 		async close(): Promise<void> {
 			const closed = stopListening();
+			await Promise.all([...watching].map(endWhenWritten));
 			for (const socket of sockets) socket.destroy();
 			await closed;
 		},

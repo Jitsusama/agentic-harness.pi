@@ -59,6 +59,10 @@ const request = z.discriminatedUnion("op", [
 		env: carried,
 	}),
 	z.strictObject({ ...envelope, op: z.literal("list") }),
+	// A child host's one conversation, followed for as long as the
+	// connection lasts (child.ts): what the supervisor that started it
+	// hears it by.
+	z.strictObject({ ...envelope, op: z.literal("watch") }),
 	// Who asks, as the caller names itself (the launcher, a command), for
 	// the line the host's journal writes as it lets the conversation go.
 	z.strictObject({ ...session, op: z.literal("release"), by: caller }),
@@ -135,6 +139,48 @@ export type SessionIdentity = z.infer<typeof identity>;
 
 /** What a host's identity and a conversation's look like, for what a child says. */
 export const identities = { host: expectedHost, conversation: identity };
+
+const watched = z.strictObject({
+	version: text,
+	host: expectedHost,
+	conversation: identity,
+});
+
+/** Why a child host ends, as the last line its watch sends says. */
+export const ENDINGS = ["parked", "closed", "released", "failed"] as const;
+
+const watchLine = z.discriminatedUnion("type", [
+	z.strictObject({
+		type: z.literal("state"),
+		conversation: identity,
+		state: z.enum(["busy", "idle"]),
+		heap: z.strictObject({ used: count, limit: count }),
+	}),
+	z.strictObject({
+		type: z.literal("became"),
+		previousId: sessionId,
+		conversation: identity,
+	}),
+	z.strictObject({ type: z.literal("ending"), why: z.enum(ENDINGS) }),
+]);
+
+/** Watch's answer: the child's harness version, its own identity and its conversation. */
+export type WatchAnswer = z.infer<typeof watched>;
+
+/** A line a child's watch sends after its answer. */
+export type WatchLine = z.infer<typeof watchLine>;
+
+/** Watch's result, sent once the child holds its conversation. */
+export function parseWatchResult(value: unknown): WatchAnswer {
+	return result(watched, value);
+}
+
+/** One line a child's watch sent, refused when it isn't one. */
+export function parseWatchLine(value: unknown): WatchLine {
+	const parsed = watchLine.safeParse(value);
+	if (!parsed.success) throw new Error("Invalid child watch line");
+	return parsed.data;
+}
 
 function result<T>(schema: z.ZodType<T>, value: unknown): T {
 	const parsed = schema.safeParse(value);

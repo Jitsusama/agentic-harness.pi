@@ -105,23 +105,31 @@ export async function dispatchControl(
 		// invalid, so a backend that answers nothing still answers null.
 		return { v: 1, id: request.id, ok: true, result: result ?? null };
 	} catch (error) {
-		report?.(error);
-		const code = refusalCode(error);
-		if (code !== undefined && error instanceof Error)
-			return {
-				v: 1,
-				id: request.id,
-				ok: false,
-				error: { code, message: error.message },
-			};
-		return {
-			v: 1,
-			id: request.id,
-			ok: false,
-			error: {
-				code: "operation_failed",
-				message: "Host operation failed; inspect the host journal",
-			},
-		};
+		return failedReply(request.id, error, report);
 	}
+}
+
+/**
+ * The reply to request `id` that failed with `error`: a refusal meant for
+ * the requester as it stands, anything else as a failure to look up in
+ * the journal, where `report` writes it.
+ */
+export function failedReply(
+	id: string,
+	error: unknown,
+	report?: (error: unknown) => void,
+): ControlReply {
+	report?.(error);
+	const code = refusalCode(error);
+	if (code !== undefined && error instanceof Error)
+		return { v: 1, id, ok: false, error: { code, message: error.message } };
+	return {
+		v: 1,
+		id,
+		ok: false,
+		error: {
+			code: "operation_failed",
+			message: "Host operation failed; inspect the host journal",
+		},
+	};
 }
