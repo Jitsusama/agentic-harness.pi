@@ -130,13 +130,13 @@ describe("parking", () => {
 		const { seen, parking } = world([quest]);
 		await parking.tick();
 		await parking.tick();
-		expect(parking.parked).toBe(true);
+		expect(parking.parked, "the idle session parks as it stands").toBe(true);
 		expect(seen.parked.map((one) => one.stop.id)).toEqual(["q"]);
 		expect(seen).toMatchObject({ aborts: 0, carried: [] });
 		expect(seen.notes).toHaveLength(1);
 		seen.stops = [];
 		await parking.tick();
-		expect(parking.parked).toBe(false);
+		expect(parking.parked, "the resume lets it go").toBe(false);
 		expect(seen.carried).toEqual([]);
 	});
 
@@ -179,7 +179,7 @@ describe("parking", () => {
 		const { seen, parking } = world([quest]);
 		seen.idle = false;
 		await parking.tick();
-		expect(parking.parked).toBe(false);
+		expect(parking.parked, "the tick parked a busy session").toBe(false);
 		expect(seen.parked).toEqual([]);
 	});
 
