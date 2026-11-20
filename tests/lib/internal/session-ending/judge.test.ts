@@ -269,7 +269,7 @@ describe("a log-out on a machine whose services outlive it", () => {
 describe("an ask from the session holding the machine", () => {
 	const holding = { machine: "optimus", lingers: false, holds: true };
 	const here = [
-		on("optimus", "busy", "A00001"),
+		on("optimus", "idle", "A00001"),
 		on("optimus", "idle", "B00001"),
 	];
 
@@ -280,6 +280,23 @@ describe("an ask from the session holding the machine", () => {
 				`${act} under the asker's own hold`,
 			).toBeUndefined();
 		}
+	});
+
+	it("still counts a session there that is busy, or out of reach, which hasn't parked", () => {
+		const reason = refusalOf(
+			[ask("reboot", "optimus")],
+			[
+				...here,
+				on("optimus", "busy", "C00001"),
+				on("optimus", "unreachable", "D00001"),
+			],
+			SELF,
+			holding,
+		);
+
+		expect(reason).toMatch(/C00001 \(busy\)/);
+		expect(reason).toMatch(/D00001/);
+		expect(reason).not.toMatch(/A00001|B00001/);
 	});
 
 	it("still counts another machine's sessions, which its hold doesn't reach", () => {

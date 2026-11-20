@@ -6,7 +6,9 @@
 import { spawn } from "node:child_process";
 import {
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	utimesSync,
@@ -40,19 +42,34 @@ afterEach(() => {
 
 const kept = (): string[] => JSON.parse(readFileSync(file, "utf8"));
 
-/** A node process adding `prefix`-1 to `prefix`-EACH_ADDS, one at a time. */
-function writer(prefix: string): Promise<number | null> {
+/** A node process ready to add machines, and the word that starts it. */
+interface Writer {
+	ended: Promise<number | null>;
+	go: () => void;
+}
+
+/**
+ * A node process adding `prefix`-1 to `prefix`-EACH_ADDS, one at a time,
+ * once told to go on its stdin, so that two writers start together
+ * rather than one finishing while the other is still loading.
+ */
+function writer(prefix: string): Writer {
 	const script = [
 		`import { rememberMachines } from ${JSON.stringify(MODULE)};`,
+		`await new Promise((go) => process.stdin.once("data", go));`,
+		"process.stdin.pause();",
 		`for (let i = 1; i <= ${EACH_ADDS}; i++)`,
 		`  await rememberMachines(${JSON.stringify(file)}, [\`${prefix}-\${i}\`]);`,
 	].join("\n");
 	const child = spawn(
 		process.execPath,
 		["--input-type=module", "--no-warnings", "-e", script],
-		{ stdio: "inherit" },
+		{ stdio: ["pipe", "inherit", "inherit"] },
 	);
-	return new Promise((ended) => child.on("exit", ended));
+	return {
+		ended: new Promise((ended) => child.on("exit", ended)),
+		go: () => child.stdin?.end("go\n"),
+	};
 }
 
 describe("the machines kept", () => {
@@ -67,7 +84,9 @@ describe("the machines kept", () => {
 	});
 
 	it("loses none when two processes add at once", async () => {
-		const ended = await Promise.all([writer("a"), writer("b")]);
+		const writers = [writer("a"), writer("b")];
+		for (const one of writers) one.go();
+		const ended = await Promise.all(writers.map((one) => one.ended));
 
 		expect(ended).toEqual([0, 0]);
 		const all = kept();
@@ -90,6 +109,18 @@ describe("the machines kept", () => {
 
 		expect(kept()).toEqual(["optimus", "equilibrius"]);
 		expect(existsSync(lock), "the stale lock is gone once written").toBe(false);
+	});
+
+	it("leaves no temporary file behind when the write can't land", async () => {
+		mkdirSync(file, { recursive: true });
+
+		expect(await rememberMachines(file, ["optimus"])).toEqual(["optimus"]);
+		expect(
+			readdirSync(join(scratch, "session-ending")).filter((name) =>
+				name.endsWith(".tmp"),
+			),
+			"temporary files left beside the list",
+		).toEqual([]);
 	});
 
 	it("leaves no lock behind once it has written", async () => {

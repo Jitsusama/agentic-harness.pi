@@ -89,11 +89,16 @@ two seconds spares nothing, as on a Mac, with no logind.
   shutdown still ends them all.
 - **The session holding the machine.** When the asker has a standing
   hold to `#all` (`mycelium unanswered` lists it from the asker's
-  address, unexpired), it has parked the machine to ask exactly this,
-  which is how a disruption is scheduled, so no session on this
-  machine counts for its asks. Sessions on another machine still do,
-  and an ask that names no machine still asks for the name. Any such
-  hold counts, whatever it is about.
+  address, unexpired), it has asked the machine's sessions to park,
+  which is how a disruption is scheduled, so a session on this
+  machine the node reads as idle doesn't count for its asks. One
+  still busy, or out of reach, hasn't parked and still counts, since
+  a hold only asks and a session can send one to itself. Sessions on
+  another machine still count, and an ask that names no machine still
+  asks for the name. Any such hold counts, whatever it is about.
+
+Whatever fails while reading either spares nothing, and the ask is
+refused as it would have been.
 
 ## What Reads as an Ask
 

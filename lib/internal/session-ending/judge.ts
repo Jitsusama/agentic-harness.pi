@@ -20,8 +20,9 @@
  * the user lingers and logind kills no user processes, so a session a
  * pi host runs or a holder holds outlives it; one in a terminal alone
  * does not. And a session that holds the machine with a standing
- * #machine hold has parked its sessions to ask this, so their sessions
- * don't count for its ask. Neither reaches another machine, or a
+ * #machine hold has asked its sessions to park, so one that has gone
+ * idle doesn't count for its ask; one still busy, or out of reach,
+ * hasn't parked and still does. Neither reaches another machine, or a
  * session the node names no machine for, since nothing here says what
  * lingers or is held there.
  */
@@ -71,7 +72,10 @@ export interface Here {
 	readonly machine: string;
 	/** Whether a log-out here leaves the user's services running. */
 	readonly lingers: boolean;
-	/** Whether the asker holds this machine with a standing #machine hold. */
+	/**
+	 * Whether the asker holds this machine with a standing #machine hold,
+	 * which spares the sessions there that have gone idle.
+	 */
 	readonly holds: boolean;
 }
 
@@ -152,7 +156,7 @@ function spares(
 	if (!here || one.machine?.toLowerCase() !== here.machine.toLowerCase()) {
 		return false;
 	}
-	if (here.holds) return true;
+	if (here.holds && one.state === "idle") return true;
 	return (
 		here.lingers &&
 		ENDS_A_LOG_IN.has(ask.act) &&

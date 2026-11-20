@@ -165,7 +165,10 @@ export function nodeDeps(
 		},
 		here: () => thisMachine(),
 		spares: async (address) => {
-			const exec = spawnExec({ timeoutMs: SPARES_PATIENCE_MS });
+			const exec = spawnExec({
+				timeoutMs: SPARES_PATIENCE_MS,
+				...(env.PATH ? { env: { PATH: env.PATH } } : {}),
+			});
 			const [lingers, holds] = await Promise.all([
 				logOutSpares(exec, String(userInfo().uid)),
 				holdsMachine(exec, nodeSockets(env), address, Date.now()),

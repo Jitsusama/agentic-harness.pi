@@ -198,8 +198,13 @@ export async function refusalFor(
 	const refusal = refusalOf(asks, sessions, self);
 	if (!refusal || !sessions || !deps.spares) return refusal;
 	const address = sessions.find((one) => one.id === self)?.address;
-	const here = { machine: deps.here(), ...(await deps.spares(address)) };
-	return refusalOf(asks, sessions, self, here);
+	try {
+		const here = { machine: deps.here(), ...(await deps.spares(address)) };
+		return refusalOf(asks, sessions, self, here);
+	} catch {
+		// What spares a session couldn't be read, so it spares none.
+		return refusal;
+	}
 }
 
 /**

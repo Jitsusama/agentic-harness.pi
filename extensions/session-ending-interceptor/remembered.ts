@@ -11,7 +11,13 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { withFileLock } from "../../lib/core/internal/file-lock.ts";
@@ -63,10 +69,17 @@ export async function rememberMachines(
 	try {
 		mkdirSync(dirname(file), { recursive: true });
 		return await withFileLock(file, async () => {
-			const now = together(machinesKept(file), read);
+			// What was read before the lock goes in too, should the file have
+			// been lost or spoilt since.
+			const now = together([...machinesKept(file), ...all], read);
 			const writing = `${file}.${randomUUID()}.tmp`;
-			writeFileSync(writing, `${JSON.stringify(now)}\n`);
-			renameSync(writing, file);
+			try {
+				writeFileSync(writing, `${JSON.stringify(now)}\n`);
+				renameSync(writing, file);
+			} catch (error) {
+				rmSync(writing, { force: true });
+				throw error;
+			}
 			return now;
 		});
 	} catch {
