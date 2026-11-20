@@ -1,11 +1,12 @@
 /**
  * The mesh's tools: send, read back, join, leave or list groups, stop
- * a peer reaching this one, and end a session of this orchestration.
+ * a peer reaching this one, end a session of this orchestration, and
+ * sprout new work as a cell of its own.
  *
  * Each registers here, with its parameters and how it renders. What
  * each does lives in tools/, a file for each: send.ts and reach.ts
  * for sending, read.ts, groups.ts for joining, leaving and listing,
- * stop.ts and end.ts, beside what they all act through (local.ts) and
+ * stop.ts, end.ts and sprout.ts, beside what they all act through (local.ts) and
  * how they say times and wants (said.ts).
  */
 
@@ -35,6 +36,7 @@ import { type Answer, answer, type Local, peers } from "./tools/local.ts";
 import { NEED_GRANTS_NOTHING } from "./tools/need.ts";
 import { MOST_READ, read } from "./tools/read.ts";
 import { type SendParams, send, sendAcross } from "./tools/send.ts";
+import { type SproutParams, sproutFrom } from "./tools/sprout.ts";
 import { stop } from "./tools/stop.ts";
 import { waitOnPerson } from "./wait.ts";
 
@@ -409,6 +411,35 @@ export function registerTools(
 				{ look },
 			);
 		}),
+	});
+
+	pi.registerTool({
+		name: "mesh_sprout",
+		// New: loaded on demand until sessions are seen to call it.
+		exposure: "deferred",
+		label: "Mesh",
+		description:
+			"Start new work as a cell of its own, in one step: words or a link (a PR, an issue, a Slack thread) go to the node, which starts a new pi session in the work's repository, on this machine or the one named. That session makes its own top-level quest, owns it, and is tied to this one on the map. Use it when the person says to start, branch out or hand off a piece of work rather than do it here. Nothing opens on their screen: the answer says how to reach it.",
+		parameters: Type.Object({
+			words: Type.String({
+				description:
+					"The work: a link alone, or the person's words for it, which the new session reads first",
+			}),
+			folder: Type.Optional(
+				Type.String({
+					description:
+						"The repository's folder it works in; left out, the link's repository under ~/src, else this session's folder when it is a repository. Never home",
+				}),
+			),
+			machine: Type.Optional(
+				Type.String({
+					description:
+						"The machine it starts on, by its mycelium node's name; left out, this one",
+				}),
+			),
+		}),
+		execute: (_id, params: SproutParams, _signal, _onUpdate, ctx) =>
+			sproutFrom(params, ctx.cwd, local()?.peer.signature),
 	});
 
 	pi.registerTool({

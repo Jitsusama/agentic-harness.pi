@@ -238,6 +238,15 @@ and can answer a question or a gate left open on screen.
   closes with it; the pid is signalled only while its start still
   matches the presence's. Anyone else is refused, as is a session
   on another machine. Loaded on demand.
+- `mesh_sprout`: start new work as a cell of its own, in one
+  step, from words or a link (`lib/mesh/sprout.ts`). It runs
+  `mycelium sprout` from the session's folder, as the launcher's
+  Start New Work and a terminal do, rather than asking the node's
+  socket itself: the program judges the folder on this disk first,
+  refuses home, and falls back to a plain start on an older node.
+  The new session makes its own quest, tied to this cell by
+  `--from`, and runs in no window; the answer says how to join it.
+  Loaded on demand.
 - `mesh_wait`: say that this session's quest has something
   waiting on the person that only they can do, or with `done`
   that it no longer waits. It is kept in
