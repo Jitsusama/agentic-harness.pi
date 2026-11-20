@@ -18,17 +18,28 @@ const ALLOWED =
 
 describe("a cap refusal", () => {
 	it("is either of the proxy's refusals of the person's own key", () => {
-		expect(isCapRefusal(WEEKLY)).toBe(true);
-		expect(isCapRefusal(ALLOWED)).toBe(true);
+		expect(isCapRefusal(WEEKLY), "the weekly cap is a cap refusal").toBe(true);
+		expect(isCapRefusal(ALLOWED), "the allowed cap is a cap refusal").toBe(
+			true,
+		);
 	});
 
 	it("is no rate limit, other refusal or missing message", () => {
-		expect(isCapRefusal("429 rate_limit_error: TPM Limit Hit")).toBe(false);
-		expect(isCapRefusal("403 permission_error: model not allowed")).toBe(false);
+		expect(
+			isCapRefusal("429 rate_limit_error: TPM Limit Hit"),
+			"a rate limit is no cap refusal",
+		).toBe(false);
+		expect(
+			isCapRefusal("403 permission_error: model not allowed"),
+			"another permission refusal is no cap refusal",
+		).toBe(false);
 		expect(
 			isCapRefusal("500 personal token usage is over, said a broken relay"),
+			"the cap's words in another status are no cap refusal",
 		).toBe(false);
-		expect(isCapRefusal(undefined)).toBe(false);
+		expect(isCapRefusal(undefined), "a missing message is no cap refusal").toBe(
+			false,
+		);
 	});
 });
 
