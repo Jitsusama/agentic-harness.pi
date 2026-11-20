@@ -35,7 +35,8 @@ import type { HolderSteers, WakingSteers } from "../internal/session/park.ts";
 import { attend } from "./attention.ts";
 import { asksEach, type Message, reaches } from "./message.ts";
 import type { Presence } from "./presence.ts";
-import { inboxOf, ORDERED_CARRY, type Steer, waitingSteers } from "./steer.ts";
+import { inboxOf, type Steer, waitingSteers } from "./steer.ts";
+import { ORDERED_CARRY } from "./steer-who.ts";
 import { answers, answersQuestion, type Reader } from "./thread.ts";
 
 /** Whether a presence says its session is parked. */
@@ -90,13 +91,17 @@ export function wakes(
 /**
  * Whether a steer waits on its parked peer running: a talk, or a resume
  * with words, which a running peer answers; a close, a carry or a move,
- * which only a running session can make, and so an orchestrator's
- * ordered carry; a fill, since the person is
+ * which only a running session can make, and so a carry an orchestrator
+ * ordered or this machine's node chose; a fill, since the person is
  * coming to its window to send it; or the person's answer to a look or a
  * question, which only a running pi takes (an answer the mesh keeps
  * always says what it answers and what it gives).
  */
 export function steerWakes(steer: Steer): boolean {
+	// One turned down as it was taken wakes it too: a record read that
+	// timed out turns this machine's own node's live carry down here, and
+	// the take reads the record again; mycelium's holder, judging the raw
+	// file, can't tell the two apart either.
 	if (steer.ordered) return WAKING_STEERS.acts.includes(ORDERED_CARRY);
 	if (steer.act === undefined) return WAKING_STEERS.talk;
 	if (steer.act === "resume" && steer.text !== "") {

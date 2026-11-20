@@ -1034,11 +1034,22 @@ A steer may instead carry an `act`, with no text needed
 Only the person may act: a steer from anyone else that carries
 an `act` is read for its text alone.
 
-One act comes from elsewhere: `ordered-carry`, which only the
-mycelium node writes, once its own record shows the session
+One act comes from elsewhere: `ordered-carry`, which the
+mycelium node writes once its own record shows the session
 asking orchestrates this one's quest, with `by` and `from` both
 stamped as that orchestrator's address, `to` a machine and `why`
-its reason ([`ordered-carry.ts`](ordered-carry.ts)). It is read
+its reason ([`ordered-carry.ts`](ordered-carry.ts)). The node
+also writes one for a carry it chose itself to ease its stalled
+machine, with `by` and `from` both `node@<machine>`, taken only
+as this machine's own node's name, exactly as written; while
+the node's record of that name is there but can't be read, the
+carry is taken and refused at once, naming the record and its
+error, as another machine's node's is. A parked session wakes
+to take it and reads the record again: if it now reads, the
+carry goes ahead as any other; if not, the refusal is said on
+screen and written nowhere, and the node waits out its time.
+Anything running as the person that reaches the inbox could write either,
+so `by` says whom the steer claims, not who wrote it. It is read
 apart from every act, so nothing that trusts the person's
 `carry` takes it. The session carries as `carry` does only when
 nothing of its own would be lost: a background job out, a lease
@@ -1048,13 +1059,29 @@ once. A run under way is let end its turn first, up to ten
 minutes, and its own leases then count too. A refusal says why
 on screen, takes up a run it ended, and writes
 `<session>.refused.json` beside where its done file would go,
-holding only `session`, `why` and `at`, for the node to fail
-fast on ([`lib/internal/carry/ordered.ts`](../../lib/internal/carry/ordered.ts)).
-A second order while one is under way is said on screen alone,
-since a refusal written then would read as the live carry's.
+in this machine's handover whoever chose the carry, holding only
+`session`, `why` and `at`, for the node to fail fast on
+([`lib/internal/carry/ordered.ts`](../../lib/internal/carry/ordered.ts)).
+A carry another machine's node names is refused on screen alone,
+since no node here began it and this machine's node could read its
+refusal as a live carry's. While this machine's record of its
+name can't be read, no refusal is written, whoever chose the
+carry, since that record names the handover; it is said on
+screen, and the node waits out its time.
+Its `at` is the end of the millisecond its carry's steer was put
+in the inbox, after its node began that carry, so however late
+it is written it is never read as a later carry's, and it never
+replaces a refusal saying a later time, so carries come through
+while it is written. A second carry while one is under way, or
+while a refusal whose steer's time can't be told, or is named
+later than now, is being written, is said on screen alone, since
+a refusal written then would read as the carry before it's; such
+a refusal's `at` is the moment it was asked for.
 On arrival, `pi-carry arrive --by --why` tells the session by a
 steer from the machine's pi-carry who carried it and why, never
-as the person. Presence says `fence` (`none`, `fence` or
+as the person, and a node's carry as that node's, never an
+orchestrator's: `--by` takes only the node of the machine it
+left. Presence says `fence` (`none`, `fence` or
 `strict`, as `PI_SANDBOX` asks), which the node matches against
 the machine it carries to.
 

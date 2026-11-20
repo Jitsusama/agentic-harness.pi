@@ -231,7 +231,8 @@ export function createState(
 					sessionFile: m.ctx.sessionManager.getSessionFile(),
 				})
 			: undefined;
-	// A carry its orchestrator ordered, through the node (ordered-carry.ts).
+	// A carry its orchestrator ordered through the node, or the node chose
+	// (ordered-carry.ts).
 	const ordering = createOrderedCarrying({
 		idle: () => m.ctx?.isIdle?.() ?? true,
 		abort: () => {
@@ -255,9 +256,9 @@ export function createState(
 			if (!m.ctx) throw new Error("the session isn't there to carry.");
 			await carryThisSession(m.ctx, to);
 		},
-		refuse: async (why) => {
+		refuse: async (why, at) => {
 			if (!m.peer) throw new Error("the session isn't on the mesh yet");
-			await refuseInHandover(m.peer.session, why);
+			await refuseInHandover(m.peer.session, why, at);
 		},
 		tell: (text) => {
 			if (m.ctx?.hasUI) m.ctx.ui.notify(text, "info");

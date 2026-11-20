@@ -14,7 +14,7 @@ import {
 	RESUMED_TURN_MS,
 	resumeTurns,
 } from "../../../host/engine/resume-turns.ts";
-import { FROM_MACHINE } from "../../../lib/mesh/steer.ts";
+import { FROM_MACHINE } from "../../../lib/mesh/steer-who.ts";
 
 /** Let every settled promise's continuations run. */
 async function settle(): Promise<void> {

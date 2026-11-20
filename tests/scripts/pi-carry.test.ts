@@ -289,88 +289,99 @@ describe("pi-carry", () => {
 
 	// ISXEG8's condition 5 (15 November), as KP0L6A placed it: nothing
 	// travels but the work, wherever a secret sits on the leaving machine.
-	it("carries no secret planted beside the work, and tells the arrival who ordered it and why", async () => {
-		const cache = folder(made, "cache");
-		const from = await leaving(cache);
-		const to = machine("arriving", cache);
-		const secret = `planted-${randomBytes(12).toString("hex")}`;
-		const tree = join(from.home, "src", "app");
-		await commit(tree, ".gitignore", ".env\n");
-		writeFileSync(join(tree, ".env"), `TOKEN=${secret}\n`);
-		mkdirSync(join(from.home, ".config", "gh"), { recursive: true });
-		writeFileSync(
-			join(from.home, ".config", "gh", "hosts.yml"),
-			`oauth_token: ${secret}\n`,
-		);
-		const scratch = join(
-			cache,
-			"pi",
-			"agentic-harness.pi",
-			"quest-workspace",
-			QUEST,
-		);
-		mkdirSync(join(scratch, "tmp"), { recursive: true });
-		writeFileSync(join(scratch, "tmp", "token.txt"), secret);
-		const planted = (env: NodeJS.ProcessEnv) => ({
-			...env,
-			GITHUB_TOKEN: secret,
-			PI_PLANTED: secret,
-		});
+	it.each([
+		["an orchestrator", "WCJQSG", "the orchestrator above its quest"],
+		[
+			"the node of the machine it left",
+			`node@${thisMachine()}`,
+			"no orchestrator ordered it",
+		],
+	])(
+		"carries no secret planted beside the work, and tells the arrival that %s carried it and why",
+		async (_whom, by, said) => {
+			const cache = folder(made, "cache");
+			const from = await leaving(cache);
+			const to = machine("arriving", cache);
+			const secret = `planted-${randomBytes(12).toString("hex")}`;
+			const tree = join(from.home, "src", "app");
+			await commit(tree, ".gitignore", ".env\n");
+			writeFileSync(join(tree, ".env"), `TOKEN=${secret}\n`);
+			mkdirSync(join(from.home, ".config", "gh"), { recursive: true });
+			writeFileSync(
+				join(from.home, ".config", "gh", "hosts.yml"),
+				`oauth_token: ${secret}\n`,
+			);
+			const scratch = join(
+				cache,
+				"pi",
+				"agentic-harness.pi",
+				"quest-workspace",
+				QUEST,
+			);
+			mkdirSync(join(scratch, "tmp"), { recursive: true });
+			writeFileSync(join(scratch, "tmp", "token.txt"), secret);
+			const planted = (env: NodeJS.ProcessEnv) => ({
+				...env,
+				GITHUB_TOKEN: secret,
+				PI_PLANTED: secret,
+			});
 
-		const carried = await piCarry(
-			planted(from.env),
-			QUEST,
-			"--to",
-			"elsewhere-machine",
-		);
-		const arrived = await piCarry(
-			planted(to.env),
-			"arrive",
-			QUEST,
-			"--from",
-			thisMachine(),
-			"--session",
-			SESSION,
-			"--by",
-			"WCJQSG",
-			"--why",
-			"its camera work needs the Mac",
-		);
+			const carried = await piCarry(
+				planted(from.env),
+				QUEST,
+				"--to",
+				"elsewhere-machine",
+			);
+			const arrived = await piCarry(
+				planted(to.env),
+				"arrive",
+				QUEST,
+				"--from",
+				thisMachine(),
+				"--session",
+				SESSION,
+				"--by",
+				by,
+				"--why",
+				"its camera work needs the Mac",
+			);
 
-		expect(carried.code).toBe(0);
-		expect(arrived.code).toBe(0);
-		const handover = join(scratch, "handover");
-		expect(
-			filesHolding(handover, secret),
-			"no file the handover carries holds it",
-		).toEqual([]);
-		expect(
-			filesHolding(to.home, secret),
-			"nor anything arriving placed",
-		).toEqual([]);
-		const arrivedTree = join(to.home, "src", "app");
-		expect(
-			readdirSync(arrivedTree),
-			"the tree arrived, its ignored file left behind",
-		).not.toContain(".env");
-		// Git keeps objects compressed, so what the bundle brought is read
-		// back through git, every commit's every change.
-		expect(
-			await git(arrivedTree, "log", "--all", "-p", "--binary"),
-			"nor any commit the bundle brought",
-		).not.toContain(secret);
-		const inbox = inboxOf(
-			join(to.home, ".local", "state", "pi", "agentic-harness.pi", "steer"),
-			sessionAddress(SESSION),
-		);
-		const [told] = takeSteers(inbox, "1").steers;
-		expect(told).toMatchObject({ from: "machine", by: "pi-carry" });
-		expect(told?.text).toContain(
-			`carried here from ${thisMachine()} by WCJQSG, for its camera work needs the Mac`,
-		);
-	});
+			expect(carried.code).toBe(0);
+			expect(arrived.code).toBe(0);
+			const handover = join(scratch, "handover");
+			expect(
+				filesHolding(handover, secret),
+				"no file the handover carries holds it",
+			).toEqual([]);
+			expect(
+				filesHolding(to.home, secret),
+				"nor anything arriving placed",
+			).toEqual([]);
+			const arrivedTree = join(to.home, "src", "app");
+			expect(
+				readdirSync(arrivedTree),
+				"the tree arrived, its ignored file left behind",
+			).not.toContain(".env");
+			// Git keeps objects compressed, so what the bundle brought is read
+			// back through git, every commit's every change.
+			expect(
+				await git(arrivedTree, "log", "--all", "-p", "--binary"),
+				"nor any commit the bundle brought",
+			).not.toContain(secret);
+			const inbox = inboxOf(
+				join(to.home, ".local", "state", "pi", "agentic-harness.pi", "steer"),
+				sessionAddress(SESSION),
+			);
+			const [told] = takeSteers(inbox, "1").steers;
+			expect(told).toMatchObject({ from: "machine", by: "pi-carry" });
+			expect(told?.text).toContain(
+				`carried here from ${thisMachine()} by ${by}, for its camera work needs the Mac`,
+			);
+			expect(told?.text).toContain(said);
+		},
+	);
 
-	it("refuses an arrival that names who ordered it without why, or why without who", async () => {
+	it("refuses an arrival that names who carried it without why, why without who, or another machine's node", async () => {
 		const one = machine("asked", folder(made, "cache"));
 		const arrive = ["arrive", QUEST, "--from", "optimus", "--session", SESSION];
 
@@ -385,7 +396,44 @@ describe("pi-carry", () => {
 			"the Mac",
 		);
 
-		for (const asked of [byAlone, whyAlone, byNoAddress]) {
+		const byAnotherNode = await piCarry(
+			one.env,
+			...arrive,
+			"--by",
+			"node@penelope",
+			"--why",
+			"optimus has stalled",
+		);
+
+		const byNodeInOtherLetters = await piCarry(
+			one.env,
+			...arrive,
+			"--by",
+			"node@Optimus",
+			"--why",
+			"optimus has stalled",
+		);
+
+		for (const [asked, by] of [
+			[byAnotherNode, "node@penelope"],
+			[byNodeInOtherLetters, "node@Optimus"],
+		] as const) {
+			expect(asked.lines).toEqual([
+				{
+					kind: "failed",
+					why: expect.stringContaining(
+						`--by ${by} names a node other than node@optimus, as written`,
+					),
+				},
+			]);
+		}
+		for (const asked of [
+			byAlone,
+			whyAlone,
+			byNoAddress,
+			byAnotherNode,
+			byNodeInOtherLetters,
+		]) {
 			expect(asked.code).toBe(2);
 			expect(asked.lines).toEqual([
 				{ kind: "failed", why: expect.stringContaining("--by") },

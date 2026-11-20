@@ -32,10 +32,10 @@ import type { Presence } from "../../../lib/mesh/presence.ts";
 import {
 	giveSteer,
 	inboxOf,
-	ORDERED_CARRY,
 	STEER_ACTS,
 	steerFrom,
 } from "../../../lib/mesh/steer.ts";
+import { ORDERED_CARRY } from "../../../lib/mesh/steer-who.ts";
 import { quietFor, until } from "../../support/until.ts";
 
 const parked: Presence = {
@@ -238,6 +238,30 @@ describe("waking a parked peer for a steer", () => {
 			expect(woken, act.act).toEqual(["s-parked"]);
 			expect(asked, act.act).toEqual(["s-parked"]);
 		}
+	});
+
+	// A record read that timed out turns this machine's own node's live
+	// carry down as it is looked at; left asleep, the session would
+	// strand it, though its take reads the record again.
+	it("wakes it for a node's carry its look turned down, which its take reads again", () => {
+		const raw = JSON.stringify({
+			act: "ordered-carry",
+			to: "penelope",
+			why: "optimus has stalled",
+			by: "node@optimus",
+			from: "node@optimus",
+		});
+		const steer = steerFrom(raw, "1-a.json", "optimus");
+		if (steer?.ordered === undefined) throw new Error(`no carry: ${raw}`);
+
+		expect(steerWakes(steer), "its own node's carry").toBe(true);
+		expect(
+			steerWakes({
+				...steer,
+				ordered: { ...steer.ordered, refused: "it names node@kestrel" },
+			}),
+			"turned down as it was looked at",
+		).toBe(true);
 	});
 
 	it("wakes it for a talk, which a running peer would answer at once", async () => {
