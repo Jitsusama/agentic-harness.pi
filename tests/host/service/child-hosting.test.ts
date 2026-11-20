@@ -1,0 +1,152 @@
+/** A host's children put together: routes, supervisor and policy, as the backend and its stop use them. */
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	type HostedChildren,
+	hostChildren,
+} from "../../../host/service/child-hosting.ts";
+import type { ChildPolicy } from "../../../host/service/child-policy.ts";
+import type { KeptRoster } from "../../../host/service/child-supervisor.ts";
+import type { RosterEntry } from "../../../lib/core/session/roster.ts";
+import {
+	entryIn,
+	type FakeUnits,
+	fakeUnits,
+} from "./support/fake-children.ts";
+
+const key = "work-background";
+const a = "a0000000-0000-4000-8000-000000000001";
+
+let folder: string;
+let held: RosterEntry[];
+let units: FakeUnits;
+let reported: unknown[];
+let said: string[];
+let rested: RosterEntry[];
+let resting: boolean;
+let policy: ChildPolicy & { moving: Set<string>; opening: boolean };
+let children: HostedChildren;
+
+/** A roster in memory, as much of one as the supervisor keeps. */
+function roster(): KeptRoster {
+	return {
+		entries: () => [...held],
+		async hold(entry) {
+			held = [...held, entry];
+		},
+		async replace(previousId, entry) {
+			held = held.map((one) => (one.sessionId === previousId ? entry : one));
+		},
+		async drop(sessionId) {
+			held = held.filter((one) => one.sessionId !== sessionId);
+		},
+	};
+}
+
+beforeEach(async () => {
+	// Short, since a socket's path may run to no more than 107 bytes.
+	folder = await mkdtemp(join(tmpdir(), "ch-"));
+	held = [entryIn(folder, a)];
+	units = fakeUnits(folder, key, (error) => reported.push(error));
+	reported = [];
+	said = [];
+	rested = [];
+	resting = true;
+	const moving = new Set<string>();
+	policy = {
+		moving,
+		opening: false,
+		moves: (sessionId) => moving.has(sessionId),
+		opens: () => policy.opening,
+		close: vi.fn(),
+	};
+	children = hostChildren({
+		key,
+		folder,
+		units,
+		policy,
+		roster: roster(),
+		restsParked(entry) {
+			rested.push(entry);
+			return resting;
+		},
+		report: (error) => reported.push(error),
+		say: (line) => said.push(line),
+		timings: {
+			listensWithinMs: 5_000,
+			answersWithinMs: 500,
+			exitsWithinMs: 500,
+		},
+	});
+});
+
+afterEach(async () => {
+	children.close();
+	for (const child of units.children.values()) await child?.exit();
+	await rm(folder, { recursive: true, force: true });
+});
+
+describe("a host's children", () => {
+	it("moves what the policy says, as it says it now", () => {
+		expect(children.backend.moves(a), "nothing named, nothing moves").toBe(
+			false,
+		);
+		policy.moving.add(a);
+		policy.opening = true;
+		expect(children.backend.moves(a), "one named moves").toBe(true);
+		expect(children.backend.opens(), "opens move when all do").toBe(true);
+	});
+
+	it("lists one a child runs as the child lists it, and none once it ends", async () => {
+		const shown = await children.backend.resume(held[0] as RosterEntry, false);
+		expect(children.backend.running(a)).toEqual(shown);
+		expect(children.routes.routeOf(a), "routed to its child").toBeDefined();
+		await units.childOf(a).end("closed");
+		await vi.waitFor(() =>
+			expect(children.backend.running(a), "no child runs it").toBeUndefined(),
+		);
+	});
+
+	it("rests one whose child ended parked, so its wake is watched again", async () => {
+		await children.backend.resume(held[0] as RosterEntry, true);
+		await units.childOf(a).end("parked");
+		await vi.waitFor(() =>
+			expect(rested.map(({ sessionId }) => sessionId)).toEqual([a]),
+		);
+		expect(held.map(({ sessionId }) => sessionId), "still held").toEqual([a]);
+	});
+
+	it("rests one whose child failed, since it is still held", async () => {
+		await children.backend.resume(held[0] as RosterEntry, false);
+		await units.childOf(a).exit();
+		await vi.waitFor(() =>
+			expect(rested.map(({ sessionId }) => sessionId)).toEqual([a]),
+		);
+	});
+
+	it("rests none that closed, which no longer is held", async () => {
+		await children.backend.resume(held[0] as RosterEntry, false);
+		await units.childOf(a).end("closed");
+		await vi.waitFor(() => expect(held, "no longer held").toEqual([]));
+		expect(rested, "nothing rested").toEqual([]);
+	});
+
+	it("says so when nothing can watch a parked one's wake", async () => {
+		resting = false;
+		await children.backend.resume(held[0] as RosterEntry, false);
+		await units.childOf(a).end("parked");
+		await vi.waitFor(() =>
+			expect(said.join("\n")).toContain("nothing watches its wake"),
+		);
+	});
+
+	it("leaves each child running as it closes, and stops reading the policy", async () => {
+		await children.backend.resume(held[0] as RosterEntry, false);
+		children.close();
+		expect(policy.close, "the policy is no longer read").toHaveBeenCalled();
+		expect(units.stopped, "no child is stopped").toEqual([]);
+		expect(units.childOf(a), "the child still runs").toBeDefined();
+	});
+});

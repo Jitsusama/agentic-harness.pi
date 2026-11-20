@@ -255,6 +255,8 @@ export interface HostRunOptions {
 	 * whether it could; one it can't stops the host.
 	 */
 	contain?: (sessionId: string, error: unknown) => boolean;
+	/** Where conversations may run in a process each, passed on to serveHost. */
+	children?: Parameters<typeof serveHost>[0]["children"];
 	/**
 	 * Passed on to serveHost, for tests: a host run from a tree is given
 	 * its rollout gate, since it has no install to read one from.
@@ -399,6 +401,7 @@ export async function runHost(options: HostRunOptions): Promise<HostRun> {
 			engine: options.engine,
 			...(options.viewer ? { viewer: options.viewer } : {}),
 			...(options.rollout ? { rollout: options.rollout } : {}),
+			...(options.children ? { children: options.children } : {}),
 			report,
 			say,
 			starting,

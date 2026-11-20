@@ -25,6 +25,8 @@ import {
 	loadHostPi,
 } from "../engine/index.ts";
 import { hostRealm } from "./address.ts";
+import { childPolicyFile, watchedChildPolicy } from "./child-policy.ts";
+import { systemdUnits } from "./child-units.ts";
 import { gatewayKey } from "./gateway-key.ts";
 import { hostProof } from "./proof.ts";
 import { followWhatStarts } from "./restart.ts";
@@ -206,6 +208,11 @@ export async function startHostProgram(
 		},
 		// A viewer's key or resize holds the quiet collection off for a while.
 		viewer: () => noticingInput(screens.viewer, () => engine?.viewed()),
+		// Each moves to a process of its own only as its key's policy file says.
+		children: {
+			units: systemdUnits,
+			policy: (key) => watchedChildPolicy(childPolicyFile(key), report),
+		},
 		// One conversation's throw ends only it, never the host's other conversations.
 		faults: process,
 		contain: (sessionId, error) => screens.faulted(sessionId, error),

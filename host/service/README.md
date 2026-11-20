@@ -273,7 +273,16 @@ input pipeline or screen. No unit or running host is installed yet.
   go with the slot as the child ends. A child that never listens or
   refuses its first request is stopped; a host starting takes up the
   children an earlier one left running, and a host stopping leaves
-  them. Nothing starts it yet.
+  them.
+- child-policy.ts: which conversations move to children, read from
+  `host-service/KEY/children.json` as it changes, never per decision:
+  `{"v":1,"sessions":[ids]}` moves those as they next wake or start,
+  and `"all":true` moves every one and every open. A missing or
+  unreadable file moves nothing, so emptying it moves them back.
+- child-hosting.ts: the routes, supervisor and policy put together for
+  serve.ts. A child that ends parked or failed leaves its conversation
+  held and resting, its wake watched by the host again, so no process
+  runs for a parked conversation.
 - client.ts: one-shot control requests with strict reply correlation and
   a bounded timeout. It never retries a possibly committed operation.
 - join.ts: what a window's pi hands its window to as it moves in place

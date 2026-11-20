@@ -14,7 +14,7 @@
  * start sets the package's net for those before any conversation exists.
  */
 
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	type Standing,
@@ -24,6 +24,9 @@ import {
 import { spareStaleRejections } from "../../lib/internal/reload/stale-rejections.ts";
 import { type ConversationIdentity, SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostSocketPath } from "./address.ts";
+import { type HostedChildren, hostChildren } from "./child-hosting.ts";
+import type { ChildPolicy } from "./child-policy.ts";
+import { slotFolder, type Units } from "./child-units.ts";
 import {
 	type ConversationEngine,
 	conversationEvents,
@@ -124,6 +127,15 @@ export async function serveHost(options: {
 	 * after it, before the journal says so: attach-waits.ts's ATTACH_SLOW_MS.
 	 */
 	attachSlowMs?: number;
+	/**
+	 * Where conversations may run in a process each: the units that start
+	 * them, and the policy, read for the host's key, saying which move.
+	 * Without it, or while the policy moves none, this host runs them all.
+	 */
+	children?: {
+		units: Units;
+		policy: (key: string) => Promise<ChildPolicy>;
+	};
 }): Promise<ServingHost> {
 	const admitAnother = options.rollout ?? hostRolloutGate();
 	const key = hostKey(options.realm, options.kind);
@@ -147,6 +159,7 @@ export async function serveHost(options: {
 	});
 	let host: SessionHost | undefined;
 	let listener: Awaited<ReturnType<typeof listenControl>> | undefined;
+	let children: HostedChildren | undefined;
 	try {
 		host = new SessionHost({ key, owner, registryDir: options.registryDir });
 		await options.starting?.({ step: "engine" });
@@ -172,6 +185,18 @@ export async function serveHost(options: {
 					wakes ? wakes(sessionId) : listened.then((wake) => wake(sessionId)),
 			}),
 		);
+		if (options.children)
+			children = hostChildren({
+				key,
+				// Beside the socket, in the runtime folder it was checked under.
+				folder: slotFolder(dirname(dirname(path)), key),
+				units: options.children.units,
+				policy: await options.children.policy(key),
+				roster,
+				restsParked: (entry) => engine.restsParked?.(entry) ?? false,
+				report: options.report,
+				...(options.say ? { say: options.say } : {}),
+			});
 		const order = heldOrder(roster);
 		const identity = { key: host.key, owner: host.owner };
 		const slowAfter =
@@ -185,6 +210,7 @@ export async function serveHost(options: {
 			engine,
 			admitAnother,
 			held: order,
+			...(children ? { children: children.backend } : {}),
 			...(options.say ? { say: options.say } : {}),
 			...slowAfter,
 		});
@@ -192,6 +218,7 @@ export async function serveHost(options: {
 			path,
 			backend,
 			viewer: options.viewer?.(host),
+			...(children ? { children: children.routes } : {}),
 			report: options.report,
 			...(options.say ? { say: options.say } : {}),
 			...slowAfter,
@@ -199,6 +226,9 @@ export async function serveHost(options: {
 		listener = control;
 		wakes = backend.wake;
 		listening(backend.wake);
+		// Before the resumes, so one a child an earlier host left running
+		// still runs is taken up there rather than started again here.
+		await children?.adopt().catch(options.report);
 		const { unresumed, dropped } = await resumeHeld({
 			roster,
 			engine,
@@ -207,6 +237,7 @@ export async function serveHost(options: {
 			mark: options.mark,
 			finished: options.finished,
 			order,
+			...(children ? { children: children.backend } : {}),
 		});
 		for (const { reason } of unresumed) options.report(reason);
 		const running = host;
@@ -221,6 +252,7 @@ export async function serveHost(options: {
 				const live = new Map(running.list().map((c) => [c.id, c.state]));
 				const held = new Set(roster.entries().map((e) => e.sessionId));
 				return unresumed.filter(({ sessionId }) => {
+					if (children?.routes.routeOf(sessionId)) return false;
 					const state = live.get(sessionId);
 					return held.has(sessionId) && (state ?? "parked") === "parked";
 				}).length;
@@ -231,7 +263,10 @@ export async function serveHost(options: {
 				return roster
 					.entries()
 					.filter(
-						({ sessionId }) => !live.has(sessionId) && !failed.has(sessionId),
+						({ sessionId }) =>
+							!live.has(sessionId) &&
+							!failed.has(sessionId) &&
+							!children?.routes.routeOf(sessionId),
 					).length;
 			},
 			held: () => running.list(),
@@ -252,6 +287,8 @@ export async function serveHost(options: {
 					// A wake already resuming finishes first, so it is parked with
 					// the rest rather than left running in a host disposed under it.
 					await backend.settled();
+					// Each child runs on through the stop, for the next host to adopt.
+					children?.close();
 					// A restart's parks carry each conversation's bash calls, which
 					// are then kept out of the host's stop for the next host. Any
 					// other stop carries them too where the engine can keep them:
@@ -267,6 +304,7 @@ export async function serveHost(options: {
 			},
 		};
 	} catch (error) {
+		children?.close();
 		await listener?.close().catch(options.report);
 		if (host) {
 			await park(host).catch(options.report);
