@@ -57,13 +57,41 @@ describe("setting aside what was planted where a cache belongs", () => {
 	});
 
 	it("names the Mac's own temporary folder's caches beside /tmp's, and only there", () => {
-		expect(tempCodeCaches("linux", () => temp)).toEqual(TEMP_CODE_CACHES);
-		expect(tempCodeCaches("darwin", () => temp)).toEqual([
+		expect(tempCodeCaches("linux", () => [temp])).toEqual(TEMP_CODE_CACHES);
+		expect(tempCodeCaches("darwin", () => [temp])).toEqual([
 			...TEMP_CODE_CACHES,
 			join(realpathSync(temp), "node-compile-cache"),
 			join(realpathSync(temp), "jiti"),
 		]);
-		expect(tempCodeCaches("darwin", () => "/tmp")).toEqual(TEMP_CODE_CACHES);
+		expect(tempCodeCaches("darwin", () => ["/tmp"])).toEqual(TEMP_CODE_CACHES);
+	});
+
+	it("holds the Mac account's own caches whatever TMPDIR the fence was handed", () => {
+		const account = join(temp, "T");
+		const handed = join(temp, "quest");
+		mkdirSync(account);
+		mkdirSync(handed);
+		const own = realpathSync(account);
+		const ownCaches = [join(own, "node-compile-cache"), join(own, "jiti")];
+		// Handed a quest's folder, or none, or one that is gone: the
+		// account's are held all the same.
+		expect(tempCodeCaches("darwin", () => [account, handed])).toEqual([
+			...TEMP_CODE_CACHES,
+			...ownCaches,
+			join(realpathSync(handed), "node-compile-cache"),
+			join(realpathSync(handed), "jiti"),
+		]);
+		expect(tempCodeCaches("darwin", () => [account, "/tmp"])).toEqual([
+			...TEMP_CODE_CACHES,
+			...ownCaches,
+		]);
+		expect(
+			tempCodeCaches("darwin", () => [account, join(temp, "gone")]),
+		).toEqual([...TEMP_CODE_CACHES, ...ownCaches]);
+		expect(tempCodeCaches("darwin", () => [account, account])).toEqual([
+			...TEMP_CODE_CACHES,
+			...ownCaches,
+		]);
 	});
 
 	it("leaves a cache that is a folder, and one not there, as they are", () => {

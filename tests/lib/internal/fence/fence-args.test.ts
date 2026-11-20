@@ -21,6 +21,7 @@ import {
 	foldersMadeFirst,
 	READ_ONLY,
 } from "../../../../lib/internal/fence/fence-home.ts";
+import { plantedCache } from "../../../../lib/internal/fence/fence-temp-caches.ts";
 
 /**
  * A disk where every path is a folder but the links named and any git
@@ -888,6 +889,17 @@ describe("what node reads back as compiled code outside the fence", () => {
 		expect(() =>
 			fenceArgs(place, diskWith(home, [".local"], ["/tmp/jiti"])),
 		).toThrow(/\/tmp\/jiti is a link/);
+	});
+
+	it("says why before the fence is laid, so a link left there is refused as any refusal is", () => {
+		const folders = ["/tmp/node-compile-cache", "/tmp/jiti"];
+		expect(plantedCache(folders, disk)).toBeUndefined();
+		expect(
+			plantedCache(folders, { kind: () => undefined, entries: () => [] }),
+		).toBeUndefined();
+		expect(
+			plantedCache(folders, diskWith(home, [".local"], ["/tmp/jiti"])),
+		).toMatch(/^the fence won't start: \/tmp\/jiti is a link/);
 	});
 
 	it("binds each node_modules node searches above pi's code read-only", () => {

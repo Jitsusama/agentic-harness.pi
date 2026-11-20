@@ -21,11 +21,12 @@
  * mount, which a command inside can neither rename nor remove.
  */
 
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { lstatSync, realpathSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Disk } from "./fence-disk.ts";
+import { DISK, type Disk } from "./fence-disk.ts";
 
 /** The folders, where pi and node keep them in the real `/tmp`. */
 export const TEMP_CODE_CACHES = [
@@ -34,53 +35,96 @@ export const TEMP_CODE_CACHES = [
 ] as const;
 
 /**
- * The folders on this machine: `/tmp`'s, and on a Mac the person's own
- * temporary folder's too, since node and jiti keep them in `os.tmpdir()`
- * and a Mac's is always its own. On Linux a pi outside starts with the
- * system's, a quest's being kept from them (`supervisor-request.ts`).
+ * The account's own temporary folder on a Mac, as the system names it
+ * whatever TMPDIR says, or nothing where it won't say.
  */
-export function tempCodeCaches(
-	platform: NodeJS.Platform = process.platform,
-	temp: () => string = tmpdir,
-): readonly string[] {
-	if (platform !== "darwin") return TEMP_CODE_CACHES;
-	let own: string;
+export function accountsTemp(): string | undefined {
 	try {
-		own = realpathSync(temp());
+		return (
+			execFileSync("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], {
+				encoding: "utf8",
+			}).trim() || undefined
+		);
 	} catch {
-		return TEMP_CODE_CACHES;
+		return undefined;
 	}
-	if (own === "/tmp" || own === "/private/tmp") return TEMP_CODE_CACHES;
-	return [
-		...TEMP_CODE_CACHES,
-		join(own, "node-compile-cache"),
-		join(own, "jiti"),
-	];
 }
 
 /**
- * bubblewrap's arguments for `folders`, as the disk holds them. A link or
- * file left at one, once `setAsidePlanted` has had its turn, refuses the
- * fence: bubblewrap can mount on neither, and a link there leads node and
- * jiti outside to wherever it points.
+ * The folders on this machine: `/tmp`'s, and on a Mac those of the
+ * account's own temporary folder and of `os.tmpdir()` too. The person's
+ * own pis keep theirs in the account's folder, which the system names,
+ * while whoever starts the fence may hand it another TMPDIR or none, so
+ * both are held, never one in place of the other. On Linux a pi outside
+ * starts with the system's, a quest's being kept from them
+ * (`supervisor-request.ts`).
+ */
+export function tempCodeCaches(
+	platform: NodeJS.Platform = process.platform,
+	temps: () => readonly (string | undefined)[] = () => [
+		accountsTemp(),
+		tmpdir(),
+	],
+): readonly string[] {
+	if (platform !== "darwin") return TEMP_CODE_CACHES;
+	const held: string[] = [...TEMP_CODE_CACHES];
+	for (const temp of temps()) {
+		if (!temp) continue;
+		let own: string;
+		try {
+			own = realpathSync(temp);
+		} catch {
+			continue;
+		}
+		if (own === "/tmp" || own === "/private/tmp") continue;
+		for (const cache of ["node-compile-cache", "jiti"]) {
+			const folder = join(own, cache);
+			if (!held.includes(folder)) held.push(folder);
+		}
+	}
+	return held;
+}
+
+/**
+ * Why the fence won't start, if a link or file is left at one of
+ * `folders` once `setAsidePlanted` has had its turn: bubblewrap can mount
+ * on neither, and a link there leads node and jiti outside to wherever it
+ * points. Callers ask before laying the fence, so it is refused as any
+ * other refusal is, logged and with the fence's own exit status.
+ */
+export function plantedCache(
+	folders: readonly string[] = tempCodeCaches(),
+	disk: Disk = DISK,
+): string | undefined {
+	for (const folder of folders) {
+		const kind = disk.kind(folder);
+		if (kind === "folder" || kind === undefined) continue;
+		return (
+			`the fence won't start: ${folder} is a ${kind}, not a folder, and couldn't be ` +
+			"moved aside. Something may have put it there to plant code: look at what " +
+			"it is and who owns it before moving it away, which for another account's " +
+			"takes root."
+		);
+	}
+	return undefined;
+}
+
+/**
+ * bubblewrap's arguments for `folders`, as the disk holds them. One that
+ * `plantedCache` would refuse throws, which a caller that asked first
+ * never meets.
  */
 export function tempCacheArgs(
 	folders: readonly string[],
 	disk: Disk,
 ): string[] {
-	return folders.flatMap((folder) => {
-		const kind = disk.kind(folder);
-		if (kind === "folder") {
-			return ["--overlay-src", folder, "--tmp-overlay", folder];
-		}
-		if (kind === undefined) return ["--tmpfs", folder];
-		throw new Error(
-			`the fence won't start: ${folder} is a ${kind}, not a folder, and couldn't be ` +
-				"moved aside. Something may have put it there to plant code: look at what " +
-				"it is and who owns it before moving it away, which for another account's " +
-				"takes root.",
-		);
-	});
+	const planted = plantedCache(folders, disk);
+	if (planted) throw new Error(planted);
+	return folders.flatMap((folder) =>
+		disk.kind(folder) === "folder"
+			? ["--overlay-src", folder, "--tmp-overlay", folder]
+			: ["--tmpfs", folder],
+	);
 }
 
 /**

@@ -60,7 +60,11 @@ import {
 	seatbeltProfile,
 	seatbeltText,
 } from "./fence-seatbelt.ts";
-import { setAsidePlanted, tempCodeCaches } from "./fence-temp-caches.ts";
+import {
+	plantedCache,
+	setAsidePlanted,
+	tempCodeCaches,
+} from "./fence-temp-caches.ts";
 
 /** The fences a caller may ask for, by the names pi's sessions use. */
 export const FENCE_RUN_KINDS = ["fence", STRICT] as const;
@@ -289,6 +293,8 @@ export function fenceRunText(
 		sandbox.landrun,
 	);
 	setAsidePlanted();
+	const planted = plantedCache();
+	if (planted) return { refused: planted };
 	const root = fenceArgs({
 		home,
 		runtimeDir,
@@ -453,7 +459,12 @@ function macFenceText(
 	// make are made first, and a link or file planted where a cache goes
 	// is moved aside, so neither stays writable or refuses every run.
 	makeFoldersFirst(home);
-	setAsidePlanted();
+	// The Mac's, asked once, so the account's own temporary folder is
+	// held whatever TMPDIR this process was handed.
+	const caches = tempCodeCaches("darwin");
+	setAsidePlanted(caches);
+	const macPlanted = plantedCache(caches);
+	if (macPlanted) return { refused: macPlanted };
 	// The Mac has no runtime folder, so the copy of npm's settings goes
 	// in the person's own temporary folder, which commands there write
 	// too, so pi's folder in it is kept from them below.
@@ -467,6 +478,7 @@ function macFenceText(
 		...sessionWorktrees(tree ?? folder, undefined, treesRoot),
 		...(npmrc ? { npmrc } : {}),
 		docker: dockerHoldsCredentials(home),
+		tempCaches: caches,
 	});
 	// The copy sits in the person's temporary folder, which commands
 	// write: its folder is kept from writes, so none can change what the
@@ -479,7 +491,7 @@ function macFenceText(
 	const { profile } = seatbeltProfile([...mounts, ...strict, ...kept], {
 		sockets: [MAC_NIX_DAEMON],
 		home,
-		heldFromRoot: tempCodeCaches(),
+		heldFromRoot: caches,
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
 		folder,
 		// A tree the work broker cut lies in pi's state, which the profile
