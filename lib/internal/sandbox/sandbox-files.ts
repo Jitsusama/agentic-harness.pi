@@ -25,14 +25,13 @@ import { toolPath } from "../files/tool-path.ts";
 import { isRecord } from "../record.ts";
 import { makeShares, questScratch } from "./quest-folders.ts";
 import {
-	type FileUse,
-	fileReach,
 	SANDBOX_NAMES,
 	SANDBOX_VARIABLE,
 	STRICT,
 	unfencedFolder,
 } from "./sandbox.ts";
 import { brokerTrees, heldWorktrees } from "./sandbox-trees.ts";
+import { type FileUse, fileReach } from "./strict-rules.ts";
 import { treeGit, within, worktreeRepository } from "./tree-git.ts";
 
 /**

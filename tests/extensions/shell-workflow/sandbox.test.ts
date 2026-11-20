@@ -36,15 +36,16 @@ import {
 } from "../../../lib/internal/sandbox/quest-folders.ts";
 import {
 	askTheCloudAhead,
-	NIX_DOOR,
 	type Sandbox,
-	sandboxFolders,
 	sandboxFor,
-	strictRules,
 	unfencedFolder,
 	wrapFor,
 } from "../../../lib/internal/sandbox/sandbox.ts";
 import { quoted } from "../../../lib/internal/sandbox/sandbox-shell.ts";
+import {
+	NIX_DOOR,
+	sandboxFolders,
+} from "../../../lib/internal/sandbox/strict-rules.ts";
 import { systemProgram } from "../../../lib/internal/sandbox/system-program.ts";
 import { worktreeRepository } from "../../../lib/internal/sandbox/tree-git.ts";
 
@@ -124,61 +125,6 @@ describe("what a session asks for", () => {
 		expect(note, "the note doesn't say the way back").toContain(
 			"PI_SANDBOX=off",
 		);
-	});
-});
-
-describe("the strict profile", () => {
-	const rules = strictRules({
-		home: "/home/someone",
-		runtimeDir: "/run/user/1000",
-		cwd: "/home/someone/src/thing",
-	});
-	const paths = (flag: string) =>
-		rules.filter(([given]) => given === flag).map(([, path]) => path);
-
-	it("lets nothing in the home folder be read but settings, the work and its own cache", () => {
-		const home = [...paths("--ro"), ...paths("--rox"), ...paths("--rw")]
-			.filter((path) => path.startsWith("/home/someone"))
-			.sort();
-		expect(home).toEqual(
-			[
-				"/home/someone/.cache/pi-sandbox/cache",
-				"/home/someone/.cache/pi-sandbox/gcloud",
-				"/home/someone/.cache/pi-sandbox/tmp",
-				"/home/someone/.config/dev",
-				"/home/someone/.config/git",
-				"/home/someone/.config/nix/nix.conf",
-				"/home/someone/.gitconfig",
-				"/home/someone/.local/state/nix/profile",
-				"/home/someone/.nix-profile",
-				"/home/someone/src/thing",
-			].sort(),
-		);
-	});
-
-	it("lets a worktree's repository be read and never written", () => {
-		const given = strictRules({
-			home: "/home/someone",
-			runtimeDir: undefined,
-			cwd: "/home/someone/trees/thing",
-			repository: "/home/someone/src/thing/.git",
-		});
-		const flags = given
-			.filter(([, path]) => path === "/home/someone/src/thing/.git")
-			.map(([flag]) => flag);
-		expect(flags).toEqual(["--ro"]);
-	});
-
-	it("reaches no socket but name lookups and Nix's door for sandboxes", () => {
-		expect(paths("--unix")).toEqual([
-			"/run/nscd/socket",
-			`/run/user/1000/${NIX_DOOR}`,
-		]);
-		expect(paths("--env")).toEqual([
-			"TMPDIR=/home/someone/.cache/pi-sandbox/tmp",
-			"XDG_CACHE_HOME=/home/someone/.cache/pi-sandbox/cache",
-			`NIX_REMOTE=unix:///run/user/1000/${NIX_DOOR}`,
-		]);
 	});
 });
 

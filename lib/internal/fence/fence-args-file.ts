@@ -49,8 +49,12 @@ const SWEEP_EVERY_MS = 60 * 60_000;
  */
 export const BWRAP_MOST_ARGS = 9000;
 
-/** When this process last looked for unused list files. */
-let sweptAt = 0;
+/**
+ * When this process last looked for unused list files, by the folder
+ * it looked in, so a conversation with a runtime folder of its own has
+ * that folder swept too.
+ */
+const sweptAt = new Map<string, number>();
 
 /** bubblewrap's arguments, and the file holding them for `--args`. */
 export interface ArgsFile {
@@ -110,9 +114,10 @@ function listFile(
 		// list in its text instead.
 		return undefined;
 	}
-	if (moment - sweptAt >= SWEEP_EVERY_MS) {
-		sweptAt = moment;
-		sweepUnused(join(path, ".."), moment);
+	const folder = join(path, "..");
+	if (moment - (sweptAt.get(folder) ?? 0) >= SWEEP_EVERY_MS) {
+		sweptAt.set(folder, moment);
+		sweepUnused(folder, moment);
 	}
 	return path;
 }

@@ -270,6 +270,30 @@ describe("bubblewrap's arguments from a file", () => {
 		);
 	});
 
+	it("sweeps each runtime folder in its own hour, though another was swept a minute before", () => {
+		const folders = ["run-one", "run-two"].map((name) => {
+			const made = join(folder, name);
+			mkdirSync(made);
+			return made;
+		});
+		const old = new Date(Date.now() - 2 * 24 * 60 * 60_000);
+		const stale = folders.map((made) => {
+			const path = bwrapArgsFile(made, ["--stale", made])?.path ?? "";
+			utimesSync(path, old, old);
+			return path;
+		});
+		const later = Date.now() + 2 * 60 * 60_000;
+		folders.forEach((made, at) => {
+			bwrapArgsFile(made, ["--used"], () => later + at * 60_000);
+		});
+		folders.forEach((made, at) => {
+			expect(
+				readdirSync(join(made, "pi-fence")),
+				`${made}'s stale file stayed`,
+			).not.toContain(stale[at]?.split("/").pop());
+		});
+	});
+
 	it("closes the file before the command inside runs, though a bubblewrap left it open", () => {
 		const argsFile = bwrapArgsFile(runtimeDir, ["--dev", "/dev"]);
 		if (!argsFile) throw new Error("no file was written");
