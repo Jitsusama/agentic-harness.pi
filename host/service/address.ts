@@ -49,7 +49,9 @@ export function hostKeyParts(key: string): { realm: string; kind: HostKind } {
 	const parts = /^(.+)-(attended|background)$/.exec(key);
 	const [, realm, kind] = parts ?? [];
 	if (!(realm && (kind === "attended" || kind === "background")))
-		throw new Error(`${key} isn't a host key, realm-attended or realm-background`);
+		throw new Error(
+			`${key} isn't a host key, realm-attended or realm-background`,
+		);
 	hostKey(realm, kind);
 	return { realm, kind };
 }

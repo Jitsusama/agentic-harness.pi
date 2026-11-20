@@ -67,7 +67,10 @@ function keyOf(
 		return undefined;
 	const [kind, ...rest] = options.argv;
 	const child = kind === CHILD_FLAG;
-	if ((kind !== "attended" && kind !== "background" && !child) || rest.length > 0)
+	if (
+		(kind !== "attended" && kind !== "background" && !child) ||
+		rest.length > 0
+	)
 		return undefined;
 	let host: string;
 	try {
