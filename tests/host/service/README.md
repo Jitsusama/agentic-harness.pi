@@ -42,7 +42,7 @@ child ending before it listens or never listening given up, a host's
 stop at each step of a start, a child running another conversation
 refused, state, a new id and an ending each kept in the routes, a new
 id onto one held or run elsewhere refused, what a newer child adds
-passed over, an unreadable line and a silent exit as failed, a key too
+passed over, an unreadable line and a silent exit as failed, a folder too
 long refused, and a slot kept in use while its unit may still run, and
 freed once it has gone.
 child-opens.test.ts runs the same children for opens and adopts: an

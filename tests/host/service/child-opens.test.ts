@@ -128,9 +128,10 @@ describe("a new conversation", () => {
 		const reply = await supervisor.begin(opening("open-10"));
 
 		expect(reply).toMatchObject({ ok: false });
-		expect(Date.now() - asked, "within its time, not its answer's").toBeLessThan(
-			3_000,
-		);
+		expect(
+			Date.now() - asked,
+			"within its time, not its answer's",
+		).toBeLessThan(3_000);
 	});
 
 	it("ends a begin as soon as the host stops watching during its ask", async () => {

@@ -1,7 +1,9 @@
 /** The host starting and watching the children that run its resumed conversations, and letting each go. */
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { childSupervisor } from "../../../host/service/child-supervisor.ts";
 import { slotOf } from "../../../host/service/child-units.ts";
 import {
 	a,
@@ -120,10 +122,18 @@ describe("a resumed conversation", () => {
 		);
 	});
 
-	it("refuses a key whose children's sockets would be too long a path", () => {
+	it("refuses a folder whose children's sockets would be too long a path", () => {
 		expect(() =>
-			superviseAgain({ key: `${"x".repeat(60)}-background` }),
+			childSupervisor({
+				key,
+				folder: join(folder, "x".repeat(80)),
+				units,
+				routes,
+				roster,
+				report: (error) => reported.push(error),
+			}),
 		).toThrow("too long a path");
+		expect(units.started, "refused before any start").toEqual([]);
 	});
 
 	it("fails, starting nothing, for an id no slot can be named by", async () => {
@@ -695,8 +705,6 @@ describe("a child leaving", () => {
 		const slot = slotOf(folder, key, a);
 		expect(existsSync(slot.file), "its slot is kept").toBe(true);
 		await supervisor.resume(entry(a));
-		expect(units.started, "started once systemd said it went").toHaveLength(
-			2,
-		);
+		expect(units.started, "started once systemd said it went").toHaveLength(2);
 	});
 });

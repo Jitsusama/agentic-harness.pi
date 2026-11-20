@@ -348,9 +348,9 @@ interface Clocks {
 	beginsWithinMs?: number;
 }
 
-function supervise(clocks: Clocks = {}, keyed = key): ChildSupervisor {
+function supervise(clocks: Clocks = {}): ChildSupervisor {
 	return childSupervisor({
-		key: keyed,
+		key,
 		folder,
 		units,
 		routes,
@@ -367,22 +367,16 @@ function supervise(clocks: Clocks = {}, keyed = key): ChildSupervisor {
 
 /**
  * Put a new supervisor in the last one's place, closing that one: with
- * other clocks, over a roster holding `held`, for another key, or, as
- * the next host of the key would, with routes of its own. Its units and
- * folder stay.
+ * other clocks, over a roster holding `held`, or, as the next host of
+ * the key would, with routes of its own. Its units and folder stay.
  */
 export function superviseAgain(
-	again: {
-		clocks?: Clocks;
-		held?: RosterEntry[];
-		nextHost?: boolean;
-		key?: string;
-	} = {},
+	again: { clocks?: Clocks; held?: RosterEntry[]; nextHost?: boolean } = {},
 ): void {
 	supervisor.close();
 	if (again.held) roster = fakeRoster(again.held);
 	if (again.nextHost) routes = heldChildren();
-	supervisor = supervise(again.clocks, again.key);
+	supervisor = supervise(again.clocks);
 }
 
 /** An open request, as a caller sends one. */
