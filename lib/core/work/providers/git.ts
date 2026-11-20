@@ -15,6 +15,7 @@
  * without asking.
  */
 
+import { readdirSync } from "node:fs";
 import { statfs } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { displayPath } from "../../../ui/path.ts";
@@ -25,6 +26,20 @@ import type { TreeProvider } from "../broker.ts";
 import { FETCHED_LATELY_MS, refreshStart } from "../fresh-start.ts";
 import { dropMergedBranch } from "../merged-branch.ts";
 import { type TreeRequest, treeIdentity, treeSource } from "../tree.ts";
+
+/**
+ * Whether anything stands in the folder at `path`. git cuts into an
+ * empty folder as readily as a missing one, as it does into a subvolume
+ * made for the tree, so only a folder with something in it is in the way.
+ */
+function holdsAnything(path: string): boolean {
+	try {
+		return readdirSync(path).length > 0;
+	} catch {
+		// Nothing there, or not a folder git could cut into either way.
+		return false;
+	}
+}
 
 /**
  * Whether a tree standing at `head` is the commit asked for. A short id
@@ -289,6 +304,18 @@ export function createGitTreeProvider(deps: {
 					}
 				}
 				return { path };
+			}
+			// Something stands there that git won't read, so cutting over it
+			// can only fail: on 20 November a snapshot cut from a clone the
+			// fence doesn't guard made every later one at its commit die on
+			// git's bare `already exists`, which says neither why nor what to do.
+			if (holdsAnything(path)) {
+				const said =
+					standing.stderr.trim() || `git exited ${standing.code} reading it`;
+				const why = /[.!?]$/.test(said) ? said : `${said}.`;
+				throw new Error(
+					`${displayPath(path)} already holds a tree, which git here won't read: ${why} Nothing can hand it over or cut there until it goes, so \`work tidy\` lists it and \`work reclaim\` moves it aside whole, after which this ${request.intent} can be cut.`,
+				);
 			}
 
 			const git = (...args: string[]) =>

@@ -27,8 +27,17 @@ import {
 } from "../../../lib/core/work/history.ts";
 import { treesToKeep } from "../../../lib/core/work/in-use.ts";
 import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
-import { reclaimTrees } from "../../../lib/core/work/reclaim.ts";
+import {
+	type ReclaimOutcome,
+	reclaimTrees,
+} from "../../../lib/core/work/reclaim.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
+import {
+	setAside,
+	type StrandedTree,
+	strandedDir,
+	strandedTrees,
+} from "../../../lib/core/work/stranded.ts";
 import { surveyTarget } from "../../../lib/core/work/survey.ts";
 import {
 	type OrphanPlan,
@@ -43,9 +52,11 @@ import {
 	sum,
 } from "../../../lib/internal/quest/workspace/footprint.ts";
 import { gitTreeRootOf } from "../../../lib/internal/quest/workspace/git-signals.ts";
+import { gitRules } from "../../../lib/internal/sandbox/sandbox.ts";
+import { gitRun } from "../../../lib/internal/sandbox/tree-git.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
-import { treeBroker } from "../broker.ts";
+import { treeBroker, treeDir } from "../broker.ts";
 import { GLYPH } from "../render.ts";
 import { useSigns } from "../sweep.ts";
 import { resolved } from "./held.ts";
@@ -124,7 +135,7 @@ async function treesLeftBehind(
 	mainPath: string,
 	trunk: string,
 	signal: AbortSignal | undefined,
-): Promise<OrphanPlan> {
+): Promise<LeftBehind> {
 	// This broker is not the only thing that cuts a worktree. A quest
 	// holds trees against a piece of work and knows nothing about this
 	// memory, and from git's side that is indistinguishable from a tree
@@ -150,20 +161,21 @@ async function treesLeftBehind(
 	// git is asked nothing more of them than where they are.
 	const keeping = new Set([resolved(mainPath), ...remembered]);
 
-	return orphanedTrees({
+	const worktrees = (
+		await history.worktrees(mainPath, trunk, {
+			kept: (path) => keeping.has(resolved(path)),
+			statusExec: spawnExec({
+				...(signal ? { signal } : {}),
+				timeoutMs: TIDY_STATUS_MS,
+			}),
+		})
+	).map((tree) => ({
+		...tree,
+		path: resolved(tree.path),
+	}));
+	const plan = orphanedTrees({
 		mainPath: resolved(mainPath),
-		worktrees: (
-			await history.worktrees(mainPath, trunk, {
-				kept: (path) => keeping.has(resolved(path)),
-				statusExec: spawnExec({
-					...(signal ? { signal } : {}),
-					timeoutMs: TIDY_STATUS_MS,
-				}),
-			})
-		).map((tree) => ({
-			...tree,
-			path: resolved(tree.path),
-		})),
+		worktrees,
 		// `stillHeld`, not `held`. A tree stays in the record after the
 		// session that cut it has gone, deliberately, so that the next
 		// session can find it: asking the wider question here meant every
@@ -179,6 +191,69 @@ async function treesLeftBehind(
 		remembered,
 		unattributed: [...unattributed].map(resolved),
 	});
+	return {
+		...plan,
+		...(await strandedBeside(
+			[
+				...keeping,
+				...unattributed,
+				...broker.held().map((one) => one.path),
+				...worktrees.map((tree) => tree.path),
+			].map(resolved),
+		)),
+	};
+}
+
+/** The trees left behind beside a checkout, and those nothing can use. */
+interface LeftBehind extends OrphanPlan {
+	/** Trees git won't read that nothing holds, which reclaim sets aside. */
+	stranded: StrandedTree[];
+	/** Stranded trees something still works in, kept for now. */
+	busy: string[];
+}
+
+/**
+ * The trees where the broker cuts them that nothing holds and git won't
+ * read, whichever checkout they came from. No checkout's git lists one
+ * cut from a clone git won't run in, so this is the only survey that
+ * can see it, and every snapshot of its commit fails until it goes. One
+ * a process works in, or that the machine can't say of, is kept: the
+ * record is the broker's, but a reader may still stand in the folder.
+ */
+async function strandedBeside(
+	kept: readonly string[],
+): Promise<{ stranded: StrandedTree[]; busy: string[] }> {
+	const rules = gitRules();
+	const found = strandedTrees({
+		dir: treeDir(),
+		kept: new Set(kept),
+		refusal: (path) => {
+			const run = gitRun(path, ["rev-parse", "HEAD"], rules);
+			return "refused" in run ? run.refused : undefined;
+		},
+	});
+	if (found.length === 0) return { stranded: [], busy: [] };
+	const busy = await useSigns().busyAmong?.(
+		found.map((tree) => resolved(tree.path)),
+	);
+	if (busy === undefined) {
+		return { stranded: [], busy: found.map((tree) => tree.path) };
+	}
+	return {
+		stranded: found.filter((tree) => !busy.has(resolved(tree.path))),
+		busy: found
+			.filter((tree) => busy.has(resolved(tree.path)))
+			.map((tree) => tree.path),
+	};
+}
+
+/** The line saying a stranded tree is kept, since something works in it. */
+const BUSY_WHY =
+	"git won't read it and nothing holds it, but something works in it, or the machine can't say, so it stays for now";
+
+/** A stranded tree the survey keeps, since something still works in it. */
+function busyLine(path: string): string {
+	return `   ${GLYPH.refused} ${displayPath(path)}: ${BUSY_WHY}`;
 }
 
 /**
@@ -229,7 +304,7 @@ async function surveyRepo(
 		// That is what a branch deletion cannot offer, and why tidy
 		// refuses to act while this does not. A branch origin's trunk
 		// already has all of goes too, which loses nothing.
-		if (orphans.reclaimable.length === 0) {
+		if (orphans.reclaimable.length === 0 && orphans.stranded.length === 0) {
 			// Said as a no-op rather than as a success, and it names
 			// what was considered so the answer is not mistaken for
 			// having looked in the wrong place.
@@ -240,15 +315,22 @@ async function surveyRepo(
 				[
 					`${GLYPH.clean} No tree beside ${named} is going spare, against ${trunk}.`,
 					...kept.map(keptLine),
+					...orphans.busy.map(busyLine),
 				].join("\n"),
 				{ ok: true, reclaimed: 0 },
 			);
 		}
 
-		const outcome = await reclaimTrees(
-			{ exec, mainPath: target.path },
-			orphans.reclaimable,
-		);
+		const outcome: ReclaimOutcome =
+			orphans.reclaimable.length === 0
+				? { trees: [] }
+				: await reclaimTrees(
+						{ exec, mainPath: target.path },
+						orphans.reclaimable,
+					);
+		// Moved, never removed: git can't say whether one holds work.
+		const moved = setAside(orphans.stranded, strandedDir(treeDir()));
+		const setAsideCount = moved.filter((t) => t.kind === "set-aside").length;
 		const took = outcome.trees.filter((t) => t.kind === "reclaimed");
 		const kept = took.some((t) => t.branch && !t.branchGone);
 		const branchOf = (tree: (typeof took)[number]) =>
@@ -260,12 +342,18 @@ async function surveyRepo(
 		return say(
 			[
 				// Past tense, because this one did something.
-				`${GLYPH.named} Took back ${count(took.length, "tree", "trees")} beside ${named}.`,
+				`${GLYPH.named} Took back ${count(took.length + setAsideCount, "tree", "trees")} beside ${named}.`,
 				...outcome.trees.map((tree) =>
 					tree.kind === "reclaimed"
 						? `   ${GLYPH.named} ${displayPath(tree.path)}${branchOf(tree)}`
 						: `   ${GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
 				),
+				...moved.map((tree) =>
+					tree.kind === "set-aside"
+						? `   ${GLYPH.named} ${displayPath(tree.path)}, which git won't read, set aside whole at ${displayPath(tree.aside)}`
+						: `   ${GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
+				),
+				...orphans.busy.map(busyLine),
 				...(kept
 					? [
 							"",
@@ -273,8 +361,15 @@ async function surveyRepo(
 							"again to pick that work back up.",
 						]
 					: []),
+				...(setAsideCount > 0
+					? [
+							"",
+							"A tree set aside keeps every file it held, and its name is free",
+							"to cut again. Delete it once nothing in it is wanted.",
+						]
+					: []),
 			].join("\n"),
-			{ ok: true, reclaimed: took.length },
+			{ ok: true, reclaimed: took.length + setAsideCount },
 		);
 	}
 
@@ -342,6 +437,20 @@ async function surveyRepo(
 			`   ${GLYPH.named} ${displayPath(tree.path)}, a tree nothing holds${tree.branch ? ` (${tree.branch})` : ""}${size ? `, ${formatSize(size)}` : ""}`,
 		);
 	}
+	for (const tree of orphans.stranded) {
+		records.push({
+			what: displayPath(tree.path),
+			verdict: "can go",
+			why: tree.why,
+		});
+		lines.push(
+			`   ${GLYPH.named} ${displayPath(tree.path)}, a tree nothing holds that git won't read`,
+		);
+	}
+	for (const path of orphans.busy) {
+		records.push({ what: displayPath(path), verdict: "kept", why: BUSY_WHY });
+		lines.push(busyLine(path));
+	}
 	const freed = sizes.size > 0 ? sum([...sizes.values()]) : undefined;
 	for (const tree of orphans.retained) {
 		// The checkout itself is left out. It is retained for a
@@ -378,7 +487,10 @@ async function surveyRepo(
 	);
 	if (roots.length > 0) lines.push("", ...roots);
 
-	const spent = plan.removable.length + orphans.reclaimable.length;
+	const spent =
+		plan.removable.length +
+		orphans.reclaimable.length +
+		orphans.stranded.length;
 	const headline =
 		spent === 0
 			? `${GLYPH.clean} Nothing in ${named} has been spent yet, against ${trunk}.`
@@ -401,6 +513,15 @@ async function surveyRepo(
 					`back${freed ? `, freeing ${formatSize(freed)}` : ""}. Each branch stays exactly where it is, so re-cutting`,
 					"the tree puts you back.",
 				]),
+		...(orphans.stranded.length === 0
+			? []
+			: [
+					// Every cut at one's name fails until it goes, and only this
+					// survey sees it, so the way out is said here.
+					"",
+					`For the ${count(orphans.stranded.length, "tree", "trees")} git won't read, work reclaim moves each aside`,
+					`whole, to ${displayPath(strandedDir(treeDir()))}, deleting nothing, so its name can be cut again.`,
+				]),
 	].join("\n");
 	return say(
 		citeListing(openSessionStore(ctx), {
@@ -414,7 +535,7 @@ async function surveyRepo(
 		{
 			ok: true,
 			removable: plan.removable.length,
-			reclaimable: orphans.reclaimable.length,
+			reclaimable: orphans.reclaimable.length + orphans.stranded.length,
 		},
 	);
 }

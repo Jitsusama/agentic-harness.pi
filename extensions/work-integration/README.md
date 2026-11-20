@@ -188,6 +188,17 @@ contains it. It keeps no record of such a tree, and `release`
 refuses it with `quest tree-release` as the way back: one owner,
 one removal path.
 
+A tree standing where the broker cuts them that git won't read
+is stranded: one cut from a clone the fence doesn't guard, or
+whose git folder is gone. No checkout's git lists one cut from
+such a clone, and every cut at its name died on git's bare
+`already exists`, as a snapshot a host restart left on 20
+November did. Cutting at its name now refuses, naming the tree
+and the way out. `tidy` lists each one nothing holds and no
+process works in, and `reclaim` moves it aside whole to
+`work/stranded/`, since git can't say whether it holds work
+(`lib/core/work/stranded.ts`).
+
 ## Trees Whose Sessions Have Ended
 
 When a session starts in a pi host, the records of the trees it holds

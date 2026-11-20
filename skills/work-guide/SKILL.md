@@ -401,6 +401,15 @@ One tree git will not give up does not strand the ones behind
 it. Each is reported on its own line, in git's words, and the
 sweep carries on.
 
+A tree where the broker cuts them that git won't read, as one
+cut from a clone outside `~/src` whose settings the fence doesn't
+guard, can't be handed over or cut again, and no checkout's git
+lists it. A snapshot or tree asked for at its name is refused,
+naming it. `tidy` lists every such tree nothing holds, from
+whichever checkout it runs in, and `reclaim` moves each aside
+whole beside the trees, deleting nothing, so its name can be cut
+again. One something still works in stays.
+
 ## Where This Ends and Review Begins
 
 `work` gets a branch into a state worth showing somebody.
