@@ -137,7 +137,8 @@ describe("handing a window over", () => {
 
 	it("takes back what it told, for a move called off after", () => {
 		const over = handOverOf(facts());
-		over?.tell();
+		expect(over?.tell(), "told").toBeUndefined();
+		expect(existsSync(again), "the join named first").toBe(true);
 		over?.untell();
 		expect(existsSync(again), "no join left for a later start").toBe(false);
 		expect(existsSync(wake), "no wake into it either").toBe(false);
@@ -208,6 +209,7 @@ interface Window {
 	over: HandOver | undefined;
 	readonly did: string[];
 	readonly told: string[];
+	readonly offs: string[];
 	tick?: () => void;
 }
 
@@ -235,6 +237,7 @@ function window(going: Going = {}): {
 		},
 		did: [],
 		told: [],
+		offs: [],
 	};
 	const move = createMoving({
 		holds: () => undefined,
@@ -242,6 +245,10 @@ function window(going: Going = {}): {
 		moving: () => at.moving,
 		setMoving: (now) => {
 			at.moving = now;
+		},
+		calledOff: (off) => {
+			at.moving = undefined;
+			at.offs.push(off.why);
 		},
 		note: (to) => {
 			if (going.noteFails !== undefined) throw new Error(going.noteFails);
@@ -317,7 +324,9 @@ describe("moving in place", () => {
 		const { at, move } = window({ untold: "the disk is full" });
 		move.move("attended");
 		expect(at.did, "neither noted nor closed").toEqual(["tell"]);
-		expect(at.moving, "the move is off").toBeUndefined();
+		expect(at.offs, "the why an asker outside reads").toEqual([
+			"the disk is full",
+		]);
 		expect(at.told.at(-1)).toBe(
 			"This session couldn't move to the attended host, so it stays open: the disk is full",
 		);
@@ -330,7 +339,9 @@ describe("moving in place", () => {
 			"tell",
 			"untell",
 		]);
-		expect(at.moving, "the move is off").toBeUndefined();
+		expect(at.offs, "the why an asker outside reads").toEqual([
+			"its note couldn't be written: the disk is full",
+		]);
 		expect(at.told.at(-1)).toBe(
 			"This session couldn't move to the attended host, so it stays open: the disk is full",
 		);

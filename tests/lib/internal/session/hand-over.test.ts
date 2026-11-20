@@ -18,6 +18,9 @@ import {
 	handingOf,
 	tellHolder,
 	untellHolder,
+	whyWriting,
+	writeWhole,
+	writingBeside,
 } from "../../../../lib/internal/session/hand-over.ts";
 import { PARKED_EXIT } from "../../../../lib/internal/session/park.ts";
 
@@ -150,7 +153,8 @@ describe("telling the holder what starts next", () => {
 
 	it("takes back what it told, leaving its holder nothing to start", () => {
 		const { files } = holderFor(4242);
-		tellHolder(files, ["pi"], { view: true });
+		expect(tellHolder(files, ["pi"], { view: true })).toEqual({ told: true });
+		expect(existsSync(files.again), "told first").toBe(true);
 
 		untellHolder(files);
 
@@ -158,10 +162,52 @@ describe("telling the holder what starts next", () => {
 		expect(existsSync(files.wake), "no wake").toBe(false);
 	});
 
-	it("takes back nothing quietly when nothing was told", () => {
+	it("takes back what it can when one file won't go", () => {
 		const { files } = holderFor(4242);
+		mkdirSync(files.again);
+		writeFileSync(files.wake, "{}");
 
-		expect(() => untellHolder(files), "nothing to take back").not.toThrow();
+		expect(() => untellHolder(files), "a folder it can't remove").not.toThrow();
+		expect(existsSync(files.wake), "the wake still goes").toBe(false);
+	});
+});
+
+describe("writing a holder's file", () => {
+	it("names the file when the error doesn't", () => {
+		expect(
+			whyWriting(
+				"/run/held/s.again",
+				new Error("ENOSPC: no space left on device, write"),
+			),
+		).toBe("ENOSPC: no space left on device, write, to /run/held/s.again");
+		expect(
+			whyWriting(
+				"/run/held/s.again",
+				new Error("EISDIR: open '/run/held/s.again'"),
+			),
+			"one that names it already is left as it is",
+		).toBe("EISDIR: open '/run/held/s.again'");
+	});
+
+	it("writes a file whole", () => {
+		const { files } = holderFor(4242);
+		writeFileSync(files.again, "before");
+
+		writeWhole(files.again, "after");
+
+		expect(readFileSync(files.again, "utf8")).toBe("after");
+		expect(existsSync(writingBeside(files.again)), "nothing left beside").toBe(
+			false,
+		);
+	});
+
+	it("leaves a file as it was when the write fails", () => {
+		const { files } = holderFor(4242);
+		writeFileSync(files.again, "before");
+		mkdirSync(writingBeside(files.again));
+
+		expect(() => writeWhole(files.again, "after")).toThrow(/EISDIR/);
+		expect(readFileSync(files.again, "utf8")).toBe("before");
 	});
 });
 

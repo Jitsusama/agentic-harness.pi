@@ -26,6 +26,7 @@ import {
 	UNWATCHED_MS,
 	watch,
 } from "../../../extensions/park-workflow/watch.ts";
+import { writingBeside } from "../../../lib/internal/session/hand-over.ts";
 import {
 	awakePath,
 	flagsLost,
@@ -731,6 +732,39 @@ describe("starting again on a fresh log", () => {
 			),
 		]);
 		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("says why, naming the file, when its command can't be written", () => {
+		mkdirSync(join(folder, "held.again"));
+		restarting();
+		asked();
+		fallbacks[0]?.();
+		expect(said).toEqual([
+			expect.stringMatching(
+				/^It stays parked, since its holder couldn't be told to start it again: EISDIR.*held\.again/,
+			),
+		]);
+		expect(
+			readdirSync(folder),
+			"no wake into a command it lacks",
+		).not.toContain("held.wake");
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("leaves the command named before when its own is cut short", () => {
+		const again = join(folder, "held.again");
+		writeFileSync(again, JSON.stringify(["pi", "--session", "before.jsonl"]));
+		mkdirSync(writingBeside(again));
+		restarting();
+		asked();
+		fallbacks[0]?.();
+		expect(
+			JSON.parse(readFileSync(again, "utf8")),
+			"a write that fails empties nothing",
+		).toEqual(["pi", "--session", "before.jsonl"]);
+		expect(said).toEqual([
+			expect.stringMatching(/couldn't be told to start it again: EISDIR/),
+		]);
 	});
 
 	it("has its holder start it fenced on the fresh log, as it was started", () => {

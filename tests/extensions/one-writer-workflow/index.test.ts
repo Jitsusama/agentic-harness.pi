@@ -360,9 +360,9 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			handlers.get("session_start")?.({ reason: "startup" }, ctx),
 		);
 
-		expect(said).toEqual([
-			expect.stringContaining(
-				"systemctl --user restart pi-host-work-background.service",
+		expect(said, "a refusal with no failed write opens as itself").toEqual([
+			expect.stringMatching(
+				/^Session .*systemctl --user restart pi-host-work-background\.service/s,
 			),
 		]);
 		expect(existsSync(holder.again), "it names nothing to start next").toBe(
