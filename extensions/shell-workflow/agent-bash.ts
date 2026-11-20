@@ -10,6 +10,7 @@ import {
 	createLocalBashOperations,
 } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/host.ts";
+import { sessionKeyOf } from "../../lib/core/session/identity.ts";
 import type { SessionRef } from "../../lib/core/session/index.ts";
 import { placedCommand } from "../../lib/internal/priority/place.ts";
 import { type Sandbox, wrapFor } from "../../lib/internal/sandbox/sandbox.ts";
@@ -65,6 +66,12 @@ export function agentBash(
 	// conversations', so none is taken for one an earlier load left. A host
 	// that turns it off, in the process's own environment, runs none for any.
 	const sharing = hosted() && spawnerWanted(process.env);
+	const loadSession =
+		typeof session === "string"
+			? session
+			: session !== undefined
+				? sessionKeyOf(session)
+				: undefined;
 	const spawning = spawnedBy(
 		createLocalBashOperations(
 			settings.shellPath ? { shellPath: settings.shellPath } : undefined,
@@ -73,6 +80,11 @@ export function agentBash(
 			...(settings.shellPath ? { shellPath: settings.shellPath } : {}),
 			...(sharing ? { reap: () => undefined } : {}),
 			...spawner,
+			// In a host, the load's own session, which the node is told its
+			// spawners serve; last, so nothing else given names another. A pi
+			// of its own needs none, its process being its session's alone; a
+			// host refuses a load with no id before any command starts.
+			...(sharing && loadSession ? { session: loadSession } : {}),
 		},
 	);
 	// Each call keeps itself on disk where it can, so a move can hand it

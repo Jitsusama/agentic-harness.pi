@@ -285,7 +285,62 @@ pi that ran one earlier and runs without it now would keep that one
 idle until it ends. A shared host running `pi-spawner` stops none,
 since there they are other conversations'. When pi goes, its
 `pi-spawner` kills every command still running but a kept one (see
-Through a Move below).
+Through a Move below). A command stopped, or out of time, before its
+spawner says it started is killed once it does, and its call settles
+once it ends; a spawner that says nothing of it for five seconds is
+retired, said in the host's log, so the next command starts
+another, and one not yet sent goes to pi's own spawn, while the
+commands it already runs carry on. The one given up on is killed if
+it starts later, unless its spawner has been gone a second by then,
+its output goes nowhere, and it keeps the spawner
+open no longer: the spawner closes once its other commands end,
+ending it. One still running five seconds after it was closed is
+killed, since it may read nothing; a command it started unsaid then
+runs on.
+
+A shared host's conversations share its process, so the machine's
+mycelium node can't tell from that which one asked it for a run. The
+host tells the node, on its own connection, which conversation each
+`pi-spawner` it starts serves, and a command waits for that telling,
+at most about four seconds, or until it is stopped; once the telling
+gives up, the command runs anyway and is told no conversation until a
+later telling lands. The node takes the word only from a process
+proving the conversation as its host in pi's records, of its own
+`pi-spawner`, and checks for itself that the kernel lets no process
+trace any but its own descendants and that the host's Node.js started
+with `--disable-sigusr1` as its first option and no inspector on its
+command line, and with none of `NODE_OPTIONS`, `NODE_PATH`,
+`LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`, `OPENSSL_CONF` or
+`OPENSSL_MODULES` in its environment, as core.nix's unit for a host starts it, since a
+command that could trace the host, open its inspector or load code
+into it could speak for it. A host without them is refused, and each
+of its conversations' commands told none; the node logs why, once, as
+it does every refusal, and the host says each reason once on its own
+error output, its printable characters only, up to 32 reasons. The
+node keeps the word only while it runs, so the host says each running
+`pi-spawner` again every 30 seconds, with the start it read when the
+spawner began. A command run another way, as pi's own once a spawner
+is lost, or kept through a host's restart under a
+spawner the next host didn't start, is told its host's conversation
+only where the host holds just one, and otherwise none. A spawner
+not retired counts as lost once it ends, so a command that kills its own
+leaves its conversation's later commands told none, where its host
+holds more than one, until the conversation starts again. An unfenced command can do the same to
+every conversation's, since it can see and signal every process of
+its user; a fenced one, in a process namespace of its own, can't.
+Code running inside the host itself, an extension a project brings
+among it, could still say what it likes. So could a command able to
+rewrite the harness and restart the host, or to write pi's host
+records and start a Node.js of its own that passes the same checks,
+or one that reaches the host's control socket and types into another
+conversation, which the host then honestly says, or that opens the
+host's pipe to another conversation's spawner through /proc and writes
+a run into it. The word tells a
+conversation apart from mistakes, then, and from a command only where
+every conversation the host serves has its commands fenced from the
+harness's files, pi's records, the host's socket and its processes.
+While pi's fence is lifted from hosted conversations, that holds for
+none, and the word tells conversations apart from mistakes only.
 
 ## Stopping a Command
 

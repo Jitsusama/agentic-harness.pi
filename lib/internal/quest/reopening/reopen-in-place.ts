@@ -29,7 +29,7 @@
 
 import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { realmOf } from "../../../mesh/node.ts";
+import { realmNamed, realmOf } from "../../../mesh/node.ts";
 import { isRecord } from "../../record.ts";
 import { type HostHold, hostHold } from "../../session/host-holds.ts";
 import { askWake } from "../../session/park.ts";
@@ -279,6 +279,23 @@ export async function settleBeforeReopen(
 	return { hosted, running, woken, parked, reopen, closed };
 }
 
+/**
+ * What the node of the realm `env` names holds, asked with `ask`, or
+ * nothing, with no node asked, where the realm named is no name a
+ * socket's file may carry: with no realm given, `mycelium` would ask
+ * the machine's first realm's node instead.
+ */
+export function heldInRealm(
+	env: NodeJS.ProcessEnv,
+	ask: (
+		realm: string | undefined,
+	) => Promise<readonly HeldSession[] | undefined> = heldByNode,
+): Promise<readonly HeldSession[] | undefined> {
+	const realm = realmOf(env);
+	if (realm === undefined && realmNamed(env)) return Promise.resolve(undefined);
+	return ask(realm);
+}
+
 /** What the machine's node holds, by `mycelium held`. */
 export function heldByNode(
 	realm: string | undefined,
@@ -365,7 +382,7 @@ export function settleHere(
 	}
 	const socket = env.KITTY_LISTEN_ON;
 	return settleBeforeReopen(sessions, {
-		held: () => heldByNode(realmOf(env)),
+		held: () => heldInRealm(env),
 		alive: (pid) => existsSync(`/proc/${pid}`),
 		piUnder: (pid) => piUnder(pid),
 		wake: (session) => askWake(session, `reopen-${Date.now()}`),

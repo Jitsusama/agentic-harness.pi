@@ -136,6 +136,7 @@ describe("a turn", () => {
 				{ isIdle: () => true },
 				unreadSinceLastTurn(),
 			);
+			// Time for a turn taken before it woke to be sent.
 			await new Promise((settle) => setTimeout(settle, 100));
 			expect(sent).toEqual([]);
 
@@ -160,6 +161,7 @@ describe("a turn", () => {
 				undefined,
 				(early) => early(SESSION_WOKEN, { session }),
 			);
+			// Time for a turn it shouldn't take to be sent.
 			await new Promise((settle) => setTimeout(settle, 100));
 
 			expect(sent).toEqual([]);
@@ -214,6 +216,7 @@ describe("news for an idle peer", () => {
 		]);
 		expect(sent[0]?.message.content).toContain("merged #950");
 		expect(sent[1]?.message.content).toContain("your bug");
+		// Time for a further message, were one coming, to arrive.
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(sent).toHaveLength(2);
 	});
@@ -228,6 +231,7 @@ describe("news for an idle peer", () => {
 		expect(sent[0]?.message.details).toMatchObject({
 			why: ["about this peer's work"],
 		});
+		// Time for a further message, were one coming, to arrive.
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(sent).toHaveLength(1);
 	});
@@ -257,6 +261,7 @@ describe("an act", () => {
 		expect(sent[0]?.options).toEqual({ triggerTurn: true });
 		expect(sent[0]?.message.content).toContain("its bug");
 		expect(sent[0]?.message.content).toContain("other one");
+		// Time for a second turn, were one coming, to be sent.
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(sent).toHaveLength(1);
 	});
@@ -276,6 +281,7 @@ describe("an act", () => {
 
 		expect(opened?.message?.customType).toBe(NOTED);
 		expect(opened?.message?.content).toContain("your bug");
+		// Past the 400 ms settle, when a turn of its own would be sent.
 		await new Promise((resolve) => setTimeout(resolve, 400));
 		expect(sent).toEqual([]);
 	});
@@ -430,6 +436,7 @@ describe("asking again", () => {
 
 		vi.useFakeTimers({ toFake: ["Date"] });
 		later();
+		// Time for an ask-again, sent too soon, to arrive.
 		await new Promise((done) => setTimeout(done, 100));
 		expect(sent).toHaveLength(1);
 
@@ -457,6 +464,7 @@ describe("asking again", () => {
 
 		vi.useFakeTimers({ toFake: ["Date"] });
 		later();
+		// Time for an ask-again it shouldn't send to arrive.
 		await new Promise((done) => setTimeout(done, 100));
 
 		expect(sent).toHaveLength(1);

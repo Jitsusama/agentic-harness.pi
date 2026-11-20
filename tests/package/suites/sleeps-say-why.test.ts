@@ -17,8 +17,9 @@
  * A sleep is a promise resolved by `setTimeout` after a number or a named
  * constant, an awaited `sleep`, `delay`, `pause`, `wait` or `setTimeout`
  * given one, or `Atomics.wait`. A delay named in lower case is a helper's
- * own parameter, whose callers are the sleeps. A file that drives fake
- * timers sleeps on none of them, so it is skipped.
+ * own parameter, whose callers are the sleeps. A file that fakes
+ * setTimeout sleeps on none of them, so it is skipped; one that fakes only
+ * other timers still sleeps on real ones, so it is read.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -61,9 +62,32 @@ function says(line: string): boolean {
 	);
 }
 
+/** What a call opening at `from`, just past its `(`, is given, up to its own `)`. */
+function givenFrom(text: string, from: number): string {
+	let depth = 1;
+	for (let at = from; at < text.length; at++) {
+		if (text[at] === "(") depth++;
+		else if (text[at] === ")" && --depth === 0) return text.slice(from, at);
+	}
+	return text.slice(from);
+}
+
+/**
+ * Whether some source fakes setTimeout: fake timers given no list, or a
+ * list naming it or held in a name of its own, which is taken to.
+ */
+function fakesSleeps(text: string): boolean {
+	return [...text.matchAll(/useFakeTimers\(/g)].some((call) => {
+		const given = givenFrom(text, call.index + call[0].length);
+		const list = /toFake\s*:\s*(\[[^\]]*\]|\w+)/.exec(given)?.[1];
+		if (list === undefined) return !given.includes("toFake");
+		return !list.startsWith("[") || list.includes("setTimeout");
+	});
+}
+
 /** How many sleeps in some source carry no comment on their line or the line above. */
 function uncommentedSleeps(text: string): number {
-	if (text.includes("useFakeTimers")) return 0;
+	if (fakesSleeps(text)) return 0;
 	const lines = text.split("\n");
 	let count = 0;
 	lines.forEach((line, at) => {
@@ -142,6 +166,28 @@ describe("the package's tests", () => {
 		expect(
 			uncommentedSleeps(`vi.useFakeTimers();\n${pause}`),
 			"a file on fake timers sleeps on none",
+		).toBe(0);
+		expect(
+			uncommentedSleeps(
+				`vi.useFakeTimers({ toFake: ["setInterval"] });\n${pause}`,
+			),
+			"a file faking only other timers still sleeps on real ones",
+		).toBe(1);
+		expect(
+			uncommentedSleeps(
+				`vi.useFakeTimers({ now: Date.parse("2026-01-01"), toFake: ["Date"] });\n${pause}`,
+			),
+			"a list after a call of its own is still read",
+		).toBe(1);
+		expect(
+			uncommentedSleeps(
+				`vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });\n${pause}`,
+			),
+			"a file faking setTimeout by name sleeps on none",
+		).toBe(0);
+		expect(
+			uncommentedSleeps(`vi.useFakeTimers({ toFake: FAKED });\n${pause}`),
+			"a list held in a name is taken to fake setTimeout",
 		).toBe(0);
 	});
 

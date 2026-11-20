@@ -14,6 +14,7 @@ export function spawnerStandIn() {
 	const input = new PassThrough();
 	const output = new PassThrough();
 	let stopped: (() => void) | undefined;
+	let running = true;
 	const asked: string[][] = [];
 	let held = Buffer.alloc(0);
 	input.on("data", (chunk: Buffer) => {
@@ -52,6 +53,7 @@ export function spawnerStandIn() {
 		start: () => ({
 			input,
 			output,
+			running: () => running,
 			ended: (listener: () => void) => {
 				stopped = listener;
 			},
@@ -69,7 +71,14 @@ export function spawnerStandIn() {
 			closed(id, 2);
 			exited(id, 0);
 		},
-		stop: () => stopped?.(),
+		stop: () => {
+			running = false;
+			stopped?.();
+		},
+		/** Its process exits and is reaped, its output not yet read to the end. */
+		exits: () => {
+			running = false;
+		},
 		/** Whether pi ended its input, which tells the program to stop. */
 		hungUp: () => input.writableEnded,
 	};

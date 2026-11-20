@@ -22,6 +22,11 @@
 /** What a realm name may be: a folder name, and the node's word for it. */
 const REALM_NAME = /^[a-z0-9-]+$/;
 
+/** Whether `name` is one a realm's folder and its node's socket may carry. */
+export function isRealmName(name: string): boolean {
+	return REALM_NAME.test(name);
+}
+
 /** The realm a session is in, read from its environment. */
 export type SessionRealm =
 	| { readonly kind: "home" }

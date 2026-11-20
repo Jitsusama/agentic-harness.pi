@@ -655,6 +655,30 @@ describe("where the node's socket is", () => {
 		).toBe("/run/user/1000/mycelium/personal.sock");
 	});
 
+	it("is nowhere for a session's realm no folder may carry, though the node kept one", () => {
+		// Such a session joins no mesh, so it asks no node either.
+		realm("work");
+
+		expect(
+			nodeSocket({
+				XDG_RUNTIME_DIR: "/run/user/1000",
+				XDG_STATE_HOME: join(root, "state"),
+				MYCELIUM_REALM: "../../tmp/elsewhere",
+			}),
+		).toBeUndefined();
+	});
+
+	it("is nowhere for a kept realm no folder may carry", () => {
+		realm("../elsewhere");
+
+		expect(
+			nodeSocket({
+				XDG_RUNTIME_DIR: "/run/user/1000",
+				XDG_STATE_HOME: join(root, "state"),
+			}),
+		).toBeUndefined();
+	});
+
 	it("is nowhere while no realm is named", () => {
 		expect(
 			nodeSocket({

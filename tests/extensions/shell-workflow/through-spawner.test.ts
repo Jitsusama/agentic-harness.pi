@@ -14,8 +14,15 @@ import {
 	COMMAND_VARIABLE,
 	KEEP_VARIABLE,
 } from "../../../extensions/shell-workflow/command-line.ts";
+import {
+	NoSessionInHost,
+	type SessionRef,
+	withSession,
+} from "../../../lib/core/session/index.ts";
 import { teePersists } from "../../../lib/internal/shell/kept.ts";
+import type { Spawned } from "../../../lib/internal/shell/spawner-register.ts";
 import { SPAWNER_VARIABLE } from "../../../lib/internal/shell/spawner-variable.ts";
+import { installTestHost } from "../../support/session-host.ts";
 import {
 	type SpawnerStandIn,
 	spawnerStandIn,
@@ -76,6 +83,103 @@ async function ran(
 	await result;
 	return { asked, carry };
 }
+
+describe("the agent's bash for a conversation", () => {
+	const SPAWNER_PID = 4242;
+	const SPAWNER_STARTED = 987_654;
+	let dispose: (() => void) | undefined;
+	afterEach(() => {
+		dispose?.();
+		dispose = undefined;
+		vi.unstubAllEnvs();
+	});
+
+	/** The conversation's bash, keeping what the node is told. */
+	function tellingBash(
+		given: { session?: string } = {},
+		conversation: SessionRef = "s-one",
+	) {
+		const program = spawnerStandIn();
+		const register = vi.fn<
+			(spawned: Spawned, session: string) => Promise<void>
+		>(async () => undefined);
+		const bash = agentBash(root, {}, { kind: "none" }, conversation, {
+			env: { [SPAWNER_VARIABLE]: "on" },
+			program: "/run/pi-spawner",
+			start: () => ({ ...program.start(), pid: SPAWNER_PID }),
+			kill: vi.fn<(pid: number) => void>(),
+			reap: () => undefined,
+			asksKeeps: async () => false,
+			register,
+			startOf: async () => SPAWNER_STARTED,
+			...given,
+		});
+		return { program, bash, register };
+	}
+
+	it("tells the node its spawner serves that conversation, on a host, whatever else it is given", async () => {
+		dispose = installTestHost().dispose;
+		vi.stubEnv(SPAWNER_VARIABLE, "on");
+		const { program, bash, register } = tellingBash({ session: "s-given" });
+
+		// Run under another conversation's id, so only the load's own names it.
+		await withSession("s-elsewhere", () =>
+			ran({ program, bash }, new AbortController().signal),
+		);
+
+		expect(register, "what the node was told").toHaveBeenCalledExactlyOnceWith(
+			{ pid: SPAWNER_PID, started: SPAWNER_STARTED },
+			"s-one",
+		);
+	});
+
+	it("tells it the conversation pi's context names", async () => {
+		dispose = installTestHost().dispose;
+		vi.stubEnv(SPAWNER_VARIABLE, "on");
+		const { program, bash, register } = tellingBash(
+			{},
+			{ sessionManager: { getSessionId: () => "s-context" } },
+		);
+
+		await withSession("s-context", () =>
+			ran({ program, bash }, new AbortController().signal),
+		);
+
+		expect(register, "what the node was told").toHaveBeenCalledExactlyOnceWith(
+			{ pid: SPAWNER_PID, started: SPAWNER_STARTED },
+			"s-context",
+		);
+	});
+
+	it("refuses a conversation with no id, telling it nothing", async () => {
+		dispose = installTestHost().dispose;
+		vi.stubEnv(SPAWNER_VARIABLE, "on");
+		const { program, bash, register } = tellingBash({}, "");
+
+		await expect(
+			withSession("s-one", () =>
+				bash.execute(
+					"t1",
+					{ command: "echo hi" },
+					new AbortController().signal,
+					undefined,
+					undefined as never,
+				),
+			),
+		).rejects.toThrow(NoSessionInHost);
+
+		expect(program.asked, "commands the spawner was asked").toEqual([]);
+		expect(register, "tellings").not.toHaveBeenCalled();
+	});
+
+	it("tells it nothing on plain pi, whose process is its conversation's alone", async () => {
+		const { program, bash, register } = tellingBash();
+
+		await ran({ program, bash }, new AbortController().signal);
+
+		expect(register, "tellings").not.toHaveBeenCalled();
+	});
+});
 
 describe.skipIf(process.platform !== "linux")(
 	"a call through pi-spawner",
