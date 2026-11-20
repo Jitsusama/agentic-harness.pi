@@ -162,6 +162,14 @@ export interface SeatbeltReach {
 	 * program can find its way down.
 	 */
 	readonly regranted?: readonly Regrant[];
+	/**
+	 * Paths outside the home whose rules must hold however the folders
+	 * above them are named: the temporary folder's code caches
+	 * (fence-temp-caches.ts). A Mac's own temporary folder is the
+	 * person's, so a command could otherwise rename it and leave a link in
+	 * its place, past every rule that names the caches in it.
+	 */
+	readonly heldFromRoot?: readonly string[];
 }
 
 /** A tree granted again after every hide, and the folder in it a command writes. */
@@ -346,6 +354,11 @@ export function seatbeltProfile(
 		...mounts,
 		";; Every hide again, so no mount laid after it reopens one.",
 		...hides,
+		// And each held cache kept from writes again, so a strict run whose
+		// folder holds one, a temporary folder, can't write it.
+		...readOnly
+			.filter(({ to }) => (reach.heldFromRoot ?? []).includes(to))
+			.flatMap(({ rules }) => rules),
 		...keptInHidden,
 		...hidden,
 		...(reach.regranted ?? []).flatMap(({ tree, writes }) => [
@@ -369,6 +382,7 @@ export function seatbeltProfile(
 					// Nor one holding a program, swapped for a folder planting one.
 					...programFolders,
 				].flatMap((to) => above(to, home)),
+				...(reach.heldFromRoot ?? []).flatMap((to) => between("/", to)),
 			),
 		]
 			// As named too, so a folder that is a link can't be removed and

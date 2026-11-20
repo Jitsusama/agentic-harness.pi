@@ -38,6 +38,7 @@ import {
 	SANDBOX_VARIABLE,
 	type Sandbox,
 	STRICT,
+	makeFoldersFirst,
 	sandboxedCommand,
 	sandboxFor,
 	unfencedFolder,
@@ -59,7 +60,7 @@ import {
 	seatbeltProfile,
 	seatbeltText,
 } from "./fence-seatbelt.ts";
-import { setAsidePlanted } from "./fence-temp-caches.ts";
+import { setAsidePlanted, tempCodeCaches } from "./fence-temp-caches.ts";
 
 /** The fences a caller may ask for, by the names pi's sessions use. */
 export const FENCE_RUN_KINDS = ["fence", STRICT] as const;
@@ -448,6 +449,11 @@ function macFenceText(
 		};
 	}
 	const { home } = place;
+	// As on Linux (sandbox.ts): the read-only folders nothing inside could
+	// make are made first, and a link or file planted where a cache goes
+	// is moved aside, so neither stays writable or refuses every run.
+	makeFoldersFirst(home);
+	setAsidePlanted();
 	// The Mac has no runtime folder, so the copy of npm's settings goes
 	// in the person's own temporary folder, which commands there write
 	// too, so pi's folder in it is kept from them below.
@@ -473,6 +479,7 @@ function macFenceText(
 	const { profile } = seatbeltProfile([...mounts, ...strict, ...kept], {
 		sockets: [MAC_NIX_DAEMON],
 		home,
+		heldFromRoot: tempCodeCaches(),
 		path: (place.env.PATH ?? "").split(":").filter(Boolean),
 		folder,
 		// A tree the work broker cut lies in pi's state, which the profile

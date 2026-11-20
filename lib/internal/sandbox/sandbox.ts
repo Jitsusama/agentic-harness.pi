@@ -521,7 +521,7 @@ function askedFor(
  * entry is there: the deeper read-only paths and the caches within
  * read-only entries, which nothing inside could make.
  */
-function makeFoldersFirst(home: string): void {
+export function makeFoldersFirst(home: string): void {
 	for (const path of foldersMadeFirst(home)) {
 		const entry = join(home, relative(home, path).split(sep)[0] ?? "");
 		if (!statSync(entry, { throwIfNoEntry: false })?.isDirectory()) continue;

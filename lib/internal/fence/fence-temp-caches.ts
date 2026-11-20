@@ -76,8 +76,9 @@ export function tempCacheArgs(
 		if (kind === undefined) return ["--tmpfs", folder];
 		throw new Error(
 			`the fence won't start: ${folder} is a ${kind}, not a folder, and couldn't be ` +
-				"moved aside. Something may have put it there to plant code; look at it, " +
-				"then move it away.",
+				"moved aside. Something may have put it there to plant code: look at what " +
+				"it is and who owns it before moving it away, which for another account's " +
+				"takes root.",
 		);
 	});
 }
