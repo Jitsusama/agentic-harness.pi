@@ -251,13 +251,15 @@ export function refreshQuests(
  * among siblings, a parent's cycle check), a document id the last walk
  * holds in no quest, a tree never signed, and a last signing older than
  * `STALE_AFTER_MS`, so an action after an idle spell never reads one.
- * Throws as `discoverQuestsAfresh` does when the disk gives no answer.
+ * Throws as `discoverQuestsAfresh` does when the disk gives no answer,
+ * and once `signal` fires, leaving the signing to finish unheard.
  * Plain pi signs every ask already, so this does nothing there.
  */
 export async function readyQuests(
 	questsRoot: string,
 	ids: Iterable<string | null | undefined>,
 	across: boolean,
+	signal?: AbortSignal,
 ): Promise<void> {
 	if (!hosted()) return;
 	held?.delete(questsRoot);
@@ -269,7 +271,36 @@ export async function readyQuests(
 			? questsNamed(questsRoot, slot.result, ids)
 			: undefined;
 	if (slot && named && caughtUp(questsRoot, slot, named)) return;
-	await discoverQuestsAfresh(questsRoot);
+	await untilStopped(discoverQuestsAfresh(questsRoot), signal);
+}
+
+/** `work`, or its rejection, unless `signal` fires first, then its reason. */
+function untilStopped<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+	if (!signal) return work;
+	if (signal.aborted) {
+		// Nobody hears it now, so it is caught here rather than end pi.
+		work.catch(() => undefined);
+		return Promise.reject(signal.reason);
+	}
+	return new Promise<T>((resolve, reject) => {
+		const stop = (): void => reject(signal.reason);
+		signal.addEventListener("abort", stop, { once: true });
+		work.then(
+			(value) => {
+				signal.removeEventListener("abort", stop);
+				resolve(value);
+			},
+			(error: unknown) => {
+				signal.removeEventListener("abort", stop);
+				reject(error);
+			},
+		);
+	});
+}
+
+/** Whether `error` is a signing the disk gave no answer to in time. */
+export function signingGaveUp(error: unknown): error is Error {
+	return error instanceof Error && error.message === SIGNING_GAVE_UP;
 }
 
 /**
@@ -406,10 +437,11 @@ function discoverQuestsHosted(
  * the thread only the quests that changed under it: each this process
  * wrote since (`questsWrittenSince`), each named in `named`, each the
  * root gained, lost or changed in kind since its stat last vouched, and
- * each found with no README whose stamp moved. Undefined when a write
- * since can't be placed, or the root can't be listed, so the caller
- * signs the tree whole. The quests named are noted as read now, so a
- * signing begun before reads them again (`startSigning`).
+ * each found with no README whose stamp moved. A write since that can't
+ * be placed starts a signing off the thread, which reads it. Undefined
+ * when the root can't be listed, so the caller signs the tree whole.
+ * The quests named are noted as read now, so a signing begun before
+ * reads them again (`startSigning`).
  */
 function caughtUp(
 	questsRoot: string,
@@ -418,11 +450,13 @@ function caughtUp(
 ): DiscoveryResult | undefined {
 	const writes = questWritesMade();
 	const written = questsWrittenSince(slot.writes);
+	// A write that can't be placed is read by a signing off the thread,
+	// begun after it; the quests named are read again here meanwhile.
 	if (!written) {
 		sayUnplaced();
-		return undefined;
+		void startSigning(questsRoot);
 	}
-	const names = new Set([...named, ...written]);
+	const names = new Set([...named, ...(written ?? [])]);
 	const pass = newPass();
 	const rootStamp = folderStampOf(questsRoot);
 	let { rootNames } = slot;
@@ -480,17 +514,19 @@ let saidUnplaced = false;
 
 /**
  * Say once on stderr, a host's journal, that a write this process made
- * can't be placed in a quest, so each such write signs the whole tree
- * on the thread: a conversation running code from before the write log,
- * which a restart ends and a reload doesn't, or more writes since the
- * last ask than the log keeps.
+ * can't be placed in a quest, so the tree is signed whole off the
+ * thread for it: a conversation running code from before the write log,
+ * which a restart ends and a reload doesn't, or more writes since a
+ * tree's last ask than the log keeps, as a store asked rarely sees.
  */
 function sayUnplaced(): void {
 	if (saidUnplaced || !hosted()) return;
 	saidUnplaced = true;
 	process.stderr.write(
 		"[quest-workflow] a quest write can't be placed, so the tree is " +
-			"signed whole on the thread; a restart onto one install ends it\n",
+			"signed whole off the thread: code from before the write log, " +
+			"which a restart ends, or more writes since its last ask than " +
+			"the log keeps\n",
 	);
 }
 

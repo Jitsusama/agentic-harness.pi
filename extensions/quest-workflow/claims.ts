@@ -18,6 +18,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../lib/core/session/host.ts";
 import {
 	type SweptTrees,
 	type TreeClaims,
@@ -58,7 +59,8 @@ import {
  * may predate another process's change by as long as nobody asked. An
  * asker that offers {@link TreeClaims.answering} waits as well on each
  * store signed afresh off the thread, whose trees are added when it
- * ends; one that doesn't hears only the last walk.
+ * ends; one that doesn't hears only the last walk. Plain pi walks
+ * every ask afresh, so it offers the asker nothing more to wait on.
  */
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREE_CLAIMS, (data: unknown) => {
@@ -69,6 +71,7 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 			stores.map((store) => discoverQuests(store)),
 			into,
 		);
+		if (!hosted()) return;
 		claims.answering?.push(
 			Promise.all(stores.map(signed)).then((walks) => claimFrom(walks, into)),
 		);
@@ -149,8 +152,13 @@ function sayForgetFailed(where: string, error: unknown): void {
 async function signed(store: string): Promise<DiscoveryResult> {
 	try {
 		return await discoverQuestsAfresh(store);
-	} catch {
-		// The disk didn't answer the signing; the last walk still stands.
+	} catch (error) {
+		// The disk didn't answer the signing; the last walk still stands,
+		// and the journal says so, since its trees may be a while old.
+		const why = error instanceof Error ? error.message : String(error);
+		process.stderr.write(
+			`[quest-workflow] tree claims in ${store} answer its last walk: ${why}\n`,
+		);
 		return discoverQuests(store);
 	}
 }
