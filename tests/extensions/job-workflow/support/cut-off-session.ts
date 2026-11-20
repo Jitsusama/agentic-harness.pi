@@ -42,6 +42,15 @@ export const aborted = message("assistant", {
 	errorMessage: "This operation was aborted",
 });
 
+/**
+ * The answer a host ends a run with when durable refuses it, busy with
+ * the carried run: hosted-agent.ts's `fail` with its `ConversationBusy`.
+ */
+export const refused = message("assistant", {
+	stopReason: "error",
+	errorMessage: "Conversation c1 is busy",
+});
+
 /** The result a host gives the tool call a kill cut, as it carries the run on. */
 export const interrupted = message("toolResult", { isError: true });
 
@@ -95,6 +104,15 @@ export function activate(branch: unknown[], signals: EventEmitter, id = "s1") {
 			await withSession(id, () => handler(event, ctx));
 	};
 	return { events, said, appended, session, fire, branch };
+}
+
+/**
+ * Let `pi`'s newest notice reach its session, as pi's `message_end`
+ * does, so the outbox would send another at once rather than holding it.
+ */
+export async function noticeSeen(pi: CutOffSession): Promise<void> {
+	const content = [{ type: "text", text: pi.said.at(-1) }];
+	await pi.fire("message_end", { message: { role: "user", content } });
 }
 
 /** Start the carried run in `pi`, adding `entries` to its log. */

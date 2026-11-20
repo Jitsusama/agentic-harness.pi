@@ -13,7 +13,9 @@ import {
 	CARRIED_RUN_RECHECK_MS,
 	CARRIED_RUN_WAIT_MS,
 } from "../../../extensions/job-workflow/cut-off.ts";
+import { steerText } from "../../../extensions/mesh-workflow/steer.ts";
 import { automatedText } from "../../../lib/internal/automated.ts";
+import { FROM_MACHINE } from "../../../lib/mesh/steer-who.ts";
 import { installTestHost } from "../../support/session-host.ts";
 import {
 	AT,
@@ -26,6 +28,8 @@ import {
 	interrupted,
 	killedLog,
 	message,
+	noticeSeen,
+	refused,
 	TIMEOUTS,
 } from "./support/cut-off-session.ts";
 
@@ -47,11 +51,15 @@ describe("a session whose host carried its run on", () => {
 				new EventEmitter(),
 			);
 			await lost.fire("session_start", { reason: "startup" });
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS - 1);
 			expect(lost.said, "nothing yet: the next host may carry it").toHaveLength(
 				0,
 			);
-			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
-			expect(lost.said).toHaveLength(1);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(lost.said, "told at half an hour").toHaveLength(1);
+			expect(CARRIED_RUN_WAIT_MS, "the README's half an hour").toBe(
+				30 * 60_000,
+			);
 			expect(lost.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
 
 			const failed = activate(
@@ -178,6 +186,8 @@ describe("a session whose host carried its run on", () => {
 			await carriedRun(pi, interrupted, aborted);
 			expect(pi.said).toHaveLength(1);
 			expect(pi.said[0]).toMatch(FAILED_TEXT);
+			// Seen, so a second notice would go out at once.
+			await noticeSeen(pi);
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(pi.said, "told once").toHaveLength(1);
 		} finally {
@@ -228,6 +238,7 @@ describe("a session whose host carried its run on", () => {
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_RECHECK_MS);
 			expect(pi.said, "told once it rests").toHaveLength(1);
 			expect(pi.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
+			await noticeSeen(pi);
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(pi.said, "told once").toHaveLength(1);
 		} finally {
@@ -247,8 +258,29 @@ describe("a session whose host carried its run on", () => {
 			const said = automatedText("a peer sent a message", "From A2VLJN");
 			await pi.fire("input", { text: said, source: "extension" });
 			await carriedRun(pi, message("user"), aborted);
-			expect(pi.said).toHaveLength(1);
-			expect(pi.said[0]).toMatch(FAILED_TEXT);
+
+			// A peer's steer or the machine's carries no automated header,
+			// and is no person either.
+			const asked = activate(killedLog(), new EventEmitter(), "s2");
+			await asked.fire("session_start", { reason: "startup" });
+			const peer = { text: "are you back?", from: "P9R1KI", file: "f" };
+			const text = steerText(peer, { busy: false });
+			await asked.fire("input", { text, source: "extension" });
+			await carriedRun(asked, message("user"), aborted);
+
+			const told = activate(killedLog(), new EventEmitter(), "s3");
+			await told.fire("session_start", { reason: "startup" });
+			const machine = { text: "carry on", from: FROM_MACHINE, file: "f" };
+			const says = steerText(machine, { busy: false });
+			await told.fire("input", { text: says, source: "extension" });
+			await carriedRun(told, message("user"), aborted);
+
+			expect(
+				[...pi.said, ...asked.said, ...told.said].map((it) =>
+					FAILED_TEXT.test(it),
+				),
+				"a mesh message, a peer's steer and the machine's each told",
+			).toEqual([true, true, true]);
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
@@ -264,6 +296,8 @@ describe("a session whose host carried its run on", () => {
 			const pi = activate(killedLog(), new EventEmitter());
 			await pi.fire("session_start", { reason: "startup" });
 			await carriedRun(pi, undefined, undefined);
+			// What the host leaves for a run durable refused as busy.
+			await carriedRun(pi, refused, undefined);
 			expect(pi.said, "a refused run is not the carried one").toHaveLength(0);
 			await carriedRun(pi, interrupted, aborted);
 			expect(pi.said, "the carried run decides").toHaveLength(1);
@@ -325,6 +359,24 @@ describe("a session whose host carried its run on", () => {
 		}
 	});
 
+	it("is told nothing once a reload drops the open wait", async () => {
+		// The README says so: a reload is no return, and the wait's clock
+		// belonged to the code the reload replaced.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			await pi.fire("session_shutdown", { reason: "reload" });
+			await pi.fire("session_start", { reason: "reload" });
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(pi.said, "the reload dropped the wait").toHaveLength(0);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
 	it("is told the wait ran out on only once", async () => {
 		const host = installTestHost();
 		vi.useFakeTimers({ toFake: TIMEOUTS });
@@ -364,15 +416,24 @@ describe("a session whose host carried its run on", () => {
 			await steered.fire("input", { text: "Carry on", source: "extension" });
 			await carriedRun(steered, message("user"), aborted);
 
+			// Joel's own steer through the inbox is framed, and still his.
+			const asked = activate(killedLog(), new EventEmitter(), "s4");
+			await asked.fire("session_start", { reason: "startup" });
+			const his = { text: "carry on", from: "joel", file: "f" };
+			const text = steerText(his, { busy: false });
+			await asked.fire("input", { text, source: "extension" });
+			await carriedRun(asked, message("user"), aborted);
+
 			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
 			expect(
 				{
 					stopped: stopped.said.length,
 					typed: typed.said.length,
 					steered: steered.said.length,
+					asked: asked.said.length,
 				},
 				"the person is there to say what comes next",
-			).toEqual({ stopped: 0, typed: 0, steered: 0 });
+			).toEqual({ stopped: 0, typed: 0, steered: 0, asked: 0 });
 		} finally {
 			vi.useRealTimers();
 			host.dispose();
