@@ -40,6 +40,21 @@ it("reads the quests root the config names", async () => {
 	expect(await questsRootNow(), "where the quests live").toBe(quests);
 });
 
+it("throws for a section that won't parse, whose quests root would be dropped with it", async () => {
+	config(
+		JSON.stringify({
+			version: 1,
+			sections: {
+				"quest-workflow": { questsRoot: join(root, "quests"), spawnHost: 42 },
+			},
+		}),
+	);
+
+	await expect(questsRootNow(), "where the quests live").rejects.toThrow(
+		"spawnHost",
+	);
+});
+
 it("throws for a config that won't load, rather than reading the data folder's", async () => {
 	config("{ not json");
 

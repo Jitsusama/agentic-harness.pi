@@ -167,10 +167,11 @@ export function judgedProviders(): string[] {
 }
 
 /**
- * How a sweep ended: run to its end, rested after another, turned away
- * by another holding the lock, or failed.
+ * How a sweep ended: run to its end, run to its end without judging
+ * every tree, rested after another, turned away by another holding the
+ * lock, or failed.
  */
-export type SweepEnd = "ran" | "rested" | "skipped" | "failed";
+export type SweepEnd = "ran" | "partly" | "rested" | "skipped" | "failed";
 
 /** What a sweep asks of whoever runs it. */
 export interface SweepAsks {
@@ -220,7 +221,12 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 		if (outcome.rested !== undefined) return "rested";
 		line = said(outcome);
 		taken = outcome.taken.map((tree) => tree.path);
-		end = outcome.skipped === undefined ? "ran" : "skipped";
+		end =
+			outcome.skipped !== undefined
+				? "skipped"
+				: outcome.idleUnjudged !== undefined
+					? "partly"
+					: "ran";
 	} catch (error) {
 		line = { failed: messageOf(error) };
 	}
@@ -229,8 +235,9 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 		try {
 			asks.swept(taken);
 		} catch (error) {
-			// The trees are gone either way; a holder that still lists one
-			// is told again by the next sweep that finds it missing.
+			// The trees are gone either way, and a holder that still lists
+			// one lists a path to nothing, which holds nothing; the line says
+			// how many it couldn't be told of.
 			logSweep({ unforgotten: taken.length, why: messageOf(error) });
 		}
 	}

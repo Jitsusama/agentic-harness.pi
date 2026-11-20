@@ -56,7 +56,12 @@ const execs: Exec[] = [];
  * Why the next sweep does nothing, when it should, as the library says,
  * or the error it fails with.
  */
-const idle: { rested?: string; skipped?: string; failed?: string } = {};
+const idle: {
+	rested?: string;
+	skipped?: string;
+	failed?: string;
+	partly?: string;
+} = {};
 
 vi.mock("../../../lib/core/work/sweep.ts", () => ({
 	sweepEndedTrees: async (deps: {
@@ -83,6 +88,7 @@ vi.mock("../../../lib/core/work/sweep.ts", () => ({
 		return {
 			...none,
 			taken: [{ path: "/src/repo/.worktrees/spent", branch: "spent" }],
+			...(idle.partly === undefined ? {} : { idleUnjudged: idle.partly }),
 		};
 	},
 }));
@@ -110,6 +116,7 @@ beforeEach(() => {
 	delete idle.rested;
 	delete idle.skipped;
 	delete idle.failed;
+	delete idle.partly;
 	host = installTestHost();
 });
 afterEach(() => {
@@ -295,10 +302,11 @@ it("names git's provider and each that says whether a tree is spent", () => {
 it("says how each sweep ended", async () => {
 	const asks = { claimed: () => ({ held: [], untilSpent: [] }), swept() {} };
 	const said: Record<string, string> = { ran: await sweepAndLog(asks) };
-	for (const why of ["rested", "skipped", "failed"] as const) {
+	for (const why of ["partly", "rested", "skipped", "failed"] as const) {
 		delete idle.rested;
 		delete idle.skipped;
 		delete idle.failed;
+		delete idle.partly;
 		idle[why] = "not now";
 
 		said[why] = await sweepAndLog(asks);
@@ -306,6 +314,7 @@ it("says how each sweep ended", async () => {
 
 	expect(said, "how each sweep said it ended").toEqual({
 		ran: "ran",
+		partly: "partly",
 		rested: "rested",
 		skipped: "skipped",
 		failed: "failed",

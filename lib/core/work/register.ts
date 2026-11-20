@@ -46,7 +46,10 @@ export function isTreeProvider(data: unknown): data is TreeProvider {
 		typeof candidate.appliesTo === "function" &&
 		typeof candidate.ensure === "function" &&
 		typeof candidate.release === "function" &&
-		(candidate.whyKept === undefined || typeof candidate.whyKept === "function")
+		// A provider over the bus may say null for a judgement it lacks.
+		(candidate.whyKept === undefined ||
+			candidate.whyKept === null ||
+			typeof candidate.whyKept === "function")
 	);
 }
 

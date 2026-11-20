@@ -11,6 +11,7 @@ import {
 	readFileSync,
 	rmSync,
 	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -103,21 +104,63 @@ it("stands down only a host whose providers the sweep outside all judged", () =>
 	).toBeDefined();
 });
 
+/** Writes `text` as the stamp, dated as a sweep at NOW would date it. */
+function stampAtNow(lock: string, text: string): void {
+	writeFileSync(`${lock}.outside`, text);
+	utimesSync(`${lock}.outside`, NOW / 1000, NOW / 1000);
+}
+
 it("stands nobody down for a stamp that names no providers it can read", () => {
 	const lock = lockInNewFolder();
 	markSweptOutside(lock, NOW, GIT);
-	writeFileSync(`${lock}.outside`, "");
+	stampAtNow(lock, JSON.stringify({ judged: GIT }));
+
+	expect(
+		sweptOutsideSince(lock, NOW + 1000, GIT),
+		"a well-formed stamp, dated the same way",
+	).toBe("a sweep outside the hosts ran 1 s ago");
+
+	stampAtNow(lock, "");
 
 	expect(
 		sweptOutsideSince(lock, NOW, GIT),
 		"an empty stamp, as a sweep on older code wrote",
 	).toBeUndefined();
 
-	writeFileSync(`${lock}.outside`, JSON.stringify({ judged: "git-worktree" }));
+	stampAtNow(lock, JSON.stringify({ judged: "git-worktree" }));
 
 	expect(
 		sweptOutsideSince(lock, NOW, GIT),
 		"a stamp whose providers are no list",
+	).toBeUndefined();
+});
+
+it("stands nobody down for a link where the stamp goes, even to a good stamp", () => {
+	const lock = lockInNewFolder();
+	markSweptOutside(lock, NOW, GIT);
+	const good = `${lock}.good`;
+	writeFileSync(good, JSON.stringify({ judged: GIT }));
+	utimesSync(good, NOW / 1000, NOW / 1000);
+	rmSync(`${lock}.outside`);
+	symlinkSync(good, `${lock}.outside`);
+
+	expect(
+		sweptOutsideSince(lock, NOW + 1000, GIT),
+		"a link, which a host's read would follow anywhere",
+	).toBeUndefined();
+});
+
+it("stands nobody down for a stamp past four kilobytes", () => {
+	const lock = lockInNewFolder();
+	markSweptOutside(lock, NOW, GIT);
+	stampAtNow(
+		lock,
+		JSON.stringify({ judged: GIT, padding: "x".repeat(4 * 1024) }),
+	);
+
+	expect(
+		sweptOutsideSince(lock, NOW + 1000, GIT),
+		"a stamp larger than a sweep writes",
 	).toBeUndefined();
 });
 

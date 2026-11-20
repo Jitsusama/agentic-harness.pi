@@ -15,9 +15,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, it as everywhere, expect } from "vitest";
+import { seesEveryProcess } from "../../extensions/work-integration/sweep.ts";
 
 const run = promisify(execFile);
+// The script fails before sweeping where it can't see every process, as
+// in the agents' fence or on a Mac, so its cases run only where it can.
+const it = everywhere.skipIf(!(await seesEveryProcess()));
 const SCRIPT = join(import.meta.dirname, "..", "..", "scripts", "pi-sweep.ts");
 // Each case starts node afresh, which a loaded machine can keep past
 // vitest's few seconds; the run's own clock is 20 s.
@@ -33,6 +37,11 @@ afterEach(() => {
 function freshHome(): { home: string; work: string } {
 	const home = mkdtempSync(join(tmpdir(), "pi-sweep-"));
 	made.push(home);
+	// Where the quests are by default, which a machine that runs pi has.
+	mkdirSync(
+		join(home, "data", "pi", "agentic-harness.pi", "quest-workflow", "quests"),
+		{ recursive: true },
+	);
 	return {
 		home,
 		work: join(home, "state", "pi", "agentic-harness.pi", "work"),

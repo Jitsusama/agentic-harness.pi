@@ -18,11 +18,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { liveQuestTrees } from "../../extensions/quest-workflow/claims.ts";
+import type { SweepEnd } from "../../extensions/work-integration/sweep.ts";
 import type { Exec } from "../../lib/core/exec/index.ts";
 import type { TreeProvider } from "../../lib/core/work/broker.ts";
 import { clearTreeProviders } from "../../lib/core/work/register.ts";
 import type { SweepClaims } from "../../lib/core/work/sweep.ts";
-import { sweepOutside } from "../../scripts/pi-sweep.ts";
+import { exitCodeOf, sweepOutside } from "../../scripts/pi-sweep.ts";
 
 const SPENT = "/src/repo/.worktrees/spent";
 
@@ -31,6 +32,8 @@ const seen = vi.hoisted(() => ({
 	quests: "",
 	unreadable: undefined as string | undefined,
 	seesAll: true,
+	releasing: false,
+	partly: undefined as string | undefined,
 	claims: [] as SweepClaims[],
 	rests: [] as (number | undefined)[],
 	execs: [] as Exec[],
@@ -62,6 +65,9 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 		// of its own, and one that throws keeps it.
 		for (const provider of deps.providers()) {
 			await provider.whyKept?.({} as never).catch(() => undefined);
+			if (seen.releasing) {
+				await provider.release({} as never).catch(() => undefined);
+			}
 		}
 		return {
 			taken: [{ path: SPENT, branch: "spent" }],
@@ -69,6 +75,7 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 			kept: [],
 			dropped: [],
 			branches: [],
+			...(seen.partly === undefined ? {} : { idleUnjudged: seen.partly }),
 		};
 	},
 }));
@@ -80,8 +87,11 @@ beforeEach(() => {
 	vi.stubEnv("XDG_STATE_HOME", join(root, "state"));
 	vi.stubEnv("XDG_DATA_HOME", join(root, "data"));
 	seen.quests = join(root, "quests");
+	mkdirSync(seen.quests);
 	seen.unreadable = undefined;
 	seen.seesAll = true;
+	seen.releasing = false;
+	seen.partly = undefined;
 	seen.claims.length = 0;
 	seen.rests.length = 0;
 	seen.execs.length = 0;
@@ -130,15 +140,22 @@ function logLines(): Record<string, unknown>[] {
 		.map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
-/** A provider's source, which says whether its trees are spent as `judge`. */
-function providerSource(id: string, judge = "async () => undefined"): string {
+/**
+ * A provider's source, which says whether its trees are spent as `judge`
+ * and takes one as `take`.
+ */
+function providerSource(
+	id: string,
+	judge = "async () => undefined",
+	take = "async () => {}",
+): string {
 	return (
 		"{\n" +
 		`\tid: ${JSON.stringify(id)},\n` +
 		"\tspecificity: 10,\n" +
 		"\tappliesTo: () => false,\n" +
 		'\tensure: async () => ({ path: "" }),\n' +
-		"\trelease: async () => {},\n" +
+		`\trelease: ${take},\n` +
 		`\twhyKept: ${judge},\n` +
 		"}"
 	);
@@ -205,6 +222,83 @@ it("leaves out of its stamp a provider that couldn't judge a tree", async () => 
 	await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
 
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+});
+
+it("leaves out of its stamp a provider that couldn't take a tree", async () => {
+	seen.releasing = true;
+	const world = module(
+		"world",
+		`() => [${providerSource(
+			"world-dev-tree",
+			undefined,
+			'async () => { throw new Error("dev is gone"); }',
+		)}]`,
+	);
+
+	await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
+
+	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+});
+
+it("leaves out of its stamp a provider whose judgement never settles", async () => {
+	const world = module(
+		"world",
+		`() => [${providerSource("world-dev-tree", "() => new Promise(() => {})")}]`,
+	);
+
+	const ran = await sweepOutside({
+		env: { PI_SWEEP_PROVIDERS: world },
+		callWithinMs: 50,
+	});
+
+	expect(ran.end, "how its sweep ended").toBe("ran");
+	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+});
+
+it("loads a provider that gives null for its judgement, and never stamps it", async () => {
+	const world = module(
+		"world",
+		`() => [${providerSource("world-dev-tree", "null")}]`,
+	);
+
+	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
+
+	expect(ran.troubles, "what went wrong beside").toEqual([]);
+	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+});
+
+it("leaves no stamp after a sweep that left idle snapshots unjudged", async () => {
+	seen.partly = "the snapshots can't be listed";
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how its sweep ended").toBe("partly");
+	expect(stamp(), "the stamp it left").toBeUndefined();
+	expect(exitCodeOf(ran), "the code the run exits with").toBe(1);
+});
+
+it("exits 0 only after a sweep that ran or met another's, with no trouble beside", () => {
+	const code = (end: SweepEnd, troubles: string[] = []) =>
+		exitCodeOf({ end, troubles });
+
+	expect(
+		{
+			ran: code("ran"),
+			skipped: code("skipped"),
+			rested: code("rested"),
+			partly: code("partly"),
+			failed: code("failed"),
+			troubled: code("ran", ["gone.mjs: no such file"]),
+		},
+		"the code each run exits with",
+	).toEqual({
+		ran: 0,
+		skipped: 0,
+		rested: 0,
+		partly: 1,
+		failed: 1,
+		troubled: 1,
+	});
 });
 
 it("passes over a module whole when it gives anything but providers", async () => {
@@ -306,6 +400,19 @@ it("fails before sweeping when the config that says where the quests are won't l
 
 	expect(ran.end, "how the run ended").toBe("failed");
 	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	expect(stamp(), "the stamp it left").toBeUndefined();
+});
+
+it("fails before sweeping when the quests aren't where the config says", async () => {
+	rmSync(seen.quests, { recursive: true });
+
+	const ran = await sweepOutside({ env: {} });
+
+	expect(ran.end, "how the run ended").toBe("failed");
+	expect(seen.claims, "the sweeps it ran").toEqual([]);
+	expect(logLines()[0]?.failed, "the line it logged").toBe(
+		`the quests aren't at ${seen.quests}`,
+	);
 	expect(stamp(), "the stamp it left").toBeUndefined();
 });
 
