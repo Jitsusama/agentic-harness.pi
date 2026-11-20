@@ -488,6 +488,38 @@ describe("the job workflow, at a session's end and its return", () => {
 		}
 	});
 
+	it("in a host, waits on a run its log stops in, as the host carries that on too", async () => {
+		// On 20 November the 04:35 restart killed runs wedged since 03:03
+		// and 04:11 with no record. The next host carried each on at once,
+		// yet each was told nothing had resumed it, an hour later, once idle.
+		const host = installTestHost();
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const killed = () => [
+				message("user"),
+				message("assistant", { stopReason: "toolUse" }),
+				message("toolResult"),
+			];
+			const carried = activate(killed(), new EventEmitter());
+			await carried.fire("session_start", { reason: "startup" });
+			expect(carried.said, "nothing yet: the host carries it").toHaveLength(0);
+			carried.branch.push(message("assistant", { stopReason: "stop" }));
+
+			const lost = activate(killed(), new EventEmitter(), "s2");
+			await lost.fire("session_start", { reason: "startup" });
+
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(
+				{ carried: carried.said.length, lost: lost.said.length },
+				"told only where the run never showed",
+			).toEqual({ carried: 0, lost: 1 });
+			expect(lost.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
+		} finally {
+			vi.useRealTimers();
+			host.dispose();
+		}
+	});
+
 	it("outside a host, tells a session its host's carried run died, since plain pi carries nothing", async () => {
 		// A rollback reopens a host's conversations in plain pi, where
 		// nothing takes up the run their host parked.
