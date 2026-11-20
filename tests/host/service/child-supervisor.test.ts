@@ -1,0 +1,424 @@
+/** The host starting, watching and taking up again the children that run its conversations. */
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer, type Server, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RosterEntry } from "../../../lib/core/session/roster.ts";
+import {
+	type ChildSupervisor,
+	childSupervisor,
+} from "../../../host/service/child-supervisor.ts";
+import { type Slot, slotOf, type Units } from "../../../host/service/child-units.ts";
+import { heldChildren } from "../../../host/service/children.ts";
+import type { HostIdentity } from "../../../host/service/dispatch.ts";
+import { jsonLines } from "../../../host/service/framing.ts";
+import type { SessionIdentity } from "../../../host/service/protocol.ts";
+
+const key = "work-background";
+const a = "a0000000-0000-4000-8000-000000000001";
+const b = "b0000000-0000-4000-8000-000000000002";
+// How late a fake child listens after its unit starts, so the
+// supervisor has to wait for it as it waits for a real one.
+const LISTENS_AFTER_MS = 150;
+
+let folder: string;
+let routes: ReturnType<typeof heldChildren>;
+let units: FakeUnits;
+let reported: unknown[];
+let said: string[];
+let ended: [string, string][];
+let supervisor: ChildSupervisor;
+
+function conversation(sessionId: string): SessionIdentity {
+	return {
+		sessionId,
+		file: join(folder, `${sessionId}.jsonl`),
+		cwd: folder,
+		state: "idle",
+		since: "2026-11-20T02:00:00.000Z",
+	};
+}
+
+function entry(sessionId: string): RosterEntry {
+	return {
+		sessionId,
+		file: join(folder, `${sessionId}.jsonl`),
+		cwd: folder,
+		attended: false,
+		since: "2026-11-20T02:00:00.000Z",
+	};
+}
+
+function line(value: unknown) {
+	return `${JSON.stringify(value)}\n`;
+}
+
+/** One child as a test runs it: what it was asked, and what it says. */
+interface FakeChild {
+	readonly slot: Slot;
+	readonly identity: HostIdentity;
+	readonly asked: Record<string, unknown>[];
+	conversation: SessionIdentity | undefined;
+	/** Say a line on every watch. */
+	say(value: unknown): void;
+	/** Say it ends, then exit. */
+	end(why: string): Promise<void>;
+	/** Exit without a word. */
+	exit(): Promise<void>;
+}
+
+interface FakeUnits extends Units {
+	readonly started: string[];
+	readonly stopped: string[];
+	/** Each unit running, with its child once it listens. */
+	readonly children: Map<string, FakeChild | undefined>;
+	/** What the next child started does, when a test says. */
+	next?: { refuses?: boolean; diesBeforeListening?: boolean };
+}
+
+function slotNamed(unit: string): Slot {
+	const name = unit.slice(unit.indexOf("@") + 1, -".service".length);
+	return slotOf(folder, key, name);
+}
+
+/** Run a child in `slot`, as its unit would once its extensions load. */
+async function runChild(
+	slot: Slot,
+	refuses: boolean,
+	pid: number,
+): Promise<FakeChild> {
+	const held = JSON.parse(await readFile(slot.file, "utf8"));
+	await mkdir(slot.folder, { recursive: true });
+	await writeFile(join(slot.folder, "roster.json"), "{}\n");
+	const watchers = new Set<Socket>();
+	const sockets = new Set<Socket>();
+	let server: Server | undefined;
+	const child: FakeChild = {
+		slot,
+		identity: { key, owner: { pid, startedAt: pid } },
+		asked: [],
+		conversation: held.session ? conversation(held.session.sessionId) : undefined,
+		say(value) {
+			for (const watcher of watchers) watcher.write(line(value));
+		},
+		async end(why) {
+			child.say({ type: "ending", why });
+			await child.exit();
+		},
+		async exit() {
+			for (const socket of sockets) socket.end();
+			await new Promise<void>((resolve) =>
+				server ? server.close(() => resolve()) : resolve(),
+			);
+			units.children.delete(slot.unit);
+		},
+	};
+	server = createServer((socket) => {
+		sockets.add(socket);
+		socket.on("error", () => undefined);
+		const frames = jsonLines();
+		socket.on("data", (chunk: Buffer) => {
+			for (const value of frames.push(chunk)) {
+				const request = value as Record<string, unknown>;
+				child.asked.push(request);
+				const id = request.id;
+				if (request.op === "open") {
+					if (refuses) {
+						socket.write(
+							line({
+								v: 1,
+								id,
+								ok: false,
+								error: { code: "invalid_request", message: "no such folder" },
+							}),
+						);
+						continue;
+					}
+					child.conversation = conversation(randomUUID());
+					socket.write(line({ v: 1, id, ok: true, result: child.conversation }));
+				} else if (request.op === "watch") {
+					watchers.add(socket);
+					socket.write(
+						line({
+							v: 1,
+							id,
+							ok: true,
+							result: {
+								version: "test",
+								host: child.identity,
+								conversation: child.conversation,
+							},
+						}),
+					);
+				}
+			}
+		});
+	});
+	await new Promise<void>((resolve) => server.listen(slot.socket, resolve));
+	return child;
+}
+
+function fakeUnits(): FakeUnits {
+	let pid = 100;
+	const fake: FakeUnits = {
+		started: [],
+		stopped: [],
+		children: new Map(),
+		async start(unit) {
+			fake.started.push(unit);
+			const next = fake.next ?? {};
+			fake.next = undefined;
+			// Held as running from the start, as systemd holds a unit it runs.
+			fake.children.set(unit, undefined);
+			pid += 1;
+			const own = pid;
+			setTimeout(() => {
+				if (next.diesBeforeListening) {
+					fake.children.delete(unit);
+					return;
+				}
+				runChild(slotNamed(unit), next.refuses ?? false, own).then(
+					(child) => fake.children.set(unit, child),
+					(error) => reported.push(error),
+				);
+			}, LISTENS_AFTER_MS);
+		},
+		async active(unit) {
+			return fake.children.has(unit);
+		},
+		async stop(unit) {
+			fake.stopped.push(unit);
+			await fake.children.get(unit)?.exit();
+			fake.children.delete(unit);
+		},
+	};
+	return fake;
+}
+
+function childOf(sessionId: string): FakeChild {
+	for (const child of units.children.values())
+		if (child?.conversation?.sessionId === sessionId) return child;
+	throw new Error(`No child runs ${sessionId}`);
+}
+
+function supervise(): ChildSupervisor {
+	return childSupervisor({
+		key,
+		folder,
+		units,
+		routes,
+		report: (error) => reported.push(error),
+		say: (text) => said.push(text),
+		ended: (sessionId, why) => ended.push([sessionId, why]),
+		listensWithinMs: 5_000,
+	});
+}
+
+beforeEach(async () => {
+	// Short, since a socket's path may run to no more than 107 bytes.
+	folder = await mkdtemp(join(tmpdir(), "cs-"));
+	routes = heldChildren();
+	units = fakeUnits();
+	reported = [];
+	said = [];
+	ended = [];
+	supervisor = supervise();
+});
+
+afterEach(async () => {
+	supervisor.close();
+	for (const child of [...units.children.values()]) await child?.exit();
+	await rm(folder, { recursive: true, force: true });
+});
+
+describe("a resumed conversation", () => {
+	it("starts its child in a slot naming its roster entry, and routes to it once it listens", async () => {
+		const resumed = await supervisor.resume(entry(a));
+
+		const slot = slotOf(folder, key, a);
+		expect(units.started).toEqual([slot.unit]);
+		expect(JSON.parse(await readFile(slot.file, "utf8"))).toEqual({
+			session: entry(a),
+		});
+		expect(resumed.sessionId).toBe(a);
+		expect(routes.routeOf(a)).toEqual({
+			socket: slot.socket,
+			identity: childOf(a).identity,
+		});
+		expect(routes.listed().map(({ sessionId }) => sessionId)).toEqual([a]);
+	});
+
+	it("starts one child when it is asked for twice at once", async () => {
+		const [first, second] = await Promise.all([
+			supervisor.resume(entry(a)),
+			supervisor.resume(entry(a)),
+		]);
+		const third = await supervisor.resume(entry(a));
+
+		expect(units.started, "one unit started").toHaveLength(1);
+		expect([first, second, third].map(({ sessionId }) => sessionId)).toEqual([
+			a,
+			a,
+			a,
+		]);
+	});
+
+	it("is given up within a second or two when its child ends before it listens", async () => {
+		units.next = { diesBeforeListening: true };
+		const asked = Date.now();
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			"ended before it listened",
+		);
+		expect(Date.now() - asked).toBeLessThan(3_000);
+		expect(existsSync(slotOf(folder, key, a).file), "its slot is cleared").toBe(
+			false,
+		);
+		expect(routes.routeOf(a)).toBeUndefined();
+	});
+});
+
+describe("what a child says", () => {
+	it("keeps the state it reports in the list", async () => {
+		await supervisor.resume(entry(a));
+
+		childOf(a).say({
+			type: "state",
+			conversation: { ...conversation(a), state: "busy" },
+		});
+
+		await vi.waitFor(() =>
+			expect(routes.listed()[0]?.state, "the state the child said").toBe("busy"),
+		);
+	});
+
+	it("moves the route when its conversation becomes another", async () => {
+		await supervisor.resume(entry(a));
+		const route = routes.routeOf(a);
+
+		childOf(a).say({ type: "became", previousId: a, conversation: conversation(b) });
+
+		await vi.waitFor(() => expect(routes.routeOf(b)).toEqual(route));
+		expect(routes.routeOf(a)).toBeUndefined();
+	});
+
+	it("lets the route and the slot go when the child says it ends", async () => {
+		await supervisor.resume(entry(a));
+		const slot = slotOf(folder, key, a);
+
+		await childOf(a).end("parked");
+
+		await vi.waitFor(() => expect(ended).toEqual([[a, "parked"]]));
+		expect(routes.routeOf(a)).toBeUndefined();
+		await vi.waitFor(() => {
+			expect(existsSync(slot.file), "the slot's file is gone").toBe(false);
+			expect(existsSync(slot.folder), "the child's own folder is gone").toBe(
+				false,
+			);
+		});
+		expect(said).toEqual([expect.stringContaining("its process ended, parked")]);
+	});
+
+	it("stops trusting a child that says what it can't read", async () => {
+		await supervisor.resume(entry(a));
+
+		childOf(a).say({ type: "became", previousId: "not an id" });
+
+		await vi.waitFor(() => expect(ended).toEqual([[a, "failed"]]));
+		expect(routes.routeOf(a)).toBeUndefined();
+	});
+
+	it("counts a child that exits without a word as failed", async () => {
+		await supervisor.resume(entry(a));
+
+		await childOf(a).exit();
+
+		await vi.waitFor(() => expect(ended).toEqual([[a, "failed"]]));
+	});
+});
+
+describe("a new conversation", () => {
+	it("is opened by its child, which the host then routes to under the id it answers", async () => {
+		const reply = await supervisor.begin({
+			v: 1,
+			id: "open-1",
+			op: "open",
+			cwd: "/home",
+			attended: true,
+			expectedHost: { key, owner: { pid: 1, startedAt: 1 } },
+		});
+
+		expect(reply).toMatchObject({ id: "open-1", ok: true });
+		const opened = reply.ok ? (reply.result as SessionIdentity) : undefined;
+		const child = childOf(opened?.sessionId ?? "");
+		expect(child.asked[0], "asked without the host's identity").toEqual({
+			v: 1,
+			id: "open-1",
+			op: "open",
+			cwd: "/home",
+			attended: true,
+		});
+		expect(routes.routeOf(opened?.sessionId ?? "")?.identity).toEqual(
+			child.identity,
+		);
+		const slot = child.slot;
+		expect(JSON.parse(await readFile(slot.file, "utf8")), "a slot naming none").toEqual(
+			{},
+		);
+	});
+
+	it("tells the caller its child's refusal, and stops that child", async () => {
+		units.next = { refuses: true };
+
+		const reply = await supervisor.begin({
+			v: 1,
+			id: "open-2",
+			op: "open",
+			cwd: "/nowhere",
+			attended: true,
+		});
+
+		expect(reply).toMatchObject({
+			id: "open-2",
+			ok: false,
+			error: { message: "no such folder" },
+		});
+		expect(units.stopped).toEqual(units.started);
+		expect(routes.listed()).toEqual([]);
+		const slot = slotNamed(units.started[0] ?? "");
+		expect(existsSync(slot.file), "its slot is cleared").toBe(false);
+	});
+});
+
+describe("a host starting again", () => {
+	it("watches the children an earlier host left running and clears the slots of those gone", async () => {
+		await supervisor.resume(entry(a));
+		supervisor.close();
+		const gone = slotOf(folder, key, b);
+		await writeFile(gone.file, line({ session: entry(b) }));
+		routes = heldChildren();
+		supervisor = supervise();
+
+		expect(await supervisor.adopt(), "children taken up").toBe(1);
+
+		expect(routes.routeOf(a)?.identity).toEqual(childOf(a).identity);
+		expect(existsSync(gone.file), "the gone child's slot is cleared").toBe(false);
+		expect(units.started, "no child started again").toHaveLength(1);
+	});
+
+	it("leaves each child running when it stops watching", async () => {
+		await supervisor.resume(entry(a));
+
+		supervisor.close();
+
+		expect(units.stopped).toEqual([]);
+		expect(await units.active(slotOf(folder, key, a).unit)).toBe(true);
+		await childOf(a).end("parked");
+		expect(ended, "no ending is taken from a child no longer watched").toEqual(
+			[],
+		);
+	});
+});
