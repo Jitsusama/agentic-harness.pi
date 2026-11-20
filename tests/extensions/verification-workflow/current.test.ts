@@ -163,11 +163,11 @@ describe("a commit's check", () => {
 		const after = asked.length;
 		// Answer any it asked, so a failing count fails rather than hangs.
 		for (const answer of asked.splice(0)) answer("now");
-		const { failure, judged, overtaken } = await checking;
+		const { failure, judged, leave } = await checking;
 		expect(failure?.problems[0]).toMatch(/pnpm lint failed .* while this/);
 		expect(after, "fingerprints asked after the bound").toBe(0);
 		expect(judged).toEqual([]);
-		expect([...overtaken]).toEqual([RUN.root]);
+		expect([...leave]).toEqual([RUN.root]);
 		expect(repoRun()).toBe(newest);
 	});
 
@@ -203,6 +203,37 @@ describe("a commit's check", () => {
 		expect(failure?.problems[0]).toContain("pnpm check failed in /src/repo");
 		expect(repoRun()).toBe(RUN);
 		expect(state.failedRuns.get(elsewhere.root)).toBe(elsewhere);
+	});
+
+	// Each asks for a status of the whole tree; several at once in one
+	// repository only load the disk the check waits on.
+	it("asks git after one project's run at a time", async () => {
+		record({ ...RUN, root: "/src/repo/lib", command: "pnpm lint" });
+		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		await gitAsked();
+		await settled();
+		const atOnce = asked.length;
+		await gitSays("judged");
+		await gitSays("judged");
+		const { failure } = await checking;
+		expect(atOnce, "fingerprints asked at once").toBe(1);
+		expect(failure?.problems).toHaveLength(2);
+	});
+
+	it("settles a commit's outcome without asking git about another repository's run", async () => {
+		state.outcome = "failing";
+		const elsewhere = { ...NEXT, root: "/src/other" };
+		record(elsewhere);
+		const checking = commitCheck(state, { dir: "/src/repo" }, undefined);
+		await gitSays("judged");
+		await settled();
+		const after = asked.length;
+		// Answer any it asked, so a failing count fails rather than hangs.
+		for (const answer of asked.splice(0)) answer("moved on");
+		expect((await checking)?.problems).toHaveLength(1);
+		expect(after, "fingerprints asked of the other repository").toBe(0);
+		expect(state.failedRuns.get(elsewhere.root)).toBe(elsewhere);
+		expect(state.outcome).toBe("failing");
 	});
 
 	it("holds nothing back for a run cleared while git answered", async () => {
@@ -284,6 +315,21 @@ describe("settling the outcome", () => {
 		expect(await settling).toBe("failing");
 		expect(repoRun()).toBeUndefined();
 		expect(state.failedRuns.get(elsewhere.root)).toBe(elsewhere);
+	});
+
+	it("asks nothing of a project it is told to leave, and settles the rest", async () => {
+		const elsewhere = { ...NEXT, root: "/src/other" };
+		record(elsewhere);
+		const settling = settle(state, [], undefined, new Set([RUN.root]));
+		await gitSays("moved on");
+		await settled();
+		const after = asked.length;
+		// Answer any it asked, so a failing count fails rather than hangs.
+		for (const answer of asked.splice(0)) answer("moved on");
+		expect(await settling).toBe("failing");
+		expect(after, "fingerprints asked of the project left").toBe(0);
+		expect(state.failedRuns.get(elsewhere.root)).toBeUndefined();
+		expect(repoRun()).toBe(RUN);
 	});
 
 	it("retires a run whose root is gone", async () => {

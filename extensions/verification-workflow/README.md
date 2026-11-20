@@ -101,8 +101,12 @@ never read from an earlier pass:
     and stays recorded for the next ask. So does a run above the
     commit's folder when git names no repository for it, since
     that run may be another repository's. Where the guard refuses
-    git, the repository it refused is the commit's, so a commit
-    from a folder below the run is held too.
+    git, the repository it found walking up is taken as the
+    commit's, so a commit from a folder below the run is held too.
+    That holds as far as the guard's walk matches git's own.
+  - A commit's check asks git after one project at a time, and
+    only those in the commit's repository; a run elsewhere waits
+    for the next verify to be asked after.
   - A check that verify runs keep overtaking asks git three
     times, then holds the commit on the newest run as it was
     recorded, in scope, and says it failed while the commit was

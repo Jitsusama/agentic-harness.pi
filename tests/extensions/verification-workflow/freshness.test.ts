@@ -621,6 +621,39 @@ describe("the verify tool", () => {
 		expect(still?.problems[0]).toContain(`exit 1 failed in ${repo}`);
 	});
 
+	it("retires only the edited project's failure while another's is recorded", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const other = project("other");
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+		await h.verify.execute("call", { path: other }, undefined);
+
+		await edit(h, join(other, "package.json"));
+
+		const theirs = await currentVerificationFailure({ dir: other });
+		expect(theirs, "the edited project's failure").toBeUndefined();
+		const mine = await currentVerificationFailure({ dir: repo });
+		expect(mine?.problems[0]).toContain(`exit 1 failed in ${repo}`);
+	});
+
+	it("retires a project's failure on its clean verify, leaving another's", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		const other = project("other");
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+		await h.verify.execute("call", { path: other }, undefined);
+
+		h.questVerify = "true";
+		await h.verify.execute("call", { path: repo }, undefined);
+
+		const mine = await currentVerificationFailure({ dir: repo });
+		expect(mine, "the project verified clean").toBeUndefined();
+		const theirs = await currentVerificationFailure({ dir: other });
+		expect(theirs?.problems[0]).toContain(`exit 1 failed in ${other}`);
+	});
+
 	it("records no failure an edit of its project answered for meanwhile", async () => {
 		repo = await projectRepo();
 		const h = await harness();
@@ -749,6 +782,11 @@ describe("the verify tool", () => {
 		// leaves nothing to tell when the tree changed, so an edit must.
 		const answers: [string, string][] = [
 			["exit 1", " --show-toplevel "],
+			["echo 'fatal: not a git repository' >&2; exit 1", " --show-toplevel "],
+			[
+				"echo 'fatal: detected dubious ownership in repository' >&2; exit 128",
+				" --show-toplevel ",
+			],
 			["exit 1", " status "],
 			// A tree changed too widely to list, past the mebibyte kept.
 			["head -c 1100000 /dev/zero | tr '\\0' a; exit 0", " status "],

@@ -44,14 +44,16 @@ export interface Judged {
 }
 
 /**
- * What a commit's check found, the runs git answered for, and the
- * projects whose runs verifies kept overtaking, which git was asked
- * about no more.
+ * What a commit's check found, the runs git was asked about, with
+ * where each stood (unknown where git gave no answer), and the
+ * projects git is to be asked about no more on this check: those
+ * whose runs verifies kept overtaking, and those outside the commit's
+ * repository, which its check has no business asking git about.
  */
 export interface FailureNow {
 	readonly failure: VerificationFailure | undefined;
 	readonly judged: readonly Judged[];
-	readonly overtaken: ReadonlySet<string>;
+	readonly leave: ReadonlySet<string>;
 }
 
 /** What asking after one project's failed run found. */
@@ -95,20 +97,24 @@ export async function failureNow(
 	// The fix loop has no business with a file that came back clean.
 	state.pending = state.pending.filter((e) => state.known.has(e.path));
 
-	const roots = [...state.failedRuns.keys()].filter(inScope);
-	const asked = await Promise.all(
-		roots.map((at) => askAfter(state, at, scope.signal)),
-	);
 	const judged: Judged[] = [];
-	const overtaken = new Set<string>();
-	for (const one of asked) {
+	const leave = new Set<string>();
+	// One project at a time: each asks git for a status of its whole
+	// tree, and several at once in one repository only load the disk the
+	// commit's check is waiting on.
+	for (const at of [...state.failedRuns.keys()]) {
+		if (!inScope(at)) {
+			leave.add(at);
+			continue;
+		}
+		const one = await askAfter(state, at, scope.signal);
 		if (!one) continue;
 		if ("judged" in one) judged.push(one.judged);
-		else overtaken.add(one.overtaken);
+		else leave.add(one.overtaken);
 		if (one.problem) problems.push(one.problem);
 	}
 	const failure = problems.length > 0 ? { problems } : undefined;
-	return { failure, judged, overtaken };
+	return { failure, judged, leave };
 }
 
 /**
@@ -161,20 +167,18 @@ function recordedMeanwhile(run: FailedRun): string {
  * What a commit is told, confirmed now, settling the state's outcome
  * from the same answers when it was failing or now fails. A project
  * whose runs were overtaken past the bound is asked about no more: its
- * newest run holds the commit as it was recorded.
+ * newest run holds the commit as it was recorded. Nor is a project
+ * outside the commit's repository: the next verify's settle asks after
+ * it.
  */
 export async function commitCheck(
 	state: VerificationState,
 	scope: VerificationScope,
 	backend: DiagnosticsBackend | undefined,
 ): Promise<VerificationFailure | undefined> {
-	const { failure, judged, overtaken } = await failureNow(
-		state,
-		scope,
-		backend,
-	);
+	const { failure, judged, leave } = await failureNow(state, scope, backend);
 	if (state.outcome === "failing" || failure) {
-		state.outcome = await settle(state, judged, scope.signal, overtaken);
+		state.outcome = await settle(state, judged, scope.signal, leave);
 	}
 	return failure;
 }
@@ -203,7 +207,8 @@ export async function standingOf(
  * whose tree has moved on, so the status line is no staler than the
  * answer a commit would get. A run `judged` already answers for is not
  * asked about again, nor any run of a project in `leave`, and git
- * stops being asked once `signal` fires.
+ * stops being asked once `signal` fires. Projects are asked about one
+ * at a time, as a commit's check asks.
  */
 export async function settle(
 	state: VerificationState,
@@ -214,17 +219,15 @@ export async function settle(
 	const runs = [...state.failedRuns.values()].filter(
 		(run) => !leave.has(run.root),
 	);
-	await Promise.all(
-		runs.map(async (run) => {
-			const standing =
-				judged.find((one) => one.run === run)?.standing ??
-				(await standingOf(run, signal));
-			// Retired only if it is still the one asked about once git answers.
-			if (standing === "moved" && state.failedRuns.get(run.root) === run) {
-				state.failedRuns.delete(run.root);
-			}
-		}),
-	);
+	for (const run of runs) {
+		const standing =
+			judged.find((one) => one.run === run)?.standing ??
+			(await standingOf(run, signal));
+		// Retired only if it is still the one asked about once git answers.
+		if (standing === "moved" && state.failedRuns.get(run.root) === run) {
+			state.failedRuns.delete(run.root);
+		}
+	}
 	return outcomeOf(state);
 }
 
