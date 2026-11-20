@@ -108,20 +108,34 @@ export async function writeSlot(
  * Mark `slot`'s file forsaken, so a host taking the slot up stops its
  * child rather than watching it: one whose stop hadn't taken when its
  * host ended would otherwise be taken up, and might win the
- * conversation it claimed from the child that runs it.
+ * conversation it claimed from the child that runs it. The mark keeps
+ * `runs`, the conversation the child ran when forsaken, so that host
+ * holds a start of it back until the child has gone.
  */
-export async function forsakeSlot(slot: Slot): Promise<void> {
-	await writeHeld(slot, { forsaken: true });
+export async function forsakeSlot(slot: Slot, runs: string): Promise<void> {
+	await writeHeld(slot, { forsaken: true, runs });
 }
 
-/** Whether `slot`'s file says a host forsook its child. */
-export async function slotForsaken(slot: Slot): Promise<boolean> {
+/** What a host that forsook a slot's child said of it. */
+export interface Forsaken {
+	/** The conversation the child ran, when its mark says one. */
+	readonly runs: string | undefined;
+}
+
+/**
+ * What `slot`'s file says of a child a host forsook, or undefined when
+ * it says no host did.
+ */
+export async function slotForsaken(slot: Slot): Promise<Forsaken | undefined> {
 	try {
 		const held: unknown = JSON.parse(await readFile(slot.file, "utf8"));
-		return isRecord(held) && held.forsaken === true;
+		if (!isRecord(held) || held.forsaken !== true) return undefined;
+		const { runs } = held;
+		const named = typeof runs === "string" && isSessionId(runs);
+		return { runs: named ? runs : undefined };
 	} catch {
 		// Gone or half written: nothing says it was forsaken.
-		return false;
+		return undefined;
 	}
 }
 
