@@ -145,11 +145,11 @@ describe("a quest's compiled TypeScript", () => {
 		);
 	});
 
-	it("leaves the shared cache whole when the quest's scratch is removed", () => {
+	it("leaves the shared cache whole when the quest's scratch is removed", async () => {
 		made();
 		writeFileSync(join(shared(), "a.1234abcd.mjs"), "export {}");
 
-		expect(removeQuestWorkspace(workspaces, QUEST, () => [])).toEqual({
+		expect(await removeQuestWorkspace(workspaces, QUEST, () => [])).toEqual({
 			removed: true,
 		});
 		expect(

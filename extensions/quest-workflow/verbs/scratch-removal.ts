@@ -70,7 +70,7 @@ export async function scratchRemoved(
 	const dir = questId ? workspaceDirOf(root, questId) : undefined;
 	if (!questId || !dir) return undefined;
 	const size = await measure(dir);
-	const removal = removeQuestWorkspace(root, questId, users);
+	const removal = await removeQuestWorkspace(root, questId, users);
 	const held = size ? `, which held ${formatSize(size)}` : "";
 	if (removal.removed) {
 		dropTempLink(questId);
@@ -80,7 +80,9 @@ export async function scratchRemoved(
 		return `Left its scratch folder${held}, since a process or a hosted conversation still works in it; the disk guard takes it once nothing does.`;
 	}
 	if (removal.why === "stuck") {
-		return `Could not remove all of its scratch folder${held}; the disk guard takes what is left.`;
+		const why =
+			removal.error instanceof Error ? ` (${removal.error.message})` : "";
+		return `Could not remove all of its scratch folder${held}${why}; the disk guard takes what is left.`;
 	}
 	return undefined;
 }
