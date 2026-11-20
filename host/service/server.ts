@@ -270,7 +270,10 @@ export async function listenControl(options: {
 		}
 		/**
 		 * Follow the child's conversation on this connection: every line
-		 * from the ask on, held until the answer has gone ahead of them.
+		 * from the ask on, held until the answer has gone ahead of them. A
+		 * child that ends before answering refuses the watch, then sends the
+		 * ending it held, so its why arrives as a line and never only in the
+		 * refusal's words, and ends the connection, which takes nothing more.
 		 */
 		async function watch(request: ControlRequest, bridge: WatchBridge) {
 			let held: unknown[] | undefined = [];
@@ -285,6 +288,8 @@ export async function listenControl(options: {
 			} catch (error) {
 				unwatch();
 				frame(failedReply(request.id, error, options.report));
+				for (const line of held ?? []) frame(line);
+				socket.end();
 				return;
 			}
 			const lines = held;

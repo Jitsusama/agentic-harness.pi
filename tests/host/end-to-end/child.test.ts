@@ -266,13 +266,14 @@ it(
 			cwd: sealed.home,
 			attended: false,
 		});
-		await controlRequest(child.socket, {
+		const closed = await controlRequest(child.socket, {
 			v: 1,
 			id: "c",
 			op: "close",
 			sessionId: opened.sessionId,
 			expectedHost: watched.host,
 		});
+		expect(closed, "the close answered as done").toMatchObject({ ok: true });
 		expect((await toEnding(lines)).at(-1)).toEqual({
 			type: "ending",
 			why: "closed",
@@ -351,12 +352,15 @@ it(
 					`a child on pi's engine listened in ${child.listenedMs} ms, opened its conversation in ${openedMs} ms, and holds ${held.toFixed(0)} MB with it open, then ${(await residentMb(child.process.pid)).toFixed(0)} MB with a heap of ${(heap.used / BYTES_PER_MB).toFixed(0)} of ${(heap.limit / BYTES_PER_MB).toFixed(0)} MB\n`,
 				);
 				expect(held, "MB the child holds").toBeLessThan(CHILD_RSS_MB);
-				await controlRequest(child.socket, {
+				const closed = await controlRequest(child.socket, {
 					v: 1,
 					id: "c",
 					op: "close",
 					sessionId: opened.sessionId,
 					expectedHost: watched.host,
+				});
+				expect(closed, "the close answered as done").toMatchObject({
+					ok: true,
 				});
 				expect((await toEnding(lines)).at(-1)).toEqual({
 					type: "ending",

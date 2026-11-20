@@ -154,7 +154,7 @@ export interface LiveHost {
 		readonly since: string;
 	}[];
 	holds(id: string): SessionIdentity["state"] | undefined;
-	close(id: string, why?: string): Promise<void>;
+	close(id: string, why?: string, handedOn?: boolean): Promise<void>;
 }
 
 // One conversation's end as the journal says it: its mesh address, its
@@ -425,7 +425,7 @@ export function hostBackend(options: {
 				throw new Error(`Conversation is not hosted: ${sessionId}`);
 			const asked = `${why}, asked by ${askedBy(by)}`;
 			if (why === "released") engine.handsOn?.(sessionId);
-			if (running) await host.close(sessionId, asked);
+			if (running) await host.close(sessionId, asked, why === "released");
 			await roster.drop(sessionId);
 			if (!running) {
 				// Said first: the roster has let it go, whatever its screen does.

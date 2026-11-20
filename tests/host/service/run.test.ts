@@ -34,6 +34,7 @@ import {
 	runHost,
 	STEP_ALLOWANCE_MS,
 	serviceOfCgroup,
+	slotResumed,
 	watchdogEvery,
 } from "../../../host/service/run.ts";
 import type { BackstopOptions } from "../../../host/service/stop-backstop.ts";
@@ -183,6 +184,39 @@ describe("serviceOfCgroup", () => {
 		])
 			expect(serviceOfCgroup(text), text).toBeUndefined();
 	});
+});
+
+describe("slotResumed", () => {
+	const ID = "a0000000-0000-4000-8000-000000000001";
+	const slot = {
+		held: {
+			sessionId: ID,
+			file: `/s/${ID}.jsonl`,
+			cwd: "/w",
+			attended: false,
+			since: "2026-11-20T00:00:00.000Z",
+		},
+	};
+	const listed = [{ id: ID, state: "parked" as const, since: slot.held.since }];
+
+	it.each([
+		["resumed", { held: () => listed, dropped: [], unresumed: [] }],
+		["parked", { held: () => [], dropped: [], unresumed: [] }],
+		["unresumed", { held: () => [], dropped: [ID], unresumed: [] }],
+		[
+			"unresumed",
+			{
+				held: () => listed,
+				dropped: [],
+				unresumed: [{ sessionId: ID, reason: "its build threw" }],
+			},
+		],
+	] as const)(
+		"reads %s from what the start held, dropped and could not resume",
+		(end, serving) => {
+			expect(slotResumed(serving, slot)).toBe(end);
+		},
+	);
 });
 
 describe("watchdogEvery", () => {

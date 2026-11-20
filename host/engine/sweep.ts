@@ -17,11 +17,14 @@
  * its own reaps and looks are its own.
  *
  * The process table is read a few environments at a time without holding
- * the loop, as every reap reads it (tool-children.ts).
+ * the loop, as every reap reads it (tool-children.ts). The key's folder
+ * holds every conversation it ever stored, so only those holding a note
+ * are read, found without holding the loop, and the sweep's own cgroup
+ * is read once for all of them.
  */
 
-import type { Dirent } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { type Dirent, readFileSync } from "node:fs";
+import { access, readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { stateDir } from "../../lib/internal/paths.ts";
 import { isRecord } from "../../lib/internal/record.ts";
@@ -29,8 +32,12 @@ import {
 	type CarriedCalls,
 	carriedCalls,
 } from "../../lib/internal/shell/kept.ts";
-import { type CarriedShellsOptions, carriedShells } from "./carried-shells.ts";
-import { leftRunning } from "./left-running.ts";
+import {
+	type CarriedShellsOptions,
+	carriedShells,
+	KEPT_FILE,
+} from "./carried-shells.ts";
+import { LEFT_FILE, leftRunning } from "./left-running.ts";
 import {
 	linuxProcessTable,
 	type ProcessTable,
@@ -77,6 +84,10 @@ export async function sweepUnheld(
 	const { report, say } = options;
 	const now = options.now ? { now: options.now } : {};
 	const held = (session: string) => spare.has(session);
+	const ownCgroup = onceRead(
+		options.shells?.ownCgroup ??
+			(() => readFileSync("/proc/self/cgroup", "utf8")),
+	);
 	let spared = (options.carried ?? carriedCalls)();
 	for (const folder of folders)
 		spared = leftRunning({ stateDir: folder, report, ...now }).spared(spared);
@@ -98,6 +109,7 @@ export async function sweepUnheld(
 		try {
 			carriedShells({
 				...options.shells,
+				ownCgroup,
 				stateDir: folder,
 				say,
 				report,
@@ -113,7 +125,29 @@ export async function sweepUnheld(
 	return { reaped, folders: folders.length };
 }
 
-/** Each conversation's own folder under the key's engine folder. */
+/** `read`, asked once and its answer kept for every later ask. */
+function onceRead(read: () => string): () => string {
+	let kept: string | undefined;
+	return () => {
+		kept ??= read();
+		return kept;
+	};
+}
+
+/** Whether a folder holds a note a sweep reads. */
+async function holdsNote(folder: string): Promise<boolean> {
+	const found = await Promise.all(
+		[KEPT_FILE, LEFT_FILE].map((name) =>
+			access(join(folder, name)).then(
+				() => true,
+				() => false,
+			),
+		),
+	);
+	return found.includes(true);
+}
+
+/** Each conversation's own folder under the key's engine folder that holds a note. */
 async function conversationFolders(
 	root: string,
 	report: (error: unknown) => void,
@@ -126,7 +160,9 @@ async function conversationFolders(
 		if (!(isRecord(error) && error.code === "ENOENT")) report(error);
 		return [];
 	}
-	return entries
+	const folders = entries
 		.filter((entry) => entry.isDirectory())
 		.map((entry) => join(root, entry.name));
+	const noted = await Promise.all(folders.map(holdsNote));
+	return folders.filter((_, index) => noted[index]);
 }

@@ -12,10 +12,18 @@
  * for a resume (`{"session": ENTRY}`) or nothing for an open (`{}`),
  * then starts the unit with PI_HOST_CHILD_KEY naming KEY and
  * PI_HOST_CHILD_SOCKET naming `KEY.d/SLOT.sock`. The child reads the
- * slot once, keeps a roster of that one entry in `KEY.d/SLOT.d/`, which
- * nothing outside it reads, and serves the host's own protocol on its
- * socket, so a resume resumes the conversation exactly as a host's
- * start does, and an open or adopt answers its caller as a host would.
+ * slot once, refusing a file that is neither, and keeps a roster of that
+ * one entry in `KEY.d/SLOT.d/`, written once it holds the roster's lock,
+ * so a child of the slot still stopping never writes under it. It serves
+ * the host's own protocol on its socket, so a resume resumes the
+ * conversation exactly as a host's start does, and an open or adopt
+ * answers its caller as a host would. It lists what it runs in the
+ * machine's own host registry, under its own process, so plain pi's
+ * one-writer guard sees the conversation it holds.
+ *
+ * The supervisor keeps one child for a conversation at a time: a slot's
+ * lock keeps two children of one slot apart, but a conversation opened
+ * in one slot and resumed in another is the supervisor's to keep apart.
  *
  * The supervisor follows it with a watch (server.ts): answered once the
  * child holds its conversation with the child's version, its identity,
@@ -24,8 +32,15 @@
  * then a line each time the conversation turns busy or idle (with the
  * heap, and again every HEAP_EVERY_MS), one with the new entry when it
  * becomes another inside pi, and last one saying why the child ends:
- * parked, closed, released or failed. The child then exits, 0 but for a
- * failure. It never restarts itself, never tells systemd anything, and
+ * parked, closed, released or failed. A watch the child ends before
+ * answering is refused, and still hears the ending after the refusal.
+ * The child then exits, 0 but for a failure or a stop that ran out of
+ * time before it parked, which exit 1; one whose slot or environment is
+ * refused exits 78 before it listens. A stop says parked as it starts
+ * parking, since its socket closes first, so its exit says whether the
+ * park finished. A conversation that parks itself, or that its start
+ * left resting, keeps its child while a window views it, and for
+ * ALONE_WITHIN_MS once none does, so a wake finds it. It never restarts itself, never tells systemd anything, and
  * keeps no shared roster: the supervisor owns those, and clears the
  * slot's files once the child has gone.
  *
@@ -34,7 +49,7 @@
  * file's locks is what a child is there to keep off its thread.
  */
 
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { getHeapStatistics } from "node:v8";
 import {
@@ -42,8 +57,8 @@ import {
 	type RosterEntry,
 	rosterPath,
 } from "../../lib/core/session/roster.ts";
-import { writeWhole } from "../../lib/internal/write-whole.ts";
 import type { SessionHost } from "../engine/index.ts";
+import type { HostLeaving } from "../engine/session-host.ts";
 import {
 	childFolder,
 	type HostKind,
@@ -88,8 +103,8 @@ const SYSTEMD_ONLY = [
 	"LISTEN_FDNAMES",
 ] as const;
 
-const DIRECTORY_MODE = 0o700;
-const FILE_MODE = 0o600;
+/** What a slot file may hold. */
+const SLOT_FIELDS: ReadonlySet<string> = new Set(["session", "woken"]);
 /** A slot's name: the supervisor's own word for it, a uuid or a conversation's id. */
 const SLOT_NAME = /^([A-Za-z0-9-]{1,64})\.sock$/;
 
@@ -106,7 +121,7 @@ export interface ChildSlot {
 	readonly socket: string;
 	/** The slot's name. */
 	readonly slot: string;
-	/** Its own folder, for its one-entry roster and its registry. */
+	/** Its own folder, for its one-entry roster and its engine's notes. */
 	readonly folder: string;
 	/** The conversation to resume; none for an open or adopt. */
 	readonly held?: RosterEntry;
@@ -164,9 +179,12 @@ export function childSlot(env: NodeJS.ProcessEnv): ChildSlot {
 			cause: error,
 		});
 	}
-	const record =
-		typeof given === "object" && given !== null ? given : undefined;
-	const session = record ? Reflect.get(record, "session") : undefined;
+	if (!slotRecord(given))
+		throw new Error(
+			`The child's slot ${slotFile} must hold {} for an open or {"session": ENTRY} for a resume`,
+		);
+	const record = given;
+	const session = Reflect.get(record, "session");
 	const folder = join(children, `${slot}.d`);
 	if (session === undefined) return { key, realm, kind, socket, slot, folder };
 	const roster = parseRoster(
@@ -176,7 +194,7 @@ export function childSlot(env: NodeJS.ProcessEnv): ChildSlot {
 	const [held] = roster?.sessions ?? [];
 	if (!held)
 		throw new Error(`The child's slot ${slotFile} holds no roster entry`);
-	const woken = record ? Reflect.get(record, "woken") === true : false;
+	const woken = Reflect.get(record, "woken") === true;
 	return {
 		key,
 		realm,
@@ -187,6 +205,17 @@ export function childSlot(env: NodeJS.ProcessEnv): ChildSlot {
 		held,
 		...(woken ? { woken } : {}),
 	};
+}
+
+/**
+ * Whether a slot file holds what a slot does: an object with nothing but
+ * `session` and `woken`, so a typo or a corrupt file is refused rather
+ * than read as an open.
+ */
+function slotRecord(given: unknown): given is object {
+	if (typeof given !== "object" || given === null || Array.isArray(given))
+		return false;
+	return Object.keys(given).every((name) => SLOT_FIELDS.has(name));
 }
 
 /** A child as its program runs it: its slot, its life, and what it holds. */
@@ -201,15 +230,14 @@ export interface ChildHost {
 
 /**
  * A child from its environment, as its program starts one: systemd's
- * variables taken out before anything reads them, its slot read, its
- * roster seeded, and the life that follows its one conversation over
- * the host runHost builds, saying `version` as the child's version.
+ * variables taken out before anything reads them, its slot read, and
+ * the life that follows its one conversation over the host runHost
+ * builds, saying `version` as the child's version.
  * Refuses as childSlot does.
  */
 export function childHost(env: NodeJS.ProcessEnv, version: string): ChildHost {
 	scrubSystemd(env);
 	const slot = childSlot(env);
-	seedChildRoster(slot);
 	let hosted: SessionHost | undefined;
 	const life = childLife({
 		version,
@@ -230,23 +258,12 @@ export function childHost(env: NodeJS.ProcessEnv, version: string): ChildHost {
 }
 
 /**
- * Write the child's own roster, holding the one conversation its slot
- * names or none, whatever an earlier child of the slot left there: the
- * slot file is what the supervisor holds now. Answers its folder.
+ * What the child's own roster holds once its lock is taken: the one
+ * conversation its slot names, or none, whatever an earlier child of the
+ * slot left there, since the slot file is what the supervisor holds now.
  */
-export function seedChildRoster(slot: ChildSlot): string {
-	mkdirSync(slot.folder, { recursive: true, mode: DIRECTORY_MODE });
-	writeWhole(
-		rosterPath(slot.key, slot.folder),
-		`${JSON.stringify({ v: 1, key: slot.key, sessions: slot.held ? [slot.held] : [] }, null, "\t")}\n`,
-		{ durable: true, mode: FILE_MODE },
-	);
-	return slot.folder;
-}
-
-/** The folder a child publishes its registry in, which no outside reader looks at. */
-export function childRegistry(slot: ChildSlot): string {
-	return join(slot.folder, "registry");
+export function childRosterSeed(slot: ChildSlot): readonly RosterEntry[] {
+	return slot.held ? [slot.held] : [];
 }
 
 /**
@@ -314,15 +331,19 @@ export interface ChildLife {
 	changed(): void;
 	/** How many windows view `sessionId`'s screen, said each time it changes. */
 	viewers(sessionId: string, count: number): void;
-	/** A conversation left the host, ended as its stop or close said. */
-	left(ending: "signalled" | "closed", why: string): void;
+	/**
+	 * A conversation left the host, ended as its stop or close said. One
+	 * stopped while the child isn't, as an idle park is, rests for a wake
+	 * while a window views it and for its grace once none does.
+	 */
+	left(ending: HostLeaving, why: string): void;
 	/** A conversation is becoming another inside pi, under `nextId`. */
 	becoming(previousId: string, nextId: string): void;
 	/**
 	 * The start's resume of the slot's conversation ended so. One that
 	 * failed ends the child as failed. One left parked, as it rested
-	 * before, waits for the wake the supervisor sends, and ends as parked
-	 * if none comes within the first wait.
+	 * before, waits for a wake as a parked one does, ending as parked once
+	 * nobody has viewed it for its grace.
 	 */
 	resumed(end: "resumed" | "parked" | "unresumed"): void;
 	/** The child is stopping: parked once it held its conversation, else failed. */
@@ -331,7 +352,7 @@ export interface ChildLife {
 	conversation(): string | undefined;
 	/** The child can't go on, whatever it holds. */
 	fail(): void;
-	/** Stop its timers. */
+	/** Stop every timer it keeps. */
 	dispose(): void;
 }
 
@@ -373,6 +394,9 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 	let pending: { previousId: string; nextId: string } | undefined;
 	// The slot's conversation rests parked, as it did before the start.
 	let resting = false;
+	// The conversation is parked out of the host, by itself or as the
+	// start left it, and waits for a wake.
+	let away = false;
 	// How many windows view the conversation, and what ends a grace
 	// nobody viewing it, once one runs.
 	let viewing = 0;
@@ -405,10 +429,11 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		});
 	}
 
-	// A parked conversation nobody views ends its child once its grace
-	// passes; a window joining, or a wake, ends the grace.
-	function weighAlone(held: HostedConversation | undefined): void {
-		if (answered && held?.state === "parked" && viewing === 0) {
+	// A conversation parked away that nobody views ends its child once its
+	// grace passes; a window joining, or a wake, ends the grace. One the
+	// host still lists, parked only while it closes, never arms it.
+	function weighAlone(): void {
+		if (away && viewing === 0) {
 			stopAlone ??= after(options.aloneWithin ?? ALONE_WITHIN_MS, () =>
 				end("parked"),
 			);
@@ -501,8 +526,9 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		changed() {
 			if (ended) return;
 			const held = current();
+			if (held) away = false;
 			followChange(held);
-			weighAlone(held);
+			weighAlone();
 		},
 		viewers(_sessionId, count) {
 			// A child runs one conversation, so whichever id its terminal goes
@@ -511,23 +537,30 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 			viewing = count;
 			const held = current();
 			if (held && answered) stateLine(held);
-			weighAlone(held);
+			weighAlone();
 		},
-		left(stop, why) {
+		left(stop) {
 			if (ended || options.conversations().length > 0) return;
 			if (!answered) {
 				end("failed");
 				return;
 			}
-			if (stop === "signalled") end("parked");
-			else end(why.startsWith("released") ? "released" : "closed");
+			if (stop !== "signalled") {
+				end(stop);
+				return;
+			}
+			away = true;
+			weighAlone();
 		},
 		becoming(previousId, nextId) {
 			pending = { previousId, nextId };
 		},
 		resumed(how) {
-			if (how === "parked") resting = true;
-			else if (how === "unresumed") end("failed");
+			if (how === "unresumed") end("failed");
+			if (how !== "parked" || ended) return;
+			resting = true;
+			away = true;
+			weighAlone();
 		},
 		stopping() {
 			end(answered || resting ? "parked" : "failed");
@@ -541,6 +574,8 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 		dispose() {
 			stopFirst();
 			stopHeap();
+			stopAlone?.();
+			stopAlone = undefined;
 		},
 	};
 }

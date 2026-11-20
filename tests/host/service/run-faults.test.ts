@@ -6,12 +6,13 @@
  */
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionHost } from "../../../host/engine/index.ts";
 import type { ConversationEngine } from "../../../host/service/backend.ts";
+import { childHost } from "../../../host/service/child.ts";
 import { controlRequest } from "../../../host/service/client.ts";
 import { parseOpenResult } from "../../../host/service/protocol.ts";
 import { reportToJournal, runHost } from "../../../host/service/run.ts";
@@ -166,6 +167,60 @@ describe("a throw nothing caught", () => {
 			await host.run.stopped;
 		},
 	);
+
+	it("as a write to a closed pipe in a child, leaves its watch to end as its conversation does, never failed", async () => {
+		const run_ = join(dir, "run");
+		const folder = join(run_, "pi-host", "work-background.d");
+		await mkdir(folder, { recursive: true, mode: 0o700 });
+		await writeFile(join(folder, "s.json"), "{}");
+		const started = childHost(
+			{
+				PI_HOST_CHILD_KEY: "work-background",
+				PI_HOST_CHILD_SOCKET: join(folder, "s.sock"),
+				MYCELIUM_REALM: "work",
+				XDG_RUNTIME_DIR: run_,
+			},
+			"/harness",
+		);
+		const faults = new EventEmitter();
+		const signals = new EventEmitter();
+		const run = await runHost({
+			argv: ["--child"],
+			env: { MYCELIUM_REALM: "work", XDG_RUNTIME_DIR: run_ },
+			child: { slot: started.slot, life: started.life },
+			engine: (host) => {
+				started.hosts(host);
+				return engine(host);
+			},
+			signals,
+			ready: async () => {},
+			report: vi.fn(),
+			faults,
+			contain: () => true,
+			places: { registryDir: join(dir, "hosts") },
+		});
+		const reply = await controlRequest(run.serving.path, {
+			v: 1,
+			id: "o",
+			op: "open",
+			cwd: dir,
+			attended: false,
+		});
+		if (!reply.ok) throw new Error(reply.error.message);
+		const ended = { why: "" };
+		void started.life.ending.then((why) => Object.assign(ended, { why }));
+
+		faults.emit(
+			"uncaughtException",
+			Object.assign(new Error("write EPIPE"), { code: "EPIPE" }),
+		);
+		await new Promise((done) => setImmediate(done));
+
+		expect(ended.why, "the child has not ended").toBe("");
+		signals.emit("SIGTERM");
+		await run.stopped;
+		expect(await started.life.ending).toBe("parked");
+	});
 
 	it("once a signal's stop has begun is only reported, and the stop still ends cleanly", async () => {
 		const host = await hosting(() => true);

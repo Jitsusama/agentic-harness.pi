@@ -164,6 +164,45 @@ describe("sweeping a key for what no live host holds", () => {
 		expect(kept).toEqual([carried("two", "call-two")]);
 	});
 
+	it("stops a due call jobs recorded once, however many conversation folders the key has", async () => {
+		for (const name of ["one", "two"]) {
+			await mkdir(join(root, name));
+			await writeFile(join(root, name, KEPT_FILE), "[]");
+		}
+		const stopped: string[] = [];
+		const { fake } = table({ 1: { group: 1, env: {} } });
+		const { session, label, work } = carried("gone", "recorded");
+		const options = sweeping(stopped);
+		await sweepUnheld(KEY, new Set(), {
+			...options,
+			shells: {
+				...options.shells,
+				recorded: () => [{ session, id: "job-1", kind: "shell", label, work }],
+			},
+			table: fake,
+		});
+		expect(stopped).toEqual(["recorded"]);
+	});
+
+	it("looks only in conversation folders holding a note, and reads its cgroup once", async () => {
+		await mkdir(join(root, "stored-only"));
+		await writeFile(join(root, "stored-only", "store.sqlite"), "");
+		await mkdir(join(root, "noted"));
+		await writeFile(join(root, "noted", LEFT_FILE), "[]");
+		await mkdir(join(root, "kept"));
+		await writeFile(join(root, "kept", KEPT_FILE), "[]");
+		const ownCgroup = vi.fn(() => "0::/test\n");
+		const options = sweeping();
+		const { fake } = table({ 1: { group: 1, env: {} } });
+		const swept = await sweepUnheld(KEY, new Set(), {
+			...options,
+			shells: { ...options.shells, ownCgroup },
+			table: fake,
+		});
+		expect(swept.folders, "the key's and the two with a note").toBe(3);
+		expect(ownCgroup.mock.calls.length, "its cgroup read once").toBeLessThan(2);
+	});
+
 	it("sweeps a key with no engine folder yet, saying nothing", async () => {
 		const options = sweeping();
 		const { fake } = table({ 1: { group: 1, env: {} } });

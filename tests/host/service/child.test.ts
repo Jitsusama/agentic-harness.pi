@@ -1,5 +1,5 @@
 /** A child host's slot, its roster and the life its watch follows. */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,12 +8,12 @@ import { SessionHost } from "../../../host/engine/index.ts";
 import {
 	type ChildLifeOptions,
 	childLife,
+	childRosterSeed,
 	childSlot,
 	HEAP_EVERY_MS,
 	type HostedConversation,
 	oneConversation,
 	scrubSystemd,
-	seedChildRoster,
 } from "../../../host/service/child.ts";
 import { jsonLines } from "../../../host/service/framing.ts";
 import {
@@ -22,7 +22,6 @@ import {
 	type WatchLine,
 } from "../../../host/service/protocol.ts";
 import { listenControl } from "../../../host/service/server.ts";
-import { rosterPath } from "../../../lib/core/session/roster.ts";
 
 const KEY = "work-background";
 const A = "a0000000-0000-4000-8000-000000000001";
@@ -139,20 +138,36 @@ describe("a child's slot", () => {
 		);
 	});
 
-	it("seeds its own roster with the slot's one entry, over what was there", async () => {
+	it.each([
+		["a list", []],
+		["a string", "x"],
+		["a number", 42],
+		["null", null],
+		["a misspelt field", { sesion: { sessionId: SLOT } }],
+	])(
+		"refuses a slot file holding %s rather than reading it as an open",
+		async (_, given) => {
+			const folder = await children();
+			await writeFile(join(folder, "odd.json"), JSON.stringify(given));
+			expect(() => childSlot(env(join(folder, "odd.sock")))).toThrow(
+				/must hold \{\} for an open/,
+			);
+		},
+	);
+
+	it("seeds its roster with the slot's one entry, or none for an open", async () => {
 		const folder = await children();
 		await writeFile(
 			join(folder, `${SLOT}.json`),
 			JSON.stringify({ session: entry() }),
 		);
-		const slot = childSlot(env(join(folder, `${SLOT}.sock`)));
-		await mkdir(slot.folder, { recursive: true });
-		await writeFile(rosterPath(KEY, slot.folder), "stale");
-		seedChildRoster(slot);
-		const roster: unknown = JSON.parse(
-			await readFile(rosterPath(KEY, slot.folder), "utf8"),
+		await writeFile(join(folder, "fresh.json"), "{}");
+		expect(
+			childRosterSeed(childSlot(env(join(folder, `${SLOT}.sock`)))),
+		).toEqual([entry()]);
+		expect(childRosterSeed(childSlot(env(join(folder, "fresh.sock"))))).toEqual(
+			[],
 		);
-		expect(roster).toEqual({ v: 1, key: KEY, sessions: [entry()] });
 	});
 });
 
@@ -282,28 +297,51 @@ describe("a child's life", () => {
 		]);
 	});
 
-	it("ends parked once its parked conversation has had no viewer for its grace", async () => {
-		const { life, lines, hold, timers } = following({ aloneWithin: 2 });
-		hold(conversation(A));
-		life.viewers(A, 1);
-		hold(conversation(A, "parked"));
-		expect(timers.has(2), "no grace while a window views it").toBe(false);
-		life.viewers(A, 0);
-		timers.get(2)?.();
-		expect(await life.ending).toBe("parked");
-		expect(lines.at(-1)).toEqual({ type: "ending", why: "parked" });
+	/** Park the conversation it runs as the host does: listed parked, then gone, then left. */
+	function parkAway(
+		child: ReturnType<typeof following>,
+		id = A,
+		why = "parked while idle",
+	) {
+		child.hold(conversation(id, "parked"));
+		child.hold();
+		child.life.left("signalled", why);
+	}
+
+	it("stays while a window views its parked conversation, ending parked once none has for its grace", async () => {
+		const child = following({ aloneWithin: 2 });
+		child.hold(conversation(A));
+		child.life.viewers(A, 1);
+		parkAway(child);
+		expect(child.timers.has(2), "no grace while a window views it").toBe(false);
+		child.life.viewers(A, 0);
+		child.timers.get(2)?.();
+		expect(await child.life.ending).toBe("parked");
+		expect(child.lines.at(-1)).toEqual({ type: "ending", why: "parked" });
 	});
 
 	it("stays while a viewer comes back within the grace, or its conversation wakes", () => {
-		const { life, hold, timers } = following({ aloneWithin: 2 });
-		hold(conversation(A));
-		hold(conversation(A, "parked"));
-		expect(timers.has(2), "a grace once parked with nobody").toBe(true);
-		life.viewers(A, 1);
-		expect(timers.has(2), "a viewer back ends the grace").toBe(false);
-		life.viewers(A, 0);
-		hold(conversation(A));
-		expect(timers.has(2), "a wake ends the grace").toBe(false);
+		const child = following({ aloneWithin: 2 });
+		child.hold(conversation(A));
+		parkAway(child);
+		expect(child.timers.has(2), "a grace once parked with nobody").toBe(true);
+		child.life.viewers(A, 1);
+		expect(child.timers.has(2), "a viewer back ends the grace").toBe(false);
+		child.life.viewers(A, 0);
+		child.hold(conversation(A));
+		expect(child.timers.has(2), "a wake ends the grace").toBe(false);
+	});
+
+	it("never arms its grace for a conversation listed parked only while it closes", async () => {
+		const child = following({ aloneWithin: 2 });
+		child.hold(conversation(A));
+		child.hold(conversation(A, "parked"));
+		expect(child.timers.has(2), "no grace while it is still listed").toBe(
+			false,
+		);
+		child.hold();
+		child.life.left("closed", "closed, asked by the launcher");
+		expect(await child.life.ending).toBe("closed");
 	});
 
 	it("says a conversation became another, and doesn't end as the old one leaves", () => {
@@ -324,9 +362,8 @@ describe("a child's life", () => {
 	});
 
 	it.each([
-		["signalled", "host stopped", "parked"],
 		["closed", "closed, asked by the launcher", "closed"],
-		["closed", "released, asked by the launcher", "released"],
+		["released", "released, asked by the launcher", "released"],
 	] as const)(
 		"ends %s (%s) as %s once its conversation has gone",
 		async (how, why, ending) => {
@@ -343,7 +380,7 @@ describe("a child's life", () => {
 		const { life, hold } = following();
 		hold(conversation(A));
 		hold();
-		life.left("closed", "released, asked by the launcher");
+		life.left("released", "released, asked by the launcher");
 		await life.ending;
 		const late: unknown[] = [];
 		life.watch.follow((line) => late.push(line));
@@ -363,11 +400,22 @@ describe("a child's life", () => {
 		await expect(answer).rejects.toThrow("The child ended: failed");
 	});
 
-	it("waits for the wake of a conversation that rests parked, then ends parked without one", async () => {
-		const { life, timers } = following();
+	it("waits for the wake of a conversation that rests parked for its grace, then ends parked without one", async () => {
+		const { life, timers } = following({ aloneWithin: 2 });
 		life.resumed("parked");
-		timers.get(1)?.();
+		expect(timers.has(2), "the grace, not the first wait, bounds a rest").toBe(
+			true,
+		);
+		timers.get(2)?.();
 		expect(await life.ending).toBe("parked");
+	});
+
+	it("clears every timer as it is disposed, its grace among them", () => {
+		const child = following({ aloneWithin: 2 });
+		child.hold(conversation(A));
+		parkAway(child);
+		child.life.dispose();
+		expect([...child.timers.keys()]).toEqual([]);
 	});
 
 	it("ends failed when its conversation couldn't be resumed", async () => {
@@ -397,46 +445,88 @@ async function* messages(socket: Socket) {
 	frames.end();
 }
 
+/**
+ * A child's life over a real SessionHost, its watch served on a socket,
+ * with `more` of the life's options; `run` gets the host, the socket's
+ * path and the life, and everything is taken down after.
+ */
+async function overSocket(
+	more: Partial<ChildLifeOptions>,
+	run: (child: {
+		host: SessionHost;
+		path: string;
+		life: ReturnType<typeof childLife>;
+	}) => Promise<void>,
+) {
+	// The host tells its life of a change as it is made, before it is set.
+	let made: SessionHost | undefined;
+	const life = childLife({
+		version: "/harness",
+		identity: () => made && { key: made.key, owner: made.owner },
+		conversations: () => made?.list() ?? [],
+		entry,
+		heap: () => ({ used: 1, limit: 2 }),
+		...more,
+	});
+	const host: SessionHost = new SessionHost({
+		key: KEY,
+		owner: OWNER,
+		registryDir: join(runtime, "registry"),
+		changes: life,
+	});
+	made = host;
+	const path = join(runtime, "child.sock");
+	const listener = await listenControl({
+		path,
+		backend: {
+			identity: { key: host.key, owner: host.owner },
+			execute: async () => null,
+		},
+		watch: life.watch,
+		report: vi.fn(),
+	});
+	try {
+		await run({ host, path, life });
+	} finally {
+		life.dispose();
+		await listener.close();
+		host.dispose();
+	}
+}
+
+/** A watch asked on a fresh connection to `path`, and what it hears. */
+function watchOn(path: string) {
+	const socket = createConnection(path);
+	socket.write(`${JSON.stringify({ v: 1, id: "w", op: "watch" })}\n`);
+	return { socket, heard: messages(socket) };
+}
+
+/** Register conversation A in `host`, as a start or open does. */
+function registerA(host: SessionHost) {
+	host.register({
+		id: A,
+		file: join(runtime, A),
+		cwd: runtime,
+		env: {},
+		close: () => undefined,
+	});
+}
+
+/** Every line heard up to and with the ending. */
+async function untilEnding(heard: AsyncGenerator<unknown>) {
+	const rest: unknown[] = [];
+	for await (const line of heard) {
+		rest.push(line);
+		if (parseWatchLine(line).type === "ending") break;
+	}
+	return rest;
+}
+
 describe("a child's watch over its socket", () => {
 	it("answers once its host holds the conversation, then streams its lines to its ending", async () => {
-		const registry = join(runtime, "registry");
-		// The host tells its life of a change as it is made, before it is set.
-		let made: SessionHost | undefined;
-		const life = childLife({
-			version: "/harness",
-			identity: () => made && { key: made.key, owner: made.owner },
-			conversations: () => made?.list() ?? [],
-			entry,
-			heap: () => ({ used: 1, limit: 2 }),
-		});
-		const host: SessionHost = new SessionHost({
-			key: KEY,
-			owner: OWNER,
-			registryDir: registry,
-			changes: life,
-		});
-		made = host;
-		const path = join(runtime, "child.sock");
-		const listener = await listenControl({
-			path,
-			backend: {
-				identity: { key: host.key, owner: host.owner },
-				execute: async () => null,
-			},
-			watch: life.watch,
-			report: vi.fn(),
-		});
-		try {
-			const socket = createConnection(path);
-			socket.write(`${JSON.stringify({ v: 1, id: "w", op: "watch" })}\n`);
-			const heard = messages(socket);
-			host.register({
-				id: A,
-				file: join(runtime, A),
-				cwd: runtime,
-				env: {},
-				close: () => undefined,
-			});
+		await overSocket({ aloneWithin: 10 }, async ({ host, path }) => {
+			const { socket, heard } = watchOn(path);
+			registerA(host);
 			const answer = await heard.next();
 			expect(answer.value).toMatchObject({
 				v: 1,
@@ -444,18 +534,43 @@ describe("a child's watch over its socket", () => {
 				ok: true,
 				result: { conversation: { sessionId: A } },
 			});
-			await host.stop(A);
-			const rest: unknown[] = [];
-			for await (const line of heard) {
-				rest.push(line);
-				if (parseWatchLine(line).type === "ending") break;
-			}
-			expect(rest.at(-1)).toEqual({ type: "ending", why: "parked" });
+			await host.stop(A, "parked while idle");
+			expect((await untilEnding(heard)).at(-1)).toEqual({
+				type: "ending",
+				why: "parked",
+			});
 			socket.destroy();
-		} finally {
-			life.dispose();
-			await listener.close();
-			host.dispose();
-		}
+		});
+	});
+
+	it("says released for a close that hands the conversation on, as the host says it", async () => {
+		await overSocket({}, async ({ host, path }) => {
+			const { socket, heard } = watchOn(path);
+			registerA(host);
+			await heard.next();
+			await host.close(A, "let go to plain pi", true);
+			expect((await untilEnding(heard)).at(-1)).toEqual({
+				type: "ending",
+				why: "released",
+			});
+			socket.destroy();
+		});
+	});
+
+	it("refuses a watch it never answered, then sends the ending as a line and hangs up", async () => {
+		await overSocket({ aloneWithin: 10 }, async ({ path, life }) => {
+			const { heard } = watchOn(path);
+			life.resumed("parked");
+			const all: unknown[] = [];
+			for await (const line of heard) all.push(line);
+			expect(all).toEqual([
+				expect.objectContaining({
+					id: "w",
+					ok: false,
+					error: expect.objectContaining({ code: "ending" }),
+				}),
+				{ type: "ending", why: "parked" },
+			]);
+		});
 	});
 });

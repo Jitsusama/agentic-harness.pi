@@ -95,18 +95,27 @@ interface Conversation extends ConversationIdentity {
 	ending?: "signalled" | "closed";
 	/** Whether its close hands it on, keeping what it left running (handsOn). */
 	handsOn?: boolean;
+	// Closed because it was handed to another holder, as a release is, so
+	// its ending reads released rather than closed.
+	handedOn?: boolean;
 	stamped?: "signalled" | "closed";
 	closing?: Promise<void>;
 	accepting: boolean;
 	disposed: boolean;
 }
 
+/** How a conversation left its host: stopped, closed, or closed to another holder. */
+export type HostLeaving = "signalled" | "closed" | "released";
+
 /** What hears a host's changes, each once it is published. */
 export interface HostChanges {
 	/** What the host runs changed: one registered, or one's state. */
 	changed(): void;
-	/** A conversation left, ended by a stop or a close, saying why. */
-	left(ending: "signalled" | "closed", why: string): void;
+	/**
+	 * A conversation left, ended by a stop, a close, or a close that
+	 * handed it to another holder, saying why.
+	 */
+	left(ending: HostLeaving, why: string): void;
 }
 
 /** One host's live ownership; persisted restart rosters belong to the service. */
@@ -334,8 +343,15 @@ export class SessionHost implements Host {
 		this.changeState(conversation, state);
 	}
 
-	/** Stop admission, then dispose only this session; a failed close stays held. */
-	close(id: string, why = "closed"): Promise<void> {
+	/**
+	 * Stop admission, then dispose only this session; a failed close stays
+	 * held. `handedOn` when another holder takes it up, as a release does,
+	 * which what hears the host's changes is told.
+	 */
+	close(id: string, why = "closed", handedOn = false): Promise<void> {
+		const conversation = this.conversations.get(id);
+		if (conversation && handedOn && !conversation.closing)
+			conversation.handedOn = true;
 		return this.finish(id, why, "closed");
 	}
 
@@ -461,7 +477,11 @@ export class SessionHost implements Host {
 					if (conversation.fence) this.leftRunning.set(id, conversation.fence);
 				}
 				releaseSession(id);
-				this.changes?.left(conversation.ending ?? how, why);
+				const ending = conversation.ending ?? how;
+				this.changes?.left(
+					ending === "closed" && conversation.handedOn ? "released" : ending,
+					why,
+				);
 			})
 			.finally(() => {
 				conversation.closing = undefined;

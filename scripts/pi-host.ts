@@ -20,7 +20,9 @@
  *
  * with PI_HOST_CHILD_KEY and PI_HOST_CHILD_SOCKET naming its slot
  * (host/service/child.ts). It exits once its conversation ends, 0 when
- * it was parked, closed or released and 1 when it failed.
+ * it was parked, closed or released, and 1 when it failed or its stop ran
+ * out of time before the conversation parked. It exits 78 when its slot
+ * or environment is refused, before it listens or says any ending.
  */
 
 import { flushCompileCache, registerHooks } from "node:module";

@@ -109,6 +109,11 @@ export async function serveHost(options: {
 	/** The socket to listen on, rather than the realm-kind host's own, as a child's slot names. */
 	socketPath?: string;
 	rosterDir?: string;
+	/**
+	 * What the roster holds in place of its file's entries, written once its
+	 * lock is taken, as a child's slot names the one it holds.
+	 */
+	rosterSeed?: readonly RosterEntry[];
 	registryDir?: string;
 	/** Hears each change the host publishes, as a child follows its one conversation. */
 	changes?: HostChanges;
@@ -163,6 +168,7 @@ export async function serveHost(options: {
 		dir: options.rosterDir,
 		owner,
 		standing: options.standing,
+		...(options.rosterSeed ? { seed: options.rosterSeed } : {}),
 		wait: {
 			waiting: async ({ pid }) =>
 				options.starting?.({ step: "roster", holder: pid }),
