@@ -21,12 +21,15 @@ import { answerLook, type Look, looksIn } from "../../lib/mesh/looks/looks.ts";
 import {
 	ASKING_FROM_OUTSIDE,
 	inboxOf,
-	isFromPerson,
 	type Steer,
 	type Taken,
 	takenSteers,
 } from "../../lib/mesh/steer.ts";
-import { FROM_MACHINE, FROM_PERSON } from "../../lib/mesh/steer-who.ts";
+import {
+	FROM_MACHINE,
+	FROM_PERSON,
+	isFromPerson,
+} from "../../lib/mesh/steer-who.ts";
 
 /** What steering needs from the session it delivers to. */
 export interface SteeringHost {
