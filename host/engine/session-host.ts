@@ -31,7 +31,12 @@ import {
 } from "../../lib/core/session/index.ts";
 import type { FenceKind } from "../../lib/mesh/presence.ts";
 import { HOST_READS, installConversationEnv } from "./process-env.ts";
-import { CLOSED_STATE, closeToOthers, unclosedIn } from "./records-folder.ts";
+import {
+	CLOSED_STATE,
+	closeToOthers,
+	throughHome,
+	unclosedIn,
+} from "./records-folder.ts";
 
 /** A stable pi conversation, supplied before its extensions load. */
 export interface ConversationRegistration {
@@ -144,13 +149,15 @@ export class SessionHost implements Host {
 		this.key = options.key;
 		this.owner = Object.freeze({ ...options.owner });
 		this.registryPath = hostRegistryPath(this.owner, options.registryDir);
-		this.closedState = options.closedState ?? join(homedir(), CLOSED_STATE);
+		this.closedState = throughHome(
+			options.closedState ?? join(homedir(), CLOSED_STATE),
+		);
 		const folder = dirname(this.registryPath);
 		// Made writable by its owner alone whatever the umask, as unclosedIn
 		// asks, so a umask that lets the person's group write still names one.
 		mkdirSync(folder, { recursive: true, mode: 0o755 });
-		closeToOthers(folder, this.closedState);
-		this.unclosedAtStart = unclosedIn(folder, this.closedState);
+		closeToOthers(throughHome(folder), this.closedState);
+		this.unclosedAtStart = unclosedIn(throughHome(folder), this.closedState);
 		const unhost = installHost(this);
 		// Code that reads process.env directly sees its own conversation's.
 		const unview = installConversationEnv(this);
@@ -619,7 +626,8 @@ export class SessionHost implements Host {
 		// fenced command or another account could put its own record in
 		// this one's place, so none names a fence and the node refuses
 		// each session's carry.
-		const why = this.unclosedAtStart ?? unclosedIn(folder, this.closedState);
+		const why =
+			this.unclosedAtStart ?? unclosedIn(throughHome(folder), this.closedState);
 		const closed = why === undefined;
 		if (!closed && !this.saidUnclosed) {
 			this.saidUnclosed = true;

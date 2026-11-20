@@ -26,7 +26,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import {
 	type ConversationRegistration,
@@ -746,32 +746,41 @@ it.skipIf(asRoot)(
 	},
 );
 
-it("names a fence where pi keeps its records by default, in the folder the fence closes", async () => {
-	const home = closedState();
-	const was = { HOME: process.env.HOME, XDG: process.env.XDG_STATE_HOME };
-	process.env.HOME = home;
-	delete process.env.XDG_STATE_HOME;
-	let host: SessionHost | undefined;
-	try {
-		host = new SessionHost({ key: "test-host", owner });
-		host.register(registration("a"));
-		told(host, "a", "strict");
-		expect(
-			host.registryPath.startsWith(join(home, ".local/state/pi/")),
-			host.registryPath,
-		).toBe(true);
-		expect(fences(host)).toEqual({ a: "strict" });
-	} finally {
-		// Put down before the environment it read is put back.
-		if (host) {
-			await host.close("a");
-			host.dispose();
+it.each([
+	["as it is", (base: string) => base],
+	[
+		"reached through a link above it, as /home to /var/home",
+		(base: string) => {
+			mkdirSync(join(base, "real/home"), { recursive: true });
+			symlinkSync(join(base, "real"), join(base, "linked"));
+			return join(base, "linked/home");
+		},
+	],
+])(
+	"names a fence where pi keeps its records by default, in the folder the fence closes, with a home %s",
+	async (_, homeIn) => {
+		const home = homeIn(closedState());
+		vi.stubEnv("HOME", home);
+		vi.stubEnv("XDG_STATE_HOME", undefined);
+		let host: SessionHost | undefined;
+		try {
+			host = new SessionHost({ key: "test-host", owner });
+			host.register(registration("a"));
+			told(host, "a", "strict");
+			expect(relative(home, host.registryPath)).toMatch(
+				/^\.local\/state\/pi\//,
+			);
+			expect(fences(host)).toEqual({ a: "strict" });
+		} finally {
+			// Put down before the environment it read is put back.
+			if (host) {
+				await host.close("a");
+				host.dispose();
+			}
+			vi.unstubAllEnvs();
 		}
-		process.env.HOME = was.HOME;
-		if (was.XDG === undefined) delete process.env.XDG_STATE_HOME;
-		else process.env.XDG_STATE_HOME = was.XDG;
-	}
-});
+	},
+);
 
 it("hears the session each tool names, as the extensions name it from pi's", () => {
 	const host = start();

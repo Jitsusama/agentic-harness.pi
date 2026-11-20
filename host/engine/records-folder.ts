@@ -14,10 +14,28 @@ import {
 	realpathSync,
 	type Stats,
 } from "node:fs";
+import { homedir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 
 /** Where in the home folder the fence keeps pi's state read-only (fence-home.ts). */
 export const CLOSED_STATE = ".local/state/pi";
+
+/**
+ * `path` spelled through where the home folder really lies, as where
+ * /home links to /var/home, so unclosedIn judges only the links below
+ * it: those above lie outside the home, where no fenced command may
+ * write. A path outside the home, or a home that can't be read, is
+ * left as it is.
+ */
+export function throughHome(path: string, home = homedir()): string {
+	const at = relative(home, path);
+	if (at.startsWith("..") || isAbsolute(at)) return path;
+	try {
+		return join(realpathSync(home), at);
+	} catch {
+		return path;
+	}
+}
 
 /**
  * Why `folder` doesn't lie closed in `closed`, or undefined where it
