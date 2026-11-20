@@ -75,11 +75,14 @@ export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	});
 }
 
-/** Push every tree a live quest in `walks` lists onto `into`. */
+/**
+ * Push every tree a live quest in `walks` lists onto `into`, once, so
+ * the fresh answer adds only what the last walk didn't hold.
+ */
 function claimFrom(walks: readonly DiscoveryResult[], into: string[]): void {
 	for (const entry of liveQuests(walks)) {
 		for (const tree of entry.doc.frontMatter.trees ?? []) {
-			into.push(tree.path);
+			if (!into.includes(tree.path)) into.push(tree.path);
 		}
 	}
 }
