@@ -176,18 +176,58 @@ const GIT_TAKES_S = 0.5;
 /** How often a test's timer ticks while git answers. */
 const TICK_MS = 20;
 
-/** Put a git first on PATH that waits `seconds` before running the real one. */
-function slowGit(seconds: number): void {
+/** `text` quoted for sh, whatever it holds. */
+function shQuoted(text: string): string {
+	return `'${text.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * Put a git first on PATH that waits `seconds` before running the real
+ * one when its arguments hold `only`, and runs it at once otherwise.
+ */
+function slowGit(seconds: number, only: string): void {
 	const real = execFileSync("sh", ["-c", "command -v git"], {
 		encoding: "utf8",
 	}).trim();
 	const bin = join(root, "bin");
 	mkdirSync(bin, { recursive: true });
 	const git = join(bin, "git");
-	writeFileSync(git, `#!/bin/sh\nsleep ${seconds}\nexec ${real} "$@"\n`);
+	writeFileSync(
+		git,
+		`#!/bin/sh\ncase " $* " in *${shQuoted(only)}*) sleep ${seconds} ;; esac\n` +
+			`exec ${shQuoted(real)} "$@"\n`,
+	);
 	chmodSync(git, 0o755);
-	path = process.env.PATH;
+	path ??= process.env.PATH;
 	process.env.PATH = `${bin}:${path ?? ""}`;
+}
+
+/**
+ * Hold back a commit on a failed run while the git whose arguments hold
+ * `only` takes its time, and show timers ran meanwhile.
+ */
+async function freeWhileGitAnswers(only: string): Promise<void> {
+	repo = await freshRepo("verify-slow");
+	writeFileSync(join(repo, "package.json"), '{"name":"fixture"}\n');
+	const h = await harness();
+	h.questVerify = "exit 1";
+	await h.verify.execute("call", { path: repo }, undefined);
+	slowGit(GIT_TAKES_S, only);
+
+	let ticks = 0;
+	const ticking = setInterval(() => {
+		ticks += 1;
+	}, TICK_MS);
+	try {
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	} finally {
+		clearInterval(ticking);
+	}
+
+	// The slowed git takes half a second, so a free thread ticks many
+	// times; one held by it ticks at most once, after it lets go.
+	expect(ticks, "timers ran while git answered").toBeGreaterThan(5);
 }
 
 /** A project directory with a package.json, outside any repository. */
@@ -389,28 +429,18 @@ describe("the verify tool", () => {
 		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
 	});
 
-	it("leaves the thread free while git answers whether its tree changed", async () => {
-		repo = await freshRepo("verify-slow");
-		writeFileSync(join(repo, "package.json"), '{"name":"fixture"}\n');
-		const h = await harness();
-		h.questVerify = "exit 1";
-		await h.verify.execute("call", { path: repo }, undefined);
-		slowGit(GIT_TAKES_S);
+	// Each git a commit's check asks is slowed in turn, so any one of them
+	// held on the thread would stop the timer for the whole delay.
+	it("leaves the thread free while git says what changed", async () => {
+		await freeWhileGitAnswers(" status ");
+	}, 20_000);
 
-		let ticks = 0;
-		const ticking = setInterval(() => {
-			ticks += 1;
-		}, TICK_MS);
-		try {
-			const held = await currentVerificationFailure({ dir: repo });
-			expect(held?.problems[0]).toContain("exit 1 failed in");
-		} finally {
-			clearInterval(ticking);
-		}
+	it("leaves the thread free while git says what commit it sits on", async () => {
+		await freeWhileGitAnswers(" HEAD^{tree} ");
+	}, 20_000);
 
-		// Each git takes half a second, so a free thread ticks many times;
-		// one held by git ticks at most once, after it lets go.
-		expect(ticks, "timers ran while git answered").toBeGreaterThan(5);
+	it("leaves the thread free while git says where its repository is", async () => {
+		await freeWhileGitAnswers(" --show-toplevel ");
 	}, 20_000);
 
 	it("outside git, holds back a commit on a failed run until an edit there", async () => {
