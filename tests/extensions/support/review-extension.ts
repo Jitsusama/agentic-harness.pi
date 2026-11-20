@@ -12,6 +12,7 @@
 import { afterEach, vi } from "vitest";
 import { runCommandsWith } from "../../../extensions/review-integration/commands.ts";
 import reviewIntegration from "../../../extensions/review-integration/index.ts";
+import { readHeadsWith } from "../../../extensions/review-integration/merge-read.ts";
 import { witnessCouncilsWith } from "../../../extensions/review-integration/reviewed-first.ts";
 import { cleanupSessionResults } from "../../../lib/core/result/location.ts";
 import { resultSession } from "../../support/result-session.ts";
@@ -160,6 +161,8 @@ export function activateWith(
 	// Every change counts as reviewed by our own council, so a case that
 	// isn't about that rule needn't keep a ledger; its own cases set it.
 	witnessCouncilsWith(async () => true);
+	// And every head about to merge counts as read by one.
+	readHeadsWith(async () => undefined);
 	// The stub is structural: the extension only uses the parts modelled
 	// here, and a real ExtensionAPI is unavailable outside a session.
 	extension(stub.pi as never);

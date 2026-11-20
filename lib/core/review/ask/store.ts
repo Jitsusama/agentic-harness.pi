@@ -27,6 +27,13 @@ export interface RunStore {
 	record(change: ChangeRef, run: AskRun): Promise<void>;
 	/** Every round on a change, in the order they ran. */
 	list(change: ChangeRef): Promise<AskRun[]>;
+	/**
+	 * The commits a change's own finished council or stack rounds read,
+	 * counted the way `witnessed` counts them: a round still open, given
+	 * up on, fallen back to the caller's checkout or with no reviewer
+	 * answering read nothing.
+	 */
+	readBy(change: ChangeRef): Promise<string[]>;
 	/** The most recent finished round of one kind, if there was one. */
 	latest(change: ChangeRef, round: AskRound): Promise<AskRun | undefined>;
 	/** One round by its id. */
@@ -221,6 +228,11 @@ export function createRunStore(root: string): RunStore {
 
 		async list(change) {
 			return (await read(change)).runs;
+		},
+
+		async readBy(change) {
+			const rounds = (await read(change)).runs.filter(readSomething);
+			return [...new Set(rounds.flatMap(commitsRead))];
 		},
 
 		async openRunIds() {
@@ -497,11 +509,17 @@ function readSomething(run: unknown): run is AskRun {
 
 /** Whether `run`'s reviewers read one of `commits`. */
 function readOneOf(run: AskRun, commits: ReadonlySet<string>): boolean {
-	const read = [
+	return commitsRead(run).some((sha) => commits.has(sha));
+}
+
+/** The commits `run`'s reviewers read, as its ledger names them. */
+function commitsRead(run: AskRun): string[] {
+	return [
 		...(typeof run.witness === "string" ? [run.witness] : []),
-		...(Array.isArray(run.witnesses) ? run.witnesses : []),
+		...(Array.isArray(run.witnesses)
+			? run.witnesses.filter((sha): sha is string => typeof sha === "string")
+			: []),
 	];
-	return read.some((sha) => commits.has(sha));
 }
 
 /**

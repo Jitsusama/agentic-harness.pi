@@ -13,9 +13,11 @@ import type { BoundTarget } from "../../../lib/core/review/index.ts";
 import { loadPackageConfig } from "../../../lib/internal/config/loader.ts";
 import { sayDid } from "../../../lib/internal/session/events.ts";
 import { sayLanded } from "../../../lib/internal/session/landings.ts";
+import { reviewExec } from "../commands.ts";
 import { REVIEW_SLUG } from "../config.ts";
 import { attachments } from "../engine.ts";
 import { gateFor, gateRefusal, type RunGate } from "../merge-gate.ts";
+import { mergeUnread } from "../merge-read.ts";
 import { noteQueued } from "../queued.ts";
 import { GLYPH } from "../render.ts";
 import { confirmWrite } from "./offer-gates.ts";
@@ -155,6 +157,29 @@ async function gated(
 	return gateRefusal(gate.command, head, gating.cwd, gating.run);
 }
 
+/**
+ * Why the change's head may not merge, since no review round of ours
+ * read it (merge-read.ts), or nothing when one did.
+ */
+async function unread(
+	gating: MergeGating | undefined,
+	bound: BoundTarget,
+	change: NonNullable<ReturnType<typeof hostedChange>>,
+	expectedHead: string | undefined,
+): Promise<string | undefined> {
+	const proposal = await bound.proposal();
+	const head = expectedHead ?? proposal?.headCommit;
+	if (!head || !proposal?.base) {
+		return `The head of ${change.label} couldn't be read, so whether a review round of ours read it can't be told. Merge with expectedHead set to the head's full sha.`;
+	}
+	return mergeUnread(reviewExec, {
+		change,
+		head,
+		base: proposal.base,
+		checkout: gating?.cwd ?? process.cwd(),
+	});
+}
+
 /** Land the change. */
 export async function merge(
 	ctx: Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[4],
@@ -175,6 +200,10 @@ export async function merge(
 	const guard = await headGuard(bound, change.label, params.expectedHead);
 	if ("refusal" in guard) return refuse(guard.refusal);
 	const expectedHead = guard.head;
+	// Our own review reads the head that merges, or an earlier commit of
+	// the same patch, before any gate runs or anyone is asked.
+	const unreadBy = await unread(gating, bound, change, expectedHead);
+	if (unreadBy) return refuse(unreadBy);
 	// The repo's own say comes before the person is asked, so a head its
 	// gate refuses never reaches a confirmation.
 	const barred = await gated(gating, bound, change, expectedHead);

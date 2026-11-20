@@ -14,6 +14,7 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
+import { readHeadsWith } from "../../../../extensions/review-integration/merge-read.ts";
 import {
 	type AuthoringCapabilities,
 	type Change,
@@ -180,6 +181,30 @@ describe("merging behind a head guard", () => {
 		});
 
 		expect(JSON.stringify(answer)).toContain("too short to guard anything");
+		expect(merges).toEqual([]);
+	});
+
+	it("refuses a head no review round of ours read, before anyone is asked", async () => {
+		const { provider, merges } = mergingProvider();
+		registerReviewProvider(provider);
+		const asked: unknown[] = [];
+		const stub = activate();
+		readHeadsWith(async (_exec, merging) => {
+			asked.push({ head: merging.head, base: merging.base });
+			return "no round read it";
+		});
+
+		const answer = await toolNamed(stub, "review_offer").execute(
+			"1",
+			{ action: "merge", change: "438", expectedHead: AT.slice(0, 12) },
+			undefined,
+			undefined,
+			HEADLESS,
+		);
+
+		expect(JSON.stringify(answer)).toContain("no round read it");
+		// The whole head the guard matched is what's asked about.
+		expect(asked).toEqual([{ head: AT, base: "main" }]);
 		expect(merges).toEqual([]);
 	});
 

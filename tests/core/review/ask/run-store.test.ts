@@ -376,6 +376,34 @@ describe("finding a council that read a change's commits", () => {
 
 		expect(found?.id).toBe("council-aaa");
 	});
+
+	it("says which commits a change's own rounds read, once each", async () => {
+		const store = createRunStore(root);
+		await store.record(change, read("aaa"));
+		await store.record(change, read("aaa", { id: "council-again" }));
+		await store.record(
+			change,
+			run({ id: "stack-1", round: "stack", witnesses: ["low", "tip"] }),
+		);
+		await store.record(other, read("bbb"));
+
+		expect(await store.readBy(change)).toEqual(["aaa", "low", "tip"]);
+	});
+
+	it("says no commit a change's unfinished or unread rounds name", async () => {
+		const store = createRunStore(root);
+		await store.record(change, read("a1", { unpinned: "read the checkout" }));
+		await store.record(change, read("a2", { open: true }));
+		await store.record(change, read("a3", { round: "judge" }));
+		await store.record(
+			change,
+			read("a4", {
+				outcomes: [{ participantId: "hawk", findingIds: [], failure: "died" }],
+			}),
+		);
+
+		expect(await store.readBy(change)).toEqual([]);
+	});
 });
 
 describe("finding the run you mean", () => {
