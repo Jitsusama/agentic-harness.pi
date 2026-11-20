@@ -577,6 +577,7 @@ export async function createEngine(
 			logs.release(sessionId);
 			requests.forget(sessionId);
 			parked.closed(sessionId);
+			host.dropped(sessionId);
 			await stopping.dropped(sessionId);
 			await options.screens?.closed(sessionId, why);
 		},

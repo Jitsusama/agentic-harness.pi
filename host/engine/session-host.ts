@@ -120,6 +120,9 @@ export class SessionHost implements Host {
 	// for good, as a park ends one while its `&` commands run on; it
 	// counts again once the conversation is held again.
 	private readonly leftRunning = new Map<string, FenceKind>();
+	// The parked conversations whose next drop hands them on, as a
+	// release does (handsOn), keeping their fence in leftRunning.
+	private readonly handedOnParked = new Set<string>();
 	private readonly uninstall: () => void;
 	private readonly own: NodeJS.ProcessEnv = process.env;
 	private disposed = false;
@@ -276,6 +279,16 @@ export class SessionHost implements Host {
 	handsOn(id: string): void {
 		const conversation = this.conversations.get(id);
 		if (conversation) conversation.handsOn = true;
+		else this.handedOnParked.add(id);
+	}
+
+	/**
+	 * Forget the fence `id` was told while running, as a conversation
+	 * closed for good while parked ends what its park kept; one released
+	 * while parked (handsOn) keeps it, since what it left runs on.
+	 */
+	dropped(id: string): void {
+		if (!this.handedOnParked.delete(id)) this.leftRunning.delete(id);
 	}
 
 	/**

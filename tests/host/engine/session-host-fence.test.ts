@@ -205,6 +205,31 @@ it("keeps a looser fence through a release, since what it left running is kept",
 	expect(fences(host)).toEqual({ a: "none" });
 });
 
+it("forgets a parked conversation's fence once it is closed for good while parked", async () => {
+	const host = start();
+	host.register(registration("a"));
+	told(host, "a", "none");
+	await host.stop("a", "parked");
+	// Closed while parked, what its park kept ends with it.
+	host.dropped("a");
+	host.register(registration("a"));
+	told(host, "a", "strict");
+	expect(fences(host)).toEqual({ a: "strict" });
+});
+
+it("keeps a parked conversation's fence once it is released while parked", async () => {
+	const host = start();
+	host.register(registration("a"));
+	told(host, "a", "none");
+	await host.stop("a", "parked");
+	// Released while parked, what its park kept is kept.
+	host.handsOn("a");
+	host.dropped("a");
+	host.register(registration("a"));
+	told(host, "a", "strict");
+	expect(fences(host)).toEqual({ a: "none" });
+});
+
 it("counts a runner whose shell never told as unfenced, since pi ran its own bash", async () => {
 	const host = start();
 	host.register(
