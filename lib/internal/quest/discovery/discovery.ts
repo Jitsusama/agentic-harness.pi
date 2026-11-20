@@ -757,7 +757,29 @@ function slotOf(
 		const before = pass.pending.has(dir);
 		pending.set(dir, before ? pass.pending.get(dir) : pendingStampOf(dir));
 	}
+	return {
+		signature,
+		result,
+		...under,
+		pending,
+		rootNames: rootNamesOf(pass, questsRoot, result),
+		read: new Map(),
+	};
+}
+
+/**
+ * The names `pass` listed in `questsRoot`: none when its listing failed
+ * and the walk found no quest, as for a root not made yet, so each quest
+ * it gains is read by name rather than the whole tree signed on the
+ * thread. Undefined only when `pass` never listed it.
+ */
+function rootNamesOf(
+	pass: Pass,
+	questsRoot: string,
+	result: DiscoveryResult,
+): ReadonlyMap<string, string> | undefined {
 	const listed = pass.listings.get(questsRoot);
-	const rootNames = listed ? namesOf(listed) : undefined;
-	return { signature, result, ...under, pending, rootNames, read: new Map() };
+	if (listed) return namesOf(listed);
+	const missing = pass.listings.has(questsRoot);
+	return missing && result.index.quests.size === 0 ? new Map() : undefined;
 }
