@@ -9,8 +9,10 @@ sandbox its hour-long tokens.
 ## Files
 
 - **`sandbox.ts`**: which sandbox a session asked for and the shell
-  text that runs each command in it: the strict profile as landrun's
-  rules, and the agent fence from `fence/fence.ts`.
+  text that runs each command in it, under the strict profile's rules
+  or the agent fence from `fence/fence.ts`.
+- **`strict-rules.ts`**: what the strict profile lets a command reach,
+  as landrun's rules, and how far pi's own file tools reach under it.
 - **`gcloud-broker.ts`**: the hour-long cloud tokens the machine's
   gcloud-broker mints for its agents' account, asked for in the
   background every few minutes for the strict sandbox.
