@@ -1,6 +1,11 @@
 /** Private Unix listener and bounded viewer transport; session work stays in the engine. */
 import { chmod, lstat, mkdir, unlink } from "node:fs/promises";
-import { createServer, type Server, type Socket } from "node:net";
+import {
+	createConnection,
+	createServer,
+	type Server,
+	type Socket,
+} from "node:net";
 import { dirname, isAbsolute } from "node:path";
 import { withSession } from "../../lib/core/session/index.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
