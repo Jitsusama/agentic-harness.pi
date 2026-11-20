@@ -7,11 +7,9 @@
  * The variable is an agent's word, as a link and words are: it is read
  * as a seed, never as a command. Anything in it out of shape drops the
  * whole of it, so the session falls back to the prose path rather than
- * making half a quest.
+ * making half a quest. The variable itself, QUEST_WORKFLOW_SPROUT, is
+ * read with the other launch hints (lib/core/session/env.ts).
  */
-
-/** The variable the node sets beside QUEST_WORKFLOW_FIRST_TEXT. */
-export const SPROUT_VARIABLE = "QUEST_WORKFLOW_SPROUT";
 
 /** The one shape of it this reads. */
 const SPROUT_VERSION = 1;
