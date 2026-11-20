@@ -30,14 +30,22 @@ export const QUEUED_LIMIT_MS = 5 * 60 * 60 * 1000;
  * How World's push gate, a pre-push hook taking pushes of World one at a
  * time, says a push waits for another and that its turn came or it goes
  * on without one, as its git passes on. The gate gives up waiting after
- * 30 minutes; the longest a wait holds the clock leaves it 5 more.
+ * 30 minutes; the longest the waits hold the clock leaves it 5 more.
  *
- * A push the queue didn't take runs on a clock of ten minutes, and on 20
- * November five pushes waited at the gate behind one that hung for 25,
- * so they timed out before their turn came (IKQ63G [d73f883a]).
+ * The work tool's push runs on a clock of ten minutes, the queue's on
+ * five hours, and on 20 November five pushes waited at the gate behind
+ * one that hung for 25, so they timed out before their turn came
+ * (IKQ63G [d73f883a]). Here rather than beside the work tool, because
+ * this module already says how long a push of World may take.
+ *
+ * The words are the gate's own, read from its program: each line it says
+ * starts with its name, so the wait's mark does too, and only the gate
+ * stops the clock. The marks that start it again may be looser, since
+ * hearing one early only counts more of the wait.
  */
 export const WORLD_PUSH_TURN: Turn = {
-	waits: "another push to World is running; this one waits its turn",
+	waits:
+		"world-push-gate: another push to World is running; this one waits its turn",
 	goes: ["its turn came after", "this one goes on", "this push goes on"],
 	longestMs: 35 * 60 * 1000,
 };

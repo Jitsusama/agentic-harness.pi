@@ -38,6 +38,7 @@ import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	QUEUED_LIMIT_MS,
 	queuedExec,
+	WORLD_PUSH_TURN,
 } from "../../lib/internal/priority/queued-exec.ts";
 import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
 import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
@@ -74,12 +75,16 @@ export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
 }
 
 /**
- * The tree provider's git: unattended, queued when it is heavy, and in
- * either case held to the folders it may run in (`tree-git.ts`).
+ * The tree provider's git, and the push's: unattended, queued when it is
+ * heavy, and in either case held to the folders it may run in
+ * (`tree-git.ts`). One the queue doesn't take runs on the unattended
+ * clock, which stands still while World's push gate holds a push behind
+ * another; only the gate says its words, so no other command's clock
+ * stops.
  */
-function treeExec(signal?: AbortSignal): Exec {
+export function treeExec(signal?: AbortSignal): Exec {
 	return queuedExec(
-		unattendedExec(signal),
+		unattendedExec(signal, { turn: WORLD_PUSH_TURN }),
 		guardedExec(
 			spawnExec({
 				...(signal ? { signal } : {}),

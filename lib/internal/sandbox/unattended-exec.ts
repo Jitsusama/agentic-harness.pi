@@ -25,6 +25,7 @@ import {
 	EXIT_TIMED_OUT,
 	type Exec,
 	spawnExec,
+	type Turn,
 } from "../../core/exec/index.ts";
 import { gitRules } from "./sandbox.ts";
 import { guardedExec } from "./tree-git.ts";
@@ -40,13 +41,18 @@ export const UNATTENDED_LIMIT_MS = 10 * 60 * 1000;
 
 /**
  * The library's exec seam, run unattended: stopped by `signal` when one is
- * given, and by the unattended clock either way.
+ * given, and by the unattended clock either way. With `turn`, the clock
+ * stands still while the command says it waits its turn (`clock.ts`).
  */
-export function unattendedExec(signal?: AbortSignal): Exec {
+export function unattendedExec(
+	signal?: AbortSignal,
+	{ turn }: { turn?: Turn } = {},
+): Exec {
 	return guardedExec(
 		spawnExec({
 			...(signal ? { signal } : {}),
 			timeoutMs: UNATTENDED_LIMIT_MS,
+			...(turn ? { turn } : {}),
 		}),
 		gitRules,
 	);

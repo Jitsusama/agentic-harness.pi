@@ -9,16 +9,22 @@
  * command that names a turn is read as it speaks: from the line saying
  * it waits until one saying its turn came, the run's clock stands still
  * and a wait's own clock runs instead, so a wait that never ends is
- * still ended.
+ * still ended. The wait's clock counts every wait together, so a command
+ * saying it waits over and over still ends.
+ *
+ * Both clocks read `performance.now()`, which a change to the wall
+ * clock doesn't move.
  */
 
-/** How a command says it waits its turn, and how long one wait may last. */
+import { performance } from "node:perf_hooks";
+
+/** How a command says it waits its turn, and how long it may wait. */
 export interface Turn {
 	/** What it says on stderr when a wait starts. */
 	waits: string;
 	/** What it says when the wait ends: any one of these. */
 	goes: readonly string[];
-	/** The longest one wait may hold the run's clock still. */
+	/** The longest its waits, all together, may hold the run's clock. */
 	longestMs: number;
 }
 
@@ -32,39 +38,50 @@ export interface Clock {
 
 /**
  * A clock of `timeoutMs` that calls `timedOut` with why once it runs out,
- * standing still through each wait `turn` names.
+ * standing still through each wait `turn` names. A turn with an empty
+ * mark is no turn, since an empty mark is found everywhere.
  */
 export function startClock(
 	timeoutMs: number,
-	turn: Turn | undefined,
+	given: Turn | undefined,
 	timedOut: (why: string) => void,
 	command: string,
 ): Clock {
+	const turn = heardAs(given);
 	let left = timeoutMs;
-	let since = Date.now();
+	let waitLeft = turn?.longestMs ?? 0;
+	let since = performance.now();
 	let timer: NodeJS.Timeout | undefined;
 	let waiting = false;
 	// How far into stderr has been read for a mark, so each mark is
 	// found once, including one split across two chunks.
 	let read = 0;
 
-	const run = (): void => {
-		since = Date.now();
-		timer = setTimeout(
+	// Each clock keeps what it has left when the other takes over.
+	const spent = (): number => {
+		const now = performance.now();
+		const took = now - since;
+		since = now;
+		return took;
+	};
+	const runFor = (): NodeJS.Timeout =>
+		setTimeout(
 			() => timedOut(`${command} timed out after ${timeoutMs} ms`),
 			left,
 		);
+	const run = (): void => {
+		waitLeft = Math.max(0, waitLeft - spent());
+		timer = runFor();
 	};
 	const hold = (longestMs: number): void => {
-		clearTimeout(timer);
-		left = Math.max(0, left - (Date.now() - since));
+		left = Math.max(0, left - spent());
 		timer = setTimeout(
 			() => timedOut(`${command} waited its turn for over ${longestMs} ms`),
-			longestMs,
+			waitLeft,
 		);
 	};
 
-	run();
+	timer = runFor();
 	return {
 		heard(stderr) {
 			if (turn === undefined) return;
@@ -87,6 +104,13 @@ export function startClock(
 			clearTimeout(timer);
 		},
 	};
+}
+
+/** The turn as read: without its empty marks, and none with no mark left. */
+function heardAs(turn: Turn | undefined): Turn | undefined {
+	if (turn === undefined || turn.waits === "") return undefined;
+	const goes = turn.goes.filter((mark) => mark !== "");
+	return goes.length === 0 ? undefined : { ...turn, goes };
 }
 
 /** Where the first of `marks` found in `text` from `from` ends. */
