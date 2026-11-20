@@ -28,9 +28,14 @@ vi.mock("../../../extensions/verification-workflow/tree.ts", () => ({
 		new Promise<string | undefined>((answer) => asked.push(answer)),
 }));
 
+/** Wait until git has been asked for a fingerprint. */
+async function gitAsked(): Promise<void> {
+	await vi.waitFor(() => expect(asked, "a git asked").not.toHaveLength(0));
+}
+
 /** Answer the oldest fingerprint still asked for with `print`. */
 async function gitSays(print: string | undefined): Promise<void> {
-	await vi.waitFor(() => expect(asked, "a git asked").not.toHaveLength(0));
+	await gitAsked();
 	asked.shift()?.(print);
 }
 
@@ -59,6 +64,7 @@ describe("a commit's check", () => {
 
 	it("keeps a run recorded while git answered for the last", async () => {
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		await gitAsked();
 		state.failedRun = NEXT;
 		await gitSays("moved on");
 		const { failure } = await checking;
@@ -68,6 +74,7 @@ describe("a commit's check", () => {
 
 	it("holds nothing back for a run cleared while git answered", async () => {
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		await gitAsked();
 		state.failedRun = undefined;
 		await gitSays("judged");
 		const { failure } = await checking;
@@ -94,6 +101,7 @@ describe("a commit's check", () => {
 describe("settling the outcome", () => {
 	it("keeps a run recorded while git answered for the last", async () => {
 		const settling = settle(state);
+		await gitAsked();
 		state.failedRun = NEXT;
 		await gitSays("moved on");
 		expect(await settling).toBe("failing");
