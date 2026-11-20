@@ -278,10 +278,11 @@ and can answer a question or a gate left open on screen.
   whether it `asks` for something back: it does when it has choices
   or an ask other than only to see, and a look kept without the
   field counts as asking. Each names its `cell`, its session's own
-  address, which no other session on its quest shares, so the launcher
-  reads the cell it leads to rather than searching every session; it
-  stays once that session ends, and the launcher's agents daemon is to
-  lead an ended cell to its quest's own session. Pointing again at the same
+  address, which no other session on its quest shares, for the
+  launcher to read the cell it leads to rather than search every
+  session, which it doesn't yet; the cell stays once that session
+  ends, and the launcher's agents daemon is to lead an ended cell to
+  its quest's own session. Pointing again at the same
   thing, from the session or another on its quest, replaces the look
   in its place, naming the cell of the session that pointed last,
   the older one's id and time kept: a pull request's tabs, a diff of
