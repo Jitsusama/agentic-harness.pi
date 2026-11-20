@@ -161,9 +161,12 @@ const GATE = {
 		"world-push-gate: waited 30 minutes for another push; this one goes on",
 } as const;
 
-/** A push that says `lines` on stderr, a second apart, then sends. */
+/**
+ * A push that says `lines` on stderr a second apart, a wait the clock
+ * of 600 ms outlasts only if it holds, then sends at once.
+ */
 function gatedPush(...lines: string[]): Promise<{ code: number }> {
-	const said = lines.map((line) => `echo '${line}' >&2; sleep 1`).join("; ");
+	const said = lines.map((line) => `echo '${line}' >&2`).join("; sleep 1; ");
 	return spawnExec({
 		timeoutMs: 600,
 		signal: AbortSignal.timeout(4_000),

@@ -284,20 +284,21 @@ describe("a command that will not finish", () => {
 	});
 
 	it("counts its waits together against the longest", async () => {
-		// Three waits of 200 ms each fit the longest alone, not together.
+		// Four waits of 400 ms each fit the longest alone, with room to
+		// spare on a loaded machine, but not together.
 		const result = await spawnExec({
 			timeoutMs: 2_000,
-			signal: AbortSignal.timeout(3_000),
-			turn: { ...TURN, longestMs: 300 },
+			signal: AbortSignal.timeout(4_000),
+			turn: { ...TURN, longestMs: 1_000 },
 		})("sh", [
 			"-c",
-			"for i in 1 2 3; do echo 'this one waits its turn' >&2; sleep 0.2; echo 'its turn came after 0 s' >&2; done; echo sent",
+			"for i in 1 2 3 4; do echo 'this one waits its turn' >&2; sleep 0.4; echo 'its turn came after 0 s' >&2; done; echo sent",
 		]);
 
 		expect(result.code, "saying it waits again earns no more").toBe(
 			EXIT_TIMED_OUT,
 		);
-		expect(result.stderr).toContain("waited its turn for over 300 ms");
+		expect(result.stderr).toContain("waited its turn for over 1000 ms");
 	});
 
 	it("reads a turn with an empty mark as no turn", async () => {
