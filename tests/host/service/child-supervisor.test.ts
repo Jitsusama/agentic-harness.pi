@@ -288,6 +288,16 @@ afterEach(async () => {
 });
 
 describe("a resumed conversation", () => {
+	it("tells a child woken from a park that it was, so it doesn't rest parked again", async () => {
+		await supervisor.resume(entry(a), true);
+
+		const slot = slotOf(folder, key, a);
+		expect(JSON.parse(await readFile(slot.file, "utf8"))).toEqual({
+			session: entry(a),
+			woken: true,
+		});
+	});
+
 	it("starts its child in a slot naming its roster entry, and routes to it once it listens", async () => {
 		const resumed = await supervisor.resume(entry(a));
 
