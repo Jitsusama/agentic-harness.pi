@@ -2,7 +2,8 @@
  * The model-retry workflow driven through the events pi emits, with a
  * job host standing in for job-workflow's and the session's branch
  * kept as a list, so a reload or a restart can hand the same record to
- * a fresh load.
+ * a fresh load. Long because every case drives that same fake session
+ * and job host, which a split would build twice.
  */
 
 import type { AssistantMessage, StopReason } from "@earendil-works/pi-ai";

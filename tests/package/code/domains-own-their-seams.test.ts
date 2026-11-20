@@ -83,6 +83,7 @@ describe("bus names are declared by a library, not an extension", () => {
 		// The review and work names came back with core, folded into
 		// `lib/core`.
 		expect([...names].sort()).toEqual([
+			"budget:capped:v1",
 			"budget:ready:v1",
 			"budget:register-provider:v1",
 			"budget:request:v1",
