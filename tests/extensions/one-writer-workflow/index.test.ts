@@ -2,7 +2,8 @@
  * Plain pi refuses a conversation a host holds, open or kept for its
  * next start: it says which host and how to reach it, takes no prompt,
  * and ends with HELD_ELSEWHERE_EXIT; or, in a window its holder runs
- * itself, hands that window to the host's view and ends as a park.
+ * itself, hands that window to the host's view and ends as a park,
+ * gone quiet so pi's last frame stays until the view draws over it.
  */
 import {
 	existsSync,
@@ -18,9 +19,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { oneWriterWorkflow } from "../../../extensions/one-writer-workflow/index.ts";
 import type { TickedOwner } from "../../../lib/internal/process-ticks.ts";
 import { HELD_ELSEWHERE_EXIT } from "../../../lib/internal/session/one-writer.ts";
-import { PARKED_EXIT } from "../../../lib/internal/session/park.ts";
 
 const held = "01a1be5c-fff0-70a1-9301-f505d5634bf6";
+
+/**
+ * How often a test's pi went quiet to hand its window over: the real
+ * goQuiet would silence this very process, so each pi counts instead.
+ */
+let quieted = 0;
+
+/** What a test's pi did to end, in order: going quiet and shutting down. */
+const steps: string[] = [];
 
 type Handler = (event: unknown, ctx?: unknown) => unknown;
 
@@ -51,6 +60,10 @@ function loaded(
 		parks: parkDir(),
 		settleMs: 300,
 		...own,
+		quiet: () => {
+			quieted += 1;
+			steps.push("quiet");
+		},
 	})(pi as never);
 	return handlers;
 }
@@ -153,7 +166,9 @@ function context(session: string, mode: "tui" | "print") {
 		mode,
 		hasUI: mode === "tui",
 		ui: { notify: (line: string) => said.push(line) },
-		shutdown: vi.fn(),
+		shutdown: vi.fn(() => {
+			steps.push("shutdown");
+		}),
 		sessionManager: {
 			getSessionId: () => session,
 			getSessionFile: () => `/home/someone/.pi/sessions/${session}.jsonl`,
@@ -163,6 +178,8 @@ function context(session: string, mode: "tui" | "print") {
 }
 
 afterEach(() => {
+	quieted = 0;
+	steps.splice(0);
 	for (const listener of listening.splice(0)) process.off("exit", listener);
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
@@ -219,7 +236,7 @@ describe("a plain pi on a conversation a live host holds", () => {
 describe("a plain pi its holder runs, on a conversation a host holds", () => {
 	const log = `/home/someone/.pi/sessions/${held}.jsonl`;
 
-	it("hands its window to the host's view and ends as a park", async () => {
+	it("hands its window to the host's view, gone quiet, and ends as a park", async () => {
 		const holder = holderFor(4242);
 		const handlers = loaded([held], {
 			process: {
@@ -234,9 +251,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			handlers.get("session_start")?.({ reason: "startup" }, ctx),
 		);
 
-		expect(said).toEqual([
-			expect.stringContaining("shows it through that host"),
-		]);
+		expect(said, "no notice the view would wipe at once").toEqual([]);
 		expect(existsSync(holder.again), "it names what starts next").toBe(true);
 		const next: string[] = JSON.parse(readFileSync(holder.again, "utf8"));
 		expect(next[2]).toMatch(/\/scripts\/host-join\.ts$/);
@@ -261,8 +276,12 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		expect(handlers.get("input")?.({ text: "hello" })).toEqual({
 			action: "handled",
 		});
-		expect(added, "one exit listener sets the code").toHaveLength(1);
-		expect(exitCodeFrom(added[0] as () => void)).toBe(PARKED_EXIT);
+		expect(quieted, "it goes quiet, which ends it as a park").toBe(1);
+		expect(steps, "quiet before pi's shutdown can draw").toEqual([
+			"quiet",
+			"shutdown",
+		]);
+		expect(added, "no refusal's exit code").toEqual([]);
 	});
 
 	it("refuses as ever when a shell runs it, naming nothing next", async () => {
@@ -280,6 +299,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			false,
 		);
 		expect(existsSync(holder.wake), "it writes no wake").toBe(false);
+		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
@@ -302,6 +322,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			existsSync(holder.again),
 			"it names nothing to start next, which would drop the flag",
 		).toBe(false);
+		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
@@ -323,6 +344,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		expect(existsSync(holder.again), "it names nothing to start next").toBe(
 			false,
 		);
+		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
@@ -346,6 +368,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		expect(existsSync(holder.again), "it names nothing to start next").toBe(
 			false,
 		);
+		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
@@ -365,7 +388,8 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		);
 
 		expect(existsSync(holder.again), "it names the view next").toBe(true);
-		expect(exitCodeFrom(added[0] as () => void)).toBe(PARKED_EXIT);
+		expect(quieted).toBe(1);
+		expect(added).toEqual([]);
 	});
 
 	it("hands over a hold its host keeps while down, whose view waits for it", async () => {
@@ -381,7 +405,8 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		);
 
 		expect(existsSync(holder.again), "it names the view next").toBe(true);
-		expect(exitCodeFrom(added[0] as () => void)).toBe(PARKED_EXIT);
+		expect(quieted).toBe(1);
+		expect(added).toEqual([]);
 	});
 
 	it("refuses, writing no wake, when what starts next can't be written", async () => {
@@ -397,6 +422,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		);
 
 		expect(existsSync(holder.wake), "it wrote no wake").toBe(false);
+		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
@@ -418,6 +444,7 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		expect(existsSync(holder.again), "the words it wrote first are gone").toBe(
 			false,
 		);
+		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
 	});
 
