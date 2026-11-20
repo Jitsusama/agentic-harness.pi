@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import {
 	goQuiet,
 	handingOf,
-	toldHolder,
+	tellHolder,
 } from "../../lib/internal/session/hand-over.ts";
 import {
 	JOIN_QUIET,
@@ -83,14 +83,15 @@ export function handOverOf(facts: InPlaceFacts): HandOver | undefined {
 	);
 	return {
 		end: () => {
-			const told = toldHolder(handing.files, command, {
+			const told = tellHolder(handing.files, command, {
 				session: facts.session,
 				move: true,
 				at: new Date().toISOString(),
 			});
 			// Thrown before going quiet, so the move's catch ends it as a move
-			// that closes its window, with nothing half told left behind.
-			if (!told) throw new Error("its holder couldn't be told the join");
+			// that closes its window, saying why, with nothing half told left.
+			if (!told.told)
+				throw new Error(`its holder couldn't be told the join: ${told.why}`);
 			(facts.quiet ?? goQuiet)();
 		},
 	};

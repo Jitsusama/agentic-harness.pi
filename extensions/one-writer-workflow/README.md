@@ -45,7 +45,8 @@ the view draws over it, with no restored screen, resume hint or notice
 in between. It refuses as above instead when its hold is stranded, when
 it was given a prompt at start-up, when it carries flags plain pi would
 drop should the view fall back to it, or when its holder's files can't
-be written, in which case it leaves neither file behind.
+be written, in which case it leaves neither file behind and its refusal
+adds why, naming the file and the cause.
 
 ## Where It Doesn't Apply
 

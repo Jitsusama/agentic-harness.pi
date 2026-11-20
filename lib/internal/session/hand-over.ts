@@ -1,10 +1,11 @@
 /**
  * Handing a pi's window to what its holder starts next: the host's join
- * for a move (mesh-workflow's in-place.ts), or the host's view for a
- * conversation a host already holds (one-writer-workflow). Both ask the
- * same of a pi before it may, tell its holder the same way, and end the
- * same way, so the window keeps pi's last frame until the next program
- * draws over it.
+ * for a move (mesh-workflow's in-place.ts), the host's view for a
+ * conversation a host already holds (one-writer-workflow), or pi again
+ * on a fresh log (park-workflow's restart). Each tells its holder the
+ * same way; the first two also ask the same of a pi before it may, and
+ * end the same way, so the window keeps pi's last frame until the next
+ * program draws over it.
  */
 
 import { rmSync, writeFileSync } from "node:fs";
@@ -47,25 +48,36 @@ export function handingOf(facts: HandingFacts): Handing | undefined {
 }
 
 /**
+ * Whether a holder was told what starts next, and, when it wasn't, why:
+ * the error writing its file gave, which names the file and the cause,
+ * as a full disk or a folder where the file should be.
+ */
+export type Told =
+	| { readonly told: true }
+	| { readonly told: false; readonly why: string };
+
+/**
  * Tells the holder to start `command` next, woken at once with `wake`'s
- * words. False when either file can't be written, with both taken away,
+ * words. Untold when either file can't be written, with both taken away,
  * even one cut short as it was written, so the holder starts nothing
  * half told.
  */
-export function toldHolder(
+export function tellHolder(
 	files: HolderFiles,
 	command: readonly string[],
 	wake: Readonly<Record<string, unknown>>,
-): boolean {
+): Told {
 	try {
 		writeFileSync(files.again, JSON.stringify(command));
 		writeFileSync(files.wake, JSON.stringify(wake));
-		return true;
-	} catch {
-		// The caller says why it can't hand over; nothing half told stays.
+		return { told: true };
+	} catch (error) {
 		forget(files.again);
 		forget(files.wake);
-		return false;
+		return {
+			told: false,
+			why: error instanceof Error ? error.message : String(error),
+		};
 	}
 }
 

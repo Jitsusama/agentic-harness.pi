@@ -174,17 +174,15 @@ function whereTo(to: MoveTarget): string {
 
 /**
  * Hand the window over, saying nothing on screen since the window
- * carries straight on in the host: false when it couldn't, and the
- * window closes as a move without one does.
+ * carries straight on in the host. Answers why when it couldn't, and
+ * the window then closes as a move without one does.
  */
-function handedOver(over: HandOver): boolean {
+function handOverFailed(over: HandOver): string | undefined {
 	try {
 		over.end();
-		return true;
-	} catch {
-		// Its holder couldn't be told what to start: the note stands, and
-		// the session ends as a move that closes its window does.
-		return false;
+		return undefined;
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
 	}
 }
 
@@ -324,8 +322,12 @@ export function createMoving(host: MovingHost): MovingSession {
 			return;
 		}
 		ended = true;
-		if (!over || !handedOver(over)) {
-			host.tell(`Free now; moving to ${whereTo(moving.to)}.`);
+		const failed = over ? handOverFailed(over) : undefined;
+		if (!over) host.tell(`Free now; moving to ${whereTo(moving.to)}.`);
+		else if (failed !== undefined) {
+			host.tell(
+				`Free now; moving to ${whereTo(moving.to)}. Its window closes, since ${failed}.`,
+			);
 		}
 		const by = `a move to ${whereTo(moving.to)}, ${askedFrom === "here" ? "asked in its window" : "asked from outside its window"}`;
 		if (moving.to === "pi" && host.release) {

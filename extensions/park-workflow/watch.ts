@@ -7,6 +7,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
+import { tellHolder } from "../../lib/internal/session/hand-over.ts";
 import {
 	AGAIN_ENV,
 	clearAwake,
@@ -570,16 +571,14 @@ export function watch(
 		const seen = asked ? undefined : watched();
 		if (seen !== undefined) return seen;
 		const throughHolder = () => {
-			try {
-				writeFileSync(again, JSON.stringify(holderCommand(fresh, args, env)));
-				writeFileSync(
-					wake,
-					`${JSON.stringify({ session, restart: fresh, at: new Date(now()).toISOString() })}\n`,
-				);
-			} catch {
-				// Its holder keeps the window parked, and a key wakes it on the
-				// command it ran, which brings back the log it left.
-			}
+			// Untold, with neither file left, its holder keeps the window
+			// parked, and a key starts the command it holds, on the log that
+			// command names: nothing is left to start on the fresh log alone.
+			tellHolder({ again, wake }, holderCommand(fresh, args, env), {
+				session,
+				restart: fresh,
+				at: new Date(now()).toISOString(),
+			});
 			const setCode =
 				options.setExitCode ??
 				((code: number) => {
