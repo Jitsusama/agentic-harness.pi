@@ -23,6 +23,22 @@ export const SHARED_SLICE_VARIABLE = "SHARED_SLICE";
  */
 export const SYSTEM_ENVIRONMENT = "/etc/set-environment";
 
+/** The longest one string Linux passes a program (MAX_ARG_STRLEN). */
+const LONGEST_STRING = 128 * 1024;
+
+/**
+ * Room kept for what is put around the command after the queue: the
+ * variable's name pi's shell passes it under and the move into jobs.
+ * The same room `sandbox.ts` keeps under its LONGEST_TEXT, kept apart
+ * since neither module reaches the other; the queue's own lines are
+ * measured rather than counted in it.
+ */
+const LATER_ROOM = 4 * 1024;
+
+/** What a walk too long for the slice's form says, on its errors. */
+export const SLICE_GIVEN_UP =
+	"This walk runs in the queue's slice: its command is too long to run in the shared one, most often a fenced command whose lists couldn't go in a file.";
+
 /**
  * Shell lines running `command` in the slice `SHARED_SLICE` names, in the
  * session's environment or else `systemEnvironment`, as a scope of the
@@ -30,7 +46,13 @@ export const SYSTEM_ENVIRONMENT = "/etc/set-environment";
  * before the slice is switched in or on another machine, or there is no
  * `systemd-run` or runtime folder to reach the person's systemd through,
  * it runs as it was: `systemd-run` that can't reach it fails without
- * running the command at all.
+ * running the command at all. It runs as it was too when the form,
+ * which holds the command twice and each quote in it quoted, with the
+ * `around` bytes of the queue's lines, would be longer than Linux takes
+ * in one string: a fenced command whose lists couldn't go in a file can
+ * be most of that alone, and a walk in the queue's slice is slower,
+ * where one past it fails with E2BIG. That walk says so on its errors,
+ * so a slow walk can be traced to it.
  *
  * systemd-run expands each `${...}` in a command's words itself unless
  * told not to, so the command's own shell never saw them: a fenced
@@ -41,16 +63,23 @@ export const SYSTEM_ENVIRONMENT = "/etc/set-environment";
 export function inSharedSlice(
 	command: string,
 	systemEnvironment: string = SYSTEM_ENVIRONMENT,
+	around = 0,
 ): string {
 	const quoted = `'${command.replaceAll("'", `'\\''`)}'`;
 	const file = `'${systemEnvironment.replaceAll("'", `'\\''`)}'`;
-	return [
-		// Read in a subshell, so nothing else the file sets reaches the command.
-		`[ -n "\${${SHARED_SLICE_VARIABLE}:-}" ] || ${SHARED_SLICE_VARIABLE}=$( [ -r ${file} ] && . ${file} > /dev/null 2>&1; printf '%s' "\${${SHARED_SLICE_VARIABLE}:-}")`,
+	// Read in a subshell, so nothing else the file sets reaches the command.
+	const named = `[ -n "\${${SHARED_SLICE_VARIABLE}:-}" ] || ${SHARED_SLICE_VARIABLE}=$( [ -r ${file} ] && . ${file} > /dev/null 2>&1; printf '%s' "\${${SHARED_SLICE_VARIABLE}:-}")`;
+	const form = [
+		named,
 		`if [ -n "\${${SHARED_SLICE_VARIABLE}:-}" ] && [ -n "\${XDG_RUNTIME_DIR:-}" ] && command -v systemd-run > /dev/null 2>&1; then`,
 		`systemd-run --user --scope --quiet --collect --slice="$${SHARED_SLICE_VARIABLE}" --expand-environment=no -- bash -c ${quoted}`,
 		"else",
 		command,
 		"fi",
 	].join("\n");
+	const room = LONGEST_STRING - LATER_ROOM - around;
+	if (Buffer.byteLength(form) <= room) return form;
+	// Said only where a slice is named, since elsewhere it runs as it was.
+	const given = `'${SLICE_GIVEN_UP.replaceAll("'", `'\\''`)}'`;
+	return `${named}\n[ -z "\${${SHARED_SLICE_VARIABLE}:-}" ] || printf '%s\\n' ${given} >&2\n${command}`;
 }

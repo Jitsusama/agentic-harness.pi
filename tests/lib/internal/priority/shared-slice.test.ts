@@ -10,7 +10,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { inSharedSlice } from "../../../../lib/internal/priority/shared-slice.ts";
+import {
+	inSharedSlice,
+	SLICE_GIVEN_UP,
+} from "../../../../lib/internal/priority/shared-slice.ts";
 
 let root: string;
 let bin: string;
@@ -18,6 +21,10 @@ let bin: string;
 // The test's own shell may run in the slice already.
 const withoutSlice = { ...process.env };
 delete withoutSlice.SHARED_SLICE;
+
+// What the slice's form may take with the queue's lines: Linux's one
+// string, less the room kept for what goes around it after the queue.
+const ROOM = 128 * 1024 - 4 * 1024;
 
 // A command whose quotes, variable and exit status must all come through.
 const COMMAND = `x='it'"'"'s'; echo "$x $HOME_TOO" >> "$OUT"; exit 3`;
@@ -124,6 +131,50 @@ describe("a command run in the shared slice", () => {
 		expect(ran.status).toBe(3);
 		expect(said("out")).toEqual(["it's kept"]);
 		expect(said("asked")).toContain("--slice=shared.slice");
+	});
+
+	it("runs as it was, and says so, when its quotes, each quoted, take the slice's form past what Linux takes in one string", () => {
+		// 26 KiB of empty quotes: twice over it is far short of the bound,
+		// but each quote takes four bytes once quoted.
+		const quotes = "'".repeat(26 * 1024);
+		const quoted = `: ${quotes}\n${COMMAND}`;
+		const plain = `: ${"x".repeat(quotes.length)}\n${COMMAND}`;
+		const none = join(root, "none");
+		expect(
+			inSharedSlice(plain, none),
+			"as long a command with no quotes keeps the slice",
+		).toContain("systemd-run");
+
+		const wrapped = inSharedSlice(quoted, none);
+
+		expect(wrapped, "no slice asked for").not.toContain("systemd-run");
+		const ran = run(wrapped, { SHARED_SLICE: "shared.slice" });
+		expect(ran.status, "the command's own status").toBe(3);
+		expect(said("out"), "the command ran").toEqual(["it's kept"]);
+		expect(said("asked"), "nothing ran in a scope").toEqual([]);
+		expect(ran.stderr, "the walk says where it runs").toContain(SLICE_GIVEN_UP);
+	});
+
+	it("says nothing of the slice it gave up where none is named", () => {
+		const quoted = `: ${"'".repeat(26 * 1024)}\n${COMMAND}`;
+
+		const ran = run(inSharedSlice(quoted, join(root, "none")), {});
+
+		expect(ran.status, "the command's own status").toBe(3);
+		expect(said("out"), "the command ran").toEqual(["it's kept"]);
+		expect(ran.stderr, "nothing said of a slice there is none of").toBe("");
+	});
+
+	it("counts the queue's lines that go before it, to the byte", () => {
+		const none = join(root, "none");
+		const form = inSharedSlice(COMMAND, none);
+		const left = ROOM - Buffer.byteLength(form);
+
+		expect(inSharedSlice(COMMAND, none, left), "exactly room").toBe(form);
+		expect(
+			inSharedSlice(COMMAND, none, left + 1),
+			"a byte short of room",
+		).not.toContain("systemd-run");
 	});
 
 	it("runs as it was where there is no systemd of the person's to ask", () => {
