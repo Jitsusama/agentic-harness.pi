@@ -9,8 +9,8 @@ import {
 	COMPILE_CACHE_VARIABLE,
 	compileCacheFolder,
 	keepCompileCacheOutOfReach,
-} from "../../../lib/internal/compile-cache-place.ts";
-import { fenceRefusesWrite } from "../../../lib/internal/fence/fence.ts";
+} from "../../../../lib/internal/fence/compile-cache-place.ts";
+import { fenceRefusesWrite } from "../../../../lib/internal/fence/fence.ts";
 
 afterEach(() => {
 	vi.unstubAllEnvs();
@@ -35,6 +35,7 @@ describe("where pi's compile cache is kept", () => {
 				home: "/home/someone",
 				runtimeDir: undefined,
 			}),
+			"the fence refuses a write into the compile cache",
 		).toBe(true);
 	});
 

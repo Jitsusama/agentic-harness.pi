@@ -77,9 +77,10 @@ describe("a host's compile cache", () => {
 					enable,
 				}),
 			);
-			expect(folder.startsWith(join(state, "pi", "agentic-harness.pi"))).toBe(
-				true,
-			);
+			expect(
+				folder.startsWith(`${join(state, "pi", "agentic-harness.pi")}/`),
+				`the cache folder ${folder} sits in pi's state`,
+			).toBe(true);
 		} finally {
 			vi.unstubAllEnvs();
 		}
