@@ -453,8 +453,9 @@ describe("pi-carry", () => {
 		]);
 	});
 
-	it("answers --help on stdout alone, exiting 0, with no home to read", async () => {
+	it("answers --help on stdout alone, exiting 0, with only PATH set", async () => {
 		for (const words of [["--help"], ["settle", "not-a-quest", "-h"]]) {
+			// run rejects on any exit but 0, so resolving is the exit check.
 			const said = await run(
 				"node",
 				["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", SCRIPT, ...words],

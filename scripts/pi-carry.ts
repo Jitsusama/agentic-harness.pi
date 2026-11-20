@@ -51,7 +51,7 @@
  * again (KP0L6A [e034b3f1], [893e1f9f]).
  *
  * Each exits 2 when it was asked wrongly. `--help` says how to ask it,
- * on stdout, before anything is read.
+ * on stdout, before any of the person's state is read.
  */
 
 import { readFileSync } from "node:fs";

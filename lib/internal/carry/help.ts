@@ -1,12 +1,13 @@
 /**
  * What `pi-carry --help` says, and whether its words ask for it, read
- * before anything else so its help answers on any machine.
+ * before any of the person's state so its help answers on any machine.
  */
 
 /** What `pi-carry --help` says, each line within 72 columns. */
 export const CARRY_HELP = `pi-carry carries a quest's work from one of the person's machines
-to another, as \`mycelium carry\` asks it, printing a JSON line for
-each thing it does.
+to another, as \`mycelium carry\` asks it. A carry, an arrival and a
+settling print a JSON line for each thing they do; where and fence
+print a bare answer.
 
 Usage:
   pi-carry QUEST --to MACHINE
@@ -16,7 +17,7 @@ Usage:
   pi-carry fence QUEST --from MACHINE --session ID
   pi-carry settle QUEST --session ID
 
-Commands:
+Forms:
   --to     carry the sessions no pi runs and the trees no session
            holds into the quest's handover, on the machine it leaves
   arrive   put one session's trees in place and place its file, on
@@ -26,25 +27,22 @@ Commands:
   fence    print what PI_SANDBOX the arrived session starts under
   settle   let go of the trees a confirmed carry left here
 
-It exits 0 when done, 1 when a tree was refused, a done file never
-came or something here holds work the carry lacks, and 2 when asked
-wrongly.
+A value starting with a dash goes in one word, as --why=-h.
+
+It exits 0 when done, 1 when it couldn't do all it was asked, a line
+saying why, and 2 when asked wrongly.
 `;
 
-/** pi-carry's flags that take the word after them as their value. */
-const VALUED = new Set(["--to", "--from", "--session", "--by", "--why"]);
-
 /**
- * Whether `words` ask for pi-carry's help, by `--help` or `-h` before any
- * `--`. The word after a valued flag is its value, as a parser reads it, so
- * a reason that is exactly `--help` is carried rather than taken for help.
+ * Whether `words` ask for pi-carry's help, by `--help` or `-h` anywhere
+ * before `--`. Its parser refuses a value starting with a dash given as
+ * the next word, so no value is lost to help; one given in the same word,
+ * as `--why=--help`, is that word and never asks.
  */
 export function asksForHelp(words: readonly string[]): boolean {
-	for (let at = 0; at < words.length; at += 1) {
-		const word = words[at];
+	for (const word of words) {
 		if (word === "--") return false;
 		if (word === "--help" || word === "-h") return true;
-		if (word !== undefined && VALUED.has(word)) at += 1;
 	}
 	return false;
 }
