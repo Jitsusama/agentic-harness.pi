@@ -10,7 +10,10 @@ import { hosted } from "../../../lib/core/session/host.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
-	signQuestsNow,
+	questsWalked,
+	readyQuests,
+	refreshQuests,
+	signingGaveUp,
 	withDiscoveryHeld,
 } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { setJournalSession } from "../../../lib/internal/quest/fields/structural-journal.ts";
@@ -87,10 +90,13 @@ export function followSessionLife(
 
 	// The start's every discovery after its first reads that walk, plus
 	// its own writes (withDiscoveryHeld), rather than signing the tree again.
-	pi.on("session_start", async (event, ctx) =>
-		withDiscoveryHeld(() => {
-			// What a start restores and records rests on the tree as it is.
-			signQuestsNow(state.questsRoot);
+	pi.on("session_start", async (event, ctx) => {
+		await readyForStart(state);
+		return withDiscoveryHeld(() => {
+			// What a start restores and records rests on its quest as it is:
+			// the one it had, here, and the one it resolves, once chosen.
+			const had = state.questId;
+			refreshQuests(state.questsRoot, [had]);
 			if (stayedBecause && ctx.hasUI) ctx.ui.notify(stayedBecause, "warning");
 			stayedBecause = undefined;
 			// What this session journals is its own, for its own undo.
@@ -139,6 +145,9 @@ export function followSessionLife(
 			// loaded quest and focused document), then the cwd for a
 			// fresh session launched inside a quest or its tree.
 			resolveStartup(state, pi, ctx);
+			if (state.questId !== had) {
+				refreshQuests(state.questsRoot, [state.questId]);
+			}
 			// Asked now, waited on before the first model call
 			// (before_agent_start, in turns.ts).
 			budgets.keep(ctx).catch(() => {
@@ -213,8 +222,8 @@ export function followSessionLife(
 			// probing history or loading anything. The authoritative, probed
 			// view is `quest recent`.
 			showSessionHint(state, ctx);
-		}),
-	);
+		});
+	});
 
 	// pi asks for resources once every extension's session_start has
 	// finished, so the first request carries the tool set they settled.
@@ -290,6 +299,49 @@ export function followSessionLife(
 		if (event.reason === "reload") clearDiscoveryCache();
 	});
 }
+
+/**
+ * On a host, bring the tree up to now before a start resolves its
+ * quest, off the thread: the quest it had is read again, and a start
+ * with none signs the whole tree, since its spawn request, its history
+ * or its folder may name any quest, and a tree another process just
+ * added draws it only once read. When the disk gives no answer in
+ * time, the start goes on from the last walk and the journal says so.
+ * With no walk at all, which only a signing on the thread could give,
+ * it waits on the next signing instead, holding only itself, until
+ * {@link START_TRIES} have given up, as a disk that hangs does.
+ */
+async function readyForStart(state: QuestState): Promise<void> {
+	const root = state.questsRoot;
+	for (let tries = 1; ; tries++) {
+		try {
+			await readyQuests(root, [state.questId], state.questId === undefined);
+			return;
+		} catch (error) {
+			if (!signingGaveUp(error)) throw error;
+			const walked = questsWalked(root);
+			if (walked || tries >= START_TRIES) {
+				const reads = walked
+					? "reads the last walk of"
+					: `signs on the thread, after ${tries} waits gave up,`;
+				process.stderr.write(
+					`[quest-workflow] a session's start ${reads} ${root}: ${error.message}\n`,
+				);
+				return;
+			}
+			process.stderr.write(
+				`[quest-workflow] a session's start waits on a first walk of ${root}: ${error.message}\n`,
+			);
+		}
+	}
+}
+
+/**
+ * How many waits on a tree never walked a start makes before it signs
+ * it on the thread: each is up to a minute, so about as long as a
+ * signing holds its root before its disk is taken to hang.
+ */
+const START_TRIES = 5;
 
 /** The most recent sessions the passive start hint will name. */
 const SESSION_HINT_ROWS = 3;

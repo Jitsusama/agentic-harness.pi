@@ -36,15 +36,16 @@
  * `tools/`, `workloads/`, etc.) are not walked. They're
  * surfaced only via the quest's own body references.
  *
- * What the walk reads, and the memo that spares it reading
- * an unchanged file twice, are in `discovery-reads.ts`; the
+ * The walk itself is `discovery-walk.ts`'s. What it reads,
+ * and the memo that spares it reading an unchanged file
+ * twice, are in `discovery-reads.ts`; the
  * seed that carries the memo to the next process is in
  * `../discovery-seed.ts`, one folder up. On a host, a known
- * tree is signed again off the thread, by `off-thread.ts`.
+ * tree is signed again off the thread, by `off-thread.ts`,
+ * and brought up to date between signings quest by quest.
  */
 
-import { realpathSync } from "node:fs";
-import { dirname, extname, join } from "node:path";
+import { basename, dirname } from "node:path";
 import { hosted } from "../../../core/session/host.ts";
 import type { QuestDoc, QuestDocumentDoc } from "../../../quest/types.ts";
 import { cacheDir } from "../../paths.ts";
@@ -57,28 +58,27 @@ import {
 	type SeedOptions,
 	takeSeed,
 } from "../discovery-seed.ts";
+import { questsWrittenSince, questWritesMade } from "../io.ts";
 import {
-	explainDocumentFrontMatter,
-	parseDocumentFrontMatter,
-} from "../documents/frontmatter.ts";
-import { extractTitle, parseQuestDoc } from "../documents/quest-doc.ts";
-import { questWritesMade } from "../io.ts";
-import {
-	CANONICAL_DOCUMENT_DIRS,
 	type CacheSlot,
 	discoverySignature,
 	forgetMemo,
-	forgetUnparsed,
-	kept,
-	kindEntries,
-	MAX_WALK_DEPTH,
 	memo,
 	newPass,
 	type Pass,
-	parsedOnce,
 	readEntries,
 	type SigningEnd,
 } from "./discovery-reads.ts";
+import {
+	discoverQuestsUncached,
+	entryUnder,
+	merged,
+	movedNames,
+	namesOf,
+	pendingOf,
+	README_MISSING,
+	walkNamed,
+} from "./discovery-walk.ts";
 import {
 	folderStampOf,
 	pendingStampOf,
@@ -134,7 +134,8 @@ export function siblingRanks(
 	return ranks;
 }
 
-interface DiscoveryError {
+/** Something a walk found out of shape, and where. */
+export interface DiscoveryError {
 	path: string;
 	message: string;
 }
@@ -143,27 +144,6 @@ interface DiscoveryError {
 export interface DiscoveryResult {
 	index: QuestIndex;
 	errors: DiscoveryError[];
-}
-
-function safeRealpath(path: string, pass: Pass): string | undefined {
-	if (pass.reals.has(path)) return pass.reals.get(path);
-	try {
-		return realpathSync(path);
-	} catch {
-		// Path doesn't exist or is unreadable; the caller
-		// will surface the read error separately.
-		return undefined;
-	}
-}
-
-function parseDocumentFile(text: string): QuestDocumentDoc | undefined {
-	const parsed = parseDocumentFrontMatter(text);
-	if (!parsed) return undefined;
-	return {
-		frontMatter: parsed.frontMatter,
-		body: parsed.body,
-		title: extractTitle(parsed.body),
-	};
 }
 
 /**
@@ -237,23 +217,149 @@ export function discoverQuests(
 }
 
 /**
- * On a host, sign the tree now, so the asks that follow in the next few
- * seconds answer as it stands: the quest tool does it before each
- * action, whose reads decide what it writes, and a session as it
- * starts. Plain pi signs every ask already, so this does nothing there.
+ * On a host, read the quests named in `ids` as they stand now, on the
+ * thread, so the asks that follow answer them so: a session does it
+ * for its own quest as it starts, whose record it writes. A document's
+ * id names the quest it sits in, as the last walk found it; any other
+ * text names nothing. The rest of the tree stays as the last signing
+ * found it, bar what `caughtUp` reads anyway. A tree never signed is
+ * signed whole; one it can't bring up to date is left to a signing off
+ * the thread. Plain pi signs every ask already, so this does nothing
+ * there. An action, which can wait, asks `readyQuests` instead.
  */
-export function signQuestsNow(questsRoot: string): void {
-	if (hosted()) discoverQuestsSigned(questsRoot, {});
+export function refreshQuests(
+	questsRoot: string,
+	ids: Iterable<string | null | undefined>,
+): void {
+	if (!hosted()) return;
+	// A hold's copy predates what is read here.
+	held?.delete(questsRoot);
+	const slot = memo().cache.get(questsRoot);
+	if (!slot) {
+		discoverQuestsSigned(questsRoot, {});
+		return;
+	}
+	const named = questsNamed(questsRoot, slot.result, ids) ?? new Set();
+	// One it can't bring up to date is read by a signing off the thread.
+	if (!caughtUp(questsRoot, slot, named)) void startSigning(questsRoot);
+}
+
+/**
+ * On a host, bring what an action reads up to now before it acts, since
+ * what it reads decides what it writes. The quests `ids` name are read
+ * again on the thread, as `refreshQuests` reads them. The whole tree is
+ * signed afresh off the thread and waited for when that can't be
+ * enough: for an action `across` other quests than it names (a rank
+ * among siblings, a parent's cycle check), a document id the last walk
+ * holds in no quest, a tree never signed, and a last signing older than
+ * `STALE_AFTER_MS`, so an action after an idle spell never reads one.
+ * Throws as `discoverQuestsAfresh` does when the disk gives no answer,
+ * and once `signal` fires, leaving the signing to finish unheard.
+ * Plain pi signs every ask already, so this does nothing there.
+ */
+export async function readyQuests(
+	questsRoot: string,
+	ids: Iterable<string | null | undefined>,
+	across: boolean,
+	signal?: AbortSignal,
+): Promise<void> {
+	if (!hosted()) return;
+	held?.delete(questsRoot);
+	const slot = memo().cache.get(questsRoot);
+	const age = slot ? Date.now() - slot.signedAt : -1;
+	const recent = age >= 0 && age <= STALE_AFTER_MS;
+	const named =
+		slot && recent && !across
+			? questsNamed(questsRoot, slot.result, ids)
+			: undefined;
+	if (slot && named && caughtUp(questsRoot, slot, named)) return;
+	await untilStopped(discoverQuestsAfresh(questsRoot), signal);
+}
+
+/** `work`, or its rejection, unless `signal` fires first, then its reason. */
+function untilStopped<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+	if (!signal) return work;
+	if (signal.aborted) {
+		// Nobody hears it now, so it is caught here rather than end pi.
+		work.catch(() => undefined);
+		return Promise.reject(signal.reason);
+	}
+	return new Promise<T>((resolve, reject) => {
+		const stop = (): void => reject(signal.reason);
+		signal.addEventListener("abort", stop, { once: true });
+		work.then(
+			(value) => {
+				signal.removeEventListener("abort", stop);
+				resolve(value);
+			},
+			(error: unknown) => {
+				signal.removeEventListener("abort", stop);
+				reject(error);
+			},
+		);
+	});
+}
+
+/**
+ * Whether this process holds a walk of `questsRoot` to answer from,
+ * however old: on a host, one with none signs it whole at its first
+ * synchronous ask. Plain pi signs every ask, so it always has one.
+ */
+export function questsWalked(questsRoot: string): boolean {
+	return !hosted() || memo().cache.has(questsRoot);
+}
+
+/** Whether `error` is a signing the disk gave no answer to in time. */
+export function signingGaveUp(error: unknown): error is Error {
+	return error instanceof Error && error.message === SIGNING_GAVE_UP;
+}
+
+/**
+ * The root entries `ids` name: a quest's folder as the last walk found
+ * it, else its id, for one made since; a document's quest's folder.
+ * Undefined when a document id is in no quest the last walk found,
+ * since only a whole signing can say where it sits now.
+ */
+function questsNamed(
+	questsRoot: string,
+	result: DiscoveryResult,
+	ids: Iterable<string | null | undefined>,
+): Set<string> | undefined {
+	const named = new Set<string>();
+	const asked = new Set<string>();
+	const folderOf = (dir: string) => entryUnder(questsRoot, dir);
+	for (const id of ids) {
+		if (typeof id !== "string" || !isId(id)) continue;
+		if (prefixOf(id) !== "QEST") asked.add(`${id}.md`);
+		else {
+			const dir = result.index.quests.get(id)?.dir;
+			named.add((dir && folderOf(dir)) || id);
+		}
+	}
+	for (const entry of result.index.quests.values()) {
+		if (asked.size === 0) break;
+		for (const document of entry.documents) {
+			const file = basename(document.path);
+			if (!asked.delete(file)) continue;
+			const folder = folderOf(entry.dir);
+			if (folder) named.add(folder);
+		}
+	}
+	return asked.size > 0 ? undefined : named;
 }
 
 /**
  * Walk `questsRoot` as it stands now, signed off the thread on a host
  * and waited for, for work that can wait: the desktop's lists, written
- * only from a walk signed after the change that asked for them. A
- * signing this process's own write overtook is made again off the
- * thread, and after `AFRESH_TRIES` on it. One that gives up on the disk
- * throws, since signing it on the thread would hold every conversation
- * on that same disk. Plain pi signs it on the thread, as every ask.
+ * only from a walk signed after the change that asked for them, and
+ * brought up to date for this process's own writes since. A signing
+ * dropped for a newer one, or one a write since can't be placed in, is
+ * made again off the thread, up to `AFRESH_TRIES` times; after that the
+ * newest walk answers, a write behind at most, and the journal says so.
+ * Only a tree no signing could walk is signed on the thread, as a
+ * missing folder is, cheaply. One that gives up on the disk throws,
+ * since signing it on the thread would hold every conversation on that
+ * same disk. Plain pi signs it on the thread, as every ask.
  */
 export async function discoverQuestsAfresh(
 	questsRoot: string,
@@ -261,20 +367,24 @@ export async function discoverQuestsAfresh(
 	if (!hosted()) return discoverQuestsSigned(questsRoot, {});
 	for (let tries = 0; tries < AFRESH_TRIES; tries++) {
 		const asked = Date.now();
-		const writes = questWritesMade();
 		const before = await discoverySettled(questsRoot);
 		if (before === "gave up") throw new Error(SIGNING_GAVE_UP);
 		const ended = await signOffThread(questsRoot);
 		if (ended === "gave up") throw new Error(SIGNING_GAVE_UP);
 		const slot = memo().cache.get(questsRoot);
-		const current =
-			slot &&
-			slot.signedAt >= asked &&
-			slot.writes === writes &&
-			writes === questWritesMade();
-		if (current) return slot.result;
+		const found = slot && slot.signedAt >= asked;
+		// A write since that can't be placed is read only by another signing.
+		const placed = found && questsWrittenSince(slot.writes) !== undefined;
+		const current = placed ? caughtUp(questsRoot, slot, new Set()) : undefined;
+		if (current) return current;
 	}
-	return discoverQuestsSigned(questsRoot, {});
+	const slot = memo().cache.get(questsRoot);
+	const newest = slot && caughtUp(questsRoot, slot, new Set());
+	if (!newest) return discoverQuestsSigned(questsRoot, {});
+	sayOnHost(
+		`${AFRESH_TRIES} signings of ${questsRoot} each missed a write or a newer signing, so the newest walk answers`,
+	);
+	return newest;
 }
 
 /** How often `discoverQuestsAfresh` signs off the thread before on it. */
@@ -285,16 +395,19 @@ const SIGNING_GAVE_UP = "the quest tree didn't answer a signing in time";
 /**
  * How long a host answers a known tree from its last signing before an
  * ask starts signing it again off the thread. Another process's change
- * to a quest shows within about this long of the next ask; a change
- * this process made through the workflow, and a quest made or removed,
- * show at once.
+ * to a quest shows by the end of the signing the next ask past this
+ * starts, however long the tree sat unasked; a change this process
+ * made through the workflow, and a quest made, removed or given its
+ * README, show at once, read quest by quest (`caughtUp`).
  */
 const SIGN_AGAIN_AFTER_MS = 5_000;
 
 /**
- * How old a host's last signing may be and still answer at all: a tree
- * nobody asked about for this long is signed on the thread at the next
- * ask, so a change made while a host sat idle never answers late.
+ * How old a host's last signing may be for an action to act on it, the
+ * quests it names read again: past this, `readyQuests` waits on a whole
+ * signing off the thread, so a change made while a host sat idle is
+ * never acted on late. An ask that can't wait answers the older walk
+ * while that signing runs.
  */
 const STALE_AFTER_MS = 60_000;
 
@@ -316,42 +429,130 @@ const SIGNING_HUNG_AFTER_MS = 5 * 60_000;
 
 /**
  * A host's discovery, which shares one thread with every conversation:
- * a known tree is answered from its last signed walk, and signed again
- * off the thread once that is a few seconds old. It signs on the thread
- * as plain pi does when the last walk can't stand (`stands`).
+ * a known tree is answered from its last signed walk, brought up to
+ * date quest by quest (`caughtUp`), and signed again off the thread
+ * once that walk is a few seconds old. It signs the whole tree on the
+ * thread, as plain pi does, only for a tree it has never signed. A walk
+ * it can't bring up to date quest by quest, as one kept by code from
+ * before the root's names were, answers as it stands while a signing
+ * off the thread reads the tree.
+ *
+ * On 20 November a signing on the thread for this process's own write
+ * held the background host for 6.1 s over 1,495 quests, under
+ * `writeQuestWeights`; with sixty conversations writing, one wrote
+ * between nearly every two asks.
  */
 function discoverQuestsHosted(
 	questsRoot: string,
 	seed: SeedOptions,
 ): DiscoveryResult {
 	const slot = memo().cache.get(questsRoot);
-	if (!slot || !stands(questsRoot, slot)) {
-		return discoverQuestsSigned(questsRoot, seed);
-	}
-	if (Date.now() - slot.signedAt > SIGN_AGAIN_AFTER_MS) {
-		void startSigning(questsRoot);
-	}
-	return slot.result;
+	if (!slot) return discoverQuestsSigned(questsRoot, seed);
+	const result = caughtUp(questsRoot, slot, new Set());
+	// A clock stepped back gives a negative age, which no limit bounds.
+	const age = Date.now() - slot.signedAt;
+	const old = age < 0 || age > SIGN_AGAIN_AFTER_MS;
+	if (!result || old) void startSigning(questsRoot);
+	return result ?? slot.result;
 }
 
 /**
- * Whether a host may answer from its last walk: no quest written by
- * this process since, signed within the minute, and the stats of the
- * root and of each folder it found with no README both settled when
- * taken and unchanged since, so no quest was made, removed or given its
- * README meanwhile.
+ * `slot`'s walk brought up to now, kept as the root's slot, reading on
+ * the thread only the quests that changed under it: each this process
+ * wrote since (`questsWrittenSince`), each named in `named`, each the
+ * root gained, lost or changed in kind since its stat last vouched, and
+ * each found with no README whose stamp moved. A write since that can't
+ * be placed starts a signing off the thread, which reads it. Undefined
+ * when the root can't be listed or the slot kept no names for it, so
+ * the caller leaves the tree to a signing off the thread.
+ * The quests named are noted as read now, so a signing begun before
+ * reads them again (`startSigning`).
  */
-function stands(questsRoot: string, slot: CacheSlot): boolean {
-	if (slot.writes !== questWritesMade()) return false;
-	// A clock stepped back gives a negative age, which no limit bounds.
-	const age = Date.now() - slot.signedAt;
-	if (age < 0 || age > STALE_AFTER_MS) return false;
-	const root = slot.rootStamp;
-	if (root === undefined || root !== folderStampOf(questsRoot)) return false;
-	for (const [dir, stamp] of slot.pending) {
-		if (stamp === undefined || stamp !== pendingStampOf(dir)) return false;
+function caughtUp(
+	questsRoot: string,
+	slot: CacheSlot,
+	named: ReadonlySet<string>,
+): DiscoveryResult | undefined {
+	const writes = questWritesMade();
+	const written = questsWrittenSince(slot.writes);
+	// A write that can't be placed is read by a signing off the thread,
+	// begun after it; the quests named are read again here meanwhile.
+	if (!written) {
+		sayUnplaced();
+		void startSigning(questsRoot);
 	}
-	return true;
+	const names = new Set([...named, ...(written ?? [])]);
+	const pass = newPass();
+	const rootStamp = folderStampOf(questsRoot);
+	let { rootNames } = slot;
+	if (rootStamp === undefined || rootStamp !== slot.rootStamp) {
+		const listed = readEntries(questsRoot, pass);
+		if (!rootNames || !listed) return undefined;
+		const now = namesOf(listed);
+		const moved = movedNames(rootNames, now);
+		for (const name of moved) names.add(name);
+		// The same names under a stamp that vouched and moved: a folder
+		// removed and put back, which only a signing reads, off the thread.
+		// A root that never settled is read so at each signing already.
+		const putBack = moved.size === 0 && slot.rootStamp !== undefined;
+		if (putBack) void startSigning(questsRoot);
+		rootNames = now;
+	}
+	for (const [dir, stamp] of slot.pending) {
+		if (stamp === undefined || stamp !== pendingStampOf(dir)) {
+			names.add(basename(dir));
+		}
+	}
+	const unmoved = rootStamp === slot.rootStamp && rootNames === slot.rootNames;
+	if (names.size === 0 && writes === slot.writes && unmoved) return slot.result;
+	const found = names.size > 0 ? walkNamed(questsRoot, names, pass) : undefined;
+	const result = found
+		? merged(questsRoot, slot.result, names, found)
+		: slot.result;
+	const pending = new Map(
+		[...slot.pending].filter(([dir]) => !names.has(basename(dir))),
+	);
+	for (const [dir, stamp] of pendingOf(result, names)) pending.set(dir, stamp);
+	const read = new Map(slot.read);
+	const at = Date.now();
+	for (const name of named) read.set(name, at);
+	memo().cache.set(questsRoot, {
+		...slot,
+		// Never a tree's signature once a quest is read again, so the next
+		// signing builds its walk anew; kept while the walk is the same.
+		signature: found ? CAUGHT_UP : slot.signature,
+		result,
+		writes,
+		rootStamp,
+		rootNames,
+		pending,
+		read,
+	});
+	return result;
+}
+
+/** The signature of a walk brought up to date quest by quest. */
+const CAUGHT_UP = "caught up";
+
+/** Whether this process has said it can't place a write. */
+let saidUnplaced = false;
+
+/**
+ * Say once on stderr, a host's journal, that a write this process made
+ * can't be placed in a quest, so the tree is signed whole off the
+ * thread for it: a conversation running code from before the write log,
+ * which a restart ends and a reload doesn't, or more writes since a
+ * tree's last ask than the log keeps, as a store asked rarely sees.
+ */
+function sayUnplaced(): void {
+	if (saidUnplaced || !hosted()) return;
+	saidUnplaced = true;
+	process.stderr.write(
+		"[quest-workflow] a quest write can't be placed, so the tree is " +
+			"signed whole off the thread: code from before the write log, " +
+			"which a restart ends, or more writes since its last ask than " +
+			"the log keeps\n",
+	);
 }
 
 /**
@@ -400,10 +601,12 @@ function waitOnSigning(
 
 /**
  * Sign `questsRoot` off the thread, one signing a root at a time, and
- * keep what it found unless this process wrote a quest meanwhile, the
- * memo was let go, or a signing begun later already answered. An
- * unchanged tree keeps its walk; a changed one is walked again on the
- * thread, from memory. The walk holds its root until it ends, however
+ * keep what it found unless the memo was let go or a signing begun
+ * later already answered. What this process wrote meanwhile, and each
+ * quest read on its own since the signing began, is read again quest by
+ * quest (`caughtUp`): the writes at the next ask, the quests read at
+ * once. An unchanged tree keeps its walk; a changed one is walked again
+ * on the thread, from memory. The walk holds its root until it ends, however
  * long its asks waited, or until `SIGNING_HUNG_AFTER_MS` says its disk
  * hangs, so no second walk starts beside a slow one. Answers the walk,
  * which nothing bounds: wait on it through `waitOnSigning`.
@@ -414,9 +617,13 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 	if (under) return under;
 	const signedAt = Date.now();
 	const writes = questWritesMade();
+	// A fresh memo's first walk parses from the last process's seed, as a
+	// walk on the thread does, rather than every quest anew.
+	const seeds = seedsOf({});
+	if (seeds) takeSeed(questsRoot, seeds.dir, seeds.code);
 	const work = (async (): Promise<SigningEnd> => {
 		const { pass, rootStamp } = await readTreeOffThread(questsRoot);
-		if (memo() !== m || questWritesMade() !== writes) return "dropped";
+		if (memo() !== m) return "dropped";
 		const cached = m.cache.get(questsRoot);
 		if (cached && cached.signedAt > signedAt) return "dropped";
 		const signature = discoverySignature(questsRoot, pass);
@@ -424,10 +631,19 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 			cached && cached.signature === signature
 				? cached.result
 				: discoverQuestsUncached(questsRoot, pass);
-		m.cache.set(
+		const slot = slotOf(
+			signature,
+			result,
+			{ signedAt, writes, rootStamp },
+			pass,
 			questsRoot,
-			slotOf(signature, result, { signedAt, writes, rootStamp }, pass),
 		);
+		m.cache.set(questsRoot, slot);
+		if (seeds && pass.parses >= SEED_AFTER_PARSES) {
+			leaveSeed(questsRoot, seeds.dir, seeds.code);
+		}
+		const since = readSince(cached, signedAt);
+		if (since.size > 0) caughtUp(questsRoot, slot, since);
 		return "kept";
 	})().catch((error: unknown): SigningEnd => {
 		// The last walk stands, and the next ask past its age signs again.
@@ -461,6 +677,13 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 	return work;
 }
 
+/** The quests `slot` read on their own at or after `at`. */
+function readSince(slot: CacheSlot | undefined, at: number): Set<string> {
+	const since = new Set<string>();
+	for (const [name, when] of slot?.read ?? []) if (when >= at) since.add(name);
+	return since;
+}
+
 /**
  * Say a signing's trouble where a host keeps what it says: its stderr,
  * which is its journal. Only a host signs off the thread.
@@ -478,23 +701,31 @@ function discoverQuestsSigned(
 	const signedAt = Date.now();
 	const writes = questWritesMade();
 	const rootStamp = folderStampOf(questsRoot);
-	const seeds = seed.dir === undefined ? cacheDir(SEED_FOLDER) : seed.dir;
-	const code = seeds ? (seed.code ?? codeKey()) : "";
-	if (seeds) takeSeed(questsRoot, seeds, code);
+	const seeds = seedsOf(seed);
+	if (seeds) takeSeed(questsRoot, seeds.dir, seeds.code);
 	const signature = discoverySignature(questsRoot, pass);
 	const { cache } = memo();
 	const cached = cache.get(questsRoot);
 	const stamps = { signedAt, writes, rootStamp };
 	if (cached && cached.signature === signature) {
-		cache.set(questsRoot, slotOf(signature, cached.result, stamps));
+		const slot = slotOf(signature, cached.result, stamps, pass, questsRoot);
+		cache.set(questsRoot, slot);
 		return cached.result;
 	}
 	const result = discoverQuestsUncached(questsRoot, pass);
-	cache.set(questsRoot, slotOf(signature, result, stamps));
+	cache.set(questsRoot, slotOf(signature, result, stamps, pass, questsRoot));
 	if (seeds && pass.parses >= (seed.after ?? SEED_AFTER_PARSES)) {
-		leaveSeed(questsRoot, seeds, code);
+		leaveSeed(questsRoot, seeds.dir, seeds.code);
 	}
 	return result;
+}
+
+/** Where a walk's seeds are kept and the code they're for; none when `seed` turns them off. */
+function seedsOf(
+	seed: SeedOptions,
+): { readonly dir: string; readonly code: string } | undefined {
+	const dir = seed.dir === undefined ? cacheDir(SEED_FOLDER) : seed.dir;
+	return dir ? { dir, code: seed.code ?? codeKey() } : undefined;
 }
 
 /** What a signing knew as it began: when, the writes by then, the root's stat. */
@@ -505,211 +736,50 @@ interface SignedUnder {
 }
 
 /**
- * A cache slot for a walk signed under `under`, with the stamp of each
- * quest folder it found with no README (`pendingStampOf`): one being
- * made, whose README lands inside its folder without touching the
- * root's stat. Off the thread, `pass` holds each taken before the read.
+ * A cache slot for a walk of `questsRoot` signed under `under`, with
+ * what `pass` listed of the root and the stamp of each quest folder it
+ * found with no README (`pendingStampOf`): one being made, whose README
+ * lands inside its folder without touching the root's stat. Off the
+ * thread, `pass` holds each taken before the read.
  */
 function slotOf(
 	signature: string,
 	result: DiscoveryResult,
 	under: SignedUnder,
-	pass?: Pass,
+	pass: Pass,
+	questsRoot: string,
 ): CacheSlot {
 	const pending = new Map<string, string | undefined>();
 	for (const error of result.errors) {
 		if (error.message !== README_MISSING) continue;
 		const dir = dirname(error.path);
 		// Off the thread, the stamp taken before the folder was read.
-		const before = pass?.pending.has(dir);
-		pending.set(dir, before ? pass?.pending.get(dir) : pendingStampOf(dir));
+		const before = pass.pending.has(dir);
+		pending.set(dir, before ? pass.pending.get(dir) : pendingStampOf(dir));
 	}
-	return { signature, result, ...under, pending };
-}
-
-const README_MISSING = "README.md missing";
-
-function discoverQuestsUncached(
-	questsRoot: string,
-	pass: Pass,
-): DiscoveryResult {
-	const result = walkQuests(questsRoot, pass);
-	forgetUnparsed(pass);
-	return result;
+	return {
+		signature,
+		result,
+		...under,
+		pending,
+		rootNames: rootNamesOf(pass, questsRoot, result),
+		read: new Map(),
+	};
 }
 
 /**
- * Walk `questsRoot` and build the index. Read errors are
- * collected into `errors`; they do not stop discovery.
- *
- * Safety against pathological trees:
- *
- * - We use `withFileTypes` so the directory check comes
- *   from the entry, never from a `stat` call that would
- *   follow symlinks.
- * - We refuse symlinks outright: a real quest tree is
- *   plain directories. This keeps the walk from leaving
- *   `questsRoot` via someone's stray symlink.
- * - We track real paths we have entered and skip any we
- *   already visited so a hard-link cycle terminates.
- * - We cap recursion depth at `MAX_WALK_DEPTH` and surface
- *   the truncation as an error rather than spinning.
+ * The names `pass` listed in `questsRoot`: none when its listing failed
+ * and the walk found no quest, as for a root not made yet, so each quest
+ * it gains is read by name rather than the whole tree signed on the
+ * thread. Undefined only when `pass` never listed it.
  */
-function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
-	const { readmes, documents: documentRecords } = memo();
-	const quests = new Map<string, QuestEntry>();
-	const children = new Map<string, string[]>();
-	const errors: DiscoveryError[] = [];
-	const visited = new Set<string>();
-
-	function scanDocuments(questDir: string): QuestDocumentEntry[] {
-		const documents: QuestDocumentEntry[] = [];
-
-		// Surface any doc-id-named file at the quest-dir root
-		// as a layout error: the canonical home for those is a
-		// kind subdirectory. We still skip the entry rather
-		// than parse it, so a stray misplaced file does not
-		// double-register.
-		const questEntries = readEntries(questDir, pass);
-		if (questEntries) {
-			for (const entry of questEntries) {
-				if (!entry.isFile()) continue;
-				if (extname(entry.name) !== ".md") continue;
-				const base = entry.name.slice(0, -3);
-				if (!isId(base) || prefixOf(base) === "QEST") continue;
-				errors.push({
-					path: join(questDir, entry.name),
-					message: `Document "${entry.name}" sits at the quest-dir root instead of in its kind subdirectory.`,
-				});
-			}
-		}
-
-		for (const subdir of CANONICAL_DOCUMENT_DIRS) {
-			const scanDir = join(questDir, subdir);
-			const entries = kindEntries(questDir, subdir, pass);
-			if (!entries) continue;
-			for (const entry of entries) {
-				if (!entry.isFile()) continue;
-				const child = entry.name;
-				const childPath = join(scanDir, child);
-				if (extname(child) !== ".md") continue;
-				const base = child.slice(0, -3);
-				if (!isId(base) || prefixOf(base) === "QEST") continue;
-				const reading = parsedOnce(childPath, pass, documentRecords, (t) => {
-					const docDoc = parseDocumentFile(t);
-					return docDoc ? kept<QuestDocumentDoc>(docDoc, childPath) : undefined;
-				});
-				if (!reading) continue;
-				if ("doc" in reading) {
-					documents.push({ path: childPath, doc: reading.doc });
-					continue;
-				}
-				// Surfaced rather than skipped. A file named like a document,
-				// sitting where documents live, that nothing can read is the
-				// one case where silence is indistinguishable from the file
-				// not existing, and the record does exist.
-				errors.push({
-					path: childPath,
-					message: `Document "${child}" could not be read: ${explainDocumentFrontMatter(reading.text).join("; ")}.`,
-				});
-			}
-		}
-		return documents;
-	}
-
-	function reportNestedQuests(questDir: string, depth: number): void {
-		if (depth > MAX_WALK_DEPTH) {
-			errors.push({
-				path: questDir,
-				message: `Walk depth exceeded ${MAX_WALK_DEPTH}; refusing to recurse further.`,
-			});
-			return;
-		}
-		const entries = readEntries(questDir, pass);
-		if (!entries) return;
-		for (const entry of entries) {
-			if (entry.isSymbolicLink()) continue;
-			if (!entry.isDirectory()) continue;
-			const name = entry.name;
-			if (isId(name) && prefixOf(name) === "QEST") {
-				errors.push({
-					path: join(questDir, name),
-					message: `Nested quest "${name}" found inside another quest. Quests live as immediate children of the quests root; hierarchy is expressed by the parent: front-matter field.`,
-				});
-				reportNestedQuests(join(questDir, name), depth + 1);
-			}
-		}
-	}
-
-	function acceptQuest(name: string, full: string): void {
-		const readmePath = join(full, "README.md");
-		const reading = parsedOnce(readmePath, pass, readmes, (t) => {
-			const parsed = parseQuestDoc(t);
-			return parsed ? kept<QuestDoc>(parsed, readmePath) : undefined;
-		});
-		if (!reading) {
-			errors.push({ path: readmePath, message: README_MISSING });
-			return;
-		}
-		if (!("doc" in reading)) {
-			errors.push({
-				path: readmePath,
-				message: "Front-matter invalid or absent.",
-			});
-			return;
-		}
-		const { doc } = reading;
-		if (doc.frontMatter.id !== name) {
-			errors.push({
-				path: readmePath,
-				message: `Directory name "${name}" does not match front-matter id "${doc.frontMatter.id}".`,
-			});
-		}
-		const documents = scanDocuments(full);
-		quests.set(doc.frontMatter.id, { dir: full, doc, documents });
-		const parentKey = doc.frontMatter.parent ?? "";
-		const list = children.get(parentKey) ?? [];
-		list.push(doc.frontMatter.id);
-		children.set(parentKey, list);
-		// Look for nested quests inside this one and surface
-		// them as errors; never index them.
-		reportNestedQuests(full, 1);
-	}
-
-	const rootEntries = readEntries(questsRoot, pass);
-	if (!rootEntries) {
-		errors.push({
-			path: questsRoot,
-			message: "Quests root does not exist as a directory.",
-		});
-		return { index: { quests, children }, errors };
-	}
-
-	const rootReal = safeRealpath(questsRoot, pass);
-	if (rootReal) visited.add(rootReal);
-
-	for (const entry of rootEntries) {
-		const name = entry.name;
-		if (entry.isSymbolicLink()) continue;
-		if (!entry.isDirectory()) continue;
-		if (name === "node_modules" || name === ".git" || name.startsWith(".")) {
-			continue;
-		}
-		const full = join(questsRoot, name);
-		const real = safeRealpath(full, pass);
-		if (real) {
-			if (visited.has(real)) continue;
-			visited.add(real);
-		}
-		if (isId(name) && prefixOf(name) === "QEST") {
-			acceptQuest(name, full);
-			continue;
-		}
-		errors.push({
-			path: full,
-			message: `Unexpected directory "${name}" at quests root. Only QEST-* directories belong here.`,
-		});
-	}
-
-	return { index: { quests, children }, errors };
+function rootNamesOf(
+	pass: Pass,
+	questsRoot: string,
+	result: DiscoveryResult,
+): ReadonlyMap<string, string> | undefined {
+	const listed = pass.listings.get(questsRoot);
+	if (listed) return namesOf(listed);
+	const missing = pass.listings.has(questsRoot);
+	return missing && result.index.quests.size === 0 ? new Map() : undefined;
 }

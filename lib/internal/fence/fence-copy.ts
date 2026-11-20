@@ -19,20 +19,27 @@ import { dirname, join } from "node:path";
 /** pi's folder in the runtime folder, for the fence's copies. */
 const FOLDER = "pi-fence";
 
+/** The permission bits of a file's mode. */
+const FILE_MODE_BITS = 0o777;
+
 /**
  * The path of the copy named `name`, holding `text`, written only when
- * what is there differs (`current` reads it); or nothing when there is
- * no runtime folder or the copy can't be written.
+ * what is there differs (`current` reads it), with `mode`; or nothing
+ * when there is no runtime folder or the copy can't be written.
  */
 export function fenceCopy(
 	runtimeDir: string | undefined,
 	name: string,
 	text: string,
 	current: (path: string) => string | undefined,
+	mode = 0o600,
 ): string | undefined {
 	if (!runtimeDir) return undefined;
 	const path = join(runtimeDir, FOLDER, name);
 	let staging: string | undefined;
+	// A copy that reads right, whatever its mode, so a rewrite that fails
+	// still leaves one to bind.
+	let reads = false;
 	try {
 		// Only pi's own folder is made, never the runtime folder: node's
 		// recursive mkdir spins for good where a parent exists but refuses
@@ -44,15 +51,20 @@ export function fenceCopy(
 		// right, by a copy written beside its place and renamed over it.
 		if (!lstatSync(dirname(path)).isDirectory()) return undefined;
 		const linked = existsSync(path) && lstatSync(path).isSymbolicLink();
-		if (!linked && current(path) === text) return path;
+		// One written with another mode, as a list kept from before its mode
+		// was asked for, is written afresh, so it is read-only as a new one is.
+		reads = !linked && current(path) === text;
+		if (reads && (lstatSync(path).mode & FILE_MODE_BITS) === mode) return path;
 		staging = `${path}.${randomUUID()}`;
-		writeFileSync(staging, text, { mode: 0o600, flag: "wx" });
+		writeFileSync(staging, text, { mode, flag: "wx" });
 		renameSync(staging, path);
 		staging = undefined;
 		return path;
 	} catch {
-		// No copy to bind: the caller binds nothing, and says what that leaves.
-		return undefined;
+		// A copy that reads right serves in its old mode, as it did before
+		// the mode was asked for; with none, the caller binds nothing, and
+		// says what that leaves.
+		return reads ? path : undefined;
 	} finally {
 		if (staging) rmSync(staging, { force: true });
 	}

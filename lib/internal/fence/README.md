@@ -30,6 +30,9 @@ refusal leaves in the system's log, and its one exemption.
   folder bound in read-only, gh and git sent through the door's relay
   with a placeholder token and the session's trust bundle, and the
   door's control socket kept out.
+- **`compile-cache-place.ts`**: where every pi process keeps node's
+  compile cache, a folder of pi's state the fence holds read-only, so
+  no fenced command can plant code that node runs outside the fence.
 - **`fence-disk.ts`**: the disk as the fence reads it, what a path
   is and what a folder holds, which a test hands in a disk of its own
   for.

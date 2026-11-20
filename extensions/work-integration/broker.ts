@@ -38,10 +38,11 @@ import { stateDir } from "../../lib/internal/paths.ts";
 import {
 	QUEUED_LIMIT_MS,
 	queuedExec,
+	WORLD_PUSH_TURN,
 } from "../../lib/internal/priority/queued-exec.ts";
 import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
-import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
-import { unattendedExec } from "../../lib/internal/sandbox/unattended-exec.ts";
+import { heldGit } from "../../lib/internal/sandbox/tree-git.ts";
+import { UNATTENDED_LIMIT_MS } from "../../lib/internal/sandbox/unattended-exec.ts";
 import { cutTreeDir, treeRecordDir } from "../../lib/internal/work-records.ts";
 import { createFleetLedger } from "../../lib/subagent/fleet.ts";
 import { logSweep } from "./sweep.ts";
@@ -74,20 +75,35 @@ export function registerBuiltinTreeProviders(_pi: ExtensionAPI): void {
 }
 
 /**
- * The tree provider's git: unattended, queued when it is heavy, and in
- * either case held to the folders it may run in (`tree-git.ts`).
+ * The tree provider's git, and the push's: unattended, queued when it is
+ * heavy (`treeExecOver`). One the queue doesn't take runs on the
+ * unattended clock, which stands still while World's push gate holds a
+ * push behind another; only a line that starts with the gate's name
+ * holds it.
  */
-function treeExec(signal?: AbortSignal): Exec {
-	return queuedExec(
-		unattendedExec(signal),
-		guardedExec(
-			spawnExec({
-				...(signal ? { signal } : {}),
-				timeoutMs: QUEUED_LIMIT_MS,
-			}),
-			gitRules,
-		),
+export function treeExec(signal?: AbortSignal): Exec {
+	const stoppedBy = signal ? { signal } : {};
+	return treeExecOver(
+		spawnExec({
+			...stoppedBy,
+			timeoutMs: UNATTENDED_LIMIT_MS,
+			turn: WORLD_PUSH_TURN,
+		}),
+		spawnExec({ ...stoppedBy, timeoutMs: QUEUED_LIMIT_MS }),
 	);
+}
+
+/**
+ * Git run through `direct`, or through `queued` as the queue's shell
+ * when the queue takes it, held to the folders it may run in
+ * (`tree-git.ts`) before either. The guard comes first because the
+ * queue hands `queued` a `bash -c` line, which the guard lets by as no
+ * git of its own: guarded after, a queued push would run a tree's
+ * `.git` as a sandboxed command left it, outside the sandbox. The queue
+ * still reads git as it was asked, so its job says `push`.
+ */
+export function treeExecOver(direct: Exec, queued: Exec): Exec {
+	return queuedExec(direct, queued, heldGit(gitRules));
 }
 
 /**

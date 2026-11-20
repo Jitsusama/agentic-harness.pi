@@ -15,8 +15,10 @@
  * side importing the other.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { hosted } from "../../lib/core/session/host.ts";
 import {
 	type SweptTrees,
 	type TreeClaims,
@@ -25,8 +27,10 @@ import {
 } from "../../lib/core/work/events.ts";
 import { everyRealmsDir } from "../../lib/internal/paths.ts";
 import {
+	type DiscoveryResult,
 	discoverQuests,
-	signQuestsNow,
+	discoverQuestsAfresh,
+	questsWalked,
 } from "../../lib/internal/quest/discovery/discovery.ts";
 import { isSealedStatus } from "../../lib/internal/quest/status.ts";
 import {
@@ -51,52 +55,141 @@ import {
  * ended trees of 456 on one machine on 11 November. So its trees go in
  * the asker's {@link TreeClaims.untilSpent} when it offers that list,
  * and are held for good only by an asker that doesn't.
+ *
+ * The claims come at once from each store's last walk, which on a host
+ * may predate another process's change by as long as nobody asked. An
+ * asker that offers {@link TreeClaims.answering} waits as well on each
+ * store signed afresh off the thread, whose trees are added when it
+ * ends; one that doesn't hears only the last walk. When a store's disk
+ * gives no answer in time, that wait rejects rather than pass an old
+ * walk off as fresh: a sweep then takes nothing that round, since a
+ * tree listed since would be in no claim. Plain pi walks every ask
+ * afresh, so it offers the asker nothing more to wait on.
  */
 export function answerTreeClaims(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREE_CLAIMS, (data: unknown) => {
 		const claims = data as TreeClaims;
 		const into = claims.untilSpent ?? claims.paths;
-		for (const entry of liveQuests(questsRoot)) {
-			for (const tree of entry.doc.frontMatter.trees ?? []) {
-				into.push(tree.path);
-			}
-		}
+		const stores = storesOf(questsRoot);
+		// A store this host never walked is signed only off the thread,
+		// below, for an asker that waits.
+		claimFrom(
+			stores.filter(questsWalked).map((store) => discoverQuests(store)),
+			into,
+		);
+		if (!hosted()) return;
+		claims.answering?.push(
+			Promise.all(stores.map((store) => discoverQuestsAfresh(store))).then(
+				(walks) => claimFrom(walks, into),
+			),
+		);
 	});
+}
+
+/**
+ * Push every tree a live quest in `walks` lists onto `into`, once, so
+ * the fresh answer adds only what the last walk didn't hold.
+ */
+function claimFrom(walks: readonly DiscoveryResult[], into: string[]): void {
+	for (const entry of liveQuests(walks)) {
+		for (const tree of entry.doc.frontMatter.trees ?? []) {
+			if (!into.includes(tree.path)) into.push(tree.path);
+		}
+	}
 }
 
 /**
  * Drop a tree a sweep took from every live quest that listed it, since
  * its folder is gone and a recut at its branch makes a new one. Logged
  * by the sweep itself, with the branch and the sessions that used it.
+ * What it writes rests on which quests list a tree now, so it waits on
+ * each store signed afresh, off a host's thread. Nothing awaits it, so
+ * whatever goes wrong is said on stderr, never thrown: an unheard
+ * rejection ends the process, and on a host every conversation in it.
  */
 export function forgetSweptTrees(pi: ExtensionAPI, questsRoot: string): void {
 	pi.events.on(WORK_TREES_SWEPT, (data: unknown) => {
 		const taken = new Set((data as SweptTrees).paths);
-		for (const entry of liveQuests(questsRoot)) {
-			for (const tree of entry.doc.frontMatter.trees ?? []) {
-				if (!taken.has(tree.path)) continue;
-				removeTreeFromQuest(entry.dir, tree.path);
-				setPendingPrune(entry.dir, null, { clearPath: tree.path });
-			}
-		}
+		forgetTaken(questsRoot, taken).catch((error: unknown) => {
+			sayForgetFailed("any quest", error);
+		});
 	});
 }
 
 /**
- * Every unsealed quest in every realm. Trees are the machine's, so a
- * sweep in one realm would otherwise take another's as nobody's.
+ * Drop each tree in `taken` from every live quest that lists it, each
+ * quest's write on its own, so one quest's locked or vanished folder
+ * leaves the rest forgetting. A tree whose folder is back by the time
+ * the walk ends was cut again at its path while the quest was signed,
+ * so it stays listed.
  */
-function* liveQuests(questsRoot: string) {
-	const stores = new Set([
-		questsRoot,
-		...everyRealmsDir("data", "quest-workflow").map((dir) =>
-			join(dir, "quests"),
-		),
-	]);
-	for (const store of stores) {
-		// What the sweep writes rests on which quests list a tree now.
-		signQuestsNow(store);
-		const { index } = discoverQuests(store);
+async function forgetTaken(
+	questsRoot: string,
+	taken: ReadonlySet<string>,
+): Promise<void> {
+	const walks: DiscoveryResult[] = [];
+	for (const store of storesOf(questsRoot)) walks.push(await signed(store));
+	for (const entry of liveQuests(walks)) {
+		for (const tree of entry.doc.frontMatter.trees ?? []) {
+			if (!taken.has(tree.path) || existsSync(tree.path)) continue;
+			try {
+				// A write refused says why as a throw does, and stops the second.
+				const removed = removeTreeFromQuest(entry.dir, tree.path);
+				if (!removed.ok) throw new Error(removed.reason);
+				const cleared = setPendingPrune(entry.dir, null, {
+					clearPath: tree.path,
+				});
+				if (!cleared.ok) throw new Error(cleared.reason);
+			} catch (error) {
+				sayForgetFailed(entry.doc.frontMatter.id, error);
+			}
+		}
+	}
+}
+
+/**
+ * Say on stderr, a host's journal, that a swept tree stays listed in
+ * `where`, which claims a folder that is gone until its quest prunes it.
+ */
+function sayForgetFailed(where: string, error: unknown): void {
+	const why = error instanceof Error ? error.message : String(error);
+	process.stderr.write(
+		`[quest-workflow] couldn't forget swept trees in ${where}: ${why}\n`,
+	);
+}
+
+/**
+ * `store` signed afresh, or as its last walk stands when its disk gave
+ * no answer in time: a tree left listed is dropped by the next sweep.
+ */
+async function signed(store: string): Promise<DiscoveryResult> {
+	try {
+		return await discoverQuestsAfresh(store);
+	} catch (error) {
+		// The disk didn't answer the signing; the last walk still stands,
+		// and the journal says so, since its trees may be a while old.
+		const why = error instanceof Error ? error.message : String(error);
+		process.stderr.write(
+			`[quest-workflow] tree claims in ${store} answer its last walk: ${why}\n`,
+		);
+		return discoverQuests(store);
+	}
+}
+
+/**
+ * Every realm's quest store. Trees are the machine's, so a sweep in
+ * one realm would otherwise take another's as nobody's.
+ */
+function storesOf(questsRoot: string): string[] {
+	const realms = everyRealmsDir("data", "quest-workflow").map((dir) =>
+		join(dir, "quests"),
+	);
+	return [...new Set([questsRoot, ...realms])];
+}
+
+/** Every unsealed quest in `walks`. */
+function* liveQuests(walks: readonly DiscoveryResult[]) {
+	for (const { index } of walks) {
 		for (const entry of index.quests.values()) {
 			if (!isSealedStatus(entry.doc.frontMatter.status)) yield entry;
 		}

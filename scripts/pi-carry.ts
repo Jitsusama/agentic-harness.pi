@@ -50,7 +50,8 @@
  * something live here stands in one, or a pi runs the session here
  * again (KP0L6A [e034b3f1], [893e1f9f]).
  *
- * Each exits 2 when it was asked wrongly.
+ * Each exits 2 when it was asked wrongly. `--help` says how to ask it,
+ * on stdout, before any of the person's state is read.
  */
 
 import { readFileSync } from "node:fs";
@@ -71,6 +72,11 @@ import {
 	handoverOf,
 	readHandover,
 } from "../lib/internal/carry/handover.ts";
+import {
+	ASKED_WRONGLY,
+	asksForHelp,
+	CARRY_HELP,
+} from "../lib/internal/carry/help.ts";
 import { takeNotes } from "../lib/internal/carry/notes.ts";
 import { carriedBy, tellCarried } from "../lib/internal/carry/ordered.ts";
 import { questHere, runsHere } from "../lib/internal/carry/quest-here.ts";
@@ -95,9 +101,6 @@ import { isParked } from "../lib/internal/session/park.ts";
 import { treeRecordDir } from "../lib/internal/work-records.ts";
 import { memoryDbPath, openMemoryStore } from "../lib/memory/index.ts";
 import { nodeMachine } from "../lib/mesh/steer-who.ts";
-
-/** What pi-carry exits with when it was asked wrongly. */
-const ASKED_WRONGLY = 2;
 
 /** A session's id as a done file's name may hold it. */
 const SESSION_ID = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
@@ -124,6 +127,11 @@ function runsAgain(session: string): boolean {
 function refuse(why: string): never {
 	say({ kind: "failed", why });
 	process.exit(ASKED_WRONGLY);
+}
+
+if (asksForHelp(process.argv.slice(2))) {
+	process.stdout.write(CARRY_HELP);
+	process.exit(0);
 }
 
 const { values, positionals } = (() => {

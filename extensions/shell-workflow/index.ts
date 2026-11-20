@@ -36,7 +36,7 @@ import {
 import { Type } from "@sinclair/typebox";
 import { sessionEnv } from "../../lib/core/session/env.ts";
 import { sessionCwd, sessionKeyOf } from "../../lib/core/session/index.ts";
-import { keepCompileCacheOutOfReach } from "../../lib/internal/compile-cache-place.ts";
+import { keepCompileCacheOutOfReach } from "../../lib/internal/fence/compile-cache-place.ts";
 import { jobsBroker } from "../../lib/internal/fence/fence.ts";
 import { routedDirenv } from "../../lib/internal/fence/fence-direnv.ts";
 import {

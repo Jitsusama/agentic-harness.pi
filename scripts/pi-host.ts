@@ -19,7 +19,7 @@ import { flushCompileCache, registerHooks } from "node:module";
 import { dirname, isAbsolute } from "node:path";
 import { startCompileCache } from "../host/service/compile-cache.ts";
 import { piFromHost } from "../host/service/pi-resolution.ts";
-import { keepCompileCacheOutOfReach } from "../lib/internal/compile-cache-place.ts";
+import { keepCompileCacheOutOfReach } from "../lib/internal/fence/compile-cache-place.ts";
 
 // First, so every module the host loads after is compiled once an install.
 const compiled = startCompileCache({

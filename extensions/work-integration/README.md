@@ -151,6 +151,22 @@ on a five-hour clock that counts the wait
 (`lib/internal/priority/queued-exec.ts`). Everything else runs as
 it did.
 
+The push runs through that same git. Until 20 November it ran on
+the ten-minute clock of its own, so it never reached the queue, and
+that clock counted the wait at World's push gate, a hook that holds
+a push for up to 30 minutes while another runs. Five pushes queued
+at the gate behind one that hung for 25 minutes timed out before
+their turn came. A push the queue doesn't take now runs on a clock
+that stands still from the gate's line saying it waits its turn to
+the line saying its turn came, with 35 minutes for all its waits
+together (`lib/core/exec/clock.ts`). Only a line that starts with
+the gate's name holds it, so a remote's `remote: ` line holds none.
+
+This git is held to the folders it may run in (`tree-git.ts`)
+before the queue takes it, since the queue runs it as a shell line
+the guard would let by: a queued push of a tree whose `.git` a
+sandboxed command pointed elsewhere is refused, not run.
+
 A branch, push, rebase, resume, restack or sync still running after a
 minute moves to a job of kind `work`, as a long bash command does,
 since on 11 November 21 such calls held their turn, the longest 301

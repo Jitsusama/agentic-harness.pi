@@ -9,8 +9,8 @@
  * November).
  */
 
-import type { SessionEnvironment } from "../core/session/host.ts";
-import { stateDir } from "./paths.ts";
+import type { SessionEnvironment } from "../../core/session/host.ts";
+import { stateDir } from "../paths.ts";
 
 /** The variable node reads its compile cache's folder from. */
 export const COMPILE_CACHE_VARIABLE = "NODE_COMPILE_CACHE";

@@ -295,17 +295,35 @@ export function guardedExec(
 	rules: () => GitRules,
 	cwd?: string,
 ): Exec {
+	const held = heldGit(rules, cwd);
 	return (command, args) => {
-		if (command !== "git") return exec(command, args);
+		const hold = held(command, args);
+		if ("refused" in hold) return Promise.resolve(hold.refused);
+		return exec(command, [...hold.args]);
+	};
+}
+
+/** A command's arguments as they may run, or the answer it gets instead. */
+export type Held = { args: readonly string[] } | { refused: ExecResult };
+
+/**
+ * What `guardedExec` does to each command before it runs, apart from
+ * running it: git's arguments as `gitRun` answers them, from `cwd` or
+ * pi's own folder under the rules `rules` gives at each call, or its
+ * refusal; any other program's as they are.
+ */
+export function heldGit(
+	rules: () => GitRules,
+	cwd?: string,
+): (command: string, args: readonly string[]) => Held {
+	return (command, args) => {
+		if (command !== "git") return { args };
 		const run = gitRun(gitFolder(cwd ?? process.cwd(), args), args, rules());
 		if ("refused" in run) {
-			const refused: ExecResult = {
-				code: GIT_REFUSED,
-				stdout: "",
-				stderr: run.refused,
+			return {
+				refused: { code: GIT_REFUSED, stdout: "", stderr: run.refused },
 			};
-			return Promise.resolve(refused);
 		}
-		return exec(command, [...run.args]);
+		return { args: run.args };
 	};
 }

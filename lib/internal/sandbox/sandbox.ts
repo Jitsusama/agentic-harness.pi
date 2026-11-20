@@ -158,7 +158,8 @@ function tooLong(
 	args: readonly string[] | ArgsFile,
 	listedInline: boolean,
 ): string {
-	const own = Buffer.byteLength(command);
+	// Quoted, as it goes into the text, each quote it holds taking four.
+	const own = Buffer.byteLength(quoted(command));
 	const said = `The fenced command's text is ${Buffer.byteLength(text)} bytes, past the ${LONGEST_TEXT} Linux passes in one string, ${own} of them the command's own`;
 	// The lists are blamed only when they, not the command, are most of it.
 	return (!("path" in args) || listedInline) && own < LONGEST_TEXT / 2

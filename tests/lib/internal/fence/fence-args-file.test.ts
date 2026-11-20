@@ -9,6 +9,7 @@
 import { spawnSync } from "node:child_process";
 import {
 	accessSync,
+	chmodSync,
 	constants,
 	mkdirSync,
 	mkdtempSync,
@@ -16,12 +17,13 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	statSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	afterAll,
 	beforeAll,
@@ -30,6 +32,7 @@ import {
 	it,
 	onTestFinished,
 } from "vitest";
+import { createTreeMemory } from "../../../../lib/core/work/memory.ts";
 import {
 	BWRAP_MOST_ARGS,
 	bwrapArgsFile,
@@ -39,7 +42,12 @@ import {
 	bwrapWords,
 	fencedCommand,
 } from "../../../../lib/internal/fence/fence-command.ts";
+import { fenceCopy } from "../../../../lib/internal/fence/fence-copy.ts";
 import { wrapFor } from "../../../../lib/internal/sandbox/sandbox.ts";
+import {
+	cutTreeDir,
+	treeRecordDir,
+} from "../../../../lib/internal/work-records.ts";
 
 /**
  * The trees a session holds in the red case: their arguments run far
@@ -87,6 +95,43 @@ function heldTreeArgs(trees: number): string[] {
 			].map((path) => ["--ro-bind", path, path]),
 		].flat();
 	}).flat();
+}
+
+/**
+ * `trees` worktrees on disk, cut where the work broker cuts them and
+ * recorded as held by `session`, each with the git folder its `.git`
+ * file names and the files the fence binds from it. Removed when the
+ * test ends.
+ */
+function holdTrees(session: string, trees: number): void {
+	const root = cutTreeDir();
+	const repository = join(root, `${session}-repository`, "worktrees");
+	const memory = createTreeMemory(treeRecordDir());
+	const made: string[] = [join(root, `${session}-repository`)];
+	for (let at = 0; at < trees; at += 1) {
+		const name = `${session}-tree-${at}`;
+		const tree = join(root, name);
+		const gitFolder = join(repository, name);
+		mkdirSync(tree, { recursive: true });
+		mkdirSync(gitFolder, { recursive: true });
+		writeFileSync(join(tree, ".git"), `gitdir: ${gitFolder}\n`);
+		writeFileSync(join(gitFolder, "commondir"), "../..\n");
+		writeFileSync(join(gitFolder, "gitdir"), `${join(tree, ".git")}\n`);
+		writeFileSync(join(gitFolder, "config.worktree"), "");
+		memory.remember({
+			path: tree,
+			identity: { key: name, shareable: false },
+			providerId: "git",
+			sessions: [session],
+		});
+		made.push(tree);
+	}
+	onTestFinished(() => {
+		for (const tree of made) rmSync(tree, { recursive: true, force: true });
+		for (const name of readdirSync(treeRecordDir()))
+			if (name.startsWith(`${session}-`))
+				rmSync(join(treeRecordDir(), name), { force: true });
+	});
 }
 
 describe("bubblewrap's arguments from a file", () => {
@@ -241,6 +286,57 @@ describe("bubblewrap's arguments from a file", () => {
 		);
 	});
 
+	it("writes each list file for the person to read and nobody to write", () => {
+		const args = bwrapArgsFile(runtimeDir, ["--mode"])?.path ?? "";
+		const guarded = guardedListFile(runtimeDir, ["/mode"]) ?? "";
+		for (const path of [args, guarded])
+			expect(statSync(path).mode & 0o777, path).toBe(0o400);
+	});
+
+	it("makes a list written before its mode was asked for read-only as it is used again", () => {
+		const path = bwrapArgsFile(runtimeDir, ["--older"])?.path ?? "";
+		chmodSync(path, 0o600);
+
+		const again = bwrapArgsFile(runtimeDir, ["--older"])?.path;
+
+		expect(again, "the same file in use").toBe(path);
+		expect(statSync(path).mode & 0o777, "read-only now").toBe(0o400);
+		expect(readFileSync(path, "utf8"), "what it holds kept").toBe("--older\0");
+	});
+
+	it("keeps using a list in its old mode when it can't be written afresh", () => {
+		const path = bwrapArgsFile(runtimeDir, ["--full"])?.path ?? "";
+		chmodSync(path, 0o600);
+		// A folder nothing can be written into, as a full runtime tmpfs is.
+		chmodSync(dirname(path), 0o500);
+		try {
+			const again = bwrapArgsFile(runtimeDir, ["--full"])?.path;
+
+			expect(again, "the copy that reads right still serves").toBe(path);
+			expect(statSync(path).mode & 0o777, "its old mode kept").toBe(0o600);
+		} finally {
+			chmodSync(dirname(path), 0o700);
+		}
+	});
+
+	it("rewrites a read-only copy whose text changed, still read-only", () => {
+		const read = (path: string) => {
+			try {
+				return readFileSync(path, "utf8");
+			} catch {
+				// No copy yet: nothing to compare.
+				return undefined;
+			}
+		};
+		const path = fenceCopy(runtimeDir, "changes", "before", read, 0o400);
+
+		const again = fenceCopy(runtimeDir, "changes", "after", read, 0o400);
+
+		expect(again, "the same place, written afresh").toBe(path);
+		expect(read(path ?? ""), "the new text").toBe("after");
+		expect(statSync(path ?? "").mode & 0o777, "still read-only").toBe(0o400);
+	});
+
 	it("gives no file without a runtime folder, or for an argument holding a NUL", () => {
 		expect(bwrapArgsFile(undefined, ["--dev", "/dev"])).toBeUndefined();
 		expect(
@@ -250,17 +346,20 @@ describe("bubblewrap's arguments from a file", () => {
 
 	it("removes the files nothing used for a day, and keeps one in use and the fence's other copies", () => {
 		const day = 24 * 60 * 60_000;
-		const kept = bwrapArgsFile(runtimeDir, ["--kept"])?.path ?? "";
-		const stale = bwrapArgsFile(runtimeDir, ["--stale"])?.path ?? "";
-		const staleList = guardedListFile(runtimeDir, ["/stale"]) ?? "";
-		const other = join(runtimeDir, "pi-fence", "ssh_config");
+		// A folder of its own, which no earlier test's call has swept.
+		const own = join(folder, "run-sweep");
+		mkdirSync(own);
+		const kept = bwrapArgsFile(own, ["--kept"])?.path ?? "";
+		const stale = bwrapArgsFile(own, ["--stale"])?.path ?? "";
+		const staleList = guardedListFile(own, ["/stale"]) ?? "";
+		const other = join(own, "pi-fence", "ssh_config");
 		writeFileSync(other, "Host *\n");
 		const old = new Date(Date.now() - 2 * day);
 		for (const path of [stale, staleList, kept, other])
 			utimesSync(path, old, old);
 		// An hour on, so this process looks again, and the kept one is used.
-		bwrapArgsFile(runtimeDir, ["--kept"], () => Date.now() + 2 * 60 * 60_000);
-		const left = readdirSync(join(runtimeDir, "pi-fence"));
+		bwrapArgsFile(own, ["--kept"], () => Date.now() + 2 * 60 * 60_000);
+		const left = readdirSync(join(own, "pi-fence"));
 		const named = (path: string) => path.split("/").pop();
 		expect(left, "the stale file stayed").not.toContain(named(stale));
 		expect(left, "the stale list stayed").not.toContain(named(staleList));
@@ -268,6 +367,29 @@ describe("bubblewrap's arguments from a file", () => {
 		expect(left, "another of the fence's copies was removed").toContain(
 			"ssh_config",
 		);
+	});
+
+	it("sweeps a folder again only once its hour has passed", () => {
+		const own = join(folder, "run-hourly");
+		mkdirSync(own);
+		const start = Date.now();
+		const minute = 60_000;
+		bwrapArgsFile(own, ["--first"], () => start);
+		const stale = bwrapArgsFile(own, ["--stale"], () => start)?.path ?? "";
+		const old = new Date(start - 2 * 24 * 60 * minute);
+		utimesSync(stale, old, old);
+		const named = stale.split("/").pop();
+
+		bwrapArgsFile(own, ["--used"], () => start + 59 * minute);
+		expect(
+			readdirSync(join(own, "pi-fence")),
+			"swept before its hour",
+		).toContain(named);
+		bwrapArgsFile(own, ["--used"], () => start + 60 * minute);
+		expect(
+			readdirSync(join(own, "pi-fence")),
+			"not swept once its hour passed",
+		).not.toContain(named);
 	});
 
 	it("sweeps each runtime folder in its own hour, though another was swept a minute before", () => {
@@ -416,6 +538,75 @@ describe("bubblewrap's arguments from a file", () => {
 			"the runtime folder blamed for the command's own length",
 		).not.toContain("XDG_RUNTIME_DIR");
 		expect(noFolder).toContain("put it in a script and run that");
+	});
+
+	it("blames a command for the length its quotes take once quoted", () => {
+		// Some 40 KB as typed, under half what a string takes, and four
+		// times that quoted, as it goes into the text.
+		const home = join(folder, "home");
+		mkdirSync(home, { recursive: true });
+		const quotes = `echo ${"'".repeat(40_000)}`;
+		const said =
+			wrapFor(
+				{ kind: "fence", bwrap: "bwrap", landrun: "landrun" },
+				{ cwd: home, env: {} },
+				home,
+			)?.(quotes) ?? "";
+		expect(said, "the runtime folder blamed for the quotes").not.toContain(
+			"XDG_RUNTIME_DIR",
+		);
+		expect(said).toContain("put it in a script and run that");
+	});
+
+	it("refuses a session holding more trees than bubblewrap takes arguments for, naming the trees", () => {
+		const home = join(folder, "home");
+		mkdirSync(home, { recursive: true });
+		const session = "too-many";
+		holdTrees(session, Math.ceil(BWRAP_MOST_ARGS / 6));
+		const said =
+			wrapFor(
+				{ kind: "fence", bwrap: "bwrap", landrun: "landrun" },
+				{
+					cwd: home,
+					env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: session },
+				},
+				home,
+			)?.("true") ?? "";
+
+		// pi's own refusal, not a command carrying the shell's guard, whose
+		// words are much the same.
+		expect(said, "pi counted them before any command").toContain(
+			"The fence would hand bubblewrap at least ",
+		);
+		expect(said, "no fenced command, guard and all").not.toContain("__pi_env");
+		expect(said, "the bound named").toContain(
+			`past the ${BWRAP_MOST_ARGS} it takes`,
+		);
+		expect(said, "what to do named").toContain(
+			"release the ones it is done with",
+		);
+	});
+
+	it("blames the runtime folder when the lists, written into the text for want of it, make it too long", () => {
+		const home = join(folder, "home");
+		mkdirSync(home, { recursive: true });
+		const session = "inline";
+		// Enough for the lists to pass what Linux takes in one string, and
+		// few enough to stay inside what bubblewrap takes.
+		holdTrees(session, TREES);
+		const said =
+			wrapFor(
+				{ kind: "fence", bwrap: "bwrap", landrun: "landrun" },
+				{ cwd: home, env: { PI_SESSION_ID: session } },
+				home,
+			)?.("true") ?? "";
+
+		expect(said, "the lists went through").not.toContain("'--ro-bind'");
+		// Words without an apostrophe, which the shell's quoting splits.
+		expect(said).toContain("runtime folder couldn");
+		expect(said).toContain(
+			"check that XDG_RUNTIME_DIR names a folder pi can write",
+		);
 	});
 
 	it("is how a fenced session's command reads them, when there is a runtime folder", () => {

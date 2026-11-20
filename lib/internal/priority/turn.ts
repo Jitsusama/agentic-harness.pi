@@ -42,7 +42,7 @@ import {
 	whatOf,
 } from "./queue.ts";
 import type { Reading } from "./room.ts";
-import { inSharedSlice } from "./shared-slice.ts";
+import { inSharedSlice, SYSTEM_ENVIRONMENT } from "./shared-slice.ts";
 
 /** What a session's queue is kept with, set while the session runs. */
 export interface Queueing {
@@ -248,11 +248,19 @@ export function queuedCommand(
 	}
 	const fetches = walk === "main-fetch" ? worldGit() : undefined;
 	const waits = wait(job.id, plan ? planLines(plan) : [], fetches);
+	const before = hooks ? `${waits}\n${hooks}\n` : `${waits}\n`;
 	// What holds a walk's slot runs where the agents' disk target holds,
-	// since every other walk waits on it (shared-slice.ts).
+	// since every other walk waits on it (shared-slice.ts), measured with
+	// the lines that go before it.
 	const run =
-		kind === "world-walk" ? inSharedSlice(wrap(command)) : wrap(command);
-	return hooks ? `${waits}\n${hooks}\n${run}` : `${waits}\n${run}`;
+		kind === "world-walk"
+			? inSharedSlice(
+					wrap(command),
+					SYSTEM_ENVIRONMENT,
+					Buffer.byteLength(before),
+				)
+			: wrap(command);
+	return `${before}${run}`;
 }
 
 /**
