@@ -21,8 +21,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fenceArgs } from "../../../../lib/internal/fence/fence.ts";
 import type { Disk } from "../../../../lib/internal/fence/fence-disk.ts";
 import {
-	afterCheck,
-	afterCheckIn,
 	armSharedRoot,
 	disarmAll,
 	endFencedCommands,
@@ -32,6 +30,8 @@ import {
 	plantStopped,
 	sharedGitFolder,
 	sharedRootFor,
+	withAfterCheck,
+	withAfterCheckIn,
 } from "../../../../lib/internal/fence/fence-git-root.ts";
 
 /** How soon a planted name must be gone (ISXEG8). */
@@ -306,15 +306,15 @@ describe("the shared git folder among the fence's binds", () => {
 describe("the after-check", () => {
 	/** The status and output of `script` then the after-check, in sh. */
 	function checked(script: string, guarded: string[], log = "echo logged") {
-		return spawnSync("sh", ["-c", `${script}\n${afterCheck(guarded, log)}`], {
+		return spawnSync("sh", ["-c", withAfterCheck(script, guarded, log)], {
 			encoding: "utf8",
 		});
 	}
 
-	it("keeps the command's status, and is empty with nothing guarded", () => {
-		expect(checked("exit 3", [join(root, "commondir")]).status).toBe(3);
+	it("keeps the command's status, and leaves the command alone with nothing guarded", () => {
+		expect(checked("(exit 3)", [join(root, "commondir")]).status).toBe(3);
 		expect(checked("true", [join(root, "commondir")]).status).toBe(0);
-		expect(afterCheck([], "echo logged")).toBe("");
+		expect(withAfterCheck("true", [], "echo logged")).toBe("true");
 	});
 
 	it("removes a plant the watch missed, link or folder, and logs it", () => {
@@ -337,7 +337,7 @@ describe("the after-check", () => {
 		const inBash = (script: string, file: string) =>
 			spawnSync(
 				"bash",
-				["-c", `${script}\n${afterCheck(planted, "echo logged", file)}`],
+				["-c", withAfterCheck(script, planted, "echo logged", file)],
 				{ encoding: "utf8" },
 			);
 		const ran = inBash(
@@ -350,28 +350,58 @@ describe("the after-check", () => {
 			"a plant stayed",
 		).toEqual([]);
 		expect(ran.stdout).toBe("logged\nlogged\n");
-		const text = afterCheck(planted, "echo logged", list);
+		const text = withAfterCheck("true", planted, "echo logged", list);
 		expect(text, "a guarded path went in the text").not.toContain("commondir");
-		const gone = inBash("true", join(root, "no-such-list"));
-		expect(gone.status).toBe(0);
+		const gone = inBash("(exit 5)", join(root, "no-such-list"));
+		expect(gone.status, "the command's status").toBe(5);
 		expect(gone.stderr).toContain("couldn't read the list of git folders");
+	});
+
+	it("still checks what it guards when the list is taken away while the command runs", () => {
+		const planted = join(root, "commondir");
+		const list = join(root, "guarded-list");
+		writeFileSync(list, `${planted}\0`);
+		const ran = spawnSync(
+			"bash",
+			[
+				"-c",
+				withAfterCheck(
+					`rm '${list}'; mkdir '${planted}'`,
+					[planted],
+					"echo logged",
+					list,
+				),
+			],
+			{ encoding: "utf8" },
+		);
+		expect(ran.stderr, "it said the list was gone").toBe("");
+		expect(existsSync(planted), "the plant").toBe(false);
+		expect(ran.stdout).toBe("logged\n");
 	});
 
 	it("puts what it guards in a file in the session's runtime folder, and inline only without one", () => {
 		const runtimeDir = join(root, "run");
 		mkdirSync(runtimeDir, { recursive: true });
 		const planted = join(root, "commondir");
-		const text = afterCheckIn(runtimeDir, [planted], "echo logged");
-		expect(text, "the guarded path went in the text").not.toContain(planted);
-		const ran = spawnSync("bash", ["-c", `mkdir '${planted}'\n${text}`], {
-			encoding: "utf8",
-		});
+		const text = withAfterCheckIn(
+			runtimeDir,
+			`mkdir '${planted}'`,
+			[planted],
+			"echo logged",
+		);
+		expect(
+			text.replace(`mkdir '${planted}'`, ""),
+			"the guarded path went in the text",
+		).not.toContain(planted);
+		const ran = spawnSync("bash", ["-c", text], { encoding: "utf8" });
 		expect(existsSync(planted), "the plant").toBe(false);
 		expect(ran.stdout).toBe("logged\n");
-		expect(afterCheckIn(undefined, [planted], "echo logged")).toContain(
-			planted,
+		expect(
+			withAfterCheckIn(undefined, "true", [planted], "echo logged"),
+		).toContain(planted);
+		expect(withAfterCheckIn(runtimeDir, "true", [], "echo logged")).toBe(
+			"true",
 		);
-		expect(afterCheckIn(runtimeDir, [], "echo logged")).toBe("");
 	});
 });
 

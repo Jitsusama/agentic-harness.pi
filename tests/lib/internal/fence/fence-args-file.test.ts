@@ -8,6 +8,8 @@
 
 import { spawnSync } from "node:child_process";
 import {
+	accessSync,
+	constants,
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
@@ -17,9 +19,17 @@ import {
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+} from "vitest";
 import {
 	BWRAP_MOST_ARGS,
 	bwrapArgsFile,
@@ -37,6 +47,19 @@ const TREES = 400;
 
 /** The longest one string Linux passes a program (MAX_ARG_STRLEN). */
 const LONGEST_STRING = 128 * 1024;
+/** The longest path a Unix socket may have on Linux (sun_path less its NUL). */
+const SOCKET_PATH_MOST = 107;
+
+/** Whether `folder` is there for this test to write in. */
+function writable(folder: string): boolean {
+	try {
+		accessSync(folder, constants.W_OK);
+		return true;
+	} catch {
+		// Not there, or not this account's to write in.
+		return false;
+	}
+}
 
 /**
  * bubblewrap's arguments for `trees` held trees, shaped as the fence
@@ -221,9 +244,61 @@ describe("bubblewrap's arguments from a file", () => {
 		);
 	});
 
-	it("never leaves the command inside holding the file, run by the real bubblewrap", () => {
+	it("closes the file before the GitHub door's relay starts inside", async (context) => {
+		const argsFile = bwrapArgsFile(runtimeDir, ["--dev", "/dev"]);
+		if (!argsFile) throw new Error("no file was written");
+		// A socket's path may be at most 107 bytes, which a test's own
+		// temporary folder can pass: the shortest folder there is serves.
+		const shortest = [tmpdir(), process.env.XDG_RUNTIME_DIR, "/dev/shm"]
+			.filter((place): place is string => place !== undefined)
+			.filter(writable)
+			.sort((a, b) => a.length - b.length)[0];
+		if (shortest === undefined) throw new Error("no folder to write in");
+		const doorFolder = mkdtempSync(join(shortest, "fa-"));
+		onTestFinished(() => rmSync(doorFolder, { recursive: true, force: true }));
+		if (Buffer.byteLength(join(doorFolder, "door.sock")) > SOCKET_PATH_MOST)
+			context.skip("no folder here is short enough for the door's socket");
+		writeFileSync(join(doorFolder, "bundle.pem"), "");
+		const seen = join(folder, "relay-saw");
+		// Says whether it holds descriptor 3 when it starts as the relay.
+		const program = join(folder, "door-program");
+		writeFileSync(
+			program,
+			[
+				"#!/usr/bin/env bash",
+				'[ "$1" = relay ] || exit 0',
+				`[ -e /proc/$$/fd/3 ] && echo held > '${seen}' || echo free > '${seen}'`,
+				"echo 4242",
+			].join("\n"),
+			{ mode: 0o755 },
+		);
+		const socket = createServer();
+		await new Promise<void>((listening, failed) => {
+			socket.once("error", failed);
+			socket.listen(join(doorFolder, "door.sock"), listening);
+		});
+		try {
+			const ran = runAsTheShell(
+				fencedCommand("true", {
+					bwrap,
+					landrun,
+					args: argsFile,
+					rules: [],
+					github: { program, session: "s", folder: doorFolder },
+				}),
+			);
+			expect(ran.status, ran.stderr).toBe(0);
+			expect(readFileSync(seen, "utf8"), "the relay held descriptor 3").toBe(
+				"free\n",
+			);
+		} finally {
+			socket.close();
+		}
+	});
+
+	it("never leaves the command inside holding the file, run by the real bubblewrap", (context) => {
 		const real = spawnSync("bwrap", ["--ro-bind", "/", "/", "true"]);
-		if (real.status !== 0) return;
+		if (real.status !== 0) context.skip("bubblewrap can't run here");
 		const argsFile = bwrapArgsFile(runtimeDir, [
 			"--ro-bind",
 			"/",
@@ -248,6 +323,28 @@ describe("bubblewrap's arguments from a file", () => {
 		const ran = runAsTheShell(text);
 		expect(ran.status, ran.stderr).toBe(0);
 		expect(ran.stdout, "descriptor 3 reached the command").toBe("free\n");
+	});
+
+	it("refuses a text too long to start, naming the command or the runtime folder as what made it so", () => {
+		const home = join(folder, "home");
+		mkdirSync(home, { recursive: true });
+		const long = `echo ${"x".repeat(LONGEST_STRING)}`;
+		const wrapped = (env: Record<string, string>) =>
+			wrapFor(
+				{ kind: "fence", bwrap: "bwrap", landrun: "landrun" },
+				{ cwd: home, env },
+				home,
+			)?.(long) ?? "";
+		const own = wrapped({ XDG_RUNTIME_DIR: runtimeDir });
+		expect(own.length, "the long text went through").toBeLessThan(
+			LONGEST_STRING,
+		);
+		expect(own).toContain("put it in a script and run that");
+		const noFolder = wrapped({});
+		expect(noFolder.length, "the long text went through").toBeLessThan(
+			LONGEST_STRING,
+		);
+		expect(noFolder).toContain("XDG_RUNTIME_DIR");
 	});
 
 	it("is how a fenced session's command reads them, when there is a runtime folder", () => {

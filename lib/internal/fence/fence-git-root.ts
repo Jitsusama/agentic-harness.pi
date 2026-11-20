@@ -263,40 +263,50 @@ export function guardedFolders(
 }
 
 /**
- * The shell that checks, outside the fence, once a fenced command ends,
- * what the watch guards, and removes and logs anything planted that it
- * missed. It keeps the command's own status. With `listFile`, the file
- * holding `guarded` each ended by a NUL (`fence-args-file.ts`), it reads
- * them from there in bash, so the text stays short however many trees
- * the session holds, and says so when the file is gone.
+ * The bash text that runs `command` (bubblewrap's line) and then checks,
+ * outside the fence, what the watch guards, removing and logging
+ * anything planted that the watch missed. It keeps the command's own
+ * status. With `listFile`, the file holding `guarded` each ended by a NUL
+ * (`fence-args-file.ts`), it reads them from there before the command
+ * starts, so the text stays short however many trees the session holds
+ * and a sweep during a long command can't take the list away; when the
+ * file can't be read, it says so rather than checking nothing quietly.
  */
-export function afterCheck(
+export function withAfterCheck(
+	command: string,
 	guarded: readonly string[],
 	log: string,
 	listFile?: string,
 ): string {
-	if (guarded.length === 0) return "";
+	if (guarded.length === 0) return command;
 	const quote = (text: string) => `'${text.replaceAll("'", `'\\''`)}'`;
 	const check = `if [ -e "$__pi_path" ] || [ -L "$__pi_path" ]; then rm -rf -- "$__pi_path"; ${log}; fi`;
-	const each = listFile
-		? `if [ -r ${quote(listFile)} ]; then while IFS= read -r -d '' __pi_path; do ${check}; done < ${quote(listFile)}; else printf '%s\n' ${quote(UNCHECKED)} >&2; fi`
-		: `for __pi_path in ${guarded.map(quote).join(" ")}; do ${check}; done`;
-	return `__pi_status=$?; ${each}; (exit $__pi_status)`;
+	if (!listFile)
+		return `${command}\n__pi_status=$?; for __pi_path in ${guarded.map(quote).join(" ")}; do ${check}; done; (exit $__pi_status)`;
+	const read = `__pi_guarded=(); __pi_listed=0; if [ -r ${quote(listFile)} ] && mapfile -d '' -t __pi_guarded < ${quote(listFile)}; then __pi_listed=1; fi`;
+	const each = `if [ "$__pi_listed" = 1 ]; then for __pi_path in "\${__pi_guarded[@]}"; do ${check}; done; else printf '%s\n' ${quote(UNCHECKED)} >&2; fi`;
+	return `${read}\n${command}\n__pi_status=$?; ${each}; (exit $__pi_status)`;
 }
 
 /**
- * The after-check for a fenced session whose runtime folder is
+ * `withAfterCheck` for a fenced session whose runtime folder is
  * `runtimeDir`: reading `guarded` from a file there, since the paths
  * grow about 750 bytes a held tree and would pass the 128 KiB Linux
  * takes in one string; inline only where no file can be had.
  */
-export function afterCheckIn(
+export function withAfterCheckIn(
 	runtimeDir: string | undefined,
+	command: string,
 	guarded: readonly string[],
 	log: string,
 ): string {
-	if (guarded.length === 0) return "";
-	return afterCheck(guarded, log, guardedListFile(runtimeDir, guarded));
+	if (guarded.length === 0) return command;
+	return withAfterCheck(
+		command,
+		guarded,
+		log,
+		guardedListFile(runtimeDir, guarded),
+	);
 }
 
 /** What the after-check says when its list file is gone. */

@@ -41,11 +41,13 @@ const UNUSED_FOR_MS = 24 * 60 * 60_000;
 const SWEEP_EVERY_MS = 60 * 60_000;
 
 /**
- * The most arguments bubblewrap takes, its own and those its `--args`
- * reads together (MAX_ARGS in bubblewrap.c); past it bubblewrap refuses
- * to start.
+ * The most arguments a fenced command may hand bubblewrap. It counts its
+ * whole command line toward MAX_ARGS (9,000 in bubblewrap.c), its own
+ * name included, beside those `--args` reads: past 8,996 read from a
+ * file behind `bwrap --args 3 --`, bubblewrap 0.13.1 refused to start
+ * (measured 19 November). The inline form has fewer words of its own.
  */
-export const BWRAP_MOST_ARGS = 9000;
+export const BWRAP_MOST_ARGS = 9000 - ["bwrap", "--args", "3", "--"].length;
 
 /** When this process last looked for unused list files. */
 let sweptAt = 0;
@@ -103,8 +105,10 @@ function listFile(
 		const at = new Date(moment);
 		utimesSync(path, at, at);
 	} catch {
-		// Not renewed, it may be swept a day after it was written, and the
-		// next command that needs it writes it again.
+		// Another process's sweep took it after it was found, or it can't be
+		// renewed and may be swept under the command: the caller passes the
+		// list in its text instead.
+		return undefined;
 	}
 	if (moment - sweptAt >= SWEEP_EVERY_MS) {
 		sweptAt = moment;

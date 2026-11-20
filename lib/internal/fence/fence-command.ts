@@ -75,9 +75,12 @@ export function fencedCommand(
 	].join("|");
 	const file = "path" in fence.args ? fence.args.path : undefined;
 	const inline = "path" in fence.args ? [] : fence.args;
+	// Closed first, before the GitHub door's relay or anything else starts
+	// inside, so nothing there inherits the descriptor whatever bubblewrap
+	// did with it: one reopened through /proc would reach the file.
 	const closed = file ? `exec ${ARGS_FD}<&-; ` : "";
-	const run = `${closed}eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
-	const stub = pointedInside(fence.github, run);
+	const run = `eval "unset ${SANDBOXED_COMMAND}; $${SANDBOXED_COMMAND}"`;
+	const stub = `${closed}${pointedInside(fence.github, run)}`;
 	return [
 		...openedOutside(fence.github),
 		`__pi_env=(); for __pi_name in $(compgen -e); do case $__pi_name in ${unset}) ;; *) __pi_env+=(--env "$__pi_name");; esac; done`,

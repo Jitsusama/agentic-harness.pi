@@ -20,10 +20,11 @@ refusal leaves in the system's log, and its one exemption.
   its doors to Nix, SSH's agent and GitHub, and the fence's own
   `wl-copy` and `wl-paste` ahead on the path.
 - **`fence-args-file.ts`**: bubblewrap's arguments in a file it
-  reads through `--args`, among the fence's copies in the runtime
-  folder, so a command's text stays under the 128 KiB Linux takes in
-  one string however many trees its session holds; named by what it
-  holds, renewed each use, and removed after a day unused.
+  reads through `--args`, and the git folders the after-check guards
+  in another, among the fence's copies in the runtime folder, so a
+  command's text stays under the 128 KiB Linux takes in one string
+  however many trees its session holds; each named by what it holds,
+  renewed each use, and removed after a day unused.
 - **`fence-github.ts`**: the GitHub door (core's
   `modules/pi/github-door`) as the fence uses it: the session's own
   folder bound in read-only, gh and git sent through the door's relay
