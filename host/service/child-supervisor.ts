@@ -73,8 +73,11 @@ export interface ChildSupervisor {
 
 /** A child's refusal of the conversation it was asked to start. */
 class RefusedBeginning extends Error {
-	constructor(readonly reply: ControlReply) {
+	readonly reply: ControlReply;
+
+	constructor(reply: ControlReply) {
 		super("The child refused its first request");
+		this.reply = reply;
 	}
 }
 

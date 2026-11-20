@@ -40,7 +40,8 @@ export interface Units {
 }
 
 /** A slot's name: a uuid, so it names no path but its own. */
-const SLOT_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const SLOT_NAME =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** The folder a host's children keep their slots in. */
 export function slotFolder(runtimeDir: string, key: string): string {

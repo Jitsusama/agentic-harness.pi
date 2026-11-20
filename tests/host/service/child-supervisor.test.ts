@@ -6,16 +6,20 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 import {
 	type ChildSupervisor,
 	childSupervisor,
 } from "../../../host/service/child-supervisor.ts";
-import { type Slot, slotOf, type Units } from "../../../host/service/child-units.ts";
+import {
+	type Slot,
+	slotOf,
+	type Units,
+} from "../../../host/service/child-units.ts";
 import { heldChildren } from "../../../host/service/children.ts";
 import type { HostIdentity } from "../../../host/service/dispatch.ts";
 import { jsonLines } from "../../../host/service/framing.ts";
 import type { SessionIdentity } from "../../../host/service/protocol.ts";
+import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 
 const key = "work-background";
 const a = "a0000000-0000-4000-8000-000000000001";
@@ -100,7 +104,9 @@ async function runChild(
 		slot,
 		identity: { key, owner: { pid, startedAt: pid } },
 		asked: [],
-		conversation: held.session ? conversation(held.session.sessionId) : undefined,
+		conversation: held.session
+			? conversation(held.session.sessionId)
+			: undefined,
 		say(value) {
 			for (const watcher of watchers) watcher.write(line(value));
 		},
@@ -138,7 +144,9 @@ async function runChild(
 						continue;
 					}
 					child.conversation = conversation(randomUUID());
-					socket.write(line({ v: 1, id, ok: true, result: child.conversation }));
+					socket.write(
+						line({ v: 1, id, ok: true, result: child.conversation }),
+					);
 				} else if (request.op === "watch") {
 					watchers.add(socket);
 					socket.write(
@@ -175,6 +183,8 @@ function fakeUnits(): FakeUnits {
 			fake.children.set(unit, undefined);
 			pid += 1;
 			const own = pid;
+			// Late on purpose: a real unit's child listens a while after its
+			// start, and the supervisor must wait that out.
 			setTimeout(() => {
 				if (next.diesBeforeListening) {
 					fake.children.delete(unit);
@@ -291,7 +301,9 @@ describe("what a child says", () => {
 		});
 
 		await vi.waitFor(() =>
-			expect(routes.listed()[0]?.state, "the state the child said").toBe("busy"),
+			expect(routes.listed()[0]?.state, "the state the child said").toBe(
+				"busy",
+			),
 		);
 	});
 
@@ -299,7 +311,11 @@ describe("what a child says", () => {
 		await supervisor.resume(entry(a));
 		const route = routes.routeOf(a);
 
-		childOf(a).say({ type: "became", previousId: a, conversation: conversation(b) });
+		childOf(a).say({
+			type: "became",
+			previousId: a,
+			conversation: conversation(b),
+		});
 
 		await vi.waitFor(() => expect(routes.routeOf(b)).toEqual(route));
 		expect(routes.routeOf(a)).toBeUndefined();
@@ -319,7 +335,9 @@ describe("what a child says", () => {
 				false,
 			);
 		});
-		expect(said).toEqual([expect.stringContaining("its process ended, parked")]);
+		expect(said).toEqual([
+			expect.stringContaining("its process ended, parked"),
+		]);
 	});
 
 	it("stops trusting a child that says what it can't read", async () => {
@@ -365,9 +383,10 @@ describe("a new conversation", () => {
 			child.identity,
 		);
 		const slot = child.slot;
-		expect(JSON.parse(await readFile(slot.file, "utf8")), "a slot naming none").toEqual(
-			{},
-		);
+		expect(
+			JSON.parse(await readFile(slot.file, "utf8")),
+			"a slot naming none",
+		).toEqual({});
 	});
 
 	it("tells the caller its child's refusal, and stops that child", async () => {
@@ -405,7 +424,9 @@ describe("a host starting again", () => {
 		expect(await supervisor.adopt(), "children taken up").toBe(1);
 
 		expect(routes.routeOf(a)?.identity).toEqual(childOf(a).identity);
-		expect(existsSync(gone.file), "the gone child's slot is cleared").toBe(false);
+		expect(existsSync(gone.file), "the gone child's slot is cleared").toBe(
+			false,
+		);
 		expect(units.started, "no child started again").toHaveLength(1);
 	});
 
@@ -415,7 +436,10 @@ describe("a host starting again", () => {
 		supervisor.close();
 
 		expect(units.stopped).toEqual([]);
-		expect(await units.active(slotOf(folder, key, a).unit)).toBe(true);
+		expect(
+			await units.active(slotOf(folder, key, a).unit),
+			"the child still runs",
+		).toBe(true);
 		await childOf(a).end("parked");
 		expect(ended, "no ending is taken from a child no longer watched").toEqual(
 			[],
