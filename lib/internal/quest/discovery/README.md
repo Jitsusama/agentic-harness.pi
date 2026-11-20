@@ -16,3 +16,8 @@ gained, lost or that took their README. An action whose write rests on
 quests it doesn't name, or that comes over a minute after the last walk,
 waits on a whole signing off the thread. An edit made through pi's write
 and edit tools, or by another process, shows by the next signing.
+
+What the walk finds wrong with the tree's layout, such as a quest folder
+with no README, goes to a record in the workflow's state folder
+(`layout-faults.ts`), once a fault however many sessions start over it,
+rather than onto the screen at every start and reload.

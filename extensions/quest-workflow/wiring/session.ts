@@ -16,6 +16,7 @@ import {
 	signingGaveUp,
 	withDiscoveryHeld,
 } from "../../../lib/internal/quest/discovery/discovery.ts";
+import { keepLayoutFaults } from "../../../lib/internal/quest/discovery/layout-faults.ts";
 import { setJournalSession } from "../../../lib/internal/quest/fields/structural-journal.ts";
 import {
 	forgetDoing,
@@ -27,7 +28,6 @@ import {
 	PARK_ASK,
 	PARKING,
 } from "../../../lib/internal/session/park.ts";
-import { asideFor } from "../../../lib/ui/aside.ts";
 import { count } from "../../../lib/ui/count.ts";
 import type { BudgetKeeper } from "../budget.ts";
 import {
@@ -112,28 +112,15 @@ export function followSessionLife(
 						releaseSessionOnShutdown(state, session),
 					);
 			}
-			// Surface any layout-drift errors the discovery walk
-			// found. After the canonical-layout tightening, a
-			// nested QEST dir or a misplaced doc file gets recorded
-			// as a DiscoveryError and skipped from the index. The
-			// user needs to know those quests didn't load so they
-			// can move them back into place rather than noticing
-			// later that a quest "vanished."
+			// A quest out of the layout is skipped from the index. Each such
+			// fault goes to the health record once, never to the screen: every
+			// start and reload finds the same ones, so a notice asked nothing
+			// new of the person and read as the reload failing.
 			const { index, errors } = discoverQuests(state.questsRoot);
-			// As one notice through the session's screen, never straight to
-			// the terminal, which pi is drawing (lib/ui/aside.ts).
-			if (errors.length > 0) {
-				const preview = errors.slice(0, 5);
-				const lines = [
-					`[quest-workflow] discovery surfaced ${count(errors.length, "layout error")}:`,
-					...preview.map((err) => `  ${err.path}: ${err.message}`),
-					...(errors.length > preview.length
-						? [`  and ${errors.length - preview.length} more`]
-						: []),
-					"Each is skipped until it is moved into the layout the quest-format skill describes.",
-				];
-				asideFor(ctx)(lines.join("\n"));
-			}
+			void keepLayoutFaults(errors).catch(() => {
+				// A record that can't be written loses only its own lines;
+				// the walk found them, and the next start writes them again.
+			});
 			// From the walk just made, so it walks nothing more, and it catches
 			// a priority edited by hand while no session was running.
 			keepQuestWeights(state.questsRoot, index);
