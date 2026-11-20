@@ -100,13 +100,12 @@ describe("removeQuestWorkspace", () => {
 		};
 		setImmediate(turn);
 
-		const removal = await removeQuestWorkspace(
-			root,
-			QUEST_ID,
-			nobody,
-		).finally(() => {
+		let removal: Awaited<ReturnType<typeof removeQuestWorkspace>>;
+		try {
+			removal = await removeQuestWorkspace(root, QUEST_ID, nobody);
+		} finally {
 			removing = false;
-		});
+		}
 
 		expect(removal).toEqual({ removed: true });
 		expect(existsSync(dir), `${dir} is removed`).toBe(false);
