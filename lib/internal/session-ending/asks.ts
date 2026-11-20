@@ -35,6 +35,7 @@ import { isMachineName } from "../machine/machine.ts";
 
 /** A session-ending act, as the refusal names it. */
 export type Act =
+	| "end the user's processes"
 	| "log out"
 	| "reboot"
 	| "restart"
@@ -1008,7 +1009,15 @@ const COMMANDS: readonly (readonly [RegExp, Act])[] = [
 	],
 	[
 		new RegExp(
-			String.raw`^(?:loginctl\s+(?:terminate|kill)-(?:user|session|seat)(?=\s|$)|niri\s+msg\s+action\s+quit(?=\s|$)|(?:gnome|cinnamon|mate)-session-quit(?=\s|$)|xfce4-session-logout(?=\s|$)|lxqt-leave(?=\s|$)|qdbus\s.*\bshutdown\s.*\blogout\b|launchctl\s+bootout\s+(?:gui|user)\/|launchctl\s+reboot\s+logout|osascript\s.*\b(?:log\s*out|aevtrlgo)\b|(?:pkill|killall)\s.*\b(?:loginwindow|windowserver|niri|gnome-shell|sway|hyprland|kwin\w*|plasmashell)\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*\s*$|kill\s+(?:-\S+\s+)*-1(?=\s|$)|${SYSTEMCTL}(?:restart|stop|kill)\s+(?:display-manager|gdm3?|sddm|lightdm|greetd|niri|sway|hyprland|gnome-shell\S*|plasma-\S+|graphical-session\.target)(?:\.service)?(?=\s|$)|${LOGIN1}\bterminate(?:user|session|seat)\b|swaymsg\s+exit(?=\s|$)|hyprctl\s+dispatch\s+exit(?=\s|$))`,
+			String.raw`^(?:loginctl\s+(?:terminate|kill)-user(?=\s|$)|${LOGIN1}\b(?:terminate|kill)user\b|(?:pkill|killall)(?:\s+-\w+)*\s+-u\s+\S+(?:\s+-(?![fx]\b)\w+)*\s*$|kill\s+(?:-\S+\s+)*-1(?=\s|$))`,
+		),
+		// These end the user's manager or every process the user owns, so
+		// what outlives a log-out ends too.
+		"end the user's processes",
+	],
+	[
+		new RegExp(
+			String.raw`^(?:loginctl\s+(?:terminate|kill)-(?:session|seat)(?=\s|$)|niri\s+msg\s+action\s+quit(?=\s|$)|(?:gnome|cinnamon|mate)-session-quit(?=\s|$)|xfce4-session-logout(?=\s|$)|lxqt-leave(?=\s|$)|qdbus\s.*\bshutdown\s.*\blogout\b|launchctl\s+bootout\s+(?:gui|user)\/|launchctl\s+reboot\s+logout|osascript\s.*\b(?:log\s*out|aevtrlgo)\b|(?:pkill|killall)\s.*\b(?:loginwindow|windowserver|niri|gnome-shell|sway|hyprland|kwin\w*|plasmashell)\b|${SYSTEMCTL}(?:restart|stop|kill)\s+(?:display-manager|gdm3?|sddm|lightdm|greetd|niri|sway|hyprland|gnome-shell\S*|plasma-\S+|graphical-session\.target)(?:\.service)?(?=\s|$)|${LOGIN1}\bterminate(?:session|seat)\b|swaymsg\s+exit(?=\s|$)|hyprctl\s+dispatch\s+exit(?=\s|$))`,
 		),
 		"log out",
 	],

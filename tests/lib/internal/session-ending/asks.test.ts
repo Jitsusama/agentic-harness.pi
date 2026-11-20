@@ -231,7 +231,9 @@ describe("a command in fenced code", () => {
 	it.each([
 		["Type this:\n\n```sh\nsudo reboot\n```", "reboot"],
 		["```\n$ systemctl poweroff\n```", "shut down"],
-		["```\nloginctl terminate-user jitsusama\n```", "log out"],
+		["```\nloginctl terminate-user jitsusama\n```", "end the user's processes"],
+		["```\nloginctl kill-user jitsusama\n```", "end the user's processes"],
+		["```\nloginctl terminate-session 3\n```", "log out"],
 		["```\nniri msg action quit\n```", "log out"],
 		["````sh\nsudo reboot\n````", "reboot"],
 		["```shell-session\n$ sudo reboot\n```", "reboot"],
@@ -247,8 +249,8 @@ describe("a command in fenced code", () => {
 		],
 		["```sh\nsudo launchctl reboot\n```", "reboot"],
 		["```sh\nsudo fdesetup authrestart\n```", "reboot"],
-		["```sh\nsudo pkill -KILL -u joel\n```", "log out"],
-		["```sh\nkill -9 -1\n```", "log out"],
+		["```sh\nsudo pkill -KILL -u joel\n```", "end the user's processes"],
+		["```sh\nkill -9 -1\n```", "end the user's processes"],
 		["```sh\nsudo systemctl restart display-manager\n```", "log out"],
 		["```sh\nswaymsg exit\n```", "log out"],
 		["```sh\nhyprctl dispatch exit\n```", "log out"],
@@ -284,6 +286,14 @@ describe("a command in fenced code", () => {
 		["```sh\nsystemctl --user stop niri\n```", "log out"],
 		[
 			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager TerminateUser u 1000\n```",
+			"end the user's processes",
+		],
+		[
+			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager KillUser uss 1000 all 9\n```",
+			"end the user's processes",
+		],
+		[
+			"```sh\nbusctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager TerminateSession s 3\n```",
 			"log out",
 		],
 		["```sh\ntimeout 5 sudo reboot\n```", "reboot"],
@@ -360,7 +370,7 @@ describe("a command given on its own", () => {
 	it("asks when it ends sessions, and not otherwise", () => {
 		expect(
 			asksInCommand("loginctl terminate-user joel", MACHINES).map((a) => a.act),
-		).toEqual(["log out"]);
+		).toEqual(["end the user's processes"]);
 		expect(asksInCommand("test -e /run/booted", MACHINES)).toEqual([]);
 	});
 });
