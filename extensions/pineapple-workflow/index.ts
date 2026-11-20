@@ -21,7 +21,7 @@
  * it would have done is written beside its stops, to would-refuse.jsonl,
  * would-park.jsonl and would-hold.jsonl, for Joel to read before any
  * stop is enforced. With no stop standing, a call costs one look at an
- * empty folder, and the clock one more each minute.
+ * empty folder, and the clock one more each tick.
  */
 
 import { execFile } from "node:child_process";

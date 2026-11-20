@@ -22,15 +22,19 @@ function world(initial: Stop[] = []) {
 		notes: [] as string[],
 		wouldPark: [] as Parked[],
 		parked: [] as Parked[],
+		looked: 0,
 	};
 	const parking = createParking({
 		stops: () => seen.stops,
-		session: async () => ({
-			realm: "work",
-			quests: ["QEST-CHILD", "QEST-PARENT"],
-			repos: ["example/shop"],
-			dirs: ["/work/shop"],
-		}),
+		session: async () => {
+			seen.looked += 1;
+			return {
+				realm: "work",
+				quests: ["QEST-CHILD", "QEST-PARENT"],
+				repos: ["example/shop"],
+				dirs: ["/work/shop"],
+			};
+		},
 		idle: () => seen.idle,
 		abort: () => {
 			seen.aborts += 1;
@@ -144,6 +148,31 @@ describe("parking", () => {
 		seen.stops = [];
 		await parking.tick();
 		expect(seen.carried).toEqual([RESUMED_TEXT]);
+	});
+
+	it("notes a later stop that reaches a session already parked", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.tick();
+		seen.stops = [quest, stop("all", ["everything"])];
+		await parking.tick();
+		expect(
+			seen.parked.map((one) => one.stop.id),
+			"stop all's count misses a session an earlier stop parked",
+		).toEqual(["q", "all"]);
+		expect(seen.notes, "the session is told once").toHaveLength(1);
+	});
+
+	it("asks where an idle session is once, until a run or the stops change", async () => {
+		const { seen, parking } = world([quest]);
+		await parking.tick();
+		await parking.tick();
+		await parking.tick();
+		expect(seen.looked, "each tick reran the lookups").toBe(1);
+		seen.stops = [quest, stop("all", ["everything"])];
+		await parking.tick();
+		expect(seen.looked, "a new stop is asked afresh").toBe(2);
+		await parking.started();
+		expect(seen.looked, "a run may move it").toBe(3);
 	});
 
 	it("leaves a busy session to park at its turn's end", async () => {
