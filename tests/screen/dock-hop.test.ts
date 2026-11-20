@@ -21,7 +21,13 @@ import subagentWorkflow from "../../extensions/subagent-workflow/index.ts";
 import type { RunPi } from "../../lib/subagent/subagent.ts";
 import { GATE_ARM_MS } from "../../lib/ui/gate/gate-dock.ts";
 import { showSinglePrompt } from "../../lib/ui/prompt/prompt-single.ts";
-import { bootPi, type PiSession, sleep, strip, waitFor } from "./pi-session.ts";
+import {
+	bootPi,
+	type PiSession,
+	screenUntil,
+	sleep,
+	strip,
+} from "./pi-session.ts";
 
 vi.mock("../../lib/subagent/runpi/supervisor.ts", () => ({
 	createSupervisorRunPi: () => (input: Parameters<RunPi>[0]) => runner(input),
@@ -120,7 +126,7 @@ async function start(
 		fauxAssistantMessage("MARK-after-the-message"),
 	]);
 	await session.prompt("go");
-	await waitFor(() => held.size === jobs, "every subagent to start");
+	await screenUntil("every subagent to start", () => held.size === jobs);
 	return session;
 }
 
@@ -130,9 +136,9 @@ async function twoFleets(): Promise<PiSession> {
 		[fleet("one", ["alpha", "beta"]), fleet("two", ["gamma", "delta"])],
 		4,
 	);
-	await waitFor(
-		async () => (await boardsOnScreen(session)) === 2,
+	await screenUntil(
 		"both boards",
+		async () => (await boardsOnScreen(session)) === 2,
 	);
 	return session;
 }
@@ -170,7 +176,7 @@ describe("two fleets up at once", () => {
 			"the first hop takes the keys to the first board",
 		).toBe(false);
 		await session.key("r");
-		await waitFor(() => stopped().length === 1, "the first board's r");
+		await screenUntil("the first board's r", () => stopped().length === 1);
 
 		await session.key("ctrl+alt+n");
 		expect(
@@ -178,7 +184,7 @@ describe("two fleets up at once", () => {
 			"the second hop takes the keys to the second board",
 		).toBe(false);
 		await session.key("r");
-		await waitFor(() => stopped().length === 2, "the second board's r");
+		await screenUntil("the second board's r", () => stopped().length === 2);
 
 		// The first row of each board, one from either fleet.
 		expect(stopped()).toEqual(["alpha", "gamma"]);
@@ -228,7 +234,7 @@ describe("two fleets up at once", () => {
 		const session = await twoFleets();
 		await session.key("ctrl+alt+n");
 		await session.key("r");
-		await waitFor(() => stopped().length === 1, "the first board's r");
+		await screenUntil("the first board's r", () => stopped().length === 1);
 		const first = stopped()[0] === "alpha" ? "one" : "two";
 		await session.key("ctrl+alt+n");
 		expect(
@@ -238,9 +244,9 @@ describe("two fleets up at once", () => {
 
 		for (const id of first === "one" ? ["gamma", "delta"] : ["alpha", "beta"])
 			held.get(id)?.release();
-		await waitFor(
-			async () => (await boardsOnScreen(session)) === 1,
+		await screenUntil(
 			"its board to go",
+			async () => (await boardsOnScreen(session)) === 1,
 		);
 
 		expect(
@@ -257,7 +263,7 @@ describe("two fleets up at once", () => {
 		await session.key("ctrl+alt+n");
 
 		await session.key("escape");
-		await waitFor(() => stopped().length === 2, "a fleet to stop");
+		await screenUntil("a fleet to stop", () => stopped().length === 2);
 
 		const [one, other] = stopped();
 		expect([one, other]).toSatisfy(
@@ -300,9 +306,9 @@ describe("two fleets up at once", () => {
 		).toBe(false);
 
 		await session.runtime.newSession();
-		await waitFor(
-			async () => (await boardsOnScreen(session)) === 0,
+		await screenUntil(
 			"the boards to go",
+			async () => (await boardsOnScreen(session)) === 0,
 		);
 
 		await session.type("x");
@@ -315,7 +321,10 @@ describe("two fleets up at once", () => {
 		const session = await start([fleet("one", one), fleet("two", two)], 16, {
 			rows: 20,
 		});
-		await waitFor(async () => (await boardsOnScreen(session)) >= 1, "a board");
+		await screenUntil(
+			"a board",
+			async () => (await boardsOnScreen(session)) >= 1,
+		);
 
 		session.mark("ticking");
 		for (const [index, id] of [...one, ...two].entries()) {
@@ -337,11 +346,11 @@ describe("a gate up beside a fleet", () => {
 			[fleet("one", ["alpha", "beta"]), fauxToolCall("ask_gate", {})],
 			2,
 		);
-		await waitFor(
-			async () => (await session.inBuffer("MARK-title")) > 0,
+		await screenUntil(
 			"the gate",
+			async () => (await session.inBuffer("MARK-title")) > 0,
 		);
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 		await sleep(GATE_ARM_MS + 50);
 		return session;
 	}
@@ -364,7 +373,7 @@ describe("a gate up beside a fleet", () => {
 			"the hop from the gate takes the keys to the fleet",
 		).toBe(false);
 		await session.key("r");
-		await waitFor(() => stopped().length === 1, "the board's r");
+		await screenUntil("the board's r", () => stopped().length === 1);
 		expect(stopped()).toEqual(["alpha"]);
 		expect(await screen(session)).toContain(`${HOP} twice back to this`);
 
@@ -382,7 +391,7 @@ describe("a gate up beside a fleet", () => {
 			"the hop from the editor takes the keys back to the gate",
 		).toBe(false);
 		await session.key("enter");
-		await waitFor(() => answers.length === 1, "the gate to answer");
+		await screenUntil("the gate to answer", () => answers.length === 1);
 		expect(answers).toEqual([{ type: "action", key: "__enter__" }]);
 	});
 });

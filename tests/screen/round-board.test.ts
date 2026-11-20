@@ -35,7 +35,13 @@ import {
 } from "../../extensions/review-integration/tools/shared.ts";
 import { renderAnswer } from "../../extensions/review-integration/tools/view.ts";
 import type { AskRound } from "../../lib/core/review/index.ts";
-import { bootPi, type PiSession, sleep, strip, waitFor } from "./pi-session.ts";
+import {
+	bootPi,
+	type PiSession,
+	screenUntil,
+	sleep,
+	strip,
+} from "./pi-session.ts";
 
 /** The model every reviewer here shares, so it is named once in the title. */
 const MODEL = "anthropic/claude-opus-5";
@@ -146,9 +152,9 @@ async function startRounds(
 	for (let turn = 0; turn < (options.history ?? 0); turn++) {
 		session.answer(`MARK-history-${turn} ${"lorem ipsum ".repeat(12)}`);
 		await session.prompt(`question ${turn}`);
-		await waitFor(
-			() => !session.runtime.session.isStreaming,
+		await screenUntil(
 			`history turn ${turn}`,
+			() => !session.runtime.session.isStreaming,
 		);
 	}
 	session.faux.setResponses([
@@ -158,12 +164,12 @@ async function startRounds(
 	session.mark("round");
 	await session.prompt("run the round");
 	const ids = rounds.flatMap(([, one]) => one);
-	await waitFor(() => held.size === ids.length, "every reviewer to start");
+	await screenUntil("every reviewer to start", () => held.size === ids.length);
 	// The last board opened, so a first board that was replaced by it is a
 	// failure the tests below name rather than a wait that times out.
-	await waitFor(
-		async () => (await session.inBuffer(ids.at(-1) ?? "")) > 0,
+	await screenUntil(
 		"the boards",
+		async () => (await session.inBuffer(ids.at(-1) ?? "")) > 0,
 	);
 	return session;
 }
@@ -203,13 +209,13 @@ describe("a running round", () => {
 
 		await session.key("escape");
 
-		await waitFor(
-			() => held.get("alpha")?.signal.aborted === true,
+		await screenUntil(
 			"the reviewer to be stopped",
+			() => held.get("alpha")?.signal.aborted === true,
 		);
-		await waitFor(
-			() => !session.runtime.session.isStreaming,
+		await screenUntil(
 			"the turn to stop",
+			() => !session.runtime.session.isStreaming,
 		);
 		expect(await session.viewport()).not.toContainEqual(
 			expect.stringContaining("MARK-after-the-round"),
@@ -223,9 +229,8 @@ describe("the board, once the hop chord reaches it", () => {
 
 		await session.key("ctrl+alt+n");
 
-		await waitFor(
-			() => session.onScreen("r cancel selected"),
-			"the keys to be said",
+		await screenUntil("the keys to be said", () =>
+			session.onScreen("r cancel selected"),
 		);
 	});
 
@@ -236,9 +241,9 @@ describe("the board, once the hop chord reaches it", () => {
 		await session.key("down");
 		await session.key("r");
 
-		await waitFor(
-			() => held.get("beta")?.signal.aborted === true,
+		await screenUntil(
 			"beta to be stopped",
+			() => held.get("beta")?.signal.aborted === true,
 		);
 		expect(
 			held.get("alpha")?.signal.aborted,
@@ -248,9 +253,8 @@ describe("the board, once the hop chord reaches it", () => {
 			session.runtime.session.isStreaming,
 			"cancelling one reviewer leaves the turn going",
 		).toBe(true);
-		await waitFor(
-			() => session.onScreen("cancelled beta"),
-			"the board to say so",
+		await screenUntil("the board to say so", () =>
+			session.onScreen("cancelled beta"),
 		);
 	});
 
@@ -263,9 +267,9 @@ describe("the board, once the hop chord reaches it", () => {
 		);
 		await session.key("escape");
 
-		await waitFor(
-			() => held.get("alpha")?.signal.aborted === true,
+		await screenUntil(
 			"alpha to be stopped",
+			() => held.get("alpha")?.signal.aborted === true,
 		);
 		expect(
 			held.get("beta")?.signal.aborted,
@@ -275,9 +279,8 @@ describe("the board, once the hop chord reaches it", () => {
 			session.editorFocused(),
 			"Escape on the board hands the editor back",
 		).toBe(true);
-		await waitFor(
-			() => session.onScreen("MARK-after-the-round"),
-			"the turn to carry on past the round",
+		await screenUntil("the turn to carry on past the round", () =>
+			session.onScreen("MARK-after-the-round"),
 		);
 	});
 
@@ -316,9 +319,8 @@ describe("when the round's call returns", () => {
 
 		session.mark("finish");
 		for (const one of held.values()) one.answer();
-		await waitFor(
-			() => session.onScreen("MARK-after-the-round"),
-			"the turn to finish",
+		await screenUntil("the turn to finish", () =>
+			session.onScreen("MARK-after-the-round"),
 		);
 		await sleep(50);
 
@@ -342,9 +344,8 @@ describe("when the round's call returns", () => {
 		const session = await startRounds(COUNCIL);
 
 		for (const one of held.values()) one.answer(3);
-		await waitFor(
-			() => session.onScreen("MARK-after-the-round"),
-			"the turn to finish",
+		await screenUntil("the turn to finish", () =>
+			session.onScreen("MARK-after-the-round"),
 		);
 
 		const screen = (await session.viewport()).map(strip).join("\n");
@@ -399,7 +400,7 @@ describe("two rounds in one call", () => {
 
 		// Escape on a board hands the editor back as it cancels, so this is
 		// the moment the cancelling has been done.
-		await waitFor(() => session.editorFocused(), "the editor to come back");
+		await screenUntil("the editor to come back", () => session.editorFocused());
 		expect(
 			held.get("alpha")?.signal.aborted,
 			"Escape on the first board stops its round",

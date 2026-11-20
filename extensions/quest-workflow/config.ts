@@ -48,6 +48,24 @@ export function startHostSetting(): Promise<{
 	return hostSetting((config) => config.startHost);
 }
 
+/**
+ * The budget a session moves to when the person's own key is capped,
+ * read as the cap refuses so naming one needs no reload: its name, none
+ * when none is named, or why the config can't be read.
+ */
+export async function budgetWhenCappedSetting(): Promise<{
+	name?: string;
+	unreadable?: string;
+}> {
+	const { setting, unreadable } = await hostSetting(
+		(config) => config.budgetWhenCapped,
+	);
+	return {
+		...(setting ? { name: setting } : {}),
+		...(unreadable ? { unreadable } : {}),
+	};
+}
+
 /** One of the section's host settings, read now, or why it can't be read. */
 async function hostSetting<T>(
 	pick: (config: QuestWorkflowConfig) => T | undefined,

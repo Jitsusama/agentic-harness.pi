@@ -24,11 +24,13 @@ import {
 	BUDGET_ASKED_AGAIN_MS,
 	budgetEntryView,
 	budgetOfFolder,
+	CAPPED_HOLD_MS,
 	keepQuestBudget,
 	undrawable,
 } from "../../../../extensions/quest-workflow/budget.ts";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { askBudgetWhenCapped } from "../../../../lib/budget/capped.ts";
 import {
 	emptyOverlay,
 	processOverlay,
@@ -1259,6 +1261,199 @@ describe("the session's budget", () => {
 		await run({ action: "budget", id: top, ref: "delta" });
 		await keeper.keep(ui().ctx, { again: true });
 		expect(process.env[KEY]).toBe("file");
+	});
+
+	describe("when the person's own key is over its cap", () => {
+		const REFUSED = "403 Personal token usage is over your weekly cap";
+
+		/**
+		 * A keeper on a quest that names `quest` or no budget, with `named`
+		 * for a capped key: a name, or what the setting reads as.
+		 */
+		async function capped(
+			named?: string | { name?: string; unreadable?: string },
+			quest?: string,
+		) {
+			const made = await quests();
+			if (quest) await made.run({ action: "budget", id: made.top, ref: quest });
+			const events = bus();
+			// The wall clock apart from the one that only runs while the machine
+			// is awake, as a suspend leaves them.
+			const clock = { at: 0, wall: 0 };
+			const lines: string[] = [];
+			const keeper = keepQuestBudget(
+				fakePi({ ...intoTheBranch, events }),
+				made.state,
+				{
+					journal: (line) => lines.push(line),
+					now: () => clock.at,
+					wallNow: () => clock.at + clock.wall,
+					...(named === undefined
+						? {}
+						: {
+								whenCapped: async () =>
+									typeof named === "string" ? { name: named } : named,
+							}),
+				},
+			);
+			provide(events, "plane", async (name) =>
+				name === "worldtree" || name === quest
+					? { kind: "drawn", env: { [KEY]: name }, label: name }
+					: { kind: "unknown" },
+			);
+			await made.run({ action: "load", id: made.top });
+			const seen = ui();
+			await keeper.keep(seen.ctx);
+			return {
+				keeper,
+				clock,
+				lines,
+				seen,
+				name: (ref: string) =>
+					made.run({ action: "budget", id: made.top, ref }),
+				ask: () => askBudgetWhenCapped(events, REFUSED),
+			};
+		}
+
+		it("moves the session onto the budget named for it, saying why in the log", async () => {
+			const { ask, seen, lines } = await capped("worldtree");
+
+			await expect(ask()).resolves.toBe("worldtree");
+
+			expect(process.env[KEY]).toBe("worldtree");
+			expect(recorded().at(-1)).toEqual({
+				v: 1,
+				name: "worldtree",
+				label: "worldtree",
+				provider: "plane",
+				because: `the person's own key is over its cap: ${JSON.stringify(REFUSED)}`,
+			});
+			expect(seen.notices).toEqual([
+				expect.stringContaining("draw on budget worldtree"),
+			]);
+			expect(lines).toEqual([
+				expect.stringContaining("moves to budget worldtree"),
+			]);
+		});
+
+		it("moves it once, since a session on a budget isn't on the person's key", async () => {
+			const { ask, seen } = await capped("worldtree");
+			await ask();
+
+			await expect(ask()).resolves.toBe(null);
+			expect(seen.notices).toHaveLength(1);
+			expect(
+				recorded().filter((said) => JSON.stringify(said).includes("because")),
+			).toHaveLength(1);
+		});
+
+		it("moves it nowhere when no budget is named for it", async () => {
+			for (const setting of [undefined, {}]) {
+				const { ask } = await capped(setting);
+
+				await expect(ask()).resolves.toBe(null);
+				expect(process.env[KEY]).toBe("personal");
+			}
+		});
+
+		it("moves it nowhere, saying why in the journal, when the setting can't be read", async () => {
+			const { ask, lines } = await capped({ unreadable: "bad JSON" });
+
+			await expect(ask()).resolves.toBe(null);
+			expect(process.env[KEY]).toBe("personal");
+			expect(lines).toEqual([
+				expect.stringContaining('can\'t be read: "bad JSON"'),
+			]);
+		});
+
+		it("keeps it there through a quest whose budget can't be drawn on", async () => {
+			const { ask, keeper, seen, name } = await capped("worldtree");
+			await ask();
+
+			await name("nowhere");
+			await keeper.keep(seen.ctx, { again: true });
+
+			expect(process.env[KEY], "the miss lifted the capped key's budget").toBe(
+				"worldtree",
+			);
+		});
+
+		it("tells the session once, however often the cap moves it", async () => {
+			const { ask, keeper, clock, seen } = await capped("worldtree");
+			await ask();
+			clock.at += CAPPED_HOLD_MS;
+			await keeper.keep(seen.ctx);
+
+			await expect(ask()).resolves.toBe("worldtree");
+			expect(seen.notices).toHaveLength(1);
+		});
+
+		it("moves it nowhere when its quest's budget is drawn on", async () => {
+			const { ask } = await capped("worldtree", "delta");
+
+			await expect(ask()).resolves.toBe(null);
+			expect(process.env[KEY]).toBe("delta");
+		});
+
+		it("moves it nowhere, saying why in the journal, when the named budget can't be drawn on", async () => {
+			const { ask, lines } = await capped("nowhere");
+
+			await expect(ask()).resolves.toBe(null);
+			expect(process.env[KEY]).toBe("personal");
+			expect(lines).toEqual([
+				expect.stringContaining("can't move to budget nowhere"),
+			]);
+		});
+
+		it("keeps it there for the hour, through a quest that names none being asked again", async () => {
+			const { ask, keeper, clock, seen } = await capped("worldtree");
+			await ask();
+
+			clock.at += CAPPED_HOLD_MS - 1;
+			await keeper.keep(seen.ctx, { again: true });
+
+			expect(process.env[KEY]).toBe("worldtree");
+		});
+
+		it("counts the hour by the wall clock, so a suspend through it ends the move", async () => {
+			const { ask, keeper, clock, seen } = await capped("worldtree");
+			await ask();
+
+			clock.wall += CAPPED_HOLD_MS;
+			await keeper.keep(seen.ctx);
+
+			expect(process.env[KEY]).toBe("personal");
+		});
+
+		it("says the move is over once the hour is out, though its quest's budget is still missed", async () => {
+			const { ask, keeper, clock, seen, name } = await capped("worldtree");
+			await ask();
+			await name("nowhere");
+			await keeper.keep(seen.ctx, { again: true });
+
+			clock.at += CAPPED_HOLD_MS;
+			await keeper.keep(seen.ctx);
+
+			expect(process.env[KEY]).toBe("personal");
+			expect(
+				JSON.stringify(recorded().at(-1)),
+				"the log still says calls draw on the cap's budget",
+			).not.toContain("worldtree");
+		});
+
+		it("puts it back on the person's key once the hour is out", async () => {
+			const { ask, keeper, clock, seen } = await capped("worldtree");
+			await ask();
+
+			clock.at += CAPPED_HOLD_MS;
+			await keeper.keep(seen.ctx);
+
+			expect(process.env[KEY]).toBe("personal");
+			expect(recorded().at(-1)).toEqual({ v: 1, name: null });
+			await expect(ask(), "a cap still refusing moves it again").resolves.toBe(
+				"worldtree",
+			);
+		});
 	});
 });
 

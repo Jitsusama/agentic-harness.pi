@@ -90,6 +90,10 @@ may import from here, and any of it may change without notice.
 - **`secrets/`**: credentials kept from what the model and the disk
   see: the shapes one takes in a tool's output and the mark that
   replaces it, and an agent's ask for one work secret.
+- **`session-ending/`**: what reads as asking the person to log
+  out, reboot, restart, shut down or switch users on a machine, and
+  whether the node's sessions there let it be asked, for
+  `session-ending-interceptor`.
 - **`session/`**: rolling a session over into a fresh log that
   keeps only what the model still sees, on the model it ran on, and
   reading a log's header to tell a log that carries a session on
@@ -106,6 +110,8 @@ may import from here, and any of it may change without notice.
   context's usage, worked out once per leaf however many extensions
   ask; and the one listener every extension hears a turn's end
   through, since pi rebuilds the whole context after each listener;
+  and a reply withheld once finished, said on the bus for whatever
+  relayed it first (`withheld.ts`);
   and, for a park under niri, which of a parked pi's windows may
   close (`park-window.ts`) and the calls to niri, kitty and the
   launcher that close them (`park-desktop.ts`); and an extension's

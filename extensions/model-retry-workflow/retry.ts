@@ -1,7 +1,10 @@
 /**
  * The wait between a run that ended on a passing model failure and
  * the next try: when it starts, what the person sees while it runs,
- * what ends it early, and how a fresh load takes it up.
+ * what ends it early, and how a fresh load takes it up. A call the
+ * person's own key was refused for, over its cap, waits for nothing:
+ * once the session's budget keeper moves it onto the budget named for
+ * that, it is tried at once (lib/budget/capped.ts).
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -10,6 +13,11 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, Key, matchesKey } from "@earendil-works/pi-tui";
+import {
+	askBudgetWhenCapped,
+	CAP_MOVE_LASTS_MS,
+	isCapRefusal,
+} from "../../lib/budget/capped.ts";
 import {
 	FIRST_WAIT_MS,
 	failedForAMoment,
@@ -70,6 +78,17 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 	let unsaid: Job | undefined;
 	// An Escape while a dialog or panel is open closes it, not the wait.
 	let prompts = false;
+	// Bumped whenever the wait is stopped, so a budget laid for a capped
+	// key after the person or another run took over tries nothing.
+	let movingOn = 0;
+	// When, by the wall clock, the session moved off a capped key, so a
+	// second refusal for the cap before a turn ends well doesn't ask to
+	// move again. It lasts as long as the move, as the keeper's refusal
+	// of a second move does, so once both end a refusal moves again.
+	let movedOffCapAt: number | undefined;
+	const movedOffCap = () =>
+		movedOffCapAt !== undefined &&
+		Date.now() - movedOffCapAt < CAP_MOVE_LASTS_MS;
 
 	// The mark goes in the session's branch, so the load after a reload or
 	// a restart knows what this one was waiting on (record.ts).
@@ -87,6 +106,7 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 		// A try not yet said would start a run on top of one already going.
 		unsaid?.withdraw();
 		unsaid = undefined;
+		movingOn++;
 	};
 
 	/** Stop the count for good: the person has it now. */
@@ -99,7 +119,10 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 
 	// The try is said through job-workflow, the one thing that starts a
 	// turn nobody typed, at a moment no run or prompt is under way.
-	const tryAgain = (ctx: ExtensionContext, attempt: number, line: string) => {
+	const tryAgain = (ctx: ExtensionContext, attempt: number, line: string) =>
+		sayTry(ctx, retryText(attempt, line));
+
+	const sayTry = (ctx: ExtensionContext, summary: string) => {
 		timer = undefined;
 		unlisten?.();
 		unlisten = undefined;
@@ -118,7 +141,42 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 		job.onDelivered(() => {
 			if (unsaid === job) unsaid = undefined;
 		});
-		job.finish({ summary: retryText(attempt, line) });
+		job.finish({ summary });
+	};
+
+	/**
+	 * Ask for the budget named for a capped key and, once it is laid,
+	 * try at once; with none, the turn ends as any usage limit's does.
+	 */
+	const moveOffCap = (ctx: ExtensionContext, reply: AssistantMessage) => {
+		const line = failureLine(reply);
+		// Refused for the cap again before any turn ended well: the move
+		// didn't help, so it isn't asked for again until one does, whatever
+		// the keeper would answer.
+		if (movedOffCap()) {
+			ctx.ui.notify(
+				`The model call was refused for the cap again after moving to a budget: ${line}. Type to try again.`,
+				"warning",
+			);
+			return;
+		}
+		const asked = movingOn;
+		askBudgetWhenCapped(pi.events, line).then(
+			whileCurrent((drawn: string | null) => {
+				if (asked !== movingOn) return;
+				// Never left on the refusal unsaid. Null means any of these, and
+				// the keeper's journal says which when it was asked.
+				if (drawn === null) {
+					ctx.ui.notify(
+						`Your own key is over its cap, and no budget took over: quest-workflow's budgetWhenCapped names none, or its budget can't be drawn on, or this session already draws on a budget. ${line}. Type to try again.`,
+						"warning",
+					);
+					return;
+				}
+				movedOffCapAt = Date.now();
+				sayTry(ctx, cappedText(drawn, line));
+			}),
+		);
 	};
 
 	/** Wait `delay` before try `attempt`, saying so in the window. */
@@ -210,8 +268,14 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 				if (counting) mark({ attempt: 0 });
 				return;
 			}
+			if (reply && isCapRefusal(reply.errorMessage)) {
+				countAfresh();
+				moveOffCap(ctx, reply);
+				return;
+			}
 			if (!reply || !failed) {
 				countAfresh();
+				if (reply && !reply.errorMessage) movedOffCapAt = undefined;
 				return;
 			}
 			// A failure the provider billed may fail so every try, at full
@@ -249,6 +313,11 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 /** What the model reads as the try begins. */
 function retryText(attempt: number, line: string): string {
 	return `The last model call failed (${line}) after pi's own retries. The harness waited and is trying again (try ${attempt}): carry on from where you left off.`;
+}
+
+/** What the model reads as the try on a capped key's budget begins. */
+function cappedText(budget: string, line: string): string {
+	return `The last model call was refused because the person's own key is over its cap (${line}). The session now draws on budget ${budget}, so the harness is trying again: carry on from where you left off.`;
 }
 
 function clearMark(ctx: ExtensionContext): void {

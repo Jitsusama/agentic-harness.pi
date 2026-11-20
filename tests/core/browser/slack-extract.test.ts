@@ -9,6 +9,9 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { isPidAlive } from "../../../lib/core/web/browser.ts";
 import { extractFromBrowser } from "../../../lib/slack/auth/browser-extract.ts";
@@ -50,13 +53,23 @@ async function gone(pids: number[]): Promise<boolean> {
 let fixture: Fixture;
 
 describe("a Slack credential extraction", () => {
+	// This lane has no XDG sandbox, and a machine that has turned direct
+	// Slack off would refuse every extraction before it starts. These
+	// cases are about stopping one, so they run with it on.
+	const config = mkdtempSync(join(tmpdir(), "slack-extract-config-"));
+	const before = process.env.XDG_CONFIG_HOME;
+
 	beforeAll(async () => {
+		process.env.XDG_CONFIG_HOME = config;
 		fixture = await serve([
 			{ path: "/signin", body: page("Sign in", "<main>Sign in</main>") },
 		]);
 	});
 
 	afterAll(async () => {
+		if (before === undefined) delete process.env.XDG_CONFIG_HOME;
+		else process.env.XDG_CONFIG_HOME = before;
+		rmSync(config, { recursive: true, force: true });
 		await fixture?.close();
 	});
 

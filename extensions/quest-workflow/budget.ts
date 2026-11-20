@@ -43,6 +43,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { CAP_MOVE_LASTS_MS, onBudgetCapped } from "../../lib/budget/capped.ts";
 import {
 	layBudget,
 	layOptedOut,
@@ -242,7 +243,22 @@ export interface BudgetKeeperOptions {
 	readonly journal?: (line: string) => void;
 	/** The clock a missed budget's wait is read on; the machine's unless a test says. */
 	readonly now?: () => number;
+	/**
+	 * The clock a capped key's hour is read on, the machine's wall clock
+	 * unless a test says, since a cap lifts by the calendar and a laptop
+	 * asleep stops the monotonic one.
+	 */
+	readonly wallNow?: () => number;
+	/**
+	 * The budget named for a session whose own key the cap refuses, read
+	 * as it refuses, or why it can't be read; none moves such a session
+	 * nowhere.
+	 */
+	readonly whenCapped?: () => Promise<{ name?: string; unreadable?: string }>;
 }
+
+/** How long a session the cap moved stays on its budget (capped.ts). */
+export const CAPPED_HOLD_MS = CAP_MOVE_LASTS_MS;
 
 /**
  * How long a budget that couldn't be drawn on waits, once a retry has
@@ -275,6 +291,7 @@ export function keepQuestBudget(
 	const sink = options.journal ?? warnInJournal;
 	// A monotonic clock, so a wall clock stepped back holds no retry off.
 	const now = options.now ?? (() => performance.now());
+	const wallNow = options.wallNow ?? Date.now;
 	const journal = (line: string): void => {
 		try {
 			sink(line);
@@ -312,6 +329,28 @@ export function keepQuestBudget(
 	let missedAt: number | undefined;
 	/** How long the name wanted waits since its last miss: none at first. */
 	let missedWait = 0;
+	/** The budget laid for a capped key, and when, while it holds. */
+	let capped:
+		| {
+				readonly name: string;
+				readonly label: string;
+				readonly env: Readonly<Record<string, string>>;
+				readonly at: number;
+		  }
+		| undefined;
+	/** Whether the session was told its capped key moved it, said once. */
+	let saidCapped = false;
+
+	/** Lay the capped key's budget again, while its hour holds. */
+	const layCapped = (ctx: ExtensionContext): boolean => {
+		if (!capped) return false;
+		if (wallNow() - capped.at >= CAPPED_HOLD_MS) {
+			capped = undefined;
+			return false;
+		}
+		layBudget(sessionEnv(ctx), capped, processOverlay(ctx));
+		return true;
+	};
 
 	/** What a session on no quest asked of its folder, once a session. */
 	let folderAsked: Promise<string | null> | undefined;
@@ -454,15 +493,23 @@ export function keepQuestBudget(
 		// nothing names: what it starts keeps to that word.
 		const optedOut = found !== undefined && found.name === null;
 		const due = missedAt !== undefined && now() - missedAt >= missedWait;
+		// Its hour out, a capped key is drawn on again, so settle afresh.
+		const cappedOut =
+			capped !== undefined && wallNow() - capped.at >= CAPPED_HOLD_MS;
+		if (cappedOut) capped = undefined;
 		const same = name === wanted && optedOut === wantedOptedOut;
-		if (same && !redrawOwed && !due) return pending;
-		const retrying = same && due && !redrawOwed;
+		if (same && !redrawOwed && !due && !cappedOut) return pending;
+		// Due or not, a name missed before is a retry, so a capped key's hour
+		// running out doesn't start its backoff afresh.
+		const retrying = same && !redrawOwed && missedAt !== undefined;
 		redrawOwed = false;
 		wanted = name;
 		wantedOptedOut = optedOut;
 		missedAt = undefined;
 		const ask = ++asking;
-		pending = settle(ctx, name, ask, optedOut, retrying);
+		// The hour out changes what calls draw on, so it is recorded even
+		// when the miss is the same as before.
+		pending = settle(ctx, name, ask, optedOut, retrying, cappedOut);
 		return pending;
 	};
 
@@ -472,10 +519,13 @@ export function keepQuestBudget(
 		ask: number,
 		optedOut = false,
 		retrying = false,
+		changed = false,
 	) => {
 		if (name === null) {
 			if (optedOut) layOptedOut(sessionEnv(ctx), processOverlay(ctx));
 			else liftBudget(sessionEnv(ctx), processOverlay(ctx));
+			// A capped key moves even work said to draw on none, for its hour.
+			layCapped(ctx);
 			recordDrawn(pi, ctx);
 			return;
 		}
@@ -506,13 +556,19 @@ export function keepQuestBudget(
 		missedAt = now();
 		missedWait = retrying ? waitAfter(missedWait) : 0;
 		const unresolved = { budget: name, missing: missingFrom(drawing) };
-		const fallback = fallbackOf(inherited);
+		const fallback = layCapped(ctx)
+			? cappedFallback(capped?.name ?? "")
+			: fallbackOf(inherited);
 		// A retry that misses again says nothing new, even when the
 		// provider's words differ, so a provider that stays down writes no
 		// line a minute.
-		if (retrying && lastRecordOn(branchOf(ctx))?.unresolved?.budget === name) {
+		if (
+			retrying &&
+			!changed &&
+			lastRecordOn(branchOf(ctx))?.unresolved?.budget === name
+		) {
 			pi.events.emit(BUDGET_SETTLED, {
-				name: inherited,
+				name: budgetDrawnOn(sessionEnv(ctx).snapshot()),
 			} satisfies BudgetSettled);
 			return;
 		}
@@ -528,6 +584,53 @@ export function keepQuestBudget(
 		told.add(name);
 		ctx.ui.notify(undrawable(name, drawing, fallback), "warning");
 	};
+
+	// The person's own key refused for its cap: move to the budget named
+	// for that, if the session draws on none (lib/budget/capped.ts).
+	const takeCapped = async (because: string): Promise<string | null> => {
+		const ctx = last;
+		if (!ctx || !options.whenCapped) return null;
+		if (budgetDrawnOn(sessionEnv(ctx).snapshot()) !== null) return null;
+		const { name, unreadable } = await options.whenCapped();
+		if (unreadable) {
+			journal(
+				`${questOf()} can't move off the person's capped key: the setting naming a budget for it can't be read: ${quoted(unreadable)}`,
+			);
+			return null;
+		}
+		if (!name || last !== ctx) return null;
+		const drawing = await host.draw(name);
+		if (last !== ctx) return null;
+		const why = `the person's own key is over its cap: ${quoted(because)}`;
+		if (drawing.kind !== "drawn") {
+			journal(
+				`${questOf()} can't move to budget ${name}, though ${why}: ${missingFrom(drawing)}`,
+			);
+			return null;
+		}
+		// A budget laid while the draw was on its way stands.
+		if (budgetDrawnOn(sessionEnv(ctx).snapshot()) !== null) return null;
+		capped = { name, label: drawing.label, env: drawing.env, at: wallNow() };
+		layCapped(ctx);
+		recordDrawn(pi, ctx, drawing, undefined, why);
+		journal(`${questOf()} moves to budget ${name}, since ${why}`);
+		if (!saidCapped) {
+			saidCapped = true;
+			ctx.ui.notify(
+				`Your own key is over its cap, so this session's model calls draw on budget ${name} for the next hour.`,
+				"warning",
+			);
+		}
+		return name;
+	};
+	const questOf = () =>
+		state.questId ? `quest ${state.questId}` : "a session with no quest";
+	onBudgetCapped(pi.events, (because) =>
+		takeCapped(because).catch(() => {
+			// A context gone stale mid-draw moves nothing; the turn ends as it did.
+			return null;
+		}),
+	);
 
 	// A provider that registers late may know the name nothing did, or,
 	// for a session on no quest, the folder nothing named.
@@ -555,6 +658,8 @@ export function keepQuestBudget(
 		beenOnQuest = false;
 		missedAt = undefined;
 		missedWait = 0;
+		capped = undefined;
+		saidCapped = false;
 		asking++;
 		sessions++;
 		folderAsked = undefined;
@@ -633,6 +738,7 @@ function recordDrawn(
 	ctx: ExtensionContext,
 	drawing?: { readonly provider: string; readonly label: string },
 	unresolved?: UnresolvedBudget,
+	because?: string,
 ): boolean {
 	const name = budgetDrawnOn(sessionEnv(ctx).snapshot());
 	const settled: BudgetSettled = { name };
@@ -641,12 +747,19 @@ function recordDrawn(
 	if (
 		last?.name === name &&
 		last.unresolved?.budget === unresolved?.budget &&
-		last.unresolved?.missing === unresolved?.missing
+		last.unresolved?.missing === unresolved?.missing &&
+		(because === undefined || last.because === because)
 	)
 		return false;
 	const record: BudgetRecord =
 		drawing && name !== null
-			? { v: 1, name, label: drawing.label, provider: drawing.provider }
+			? {
+					v: 1,
+					name,
+					label: drawing.label,
+					provider: drawing.provider,
+					...(because ? { because } : {}),
+				}
 			: { v: 1, name, ...(unresolved ? { unresolved } : {}) };
 	pi.appendEntry(BUDGET_ENTRY, record);
 	return true;
@@ -722,6 +835,11 @@ function fallbackOf(inherited: string | null): string {
 	return inherited === null
 		? "the session's default"
 		: `budget ${inherited}, which this session was started on`;
+}
+
+/** What model calls draw on once a capped key moved them to `name`. */
+function cappedFallback(name: string): string {
+	return `budget ${name}, since the person's own key is over its cap`;
 }
 
 /** The colours a budget line is drawn in. */

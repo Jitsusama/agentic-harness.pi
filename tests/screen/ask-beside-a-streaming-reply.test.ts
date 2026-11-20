@@ -13,7 +13,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
 import { showSinglePrompt } from "../../lib/ui/prompt/prompt-single.ts";
-import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
+import { bootPi, type PiSession, screenUntil, sleep } from "./pi-session.ts";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -100,7 +100,7 @@ describe("an ask raised while the reply streams in", () => {
 			session.answer(reply);
 			session.mark("streaming");
 			await session.prompt("say a lot");
-			await waitFor(() => session.onScreen("MARK-ask-3"), "the ask's body");
+			await screenUntil("the ask's body", () => session.onScreen("MARK-ask-3"));
 
 			const lost: string[] = [];
 			let looks = 0;

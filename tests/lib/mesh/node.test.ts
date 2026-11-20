@@ -11,7 +11,13 @@ import {
 	agentsFrom,
 	heldWindowAt,
 	heldWindowFrom,
+	machineNamesAt,
+	machineNamesFrom,
+	nodeServes,
+	nodeSessionsAt,
+	nodeSessionsFrom,
 	nodeSocket,
+	nodeSockets,
 	placeAt,
 	placeToStartAt,
 	sessionsAt,
@@ -143,6 +149,75 @@ describe("asking the node who is there", () => {
 		);
 
 		expect(held && [...held.keys()]).toEqual(["ok"]);
+	});
+});
+
+describe("asking the node who is on which machine", () => {
+	it("hears each session with its address, machine and state", async () => {
+		const socket = await serving((line) =>
+			line !== '"Sessions"'
+				? undefined
+				: sessions(
+						{
+							id: "far",
+							address: "EWUL44",
+							machine: "equilibrius",
+							state: "idle",
+						},
+						{ id: "here", machine: "optimus", state: "busy" },
+					),
+		);
+
+		expect(await nodeSessionsAt(socket)).toEqual([
+			{ id: "far", address: "EWUL44", machine: "equilibrius", state: "idle" },
+			{ id: "here", machine: "optimus", state: "busy" },
+		]);
+	});
+
+	it("hears nothing where no node serves or none answers in time", async () => {
+		const socket = await serving(() => undefined);
+
+		expect(await nodeSessionsAt(join(root, "none.sock"))).toBeUndefined();
+		expect(await nodeSessionsAt(undefined)).toBeUndefined();
+		expect(await nodeSessionsAt(socket, 50)).toBeUndefined();
+	});
+
+	it("takes an answer naming no sessions as no answer, not as nobody", () => {
+		expect(nodeSessionsFrom('{"Err":"not a request"}')).toBeUndefined();
+		expect(nodeSessionsFrom("not json")).toBeUndefined();
+		expect(nodeSessionsFrom(sessions())).toEqual([]);
+	});
+
+	it("keeps a session in a state it doesn't know, without a machine or without an id, as the node said it", () => {
+		const held = nodeSessionsFrom(
+			sessions(
+				{ id: "odd", machine: "optimus", state: "starting" },
+				{ id: "nowhere", state: "idle" },
+				{ id: "stateless", machine: "optimus" },
+				{ machine: "optimus", state: "idle" },
+			),
+		);
+
+		expect(held).toEqual([
+			{ id: "odd", machine: "optimus", state: "starting" },
+			{ id: "nowhere", state: "idle" },
+			{ id: "stateless", machine: "optimus", state: "unknown" },
+			{ id: "", machine: "optimus", state: "idle" },
+		]);
+	});
+});
+
+describe("whether a node serves at a socket", () => {
+	it("says so of one listening", async () => {
+		const socket = await serving(() => undefined);
+		expect(await nodeServes(socket)).toBe(true);
+	});
+
+	it("says not where nothing is, or only a file", async () => {
+		const file = join(root, "plain.sock");
+		writeFileSync(file, "");
+		expect(await nodeServes(join(root, "none.sock"))).toBe(false);
+		expect(await nodeServes(file)).toBe(false);
 	});
 });
 
@@ -481,11 +556,66 @@ describe("what starts an agent session on each machine", () => {
 	});
 });
 
+describe("which machines the realm holds", () => {
+	it("is every machine the node names, sessions on it or not", async () => {
+		const socket = await serving((line) =>
+			line !== '"Machines"'
+				? undefined
+				: JSON.stringify({
+						Ok: {
+							Machines: [
+								{ name: "optimus", declared: null },
+								{ name: "penelope" },
+								{ declared: null },
+								{ name: "" },
+								{ name: "two words" },
+							],
+						},
+					}),
+		);
+
+		expect(await machineNamesAt(socket)).toEqual(["optimus", "penelope"]);
+	});
+
+	it("is nothing where no node answers, or its answer names none", async () => {
+		expect(await machineNamesAt(undefined)).toBeUndefined();
+		expect(machineNamesFrom("not json")).toBeUndefined();
+		expect(machineNamesFrom('{"Err":"no"}')).toBeUndefined();
+	});
+});
+
 describe("where the node's socket is", () => {
 	const realm = (name: string) => {
 		mkdirSync(join(root, "state", "mycelium"), { recursive: true });
 		writeFileSync(join(root, "state", "mycelium", "realm"), `${name}\n`);
 	};
+
+	it("is one for each realm the machine runs a node in, the session's own first though it has none yet", () => {
+		const run = join(root, "run");
+		mkdirSync(join(run, "mycelium", "work.held"), { recursive: true });
+		writeFileSync(join(run, "mycelium", "personal.sock"), "");
+		writeFileSync(join(run, "mycelium", "reached.json"), "{}");
+
+		expect(
+			nodeSockets({
+				XDG_RUNTIME_DIR: run,
+				XDG_STATE_HOME: join(root, "state"),
+				MYCELIUM_REALM: "work",
+			}),
+		).toEqual([
+			join(run, "mycelium", "work.sock"),
+			join(run, "mycelium", "personal.sock"),
+		]);
+	});
+
+	it("is none where no realm is named", () => {
+		expect(
+			nodeSockets({
+				XDG_RUNTIME_DIR: join(root, "run"),
+				XDG_STATE_HOME: join(root, "state"),
+			}),
+		).toEqual([]);
+	});
 
 	it("is in the login's runtime folder, for the session's own realm though the node first kept another", () => {
 		// A machine in two realms runs a node for each, and the kept realm

@@ -49,6 +49,7 @@ import {
 } from "@earendil-works/pi-tui";
 import xterm from "@xterm/headless";
 import { expect } from "vitest";
+import { until } from "../support/until.ts";
 
 /** Resolves after `ms`. */
 export const sleep = (ms: number): Promise<void> =>
@@ -75,19 +76,21 @@ export function strip(line: string): string {
 	return line.replace(CSI, "").replace(OSC, "").replace(APC, "");
 }
 
-/** Polls until `test` holds, and throws naming `what` if it never does. */
-export async function waitFor(
-	test: () => boolean | Promise<boolean>,
+/**
+ * How long a scenario waits for real pi to draw or do something, longer
+ * than `until`'s own default since each step goes through a terminal.
+ */
+const SCREEN_WAIT_MS = 8000;
+
+/**
+ * Waits until `test` holds, through the shared `until`, giving it the
+ * screen's budget unless the scenario names its own.
+ */
+export const screenUntil = (
 	what: string,
-	ms = 8000,
-): Promise<void> {
-	const began = Date.now();
-	while (Date.now() - began < ms) {
-		if (await test()) return;
-		await sleep(10);
-	}
-	throw new Error(`timed out waiting for ${what}`);
-}
+	test: () => boolean | Promise<boolean>,
+	ms = SCREEN_WAIT_MS,
+): Promise<void> => until(what, test, ms);
 
 /**
  * What a terminal sends for a key without the kitty protocol. Enough of
@@ -491,7 +494,7 @@ export async function bootPi(options: BootOptions = {}): Promise<PiSession> {
 		errors.push(`unhandled rejection: ${String(reason)}`);
 	process.on("unhandledRejection", onRejection);
 	mode.run().catch((error: unknown) => errors.push(`run: ${String(error)}`));
-	await waitFor(() => seen !== undefined, "the extension to load", 15000);
+	await screenUntil("the extension to load", () => seen !== undefined, 15000);
 	await runtime.session.setModel(faux.getModel());
 	if (options.loaded) {
 		runtime.session.setActiveToolsByName([

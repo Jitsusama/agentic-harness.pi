@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import statusLine from "../../extensions/status-line-widget/index.ts";
-import { bootPi, type PiSession, sleep, waitFor } from "./pi-session.ts";
+import { bootPi, type PiSession, screenUntil, sleep } from "./pi-session.ts";
 
 let session: PiSession | undefined;
 
@@ -36,9 +36,9 @@ describe("the status line", () => {
 		session = await bootPi({
 			extensions: [{ name: "status-line", factory: statusLine }],
 		});
-		await waitFor(
-			async () => (await bottom(session as PiSession)).includes("faux-1"),
+		await screenUntil(
 			"the status line to name the model",
+			async () => (await bottom(session as PiSession)).includes("faux-1"),
 			3000,
 		);
 	});
@@ -48,16 +48,16 @@ describe("the status line", () => {
 			extensions: [{ name: "status-line", factory: statusLine }],
 		});
 		const live = session;
-		await waitFor(
-			async () => (await bottom(live)).includes("faux-1"),
+		await screenUntil(
 			"the status line to name the model",
+			async () => (await bottom(live)).includes("faux-1"),
 			3000,
 		);
 		await live.type("/reload");
 		await live.key("enter");
-		await waitFor(
-			async () => !(await live.onScreen("Reloading keybindings")),
+		await screenUntil(
 			"the reload to end",
+			async () => !(await live.onScreen("Reloading keybindings")),
 			3000,
 		);
 		// Nothing else happens: no prompt, no tool, no keystroke.
@@ -89,17 +89,17 @@ describe("the status line", () => {
 		);
 		live.answer(long);
 		await live.prompt("fill the screen");
-		await waitFor(() => live.onScreen("line 59"), "the answer", 3000);
-		await waitFor(
-			async () => GAUGE.test(await bottom(live)),
+		await screenUntil("the answer", () => live.onScreen("line 59"), 3000);
+		await screenUntil(
 			"the status line to show its gauge",
+			async () => GAUGE.test(await bottom(live)),
 			3000,
 		);
 		await live.type("/reload");
 		await live.key("enter");
-		await waitFor(
-			async () => !(await live.onScreen("Reloading keybindings")),
+		await screenUntil(
 			"the reload to end",
+			async () => !(await live.onScreen("Reloading keybindings")),
 			3000,
 		);
 		await sleep(300);

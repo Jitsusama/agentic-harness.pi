@@ -66,6 +66,7 @@ describe("a held browser", () => {
 			keepsToThePipe(
 				browserStartedWith(["--headless=new", "--remote-debugging-pipe"]),
 			),
+			"a browser started over the pipe alone should be kept",
 		).toBe(true);
 	});
 
@@ -74,6 +75,7 @@ describe("a held browser", () => {
 			keepsToThePipe(
 				browserStartedWith(["--headless=new", "--remote-debugging-port=0"]),
 			),
+			"a browser started with a port should be retired",
 		).toBe(false);
 	});
 
@@ -85,6 +87,7 @@ describe("a held browser", () => {
 					"--remote-debugging-port=0",
 				]),
 			),
+			"a browser started with both the pipe and a port should be retired",
 		).toBe(false);
 	});
 });

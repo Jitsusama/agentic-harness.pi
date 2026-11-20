@@ -89,11 +89,15 @@ describe("createMcpConnection", () => {
 		const conn = createMcpConnection(config, { client, transport: {} });
 		await conn.connect();
 		const [tool] = await conn.listTools();
+		expect(tool?.name).toBe("delete_item");
 		expect(tool?.annotations).toBeUndefined();
 		// A list once read as annotations with no hint, which waved this
 		// delete past the write gate. The line above pins the connection's
 		// half; this one replays the original report, end to end.
-		expect(tool && defaultWriteSignal(tool)).toBe(true);
+		expect(
+			tool && defaultWriteSignal(tool),
+			"a delete_item left with no usable hint is still gated by its name",
+		).toBe(true);
 		const result = await conn.callTool("delete_item", {});
 		expect(result.content).toEqual([{ type: "resource", resource: {} }]);
 	});

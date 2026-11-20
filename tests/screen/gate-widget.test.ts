@@ -28,7 +28,13 @@ import {
 } from "../../lib/ui/gate/gate-dock.ts";
 import { showSinglePrompt } from "../../lib/ui/prompt/prompt-single.ts";
 import { showTabbedPrompt } from "../../lib/ui/prompt/prompt-tabbed.ts";
-import { bootPi, type PiSession, sleep, strip, waitFor } from "./pi-session.ts";
+import {
+	bootPi,
+	type PiSession,
+	screenUntil,
+	sleep,
+	strip,
+} from "./pi-session.ts";
 
 const TITLE = "MARK-title Approve the thing?";
 
@@ -166,9 +172,9 @@ async function raise(options: RaiseOptions = {}): Promise<PiSession> {
 	for (let turn = 0; turn < (options.history ?? 0); turn++) {
 		session.answer(`MARK-history-${turn} ${"lorem ipsum ".repeat(12)}`);
 		await session.prompt(`question ${turn}`);
-		await waitFor(
-			() => !session.runtime.session.isStreaming,
+		await screenUntil(
 			`history turn ${turn}`,
+			() => !session.runtime.session.isStreaming,
 		);
 	}
 	const calls = Array.from({ length: options.gates ?? 1 }, (_, i) =>
@@ -187,16 +193,16 @@ async function raise(options: RaiseOptions = {}): Promise<PiSession> {
 	]);
 	session.mark("gate");
 	await session.prompt("raise it");
-	await waitFor(
-		async () => (await session.inBuffer("MARK-title")) > 0,
+	await screenUntil(
 		"the gate",
+		async () => (await session.inBuffer("MARK-title")) > 0,
 	);
 	return session;
 }
 
 /** Waits for the gate to take the keyboard, then for its arm to pass. */
 async function armed(session: PiSession): Promise<void> {
-	await waitFor(() => !session.editorFocused(), "the gate to take focus");
+	await screenUntil("the gate to take focus", () => !session.editorFocused());
 	await sleep(GATE_ARM_MS + 50);
 }
 
@@ -206,11 +212,13 @@ function overlaid(session: PiSession): unknown {
 }
 
 async function turnEnds(session: PiSession): Promise<void> {
-	await waitFor(
-		() => session.onScreen("MARK-after-the-gate"),
-		"the turn to carry on past the gate",
+	await screenUntil("the turn to carry on past the gate", () =>
+		session.onScreen("MARK-after-the-gate"),
 	);
-	await waitFor(() => !session.runtime.session.isStreaming, "the turn to end");
+	await screenUntil(
+		"the turn to end",
+		() => !session.runtime.session.isStreaming,
+	);
 	await sleep(50);
 }
 
@@ -240,7 +248,7 @@ describe("a gate raised by a tool", () => {
 
 	it("sits on the editor's border rather than drawing a second rule on it", async () => {
 		const session = await raise();
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 
 		// A row that opens on hairlines, as the gate's rule and the editor's
 		// border (which says what pi is doing inside it) both do, with the
@@ -259,7 +267,7 @@ describe("a gate raised by a tool", () => {
 	it("takes the keyboard once it is on screen", async () => {
 		const session = await raise();
 
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 		expect(await session.viewport()).toContainEqual(
 			expect.stringContaining(TITLE),
 		);
@@ -295,13 +303,13 @@ describe("a gate raised by a tool", () => {
 		]);
 		await session.prompt("raise it");
 
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 		expect(drawnWhenTaken).toEqual([true]);
 	});
 
 	it("says how to reach the editor", async () => {
 		const session = await raise();
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 
 		expect(await session.viewport()).toContainEqual(
 			expect.stringContaining("Ctrl+Alt+N"),
@@ -395,12 +403,12 @@ describe("a gate arriving while the person types", () => {
 		).toBe(true);
 		vi.advanceTimersByTime(1);
 		vi.useRealTimers();
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 	});
 
 	it("ignores an Enter that lands the moment it takes the keyboard", async () => {
 		const session = await raise();
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 
 		await session.key("enter");
 		await sleep(100);
@@ -419,7 +427,7 @@ describe("a gate arriving while the person types", () => {
 describe("the hop chord on a gate", () => {
 	it("moves to the editor and back, keeping a steer typed meanwhile", async () => {
 		const session = await raise();
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 
 		await session.key("ctrl+alt+n");
 		expect(
@@ -440,7 +448,7 @@ describe("the hop chord on a gate", () => {
 			"the hop from the editor takes the keys back to the gate",
 		).toBe(false);
 		await session.key("enter");
-		await waitFor(() => answers.length === 1, "the gate to answer");
+		await screenUntil("the gate to answer", () => answers.length === 1);
 
 		expect(answers).toEqual([{ type: "action", key: "__enter__" }]);
 		expect(session.editorText()).toBe("a steer");
@@ -470,14 +478,14 @@ describe("the hop chord on a gate", () => {
 		);
 		await session.key("ctrl+alt+n");
 		await session.key("enter");
-		await waitFor(() => answers.length === 1, "the gate to answer");
+		await screenUntil("the gate to answer", () => answers.length === 1);
 
 		expect(answers).toEqual([{ type: "action", key: "__enter__" }]);
 	});
 
 	it("does not take the keyboard back once the person left it", async () => {
 		const session = await raise();
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 
 		await session.key("ctrl+alt+n");
 		await sleep(GATE_TYPING_IDLE_MS + GATE_ARM_MS + 200);
@@ -493,7 +501,7 @@ describe("the hop chord on a gate", () => {
 
 	it("passes Ctrl+C through to pi, which clears the draft", async () => {
 		const session = await raise();
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 		await session.key("ctrl+alt+n");
 		await session.type("a draft");
 		await session.key("ctrl+alt+n");
@@ -512,14 +520,14 @@ describe("the hop chord on a gate", () => {
 describe("a gate closed from outside", () => {
 	it("fails closed when its turn is stopped", async () => {
 		const session = await raise();
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 		await session.key("ctrl+alt+n");
 
 		await session.key("escape");
-		await waitFor(() => answers.length === 1, "the gate to answer");
-		await waitFor(
-			() => !session.runtime.session.isStreaming,
+		await screenUntil("the gate to answer", () => answers.length === 1);
+		await screenUntil(
 			"the turn to stop",
+			() => !session.runtime.session.isStreaming,
 		);
 		await sleep(50);
 
@@ -538,10 +546,10 @@ describe("a gate closed from outside", () => {
 
 	it("leaves no record when its session is replaced", async () => {
 		const session = await raise();
-		await waitFor(() => !session.editorFocused(), "the gate to take focus");
+		await screenUntil("the gate to take focus", () => !session.editorFocused());
 
 		await session.runtime.newSession();
-		await waitFor(() => answers.length === 1, "the gate to answer");
+		await screenUntil("the gate to answer", () => answers.length === 1);
 		await sleep(100);
 
 		expect(answers).toEqual([null]);
@@ -558,10 +566,10 @@ describe("gates one after another", () => {
 		await armed(session);
 
 		await session.key("enter");
-		await waitFor(() => answers.length === 1, "the first gate to answer");
-		await waitFor(
-			async () => (await session.inBuffer(`${TITLE}1`)) > 0,
+		await screenUntil("the first gate to answer", () => answers.length === 1);
+		await screenUntil(
 			"the second gate",
+			async () => (await session.inBuffer(`${TITLE}1`)) > 0,
 		);
 		await armed(session);
 		await session.key("escape");
@@ -650,9 +658,9 @@ describe("a gate that gets shorter", () => {
 		await armed(session);
 
 		await session.key("enter");
-		await waitFor(
-			async () => !(await session.onScreen("MARK-body-9")),
+		await screenUntil(
 			"the shorter item",
+			async () => !(await session.onScreen("MARK-body-9")),
 		);
 		await sleep(50);
 		expect((await session.verdict()).blankMax).toBe(0);

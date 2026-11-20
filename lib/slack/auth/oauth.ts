@@ -9,6 +9,7 @@
  *   3. Exchange code for an access token via oauth.v2.access
  */
 
+import { refuseDirectSlack } from "../policy.ts";
 import type { OAuthApp, StoredToken } from "../types.ts";
 
 /** Port for the local OAuth callback server. */
@@ -61,6 +62,8 @@ export async function exchangeCodeForToken(
 	app: OAuthApp,
 	code: string,
 ): Promise<StoredToken> {
+	// The one call to Slack made without a client, refused the same way.
+	refuseDirectSlack();
 	const response = await fetch("https://slack.com/api/oauth.v2.access", {
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },

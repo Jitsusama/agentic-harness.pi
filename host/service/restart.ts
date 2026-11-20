@@ -60,6 +60,14 @@
  * Until the host has seen a major collection it reads the heap as it
  * stands, which in a host's first minutes is small.
  *
+ * A restart also waits while the person is on a call or a meeting is
+ * near, by the probes the unit names (quiet.ts): on 19 November at
+ * 16:38 the attended host restarted itself mid-call as its install
+ * moved, and every window on it went with it. A probe that can't tell
+ * holds it too. Only a heap that has nearly run out restarts anyway,
+ * since the host would soon die mid-call regardless. A held restart
+ * looks again each minute, never each second, as a probe takes seconds.
+ *
  * The look and systemd's stop are not one step: something the person
  * starts between them, in the moment systemctl takes, is parked or ended
  * with the host as a logout would, and its conversation resumes after.
@@ -76,6 +84,7 @@ import { getHeapStatistics } from "node:v8";
 import { dependenciesReady } from "../../lib/internal/reload/follow.ts";
 import { installOfVersion } from "../../lib/internal/reload/loaded.ts";
 import type { SessionIdentity } from "./protocol.ts";
+import { quietFrom, RESTART_WAITS_ON_VARIABLE } from "./quiet.ts";
 import { hostRoot } from "./rollout.ts";
 import type { ServingHost } from "./serve.ts";
 import {
@@ -226,6 +235,11 @@ export interface RestartFacts {
 	/** How short the heap runs, or nothing while it has room. */
 	pressure?(): HeapPressure | undefined;
 	/**
+	 * Why the person can't take a restart now, such as "a call is on", or
+	 * nothing when they can. A throw means it can't tell, which holds it.
+	 */
+	quiet?(): Promise<string | undefined>;
+	/**
 	 * Whether the restart is past its ceiling and waits for a gap, so a
 	 * drain for it holds wakes no longer: said at each look that waits
 	 * for one, and not as the restart is asked or while the host stops.
@@ -300,6 +314,11 @@ export function restartWhenSettled(
 	let short: HeapPressure | undefined;
 	// The pressure a wait for a moment with no turn was last said for.
 	let saidPressed: HeapPressure | undefined;
+	// Why a restart was last said to be held for the person, and when.
+	let saidQuiet: string | undefined;
+	let saidQuietAt: number | undefined;
+	// Whether it last said it waits for a gap, so a minute's look says it no longer does.
+	let waiting = false;
 	let cancel = after(options.firstLookMs ?? FIRST_LOOK_MS, () => void look());
 
 	async function look(): Promise<void> {
@@ -312,8 +331,11 @@ export function restartWhenSettled(
 		}
 		if (stopped) return;
 		// A heap short of room lets no held wake through, which would grow it.
+		// A look a minute away waits for no gap, so it holds no wake either:
+		// a call holding a drained restart must not hold parked work too.
 		if (next === "gap")
 			waitsForGap(pastCeiling() && short === undefined && !facts.stopping());
+		else if (next === "look" && waiting) waitsForGap(false);
 		cancel =
 			next === "restarting"
 				? after(options.restartDueMs ?? RESTART_DUE_MS, () => void dropped())
@@ -324,9 +346,10 @@ export function restartWhenSettled(
 	}
 
 	// A throw here is reported, never ending the looks.
-	function waitsForGap(waiting: boolean): void {
+	function waitsForGap(now: boolean): void {
+		waiting = now;
 		try {
-			facts.waitsForGap?.(waiting);
+			facts.waitsForGap?.(now);
 		} catch (error) {
 			facts.report(error);
 		}
@@ -402,6 +425,32 @@ export function restartWhenSettled(
 		);
 	}
 
+	// Whether a call or a meeting holds the restart, said once for each
+	// reason; a heap that has nearly run out waits for neither.
+	async function heldForThePerson(under: RestartRule): Promise<boolean> {
+		if (facts.quiet === undefined) return false;
+		if (under.rule === "heap" && under.pressure === "urgent") return false;
+		let why: string | undefined;
+		try {
+			why = await facts.quiet();
+		} catch (error) {
+			why = `it can't tell whether a call is on or a meeting is near: ${String(error)}`;
+		}
+		const now = facts.now();
+		if (
+			why !== undefined &&
+			(why !== saidQuiet ||
+				saidQuietAt === undefined ||
+				now - saidQuietAt >= HELD_SAY_MS)
+		) {
+			facts.report(`Restart held while ${why}`);
+			saidQuietAt = now;
+		}
+		saidQuiet = why;
+		if (why === undefined) saidQuietAt = undefined;
+		return why !== undefined;
+	}
+
 	// Read how short the heap runs, once for each decision, so the rule and its journal line agree.
 	function readPressure(): void {
 		short = facts.pressure?.();
@@ -422,17 +471,26 @@ export function restartWhenSettled(
 		if (why === undefined) {
 			differingSince = undefined;
 			heldSaidAt = undefined;
+			saidQuiet = undefined;
+			saidQuietAt = undefined;
 			return "look";
 		}
 		differingSince ??= facts.now();
 		readPressure();
 		const under = mayRestart();
 		if (under === undefined) return looksForGap() ? "gap" : "look";
+		if (await heldForThePerson(under)) return "look";
+		if (stopped) return "look";
+		// The probes took seconds, in which a turn or a stop may have begun,
+		// so the rule is read again before acting on it.
+		readPressure();
+		const still = mayRestart();
+		if (still === undefined) return looksForGap() ? "gap" : "look";
 		// Before systemctl, since systemd may stop the host before it answers.
 		waitsForGap(false);
 		facts.expect(true);
 		try {
-			await facts.restart(why, under);
+			await facts.restart(why, still);
 		} catch (error) {
 			facts.expect(false);
 			throw error;
@@ -463,6 +521,8 @@ export interface Following {
 	resting(): boolean;
 	/** Whether the restart waits for a gap past its ceiling (restartWhenSettled). */
 	waitsForGap?(waiting: boolean): void;
+	/** Why the person can't take a restart now; the unit's probes by default (quiet.ts). */
+	readonly quiet?: () => Promise<string | undefined>;
 	report(error: unknown): void;
 	/** The version the host runs; its own package root by default. */
 	readonly root?: string;
@@ -537,6 +597,8 @@ export async function followWhatStarts(
 	}
 
 	const settledMs = options.timing?.settledMs ?? SETTLED_MS;
+	const quiet =
+		options.quiet ?? quietFrom(process.env[RESTART_WAITS_ON_VARIABLE]);
 	const unfollow = restartWhenSettled(
 		{
 			differs: async () => {
@@ -549,6 +611,7 @@ export async function followWhatStarts(
 			...(options.waitsForGap ? { waitsForGap: options.waitsForGap } : {}),
 			resting: options.resting,
 			pressure,
+			...(quiet ? { quiet } : {}),
 			stopping: () => options.serving.stopping(),
 			expect: (coming) => options.serving.restartComing(coming),
 			restart: async (why, under) => {

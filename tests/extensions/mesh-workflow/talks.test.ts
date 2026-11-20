@@ -12,12 +12,18 @@ import {
 	createTalks,
 	ended,
 	endsForGood,
+	followWithheld,
 	READING_MS,
 	type Talks,
 	userText,
 } from "../../../extensions/mesh-workflow/talks.ts";
+import { sayReplyWithheld } from "../../../lib/internal/session/withheld.ts";
 import type { Steer } from "../../../lib/mesh/steer.ts";
 import { talkFile } from "../../../lib/mesh/talk.ts";
+import { fakePi } from "../../support/fake-pi.ts";
+
+/** A bus as pi's: what is said on a channel reaches what hears it. */
+const fakeBus = () => fakePi().events;
 
 let inbox: string;
 let clock: number;
@@ -363,6 +369,129 @@ describe("a talk a session follows", () => {
 		following.settled(false);
 		const replies = join(inbox, "replies");
 		expect(existsSync(replies), `${replies} is not made`).toBe(false);
+	});
+});
+
+describe("a reply withheld after a talk had it", () => {
+	const ASK = "Please reboot optimus.";
+	const INSTEAD =
+		"(Withheld: this asked the person to end a machine's sessions.)";
+
+	it("is replied by what stands in its place, through the run's end", () => {
+		const following = talks();
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		following.withheld(ASK, INSTEAD);
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: INSTEAD });
+	});
+
+	it("is replied by what stands in its place once the talk has closed", () => {
+		const following = talks();
+		following.step("bash");
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		following.withheld(ASK, INSTEAD);
+
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: INSTEAD });
+	});
+
+	it("keeps a talk open in either order, the guard's or the mesh's first", () => {
+		const following = talks();
+		following.step("bash");
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.withheld(ASK, INSTEAD);
+		following.wrote(INSTEAD);
+		following.wrote("I've asked the orchestrator to schedule it.");
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "replied",
+			text: "I've asked the orchestrator to schedule it.",
+		});
+	});
+
+	it("leaves a talk an earlier run replied as it was, though this run writes the same", () => {
+		const following = talks();
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		following.settled(false);
+		following.wrote(ASK);
+		following.withheld(ASK, INSTEAD);
+		following.wrote("other");
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: ASK });
+	});
+
+	it("never ends a newer talk its session replied, as it replies the older one again", () => {
+		const following = talks();
+		following.step("bash");
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		take(following, { text: "and then?", id: "t2", file: "f2" });
+		following.wrote("Then the docs.");
+		following.withheld(ASK, INSTEAD);
+
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: INSTEAD });
+		expect(stages("t2").map((one) => one.stage)).not.toContain("over");
+	});
+
+	it("keeps a talk taken into work open, so the run's next text replies it", () => {
+		const following = talks();
+		following.step("bash");
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		following.withheld(ASK, INSTEAD);
+		following.wrote("I've asked the orchestrator to schedule it.");
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "replied",
+			text: "I've asked the orchestrator to schedule it.",
+		});
+	});
+
+	it("replies a closed talk by the placeholder though a newer talk opened meanwhile", () => {
+		const following = talks();
+		following.step("bash");
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		const newer = { text: "and then?", id: "t2", file: "f2" };
+		following.opened(newer, inbox, said(newer));
+		following.withheld(ASK, INSTEAD);
+
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: INSTEAD });
+		expect(stages("t2").map((one) => one.stage)).toEqual(["delivered"]);
+	});
+
+	it("is heard on the bus, as the guard says it", () => {
+		const bus = fakeBus();
+		const following = talks();
+		followWithheld(bus, following);
+		take(following, { text: "what next?", id: "t1", file: "f" });
+		following.wrote(ASK);
+		sayReplyWithheld(bus, {
+			was: { role: "assistant", content: [{ type: "text", text: ASK }] },
+			now: { role: "assistant", content: [{ type: "text", text: INSTEAD }] },
+		});
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({ stage: "replied", text: INSTEAD });
+	});
+
+	it("leaves a talk another reply answered as it was", () => {
+		const following = talks();
+		take(following, { text: "status?", id: "t1", file: "f" });
+		following.wrote("All green.");
+		following.withheld(ASK, INSTEAD);
+		following.settled(false);
+
+		expect(stages("t1").at(-1)).toEqual({
+			stage: "replied",
+			text: "All green.",
+		});
 	});
 });
 

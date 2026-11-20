@@ -23,7 +23,7 @@ import {
 	rowsUnderGate,
 	settleIntoChat,
 } from "../../lib/ui/pi-layout.ts";
-import { bootPi, type PiSession, waitFor } from "./pi-session.ts";
+import { bootPi, type PiSession, screenUntil } from "./pi-session.ts";
 
 const COLS = 80;
 const ROWS = 30;
@@ -121,7 +121,7 @@ describe("reading pi's screen", () => {
 
 		session.answer(`MARK-answer ${"lorem ipsum ".repeat(40)}`);
 		await session.prompt("a question");
-		await waitFor(() => !session.runtime.session.isStreaming, "the turn");
+		await screenUntil("the turn", () => !session.runtime.session.isStreaming);
 
 		expect(before).toBeTypeOf("number");
 		expect(room(session)).toBe(before);
@@ -141,15 +141,15 @@ describe("reading pi's screen", () => {
 		]);
 
 		await session.prompt("hold on");
-		await waitFor(() => letGo !== undefined, "the tool to start");
-		await waitFor(() => session.onScreen("MARK-held-0"), "the tool's rows");
+		await screenUntil("the tool to start", () => letGo !== undefined);
+		await screenUntil("the tool's rows", () => session.onScreen("MARK-held-0"));
 		const running = room(session, true);
 
 		expect(running).toBeTypeOf("number");
 		expect(running).toBeLessThanOrEqual((idle ?? 0) - ROWS_HELD);
 
 		letGo?.();
-		await waitFor(() => !session.runtime.session.isStreaming, "the turn");
+		await screenUntil("the turn", () => !session.runtime.session.isStreaming);
 		expect(room(session)).toBe(idle);
 	});
 });
@@ -167,8 +167,8 @@ async function holding(): Promise<PiSession> {
 		fauxAssistantMessage("MARK-done"),
 	]);
 	await session.prompt("hold on");
-	await waitFor(() => letGo !== undefined, "the tool to start");
-	await waitFor(() => session.onScreen("MARK-held-0"), "the tool's rows");
+	await screenUntil("the tool to start", () => letGo !== undefined);
+	await screenUntil("the tool's rows", () => session.onScreen("MARK-held-0"));
 	return session;
 }
 
@@ -188,7 +188,7 @@ describe("placing a gate's record in pi's transcript", () => {
 			recordOf("MARK-record", { now: false }),
 		);
 		session.tui.requestRender();
-		await waitFor(() => session.onScreen("MARK-record"), "the record");
+		await screenUntil("the record", () => session.onScreen("MARK-record"));
 
 		expect(put, "the record is placed while a tool is still running").toBe(
 			true,
@@ -223,7 +223,7 @@ describe("placing a gate's record in pi's transcript", () => {
 		const after = rowsAfter(session.tui, record, COLS);
 		const running = rowsUnderGate(session.tui, COLS, gate);
 		letGo?.();
-		await waitFor(() => !session.runtime.session.isStreaming, "the turn");
+		await screenUntil("the turn", () => !session.runtime.session.isStreaming);
 		const finished = rowsUnderGate(session.tui, COLS, gate);
 
 		expect(after).toBeGreaterThanOrEqual(ROWS_HELD);

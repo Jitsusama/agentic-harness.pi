@@ -23,7 +23,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import panelLifecycle from "../../extensions/panel-lifecycle-workflow/index.ts";
 import subagentWorkflow from "../../extensions/subagent-workflow/index.ts";
 import type { RunPi } from "../../lib/subagent/subagent.ts";
-import { bootPi, type PiSession, sleep, strip, waitFor } from "./pi-session.ts";
+import {
+	bootPi,
+	type PiSession,
+	screenUntil,
+	sleep,
+	strip,
+} from "./pi-session.ts";
 
 vi.mock("../../lib/subagent/runpi/supervisor.ts", () => ({
 	createSupervisorRunPi: () => (input: Parameters<RunPi>[0]) => runner(input),
@@ -126,9 +132,9 @@ async function startFleet(
 	for (let turn = 0; turn < (options.history ?? 0); turn++) {
 		session.answer(`MARK-history-${turn} ${"lorem ipsum ".repeat(12)}`);
 		await session.prompt(`question ${turn}`);
-		await waitFor(
-			() => !session.runtime.session.isStreaming,
+		await screenUntil(
 			`history turn ${turn}`,
+			() => !session.runtime.session.isStreaming,
 		);
 	}
 	session.faux.setResponses([
@@ -142,12 +148,12 @@ async function startFleet(
 	]);
 	session.mark("fleet");
 	await session.prompt("run the fleet");
-	await waitFor(() => held.size === ids.length, "every subagent to start");
+	await screenUntil("every subagent to start", () => held.size === ids.length);
 	// The whole buffer, not the viewport: a board that outgrew the screen
 	// is a failure the tests below should name, not a wait that times out.
-	await waitFor(
-		async () => (await session.inBuffer(ids[0] ?? "")) > 0,
+	await screenUntil(
 		"the board",
+		async () => (await session.inBuffer(ids[0] ?? "")) > 0,
 	);
 	return session;
 }
@@ -172,10 +178,8 @@ describe("a running fleet", () => {
 
 		// Read once, straight after the board's first row showed, it failed
 		// on a lent builder (11 November), so it waits as the others do.
-		await waitFor(
-			async () =>
-				(await session.viewport()).some((row) => row.includes("Ctrl+Alt+N")),
-			"the board's key line",
+		await screenUntil("the board's key line", async () =>
+			(await session.viewport()).some((row) => row.includes("Ctrl+Alt+N")),
 		);
 	});
 
@@ -184,13 +188,13 @@ describe("a running fleet", () => {
 
 		await session.key("escape");
 
-		await waitFor(
-			() => held.get("alpha")?.signal?.aborted === true,
+		await screenUntil(
 			"the subagent to be stopped",
+			() => held.get("alpha")?.signal?.aborted === true,
 		);
-		await waitFor(
-			() => !session.runtime.session.isStreaming,
+		await screenUntil(
 			"the turn to stop",
+			() => !session.runtime.session.isStreaming,
 		);
 		// Stopped, not carried on: the model's next answer was never asked
 		// for, which is how pi's interrupt differs from cancelling the fleet.
@@ -208,9 +212,9 @@ describe("the board, once the hop chord reaches it", () => {
 		await session.key("down");
 		await session.key("r");
 
-		await waitFor(
-			() => held.get("beta")?.signal?.aborted === true,
+		await screenUntil(
 			"beta to be stopped",
+			() => held.get("beta")?.signal?.aborted === true,
 		);
 		expect(
 			held.get("alpha")?.signal?.aborted,
@@ -231,9 +235,9 @@ describe("the board, once the hop chord reaches it", () => {
 		);
 		await session.key("escape");
 
-		await waitFor(
-			() => held.get("alpha")?.signal?.aborted === true,
+		await screenUntil(
 			"alpha to be stopped",
+			() => held.get("alpha")?.signal?.aborted === true,
 		);
 		expect(
 			held.get("beta")?.signal?.aborted,
@@ -243,9 +247,8 @@ describe("the board, once the hop chord reaches it", () => {
 			session.editorFocused(),
 			"Escape on the board hands the editor back",
 		).toBe(true);
-		await waitFor(
-			() => session.onScreen("MARK-after-the-fleet"),
-			"the turn to carry on past the fleet",
+		await screenUntil("the turn to carry on past the fleet", () =>
+			session.onScreen("MARK-after-the-fleet"),
 		);
 	});
 
@@ -294,9 +297,8 @@ describe("when the fleet finishes", () => {
 
 		session.mark("finish");
 		for (const one of held.values()) one.release();
-		await waitFor(
-			() => session.onScreen("MARK-after-the-fleet"),
-			"the turn to finish",
+		await screenUntil("the turn to finish", () =>
+			session.onScreen("MARK-after-the-fleet"),
 		);
 		await sleep(50);
 
@@ -321,9 +323,8 @@ describe("when the fleet finishes", () => {
 		);
 
 		held.get("alpha")?.release();
-		await waitFor(
-			() => session.onScreen("MARK-after-the-fleet"),
-			"the turn to finish",
+		await screenUntil("the turn to finish", () =>
+			session.onScreen("MARK-after-the-fleet"),
 		);
 
 		expect(
@@ -364,9 +365,9 @@ describe("a session replaced under a running fleet", () => {
 		);
 
 		await session.runtime.newSession();
-		await waitFor(
-			async () => !(await session.onScreen("Subagent Fleet")),
+		await screenUntil(
 			"the board to go",
+			async () => !(await session.onScreen("Subagent Fleet")),
 		);
 
 		expect(

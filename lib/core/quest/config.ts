@@ -11,6 +11,7 @@
  */
 
 import { join } from "node:path";
+import { isBudgetName } from "../../budget/provider.ts";
 
 /** An extension's parser for its own config section. */
 export type SectionParse<T> = (
@@ -54,6 +55,12 @@ export interface QuestWorkflowConfig {
 	 * by their choice. The background host has no screen to type into.
 	 */
 	startHost?: StartHostSetting;
+	/**
+	 * The budget a session drawing on no budget moves to when the
+	 * person's own key is refused for being over its cap, for as long as
+	 * the cap refuses. Unset, such a refusal ends the turn as any other.
+	 */
+	budgetWhenCapped?: string;
 }
 
 /** The choices `spawnHost` takes. */
@@ -127,12 +134,26 @@ export const parseQuestWorkflowConfig: SectionParse<QuestWorkflowConfig> = (
 	if (startHost !== undefined && !isStartHostSetting(startHost)) {
 		return { ok: false, error: "startHost must be off or attended" };
 	}
+	const whenCapped = record.budgetWhenCapped;
+	if (
+		whenCapped !== undefined &&
+		(typeof whenCapped !== "string" || !isBudgetName(whenCapped.trim()))
+	) {
+		// A name a session can't say it draws on would be laid on every
+		// refusal, since each would read as the session drawing on none.
+		return {
+			ok: false,
+			error:
+				"budgetWhenCapped must be a budget's name: letters, digits, dots, dashes and underscores, at most 64",
+		};
+	}
 	const parsed: QuestWorkflowConfig = {};
 	if (questsRoot !== undefined) parsed.questsRoot = questsRoot;
 	if (autoloadFromCwd !== undefined) parsed.autoloadFromCwd = autoloadFromCwd;
 	if (retention !== undefined) parsed.sessionRetentionDays = retention;
 	if (spawnHost !== undefined) parsed.spawnHost = spawnHost;
 	if (startHost !== undefined) parsed.startHost = startHost;
+	if (whenCapped !== undefined) parsed.budgetWhenCapped = whenCapped.trim();
 	return { ok: true, value: parsed };
 };
 

@@ -27,9 +27,9 @@
 
 import { delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
-import { askAt, nodeSocket } from "../../mesh/node.ts";
+import { askAt, machineNamesFrom, nodeSocket } from "../../mesh/node.ts";
 import { loadPackageConfig } from "../config/loader.ts";
-import { isMachineName, thisMachine } from "../machine/machine.ts";
+import { thisMachine } from "../machine/machine.ts";
 import { isRecord } from "../record.ts";
 
 /** The folder of stand-ins for ssh, scp, sftp and rsync. */
@@ -70,20 +70,7 @@ export function refusesBySetting(section: unknown): boolean {
 
 /** The machines named in a node's answer to `Machines`, or none. */
 export function machinesFrom(line: string | undefined): string[] {
-	if (line === undefined) return [];
-	let reply: unknown;
-	try {
-		reply = JSON.parse(line);
-	} catch {
-		// Not an answer this reader knows: it names no machine.
-		return [];
-	}
-	const machines =
-		isRecord(reply) && isRecord(reply.Ok) ? reply.Ok.Machines : undefined;
-	if (!Array.isArray(machines)) return [];
-	return machines.flatMap((one) =>
-		isRecord(one) && isMachineName(one.name) ? [one.name] : [],
-	);
+	return line === undefined ? [] : (machineNamesFrom(line) ?? []);
 }
 
 /** Where the guard reads its setting and the realm's machines. */
