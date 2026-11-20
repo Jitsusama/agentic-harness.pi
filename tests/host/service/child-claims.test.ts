@@ -398,7 +398,11 @@ describe("whose conversation a child holds", () => {
 			expect(String(reported[0])).toContain("which another child runs"),
 		);
 		await childOf(a).end("parked");
-		await vi.waitFor(() => expect(existsSync(slotA.file)).toBe(false));
+		await vi.waitFor(() =>
+			expect(existsSync(slotA.file), "the parked child's slot is cleared").toBe(
+				false,
+			),
+		);
 		await vi.waitFor(
 			() => expect(String(reported.at(-1))).toContain("still runs"),
 			{ timeout: 4_000 },
