@@ -9,7 +9,10 @@
  *
  * Git is asked off the thread: a host runs many conversations on one
  * thread, and a git status over a large tree, or one waiting on a lock,
- * held every one of them for as long as it took.
+ * held every one of them for as long as it took. The guard in front of
+ * each ask (tree-git.ts) still finds the repository synchronously, a
+ * few stats up the folder's parents, which a stalled mount would hold
+ * as git once did.
  */
 
 import { createHash } from "node:crypto";
@@ -38,14 +41,18 @@ const STATUS_MOST_CHARS = 1024 * 1024;
 /** How many changed files are stamped at once. */
 const STAMPED_AT_ONCE = 64;
 
-/** Whether `path` is still on disk, asked off the thread. */
+/**
+ * Whether `path` is still on disk, asked off the thread: only a path
+ * the disk says isn't there is gone, and one out of reach for now is
+ * taken as there.
+ */
 export async function present(path: string): Promise<boolean> {
 	try {
 		await access(path);
 		return true;
-	} catch {
-		// Gone, or out of reach, which a check can read no better.
-		return false;
+	} catch (error) {
+		const code = error instanceof Error && Reflect.get(error, "code");
+		return code !== "ENOENT" && code !== "ENOTDIR";
 	}
 }
 
@@ -104,7 +111,10 @@ export async function treeFingerprint(
 	if (!head.answered || changed === undefined || top === undefined) {
 		return undefined;
 	}
-	const commit = head.code === 0 ? head.stdout : undefined;
+	const unborn = head.code !== 0 && NO_COMMIT.test(head.stderr);
+	// Any other failure says nothing of what the tree sits on.
+	if (head.code !== 0 && !unborn) return undefined;
+	const commit = unborn ? undefined : head.stdout;
 	const print = await fingerprintOf(commit, changed, top);
 	// Stopped while stamping: what it read is no answer.
 	return signal?.aborted ? undefined : print;
@@ -126,8 +136,14 @@ export async function recordedFingerprint(
 	return top.answered && NOT_A_REPOSITORY.test(top.stderr) ? undefined : null;
 }
 
-/** What git says of a folder no repository holds. */
+/** What git says, in the C locale, of a folder no repository holds. */
 const NOT_A_REPOSITORY = /not a git repository/i;
+
+/** What git says, in the C locale, of a HEAD with no commit yet. */
+const NO_COMMIT = /unknown revision|ambiguous argument/i;
+
+/** Git's messages untranslated, so what it says can be told apart. */
+const UNTRANSLATED = { LC_ALL: "C" };
 
 /** The fingerprint of a tree at `head` whose status said `status`. */
 async function fingerprintOf(
@@ -232,6 +248,7 @@ async function ask(
 	const bounds = {
 		cwd,
 		timeoutMs: GIT_WALL_MS,
+		env: UNTRANSLATED,
 		...(signal ? { signal } : {}),
 		...(mostChars ? { maxOutputChars: mostChars } : {}),
 	};

@@ -104,6 +104,27 @@ export async function failureNow(
 }
 
 /**
+ * What a commit is told, confirmed now, settling the state's outcome
+ * from the same answer when it was failing or now fails. A check whose
+ * run was overtaken past its bound asks git nothing more: the newest
+ * run is the next ask's.
+ */
+export async function commitCheck(
+	state: VerificationState,
+	scope: VerificationScope,
+	backend: DiagnosticsBackend | undefined,
+): Promise<VerificationFailure | undefined> {
+	const { failure, judged } = await failureNow(state, scope, backend);
+	if (state.outcome === "failing" || failure) {
+		const overtaken = judged !== undefined && judged.run !== state.failedRun;
+		state.outcome = overtaken
+			? outcomeOf(state)
+			: await settle(state, judged, scope.signal);
+	}
+	return failure;
+}
+
+/**
  * Where a failed run's tree stands. Outside git there is no fingerprint
  * to compare, and an edit under its root is what retires it instead;
  * one git said nothing of when it ran can't be compared either. A root
@@ -143,5 +164,10 @@ export async function settle(
 	if (run && standing === "moved" && state.failedRun === run) {
 		state.failedRun = undefined;
 	}
+	return outcomeOf(state);
+}
+
+/** The outcome for what the state knows, asking nobody. */
+function outcomeOf(state: VerificationState): "clean" | "failing" {
 	return state.known.size > 0 || state.failedRun ? "failing" : "clean";
 }

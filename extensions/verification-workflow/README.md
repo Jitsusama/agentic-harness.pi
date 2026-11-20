@@ -84,15 +84,19 @@ never read from an earlier pass:
   time on every changed file. Staging moves no file, so it does
   not count as a change. Outside git, an edit under its project
   retires it instead, and only git saying the folder is in no
-  repository counts as outside git. Git is asked off the thread,
-  within five seconds and a mebibyte of status. When it gives no
-  answer, its clock or a stop ended it, or its status ran past
-  that, the run holds back no commit but stays failing on the
+  repository counts as outside git. Git is asked in its own
+  untranslated words, off the thread, within five seconds and a
+  mebibyte of status. When it gives no answer, its clock or a
+  stop ended it, its status ran past that, or it failed to say
+  what the tree sits on for any reason but there being no commit
+  yet, the run holds back no commit but stays failing on the
   status line: a clean run or an edit there retires it, as does
   git later saying the tree moved, if git fingerprinted it when
   the run ended. So a tree changed too widely to list holds back
-  no commit on a failed run. A project no longer on disk retires
-  it, however it was recorded.
+  no commit on a failed run. A project the disk says is gone
+  retires it, however it was recorded; one out of reach for now
+  doesn't. Of two failed runs ending close together, in any
+  projects, the one that ended last is kept.
 
 It used to publish a flag that only the end of a turn refreshed,
 and a verify run in the wrong directory could set it, so a commit
