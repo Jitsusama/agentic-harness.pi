@@ -63,7 +63,7 @@ import {
 	parseDocumentFrontMatter,
 } from "../documents/frontmatter.ts";
 import { extractTitle, parseQuestDoc } from "../documents/quest-doc.ts";
-import { questWritesMade, questsWrittenSince } from "../io.ts";
+import { questsWrittenSince, questWritesMade } from "../io.ts";
 import {
 	CANONICAL_DOCUMENT_DIRS,
 	type CacheSlot,
@@ -250,7 +250,7 @@ export function discoverQuests(
  */
 export function refreshQuests(
 	questsRoot: string,
-	ids: Iterable<string | undefined>,
+	ids: Iterable<string | null | undefined>,
 ): void {
 	if (!hosted()) return;
 	const slot = memo().cache.get(questsRoot);
@@ -265,12 +265,12 @@ export function refreshQuests(
 /** The quest folders `ids` name, as `refreshQuests` reads them. */
 function questsNamed(
 	result: DiscoveryResult,
-	ids: Iterable<string | undefined>,
+	ids: Iterable<string | null | undefined>,
 ): Set<string> {
 	const named = new Set<string>();
 	const asked = new Set<string>();
 	for (const id of ids) {
-		if (id === undefined || !isId(id)) continue;
+		if (typeof id !== "string" || !isId(id)) continue;
 		if (prefixOf(id) === "QEST") named.add(id);
 		else asked.add(`${id}.md`);
 	}
@@ -408,10 +408,10 @@ function caughtUp(
 	}
 	const unmoved = rootStamp === slot.rootStamp && rootNames === slot.rootNames;
 	if (names.size === 0 && writes === slot.writes && unmoved) return slot.result;
-	const result =
-		names.size === 0
-			? slot.result
-			: merged(questsRoot, slot.result, names, walkNamed(questsRoot, names, pass));
+	const found = names.size > 0 ? walkNamed(questsRoot, names, pass) : undefined;
+	const result = found
+		? merged(questsRoot, slot.result, names, found)
+		: slot.result;
 	const pending = new Map(
 		[...slot.pending].filter(([dir]) => !names.has(basename(dir))),
 	);
@@ -486,7 +486,9 @@ function merged(
 		quests.set(now.doc.frontMatter.id, now);
 		fresh.delete(name);
 	}
-	for (const entry of fresh.values()) quests.set(entry.doc.frontMatter.id, entry);
+	for (const entry of fresh.values()) {
+		quests.set(entry.doc.frontMatter.id, entry);
+	}
 	const among = (path: string) => names.has(entryUnder(questsRoot, path));
 	const errors = [
 		...last.errors.filter((error) => !among(error.path)),
@@ -741,7 +743,10 @@ function walkQuests(questsRoot: string, pass: Pass): DiscoveryResult {
 	const rootEntries = readEntries(questsRoot, pass);
 	if (!rootEntries) {
 		const errors = [
-			{ path: questsRoot, message: "Quests root does not exist as a directory." },
+			{
+				path: questsRoot,
+				message: "Quests root does not exist as a directory.",
+			},
 		];
 		return { index: { quests: new Map(), children: new Map() }, errors };
 	}
