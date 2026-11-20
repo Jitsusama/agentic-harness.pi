@@ -9,7 +9,6 @@ import {
 	type BackendChildren,
 	type ConversationEngine,
 	hostBackend,
-	resumeHeld,
 } from "../../../host/service/backend.ts";
 import {
 	type ControlReply,
@@ -19,6 +18,7 @@ import type {
 	ControlRequest,
 	SessionIdentity,
 } from "../../../host/service/protocol.ts";
+import { resumeHeld } from "../../../host/service/resume-held.ts";
 import { type HostRoster, openRoster } from "../../../host/service/roster.ts";
 import type { RosterEntry } from "../../../lib/core/session/roster.ts";
 

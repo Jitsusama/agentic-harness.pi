@@ -48,13 +48,9 @@ import { withPi } from "../../lib/internal/priority/place.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import type { SessionHost } from "../engine/index.ts";
 import { type HostKind, hostKey, hostRealm } from "./address.ts";
-import type {
-	ConversationEngine,
-	ResumeEnd,
-	ResumePhase,
-	Resuming,
-} from "./backend.ts";
+import type { ConversationEngine, ResumePhase } from "./backend.ts";
 import { type HoldWatchOptions, watchHolds } from "./hold-watch.ts";
+import type { ResumeEnd, Resuming } from "./resume-held.ts";
 import type { AdmitAnother } from "./rollout.ts";
 import { type ServingHost, type StartStep, serveHost } from "./serve.ts";
 import type { ViewerBridge } from "./server.ts";

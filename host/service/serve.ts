@@ -28,18 +28,20 @@ import {
 	type ConversationEngine,
 	conversationEvents,
 	type HostBackend,
-	heldOrder,
 	hostBackend,
-	type ResumeEnd,
 	type ResumePhase,
-	type Resuming,
-	resumeHeld,
 	type Unresumed,
 } from "./backend.ts";
 import { type HostedChildren, hostChildren } from "./child-hosting.ts";
 import type { ChildPolicy } from "./child-policy.ts";
 import { slotFolder, type Units } from "./child-units.ts";
 import type { ControlBackend } from "./dispatch.ts";
+import {
+	heldOrder,
+	type ResumeEnd,
+	type Resuming,
+	resumeHeld,
+} from "./resume-held.ts";
 import { type AdmitAnother, hostRolloutGate } from "./rollout.ts";
 import { openRoster, type RosterWait } from "./roster.ts";
 import { listenControl, type ViewerBridge } from "./server.ts";
