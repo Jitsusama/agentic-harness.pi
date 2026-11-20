@@ -167,10 +167,17 @@ function providerSource(
 	);
 }
 
-/** A module whose default export is `give`, at a path of its own. */
+/**
+ * A module whose default export is `give`, at a path of its own, with
+ * node:fs as `fs` loaded with it, so no call waits on an import inside
+ * a clock that times it.
+ */
 function module(name: string, give: string): string {
 	const path = join(root, `${name}.mjs`);
-	writeFileSync(path, `export default ${give};\n`);
+	writeFileSync(
+		path,
+		`import * as fs from "node:fs";\nexport default ${give};\n`,
+	);
 	return path;
 }
 
@@ -224,6 +231,7 @@ it("leaves out of its stamp a provider that couldn't judge a tree", async () => 
 			'async () => { throw new Error("no dev here"); }',
 		)}]`,
 	);
+	const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
 	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
 
@@ -232,6 +240,12 @@ it("leaves out of its stamp a provider that couldn't judge a tree", async () => 
 		"world-dev-tree couldn't judge or take every tree",
 	]);
 	expect(exitCodeOf(ran), "the code it exits with").toBe(1);
+	expect(
+		said.mock.calls.map((call) => String(call[0])),
+		"what its unit's journal was told",
+	).toContain(
+		"pi-sweep: world-dev-tree couldn't judge or take every tree, so the hosts sweep its trees; sweep.log has each tree's reason\n",
+	);
 });
 
 it("asks a provider that hung nothing more that run", async () => {
@@ -241,7 +255,7 @@ it("asks a provider that hung nothing more that run", async () => {
 		"world",
 		`() => [${providerSource(
 			"world-dev-tree",
-			`async () => { (await import("node:fs")).appendFileSync(${JSON.stringify(asked)}, "x"); return new Promise(() => {}); }`,
+			`async () => { fs.appendFileSync(${JSON.stringify(asked)}, "x"); return new Promise(() => {}); }`,
 		)}]`,
 	);
 
@@ -257,7 +271,7 @@ it("asks a provider that threw for one tree about the rest, and stamps it", asyn
 		"world",
 		`() => [${providerSource(
 			"world-dev-tree",
-			`async () => { const fs = await import("node:fs"); const first = !fs.existsSync(${JSON.stringify(asked)}); fs.appendFileSync(${JSON.stringify(asked)}, "x"); if (first) throw new Error("one bad tree"); }`,
+			`async () => { const first = !fs.existsSync(${JSON.stringify(asked)}); fs.appendFileSync(${JSON.stringify(asked)}, "x"); if (first) throw new Error("one bad tree"); }`,
 		)}]`,
 	);
 
@@ -282,7 +296,7 @@ it("stamps a provider that couldn't take one tree but took another", async () =>
 		`() => [${providerSource(
 			"world-dev-tree",
 			undefined,
-			`async () => { const fs = await import("node:fs"); const first = !fs.existsSync(${JSON.stringify(took)}); fs.appendFileSync(${JSON.stringify(took)}, "x"); if (first) throw new Error("dev refused"); }`,
+			`async () => { const first = !fs.existsSync(${JSON.stringify(took)}); fs.appendFileSync(${JSON.stringify(took)}, "x"); if (first) throw new Error("dev refused"); }`,
 		)}]`,
 	);
 
@@ -292,6 +306,49 @@ it("stamps a provider that couldn't take one tree but took another", async () =>
 		judged: ["git-worktree", "world-dev-tree"],
 	});
 	expect(exitCodeOf(ran), "the code it exits with").toBe(1);
+});
+
+it("leaves out of its stamp a provider that judged a tree but took none", async () => {
+	seen.releasing = true;
+	seen.trees = 2;
+	const asked = join(root, "asked");
+	const world = module(
+		"world",
+		`() => [${providerSource(
+			"world-dev-tree",
+			`async () => { const first = !fs.existsSync(${JSON.stringify(asked)}); fs.appendFileSync(${JSON.stringify(asked)}, "x"); if (first) throw new Error("one bad tree"); }`,
+			'async () => { throw new Error("dev is gone"); }',
+		)}]`,
+	);
+
+	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
+
+	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+	expect(exitCodeOf(ran), "the code it exits with").toBe(1);
+});
+
+it("puts no clock on taking a tree", async () => {
+	seen.releasing = true;
+	const world = module(
+		"world",
+		`() => [${providerSource(
+			"world-dev-tree",
+			undefined,
+			// A take that outlasts the judging clock below, as dev's removal
+			// of a large tree can.
+			"() => new Promise((done) => setTimeout(done, 200))",
+		)}]`,
+	);
+
+	const ran = await sweepOutside({
+		env: { PI_SWEEP_PROVIDERS: world },
+		callWithinMs: 20,
+	});
+
+	expect(ran.troubles, "what went wrong beside").toEqual([]);
+	expect(stamp(), "the stamp it left").toEqual({
+		judged: ["git-worktree", "world-dev-tree"],
+	});
 });
 
 it("leaves out of its stamp a provider that couldn't take a tree", async () => {
@@ -317,7 +374,7 @@ it("stops and leaves out of its stamp a provider whose judgement never settles",
 		"world",
 		`() => [${providerSource(
 			"world-dev-tree",
-			`async (_held, options) => { const fs = await import("node:fs"); options.signal.addEventListener("abort", () => fs.writeFileSync(${JSON.stringify(stopped)}, "")); return new Promise(() => {}); }`,
+			`async (_held, options) => { options.signal.addEventListener("abort", () => fs.writeFileSync(${JSON.stringify(stopped)}, "")); return new Promise(() => {}); }`,
 		)}]`,
 	);
 
@@ -428,7 +485,9 @@ it("passes over a module that won't load, one named by a relative path, and one 
 				world,
 			].join(":"),
 		},
-		loadWithinMs: 50,
+		// Long enough that the module that loads is never cut off, however
+		// busy the machine, and short for the one that never settles.
+		loadWithinMs: 1000,
 	});
 
 	expect(
@@ -439,7 +498,7 @@ it("passes over a module that won't load, one named by a relative path, and one 
 		"isn't an absolute path",
 	);
 	expect(ran.troubles[2], "why the one that never settled was").toContain(
-		"gave nothing within 0.05 s",
+		"gave nothing within 1 s",
 	);
 	expect(String(said.mock.calls[0]?.[0]), "what it said").toContain(
 		"pi-sweep: passed over",

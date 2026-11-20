@@ -29,15 +29,20 @@
  * names, colon-separated and absolute, each one's default export a
  * function giving the providers to load. A module that won't load, or
  * gives anything but providers, is passed over whole. A provider that
- * took past fifteen minutes over a tree is told to stop, asked nothing
- * more that run, and left out of the stamp, as is one whose judging or
- * taking failed for every tree it tried, so the hosts go on sweeping
- * those trees. One that failed for only some keeps them and stays in
- * the stamp. Trees from a provider loaded nowhere here are kept.
+ * took past fifteen minutes to judge a tree is told to stop, asked
+ * nothing more that run, and left out of the stamp, as is one whose
+ * judging or taking failed for every tree it tried, so the hosts go on
+ * sweeping those trees. One that failed for only some keeps them and
+ * stays in the stamp. Taking a tree has no clock, as in a host, since
+ * the sweep hands a tree back to its sessions once a take fails, and
+ * one cut off may still be removing it; the unit's own two hours end a
+ * take that never settles, leaving the record the sweep's. Trees from
+ * a provider loaded nowhere here are kept.
  *
  * It writes its sweep's line to the sweep's log, as a host's does, and a
- * line for any module it passed over, provider that failed or stamp it
- * couldn't write, and exits 1 after any of those or a sweep that failed
+ * line for any module it passed over, provider that failed, stamp it
+ * couldn't write or reason it didn't sweep, both there and to its
+ * unit's journal, and exits 1 after any of those or a sweep that failed
  * or left trees unjudged, so its unit shows it.
  *
  * Node runs it as it stands, stripping the types:
@@ -80,8 +85,8 @@ const PROVIDER_MODULES = "PI_SWEEP_PROVIDERS";
 const LOAD_WITHIN_MS = 60 * 1000;
 
 /**
- * How long a provider may take to judge or take one tree before the run
- * goes on without it: past World's ten minutes for one dev command, and
+ * How long a provider may take to judge one tree before the run goes on
+ * without it: past World's ten minutes for one dev command, and
  * short of the unit's two hours, which one call that never settled
  * would otherwise spend with the lock held fresh, turning every host's
  * sweep away.
@@ -94,7 +99,7 @@ export interface SweepOutsideOptions {
 	env?: NodeJS.ProcessEnv;
 	/** How long one provider module may take to load. */
 	loadWithinMs?: number;
-	/** How long one provider may take to judge or take one tree. */
+	/** How long one provider may take to judge one tree. */
 	callWithinMs?: number;
 }
 
@@ -129,25 +134,23 @@ export async function sweepOutside({
 		calls,
 	);
 	if (troubles.length > 0) logSweep({ passedOver: troubles });
-	const untrusted = await whyUntrusted();
-	if (untrusted !== undefined) {
-		logSweep({ ms: 0, failed: untrusted });
+	const refused = (why: string): SweptOutside => {
+		logSweep({ ms: 0, failed: why });
+		tell(`didn't sweep: ${why}`);
 		return { end: "failed", troubles };
-	}
+	};
+	const untrusted = await whyUntrusted();
+	if (untrusted !== undefined) return refused(untrusted);
 	let questsRoot: string;
 	try {
 		questsRoot = await questsRootNow();
 	} catch (error) {
-		logSweep({ ms: 0, failed: `the quests can't be found: ${said(error)}` });
-		return { end: "failed", troubles };
+		return refused(`the quests can't be found: ${said(error)}`);
 	}
 	// A quests root that isn't there claims nothing, as a wrong one would,
 	// and one that can't be looked at may claim anything.
 	const unseen = whyQuestsUnseen(questsRoot);
-	if (unseen !== undefined) {
-		logSweep({ ms: 0, failed: unseen });
-		return { end: "failed", troubles };
-	}
+	if (unseen !== undefined) return refused(unseen);
 	const end = await sweepAndLog({
 		claimed: () => ({ held: [], untilSpent: liveQuestTrees(questsRoot) }),
 		swept: (paths) => forgetTrees(questsRoot, paths),
@@ -162,15 +165,13 @@ export async function sweepOutside({
 	// to the hosts.
 	const failed = new Set([...calls.hung, ...calls.threw.keys()]);
 	for (const id of failed) {
-		troubles.push(`${id} couldn't judge or take every tree`);
+		const trouble = `${id} couldn't judge or take every tree`;
+		troubles.push(trouble);
+		tell(
+			`${trouble}${unjudgedOf(calls, id) ? ", so the hosts sweep its trees" : ""}; sweep.log has each tree's reason`,
+		);
 	}
-	const unjudged = [...failed].filter(
-		(id) =>
-			calls.hung.has(id) ||
-			[...(calls.threw.get(id) ?? [])].some(
-				(kind) => calls.answered.get(id)?.has(kind) !== true,
-			),
-	);
+	const unjudged = [...failed].filter((id) => unjudgedOf(calls, id));
 	if (failed.size > 0) {
 		logSweep({ failedCalls: [...failed], unjudgedBy: unjudged });
 	}
@@ -180,9 +181,28 @@ export async function sweepOutside({
 	const unstamped = markSweptOutside(sweepLockPath(), Date.now(), judged);
 	if (unstamped !== undefined) {
 		logSweep({ unstamped });
+		tell(`unstamped: ${unstamped}`);
 		return { end, troubles: [...troubles, `unstamped: ${unstamped}`] };
 	}
 	return { end, troubles };
+}
+
+/**
+ * Whether provider `id`'s trees went unjudged this run: it hung, or a
+ * kind of call it threw for never answered for any tree.
+ */
+function unjudgedOf(calls: ProviderCalls, id: string): boolean {
+	return (
+		calls.hung.has(id) ||
+		[...(calls.threw.get(id) ?? [])].some(
+			(kind) => calls.answered.get(id)?.has(kind) !== true,
+		)
+	);
+}
+
+/** Say `line` in the unit's journal, where its failure is read. */
+function tell(line: string): void {
+	process.stderr.write(`pi-sweep: ${line}\n`);
 }
 
 /** Why the quests at `root` can't be read for their claims, or nothing. */
@@ -234,7 +254,7 @@ async function loadProviders(
 			}
 		} catch (error) {
 			passedOver.push(`${path}: ${said(error)}`);
-			process.stderr.write(`pi-sweep: passed over ${path}: ${said(error)}\n`);
+			tell(`passed over ${path}: ${said(error)}`);
 		}
 	}
 	return passedOver;
@@ -320,8 +340,8 @@ async function within<T>(
 
 /**
  * `provider`, noting in `calls` which providers answered, threw or took
- * longer than `withinMs`, so the stamp names only those that judged
- * their trees. A call past its time is told to stop, and the rest of
+ * longer than `withinMs` to judge, so the stamp names only those that
+ * judged their trees. A judgement past its time is told to stop, and the rest of
  * the run asks that provider nothing more, so one that hangs costs one
  * wait rather than one for every tree. One that threw is still asked
  * about its other trees, since a single bad tree says nothing of them.
@@ -346,14 +366,15 @@ function watched(
 				: AbortSignal.any([options.signal, stop.signal]);
 		let late = false;
 		try {
-			const answer = await within(
-				withinMs,
-				call({ ...options, signal }),
-				() => {
-					late = true;
-					stop.abort();
-				},
-			);
+			const asked = call({ ...options, signal });
+			// A take goes unclocked: once it fails the sweep hands the tree
+			// back to its sessions, while one cut off may still be removing it.
+			const answer = await (kind === "take"
+				? asked
+				: within(withinMs, asked, () => {
+						late = true;
+						stop.abort();
+					}));
 			note(calls.answered, provider.id, kind);
 			return answer;
 		} catch (error) {
