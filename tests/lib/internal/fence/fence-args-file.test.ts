@@ -30,6 +30,7 @@ import {
 	it,
 	onTestFinished,
 } from "vitest";
+import { createTreeMemory } from "../../../../lib/core/work/memory.ts";
 import {
 	BWRAP_MOST_ARGS,
 	bwrapArgsFile,
@@ -40,6 +41,10 @@ import {
 	fencedCommand,
 } from "../../../../lib/internal/fence/fence-command.ts";
 import { wrapFor } from "../../../../lib/internal/sandbox/sandbox.ts";
+import {
+	cutTreeDir,
+	treeRecordDir,
+} from "../../../../lib/internal/work-records.ts";
 
 /**
  * The trees a session holds in the red case: their arguments run far
@@ -87,6 +92,43 @@ function heldTreeArgs(trees: number): string[] {
 			].map((path) => ["--ro-bind", path, path]),
 		].flat();
 	}).flat();
+}
+
+/**
+ * `trees` worktrees on disk, cut where the work broker cuts them and
+ * recorded as held by `session`, each with the git folder its `.git`
+ * file names and the files the fence binds from it. Removed when the
+ * test ends.
+ */
+function holdTrees(session: string, trees: number): void {
+	const root = cutTreeDir();
+	const repository = join(root, `${session}-repository`, "worktrees");
+	const memory = createTreeMemory(treeRecordDir());
+	const made: string[] = [join(root, `${session}-repository`)];
+	for (let at = 0; at < trees; at += 1) {
+		const name = `${session}-tree-${at}`;
+		const tree = join(root, name);
+		const gitFolder = join(repository, name);
+		mkdirSync(tree, { recursive: true });
+		mkdirSync(gitFolder, { recursive: true });
+		writeFileSync(join(tree, ".git"), `gitdir: ${gitFolder}\n`);
+		writeFileSync(join(gitFolder, "commondir"), "../..\n");
+		writeFileSync(join(gitFolder, "gitdir"), `${join(tree, ".git")}\n`);
+		writeFileSync(join(gitFolder, "config.worktree"), "");
+		memory.remember({
+			path: tree,
+			identity: { key: name, shareable: false },
+			providerId: "git",
+			sessions: [session],
+		});
+		made.push(tree);
+	}
+	onTestFinished(() => {
+		for (const tree of made) rmSync(tree, { recursive: true, force: true });
+		for (const name of readdirSync(treeRecordDir()))
+			if (name.startsWith(`${session}-`))
+				rmSync(join(treeRecordDir(), name), { force: true });
+	});
 }
 
 describe("bubblewrap's arguments from a file", () => {
@@ -416,6 +458,47 @@ describe("bubblewrap's arguments from a file", () => {
 			"the runtime folder blamed for the command's own length",
 		).not.toContain("XDG_RUNTIME_DIR");
 		expect(noFolder).toContain("put it in a script and run that");
+	});
+
+	it("refuses a session holding more trees than bubblewrap takes arguments for, naming the trees", () => {
+		const home = join(folder, "home");
+		mkdirSync(home, { recursive: true });
+		const session = "too-many";
+		holdTrees(session, Math.ceil(BWRAP_MOST_ARGS / 6));
+		const said =
+			wrapFor(
+				{ kind: "fence", bwrap: "bwrap", landrun: "landrun" },
+				{
+					cwd: home,
+					env: { XDG_RUNTIME_DIR: runtimeDir, PI_SESSION_ID: session },
+				},
+				home,
+			)?.("true") ?? "";
+
+		expect(said).toContain(`past the ${BWRAP_MOST_ARGS} it takes`);
+		expect(said).toContain("release the ones it is done with");
+	});
+
+	it("blames the runtime folder when the lists, written into the text for want of it, make it too long", () => {
+		const home = join(folder, "home");
+		mkdirSync(home, { recursive: true });
+		const session = "inline";
+		// Enough for the lists to pass what Linux takes in one string, and
+		// few enough to stay inside what bubblewrap takes.
+		holdTrees(session, TREES);
+		const said =
+			wrapFor(
+				{ kind: "fence", bwrap: "bwrap", landrun: "landrun" },
+				{ cwd: home, env: { PI_SESSION_ID: session } },
+				home,
+			)?.("true") ?? "";
+
+		expect(said, "the lists went through").not.toContain("'--ro-bind'");
+		// Words without an apostrophe, which the shell's quoting splits.
+		expect(said).toContain("runtime folder couldn");
+		expect(said).toContain(
+			"check that XDG_RUNTIME_DIR names a folder pi can write",
+		);
 	});
 
 	it("is how a fenced session's command reads them, when there is a runtime folder", () => {
