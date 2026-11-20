@@ -132,10 +132,12 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 	);
 	if (outside !== undefined) return;
 	await sweepAndLog({
-		// Asked only by a sweep that runs, as the sweep says why.
-		claimed: () => {
-			const claims: TreeClaims = { paths: [], untilSpent: [] };
+		// Asked only by a sweep that runs, as the sweep says why, and
+		// waited on, so a quest answers from its tree as it stands now.
+		claimed: async () => {
+			const claims: TreeClaims = { paths: [], untilSpent: [], answering: [] };
 			pi.events.emit(WORK_TREE_CLAIMS, claims);
+			await Promise.all(claims.answering ?? []);
 			return { held: claims.paths, untilSpent: claims.untilSpent ?? [] };
 		},
 		// Whoever listed a tree it took stops listing a folder that is gone.
@@ -173,12 +175,21 @@ export function judgedProviders(): string[] {
  */
 export type SweepEnd = "ran" | "partly" | "rested" | "skipped" | "failed";
 
+/** The trees held for good, and those held only until spent. */
+export interface SweepHolds {
+	held: string[];
+	untilSpent: string[];
+}
+
 /** What a sweep asks of whoever runs it. */
 export interface SweepAsks {
 	/** The trees held for good, and those held only until spent. */
-	claimed(): { held: string[]; untilSpent: string[] };
-	/** Told the trees a sweep took, when it took any. */
-	swept(paths: readonly string[]): void;
+	claimed(): SweepHolds | Promise<SweepHolds>;
+	/**
+	 * Told the trees a sweep took, when it took any, and waited on, so a
+	 * process of its own doesn't end before its holders have forgotten them.
+	 */
+	swept(paths: readonly string[]): void | Promise<void>;
 	/** How long the machine rests after any sweep ends, if at all. */
 	restMs?: number;
 	/**
@@ -242,7 +253,7 @@ export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 	logSweep({ ms: Date.now() - started, ...line }, started);
 	if (taken.length > 0) {
 		try {
-			asks.swept(taken);
+			await asks.swept(taken);
 		} catch (error) {
 			// The trees are gone either way, and a holder that still lists
 			// one lists a path to nothing, which holds nothing; the line says
