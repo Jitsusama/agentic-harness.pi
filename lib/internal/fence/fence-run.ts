@@ -35,10 +35,10 @@
 import { existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
+	makeFoldersFirst,
 	SANDBOX_VARIABLE,
 	type Sandbox,
 	STRICT,
-	makeFoldersFirst,
 	sandboxedCommand,
 	sandboxFor,
 	unfencedFolder,

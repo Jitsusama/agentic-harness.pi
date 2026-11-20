@@ -381,8 +381,11 @@ export function seatbeltProfile(
 					...(home ? MAC_HIDDEN.map((secret) => join(home, secret)) : []),
 					// Nor one holding a program, swapped for a folder planting one.
 					...programFolders,
-				].flatMap((to) => above(to, home)),
-				...(reach.heldFromRoot ?? []).flatMap((to) => between("/", to)),
+				]
+					.flatMap((to) => above(to, home))
+					// Nor any folder between the root and a held cache, which a
+					// rename would carry out from under its read-only rule.
+					.concat((reach.heldFromRoot ?? []).flatMap((to) => between("/", to))),
 			),
 		]
 			// As named too, so a folder that is a link can't be removed and
