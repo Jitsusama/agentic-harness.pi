@@ -40,7 +40,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { spawnExec } from "../../lib/core/exec/index.ts";
+import { type Exec, spawnExec } from "../../lib/core/exec/index.ts";
 import { refusalUnder } from "../../lib/guardian/apply.ts";
 import { guardMode } from "../../lib/guardian/policy.ts";
 import { OVERRIDE_HINT } from "../../lib/guardian/report.ts";
@@ -181,12 +181,27 @@ export function nodeDeps(
 				...(env.PATH ? { env: { PATH: env.PATH } } : {}),
 			});
 			const [lingers, parked] = await Promise.all([
-				logOutSpares(exec, String(userInfo().uid)),
+				lingersHere(exec),
 				parkedHere(),
 			]);
 			return { lingers, parked };
 		},
 	};
+}
+
+/**
+ * Whether a log-out here leaves this user's services running; not
+ * where the user can't be told, so the parked sessions are still read.
+ */
+async function lingersHere(exec: Exec): Promise<boolean> {
+	let uid: number;
+	try {
+		uid = userInfo().uid;
+	} catch {
+		// No user entry for this process: nothing says what lingers.
+		return false;
+	}
+	return logOutSpares(exec, String(uid));
 }
 
 /**

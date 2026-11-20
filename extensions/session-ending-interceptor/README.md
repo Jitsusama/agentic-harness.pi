@@ -75,8 +75,10 @@ that can't be read, and refuses.
 
 Two things on this machine let an ask through that would otherwise be
 refused. Both are read only for an ask that would be refused, so an
-ordinary reply pays nothing, and anything that can't be read within
-about two seconds spares nothing, as on a Mac, with no logind.
+ordinary reply pays nothing, and anything that can't be read spares
+nothing, as on a Mac, with no logind. logind is given about two
+seconds to answer; the presences and markers are files on this
+machine, read without a deadline.
 
 - **A log-out that leaves the user's services running.** When logind
   says the user lingers and kills no user processes at a log-out
@@ -89,15 +91,18 @@ about two seconds spares nothing, as on a Mac, with no logind.
   shutdown still ends them all.
 - **Sessions that parked.** A session parks once it is idle with
   nothing of its own still out (no run, background job, open prompt
-  or unsent text), and its presence then says `parked`. It holds
-  nothing an ending could lose, so a session on this machine whose
-  presence says so, and that the node reads as idle, doesn't count,
-  whoever asks. That is how a scheduled disruption goes through once
-  the sessions it asked to park have. A holder's parked session
-  already reads as ended; a host's reads idle, since the host lives
-  on. One the node reads busy or out of reach still counts, whatever
-  its presence last said, and so does an idle session that hasn't
-  parked. A hold, or an answer to one, is not taken as parking: a
+  or unsent text); its presence then says `parked`, and its marker
+  from this boot, which a woken session clears as it starts, says it
+  still is. It holds nothing an ending could lose, so a session a pi
+  host runs here whose presence and marker both say so, and that the
+  node reads as idle, doesn't count, whoever asks. That is how a
+  scheduled disruption goes through once the sessions it asked to
+  park have. A holder's parked session already reads as ended, so one
+  the node reads idle in a holder or a plain terminal is running,
+  whatever its presence says, and counts. One the node reads busy or
+  out of reach still counts, and so does an idle session that hasn't
+  parked. The guard judges the moment of the ask: a message can wake
+  a parked session before the disruption lands. A hold, or an answer to one, is not taken as parking: a
   peer answers a hold to say it can't hold as readily as that it has.
   Sessions on another machine still count, and an ask that names no
   machine still asks for the name. Every realm's presences are read,

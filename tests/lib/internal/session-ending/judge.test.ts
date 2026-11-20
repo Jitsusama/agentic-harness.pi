@@ -275,17 +275,31 @@ describe("an ask past the sessions that parked", () => {
 	const holding = {
 		machine: "optimus",
 		lingers: false,
-		parked: new Set(["a00001", "b00001", "c00001", "d00001", "e00001"]),
+		parked: new Set([
+			"a00001",
+			"b00001",
+			"c00001",
+			"d00001",
+			"e00001",
+			"k00001",
+			"p00001",
+		]),
 	};
+	/** A session a pi host runs, which reads idle while it parks. */
+	const inHost = (
+		machine: string,
+		state: NodeSession["state"],
+		address: string,
+	): NodeSession => ({ ...on(machine, state, address), host: "work-attended" });
 	const here = [
-		on("optimus", "idle", "A00001"),
-		on("optimus", "idle", "B00001"),
+		inHost("optimus", "idle", "A00001"),
+		inHost("optimus", "idle", "B00001"),
 	];
 
 	it("still counts an idle session there that hasn't parked", () => {
 		const reason = refusalOf(
 			[ask("reboot", "optimus")],
-			[...here, on("optimus", "idle", "F00001")],
+			[...here, inHost("optimus", "idle", "F00001")],
 			SELF,
 			holding,
 		);
@@ -308,8 +322,8 @@ describe("an ask past the sessions that parked", () => {
 			[ask("reboot", "optimus")],
 			[
 				...here,
-				on("optimus", "busy", "C00001"),
-				on("optimus", "unreachable", "D00001"),
+				inHost("optimus", "busy", "C00001"),
+				inHost("optimus", "unreachable", "D00001"),
 			],
 			SELF,
 			holding,
@@ -320,10 +334,27 @@ describe("an ask past the sessions that parked", () => {
 		expect(reason).not.toMatch(/A00001|B00001/);
 	});
 
+	it("still counts an idle session a holder holds, or none, whose presence is stale", () => {
+		const reason = refusalOf(
+			[ask("reboot", "optimus")],
+			[
+				...here,
+				{ ...on("optimus", "idle", "K00001"), held: "f0520da9" },
+				on("optimus", "idle", "P00001"),
+			],
+			SELF,
+			holding,
+		);
+
+		expect(reason).toMatch(/K00001/);
+		expect(reason).toMatch(/P00001/);
+		expect(reason).not.toMatch(/A00001|B00001/);
+	});
+
 	it("still counts another machine's sessions, whose presence isn't read here", () => {
 		const reason = refusalOf(
 			[ask("reboot", "equilibrius")],
-			[...here, on("equilibrius", "idle", "E00001")],
+			[...here, inHost("equilibrius", "idle", "E00001")],
 			SELF,
 			holding,
 		);
@@ -334,7 +365,7 @@ describe("an ask past the sessions that parked", () => {
 	it("still asks for the machine when the ask names none and another has sessions", () => {
 		const reason = refusalOf(
 			[ask("reboot")],
-			[...here, on("equilibrius", "idle", "E00001")],
+			[...here, inHost("equilibrius", "idle", "E00001")],
 			SELF,
 			holding,
 		);

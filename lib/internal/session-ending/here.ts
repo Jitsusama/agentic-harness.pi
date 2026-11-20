@@ -8,7 +8,11 @@
  * user's manager, so both outlive it (optimus, 19 November). And a
  * session parks only once it is idle with nothing of its own still out,
  * no run, background job, open prompt or unsent text, and then holds
- * nothing an ending could lose (session/park.ts): its presence says so.
+ * nothing an ending could lose (session/park.ts): its presence says so,
+ * and its marker from this boot, which a woken session clears as it
+ * starts, says it still is. A presence alone outlives what it says, a
+ * boot or a wake, so the mesh's own readers ask for both, and so does
+ * this (council of 20 November, round 4).
  * Neither a hold nor an answer to one says a session parked, since a
  * peer answers a hold to say it can't hold as readily as that it has,
  * and the mesh moves an answer onto a hold that supersedes the one it
@@ -23,6 +27,7 @@ import { join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
 import { createPresences } from "../../mesh/presence.ts";
 import { everyRealmsDir } from "../paths.ts";
+import { isParked } from "../session/park.ts";
 
 /**
  * Whether a log-out here leaves the services of `user`, a name or a
@@ -44,11 +49,14 @@ export async function logOutSpares(exec: Exec, user: string): Promise<boolean> {
 }
 
 /**
- * The sessions on this machine, by id, whose presence in any realm says
- * they parked, each realm's read off the thread, since a host runs
- * every conversation on one.
+ * The sessions, by id, whose presence kept here in any realm says they
+ * parked and whose marker from this boot says they still are, each
+ * realm's presences read off the thread, since a host runs every
+ * conversation on one. `marked` reads the marker.
  */
-export async function parkedHere(): Promise<Set<string>> {
+export async function parkedHere(
+	marked: (session: string) => boolean = (session) => isParked(session),
+): Promise<Set<string>> {
 	const each = await Promise.all(
 		everyRealmsDir("state", "mesh-workflow").map((mesh) =>
 			createPresences(join(mesh, "presence")).listed(),
@@ -57,7 +65,7 @@ export async function parkedHere(): Promise<Set<string>> {
 	return new Set(
 		each
 			.flat()
-			.filter((one) => one.state === "parked")
+			.filter((one) => one.state === "parked" && marked(one.session))
 			.map((one) => one.session),
 	);
 }

@@ -19,12 +19,13 @@
  * log-out or a switch of users leaves the user's services running when
  * the user lingers and logind kills no user processes, so a session a
  * pi host runs or a holder holds outlives it; one in a terminal alone
- * does not. And a session whose presence says it parked, idle with
- * nothing of its own still out, holds nothing an ending could lose:
- * while the node reads it as idle it doesn't count, whoever asks. A
- * holder's parked session already reads as ended; a host's reads idle,
- * since the host lives on. One the node reads busy or out of reach
- * still counts, whatever its presence last said. Neither
+ * does not. And a session whose presence and marker say it parked,
+ * idle with nothing of its own still out, holds nothing an ending could
+ * lose: while the node reads it as idle in a pi host it doesn't count,
+ * whoever asks. A holder's parked session already reads as ended, so
+ * one the node reads idle with a holder, or with neither, is running
+ * whatever its presence says; a host's reads idle, since the host lives
+ * on. One the node reads busy or out of reach still counts. Neither
  * reaches another machine, or a session the node names no machine for,
  * since nothing here says what lingers or is held there.
  */
@@ -74,7 +75,7 @@ export interface Here {
 	readonly machine: string;
 	/** Whether a log-out here leaves the user's services running. */
 	readonly lingers: boolean;
-	/** The sessions here, by id, whose presence says they parked. */
+	/** The sessions, by id, whose presence and marker say they parked. */
 	readonly parked: ReadonlySet<string>;
 }
 
@@ -155,7 +156,8 @@ function spares(
 	if (!here || one.machine?.toLowerCase() !== here.machine.toLowerCase()) {
 		return false;
 	}
-	if (one.state === "idle" && here.parked.has(one.id)) return true;
+	if (one.state === "idle" && one.host !== undefined && here.parked.has(one.id))
+		return true;
 	return (
 		here.lingers &&
 		ENDS_A_LOG_IN.has(ask.act) &&

@@ -2,14 +2,26 @@
  * What this machine knows of itself that spares its own sessions: a
  * log-out that leaves the user's services running, read from logind,
  * and the sessions whose presence says they parked, read from every
- * realm's presences. Anything that can't be read spares nothing.
+ * realm's presences, while their marker from this boot says so too.
+ * Anything that can't be read spares nothing.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Exec, ExecResult } from "../../../../lib/core/exec/index.ts";
+import {
+	type Parked,
+	parkedPath,
+	writeParked,
+} from "../../../../lib/internal/session/park.ts";
 import {
 	logOutSpares,
 	parkedHere,
@@ -129,6 +141,20 @@ describe("the sessions parked on this machine", () => {
 		);
 	};
 
+	/** Every session's marker reads as one from this boot. */
+	const marked = () => true;
+
+	/** A session's marker, as parking writes it. */
+	const markerOf = (session: string): Parked => ({
+		session,
+		sessionFile: `${session}.jsonl`,
+		cwd: state,
+		addresses: [session.toUpperCase()],
+		parkedAt: new Date().toISOString(),
+		pid: process.pid,
+		wake: `${session}.wake`,
+	});
+
 	it("are those whose presence says they parked, in every realm", async () => {
 		presence(join(home(), "mesh-workflow"), "slept", "parked");
 		presence(
@@ -137,7 +163,20 @@ describe("the sessions parked on this machine", () => {
 			"parked",
 		);
 
-		expect(await parkedHere()).toEqual(new Set(["slept", "away"]));
+		expect(await parkedHere(marked)).toEqual(new Set(["slept", "away"]));
+	});
+
+	it("leave out a parked presence whose marker is gone, or from an earlier boot", async () => {
+		const mesh = join(home(), "mesh-workflow");
+		for (const session of ["slept", "woken", "rebooted"]) {
+			presence(mesh, session, "parked");
+		}
+		writeParked(markerOf("slept"));
+		writeParked(markerOf("rebooted"));
+		const longAgo = new Date(0);
+		utimesSync(parkedPath("rebooted"), longAgo, longAgo);
+
+		expect(await parkedHere()).toEqual(new Set(["slept"]));
 	});
 
 	it("leave out a session idle, waiting, busy or paused, and one that says nothing", async () => {
@@ -148,10 +187,10 @@ describe("the sessions parked on this machine", () => {
 		presence(mesh, "older");
 		presence(mesh, "slept", "parked");
 
-		expect(await parkedHere()).toEqual(new Set(["slept"]));
+		expect(await parkedHere(marked)).toEqual(new Set(["slept"]));
 	});
 
 	it("are none where no presence was ever kept", async () => {
-		expect(await parkedHere()).toEqual(new Set());
+		expect(await parkedHere(marked)).toEqual(new Set());
 	});
 });

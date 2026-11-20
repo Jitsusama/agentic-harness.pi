@@ -8,6 +8,7 @@ import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -21,6 +22,7 @@ import {
 import type { SessionEndingDeps } from "../../../extensions/session-ending-interceptor/refuse.ts";
 import { forgetRedirects } from "../../../lib/guardian/apply.ts";
 import { setSessionMode } from "../../../lib/guardian/policy.ts";
+import { writeParked } from "../../../lib/internal/session/park.ts";
 import type { NodeSession } from "../../../lib/mesh/node.ts";
 import { type FakePi, fakePi } from "../../support/fake-pi.ts";
 
@@ -208,10 +210,24 @@ describe("what spares, read by default", () => {
 
 	it("asks logind of this user, and the presences who parked", async () => {
 		vi.stubEnv("XDG_STATE_HOME", bin);
-		stub("loginctl", `[ "$2" = "${userInfo().uid}" ] && echo yes || echo no`);
-		stub("busctl", 'echo "b false"');
+		const ran = join(bin, "ran");
+		stub(
+			"loginctl",
+			`echo loginctl >> "${ran}"; [ "$2" = "${userInfo().uid}" ] && echo yes || echo no`,
+		);
+		stub("busctl", `echo busctl >> "${ran}"; echo "b false"`);
 		presence("hosted", "parked");
+		presence("woken", "parked");
 		presence("waiting", "listening");
+		writeParked({
+			session: "hosted",
+			sessionFile: "hosted.jsonl",
+			cwd: bin,
+			addresses: ["HOSTED"],
+			parkedAt: new Date().toISOString(),
+			pid: process.pid,
+			wake: "hosted.wake",
+		});
 		const deps = nodeDeps({
 			MYCELIUM_REALM: "work",
 			PATH: `${bin}:/usr/bin:/bin`,
@@ -221,5 +237,9 @@ describe("what spares, read by default", () => {
 			lingers: true,
 			parked: new Set(["hosted"]),
 		});
+		expect(
+			readFileSync(ran, "utf8").split("\n").filter(Boolean).sort(),
+			"the stubs on the PATH it is given answered, not the machine's logind",
+		).toEqual(["busctl", "loginctl"]);
 	});
 });

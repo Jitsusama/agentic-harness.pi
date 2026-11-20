@@ -120,7 +120,8 @@ describe("the machines kept", () => {
 	it("keeps what it read before the lock, though the file was spoilt since", async () => {
 		await rememberMachines(file, ["optimus"]);
 		const lock = `${file}.lock`;
-		// A live process other than this one holds the lock, so the write waits.
+		// A live process other than this one holds the lock, and lets it go
+		// once the file is spoilt, before the write's first try for it.
 		writeFileSync(lock, String(process.ppid));
 
 		const writing = rememberMachines(file, ["equilibrius"]);
