@@ -1,11 +1,15 @@
 /**
- * A carry an orchestrator orders: the steer `ordered-carry`, which the
- * mycelium node writes only once it has proved, from its own record, that
- * the session asking orchestrates this one's quest, stamping `by` with
+ * A carry an orchestrator orders, or this machine's node chooses: the
+ * steer `ordered-carry`. For an orchestrator, the mycelium node writes it
+ * only once it has proved, from its own record, that the session asking
+ * orchestrates this one's quest, stamping `by` with
  * the orchestrator's address (mycelium's PROTOCOL.md, A Carry an
- * Orchestrator Orders). It is never the person's Carry (pausing.ts), and
- * nothing that trusts the person's carry reads it: lib/mesh/steer.ts
- * keeps it apart from every act.
+ * Orchestrator Orders). The node also writes it for a carry it chose
+ * itself to ease its stalled machine, stamping `by` with
+ * `node@<machine>`, which this machine takes only as its own node's
+ * name. It is never the person's Carry (pausing.ts), and nothing that
+ * trusts the person's carry reads it: lib/mesh/steer.ts keeps it apart
+ * from every act.
  *
  * ISXEG8 ruled on 15 November that an agent may order a carry on five
  * conditions; this is the session's part of the fourth. It carries only
@@ -20,13 +24,15 @@
  * doesn't end within {@link ORDERED_WAIT_MS} refuses, as does a carry
  * that fails. Every refusal says why, writes it where mycelium reads it
  * (lib/internal/carry/ordered.ts), and leaves the session working: a run
- * it ended is taken up again. A second order while one is under way is
- * said on screen alone, leaving the refusal file to the live carry.
+ * it ended is taken up again. A second carry while one is under way, or
+ * while a refusal stamped as it was asked is being written, is said on
+ * screen alone, leaving the refusal file to the carry before it.
  *
  * Carried, it closes as the person's Carry does, saying in its journal
- * who ordered it and why.
+ * who ordered or chose it and why, a node's choice never as an order.
  */
 
+import { readFile } from "node:fs/promises";
 import type {
 	EventBus,
 	ExtensionContext,
@@ -36,7 +42,7 @@ import { createGitRebaser } from "../../lib/core/work/rebase.ts";
 import { automatedText } from "../../lib/internal/automated.ts";
 import { handoverOf } from "../../lib/internal/carry/handover.ts";
 import { writeRefused } from "../../lib/internal/carry/ordered.ts";
-import { thisMachine } from "../../lib/internal/machine/machine.ts";
+import { thisMachineOff } from "../../lib/internal/machine/machine.ts";
 import { questLoadedIn } from "../../lib/internal/quest/sessions/loaded.ts";
 import { questWorkspacesRoot } from "../../lib/internal/quest/workspace/workspace-root.ts";
 import { treesHeldBy } from "../../lib/internal/work-records.ts";
@@ -46,10 +52,14 @@ import {
 	type Lease,
 	RUN_KINDS,
 } from "../../lib/mesh/lease.ts";
-import type { OrderedCarry } from "../../lib/mesh/steer.ts";
+import {
+	machineRecordUnread,
+	nodeMachine,
+	type OrderedCarry,
+} from "../../lib/mesh/steer-who.ts";
 import { holdsOf } from "./moving.ts";
 
-export type { OrderedCarry } from "../../lib/mesh/steer.ts";
+export type { OrderedCarry } from "../../lib/mesh/steer-who.ts";
 
 /**
  * How long an ordered carry waits for the run under way to end before it
@@ -60,6 +70,44 @@ export const ORDERED_WAIT_MS = 10 * 60_000;
 
 /** How often a waiting ordered carry looks at whether the run has ended. */
 const ORDERED_LOOK_MS = 500;
+
+/** How long a refusal may take to write before it is given up. */
+export const REFUSE_WRITE_MS = 30_000;
+
+/**
+ * An ordered carry in words, by whoever chose it: an orchestrator's
+ * order, or this machine's node's own choice, never said as an order.
+ */
+function carryOf(ordered: OrderedCarry): {
+	readonly a: string;
+	readonly as: string;
+	readonly opens: string;
+} {
+	const node = nodeMachine(ordered.by);
+	if (node === undefined) {
+		return {
+			a: `an ordered carry to ${ordered.to} by ${ordered.by}`,
+			as: `as ${ordered.by} ordered`,
+			opens: `${ordered.by} ordered this session carried to ${ordered.to}`,
+		};
+	}
+	const whose = `the mycelium node on ${node}`;
+	return {
+		// Turned down as it was taken, it may be no node's here, so it is
+		// only said to come from one.
+		a:
+			ordered.refused === undefined
+				? `a carry to ${ordered.to} that ${whose} chose`
+				: `a carry to ${ordered.to} said to come from ${whose}`,
+		as: `as ${whose} chose`,
+		opens: `The mycelium node on ${node} chose to carry this session to ${ordered.to}`,
+	};
+}
+
+/** `words` with its first letter in capitals, to open a line. */
+function opening(words: string): string {
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 /** What an ordered carry needs from its session. */
 export interface OrderedCarryHost {
@@ -74,8 +122,12 @@ export interface OrderedCarryHost {
 	readonly holds: (runEnded: boolean) => Promise<string | undefined>;
 	/** Carry its work for the machine `to`, settling once it is carried. */
 	readonly carry: (to: string) => Promise<void>;
-	/** Say why it refused where mycelium reads it. */
-	readonly refuse: (why: string) => Promise<void>;
+	/**
+	 * Say why it refused where mycelium reads it, in this machine's
+	 * handover beside its done file, whoever chose the carry. Stamped
+	 * `at`, whenever it is written.
+	 */
+	readonly refuse: (why: string, at: Date) => Promise<void>;
 	/** Say on screen what happened. */
 	readonly tell: (text: string) => void;
 	/** End the session, as /exit does, saying `by` asked. */
@@ -84,13 +136,18 @@ export interface OrderedCarryHost {
 	readonly carryOn: (text: string) => void;
 	readonly waitMs?: number;
 	readonly lookMs?: number;
+	/** How long a refusal may take to write before it is given up. */
+	readonly refuseMs?: number;
 	readonly now?: () => number;
 	readonly sleep?: (ms: number) => Promise<void>;
 }
 
 /** Ordered carries for one session. */
 export interface OrderedCarrying {
-	/** The node ordered this carry: settles once carried or refused. */
+	/**
+	 * A carry an orchestrator ordered or this machine's node chose:
+	 * settles once carried or refused.
+	 */
 	order(ordered: OrderedCarry): Promise<void>;
 	/** A run started: one is ended while a carry is under way. */
 	started(): void;
@@ -106,7 +163,13 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 		((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
 	const waitMs = host.waitMs ?? ORDERED_WAIT_MS;
 	const lookMs = host.lookMs ?? ORDERED_LOOK_MS;
+	const refuseMs = host.refuseMs ?? REFUSE_WRITE_MS;
 	let underWay = false;
+	// Whether a refusal stamped as it was asked is being written, while
+	// which a carry is said on screen alone, since its node may read that
+	// refusal as its own. One stamped from its steer's name is older than
+	// any carry begun since, so carries come through while it is written.
+	let refusing = false;
 	// Whether this carry ended a run, which a refusal then takes up again.
 	let ended = false;
 
@@ -116,25 +179,55 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 	};
 
 	const refuse = async (ordered: OrderedCarry, why: string) => {
+		// Its node counts any refusal no older than the carry it began, and
+		// began it before it put the steer, so a refusal stamped at the end
+		// of that millisecond (a name floors it) is never a later carry's,
+		// however late it is written. One whose steer's time can't be told,
+		// or is named later than now, which no node's steer is, is stamped
+		// as it is asked for, so no name can date a refusal ahead.
+		const asked = now();
+		const stamped = ordered.put !== undefined && ordered.put.getTime() <= asked;
+		const at =
+			stamped && ordered.put
+				? new Date(ordered.put.getTime() + 1)
+				: new Date(asked);
 		const tookUp = ended;
 		underWay = false;
 		ended = false;
 		host.tell(
-			`This session refused an ordered carry to ${ordered.to} by ${ordered.by}: ${why}. It stays here, working.`,
+			`This session refused ${carryOf(ordered).a}: ${why}. It stays here, working.`,
 		);
+		if (!stamped) refusing = true;
+		// One not written in time is given up, as one that fails is, so it
+		// never turns away every later carry; landing late, it reads as its
+		// own carry's by its stamp, and replaces no newer refusal.
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const late = new Promise<"late">((done) => {
+			timer = setTimeout(() => done("late"), refuseMs);
+		});
 		try {
-			await host.refuse(why);
+			const written = await Promise.race([host.refuse(why, at), late]);
+			if (written === "late") {
+				host.tell(
+					`Its refusal wasn't written where mycelium reads it within ${refuseMs / 1000} s; it may still land there, or the carry waits out its time there.`,
+				);
+			}
 		} catch (error) {
 			host.tell(
 				`Its refusal couldn't be written where mycelium reads it, so the carry waits out its time there: ${error instanceof Error ? error.message : String(error)}`,
 			);
+		} finally {
+			clearTimeout(timer);
+			if (!stamped) refusing = false;
 		}
+		// Whether its refusal was written, late or not at all, the run it
+		// ended is taken up again.
 		if (tookUp) {
 			// Headed as automated, so a host starting runs never counts it as Joel's.
 			host.carryOn(
 				automatedText(
-					"an ordered carry couldn't go",
-					`An ordered carry to ${ordered.to} by ${ordered.by} ended this run to go, then couldn't: ${why}. Nothing was carried; carry on where you left off.`,
+					"a carry couldn't go",
+					`${opening(carryOf(ordered).a)} ended this run to go, then couldn't: ${why}. Nothing was carried; carry on where you left off.`,
 				),
 			);
 		}
@@ -152,11 +245,28 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 
 	return {
 		async order(ordered) {
+			// No node here began it, or none can be told to have, and this
+			// machine's node reads its handover, where it could take a refusal
+			// of this one as its own carry's: said on screen alone, touching
+			// nothing a live carry or a refusal being written holds.
+			if (ordered.refused !== undefined) {
+				host.tell(
+					`This session refused ${carryOf(ordered).a}: ${ordered.refused}. It stays here, working.`,
+				);
+				return;
+			}
 			// Said on screen alone: the node counts any refusal no older than
-			// its order, so one written now would read as the live carry's.
+			// its steer, so one written now would read as the live carry's,
+			// and one stamped as it was asked, being written, as this one's.
+			if (refusing) {
+				host.tell(
+					`${opening(carryOf(ordered).a)} came while a refusal is being written, so it is left unanswered: its node may read that refusal as this one's, or waits out its time.`,
+				);
+				return;
+			}
 			if (underWay) {
 				host.tell(
-					`An ordered carry to ${ordered.to} by ${ordered.by} came while a carry is under way, so it is left to the one under way.`,
+					`${opening(carryOf(ordered).a)} came while a carry is under way, so it is left to the one under way.`,
 				);
 				return;
 			}
@@ -165,7 +275,7 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 			if (before !== undefined) return refuse(ordered, before);
 			if (!host.idle()) {
 				host.tell(
-					`${ordered.by} ordered this session carried to ${ordered.to}, for ${ordered.why}: letting the turn under way end first.`,
+					`${carryOf(ordered).opens}, for ${ordered.why}: letting the turn under way end first.`,
 				);
 			}
 			if (!(await runEnds())) {
@@ -182,11 +292,9 @@ export function createOrderedCarrying(host: OrderedCarryHost): OrderedCarrying {
 				);
 			}
 			host.tell(
-				`Carried to ${ordered.to}, as ${ordered.by} ordered for ${ordered.why}; closing.`,
+				`Carried to ${ordered.to}, ${carryOf(ordered).as} for ${ordered.why}; closing.`,
 			);
-			host.close(
-				`an ordered carry to ${ordered.to} by ${ordered.by}, for ${ordered.why}`,
-			);
+			host.close(`${carryOf(ordered).a}, for ${ordered.why}`);
 		},
 		started() {
 			if (underWay) end();
@@ -241,13 +349,24 @@ async function rebaseHalted(session: string): Promise<string | undefined> {
 }
 
 /**
- * Writes `session`'s refusal into its quest's handover on this machine,
- * where mycelium looks beside the done file; throws when no quest is
- * loaded, since then there is no handover to write it in.
+ * Writes `session`'s refusal into its quest's handover for this
+ * machine, beside the done file, where mycelium looks whoever chose the
+ * carry: the folder is named as the done file's is, by this machine's
+ * name, never by a `node@` name, so no carry's refusal lands in another
+ * machine's folder. Throws when no quest is loaded, since then there is no
+ * handover to write it in. It is stamped `at`, as its carry's steer was
+ * put, so one written late, after its carry was given up on, reads as
+ * older than any carry that began since; it is asked for, never
+ * defaulted, so no caller can leave it out. The machine's name is read
+ * off the thread, and while its record is there but can't be read it
+ * throws, writing nothing: its node reads its folder by that record's
+ * name, which the hostname may not be, and a stalled read must not
+ * hold the session.
  */
 export async function refuseInHandover(
 	session: string,
 	why: string,
+	at: Date,
 ): Promise<void> {
 	const quest = await questLoadedIn(session);
 	if (quest === undefined) {
@@ -255,10 +374,18 @@ export async function refuseInHandover(
 			"no quest is loaded, so its refusal has no handover to go in",
 		);
 	}
-	writeRefused(handoverOf(questWorkspacesRoot(), quest, thisMachine()), {
+	let here: string;
+	try {
+		here = await thisMachineOff((path) => readFile(path, "utf8"));
+	} catch (error) {
+		// Said as the record and its file, never a bare code the person
+		// can't place.
+		throw new Error(machineRecordUnread(error));
+	}
+	writeRefused(handoverOf(questWorkspacesRoot(), quest, here), {
 		session,
 		why,
-		at: new Date(),
+		at,
 	});
 }
 
