@@ -57,6 +57,12 @@ import {
 } from "../../lib/internal/fence/fence-route.ts";
 import { settleStage } from "../../lib/internal/fence/fence-stage.ts";
 import {
+	FENCE_UNSAID,
+	fenceOf,
+	tellHostFence,
+	tellHostLeft,
+} from "../../lib/internal/sandbox/fence-told.ts";
+import {
 	askTheCloudAhead,
 	sandboxFor,
 } from "../../lib/internal/sandbox/sandbox.ts";
@@ -170,6 +176,13 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	// with the fence lifted from all but subagents until it relands.
 	liftFence();
 	const sandbox = sandboxFor();
+	// Said to a host, whose record a mycelium node carrying it reads, once
+	// this shell's bash stands in pi's (as the session starts), and before
+	// each command, which runs only once it is written.
+	const toldHost = (ctx: ExtensionContext) =>
+		tellHostFence(fenceOf(sandbox), "shell", {
+			PI_SESSION_ID: sessionKeyOf(ctx),
+		});
 	let bash: AgentBash | undefined;
 	// Whether ssh to the person's own machines is refused, read each
 	// minute from the package config (lib/internal/shell/ssh-guard.ts). A
@@ -201,12 +214,17 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 	// A stray PI_SANDBOX read as the fence is said once, where the person
 	// sees it, and in the agent's guidelines below.
 	let noted = false;
+	// The session this runner heard last as it started, for its shutdown,
+	// whose context may not be read once the runner is gone.
+	let session: string | undefined;
 	pi.on("session_start", async (_event, ctx) => {
+		session = sessionKeyOf(ctx);
 		// Before any command: every pi it starts compiles where the fence
 		// can't write (compile-cache-place.ts).
 		keepCompileCacheOutOfReach(sessionEnv(ctx));
 		retireBash();
 		bashFor(ctx);
+		toldHost(ctx);
 		tell = ctx.hasUI ? (why) => ctx.ui.notify(why, "warning") : onStderr;
 		sshGuard.start();
 		if (!noted && sandbox.kind === "fence" && sandbox.note) {
@@ -224,6 +242,8 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 		sshGuard.stop();
 		// A read still out lands after this session's ctx is gone.
 		tell = onStderr;
+		// Its record names no fence until the next runner's guards say one.
+		tellHostLeft(session);
 	});
 	if (sandbox.kind === "fence")
 		pi.on("tool_result", (event, ctx) =>
@@ -283,6 +303,7 @@ export default function shellWorkflow(pi: ExtensionAPI) {
 			),
 		}),
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
+			if (!toldHost(ctx)) throw new Error(FENCE_UNSAID);
 			const definition = bashFor(ctx);
 			return await runOrHandOff({
 				command: params.command,

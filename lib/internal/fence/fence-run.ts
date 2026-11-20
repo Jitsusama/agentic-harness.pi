@@ -41,13 +41,13 @@ import {
 	STRICT,
 	sandboxedCommand,
 	sandboxFor,
-	unfencedFolder,
 	wrapFor,
 } from "../sandbox/sandbox.ts";
 import { quoted } from "../sandbox/sandbox-shell.ts";
 import { brokerTrees, sessionWorktrees } from "../sandbox/sandbox-trees.ts";
 import { sandboxFolders, strictRules } from "../sandbox/strict-rules.ts";
 import { real, worktreeRepository } from "../sandbox/tree-git.ts";
+import { unfencedFolder } from "../sandbox/unfenced-folder.ts";
 import { cutTreeDir, treeRecordDir } from "../work-records.ts";
 import { fenceArgs } from "./fence.ts";
 import { dockerHoldsCredentials } from "./fence-docker.ts";
