@@ -104,7 +104,8 @@ it("keeps a quest folder with no README to the record and the journal, once, and
 	}
 
 	expect(notices, "what the starts showed").toEqual([]);
-	expect(recordedPaths(), "the faults the reload found").toEqual([
+	// In the walk's order, which is the folder listing's, so sorted here.
+	expect(recordedPaths().sort(), "the faults the reload found").toEqual([
 		expect.stringContaining("QEST-20261120-AAAAAA"),
 		expect.stringContaining("QEST-20261120-BBBBBB"),
 	]);

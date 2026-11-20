@@ -42,8 +42,9 @@ export interface LayoutFaultsRecord {
 }
 
 /**
- * The record read back: none written yet, which is a tidy tree's state,
- * one that can't be read, and why, or the record itself.
+ * The record read back: none written yet, which is a tidy tree's state
+ * or a write that has failed every time (said in the journal), one that
+ * can't be read, and why, or the record itself.
  */
 export type LayoutFaultsReading =
 	| { readonly kind: "none" }
@@ -150,8 +151,9 @@ export function readLayoutFaults(
  * `at`, and answer the ones it didn't already hold. A start that finds
  * none and no record writes nothing, so a machine with a tidy tree has
  * no file; one that can't read the record writes it afresh. A walk of
- * the same root older than the record's changes nothing, since a later
- * start has written what holds.
+ * the same root a little older than the record's changes nothing, since
+ * a start racing it has written what holds; only a little, so a record
+ * stamped ahead of the clock, or with no date, can't freeze it.
  */
 function replaceRecord(
 	file: string,
@@ -165,7 +167,7 @@ function replaceRecord(
 		reading.kind === "read" && reading.record.root === root
 			? reading.record
 			: undefined;
-	if (before && before.checkedAt > at) return [];
+	if (before && racedBy(before.checkedAt, at)) return [];
 	const since = new Map(
 		(before?.faults ?? []).map((fault) => [faultKey(fault), fault.since]),
 	);
@@ -202,6 +204,18 @@ function keptFaultOf(value: unknown): KeptLayoutFault | undefined {
 	)
 		return undefined;
 	return { path, message, since };
+}
+
+/**
+ * The longest a walk can trail a racing start's: sessions that start
+ * together after a restart walk within seconds of each other.
+ */
+const RACE_MS = 60_000;
+
+/** Whether a record checked `checkedAt` is a racing start's, newer than `at`. */
+function racedBy(checkedAt: string, at: string): boolean {
+	const ahead = Date.parse(checkedAt) - Date.parse(at);
+	return ahead > 0 && ahead <= RACE_MS;
 }
 
 /** One fault's identity: the same message about the same path. */

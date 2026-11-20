@@ -146,6 +146,22 @@ describe("keepLayoutFaults", () => {
 		});
 	});
 
+	it("writes over a record stamped far ahead of the clock, or with no date", async () => {
+		for (const stamp of ["2027-01-01T00:00:00.000Z", "not a date"]) {
+			mkdirSync(join(dir, "state"), { recursive: true });
+			writeFileSync(
+				file,
+				JSON.stringify({ root: ROOT, checkedAt: stamp, faults: [] }),
+			);
+
+			await keepLayoutFaults(ROOT, [noReadme], options());
+
+			expect(record()?.checkedAt, `the record over one checked ${stamp}`).toBe(
+				clock,
+			);
+		}
+	});
+
 	it("counts every fault new over a record of another quests root", async () => {
 		await keepLayoutFaults("/elsewhere", [noReadme], options());
 
@@ -191,6 +207,23 @@ describe("keepLayoutFaults", () => {
 
 		expect(fresh, "the faults counted new").toEqual([noReadme]);
 		expect(record()?.faults, "the record").toHaveLength(1);
+	});
+
+	it("says a record of another shape is unreadable", () => {
+		mkdirSync(join(dir, "state"));
+		writeFileSync(file, JSON.stringify({ checkedAt: clock, faults: [] }));
+
+		expect(readLayoutFaults(file).kind, "a record with no root").toBe(
+			"unreadable",
+		);
+	});
+
+	it("says a record it can't open is unreadable, not missing", () => {
+		mkdirSync(file, { recursive: true });
+
+		expect(readLayoutFaults(file).kind, "a folder where the record goes").toBe(
+			"unreadable",
+		);
 	});
 
 	it("writes an unreadable record afresh even when a walk finds nothing", async () => {
