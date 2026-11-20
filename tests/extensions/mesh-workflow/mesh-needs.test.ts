@@ -5,58 +5,18 @@
  * leader in its place.
  */
 
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { createServer, type Server } from "node:net";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createPresences } from "../../../lib/mesh/presence.ts";
 import { folderTransport } from "../../../lib/mesh/transport.ts";
 import { fixture, peer, startSession } from "./support/mesh.ts";
+import { closeNodes, node } from "./support/node.ts";
 
-let servers: Server[] = [];
-
-afterEach(async () => {
-	await Promise.all(
-		servers.map((server) => new Promise((done) => server.close(done))),
-	);
-	servers = [];
-});
+afterEach(closeNodes);
 
 /** The fixture's session, 7M6JKG, as the node keeps it. */
 const asker = { key: "cell:7M6JKG", title: "A Web, Not a Funnel" };
-
-/**
- * A node for the realm `work` under the fixture's runtime folder,
- * listing these cells and ties and holding no hubs; the environment a
- * session reaches it by.
- */
-async function node(cells: object[], ties: object[]) {
-	const runtime = join(fixture.root, "run");
-	mkdirSync(join(runtime, "mycelium"), { recursive: true });
-	const server = createServer((client) => {
-		client.setEncoding("utf8");
-		let said = "";
-		client.on("data", (chunk: string) => {
-			said += chunk;
-			for (let end = said.indexOf("\n"); end >= 0; end = said.indexOf("\n")) {
-				const ask = JSON.parse(said.slice(0, end));
-				said = said.slice(end + 1);
-				const records =
-					ask.kind === "cell" ? cells : ask.kind === "tie" ? ties : undefined;
-				const reply =
-					ask.ask === "list" && records
-						? { id: ask.id, records }
-						: { id: ask.id, error: { code: "unknown-kind" } };
-				client.write(`${JSON.stringify(reply)}\n`);
-			}
-		});
-	});
-	servers.push(server);
-	await new Promise<void>((listening) =>
-		server.listen(join(runtime, "mycelium", "work.sock"), listening),
-	);
-	return { MYCELIUM_REALM: "work", XDG_RUNTIME_DIR: runtime };
-}
 
 /** Send through the session's mesh_send, answering its words. */
 async function sending(

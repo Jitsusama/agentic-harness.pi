@@ -33,6 +33,7 @@ import { idNamed, type Self, sentBy } from "../../../lib/mesh/thread.ts";
 import { doneAlreadyRefusal } from "../../../lib/orchestration/done-acts.ts";
 import { limitsRefusal } from "../../../lib/orchestration/unasked-limits.ts";
 import { handsRefusal } from "../joels-hands.ts";
+import { aboveFor } from "./above.ts";
 import { type Answer, answer, type Local, peers } from "./local.ts";
 import { needRead } from "./need.ts";
 import { reach, unheardOf } from "./reach.ts";
@@ -317,20 +318,35 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	const ended = endedOnWord(at, params.endsHold, answersNamed);
 	const needed = await needRead(at, params);
 	if ("refused" in needed) return needed.refused;
-	const target = orchestratorNamed(needed.to, at.peer.orchestratedBy);
+	// Only a send naming the word asks who is above, since a quest with
+	// no mark finds its hub from use over the node.
+	const above = orchestratorNamed(needed.to, undefined).missing
+		? await aboveFor(at)
+		: undefined;
+	const orchestrator =
+		above !== undefined
+			? "address" in above
+				? above.address
+				: undefined
+			: at.peer.orchestratedBy;
+	const target = orchestratorNamed(needed.to, orchestrator);
 	const named = groupsNamed(target.to);
+	const nobody = above !== undefined && "none" in above ? above.none : "";
 	// Meant for one recipient that is not there: routed by rule, it would
 	// land in a group that may have nobody listening.
 	if (target.missing && named.length === 0) {
 		return answer(
-			"Not sent: no orchestrator is above this peer's quest. Tell the person in your reply, or name the peers it is for by address.",
+			`Not sent: ${nobody}. Tell the person in your reply, or name the peers it is for by address.`,
 			{ sent: false } satisfies SendDetails,
 		);
 	}
 	const unnamed = named.filter((group) => groupNamed(group) === undefined);
 	const said = [
 		target.missing
-			? "no orchestrator is above this peer's quest, so `orchestrator` reached nobody and was left out"
+			? `${nobody}, so \`orchestrator\` reached nobody and was left out`
+			: "",
+		above !== undefined && "by" in above && above.by === "use"
+			? `\`orchestrator\` was read as ${above.address}, this peer's hub from use: its quest has no orchestrator, and of the live cells on the quests above it, its ties are strongest to that one, and as only an address it grants nothing an orchestrator's mark does`
 			: "",
 		params.re && !answersNamed
 			? `no message has the id ${params.re}, so it answers nothing`
@@ -379,7 +395,7 @@ export async function send(at: Local, params: SendParams): Promise<Answer> {
 	// takes it to him, counts his acts first (joels-hands.ts).
 	const forHisHands =
 		intent.intent === "question" &&
-		toOrchestrator(named, at.peer.orchestratedBy, everyone);
+		toOrchestrator(named, orchestrator, everyone);
 	const hands = forHisHands ? handsRefusal(params.text) : undefined;
 	if (hands !== undefined) {
 		return answer(`Not sent: ${hands}`, {

@@ -1,0 +1,151 @@
+/**
+ * A cell's hub from use: where `orchestrator` reaches when its quest
+ * carries no mark, read from its ties to the live cells on the quests
+ * above its own.
+ */
+
+import { describe, expect, it } from "vitest";
+import { hubFromUse } from "../../../lib/mesh/hub-from-use.ts";
+import type { Tie } from "../../../lib/mesh/node.ts";
+import type { Presence } from "../../../lib/mesh/presence.ts";
+
+/** A live cell with these addresses, on the quest chain given, root first. */
+function cell(
+	session: string,
+	addresses: string[],
+	chain: string[],
+	extra: Partial<Presence> = {},
+): Presence {
+	return {
+		session,
+		addresses,
+		groups: chain.length > 0 ? [`#quest/${chain.join("/")}`, "#harness"] : [],
+		...(chain.length > 0
+			? { quest: `QEST-20261021-${chain.at(-1)?.toUpperCase()}` }
+			: {}),
+		worksOn: "",
+		owns: [],
+		busy: false,
+		at: new Date(0).toISOString(),
+		...extra,
+	};
+}
+
+/** A tie from the cell under test to `other`, this strong. */
+const tie = (other: string, strength: number): Tie => ({
+	other,
+	strength,
+	hour: [0, 0],
+	today: [0, 0],
+	intents: [],
+});
+
+const self = cell("s", ["7M6JKG"], ["root01", "mid002", "7m6jkg"]);
+const parent = cell("p", ["MID002", "AAAAAA"], ["root01", "mid002"]);
+const root = cell("r", ["ROOT01"], ["root01"]);
+const sibling = cell("b", ["SIB003"], ["root01", "mid002", "sib003"]);
+
+describe("a hub from use", () => {
+	it("is the live cell above this one's quest that its strongest tie goes to", () => {
+		const above = hubFromUse(
+			self,
+			[self, parent, root, sibling],
+			[tie("SIB003", 9), tie("ROOT01", 5), tie("MID002", 2)],
+		);
+
+		expect(above).toEqual({ address: "ROOT01", by: "use" });
+	});
+
+	it("is reached by the address it signs with, whichever one the tie names", () => {
+		const above = hubFromUse(self, [self, parent], [tie("AAAAAA", 1)]);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("is never a cell on this one's own quest or below it, however tied", () => {
+		const twin = cell("t", ["TWIN04"], ["root01", "mid002", "7m6jkg"]);
+		const child = cell(
+			"c",
+			["KID005"],
+			["root01", "mid002", "7m6jkg", "kid005"],
+		);
+
+		const above = hubFromUse(
+			self,
+			[self, twin, child],
+			[tie("TWIN04", 9), tie("KID005", 8)],
+		);
+
+		expect(above).toMatchObject({
+			none: expect.stringContaining("no live cell on a quest above it"),
+		});
+	});
+
+	it("passes over a cell that has stopped this one", () => {
+		const stopper = cell("r", ["ROOT01"], ["root01"], {
+			stops: [{ address: "7M6JKG", at: new Date(0).toISOString() }],
+		});
+
+		const above = hubFromUse(
+			self,
+			[self, stopper, parent],
+			[tie("ROOT01", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("reads the quest chain its work puts it in, never a quest group it joined", () => {
+		const listening = cell("s", ["7M6JKG"], ["root01", "mid002", "7m6jkg"], {
+			groups: ["#quest/other9", "#quest/root01/mid002/7m6jkg"],
+			joined: ["#quest/other9"],
+		});
+		const elsewhere = cell("o", ["OTHER9"], ["other9"]);
+
+		const above = hubFromUse(
+			listening,
+			[listening, elsewhere, parent],
+			[tie("OTHER9", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("passes over a tie to a cell that is not live", () => {
+		const above = hubFromUse(
+			self,
+			[self, parent],
+			[tie("ROOT01", 9), tie("MID002", 1)],
+		);
+
+		expect(above).toEqual({ address: "MID002", by: "use" });
+	});
+
+	it("is nobody, saying why, for a quest with nothing above it", () => {
+		const top = cell("s", ["7M6JKG"], ["7m6jkg"]);
+
+		const above = hubFromUse(top, [top, root], [tie("ROOT01", 9)]);
+
+		expect(above).toEqual({
+			none: "no orchestrator is above this peer's quest, QEST-20261021-7M6JKG, and no quest is above it to find a hub from use in",
+		});
+	});
+
+	it("is nobody, saying why, when no node answered with ties", () => {
+		const above = hubFromUse(self, [self, parent], undefined);
+
+		expect(above).toMatchObject({
+			none: expect.stringMatching(
+				/^no orchestrator is above this peer's quest, QEST-20261021-7M6JKG, and no node answered/,
+			),
+		});
+	});
+
+	it("is nobody for a peer on no quest", () => {
+		const loose = cell("s", ["7M6JKG"], []);
+
+		expect(hubFromUse(loose, [loose, root], [tie("ROOT01", 9)])).toMatchObject({
+			none: expect.stringContaining("on no quest"),
+		});
+	});
+});
