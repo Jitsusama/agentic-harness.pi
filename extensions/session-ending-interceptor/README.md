@@ -76,7 +76,7 @@ that can't be read, and refuses.
 Two things on this machine let an ask through that would otherwise be
 refused. Both are read only for an ask that would be refused, so an
 ordinary reply pays nothing, and anything that can't be read within
-two seconds spares nothing, as on a Mac, with no logind.
+about two seconds spares nothing, as on a Mac, with no logind.
 
 - **A log-out that leaves the user's services running.** When logind
   says the user lingers and kills no user processes at a log-out
@@ -87,15 +87,19 @@ two seconds spares nothing, as on a Mac, with no logind.
   scope under the user's manager. A session in a plain terminal, and
   any session on another machine, still counts; a reboot or a
   shutdown still ends them all.
-- **The session holding the machine.** When the asker has a standing
-  hold to `#all` (`mycelium unanswered` lists it from the asker's
-  address, unexpired), it has asked the machine's sessions to park,
-  which is how a disruption is scheduled, so a session on this
-  machine the node reads as idle doesn't count for its asks. One
-  still busy, or out of reach, hasn't parked and still counts, since
-  a hold only asks and a session can send one to itself. Sessions on
+- **Sessions parked for the asker.** A disruption is scheduled by a
+  hold asking each session to answer it once parked, and a session
+  that answers waits on it, which the mesh's lease board records. So
+  when the asker has a standing hold whose opening words name a
+  reboot, restart, shutdown, power-off, log-out or switch of users, a
+  session on this machine that waits on that hold, and that the node
+  reads as idle, doesn't count for the asker's asks. A session that
+  hasn't answered still counts, as does one still busy or out of
+  reach, and so does every session for a hold about anything else,
+  since nearly every hold reaches the whole machine. Sessions on
   another machine still count, and an ask that names no machine still
-  asks for the name. Any such hold counts, whatever it is about.
+  asks for the name. Every realm's board is read, since a reboot ends
+  every realm's sessions.
 
 Whatever fails while reading either spares nothing, and the ask is
 refused as it would have been.

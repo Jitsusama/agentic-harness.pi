@@ -1,16 +1,21 @@
 /**
  * What this machine knows of itself that spares its own sessions: a
  * log-out that leaves the user's services running, read from logind,
- * and a standing #machine hold of the asker's, read from the node.
- * Anything that can't be read spares nothing.
+ * and the sessions parked on the asker's hold of a disruption, read
+ * from the lease board. Anything that can't be read spares nothing.
  */
 
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Exec, ExecResult } from "../../../../lib/core/exec/index.ts";
 import {
-	holdsMachine,
 	logOutSpares,
+	machineBoard,
+	parkedFor,
 } from "../../../../lib/internal/session-ending/here.ts";
+import type { Holding, Lease } from "../../../../lib/mesh/lease.ts";
 
 const ok = (stdout: string): ExecResult => ({ code: 0, stdout, stderr: "" });
 const missing: ExecResult = { code: 127, stdout: "", stderr: "not found" };
@@ -70,7 +75,7 @@ describe("whether a log-out here leaves the user's services running", () => {
 		);
 	});
 
-	it("asks logind of the user it is given", async () => {
+	it("asks logind of the user it is given, and of what it kills", async () => {
 		const asked: string[][] = [];
 		const exec: Exec = async (command, args) => {
 			asked.push([command, ...args]);
@@ -86,95 +91,185 @@ describe("whether a log-out here leaves the user's services running", () => {
 			"--property=Linger",
 			"--value",
 		]);
+		expect(asked).toContainEqual([
+			"busctl",
+			"get-property",
+			"org.freedesktop.login1",
+			"/org/freedesktop/login1",
+			"org.freedesktop.login1.Manager",
+			"KillUserProcesses",
+		]);
 	});
 });
 
-describe("whether the asker holds the machine", () => {
-	const NOW = Date.parse("2026-11-20T04:00:00Z");
-	const hold = (fields: Record<string, unknown>) =>
-		JSON.stringify({
-			from: "WCJQSG",
-			groups: ["#all"],
-			intent: "hold",
-			id: "1795147120107-WCJQSG-36083-08ed1f73",
-			until: "2026-11-20T05:58:40.107Z",
-			...fields,
-		});
-	const heard = (...lines: string[]): Exec =>
-		answering({ mycelium: ok(`${lines.join("\n")}\n`) });
+const NOW = Date.parse("2026-11-20T07:00:00Z");
+const REBOOT = "1795156260318-WCJQSG-36083-8e7eac05";
+const LATER = "2026-11-20T08:31:00.318Z";
 
-	it("does with a standing hold of its own to the machine's group", async () => {
-		expect(
-			await holdsMachine(heard(hold({})), ["/run/work.sock"], "WCJQSG", NOW),
-			"its own standing hold to #all holds the machine",
-		).toBe(true);
-	});
+/** A lease as the board keeps one, standing until LATER. */
+const lease = (kind: Lease["kind"], subject: string, why: string): Lease => ({
+	kind,
+	subject,
+	since: "2026-11-20T06:31:00.319Z",
+	until: LATER,
+	why,
+});
 
-	it("doesn't with another's hold, a question, or a hold to another group", async () => {
-		const exec = heard(
-			hold({ from: "P9R1KI" }),
-			hold({ intent: "question" }),
-			hold({ groups: ["#harness"] }),
-		);
+const holder: Holding = {
+	session: "holder",
+	leases: [
+		lease(
+			"hold",
+			REBOOT,
+			"WCJQSG hold: rebooting optimus for its BIOS at 07:30; park and answer",
+		),
+	],
+};
 
-		expect(
-			await holdsMachine(exec, ["/run/work.sock"], "WCJQSG", NOW),
-			"none of these is its own hold of the machine",
-		).toBe(false);
-	});
+/** A session waiting on `subject`, as the board keeps it. */
+const waiting = (session: string, subject = REBOOT): Holding => ({
+	session,
+	leases: [lease("wait", subject, `${session} holding. Waiting on it: parked`)],
+});
 
-	it("doesn't once its hold's time has passed", async () => {
-		const exec = heard(hold({ until: "2026-11-20T03:59:59Z" }));
+describe("the sessions parked for the asker", () => {
+	it("are those waiting on its standing hold of a disruption", () => {
+		const board = [
+			holder,
+			waiting("parked-1"),
+			waiting("parked-2"),
+			{ session: "busy-one", leases: [] },
+		];
 
-		expect(
-			await holdsMachine(exec, ["/run/work.sock"], "WCJQSG", NOW),
-			"a hold past its time no longer stands",
-		).toBe(false);
-	});
-
-	it("does with a hold of any realm's node on the machine", async () => {
-		const exec: Exec = async (_command, args) =>
-			args.includes("/run/personal.sock") ? ok(`${hold({})}\n`) : ok("");
-
-		expect(
-			await holdsMachine(
-				exec,
-				["/run/work.sock", "/run/personal.sock"],
-				"WCJQSG",
-				NOW,
-			),
-			"the personal realm's node holds the hold",
-		).toBe(true);
-	});
-
-	it("asks each node by its socket", async () => {
-		const asked: string[][] = [];
-		const exec: Exec = async (command, args) => {
-			asked.push([command, ...args]);
-			return ok("");
-		};
-
-		await holdsMachine(exec, ["/run/work.sock"], "WCJQSG", NOW);
-
-		expect(asked).toEqual([
-			["mycelium", "unanswered", "--socket", "/run/work.sock"],
+		expect([...parkedFor(board, "WCJQSG", NOW)].sort()).toEqual([
+			"parked-1",
+			"parked-2",
 		]);
 	});
 
-	it("doesn't where the node can't say, or says what this reader doesn't know", async () => {
-		const lines = heard("not json", "[]", JSON.stringify({ from: "WCJQSG" }));
+	it("are none for a hold about something else, though sessions wait on it", () => {
+		const quests: Holding = {
+			session: "holder",
+			leases: [
+				lease(
+					"hold",
+					REBOOT,
+					"WCJQSG hold, narrowed: KP0L6A's restore is checked on both machines (01:30), so ordinary quests may be concluded or reti...",
+				),
+			],
+		};
+
+		expect([...parkedFor([quests, waiting("waiter")], "WCJQSG", NOW)]).toEqual(
+			[],
+		);
+	});
+
+	it("are none for another's hold, or a hold no longer standing", () => {
+		const another: Holding = {
+			session: "holder",
+			leases: [
+				lease(
+					"hold",
+					"1795156260318-P9R1KI-1-aaaa",
+					"P9R1KI hold: reboot optimus",
+				),
+			],
+		};
+		const ended: Holding = {
+			session: "holder",
+			leases: [
+				{
+					...lease("hold", REBOOT, "WCJQSG hold: reboot optimus"),
+					until: "2026-11-20T06:59:59Z",
+				},
+			],
+		};
 
 		expect(
-			await holdsMachine(answering({}), ["/run/work.sock"], "WCJQSG", NOW),
-			"no mycelium",
-		).toBe(false);
+			[
+				...parkedFor(
+					[another, waiting("waiter", another.leases[0]?.subject)],
+					"WCJQSG",
+					NOW,
+				),
+			],
+			"another's hold",
+		).toEqual([]);
 		expect(
-			await holdsMachine(lines, ["/run/work.sock"], "WCJQSG", NOW),
-			"lines that aren't holds",
-		).toBe(false);
+			[...parkedFor([ended, waiting("waiter")], "WCJQSG", NOW)],
+			"a hold past its time",
+		).toEqual([]);
+	});
+
+	it("leave out a wait that has lapsed, or one on another hold", () => {
+		const lapsed: Holding = {
+			session: "lapsed",
+			leases: [
+				{ ...lease("wait", REBOOT, "parked"), until: "2026-11-20T06:00:00Z" },
+			],
+		};
+
+		expect([
+			...parkedFor(
+				[holder, lapsed, waiting("other", "1795-WCJQSG-1-bbbb")],
+				"WCJQSG",
+				NOW,
+			),
+		]).toEqual([]);
+	});
+
+	it("count a subagent's wait as its parent's", () => {
+		const hand: Holding = { ...waiting("hand-session"), handOf: "parent" };
+
+		expect([...parkedFor([holder, hand], "WCJQSG", NOW)]).toEqual(["parent"]);
+	});
+
+	it("are none for an asker with no address", () => {
+		expect([...parkedFor([holder, waiting("parked")], undefined, NOW)]).toEqual(
+			[],
+		);
+	});
+});
+
+describe("the machine's lease board", () => {
+	const roots: string[] = [];
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		for (const root of roots.splice(0))
+			rmSync(root, { recursive: true, force: true });
+	});
+
+	const write = (dir: string, holding: Holding) => {
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, `${holding.session}.json`),
+			JSON.stringify(holding),
+		);
+	};
+
+	it("reads every realm's board, the home realm's among them", () => {
+		const state = mkdtempSync(join(tmpdir(), "session-ending-board-"));
+		roots.push(state);
+		vi.stubEnv("XDG_STATE_HOME", state);
+		const home = join(state, "pi", "agentic-harness.pi");
+		write(join(home, "mesh-workflow", "leases"), holder);
+		write(
+			join(home, "realms", "personal", "mesh-workflow", "leases"),
+			waiting("personal-one"),
+		);
+
 		expect(
-			await holdsMachine(heard(hold({})), ["/run/work.sock"], undefined, NOW),
-			"an asker with no address",
-		).toBe(false);
+			machineBoard()
+				.map((one) => one.session)
+				.sort(),
+		).toEqual(["holder", "personal-one"]);
+	});
+
+	it("is empty where no board was ever kept", () => {
+		const state = mkdtempSync(join(tmpdir(), "session-ending-board-"));
+		roots.push(state);
+		vi.stubEnv("XDG_STATE_HOME", state);
+
+		expect(machineBoard()).toEqual([]);
 	});
 });

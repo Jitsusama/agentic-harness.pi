@@ -44,18 +44,22 @@ const kept = (): string[] => JSON.parse(readFileSync(file, "utf8"));
 
 /** A node process ready to add machines, and the word that starts it. */
 interface Writer {
+	/** Settles once the child has loaded and waits for the word. */
+	ready: Promise<void>;
 	ended: Promise<number | null>;
 	go: () => void;
 }
 
 /**
  * A node process adding `prefix`-1 to `prefix`-EACH_ADDS, one at a time,
- * once told to go on its stdin, so that two writers start together
- * rather than one finishing while the other is still loading.
+ * once told to go on its stdin. It says it is ready on its stdout once
+ * loaded, and the test tells neither to go before both are, so the two
+ * start together rather than one finishing while the other loads.
  */
 function writer(prefix: string): Writer {
 	const script = [
 		`import { rememberMachines } from ${JSON.stringify(MODULE)};`,
+		`process.stdout.write("ready\\n");`,
 		`await new Promise((go) => process.stdin.once("data", go));`,
 		"process.stdin.pause();",
 		`for (let i = 1; i <= ${EACH_ADDS}; i++)`,
@@ -64,9 +68,10 @@ function writer(prefix: string): Writer {
 	const child = spawn(
 		process.execPath,
 		["--input-type=module", "--no-warnings", "-e", script],
-		{ stdio: ["pipe", "inherit", "inherit"] },
+		{ stdio: ["pipe", "pipe", "inherit"] },
 	);
 	return {
+		ready: new Promise((ready) => child.stdout?.once("data", () => ready())),
 		ended: new Promise((ended) => child.on("exit", ended)),
 		go: () => child.stdin?.end("go\n"),
 	};
@@ -85,6 +90,7 @@ describe("the machines kept", () => {
 
 	it("loses none when two processes add at once", async () => {
 		const writers = [writer("a"), writer("b")];
+		await Promise.all(writers.map((one) => one.ready));
 		for (const one of writers) one.go();
 		const ended = await Promise.all(writers.map((one) => one.ended));
 
@@ -109,6 +115,20 @@ describe("the machines kept", () => {
 
 		expect(kept()).toEqual(["optimus", "equilibrius"]);
 		expect(existsSync(lock), "the stale lock is gone once written").toBe(false);
+	});
+
+	it("keeps what it read before the lock, though the file was spoilt while it waited", async () => {
+		await rememberMachines(file, ["optimus"]);
+		const lock = `${file}.lock`;
+		// A live process other than this one holds the lock, so the write waits.
+		writeFileSync(lock, String(process.ppid));
+
+		const writing = rememberMachines(file, ["equilibrius"]);
+		writeFileSync(file, "spoilt");
+		rmSync(lock);
+		await writing;
+
+		expect(kept()).toEqual(["optimus", "equilibrius"]);
 	});
 
 	it("leaves no temporary file behind when the write can't land", async () => {

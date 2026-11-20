@@ -197,7 +197,11 @@ describe("what a refusal is known again by", () => {
 });
 
 describe("a log-out on a machine whose services outlive it", () => {
-	const lingering = { machine: "optimus", lingers: true, holds: false };
+	const lingering = {
+		machine: "optimus",
+		lingers: true,
+		parked: new Set<string>(),
+	};
 	const hosted = {
 		...on("optimus", "busy", "H00001"),
 		host: "work-background",
@@ -267,11 +271,28 @@ describe("a log-out on a machine whose services outlive it", () => {
 });
 
 describe("an ask from the session holding the machine", () => {
-	const holding = { machine: "optimus", lingers: false, holds: true };
+	/** The sessions that answered the asker's hold, idle or not. */
+	const holding = {
+		machine: "optimus",
+		lingers: false,
+		parked: new Set(["a00001", "b00001", "c00001", "d00001"]),
+	};
 	const here = [
 		on("optimus", "idle", "A00001"),
 		on("optimus", "idle", "B00001"),
 	];
+
+	it("still counts an idle session there that hasn't answered its hold", () => {
+		const reason = refusalOf(
+			[ask("reboot", "optimus")],
+			[...here, on("optimus", "idle", "F00001")],
+			SELF,
+			holding,
+		);
+
+		expect(reason).toMatch(/F00001/);
+		expect(reason).not.toMatch(/A00001|B00001/);
+	});
 
 	it("goes ahead past the sessions its hold parked there", () => {
 		for (const act of ["log out", "reboot", "shut down"] as const) {

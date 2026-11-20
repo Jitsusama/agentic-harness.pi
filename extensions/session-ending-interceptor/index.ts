@@ -10,9 +10,10 @@
  * is there in any state but ended, and refused when the node can't be
  * read, under the no-session-ending-ask-while-live guard. A session a
  * log-out leaves running, hosted or held where the user's services
- * outlive it, doesn't count for a log-out, and none on this machine
- * counts for the ask of a session holding it with a standing #machine
- * hold, which is how a disruption is scheduled. Every realm's
+ * outlive it, doesn't count for a log-out, and an idle one on this
+ * machine that waits on the asker's standing hold of a disruption has
+ * parked for it, which is how a disruption is scheduled, so it doesn't
+ * count for that asker. Every realm's
  * node on the machine is read, since a reboot ends the sessions of all
  * of them. So is a
  * `mesh_wait` putting one on the person's list, or done by a check that
@@ -48,8 +49,9 @@ import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { isRecord } from "../../lib/internal/record.ts";
 import { sayReplyWithheld } from "../../lib/internal/session/withheld.ts";
 import {
-	holdsMachine,
 	logOutSpares,
+	machineBoard,
+	parkedFor,
 } from "../../lib/internal/session-ending/here.ts";
 import {
 	machineNamesAt,
@@ -115,8 +117,15 @@ interface Told {
 /** How many withheld replies in a run the model is told of. */
 const TELLS_PER_RUN = 3;
 
-/** How long logind or the node has to say what spares a session. */
+/** How long logind has to say what spares a session. */
 const SPARES_PATIENCE_MS = 2000;
+
+/**
+ * How long a command past its time has to exit before it is killed, so
+ * one that ignores being stopped holds a refusal up little past
+ * SPARES_PATIENCE_MS.
+ */
+const SPARES_KILL_GRACE_MS = 250;
 
 /** The interceptor, reading the node and the machine through `deps`. */
 export function sessionEndingInterceptor(deps: SessionEndingDeps) {
@@ -167,13 +176,14 @@ export function nodeDeps(
 		spares: async (address) => {
 			const exec = spawnExec({
 				timeoutMs: SPARES_PATIENCE_MS,
+				killGraceMs: SPARES_KILL_GRACE_MS,
 				...(env.PATH ? { env: { PATH: env.PATH } } : {}),
 			});
-			const [lingers, holds] = await Promise.all([
-				logOutSpares(exec, String(userInfo().uid)),
-				holdsMachine(exec, nodeSockets(env), address, Date.now()),
-			]);
-			return { lingers, holds };
+			const lingers = await logOutSpares(exec, String(userInfo().uid));
+			return {
+				lingers,
+				parked: parkedFor(machineBoard(), address, Date.now()),
+			};
 		},
 	};
 }

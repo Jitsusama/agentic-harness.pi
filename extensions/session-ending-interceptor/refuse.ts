@@ -41,7 +41,8 @@ export interface SessionEndingDeps {
 	/**
 	 * What spares this machine's sessions from an ask by the session the
 	 * node knows by `address`: a log-out that leaves the user's services
-	 * running, and a standing #machine hold of its own. Asked only of an
+	 * running, and the sessions parked on its standing hold of a
+	 * disruption. Asked only of an
 	 * ask that would be refused without it; without it, nothing is.
 	 */
 	readonly spares?: (

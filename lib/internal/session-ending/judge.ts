@@ -19,12 +19,12 @@
  * log-out or a switch of users leaves the user's services running when
  * the user lingers and logind kills no user processes, so a session a
  * pi host runs or a holder holds outlives it; one in a terminal alone
- * does not. And a session that holds the machine with a standing
- * #machine hold has asked its sessions to park, so one that has gone
- * idle doesn't count for its ask; one still busy, or out of reach,
- * hasn't parked and still does. Neither reaches another machine, or a
- * session the node names no machine for, since nothing here says what
- * lingers or is held there.
+ * does not. And a session that has answered the asker's standing hold
+ * of a disruption, and so waits on it, has parked for it: while the node
+ * reads it as idle it doesn't count for the asker's ask. One that hasn't
+ * answered, or is still busy or out of reach, still does. Neither
+ * reaches another machine, or a session the node names no machine for,
+ * since nothing here says what lingers or is held there.
  */
 
 import type { NodeSession } from "../../mesh/node.ts";
@@ -73,10 +73,10 @@ export interface Here {
 	/** Whether a log-out here leaves the user's services running. */
 	readonly lingers: boolean;
 	/**
-	 * Whether the asker holds this machine with a standing #machine hold,
-	 * which spares the sessions there that have gone idle.
+	 * The sessions here, by id, that wait on a standing hold of the
+	 * asker's naming a disruption: parked for it, while they stay idle.
 	 */
-	readonly holds: boolean;
+	readonly parked: ReadonlySet<string>;
 }
 
 /** The acts that end a log-in but not the user's services. */
@@ -156,7 +156,7 @@ function spares(
 	if (!here || one.machine?.toLowerCase() !== here.machine.toLowerCase()) {
 		return false;
 	}
-	if (here.holds && one.state === "idle") return true;
+	if (one.state === "idle" && here.parked.has(one.id)) return true;
 	return (
 		here.lingers &&
 		ENDS_A_LOG_IN.has(ask.act) &&

@@ -6,18 +6,36 @@
  * user lingers and that it kills no user processes at a log-out: the pi
  * hosts are user services and each holder runs in a scope under the
  * user's manager, so both outlive it (optimus, 19 November). And a
- * session holds the machine while the node lists a standing hold of its
- * own to the machine's group, which is how a disruption is scheduled:
- * the hold parks every session first.
+ * disruption is scheduled by a hold asking every session to answer it
+ * once parked: a session parked for the asker is one whose lease board
+ * says it waits on a standing hold of the asker's that names a
+ * disruption. A hold alone says nothing of who parked, and nearly every
+ * hold reaches the whole machine, whatever it is about (council of
+ * 20 November), so neither its sending nor its reach is taken as more.
  *
  * Anything that can't be read spares nothing, as on a Mac, where there
- * is no logind, or where mycelium can't be run: a guess that spared a
+ * is no logind, or a board that can't be read: a guess that spared a
  * session would be the one that ends its run.
  */
 
+import { join } from "node:path";
 import type { Exec } from "../../core/exec/index.ts";
-import { ALL } from "../../mesh/group.ts";
-import { isRecord } from "../record.ts";
+import {
+	createBoard,
+	type Holding,
+	isCurrent,
+	ownerOf,
+} from "../../mesh/lease.ts";
+import { senderOf } from "../../mesh/transport.ts";
+import { everyRealmsDir } from "../paths.ts";
+
+/**
+ * What a hold's opening words say when it is about ending the machine's
+ * sessions: a reboot, restart, shutdown, power-off, log-out or switch
+ * of users, in any form of the word.
+ */
+const DISRUPTS =
+	/\b(?:reboot|restart|shut(?:ting)?[ -]?down|power(?:ing)?[ -]?off|log(?:ging)?[ -]?out|sign(?:ing)?[ -]?out|switch(?:ing)? users)/i;
 
 /**
  * Whether a log-out here leaves the services of `user`, a name or a
@@ -39,50 +57,50 @@ export async function logOutSpares(exec: Exec, user: string): Promise<boolean> {
 }
 
 /**
- * Whether `address` holds this machine: any of its nodes, at `sockets`,
- * lists a hold from it to the machine's group that stands at `now`.
+ * The sessions parked for `address`, by session id: those `board` says
+ * wait, at `now`, on a hold of its that still stands and whose opening
+ * words name a disruption. None when there is no address.
  */
-export async function holdsMachine(
-	exec: Exec,
-	sockets: readonly string[],
+export function parkedFor(
+	board: readonly Holding[],
 	address: string | undefined,
 	now: number,
-): Promise<boolean> {
-	if (address === undefined) return false;
-	const each = await Promise.all(
-		sockets.map((socket) =>
-			said(exec, "mycelium", ["unanswered", "--socket", socket]),
-		),
+): Set<string> {
+	if (address === undefined) return new Set();
+	const disruptions = new Set(
+		board
+			.flatMap((holding) => holding.leases)
+			.filter(
+				(lease) =>
+					lease.kind === "hold" &&
+					isCurrent(lease, now) &&
+					senderOf(lease.subject) === address &&
+					DISRUPTS.test(lease.why ?? ""),
+			)
+			.map((lease) => lease.subject),
 	);
-	return each.some((lines) =>
-		(lines ?? "")
-			.split("\n")
-			.some((line) => isStandingHoldFrom(line, address, now)),
+	return new Set(
+		board
+			.filter((holding) =>
+				holding.leases.some(
+					(lease) =>
+						lease.kind === "wait" &&
+						isCurrent(lease, now) &&
+						disruptions.has(lease.subject),
+				),
+			)
+			.map(ownerOf),
 	);
 }
 
-/** Whether a line the node lists is a hold from `address` to the machine. */
-function isStandingHoldFrom(
-	line: string,
-	address: string,
-	now: number,
-): boolean {
-	let one: unknown;
-	try {
-		one = JSON.parse(line);
-	} catch {
-		// A line this reader doesn't know is no hold, which spares nothing.
-		return false;
-	}
-	if (!isRecord(one)) return false;
-	const { intent, from, groups, until } = one;
-	const ends = typeof until === "string" ? Date.parse(until) : Number.NaN;
-	return (
-		intent === "hold" &&
-		from === address &&
-		Array.isArray(groups) &&
-		groups.includes(ALL) &&
-		ends > now
+/**
+ * Every realm's lease board on this machine, as one: a hold and the
+ * waits on it are in the realm its sender is in, and a reboot ends
+ * every realm's sessions.
+ */
+export function machineBoard(): Holding[] {
+	return everyRealmsDir("state", "mesh-workflow").flatMap((dir) =>
+		createBoard(join(dir, "leases")).all(),
 	);
 }
 
