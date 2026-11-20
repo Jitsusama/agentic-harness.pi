@@ -26,7 +26,8 @@ import { fileURLToPath } from "node:url";
 import {
 	goQuiet,
 	handingOf,
-	toldHolder,
+	tellHolder,
+	untellHolder,
 } from "../../lib/internal/session/hand-over.ts";
 import {
 	JOIN_QUIET,
@@ -60,10 +61,21 @@ export interface InPlaceFacts {
 	readonly quiet?: () => void;
 }
 
-/** What the session does to hand its window over, once it may. */
+/**
+ * What the session does to hand its window over, once it may: tell its
+ * holder before the move is noted, so a holder that can't be told calls
+ * the move off with the window still open to say why, then go quiet.
+ */
 export interface HandOver {
-	/** Name the join, ask to be woken into it, and go quiet; then end. */
-	readonly end: () => void;
+	/**
+	 * Name the join and ask to be woken into it. Answers why not when its
+	 * holder can't be told, with nothing left told.
+	 */
+	readonly tell: () => string | undefined;
+	/** Take back what `tell` told, for a move called off after it. */
+	readonly untell: () => void;
+	/** Go quiet, so pi's last frame stays until the join draws over it. */
+	readonly quiet: () => void;
 }
 
 /**
@@ -82,17 +94,18 @@ export function handOverOf(facts: InPlaceFacts): HandOver | undefined {
 		holderCommand(handing.sessionFile, facts.args, facts.env),
 	);
 	return {
-		end: () => {
-			const told = toldHolder(handing.files, command, {
+		tell: () => {
+			const told = tellHolder(handing.files, command, {
 				session: facts.session,
 				move: true,
 				at: new Date().toISOString(),
 			});
-			// Thrown before going quiet, so the move's catch ends it as a move
-			// that closes its window, with nothing half told left behind.
-			if (!told) throw new Error("its holder couldn't be told the join");
-			(facts.quiet ?? goQuiet)();
+			return told.told
+				? undefined
+				: `its holder couldn't be told the join: ${told.why}`;
 		},
+		untell: () => untellHolder(handing.files),
+		quiet: () => (facts.quiet ?? goQuiet)(),
 	};
 }
 

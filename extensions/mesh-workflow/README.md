@@ -1377,7 +1377,10 @@ presences. It refuses, saying why and changing nothing, a conversation
 hosted already, a move already waiting, a session with no log yet, a
 window its mycelium holder doesn't run itself (the move would close it),
 a realm whose node starts another agent than pi, as Joel's personal one
-starts pi-claude, and a host that isn't listening.
+starts pi-claude, and a host that isn't listening. Once it may go, it
+tells its holder the join before noting the move, so a holder whose
+files can't be written calls the move off, its window staying open and
+saying why.
 
 ## Not Yet
 

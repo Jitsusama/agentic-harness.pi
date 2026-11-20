@@ -173,22 +173,6 @@ function whereTo(to: MoveTarget): string {
 }
 
 /**
- * Hand the window over, saying nothing on screen since the window
- * carries straight on in the host: false when it couldn't, and the
- * window closes as a move without one does.
- */
-function handedOver(over: HandOver): boolean {
-	try {
-		over.end();
-		return true;
-	} catch {
-		// Its holder couldn't be told what to start: the note stands, and
-		// the session ends as a move that closes its window does.
-		return false;
-	}
-}
-
-/**
  * End a hosted conversation moving to plain pi through its host's
  * release, which tells its viewers it was released rather than closed;
  * a release the host didn't say it made ends it as Close does.
@@ -312,9 +296,21 @@ export function createMoving(host: MovingHost): MovingSession {
 			return;
 		}
 		unlook();
+		// Its holder is told before the move is noted, so one that can't be
+		// leaves the session open in its window, which says why.
+		const untold = over?.tell();
+		if (untold !== undefined) {
+			callOff(
+				moving,
+				untold,
+				`This session couldn't move to ${whereTo(moving.to)}, so it stays open: ${untold}`,
+			);
+			return;
+		}
 		try {
 			host.note(moving.to);
 		} catch (error) {
+			over?.untell();
 			const why = error instanceof Error ? error.message : String(error);
 			callOff(
 				moving,
@@ -324,9 +320,10 @@ export function createMoving(host: MovingHost): MovingSession {
 			return;
 		}
 		ended = true;
-		if (!over || !handedOver(over)) {
-			host.tell(`Free now; moving to ${whereTo(moving.to)}.`);
-		}
+		// Handed over, it says nothing, since its window carries straight on
+		// in the host.
+		if (over) over.quiet();
+		else host.tell(`Free now; moving to ${whereTo(moving.to)}.`);
 		const by = `a move to ${whereTo(moving.to)}, ${askedFrom === "here" ? "asked in its window" : "asked from outside its window"}`;
 		if (moving.to === "pi" && host.release) {
 			void letGo(host, host.release, by);

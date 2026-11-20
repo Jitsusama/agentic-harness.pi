@@ -16,7 +16,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	goQuiet,
 	handingOf,
-	toldHolder,
+	tellHolder,
+	untellHolder,
+	whyWriting,
 } from "../../../../lib/internal/session/hand-over.ts";
 import { PARKED_EXIT } from "../../../../lib/internal/session/park.ts";
 
@@ -103,9 +105,9 @@ describe("telling the holder what starts next", () => {
 		const { files } = holderFor(4242);
 
 		expect(
-			toldHolder(files, ["pi", "--session", log], { view: true }),
+			tellHolder(files, ["pi", "--session", log], { view: true }),
 			"the holder is told",
-		).toBe(true);
+		).toEqual({ told: true });
 
 		expect(JSON.parse(readFileSync(files.again, "utf8"))).toEqual([
 			"pi",
@@ -122,9 +124,12 @@ describe("telling the holder what starts next", () => {
 		mkdirSync(files.again);
 
 		expect(
-			toldHolder(files, ["pi"], { view: true }),
-			"a command it couldn't write tells nothing",
-		).toBe(false);
+			tellHolder(files, ["pi"], { view: true }),
+			"a command it couldn't write tells nothing, saying why",
+		).toEqual({
+			told: false,
+			why: expect.stringMatching(/EISDIR.*s\.again/),
+		});
 
 		expect(existsSync(files.wake), "no wake").toBe(false);
 	});
@@ -134,11 +139,52 @@ describe("telling the holder what starts next", () => {
 		mkdirSync(files.wake);
 
 		expect(
-			toldHolder(files, ["pi"], { view: true }),
-			"a wake it couldn't write tells nothing",
-		).toBe(false);
+			tellHolder(files, ["pi"], { view: true }),
+			"a wake it couldn't write tells nothing, saying why",
+		).toEqual({
+			told: false,
+			why: expect.stringMatching(/EISDIR.*s\.wake/),
+		});
 
 		expect(existsSync(files.again), "the command it wrote is gone").toBe(false);
+	});
+
+	it("takes back what it told, leaving its holder nothing to start", () => {
+		const { files } = holderFor(4242);
+		expect(tellHolder(files, ["pi"], { view: true })).toEqual({ told: true });
+		expect(existsSync(files.again), "told first").toBe(true);
+
+		untellHolder(files);
+
+		expect(existsSync(files.again), "no command").toBe(false);
+		expect(existsSync(files.wake), "no wake").toBe(false);
+	});
+
+	it("takes back what it can when one file won't go", () => {
+		const { files } = holderFor(4242);
+		mkdirSync(files.again);
+		writeFileSync(files.wake, "{}");
+
+		expect(() => untellHolder(files), "a folder it can't remove").not.toThrow();
+		expect(existsSync(files.wake), "the wake still goes").toBe(false);
+	});
+});
+
+describe("writing a holder's file", () => {
+	it("names the file when the error doesn't", () => {
+		expect(
+			whyWriting(
+				"/run/held/s.again",
+				new Error("ENOSPC: no space left on device, write"),
+			),
+		).toBe("ENOSPC: no space left on device, write, to /run/held/s.again");
+		expect(
+			whyWriting(
+				"/run/held/s.again",
+				new Error("EISDIR: open '/run/held/s.again'"),
+			),
+			"one that names it already is left as it is",
+		).toBe("EISDIR: open '/run/held/s.again'");
 	});
 });
 

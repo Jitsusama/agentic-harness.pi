@@ -47,7 +47,11 @@ function asked(
 		hostedIn: () => undefined,
 		moving: () => moving,
 		sessionFile: () => "/logs/01a1.jsonl",
-		handOver: () => ({ end: () => {} }),
+		handOver: () => ({
+			tell: () => undefined,
+			untell: () => undefined,
+			quiet: () => undefined,
+		}),
 		env: {
 			MYCELIUM_REALM: "work",
 			XDG_RUNTIME_DIR: "/run/user/1000",

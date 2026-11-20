@@ -7,6 +7,7 @@
  */
 
 import {
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -45,6 +46,7 @@ import {
 	SESSION_WOKEN,
 	writeParked,
 } from "../../../lib/internal/session/park.ts";
+import { WRITING } from "../../../lib/internal/write-whole.ts";
 import { announceJobHost } from "../../../lib/jobs/index.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
@@ -641,6 +643,7 @@ describe("starting again on a fresh log", () => {
 	let restarts: string[];
 	let fallbacks: (() => void)[];
 	let focused: string | null;
+	let said: string[];
 	const restarting = (env: NodeJS.ProcessEnv = holder(), args: string[] = []) =>
 		watch(session(), events, {
 			env,
@@ -655,6 +658,7 @@ describe("starting again on a fresh log", () => {
 				fallbacks.push(fallback);
 			},
 			setExitCode: (code) => exits.push(code),
+			say: (line) => said.push(line),
 			focusedWindow: () => focused,
 			clock: false,
 		});
@@ -676,6 +680,7 @@ describe("starting again on a fresh log", () => {
 	beforeEach(() => {
 		restarts = [];
 		fallbacks = [];
+		said = [];
 		focused = "pi-session.3";
 		writeFileSync(fresh(), "");
 	});
@@ -683,13 +688,16 @@ describe("starting again on a fresh log", () => {
 	// 10 November, krc-5: started again through its holder, the window
 	// said "Parked, its memory given back" while it came back, which it
 	// never was. In place, the holder sees no exit at all.
-	it("ends at once, not idle, to start again in place on the fresh log, telling its holder nothing", () => {
+	it("ends at once, not idle, to start again in place on the fresh log, waking its holder for nothing", () => {
 		restarting();
 		const ask = asked();
 		expect(ask).toMatchObject({ restarting: true });
 		expect(ask.why).toBeUndefined();
 		expect(restarts).toEqual([fresh()]);
-		expect(readdirSync(folder)).not.toContain("held.again");
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
+			"named before pi ends, so whatever starts it next opens the fresh log",
+		).toEqual(["pi", "--session", fresh()]);
 		expect(readdirSync(folder)).not.toContain("held.wake");
 		expect(exits).toEqual([]);
 		expect(shutdowns).toBe(1);
@@ -710,6 +718,63 @@ describe("starting again on a fresh log", () => {
 			JSON.parse(readFileSync(join(folder, "held.wake"), "utf8")),
 		).toMatchObject({ session: SESSION, restart: fresh() });
 		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("keeps the command for the fresh log, saying why, when its holder's wake can't be written", () => {
+		mkdirSync(join(folder, "held.wake"));
+		restarting();
+		asked();
+		fallbacks[0]?.();
+		expect(
+			JSON.parse(readFileSync(join(folder, "held.again"), "utf8")),
+			"a key starts it on the fresh log, not on what its holder first ran",
+		).toEqual(["pi", "--session", fresh()]);
+		expect(said).toEqual([
+			expect.stringMatching(
+				/^It stays parked until a key starts it again, since its holder couldn't be woken: EISDIR.*held\.wake/,
+			),
+		]);
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	// Round 3, 20 November: named only once pi had ended, a command that
+	// couldn't be written left the window parked on the log it left, or
+	// on a bare pi, while it said it would start again.
+	it("stays, saying why and naming the file, when its command can't be written", () => {
+		mkdirSync(join(folder, "held.again"));
+		restarting();
+		const ask = asked();
+		expect(ask.why).toMatch(
+			/^its holder couldn't be told how to start it again: EISDIR.*held\.again/,
+		);
+		expect(ask.restarting, "the rollover is told it stays").toBeUndefined();
+		expect(restarts).toEqual([]);
+		expect(shutdowns).toBe(0);
+		expect(
+			readdirSync(join(folder, WRITING)),
+			"the failed write leaves nothing staged",
+		).toEqual([]);
+		expect(readdirSync(folder)).not.toContain("held.wake");
+		expect(exits).toEqual([]);
+	});
+
+	it("leaves the command named before when its own is cut short, and stays", () => {
+		const again = join(folder, "held.again");
+		writeFileSync(again, JSON.stringify(["pi", "--session", "before.jsonl"]));
+		writeFileSync(
+			join(folder, WRITING),
+			"a file where its staging folder goes",
+		);
+		restarting();
+		const ask = asked();
+		expect(
+			JSON.parse(readFileSync(again, "utf8")),
+			"a write that fails empties nothing",
+		).toEqual(["pi", "--session", "before.jsonl"]);
+		expect(ask.why).toMatch(
+			/^its holder couldn't be told how to start it again: E(EXIST|NOTDIR).*held\.again/,
+		);
+		expect(shutdowns).toBe(0);
 	});
 
 	it("has its holder start it fenced on the fresh log, as it was started", () => {

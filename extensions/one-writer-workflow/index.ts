@@ -22,7 +22,7 @@ import { hosted } from "../../lib/core/session/host.ts";
 import {
 	goQuiet,
 	handingOf,
-	toldHolder,
+	tellHolder,
 } from "../../lib/internal/session/hand-over.ts";
 import {
 	type HostHold,
@@ -58,12 +58,20 @@ export function oneWriterWorkflow(looking: WriterLooking & OwnProcess = {}) {
 			if (!hold) return;
 			refused = true;
 			const startup = event.reason === "startup";
-			if (
-				ctx.mode === "tui" &&
-				handedOver(ctx, sessionId, hold, { ...looking, startup })
-			)
-				return;
-			refuse(ctx, heldByHost(sessionId, hold));
+			const handing =
+				ctx.mode === "tui"
+					? handedOver(ctx, sessionId, hold, { ...looking, startup })
+					: { handed: false as const };
+			if (handing.handed) return;
+			const refusal = heldByHost(sessionId, hold);
+			// The why comes first, so the refusal's command to reach the host
+			// still ends the line, as a person copies it.
+			refuse(
+				ctx,
+				handing.why === undefined
+					? refusal
+					: `Its window couldn't be handed to the host's view: ${handing.why}. ${refusal}`,
+			);
 		});
 		// A prompt given on the command line, or typed before the end lands.
 		pi.on("input", () =>
@@ -77,8 +85,9 @@ export function oneWriterWorkflow(looking: WriterLooking & OwnProcess = {}) {
  * hosted conversation, and end as a park, so the holder starts the view
  * at once in the same window. Only a pi its holder runs itself, with a
  * log, no prompt at start-up and no flags plain pi would drop should the
- * view fall back to it, on a hold its host can still run; false for any
- * other, or when the holder's files can't be written, leaving neither.
+ * view fall back to it, on a hold its host can still run; not for any
+ * other, or when the holder's files can't be written, leaving neither
+ * and saying why.
  * It goes quiet first, as a move does, so pi's last frame stays until
  * the view draws over it: no restored screen, resume hint or notice
  * flashes in between, which the view's first frame would wipe anyway.
@@ -88,7 +97,7 @@ function handedOver(
 	sessionId: string,
 	hold: HostHold,
 	own: OwnProcess & { readonly startup: boolean },
-): boolean {
+): Handing {
 	const env = own.env ?? process.env;
 	const args = own.args ?? process.argv.slice(2);
 	const handing = handingOf({
@@ -97,27 +106,36 @@ function handedOver(
 		args,
 		sessionFile: ctx.sessionManager.getSessionFile(),
 	});
-	if (handing === undefined) return false;
+	if (handing === undefined) return { handed: false };
 	// A stranded hold's remedy is a host restart only the refusal names,
 	// and a prompt given at start-up would be lost once the view takes
 	// over; a later start, as a resume, sent that prompt long before.
-	if (hold.stranded || (own.startup && promptIn(args))) return false;
+	if (hold.stranded || (own.startup && promptIn(args)))
+		return { handed: false };
 	const view = viewWords(
 		sessionId,
 		holderCommand(handing.sessionFile, args, env),
 	);
-	const told = toldHolder(handing.files, view, {
+	const told = tellHolder(handing.files, view, {
 		session: sessionId,
 		view: true,
 		at: new Date().toISOString(),
 	});
 	// A holder that can't be told what's next ends with its window on a
-	// refusal, which still says how to reach the conversation.
-	if (!told) return false;
+	// refusal, which still says how to reach the conversation, and why.
+	if (!told.told) return { handed: false, why: told.why };
 	(own.quiet ?? goQuiet)();
 	ctx.shutdown();
-	return true;
+	return { handed: true };
 }
+
+/**
+ * Whether the view took this pi's window, and, when it tried and its
+ * holder couldn't be told, why.
+ */
+type Handing =
+	| { readonly handed: true }
+	| { readonly handed: false; readonly why?: string };
 
 /**
  * End this pi, saying why. In its terminal, pi's own shutdown puts the

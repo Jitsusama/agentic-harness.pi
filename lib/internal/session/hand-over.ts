@@ -47,26 +47,55 @@ export function handingOf(facts: HandingFacts): Handing | undefined {
 }
 
 /**
+ * Whether a holder was told what starts next, and, when it wasn't, why:
+ * the error writing its file gave, which names the file and the cause,
+ * as a full disk or a folder where the file should be. See
+ * {@link whyWriting}.
+ */
+export type Told =
+	| { readonly told: true }
+	| { readonly told: false; readonly why: string };
+
+/**
  * Tells the holder to start `command` next, woken at once with `wake`'s
- * words. False when either file can't be written, with both taken away,
+ * words. Untold when either file can't be written, with both taken away,
  * even one cut short as it was written, so the holder starts nothing
  * half told.
  */
-export function toldHolder(
+export function tellHolder(
 	files: HolderFiles,
 	command: readonly string[],
 	wake: Readonly<Record<string, unknown>>,
-): boolean {
+): Told {
+	let writing = files.again;
 	try {
 		writeFileSync(files.again, JSON.stringify(command));
+		writing = files.wake;
 		writeFileSync(files.wake, JSON.stringify(wake));
-		return true;
-	} catch {
-		// The caller says why it can't hand over; nothing half told stays.
-		forget(files.again);
-		forget(files.wake);
-		return false;
+		return { told: true };
+	} catch (error) {
+		untellHolder(files);
+		return { told: false, why: whyWriting(writing, error) };
 	}
+}
+
+/**
+ * Why writing `path` failed, naming the file: an error from opening it
+ * names it already, but one from the write itself, as a full disk's
+ * ENOSPC, names only the call.
+ */
+export function whyWriting(path: string, error: unknown): string {
+	const message = error instanceof Error ? error.message : String(error);
+	return message.includes(path) ? message : `${message}, to ${path}`;
+}
+
+/**
+ * Takes back what {@link tellHolder} told, so the holder starts nothing
+ * next: for a hand-over called off after its holder was told.
+ */
+export function untellHolder(files: HolderFiles): void {
+	forget(files.again);
+	forget(files.wake);
 }
 
 /**

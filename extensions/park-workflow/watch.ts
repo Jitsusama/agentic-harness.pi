@@ -7,6 +7,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { hosted } from "../../lib/core/session/index.ts";
 import { type Holding, whatHolds } from "../../lib/internal/session/free.ts";
+import { whyWriting } from "../../lib/internal/session/hand-over.ts";
 import {
 	AGAIN_ENV,
 	clearAwake,
@@ -51,6 +52,7 @@ import {
 	type HeldWindow,
 	heldWindowsOf,
 } from "../../lib/internal/session/park-window.ts";
+import { writeWhole } from "../../lib/internal/write-whole.ts";
 import { findJobHost } from "../../lib/jobs/host.ts";
 
 /**
@@ -193,6 +195,8 @@ export interface WatchOptions {
 	readonly restartWith?: (sessionFile: string, fallback: () => void) => void;
 	/** Set the code pi exits with, from within its exit. */
 	readonly setExitCode?: (code: number) => void;
+	/** Say a line in its window, from within its exit; stdout unless given. */
+	readonly say?: (line: string) => void;
 	/**
 	 * The desktop its window is closed through as it parks, under niri;
 	 * this machine's unless given.
@@ -569,16 +573,32 @@ export function watch(
 		// Its person asking is the settled moment a restart waits for.
 		const seen = asked ? undefined : watched();
 		if (seen !== undefined) return seen;
+		// Named before pi ends, as a park names it, so whatever starts it
+		// next opens the fresh log: one that couldn't be named would wake
+		// at a key on the log it left, or as a new conversation, so it
+		// stays. The holder reads it only once its program ends, so a
+		// restart in place still shows it no exit.
+		try {
+			writeWhole(again, JSON.stringify(holderCommand(fresh, args, env)));
+		} catch (error) {
+			return `its holder couldn't be told how to start it again: ${whyWriting(again, error)}`;
+		}
 		const throughHolder = () => {
+			// Its holder starts the named command at once when woken. Unwoken,
+			// the window stays parked and a key starts it, still on the fresh
+			// log, as the window says.
 			try {
-				writeFileSync(again, JSON.stringify(holderCommand(fresh, args, env)));
 				writeFileSync(
 					wake,
 					`${JSON.stringify({ session, restart: fresh, at: new Date(now()).toISOString() })}\n`,
 				);
-			} catch {
-				// Its holder keeps the window parked, and a key wakes it on the
-				// command it ran, which brings back the log it left.
+			} catch (error) {
+				(
+					options.say ??
+					((line: string) => process.stdout.write(`\r\n${line}\r\n`))
+				)(
+					`It stays parked until a key starts it again, since its holder couldn't be woken: ${whyWriting(wake, error)}.`,
+				);
 			}
 			const setCode =
 				options.setExitCode ??

@@ -360,9 +360,9 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			handlers.get("session_start")?.({ reason: "startup" }, ctx),
 		);
 
-		expect(said).toEqual([
-			expect.stringContaining(
-				"systemctl --user restart pi-host-work-background.service",
+		expect(said, "a refusal with no failed write opens as itself").toEqual([
+			expect.stringMatching(
+				/^Session .*systemctl --user restart pi-host-work-background\.service/s,
 			),
 		]);
 		expect(existsSync(holder.again), "it names nothing to start next").toBe(
@@ -415,12 +415,17 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 		const handlers = loaded([held], {
 			process: { env: holder.env, pid: 4242, args: ["--session", log] },
 		});
-		const { ctx } = context(held, "tui");
+		const { ctx, said } = context(held, "tui");
 
 		const added = await exitListenerOf(async () =>
 			handlers.get("session_start")?.({ reason: "startup" }, ctx),
 		);
 
+		expect(said, "the refusal says why the view couldn't take over").toEqual([
+			expect.stringMatching(
+				/^Its window couldn't be handed to the host's view: EISDIR.*again.*is open in the work-background host.*Reach it through its host, with the launcher's Go To or: mycelium /s,
+			),
+		]);
 		expect(existsSync(holder.wake), "it wrote no wake").toBe(false);
 		expect(quieted, "a refusal shows its line").toBe(0);
 		expect(exitCodeFrom(added[0] as () => void)).toBe(HELD_ELSEWHERE_EXIT);
@@ -438,8 +443,10 @@ describe("a plain pi its holder runs, on a conversation a host holds", () => {
 			handlers.get("session_start")?.({ reason: "startup" }, ctx),
 		);
 
-		expect(said).toEqual([
-			expect.stringContaining("is open in the work-background host"),
+		expect(said, "the refusal says why the view couldn't take over").toEqual([
+			expect.stringMatching(
+				/^Its window couldn't be handed to the host's view: EISDIR.*wake.*is open in the work-background host.*Reach it through its host, with the launcher's Go To or: mycelium /s,
+			),
 		]);
 		expect(existsSync(holder.again), "the words it wrote first are gone").toBe(
 			false,
