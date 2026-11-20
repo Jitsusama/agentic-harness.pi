@@ -9,9 +9,16 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type Exec, spawnExec } from "../../../../lib/core/exec/index.ts";
+import {
+	EXIT_TIMED_OUT,
+	type Exec,
+	spawnExec,
+} from "../../../../lib/core/exec/index.ts";
 import { queueFolder } from "../../../../lib/internal/priority/folder.ts";
-import { queuedExec } from "../../../../lib/internal/priority/queued-exec.ts";
+import {
+	queuedExec,
+	WORLD_PUSH_TURN,
+} from "../../../../lib/internal/priority/queued-exec.ts";
 import { queueHeavyWork } from "../../../../lib/internal/priority/turn.ts";
 import { at } from "../../../support/at.ts";
 
@@ -138,5 +145,48 @@ describe("a tool's git put through the machine's queue", () => {
 		const shell = queued.asked[0]?.[1][1] ?? "";
 		const quoted = `'${odd.replace("'", `'\\''`)}'`;
 		expect(shell).toContain(`git -C ${quoted} push origin x`);
+	});
+});
+
+/**
+ * World's push gate's lines, word for word as its program
+ * (world-push-gate 0.1.0) says them; a gate that changes its words
+ * changes these.
+ */
+const GATE = {
+	waits:
+		"world-push-gate: another push to World is running; this one waits its turn.",
+	came: "world-push-gate: its turn came after 1 s",
+	gaveUp:
+		"world-push-gate: waited 30 minutes for another push; this one goes on",
+} as const;
+
+/** A push that says `lines` on stderr, a second apart, then sends. */
+function gatedPush(...lines: string[]): Promise<{ code: number }> {
+	const said = lines.map((line) => `echo '${line}' >&2; sleep 1`).join("; ");
+	return spawnExec({
+		timeoutMs: 600,
+		signal: AbortSignal.timeout(4_000),
+		turn: WORLD_PUSH_TURN,
+	})("sh", ["-c", `${said}; echo sent`]);
+}
+
+describe("World's push gate's turn", () => {
+	it("holds a push's clock from the gate's wait to its turn", async () => {
+		const result = await gatedPush(GATE.waits, GATE.came);
+		expect(result.code, "the gate's wait is not run time").toBe(0);
+	});
+
+	it("holds it until the gate gives up waiting", async () => {
+		const result = await gatedPush(GATE.waits, GATE.gaveUp);
+		expect(result.code, "the gate going on ends the wait").toBe(0);
+	});
+
+	it("holds nothing for the words without the gate's name", async () => {
+		const result = await gatedPush(
+			GATE.waits.replace("world-push-gate: ", "remote: "),
+			GATE.came,
+		);
+		expect(result.code, "only the gate stops the clock").toBe(EXIT_TIMED_OUT);
 	});
 });

@@ -38,7 +38,10 @@ function alive(pid: number): boolean {
  */
 const GONE_WITHIN_MS = 3_000;
 
-/** A gate's words for a wait, as World's push gate says them. */
+/**
+ * A gate's words for a wait, made up for these cases; World's own are
+ * pinned beside the queue (`queued-exec.test.ts`).
+ */
 const TURN = {
 	waits: "this one waits its turn",
 	goes: ["its turn came after", "this one goes on"],
@@ -203,11 +206,11 @@ describe("a command that will not finish", () => {
 	});
 
 	it("holds its clock while it says it waits its turn", async () => {
-		// The wait alone outlasts the clock three times over; only the time
-		// either side of it counts.
-		const result = await spawnExec({ timeoutMs: 400, turn: TURN })("sh", [
+		// The wait alone outlasts the clock twice over; only the time either
+		// side of it counts.
+		const result = await spawnExec({ timeoutMs: 800, turn: TURN })("sh", [
 			"-c",
-			"echo 'gate: another push is running; this one waits its turn.' >&2; sleep 1.2; echo 'gate: its turn came after 1 s' >&2; echo sent",
+			"echo 'gate: another push is running; this one waits its turn.' >&2; sleep 1.6; echo 'gate: its turn came after 1 s' >&2; echo sent",
 		]);
 
 		expect(result.code, "a wait for its turn is not run time").toBe(0);
@@ -215,12 +218,37 @@ describe("a command that will not finish", () => {
 	});
 
 	it("hears a wait said across two pieces of its output", async () => {
-		const result = await spawnExec({ timeoutMs: 400, turn: TURN })("sh", [
+		const result = await spawnExec({ timeoutMs: 800, turn: TURN })("sh", [
 			"-c",
-			"printf 'gate: this one wai' >&2; sleep 0.2; printf 'ts its turn.\\n' >&2; sleep 1.2; echo 'gate: its turn came after 1 s' >&2; echo sent",
+			"printf 'gate: this one wai' >&2; sleep 0.2; printf 'ts its turn.\\n' >&2; sleep 1.6; echo 'gate: its turn came after 1 s' >&2; echo sent",
 		]);
 
 		expect(result.code, "a mark split between chunks is still a wait").toBe(0);
+	});
+
+	it("hears a wait and its end in one piece, and a wait after it", async () => {
+		const result = await spawnExec({ timeoutMs: 800, turn: TURN })("sh", [
+			"-c",
+			"printf 'this one waits its turn\\nits turn came after 0 s\\nthis one waits its turn\\n' >&2; sleep 1.6; echo 'its turn came after 1 s' >&2; echo sent",
+		]);
+
+		expect(result.code, "the second wait holds the clock too").toBe(0);
+		expect(result.stdout).toBe("sent\n");
+	});
+
+	it("carries only the time left before a wait across it", async () => {
+		// 1.2 s before the wait and 1.2 s after it outrun a clock of 2 s
+		// between them, though neither does alone.
+		const result = await spawnExec({ timeoutMs: 2_000, turn: TURN })("sh", [
+			"-c",
+			"sleep 1.2; echo 'this one waits its turn' >&2; sleep 0.3; echo 'its turn came after 0 s' >&2; echo back; sleep 1.2; echo sent",
+		]);
+
+		expect(result.stdout, "it ran on past the wait").toContain("back");
+		expect(result.code, "the time after the wait is what was left").toBe(
+			EXIT_TIMED_OUT,
+		);
+		expect(result.stdout).not.toContain("sent");
 	});
 
 	it("runs its clock again once its turn comes", async () => {
@@ -239,10 +267,11 @@ describe("a command that will not finish", () => {
 
 	it("is stopped when one wait for its turn runs past the longest", async () => {
 		const started = Date.now();
-		// The run's clock is a backstop shorter than the test's own limit,
-		// so a wait nothing stops fails naming how it ended.
+		// A signal shorter than the test's own limit is the backstop, so a
+		// wait nothing stops fails naming how it ended.
 		const result = await spawnExec({
 			timeoutMs: 2_000,
+			signal: AbortSignal.timeout(3_000),
 			turn: { ...TURN, longestMs: 300 },
 		})("sh", [
 			"-c",
@@ -252,6 +281,34 @@ describe("a command that will not finish", () => {
 		expect(result.code, "a wait has a clock of its own").toBe(EXIT_TIMED_OUT);
 		expect(result.stderr).toContain("waited its turn for over 300 ms");
 		expect(Date.now() - started).toBeLessThan(3000);
+	});
+
+	it("counts its waits together against the longest", async () => {
+		// Three waits of 200 ms each fit the longest alone, not together.
+		const result = await spawnExec({
+			timeoutMs: 2_000,
+			signal: AbortSignal.timeout(3_000),
+			turn: { ...TURN, longestMs: 300 },
+		})("sh", [
+			"-c",
+			"for i in 1 2 3; do echo 'this one waits its turn' >&2; sleep 0.2; echo 'its turn came after 0 s' >&2; done; echo sent",
+		]);
+
+		expect(result.code, "saying it waits again earns no more").toBe(
+			EXIT_TIMED_OUT,
+		);
+		expect(result.stderr).toContain("waited its turn for over 300 ms");
+	});
+
+	it("reads a turn with an empty mark as no turn", async () => {
+		const result = await spawnExec({
+			timeoutMs: 300,
+			signal: AbortSignal.timeout(3_000),
+			turn: { waits: "", goes: [""], longestMs: 10_000 },
+		})("sh", ["-c", "echo said >&2; sleep 30"]);
+
+		expect(result.code, "an empty mark holds nothing").toBe(EXIT_TIMED_OUT);
+		expect(result.stderr).toContain("timed out after 300 ms");
 	});
 
 	it("never starts when its signal has already fired", async () => {
