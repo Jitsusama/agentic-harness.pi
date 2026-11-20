@@ -34,7 +34,9 @@ export async function currentFailure(
 	scope: VerificationScope,
 	backend: DiagnosticsBackend | undefined,
 ): Promise<VerificationFailure | undefined> {
-	const root = scope.dir ? (gitRoot(scope.dir) ?? scope.dir) : undefined;
+	const root = scope.dir
+		? ((await gitRoot(scope.dir)) ?? scope.dir)
+		: undefined;
 	const inScope = (path: string): boolean =>
 		root === undefined || within(root, path);
 	const problems: string[] = [];
@@ -55,12 +57,13 @@ export async function currentFailure(
 
 	const run = state.failedRun;
 	if (run && inScope(run.root)) {
-		if (stillDescribes(run)) {
+		if (await stillDescribes(run)) {
 			problems.push(
 				`${run.command} failed in ${run.root}, and nothing there has ` +
 					"changed since. Run verify again once it is fixed.",
 			);
-		} else {
+		} else if (state.failedRun === run) {
+			// A run recorded while git answered is a new one, kept.
 			state.failedRun = undefined;
 		}
 	}
@@ -72,9 +75,9 @@ export async function currentFailure(
  * no fingerprint to compare, and an edit under its root is what
  * retires it instead.
  */
-export function stillDescribes(run: FailedRun): boolean {
+export async function stillDescribes(run: FailedRun): Promise<boolean> {
 	if (run.fingerprint === undefined) return true;
-	return treeFingerprint(run.root) === run.fingerprint;
+	return (await treeFingerprint(run.root)) === run.fingerprint;
 }
 
 /**
@@ -82,8 +85,12 @@ export function stillDescribes(run: FailedRun): boolean {
  * whose tree has moved on, so the status line is no staler than the
  * answer a commit would get.
  */
-export function settle(state: VerificationState): "clean" | "failing" {
-	if (state.failedRun && !stillDescribes(state.failedRun)) {
+export async function settle(
+	state: VerificationState,
+): Promise<"clean" | "failing"> {
+	const run = state.failedRun;
+	// Retired only if it is still the one asked about once git answers.
+	if (run && !(await stillDescribes(run)) && state.failedRun === run) {
 		state.failedRun = undefined;
 	}
 	return state.known.size > 0 || state.failedRun ? "failing" : "clean";

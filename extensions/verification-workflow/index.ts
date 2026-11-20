@@ -103,7 +103,8 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 	const check: VerificationCheck = async (scope) => {
 		const backend = ctxRef ? resolveLspBackend(ctxRef) : undefined;
 		const failure = await currentFailure(state, scope, backend);
-		if (state.outcome === "failing" || failure) state.outcome = settle(state);
+		if (state.outcome === "failing" || failure)
+			state.outcome = await settle(state);
 		if (ctxRef) refreshStatus(ctxRef, state);
 		return failure;
 	};
@@ -244,7 +245,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 				// When the server errored for a touched file, "no errors" is
 				// not "checked clean", so it reads deferred unless something
 				// else is known to be failing.
-				const settled = settle(state);
+				const settled = await settle(state);
 				state.outcome = failed && settled === "clean" ? "deferred" : settled;
 			}
 			refreshStatus(ctx, state);
@@ -295,7 +296,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			});
 			const verdict = checkRunVerdict(result);
 			if (verdict.outcome === "failing" && result.command) {
-				const fingerprint = treeFingerprint(root);
+				const fingerprint = await treeFingerprint(root);
 				state.failedRun = {
 					root,
 					command: result.command,
@@ -309,7 +310,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			}
 			// A check that could not start leaves what else is known as it
 			// was; with nothing else known it says nothing was checked.
-			const settled = settle(state);
+			const settled = await settle(state);
 			state.outcome =
 				verdict.outcome === "deferred" && settled === "clean"
 					? "deferred"

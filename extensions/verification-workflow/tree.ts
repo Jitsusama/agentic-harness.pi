@@ -6,11 +6,16 @@
  * which repository a path belongs to, and give a tree a fingerprint so
  * a check run's verdict is only trusted while the tree is the one it
  * judged.
+ *
+ * Git is asked off the thread: a host runs many conversations on one
+ * thread, and a git status over a large tree, or one waiting on a lock,
+ * held every one of them for as long as it took.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { lstat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
 import { gitRun } from "../../lib/internal/sandbox/tree-git.ts";
@@ -30,8 +35,8 @@ export function directoryOf(path: string): string {
 }
 
 /** The top of the git repository holding dir, or undefined outside one. */
-export function gitRoot(dir: string): string | undefined {
-	const out = git(dir, ["rev-parse", "--show-toplevel"]);
+export async function gitRoot(dir: string): Promise<string | undefined> {
+	const out = await git(dir, ["rev-parse", "--show-toplevel"]);
 	return out === undefined ? undefined : out.trim() || undefined;
 }
 
@@ -48,31 +53,35 @@ export function within(root: string, path: string): boolean {
  * untracked ones included. Staging leaves it alone, since it moves no
  * file. Undefined outside git or when git does not answer in time.
  */
-export function treeFingerprint(root: string): string | undefined {
-	const head = git(root, ["rev-parse", "HEAD^{tree}"]) ?? "no-commit";
-	const status = git(root, [
-		"status",
-		"--porcelain=v1",
-		"-z",
-		"--untracked-files=all",
+export async function treeFingerprint(
+	root: string,
+): Promise<string | undefined> {
+	const [head, status, top] = await Promise.all([
+		git(root, ["rev-parse", "HEAD^{tree}"]),
+		git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+		gitRoot(root),
 	]);
 	if (status === undefined) return undefined;
-	const top = gitRoot(root) ?? root;
-	const files = changedPaths(status).map((path) => {
-		try {
-			const s = lstatSync(join(top, path));
-			return `${path}\t${s.size}\t${s.mtimeMs}`;
-		} catch {
-			return `${path}\tgone`;
-		}
-	});
+	const files = await Promise.all(
+		changedPaths(status).map((path) => stamped(top ?? root, path)),
+	);
 	return createHash("sha1")
-		.update(head.trim())
+		.update((head ?? "no-commit").trim())
 		.update("\n")
 		.update(files.sort().join("\n"))
 		.digest("hex");
 }
 
+/** A changed path with its size and modification time, or as gone. */
+async function stamped(top: string, path: string): Promise<string> {
+	try {
+		const s = await lstat(join(top, path));
+		return `${path}\t${s.size}\t${s.mtimeMs}`;
+	} catch {
+		// Deleted, or gone since git named it: its absence is what changed.
+		return `${path}\tgone`;
+	}
+}
 /** The paths `git status --porcelain -z` names, renames' sources aside. */
 function changedPaths(status: string): string[] {
 	const tokens = status.split("\0").filter((t) => t.length > 0);
@@ -96,20 +105,23 @@ function canonical(path: string): string {
 	return join(canonical(parent), absolute.slice(parent.length + 1));
 }
 
-function git(cwd: string, args: readonly string[]): string | undefined {
+/** What git prints for `args` in `cwd`, or undefined when it gives no answer. */
+function git(
+	cwd: string,
+	args: readonly string[],
+): Promise<string | undefined> {
 	// Outside any sandbox, so held to where a sandboxed command couldn't
 	// have set what git runs (tree-git.ts).
 	const run = gitRun(cwd, args, gitRules());
-	if ("refused" in run) return undefined;
-	try {
-		return execFileSync("git", run.args, {
-			cwd,
-			encoding: "utf8",
-			timeout: GIT_WALL_MS,
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-	} catch {
-		// Not a repository, git missing, or out of time: no answer.
-		return undefined;
-	}
+	if ("refused" in run) return Promise.resolve(undefined);
+	return new Promise((answer) => {
+		const child = execFile(
+			"git",
+			run.args,
+			{ cwd, encoding: "utf8", timeout: GIT_WALL_MS },
+			// Not a repository, git missing, or out of time: no answer.
+			(error, stdout) => answer(error ? undefined : stdout),
+		);
+		child.stdin?.end();
+	});
 }
