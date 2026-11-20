@@ -607,8 +607,9 @@ export async function looksListed(dir: string): Promise<Look[]> {
 /**
  * The look a file's `raw` text holds, or none when it holds none. A cell
  * that isn't a string is let go, so this package reads the look as one
- * kept before looks named their cell; the file itself keeps it, and the
- * launcher, which reads the file, is to check its own.
+ * kept before looks named their cell, and writes it back so; until then
+ * the file keeps it, so the launcher, which reads the file, is to check
+ * its own.
  */
 function lookFrom(raw: string): Look | undefined {
 	try {
