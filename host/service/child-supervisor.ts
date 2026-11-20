@@ -10,7 +10,10 @@
  * open or an adopt, whose answer names the conversation. Either way the
  * host then watches the child, holds a route to it from the child's
  * first answer, moves the route when the conversation becomes another,
- * and lets the route and the slot go when the child says it ends.
+ * and lets the route and the slot go when the child says it ends: once
+ * its unit has gone, stopped first when the watch failed and the child
+ * may still run, so a conversation started again in that slot waits for
+ * the last process to leave it.
  *
  * The shared roster is the supervisor's too, kept from the entry each
  * child sends: held from the child's first answer when it isn't held
@@ -55,10 +58,23 @@ export type KeptRoster = Pick<
  * every extension took 8 to 13 s on 19 November, on a loaded machine.
  */
 export const LISTENS_WITHIN_MS = 60_000;
+/**
+ * How long a listening child may take to answer its first request: an
+ * open builds its conversation before it answers, so as long as a
+ * child may take to listen.
+ */
+export const ANSWERS_WITHIN_MS = 60_000;
+/**
+ * How long a child that said it ends may take to exit before it is
+ * stopped, and a stopped one to go before its slot is cleared anyway.
+ */
+export const EXITS_WITHIN_MS = 30_000;
 /** How often a starting child's socket is tried until it listens. */
 const TRIED_EVERY_MS = 100;
 /** How often a starting child's unit is asked whether it still runs. */
 const ASKED_EVERY_MS = 1_000;
+/** How often a leaving child's unit is asked whether it has gone. */
+const LEFT_EVERY_MS = 250;
 
 /** A request that starts a conversation, as a child takes it first. */
 export type Beginning = Extract<ControlRequest, { op: "open" | "adopt" }>;
@@ -81,7 +97,10 @@ export interface ChildSupervisor {
 	 * slot whose unit has gone; settles with how many it took up.
 	 */
 	adopt(): Promise<number>;
-	/** Stop watching every child, leaving each running. */
+	/**
+	 * Stop watching every child, leaving each running, one still being
+	 * set up among them, whose start then fails as the host's stop.
+	 */
 	close(): void;
 }
 
@@ -105,14 +124,21 @@ function pause(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** The supervisor stopped watching while a child was being set up. */
+class StoppedWatching extends Error {
+	constructor() {
+		super("The host stopped watching its children, leaving this one running");
+	}
+}
+
 /**
  * Try `attempt` until the child at its socket listens, the time runs
- * out, or its unit is found to have stopped, asked once a second.
+ * out, or its unit is found to have gone, asked once a second.
  */
 async function once<T>(
 	attempt: () => Promise<T>,
 	withinMs: number,
-	running: () => Promise<boolean>,
+	gone: () => Promise<boolean>,
 ): Promise<T> {
 	const until = Date.now() + withinMs;
 	let asked = Date.now();
@@ -124,7 +150,7 @@ async function once<T>(
 		}
 		if (Date.now() - asked >= ASKED_EVERY_MS) {
 			asked = Date.now();
-			if (!(await running()))
+			if (await gone())
 				throw new Error("The child's process ended before it listened");
 		}
 		await pause(TRIED_EVERY_MS);
@@ -144,19 +170,72 @@ export function childSupervisor(options: {
 	/** A child's conversation ended, as it said, its route already gone. */
 	ended?: (sessionId: string, why: ChildEnding) => void;
 	listensWithinMs?: number;
+	answersWithinMs?: number;
+	exitsWithinMs?: number;
 }): ChildSupervisor {
 	const { roster, routes, units } = options;
 	const withinMs = options.listensWithinMs ?? LISTENS_WITHIN_MS;
+	const answersWithinMs = options.answersWithinMs ?? ANSWERS_WITHIN_MS;
+	const exitsWithinMs = options.exitsWithinMs ?? EXITS_WITHIN_MS;
 	const watches = new Set<ChildWatch>();
 	// Each conversation a child is starting for, so two asks start one.
 	const starting = new Map<string, Promise<SessionIdentity>>();
+	// Each slot a child is set up in, runs in or leaves, by its unit.
+	const inUse = new Set<string>();
+	// Each slot whose child is leaving, until its unit has gone.
+	const leaving = new Map<string, Promise<void>>();
+	// An adopt under way, which a resume waits out, since the child it
+	// asks for may be one the adopt is about to watch.
+	let adopting: Promise<unknown> = Promise.resolve();
+	let closing = false;
+
+	/** Whether `unit` goes within `ms`, asked every LEFT_EVERY_MS. */
+	async function goneWithin(unit: string, ms: number): Promise<boolean> {
+		const until = Date.now() + ms;
+		for (;;) {
+			if (await units.gone(unit)) return true;
+			if (Date.now() >= until) return false;
+			await pause(LEFT_EVERY_MS);
+		}
+	}
+
+	/**
+	 * Let the child in `slot` go: stopped at once when `stopNow`, as for
+	 * one whose watch failed and may still run, else given EXITS_WITHIN_MS
+	 * to exit as it said it would, and its slot cleared once its unit has
+	 * gone, so nothing started in the slot meets the last one's files.
+	 */
+	function leave(slot: Slot, stopNow: boolean): Promise<void> {
+		const already = leaving.get(slot.unit);
+		if (already) return already;
+		inUse.add(slot.unit);
+		const left = (async () => {
+			if (stopNow || !(await goneWithin(slot.unit, exitsWithinMs)))
+				await units.stop(slot.unit);
+			if (!(await goneWithin(slot.unit, exitsWithinMs)))
+				options.report(
+					new Error(`${slot.unit} still runs; its slot is cleared anyway`),
+				);
+			await clearSlot(slot);
+		})()
+			.catch(options.report)
+			.finally(() => {
+				leaving.delete(slot.unit);
+				inUse.delete(slot.unit);
+			});
+		leaving.set(slot.unit, left);
+		return left;
+	}
 
 	/** Watch the child in `slot`, holding its route from its first answer. */
 	async function watch(slot: Slot): Promise<ChildWatch> {
 		let current: string | undefined;
 		let over = false;
-		// This child's roster changes, in the order it said them.
+		// This child's roster changes, in the order it said them; the first,
+		// its hold, fails the watch when the roster refuses it, since a
+		// conversation the roster doesn't hold is resumed by no later host.
 		let kept = Promise.resolve();
+		let first: Promise<void> = Promise.resolve();
 		function keep(change: () => Promise<void>) {
 			kept = kept.then(change).catch(options.report);
 		}
@@ -168,12 +247,23 @@ export function childSupervisor(options: {
 					watched({ host, conversation, entry }) {
 						current = conversation.sessionId;
 						routes.hold(conversation, { socket: slot.socket, identity: host });
-						keep(async () => {
+						first = kept.then(async () => {
 							if (!held(entry.sessionId)) await roster.hold(entry);
 						});
+						// Its failure is the watch's, thrown below.
+						kept = first.catch(() => undefined);
 					},
 					state: (conversation) => routes.update(conversation),
 					became(previousId, conversation, entry) {
+						// A child speaks for its own conversation alone.
+						if (previousId !== current) {
+							options.report(
+								new Error(
+									`${slot.unit} said ${previousId} became another, but runs ${current}`,
+								),
+							);
+							return;
+						}
 						const was = routes.routeOf(previousId);
 						routes.drop(previousId);
 						current = conversation.sessionId;
@@ -187,7 +277,7 @@ export function childSupervisor(options: {
 					ended(why) {
 						over = true;
 						if (current) routes.drop(current);
-						clearSlot(slot).catch(options.report);
+						void leave(slot, why === "failed");
 						if (!current) return;
 						const gone = current;
 						if (why === "closed" || why === "released")
@@ -197,12 +287,21 @@ export function childSupervisor(options: {
 						);
 						options.ended?.(current, why);
 					},
-				}),
+					answersWithinMs,
+				),
 			withinMs,
-			() => units.active(slot.unit),
+			() => units.gone(slot.unit),
 		);
-		// Held before anyone is told the child has it.
-		await kept;
+		try {
+			if (closing) throw new StoppedWatching();
+			// Held before anyone is told the child has it.
+			await first;
+			await kept;
+		} catch (error) {
+			watching.close();
+			if (current) routes.drop(current);
+			throw error;
+		}
 		// One that ended as it answered is watched no longer.
 		if (!over) {
 			watches.add(watching);
@@ -217,9 +316,11 @@ export function childSupervisor(options: {
 	}
 
 	/**
-	 * Start the child in `slot` and settle with what `work` makes of it;
-	 * a child that never gets that far is stopped, and its slot cleared,
-	 * so no conversation runs where nothing watches it.
+	 * Start the child in `slot` and settle with what `work` makes of it,
+	 * once the last child to run there has left it; a child that never
+	 * gets that far is stopped, and its slot cleared, so no conversation
+	 * runs where nothing watches it, unless the host stopped watching,
+	 * which leaves every child running for the next host to take up.
 	 */
 	async function inSlot<T>(
 		slot: Slot,
@@ -227,22 +328,32 @@ export function childSupervisor(options: {
 		woken: boolean,
 		work: () => Promise<T>,
 	): Promise<T> {
-		await writeSlot(slot, session, woken);
+		await leaving.get(slot.unit);
+		if (inUse.has(slot.unit))
+			throw new Error(`A child runs in ${slot.unit} already`);
+		inUse.add(slot.unit);
 		try {
+			await writeSlot(slot, session, woken);
 			await units.start(slot.unit);
 			return await work();
 		} catch (error) {
-			await units.stop(slot.unit).catch(options.report);
-			await clearSlot(slot).catch(options.report);
+			if (closing) inUse.delete(slot.unit);
+			else await leave(slot, true);
 			throw error;
 		}
 	}
 
-	function started(
+	async function started(
 		entry: RosterEntry,
 		woken: boolean,
 	): Promise<SessionIdentity> {
-		const slot = slotOf(options.folder, options.key, entry.sessionId);
+		await adopting;
+		const { sessionId } = entry;
+		const running = routes
+			.listed()
+			.find((held) => held.sessionId === sessionId);
+		if (running) return running;
+		const slot = slotOf(options.folder, options.key, sessionId);
 		return inSlot(
 			slot,
 			entry,
@@ -251,13 +362,32 @@ export function childSupervisor(options: {
 		);
 	}
 
+	/** Watch the child an earlier host left in `slot`, or clear it if gone. */
+	async function takeUp(slot: Slot): Promise<boolean> {
+		if (await units.gone(slot.unit)) {
+			await leave(slot, false);
+			return false;
+		}
+		inUse.add(slot.unit);
+		try {
+			await watch(slot);
+			return true;
+		} catch (error) {
+			if (closing) throw error;
+			// A child nothing can watch runs a conversation nothing can
+			// reach, such as one an earlier host never finished opening: it
+			// is stopped, and its conversation waits in the roster.
+			options.say?.(
+				`${slot.unit}: stopped, since it could not be watched: ${String(error)}`,
+			);
+			await leave(slot, true);
+			throw error;
+		}
+	}
+
 	return {
 		resume(entry, woken = false) {
 			const { sessionId } = entry;
-			const running = routes
-				.listed()
-				.find((held) => held.sessionId === sessionId);
-			if (running) return Promise.resolve(running);
 			const already = starting.get(sessionId);
 			if (already) return already;
 			const start = started(entry, woken).finally(() =>
@@ -275,13 +405,14 @@ export function childSupervisor(options: {
 				const child = await once(
 					() => reach(slot.socket),
 					withinMs,
-					() => units.active(slot.unit),
+					() => units.gone(slot.unit),
 				);
 				const reply = await askOnce(
 					child,
 					`${JSON.stringify(asked)}\n`,
 					request.id,
 					options.report,
+					answersWithinMs,
 				);
 				// A child that couldn't start its conversation is stopped.
 				if (!reply.ok) throw new RefusedBeginning(reply);
@@ -293,26 +424,16 @@ export function childSupervisor(options: {
 			});
 		},
 		async adopt() {
-			const slots = await slotsIn(options.folder, options.key);
-			const taken = await Promise.allSettled(
-				slots.map(async (slot) => {
-					if (!(await units.active(slot.unit))) {
-						await clearSlot(slot);
-						return false;
-					}
-					try {
-						await watch(slot);
-						return true;
-					} catch (error) {
-						// A child nothing can watch runs a conversation nothing can
-						// reach, such as one an earlier host never finished opening:
-						// it is stopped, and its conversation waits in the roster.
-						await units.stop(slot.unit).catch(options.report);
-						await clearSlot(slot);
-						throw error;
-					}
-				}),
-			);
+			const taking = (async () => {
+				const slots = await slotsIn(options.folder, options.key);
+				return Promise.allSettled(
+					slots
+						.filter((slot) => !inUse.has(slot.unit))
+						.map((slot) => takeUp(slot)),
+				);
+			})();
+			adopting = taking.catch(() => undefined);
+			const taken = await taking;
 			let count = 0;
 			for (const outcome of taken) {
 				if (outcome.status === "rejected") options.report(outcome.reason);
@@ -321,6 +442,7 @@ export function childSupervisor(options: {
 			return count;
 		},
 		close() {
+			closing = true;
 			for (const watching of watches) watching.close();
 			watches.clear();
 		},

@@ -15,6 +15,7 @@ import {
 	type Slot,
 	slotOf,
 	type Units,
+	writeSlot,
 } from "../../../host/service/child-units.ts";
 import { heldChildren } from "../../../host/service/children.ts";
 import type { HostIdentity } from "../../../host/service/dispatch.ts";
@@ -65,6 +66,8 @@ function derived(sessionId: string): RosterEntry {
 
 interface FakeRoster extends KeptRoster {
 	held: RosterEntry[];
+	/** Refuse every hold, as a roster that can't be written would. */
+	refuses?: boolean;
 }
 
 /** A shared roster in memory, refusing what the real one refuses. */
@@ -75,6 +78,7 @@ function fakeRoster(held: RosterEntry[]): FakeRoster {
 		held,
 		entries: () => [...fake.held],
 		async hold(entry) {
+			if (fake.refuses) throw new Error("The roster can't be written");
 			if (holds(entry.sessionId)) throw new Error("Held already");
 			fake.held = [...fake.held, entry];
 		},
@@ -116,7 +120,15 @@ interface FakeUnits extends Units {
 	/** Each unit running, with its child once it listens. */
 	readonly children: Map<string, FakeChild | undefined>;
 	/** What the next child started does, when a test says. */
-	next?: { refuses?: boolean; diesBeforeListening?: boolean };
+	next?: ChildTraits & { diesBeforeListening?: boolean };
+}
+
+/** How a fake child answers. */
+interface ChildTraits {
+	/** Refuse its open. */
+	refuses?: boolean;
+	/** Take every request and answer none. */
+	silent?: boolean;
 }
 
 function slotNamed(unit: string): Slot {
@@ -127,7 +139,7 @@ function slotNamed(unit: string): Slot {
 /** Run a child in `slot`, as its unit would once its extensions load. */
 async function runChild(
 	slot: Slot,
-	refuses: boolean,
+	{ refuses, silent }: ChildTraits,
 	pid: number,
 ): Promise<FakeChild> {
 	const held = JSON.parse(await readFile(slot.file, "utf8"));
@@ -167,6 +179,7 @@ async function runChild(
 			for (const value of frames.push(chunk)) {
 				const request = value as Record<string, unknown>;
 				child.asked.push(request);
+				if (silent) continue;
 				const id = request.id;
 				if (request.op === "open") {
 					if (refuses) {
@@ -230,14 +243,14 @@ function fakeUnits(): FakeUnits {
 					fake.children.delete(unit);
 					return;
 				}
-				runChild(slotNamed(unit), next.refuses ?? false, own).then(
+				runChild(slotNamed(unit), next, own).then(
 					(child) => fake.children.set(unit, child),
 					(error) => reported.push(error),
 				);
 			}, LISTENS_AFTER_MS);
 		},
-		async active(unit) {
-			return fake.children.has(unit);
+		async gone(unit) {
+			return !fake.children.has(unit);
 		},
 		async stop(unit) {
 			fake.stopped.push(unit);
@@ -265,6 +278,8 @@ function supervise(): ChildSupervisor {
 		say: (text) => said.push(text),
 		ended: (sessionId, why) => ended.push([sessionId, why]),
 		listensWithinMs: 5_000,
+		answersWithinMs: 500,
+		exitsWithinMs: 500,
 	});
 }
 
@@ -344,6 +359,65 @@ describe("a resumed conversation", () => {
 		);
 		expect(routes.routeOf(a)).toBeUndefined();
 	});
+
+	it("is given up, and its child stopped, when the child never answers its watch", async () => {
+		units.next = { silent: true };
+
+		await expect(supervisor.resume(entry(a))).rejects.toThrow(
+			"no answer within",
+		);
+
+		expect(units.stopped).toEqual(units.started);
+		expect(existsSync(slotOf(folder, key, a).file), "its slot is cleared").toBe(
+			false,
+		);
+		expect(routes.routeOf(a)).toBeUndefined();
+	});
+
+	it("fails, starting nothing, for an id no slot can be named by", async () => {
+		await expect(supervisor.resume(entry("not-an-id"))).rejects.toThrow(
+			"Not a slot's name",
+		);
+
+		expect(units.started).toEqual([]);
+	});
+
+	it("fails, leaving its child running, when the host stops watching as it starts", async () => {
+		const resuming = supervisor.resume(entry(a));
+
+		supervisor.close();
+
+		await expect(resuming).rejects.toThrow("stopped watching");
+		expect(units.stopped).toEqual([]);
+		expect(
+			await units.gone(slotOf(folder, key, a).unit),
+			"its child has gone",
+		).toBe(false);
+	});
+
+	it("starts again in its slot only once the last child there has gone", async () => {
+		await supervisor.resume(entry(a));
+		const last = childOf(a);
+		const slot = slotOf(folder, key, a);
+		last.say({ type: "ending", why: "parked" });
+		await vi.waitFor(() => expect(ended).toEqual([[a, "parked"]]));
+
+		const again = supervisor.resume(entry(a), true);
+		// The last child exits a little after it says it ends, as a real
+		// one does once it has parked, while the wake's start waits on it.
+		setTimeout(() => void last.exit(), LISTENS_AFTER_MS);
+		await again;
+
+		expect(units.started).toEqual([slot.unit, slot.unit]);
+		expect(units.stopped, "the last one exited by itself").toEqual([]);
+		expect(JSON.parse(await readFile(slot.file, "utf8"))).toEqual({
+			session: entry(a),
+			woken: true,
+		});
+		const now = childOf(a);
+		expect(now, "a new child").not.toBe(last);
+		expect(routes.routeOf(a)?.identity).toEqual(now.identity);
+	});
 });
 
 describe("what a child says", () => {
@@ -415,6 +489,67 @@ describe("what a child says", () => {
 
 		await vi.waitFor(() => expect(ended).toEqual([[a, "failed"]]));
 		expect(routes.routeOf(a)).toBeUndefined();
+		const slot = slotOf(folder, key, a);
+		await vi.waitFor(() => {
+			expect(units.stopped, "the child, still running, is stopped").toEqual(
+				[slot.unit],
+			);
+			expect(existsSync(slot.file), "its slot is cleared").toBe(false);
+		});
+	});
+
+	it("gives a child that said it ends a while to exit, then stops it", async () => {
+		await supervisor.resume(entry(a));
+
+		childOf(a).say({ type: "ending", why: "parked" });
+
+		const slot = slotOf(folder, key, a);
+		await vi.waitFor(
+			() => {
+				expect(units.stopped).toEqual([slot.unit]);
+				expect(existsSync(slot.file), "its slot is cleared").toBe(false);
+			},
+			{ timeout: 3_000 },
+		);
+	});
+
+	it("takes no word on another conversation than its own", async () => {
+		await supervisor.resume(entry(a));
+		const route = routes.routeOf(a);
+
+		childOf(a).say({
+			type: "became",
+			previousId: b,
+			conversation: conversation(a),
+			entry: entry(a),
+		});
+
+		await vi.waitFor(() => expect(reported).toHaveLength(1));
+		expect(routes.routeOf(a)).toEqual(route);
+		expect(roster.held).toEqual([entry(a)]);
+	});
+
+	it("reads a line carrying more than it knows, as a newer child's would", async () => {
+		await supervisor.resume(entry(a));
+
+		childOf(a).say({
+			type: "state",
+			conversation: { ...conversation(a), state: "busy", colour: "teal" },
+		});
+
+		await vi.waitFor(() => expect(routes.listed()[0]?.state).toBe("busy"));
+		expect(ended).toEqual([]);
+		expect(routes.listed()[0], "only what it reads").not.toHaveProperty(
+			"colour",
+		);
+	});
+
+	it("lets the roster's hold go when the child says it was released", async () => {
+		await supervisor.resume(entry(a));
+
+		await childOf(a).end("released");
+
+		await vi.waitFor(() => expect(roster.held, "no hold left").toEqual([]));
 	});
 
 	it("counts a child that exits without a word as failed", async () => {
@@ -483,6 +618,42 @@ describe("a new conversation", () => {
 		const slot = slotNamed(units.started[0] ?? "");
 		expect(existsSync(slot.file), "its slot is cleared").toBe(false);
 	});
+
+	it("fails, and stops its child, when the roster won't hold what it opened", async () => {
+		roster.refuses = true;
+
+		await expect(
+			supervisor.begin({
+				v: 1,
+				id: "open-3",
+				op: "open",
+				cwd: "/home",
+				attended: true,
+			}),
+		).rejects.toThrow("can't be written");
+
+		expect(units.stopped).toEqual(units.started);
+		expect(routes.listed()).toEqual([]);
+	});
+
+	it("tells the caller a child that never answers doesn't, and stops it", async () => {
+		units.next = { silent: true };
+
+		const reply = await supervisor.begin({
+			v: 1,
+			id: "open-4",
+			op: "open",
+			cwd: "/home",
+			attended: true,
+		});
+
+		expect(reply).toMatchObject({
+			id: "open-4",
+			ok: false,
+			error: { code: "child_unreachable" },
+		});
+		expect(units.stopped).toEqual(units.started);
+	});
 });
 
 describe("a host starting again", () => {
@@ -516,6 +687,37 @@ describe("a host starting again", () => {
 		expect(roster.held).toEqual([entry(a)]);
 	});
 
+	it("waits for an adopt rather than start a second child for one it takes up", async () => {
+		await supervisor.resume(entry(a));
+		supervisor.close();
+		routes = heldChildren();
+		supervisor = supervise();
+
+		const adopting = supervisor.adopt();
+		const resumed = await supervisor.resume(entry(a));
+
+		expect(await adopting, "children taken up").toBe(1);
+		expect(resumed.sessionId).toBe(a);
+		expect(units.started, "no child started again").toHaveLength(1);
+	});
+
+	it("stops a child it can't watch, and says so", async () => {
+		const slot = slotOf(folder, key, b);
+		await writeSlot(slot, entry(b));
+		units.next = { silent: true };
+		await units.start(slot.unit);
+		await vi.waitFor(() =>
+			expect(units.children.get(slot.unit), "it listens").toBeDefined(),
+		);
+
+		expect(await supervisor.adopt(), "children taken up").toBe(0);
+
+		expect(units.stopped).toEqual([slot.unit]);
+		expect(existsSync(slot.file), "its slot is cleared").toBe(false);
+		expect(said).toEqual([expect.stringContaining("could not be watched")]);
+		expect(reported).toHaveLength(1);
+	});
+
 	it("leaves each child running when it stops watching", async () => {
 		await supervisor.resume(entry(a));
 
@@ -523,10 +725,12 @@ describe("a host starting again", () => {
 
 		expect(units.stopped).toEqual([]);
 		expect(
-			await units.active(slotOf(folder, key, a).unit),
-			"the child still runs",
-		).toBe(true);
+			await units.gone(slotOf(folder, key, a).unit),
+			"the child has gone",
+		).toBe(false);
 		await childOf(a).end("parked");
+		// Nothing to wait on: an ending that arrives would come within this.
+		await new Promise((resolve) => setTimeout(resolve, LISTENS_AFTER_MS));
 		expect(ended, "no ending is taken from a child no longer watched").toEqual(
 			[],
 		);

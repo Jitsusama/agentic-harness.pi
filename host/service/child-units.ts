@@ -19,6 +19,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { RosterEntry } from "../../lib/core/session/roster.ts";
+import { MAX_SOCKET_PATH_BYTES } from "./address.ts";
 
 /** Where one child's files are, and the unit it runs as. */
 export interface Slot {
@@ -33,8 +34,11 @@ export interface Slot {
 export interface Units {
 	/** Start a unit, settling once systemd has taken the job. */
 	start(unit: string): Promise<void>;
-	/** Whether a unit is running now. */
-	active(unit: string): Promise<boolean>;
+	/**
+	 * Whether a unit has gone: stopped or failed, with nothing queued
+	 * for it, rather than starting, running or stopping.
+	 */
+	gone(unit: string): Promise<boolean>;
 	/** Stop a unit, settling once systemd has taken the job. */
 	stop(unit: string): Promise<void>;
 }
@@ -53,9 +57,12 @@ export function slotFolder(runtimeDir: string, key: string): string {
 /** The slot `name` names in `folder`, for the host keyed `key`. */
 export function slotOf(folder: string, key: string, name: string): Slot {
 	if (!SLOT_NAME.test(name)) throw new Error(`Not a slot's name: ${name}`);
+	const socket = join(folder, `${name}.sock`);
+	if (Buffer.byteLength(socket) > MAX_SOCKET_PATH_BYTES)
+		throw new Error(`A child's socket would be too long a path: ${socket}`);
 	return {
 		name,
-		socket: join(folder, `${name}.sock`),
+		socket,
 		file: join(folder, `${name}.json`),
 		folder: join(folder, `${name}.d`),
 		unit: `pi-conversation-${key}@${name}.service`,
@@ -84,7 +91,10 @@ export async function clearSlot(slot: Slot): Promise<void> {
 	await rm(slot.folder, { force: true, recursive: true });
 }
 
-/** The slots in `folder`, each named by a SLOT.json in it. */
+/**
+ * The slots in `folder`, each named by any of its files, so one a child
+ * left half cleared is found too.
+ */
 export async function slotsIn(folder: string, key: string): Promise<Slot[]> {
 	let names: string[];
 	try {
@@ -95,35 +105,73 @@ export async function slotsIn(folder: string, key: string): Promise<Slot[]> {
 			return [];
 		throw error;
 	}
-	return names
-		.filter((name) => name.endsWith(".json"))
-		.map((name) => name.slice(0, -".json".length))
-		.filter((name) => SLOT_NAME.test(name))
-		.map((name) => slotOf(folder, key, name));
+	const named = new Set(
+		names
+			.map((name) => name.replace(/\.(json|sock|d)$/, ""))
+			.filter((name) => SLOT_NAME.test(name)),
+	);
+	return [...named].map((name) => slotOf(folder, key, name));
 }
 
-function systemctl(...args: string[]): Promise<{ code: number }> {
-	return new Promise((resolve, reject) => {
-		execFile("systemctl", ["--user", ...args], (error) => {
-			if (!error) return resolve({ code: 0 });
+/** What `systemctl --user` said: its exit code and what it printed. */
+export interface Said {
+	readonly code: number;
+	readonly out: string;
+}
+
+/** Runs `systemctl --user` with these arguments. */
+export type Systemctl = (args: readonly string[]) => Promise<Said>;
+
+const systemctl: Systemctl = (args) =>
+	new Promise((resolve, reject) => {
+		execFile("systemctl", ["--user", ...args], (error, out) => {
+			if (!error) return resolve({ code: 0, out });
 			const code = Reflect.get(error, "code");
-			if (typeof code === "number") return resolve({ code });
+			if (typeof code === "number") return resolve({ code, out });
 			reject(error);
 		});
 	});
+
+/** The states a unit with nothing queued for it has gone in. */
+const GONE = new Set(["inactive", "failed"]);
+
+/**
+ * A child's units as `run` asks systemd for them: started and stopped
+ * without waiting on the job, so a unit whose start waits on a
+ * readiness it never signals holds no one, and gone only once
+ * stopped or failed with no job left, since a unit still activating,
+ * or deactivating with a start queued behind it, is no unit gone.
+ */
+export function unitsOver(run: Systemctl): Units {
+	return {
+		async start(unit) {
+			const { code } = await run(["start", "--no-block", unit]);
+			if (code !== 0) throw new Error(`systemd would not start ${unit}`);
+		},
+		async gone(unit) {
+			const { code, out } = await run([
+				"show",
+				"--property=ActiveState,Job",
+				unit,
+			]);
+			if (code !== 0) throw new Error(`systemd would not say how ${unit} is`);
+			const said = new Map(
+				out
+					.split("\n")
+					.filter((row) => row.includes("="))
+					.map((row) => [
+						row.slice(0, row.indexOf("=")),
+						row.slice(row.indexOf("=") + 1),
+					]),
+			);
+			return GONE.has(said.get("ActiveState") ?? "") && !said.get("Job");
+		},
+		async stop(unit) {
+			const { code } = await run(["stop", "--no-block", unit]);
+			if (code !== 0) throw new Error(`systemd would not stop ${unit}`);
+		},
+	};
 }
 
 /** The user's systemd, as it runs each child's unit. */
-export const systemdUnits: Units = {
-	async start(unit) {
-		const { code } = await systemctl("start", "--no-block", unit);
-		if (code !== 0) throw new Error(`systemd would not start ${unit}`);
-	},
-	async active(unit) {
-		return (await systemctl("is-active", "--quiet", unit)).code === 0;
-	},
-	async stop(unit) {
-		const { code } = await systemctl("stop", "--no-block", unit);
-		if (code !== 0) throw new Error(`systemd would not stop ${unit}`);
-	},
-};
+export const systemdUnits: Units = unitsOver(systemctl);

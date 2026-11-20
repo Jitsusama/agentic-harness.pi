@@ -21,15 +21,16 @@ import { jsonLines } from "./framing.ts";
 import { identities, parseReply, type SessionIdentity } from "./protocol.ts";
 
 const sessionId = z.uuid();
-const { conversation } = identities;
+// A line, its conversation and its host may carry more than this reads,
+// as a newer child's would; what it reads, it keeps alone.
+const conversation = identities.conversation.strip();
 const entry = z.custom<RosterEntry>(isRosterEntry, "not a roster entry");
 const watched = z.object({
 	version: z.string().min(1),
-	host: identities.host,
+	host: identities.host.strip(),
 	conversation,
 	entry,
 });
-// A line may carry more than this reads, as a newer child's would.
 const line = z.discriminatedUnion("type", [
 	z.object({
 		type: z.literal("state"),
@@ -82,8 +83,8 @@ export interface ChildWatcher {
 		entry: RosterEntry,
 	): void;
 	/**
-	 * The watch ended: with what the child said before it exited, or
-	 * `failed` when it went without saying.
+	 * The watch ended: as the child said it ends, or `failed` when it went
+	 * without saying.
 	 */
 	ended(why: ChildEnding): void;
 }
@@ -98,26 +99,29 @@ export interface ChildWatch extends Watched {
 
 /**
  * Watch the child at `socket`. Settles once the child has answered, or
- * rejects when it can't be reached or answers with anything but a watch.
+ * rejects when it can't be reached, answers with anything but a watch,
+ * or connects but gives no answer within `answersWithinMs`, since a
+ * child that never answers would otherwise hold its caller for good.
  * A line the supervisor can't read ends the watch as failed, since the
  * child and the supervisor no longer agree on what is said.
  */
 export function watchChild(
 	socket: string,
 	watcher: ChildWatcher,
-	id = "watch",
+	answersWithinMs: number,
 ): Promise<ChildWatch> {
 	return new Promise((resolve, reject) => {
 		const connection = createConnection(socket);
 		const frames = jsonLines();
 		let answered = false;
-		let ending: ChildEnding | undefined;
 		let over = false;
+		let unanswered: ReturnType<typeof setTimeout> | undefined;
 		let finished: () => void = () => undefined;
 		const closed = new Promise<void>((done) => {
 			finished = done;
 		});
 		function end(why: ChildEnding) {
+			clearTimeout(unanswered);
 			if (over) return;
 			over = true;
 			connection.destroy();
@@ -125,7 +129,17 @@ export function watchChild(
 			if (answered) watcher.ended(why);
 		}
 		connection.on("connect", () => {
-			connection.write(`${JSON.stringify({ v: 1, id, op: "watch" })}\n`);
+			connection.write(
+				`${JSON.stringify({ v: 1, id: "watch", op: "watch" })}\n`,
+			);
+			unanswered = setTimeout(() => {
+				reject(
+					new Error(
+						`The child gave its watch no answer within ${answersWithinMs} ms`,
+					),
+				);
+				end("failed");
+			}, answersWithinMs);
 		});
 		connection.on("data", (chunk: Buffer) => {
 			try {
@@ -134,6 +148,7 @@ export function watchChild(
 						const reply = parseReply(value);
 						if (!reply.ok) throw new Error(reply.error.message);
 						const first = watched.parse(reply.result);
+						clearTimeout(unanswered);
 						answered = true;
 						watcher.watched(first);
 						resolve({
@@ -151,7 +166,11 @@ export function watchChild(
 					if (said.type === "state") watcher.state(said.conversation);
 					else if (said.type === "became")
 						watcher.became(said.previousId, said.conversation, said.entry);
-					else ending = said.why;
+					else {
+						// Its last word, whether or not its process then exits.
+						end(said.why);
+						return;
+					}
 				}
 			} catch (error) {
 				if (!answered) reject(error);
@@ -160,12 +179,12 @@ export function watchChild(
 		});
 		connection.on("error", (error) => {
 			if (!answered) reject(error);
-			end(ending ?? "failed");
+			end("failed");
 		});
 		connection.on("close", () => {
 			if (!answered && !over)
 				reject(new Error("The child closed before it answered its watch"));
-			end(ending ?? "failed");
+			end("failed");
 		});
 	});
 }

@@ -72,23 +72,38 @@ export function fromChild(line: Buffer, id: string): ControlReply {
 /**
  * Ask a reached child one request and settle with what the caller is
  * told, then leave the child: an answer, or that it doesn't answer when
- * it ends, fails or overruns MAX_ANSWER_BYTES before its first line ends.
+ * it ends, fails or overruns MAX_ANSWER_BYTES before its first line ends,
+ * or gives none within `answersWithinMs` when that is set.
  */
 export function askOnce(
 	child: Socket,
 	line: string,
 	id: string,
 	report: (error: unknown) => void,
+	answersWithinMs?: number,
 ): Promise<ControlReply> {
 	return new Promise((resolve) => {
 		let held = Buffer.alloc(0);
 		let settled = false;
+		let unanswered: ReturnType<typeof setTimeout> | undefined;
 		const settle = (reply: ControlReply) => {
 			if (settled) return;
 			settled = true;
+			clearTimeout(unanswered);
 			child.destroy();
 			resolve(reply);
 		};
+		if (answersWithinMs !== undefined)
+			unanswered = setTimeout(
+				() =>
+					settle(
+						childUnreachable(
+							id,
+							`The process running this conversation gave no answer within ${answersWithinMs} ms`,
+						),
+					),
+				answersWithinMs,
+			);
 		child.on("data", (chunk: Buffer) => {
 			held = Buffer.concat([held, chunk]);
 			const lf = held.indexOf(10);
