@@ -420,21 +420,26 @@ describe("answerInThread", () => {
 		const hangs = programOf(
 			'import { readFileSync } from "node:fs";\nimport { parentPort, workerData } from "node:worker_threads";\nparentPort.postMessage(String(readFileSync(workerData)));\n',
 		);
-		await expect(answerInThread(hangs, fifo, 1_000)).rejects.toThrow(
-			"no answer within 1000 ms",
-		);
+		// Open without waiting, so a reader not there fails rather than
+		// holding this thread too; closing it unwritten lets the read
+		// return at its end.
+		const release = () =>
+			closeSync(openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK));
 		const answers = programOf(
 			'import { parentPort } from "node:worker_threads";\nparentPort.postMessage("here");\n',
 		);
-		await expect(
-			answerInThread(answers, null, HANGS_AFTER_MS),
-			"refused while the first is held",
-		).rejects.toThrow("held in a read past its wall");
-
-		// Open without waiting, so a reader not there fails rather than
-		// holding this thread too.
-		// Closing it unwritten lets the read return at its end.
-		closeSync(openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK));
+		try {
+			// Room for a loaded machine's thread to start and reach its open.
+			await expect(answerInThread(hangs, fifo, 3_000)).rejects.toThrow(
+				"no answer within 3000 ms",
+			);
+			await expect(
+				answerInThread(answers, null, HANGS_AFTER_MS),
+				"refused while the first is held",
+			).rejects.toThrow("held in a read past its wall");
+		} finally {
+			release();
+		}
 		await vi.waitFor(
 			async () =>
 				expect(

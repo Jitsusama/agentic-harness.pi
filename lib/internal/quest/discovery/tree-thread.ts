@@ -59,8 +59,37 @@ export interface TreeRead {
  * The exits of the threads ended at their wall that haven't exited yet.
  * A thread held in a synchronous read can't end until the read returns,
  * so on a disk that stays hung each signing would leave one more behind.
+ * One set a process, kept on `globalThis`, since a reload evaluates this
+ * module again and a copy's own set would let each copy leave one more.
  */
-const heldInRead = new Set<Promise<unknown>>();
+const heldInRead: Set<Promise<unknown>> = heldThreads();
+
+/** The process's set of held threads, made by the first copy to ask. */
+function heldThreads(): Set<Promise<unknown>> {
+	const store = globalThis as Record<symbol, unknown>;
+	const key = Symbol.for("agentic-harness.quest.tree-threads-held.v1");
+	const held = store[key];
+	if (held instanceof Set) return held;
+	const made = new Set<Promise<unknown>>();
+	store[key] = made;
+	return made;
+}
+
+/** A thread refused since one is still held in a read: the disk hangs. */
+export class ThreadsHeld extends Error {
+	constructor(held: number) {
+		super(`${held} thread still held in a read past its wall, so none starts`);
+		this.name = "ThreadsHeld";
+	}
+}
+
+/**
+ * Whether `error` is a refusal for a held thread, from any loaded copy
+ * of this module, as one from before a reload is.
+ */
+export function threadsHeld(error: unknown): boolean {
+	return error instanceof Error && error.name === "ThreadsHeld";
+}
 
 /** How many threads may be held in a read before no more start. */
 const HELD_AT_MOST = 1;
@@ -100,10 +129,10 @@ export async function readTreeInThread(
  * The first message `program` sends, run on a thread of its own with
  * `data`. Rejects when the thread errs or exits unanswered, and after
  * `wallMs` without an answer, ending the thread. A disk that hangs in a
-
  * synchronous read then holds that thread until the read returns, but
  * never the host's own; while one is held so, past `ENDS_WITHIN_MS`
- * after its wall, no other starts, and each is refused.
+ * after its wall, no other starts, and each is refused with
+ * `ThreadsHeld`.
  */
 export async function answerInThread(
 	program: string,
@@ -111,11 +140,7 @@ export async function answerInThread(
 	wallMs: number,
 ): Promise<unknown> {
 	if (heldInRead.size >= HELD_AT_MOST) await anyHeldEnds(ENDS_WITHIN_MS);
-	if (heldInRead.size >= HELD_AT_MOST) {
-		throw new Error(
-			`${heldInRead.size} thread still held in a read past its wall, so none starts`,
-		);
-	}
+	if (heldInRead.size >= HELD_AT_MOST) throw new ThreadsHeld(heldInRead.size);
 	return new Promise((resolve, reject) => {
 		let done = false;
 		// The program needs none of the host's flags, and some refuse a

@@ -84,6 +84,7 @@ import {
 	pendingStampOf,
 	readTreeOffThread,
 } from "./off-thread.ts";
+import { threadsHeld } from "./tree-thread.ts";
 
 /** A single quest entry in the index. */
 export interface QuestEntry {
@@ -650,7 +651,9 @@ function startSigning(questsRoot: string): Promise<SigningEnd | undefined> {
 	})().catch((error: unknown): SigningEnd => {
 		// The last walk stands, and the next ask past its age signs again.
 		sayOnHost(`signing ${questsRoot} off the thread failed: ${error}`);
-		return "failed";
+		// A thread still held in a read means the disk hangs, which a
+		// signing on the host's own thread would hang on too.
+		return threadsHeld(error) ? "gave up" : "failed";
 	});
 	// Only this walk's own hold: one freed as hung that ends later must
 	// not free the walk that took its root since.
