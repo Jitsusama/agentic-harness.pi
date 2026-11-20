@@ -668,6 +668,9 @@ it("says once why a record couldn't be written", () => {
 	const why = said.filter((line) => line.includes("couldn't write"));
 	expect(why, "said other than once").toHaveLength(1);
 	expect(why[0]).toMatch(/ENOTDIR|EEXIST/);
+	expect(why[0], "didn't say no record lies there").toMatch(
+		/no record lies there to name a fence/,
+	);
 });
 
 it.skipIf(asRoot)(

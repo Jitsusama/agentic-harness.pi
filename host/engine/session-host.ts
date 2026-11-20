@@ -3,21 +3,17 @@ import { randomUUID } from "node:crypto";
 import {
 	closeSync,
 	constants,
-	fchmodSync,
 	fstatSync,
 	ftruncateSync,
-	lstatSync,
 	mkdirSync,
 	openSync,
-	realpathSync,
 	renameSync,
 	rmSync,
-	type Stats,
 	writeFileSync,
 	writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { isOwner } from "../../lib/core/process/index.ts";
 import {
 	type FenceTeller,
@@ -35,6 +31,7 @@ import {
 } from "../../lib/core/session/index.ts";
 import type { FenceKind } from "../../lib/mesh/presence.ts";
 import { HOST_READS, installConversationEnv } from "./process-env.ts";
+import { CLOSED_STATE, closeToOthers, unclosedIn } from "./records-folder.ts";
 
 /** A stable pi conversation, supplied before its extensions load. */
 export interface ConversationRegistration {
@@ -556,7 +553,8 @@ export class SessionHost implements Host {
 	 * sessions are held only where its service keeps them, until the next
 	 * write lands. Only a record of its own: never through a link, and
 	 * never into a FIFO, which would hold the host's one thread, or a
-	 * file linked elsewhere too, which may be the person's own.
+	 * file linked elsewhere too, which may be the person's own. Where
+	 * none lies, there is none left to name a fence.
 	 */
 	private unsay(): Unsaid {
 		let held: number;
@@ -565,8 +563,9 @@ export class SessionHost implements Host {
 				this.registryPath,
 				constants.O_WRONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
 			);
-		} catch {
-			return "left";
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			return code === "ENOENT" || code === "ENOTDIR" ? "absent" : "left";
 		}
 		try {
 			const record = fstatSync(held);
@@ -651,7 +650,7 @@ export class SessionHost implements Host {
 }
 
 /** What became of the record when a write failed (SessionHost.unsay). */
-type Unsaid = "rewritten" | "emptied" | "left";
+type Unsaid = "rewritten" | "emptied" | "absent" | "left";
 
 /** What the host's log says of each, after why the write failed. */
 const UNSAID: Readonly<Record<Unsaid, string>> = {
@@ -659,11 +658,10 @@ const UNSAID: Readonly<Record<Unsaid, string>> = {
 		"so it was rewritten where it lies naming no session's fence, until a write lands",
 	emptied:
 		"so it was emptied, which names no session's fence, and which pi reads as no host at all, so its sessions are held only where its service keeps them, until a write lands",
+	absent:
+		"and no record lies there to name a fence, which the node refuses, until a write lands",
 	left: "nor rewritten where it lies, so it may still name a fence the host has dropped until a write lands",
 };
-
-/** Where in the home folder the fence keeps pi's state read-only (fence-home.ts). */
-const CLOSED_STATE = ".local/state/pi";
 
 /** How tight each fence holds a session's tools. */
 const TIGHTNESS: Readonly<Record<FenceKind, number>> = {
@@ -683,52 +681,6 @@ function loosest(
 }
 
 /**
- * Why `folder` doesn't lie closed in `closed`, or undefined where it
- * does: spelled as it really is, through no link, and it and each
- * folder from `closed` down to it this account's own, which no other
- * may write. Another account could otherwise rename one away and put
- * its own, holding its own record, there.
- */
-function unclosedIn(folder: string, closed: string): string | undefined {
-	const folders = downTo(folder, closed);
-	if (folders === undefined) return `${folder} lies outside ${closed}`;
-	for (const each of folders) {
-		const why = notOwnAlone(each);
-		if (why !== undefined) return `${each} ${why}`;
-	}
-	return undefined;
-}
-
-/** `closed` and each folder below it down to `folder`; none outside it. */
-function downTo(folder: string, closed: string): string[] | undefined {
-	const at = relative(closed, folder);
-	if (at === "" || at.startsWith("..") || isAbsolute(at)) return undefined;
-	const steps = at.split(sep);
-	return [
-		closed,
-		...steps.map((_, i) => join(closed, ...steps.slice(0, i + 1))),
-	];
-}
-
-/** Why `folder` isn't this account's alone, at its real path, or undefined. */
-function notOwnAlone(folder: string): string | undefined {
-	let real: string;
-	let held: Stats;
-	try {
-		real = realpathSync(folder);
-		held = lstatSync(folder);
-	} catch {
-		return "can't be read";
-	}
-	if (held.isSymbolicLink()) return "is a link";
-	if (real !== folder) return "lies past a link";
-	if (!held.isDirectory()) return "is not a folder";
-	if (held.uid !== process.getuid?.()) return "is another account's";
-	if ((held.mode & 0o022) !== 0) return "may be written by another account";
-	return undefined;
-}
-
-/**
  * Count a runner whose shell or file guard told a fence and the other
  * didn't as unfenced: pi ran the other's tools as its own, and what
  * they started may still run.
@@ -736,40 +688,6 @@ function notOwnAlone(folder: string): string | undefined {
 function untold(conversation: Conversation): void {
 	if (Boolean(conversation.shellTold) !== Boolean(conversation.filesTold))
 		conversation.fence = "none";
-}
-
-/**
- * Clear group and other write from each folder from `closed` down to
- * `folder` that is this account's own and no link, as code before this
- * host may have made them under a looser umask; unclosedIn then judges
- * them as they stand. The walk stops at the first that isn't at its
- * real path, so nothing past a link is changed; a link swapped in at
- * the last part after that look is refused by the open, though one
- * higher up may still be followed.
- */
-function closeToOthers(folder: string, closed: string): void {
-	for (const each of downTo(folder, closed) ?? []) {
-		let opened: number;
-		try {
-			if (realpathSync(each) !== each) return;
-			opened = openSync(
-				each,
-				constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
-			);
-		} catch {
-			// unclosedIn names no fence for a folder it can't read.
-			return;
-		}
-		try {
-			const held = fstatSync(opened);
-			if (held.uid === process.getuid?.() && (held.mode & 0o022) !== 0)
-				fchmodSync(opened, held.mode & 0o7755);
-		} catch {
-			// As above: left as it is, unclosedIn judges it.
-		} finally {
-			closeSync(opened);
-		}
-	}
 }
 
 /** A conversation's private environment: `input` under its own id, never process.env. */
