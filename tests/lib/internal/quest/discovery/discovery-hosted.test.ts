@@ -18,10 +18,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearDiscoveryCache,
+	type DiscoveryResult,
 	discoverQuests,
 	discoverQuestsAfresh,
 	discoverySettled,
-	type DiscoveryResult,
 	readyQuests,
 	refreshQuests,
 } from "../../../../../lib/internal/quest/discovery/discovery.ts";
@@ -629,9 +629,7 @@ describe("discovery on a host", () => {
 		atomicWriteFile(join(bare, "notes.txt"), "two\n");
 		const { errors } = discoverQuests(slashed);
 		const ofBare = errors.filter((error) => error.path.startsWith(bare));
-		expect(ofBare.map((error) => error.message)).toEqual([
-			"README.md missing",
-		]);
+		expect(ofBare.map((error) => error.message)).toEqual(["README.md missing"]);
 	});
 
 	it("reads a quest folder removed and put back under its name by the next signing", async () => {
