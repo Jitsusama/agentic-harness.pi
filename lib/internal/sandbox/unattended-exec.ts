@@ -40,15 +40,21 @@ export const UNATTENDED_LIMIT_MS = 10 * 60 * 1000;
 
 /**
  * The library's exec seam, run unattended: stopped by `signal` when one is
- * given, and by the unattended clock either way.
+ * given, and by the unattended clock either way. With `fenced`, its git
+ * holds to the fence's guard in every repository, as a fenced session's
+ * does, whatever this process's own sandbox: for a process that runs git
+ * in every session's repositories with no session's sandbox of its own.
  */
-export function unattendedExec(signal?: AbortSignal): Exec {
+export function unattendedExec(
+	signal?: AbortSignal,
+	{ fenced = false }: { fenced?: boolean } = {},
+): Exec {
 	return guardedExec(
 		spawnExec({
 			...(signal ? { signal } : {}),
 			timeoutMs: UNATTENDED_LIMIT_MS,
 		}),
-		gitRules,
+		fenced ? () => ({ ...gitRules(), fenced: true }) : gitRules,
 	);
 }
 

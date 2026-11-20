@@ -2,7 +2,7 @@
  * The unattended sweep holds every live quest's trees only until spent,
  * what else claims a tree for good, and tells holders what it took.
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
 	closeSync,
 	existsSync,
@@ -20,17 +20,27 @@ import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { answerTreeClaims } from "../../../extensions/quest-workflow/claims.ts";
 import {
+	judgedProviders,
 	registerTreeSweeps,
 	seesEveryProcess,
+	sweepAndLog,
+	sweepLockPath,
 	useSigns,
 } from "../../../extensions/work-integration/sweep.ts";
+import type { Exec } from "../../../lib/core/exec/index.ts";
+import type { TreeProvider } from "../../../lib/core/work/broker.ts";
 import {
 	type SweptTrees,
 	type TreeClaims,
 	WORK_TREE_CLAIMS,
 	WORK_TREES_SWEPT,
 } from "../../../lib/core/work/index.ts";
+import {
+	clearTreeProviders,
+	registerTreeProvider,
+} from "../../../lib/core/work/register.ts";
 import type { SweepClaims } from "../../../lib/core/work/sweep.ts";
+import { markSweptOutside } from "../../../lib/core/work/sweep-rest.ts";
 import { installTestHost } from "../../support/session-host.ts";
 
 /** The claims each sweep was given. */
@@ -39,15 +49,29 @@ const given: SweepClaims[] = [];
 /** The rest each sweep was asked to keep. */
 const rests: (number | undefined)[] = [];
 
-/** Why the next sweep does nothing, when it should, as the library says. */
-const idle: { rested?: string; skipped?: string } = {};
+/** The exec each sweep was given to run git with. */
+const execs: Exec[] = [];
+
+/**
+ * Why the next sweep does nothing, when it should, as the library says,
+ * or the error it fails with.
+ */
+const idle: {
+	rested?: string;
+	skipped?: string;
+	failed?: string;
+	partly?: string;
+} = {};
 
 vi.mock("../../../lib/core/work/sweep.ts", () => ({
 	sweepEndedTrees: async (deps: {
 		claims: SweepClaims | (() => SweepClaims | Promise<SweepClaims>);
 		restMs?: number;
+		exec: Exec;
 	}) => {
 		rests.push(deps.restMs);
+		execs.push(deps.exec);
+		if (idle.failed !== undefined) throw new Error(idle.failed);
 		const none = {
 			taken: [],
 			refused: [],
@@ -64,6 +88,7 @@ vi.mock("../../../lib/core/work/sweep.ts", () => ({
 		return {
 			...none,
 			taken: [{ path: "/src/repo/.worktrees/spent", branch: "spent" }],
+			...(idle.partly === undefined ? {} : { idleUnjudged: idle.partly }),
 		};
 	},
 }));
@@ -87,11 +112,15 @@ beforeEach(() => {
 	vi.useFakeTimers();
 	given.length = 0;
 	rests.length = 0;
+	execs.length = 0;
 	delete idle.rested;
 	delete idle.skipped;
+	delete idle.failed;
+	delete idle.partly;
 	host = installTestHost();
 });
 afterEach(() => {
+	clearTreeProviders();
 	host.dispose();
 	vi.useRealTimers();
 	vi.unstubAllEnvs();
@@ -110,6 +139,18 @@ async function sweepOn(events: ReturnType<typeof createEventBus>) {
 		fn({ reason: "startup" }, { sessionManager: { getSessionId: () => "a" } });
 	}
 	await vi.advanceTimersByTimeAsync(FIRST_SWEEP_MS);
+}
+
+/** A provider other than git's, which says whether its trees are spent. */
+function providerJudging(id: string): TreeProvider {
+	return {
+		id,
+		specificity: 10,
+		appliesTo: () => false,
+		ensure: async () => ({ path: "" }),
+		release: async () => {},
+		whyKept: async () => undefined,
+	};
 }
 
 /** A quests root holding one active quest that lists `path`. */
@@ -215,6 +256,102 @@ it("asks every sweep to rest 20 minutes after any sweep ends", async () => {
 	await sweepOn(createEventBus());
 
 	expect(rests, "the rest each sweep was asked for").toEqual([20 * 60 * 1000]);
+});
+
+it("stands a host's sweep down for two hours after a sweep outside the hosts", async () => {
+	// A minute before the host starts, so no sweep lands on the hold's edge.
+	markSweptOutside(sweepLockPath(), Date.now() - 60 * 1000, ["git-worktree"]);
+
+	await sweepOn(createEventBus());
+	expect(rests, "the sweeps a host started beside one outside").toEqual([]);
+
+	// Its hourly sweeps come 60 and 120 minutes after it starts, 61 and 121
+	// after the stamp: only the second is past the two hours.
+	await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
+	expect(rests, "the sweeps a host started once the hold ran out").toHaveLength(
+		1,
+	);
+});
+
+it("sweeps in a host with a provider the sweep outside didn't judge", async () => {
+	registerTreeProvider(providerJudging("world-dev-tree"));
+	markSweptOutside(sweepLockPath(), Date.now() - 60 * 1000, ["git-worktree"]);
+
+	await sweepOn(createEventBus());
+
+	expect(rests, "the sweeps a host with World's provider started").toEqual([
+		20 * 60 * 1000,
+	]);
+});
+
+it("names git's provider and each that says whether a tree is spent", () => {
+	registerTreeProvider(providerJudging("world-dev-tree"));
+	registerTreeProvider({ ...providerJudging("mute"), whyKept: undefined });
+	// As a provider from another package, whose types nothing checked, may.
+	registerTreeProvider({
+		...providerJudging("garbled"),
+		whyKept: "yes" as never,
+	});
+
+	expect(judgedProviders(), "the providers a sweep here judges").toEqual([
+		"git-worktree",
+		"world-dev-tree",
+	]);
+});
+
+it("says how each sweep ended", async () => {
+	const asks = { claimed: () => ({ held: [], untilSpent: [] }), swept() {} };
+	const said: Record<string, string> = { ran: await sweepAndLog(asks) };
+	for (const why of ["partly", "rested", "skipped", "failed"] as const) {
+		delete idle.rested;
+		delete idle.skipped;
+		delete idle.failed;
+		delete idle.partly;
+		idle[why] = "not now";
+
+		said[why] = await sweepAndLog(asks);
+	}
+
+	expect(said, "how each sweep said it ended").toEqual({
+		ran: "ran",
+		partly: "partly",
+		rested: "rested",
+		skipped: "skipped",
+		failed: "failed",
+	});
+});
+
+it("still says a sweep ran when forgetting what it took throws", async () => {
+	const end = await sweepAndLog({
+		claimed: () => ({ held: [], untilSpent: [] }),
+		swept() {
+			throw new Error("no quests to write");
+		},
+	});
+
+	expect(end, "how the sweep said it ended").toBe("ran");
+	expect(readFileSync(sweepLog(), "utf8"), "the sweep's log").toContain(
+		'"why":"no quests to write"',
+	);
+});
+
+it("holds its git to the fence in every repository only when asked", async () => {
+	vi.stubEnv("PI_SANDBOX", "off");
+	const repository = realpathSync(mkdtempSync(join(tmpdir(), "unguarded-")));
+	execFileSync("git", ["init", "-q", repository]);
+	const asks = { claimed: () => ({ held: [], untilSpent: [] }), swept() {} };
+	try {
+		await sweepAndLog(asks);
+		await sweepAndLog({ ...asks, fencedGit: true });
+		const [plain, fenced] = await Promise.all(
+			execs.map((exec) => exec("git", ["-C", repository, "status"])),
+		);
+
+		expect(plain?.code, "git in it for a host's sweep").toBe(0);
+		expect(fenced?.code, "git in it for the sweep outside").toBe(126);
+	} finally {
+		rmSync(repository, { recursive: true, force: true });
+	}
 });
 
 it("writes no line for a sweep that rested", async () => {

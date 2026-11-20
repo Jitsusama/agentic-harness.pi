@@ -7,11 +7,15 @@
  * that never reached it, and the tool waited with it.
  */
 
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { execUnattended } from "../../../../lib/internal/sandbox/unattended-exec.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	execUnattended,
+	unattendedExec,
+} from "../../../../lib/internal/sandbox/unattended-exec.ts";
 
 /** Long enough that a command nothing stopped is plainly still running. */
 const SLEEP_SECONDS = "30";
@@ -69,5 +73,47 @@ describe("execUnattended", () => {
 		const said = await execUnattended("pwd", [], { cwd: dir });
 
 		expect(said.stdout.trim()).toBe(dir);
+	});
+});
+
+describe("unattendedExec", () => {
+	let repository: string | undefined;
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		if (repository) rmSync(repository, { recursive: true, force: true });
+		repository = undefined;
+	});
+
+	/** A repository where the fence keeps nothing read-only. */
+	function unguardedRepository(): string {
+		const made = realpathSync(mkdtempSync(join(tmpdir(), "unguarded-")));
+		execFileSync("git", ["init", "-q", made]);
+		return made;
+	}
+
+	it("runs git in a repository the fence doesn't guard, for an unfenced session", async () => {
+		vi.stubEnv("PI_SANDBOX", "off");
+		repository = unguardedRepository();
+
+		const said = await unattendedExec()("git", ["-C", repository, "status"]);
+
+		expect(said.code, said.stderr).toBe(0);
+	});
+
+	it("refuses git there when asked to hold to the fence, whatever its own sandbox", async () => {
+		vi.stubEnv("PI_SANDBOX", "off");
+		repository = unguardedRepository();
+
+		// Not `rev-parse --git-dir`, which reads as naming the git folder
+		// outright and so goes as asked.
+		const said = await unattendedExec(undefined, { fenced: true })("git", [
+			"-C",
+			repository,
+			"status",
+		]);
+
+		expect(said.code, "a shell's code for a command it won't run").toBe(126);
+		expect(said.stderr).toContain("the sandbox doesn't keep read-only");
 	});
 });

@@ -10,6 +10,11 @@
  * beside the trees' records, one JSON line a sweep, naming the trees
  * taken and those whose dev-shell roots were dropped. A sweep that
  * rests, since one ended within the last 20 minutes, writes none.
+ *
+ * Where a machine sweeps outside its hosts, as scripts/pi-sweep.ts does
+ * from a timer, a host's sweeps stand down for two hours after each of
+ * its runs that judged every provider the host has, so a host's one
+ * thread never carries a sweep's work.
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -30,6 +35,7 @@ import {
 	type SweepOutcome,
 	sweepEndedTrees,
 } from "../../lib/core/work/sweep.ts";
+import { sweptOutsideSince } from "../../lib/core/work/sweep-rest.ts";
 import { machineBooted } from "../../lib/internal/machine/booted.ts";
 import { everyRealmsDir, stateDir } from "../../lib/internal/paths.ts";
 import { discoverQuests } from "../../lib/internal/quest/discovery/discovery.ts";
@@ -113,12 +119,97 @@ function stopSweeps(own: Sweeps): void {
 	own.every = undefined;
 }
 
-/** One sweep, logged, which never throws into a timer. */
+/**
+ * One sweep in a host, unless a sweep outside every host has lately
+ * judged the trees of every provider this host has, which stands it down
+ * before it reads anything.
+ */
 async function sweepOnce(pi: ExtensionAPI): Promise<void> {
-	const dir = stateDir("work");
+	const outside = sweptOutsideSince(
+		sweepLockPath(),
+		Date.now(),
+		judgedProviders(),
+	);
+	if (outside !== undefined) return;
+	await sweepAndLog({
+		// Asked only by a sweep that runs, as the sweep says why, and
+		// waited on, so a quest answers from its tree as it stands now.
+		claimed: async () => {
+			const claims: TreeClaims = { paths: [], untilSpent: [], answering: [] };
+			pi.events.emit(WORK_TREE_CLAIMS, claims);
+			await Promise.all(claims.answering ?? []);
+			return { held: claims.paths, untilSpent: claims.untilSpent ?? [] };
+		},
+		// Whoever listed a tree it took stops listing a folder that is gone.
+		// pi's bus reports a listener's error itself, never to the emitter.
+		swept: (paths) => {
+			const swept: SweptTrees = { paths: [...paths] };
+			pi.events.emit(WORK_TREES_SWEPT, swept);
+		},
+		restMs: SWEEP_REST_MS,
+	});
+}
+
+/** Where every sweep on the machine takes its turn. */
+export function sweepLockPath(): string {
+	return join(stateDir("work"), "sweep.lock");
+}
+
+/**
+ * The providers whose trees a sweep here judges: git's, which the sweep
+ * judges itself, and each loaded provider that says whether a tree is
+ * spent. Another provider's trees are kept whatever their state.
+ */
+export function judgedProviders(): string[] {
+	const judged = new Set(["git-worktree"]);
+	for (const provider of listTreeProviders()) {
+		if (typeof provider.whyKept === "function") judged.add(provider.id);
+	}
+	return [...judged].sort();
+}
+
+/**
+ * How a sweep ended: run to its end, run to its end without judging
+ * every tree, rested after another, turned away by another holding the
+ * lock, or failed.
+ */
+export type SweepEnd = "ran" | "partly" | "rested" | "skipped" | "failed";
+
+/** The trees held for good, and those held only until spent. */
+export interface SweepHolds {
+	held: string[];
+	untilSpent: string[];
+}
+
+/** What a sweep asks of whoever runs it. */
+export interface SweepAsks {
+	/** The trees held for good, and those held only until spent. */
+	claimed(): SweepHolds | Promise<SweepHolds>;
+	/**
+	 * Told the trees a sweep took, when it took any, and waited on, so a
+	 * process of its own doesn't end before its holders have forgotten them.
+	 */
+	swept(paths: readonly string[]): void | Promise<void>;
+	/** How long the machine rests after any sweep ends, if at all. */
+	restMs?: number;
+	/**
+	 * Whether its git holds to the fence's guard in every repository, as
+	 * a fenced session's does, whatever this process's own sandbox.
+	 */
+	fencedGit?: boolean;
+	/**
+	 * Told why a sweep failed or left trees unjudged, beside its line in
+	 * the log, for a runner with a journal of its own.
+	 */
+	told?(why: string): void;
+}
+
+/** One sweep, logged, which never throws, saying how it ended. */
+export async function sweepAndLog(asks: SweepAsks): Promise<SweepEnd> {
 	const started = Date.now();
 	let line: Record<string, unknown>;
 	let taken: string[] = [];
+	let end: SweepEnd = "failed";
 	try {
 		// A quest holds trees the broker knows nothing of, and says so
 		// when asked, as it does for reclaim. A live quest's trees are held
@@ -129,20 +220,12 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 		// counted as in use, one sweep so took 154 trees, among them the
 		// folder a hosted conversation worked in; on 19 November 280 claimed
 		// trees whose sessions had ended held 5.6 GiB.
-		// Asked only by a sweep that runs, as the sweep says why, and
-		// waited on, so a quest answers from its tree as it stands now.
-		const claimed = async () => {
-			const claims: TreeClaims = { paths: [], untilSpent: [], answering: [] };
-			pi.events.emit(WORK_TREE_CLAIMS, claims);
-			await Promise.all(claims.answering ?? []);
-			return { held: claims.paths, untilSpent: claims.untilSpent ?? [] };
-		};
 		const outcome = await sweepEndedTrees({
-			exec: unattendedExec(),
+			exec: unattendedExec(undefined, { fenced: asks.fencedGit === true }),
 			memory: createTreeMemory(treeRecordDir()),
-			claims: claimed,
-			lockPath: join(dir, "sweep.lock"),
-			restMs: SWEEP_REST_MS,
+			claims: () => asks.claimed(),
+			lockPath: sweepLockPath(),
+			...(asks.restMs === undefined ? {} : { restMs: asks.restMs }),
 			wentWithFinishedWork: inFinishedQuest,
 			providers: listTreeProviders,
 			...useSigns(),
@@ -151,19 +234,39 @@ async function sweepOnce(pi: ExtensionAPI): Promise<void> {
 		// it did: a line for each filled the log at one every 3 seconds on
 		// 18 November. One that found another running still says so, as
 		// the only sign of a sweep that holds the lock and never ends.
-		if (outcome.rested !== undefined) return;
+		if (outcome.rested !== undefined) return "rested";
 		line = said(outcome);
 		taken = outcome.taken.map((tree) => tree.path);
+		end =
+			outcome.skipped !== undefined
+				? "skipped"
+				: outcome.idleUnjudged !== undefined
+					? "partly"
+					: "ran";
+		if (outcome.idleUnjudged !== undefined) {
+			asks.told?.(`left idle snapshots unjudged: ${outcome.idleUnjudged}`);
+		}
 	} catch (error) {
-		line = { failed: error instanceof Error ? error.message : String(error) };
+		line = { failed: messageOf(error) };
+		asks.told?.(`failed: ${messageOf(error)}`);
 	}
 	logSweep({ ms: Date.now() - started, ...line }, started);
-	// Whoever listed a tree it took stops listing a folder that is gone.
-	// pi's bus reports a listener's error itself, never to the emitter.
 	if (taken.length > 0) {
-		const swept: SweptTrees = { paths: taken };
-		pi.events.emit(WORK_TREES_SWEPT, swept);
+		try {
+			await asks.swept(taken);
+		} catch (error) {
+			// The trees are gone either way, and a holder that still lists
+			// one lists a path to nothing, which holds nothing; the line says
+			// how many it couldn't be told of.
+			logSweep({ unforgotten: taken.length, why: messageOf(error) });
+		}
 	}
+	return end;
+}
+
+/** What an error says, whatever was thrown. */
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -339,6 +442,22 @@ export async function seesEveryProcess(
 ): Promise<boolean> {
 	try {
 		return (await link("/proc/self/ns/pid")) === HOST_PID_NAMESPACE;
+	} catch {
+		// No /proc, as on macOS.
+		return false;
+	}
+}
+
+/**
+ * Whether `/proc` lists the machine's first process, as it does to a
+ * reader who sees everyone's, and not where it is mounted to hide other
+ * users' processes.
+ */
+export async function listsFirstProcess(
+	list: (path: string) => Promise<string[]> = (path) => readdir(path),
+): Promise<boolean> {
+	try {
+		return (await list("/proc")).includes("1");
 	} catch {
 		// No /proc, as on macOS.
 		return false;
