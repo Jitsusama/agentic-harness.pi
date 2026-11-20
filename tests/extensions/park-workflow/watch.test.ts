@@ -7,6 +7,7 @@
  */
 
 import {
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -709,6 +710,18 @@ describe("starting again on a fresh log", () => {
 		expect(
 			JSON.parse(readFileSync(join(folder, "held.wake"), "utf8")),
 		).toMatchObject({ session: SESSION, restart: fresh() });
+		expect(exits).toEqual([PARKED_EXIT]);
+	});
+
+	it("takes back the command it named when its holder's wake can't be written", () => {
+		mkdirSync(join(folder, "held.wake"));
+		restarting();
+		asked();
+		fallbacks[0]?.();
+		expect(
+			readdirSync(folder),
+			"no command left that a key would start on the fresh log",
+		).not.toContain("held.again");
 		expect(exits).toEqual([PARKED_EXIT]);
 	});
 

@@ -124,9 +124,10 @@ describe("handing a window over", () => {
 			}),
 		);
 
-		expect(() => over?.end(), "the move's catch closes it").toThrow(
-			/couldn't be told/,
-		);
+		expect(
+			() => over?.end(),
+			"the move's catch closes it, told which file failed and how",
+		).toThrow(/couldn't be told the join: EISDIR.*wake/);
 		expect(quiet, "not gone quiet, so its note still stands").toBe(0);
 		expect(existsSync(again), "no join left for a later start").toBe(false);
 	});
@@ -291,7 +292,9 @@ describe("moving in place", () => {
 		});
 		move.move("attended");
 		expect(at.did).toEqual(["note attended", "close"]);
-		expect(at.told.at(-1)).toMatch(/Free now; moving to the attended host/);
+		expect(at.told.at(-1)).toBe(
+			"Free now; moving to the attended host. Its window closes, since the disk is full.",
+		);
 	});
 
 	it("closes its window, and typing calls it off, when it can't hand over", () => {

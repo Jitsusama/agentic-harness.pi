@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	goQuiet,
 	handingOf,
-	toldHolder,
+	tellHolder,
 } from "../../../../lib/internal/session/hand-over.ts";
 import { PARKED_EXIT } from "../../../../lib/internal/session/park.ts";
 
@@ -103,9 +103,9 @@ describe("telling the holder what starts next", () => {
 		const { files } = holderFor(4242);
 
 		expect(
-			toldHolder(files, ["pi", "--session", log], { view: true }),
+			tellHolder(files, ["pi", "--session", log], { view: true }),
 			"the holder is told",
-		).toBe(true);
+		).toEqual({ told: true });
 
 		expect(JSON.parse(readFileSync(files.again, "utf8"))).toEqual([
 			"pi",
@@ -122,9 +122,12 @@ describe("telling the holder what starts next", () => {
 		mkdirSync(files.again);
 
 		expect(
-			toldHolder(files, ["pi"], { view: true }),
-			"a command it couldn't write tells nothing",
-		).toBe(false);
+			tellHolder(files, ["pi"], { view: true }),
+			"a command it couldn't write tells nothing, saying why",
+		).toEqual({
+			told: false,
+			why: expect.stringMatching(/EISDIR.*s\.again/),
+		});
 
 		expect(existsSync(files.wake), "no wake").toBe(false);
 	});
@@ -134,9 +137,12 @@ describe("telling the holder what starts next", () => {
 		mkdirSync(files.wake);
 
 		expect(
-			toldHolder(files, ["pi"], { view: true }),
-			"a wake it couldn't write tells nothing",
-		).toBe(false);
+			tellHolder(files, ["pi"], { view: true }),
+			"a wake it couldn't write tells nothing, saying why",
+		).toEqual({
+			told: false,
+			why: expect.stringMatching(/EISDIR.*s\.wake/),
+		});
 
 		expect(existsSync(files.again), "the command it wrote is gone").toBe(false);
 	});
