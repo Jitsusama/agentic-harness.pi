@@ -1,0 +1,474 @@
+/** A host passing each request for a conversation a child runs to the child's own socket. */
+import { mkdtemp, rm } from "node:fs/promises";
+import {
+	createConnection,
+	createServer,
+	type Server,
+	type Socket,
+} from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { heldChildren } from "../../../host/service/children.ts";
+import { controlRequest } from "../../../host/service/client.ts";
+import type {
+	ControlBackend,
+	HostIdentity,
+} from "../../../host/service/dispatch.ts";
+import { jsonLines } from "../../../host/service/framing.ts";
+import type {
+	ControlRequest,
+	SessionIdentity,
+} from "../../../host/service/protocol.ts";
+import {
+	listenControl,
+	type ViewerSink,
+} from "../../../host/service/server.ts";
+
+const a = "a0000000-0000-4000-8000-000000000001";
+const b = "b0000000-0000-4000-8000-000000000002";
+const c = "c0000000-0000-4000-8000-000000000003";
+
+/** What one connection is sent, a frame at a time. */
+function messages(socket: Socket) {
+	const frames = jsonLines();
+	const held: unknown[] = [];
+	const waiting: ((value: IteratorResult<unknown>) => void)[] = [];
+	let ended = false;
+	socket.on("data", (chunk: Buffer) => {
+		for (const value of frames.push(chunk)) {
+			const next = waiting.shift();
+			if (next) next({ value, done: false });
+			else held.push(value);
+		}
+	});
+	socket.on("close", () => {
+		ended = true;
+		for (const next of waiting.splice(0))
+			next({ value: undefined, done: true });
+	});
+	return {
+		next(): Promise<IteratorResult<unknown>> {
+			if (held.length)
+				return Promise.resolve({ value: held.shift(), done: false });
+			if (ended) return Promise.resolve({ value: undefined, done: true });
+			return new Promise((resolve) => waiting.push(resolve));
+		},
+	};
+}
+
+function line(value: unknown) {
+	return `${JSON.stringify(value)}\n`;
+}
+
+function attaching(sessionId: string) {
+	return line({
+		v: 1,
+		id: "view",
+		op: "attach",
+		sessionId,
+		rows: 20,
+		columns: 80,
+	});
+}
+
+let dir: string;
+const host: HostIdentity = {
+	key: "work-background",
+	owner: { pid: process.pid, startedAt: 1 },
+};
+const child: HostIdentity = {
+	key: "work-background",
+	owner: { pid: process.pid, startedAt: 2 },
+};
+let listeners: Awaited<ReturnType<typeof listenControl>>[];
+let servers: Server[];
+let asked: ControlRequest[];
+let childAsked: ControlRequest[];
+let viewed: unknown[];
+let reported: unknown[];
+let said: string[];
+let sink: ViewerSink | undefined;
+// What the child's attach waits on before it answers, when a test sets it.
+let attachWaits: Promise<void> | undefined;
+let routes: ReturnType<typeof heldChildren>;
+let hostPath: string;
+let childPath: string;
+
+function conversation(sessionId: string): SessionIdentity {
+	return {
+		sessionId,
+		file: join(dir, sessionId),
+		cwd: dir,
+		state: "idle",
+		since: "2026-11-19T20:00:00.000Z",
+	};
+}
+
+/**
+ * A child that does what a test says once it is asked, for what a real
+ * one would only do by chance: half a frame, an answer under another
+ * name, or ending under a window. It runs `conversation`.
+ */
+async function strangeChild(
+	sessionId: string,
+	asked: (socket: Socket, request: { id: string }) => void,
+) {
+	const path = join(dir, "host.d", `${sessionId.slice(0, 1)}x.sock`);
+	const server = createServer((socket) => {
+		const frames = jsonLines();
+		let first = true;
+		socket.on("data", (chunk: Buffer) => {
+			for (const value of frames.push(chunk)) {
+				if (!first) continue;
+				first = false;
+				asked(socket, value as { id: string });
+			}
+		});
+		socket.on("error", () => undefined);
+	});
+	await new Promise<void>((resolve) => server.listen(path, resolve));
+	servers.push(server);
+	routes.hold(conversation(sessionId), { socket: path, identity: child });
+}
+
+beforeEach(async () => {
+	dir = await mkdtemp(join(tmpdir(), "children-"));
+	hostPath = join(dir, "host.sock");
+	// Short, since a socket's path has a limit a test's folder can pass.
+	childPath = join(dir, "host.d", "a.sock");
+	listeners = [];
+	servers = [];
+	asked = [];
+	childAsked = [];
+	viewed = [];
+	reported = [];
+	said = [];
+	sink = undefined;
+	attachWaits = undefined;
+	routes = heldChildren();
+	const childBackend: ControlBackend = {
+		identity: child,
+		execute: vi.fn(async (request) => {
+			childAsked.push(request);
+			if (request.op === "attach") await attachWaits;
+			if (request.op === "list")
+				return { sessions: [conversation(a)], host: child };
+			return "sessionId" in request ? { sessionId: request.sessionId } : null;
+		}),
+	};
+	listeners.push(
+		await listenControl({
+			path: childPath,
+			backend: childBackend,
+			report: (error) => reported.push(error),
+			viewer: {
+				attach(_request, given) {
+					sink = given;
+					return {
+						input: (data) => viewed.push({ input: data }),
+						resize: (rows, columns) => viewed.push({ rows, columns }),
+						detach: () => viewed.push("detached"),
+					};
+				},
+			},
+		}),
+	);
+	routes.hold(conversation(a), { socket: childPath, identity: child });
+	const hostBackend: ControlBackend = {
+		identity: host,
+		execute: vi.fn(async (request) => {
+			asked.push(request);
+			if (request.op === "list")
+				return { sessions: [conversation(b), conversation(c)], host };
+			return "sessionId" in request ? { sessionId: request.sessionId } : null;
+		}),
+	};
+	listeners.push(
+		await listenControl({
+			path: hostPath,
+			backend: hostBackend,
+			children: routes,
+			report: (error) => reported.push(error),
+			say: (words) => said.push(words),
+		}),
+	);
+});
+afterEach(async () => {
+	for (const server of servers) server.close();
+	for (const listener of listeners.reverse()) await listener.close();
+	await rm(dir, { recursive: true, force: true });
+});
+
+describe("a host with conversations in children", () => {
+	it("passes a window's attach to the child, and its keys and frames both ways", async () => {
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		const input = line({ type: "input", data: "hello" });
+		// The attach, a whole frame after it and half of one more, in one write.
+		window.write(attaching(a) + input + input.slice(0, 9));
+
+		expect((await seen.next()).value).toMatchObject({
+			id: "view",
+			ok: true,
+			result: { sessionId: a },
+		});
+		window.write(input.slice(9));
+		window.write(line({ type: "resize", rows: 24, columns: 100 }));
+		await vi.waitFor(() =>
+			expect(viewed).toEqual([
+				{ input: "hello" },
+				{ input: "hello" },
+				{ rows: 24, columns: 100 },
+			]),
+		);
+		sink?.write("drawn");
+		expect((await seen.next()).value).toEqual({
+			type: "output",
+			data: "drawn",
+		});
+		expect(asked, "the host's own thread runs none of it").toEqual([]);
+		window.end();
+		await vi.waitFor(() => expect(viewed).toContain("detached"));
+		expect(reported, "nothing went wrong on the way").toEqual([]);
+	});
+	it("asks the child to end its conversation under the child's own name", async () => {
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: host,
+		});
+
+		expect(reply).toMatchObject({ ok: true, result: { sessionId: a } });
+		expect(childAsked).toEqual([
+			expect.objectContaining({ op: "close", expectedHost: child }),
+		]);
+		expect(asked).toEqual([]);
+	});
+	it("answers what is asked after a child's answer itself, on the same connection", async () => {
+		const caller = createConnection(hostPath);
+		const seen = messages(caller);
+		caller.write(
+			line({
+				v: 1,
+				id: "abort",
+				op: "abort",
+				sessionId: a,
+				expectedHost: host,
+			}),
+		);
+		expect((await seen.next()).value).toMatchObject({ id: "abort", ok: true });
+		caller.write(line({ v: 1, id: "list", op: "list" }));
+
+		expect((await seen.next()).value).toMatchObject({
+			id: "list",
+			result: { host },
+		});
+		expect(asked, "the host answered the list").toEqual([
+			expect.objectContaining({ op: "list" }),
+		]);
+		caller.end();
+	});
+	it("refuses a request naming another host before the child hears of it", async () => {
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: a,
+			expectedHost: { ...host, owner: { pid: process.pid, startedAt: 9 } },
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "stale_host" },
+		});
+		expect(childAsked).toEqual([]);
+	});
+	it("says a child answering as another process doesn't answer, not that the caller's host changed", async () => {
+		await strangeChild(b, (socket, request) => {
+			socket.write(
+				line({
+					v: 1,
+					id: request.id,
+					ok: false,
+					error: { code: "stale_host", message: "refresh discovery" },
+				}),
+			);
+		});
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: b,
+			expectedHost: host,
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "child_unreachable" },
+		});
+	});
+	it("keeps a conversation the host runs itself on the host", async () => {
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "abort",
+			op: "abort",
+			sessionId: b,
+			expectedHost: host,
+		});
+
+		expect(reply).toMatchObject({ ok: true, result: { sessionId: b } });
+		expect(asked).toEqual([expect.objectContaining({ sessionId: b })]);
+		expect(childAsked).toEqual([]);
+	});
+	it("lists the children's conversations with its own, each once", async () => {
+		routes.hold(conversation(b), { socket: childPath, identity: child });
+		routes.update({ ...conversation(b), state: "busy" });
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "list",
+			op: "list",
+		});
+
+		expect(reply).toMatchObject({
+			ok: true,
+			result: {
+				host,
+				sessions: [
+					conversation(c),
+					conversation(a),
+					{ ...conversation(b), state: "busy" },
+				],
+			},
+		});
+	});
+	it("says a child that doesn't answer doesn't, and the host's own keep answering", async () => {
+		routes.hold(conversation(a), {
+			socket: join(dir, "gone.sock"),
+			identity: child,
+		});
+		const gone = await controlRequest(hostPath, {
+			v: 1,
+			id: "abort",
+			op: "abort",
+			sessionId: a,
+			expectedHost: host,
+		});
+		routes.drop(a);
+		const back = await controlRequest(hostPath, {
+			v: 1,
+			id: "abort",
+			op: "abort",
+			sessionId: a,
+			expectedHost: host,
+		});
+
+		expect(gone).toMatchObject({
+			ok: false,
+			error: { code: "child_unreachable" },
+		});
+		expect(back, "a dropped route is the host's again").toMatchObject({
+			ok: true,
+		});
+	});
+	it("says a child that takes a request and ends without answering doesn't answer", async () => {
+		await strangeChild(b, (socket) => socket.destroy());
+		const reply = await controlRequest(hostPath, {
+			v: 1,
+			id: "close",
+			op: "close",
+			sessionId: b,
+			expectedHost: host,
+		});
+
+		expect(reply).toMatchObject({
+			ok: false,
+			error: { code: "child_unreachable" },
+		});
+	});
+	it("tells a window why when the child running its conversation ends under it", async () => {
+		let childSide: Socket | undefined;
+		await strangeChild(b, (socket, request) => {
+			childSide = socket;
+			socket.write(line({ v: 1, id: request.id, ok: true, result: {} }));
+		});
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		window.write(attaching(b));
+		expect((await seen.next()).value).toMatchObject({ ok: true });
+		childSide?.destroy();
+
+		expect((await seen.next()).value).toMatchObject({ type: "detached" });
+		expect((await seen.next()).done, "the window's connection ends").toBe(true);
+		expect(said).toEqual([expect.stringContaining("ended under")]);
+	});
+	it("tells a window attached through it that it restarts once the child's frame ends, and leaves the child", async () => {
+		let childSide: Socket | undefined;
+		await strangeChild(b, (socket, request) => {
+			childSide = socket;
+			socket.write(line({ v: 1, id: request.id, ok: true, result: {} }));
+		});
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		window.write(attaching(b));
+		expect((await seen.next()).value).toMatchObject({ ok: true });
+		const frame = line({ type: "output", data: "drawn" });
+		childSide?.write(frame.slice(0, 10));
+		// The half frame reaches the host before it is told it restarts.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		const told = listeners[1]?.restarting();
+		childSide?.write(frame.slice(10));
+		expect((await seen.next()).value, "the frame it was being sent").toEqual({
+			type: "output",
+			data: "drawn",
+		});
+		expect((await seen.next()).value).toEqual({ type: "restarting" });
+		expect((await seen.next()).done, "the window's connection ends").toBe(true);
+		await told;
+	});
+	it("answers an attach before it says it restarts, when it restarts while the child is answering", async () => {
+		let answer: () => void = () => undefined;
+		attachWaits = new Promise((resolve) => {
+			answer = resolve;
+		});
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		window.write(attaching(a));
+		await vi.waitFor(() =>
+			expect(childAsked).toEqual([expect.objectContaining({ op: "attach" })]),
+		);
+
+		const told = listeners[1]?.restarting();
+		answer();
+		expect((await seen.next()).value).toMatchObject({ id: "view", ok: true });
+		expect((await seen.next()).value).toEqual({ type: "restarting" });
+		await told;
+		await vi.waitFor(() => expect(viewed).toContain("detached"));
+	});
+	it("stops reading a child whose window reads nothing, rather than keep what it draws", async () => {
+		const DRAWN = 64 * 1024 * 1024;
+		let childSide: Socket | undefined;
+		await strangeChild(b, (socket, request) => {
+			childSide = socket;
+			socket.write(line({ v: 1, id: request.id, ok: true, result: {} }));
+			socket.write(Buffer.alloc(DRAWN, 0x61));
+		});
+		const window = createConnection(hostPath);
+		const seen = messages(window);
+		window.write(attaching(b));
+		expect((await seen.next()).value).toMatchObject({ ok: true });
+		window.pause();
+		// Time for a host that kept reading to drain the child: what is
+		// measured is that nothing drains while the window reads nothing.
+		await new Promise((resolve) => setTimeout(resolve, 300));
+
+		expect(
+			childSide?.writableLength,
+			"most of what it drew still waits in the child",
+		).toBeGreaterThan(DRAWN / 2);
+		window.destroy();
+	});
+});

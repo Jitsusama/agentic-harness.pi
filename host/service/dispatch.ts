@@ -40,6 +40,36 @@ function refusalCode(error: unknown): string | undefined {
 	return typeof code === "string" ? code : undefined;
 }
 
+/** A host's identity, as a request names the one it expects. */
+export type HostIdentity = ControlBackend["identity"];
+
+/** Whether a request's expected host is this one, by key and owner. */
+export function sameHost(
+	expected: HostIdentity,
+	actual: HostIdentity,
+): boolean {
+	return (
+		expected.key === actual.key &&
+		expected.owner.pid === actual.owner.pid &&
+		expected.owner.startedAt === actual.owner.startedAt &&
+		expected.owner.bootId === actual.owner.bootId &&
+		expected.owner.startTicks === actual.owner.startTicks
+	);
+}
+
+/** The reply to a request that expected another host, or this one before a restart. */
+export function staleHost(id: string): ControlReply {
+	return {
+		v: 1,
+		id,
+		ok: false,
+		error: {
+			code: "stale_host",
+			message: "Host identity changed; refresh discovery",
+		},
+	};
+}
+
 /** Validate before invoking the engine and bind targeted calls to their session. */
 export async function dispatchControl(
 	value: unknown,
@@ -60,26 +90,11 @@ export async function dispatchControl(
 			},
 		};
 	}
-	if (request.expectedHost) {
-		const expected = request.expectedHost;
-		const actual = backend.identity;
-		if (
-			expected.key !== actual.key ||
-			expected.owner.pid !== actual.owner.pid ||
-			expected.owner.startedAt !== actual.owner.startedAt ||
-			expected.owner.bootId !== actual.owner.bootId ||
-			expected.owner.startTicks !== actual.owner.startTicks
-		) {
-			return {
-				v: 1,
-				id: request.id,
-				ok: false,
-				error: {
-					code: "stale_host",
-					message: "Host identity changed; refresh discovery",
-				},
-			};
-		}
+	if (
+		request.expectedHost &&
+		!sameHost(request.expectedHost, backend.identity)
+	) {
+		return staleHost(request.id);
 	}
 	try {
 		const result =
