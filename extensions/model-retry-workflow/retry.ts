@@ -164,10 +164,11 @@ export function createRetrier(pi: ExtensionAPI): Retrier {
 		askBudgetWhenCapped(pi.events, line).then(
 			whileCurrent((drawn: string | null) => {
 				if (asked !== movingOn) return;
-				// Never left on the refusal unsaid: the keeper's journal says why.
+				// Never left on the refusal unsaid. Null means any of these, and
+				// the keeper's journal says which when it was asked.
 				if (drawn === null) {
 					ctx.ui.notify(
-						`Your own key is over its cap, and no budget took over: ${line}. Name one in quest-workflow's budgetWhenCapped, or type to try again.`,
+						`Your own key is over its cap, and no budget took over: quest-workflow's budgetWhenCapped names none, or its budget can't be drawn on, or this session already draws on a budget. ${line}. Type to try again.`,
 						"warning",
 					);
 					return;

@@ -311,7 +311,7 @@ describe("a call refused because the person's own key is over its cap", () => {
 		expect(asked, "a turn that ended well didn't let it move again").toBe(2);
 	});
 
-	it("ends the turn as any usage limit does when nothing keeps a budget", async () => {
+	it("ends the turn, saying so, when nothing keeps a budget", async () => {
 		const held = session();
 		const pi = loaded(held);
 		await pi.started();
@@ -319,6 +319,7 @@ describe("a call refused because the person's own key is over its cap", () => {
 		await passes(HOUR_MS);
 
 		expect(held.tries).toEqual([]);
+		expect(held.notices.at(-1)?.text).toContain("no budget took over");
 	});
 
 	it("ends the turn, saying so, when the keeper has no budget to move to", async () => {
