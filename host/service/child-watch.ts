@@ -4,22 +4,30 @@
  * The supervisor asks each child to watch once, on a connection it keeps
  * open: the child answers with its version and its conversation, then
  * sends a line each time the conversation changes state, becomes another
- * under a new id, or ends, just before the child exits. The supervisor
- * keeps its routes, its list and its hosts file from these lines alone,
- * so it never reads a child's journal or asks it again.
+ * under a new id, or ends, just before the child exits. The answer and
+ * each became line carry the child's own roster entry too, since only
+ * the child derives an open's launch. The supervisor keeps its routes,
+ * its list and the shared roster from these lines alone, so it never
+ * reads a child's journal, its roster or asks it again.
  */
 import { createConnection } from "node:net";
 import { z } from "zod";
+import {
+	isRosterEntry,
+	type RosterEntry,
+} from "../../lib/core/session/roster.ts";
 import type { HostIdentity } from "./dispatch.ts";
 import { jsonLines } from "./framing.ts";
 import { identities, parseReply, type SessionIdentity } from "./protocol.ts";
 
 const sessionId = z.uuid();
 const { conversation } = identities;
+const entry = z.custom<RosterEntry>(isRosterEntry, "not a roster entry");
 const watched = z.object({
 	version: z.string().min(1),
 	host: identities.host,
 	conversation,
+	entry,
 });
 // A line may carry more than this reads, as a newer child's would.
 const line = z.discriminatedUnion("type", [
@@ -35,6 +43,7 @@ const line = z.discriminatedUnion("type", [
 		type: z.literal("became"),
 		previousId: sessionId,
 		conversation,
+		entry,
 	}),
 	z.object({
 		type: z.literal("ending"),
@@ -53,6 +62,8 @@ export interface Watched {
 	readonly host: HostIdentity;
 	/** The conversation, as the child names it now. */
 	readonly conversation: SessionIdentity;
+	/** The conversation as the child's roster holds it, launch and all. */
+	readonly entry: RosterEntry;
 }
 
 /** What the supervisor does with each thing a child says. */
@@ -65,7 +76,11 @@ export interface ChildWatcher {
 	/** The conversation stands as this now. */
 	state(conversation: SessionIdentity): void;
 	/** The conversation became another, under a new id. */
-	became(previousId: string, conversation: SessionIdentity): void;
+	became(
+		previousId: string,
+		conversation: SessionIdentity,
+		entry: RosterEntry,
+	): void;
 	/**
 	 * The watch ended: with what the child said before it exited, or
 	 * `failed` when it went without saying.
@@ -135,7 +150,7 @@ export function watchChild(
 					const said = line.parse(value);
 					if (said.type === "state") watcher.state(said.conversation);
 					else if (said.type === "became")
-						watcher.became(said.previousId, said.conversation);
+						watcher.became(said.previousId, said.conversation, said.entry);
 					else ending = said.why;
 				}
 			} catch (error) {
