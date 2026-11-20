@@ -23,7 +23,17 @@ writes it reaches:
   that change a pull request or issue, and the review tools'
   `review_offer`, `review_say` and a published `review_draft`;
 - switches and deploys (`switch-system`, `nixos-rebuild switch` and
-  the like), for a stop on a realm or everything only.
+  the like), for a stop on a quest, a realm or everything only;
+- starts of more agents, for the same stops: `systemctl` starting,
+  stopping or restarting a `pi-host-*`, `pi-conversation-*` or
+  `mycelium-pi-*` unit, the scripts that move conversations into or
+  out of a host (`host-cutover.ts`, `host-drain.ts`,
+  `host-release.ts`, `host-take-up.ts`, `host-join.ts`),
+  `pi-packages update`, which restarts every host onto the install it
+  moves, the quest tool's spawns and a forced `reopen-sessions`, a
+  `subagent` fleet, and a `review_ask` round. Joel's
+  `pineapple stop all`, before a demo, is a stop on everything, so a
+  parked session can't start more agents to carry on for it.
 
 What a stop reaches, by its record's `reaches`:
 
