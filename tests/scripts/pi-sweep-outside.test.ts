@@ -7,6 +7,8 @@
 
 import { execFileSync } from "node:child_process";
 import {
+	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -33,6 +35,7 @@ const seen = vi.hoisted(() => ({
 	unreadable: undefined as string | undefined,
 	seesAll: true,
 	releasing: false,
+	trees: 1,
 	partly: undefined as string | undefined,
 	claims: [] as SweepClaims[],
 	rests: [] as (number | undefined)[],
@@ -64,9 +67,11 @@ vi.mock("../../lib/core/work/sweep.ts", () => ({
 		// As the library does: each provider that can is asked about a tree
 		// of its own, and one that throws keeps it.
 		for (const provider of deps.providers()) {
-			await provider.whyKept?.({} as never).catch(() => undefined);
-			if (seen.releasing) {
-				await provider.release({} as never).catch(() => undefined);
+			for (let tree = 0; tree < seen.trees; tree++) {
+				await provider.whyKept?.({} as never).catch(() => undefined);
+				if (seen.releasing) {
+					await provider.release({} as never).catch(() => undefined);
+				}
 			}
 		}
 		return {
@@ -91,6 +96,7 @@ beforeEach(() => {
 	seen.unreadable = undefined;
 	seen.seesAll = true;
 	seen.releasing = false;
+	seen.trees = 1;
 	seen.partly = undefined;
 	seen.claims.length = 0;
 	seen.rests.length = 0;
@@ -219,9 +225,29 @@ it("leaves out of its stamp a provider that couldn't judge a tree", async () => 
 		)}]`,
 	);
 
-	await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
+	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
 
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+	expect(ran.troubles, "what went wrong beside").toEqual([
+		"world-dev-tree couldn't judge or take every tree",
+	]);
+	expect(exitCodeOf(ran), "the code it exits with").toBe(1);
+});
+
+it("asks a provider that failed nothing more that run", async () => {
+	seen.trees = 3;
+	const asked = join(root, "asked");
+	const world = module(
+		"world",
+		`() => [${providerSource(
+			"world-dev-tree",
+			`async () => { (await import("node:fs")).appendFileSync(${JSON.stringify(asked)}, "x"); throw new Error("no dev here"); }`,
+		)}]`,
+	);
+
+	await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
+
+	expect(readFileSync(asked, "utf8"), "each time it was asked").toBe("x");
 });
 
 it("leaves out of its stamp a provider that couldn't take a tree", async () => {
@@ -235,15 +261,20 @@ it("leaves out of its stamp a provider that couldn't take a tree", async () => {
 		)}]`,
 	);
 
-	await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
+	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
 
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+	expect(exitCodeOf(ran), "the code it exits with").toBe(1);
 });
 
-it("leaves out of its stamp a provider whose judgement never settles", async () => {
+it("stops and leaves out of its stamp a provider whose judgement never settles", async () => {
+	const stopped = join(root, "stopped");
 	const world = module(
 		"world",
-		`() => [${providerSource("world-dev-tree", "() => new Promise(() => {})")}]`,
+		`() => [${providerSource(
+			"world-dev-tree",
+			`async (_held, options) => { const fs = await import("node:fs"); options.signal.addEventListener("abort", () => fs.writeFileSync(${JSON.stringify(stopped)}, "")); return new Promise(() => {}); }`,
+		)}]`,
 	);
 
 	const ran = await sweepOutside({
@@ -253,17 +284,21 @@ it("leaves out of its stamp a provider whose judgement never settles", async () 
 
 	expect(ran.end, "how its sweep ended").toBe("ran");
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
+	expect(existsSync(stopped), "whether it was told to stop").toBe(true);
 });
 
-it("loads a provider that gives null for its judgement, and never stamps it", async () => {
+it("passes over a module whose provider's judgement is null", async () => {
 	const world = module(
 		"world",
 		`() => [${providerSource("world-dev-tree", "null")}]`,
 	);
+	vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
 	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
 
-	expect(ran.troubles, "what went wrong beside").toEqual([]);
+	expect(ran.troubles, "what went wrong beside").toEqual([
+		`${world}: it gave something that is no tree provider`,
+	]);
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
 });
 
@@ -414,6 +449,24 @@ it("fails before sweeping when the quests aren't where the config says", async (
 		`the quests aren't at ${seen.quests}`,
 	);
 	expect(stamp(), "the stamp it left").toBeUndefined();
+});
+
+it("fails before sweeping when the quests can't be looked at", async () => {
+	const locked = join(root, "locked");
+	mkdirSync(join(locked, "quests"), { recursive: true });
+	seen.quests = join(locked, "quests");
+	chmodSync(locked, 0o000);
+	try {
+		const ran = await sweepOutside({ env: {} });
+
+		expect(ran.end, "how the run ended").toBe("failed");
+		expect(seen.claims, "the sweeps it ran").toEqual([]);
+		expect(String(logLines()[0]?.failed), "the line it logged").toContain(
+			"can't be looked at",
+		);
+	} finally {
+		chmodSync(locked, 0o700);
+	}
 });
 
 it("says a stamp it couldn't write", async () => {

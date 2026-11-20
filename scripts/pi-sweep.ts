@@ -30,14 +30,14 @@
  * function giving the providers to load. A module that won't load, or
  * gives anything but providers, is passed over whole, and a provider
  * that couldn't judge or take one of its trees, or took past fifteen
- * minutes to, is left out of the stamp, so the hosts go on sweeping
- * those trees. Trees from a provider loaded
- * nowhere here are kept.
+ * minutes to, is told to stop, asked nothing more that run, and left out
+ * of the stamp, so the hosts go on sweeping those trees. Trees from a
+ * provider loaded nowhere here are kept.
  *
  * It writes its sweep's line to the sweep's log, as a host's does, and a
- * line for any module it passed over or a stamp it couldn't write, and
- * exits 1 after any of those or a sweep that failed or left trees
- * unjudged, so its unit shows it.
+ * line for any module it passed over, provider that failed or stamp it
+ * couldn't write, and exits 1 after any of those or a sweep that failed
+ * or left trees unjudged, so its unit shows it.
  *
  * Node runs it as it stands, stripping the types:
  *
@@ -60,7 +60,7 @@ import {
 	sweepAndLog,
 	sweepLockPath,
 } from "../extensions/work-integration/sweep.ts";
-import type { TreeProvider } from "../lib/core/work/broker.ts";
+import type { TreeCallOptions, TreeProvider } from "../lib/core/work/broker.ts";
 import {
 	isTreeProvider,
 	registerTreeProvider,
@@ -136,9 +136,11 @@ export async function sweepOutside({
 		logSweep({ ms: 0, failed: `the quests can't be found: ${said(error)}` });
 		return { end: "failed", troubles };
 	}
-	// A quests root that isn't there claims nothing, as a wrong one would.
-	if (statSync(questsRoot, { throwIfNoEntry: false })?.isDirectory() !== true) {
-		logSweep({ ms: 0, failed: `the quests aren't at ${questsRoot}` });
+	// A quests root that isn't there claims nothing, as a wrong one would,
+	// and one that can't be looked at may claim anything.
+	const unseen = whyQuestsUnseen(questsRoot);
+	if (unseen !== undefined) {
+		logSweep({ ms: 0, failed: unseen });
 		return { end: "failed", troubles };
 	}
 	const end = await sweepAndLog({
@@ -146,6 +148,12 @@ export async function sweepOutside({
 		swept: (paths) => forgetTrees(questsRoot, paths),
 		fencedGit: true,
 	});
+	// A provider that failed leaves its trees to the hosts, which the
+	// unit's state should show.
+	for (const id of failing) {
+		troubles.push(`${id} couldn't judge or take every tree`);
+	}
+	if (failing.size > 0) logSweep({ unjudgedBy: [...failing] });
 	// A sweep that left trees unjudged stands no host down for them.
 	if (end !== "ran") return { end, troubles };
 	const judged = judgedProviders().filter((id) => !failing.has(id));
@@ -155,6 +163,18 @@ export async function sweepOutside({
 		return { end, troubles: [...troubles, `unstamped: ${unstamped}`] };
 	}
 	return { end, troubles };
+}
+
+/** Why the quests at `root` can't be read for their claims, or nothing. */
+function whyQuestsUnseen(root: string): string | undefined {
+	try {
+		if (statSync(root, { throwIfNoEntry: false })?.isDirectory() === true) {
+			return undefined;
+		}
+		return `the quests aren't at ${root}`;
+	} catch (error) {
+		return `the quests at ${root} can't be looked at: ${said(error)}`;
+	}
 }
 
 /**
@@ -229,17 +249,24 @@ async function providersOf(
 	return providers;
 }
 
-/** `promise`, unless it takes longer than `ms` to settle. */
-async function within<T>(ms: number, promise: Promise<T>): Promise<T> {
+/**
+ * `promise`, unless it takes longer than `ms` to settle, when `late` is
+ * told first, so what it started can be stopped.
+ */
+async function within<T>(
+	ms: number,
+	promise: Promise<T>,
+	late?: () => void,
+): Promise<T> {
 	let timer: NodeJS.Timeout | undefined;
-	const late = new Promise<never>((_, reject) => {
-		timer = setTimeout(
-			() => reject(new Error(`it gave nothing within ${ms / 1000} s`)),
-			ms,
-		);
+	const past = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			late?.();
+			reject(new Error(`it gave nothing within ${ms / 1000} s`));
+		}, ms);
 	});
 	try {
-		return await Promise.race([promise, late]);
+		return await Promise.race([promise, past]);
 	} finally {
 		clearTimeout(timer);
 	}
@@ -248,16 +275,31 @@ async function within<T>(ms: number, promise: Promise<T>): Promise<T> {
 /**
  * `provider`, noting in `failing` when it couldn't judge or take one of
  * its trees, or took longer than `withinMs` to, so the stamp doesn't
- * name it as having judged them.
+ * name it as having judged them. A call past its time is told to stop,
+ * and once one has failed the rest of the run asks it nothing more, so
+ * a provider that hangs costs one wait rather than one for every tree.
  */
 function watched(
 	provider: TreeProvider,
 	failing: Set<string>,
 	withinMs: number,
 ): TreeProvider {
-	const noted = async <T>(call: () => Promise<T>): Promise<T> => {
+	const noted = async <T>(
+		options: TreeCallOptions | undefined,
+		call: (options: TreeCallOptions) => Promise<T>,
+	): Promise<T> => {
+		if (failing.has(provider.id)) {
+			throw new Error(`${provider.id} failed earlier in this sweep`);
+		}
+		const stop = new AbortController();
+		const signal =
+			options?.signal === undefined
+				? stop.signal
+				: AbortSignal.any([options.signal, stop.signal]);
 		try {
-			return await within(withinMs, call());
+			return await within(withinMs, call({ ...options, signal }), () =>
+				stop.abort(),
+			);
 		} catch (error) {
 			failing.add(provider.id);
 			throw error;
@@ -269,13 +311,13 @@ function watched(
 		specificity: provider.specificity,
 		appliesTo: (repo) => provider.appliesTo(repo),
 		ensure: (request, options) => provider.ensure(request, options),
-		release: (held, options) => noted(() => provider.release(held, options)),
-		// One that gives null for its judgement has none, as one giving none.
+		release: (held, options) =>
+			noted(options, (given) => provider.release(held, given)),
 		...(typeof whyKept !== "function"
 			? {}
 			: {
 					whyKept: (held, options) =>
-						noted(() => whyKept.call(provider, held, options)),
+						noted(options, (given) => whyKept.call(provider, held, given)),
 				}),
 	};
 }
