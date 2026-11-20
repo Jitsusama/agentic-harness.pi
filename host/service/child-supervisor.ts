@@ -243,7 +243,7 @@ export function childSupervisor(options: {
 			roster.entries().some((entry) => entry.sessionId === sessionId);
 		const watching = await once(
 			() =>
-				watchChild(slot.socket, {
+				watchChild(slot.socket, answersWithinMs, {
 					watched({ host, conversation, entry }) {
 						current = conversation.sessionId;
 						routes.hold(conversation, { socket: slot.socket, identity: host });
@@ -287,8 +287,7 @@ export function childSupervisor(options: {
 						);
 						options.ended?.(current, why);
 					},
-					answersWithinMs,
-				),
+				}),
 			withinMs,
 			() => units.gone(slot.unit),
 		);

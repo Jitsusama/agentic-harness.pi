@@ -56,9 +56,8 @@ describe("a child's slot", () => {
 		await mkdir(join(folder, `${b}.d`));
 		await writeFile(join(folder, "notes.json"), "{}\n");
 
-		expect(
-			(await slotsIn(folder, key)).map(({ name }) => name).sort(),
-		).toEqual([a, b]);
+		const found = (await slotsIn(folder, key)).map(({ name }) => name);
+		expect(found.sort()).toEqual([a, b]);
 		expect(await slotsIn(join(folder, "none"), key)).toEqual([]);
 	});
 });

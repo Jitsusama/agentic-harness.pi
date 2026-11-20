@@ -107,8 +107,8 @@ export interface ChildWatch extends Watched {
  */
 export function watchChild(
 	socket: string,
-	watcher: ChildWatcher,
 	answersWithinMs: number,
+	watcher: ChildWatcher,
 ): Promise<ChildWatch> {
 	return new Promise((resolve, reject) => {
 		const connection = createConnection(socket);

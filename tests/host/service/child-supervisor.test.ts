@@ -491,9 +491,9 @@ describe("what a child says", () => {
 		expect(routes.routeOf(a)).toBeUndefined();
 		const slot = slotOf(folder, key, a);
 		await vi.waitFor(() => {
-			expect(units.stopped, "the child, still running, is stopped").toEqual(
-				[slot.unit],
-			);
+			expect(units.stopped, "the child, still running, is stopped").toEqual([
+				slot.unit,
+			]);
 			expect(existsSync(slot.file), "its slot is cleared").toBe(false);
 		});
 	});
