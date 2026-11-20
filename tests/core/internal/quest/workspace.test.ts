@@ -65,44 +65,70 @@ describe("ensureQuestWorkspaceTmp", () => {
 describe("removeQuestWorkspace", () => {
 	const nobody = () => [];
 
-	it("takes the whole workspace, its caches and labs with its tmp/", () => {
+	it("takes the whole workspace, its caches and labs with its tmp/", async () => {
 		const { dir, tmp } = questWorkspace(root, QUEST_ID);
 		mkdirSync(join(tmp, "deep"), { recursive: true });
 		writeFileSync(join(tmp, "deep", "scratch.txt"), "x");
 		mkdirSync(join(dir, "lab"));
 		writeFileSync(join(dir, "lab", "results.csv"), "x");
 
-		expect(removeQuestWorkspace(root, QUEST_ID, nobody)).toEqual({
+		expect(await removeQuestWorkspace(root, QUEST_ID, nobody)).toEqual({
 			removed: true,
 		});
 		expect(existsSync(dir), `${dir} is removed`).toBe(false);
 	});
 
-	it("takes a folder made read-only, as Go's module cache is", () => {
+	it("gives the thread back while it removes, so a host's other conversations run", async () => {
+		const { dir } = questWorkspace(root, QUEST_ID);
+		for (let folder = 0; folder < 20; folder++) {
+			const cache = join(dir, "cache", `f${folder}`);
+			mkdirSync(cache, { recursive: true });
+			for (let file = 0; file < 20; file++) {
+				writeFileSync(join(cache, `${file}.o`), "x");
+			}
+		}
+		let turns = 0;
+		let removing = true;
+		const turn = () => {
+			if (!removing) return;
+			turns += 1;
+			setImmediate(turn);
+		};
+		setImmediate(turn);
+
+		const removal = await removeQuestWorkspace(root, QUEST_ID, nobody);
+		removing = false;
+
+		expect(removal).toEqual({ removed: true });
+		expect(existsSync(dir), `${dir} is removed`).toBe(false);
+		expect(turns, "turns the loop took while it removed").toBeGreaterThan(0);
+	});
+
+	it("takes a folder made read-only, as Go's module cache is", async () => {
 		const { dir } = questWorkspace(root, QUEST_ID);
 		const module = join(dir, "cache", "go-mod", "example.com@v1.0.0");
 		mkdirSync(module, { recursive: true });
 		writeFileSync(join(module, "go.mod"), "module example.com\n");
 		chmodSync(module, 0o555);
 
-		expect(removeQuestWorkspace(root, QUEST_ID, nobody)).toMatchObject({
+		expect(await removeQuestWorkspace(root, QUEST_ID, nobody)).toMatchObject({
 			removed: true,
 		});
 		expect(existsSync(dir), `${dir} is removed`).toBe(false);
 	});
 
-	it("leaves a workspace a process still works in", () => {
+	it("leaves a workspace a process still works in", async () => {
 		const { dir } = questWorkspace(root, QUEST_ID);
 		mkdirSync(dir, { recursive: true });
 
-		expect(removeQuestWorkspace(root, QUEST_ID, () => [42])).toEqual({
+		expect(await removeQuestWorkspace(root, QUEST_ID, () => [42])).toEqual({
 			removed: false,
 			why: "in use",
 		});
 		expect(existsSync(dir), `${dir} is kept`).toBe(true);
 	});
 
-	it("leaves a workspace a hosted conversation works in, by its roster", () => {
+	it("leaves a workspace a hosted conversation works in, by its roster", async () => {
 		const { dir } = questWorkspace(root, QUEST_ID);
 		const clone = join(dir, "clone");
 		mkdirSync(clone, { recursive: true });
@@ -127,7 +153,7 @@ describe("removeQuestWorkspace", () => {
 		);
 		try {
 			// No process works in it, so only the roster keeps it.
-			expect(removeQuestWorkspace(root, QUEST_ID)).toEqual({
+			expect(await removeQuestWorkspace(root, QUEST_ID)).toEqual({
 				removed: false,
 				why: "in use",
 			});
@@ -135,11 +161,13 @@ describe("removeQuestWorkspace", () => {
 		} finally {
 			rmSync(roster, { force: true });
 		}
-		expect(removeQuestWorkspace(root, QUEST_ID)).toEqual({ removed: true });
+		expect(await removeQuestWorkspace(root, QUEST_ID)).toEqual({
+			removed: true,
+		});
 	});
 
-	it("says there was none to take", () => {
-		expect(removeQuestWorkspace(root, QUEST_ID, nobody)).toEqual({
+	it("says there was none to take", async () => {
+		expect(await removeQuestWorkspace(root, QUEST_ID, nobody)).toEqual({
 			removed: false,
 			why: "none",
 		});
