@@ -70,7 +70,7 @@ export async function scratchRemoved(
 	const dir = questId ? workspaceDirOf(root, questId) : undefined;
 	if (!questId || !dir) return undefined;
 	const size = await measure(dir);
-	const removal = removeQuestWorkspace(root, questId, users);
+	const removal = await removeQuestWorkspace(root, questId, users);
 	const held = size ? `, which held ${formatSize(size)}` : "";
 	if (removal.removed) {
 		dropTempLink(questId);

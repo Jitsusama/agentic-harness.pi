@@ -13,14 +13,13 @@
  */
 
 import {
-	chmodSync,
 	existsSync,
 	mkdirSync,
 	readdirSync,
 	readlinkSync,
 	realpathSync,
-	rmSync,
 } from "node:fs";
+import { chmod, readdir, rm } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { isId, prefixOf } from "../../../internal/quest/creation/id.ts";
 import { conversationsIn } from "../../../internal/session/host-holds.ts";
@@ -69,20 +68,23 @@ export type WorkspaceUsers = (dir: string) => readonly (number | string)[];
  * it is done. A folder made read-only, as Go's module cache is, is made
  * writable so its files can go.
  */
-export function removeQuestWorkspace(
+export async function removeQuestWorkspace(
 	root: string,
 	questId: string,
 	users: WorkspaceUsers = workingIn,
-): WorkspaceRemoval {
+): Promise<WorkspaceRemoval> {
 	const { dir } = questWorkspace(root, questId);
 	if (!existsSync(dir)) return { removed: false, why: "none" };
 	if (users(dir).length > 0) return { removed: false, why: "in use" };
+	// Through the filesystem's promises, a call at a time, since a host
+	// shares its thread with every conversation: removed in one go, a
+	// workspace of builds held a host's thread for 7 s on 19 Nov.
 	try {
-		rmSync(dir, { recursive: true, force: true });
+		await rm(dir, { recursive: true, force: true });
 	} catch {
 		try {
-			makeWritable(dir);
-			rmSync(dir, { recursive: true, force: true });
+			await makeWritable(dir);
+			await rm(dir, { recursive: true, force: true });
 		} catch {
 			return { removed: false, why: "stuck" };
 		}
@@ -91,10 +93,10 @@ export function removeQuestWorkspace(
 }
 
 /** Every folder under `dir`, and `dir`, writable by its owner. */
-function makeWritable(dir: string): void {
-	chmodSync(dir, 0o700);
-	for (const entry of readdirSync(dir, { withFileTypes: true })) {
-		if (entry.isDirectory()) makeWritable(join(dir, entry.name));
+async function makeWritable(dir: string): Promise<void> {
+	await chmod(dir, 0o700);
+	for (const entry of await readdir(dir, { withFileTypes: true })) {
+		if (entry.isDirectory()) await makeWritable(join(dir, entry.name));
 	}
 }
 
