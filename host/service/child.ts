@@ -483,6 +483,13 @@ export function childLife(options: ChildLifeOptions): ChildLife {
 				});
 			},
 			follow(follow) {
+				// A watch that comes once the child said its ending, as a host
+				// started meanwhile sends, hears the ending again at once, so its
+				// supervisor lets the slot go rather than stopping the unit.
+				if (ended) {
+					follow({ type: "ending", why: ended });
+					return () => undefined;
+				}
 				followers.add(follow);
 				return () => followers.delete(follow);
 			},

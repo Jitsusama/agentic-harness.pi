@@ -339,6 +339,22 @@ describe("a child's life", () => {
 		},
 	);
 
+	it("answers a watch that comes after it ended, then says its ending at once", async () => {
+		const { life, hold } = following();
+		hold(conversation(A));
+		hold();
+		life.left("closed", "released, asked by the launcher");
+		await life.ending;
+		const late: unknown[] = [];
+		life.watch.follow((line) => late.push(line));
+		expect(
+			parseWatchResult(await life.watch.answer()).conversation,
+		).toMatchObject({
+			sessionId: A,
+		});
+		expect(late).toEqual([{ type: "ending", why: "released" }]);
+	});
+
 	it("ends failed when nothing comes within its first wait, refusing its watch", async () => {
 		const { life, timers } = following();
 		const answer = life.watch.answer();
