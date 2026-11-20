@@ -449,14 +449,22 @@ const PI_ASKS = new Set(["--version", "-v", "--help", "-h"]);
 const RUNNERS = new Set(["node", "tsx", "bun", "deno"]);
 
 /**
+ * mycelium's verbs that start a session: carrying a quest's sessions to
+ * another machine, starting a program held there, or sprouting one.
+ */
+const MYCELIUM_STARTS = new Set(["carry", "start", "sprout"]);
+
+/**
  * A command that starts agents: pi itself, a host or a carried session;
  * systemctl starting or restarting a host's unit; a script that starts a
  * host or moves conversations, run as the program; or `pi-packages
- * update`, which restarts every host onto the install it moves. A script
- * only named, as `cat` or `git diff` name one, starts nothing.
+ * update`, which restarts every host onto the install it moves; or a
+ * mycelium verb that starts a session. A script only named, as `cat` or
+ * `git diff` name one, starts nothing.
  */
 function startIn(name: string, args: string[]): WriteCall | undefined {
 	if (name === "systemctl") return unitStart(args);
+	if (name === "mycelium") return myceliumStart(args);
 	if (name === "pi-packages" && args.includes("update")) {
 		return { action: "pi-packages update", kind: "start" };
 	}
@@ -480,6 +488,16 @@ function scriptRun(args: string[]): string | undefined {
 	return args.find(
 		(word) => !word.startsWith("-") && /\.[cm]?[jt]s$/.test(word),
 	);
+}
+
+/** `mycelium [--realm name] <verb>` starting a session somewhere. */
+function myceliumStart(args: string[]): WriteCall | undefined {
+	const words = args.filter(
+		(word, at) => !word.startsWith("-") && args[at - 1] !== "--realm",
+	);
+	const verb = words[0];
+	if (verb === undefined || !MYCELIUM_STARTS.has(verb)) return undefined;
+	return { action: `mycelium ${verb}`, kind: "start" };
 }
 
 /** `systemctl [options] <verb> <unit...>` starting a host's unit. */
@@ -739,6 +757,7 @@ function patternWrites(command: string): WriteCall[] {
 			"start",
 		],
 		[/\bpi-packages\s+update\b/, "pi-packages update", "start"],
+		[/\bmycelium\s+(?:carry|start|sprout)\b/, "mycelium start", "start"],
 	];
 	for (const [pattern, action, kind] of patterns) {
 		const found = pattern.exec(command);
