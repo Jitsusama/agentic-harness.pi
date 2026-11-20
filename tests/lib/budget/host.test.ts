@@ -451,6 +451,8 @@ describe("the budget some work draws on, judged from what it is", () => {
 		registerBudgetProvider(
 			events,
 			judging("first", 0, async () => {
+				// A real pause is the point: the lower precedence must answer
+				// after the other and still win.
 				await new Promise((resolve) => setTimeout(resolve, 10));
 				return { name: "aquifer", why: "", sure: true };
 			}),
@@ -486,7 +488,9 @@ describe("the budget some work draws on, judged from what it is", () => {
 			provider: "first",
 		});
 		expect(signals).toHaveLength(1);
-		expect(signals[0]?.aborted).toBe(true);
+		expect(signals[0]?.aborted, "the late provider's call is aborted").toBe(
+			true,
+		);
 	});
 
 	it("is nothing, not an unsure guess, when a provider that might have been sure was cut off", async () => {
@@ -551,7 +555,7 @@ describe("the budget some work draws on, judged from what it is", () => {
 		);
 
 		expect(await host.budgetForWork(work, classify)).toBeUndefined();
-		expect(signals[0]?.aborted).toBe(true);
+		expect(signals[0]?.aborted, "the classifier call is aborted").toBe(true);
 
 		const stop = new AbortController();
 		const slow = hostBudgets(bus(), 5_000, 60_000);
@@ -572,7 +576,7 @@ describe("the budget some work draws on, judged from what it is", () => {
 		);
 		stop.abort();
 		expect(await asked).toBeUndefined();
-		expect(stopped[0]?.aborted).toBe(true);
+		expect(stopped[0]?.aborted, "the provider's signal is aborted").toBe(true);
 	});
 
 	it("hands each provider the work and the session's classifier", async () => {
@@ -650,7 +654,7 @@ describe("the budget some work draws on, judged from what it is", () => {
 		});
 
 		const judged = await host.budgetForWork(work, noClassifier);
-		expect(judged?.why.startsWith("first line second x")).toBe(true);
+		expect(judged?.why).toMatch(/^first line second x/);
 		expect(judged?.why).toHaveLength(300);
 		expect(judged?.sure, "only true is sure").toBe(false);
 	});
