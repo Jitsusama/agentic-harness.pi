@@ -51,7 +51,9 @@ export interface BudgetHost extends BudgetHostApi {
 	 * waits at most that long however many there are. A provider that
 	 * fails, answers late, or names `none` or something that can't be a
 	 * budget is passed over: a folder only ever names a budget to draw
-	 * on, and opting out stays the person's word on a quest.
+	 * on, and opting out stays the person's word on a quest. One that
+	 * fails or answers late is told to the host's `troubled`, since a
+	 * quest it leaves unnamed draws on the person's own key.
 	 */
 	budgetFor(folder: string): Promise<FolderBudget | undefined>;
 }
@@ -63,12 +65,25 @@ export interface FolderBudget {
 }
 
 /**
+ * What a provider asked about a folder couldn't say: which, the
+ * folder, and why.
+ */
+export interface FolderTrouble {
+	readonly provider: string;
+	readonly folder: string;
+	readonly why: string;
+}
+
+/**
  * Host budget providers on `bus`: take their registrations, answer a
- * request for the host, and announce it once now.
+ * request for the host, and announce it once now. A provider that
+ * fails or answers late when asked about a folder is told to
+ * `troubled`.
  */
 export function hostBudgets(
 	bus: Pick<EventBus, "emit" | "on">,
 	deadlineMs: number = BUDGET_ANSWER_DEADLINE_MS,
+	troubled: (trouble: FolderTrouble) => void = () => undefined,
 ): BudgetHost {
 	const providers = new Map<string, BudgetProvider>();
 	const listeners: (() => void)[] = [];
@@ -97,12 +112,18 @@ export function hostBudgets(
 			const asking = ordered().filter((p) => typeof p.budgetFor === "function");
 			// All asked at once, and read in order, so the answer comes as
 			// soon as every provider before the first to name one has said.
-			const names = asking.map((provider) =>
+			// One that fails or answers late is told to troubled only when
+			// it ranks above the answer, since only then could it have
+			// changed it; one below is passed over without a word.
+			const answers = asking.map((provider) =>
 				askFolder(provider, folder, deadlineMs),
 			);
 			for (const [at, provider] of asking.entries()) {
-				const name = await names[at];
-				if (name !== undefined) return { name, provider: provider.id };
+				const said = await answers[at];
+				if (typeof said === "string")
+					return { name: said, provider: provider.id };
+				if (said)
+					tell(troubled, { provider: provider.id, folder, why: said.why });
 			}
 			return undefined;
 		},
@@ -134,30 +155,52 @@ export const BUDGET_ANSWER_DEADLINE_MS = 5_000;
 const FOLDER_OPTS_OUT = "none";
 
 /**
- * The budget one provider says `folder` draws on, or undefined when it
- * names none, fails, names `none` or no budget's name, or doesn't
- * answer within the deadline: a create waits on this, so it can't
- * wait for long.
+ * Tells `troubled` of a folder ask's trouble. A sink that throws is
+ * passed over: a read nobody awaits once an earlier provider answered
+ * must not leave a rejection behind.
+ */
+function tell(
+	troubled: (trouble: FolderTrouble) => void,
+	trouble: FolderTrouble,
+): void {
+	try {
+		troubled(trouble);
+	} catch {
+		// The trouble goes unsaid; the budget the folder draws on stands.
+	}
+}
+
+/** What a folder's ask races its answer against. */
+const LATE: unique symbol = Symbol("late");
+
+/**
+ * The budget one provider says `folder` draws on; undefined when it
+ * names none, `none` or no budget's name; or why it couldn't say, when
+ * it fails or doesn't answer within the deadline: a create waits on
+ * this, so it can't wait for long.
  */
 async function askFolder(
 	provider: BudgetProvider,
 	folder: string,
 	deadlineMs: number,
-): Promise<string | undefined> {
+): Promise<string | { readonly why: string } | undefined> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	const late = new Promise<undefined>((resolve) => {
-		timer = setTimeout(() => resolve(undefined), deadlineMs);
+	const late = new Promise<typeof LATE>((resolve) => {
+		timer = setTimeout(() => resolve(LATE), deadlineMs);
 	});
 	try {
 		const name = await Promise.race([provider.budgetFor?.(folder), late]);
+		if (name === LATE) {
+			return { why: `it didn't answer within ${deadlineMs / 1000} s` };
+		}
 		return typeof name === "string" &&
 			isBudgetName(name) &&
 			name !== FOLDER_OPTS_OUT
 			? name
 			: undefined;
-	} catch {
-		// A provider that can't say is passed over, as one that names none.
-		return undefined;
+	} catch (error) {
+		// Passed over, as one that names none, and said why.
+		return { why: `it failed: ${whatFailed(error)}` };
 	} finally {
 		clearTimeout(timer);
 	}
@@ -188,11 +231,21 @@ async function askOne(
 	try {
 		return await Promise.race([provider.resolve(name), late]);
 	} catch (error) {
-		return {
-			kind: "unavailable" as const,
-			reason: error instanceof Error ? error.message : String(error),
-		};
+		return { kind: "unavailable" as const, reason: whatFailed(error) };
 	} finally {
 		clearTimeout(timer);
+	}
+}
+
+/**
+ * What a provider's failure says, whatever it threw: a catch that
+ * threw in turn would leave the rejection an unawaited ask must not.
+ */
+function whatFailed(error: unknown): string {
+	try {
+		return error instanceof Error ? String(error.message) : String(error);
+	} catch {
+		// A thrown thing whose words throw in turn still failed; say only that.
+		return "something that can't be said";
 	}
 }

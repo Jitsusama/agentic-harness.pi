@@ -31,7 +31,10 @@ export const BUDGET_VARIABLE = "PI_BUDGET";
 
 /**
  * The variable naming, comma-separated, the variables a budget laid
- * (its credentials, never {@link BUDGET_VARIABLE} or this one), so
+ * whose names it can carry: its credentials, never
+ * {@link BUDGET_VARIABLE} or this one, nor a variable whose name
+ * isn't one a shell would take (a comma in it would split the list),
+ * which is laid but left unnamed. So
  * whatever sends a request for the process (a shared host's engine,
  * which keeps its own key) can tell the budget's key from one that
  * merely sits in the environment, and send it. It travels with the
@@ -98,6 +101,19 @@ export interface BudgetRecord {
 	readonly label?: string;
 	/** The provider that answered for it, when this session drew it. */
 	readonly provider?: string;
+	/**
+	 * The budget the session's quest names but it couldn't draw on, and
+	 * why, so a reader can count sessions that fell to the default
+	 * against their quest's word. Present only then: absent when the
+	 * session drew what was named, or nothing was named.
+	 */
+	readonly unresolved?: UnresolvedBudget;
+}
+
+/** A budget named but not drawn on, and what was missing. */
+export interface UnresolvedBudget {
+	readonly budget: string;
+	readonly missing: string;
 }
 
 /**
@@ -126,14 +142,47 @@ interface BranchEntry {
 export function lastRecorded(
 	branch: readonly BranchEntry[],
 ): string | null | undefined {
+	return lastRecordOn(branch)?.name;
+}
+
+/**
+ * The last `budget` entry on a branch that is one, or undefined when
+ * the branch has none.
+ */
+export function lastRecordOn(
+	branch: readonly BranchEntry[],
+): BudgetRecord | undefined {
 	for (let at = branch.length - 1; at >= 0; at--) {
 		const entry = branch[at];
 		if (entry === undefined) continue;
 		if (entry.type !== "custom" || entry.customType !== BUDGET_ENTRY) continue;
-		const name = nameIn(entry.data);
-		if (name !== undefined) return name;
+		const record = recordIn(entry.data);
+		if (record) return record;
 	}
 	return undefined;
+}
+
+/** A budget entry's data read as a record, or undefined when it isn't one. */
+export function recordIn(data: unknown): BudgetRecord | undefined {
+	const name = nameIn(data);
+	if (name === undefined || !isRecord(data)) return undefined;
+	const unresolved = unresolvedIn(data.unresolved);
+	return {
+		v: 1,
+		name,
+		...(typeof data.label === "string" ? { label: data.label } : {}),
+		...(typeof data.provider === "string" ? { provider: data.provider } : {}),
+		...(unresolved ? { unresolved } : {}),
+	};
+}
+
+/** What a record says it missed, when it says it well. */
+function unresolvedIn(data: unknown): UnresolvedBudget | undefined {
+	return isRecord(data) &&
+		typeof data.budget === "string" &&
+		typeof data.missing === "string"
+		? { budget: data.budget, missing: data.missing }
+		: undefined;
 }
 
 /** The name a record's data says, or undefined when it isn't one. */
