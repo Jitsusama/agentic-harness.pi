@@ -62,13 +62,18 @@ export function slotOf(folder: string, key: string, name: string): Slot {
 	};
 }
 
-/** Write what the child in `slot` resumes, before its unit starts. */
+/**
+ * Write what the child in `slot` resumes, before its unit starts:
+ * `woken` when a park's wake asked for it, so the child keeps the wake
+ * rather than resting parked again.
+ */
 export async function writeSlot(
 	slot: Slot,
 	session: RosterEntry | undefined,
+	woken = false,
 ): Promise<void> {
 	await mkdir(join(slot.file, ".."), { recursive: true, mode: 0o700 });
-	const held = session ? { session } : {};
+	const held = session ? { session, ...(woken ? { woken } : {}) } : {};
 	await writeFile(slot.file, `${JSON.stringify(held)}\n`, { mode: 0o600 });
 }
 
