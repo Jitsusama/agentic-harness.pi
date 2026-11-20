@@ -94,9 +94,15 @@ describe("with direct Slack off", () => {
 	beforeEach(turnOff);
 
 	it("finds no stored token, without reaching the keyring", async () => {
-		expect(directSlackRefused()).toBe(true);
+		expect(
+			directSlackRefused(),
+			"the switch file should turn direct Slack off",
+		).toBe(true);
 		expect(await getToken()).toBeNull();
-		expect(await hasToken()).toBe(false);
+		expect(
+			await hasToken(),
+			"no token should be found while direct Slack is off",
+		).toBe(false);
 		await moveToKeyring();
 		expect(touched.count).toBe(0);
 	});
@@ -135,13 +141,16 @@ describe("with direct Slack off", () => {
 
 describe("with direct Slack on", () => {
 	it("reads the stored token and registers the slack tool", async () => {
-		expect(directSlackRefused()).toBe(false);
+		expect(
+			directSlackRefused(),
+			"with no switch file, direct Slack should stay on",
+		).toBe(false);
 		expect((await getToken())?.accessToken).toBe("xoxp-stored");
 		expect(() => new SlackClient("xoxp-stored")).not.toThrow();
 		const pi = fakePi();
 		slackIntegration(pi);
 		expect(pi.recorded.tools.map((tool) => tool.name)).toContain("slack");
-		expect(pi.recorded.commands.has("slack-auth")).toBe(true);
+		expect([...pi.recorded.commands.keys()]).toContain("slack-auth");
 	});
 });
 
@@ -190,7 +199,10 @@ describe("a switch that can't be read plainly", () => {
 	it("is off when the path is a dangling link", () => {
 		mkdirSync(slack(), { recursive: true });
 		symlinkSync(join(config, "nowhere"), join(slack(), "gateway-only"));
-		expect(directSlackRefused()).toBe(true);
+		expect(
+			directSlackRefused(),
+			"a dangling switch link should turn direct Slack off",
+		).toBe(true);
 	});
 
 	it.skipIf(process.getuid?.() === 0)(
@@ -199,7 +211,10 @@ describe("a switch that can't be read plainly", () => {
 			mkdirSync(slack(), { recursive: true });
 			chmodSync(slack(), 0o000);
 			try {
-				expect(directSlackRefused()).toBe(true);
+				expect(
+					directSlackRefused(),
+					"an unreadable switch folder should turn direct Slack off",
+				).toBe(true);
 			} finally {
 				chmodSync(slack(), 0o700);
 			}

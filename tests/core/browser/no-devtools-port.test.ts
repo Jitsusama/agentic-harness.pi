@@ -44,6 +44,7 @@ describe("the warm browser's DevTools", () => {
 
 		expect(
 			fs.existsSync(path.join(ownProfileDir(), "DevToolsActivePort")),
+			"Chrome should write no DevToolsActivePort, since it binds no port",
 		).toBe(false);
 	});
 });
