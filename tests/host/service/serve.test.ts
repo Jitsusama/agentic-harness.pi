@@ -622,6 +622,7 @@ describe("serveHost with children", () => {
 			engine: async (h) => ({ ...engine(h), resume: inHost }),
 		});
 		try {
+			expect(second.unresumed, "every one resumed").toEqual([]);
 			expect(units.started, "its child started").toHaveLength(1);
 			expect(inHost, "the host resumed none of it").not.toHaveBeenCalled();
 			expect(second.inChildren?.(), "counted as a child's").toBe(1);
