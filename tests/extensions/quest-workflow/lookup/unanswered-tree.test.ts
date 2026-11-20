@@ -51,7 +51,10 @@ async function twoQuests() {
 	const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 	const ctx = fakeCtx(tmpRoot, "a");
 	for (const title of ["Alpha", "Beta"]) {
-		const made = await handle(state, fakePi(), ctx, { action: "create", title });
+		const made = await handle(state, fakePi(), ctx, {
+			action: "create",
+			title,
+		});
 		if (!made.ok) throw new Error(made.guidance);
 	}
 	return { state, ctx, readme: join(state.questDir ?? "", "README.md") };
