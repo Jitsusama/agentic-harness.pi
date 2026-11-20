@@ -1336,6 +1336,20 @@ describe("the session's budget", () => {
 			]);
 		});
 
+		it("moves a session on a quest whose budget is none for the hour, then lays none again", async () => {
+			const { ask, keeper, clock, seen } = await capped("worldtree", "none");
+			expect(process.env.PI_BUDGET_OPTED_OUT).toBe("1");
+
+			await expect(ask()).resolves.toBe("worldtree");
+			await keeper.keep(seen.ctx);
+			expect(process.env[KEY], "through its next turn").toBe("worldtree");
+
+			clock.at += CAPPED_HOLD_MS;
+			await keeper.keep(seen.ctx);
+			expect(process.env[KEY]).toBe("personal");
+			expect(process.env.PI_BUDGET_OPTED_OUT).toBe("1");
+		});
+
 		it("moves it once, since a session on a budget isn't on the person's key", async () => {
 			const { ask, seen } = await capped("worldtree");
 			await ask();
@@ -1460,13 +1474,23 @@ describe("the session's budget", () => {
 describe("the budget of a session on no quest", () => {
 	/**
 	 * A keeper on no quest whose provider draws delta and aquifer, names
-	 * aquifer for `folder`, and judges a prompt at `confidence`; and a
-	 * session's ctx in tmpRoot whose registry serves Jev.
+	 * aquifer for `folder`, and judges a prompt at `confidence`, kept as
+	 * `options` say; and a session's ctx in tmpRoot whose registry serves
+	 * Jev.
 	 */
-	function loose(folder: string | undefined, choice: string, confidence = 0.9) {
+	function loose(
+		folder: string | undefined,
+		choice: string,
+		confidence = 0.9,
+		options: Parameters<typeof keepQuestBudget>[2] = {},
+	) {
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		const events = bus();
-		const keeper = keepQuestBudget(fakePi({ ...intoTheBranch, events }), state);
+		const keeper = keepQuestBudget(
+			fakePi({ ...intoTheBranch, events }),
+			state,
+			{ ...quiet, ...options },
+		);
 		const judged: unknown[] = [];
 		registerBudgetProvider(events, {
 			id: "judge",
@@ -1826,6 +1850,54 @@ describe("the budget of a session on no quest", () => {
 
 		expect(judged).toEqual([]);
 		expect(process.env[KEY], "not its folder's aquifer").toBe("personal");
+		expect(process.env.PI_BUDGET_OPTED_OUT, "kept for what it starts").toBe(
+			"1",
+		);
+	});
+
+	it("isn't taken as started on none after a /new from a quest whose budget is none", async () => {
+		// Unsure, so making the quest names it nothing before it is set none.
+		const first = loose(undefined, "delta", 0.5);
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(first.state, fakePi(intoTheBranch), fakeCtx("/elsewhere"), params);
+		succeeded(await run({ action: "create", title: "Mine" }));
+		const id = first.state.questId as string;
+		succeeded(await run({ action: "budget", id, ref: "none" }));
+		await first.keeper.keep(first.ctx);
+		expect(process.env.PI_BUDGET_OPTED_OUT).toBe("1");
+
+		// A /new: another keeper, over the same overlay, on no quest.
+		first.keeper.forget();
+		const next = loose(tmpRoot, "delta");
+		await next.keeper.keep(next.ctx, { prompt: "Review this" });
+
+		expect(process.env[KEY], "its folder's, not the quest's none").toBe(
+			"aquifer",
+		);
+		expect(process.env.PI_BUDGET_OPTED_OUT).toBeUndefined();
+	});
+
+	it("asks again for the budget a judgement named that it missed, as a quest's session does", async () => {
+		const clock = { at: 0 };
+		const { keeper, ctx, judged, events } = loose(undefined, "worldtree", 0.9, {
+			now: () => clock.at,
+		});
+		let answer: BudgetAnswer = {
+			kind: "unavailable",
+			reason: "It didn't answer within 5 s.",
+		};
+		provide(events, "plane", async (name) =>
+			name === "worldtree" ? answer : { kind: "unknown" },
+		);
+		await keeper.keep(ctx, { prompt: "Speed up worldtree" });
+		expect(process.env[KEY], "missed").toBe("personal");
+
+		answer = { kind: "drawn", env: { [KEY]: "team" }, label: "Worldtree" };
+		clock.at += BUDGET_ASKED_AGAIN_MS;
+		await keeper.keep(ctx);
+
+		expect(process.env[KEY]).toBe("team");
+		expect(judged, "judged once").toHaveLength(1);
 	});
 
 	it("says a quest's none to what it starts, and isn't judged on that quest's words once it leaves it", async () => {
