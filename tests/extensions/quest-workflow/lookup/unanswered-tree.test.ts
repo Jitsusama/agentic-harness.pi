@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createQuestState } from "../../../../extensions/quest-workflow/state.ts";
 import { handle } from "../../../../extensions/quest-workflow/transitions.ts";
+import { withSession } from "../../../../lib/core/session/index.ts";
 import {
 	clearDiscoveryCache,
 	readyQuests,
@@ -126,9 +127,9 @@ it("on a host, reads nothing on the thread for folders that never answered a rea
 		clearDiscoveryCache();
 		const state = createQuestState({ questsRoot: join(tmpRoot, "quests") });
 		nextReadUnanswered();
-		const listed = await handle(state, fakePi(), fakeCtx(tmpRoot, "a"), {
-			action: "list",
-		});
+		const listed = await withSession("a", () =>
+			handle(state, fakePi(), fakeCtx(tmpRoot, "a"), { action: "list" }),
+		);
 
 		expect(listed.ok ? "listed" : listed.guidance).toContain(
 			"haven't answered a first read",
