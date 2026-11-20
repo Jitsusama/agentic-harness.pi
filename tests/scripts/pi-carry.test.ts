@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
+import { CARRY_HELP } from "../../lib/internal/carry/help.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import { inboxOf, takeSteers } from "../../lib/mesh/steer.ts";
@@ -450,5 +451,18 @@ describe("pi-carry", () => {
 		expect(asked.lines).toEqual([
 			{ kind: "failed", why: expect.stringContaining("Say which quest") },
 		]);
+	});
+
+	it("answers --help on stdout alone, exiting 0, with no home to read", async () => {
+		for (const words of [["--help"], ["settle", "not-a-quest", "-h"]]) {
+			const said = await run(
+				"node",
+				["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", SCRIPT, ...words],
+				{ env: { PATH: process.env.PATH } },
+			);
+
+			expect(said.stdout, `${words.join(" ")} said its help`).toBe(CARRY_HELP);
+			expect(said.stderr, `${words.join(" ")} said nothing else`).toBe("");
+		}
 	});
 });
