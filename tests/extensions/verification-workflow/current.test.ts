@@ -97,6 +97,23 @@ describe("a commit's check", () => {
 		expect(asked, "fingerprints asked").toHaveLength(0);
 	});
 
+	// Three asks bound a check that verifies keep overtaking; the newest
+	// is left for the next ask rather than chased.
+	it("leaves the newest run for the next ask after three recorded meanwhile", async () => {
+		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
+		const newest = { ...NEXT, command: "pnpm lint" };
+		for (const next of [NEXT, { ...NEXT }, newest]) {
+			await gitAsked();
+			state.failedRun = next;
+			await gitSays("now");
+		}
+		const { failure, judged } = await checking;
+		expect(failure).toBeUndefined();
+		expect(asked, "fingerprints still asked").toHaveLength(0);
+		expect(judged?.run).not.toBe(newest);
+		expect(state.failedRun).toBe(newest);
+	});
+
 	it("holds nothing back for a run cleared while git answered", async () => {
 		const checking = failureNow(state, { dir: "/src/repo" }, undefined);
 		await gitAsked();
@@ -150,6 +167,21 @@ describe("settling the outcome", () => {
 		const settling = settle(state);
 		await gitSays(undefined);
 		expect(await settling).toBe("clean");
+		expect(state.failedRun).toBeUndefined();
+	});
+
+	it("retires a run git said nothing of once its root is gone", async () => {
+		state.failedRun = { ...RUN, fingerprint: null };
+		disk.there = false;
+		expect(await settle(state)).toBe("clean");
+		expect(state.failedRun).toBeUndefined();
+	});
+
+	it("retires a run outside git once its root is gone", async () => {
+		const { fingerprint: _, ...outside } = RUN;
+		state.failedRun = outside;
+		disk.there = false;
+		expect(await settle(state)).toBe("clean");
 		expect(state.failedRun).toBeUndefined();
 	});
 

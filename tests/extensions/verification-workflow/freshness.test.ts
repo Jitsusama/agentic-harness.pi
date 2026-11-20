@@ -4,6 +4,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -187,14 +188,22 @@ function gitWaiting(): string {
 	return join(root, "git-waiting");
 }
 
+/** The file a held git waits on before it answers. */
+function gitReleased(): string {
+	return join(root, "git-released");
+}
+
+/** The real git, found before any test puts one of its own first. */
+const REAL_GIT = execFileSync("sh", ["-c", "command -v git"], {
+	encoding: "utf8",
+}).trim();
+
 /**
  * Put a git first on PATH that does `then` when its arguments hold
  * `only`, and runs the real one at once otherwise.
  */
 function gitThat(then: string, only: string): void {
-	const real = execFileSync("sh", ["-c", "command -v git"], {
-		encoding: "utf8",
-	}).trim();
+	const real = REAL_GIT;
 	const bin = join(root, "bin");
 	mkdirSync(bin, { recursive: true });
 	const git = join(bin, "git");
@@ -222,6 +231,29 @@ function failingGit(only: string): void {
 }
 
 /**
+ * A git that, when its arguments hold `only`, says so in `gitWaiting()`
+ * and waits for `gitReleased()` before answering.
+ */
+function heldGit(only: string): void {
+	const waiting = shQuoted(gitWaiting());
+	const released = shQuoted(gitReleased());
+	gitThat(
+		`: > ${waiting}; while [ ! -e ${released} ]; do sleep 0.05; done`,
+		only,
+	);
+}
+
+/** A git that counts in `file` each time its arguments hold `only`. */
+function countingGit(file: string, only: string): void {
+	gitThat(`echo >> ${shQuoted(file)}`, only);
+}
+
+/** How many times a counting git wrote to `file`. */
+function counted(file: string): number {
+	return existsSync(file) ? readFileSync(file, "utf8").length : 0;
+}
+
+/**
  * Start a failing verify of the repository, and once it waits on git
  * for its fingerprint, end another verify in `other` with `then`.
  */
@@ -230,7 +262,7 @@ async function verifyEndsMeanwhile(
 	other: string,
 	then: string,
 ): Promise<void> {
-	slowGit(GIT_TAKES_S, " status ");
+	heldGit(" status ");
 	h.questVerify = "exit 1";
 	const failing = h.verify.execute("call", { path: repo }, undefined);
 	await vi.waitFor(() =>
@@ -238,6 +270,8 @@ async function verifyEndsMeanwhile(
 	);
 	h.questVerify = then;
 	await h.verify.execute("call", { path: other }, undefined);
+	// Only now may the first verify's git answer, so the other has ended.
+	writeFileSync(gitReleased(), "");
 	await failing;
 }
 
@@ -532,7 +566,8 @@ describe("the verify tool", () => {
 	});
 
 	it("retires a failed run once its repository is gone", async () => {
-		const gone = await projectRepo();
+		repo = await projectRepo();
+		const gone = repo;
 		const h = await harness();
 		h.questVerify = "exit 1";
 		await h.verify.execute("call", { path: gone }, undefined);
@@ -540,7 +575,64 @@ describe("the verify tool", () => {
 		disposeRepo(gone);
 
 		expect(await currentVerificationFailure({ dir: gone })).toBeUndefined();
+		// A run kept unknown holds nothing back either; only the footer
+		// tells a retired run from a kept one.
 		expect(h.statuses.at(-1), "no longer failing").toBeUndefined();
+	});
+
+	it("retires a failure git couldn't fingerprint once its repository is gone", async () => {
+		repo = await projectRepo();
+		const gone = repo;
+		const h = await harness();
+		h.questVerify = "exit 1";
+		failingGit(" status ");
+		await h.verify.execute("call", { path: gone }, undefined);
+		expect(h.statuses.at(-1), "kept as failing").toBeDefined();
+
+		disposeRepo(gone);
+
+		expect(await currentVerificationFailure({ dir: gone })).toBeUndefined();
+		expect(h.statuses.at(-1), "no longer failing").toBeUndefined();
+	});
+
+	it("keeps a failure whose repository git didn't name, holding back no commit", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		h.questVerify = "exit 1";
+		failingGit(" --show-toplevel ");
+
+		const result = await h.verify.execute("call", { path: repo }, undefined);
+
+		expect(result.details.outcome).toBe("failing");
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		expect(h.statuses.at(-1), "still said failing").toBeDefined();
+	});
+
+	it("keeps a failed run while git won't say what it sits on", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		h.questVerify = "exit 1";
+		await h.verify.execute("call", { path: repo }, undefined);
+
+		// Past git's own wall, so it gives no answer at all.
+		slowGit(10, " HEAD^{tree} ");
+		expect(await currentVerificationFailure({ dir: repo })).toBeUndefined();
+		if (path !== undefined) process.env.PATH = path;
+
+		const held = await currentVerificationFailure({ dir: repo });
+		expect(held?.problems[0]).toContain("exit 1 failed in");
+	}, 20_000);
+
+	it("fingerprints a failing run's tree once", async () => {
+		repo = await projectRepo();
+		const h = await harness();
+		h.questVerify = "exit 1";
+		const asked = join(root, "statuses");
+		countingGit(asked, " status ");
+
+		await h.verify.execute("call", { path: repo }, undefined);
+
+		expect(counted(asked), "statuses asked").toBe(1);
 	});
 
 	it("outside git, holds back a commit on a failed run until an edit there", async () => {
