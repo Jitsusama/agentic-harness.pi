@@ -205,7 +205,10 @@ describe.skipIf(!packageDir)(
 						readParked(sessionId, parkFolder),
 						`${sessionId} left plain pi's marker, which the mesh wakes it by`,
 					).toBeDefined();
+				const weighing = Date.now();
 				const parked = await lettingGo(host);
+				// For the record, so a release growing slower shows before it fails.
+				took.letGoMs = Date.now() - weighing;
 				// PSS is kept for the record only: it holds every page V8 hasn't
 				// given back yet, and on 12 November it rose by 10 MB on a lender
 				// as four sessions went. The heap is what letting them go lowers.
@@ -215,7 +218,7 @@ describe.skipIf(!packageDir)(
 				took.parkedHeapKb = parked.heapKb;
 				expect(
 					parked.sessions,
-					"no parked conversation's session is still in the host's memory",
+					`no parked conversation's session is still in the host's memory, weighing again for ${LET_GO_MS} ms`,
 				).toEqual([]);
 				expect(
 					awake.sessions.length,
