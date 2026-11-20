@@ -49,7 +49,7 @@ import { expandable } from "../../lib/ui/expandable.ts";
 import { footerMark } from "../../lib/ui/footer-mark.ts";
 import { checkRunVerdict } from "../../lib/verification/check-run.ts";
 import { fastLayerVerdict } from "../../lib/verification/verdict.ts";
-import { failureNow, settle } from "./current.ts";
+import { failureNow, type Judged, settle } from "./current.ts";
 import { collectErrors, rememberChecked } from "./diagnostics.ts";
 import {
 	isVerificationReport,
@@ -61,6 +61,7 @@ import {
 	createVerificationState,
 	errorSetKey,
 	FAST_LAYER_WALL_MS,
+	type FailedRun,
 	MAX_FIX_ATTEMPTS,
 	type VerificationState,
 } from "./state.ts";
@@ -303,18 +304,24 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			// One that checked nothing says nothing of the project.
 			const mine = verdict.outcome === "deferred" ? undefined : ++verdicts;
 			if (mine !== undefined) latest.set(root, mine);
+			// The run this call recorded, already as git sees it now.
+			let recorded: Judged | undefined;
 			if (verdict.outcome === "failing" && result.command) {
 				// Not stopped by this call's signal: an Escape after the run
 				// leaves its failure as true as it was.
 				const fingerprint = await recordedFingerprint(root);
 				// A run of the project that ended while git answered says more
 				// of the tree now.
-				if (latest.get(root) === mine)
-					state.failedRun = {
+				if (latest.get(root) === mine) {
+					const run: FailedRun = {
 						root,
 						command: result.command,
 						...(fingerprint === undefined ? {} : { fingerprint }),
 					};
+					state.failedRun = run;
+					const standing = fingerprint === null ? "unknown" : "same";
+					recorded = { run, standing };
+				}
 			} else if (
 				verdict.outcome === "clean" &&
 				state.failedRun?.root === root
@@ -323,7 +330,7 @@ export default function verificationWorkflow(pi: ExtensionAPI) {
 			}
 			// A check that could not start leaves what else is known as it
 			// was; with nothing else known it says nothing was checked.
-			const settled = await settle(state, undefined, signal);
+			const settled = await settle(state, recorded, signal);
 			state.outcome =
 				verdict.outcome === "deferred" && settled === "clean"
 					? "deferred"

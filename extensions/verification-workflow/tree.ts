@@ -16,7 +16,12 @@ import { createHash } from "node:crypto";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { access, lstat } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
-import { spawnExec } from "../../lib/core/exec/index.ts";
+import {
+	EXIT_ABORTED,
+	EXIT_SAID_TOO_MUCH,
+	EXIT_TIMED_OUT,
+	spawnExec,
+} from "../../lib/core/exec/index.ts";
 import { gitRules } from "../../lib/internal/sandbox/sandbox.ts";
 import { guardedExec } from "../../lib/internal/sandbox/tree-git.ts";
 
@@ -76,7 +81,8 @@ export function within(root: string, path: string): boolean {
  * size and modification time of every file that differs from it,
  * untracked ones included. Staging leaves it alone, since it moves no
  * file. Undefined outside git, when git does not answer in time or
- * says too much, or once `signal` fires.
+ * says too much, or once `signal` fires. A tree with no commit yet is
+ * told by git saying so, never by git saying nothing.
  */
 export async function treeFingerprint(
 	root: string,
@@ -91,12 +97,15 @@ export async function treeFingerprint(
 		"--untracked-files=all",
 	];
 	const [head, changed, top] = await Promise.all([
-		git(root, ["rev-parse", "HEAD^{tree}"], signal),
+		ask(root, ["rev-parse", "HEAD^{tree}"], signal),
 		git(root, status, signal, STATUS_MOST_CHARS),
 		gitRoot(root, signal),
 	]);
-	if (changed === undefined || top === undefined) return undefined;
-	const print = await fingerprintOf(head, changed, top);
+	if (!head.answered || changed === undefined || top === undefined) {
+		return undefined;
+	}
+	const commit = head.code === 0 ? head.stdout : undefined;
+	const print = await fingerprintOf(commit, changed, top);
 	// Stopped while stamping: what it read is no answer.
 	return signal?.aborted ? undefined : print;
 }
@@ -111,8 +120,14 @@ export async function recordedFingerprint(
 ): Promise<string | null | undefined> {
 	const print = await treeFingerprint(root);
 	if (print !== undefined) return print;
-	return (await gitRoot(root)) === undefined ? undefined : null;
+	// Outside git only when git says so: silence, or a git the guard
+	// refused, says nothing either way.
+	const top = await ask(root, ["rev-parse", "--show-toplevel"]);
+	return top.answered && NOT_A_REPOSITORY.test(top.stderr) ? undefined : null;
 }
+
+/** What git says of a folder no repository holds. */
+const NOT_A_REPOSITORY = /not a git repository/i;
 
 /** The fingerprint of a tree at `head` whose status said `status`. */
 async function fingerprintOf(
@@ -180,6 +195,40 @@ async function git(
 	signal?: AbortSignal,
 	mostChars?: number,
 ): Promise<string | undefined> {
+	const asked = await ask(cwd, args, signal, mostChars);
+	// Not a repository, git missing or refused, stopped, or out of time.
+	return asked.answered && asked.code === 0 ? asked.stdout : undefined;
+}
+
+/** What git said and how it ended, or that it gave no answer. */
+type Asked = Answered | { readonly answered: false };
+
+/** What a git that ran to its end said. */
+interface Answered {
+	readonly answered: true;
+	readonly code: number;
+	readonly stdout: string;
+	readonly stderr: string;
+}
+
+/** The exit codes of a git stopped before it answered. */
+const UNANSWERED: ReadonlySet<number> = new Set([
+	EXIT_TIMED_OUT,
+	EXIT_ABORTED,
+	EXIT_SAID_TOO_MUCH,
+]);
+
+/**
+ * Ask git `args` in `cwd`, telling an answer, a refusal or a "no"
+ * included, from none: git stopped by its clock, `signal` or saying
+ * more than `mostChars`.
+ */
+async function ask(
+	cwd: string,
+	args: readonly string[],
+	signal?: AbortSignal,
+	mostChars?: number,
+): Promise<Asked> {
 	const bounds = {
 		cwd,
 		timeoutMs: GIT_WALL_MS,
@@ -189,7 +238,7 @@ async function git(
 	// Outside any sandbox, so held to where a sandboxed command couldn't
 	// have set what git runs (tree-git.ts).
 	const exec = guardedExec(spawnExec(bounds), gitRules, cwd);
-	const { code, stdout } = await exec("git", [...args]);
-	// Not a repository, git missing or refused, stopped, or out of time.
-	return code === 0 ? stdout : undefined;
+	const { code, stdout, stderr } = await exec("git", [...args]);
+	if (UNANSWERED.has(code) || signal?.aborted) return { answered: false };
+	return { answered: true, code, stdout, stderr };
 }

@@ -107,18 +107,19 @@ export async function failureNow(
  * Where a failed run's tree stands. Outside git there is no fingerprint
  * to compare, and an edit under its root is what retires it instead;
  * one git said nothing of when it ran can't be compared either. A root
- * no longer on disk holds nothing it judged.
+ * no longer on disk holds nothing it judged, however it was recorded.
  */
 export async function standingOf(
 	run: FailedRun,
 	signal?: AbortSignal,
 ): Promise<Standing> {
-	if (run.fingerprint === undefined) return "same";
-	if (run.fingerprint === null) return "unknown";
-	const now = await treeFingerprint(run.root, signal);
-	if (now !== undefined) return now === run.fingerprint ? "same" : "moved";
-	if (signal?.aborted) return "unknown";
-	return (await present(run.root)) ? "unknown" : "moved";
+	const kept = run.fingerprint === undefined ? "same" : "unknown";
+	if (typeof run.fingerprint === "string") {
+		const now = await treeFingerprint(run.root, signal);
+		if (now !== undefined) return now === run.fingerprint ? "same" : "moved";
+	}
+	if (signal?.aborted) return kept;
+	return (await present(run.root)) ? kept : "moved";
 }
 
 /**
