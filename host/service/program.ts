@@ -231,9 +231,13 @@ export async function startHostProgram(
 		drain: (on) => {
 			if (!engine?.drain) throw new Error("This host can't drain");
 			const heavy = engine.drain(on);
+			// Unlike a drain by hand, the heap's restart waits on no heavy run.
 			if (on && heavy.length > 0)
-				report(`Draining for the heap; heavy runs: ${heavy.join("; ")}`);
+				report(
+					`The heap's drain leaves heavy runs going, which its restart won't wait for: ${heavy.join("; ")}`,
+				);
 		},
+		draining: () => engine?.drains?.() ?? false,
 		resting: () => screens.resting(),
 		report,
 	}).catch((error: unknown) => {
