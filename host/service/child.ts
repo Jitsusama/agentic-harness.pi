@@ -28,6 +28,10 @@
  * failure. It never restarts itself, never tells systemd anything, and
  * keeps no shared roster: the supervisor owns those, and clears the
  * slot's files once the child has gone.
+ *
+ * The conversation's durable store is the child's alone: the supervisor
+ * never opens it, not even to read, since a second process holding the
+ * file's locks is what a child is there to keep off its thread.
  */
 
 import { mkdirSync, readFileSync } from "node:fs";
