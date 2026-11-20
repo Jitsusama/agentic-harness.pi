@@ -59,7 +59,7 @@ function entry(sessionId: string): RosterEntry {
 }
 
 /** What an open's child derives for its conversation, launch and all. */
-function opened(sessionId: string): RosterEntry {
+function derived(sessionId: string): RosterEntry {
 	return { ...entry(sessionId), attended: true, launch: { PI_ARM: "b" } };
 }
 
@@ -182,7 +182,7 @@ async function runChild(
 					}
 					const sessionId = randomUUID();
 					child.conversation = conversation(sessionId);
-					child.entry = opened(sessionId);
+					child.entry = derived(sessionId);
 					socket.write(
 						line({ v: 1, id, ok: true, result: child.conversation }),
 					);
@@ -448,7 +448,7 @@ describe("a new conversation", () => {
 		).toEqual({});
 		expect(roster.held, "held as its child derived it").toEqual([
 			entry(a),
-			opened(opened?.sessionId ?? ""),
+			derived(opened?.sessionId ?? ""),
 		]);
 	});
 
