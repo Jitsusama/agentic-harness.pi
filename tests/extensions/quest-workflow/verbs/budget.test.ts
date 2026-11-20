@@ -1812,6 +1812,35 @@ describe("the budget of a session on no quest", () => {
 		expect(process.env[KEY]).toBe("delta");
 	});
 
+	it("goes back to the budget it was judged onto when it leaves a quest it was reloaded on", async () => {
+		const first = loose(undefined, "delta");
+		written.push({
+			type: "message",
+			message: { role: "user", content: "Speed up walgit" },
+		} as unknown as (typeof written)[number]);
+		await first.keeper.keep(first.ctx, { prompt: "Speed up walgit" });
+		const run = (params: Parameters<typeof handle>[3]) =>
+			handle(first.state, fakePi(intoTheBranch), fakeCtx("/elsewhere"), params);
+		succeeded(await run({ action: "create", title: "Aquifer Work" }));
+		const id = first.state.questId as string;
+		succeeded(await run({ action: "budget", id, ref: "aquifer" }));
+		await first.keeper.keep(first.ctx);
+		expect(process.env[KEY]).toBe("aquifer");
+
+		// Reloaded with the quest still loaded, then put down: unsure now,
+		// so a judgement asked again would take delta off.
+		first.keeper.forget();
+		const next = loose(undefined, "delta", 0.5);
+		next.state.questId = id;
+		await next.keeper.keep(next.ctx);
+		expect(process.env[KEY]).toBe("aquifer");
+		next.state.questId = null;
+		await next.keeper.keep(next.ctx);
+
+		expect(next.judged).toEqual([]);
+		expect(process.env[KEY]).toBe("delta");
+	});
+
 	it("asks again for the budget it missed before a reload, not what calls fell to", async () => {
 		const { keeper, ctx, judged } = loose(undefined, "delta", 0.5);
 		written.push(
@@ -2071,7 +2100,7 @@ describe("the budget of a session on no quest", () => {
 	});
 
 	it("lays nothing from a judgement that lands after a quest loaded", async () => {
-		const { state, keeper, ctx, judged } = loose(undefined, "delta");
+		const { state, keeper, ctx, judged, notices } = loose(undefined, "delta");
 		let release: (answer: unknown) => void = () => {};
 		const held = {
 			...ctx,
@@ -2097,6 +2126,10 @@ describe("the budget of a session on no quest", () => {
 		await keeping;
 
 		expect(process.env[KEY]).toBe("aquifer");
+		expect(
+			notices.filter((notice) => notice.includes("on no quest")),
+			"not said to be on no quest",
+		).toEqual([]);
 	});
 
 	it("asks its folder again once it leaves a quest it was on as a provider registered", async () => {
@@ -2136,6 +2169,21 @@ describe("the budget of a session on no quest", () => {
 		succeeded(await run({ action: "unload" }));
 		await keeper.keep(ctx);
 		expect(process.env.PI_BUDGET_OPTED_OUT).toBe("1");
+	});
+
+	it("keeps an inherited none on a quest whose record can't be read", async () => {
+		process.env.PI_BUDGET_OPTED_OUT = "1";
+		const { state, keeper, ctx } = loose(undefined, "delta", 0.5);
+		// No README under the quests root names this one.
+		state.questId = "QEST-20261120-MISSIN";
+
+		await keeper.keep(ctx);
+
+		expect(process.env[KEY]).toBe("personal");
+		expect(
+			process.env.PI_BUDGET_OPTED_OUT,
+			"no word read to set it aside",
+		).toBe("1");
 	});
 });
 

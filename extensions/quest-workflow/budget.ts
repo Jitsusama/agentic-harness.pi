@@ -87,6 +87,7 @@ import {
 	sessionEnv,
 } from "../../lib/core/session/index.ts";
 import {
+	budgetFoundInRecord,
 	budgetInRecord,
 	NO_BUDGET,
 } from "../../lib/internal/quest/fields/budget.ts";
@@ -365,6 +366,8 @@ export function keepQuestBudget(
 	let wantedQuestsOwn = false;
 	/** Whether this session has been on a quest, whose words its own aren't. */
 	let beenOnQuest = false;
+	/** Whether its record has been read for a budget judged before a reload. */
+	let judgedRead = false;
 	/** Bumped on every ask, so an answer overtaken by another is dropped. */
 	let asking = 0;
 	/** Names already said to be undrawable, so each is said once. */
@@ -439,8 +442,9 @@ export function keepQuestBudget(
 		const session = sessions;
 		folderAsked ??= host.budgetFor(folder).then((taken) => {
 			if (!taken || session !== sessions) return null;
-			// Said once, not again as a late provider has it asked anew.
-			if (taken.name === wanted) return taken.name;
+			// Said once, not again as a late provider has it asked anew; nor
+			// once a quest has loaded, when the session is on one after all.
+			if (taken.name === wanted || state.questId) return taken.name;
 			ctx.ui.notify(
 				`This session is on no quest, so it draws on budget ${taken.name}, which ${JSON.stringify(taken.provider)} says work in ${JSON.stringify(folder)} draws on.`,
 				"info",
@@ -465,8 +469,12 @@ export function keepQuestBudget(
 		// which a miss or an unsure answer would take off without a word.
 		// Read before the quest check, since a session judged and then on
 		// a quest went back to that budget as it left. Only a judgement's:
-		// a folder's answer was asked afresh above.
-		if (promptAsked === undefined && wanted === undefined) {
+		// a folder's answer was asked afresh above. Read once a session,
+		// whenever it first goes loose: one reloaded on a quest settles
+		// that quest's budget first, and goes back to its judged one as it
+		// leaves.
+		if (promptAsked === undefined && !judgedRead) {
+			judgedRead = true;
 			// One it missed names what it wanted, not what calls fell to.
 			const last = lastJudgedOn(branchOf(ctx));
 			const missed = last?.unresolved?.budget;
@@ -516,7 +524,9 @@ export function keepQuestBudget(
 			return null;
 		}
 		if (!judged?.sure || judged.name === NO_BUDGET) return null;
-		if (judged.name === wanted) return judged.name;
+		// A quest loaded while it was judged settles its own budget, so the
+		// session is on no quest no longer.
+		if (judged.name === wanted || state.questId) return judged.name;
 		ctx.ui.notify(
 			`This session is on no quest, so it draws on budget ${judged.name}, which ${JSON.stringify(judged.provider)} judged from its folder and first prompt${judged.why ? `: ${judged.why}` : ""}.`,
 			"info",
@@ -549,7 +559,13 @@ export function keepQuestBudget(
 		const cappedOut =
 			capped !== undefined && wallNow() - capped.at >= CAPPED_HOLD_MS;
 		if (cappedOut) capped = undefined;
-		const questsOwn = !loose && !optedOut;
+		// A walk that couldn't read a README on the way heard no word, so
+		// it keeps to a none the session was started under.
+		const unread =
+			state.questId !== null &&
+			found === undefined &&
+			budgetFoundInRecord(state.questsRoot, state.questId) === "unread";
+		const questsOwn = !loose && !optedOut && !unread;
 		// Leaving a quest that named nothing changes whose word stands, so
 		// a none it set aside comes back, though the name is still none.
 		const same =
@@ -731,6 +747,7 @@ export function keepQuestBudget(
 		wantedOptedOut = false;
 		wantedQuestsOwn = false;
 		beenOnQuest = false;
+		judgedRead = false;
 		missedAt = undefined;
 		missedWait = 0;
 		capped = undefined;

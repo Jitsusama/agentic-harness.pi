@@ -126,11 +126,13 @@ export type Classify = (
 ) => Promise<ClassifierResult>;
 
 /**
- * What a provider is told of work it judges the budget of. A quest
- * seeded from a link takes its title and summary from what that issue's
- * or page's author wrote, so a provider hands them to its classifier as
- * data to weigh, never as instructions, lest whoever wrote them steer
- * which budget pays.
+ * What a provider is told of work it judges the budget of. Every field
+ * can hold words someone else wrote: a quest seeded from a link takes
+ * its title and summary from that issue's or page's author, a branch
+ * or folder is named by whoever made it, and a prompt can paste
+ * anything. So a provider hands them all to its classifier as data to
+ * weigh, never as instructions, lest whoever wrote them steer which
+ * budget pays.
  */
 export interface WorkToBudget {
 	/**
