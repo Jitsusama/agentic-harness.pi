@@ -38,6 +38,13 @@ function alive(pid: number): boolean {
  */
 const GONE_WITHIN_MS = 3_000;
 
+/** A gate's words for a wait, as World's push gate says them. */
+const TURN = {
+	waits: "this one waits its turn",
+	goes: ["its turn came after", "this one goes on"],
+	longestMs: 10_000,
+} as const;
+
 describe("a command run unattended", () => {
 	it("returns what it said and how it exited", async () => {
 		const result = await spawnExec()("sh", [
@@ -193,6 +200,49 @@ describe("a command that will not finish", () => {
 		expect(result.stderr, "the stop says why").toContain(
 			"its stderr passed 1000 characters",
 		);
+	});
+
+	it("holds its clock while it says it waits its turn", async () => {
+		// The wait alone outlasts the clock three times over; only the time
+		// either side of it counts.
+		const result = await spawnExec({ timeoutMs: 400, turn: TURN })("sh", [
+			"-c",
+			"echo 'gate: another push is running; this one waits its turn.' >&2; sleep 1.2; echo 'gate: its turn came after 1 s' >&2; echo sent",
+		]);
+
+		expect(result.code, "a wait for its turn is not run time").toBe(0);
+		expect(result.stdout).toBe("sent\n");
+	});
+
+	it("runs its clock again once its turn comes", async () => {
+		const started = Date.now();
+		const result = await spawnExec({ timeoutMs: 400, turn: TURN })("sh", [
+			"-c",
+			"echo 'gate: another push is running; this one waits its turn.' >&2; sleep 0.5; echo 'gate: its turn came after 0 s' >&2; sleep 30",
+		]);
+
+		expect(result.code, "what runs after the wait is on the clock").toBe(
+			EXIT_TIMED_OUT,
+		);
+		expect(result.stderr).toContain("timed out after 400 ms");
+		expect(Date.now() - started).toBeLessThan(3000);
+	});
+
+	it("is stopped when one wait for its turn runs past the longest", async () => {
+		const started = Date.now();
+		const result = await spawnExec({
+			timeoutMs: 5_000,
+			turn: { ...TURN, longestMs: 300 },
+		})("sh", [
+			"-c",
+			"echo 'gate: another push is running; this one waits its turn.' >&2; sleep 30",
+		]);
+
+		expect(result.code, "a wait has a clock of its own").toBe(
+			EXIT_TIMED_OUT,
+		);
+		expect(result.stderr).toContain("waited its turn for over 300 ms");
+		expect(Date.now() - started).toBeLessThan(3000);
 	});
 
 	it("never starts when its signal has already fired", async () => {
