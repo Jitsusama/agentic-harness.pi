@@ -26,6 +26,8 @@ export interface LaunchHints {
 	/** Hosted words are literal; plain pi uses firstWordsToken to read its file. */
 	firstWords?: string;
 	firstWordsToken?: string;
+	/** What a sprout seeded this session with, as the node wrote it, unread. */
+	sprout?: string;
 }
 
 /** What a conversation asks of its host when its extensions should load again. */

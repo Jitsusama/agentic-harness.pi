@@ -41,6 +41,7 @@ import {
 	indexSessionFiles,
 	prunePhantomSessions,
 } from "../../lib/internal/quest/sessions/session-liveness.ts";
+import { sproutSeedFrom } from "../../lib/internal/quest/sessions/sprout-seed.ts";
 import { firstPromptPending } from "../../lib/internal/session/first-prompt.ts";
 import { getLastEntry } from "../../lib/internal/session/state.ts";
 import { sessionNameFor, shortNameOf } from "./render.ts";
@@ -380,7 +381,7 @@ export function restore(
 
 /** How the startup resolver chose the quest to load. */
 export interface StartupResolution {
-	source: "explicit" | "persisted" | "record" | "cwd" | "none";
+	source: "explicit" | "persisted" | "record" | "sprout" | "cwd" | "none";
 	questId: string | null;
 }
 
@@ -424,6 +425,11 @@ export function resolveStartup(
 	if (restoreFromRecord(state, pi, ctx)) {
 		return { source: "record", questId: state.questId };
 	}
+	// A sprout makes its own quest (sprout-start.ts), so it never takes
+	// on the quest of whatever tree it was started in.
+	if (sproutSeedFrom(hints.sprout)) {
+		return { source: "sprout", questId: null };
+	}
 	// The cwd walk is the only path that attaches a fresh session
 	// it never chose. When the user disables it, a fresh session
 	// stays idle rather than adopting whatever quest happens to
@@ -439,7 +445,11 @@ export function resolveStartup(
 	};
 }
 
-function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
+/**
+ * The launch hints this start read and has yet to say, which a sprout's
+ * start reads and leaves its own first words in.
+ */
+export function pendingWords(ctx: ExtensionContext): { hints?: LaunchHints } {
 	return sessionSlot(
 		"agentic-harness.quest-workflow.launch-words",
 		ctx,
