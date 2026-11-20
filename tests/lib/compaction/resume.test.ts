@@ -118,10 +118,7 @@ describe("whether a compaction left a run owed", () => {
 	it("owes nothing once a message follows the compaction", () => {
 		const branch = [asked(0, true), compaction(500), user(600)];
 
-		expect(
-			owesResume(branch, T0 + 10_000),
-			"a message since settles it",
-		).toBe(false);
+		expect(owesResume(branch, T0 + 10_000), "a message settles it").toBe(false);
 	});
 
 	it("is still owed past messages shown but never run", () => {
@@ -168,10 +165,7 @@ describe("whether a compaction left a run owed", () => {
 		// The runtime that asked answered it, or one after it resumed.
 		const branch = [asked(0, true), compaction(500), settled(600)];
 
-		expect(
-			owesResume(branch, T0 + 10_000),
-			"a settled ask owes nothing",
-		).toBe(false);
+		expect(owesResume(branch, T0 + 10_000), "settling ends it").toBe(false);
 	});
 
 	it("credits no later compaction with an ask its runtime settled", () => {
@@ -191,11 +185,8 @@ describe("whether a compaction left a run owed", () => {
 		const onTime = [asked(0, true), compaction(ASK_LANDS_WITHIN_MS)];
 		const now = T0 + ASK_LANDS_WITHIN_MS + 10_000;
 
-		expect(owesResume(late, now), "a late landing is not the ask's").toBe(false);
-		expect(
-			owesResume(onTime, now),
-			"a landing on time is the ask's",
-		).toBe(true);
+		expect(owesResume(late, now), "a late landing isn't the ask's").toBe(false);
+		expect(owesResume(onTime, now), "a timely landing is the ask's").toBe(true);
 	});
 
 	it("owes nothing to a compaction stamped ahead of the clock", () => {
