@@ -148,6 +148,9 @@ describe("writesInBash", () => {
 		held("setsid nohup pi", "pi");
 		held("mycelium run --need machine=mac -- pi", "pi");
 		held("bash -c 'pi -p hi'", "pi");
+		held("mycelium carry QEST-X --to mac", "mycelium carry");
+		held("mycelium --realm personal sprout QEST-X", "mycelium sprout");
+		held("mycelium start --need machine=mac", "mycelium start");
 		held(
 			"systemctl --user -H mac restart pi-host-work-background",
 			"pi host restart",
@@ -171,6 +174,8 @@ describe("writesInBash", () => {
 			"rg cutover scripts/host-cutover.ts",
 			"systemd-run --user --unit=x -- cat scripts/host-cutover.ts",
 			"mycelium sessions",
+			"mycelium starts list",
+			"mycelium sessions --realm start",
 		]) {
 			expect(start(command), command).toEqual([]);
 		}
@@ -182,6 +187,9 @@ describe("writesInBash", () => {
 		expect(
 			actions("for u in a b; do systemctl --user restart pi-host-$u; done"),
 		).toContain("pi host start");
+		expect(actions("for q in a b; do mycelium carry $q; done")).toContain(
+			"mycelium start",
+		);
 		expect(actions("for i in 1; do pi-packages update; done")).toContain(
 			"pi-packages update",
 		);
