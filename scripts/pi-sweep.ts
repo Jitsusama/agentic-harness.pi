@@ -170,7 +170,7 @@ export async function sweepOutside({
 		const trouble = `${id} couldn't judge or take every tree`;
 		troubles.push(trouble);
 		tell(
-			`${trouble}${unjudgedOf(calls, id) ? ", so the hosts sweep its trees" : ""}; sweep.log counts the commonest reasons kept`,
+			`${trouble}${unjudgedOf(calls, id) ? ", so the hosts sweep its trees" : ""}; sweep.log counts the commonest reasons kept and names each tree refused`,
 		);
 	}
 	const unjudged = [...failed].filter((id) => unjudgedOf(calls, id));

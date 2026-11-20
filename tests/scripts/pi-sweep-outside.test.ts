@@ -250,7 +250,7 @@ it("leaves out of its stamp a provider that couldn't judge a tree", async () => 
 		said.mock.calls.map((call) => String(call[0])),
 		"what its unit's journal was told",
 	).toContain(
-		"pi-sweep: world-dev-tree couldn't judge or take every tree, so the hosts sweep its trees; sweep.log counts the commonest reasons kept\n",
+		"pi-sweep: world-dev-tree couldn't judge or take every tree, so the hosts sweep its trees; sweep.log counts the commonest reasons kept and names each tree refused\n",
 	);
 });
 
@@ -367,11 +367,19 @@ it("leaves out of its stamp a provider that couldn't take a tree", async () => {
 			'async () => { throw new Error("dev is gone"); }',
 		)}]`,
 	);
+	const said = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
 	const ran = await sweepOutside({ env: { PI_SWEEP_PROVIDERS: world } });
 
 	expect(stamp(), "the stamp it left").toEqual({ judged: ["git-worktree"] });
 	expect(exitCodeOf(ran), "the code it exits with").toBe(1);
+	// A failed take is logged under refused, by its tree, not as a reason kept.
+	expect(
+		said.mock.calls.map((call) => String(call[0])),
+		"what its unit's journal was told",
+	).toContain(
+		"pi-sweep: world-dev-tree couldn't judge or take every tree, so the hosts sweep its trees; sweep.log counts the commonest reasons kept and names each tree refused\n",
+	);
 });
 
 it("stops and leaves out of its stamp a provider whose judgement never settles", async () => {
