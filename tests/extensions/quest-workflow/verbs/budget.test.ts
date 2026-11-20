@@ -1153,6 +1153,39 @@ describe("the session's budget", () => {
 			).toBe(false);
 		});
 
+		it("lays no late answer once its session is forgotten", async () => {
+			const made = await quests();
+			await made.run({ action: "budget", id: made.top, ref: "delta" });
+			const events = bus();
+			const keeper = keepQuestBudget(
+				fakePi({ ...intoTheBranch, events }),
+				made.state,
+				{ ...quiet, now: () => 0, answerDeadlineMs: 20 },
+			);
+			let answered = 0;
+			provide(events, "plane", async () => {
+				// Long past the deadline, however loaded the machine.
+				await new Promise((done) => setTimeout(done, 400));
+				answered++;
+				return { kind: "drawn", env: { [KEY]: "team" }, label: "Delta" };
+			});
+			await made.run({ action: "load", id: made.top });
+			await keeper.keep(ui().ctx);
+
+			keeper.forget();
+			await vi.waitFor(() => expect(answered, "the late answer came").toBe(1), {
+				timeout: 5_000,
+				interval: 10,
+			});
+			// A lay reads the quest from disk after the answer comes, and no
+			// event marks one not happening, so this waits well past one.
+			await new Promise((settle) => setTimeout(settle, 500));
+
+			expect(process.env[KEY], "nothing laid for a session gone").toBe(
+				"personal",
+			);
+		});
+
 		it("is asked again at the next keep, as a restart's load passes", async () => {
 			const { keeper, asked } = await onAClock();
 			await keeper.keep(ui().ctx);

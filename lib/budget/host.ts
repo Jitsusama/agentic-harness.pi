@@ -132,15 +132,19 @@ export function hostBudgets(
 	// Each provider's answer still on its way, by provider and name, so
 	// a draw asked again while one is late waits on it rather than
 	// piling another on a host already too busy to answer the first.
-	const coming = new Map<string, Promise<BudgetAnswer>>();
+	const coming = new Map<string, Promise<BudgetAnswer | typeof LATE>>();
 	// Each name's last drawing, which stands in for a provider that is
 	// late, and only for one that is: any answer in time replaces it.
 	const lastDrawn = new Map<string, Drawn>();
-	// The names a draw that missed its deadline is still waiting on, and
-	// whether any such draw went without, which alone is told the late
-	// drawing: one the last drawing stood in for has what it would bring,
-	// and telling it would only ask again of a host still busy.
-	const waiting = new Map<string, { without: boolean }>();
+	// The names a draw that missed its deadline is still waiting on, with
+	// whether any such draw went without and the drawing that stood in for
+	// the rest. The late answer is told only where it differs from what a
+	// draw was given: one the last drawing stood in for, answered the same,
+	// already has it, and telling it would only ask again of a busy host.
+	const waiting = new Map<
+		string,
+		{ without: boolean; stood: Drawn | undefined }
+	>();
 	const answerOf = (provider: BudgetProvider, name: string) => {
 		const key = `${provider.id}\0${name}`;
 		let answer = coming.get(key);
@@ -157,9 +161,15 @@ export function hostBudgets(
 	const drawWithin = async (
 		name: string,
 		withinMs: number,
+		from?: string,
 	): Promise<BudgetDrawing | { readonly lateOf: string }> => {
 		const asked: string[] = [];
-		for (const provider of ordered()) {
+		const all = ordered();
+		const start = Math.max(
+			0,
+			all.findIndex((provider) => provider.id === from),
+		);
+		for (const provider of all.slice(start)) {
 			asked.push(provider.id);
 			const answer = await within(answerOf(provider, name), withinMs);
 			if (answer === LATE) return { lateOf: provider.id };
@@ -172,26 +182,34 @@ export function hostBudgets(
 		lastDrawn.delete(name);
 		return { kind: "unknown", asked };
 	};
-	const waitOn = (name: string, without: boolean) => {
+	const waitOn = (name: string, lateOf: string, stood: Drawn | undefined) => {
 		const already = waiting.get(name);
 		if (already) {
-			already.without ||= without;
+			if (stood) already.stood = stood;
+			else already.without = true;
 			return;
 		}
-		const wait = { without };
+		const wait = { without: stood === undefined, stood };
 		waiting.set(name, wait);
-		// The answers already on their way are the ones waited on, so this
-		// reads nothing again; askOne's own bound ends a stuck one.
-		void drawWithin(name, lateMs)
+		// From the late provider on: those ahead of it answered in time, and
+		// its own answer is the one already on its way, so this asks nothing
+		// again of it. Its bound ends a stuck one as late, which tells none.
+		void drawWithin(name, lateMs, lateOf)
 			.then((drawing) => {
-				if (!("kind" in drawing) || drawing.kind !== "drawn") return;
-				if (!wait.without) return;
+				if (!("kind" in drawing)) return;
+				const gained = wait.without && drawing.kind === "drawn";
+				const changed =
+					wait.stood !== undefined && !sameDrawing(wait.stood, drawing);
+				if (!gained && !changed) return;
 				for (const listener of lateListeners) tellLate(listener, name);
 			})
 			.finally(() => waiting.delete(name));
 	};
 	const host: BudgetHost = {
 		registerProvider(provider) {
+			// An ask of the one it replaces answers for that one, not this.
+			for (const key of coming.keys())
+				if (key.startsWith(`${provider.id}\0`)) coming.delete(key);
 			providers.set(provider.id, provider);
 			for (const listener of listeners) listener();
 		},
@@ -206,7 +224,7 @@ export function hostBudgets(
 			const drawing = await drawWithin(name, deadlineMs);
 			if ("kind" in drawing) return drawing;
 			const stands = lastDrawn.get(name);
-			waitOn(name, stands === undefined);
+			waitOn(name, drawing.lateOf, stands);
 			return (
 				stands ?? {
 					kind: "unavailable",
@@ -419,7 +437,9 @@ async function askFolder(
 	try {
 		const name = await Promise.race([provider.budgetFor?.(folder), late]);
 		if (name === LATE) {
-			return { why: `it didn't answer within ${deadlineMs / 1000} s` };
+			return {
+				why: `it didn't answer within ${deadlineMs / MS_PER_SECOND} s`,
+			};
 		}
 		return typeof name === "string" &&
 			isBudgetName(name) &&
@@ -442,6 +462,9 @@ async function within<T>(
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const late = new Promise<typeof LATE>((resolve) => {
 		timer = setTimeout(() => resolve(LATE), withinMs);
+		// The late wait runs long, so it mustn't keep a process up that has
+		// nothing else to do.
+		timer.unref();
 	});
 	try {
 		return await Promise.race([answer, late]);
@@ -463,37 +486,32 @@ function tellLate(listener: (name: string) => void, name: string): void {
 }
 
 /**
- * One provider's answer, with a rejection, or no answer within the
- * deadline, read as unavailable.
+ * One provider's answer, with a rejection read as unavailable; or `LATE`
+ * when none comes within `lateMs`, so a draw that joins the ask near its
+ * end reads it as late, as it is, rather than as an answer in time.
  */
 async function askOne(
 	provider: BudgetProvider,
 	name: string,
-	deadlineMs: number,
-): Promise<BudgetAnswer> {
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const late = new Promise<BudgetAnswer>((resolve) => {
-		timer = setTimeout(
-			() =>
-				resolve({
-					kind: "unavailable",
-					// The answer names the provider beside its reason, quoted, so
-					// the reason leaves it out rather than say it twice, or raw.
-					reason: `It didn't answer within ${deadlineMs / MS_PER_SECOND} s.`,
-				}),
-			deadlineMs,
-		);
-		// Waited on past the caller's deadline, so a stuck provider mustn't
-		// keep a process up that has nothing else to do.
-		timer.unref();
-	});
+	lateMs: number,
+): Promise<BudgetAnswer | typeof LATE> {
 	try {
-		return await Promise.race([provider.resolve(name), late]);
+		return await within(Promise.resolve(provider.resolve(name)), lateMs);
 	} catch (error) {
 		return { kind: "unavailable" as const, reason: whatFailed(error) };
-	} finally {
-		clearTimeout(timer);
 	}
+}
+
+/** Whether `drawing` is `stood`, by what a call draws on. */
+function sameDrawing(stood: Drawn, drawing: BudgetDrawing): boolean {
+	if (drawing.kind !== "drawn") return false;
+	if (drawing.provider !== stood.provider || drawing.label !== stood.label)
+		return false;
+	const before = Object.entries(stood.env);
+	return (
+		before.length === Object.keys(drawing.env).length &&
+		before.every(([key, value]) => drawing.env[key] === value)
+	);
 }
 
 /**

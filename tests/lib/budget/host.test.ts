@@ -172,22 +172,155 @@ describe("the budget host", () => {
 		});
 		expect(again.kind, "the second draw is late too").toBe("unavailable");
 		expect(asked, "a draw while one is late waits on it").toBe(1);
-		await vi.waitFor(() => expect(told, "told once").toEqual(["delta"]), {
+		await vi.waitFor(() => expect(told, "told").toEqual(["delta"]), {
 			timeout: 3_000,
 			interval: 5,
 		});
+
+		const later = await host.draw("delta");
+
+		expect(later, "the late drawing is what a later late draw gets").toEqual({
+			kind: "drawn",
+			provider: "slow",
+			env: { KEY: "team" },
+			label: "team",
+		});
+		expect(told, "told once for both draws").toEqual(["delta"]);
+	});
+
+	it("waits on a late provider alone, not again on those ahead of it that answered in time", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 20);
+		let ahead = 0;
+		host.registerProvider({
+			id: "files",
+			precedence: 0,
+			resolve: async () => {
+				ahead += 1;
+				return { kind: "unknown" };
+			},
+		});
+		host.registerProvider({
+			id: "plane",
+			precedence: 1,
+			resolve: async () => {
+				// Long past the deadline, however loaded the machine.
+				await pause(400);
+				return drawn("team");
+			},
+		});
+		const told: string[] = [];
+		host.onDrawnLate((name) => told.push(name));
+
+		const first = await host.draw("delta");
+
+		expect(first.kind, "the one after it late").toBe("unavailable");
+		await vi.waitFor(() => expect(told, "told").toEqual(["delta"]), {
+			timeout: 3_000,
+			interval: 5,
+		});
+		expect(ahead, "the one ahead asked once").toBe(1);
+	});
+
+	it("tells a late answer that differs from the drawing that stood in", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 20);
+		let answer: BudgetAnswer = drawn("team");
+		let slow = false;
+		host.registerProvider({
+			id: "plane",
+			precedence: 0,
+			resolve: async () => {
+				// Long past the deadline, however loaded the machine.
+				if (slow) await pause(400);
+				return answer;
+			},
+		});
+		const told: string[] = [];
+		host.onDrawnLate((name) => told.push(name));
+		await host.draw("delta");
+		slow = true;
+		answer = { kind: "unavailable", reason: "The token was taken away." };
+
+		const late = await host.draw("delta");
+
+		expect(late.kind, "the last drawing stood in").toBe("drawn");
+		await vi.waitFor(
+			() => expect(told, "the refusal told").toEqual(["delta"]),
+			{ timeout: 3_000, interval: 5 },
+		);
+		expect(
+			await host.draw("delta"),
+			"the refused drawing stands in no more",
+		).toEqual({
+			kind: "unavailable",
+			provider: "plane",
+			reason: "It didn't answer within 0.02 s.",
+		});
+	});
+
+	it("asks afresh once a late answer passes its bound, telling nobody and keeping what stands in", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 20, undefined, undefined, 100);
+		let asked = 0;
+		host.registerProvider({
+			id: "plane",
+			precedence: 0,
+			resolve: () => {
+				asked += 1;
+				return asked === 2
+					? new Promise(() => {})
+					: Promise.resolve(drawn("team"));
+			},
+		});
+		const told: string[] = [];
+		host.onDrawnLate((name) => told.push(name));
+		await host.draw("delta");
+
+		const late = await host.draw("delta");
+		// Each draw before the bound waits on the stuck ask, and the first
+		// after it asks afresh.
+		await vi.waitFor(
+			async () => {
+				await host.draw("delta");
+				expect(asked, "asked afresh past the bound").toBe(3);
+			},
+			{ timeout: 3_000, interval: 5 },
+		);
+
+		expect(late.kind, "the last drawing stood in").toBe("drawn");
+		expect(told, "a bound passed changes nothing to tell").toEqual([]);
+	});
+
+	it("asks a provider registered over a late one afresh", async () => {
+		const events = bus();
+		const host = hostBudgets(events, 20);
+		host.registerProvider({
+			id: "plane",
+			precedence: 0,
+			resolve: () => new Promise(() => {}),
+		});
+		await host.draw("delta");
+
+		host.registerProvider(provider("plane", 0, { delta: drawn("team") }));
+
+		expect((await host.draw("delta")).kind, "the new one answered").toBe(
+			"drawn",
+		);
 	});
 
 	it("answers a late draw with the name's last drawing, telling nobody again", async () => {
 		const events = bus();
 		const host = hostBudgets(events, 20);
 		let slow = false;
+		let answered = 0;
 		host.registerProvider({
 			id: "files",
 			precedence: 0,
 			resolve: async () => {
 				// Long past the deadline, however loaded the machine.
 				if (slow) await pause(400);
+				answered += 1;
 				return drawn("team");
 			},
 		});
@@ -197,9 +330,13 @@ describe("the budget host", () => {
 
 		slow = true;
 		const late = await host.draw("delta");
-		// Past the late answer, so a telling it wrongly made would be seen:
-		// what's awaited is nothing happening, which no event marks.
-		await pause(500);
+		await vi.waitFor(() => expect(answered, "the late answer came").toBe(2), {
+			timeout: 3_000,
+			interval: 5,
+		});
+		// What it settles runs in the turns after it came.
+		for (let turn = 0; turn < 5; turn += 1)
+			await new Promise((settle) => setImmediate(settle));
 
 		expect(late, "the last drawing stands in").toEqual({
 			kind: "drawn",
