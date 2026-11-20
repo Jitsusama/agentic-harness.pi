@@ -4,7 +4,7 @@
  * names again first, and waits on the whole tree signed afresh when
  * what it writes rests on quests it doesn't name, or the last walk is
  * over a minute old, so what it reads and decides on is the tree as it
- * stands.
+ * stands. None of that walking happens on the host's thread.
  */
 
 import {
@@ -31,6 +31,13 @@ import { settle } from "../../../lib/internal/quest/support/discovery-tree.ts";
 import { fakePi } from "../../../support/fake-pi.ts";
 import { installTestHost } from "../../../support/session-host.ts";
 import { createEnvGuard, fakeCtx } from "../_helpers.ts";
+
+// Listings on the thread are counted, to show the walk isn't one.
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return { ...actual, readdirSync: vi.fn(actual.readdirSync) };
+});
+const listings = vi.mocked(readdirSync);
 
 const envGuard = createEnvGuard();
 let tmpRoot: string;
@@ -188,11 +195,16 @@ it("starts a session in a tree another process gave a quest since the last walk"
 	const budgets = { keep: async () => undefined, forget: () => undefined };
 	followSessionLife(pi, state, budgets as unknown as BudgetKeeper, undefined);
 	const [start] = pi.recorded.handlers.get("session_start") ?? [];
+	listings.mockClear();
 	await withSession("a", async () =>
 		start?.({ type: "session_start", reason: "startup" }, startIn(tree)),
 	);
 
 	expect(state.questId).toBe(beta.id);
+	const listed = listings.mock.calls.map(([path]) => String(path));
+	expect(listed, "the quests folder, listed on the thread").not.toContain(
+		questsRoot,
+	);
 });
 
 /** A session's context at its start in `cwd`, kept in no file. */
