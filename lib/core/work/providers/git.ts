@@ -25,6 +25,7 @@ import { fullRefRefusal } from "../author.ts";
 import type { TreeProvider } from "../broker.ts";
 import { FETCHED_LATELY_MS, refreshStart } from "../fresh-start.ts";
 import { dropMergedBranch } from "../merged-branch.ts";
+import { looksCut, plainWords, strandedWhy } from "../stranded.ts";
 import { type TreeRequest, treeIdentity, treeSource } from "../tree.ts";
 
 /**
@@ -32,6 +33,41 @@ import { type TreeRequest, treeIdentity, treeSource } from "../tree.ts";
  * empty folder as readily as a missing one, as it does into a subvolume
  * made for the tree, so only a folder with something in it is in the way.
  */
+/**
+ * The exit code the fence's guard answers a git it won't run with, as a
+ * shell's for a command it won't run.
+ */
+const GUARD_REFUSED = 126;
+
+/**
+ * Why a tree at `path` git didn't read can be neither handed over nor
+ * cut over, and the way out that fits it. Only a worktree whose git
+ * folder is gone, or one the guard won't run git in, is what tidy lists
+ * and reclaim sets aside; anything else, a git that failed or timed
+ * out, or a folder that isn't a cut worktree, may read next time, or is
+ * somebody's to move by hand.
+ */
+function unreadTree(
+	path: string,
+	standing: { code: number; stderr: string },
+	intent: string,
+): string {
+	const gone = strandedWhy(path, () => undefined);
+	const said = plainWords(
+		gone ??
+			(standing.stderr.trim() || `git exited ${standing.code} reading it`),
+	);
+	const why = /[.!?]$/.test(said) ? said : `${said}.`;
+	const where = `${displayPath(path)} already holds a tree, which git here won't read: ${why}`;
+	if (
+		looksCut(path) &&
+		(gone !== undefined || standing.code === GUARD_REFUSED)
+	) {
+		return `${where} Nothing can hand it over or cut there until it goes. Once nothing holds it or works in it, \`work tidy\` lists it and \`work reclaim\` moves it aside whole, after which this ${intent} can be cut.`;
+	}
+	return `${where} If git was only slow or stopped, ask again. Otherwise move it aside by hand once nothing in it is wanted, after which this ${intent} can be cut.`;
+}
+
 function holdsAnything(path: string): boolean {
 	try {
 		return readdirSync(path).length > 0;
@@ -310,12 +346,7 @@ export function createGitTreeProvider(deps: {
 			// fence doesn't guard made every later one at its commit die on
 			// git's bare `already exists`, which says neither why nor what to do.
 			if (holdsAnything(path)) {
-				const said =
-					standing.stderr.trim() || `git exited ${standing.code} reading it`;
-				const why = /[.!?]$/.test(said) ? said : `${said}.`;
-				throw new Error(
-					`${displayPath(path)} already holds a tree, which git here won't read: ${why} Nothing can hand it over or cut there until it goes, so \`work tidy\` lists it and \`work reclaim\` moves it aside whole, after which this ${request.intent} can be cut.`,
-				);
+				throw new Error(unreadTree(path, standing, request.intent));
 			}
 
 			const git = (...args: string[]) =>

@@ -723,6 +723,19 @@ describe("a tree standing where git won't read it", () => {
 		rmSync(stateDir, { recursive: true, force: true });
 	});
 
+	/**
+	 * A worktree's folder at the snapshot's name, its `.git` naming a git
+	 * folder that stands, as a clone's would.
+	 */
+	function standingTree(): string {
+		const path = join(stateDir, treeIdentity(snapshot()).key);
+		const gitDir = join(stateDir, "elsewhere", ".git", "worktrees", "x");
+		mkdirSync(gitDir, { recursive: true });
+		mkdirSync(path);
+		writeFileSync(join(path, ".git"), `gitdir: ${gitDir}\n`);
+		return path;
+	}
+
 	it("says why and what to do, rather than cutting over it", async () => {
 		// The guard answers git's refusal with 126, which `ensure` read as no
 		// tree there, and git's `worktree add` then said only `already exists`.
@@ -732,9 +745,7 @@ describe("a tree standing where git won't read it", () => {
 			{ when: ["worktree"], code: 128, stderr: "fatal: already exists" },
 		]);
 		const provider = createGitTreeProvider({ exec, stateDir });
-		const path = join(stateDir, treeIdentity(snapshot()).key);
-		mkdirSync(path);
-		writeFileSync(join(path, ".git"), "gitdir: /elsewhere/.git/worktrees/x\n");
+		standingTree();
 
 		const cut = provider.ensure(snapshot());
 
@@ -744,6 +755,38 @@ describe("a tree standing where git won't read it", () => {
 			"`work tidy` lists it and `work reclaim` moves it aside whole",
 		);
 		expect(addition(calls), "nothing is cut over it").toBeUndefined();
+	});
+
+	it("sends a git that only failed back to ask again, not to reclaim", async () => {
+		// A timeout or a stopped call fails the same read, and reclaim
+		// would never move a tree git reads, so it isn't named.
+		const { exec, calls } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 128, stderr: "" },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		standingTree();
+
+		const cut = provider.ensure(snapshot());
+
+		await expect(cut).rejects.toThrow(
+			"won't read: git exited 128 reading it. If git was only slow or stopped, ask again.",
+		);
+		await expect(cut).rejects.not.toThrow("work reclaim");
+		expect(addition(calls), "nothing is cut over it").toBeUndefined();
+	});
+
+	it("says the guard's words as one line, ending as a sentence", async () => {
+		const { exec } = fakeExec([
+			{ when: ["rev-parse", "HEAD"], code: 126, stderr: "refused\nhere\n" },
+			{ when: ["cat-file"], stdout: "" },
+		]);
+		const provider = createGitTreeProvider({ exec, stateDir });
+		standingTree();
+
+		await expect(provider.ensure(snapshot())).rejects.toThrow(
+			"won't read: refused here. Nothing can hand it over",
+		);
 	});
 
 	it("cuts into an empty folder, as git does", async () => {

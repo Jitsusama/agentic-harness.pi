@@ -26,6 +26,7 @@ import {
 	type WorkHistory,
 } from "../../../lib/core/work/history.ts";
 import { treesToKeep } from "../../../lib/core/work/in-use.ts";
+import { createTreeMemory } from "../../../lib/core/work/memory.ts";
 import { createGitRebaser } from "../../../lib/core/work/rebase.ts";
 import {
 	type ReclaimOutcome,
@@ -33,8 +34,12 @@ import {
 } from "../../../lib/core/work/reclaim.ts";
 import { createGitStacks } from "../../../lib/core/work/stacks.ts";
 import {
+	type KeptTree,
+	type StrandedSigns,
 	type StrandedTree,
 	setAside,
+	setAsideEarlier,
+	splitStranded,
 	strandedDir,
 	strandedTrees,
 } from "../../../lib/core/work/stranded.ts";
@@ -54,6 +59,7 @@ import {
 import { gitTreeRootOf } from "../../../lib/internal/quest/workspace/git-signals.ts";
 import { gitRules } from "../../../lib/internal/sandbox/sandbox.ts";
 import { gitRun } from "../../../lib/internal/sandbox/tree-git.ts";
+import { treeRecordDir } from "../../../lib/internal/work-records.ts";
 import { count } from "../../../lib/ui/count.ts";
 import { displayPath } from "../../../lib/ui/path.ts";
 import { treeBroker, treeDir } from "../broker.ts";
@@ -193,13 +199,14 @@ async function treesLeftBehind(
 	});
 	return {
 		...plan,
+		// Not every record: one whose sessions have all ended holds
+		// nothing, and its tree, which release can't take since git won't
+		// run there, goes only by being set aside under its record's lock.
+		// One a running session holds is among `keeping`.
 		...(await strandedBeside(
-			[
-				...keeping,
-				...unattributed,
-				...broker.held().map((one) => one.path),
-				...worktrees.map((tree) => tree.path),
-			].map(resolved),
+			[...keeping, ...unattributed, ...worktrees.map((tree) => tree.path)].map(
+				resolved,
+			),
 		)),
 	};
 }
@@ -208,8 +215,14 @@ async function treesLeftBehind(
 interface LeftBehind extends OrphanPlan {
 	/** Trees git won't read that nothing holds, which reclaim sets aside. */
 	stranded: StrandedTree[];
-	/** Stranded trees something still works in, kept for now. */
-	busy: string[];
+	/** Stranded trees kept for now, each saying why. */
+	strandedKept: KeptTree[];
+}
+
+/** What tells a stranded tree is still being made or used, read now. */
+function strandedSigns(): StrandedSigns {
+	const busyAmong = useSigns().busyAmong;
+	return busyAmong === undefined ? {} : { busyAmong };
 }
 
 /**
@@ -222,7 +235,7 @@ interface LeftBehind extends OrphanPlan {
  */
 async function strandedBeside(
 	kept: readonly string[],
-): Promise<{ stranded: StrandedTree[]; busy: string[] }> {
+): Promise<{ stranded: StrandedTree[]; strandedKept: KeptTree[] }> {
 	const rules = gitRules();
 	const found = strandedTrees({
 		dir: treeDir(),
@@ -232,28 +245,25 @@ async function strandedBeside(
 			return "refused" in run ? run.refused : undefined;
 		},
 	});
-	if (found.length === 0) return { stranded: [], busy: [] };
-	const busy = await useSigns().busyAmong?.(
-		found.map((tree) => resolved(tree.path)),
-	);
-	if (busy === undefined) {
-		return { stranded: [], busy: found.map((tree) => tree.path) };
-	}
-	return {
-		stranded: found.filter((tree) => !busy.has(resolved(tree.path))),
-		busy: found
-			.filter((tree) => busy.has(resolved(tree.path)))
-			.map((tree) => tree.path),
-	};
+	const split = await splitStranded(found, strandedSigns());
+	return { stranded: split.free, strandedKept: split.kept };
 }
 
-/** The line saying a stranded tree is kept, since something works in it. */
-const BUSY_WHY =
-	"git won't read it and nothing holds it, but something works in it, or the machine can't say, so it stays for now";
-
-/** A stranded tree the survey keeps, since something still works in it. */
-function busyLine(path: string): string {
-	return `   ${GLYPH.refused} ${displayPath(path)}: ${BUSY_WHY}`;
+/**
+ * Set aside the stranded trees the survey offered, each asked about
+ * again just before it moves, since a cut or a reader may have come to
+ * it since, and one with a record only under that record's lock.
+ */
+async function setStrandedAside(trees: readonly StrandedTree[]) {
+	if (trees.length === 0) return [];
+	return await setAside(trees, {
+		into: strandedDir(treeDir()),
+		// The memory the sweep takes trees under, so the two judge a
+		// record the same way and under the same lock.
+		records: createTreeMemory(treeRecordDir()),
+		stays: async (path) =>
+			(await splitStranded([{ path, why: "" }], strandedSigns())).kept[0]?.why,
+	});
 }
 
 /**
@@ -315,9 +325,9 @@ async function surveyRepo(
 				[
 					`${GLYPH.clean} No tree beside ${named} is going spare, against ${trunk}.`,
 					...kept.map(keptLine),
-					...orphans.busy.map(busyLine),
+					...orphans.strandedKept.map(keptLine),
 				].join("\n"),
-				{ ok: true, reclaimed: 0 },
+				{ ok: true, reclaimed: 0, setAside: 0 },
 			);
 		}
 
@@ -329,7 +339,7 @@ async function surveyRepo(
 						orphans.reclaimable,
 					);
 		// Moved, never removed: git can't say whether one holds work.
-		const moved = setAside(orphans.stranded, strandedDir(treeDir()));
+		const moved = await setStrandedAside(orphans.stranded);
 		const setAsideCount = moved.filter((t) => t.kind === "set-aside").length;
 		const took = outcome.trees.filter((t) => t.kind === "reclaimed");
 		const kept = took.some((t) => t.branch && !t.branchGone);
@@ -342,18 +352,29 @@ async function surveyRepo(
 		return say(
 			[
 				// Past tense, because this one did something.
-				`${GLYPH.named} Took back ${count(took.length + setAsideCount, "tree", "trees")} beside ${named}.`,
+				...(outcome.trees.length === 0
+					? []
+					: [
+							`${GLYPH.named} Took back ${count(took.length, "tree", "trees")} beside ${named}.`,
+						]),
 				...outcome.trees.map((tree) =>
 					tree.kind === "reclaimed"
 						? `   ${GLYPH.named} ${displayPath(tree.path)}${branchOf(tree)}`
 						: `   ${GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
 				),
+				// Stranded trees are counted apart, since they come from
+				// whichever clone cut them, not from this checkout.
+				...(moved.length === 0
+					? []
+					: [
+							`${GLYPH.named} Set aside ${count(setAsideCount, "tree", "trees")} git won't read where the broker cuts them.`,
+						]),
 				...moved.map((tree) =>
 					tree.kind === "set-aside"
-						? `   ${GLYPH.named} ${displayPath(tree.path)}, which git won't read, set aside whole at ${displayPath(tree.aside)}`
+						? `   ${GLYPH.named} ${displayPath(tree.path)}, set aside whole at ${displayPath(tree.aside)}`
 						: `   ${GLYPH.refused} ${displayPath(tree.path)}: ${tree.why}`,
 				),
-				...orphans.busy.map(busyLine),
+				...orphans.strandedKept.map(keptLine),
 				...(kept
 					? [
 							"",
@@ -369,7 +390,7 @@ async function surveyRepo(
 						]
 					: []),
 			].join("\n"),
-			{ ok: true, reclaimed: took.length + setAsideCount },
+			{ ok: true, reclaimed: took.length, setAside: setAsideCount },
 		);
 	}
 
@@ -444,12 +465,16 @@ async function surveyRepo(
 			why: tree.why,
 		});
 		lines.push(
-			`   ${GLYPH.named} ${displayPath(tree.path)}, a tree nothing holds that git won't read`,
+			`   ${GLYPH.named} ${displayPath(tree.path)}, a tree nothing holds that git won't read: ${tree.why}`,
 		);
 	}
-	for (const path of orphans.busy) {
-		records.push({ what: displayPath(path), verdict: "kept", why: BUSY_WHY });
-		lines.push(busyLine(path));
+	for (const tree of orphans.strandedKept) {
+		records.push({
+			what: displayPath(tree.path),
+			verdict: "kept",
+			why: tree.why,
+		});
+		lines.push(keptLine(tree));
 	}
 	const freed = sizes.size > 0 ? sum([...sizes.values()]) : undefined;
 	for (const tree of orphans.retained) {
@@ -487,14 +512,20 @@ async function surveyRepo(
 	);
 	if (roots.length > 0) lines.push("", ...roots);
 
-	const spent =
-		plan.removable.length +
-		orphans.reclaimable.length +
-		orphans.stranded.length;
-	const headline =
+	const spent = plan.removable.length + orphans.reclaimable.length;
+	const headline = [
 		spent === 0
 			? `${GLYPH.clean} Nothing in ${named} has been spent yet, against ${trunk}.`
-			: `${GLYPH.named} ${count(spent, "thing", "things")} in ${named} can go, against ${trunk}.`;
+			: `${GLYPH.named} ${count(spent, "thing", "things")} in ${named} can go, against ${trunk}.`,
+		// Counted apart: no checkout's git lists them, so they are found
+		// where the broker cuts trees, whichever clone cut them.
+		...(orphans.stranded.length === 0
+			? []
+			: [
+					`${GLYPH.named} ${count(orphans.stranded.length, "tree", "trees")} git won't read can be set aside where the broker cuts them.`,
+				]),
+	].join("\n");
+	const earlier = setAsideEarlier(strandedDir(treeDir()));
 	// The advice is the trailer, so it survives a cut list: it is
 	// what the reader acts on once they have read the list.
 	const advice = [
@@ -522,6 +553,15 @@ async function surveyRepo(
 					`For the ${count(orphans.stranded.length, "tree", "trees")} git won't read, work reclaim moves each aside`,
 					`whole, to ${displayPath(strandedDir(treeDir()))}, deleting nothing, so its name can be cut again.`,
 				]),
+		// What reclaim set aside stays until somebody deletes it, so the
+		// folder is named while it holds anything.
+		...(earlier === 0
+			? []
+			: [
+					"",
+					`${count(earlier, "tree", "trees")} set aside earlier wait in ${displayPath(strandedDir(treeDir()))}.`,
+					"Delete each once nothing in it is wanted.",
+				]),
 	].join("\n");
 	return say(
 		citeListing(openSessionStore(ctx), {
@@ -535,7 +575,8 @@ async function surveyRepo(
 		{
 			ok: true,
 			removable: plan.removable.length,
-			reclaimable: orphans.reclaimable.length + orphans.stranded.length,
+			reclaimable: orphans.reclaimable.length,
+			stranded: orphans.stranded.length,
 		},
 	);
 }

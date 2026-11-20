@@ -403,12 +403,14 @@ sweep carries on.
 
 A tree where the broker cuts them that git won't read, as one
 cut from a clone outside `~/src` whose settings the fence doesn't
-guard, can't be handed over or cut again, and no checkout's git
-lists it. A snapshot or tree asked for at its name is refused,
-naming it. `tidy` lists every such tree nothing holds, from
-whichever checkout it runs in, and `reclaim` moves each aside
-whole beside the trees, deleting nothing, so its name can be cut
-again. One something still works in stays.
+guard, can't be handed over, released or cut again, and no
+checkout's git lists it. A snapshot or tree asked for at its name
+is refused, naming it. `tidy` lists every such tree no running
+session holds, from whichever checkout it runs in, counted apart
+from that checkout's own, and `reclaim` moves each aside whole
+beside the trees, deleting nothing, so its name can be cut again.
+One something still works in, or cut in the last ten minutes,
+stays.
 
 ## Where This Ends and Review Begins
 

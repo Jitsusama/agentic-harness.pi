@@ -11,6 +11,8 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,9 +21,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Exec } from "../../../lib/core/exec/index.ts";
 import { createGitTreeProvider } from "../../../lib/core/work/providers/git.ts";
 import {
+	CANT_SAY,
+	CUT_GRACE_MS,
+	plainWords,
+	type StrandedRecords,
 	setAside,
+	splitStranded,
 	strandedDir,
 	strandedTrees,
+	WORKED_IN,
 } from "../../../lib/core/work/stranded.ts";
 import { type TreeRequest, treeIdentity } from "../../../lib/core/work/tree.ts";
 import { disposeRepo, freshRepo, git } from "../../support/git-fixture.ts";
@@ -76,7 +84,7 @@ describe("strandedTrees", () => {
 		]);
 	});
 
-	it("leaves out a tree git reads, which ensure hands over as it stands", () => {
+	it("leaves out a tree git reads", () => {
 		treeNaming("snapshot-c", standingGitDir("snapshot-c"));
 
 		expect(
@@ -85,15 +93,35 @@ describe("strandedTrees", () => {
 	});
 
 	it("leaves out a tree something holds, whatever git says of it", () => {
+		// Held by its real path, and listed through a link to the trees'
+		// folder, so only a listing that resolves links matches the two.
 		const path = treeNaming("snapshot-d", standingGitDir("snapshot-d"));
+		const linked = join(root, "linked-trees");
+		symlinkSync(trees, linked);
 
 		expect(
 			strandedTrees({
-				dir: trees,
+				dir: linked,
 				kept: new Set([path]),
 				refusal: () => REFUSED,
 			}),
 		).toEqual([]);
+	});
+
+	it("says what git said as one plain line, cut short when long", () => {
+		const path = treeNaming("snapshot-h", standingGitDir("snapshot-h"));
+		const forged = `fatal: nope\n\u001b[2Jinjected ${"x".repeat(500)}`;
+
+		const [found] = strandedTrees({
+			dir: trees,
+			kept: new Set(),
+			refusal: () => forged,
+		});
+
+		expect(found?.path).toBe(path);
+		expect(found?.why).toBe(plainWords(forged));
+		expect(found?.why).toMatch(/^fatal: nope \[2Jinjected x+\.\.\.$/);
+		expect(found?.why.length).toBe(403);
 	});
 
 	it("leaves out what is no worktree, and what the sweep is removing", () => {
@@ -117,12 +145,91 @@ describe("strandedTrees", () => {
 	});
 });
 
+describe("splitStranded", () => {
+	/** A stranded tree whose `.git` was written `ageMs` ago. */
+	function aged(name: string, ageMs: number): string {
+		const path = treeNaming(name, standingGitDir(name));
+		const at = (Date.now() - ageMs) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		return path;
+	}
+	const LONG_AGO = 2 * CUT_GRACE_MS;
+	const nobody = async () => new Set<string>();
+
+	it("frees a tree nothing makes or works in", async () => {
+		const path = aged("snapshot-i", LONG_AGO);
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split).toEqual({ free: [{ path, why: REFUSED }], kept: [] });
+	});
+
+	it("keeps a tree a process works in, saying so", async () => {
+		const path = aged("snapshot-j", LONG_AGO);
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: async (paths) => new Set(paths),
+		});
+
+		expect(split).toEqual({ free: [], kept: [{ path, why: WORKED_IN }] });
+	});
+
+	it("keeps every tree where the machine can't say what works in it", async () => {
+		const path = aged("snapshot-k", LONG_AGO);
+
+		const split = await splitStranded([{ path, why: REFUSED }], {});
+
+		expect(split).toEqual({ free: [], kept: [{ path, why: CANT_SAY }] });
+	});
+
+	it("keeps a tree git marks locked, as it does while a cut runs", async () => {
+		const gitDir = standingGitDir("snapshot-l");
+		const path = treeNaming("snapshot-l", gitDir);
+		const at = (Date.now() - LONG_AGO) / 1000;
+		utimesSync(join(path, ".git"), at, at);
+		writeFileSync(join(gitDir, "locked"), "initializing\n");
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.free).toEqual([]);
+		expect(split.kept[0]?.why).toMatch(/git marks it locked/);
+	});
+
+	it("keeps a tree cut lately, whose record may not be written yet", async () => {
+		const path = aged("snapshot-m", CUT_GRACE_MS / 2);
+
+		const split = await splitStranded([{ path, why: REFUSED }], {
+			busyAmong: nobody,
+		});
+
+		expect(split.free).toEqual([]);
+		expect(split.kept[0]?.why).toMatch(/cut in the last ten minutes/);
+	});
+});
+
+/** Records naming `recorded`, whose lock lets a take run when `spent`. */
+function recordsOf(recorded: string, spent: boolean) {
+	const asked: string[] = [];
+	const records: StrandedRecords = {
+		recall: () => [{ path: recorded }],
+		whileUnheld: async (path, take) => {
+			asked.push(path);
+			return spent && (await take()) ? { path } : undefined;
+		},
+	};
+	return { records, asked };
+}
+
 describe("setAside", () => {
-	it("moves each tree whole beside the trees' folder, freeing its name", () => {
+	it("moves each tree whole beside the trees' folder, freeing its name", async () => {
 		const path = treeNaming("snapshot-f", standingGitDir("snapshot-f"));
 		const into = strandedDir(trees);
 
-		const [moved] = setAside([{ path, why: REFUSED }], into);
+		const [moved] = await setAside([{ path, why: REFUSED }], { into });
 
 		expect(into).toBe(join(dirname(trees), "stranded"));
 		expect(moved?.kind).toBe("set-aside");
@@ -135,20 +242,60 @@ describe("setAside", () => {
 		).toBe("written by a reader\n");
 	});
 
-	it("says why a move was refused and goes on with the rest", () => {
+	it("says why a move was refused and goes on with the rest", async () => {
 		const missing = join(trees, "snapshot-gone-already");
 		const path = treeNaming("snapshot-g", standingGitDir("snapshot-g"));
 
-		const done = setAside(
+		const done = await setAside(
 			[
 				{ path: missing, why: REFUSED },
 				{ path, why: REFUSED },
 			],
-			strandedDir(trees),
+			{ into: strandedDir(trees) },
 		);
 
 		expect(done.map((one) => one.kind)).toEqual(["refused", "set-aside"]);
 		expect(done[0]?.kind === "refused" ? done[0].why : "").toMatch(/ENOENT/);
+	});
+
+	it("keeps a tree asked about again that must stay after all", async () => {
+		const path = treeNaming("snapshot-n", standingGitDir("snapshot-n"));
+
+		const done = await setAside([{ path, why: REFUSED }], {
+			into: strandedDir(trees),
+			stays: async () => WORKED_IN,
+		});
+
+		expect(done).toEqual([{ kind: "kept", path, why: WORKED_IN }]);
+		expect(existsSync(path), "it stays where it was").toBe(true);
+	});
+
+	it("moves a recorded tree under its record's lock once its holders end", async () => {
+		const path = treeNaming("snapshot-o", standingGitDir("snapshot-o"));
+		const { records, asked } = recordsOf(path, true);
+
+		const [moved] = await setAside([{ path, why: REFUSED }], {
+			into: strandedDir(trees),
+			records,
+		});
+
+		expect(asked, "asked under the record's lock").toEqual([path]);
+		expect(moved?.kind).toBe("set-aside");
+		expect(existsSync(path), "its name is free to cut again").toBe(false);
+	});
+
+	it("keeps a recorded tree a session may still hold", async () => {
+		const path = treeNaming("snapshot-p", standingGitDir("snapshot-p"));
+		const { records } = recordsOf(path, false);
+
+		const [kept] = await setAside([{ path, why: REFUSED }], {
+			into: strandedDir(trees),
+			records,
+		});
+
+		expect(kept?.kind).toBe("kept");
+		expect(kept?.kind === "kept" ? kept.why : "").toMatch(/may still hold/);
+		expect(existsSync(path), "it stays where it was").toBe(true);
 	});
 });
 
@@ -212,7 +359,7 @@ describe("a snapshot at a stranded tree's commit", () => {
 			refusal: (at) => (at === path ? REFUSED : undefined),
 		});
 		expect(stranded.map((one) => one.path)).toEqual([path]);
-		setAside(stranded, strandedDir(trees));
+		await setAside(stranded, { into: strandedDir(trees) });
 
 		await expect(provider.ensure(request)).resolves.toEqual({ path });
 		expect(await git(path, "rev-parse", "HEAD")).toBe(commit);

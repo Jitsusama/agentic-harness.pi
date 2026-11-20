@@ -193,10 +193,16 @@ is stranded: one cut from a clone the fence doesn't guard, or
 whose git folder is gone. No checkout's git lists one cut from
 such a clone, and every cut at its name died on git's bare
 `already exists`, as a snapshot a host restart left on 20
-November did. Cutting at its name now refuses, naming the tree
-and the way out. `tidy` lists each one nothing holds and no
-process works in, and `reclaim` moves it aside whole to
-`work/stranded/`, since git can't say whether it holds work
+November did. Release can't take one either, since it runs git
+there. Cutting at its name now refuses, naming the tree and the
+way out that fits it. `tidy` lists each one no running session
+holds, counted apart from the checkout's own trees, and
+`reclaim` moves it aside whole to `work/stranded/`, since git
+can't say whether it holds work. Each is asked about again just
+before it moves, and one with a record moves only under that
+record's lock, as the sweep takes a tree. One a process works
+in, one git marks locked, and one whose `.git` is under ten
+minutes old, as a cut still running may be, stays
 (`lib/core/work/stranded.ts`).
 
 ## Trees Whose Sessions Have Ended
