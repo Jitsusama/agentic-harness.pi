@@ -96,6 +96,9 @@ never read from an earlier pass:
     holds back commits, as it did before git ran off the thread.
   - A check stopped before it ended is not kept, and verify's
     answer says so.
+  - At a commit, a run git fingerprinted that git can't answer
+    for now lets the commit through, since nothing confirms it,
+    and stays recorded for the next ask.
   - A project the disk says is gone retires it, however it was
     recorded; one out of reach for now doesn't.
   - Of two failed runs ending close together, in any projects,

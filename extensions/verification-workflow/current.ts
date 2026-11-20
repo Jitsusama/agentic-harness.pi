@@ -59,11 +59,15 @@ export async function failureNow(
 	scope: VerificationScope,
 	backend: DiagnosticsBackend | undefined,
 ): Promise<FailureNow> {
-	const root = scope.dir
-		? ((await gitRoot(scope.dir, scope.signal)) ?? scope.dir)
-		: undefined;
+	const top = scope.dir ? await gitRoot(scope.dir, scope.signal) : undefined;
+	const root = top ?? scope.dir;
 	const inScope = (path: string): boolean =>
 		root === undefined || within(root, path);
+	// With no repository git would name, a run recorded above the folder
+	// may be the one the commit lands in, so it counts too.
+	const runInScope = (run: FailedRun): boolean =>
+		inScope(run.root) ||
+		(top === undefined && root !== undefined && within(run.root, root));
 	const problems: string[] = [];
 
 	const files = [...state.known.keys()].filter(inScope);
@@ -81,33 +85,45 @@ export async function failureNow(
 	state.pending = state.pending.filter((e) => state.known.has(e.path));
 
 	let judged: Judged | undefined;
+	let overtaken = true;
 	for (let tries = 0; tries < JUDGED_AT_MOST; tries++) {
 		const run = state.failedRun;
-		if (!run || !inScope(run.root)) break;
+		if (!run || !runInScope(run)) {
+			overtaken = false;
+			break;
+		}
 		judged = { run, standing: await standingOf(run, scope.signal) };
 		// Only the run still recorded once git answers counts: one an edit
 		// or a clean verify cleared meanwhile is gone, and one recorded
 		// meanwhile is asked about in turn.
 		if (state.failedRun !== run) continue;
-		if (judged.standing === "same") {
-			problems.push(
-				`${run.command} failed in ${run.root}, and nothing there has ` +
-					"changed since. Run verify again once it is fixed.",
-			);
-		} else if (judged.standing === "moved") {
-			state.failedRun = undefined;
-		}
+		overtaken = false;
+		if (judged.standing === "same") problems.push(stillFailing(run));
+		else if (judged.standing === "moved") state.failedRun = undefined;
 		break;
 	}
+	// Overtaken past the bound, the newest run holds the commit as it was
+	// recorded, since verify fingerprinted it last; git isn't asked again.
+	const newest = state.failedRun;
+	if (overtaken && newest && runInScope(newest))
+		problems.push(stillFailing(newest));
 	const failure = problems.length > 0 ? { problems } : undefined;
 	return { failure, judged };
+}
+
+/** What a commit is told of a failed run whose tree it judged. */
+function stillFailing(run: FailedRun): string {
+	return (
+		`${run.command} failed in ${run.root}, and nothing there has ` +
+		"changed since. Run verify again once it is fixed."
+	);
 }
 
 /**
  * What a commit is told, confirmed now, settling the state's outcome
  * from the same answer when it was failing or now fails. A check whose
  * run was overtaken past its bound asks git nothing more: the newest
- * run is the next ask's.
+ * run holds the commit as it was recorded.
  */
 export async function commitCheck(
 	state: VerificationState,
