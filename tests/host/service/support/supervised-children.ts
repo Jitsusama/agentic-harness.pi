@@ -150,6 +150,11 @@ export interface FakeUnits extends Units {
 		/** Listens no sooner than this settles, for a test to order a step. */
 		listensWhen?: Promise<void>;
 	};
+	/**
+	 * How long a stopped unit deactivates for after its stop returns, as
+	 * systemd's `--no-block` stop returns once its job is queued.
+	 */
+	deactivatesForMs?: number;
 	/** A stop is taken, but its unit runs on, as one systemd can't stop. */
 	lingers?: boolean;
 	/** Refuse the next start, as systemd refuses a unit it can't run. */
@@ -336,6 +341,15 @@ function fakeUnits(): FakeUnits {
 		async stop(unit) {
 			fake.stopped.push(unit);
 			if (fake.lingers) return;
+			const deactivating = fake.deactivatesForMs;
+			if (deactivating !== undefined) {
+				const child = fake.children.get(unit);
+				setTimeout(() => {
+					void child?.exit().finally(() => fake.children.delete(unit));
+					if (!child) fake.children.delete(unit);
+				}, deactivating);
+				return;
+			}
 			await fake.children.get(unit)?.exit();
 			fake.children.delete(unit);
 			if (fake.stopFails) {

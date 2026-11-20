@@ -47,6 +47,21 @@ describe("a child leaving", () => {
 		expect(units.started, "started again once it went").toHaveLength(2);
 	});
 
+	it("frees its slot with one stop while its unit takes a while to go", async () => {
+		await supervisor.resume(entry(a));
+		// Within the supervisor's 500 ms for a unit to exit.
+		units.deactivatesForMs = 300;
+		const slot = slotOf(folder, key, a);
+
+		childOf(a).say({ type: "became", previousId: "not an id" });
+
+		await vi.waitFor(() =>
+			expect(existsSync(slot.file), "its slot is cleared").toBe(false),
+		);
+		expect(units.stopped, "stopped once").toEqual([slot.unit]);
+		expect(reported, "no unit said to run on").toEqual([]);
+	});
+
 	it("asks again when systemd once won't say whether its unit went", async () => {
 		await supervisor.resume(entry(a));
 		units.goneFails = 1;

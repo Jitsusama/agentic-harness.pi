@@ -46,6 +46,10 @@ each kept in the routes, a child whose new id is held or run elsewhere
 or can't be held stopped, with a start of that id waiting on it, what
 a newer child adds passed over, an unreadable line and a silent exit
 as failed, and a folder too long refused.
+child-claims.test.ts runs them for whose conversation a child holds:
+the roster's hold spelled in capitals replaced by what it became and
+let go on a close, a became followed in another case, and a resume
+kept in its own slot after another child claimed its conversation.
 child-leaving.test.ts runs them as each leaves: a unit stopped three
 times before its slot is kept in use, naming the command that ends it,
 a systemd that once won't say asked again, and a slot freed once its
