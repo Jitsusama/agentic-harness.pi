@@ -30,6 +30,7 @@ import {
 } from "../../lib/core/session/index.ts";
 import { recordCrashes } from "../../lib/internal/session/crash-record.ts";
 import type { CutOff } from "../../lib/internal/session/cut-off-record.ts";
+import { isPersonText } from "../../lib/internal/session/driven.ts";
 import { runStarted } from "../../lib/internal/session/first-prompt.ts";
 import { carriedOnIn } from "../../lib/internal/session/log-header.ts";
 import { jobIdsIn } from "../../lib/jobs/report.ts";
@@ -38,6 +39,7 @@ import { offerCarried } from "../../lib/jobs/take-up.ts";
 import { sessionIdOf } from "./carry.ts";
 import { showJobs } from "./command.ts";
 import {
+	CARRIED_RUN_RECHECK_MS,
 	CARRIED_RUN_WAIT_MS,
 	CUT_OFF_ENTRY,
 	carriedRunFailedText,
@@ -214,14 +216,16 @@ function resumeIfCutOff(
  * until a mesh message came. The run settling says whether it showed;
  * a run that never starts is told once `CARRIED_RUN_WAIT_MS`, half an
  * hour, is up, as is a log the host had nothing to carry on for, since
- * no extension hears that. `told` ends the wait once the clock tells.
- * Answers the wait, or nothing when no carried run is owed.
+ * no extension hears that; a session busy then, or with a run under
+ * way, looks again each `CARRIED_RUN_RECHECK_MS`. `ending` ends the wait
+ * before the clock tells. Answers the wait, or nothing when no carried
+ * run is owed.
  */
 function awaitCarriedRun(
 	opened: JobSession,
 	ctx: ExtensionContext,
 	current: () => JobSession | undefined,
-	told: (wait: CarriedWait) => void,
+	ending: (wait: CarriedWait) => void,
 ): CarriedWait | undefined {
 	if (hosted() === undefined) return undefined;
 	const branch = branchOf(ctx);
@@ -233,18 +237,22 @@ function awaitCarriedRun(
 	// A host routes what the session says by the conversation it runs in,
 	// which a timer's callback must name again.
 	const key = sessionKeyOf(ctx);
-	wait.timer = setTimeout(
-		() =>
-			withSession(key, () => {
-				// A run under way says how it went as it settles.
-				if (wait.started || !idle(ctx)) return;
-				told(wait);
-				tellIfCarriedRunLost(wait, ctx, current);
-			}),
-		CARRIED_RUN_WAIT_MS,
-	);
-	// The wait never holds a host up that is otherwise ready to end.
-	wait.timer.unref();
+	const lookIn = (ms: number): void => {
+		wait.timer = setTimeout(
+			() =>
+				withSession(key, () => {
+					// A run under way says how it went as it settles, unless it
+					// answers nothing, so the wait looks again until it rests.
+					if (wait.started || !idle(ctx)) return lookIn(CARRIED_RUN_RECHECK_MS);
+					ending(wait);
+					tellIfCarriedRunLost(wait, ctx, current);
+				}),
+			ms,
+		);
+		// The wait never holds a host up that is otherwise ready to end.
+		wait.timer.unref();
+	};
+	lookIn(CARRIED_RUN_WAIT_MS);
 	return wait;
 }
 
@@ -290,6 +298,14 @@ function tellIfCarriedRunLost(
 				? carriedRunFailedText(told, clockTime)
 				: resumeText(told, clockTime),
 	});
+}
+
+/** Whether anything has answered since the return, error or not. */
+function carriedRunAnswered(wait: CarriedWait, ctx: ExtensionContext): boolean {
+	const branch = branchOf(ctx);
+	return (
+		branch === undefined || carriedRunWent(branch, wait.since) !== "unseen"
+	);
 }
 
 /** The session's branch, or nothing when it can't say. */
@@ -546,7 +562,7 @@ export default function jobWorkflow(
 		// (see shown.ts): dropped, so it costs no turn.
 		if (shown.again(event.text)) return { action: "handled" as const };
 		session?.outbox.promptSubmitted();
-		if (carriedWait && event.source !== "extension") carriedWait.typed = true;
+		if (carriedWait && isPersonText(event.text)) carriedWait.typed = true;
 		if (steersTheRun(event)) {
 			line.typed();
 			showWaiting(line, ctx);
@@ -574,11 +590,17 @@ export default function jobWorkflow(
 	pi.on("agent_settled", (event, ctx) => {
 		session?.outbox.runSettled(event.aborted);
 		lineRead(line, ctx);
-		// The first run to settle since a return decides: one that answered,
-		// carried or not, leaves a session that runs on, and one the person
-		// stopped has them there to say what comes next. A settle with no
-		// run started, as a compaction's, leaves the carried run to come.
+		// The first run to settle with an answer since a return decides:
+		// one that answered, carried or not, leaves a session that runs on,
+		// and one the person stopped has them there to say what comes next.
+		// A settle with no run started, as a compaction's, or a run that
+		// answered nothing, as one durable refused while it held the carried
+		// run (recovery.ts), leaves the carried run to come.
 		if (!carriedWait?.started) return;
+		if (!event.aborted && !carriedRunAnswered(carriedWait, ctx)) {
+			carriedWait.started = false;
+			return;
+		}
 		const wait = endCarriedWait();
 		if (wait && !event.aborted) tellIfCarriedRunLost(wait, ctx, () => session);
 	});

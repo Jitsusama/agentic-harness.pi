@@ -79,9 +79,18 @@ export { CUT_OFF_ENTRY };
  * How long a returning hosted session waits for the run its host carried
  * to start, before it is told the run was cut off: the next host takes
  * runs up a few at a time, and on 20 November its 107 resumes took
- * 805 s, so a run's turn can come many minutes after its return.
+ * 805 s, so a run's turn can come many minutes after its return. It is
+ * no bound: a bigger restart's last turns can come later still, and are
+ * told they were cut off, and their run's own answer follows.
  */
 export const CARRIED_RUN_WAIT_MS = 30 * 60_000;
+
+/**
+ * How soon a wait whose time is up looks again while the session is busy
+ * or a run is under way: the session is told only once it rests, and a
+ * run that answers decides as it settles.
+ */
+export const CARRIED_RUN_RECHECK_MS = 60_000;
 
 /** The record to leave at a signalled end; none when nothing was under way. */
 export function endedRecord(
@@ -201,26 +210,25 @@ export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
 
 /**
  * How the run a host carried on went since `since`, the branch's length
- * as the session returned: `answered` by an answer that isn't an error,
- * `failed` when it answered only with errors, and `unseen` when it gave
- * no answer at all. A failed answer is no run: on 14 November a
- * reboot's next host failed a carried run it had cut mid-answer. Nor is
- * a tool's result, which a host gives the call a kill cut before the
- * run it carries answers, or fails.
+ * as the session returned, read from its newest answer: `answered` when
+ * that is neither an error nor a tool call, `failed` when it is one of
+ * those, and `unseen` when no answer came at all. A failed answer is no
+ * run, nor is one that stopped on a tool call it never saw through: on
+ * 14 November a reboot's next host failed a carried run it had cut
+ * mid-answer. Nor is a tool's result, which a host gives the call a
+ * kill cut before the run it carries answers, or fails.
  */
 export function carriedRunWent(
 	branch: readonly unknown[],
 	since: number,
 ): "answered" | "failed" | "unseen" {
-	let failed = false;
 	for (let i = branch.length - 1; i >= since; i--) {
 		const entry = branch[i];
 		if (roleOf(entry) !== "assistant") continue;
 		const stopped = field(field(entry, "message"), "stopReason");
-		if (stopped !== "error") return "answered";
-		failed = true;
+		return stopped === "error" || stopped === "toolUse" ? "failed" : "answered";
 	}
-	return failed ? "failed" : "unseen";
+	return "unseen";
 }
 
 /** A log that stops on a tool call or its result: a session killed mid-run. */

@@ -363,14 +363,29 @@ rather than the machine.
   the record.
 - A host carries on the run it stopped, recorded or killed with no
   record, so a hosted session isn't told at once. The first run to
-  start and settle after its return decides: an answer says nothing,
-  one that ended in an error is told it did, and one the person
-  stopped or typed over is left to them. A mesh message or a job's
-  report is not the person. A carried run waits its turn behind the
-  others (107 took 805 s on 20 November), so a clock decides only
-  for a run that never starts, after half an hour. That includes a
-  log the host had nothing to carry for, since no extension hears
-  that, and a reload while the wait is open drops it.
+  settle with an answer after its return decides, read from its newest
+  answer: one that is neither an error nor a tool call says nothing,
+  one that is either is told the run failed, and one the person
+  stopped or typed over is left to them. A run that answers nothing,
+  as one durable refuses while it holds the carried run, leaves the
+  carried run to come. The person is told apart by the automated
+  header, not by where words came from, since the launcher's Steer
+  comes through an extension. A carried run waits its turn behind the
+  others (107 took 805 s on 20 November), so a clock decides only for
+  a run that never starts, after half an hour, looking again each
+  minute while the session is busy. That includes a log the host had
+  nothing to carry for, since no extension hears that, and a reload
+  while the wait is open drops it.
+- What the wait can't see: an extension's run that answers before
+  the carried run, such as a job's report, ends the wait, so a carried
+  run that fails after it goes untold, though the session ran on.
+  Entries the recovery copies in from before the kill can read as the
+  carried run's answer. A host without pi's runs-through-pi seam
+  (`HOST_WANTED_SEAMS`) fires no start or settle for a carried run,
+  so only the clock decides, reading the log. Half an hour is no
+  bound: a bigger restart's last turns can come later and are told
+  they were cut off. A transient model error can draw both this notice
+  and model-retry-workflow's retry.
 
 ## Limits
 
