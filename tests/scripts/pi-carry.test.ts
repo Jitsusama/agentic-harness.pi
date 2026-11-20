@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTreeMemory } from "../../lib/core/work/memory.ts";
+import { CARRY_HELP } from "../../lib/internal/carry/help.ts";
 import { thisMachine } from "../../lib/internal/machine/machine.ts";
 import { sessionAddress } from "../../lib/mesh/address.ts";
 import { inboxOf, takeSteers } from "../../lib/mesh/steer.ts";
@@ -450,5 +451,42 @@ describe("pi-carry", () => {
 		expect(asked.lines).toEqual([
 			{ kind: "failed", why: expect.stringContaining("Say which quest") },
 		]);
+	});
+
+	it("answers --help on stdout alone, exiting 0, with only PATH set", async () => {
+		for (const words of [["--help"], ["settle", "not-a-quest", "-h"]]) {
+			// run rejects on any exit but 0, so resolving is the exit check.
+			const said = await run(
+				"node",
+				["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", SCRIPT, ...words],
+				{ env: { PATH: process.env.PATH } },
+			);
+
+			expect(said.stdout, `${words.join(" ")} said its help`).toBe(CARRY_HELP);
+			expect(said.stderr, `${words.join(" ")} said nothing else`).toBe("");
+		}
+	});
+
+	it("says why where and fence couldn't answer on stderr alone", async () => {
+		const one = machine("asked", folder(made, "cache"));
+		type Ended = { code?: number; stdout?: string; stderr?: string };
+		for (const form of ["where", "fence"]) {
+			const words = [form, QUEST, "--from", "penelope", "--session", SESSION];
+			const ended: Ended = await run(
+				"node",
+				["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", SCRIPT, ...words],
+				{ env: one.env },
+			).then(
+				(done) => ({ code: 0, ...done }),
+				(failed: Ended) => failed,
+			);
+
+			expect(ended.code, `${form} couldn't answer`).toBe(1);
+			expect(ended.stdout, `${form} printed no answer`).toBe("");
+			expect(JSON.parse(ended.stderr ?? ""), `${form} said why`).toEqual({
+				kind: "failed",
+				why: expect.stringContaining("No done file"),
+			});
+		}
 	});
 });

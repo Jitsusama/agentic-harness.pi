@@ -18,7 +18,8 @@ may import from here, and any of it may change without notice.
 - **`carry/`**: carrying a quest's work to another of the person's
   machines: a session's trees, as bundles and patches, its file, its
   fence and its quest's remembered facts put in the quest's handover
-  with a done file saying so, what `pi-carry` carries of the rest,
+  with a done file saying so, what `pi-carry` carries of the rest
+  and what its help says,
   arriving with it on the other machine, and letting the old place
   go once it has; for a carry an orchestrator ordered, the refusal a
   session writes and the steer that tells it on arrival who carried
