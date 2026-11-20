@@ -34,23 +34,33 @@ export const CLAIMED_PROVIDER = "claimed";
  * checkout in `src/`, and git run in the folder answered "not a git
  * repository" to every branch and commit (seen 2026-10-14 and again on
  * 2026-10-25).
+ *
+ * The claims' first answer is each holder's last read, which on a host
+ * can predate a tree another process just cut; only when that holds no
+ * claim on the path does it wait on the holders' fresh answers.
  */
-export function claimedTree(
+export async function claimedTree(
 	pi: ExtensionAPI,
 	name: string,
-): HeldTree | undefined {
+): Promise<HeldTree | undefined> {
 	const expanded =
 		name === "~" || name.startsWith("~/")
 			? join(homedir(), name.slice(1))
 			: name;
 	if (!isAbsolute(expanded)) return undefined;
-	const claims: TreeClaims = { paths: [], untilSpent: [] };
+	const claims: TreeClaims = { paths: [], untilSpent: [], answering: [] };
 	pi.events.emit(WORK_TREE_CLAIMS, claims);
 	const asked = resolved(expanded);
-	const holder = [...claims.paths, ...(claims.untilSpent ?? [])]
-		.map(resolved)
-		.filter((p) => asked === p || asked.startsWith(`${p}${sep}`))
-		.sort((a, b) => b.length - a.length)[0];
+	const holding = (): string | undefined =>
+		[...claims.paths, ...(claims.untilSpent ?? [])]
+			.map(resolved)
+			.filter((p) => asked === p || asked.startsWith(`${p}${sep}`))
+			.sort((a, b) => b.length - a.length)[0];
+	let holder = holding();
+	if (holder === undefined) {
+		await Promise.all(claims.answering ?? []);
+		holder = holding();
+	}
 	if (holder === undefined || !existsSync(holder)) return undefined;
 	return {
 		identity: { key: holder, shareable: false },

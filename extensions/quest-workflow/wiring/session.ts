@@ -10,7 +10,9 @@ import { hosted } from "../../../lib/core/session/host.ts";
 import {
 	clearDiscoveryCache,
 	discoverQuests,
+	readyQuests,
 	refreshQuests,
+	signingGaveUp,
 	withDiscoveryHeld,
 } from "../../../lib/internal/quest/discovery/discovery.ts";
 import { setJournalSession } from "../../../lib/internal/quest/fields/structural-journal.ts";
@@ -87,8 +89,9 @@ export function followSessionLife(
 
 	// The start's every discovery after its first reads that walk, plus
 	// its own writes (withDiscoveryHeld), rather than signing the tree again.
-	pi.on("session_start", async (event, ctx) =>
-		withDiscoveryHeld(() => {
+	pi.on("session_start", async (event, ctx) => {
+		await readyForStart(state);
+		return withDiscoveryHeld(() => {
 			// What a start restores and records rests on its quest as it is:
 			// the one it had, here, and the one it resolves, once chosen.
 			const had = state.questId;
@@ -218,8 +221,8 @@ export function followSessionLife(
 			// probing history or loading anything. The authoritative, probed
 			// view is `quest recent`.
 			showSessionHint(state, ctx);
-		}),
-	);
+		});
+	});
 
 	// pi asks for resources once every extension's session_start has
 	// finished, so the first request carries the tool set they settled.
@@ -294,6 +297,29 @@ export function followSessionLife(
 		// starts from an empty memo rather than reading this one.
 		if (event.reason === "reload") clearDiscoveryCache();
 	});
+}
+
+/**
+ * On a host, bring the tree up to now before a start resolves its
+ * quest, off the thread: the quest it had is read again, and a start
+ * with none signs the whole tree, since its spawn request, its history
+ * or its folder may name any quest, and a tree another process just
+ * added draws it only once read. When the disk gives no answer in
+ * time, the start goes on from the last walk and the journal says so.
+ */
+async function readyForStart(state: QuestState): Promise<void> {
+	try {
+		await readyQuests(
+			state.questsRoot,
+			[state.questId],
+			state.questId === undefined,
+		);
+	} catch (error) {
+		if (!signingGaveUp(error)) throw error;
+		process.stderr.write(
+			`[quest-workflow] a session's start reads the last walk of ${state.questsRoot}: ${error.message}\n`,
+		);
+	}
 }
 
 /** The most recent sessions the passive start hint will name. */
