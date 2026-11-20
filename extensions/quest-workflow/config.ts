@@ -14,11 +14,11 @@ import {
 	type SpawnHostSetting,
 	type StartHostSetting,
 } from "../../lib/core/quest/config.ts";
-import { dataDir } from "../../lib/internal/paths.ts";
 import {
 	getSection,
 	loadPackageConfig,
 } from "../../lib/internal/config/loader.ts";
+import { dataDir } from "../../lib/internal/paths.ts";
 
 export {
 	parseQuestWorkflowConfig,
