@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { hostBudgets } from "../../../lib/budget/host.ts";
 import {
 	BUDGET_READY,
@@ -247,6 +247,36 @@ describe("the budget a folder's work draws on", () => {
 		});
 	});
 
+	it("says which provider failed or was late, with the folder and why, and not one that names none", async () => {
+		const events = bus();
+		const troubles: unknown[] = [];
+		const host = hostBudgets(events, 20, (trouble) => troubles.push(trouble));
+		registerBudgetProvider(
+			events,
+			placing("throws", 0, async () => {
+				throw new Error("no map");
+			}),
+		);
+		registerBudgetProvider(
+			events,
+			placing("late", 1, () => new Promise(() => {})),
+		);
+		registerBudgetProvider(
+			events,
+			placing("quiet", 2, async () => undefined),
+		);
+
+		expect(await host.budgetFor("/src/delta")).toBeUndefined();
+		expect(troubles).toEqual([
+			{ provider: "throws", folder: "/src/delta", why: "it failed: no map" },
+			{
+				provider: "late",
+				folder: "/src/delta",
+				why: "it didn't answer within 0.02 s",
+			},
+		]);
+	});
+
 	it("asks every provider at once, so the wait is one deadline however many are late", async () => {
 		const events = bus();
 		const host = hostBudgets(events, 200);
@@ -364,12 +394,125 @@ describe("the budget a folder's work draws on", () => {
 				name: "delta",
 				provider: "names",
 			});
-			// Past the late failure, for a leak to surface.
+			// Past the late failure, at 40 ms, for a leak to surface: a rejection
+			// nobody handles is said once the microtasks after it drain.
 			await new Promise((settle) => setTimeout(settle, 100));
 			expect(leaked).toEqual([]);
 		} finally {
 			process.off("unhandledRejection", catchLeak);
 		}
+	});
+
+	it("says nothing of a provider ranked below the one that answered, which couldn't change it", async () => {
+		const events = bus();
+		const troubles: unknown[] = [];
+		const host = hostBudgets(events, 20, (trouble) => troubles.push(trouble));
+		registerBudgetProvider(
+			events,
+			placing("names", 0, async () => "delta"),
+		);
+		registerBudgetProvider(
+			events,
+			placing("throws", 1, async () => {
+				throw new Error("no map");
+			}),
+		);
+		registerBudgetProvider(
+			events,
+			placing("late", 2, () => new Promise(() => {})),
+		);
+
+		expect(await host.budgetFor("/src/delta")).toEqual({
+			name: "delta",
+			provider: "names",
+		});
+		// Past the late one's deadline, so a word it would have had is in.
+		await new Promise((settle) => setTimeout(settle, 60));
+		expect(troubles).toEqual([]);
+	});
+
+	it("leaves no rejection behind when telling a trouble throws", async () => {
+		const leaked: unknown[] = [];
+		const catchLeak = (reason: unknown) => leaked.push(reason);
+		process.on("unhandledRejection", catchLeak);
+		try {
+			const events = bus();
+			const told: string[] = [];
+			const host = hostBudgets(events, 20, (trouble) => {
+				told.push(trouble.provider);
+				throw new Error("the journal is shut");
+			});
+			registerBudgetProvider(
+				events,
+				placing("late", 0, () => new Promise(() => {})),
+			);
+			registerBudgetProvider(
+				events,
+				placing("names", 1, async () => "delta"),
+			);
+
+			expect(await host.budgetFor("/anywhere")).toEqual({
+				name: "delta",
+				provider: "names",
+			});
+			await vi.waitFor(() => expect(told).toEqual(["late"]));
+			// A rejection nobody handles is said before the next macrotask.
+			await new Promise((settle) => setImmediate(settle));
+			expect(leaked).toEqual([]);
+		} finally {
+			process.off("unhandledRejection", catchLeak);
+		}
+	});
+
+	it("says a failure whose words can't be had, rather than throw from its catch", async () => {
+		const events = bus();
+		const told: string[] = [];
+		const host = hostBudgets(events, 1_000, (trouble) =>
+			told.push(trouble.why),
+		);
+		const wordless = {
+			toString(): string {
+				throw new Error("no words");
+			},
+		};
+		registerBudgetProvider(events, {
+			...provider("wordless", 0, {}),
+			resolve: async () => {
+				throw wordless;
+			},
+			budgetFor: async () => {
+				throw wordless;
+			},
+		});
+
+		expect(await host.budgetFor("/anywhere")).toBeUndefined();
+		expect(told).toEqual(["it failed: something that can't be said"]);
+
+		// An Error too, whose message is a getter that throws.
+		const unreadable = new Error("hidden");
+		Object.defineProperty(unreadable, "message", {
+			get(): string {
+				throw new Error("no words");
+			},
+		});
+		const second = bus();
+		const saidOfError: string[] = [];
+		const errorHost = hostBudgets(second, 1_000, (trouble) =>
+			saidOfError.push(trouble.why),
+		);
+		registerBudgetProvider(second, {
+			...provider("unreadable", 0, {}),
+			budgetFor: async () => {
+				throw unreadable;
+			},
+		});
+		expect(await errorHost.budgetFor("/anywhere")).toBeUndefined();
+		expect(saidOfError).toEqual(["it failed: something that can't be said"]);
+		expect(await host.draw("delta")).toEqual({
+			kind: "unavailable",
+			reason: "something that can't be said",
+			provider: "wordless",
+		});
 	});
 
 	it("answers as soon as the first to name one and every provider before it have said", async () => {
@@ -466,7 +609,7 @@ describe("the budget some work draws on, judged from what it is", () => {
 
 	it("stops the classifier calls of the providers after a sure one", async () => {
 		const events = bus();
-		const host = hostBudgets(events, 5_000, 60_000);
+		const host = hostBudgets(events, 5_000, undefined, 60_000);
 		const signals: AbortSignal[] = [];
 		registerBudgetProvider(
 			events,
@@ -495,7 +638,7 @@ describe("the budget some work draws on, judged from what it is", () => {
 
 	it("is nothing, not an unsure guess, when a provider that might have been sure was cut off", async () => {
 		const events = bus();
-		const host = hostBudgets(events, 5_000, 20);
+		const host = hostBudgets(events, 5_000, undefined, 20);
 		registerBudgetProvider(
 			events,
 			judging("hung", 0, () => new Promise(() => {})),
@@ -540,7 +683,7 @@ describe("the budget some work draws on, judged from what it is", () => {
 
 	it("aborts the classifier it handed a provider at the deadline, or with the caller's signal", async () => {
 		const events = bus();
-		const host = hostBudgets(events, 5_000, 20);
+		const host = hostBudgets(events, 5_000, undefined, 20);
 		const signals: AbortSignal[] = [];
 		const classify: Classify = (_context, signal) => {
 			if (signal) signals.push(signal);
@@ -558,7 +701,7 @@ describe("the budget some work draws on, judged from what it is", () => {
 		expect(signals[0]?.aborted, "the classifier call is aborted").toBe(true);
 
 		const stop = new AbortController();
-		const slow = hostBudgets(bus(), 5_000, 60_000);
+		const slow = hostBudgets(bus(), 5_000, undefined, 60_000);
 		const stopped: AbortSignal[] = [];
 		slow.registerProvider(
 			judging("slow", 0, async (_work, asks) => {
@@ -611,7 +754,7 @@ describe("the budget some work draws on, judged from what it is", () => {
 
 	it("passes over a provider that fails, is late, can't judge or names no budget's name", async () => {
 		const events = bus();
-		const host = hostBudgets(events, 5_000, 20);
+		const host = hostBudgets(events, 5_000, undefined, 20);
 		registerBudgetProvider(
 			events,
 			judging("throws", 0, async () => {
@@ -661,7 +804,7 @@ describe("the budget some work draws on, judged from what it is", () => {
 
 	it("waits one judging deadline however many providers are late", async () => {
 		const events = bus();
-		const host = hostBudgets(events, 5_000, 200);
+		const host = hostBudgets(events, 5_000, undefined, 200);
 		for (const id of ["one", "two", "three"]) {
 			registerBudgetProvider(
 				events,

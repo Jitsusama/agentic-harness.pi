@@ -361,9 +361,25 @@ shipped and tested.
   environment as it was before any budget, and it draws on its
   own quest's. The footer says the budget drawn on, through
   spend-workflow, which hears it on the bus (`budget:settled:v1`)
-  each time it settles; a name
-  no provider knows, or one it can't draw on yet, leaves the
-  default and says why once. Nothing of it reaches the prompt.
+  each time it settles. A name no provider knows, or one it can't
+  draw on yet, leaves the session on what it inherited (the budget
+  it was started on, or else the default) and says so, naming the
+  budget and what's missing: in a notice once a name, in the
+  system's journal at warning, and in the log's `budget` entry
+  (`"unresolved": {"budget": "delta", "missing": ...}`), which
+  draws a line in the session. Started on the very budget the quest
+  names, with its keys listed in `PI_BUDGET_KEYS`, nothing is missed
+  and nothing is said; its name alone bills the host's key, so that
+  is a miss. A missed budget is
+  asked for again at the next keep, since a restart's load has mostly
+  passed by then; a retry that misses waits a minute before the next,
+  doubling each miss to 16 minutes, and says nothing new. Each retry
+  holds its turn for up to the providers' 5 s. An unresolved entry
+  doesn't always mean the person's key: its `name` says what the
+  calls drew on, so spend-watch counts by `name` and reads
+  `unresolved` as which budget was missed. A provider ranked above
+  the answer that fails or is late saying a folder's budget is
+  journalled too. Nothing of it reaches the prompt.
   The session's log says it too: a `budget` entry
   (`{"v": 1, "name": "delta", "label": ..., "provider": ...}`,
   `name` null for the default) at start and each time what it

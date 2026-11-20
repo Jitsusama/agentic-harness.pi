@@ -102,7 +102,8 @@ async function conversation(
 	state.questId = quest;
 	attributionExtension(pi);
 	await started.run(id, async () => {
-		await keepQuestBudget(pi, state).keep(ctx);
+		// Quiet, so a budget missed writes nothing to the machine's journal.
+		await keepQuestBudget(pi, state, { journal: () => undefined }).keep(ctx);
 		for (const handler of pi.recorded.handlers.get("session_start") ?? [])
 			await handler({}, ctx);
 		for (const handler of pi.recorded.handlers.get("tool_call") ?? [])

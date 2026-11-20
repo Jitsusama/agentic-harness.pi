@@ -16,8 +16,11 @@ export interface JournalCommand {
 	args: string[];
 }
 
-/** How loud a line is: an error, or news. */
-export type JournalLevel = "err" | "info";
+/**
+ * How loud a line is: an error, a warning of something going wrong
+ * that the session carries on through, or news.
+ */
+export type JournalLevel = "err" | "warning" | "info";
 
 /** The longest a journal write may hold a dying process up. */
 const JOURNAL_WAIT_MS = 2_000;

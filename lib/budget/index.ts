@@ -33,4 +33,5 @@ export {
 	budgetDrawnOn,
 	budgetKeysOf,
 	lastRecorded,
+	type UnresolvedBudget,
 } from "./record.ts";
