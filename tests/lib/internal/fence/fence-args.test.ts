@@ -315,6 +315,12 @@ describe("the fence's arguments", () => {
 			"/home/someone/.cache",
 			"/home/someone/.local",
 			"/home/someone/.pi",
+			// Each folder above a read-only path, bound over itself as it
+			// was, so a command can't move it (fence-pins.ts).
+			"/home/someone/.local/share",
+			"/home/someone/.local/share/direnv",
+			"/home/someone/.local/state",
+			"/home/someone/.local/state/tec",
 		]);
 	});
 
@@ -371,6 +377,13 @@ describe("the fence's arguments", () => {
 				expect(pairs("--ro-bind"), `${path} is writable`).toContain(full);
 			}
 		}
+	});
+
+	it("keeps a machine's node's state read-only, since it judges each carry by it", () => {
+		// Its claims and the fences it has seen, as the Mac's fence hides them.
+		expect(pairs("--ro-bind")).toContain(
+			join(place.home, ".local/state/mycelium"),
+		);
 	});
 
 	it("keeps every quest's scratch folder read-only but the session's own, over the home's binds", () => {
@@ -584,6 +597,8 @@ describe("programs' hidden entries that run code as the person later", () => {
 			`${home}/.cache`,
 			`${home}/.local`,
 			`${home}/.npm`,
+			// Above dbus's and nvim's, pinned so it can't be moved (fence-pins.ts).
+			`${home}/.local/share`,
 			`${home}/.kube/cache`,
 			`${home}/.kube/gke_gcloud_auth_plugin_cache`,
 			`${home}/.aws/sso/cache`,

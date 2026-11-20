@@ -29,14 +29,26 @@
  */
 
 import { homedir } from "node:os";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { sessionKeyOf } from "../../lib/core/session/identity.ts";
 import {
 	recordRefusal,
 	systemLogger,
 } from "../../lib/internal/fence/fence-log.ts";
+import {
+	FENCE_UNSAID,
+	tellHostFence,
+	tellHostLeft,
+} from "../../lib/internal/sandbox/fence-told.ts";
 import { sandboxName } from "../../lib/internal/sandbox/sandbox.ts";
-import { fileToolRefusal } from "../../lib/internal/sandbox/sandbox-files.ts";
+import {
+	filesFence,
+	fileToolFence,
+	fileToolRefusal,
+} from "../../lib/internal/sandbox/sandbox-files.ts";
 import { offeredShellEnvironment } from "../../lib/internal/shell/environment.ts";
 
 /** Wires the fence onto each call to pi's file tools. */
@@ -48,7 +60,36 @@ export default function sandboxFileInterceptor(pi: ExtensionAPI) {
 		);
 		return undefined;
 	});
+	// The session is the conversation calling, as the shell names it to
+	// its commands (see below).
+	const callEnv = (ctx: ExtensionContext) => ({
+		...process.env,
+		...offeredShellEnvironment(),
+		PI_SESSION_ID: sessionKeyOf(ctx),
+	});
+	// Said to a host as the runner starts, since its record names a fence
+	// only once this guard stands before pi's file tools; a runner that
+	// failed to load it leaves them unfenced.
+	// The session this runner heard last as it started, for its shutdown,
+	// whose context may not be read once the runner is gone.
+	let session: string | undefined;
+	pi.on("session_start", async (_event, ctx) => {
+		const env = callEnv(ctx);
+		session = env.PI_SESSION_ID;
+		tellHostFence(filesFence(env), "files", env);
+	});
+	// Said as the runner shuts down, so a runner whose shell never loaded
+	// is judged as it ends, whoever reloads it (session-host.ts, left).
+	pi.on("session_shutdown", () => {
+		tellHostLeft(session);
+	});
 	pi.on("tool_call", async (event, ctx) => {
+		const env = callEnv(ctx);
+		// Said to a host before the call runs, so its record never reads
+		// tighter than a write that ran; a call it couldn't say runs not.
+		const fence = fileToolFence(event, env);
+		if (fence && !tellHostFence(fence, "files", env))
+			return { block: true, reason: FENCE_UNSAID };
 		const reason = fileToolRefusal(event, {
 			cwd: ctx.cwd,
 			// The loaded quest's TMPDIR reaches only the agent's commands,
@@ -58,11 +99,7 @@ export default function sandboxFileInterceptor(pi: ExtensionAPI) {
 			// to its commands: pi's own environment names none on a host, and
 			// the one it started as after a new session or a resume, and on 15
 			// November the write tool refused every tree a session held.
-			env: {
-				...process.env,
-				...offeredShellEnvironment(),
-				PI_SESSION_ID: sessionKeyOf(ctx),
-			},
+			env,
 			home: homedir(),
 			skills,
 		});

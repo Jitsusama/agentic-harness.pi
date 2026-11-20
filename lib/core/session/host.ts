@@ -1,5 +1,6 @@
 /** The contract a multi-session host installs before loading extensions. */
 import type { TickedOwner } from "../../internal/process-ticks.ts";
+import type { FenceKind } from "../../mesh/presence.ts";
 
 /** An open conversation's standing in its host. */
 export type HostedState = "busy" | "idle" | "parked";
@@ -74,7 +75,28 @@ export interface Host {
 	 * A host that never drains leaves it out.
 	 */
 	draining?(sessionId: string): boolean;
+	/**
+	 * Told the fence one of this conversation's tools holds it to, `by`
+	 * its shell, as its runner starts and before each command, or by the
+	 * guard on pi's file tools, as its runner starts and at each call. The
+	 * record names the loosest told since the conversation opened here, and
+	 * only once its present runner's shell and file guard have both told
+	 * one, since a runner without either runs those tools unfenced. False
+	 * when the record couldn't be written, so the tool refuses what it
+	 * would run. A host that keeps no record leaves it out.
+	 */
+	fenced?(sessionId: string, fence: FenceKind, by: FenceTeller): boolean;
+	/**
+	 * Told one of this conversation's guards shut down with its runner, as
+	 * pi shuts a runner down before it reloads one, whoever asked, so the
+	 * record names no fence until the next runner's shell and file guard
+	 * tell one. A host that keeps no record leaves it out.
+	 */
+	left?(sessionId: string): void;
 }
+
+/** Which of a conversation's tools told its host a fence (Host.fenced). */
+export type FenceTeller = "shell" | "files";
 
 /** Host.stamp emits this on the conversation bus within withSession. */
 export const SESSION_STAMP_EVENT = "agentic-harness:session-stamp";
@@ -133,6 +155,25 @@ export interface HostedSession {
 	readonly state: HostedState;
 	/** ISO timestamp of the last state change. */
 	readonly since: string;
+	/**
+	 * How the agent's tools are fenced, the loosest they told the host
+	 * since the conversation opened in it, a park, a release or a
+	 * replacement between, so a command an earlier runner started counts
+	 * too, though not yet across a host's restart: a host's
+	 * process says nothing of any one session's, so a mycelium node
+	 * carrying it reads this (KP0L6A, 19 November). A command the person
+	 * types with `!` runs as pi runs it, outside this. It speaks for
+	 * what pi's shell and file guards hold: a runner where neither loaded
+	 * tells nothing, so what it started isn't counted here, and the
+	 * language servers the lsp tool starts, a project's own among them,
+	 * run outside any fence. Missing until its
+	 * present runner's shell and file guard both say, from an older
+	 * harness's record, where a later harness's word isn't known here, and
+	 * wherever the record lies past a link, outside what the fence keeps
+	 * read-only or under a folder another account may write, from pi's
+	 * state folder down, now or when the host started, so the node refuses.
+	 */
+	readonly fence?: FenceKind;
 }
 
 /** Rewritten atomically by the host on every open, close and state change. */

@@ -264,6 +264,12 @@ describe("refusing to run where the fence can't hold", () => {
 			".local/state/pi/agentic-harness.pi",
 			["linux", "darwin"],
 		],
+		// Beside the host's records, so the fence's own refusal answers.
+		[
+			"pi's own state beside the host's records",
+			".local/state/pi/agentic-harness.pi/steer",
+			["linux", "darwin"],
+		],
 		["a keyring the fence hides", ".local/share/keyrings", ["linux", "darwin"]],
 		["ssh's folder spelled in other case", ".SSH", ["darwin"]],
 		["the Mac's mail", "Library/Mail", ["darwin"]],
@@ -282,17 +288,24 @@ describe("refusing to run where the fence can't hold", () => {
 						treesRoot: join(base, "trees"),
 					},
 				);
+				// The node's records are refused first, and on every platform
+				// (unfenced-folder.ts).
+				const records =
+					inside === ".local/state/pi/agentic-harness.pi" ||
+					inside.startsWith(".local/state/mycelium/");
 				expect(JSON.stringify(made), "names the path").toContain(
-					"hides or keeps read-only",
+					records
+						? "lies in the records this machine's node trusts"
+						: "hides or keeps read-only",
 				);
 			});
 		}
 	}
 
 	it("refuses a folder that holds a path the fence keeps read-only", () => {
-		const made = onEither(join(home, ".local"), "linux");
+		const made = onEither(join(home, ".local/share"), "linux");
 		expect(JSON.stringify(made), "names what it holds").toContain(
-			`holds ${join(home, ".local")}`,
+			`holds ${join(home, ".local/share")}`,
 		);
 	});
 

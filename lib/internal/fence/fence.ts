@@ -90,6 +90,7 @@ import {
 } from "./fence-home.ts";
 import { NPMRC } from "./fence-npmrc.ts";
 import { type OwnFolders, ownArgs } from "./fence-own.ts";
+import { pinnedAbove } from "./fence-pins.ts";
 import { questLockArgs } from "./fence-quest-locks.ts";
 import { tempCacheArgs, tempCodeCaches } from "./fence-temp-caches.ts";
 import { type Worktrees, writtenWorktrees } from "./fence-worktrees.ts";
@@ -393,7 +394,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 	if (place.sshConfig && exists(place.sshConfig) && settings !== undefined) {
 		args.push("--ro-bind", place.sshConfig, settings);
 	}
-	return [
+	const laid = [
 		...args,
 		...homeArgs(place, disk),
 		...brokerTreeArgs(place.trees, place.cwd, disk),
@@ -407,6 +408,7 @@ export function fenceArgs(place: FencePlace, disk: Disk = DISK): string[] {
 		...(place.docker ? dockerArgs(place.home, disk) : []),
 		...(exists(CGROUPS) ? ["--ro-bind", CGROUPS, CGROUPS] : []),
 	];
+	return pinnedAbove(laid, place.home, disk);
 }
 
 /**

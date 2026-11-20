@@ -4,7 +4,7 @@
  * commands still get no editor to wait on.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -12,7 +12,10 @@ import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import shellWorkflow from "../../../extensions/shell-workflow/index.ts";
 import { outlivingIt } from "../../../extensions/shell-workflow/outliving.ts";
+import { type Host, installHost } from "../../../lib/core/session/host.ts";
+import { withSession } from "../../../lib/core/session/index.ts";
 import { OFF } from "../../../lib/internal/fence/fence-stage.ts";
+import { FENCE_UNSAID } from "../../../lib/internal/sandbox/fence-told.ts";
 import { SANDBOX_VARIABLE } from "../../../lib/internal/sandbox/sandbox.ts";
 import { announceJobHost, type JobSpec } from "../../../lib/jobs/host.ts";
 
@@ -252,4 +255,101 @@ describe("telling agents what outlives a command", () => {
 			).toBe(true);
 		},
 	);
+});
+
+// The host's record says a hosted session's fence to a mycelium node,
+// so the shell, whose bash runs the commands, says it once its bash
+// stands in pi's, before each command, and as it shuts down.
+describe("telling a host the fence its commands run under", () => {
+	const told: unknown[][] = [];
+	let written = true;
+	let uninstall: () => void = () => {};
+	const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+	let registered: Tool | undefined;
+
+	beforeEach(() => {
+		told.length = 0;
+		written = true;
+		uninstall = installHost({
+			fenced: (id: string, fence: string, by: string) => {
+				told.push([id, fence, by]);
+				return written;
+			},
+			left: (id: string) => told.push([id, "left"]),
+			// The command runs in the conversation's own environment.
+			env: () => ({
+				get: (name: string) => process.env[name],
+				set: () => {},
+				delete: () => {},
+				snapshot: () => ({ ...process.env }),
+			}),
+		} as unknown as Host);
+		shellWorkflow({
+			events: createEventBus(),
+			on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) =>
+				handlers.set(event, handler),
+			registerTool: (definition: Tool) => {
+				registered = definition;
+			},
+		} as unknown as ExtensionAPI);
+	});
+
+	afterEach(() => uninstall());
+
+	it("says it once the session starts, before each command, and as it shuts down", async () => {
+		expect(told, "told before its bash stood in pi's").toEqual([]);
+		await handlers.get("session_start")?.({ type: "session_start" }, ctx());
+		// A host runs each call within its conversation.
+		await withSession("session-1", () =>
+			registered?.execute(
+				"t4",
+				{ command: "true" },
+				undefined,
+				undefined,
+				ctx(),
+			),
+		);
+		// Its context may not be read once the runner is gone, so none.
+		await handlers.get("session_shutdown")?.({}, undefined);
+		expect(told).toEqual([
+			["session-1", "none", "shell"],
+			["session-1", "none", "shell"],
+			["session-1", "left"],
+		]);
+	});
+
+	it("runs no command whose fence its host couldn't write", async () => {
+		await handlers.get("session_start")?.({ type: "session_start" }, ctx());
+		written = false;
+		await expect(
+			withSession("session-1", () =>
+				registered?.execute(
+					"t5",
+					{ command: "touch ran" },
+					undefined,
+					undefined,
+					ctx(),
+				),
+			),
+		).rejects.toThrow(FENCE_UNSAID);
+		expect(existsSync(join(agentDir, "ran")), "the command ran").toBe(false);
+		await handlers.get("session_shutdown")?.({}, ctx());
+	});
+
+	it("says the fence it drew as it loaded, never another", async () => {
+		// Strict whether or not this machine can build it: one it can't is
+		// refused, and runs no command at all.
+		vi.stubEnv(SANDBOX_VARIABLE, "strict");
+		const strict = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+		shellWorkflow({
+			events: createEventBus(),
+			on: (event: string, handler: (event: unknown, ctx: unknown) => unknown) =>
+				strict.set(event, handler),
+			registerTool: () => {},
+		} as unknown as ExtensionAPI);
+		vi.stubEnv(SANDBOX_VARIABLE, OFF);
+		await strict.get("session_start")?.({ type: "session_start" }, ctx());
+		await strict.get("session_shutdown")?.({}, ctx());
+		expect(told[0]).toEqual(["session-1", "strict", "shell"]);
+	});
 });

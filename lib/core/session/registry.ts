@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { stateDir } from "../../internal/paths.ts";
 import type { Standing, TickedOwner } from "../../internal/process-ticks.ts";
+import type { FenceKind } from "../../mesh/presence.ts";
 import { type HostRegistry, hosted } from "./host.ts";
 
 /** The machine-wide host list; no session or realm changes this path. */
@@ -72,7 +73,7 @@ export function hostRegistries(dir = stateDir("hosts")): HostRegistry[] {
 function registryAt(path: string): HostRegistry | undefined {
 	try {
 		const read: unknown = JSON.parse(readFileSync(path, "utf8"));
-		return isRegistry(read) ? read : undefined;
+		return isRegistry(read) ? withKnownFences(read) : undefined;
 	} catch {
 		// An unreadable or malformed list cannot prove a session closed.
 		return undefined;
@@ -123,4 +124,32 @@ function isRegistry(value: unknown): value is HostRegistry {
 			typeof session.since === "string" &&
 			Number.isFinite(Date.parse(session.since)),
 	);
+}
+
+/** The fences a session's record may name, every kind there is. */
+const FENCES: Readonly<Record<FenceKind, true>> = {
+	none: true,
+	fence: true,
+	strict: true,
+};
+
+function isKnownFence(value: unknown): value is FenceKind {
+	return typeof value === "string" && Object.hasOwn(FENCES, value);
+}
+
+/**
+ * `read` with each fence no harness here knows left unsaid, as an older
+ * harness's record leaves it, so what a reader takes from `fence` is
+ * always a kind it knows. The session and its host are kept, as they
+ * always were, since the fence is no part of whether a host runs.
+ */
+function withKnownFences(read: HostRegistry): HostRegistry {
+	return {
+		...read,
+		sessions: read.sessions.map((session) => {
+			if (isKnownFence(session.fence)) return session;
+			const { fence: _unknown, ...rest } = session;
+			return rest;
+		}),
+	};
 }

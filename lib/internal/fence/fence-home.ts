@@ -96,6 +96,9 @@ export const READ_ONLY = [
 	".local/state/nix",
 	".local/state/tec/toolchain",
 	".local/state/pi",
+	// A machine's node judges each carry by its claims and the fences it
+	// has seen, kept here, which the Mac's fence hides outright.
+	".local/state/mycelium",
 	".pi/agent",
 	".node_modules",
 	".node_libraries",
