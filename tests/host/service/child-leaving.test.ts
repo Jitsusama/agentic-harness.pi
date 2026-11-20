@@ -67,7 +67,8 @@ describe("a child leaving", () => {
 
 	it("keeps its slot while systemd won't say whether its unit went, until it does", async () => {
 		await supervisor.resume(entry(a));
-		units.goneFails = 3;
+		// Each try's ask, and the one after the last.
+		units.goneFails = 4;
 
 		childOf(a).say({ type: "became", previousId: "not an id" });
 
@@ -78,5 +79,40 @@ describe("a child leaving", () => {
 		expect(existsSync(slot.file), "its slot is kept").toBe(true);
 		await supervisor.resume(entry(a));
 		expect(units.started, "started once systemd said it went").toHaveLength(2);
+	});
+
+	it("stops a child that said it ends when systemd once won't say whether it went", async () => {
+		await supervisor.resume(entry(a));
+		units.goneFails = 1;
+		const slot = slotOf(folder, key, a);
+
+		// It says so, but never exits of itself.
+		childOf(a).say({ type: "ending", why: "parked" });
+
+		await vi.waitFor(
+			() => {
+				expect(units.stopped, "stopped all the same").toEqual([slot.unit]);
+				expect(existsSync(slot.file), "its slot is cleared").toBe(false);
+			},
+			{ timeout: 3_000 },
+		);
+		expect(reported, "nothing left for anyone to do").toEqual([]);
+	});
+
+	it("frees its slot when its stop fails each time yet its unit goes", async () => {
+		await supervisor.resume(entry(a));
+		units.stopFails = 3;
+		const slot = slotOf(folder, key, a);
+
+		childOf(a).say({ type: "became", previousId: "not an id" });
+
+		await vi.waitFor(
+			() => expect(existsSync(slot.file), "its slot is cleared").toBe(false),
+			{ timeout: 4_000 },
+		);
+		expect(units.stopped, "stopped three times").toHaveLength(3);
+		expect(reported, "no unit said to run on").toEqual([]);
+		await supervisor.resume(entry(a));
+		expect(units.started, "started again in its slot").toHaveLength(2);
 	});
 });

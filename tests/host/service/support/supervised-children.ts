@@ -73,7 +73,7 @@ export interface FakeRoster extends KeptRoster {
 	held: RosterEntry[];
 	/** Refuse every hold and replace, as a roster that can't be written would. */
 	refuses?: boolean;
-	/** Each hold waits on this before it writes, as a slow disk would. */
+	/** Each hold or replace waits on this before it writes, as a slow disk would. */
 	written?: Promise<void>;
 }
 
@@ -101,6 +101,7 @@ export function fakeRoster(held: RosterEntry[]): FakeRoster {
 			fake.held = [...fake.held, entry];
 		},
 		async replace(previousId, entry) {
+			await fake.written;
 			if (fake.refuses) throw new Error("The roster can't be written");
 			if (!holds(previousId)) throw new Error("Conversation is not held");
 			if (clashes(entry, previousId)) throw new Error("Held already");
@@ -155,6 +156,8 @@ export interface FakeUnits extends Units {
 	refusesStart?: boolean;
 	/** How many of the next asks whether a unit has gone fail. */
 	goneFails?: number;
+	/** How many of the next stops fail once their unit has gone. */
+	stopFails?: number;
 }
 
 /** How a fake child answers. */
@@ -335,6 +338,10 @@ function fakeUnits(): FakeUnits {
 			if (fake.lingers) return;
 			await fake.children.get(unit)?.exit();
 			fake.children.delete(unit);
+			if (fake.stopFails) {
+				fake.stopFails -= 1;
+				throw new Error(`Failed to stop ${unit}: Connection timed out`);
+			}
 		},
 		async forget(unit) {
 			fake.forgotten.push(unit);
