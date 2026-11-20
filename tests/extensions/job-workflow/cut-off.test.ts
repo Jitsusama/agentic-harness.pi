@@ -11,6 +11,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import {
+	CARRIED_RUN_WAIT_MS,
 	CUT_OFF_ENTRY,
 	cutOffIn,
 	endedRecord,
@@ -31,7 +32,9 @@ import {
 	aborted,
 	activate,
 	ended,
+	killedLog,
 	message,
+	TIMEOUTS,
 } from "./support/cut-off-session.ts";
 
 /** Hand an uncaught error to the crash slot's listener, as Node would. */
@@ -65,6 +68,10 @@ describe("a session cut off when it ended", () => {
 				message("assistant", { stopReason: "toolUse" }),
 			]),
 		).toBeDefined();
+		expect(
+			cutOffIn(killedLog(), true),
+			"returning in a host, which carries that run on",
+		).toBeUndefined();
 	});
 
 	it("is not found where the run ended, the person stopped it, or nothing ran", () => {
@@ -231,6 +238,20 @@ describe("the job workflow, at a session's end and its return", () => {
 		);
 		await reloaded.fire("session_start", { reason: "reload" });
 		expect(reloaded.said).toHaveLength(0);
+	});
+
+	it("tells plain pi of a run its kill cut once, with no wait on a host to carry it", async () => {
+		vi.useFakeTimers({ toFake: TIMEOUTS });
+		try {
+			const pi = activate(killedLog(), new EventEmitter());
+			await pi.fire("session_start", { reason: "startup" });
+			expect(pi.said).toHaveLength(1);
+			expect(pi.said[0]).toMatch(/mid-run, and nothing has resumed it since/);
+			await vi.advanceTimersByTimeAsync(CARRIED_RUN_WAIT_MS);
+			expect(pi.said, "told once").toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("tells plain pi what ended the run when a move back to it did", async () => {
