@@ -80,7 +80,14 @@ describe("a new conversation", () => {
 	});
 
 	it("takes a child's own child_unreachable as its refusal, not as no answer", async () => {
-		units.next = { refuses: true, refusesWith: "child_unreachable" };
+		let connections = 0;
+		units.next = {
+			refuses: true,
+			refusesWith: "child_unreachable",
+			connected: () => {
+				connections += 1;
+			},
+		};
 
 		const reply = await supervisor.begin(opening("open-7"));
 
@@ -88,6 +95,7 @@ describe("a new conversation", () => {
 			ok: false,
 			error: { code: "child_unreachable" },
 		});
+		expect(connections, "asked its open, and never watched").toBe(1);
 		expect(units.stopped).toEqual(units.started);
 		expect(routes.listed()).toEqual([]);
 	});
