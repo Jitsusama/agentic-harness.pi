@@ -11,10 +11,14 @@
 import { execFileSync } from "node:child_process";
 import {
 	chmodSync,
+	closeSync,
+	constants,
 	linkSync,
 	mkdirSync,
 	mkdtempSync,
+	openSync,
 	readFileSync,
+	readSync,
 	realpathSync,
 	rmSync,
 	statSync,
@@ -572,6 +576,17 @@ it("leaves a folder past a link as it is, closing nothing it doesn't judge", () 
 	expect(statSync(shared).mode & 0o777, "closed past a link").toBe(0o775);
 });
 
+it("leaves pi's state as it is where a link lies above it, as a dotfile manager's may", () => {
+	const base = closedState();
+	const shared = join(base, "real/state/agentic-harness.pi");
+	mkdirSync(join(shared, "hosts"), { recursive: true });
+	chmodSync(shared, 0o775);
+	symlinkSync(join(base, "real"), join(base, "linked"));
+	// No step of the walk ends in the link, so only its real path tells.
+	start(join(base, "linked/state"));
+	expect(statSync(shared).mode & 0o777, "closed past a link").toBe(0o775);
+});
+
 it.skipIf(asRoot)(
 	"neither waits on nor writes through what was put at its record's path",
 	() => {
@@ -602,6 +617,30 @@ it.skipIf(asRoot)(
 		}
 	},
 );
+
+it.skipIf(asRoot)("writes nothing into a FIFO that has a reader", () => {
+	const state = closedState();
+	const host = start(state);
+	host.register(registration("a"));
+	told(host, "a", "strict");
+	const folder = join(state, "agentic-harness.pi/hosts");
+	rmSync(host.registryPath);
+	execFileSync("mkfifo", [host.registryPath]);
+	// With a reader the host's open succeeds. Its file check refuses
+	// then, and a positioned write, which a pipe refuses, would too.
+	const reader = openSync(
+		host.registryPath,
+		constants.O_RDONLY | constants.O_NONBLOCK,
+	);
+	chmodSync(folder, 0o555);
+	try {
+		host.left("a");
+		expect(readSync(reader, Buffer.alloc(64)), "wrote into a FIFO").toBe(0);
+	} finally {
+		closeSync(reader);
+		chmodSync(folder, 0o755);
+	}
+});
 
 it("names a fence where earlier code left the folders above its records open to the group", () => {
 	const state = closedState();
