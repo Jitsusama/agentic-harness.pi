@@ -69,6 +69,7 @@ import {
 	CUT_OFF_ENTRY,
 	type CutJob,
 	type CutOff,
+	isRefusedRun,
 } from "../../lib/internal/session/cut-off-record.ts";
 
 // The record's shape is shared with a move that ends a run, which reads
@@ -217,8 +218,9 @@ export function carriedRunIn(branch: readonly unknown[]): CutOff | undefined {
  * 14 November a reboot's next host failed a carried run it had cut
  * mid-answer. Nor is a tool's result, which a host gives the call a
  * kill cut before the run it carries answers, or fails; nor the error a
- * host answers a run it refused while busy with the carried one, which
- * says nothing of how that one went.
+ * host answers a run it never admitted, as one asked while it carries
+ * another on, which says nothing of how that one went. The host marks
+ * those (cut-off-record.ts).
  */
 export function carriedRunWent(
 	branch: readonly unknown[],
@@ -229,6 +231,7 @@ export function carriedRunWent(
 		if (roleOf(entry) !== "assistant") continue;
 		const message = field(entry, "message");
 		const stopped = field(message, "stopReason");
+		if (isRefusedRun(message)) continue;
 		if (stopped === "error" && refusedAsBusy(field(message, "errorMessage")))
 			continue;
 		return stopped === "error" || stopped === "toolUse" ? "failed" : "answered";
@@ -239,7 +242,9 @@ export function carriedRunWent(
 /**
  * Whether `error` is durable's refusal of a run while its conversation
  * was busy (its `ConversationBusy`, "Conversation ID is busy"), which a
- * host ends that run with as an error answer of its own.
+ * host ends that run with as an error answer of its own. Only for logs a
+ * host wrote before it marked those answers; a marked one is known by
+ * its mark, whatever durable's words.
  */
 function refusedAsBusy(error: unknown): boolean {
 	return typeof error === "string" && /^Conversation \S+ is busy$/.test(error);

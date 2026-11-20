@@ -25,6 +25,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
 import { isRecord } from "../../../lib/internal/record.ts";
+import { isRefusedRun } from "../../../lib/internal/session/cut-off-record.ts";
 import { hostPiFor } from "../end-to-end/support/host-pi.ts";
 import {
 	type Observed,
@@ -299,6 +300,17 @@ describe("the hosted agent continued once durable's session closed", {
 				"Session is closed",
 			);
 			expect(continued?.streaming, "a run still under way").toBe(false);
+			const ends = observed.events.flatMap((event) =>
+				event.type === "message_end" ? [Reflect.get(event, "message")] : [],
+			);
+			const answers = ends.filter(
+				(message) => isRecord(message) && message.role === "assistant",
+			);
+			// The job workflow reads a carried run's end past this mark.
+			expect(
+				answers.map((message) => isRefusedRun(message)),
+				"only the answer to the run never admitted is marked the host's",
+			).toEqual([false, true]);
 		},
 	);
 });

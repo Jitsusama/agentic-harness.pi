@@ -61,6 +61,8 @@ export interface Run {
 	admitting: boolean;
 	/** Whether pi saw the run start; a recovering run starts only once it has something to show. */
 	opened: boolean;
+	/** Whether durable refused to admit the run, so its failed answer is the host's own. */
+	refused?: boolean;
 }
 
 /** The run under way, with the promise its end settles and what settles it. */

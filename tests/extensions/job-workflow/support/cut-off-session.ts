@@ -11,6 +11,7 @@ import {
 import { CUT_OFF_ENTRY } from "../../../../extensions/job-workflow/cut-off.ts";
 import jobWorkflow from "../../../../extensions/job-workflow/index.ts";
 import { withSession } from "../../../../lib/core/session/index.ts";
+import { REFUSED_RUN_FIELD } from "../../../../lib/internal/session/cut-off-record.ts";
 
 /** When the entries here say they were written. */
 export const AT = "2026-10-24T17:54:34.617Z";
@@ -44,9 +45,20 @@ export const aborted = message("assistant", {
 
 /**
  * The answer a host ends a run with when durable refuses it, busy with
- * the carried run: hosted-agent.ts's `fail` with its `ConversationBusy`.
+ * the carried run: hosted-agent.ts's `fail`, marked as the host's own.
+ * Its words are none durable says, since the mark alone tells.
  */
 export const refused = message("assistant", {
+	stopReason: "error",
+	errorMessage: "durable said no in words of its own",
+	[REFUSED_RUN_FIELD]: true,
+});
+
+/**
+ * The same answer as a host wrote it before it marked one, known only
+ * by durable's `ConversationBusy` words.
+ */
+export const refusedUnmarked = message("assistant", {
 	stopReason: "error",
 	errorMessage: "Conversation c1 is busy",
 });

@@ -8,7 +8,17 @@
  * it too, as it ends a run it waited on too long
  * (extensions/mesh-workflow/moving.ts), so the shape lives here, where
  * both reach it, rather than in either extension.
+ *
+ * A hosted conversation's host ends a run durable refused to start, as
+ * one asked while it carries a cut-off run on, with an error answer of
+ * its own, which says nothing of how the carried run went. The host
+ * marks that answer here, so the job workflow passes over it when it
+ * reads the carried run's end: it used to know one by durable's words
+ * ("Conversation ID is busy"), which any change of durable's could break
+ * silently.
  */
+
+import { isRecord } from "../record.ts";
 
 /** The entry a session's cut-off end leaves when work was under way. */
 export const CUT_OFF_ENTRY = "job-session-cut-off";
@@ -40,4 +50,19 @@ export interface CutOff {
  */
 export function cutByMove(by: string, now: number): CutOff {
 	return { at: now, running: true, jobs: [], by };
+}
+
+/** The field a host sets on an answer it made for a run it never admitted. */
+export const REFUSED_RUN_FIELD = "refusedByHost";
+
+/** Mark `message` as the answer a host made for a run it never admitted. */
+export function markedRefused<T extends object>(
+	message: T,
+): T & { readonly [REFUSED_RUN_FIELD]: true } {
+	return { ...message, [REFUSED_RUN_FIELD]: true };
+}
+
+/** Whether `message` is an answer its host made for a run it never admitted. */
+export function isRefusedRun(message: unknown): boolean {
+	return isRecord(message) && message[REFUSED_RUN_FIELD] === true;
 }
