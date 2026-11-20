@@ -16,6 +16,8 @@
  * to orient them.
  */
 
+import { isRecord } from "../../internal/record.ts";
+
 /** Budgets that keep a summary bounded regardless of the input's size. */
 export interface JsonSummaryOptions {
 	maxKeys?: number;
@@ -128,7 +130,7 @@ function describeArray(
 	}
 	if (value.every(isScalar))
 		return `array(${value.length}) of ${profileScalars(value)}`;
-	if (value.every(isPlainObject))
+	if (value.every(isRecord))
 		return `array(${value.length}) of {${profileObjectArray(value, depth, maxKeys, pretty)}}`;
 	const first = describe(
 		value[0],
@@ -144,11 +146,6 @@ function describeArray(
 /** A JSON scalar for profiling: a primitive or null, never an object or array. */
 function isScalar(value: unknown): boolean {
 	return value === null || typeof value !== "object";
-}
-
-/** A plain (non-array) object, the shape the object-array profile expects. */
-function isPlainObject(value: unknown): boolean {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Profile an array of objects: each key mapped to a profile of its values. */
@@ -205,7 +202,7 @@ function describeField(values: unknown[], rows: number): string {
 /** Profile one field's collected values: scalars by frequency, else by type. */
 function profileField(values: unknown[]): string {
 	if (values.every(isScalar)) return profileScalars(values);
-	if (values.every(isPlainObject)) return "object";
+	if (values.every(isRecord)) return "object";
 	if (values.every(Array.isArray)) return "array";
 	return "mixed";
 }

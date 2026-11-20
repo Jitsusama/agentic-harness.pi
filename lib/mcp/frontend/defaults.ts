@@ -2,14 +2,19 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { truncateForDisplay } from "../content.ts";
 import { renderDefaultCall } from "../render/call.ts";
 import { CANCELLED_TEXT, renderDefaultResult } from "../render/result.ts";
-import type { McpContent, McpTool, McpToolResult } from "../types.ts";
+import type {
+	McpContent,
+	McpTool,
+	McpToolAnnotations,
+	McpToolResult,
+} from "../types.ts";
 import type {
 	ConfirmResult,
 	FrontEndProvider,
 	ResolvedFrontEnd,
 } from "./types.ts";
 
-/** Tool-name tokens that mark a call as state-changing when a server ships no annotations. */
+/** Tool-name tokens that mark a call as state-changing when its annotations carry no read-only or destructive hint. */
 export const WRITE_VERBS = new Set([
 	"create",
 	"update",
@@ -62,18 +67,21 @@ export function makeTruncatingShape(limits: {
 /**
  * Whether a call should pass through a write gate.
  *
- * Annotations decide it when present: a read-only tool never gates, and a
- * destructive or explicitly non-read-only tool always does. With no
- * annotations, the tool name is checked against the write-verb tokens.
+ * Annotations decide it when they carry a read-only or destructive hint. A
+ * read-only hint decides alone: true never gates, false always does. A
+ * destructive hint of either value without one gates, since the MCP spec
+ * gives a destructive hint meaning only for a tool that isn't read only, so
+ * a server sending one describes a write; false says it only adds, such as
+ * a post. With neither hint, whether the
+ * server sent no annotations or ones carrying neither, the tool name is
+ * checked against the write-verb tokens, so an empty annotation can't wave
+ * a `delete_` tool past the gate.
  */
 export function defaultWriteSignal(tool: McpTool): boolean {
-	const annotations = tool.annotations;
-	if (annotations) {
-		if (annotations.readOnlyHint === true) return false;
-		return (
-			annotations.destructiveHint === true || annotations.readOnlyHint === false
-		);
-	}
+	const none: McpToolAnnotations = {};
+	const { readOnlyHint, destructiveHint } = tool.annotations ?? none;
+	if (typeof readOnlyHint === "boolean") return !readOnlyHint;
+	if (typeof destructiveHint === "boolean") return true;
 	return tool.name.split("_").some((token) => WRITE_VERBS.has(token));
 }
 

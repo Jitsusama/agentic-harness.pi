@@ -35,6 +35,15 @@ describe("summarizeJson", () => {
 		expect(out).toContain("500");
 	});
 
+	it("reads lists as lists, never as objects with no keys", () => {
+		// A record check that lets arrays through would profile these as
+		// objects, so the summary would hide that they hold lists.
+		expect(summarizeJson([{ tags: [1] }, { tags: [2] }])).toContain(
+			"tags: array",
+		);
+		expect(summarizeJson([[1], [2]])).not.toContain("of {");
+	});
+
 	it("says a field is absent rather than saying nothing", () => {
 		// Found by driving real Slack data: a message outside a thread
 		// carries neither a thread timestamp nor a reply count, and the

@@ -53,7 +53,7 @@ const EXEMPT: Record<
 > = {
 	"lib/subagent/brief-breakpoint.ts": {
 		helper: "isRecord",
-		why: "A reviewer loads this file into its own process on every request, so it deliberately imports nothing and keeps its own isRecord rather than reaching into the library for one.",
+		why: "A reviewer loads this file into its own process on every request, so it deliberately imports nothing and keeps its own isRecord rather than reaching into the library for one, which unlike the library's lets an array through.",
 	},
 	"lib/subagent/runpi/assistant.mjs": {
 		helper: "isRecord",
@@ -158,7 +158,9 @@ describe("the package's small helpers", () => {
 				HOME,
 			)
 				.map(([name, home]) => `${name} from ${home}`)
-				.join(", ")}) instead:\n${copies.join("\n")}`,
+				.join(
+					", ",
+				)}) instead, or, for a copy that can't import, such as a page script's, or one that only shares the name, list it in EXEMPT with why:\n${copies.join("\n")}`,
 		).toEqual([]);
 	});
 
