@@ -22,7 +22,7 @@ import { killPidGroup, type OwnerRecord, reapOrphans } from "./reaping.ts";
  * by a prior run that a SIGKILL or crash could not clean, which
  * is the orphan the clean-exit teardown never reclaims.
  */
-export const PROFILE_ROOT = path.join(os.tmpdir(), "pi-web-chrome");
+const PROFILE_ROOT = path.join(os.tmpdir(), "pi-web-chrome");
 
 /**
  * This process's own profile directory, resolved once and shared
@@ -46,7 +46,7 @@ function ownerFile(profileDir: string): string {
 }
 
 /** Read a profile's ownership record, or undefined if absent or unreadable. */
-export function readOwnerRecord(profileDir: string): OwnerRecord | undefined {
+function readOwnerRecord(profileDir: string): OwnerRecord | undefined {
 	try {
 		const raw = fs.readFileSync(ownerFile(profileDir), "utf8");
 		const rec = JSON.parse(raw);
